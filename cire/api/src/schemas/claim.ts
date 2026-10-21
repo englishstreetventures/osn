@@ -39,8 +39,10 @@ export const EventSummary = Schema.Struct({
   // order), the getting-there notes and the guest policy. Sent only here, to a
   // session that proved household membership, never on the public invite read.
   // Always sent; the guest site reads each as optional, because it can deploy
-  // before an API that sends them. The plus-one preset is sent as stored: the
-  // guest site hides "welcome" from a household whose members it does not fit.
+  // before an API that sends them. The plus-one preset "welcome" is sent only
+  // to a household with a member who may bring a plus-one and is invited to
+  // the event, and is null for any other; the guest site applies the same rule
+  // again to what it receives.
   runOfShow: Schema.Array(Schema.Struct({ time: Schema.String, label: Schema.String })),
   gettingThere: Schema.NullOr(Schema.String),
   childrenPolicy: Schema.NullOr(Schema.String),

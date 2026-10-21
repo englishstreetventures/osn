@@ -1,5 +1,5 @@
 import { events, families, guestEvents, guests } from "@cire/db";
-import { and, asc, eq, isNull, ne } from "drizzle-orm";
+import { and, asc, eq, getTableColumns, isNull, ne } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { DbService, dbQuery } from "../db";
@@ -22,7 +22,7 @@ import {
   PLUS_ONE_POLICY_LABEL,
   runOfShowCell,
 } from "./guest-event-validation";
-import { byEvent, storedRunsOfShow } from "./run-of-show";
+import { runOfShowColumn, runOfShowFrom } from "./run-of-show";
 
 /**
  * Round-trip exports: the wedding's CURRENT events + guests serialised in the
@@ -117,21 +117,14 @@ export const stateExportService = {
   ): Effect.Effect<string, never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      const [rows, items] = yield* Effect.all(
-        [
-          dbQuery(() =>
-            db
-              .select()
-              .from(events)
-              .where(eq(events.weddingId, weddingId))
-              .orderBy(asc(events.sortOrder), asc(events.name))
-              .all(),
-          ),
-          storedRunsOfShow(weddingId),
-        ],
-        { concurrency: "unbounded" },
+      const rows = yield* dbQuery(() =>
+        db
+          .select({ ...getTableColumns(events), runOfShow: runOfShowColumn })
+          .from(events)
+          .where(eq(events.weddingId, weddingId))
+          .orderBy(asc(events.sortOrder), asc(events.name))
+          .all(),
       );
-      const runOfShow = byEvent(items);
 
       const withIds = fidelity !== "import";
       const snapshot = fidelity === "snapshot";
@@ -157,7 +150,7 @@ export const stateExportService = {
           paletteCell(e.dressCodePalette),
           safeHttpUrl(e.pinterestUrl) ?? "",
           safeHttpUrl(e.mapsUrl) ?? "",
-          runOfShowCell(runOfShow.get(e.id) ?? []),
+          runOfShowCell(runOfShowFrom(e.runOfShow)),
           e.gettingThere ?? "",
           e.childrenPolicy ? CHILDREN_POLICY_LABEL[e.childrenPolicy] : "",
           e.plusOnePolicy ? PLUS_ONE_POLICY_LABEL[e.plusOnePolicy] : "",

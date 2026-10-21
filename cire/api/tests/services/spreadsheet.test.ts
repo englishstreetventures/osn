@@ -1259,13 +1259,19 @@ describe("parseEventsCsv — run of show, getting there and guest policy", () =>
 
   // A cell the parser cannot read is refused where it is, by row and column.
   const NO_TIME = "Run of Show lines must start with a 24-hour time (HH:MM)";
+  const TWELVE_HOUR = "Run of Show times are 24-hour (16:00, not 4:00 pm)";
   it.each([
     ["a line with no time", '"16:00 Tea\nSpeeches at five"', NO_TIME],
     ["a time past the clock", '"25:00 Late"', NO_TIME],
     ["a minute past the hour", '"16:60 Late"', NO_TIME],
     ["text before the time", '"x16:00 Tea"', NO_TIME],
     ["a third minute digit", '"16:000 Tea"', NO_TIME],
-    ["a 12-hour time", '"4pm Tea"', NO_TIME],
+    ["a 12-hour time", '"4pm Tea"', TWELVE_HOUR],
+    ["an afternoon time on a 12-hour clock", '"4:00 pm Tea"', TWELVE_HOUR],
+    ["a time after midnight on a 12-hour clock", '"12:30 am Carriages"', TWELVE_HOUR],
+    ["a 12-hour time in capitals", '"4:00 PM Tea"', TWELVE_HOUR],
+    ["a 12-hour time with stops", '"4:00 p.m. Tea"', TWELVE_HOUR],
+    ["a 12-hour time on a later line", '"16:00 Tea\n5:30 pm Speeches"', TWELVE_HOUR],
     ["a time with no label", '"16:00   "', "Run of Show lines need a label after the time"],
     [
       "a label over 200 characters",
@@ -1282,6 +1288,15 @@ describe("parseEventsCsv — run of show, getting there and guest policy", () =>
     expect(error.reason).toBe(reason as MalformedSpreadsheet["reason"]);
     expect(error.atRow).toBe(2);
     expect(error.atColumn).toBe(4);
+  });
+
+  // An hour past 12 is on no 12-hour clock, so what follows it is the label.
+  it("reads a label that starts with PM after an hour past 12", async () => {
+    const [event] = await parse(row('"16:00 PM speech\n17:00 pmb drinks",,,,'));
+    expect(event!.runOfShow).toEqual([
+      { time: "16:00", label: "PM speech" },
+      { time: "17:00", label: "pmb drinks" },
+    ]);
   });
 
   it("takes a label of exactly 200 characters, 40 times over", async () => {
@@ -1305,16 +1320,21 @@ describe("parseEventsCsv — run of show, getting there and guest policy", () =>
   });
 
   // A before-image is the app's own output, read back by a revert. A cell it
-  // cannot read must not make the change unrevertable: a bad line is dropped
-  // and an unknown preset reads as not stated, as a non-http URL reads blank.
+  // cannot read must not make the change unrevertable: a bad line is dropped,
+  // a stored label that starts with "PM" stays a label, and an unknown preset
+  // reads as not stated, as a non-http URL reads blank.
   it("reads a before-image leniently", async () => {
     const [event] = await Effect.runPromise(
-      parseEventsCsv(row('"16:00 Tea\nnot a line\n99:99 Late",,Sometimes,Maybe,'), {
-        snapshot: true,
-      }),
+      parseEventsCsv(
+        row('"16:00 Tea\nnot a line\n99:99 Late\n11:00 PM speech",,Sometimes,Maybe,'),
+        { snapshot: true },
+      ),
     );
     expect(event).toMatchObject({
-      runOfShow: [{ time: "16:00", label: "Tea" }],
+      runOfShow: [
+        { time: "16:00", label: "Tea" },
+        { time: "11:00", label: "PM speech" },
+      ],
       childrenPolicy: null,
       plusOnePolicy: null,
     });

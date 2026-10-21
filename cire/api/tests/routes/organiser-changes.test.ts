@@ -537,7 +537,14 @@ describe("an event's run of show, getting-there notes and guest policy", () => {
     >;
     delete older.description;
     delete older.venueName;
-    await previewAndApply(app, [older]);
+    // A change that states no run of show has the diff read none.
+    const recorded = recordStatements(db);
+    const olderPreview = await preview(app, [older]);
+    expect(recorded.filter((s) => s.sql.includes("run_of_show_items"))).toEqual([]);
+    const apply = await ownerPost(app, `${CHANGES_BASE}/apply`, {
+      changeId: olderPreview.changeId,
+    });
+    expect(apply.status).toBe(200);
     expect(row(db)).toMatchObject({
       dressCodeDescription: "Garden party",
       gettingThere: DETAILS.gettingThere,
@@ -612,6 +619,46 @@ describe("an event's run of show, getting-there notes and guest policy", () => {
       }),
     ]);
     expect(stored()).toEqual(["16:10 Tea is served", "17:15 Speeches"]);
+  });
+
+  // The editor door holds its text to the sheet door's rules, so the app's own
+  // download of an editor save re-imports with no warning and no rewrite.
+  it("stores editor text as a sheet would, so its download re-imports unchanged", async () => {
+    const { app, db } = buildApp();
+    await previewAndApply(app, [
+      editorEvent({
+        description: " High tea on the lawn. ",
+        venueName: "   ",
+        runOfShow: [{ time: "16:00", label: " Tea is poured " }],
+        gettingThere: "   ",
+        guestPolicyNote: "",
+      }),
+    ]);
+    expect(row(db)).toMatchObject({ gettingThere: null, guestPolicyNote: null });
+    expect(items(db).map((i) => i.label)).toEqual(["Tea is poured"]);
+    const [stored] = db
+      .select({ description: events.description, venueName: events.venueName })
+      .from(events)
+      .all();
+    expect(stored).toEqual({ description: "High tea on the lawn.", venueName: null });
+
+    const download = await ownerGet(
+      app,
+      `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/export/events.csv`,
+    );
+    expect(download.status).toBe(200);
+    const res = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+      eventsCsv: await download.text(),
+    });
+    expect(res.status).toBe(200);
+    const reupload = (await res.json()) as { changeId: string; warnings: string[] };
+    expect(reupload.warnings).toEqual([]);
+    const recorded = recordStatements(db);
+    const apply = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId: reupload.changeId });
+    expect(apply.status).toBe(200);
+    expect(
+      recorded.filter((s) => /^\s*(insert|delete)\b[^;]*run_of_show_items/i.test(s.sql)),
+    ).toEqual([]);
   });
 
   // An event the editor removes takes its run of show with it.

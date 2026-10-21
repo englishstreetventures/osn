@@ -10,7 +10,7 @@ import {
 import { parsePresets } from "@cire/dietary";
 import { isSafeCssColor } from "@cire/theme";
 import { jsonEachIn } from "@shared/db-utils";
-import { eq, and, asc, count, inArray, ne, isNull } from "drizzle-orm";
+import { eq, and, asc, count, getTableColumns, inArray, ne, isNull } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import { Effect, Data } from "effect";
 
@@ -38,7 +38,7 @@ import { eventImagePath, versionFromKey } from "./event-image";
 import { inviteFaqService } from "./invite-faq";
 import type { OsnAccountResolver } from "./osn-bridge";
 import { isDietaryConsentCurrent, withoutSubmitter } from "./rsvp";
-import { byEvent, runsOfShowFor, storedRunsOfShow } from "./run-of-show";
+import { runOfShowColumn, runOfShowFrom } from "./run-of-show";
 
 export class InvalidCredentials extends Data.TaggedError("InvalidCredentials") {}
 
@@ -478,25 +478,28 @@ function buildInvite(
       }
     }
 
-    // The events and their runs of show, read side by side: both are keyed
-    // only off the household's event ids.
-    const [eventRows, itemRows] =
+    // The household's events, each with its run of show folded in, held to
+    // the household's own wedding as well as to its invitations.
+    const eventRows =
       eventIds.size === 0
-        ? [[], []]
-        : yield* Effect.all(
-            [
-              dbQuery(() =>
-                db
-                  .select()
-                  .from(events)
-                  .where(inArray(events.id, jsonEachIn([...eventIds])))
-                  .all(),
-              ),
-              runsOfShowFor([...eventIds]),
-            ],
-            { concurrency: "unbounded" },
+        ? []
+        : yield* dbQuery(() =>
+            db
+              .select({ ...getTableColumns(events), runOfShow: runOfShowColumn })
+              .from(events)
+              .where(
+                and(
+                  inArray(events.id, jsonEachIn([...eventIds])),
+                  eq(events.weddingId, family.weddingId),
+                ),
+              )
+              .all(),
           );
-    const runOfShow = byEvent(itemRows);
+    // The events a member who may bring a plus-one is invited to: "welcome" is
+    // sent for those alone, and is null for every other household.
+    const plusOneEvents = new Set(
+      [...memberMap.values()].filter((m) => m.plusOneAllowed).flatMap((m) => m.eventIds),
+    );
 
     const eventList: Array<ClaimResponse["events"][number]> = [];
     for (const e of eventRows) {
@@ -513,10 +516,13 @@ function buildInvite(
         timezone: e.timezone,
         venueName: e.venueName ?? null,
         address: e.address ?? null,
-        runOfShow: runOfShow.get(e.id) ?? [],
+        runOfShow: runOfShowFrom(e.runOfShow),
         gettingThere: e.gettingThere ?? null,
         childrenPolicy: e.childrenPolicy ?? null,
-        plusOnePolicy: e.plusOnePolicy ?? null,
+        plusOnePolicy:
+          e.plusOnePolicy === "welcome" && !plusOneEvents.has(e.id)
+            ? null
+            : (e.plusOnePolicy ?? null),
         guestPolicyNote: e.guestPolicyNote ?? null,
         dressCodeDescription: e.dressCodeDescription ?? null,
         dressCodePalette: palette,
@@ -770,21 +776,14 @@ export const claimService = {
   > {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      const [rows, items] = yield* Effect.all(
-        [
-          dbQuery(() =>
-            db
-              .select()
-              .from(events)
-              .where(eq(events.weddingId, weddingId))
-              .orderBy(asc(events.sortOrder))
-              .all(),
-          ),
-          storedRunsOfShow(weddingId),
-        ],
-        { concurrency: "unbounded" },
+      const rows = yield* dbQuery(() =>
+        db
+          .select({ ...getTableColumns(events), runOfShow: runOfShowColumn })
+          .from(events)
+          .where(eq(events.weddingId, weddingId))
+          .orderBy(asc(events.sortOrder))
+          .all(),
       );
-      const runOfShow = byEvent(items);
       return rows.map((row) => {
         const { palette } = decodePalette(row.dressCodePalette);
         return {
@@ -798,7 +797,7 @@ export const claimService = {
           venueName: row.venueName,
           address: row.address,
           description: row.description,
-          runOfShow: runOfShow.get(row.id) ?? [],
+          runOfShow: runOfShowFrom(row.runOfShow),
           gettingThere: row.gettingThere,
           childrenPolicy: row.childrenPolicy,
           plusOnePolicy: row.plusOnePolicy,

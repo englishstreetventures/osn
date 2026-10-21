@@ -30,6 +30,7 @@ import {
   parseDressCodePalette,
   parseHttpUrl,
   parseRunOfShowLine,
+  startsWithTwelveHourTime,
   PLUS_ONE_POLICY_LABEL,
   presetFromCell,
 } from "./guest-event-validation";
@@ -71,8 +72,10 @@ export type MalformedSpreadsheetReason =
   // URL-cell scheme rejections.
   | "Pinterest URL must be an http(s) URL"
   | "Maps URL must be an http(s) URL"
-  // Run of Show cell rules (`parseRunOfShowLine`) and its item cap.
+  // Run of Show cell rules (`parseRunOfShowLine`, `startsWithTwelveHourTime`)
+  // and its item cap.
   | "Run of Show lines must start with a 24-hour time (HH:MM)"
+  | "Run of Show times are 24-hour (16:00, not 4:00 pm)"
   | "Run of Show lines need a label after the time"
   | "Run of Show labels must be at most 200 characters"
   | "Run of Show holds at most 40 items"
@@ -485,12 +488,14 @@ const RUN_OF_SHOW_REASON = {
  * field out, and one it does is the whole truth, blank cells included. A blank
  * Run of Show cell is `[]`, a blank Getting There or Guest Policy Note `null`,
  * and a blank or "Not stated" preset `null`. Each line of a Run of Show cell is
- * one item, the time first (`parseRunOfShowLine`); blank lines are skipped.
+ * one item, the time first (`parseRunOfShowLine`); blank lines are skipped. A
+ * line that starts with a 12-hour time is refused rather than read 12 hours out.
  *
  * An upload is refused at the first cell that breaks a rule. A before-image
  * (`snapshot`) is the app's own output and must stay revertable, so there a
- * line that is not an item is dropped and an unknown preset reads as not
- * stated, as a non-http URL reads blank.
+ * line that is not an item is dropped, a stored label that starts with "pm" is
+ * read as a label, and an unknown preset reads as not stated, as a non-http URL
+ * reads blank.
  */
 function sheetDetails(
   row: readonly string[],
@@ -502,6 +507,13 @@ function sheetDetails(
     const items: RunOfShowItem[] = [];
     for (const line of (row[cols.runOfShow] ?? "").split(/\r\n|\r|\n/)) {
       if (line.trim().length === 0) continue;
+      if (!snapshot && startsWithTwelveHourTime(line)) {
+        return {
+          ok: false,
+          reason: "Run of Show times are 24-hour (16:00, not 4:00 pm)",
+          column: cols.runOfShow,
+        };
+      }
       const parsed = parseRunOfShowLine(line);
       if (parsed.ok) items.push(parsed.item);
       else if (!snapshot) {

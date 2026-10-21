@@ -12,7 +12,7 @@ import {
   PLUS_ONE_POLICY_LABEL,
   runOfShowCell,
 } from "./guest-event-validation";
-import { byEvent, storedRunsOfShow } from "./run-of-show";
+import { runOfShowColumn, runOfShowFrom } from "./run-of-show";
 
 /**
  * Invited-guest count per event for one wedding, aggregated IN SQL (`GROUP BY`
@@ -206,7 +206,7 @@ export const tableExportService = {
       // The two reads are independently wedding-scoped — collapse them to one
       // D1 round-trip (matches the parallel shape in state-export.ts and
       // rsvp-export.ts).
-      const [eventRows, invitedByEvent, items] = yield* Effect.all(
+      const [eventRows, invitedByEvent] = yield* Effect.all(
         [
           dbQuery(() =>
             db
@@ -229,18 +229,17 @@ export const tableExportService = {
                 pinterestUrl: events.pinterestUrl,
                 mapsUrl: events.mapsUrl,
                 sortOrder: events.sortOrder,
+                runOfShow: runOfShowColumn,
               })
               .from(events)
               .where(eq(events.weddingId, weddingId))
               .all(),
           ),
           invitedCountsByEvent(weddingId),
-          storedRunsOfShow(weddingId),
         ],
-        { concurrency: 3 },
+        { concurrency: 2 },
       );
       const orderedEvents = eventRows.toSorted(compareEventsByStart);
-      const runOfShow = byEvent(items);
 
       const header = [
         "Event Name",
@@ -279,8 +278,8 @@ export const tableExportService = {
           (palette ?? []).map((s) => `${s.name} (${s.color})`).join("; "),
           safeHttpUrl(e.pinterestUrl) ?? "",
           safeHttpUrl(e.mapsUrl) ?? "",
-          // In the organiser's order, as the dashboard lists it.
-          runOfShowCell(runOfShow.get(e.id) ?? []),
+          // In the organiser's order, as the re-importable download writes it.
+          runOfShowCell(runOfShowFrom(e.runOfShow)),
           e.gettingThere ?? "",
           e.childrenPolicy ? CHILDREN_POLICY_LABEL[e.childrenPolicy] : "",
           e.plusOnePolicy ? PLUS_ONE_POLICY_LABEL[e.plusOnePolicy] : "",

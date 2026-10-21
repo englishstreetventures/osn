@@ -40,12 +40,7 @@ import { generateFamilyCode } from "./family-code";
 import type { CodeStyle } from "./family-code";
 import { sameRunOfShow } from "./guest-event-validation";
 import { resolvePinUrl } from "./pinterest-resolve";
-import {
-  byEvent,
-  runOfShowStatements,
-  storedRunsOfShow,
-  type StoredRunOfShowItem,
-} from "./run-of-show";
+import { runOfShowColumn, runOfShowFrom, runOfShowStatements } from "./run-of-show";
 import { seatingLoss, seatingLossWarning } from "./seating";
 import { BASE_GUEST_CAP, CapacityExceeded, capForTier, normaliseTier, tierService } from "./tiers";
 
@@ -238,6 +233,9 @@ interface ExistingEvent {
   readonly hasChildrenPolicy?: boolean;
   readonly hasPlusOnePolicy?: boolean;
   readonly hasGuestPolicyNote?: boolean;
+  /** The stored run of show as {@link runOfShowColumn} reads it, or null when
+   *  the diff did not read it. */
+  readonly runOfShow?: string | null;
 }
 
 /** "a", "a and b", "a, b and c". */
@@ -345,48 +343,36 @@ export function diffAgainstDb(
     // branch below exists purely to build the name → id map, so dragging full
     // event rows — descriptions, palettes, URLs — across the D1 wire to do it is
     // pure waste.
-    // The stored runs of show are read only when events are managed: an
-    // update's list is compared with its event's, so an unchanged one is not
-    // rewritten, and an emptied one is warned about. One statement for the
-    // wedding, reached through its events (no index leads with `wedding_id`).
-    const [existingEvents, storedItems]: readonly [
-      readonly ExistingEvent[],
-      readonly StoredRunOfShowItem[],
-    ] = yield* Effect.all(
-      [
-        options.existingEvents
-          ? Effect.succeed(options.existingEvents)
-          : dbQuery(() =>
-              db
-                .select({
-                  id: events.id,
-                  name: events.name,
-                  hasVenueName: sql<boolean>`${events.venueName} IS NOT NULL`.mapWith(Boolean),
-                  hasDescription: sql<boolean>`${events.description} <> ''`.mapWith(Boolean),
-                  hasGettingThere: sql<boolean>`${events.gettingThere} IS NOT NULL`.mapWith(
-                    Boolean,
-                  ),
-                  hasChildrenPolicy: sql<boolean>`${events.childrenPolicy} IS NOT NULL`.mapWith(
-                    Boolean,
-                  ),
-                  hasPlusOnePolicy: sql<boolean>`${events.plusOnePolicy} IS NOT NULL`.mapWith(
-                    Boolean,
-                  ),
-                  hasGuestPolicyNote: sql<boolean>`${events.guestPolicyNote} IS NOT NULL`.mapWith(
-                    Boolean,
-                  ),
-                })
-                .from(events)
-                .where(eq(events.weddingId, weddingId))
-                .all(),
-            ),
-        manageEvents ? storedRunsOfShow(weddingId) : Effect.succeed([]),
-      ],
-      { concurrency: "unbounded" },
-    );
+    // Each event's stored run of show rides the same read, and only when the
+    // change states a run of show for some event: an update's list is compared
+    // with its event's, so an unchanged one is not rewritten, and an emptied
+    // one is warned about.
+    const statesRunOfShow = manageEvents && parsedEvents.some((e) => e.runOfShow !== undefined);
+    const existingEvents: readonly ExistingEvent[] = options.existingEvents
+      ? options.existingEvents
+      : yield* dbQuery(() =>
+          db
+            .select({
+              id: events.id,
+              name: events.name,
+              hasVenueName: sql<boolean>`${events.venueName} IS NOT NULL`.mapWith(Boolean),
+              hasDescription: sql<boolean>`${events.description} <> ''`.mapWith(Boolean),
+              hasGettingThere: sql<boolean>`${events.gettingThere} IS NOT NULL`.mapWith(Boolean),
+              hasChildrenPolicy: sql<boolean>`${events.childrenPolicy} IS NOT NULL`.mapWith(
+                Boolean,
+              ),
+              hasPlusOnePolicy: sql<boolean>`${events.plusOnePolicy} IS NOT NULL`.mapWith(Boolean),
+              hasGuestPolicyNote: sql<boolean>`${events.guestPolicyNote} IS NOT NULL`.mapWith(
+                Boolean,
+              ),
+              runOfShow: statesRunOfShow ? runOfShowColumn : sql<string | null>`NULL`,
+            })
+            .from(events)
+            .where(eq(events.weddingId, weddingId))
+            .all(),
+        );
     const existingEventByNorm = new Map(existingEvents.map((e) => [normaliseName(e.name), e]));
     const existingEventById = new Map(existingEvents.map((e) => [e.id, e]));
-    const storedRunOfShow = byEvent(storedItems);
 
     const eventCreates: EventCreate[] = [];
     const eventUpdates: EventUpdate[] = [];
@@ -414,7 +400,7 @@ export function diffAgainstDb(
         const candidate = byId ?? (matchByName ? existingEventByNorm.get(norm) : undefined);
         const existing = candidate && !matchedEventIds.has(candidate.id) ? candidate : undefined;
         if (existing) {
-          const stored = storedRunOfShow.get(existing.id) ?? [];
+          const stored = runOfShowFrom(existing.runOfShow);
           eventUpdates.push({ id: existing.id, event: withoutUnchangedRunOfShow(parsed, stored) });
           eventIdByNorm.set(norm, existing.id);
           matchedEventIds.add(existing.id);
