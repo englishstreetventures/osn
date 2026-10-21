@@ -86,6 +86,31 @@ describe("isValidClaimResponse", () => {
     ).toBe(true);
   });
 
+  // The site can reach production before the API that sends a venue name, so
+  // a response without one is still a household; a malformed one is not.
+  it("accepts events with no venueName or a null one, and rejects a non-string one", () => {
+    const withVenue = (venueName: unknown) =>
+      isValidClaimResponse({
+        publicId: "T",
+        familyName: "T",
+        members: [],
+        events: [{ ...baseEvent, venueName }],
+        rsvps: [],
+      });
+    expect(withVenue(null)).toBe(true);
+    expect(withVenue("The Glasshouse")).toBe(true);
+    expect(withVenue(42)).toBe(false);
+    expect(
+      isValidClaimResponse({
+        publicId: "T",
+        familyName: "T",
+        members: [],
+        events: [baseEvent],
+        rsvps: [],
+      }),
+    ).toBe(true);
+  });
+
   it("rejects null", () => {
     expect(isValidClaimResponse(null)).toBe(false);
   });

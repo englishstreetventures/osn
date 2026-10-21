@@ -23,14 +23,15 @@ export const EVENT_REQUIRED_HEADERS = ["Event Name", "Start", "Timezone"] as con
 /**
  * Optional event columns, exact labels the parser looks up. `End` may be blank
  * (or omitted) for an open-ended event, and like `Start` is a local wall-clock
- * time read against the row's `Timezone`; `Location` is a venue name that fills
- * in for a blank `Address` (the invite's "Where" + Open-in-Maps derive from
- * Address).
+ * time read against the row's `Timezone`; `Location` is the venue's name, shown
+ * above the `Address`; `Description` is the event's About text. A sheet that
+ * leaves out `Location` or `Description` keeps what is stored for it.
  */
 export const EVENT_OPTIONAL_HEADERS = [
   "End",
   "Location",
   "Address",
+  "Description",
   "Dress Code Description",
   "Dress Code Palette",
   "Pinterest URL",
@@ -81,7 +82,8 @@ function toCsv(rows: readonly (readonly string[])[]): string {
 /**
  * Events starter CSV: header row + two illustrative rows showing the LOCAL
  * Start (and optional End — the second row leaves it blank for an open-ended
- * event), an IANA Timezone, a quoted multi-part Address, and the
+ * event), an IANA Timezone, a venue name, a quoted multi-part Address, a
+ * description, and the
  * `Name:#hex|Name:#hex` dress-code palette format the parser splits on.
  *
  * Start/End are wall-clock times — `YYYY-MM-DDTHH:MM`, NO UTC offset. The
@@ -103,6 +105,7 @@ export function buildEventsTemplateCsv(): string {
       "2026-11-14T16:00",
       "St Mary's Cathedral",
       "St Marys Rd, Sydney NSW 2000, Australia",
+      "The service begins at 3 pm sharp. Please be seated by 2:45.",
       "Formal — suits and cocktail dresses",
       "Blush:#f4c2c2|Sage:#b2ac88",
       "https://pinterest.com/example/ceremony",
@@ -116,6 +119,7 @@ export function buildEventsTemplateCsv(): string {
       "",
       "The Grounds of Alexandria",
       "7A/2 Huntley St, Alexandria NSW 2015, Australia",
+      "Dinner, speeches and dancing until late.",
       "Black tie",
       "Midnight:#191970|Gold:#d4af37",
       "https://pinterest.com/example/reception",

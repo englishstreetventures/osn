@@ -98,10 +98,10 @@ export const stateExportService = {
   /**
    * Events sheet: one row per event in `sortOrder` order — the parser assigns
    * `sortOrder` from row order, so exporting in that order makes the
-   * re-imported ordering a fixpoint. `Location` is always blank (the venue text
-   * lives in `Address`; the import only reads Location as an Address fallback).
-   * URLs pass the http(s) guard so a legacy non-http value can't make the
-   * exported sheet un-importable.
+   * re-imported ordering a fixpoint. `Location` carries the venue's name and
+   * `Description` the event's description, at every fidelity, so a re-import
+   * and a before-image both put them back. URLs pass the http(s) guard so a
+   * legacy non-http value can't make the exported sheet un-importable.
    */
   eventsCsv(
     weddingId: string,
@@ -135,8 +135,9 @@ export const stateExportService = {
           snapshot ? e.startAt : formatWallTime(e.startAt),
           e.timezone,
           snapshot ? e.endAt : formatWallTime(e.endAt), // "" sentinel exports as a blank optional End
-          "", // Location — venue text lives in Address
+          e.venueName ?? "", // Location
           e.address ?? "",
+          e.description,
           e.dressCodeDescription ?? "",
           paletteCell(e.dressCodePalette),
           safeHttpUrl(e.pinterestUrl) ?? "",

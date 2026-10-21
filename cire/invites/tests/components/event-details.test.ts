@@ -10,6 +10,7 @@ import {
   timezoneLabel,
   timezoneName,
   venueLine,
+  venueLocation,
 } from "../../src/components/event-details";
 import type { EventSummary, FamilyMember } from "../../src/components/types";
 
@@ -248,6 +249,42 @@ describe("timezoneLabel", () => {
   });
 });
 
+describe("venueLocation", () => {
+  const at = (venueName: string | null | undefined, address: string | null) => ({
+    venueName,
+    address,
+  });
+
+  it("puts the venue's name before its address", () => {
+    expect(venueLocation(at("The Glasshouse", "12 Banksia Lane, Strathfield"))).toBe(
+      "The Glasshouse, 12 Banksia Lane, Strathfield",
+    );
+  });
+
+  it("is the name alone when there is no address, and the address alone when there is no name", () => {
+    expect(venueLocation(at("The Glasshouse", "  "))).toBe("The Glasshouse");
+    expect(venueLocation(at(null, "12 Banksia Lane"))).toBe("12 Banksia Lane");
+    // An API older than the venue name sends none.
+    expect(venueLocation(at(undefined, "12 Banksia Lane"))).toBe("12 Banksia Lane");
+  });
+
+  it("is empty when there is neither", () => {
+    expect(venueLocation(at("  ", null))).toBe("");
+  });
+
+  it("does not repeat a name the address already starts with", () => {
+    expect(venueLocation(at("the grounds", "The Grounds of Alexandria, 7a Huntley St"))).toBe(
+      "The Grounds of Alexandria, 7a Huntley St",
+    );
+  });
+
+  it("keeps a name that only starts a longer word of the address", () => {
+    expect(venueLocation(at("Hall", "Hallstrom Rd, Willoughby"))).toBe(
+      "Hall, Hallstrom Rd, Willoughby",
+    );
+  });
+});
+
 describe("resolveMapsUrl", () => {
   it("uses a valid organiser-supplied mapsUrl verbatim", () => {
     const url = "https://maps.apple.com/?address=12+Banksia+Lane";
@@ -269,6 +306,16 @@ describe("resolveMapsUrl", () => {
   it("returns null when there is nothing to point at", () => {
     expect(resolveMapsUrl({ mapsUrl: null, address: null })).toBeNull();
   });
+
+  // The address is the precise place, so it is the query when there is one;
+  // a venue's name alone is still something a map can find.
+  it("searches for the address over the venue's name, and for the name when there is no address", () => {
+    const both = resolveMapsUrl({ ...base, venueName: "The Glasshouse" });
+    expect(both).toContain(`query=${encodeURIComponent("12 Banksia Lane, Strathfield")}`);
+    expect(resolveMapsUrl({ mapsUrl: null, address: null, venueName: " The Glasshouse " })).toBe(
+      `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent("The Glasshouse")}`,
+    );
+  });
 });
 
 describe("resolveMapsEmbedUrl", () => {
@@ -283,6 +330,15 @@ describe("resolveMapsEmbedUrl", () => {
 
   it("returns null when the address is absent", () => {
     expect(resolveMapsEmbedUrl({ ...base, address: null }, KEY)).toBeNull();
+  });
+
+  it("queries the venue's name when there is no address", () => {
+    expect(resolveMapsEmbedUrl({ address: null, venueName: "The Glasshouse" }, KEY)).toContain(
+      `q=${encodeURIComponent("The Glasshouse")}`,
+    );
+    expect(resolveMapsEmbedUrl({ ...base, venueName: "The Glasshouse" }, KEY)).toContain(
+      `q=${encodeURIComponent("12 Banksia Lane, Strathfield")}`,
+    );
   });
 
   it("returns null when no key is configured", () => {

@@ -10,6 +10,7 @@ import {
   seedDb,
 } from "./db/setup";
 import { localClientAddress } from "./lib/local-client-address";
+import { CIRE_OIDC_TX_HMAC_INFO } from "./lib/oidc";
 import { localResendConfig } from "./lib/resend-email";
 import { siteOriginOptions } from "./lib/web-origin";
 import { runCireSync } from "./observability";
@@ -85,6 +86,27 @@ const assets = createAssetsStub();
 // one.
 const stripe = createStripeClientFromEnv({ STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY });
 
+// Organiser sign-in, configured as the Worker configures it (`index.ts`): all
+// four values or none, since a half-configured client cannot complete one
+// exchange. None is the usual local state, and the sign-in routes then answer
+// 503. The E2E stack sets all four, against its own osn-api.
+const issuerBase = process.env.OSN_ISSUER_URL?.replace(/\/+$/, "");
+const apiOrigin = process.env.CIRE_API_ORIGIN?.replace(/\/+$/, "");
+const oidcClientId = process.env.CIRE_OIDC_CLIENT_ID;
+const oidcClientSecret = process.env.CIRE_OIDC_CLIENT_SECRET;
+const oidc =
+  issuerBase && apiOrigin && oidcClientId && oidcClientSecret
+    ? {
+        issuer: issuerBase,
+        jwksUrl: process.env.OSN_JWKS_URL ?? `${issuerBase}/.well-known/jwks.json`,
+        clientId: oidcClientId,
+        clientSecret: oidcClientSecret,
+        redirectUri: `${apiOrigin}/api/auth/oidc/callback`,
+        allowedReturnOrigins: origins,
+        txHmacInfo: CIRE_OIDC_TX_HMAC_INFO,
+      }
+    : null;
+
 // The guest, organiser and vendor origins come from WEB_ORIGIN's three
 // entries, read as the Worker reads them. Without the organiser and vendor
 // entries `createApp` falls back to its PRODUCTION defaults, so every Stripe
@@ -98,6 +120,7 @@ const appOptions: Parameters<typeof createApp>[1] = {
   osnJwksUrl: process.env.OSN_JWKS_URL,
   osnIssuerUrl: process.env.OSN_ISSUER_URL,
   osnAudience: process.env.OSN_AUDIENCE,
+  oidc,
   stripe,
   stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? null,
   stripePlatformWebhookSecret: process.env.STRIPE_PLATFORM_WEBHOOK_SECRET ?? null,

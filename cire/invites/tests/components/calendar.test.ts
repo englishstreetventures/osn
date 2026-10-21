@@ -67,6 +67,18 @@ describe("googleCalendarUrl", () => {
     expect(url.searchParams.get("location")).toBe("");
   });
 
+  it("puts the venue's name before the address, or alone when there is no address", () => {
+    const named = { ...sydneyEvent, venueName: "The Glasshouse" };
+    expect(new URL(googleCalendarUrl(named, SITE_URL)).searchParams.get("location")).toBe(
+      "The Glasshouse, 12 Banksia Lane, Surry Hills NSW 2010",
+    );
+    expect(
+      new URL(googleCalendarUrl({ ...named, address: null }, SITE_URL)).searchParams.get(
+        "location",
+      ),
+    ).toBe("The Glasshouse");
+  });
+
   it("includes the invite siteUrl in details", () => {
     const url = new URL(googleCalendarUrl(sydneyEvent, SITE_URL));
     expect(url.searchParams.get("details")).toBe(`An evening of henna\n\nInvite: ${SITE_URL}`);

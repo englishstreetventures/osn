@@ -3,9 +3,10 @@
  * timezone-aware — the modal stays declarative and these stay unit-testable.
  *
  * Cire stores `startAt` / `endAt` as ISO strings (with offset) plus an IANA
- * `timezone`, and a venue `address` + an optional `mapsUrl`. There are NO
- * stored lat/lng coordinates, so every "where" affordance below is derived
- * from `address` / `mapsUrl` alone — no map API key, no network call.
+ * `timezone`, and a venue as an optional name, a free-form `address` and an
+ * optional `mapsUrl`. There are NO stored lat/lng coordinates, so every
+ * "where" affordance below is derived from those alone — no map API key, no
+ * network call.
  */
 import { invitedMembers } from "./plus-one";
 import type { EventSummary, FamilyMember } from "./types";
@@ -29,10 +30,59 @@ function formatter(locale: string, options: Intl.DateTimeFormatOptions): Intl.Da
   return cached;
 }
 
-/** Resolve the canonical venue string from the free-form `address`, or null when unset. */
+/** The trimmed text, or null when there is none. */
+function text(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+/** The venue's street address, trimmed, or null when unset. */
 export function venueLine(event: Pick<EventSummary, "address">): string | null {
-  const address = event.address?.trim();
-  return address && address.length > 0 ? address : null;
+  return text(event.address);
+}
+
+/** The venue's name ("The Grounds of Alexandria"), trimmed, or null when unset. */
+export function venueName(event: Pick<EventSummary, "venueName">): string | null {
+  return text(event.venueName);
+}
+
+/**
+ * What a map is asked to find: the address, which is the precise place, and
+ * the venue's name when there is no address. Null when there is neither.
+ */
+export function venueQuery(event: Pick<EventSummary, "address" | "venueName">): string | null {
+  return venueLine(event) ?? venueName(event);
+}
+
+/**
+ * Whether the address already starts with the venue's name, as a whole word or
+ * words and ignoring case: an organiser who typed the name into both, as every
+ * address did before the venue name had a field of its own. Then the address
+ * says it all, and the name beside it would say it twice. False when either is
+ * missing.
+ */
+export function addressRepeatsName(event: Pick<EventSummary, "address" | "venueName">): boolean {
+  const name = venueName(event);
+  const address = venueLine(event);
+  if (!name || !address) return false;
+  return (
+    address.toLowerCase().startsWith(name.toLowerCase()) &&
+    !/^[\p{L}\p{N}]/u.test(address.slice(name.length))
+  );
+}
+
+/**
+ * The venue as one line for a calendar entry: "The Glasshouse, 12 Banksia
+ * Lane". The name alone when there is no address, the address alone when
+ * there is no name or when it already starts with the name
+ * ({@link addressRepeatsName}), and `""` when there is neither.
+ */
+export function venueLocation(event: Pick<EventSummary, "address" | "venueName">): string {
+  const name = venueName(event);
+  const address = venueLine(event);
+  if (!name) return address ?? "";
+  if (!address) return name;
+  return addressRepeatsName(event) ? address : `${name}, ${address}`;
 }
 
 /**
@@ -170,15 +220,18 @@ export function formatTimeRange(
  * Resolve a safe, always-working "open in maps" URL.
  *
  * Prefers the organiser-supplied `mapsUrl` when it is a valid http(s) link;
- * otherwise derives a Google Maps *search* URL from the venue `address`. Returns
- * null only when neither a usable link nor an address is available, so the
- * caller can hide the affordance rather than render a dead button.
+ * otherwise derives a Google Maps *search* URL from {@link venueQuery}. Returns
+ * null only when neither a usable link nor anything to search for is
+ * available, so the caller can hide the affordance rather than render a dead
+ * button.
  */
-export function resolveMapsUrl(event: Pick<EventSummary, "mapsUrl" | "address">): string | null {
+export function resolveMapsUrl(
+  event: Pick<EventSummary, "mapsUrl" | "address" | "venueName">,
+): string | null {
   const direct = event.mapsUrl?.trim();
   if (direct && isHttpUrl(direct)) return direct;
 
-  const venue = venueLine(event);
+  const venue = venueQuery(event);
   if (!venue) return null;
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(venue)}`;
 }
@@ -195,27 +248,28 @@ function isHttpUrl(s: string): boolean {
 /**
  * Resolve a Google Maps Embed API `place` URL for the event's venue, or null.
  *
- * The Embed API takes a free-text address as its `q` query — no coordinates and
- * no geocoding — so it slots straight onto the `address` cire already stores
- * (see `venueLine`). The result is meant for an `<iframe>` `src`.
+ * The Embed API takes free text as its `q` query — no coordinates and no
+ * geocoding — so it slots straight onto what cire already stores
+ * ({@link venueQuery}: the address, else the venue's name). The result is
+ * meant for an `<iframe>` `src`.
  *
  * Returns null (so the caller renders the CSS-card fallback) when:
  *  - no `key` is configured (the var is unset/blank at build time), or
- *  - there is no venue address to query.
+ *  - there is no address or venue name to query.
  *
- * The address is the only interpolated value and is always `encodeURIComponent`-
+ * The query is the only interpolated value and is always `encodeURIComponent`-
  * escaped, so organiser-supplied text can never break out of the query string.
  * The key is referrer-restricted at the Google Maps Platform console, which is
  * what makes baking it into static HTML safe; it must never be logged.
  */
 export function resolveMapsEmbedUrl(
-  event: Pick<EventSummary, "address">,
+  event: Pick<EventSummary, "address" | "venueName">,
   key: string | undefined,
 ): string | null {
   const trimmedKey = key?.trim();
   if (!trimmedKey) return null;
 
-  const venue = venueLine(event);
+  const venue = venueQuery(event);
   if (!venue) return null;
 
   return `https://www.google.com/maps/embed/v1/place?key=${encodeURIComponent(

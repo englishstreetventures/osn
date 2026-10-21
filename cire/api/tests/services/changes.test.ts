@@ -181,7 +181,6 @@ describe("clearedHalves", () => {
     startAt: "2026-09-18T16:00:00+10:00",
     endAt: "",
     timezone: "Australia/Sydney",
-    location: null,
     address: null,
     dressCodeDescription: null,
     dressCodePalette: [],

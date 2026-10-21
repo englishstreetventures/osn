@@ -41,6 +41,27 @@ describe("MapPreview", () => {
     expect(link.rel).toBe("noopener noreferrer");
   });
 
+  // An address typed before the venue name existed often starts with the
+  // name. Said twice, the row reads it twice, and the calendar entry
+  // (`venueLocation`) already drops the repeat.
+  it("shows the address alone when it already starts with the venue's name", () => {
+    const paragraphs = (venueName: string, address: string) =>
+      [
+        ...render(() => (
+          <MapPreview event={{ ...baseEvent, venueName, address }} />
+        )).container.querySelectorAll("p"),
+      ].map((p) => p.textContent);
+
+    expect(paragraphs("the grounds", "The Grounds of Alexandria, 7a Huntley St")).toEqual([
+      "The Grounds of Alexandria, 7a Huntley St",
+    ]);
+    cleanup();
+    expect(paragraphs("Hall", "Hallstrom Rd, Willoughby")).toEqual([
+      "Hall",
+      "Hallstrom Rd, Willoughby",
+    ]);
+  });
+
   it("prefers an organiser-supplied mapsUrl", () => {
     const url = "https://maps.apple.com/?address=12+Banksia+Lane";
     const { getByRole } = render(() => <MapPreview event={{ ...baseEvent, mapsUrl: url }} />);
@@ -98,6 +119,18 @@ describe("MapPreview", () => {
     expect(container.querySelector("p")).toBeNull();
   });
 
+  it("names the venue when it has a name and no address, and searches for the name", () => {
+    const { getByRole, container } = render(() => (
+      <MapPreview event={{ ...baseEvent, venueName: "The Glasshouse", address: null }} />
+    ));
+    expect([...container.querySelectorAll("p")].map((p) => p.textContent)).toEqual([
+      "The Glasshouse",
+    ]);
+    expect((getByRole("link") as HTMLAnchorElement).href).toContain(
+      `query=${encodeURIComponent("The Glasshouse")}`,
+    );
+  });
+
   // A dangerous organiser-supplied mapsUrl (e.g. javascript:) must never
   // reach the anchor href — the component routes through resolveMapsUrl, which
   // rejects non-http(s) schemes and falls back to the safe Google Maps search
@@ -147,6 +180,16 @@ describe("MapPreview", () => {
       expect(sandbox).toContain("allow-scripts");
       expect(sandbox).toContain("allow-same-origin");
       expect(sandbox).not.toContain("allow-top-navigation");
+    });
+
+    it("names the map after the venue when it has a name", () => {
+      vi.stubEnv("PUBLIC_GOOGLE_MAPS_EMBED_KEY", KEY);
+      const { container } = render(() => (
+        <MapPreview event={{ ...baseEvent, venueName: "The Glasshouse" }} />
+      ));
+      expect(container.querySelector("iframe")!.getAttribute("title")).toBe(
+        "Map of The Glasshouse",
+      );
     });
 
     it("keeps a real maps link beside the iframe, on the organiser's own destination", () => {

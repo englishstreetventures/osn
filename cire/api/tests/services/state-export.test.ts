@@ -9,7 +9,7 @@ import { createDb, seedDb } from "../../src/db/setup";
 import { formatWallTime } from "../../src/lib/event-time";
 import type { ParsedFamily } from "../../src/schemas/import";
 import { diffAgainstDb } from "../../src/services/import";
-import { parseEventsCsv, parseGuestsCsv } from "../../src/services/spreadsheet";
+import { parseCsv, parseEventsCsv, parseGuestsCsv } from "../../src/services/spreadsheet";
 import { stateExportService } from "../../src/services/state-export";
 import { TestDbLayer } from "../db/test-layer";
 import { effWith } from "../test-helpers";
@@ -30,8 +30,32 @@ describe("stateExportService.eventsCsv", () => {
         // Byte-for-byte lockstep with the organiser template + parser — a
         // rename in lib/sheet-headers.ts must fail here.
         expect(lines(csv)[0]).toBe(
-          "Event Name,Start,Timezone,End,Location,Address,Dress Code Description,Dress Code Palette,Pinterest URL,Maps URL",
+          "Event Name,Start,Timezone,End,Location,Address,Description,Dress Code Description,Dress Code Palette,Pinterest URL,Maps URL",
         );
+      }),
+    ),
+  );
+
+  it(
+    "writes the venue name under Location and the description under Description, at every fidelity",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        yield* dbQuery(() =>
+          db
+            .update(events)
+            .set({ venueName: "The Glasshouse", description: "High tea; games after." })
+            .where(eq(events.name, "Kitchen Tea"))
+            .run(),
+        );
+        for (const fidelity of ["import", "full", "snapshot"] as const) {
+          const [header, ...rows] = parseCsv(
+            yield* stateExportService.eventsCsv(BOOTSTRAP_WEDDING_ID, fidelity),
+          );
+          const row = rows.find((cells) => cells[0] === "Kitchen Tea")!;
+          expect(row[header!.indexOf("Location")]).toBe("The Glasshouse");
+          expect(row[header!.indexOf("Description")]).toBe("High tea; games after.");
+        }
       }),
     ),
   );
@@ -359,6 +383,16 @@ describe("round trip: export → parse → diff is a fixpoint", () => {
   const assertFixpoint = (fidelity: "import" | "full") =>
     withDb(
       Effect.gen(function* () {
+        // One event carries a venue name, so the fixpoint covers a set one and
+        // an unset one; the seed gives every event a description.
+        const db = yield* DbService;
+        yield* dbQuery(() =>
+          db
+            .update(events)
+            .set({ venueName: "The Glasshouse" })
+            .where(eq(events.name, "Kitchen Tea"))
+            .run(),
+        );
         const eventsCsv = yield* stateExportService.eventsCsv(BOOTSTRAP_WEDDING_ID, fidelity);
         const guestsCsv = yield* stateExportService.guestsCsv(BOOTSTRAP_WEDDING_ID, fidelity);
 
@@ -386,7 +420,6 @@ describe("round trip: export → parse → diff is a fixpoint", () => {
         expect(plan.eventLinkRemoves).toHaveLength(0);
         expect(plan.warnings).toHaveLength(0);
 
-        const db = yield* DbService;
         for (const eu of plan.eventUpdates) {
           const [row] = yield* dbQuery(() =>
             db.select().from(events).where(eq(events.id, eu.id)).all(),
@@ -396,6 +429,8 @@ describe("round trip: export → parse → diff is a fixpoint", () => {
           expect(eu.event.endAt).toBe(row!.endAt);
           expect(eu.event.timezone).toBe(row!.timezone);
           expect(eu.event.address ?? null).toBe(row!.address);
+          expect(eu.event.venueName).toBe(row!.venueName);
+          expect(eu.event.description).toBe(row!.description);
           expect(eu.event.dressCodeDescription ?? null).toBe(row!.dressCodeDescription);
           expect(JSON.stringify(eu.event.dressCodePalette)).toBe(row!.dressCodePalette!);
           expect(eu.event.sortOrder).toBe(row!.sortOrder);
@@ -684,6 +719,25 @@ describe("round trip: values the formula guard changes", () => {
           const family = parsedFamilies.find((f) => f.familyName === "=Emptyhouse");
           expect(family?.guests.map((g) => g.lastName)).toContain("Dash;-Smith");
         }
+      }),
+    ),
+  );
+
+  // The guard adds a `'` to every line of a dash list, so the download of a
+  // description at the cap is longer than the cap. The cap is on the value,
+  // which is what comes back once the guard is off.
+  it(
+    "re-imports a description at the cap written as a dash list",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        const description = "- bring a hat\n".repeat(715).slice(0, 10_000);
+        db.update(events).set({ description }).where(eq(events.name, "Kitchen Tea")).run();
+
+        const eventsCsv = yield* stateExportService.eventsCsv(BOOTSTRAP_WEDDING_ID, "import");
+        expect(eventsCsv).toContain("\n'- bring a hat\n'- bring a hat");
+        const parsed = yield* parseEventsCsv(eventsCsv);
+        expect(parsed.find((e) => e.name === "Kitchen Tea")?.description).toBe(description);
       }),
     ),
   );
