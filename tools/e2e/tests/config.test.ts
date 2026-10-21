@@ -14,6 +14,7 @@ describe("PORTS", () => {
     expect(PORTS.musubi).toBe(DEV_APPS["@musubi/social"].port);
     expect(PORTS.pulseWeb).toBe(DEV_APPS["@pulse/web"].port);
     expect(PORTS.cireInvites).toBe(DEV_APPS["@cire/invites"].port);
+    expect(PORTS.cireHost).toBe(DEV_APPS["@cire/host"].port);
     expect(PORTS.cireLanding).toBe(DEV_APPS["@cire/landing"].port);
   });
 

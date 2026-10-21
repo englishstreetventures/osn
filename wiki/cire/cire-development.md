@@ -317,9 +317,19 @@ the archived chain in `cire/db/migrations-archive/`, and
 that chain, where wrangler would skip the rest without a word. Why, and how to
 squash the chain again: `cire/db/README.md`.
 
-Local sign-in also needs an `oauth_clients` row in the local OSN D1 and
-`CIRE_OIDC_CLIENT_SECRET` in `cire/api/.dev.vars`. Without them `/api/auth/oidc/*`
-answers 503 and the rest of cire works as normal.
+Organiser sign-in needs five values, read by `oidcConfigFromEnv`
+(`cire/api/src/lib/oidc.ts`) in the Worker and the Bun server alike:
+`OSN_ISSUER_URL`, `OSN_JWKS_URL`, `CIRE_API_ORIGIN`, `CIRE_OIDC_CLIENT_ID` and
+`CIRE_OIDC_CLIENT_SECRET`. `wrangler dev` reads the first four from
+`wrangler.toml` and the secret from `cire/api/.dev.vars`. `bun run dev:cire`
+gets the issuer, the JWKS URL and `CIRE_API_ORIGIN` from `dev-env` (the
+worktree's own portless host), and the client id and secret from
+`cire/api/.env`. Either way the local OSN database needs an `oauth_clients`
+row for that client whose redirect URI is exactly
+`<CIRE_API_ORIGIN>/api/auth/oidc/callback` and whose `client_secret_hash` is the
+secret's SHA-256; only the E2E suite seeds one (`tools/e2e/src/seed.ts`). With
+any of it missing, `/api/auth/oidc/*` sends the browser back to `/login` with
+`?auth_error=sign_in_unavailable`, and the rest of cire works as normal.
 
 Local mail goes to the in-memory recorder. To read it in an inbox instead, run
 the Resend emulator and set `RESEND_API_KEY` and `RESEND_API_URL` in

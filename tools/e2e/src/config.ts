@@ -79,6 +79,7 @@ export const PORTS = {
   musubi: 1422,
   pulseWeb: 1420,
   cireInvites: 4321,
+  cireHost: 4322,
   cireLanding: 4323,
   /** The Resend stand-in osn-api sends OTP mail to. Not a dev app. */
   mail: 4590,
@@ -112,6 +113,65 @@ export const PULSE_OIDC = {
   clientId: "cid_pulse_e2e",
   secret: "e2e-pulse-client-secret-not-a-real-secret",
   redirectUri: `${ORIGINS.pulseApi}/api/auth/oidc/callback`,
+} as const;
+
+/**
+ * The cire organiser portal's relying party the seed registers with osn-api:
+ * first-party, so `/authorize` hands a signed-in organiser a code with no
+ * screen. cire-api is started with the same id, secret and origin
+ * (`CIRE_OIDC_CLIENT_ID`, `CIRE_OIDC_CLIENT_SECRET`, `CIRE_API_ORIGIN`), and
+ * builds the same redirect URI from the origin.
+ */
+export const CIRE_OIDC = {
+  rowId: "oc_cire_e2e",
+  clientId: "cid_cire_e2e",
+  secret: "e2e-cire-client-secret-not-a-real-secret",
+  redirectUri: `${ORIGINS.cireApi}/api/auth/oidc/callback`,
+} as const;
+
+/**
+ * Mounts osn-api's passkey-less `/dev/login` on the stack (`DEV_LOGIN_SECRET`,
+ * honoured on the local tier only). An organiser flow signs in as the one
+ * account it mints a session for, the dev profile, which owns the cire
+ * organiser weddings below; the OIDC hop from the portal to osn-api stays real.
+ */
+export const DEV_LOGIN_SECRET = "e2e-dev-login-secret-not-a-real-secret";
+
+/**
+ * The organiser weddings cire-api adds when the stack sets
+ * `CIRE_E2E_ORGANISER=1` (`seedE2eOrganiser` in `cire/api/src/db/setup.ts`,
+ * which these values copy). All three are on Gold and owned by `profileId`,
+ * the profile osn-api's `/dev/login` signs in as. The co-hosts are bare
+ * profile ids: the local cire-api resolves no names, so the portal shows the
+ * ids, and a flow finds each person by theirs.
+ */
+export const CIRE_ORGANISER = {
+  profileId: "usr_dev_bootstrap_owner",
+  /** A wedding date and an empty checklist, for the starter checklist. */
+  checklist: {
+    weddingId: "wed_e2e_checklist",
+    weddingDate: "2099-06-20",
+    /** The starter's first item, due a year before the wedding date. */
+    firstItem: {
+      key: "agree-budget",
+      title: "Agree on an overall budget",
+      timeframeBucket: "12m",
+      dueAt: "2098-06-20",
+    },
+  },
+  /** One open task nobody holds, an editor and a viewer. */
+  holders: {
+    weddingId: "wed_e2e_holders",
+    taskId: "tsk_e2e_holders_venue",
+    taskTitle: "Book the venue",
+    editor: { hostId: "whost_e2e_bea", profileId: "usr_e2e_bea" },
+    viewer: { hostId: "whost_e2e_cal", profileId: "usr_e2e_cal" },
+  },
+  /** A helper who sees their own tasks on the run sheet. */
+  scope: {
+    weddingId: "wed_e2e_scope",
+    helper: { hostId: "whost_e2e_dee", profileId: "usr_e2e_dee" },
+  },
 } as const;
 
 /** Seeded cire guest: the first canonical family in `cire/db/seed/data/guests.ts`. */
