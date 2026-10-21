@@ -131,7 +131,7 @@ Each of these has shipped in this repository's backlog.
 
 ## Step 6 — File it
 
-Write the body to a scratch file outside the repository with the Write tool, then pass the file. The local shell is fish, which has no heredocs and no `<(…)`, and AGENTS.md forbids a heredoc inside `$(…)` in any shell.
+Write the body to a scratch file outside the repository with the Write tool, then pass the file. AGENTS.md forbids a heredoc inside `$(…)` in any shell.
 
 ```bash
 gh issue create --repo englishstreetventures/osn \

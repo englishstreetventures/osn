@@ -79,7 +79,7 @@ Database commands differ between cire and the rest; see `wiki/conventions/comman
 
 Dev servers answer on named HTTPS hosts through portless (`https://id.musubi.localhost`, `https://host.cire.localhost`), and a linked worktree gets its own stack under a branch prefix. `PORTLESS=0 bun run dev` uses fixed ports. Setup and the host table: `wiki/conventions/devloop-urls.md`. Astro puts `astro dev` in the background when it sees an agent, which breaks the route: run `CLAUDECODE= bun run dev`.
 
-The shell is fish locally and bash remotely. Quote glob arguments (`--include='*.ts'`), and never put a heredoc inside `$(…)`; write a long commit message to a file and use `git commit -F`.
+The Bash tool runs zsh locally (`echo $ZSH_VERSION` prints a version) and bash remotely. The owner's terminal is fish; a command you hand the owner to paste into it must be fish. Quote glob arguments (`--include='*.ts'`), and never put a heredoc inside `$(…)`; write a long commit message to a file and use `git commit -F`.
 
 ## The wiki
 

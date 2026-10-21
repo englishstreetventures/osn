@@ -253,7 +253,7 @@ gh api repos/englishstreetventures/osn/pulls \
 
 - **REST, not `gh pr create`**: `gh pr create` goes through GraphQL, whose hourly limit every agent on the account shares.
 - `base` is required and has no default: `main`, or the parent branch of a stacked pull request.
-- `-F body=@<file>` reads the file and `-f` keeps the title a string. Never pass the body inline: the local shell, fish, has no heredocs, and an inline body mangles backticks and `$`.
+- `-F body=@<file>` reads the file and `-f` keeps the title a string. Never pass the body inline: an inline body mangles backticks and `$` in the local shell.
 - It opens ready for review. Add `-F draft=true` only when the task asks for a draft.
 
 Edit it whenever the title or body stops being true:
