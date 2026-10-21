@@ -291,10 +291,12 @@ owners, each with an `owner` seat. Two consequences:
   through the foreign key (ON DELETE CASCADE) and keeps the tasks, which are the
   wedding's planning record, with their other holders, so no separate step is
   needed. An OSN account deletion does not reach the seat, so its assignments
-  stay with it, the same orphan as `wedding_hosts` below. Until
-  englishstreetventures/osn#1636 drops it, `tasks.assigned_host_id` (migration
-  0087) also holds, per task, the seat that held it when 0088 copied it onto
-  `task_assignees`, though nothing reads it; an access request reads it too,
+  stay with it, the same orphan as `wedding_hosts` below. Until the first
+  cire-api release after the one shipping 0088 reaches production drops it
+  (englishstreetventures/osn#1636), `tasks.assigned_host_id` (migration 0087)
+  also holds, per task, the seat that held it when 0088 copied it onto
+  `task_assignees`, read and written only by the Worker before 0088 if it
+  serves again; an access request reads it too,
   `SELECT t.wedding_id, t.title FROM tasks t JOIN wedding_hosts h ON h.id = t.assigned_host_id WHERE h.osn_profile_id = ?`,
   and removing the seat clears it (ON DELETE SET NULL). See
   [[cire-checklist-tasks#Assignees]].

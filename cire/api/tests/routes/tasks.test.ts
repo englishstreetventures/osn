@@ -424,7 +424,7 @@ describe("the people holding a task", () => {
     expect(rowsFor(db, task.id)).toEqual([]);
 
     // Nor into the single-assignee column the database still holds, which
-    // nothing reads.
+    // this API never names.
     expect(
       db.$client
         .query("SELECT id, assigned_host_id FROM tasks WHERE id IN (?, ?) ORDER BY id")

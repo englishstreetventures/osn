@@ -457,8 +457,9 @@ export const tasks = sqliteTable(
     // ── Not declared: `assigned_host_id` ────────────────────────────────────
     // The database still holds `assigned_host_id` (migration 0087: a nullable
     // seat id, REFERENCES wedding_hosts(id) ON DELETE SET NULL) and its partial
-    // index `tasks_assigned_host_idx`. Nothing reads or writes it: a task's
-    // holders are `task_assignees`. It is left out of this table on purpose,
+    // index `tasks_assigned_host_idx`. This Worker never reads or writes it,
+    // only the Worker before 0088 does, if it serves again: a task's holders
+    // are `task_assignees`. It is left out of this table on purpose,
     // because Drizzle names every declared column in each insert, select and
     // returning, and a column no statement names can be dropped without
     // breaking the Worker that is serving. Dropped by
