@@ -1,10 +1,11 @@
 import { Database } from "bun:sqlite";
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, test } from "vitest";
 
+import { listMigrations, migrationStatements } from "../../../scripts/migration-files";
 import { DEV_OWNER_PROFILE_ID, DEV_OWNER_SEAT_ID } from "../../db/seed/data/wedding";
 import { ownerSeatSql, SeedInputError } from "../src/seeds";
 
@@ -58,13 +59,9 @@ function seededDb(): Database {
   const db = new Database(":memory:");
   db.exec("PRAGMA foreign_keys = ON");
   const migrations = join(cireDb, "migrations");
-  for (const file of readdirSync(migrations)
-    .filter((name) => name.endsWith(".sql"))
-    .toSorted()) {
-    for (const statement of readFileSync(join(migrations, file), "utf8").split(
-      "--> statement-breakpoint",
-    )) {
-      if (statement.trim() !== "") db.exec(statement);
+  for (const file of listMigrations(migrations)) {
+    for (const statement of migrationStatements(readFileSync(join(migrations, file), "utf8"))) {
+      db.exec(statement);
     }
   }
   db.exec(readFileSync(join(cireDb, "seed/dev-seed.sql"), "utf8"));

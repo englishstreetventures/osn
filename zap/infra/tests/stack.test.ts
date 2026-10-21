@@ -6,6 +6,7 @@ import { tierSecrets } from "@shared/infra";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { SURFACES, type SurfaceKey } from "../../../scripts/deploy-surfaces";
+import { listMigrations } from "../../../scripts/migration-files";
 import { devTarget } from "../../../scripts/smoke-check";
 import { refusedTargets } from "../../../shared/infra/tests/support/refused-targets";
 import {
@@ -139,9 +140,7 @@ describe("the zap stack, evaluated offline", () => {
 
     const migrations = join(dev.generatedDir, "migrations", "zap-db");
     expect(props?.migrations).toBe(migrations);
-    const chain = readdirSync(join(repoRoot, "zap/db/drizzle"))
-      .filter((name) => name.endsWith(".sql"))
-      .toSorted();
+    const chain = listMigrations(join(repoRoot, "zap/db/drizzle")).toSorted();
     expect(chain.length).toBeGreaterThan(0);
     expect(readdirSync(migrations).toSorted()).toEqual(chain);
   });

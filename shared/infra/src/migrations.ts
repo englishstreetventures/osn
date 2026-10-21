@@ -17,12 +17,15 @@ function within(parent: string, child: string): boolean {
 /**
  * Copies the top-level *.sql files of `source` into `target` (emptied first) and returns `target`.
  *
- * Alchemy refuses a migrations directory holding Drizzle's `meta/_journal.json`
- * and reads a flat directory of `*.sql` files keyed by name, so the copy keeps
- * every name and byte and leaves out `meta/`, subdirectories and every other
- * file. Emptying the target first means a file an earlier run copied never
- * reaches the next plan. A target that overlaps the source is refused,
- * because emptying it would delete migrations.
+ * Wrangler applies only the `*.sql` files directly in a migrations directory
+ * (`scripts/migration-files.ts`). Alchemy also applies `*.sql` files in its
+ * subdirectories and refuses a directory holding drizzle-kit's old
+ * `meta/_journal.json`, so the copy keeps every top-level name and byte and
+ * leaves out subdirectories and every other file: Alchemy applies exactly the
+ * files Wrangler would, under the names Wrangler's ledger records. Emptying
+ * the target first means a file an earlier run copied never reaches the next
+ * plan. A target that overlaps the source is refused, because emptying it
+ * would delete migrations.
  */
 export function flattenMigrations(input: {
   readonly source: string;

@@ -1,11 +1,12 @@
 import { Database } from "bun:sqlite";
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { origin, stageHosts } from "@shared/infra";
 import { beforeAll, describe, expect, test } from "vitest";
 
+import { listMigrations, migrationStatements } from "../../../scripts/migration-files";
 import { osnSeedSql, SeedInputError } from "../src/seeds";
 
 const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
@@ -64,13 +65,9 @@ function migratedDb(): Database {
   const db = new Database(":memory:");
   db.exec("PRAGMA foreign_keys = ON");
   const dir = join(repoRoot, "osn/db/drizzle");
-  for (const file of readdirSync(dir)
-    .filter((name) => name.endsWith(".sql"))
-    .toSorted()) {
-    for (const statement of readFileSync(join(dir, file), "utf8").split(
-      "--> statement-breakpoint",
-    )) {
-      if (statement.trim() !== "") db.exec(statement);
+  for (const file of listMigrations(dir)) {
+    for (const statement of migrationStatements(readFileSync(join(dir, file), "utf8"))) {
+      db.exec(statement);
     }
   }
   return db;

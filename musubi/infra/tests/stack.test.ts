@@ -12,6 +12,7 @@ import {
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { SURFACES, type SurfaceKey } from "../../../scripts/deploy-surfaces";
+import { listMigrations } from "../../../scripts/migration-files";
 import { devTarget } from "../../../scripts/smoke-check";
 import { refusedTargets } from "../../../shared/infra/tests/support/refused-targets";
 import { osnSeedSql } from "../src/seeds";
@@ -186,9 +187,7 @@ describe("the musubi stack, evaluated offline", () => {
 
     const migrations = join(dev.generatedDir, "migrations", "osn-db");
     expect(props?.migrations).toBe(migrations);
-    const chain = readdirSync(join(repoRoot, "osn/db/drizzle"))
-      .filter((name) => name.endsWith(".sql"))
-      .toSorted();
+    const chain = listMigrations(join(repoRoot, "osn/db/drizzle")).toSorted();
     expect(readdirSync(migrations).toSorted()).toEqual(chain);
 
     const seed = join(dev.generatedDir, "seeds", "osn-seed.sql");

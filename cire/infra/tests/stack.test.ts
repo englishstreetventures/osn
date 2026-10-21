@@ -7,6 +7,7 @@ import { SiteBuildError } from "@shared/infra";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { SURFACES, type SurfaceKey } from "../../../scripts/deploy-surfaces";
+import { listMigrations } from "../../../scripts/migration-files";
 import { devTarget } from "../../../scripts/smoke-check";
 import { refusedTargets } from "../../../shared/infra/tests/support/refused-targets";
 import { ownerSeatSql, SeedInputError } from "../src/seeds";
@@ -360,9 +361,7 @@ describe("the cire stack, evaluated offline", () => {
     expect(db?.primaryLocationHint).toBe("oc");
     const migrations = join(dev.generatedDir, "migrations", "cire-db");
     expect(db?.migrations).toBe(migrations);
-    const chain = readdirSync(join(repoRoot, "cire/db/migrations"))
-      .filter((name) => name.endsWith(".sql"))
-      .toSorted();
+    const chain = listMigrations(join(repoRoot, "cire/db/migrations")).toSorted();
     expect(readdirSync(migrations).toSorted()).toEqual(chain);
   });
 
