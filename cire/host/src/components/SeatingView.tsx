@@ -769,7 +769,7 @@ function GuestRow(props: {
   // click, and on the keys of a menu button, focusing the first item for those.
   const [opener, setOpener] = createSignal<MenuOpener | null>(null);
   let pointerType = "";
-  const replay = (opener: MenuOpener) => setOpener(() => opener);
+  const replay = (handOver: MenuOpener) => setOpener(() => handOver);
   return (
     <li
       ref={item.ref}
