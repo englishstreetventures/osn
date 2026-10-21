@@ -9,7 +9,7 @@ import { createDb } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
 import { CIRE_METRICS } from "../../src/metrics";
 import type { OsnProfileDisplay } from "../../src/services/osn-bridge";
-import { appRequest, failStatements, jsonBody, setTier } from "../test-helpers";
+import { appRequest, failStatements, jsonBody, recordStatements, setTier } from "../test-helpers";
 import { captureLogs } from "../test-helpers/capture-logs";
 import { counterValue } from "../test-helpers/metrics-harness";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
@@ -582,5 +582,48 @@ describe("GET /run-sheet: failure and counting", () => {
       expect(logs, secret).not.toContain(secret);
     }
     expect((await counted("own", "error")) - before).toBe(1);
+  });
+});
+
+describe("GET /run-sheet: what it reads", () => {
+  /** The SQL and the rows of each of the run sheet's four reads. */
+  async function readsFor(who: string) {
+    const db = build();
+    const app = buildApp(db);
+    const recorded = recordStatements(db);
+    expect((await get(app, who)).status).toBe(200);
+    const read = (starts: string) => {
+      const hits = recorded.filter((r) => r.sql.startsWith(starts));
+      expect(hits, starts).toHaveLength(1);
+      return { sql: hits[0]!.sql.toLowerCase(), rows: hits[0]!.rowCounts[0] };
+    };
+    return {
+      tasks: read('select "id", "wedding_id", "title"'),
+      holders: read('select "task_id", "host_id" from "task_assignees"'),
+      events: read('select "id", "name", "start_at"'),
+      seats: read('select "id", "osn_profile_id" from "wedding_hosts"'),
+    };
+  }
+
+  it("leaves the order of the day to the Worker: the task read sorts nothing", async () => {
+    for (const who of [OWNER, HELPER]) {
+      expect((await readsFor(who)).tasks.sql, who).not.toContain("order by");
+    }
+  });
+
+  it("reads, for a helper scoped to their own tasks, only rows they could be shown", async () => {
+    const reads = await readsFor(HELPER);
+    // Programmes, rings and the stray link; their four holder rows; the one
+    // event of this wedding those tasks link to; the two seats holding them.
+    expect([reads.tasks.rows, reads.holders.rows, reads.events.rows, reads.seats.rows]).toEqual([
+      3, 4, 1, 2,
+    ]);
+  });
+
+  it("reads the whole day for a reader who sees all of it", async () => {
+    const reads = await readsFor(OWNER);
+    expect([reads.tasks.rows, reads.holders.rows, reads.events.rows, reads.seats.rows]).toEqual([
+      7, 6, 3, 7,
+    ]);
   });
 });

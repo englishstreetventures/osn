@@ -4315,6 +4315,41 @@ describe("cire/api over real D1 (Miniflare)", () => {
         ],
       });
       expect(byId.get("evt_rs_dinner")).toMatchObject({ runOfShow: [] });
+
+      // A helper's own read, narrowed in SQL on D1 as on SQLite: their task,
+      // its event and the seat holding it, and nothing else of the day.
+      await db.insert(weddingHosts).values({
+        id: "whost_rs_helper",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        osnProfileId: "usr_rs_helper",
+        addedByOsnProfileId: "usr_test",
+        role: "helper",
+        createdAt: now,
+      });
+      await db.insert(taskAssignees).values({
+        taskId: "tsk_rs_rings",
+        hostId: "whost_rs_helper",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        assignedAt: now,
+      });
+      const mine = await run(
+        runSheetService.read({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          scope: "own",
+          viewerHostId: "whost_rs_helper",
+        }),
+      );
+      expect(mine.items.map((item) => item.id)).toEqual(["tsk_rs_rings", "evt_rs_ceremony"]);
+      expect(mine.people).toEqual([{ hostId: "whost_rs_helper", osnProfileId: "usr_rs_helper" }]);
+
+      // The checklist reads the same task with its event's time, in the one
+      // statement that reads the tasks.
+      const checklist = await run(tasksService.list(BOOTSTRAP_WEDDING_ID));
+      expect(checklist.find((task) => task.id === "tsk_rs_rings")).toMatchObject({
+        runAt: "2099-06-20T14:30:00+10:00",
+        anchored: true,
+        assigneeHostIds: ["whost_rs_helper"],
+      });
     },
     MF_TIMEOUT_MS,
   );

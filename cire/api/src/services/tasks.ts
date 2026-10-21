@@ -18,7 +18,7 @@ import {
   weddings,
 } from "@cire/db";
 import { rowsChanged } from "@shared/db-utils";
-import { and, asc, eq, exists, isNotNull, ne, type SQL, sql } from "drizzle-orm";
+import { and, asc, eq, exists, inArray, isNotNull, ne, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import type { SQLiteUpdateSetSource } from "drizzle-orm/sqlite-core";
 import { Data, Effect } from "effect";
@@ -150,25 +150,55 @@ export const toDto = (r: TaskRow, assigneeHostIds: string[], eventTimes: EventTi
   assigneeHostIds,
 });
 
-/** One event's time, as {@link weddingEventTimes} and {@link taskEventTime}
- *  read it. */
+/** One event's time, as {@link taskEventTime} reads it. */
 interface EventTimeRow {
   id: string;
   startAt: string;
   timezone: string;
 }
 
-/** Every event of `weddingId`, as a linked task's time is counted from them.
- *  Returned unrun, so it rides in the batch that reads the tasks. */
-export const weddingEventTimes = (db: Db, weddingId: string) =>
+/**
+ * Task rows, each with the start and zone of the event it is linked to, in
+ * one statement: the event is LEFT JOINed on the task's own wedding, so a link
+ * to another wedding's event finds none and reads as unlinked. Returned
+ * unrun, for the caller's `where` and `orderBy`; read its rows with
+ * {@link tasksAndEventTimes}.
+ */
+export const tasksWithEventTimes = (db: Db) =>
   db
-    .select({ id: events.id, startAt: events.startAt, timezone: events.timezone })
-    .from(events)
-    .where(eq(events.weddingId, weddingId));
+    .select({ task: tasks, eventStartAt: events.startAt, eventTimezone: events.timezone })
+    .from(tasks)
+    .leftJoin(events, and(eq(events.id, tasks.eventId), eq(events.weddingId, tasks.weddingId)));
+
+/** A {@link tasksWithEventTimes} row. */
+interface TaskWithEventTimeRow {
+  task: TaskRow;
+  eventStartAt: string | null;
+  eventTimezone: string | null;
+}
+
+/** Task rows, in the order they were read, and the times of the events they
+ *  are linked to. */
+export interface TasksAndEventTimes {
+  rows: TaskRow[];
+  eventTimes: EventTimes;
+}
+
+/** {@link tasksWithEventTimes} rows, split into the tasks and their events. */
+export function tasksAndEventTimes(result: unknown): TasksAndEventTimes {
+  const read = result as readonly TaskWithEventTimeRow[];
+  const eventTimes = new Map<string, EventTime>();
+  for (const { task, eventStartAt, eventTimezone } of read) {
+    if (task.eventId !== null && eventStartAt !== null && eventTimezone !== null) {
+      eventTimes.set(task.eventId, { startAt: eventStartAt, timezone: eventTimezone });
+    }
+  }
+  return { rows: read.map((row) => row.task), eventTimes };
+}
 
 /** The event one task of `weddingId` is linked to, if it is that wedding's.
  *  Returned unrun, to ride after the batch's write: the link it reads is the
- *  one the write left. */
+ *  one the write left — an `UPDATE … RETURNING` row cannot join. */
 export const taskEventTime = (db: Db, weddingId: string, taskId: string) =>
   db
     .select({ id: events.id, startAt: events.startAt, timezone: events.timezone })
@@ -183,7 +213,7 @@ export const taskEventTime = (db: Db, weddingId: string, taskId: string) =>
       ),
     );
 
-/** {@link weddingEventTimes} or {@link taskEventTime} rows, by event id. */
+/** {@link taskEventTime} rows, or a wedding's events, by event id. */
 export const eventTimesOf = (rows: unknown): EventTimes =>
   new Map(
     (rows as readonly EventTimeRow[]).map((row) => [
@@ -202,15 +232,30 @@ export interface AssigneeRow {
  *  rowid orders two seats added in the same second. */
 const ASSIGNMENT_ORDER = [asc(taskAssignees.assignedAt), asc(sql`rowid`)];
 
-/** Every holder of every task of `weddingId`, task by task, each task's in the
- *  order they were added — the order of `task_assignees_wedding_task_idx`, so
- *  the read needs no sort. Returned unrun, so it rides in the batch that reads
- *  the tasks. */
-export const weddingAssignees = (db: Db, weddingId: string) =>
+/** The ids of the tasks of `weddingId` that the seat `hostId` holds, as a
+ *  subquery (`task_assignees_host_wedding_idx`). */
+const tasksHeldBy = (db: Db, weddingId: string, hostId: string) =>
+  db
+    .select({ taskId: taskAssignees.taskId })
+    .from(taskAssignees)
+    .where(and(eq(taskAssignees.hostId, hostId), eq(taskAssignees.weddingId, weddingId)));
+
+/** Every holder of every task of `weddingId` — or, given `heldBy`, of the
+ *  tasks that seat holds — task by task, each task's in the order they were
+ *  added: the order of `task_assignees_wedding_task_idx`, so the read needs no
+ *  sort. Returned unrun, so it rides in the batch that reads the tasks. */
+export const weddingAssignees = (db: Db, weddingId: string, heldBy?: string) =>
   db
     .select({ taskId: taskAssignees.taskId, hostId: taskAssignees.hostId })
     .from(taskAssignees)
-    .where(eq(taskAssignees.weddingId, weddingId))
+    .where(
+      and(
+        eq(taskAssignees.weddingId, weddingId),
+        heldBy === undefined
+          ? undefined
+          : inArray(taskAssignees.taskId, tasksHeldBy(db, weddingId, heldBy)),
+      ),
+    )
     .orderBy(asc(taskAssignees.taskId), ...ASSIGNMENT_ORDER);
 
 /** The holders of one task of `weddingId`, in the order they were added.
@@ -227,7 +272,7 @@ const hostIdsOf = (rows: unknown): string[] =>
 
 /** A wedding's task rows as DTOs, each with its holders from `assigned`
  *  ({@link weddingAssignees}) and its time from `eventTimes`
- *  ({@link weddingEventTimes}), both read in the same batch. */
+ *  ({@link tasksAndEventTimes}), both read in the same batch. */
 export function withAssignees(
   rows: readonly TaskRow[],
   assigned: readonly AssigneeRow[],
@@ -262,20 +307,19 @@ function writeAssignee(
     dbQuery(() =>
       commitBatchResults(db, [
         write,
-        db
-          .select()
-          .from(tasks)
-          .where(and(eq(tasks.id, taskId), eq(tasks.weddingId, weddingId))),
+        tasksWithEventTimes(db).where(and(eq(tasks.id, taskId), eq(tasks.weddingId, weddingId))),
         taskAssigneeIds(db, weddingId, taskId),
-        taskEventTime(db, weddingId, taskId),
       ]),
     ),
-    (results) => ({
-      task: (results[1] as readonly TaskRow[])[0],
-      holders: hostIdsOf(results[2]),
-      eventTimes: eventTimesOf(results[3]),
-      changed: (results[0] as readonly unknown[]).length > 0,
-    }),
+    (results) => {
+      const { rows, eventTimes } = tasksAndEventTimes(results[1]);
+      return {
+        task: rows[0],
+        holders: hostIdsOf(results[2]),
+        eventTimes,
+        changed: (results[0] as readonly unknown[]).length > 0,
+      };
+    },
   );
 }
 
@@ -376,20 +420,18 @@ export const tasksService = {
   list(weddingId: string): Effect.Effect<TaskDto[], never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      // One batch: the tasks, every holder of them and the wedding's events,
-      // so a checklist of any length costs three statements.
-      const [rows, assigned, times] = yield* dbQuery(() =>
+      // One batch: the tasks with their events' times, and every holder of
+      // them, so a checklist of any length costs two statements.
+      const [read, assigned] = yield* dbQuery(() =>
         commitBatchResults(db, [
-          db
-            .select()
-            .from(tasks)
+          tasksWithEventTimes(db)
             .where(eq(tasks.weddingId, weddingId))
             .orderBy(asc(tasks.timeframeBucket), asc(tasks.sortOrder)),
           weddingAssignees(db, weddingId),
-          weddingEventTimes(db, weddingId),
         ]),
       );
-      return withAssignees(rows as TaskRow[], assigned as AssigneeRow[], eventTimesOf(times));
+      const { rows, eventTimes } = tasksAndEventTimes(read);
+      return withAssignees(rows, assigned as AssigneeRow[], eventTimes);
     }).pipe(Effect.withSpan("cire.tasks.list"));
   },
 

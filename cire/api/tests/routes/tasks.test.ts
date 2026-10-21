@@ -9,7 +9,7 @@ import { createApp } from "../../src/app";
 import { createDb, DEV_OWNER_SEAT_ID, seedDb } from "../../src/db/setup";
 import { CHECKLIST_TEMPLATES } from "../../src/lib/checklist-templates";
 import { CIRE_METRICS } from "../../src/metrics";
-import { appRequest, failStatements, jsonBody, setTier } from "../test-helpers";
+import { appRequest, failStatements, jsonBody, recordStatements, setTier } from "../test-helpers";
 import { counterValue } from "../test-helpers/metrics-harness";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
@@ -907,6 +907,27 @@ describe("a task's run time", () => {
     expect((await counted("clock", "out_of_range")) - before).toBe(3);
   });
 
+  it("takes an offset and a clock time exactly a day either side of the event's start", async () => {
+    const { db, app } = build();
+    const id = await newTask(app);
+    const cases = [
+      [{ kind: "offset", offsetMinutes: -1440 }, "2099-06-19T15:00:00+10:00", -1440],
+      [{ kind: "offset", offsetMinutes: 1440 }, "2099-06-21T15:00:00+10:00", 1440],
+      [{ kind: "clock", at: "2099-06-21T15:00" }, "2099-06-21T15:00:00+10:00", 1440],
+      [{ kind: "clock", at: "2099-06-19T15:00" }, "2099-06-19T15:00:00+10:00", -1440],
+    ] as const;
+    for (const [runTime, runAt, runOffsetMinutes] of cases) {
+      const res = await patch(app, id, { runTime: { ...runTime, eventId: CEREMONY } });
+      expect(res.status, JSON.stringify(runTime)).toBe(200);
+      expect(((await res.json()) as { task: TimedTask }).task).toMatchObject({
+        runAt,
+        runOffsetMinutes,
+        anchored: true,
+      });
+      expect(stored(db, id)?.runOffsetMinutes).toBe(runOffsetMinutes);
+    }
+  });
+
   // ── Writes ────────────────────────────────────────────────────────────────
 
   it("stamps a fixed time with its own zone's offset for that date, ignoring any offset sent", async () => {
@@ -1100,6 +1121,31 @@ describe("a task's run time", () => {
       runTimezone: "Asia/Kolkata",
       anchored: true,
     });
+  });
+
+  it("reads each answer's linked events in the statement that reads its tasks", async () => {
+    const { db, app } = build();
+    const id = await newTask(app);
+    await patch(app, id, { runTime: { kind: "offset", eventId: CEREMONY, offsetMinutes: -30 } });
+    const recorded = recordStatements(db);
+    expect((await req(app, "GET", base, VIEWER)).status).toBe(200);
+    expect((await req(app, "PUT", `${base}/${id}/assignees/whost_helper`, EDITOR)).status).toBe(
+      200,
+    );
+    expect((await req(app, "DELETE", `${base}/${id}/assignees/whost_helper`, EDITOR)).status).toBe(
+      200,
+    );
+    const key = CHECKLIST_TEMPLATES.starter[0]!.key;
+    expect(
+      (await req(app, "POST", `${base}/templates/starter`, EDITOR, { items: [key] })).status,
+    ).toBe(200);
+    const sqls = recorded.map((r) => r.sql.toLowerCase());
+    // The list, both holder writes and the starter each read their tasks with
+    // the events they link to, and never the events on their own.
+    expect(
+      sqls.filter((q) => q.startsWith("select") && q.includes('left join "events"')),
+    ).toHaveLength(4);
+    expect(sqls.filter((q) => /^select .* from "events"/.test(q))).toEqual([]);
   });
 
   it("reads a link no writer leaves, to another wedding's event, as untimed", async () => {

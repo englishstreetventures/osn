@@ -17,8 +17,8 @@
  * A task is listed when it has a time — a fixed one, or a link to an event —
  * or sits in the `day_of` bucket.
  */
-import { events, tasks, weddingHosts } from "@cire/db";
-import { and, asc, eq, isNotNull, or } from "drizzle-orm";
+import { events, taskAssignees, tasks, weddingHosts } from "@cire/db";
+import { and, asc, eq, inArray, isNotNull, or } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { commitBatchResults, DbService, dbQuery } from "../db";
@@ -46,11 +46,15 @@ export interface RunSheetRead {
 
 export const runSheetService = {
   /**
-   * One batch of four reads — the listed tasks, the wedding's holders, its
-   * events and its seats — then the narrowing, the derived times and the
-   * order, in the Worker. A database failure is logged with the wedding and
-   * the scope alone: a task's text, a person and an event's address never
-   * reach a log.
+   * One batch of four reads — the listed tasks, their holders, the events and
+   * the seats — then the narrowing, the derived times and the order, in the
+   * Worker. For `own` each read already keeps to the reader's tasks (the
+   * tasks they hold, those tasks' holders and events, the seats holding
+   * them), so a helper's read does not grow with the rest of the wedding; the
+   * Worker's narrowing below still decides what is answered. The tasks are
+   * read unsorted: `orderRunSheet` puts the whole day in order. A database
+   * failure is logged with the wedding and the scope alone: a task's text, a
+   * person and an event's address never reach a log.
    */
   read(input: {
     weddingId: string;
@@ -60,6 +64,16 @@ export const runSheetService = {
     const { weddingId, scope, viewerHostId } = input;
     return Effect.gen(function* () {
       const db = yield* DbService;
+      const own = scope === "own";
+      // `own` only: the tasks the reader's seat holds, as a subquery each read
+      // narrows by (`task_assignees_host_wedding_idx`).
+      const held = () =>
+        db
+          .select({ taskId: taskAssignees.taskId })
+          .from(taskAssignees)
+          .where(
+            and(eq(taskAssignees.hostId, viewerHostId), eq(taskAssignees.weddingId, weddingId)),
+          );
       const [taskRows, assigned, eventRows, seats] = yield* dbQuery(() =>
         commitBatchResults(db, [
           db
@@ -73,10 +87,10 @@ export const runSheetService = {
                   isNotNull(tasks.eventId),
                   eq(tasks.timeframeBucket, "day_of"),
                 ),
+                own ? inArray(tasks.id, held()) : undefined,
               ),
-            )
-            .orderBy(asc(tasks.sortOrder), asc(tasks.id)),
-          weddingAssignees(db, weddingId),
+            ),
+          weddingAssignees(db, weddingId, own ? viewerHostId : undefined),
           db
             .select({
               id: events.id,
@@ -90,11 +104,42 @@ export const runSheetService = {
               runOfShow: runOfShowColumn,
             })
             .from(events)
-            .where(eq(events.weddingId, weddingId)),
+            .where(
+              and(
+                eq(events.weddingId, weddingId),
+                own
+                  ? inArray(
+                      events.id,
+                      db
+                        .select({ eventId: tasks.eventId })
+                        .from(tasks)
+                        .where(and(eq(tasks.weddingId, weddingId), inArray(tasks.id, held()))),
+                    )
+                  : undefined,
+              ),
+            ),
           db
             .select({ hostId: weddingHosts.id, osnProfileId: weddingHosts.osnProfileId })
             .from(weddingHosts)
-            .where(eq(weddingHosts.weddingId, weddingId))
+            .where(
+              and(
+                eq(weddingHosts.weddingId, weddingId),
+                own
+                  ? inArray(
+                      weddingHosts.id,
+                      db
+                        .select({ hostId: taskAssignees.hostId })
+                        .from(taskAssignees)
+                        .where(
+                          and(
+                            eq(taskAssignees.weddingId, weddingId),
+                            inArray(taskAssignees.taskId, held()),
+                          ),
+                        ),
+                    )
+                  : undefined,
+              ),
+            )
             .orderBy(asc(weddingHosts.createdAt), asc(weddingHosts.id)),
         ]),
       );
