@@ -290,7 +290,7 @@ describe("who may give", () => {
   // A key with no Connect webhook secret could open a payment page, but nothing
   // would ever record the gift: the guest pays and the couple's log shows it
   // pending for good. So the route does not exist, and Stripe is never asked.
-  // A secret of nothing but spaces is no secret: no signature could match it.
+  // A secret of nothing but spaces counts as unset: anyone could sign with it.
   for (const [label, webhookSecret] of [
     ["has no Connect webhook secret", null],
     ["has a blank Connect webhook secret", "  "],

@@ -161,8 +161,8 @@ export const DEV_LOGIN_SECRET = "e2e-dev-login-secret-not-a-real-secret";
 /**
  * The organiser weddings cire-api adds when the stack sets
  * `CIRE_E2E_ORGANISER=1` (`seedE2eOrganiser` in `cire/api/src/db/setup.ts`,
- * which these values copy). All five are on Gold; `profileId`, the profile
- * osn-api's `/dev/login` signs in as, owns four and is a helper on
+ * which these values copy). All six are on Gold; `profileId`, the profile
+ * osn-api's `/dev/login` signs in as, owns five and is a helper on
  * `runSheetHelper`. The co-hosts are bare
  * profile ids: the local cire-api resolves no names, so the portal shows the
  * ids, and a flow finds each person by theirs.
@@ -232,6 +232,15 @@ export const CIRE_ORGANISER = {
     speeches: { id: "evt_e2e_rsh_speeches", name: "Speeches", runOfShow: "Best man" },
     programmes: { id: "tsk_e2e_rsh_programmes", title: "Hand out programmes" },
     cue: { id: "tsk_e2e_rsh_cue", title: "Cue the speeches" },
+  },
+  /**
+   * Money gifts on and a Stripe account that can charge, one cash fund and
+   * nothing to reserve, unpublished — on a stack whose cire-api cannot take a
+   * money gift (a Stripe key and no webhook secret).
+   */
+  money: {
+    weddingId: "wed_e2e_money",
+    fundTitle: "Honeymoon fund",
   },
 } as const;
 

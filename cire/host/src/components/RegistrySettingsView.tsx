@@ -48,9 +48,9 @@ import SectionIntro from "./SectionIntro";
  * (`takesPayments` on the snapshot). Where it does not, the panel says so, the
  * switch cannot be turned on, and a fund does not count towards publishing.
  * Connecting the account still works, since a site can hold the key before
- * the webhook. A switch already saved on can still be turned off: the
- * wedding's currency stays locked while it is on, and the Settings tab sends
- * the couple here to turn it off.
+ * the webhook. While Stripe can charge, a switch already saved on can still be
+ * turned off: the wedding's currency stays locked while it is on, and the
+ * wedding Settings panel sends the couple here to turn it off.
  */
 
 interface RegistrySettingsViewProps {
