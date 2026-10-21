@@ -23,9 +23,27 @@ export interface TaskRow {
   assigneeHostIds: string[];
 }
 
+/**
+ * A task as either API release sends it. The API before holders names one
+ * `assignedHostId` and no `assigneeHostIds`, and a release can put this portal
+ * in front of it, so every answer the portal reads goes through
+ * {@link readTaskRow}.
+ */
+export type TaskWire = Omit<TaskRow, "assigneeHostIds"> & {
+  assigneeHostIds?: string[];
+  assignedHostId?: string | null;
+};
+
+/** A task as the portal keeps it, from either shape: its `assigneeHostIds`,
+ *  else the one `assignedHostId` as its only holder, else nobody. */
+export function readTaskRow(task: TaskWire): TaskRow {
+  const { assignedHostId, assigneeHostIds, ...rest } = task;
+  return { ...rest, assigneeHostIds: assigneeHostIds ?? (assignedHostId ? [assignedHostId] : []) };
+}
+
 /** `GET …/tasks` as the API answers it. */
 export interface TaskList {
-  tasks: TaskRow[];
+  tasks: TaskWire[];
   /** The caller's own seat on the wedding. Absent from an API older than it. */
   viewerHostId?: string | null;
 }
@@ -56,13 +74,14 @@ export function tasksAccessor(weddingId: string): Accessor<TaskRow[] | null> {
 
 /**
  * Take a `GET …/tasks` answer apart: keep the caller's own seat id, which the
- * checklist puts first among a task's holders, and hand back the rows for the
- * loader to return. Every reader of the list goes through here, so the seat is
- * known whichever module read the tasks first.
+ * checklist puts first among a task's holders, and hand back the rows, read
+ * through {@link readTaskRow}, for the loader to return. Every reader of the
+ * list goes through here, so the seat is known whichever module read the tasks
+ * first.
  */
 export function readTaskList(weddingId: string, list: TaskList): TaskRow[] {
   if (!isWeddingClosed(weddingId)) entryFor(weddingId).setViewerHostId(list.viewerHostId ?? null);
-  return list.tasks;
+  return list.tasks.map(readTaskRow);
 }
 
 /** The caller's own seat on the wedding, as the last task read named it;

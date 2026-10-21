@@ -383,6 +383,95 @@ describe("who holds a task", () => {
   });
 });
 
+describe("a checklist from the API before holders", () => {
+  // That API names a task's one assignee as `assignedHostId` and sends no
+  // `assigneeHostIds`, and a release can put this portal in front of it.
+  const oldRow = (over: Partial<TaskRow>, assignedHostId: string | null = null) => {
+    const task: Partial<TaskRow> & { assignedHostId: string | null } = {
+      ...row(over),
+      assignedHostId,
+    };
+    delete task.assigneeHostIds;
+    return task;
+  };
+
+  it("shows a list that names no holders, and asks for nobody's names", async () => {
+    api({ tasks: () => json({ tasks: [oldRow({ id: "a", title: "Book venue" })] }) });
+    render(() => <ChecklistView weddingId="wed_1" canEdit={false} />);
+
+    await screen.findByText("Book venue");
+    expect(
+      within(rowOf("Book venue")).getByRole("img", { name: "Nobody assigned yet" }),
+    ).toBeVisible();
+    expect(calls("/hosts")).toHaveLength(0);
+  });
+
+  it("shows the one assignee that API names as the task's holder", async () => {
+    api({
+      hosts: hostsAnswer([SAM, JO]),
+      tasks: () =>
+        json({
+          tasks: [
+            oldRow({ id: "a", title: "Book venue" }, "whost_jo"),
+            oldRow({ id: "b", title: "Carry the rings", sortOrder: 1 }),
+          ],
+        }),
+    });
+    render(() => <ChecklistView weddingId="wed_1" canEdit={false} />);
+
+    await waitFor(() => expect(heldBy("Book venue")).toBe("Held by @jo"));
+    expect(faces("Book venue")).toEqual(["whost_jo"]);
+    expect(heldBy("Carry the rings")).toBeNull();
+  });
+
+  it("adds a task that API answers with, held by nobody", async () => {
+    setCachedTasks("wed_1", [row({ id: "a", title: "Book venue" })]);
+    api({
+      tasks: () => json({ task: oldRow({ id: "b", title: "Send invites", sortOrder: 1 }) }, 201),
+    });
+    render(() => <ChecklistView weddingId="wed_1" canEdit={true} />);
+    await screen.findByText("Book venue");
+
+    fireEvent.input(screen.getByPlaceholderText("Book the venue"), {
+      target: { value: "Send invites" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /add task/i }));
+
+    expect(await screen.findByText("Send invites")).toBeInTheDocument();
+    expect(assignButton("Send invites").querySelectorAll("[data-holder]")).toHaveLength(0);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(calls("/tasks")).toHaveLength(0);
+  });
+
+  it("ticks off a task that API answers with, and keeps its holder", async () => {
+    setCachedTasks("wed_1", [row({ id: "a", title: "Book venue", assigneeHostIds: ["whost_jo"] })]);
+    authFetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      const path = new URL(url, "https://api.test").pathname;
+      if (path.endsWith("/hosts")) return hostsAnswer([SAM, JO])();
+      if (path.endsWith("/tasks/a") && init?.method === "PATCH") {
+        // Renamed elsewhere meanwhile, so the row shows when the answer lands.
+        return json({
+          task: oldRow(
+            { id: "a", title: "Book the venue", status: "done", completedAt: 2 },
+            "whost_jo",
+          ),
+        });
+      }
+      throw new Error(`unexpected ${init?.method ?? "GET"} ${path}`);
+    });
+    render(() => <ChecklistView weddingId="wed_1" canEdit={true} />);
+    await waitFor(() => expect(heldBy("Book venue")).toBe("Held by @jo"));
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Book venue" }));
+
+    expect(await screen.findByRole("checkbox", { name: "Book the venue" })).toBeChecked();
+    expect(heldBy("Book the venue")).toBe("Held by @jo");
+    // Taken as the answer: nothing said, and the list not read again.
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(calls("/tasks")).toHaveLength(0);
+  });
+});
+
 describe("a holder's face", () => {
   const silhouette = (el: HTMLElement) => el.querySelector("[data-blank-avatar]");
 

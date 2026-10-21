@@ -33,9 +33,11 @@ import {
   invalidateTasks,
   peekCachedTasks,
   readTaskList,
+  readTaskRow,
   setCachedTasks,
   type TaskList,
   type TaskRow,
+  type TaskWire,
   tasksAccessor,
   viewerHostIdOf,
 } from "../lib/tasks-store";
@@ -243,7 +245,7 @@ export default function ChecklistView(props: ChecklistViewProps) {
       });
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error(`create ${res.status}`);
-      const { task } = (await res.json()) as { task: TaskRow };
+      const task = readTaskRow(((await res.json()) as { task: TaskWire }).task);
       // No list to add it to: load one, which will carry the new task.
       if (!patchTasks((rows) => [...rows, task])) void reload();
       haptic("commit");
@@ -272,7 +274,7 @@ export default function ChecklistView(props: ChecklistViewProps) {
       );
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error(`patch ${res.status}`);
-      const { task: updated } = (await res.json()) as { task: TaskRow };
+      const updated = readTaskRow(((await res.json()) as { task: TaskWire }).task);
       patchTasks((rows) => rows.map((t) => (t.id === updated.id ? updated : t)));
     } catch {
       // The optimistic tick is about to be taken back — say so.

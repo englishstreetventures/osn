@@ -370,6 +370,36 @@ describe("the starter with a wedding date", () => {
     expect(hasCachedTasks("wed_1")).toBe(true);
   });
 
+  it("shows the applied tasks from an API that names no holders on them", async () => {
+    // The API before holders names a task's one assignee as `assignedHostId`
+    // and sends no `assigneeHostIds`; a release can put this portal in front of it.
+    setCachedTasks("wed_1", []);
+    authFetchMock.mockResolvedValueOnce(preview("2027-06-05", ITEMS));
+    const applied: Partial<TaskRow> & { assignedHostId: null } = {
+      ...task({
+        id: "tsk_inv",
+        title: "Send your invitations",
+        timeframeBucket: "3m",
+        dueAt: "2027-03-07",
+      }),
+      assignedHostId: null,
+    };
+    delete applied.assigneeHostIds;
+    authFetchMock.mockResolvedValueOnce(json({ added: 1, tasks: [applied] }));
+    renderChecklist();
+    const dialog = await openPreview();
+    fireEvent.click(await dialog.findByRole("button", { name: "Add 2 tasks" }));
+
+    const three = await screen.findByTestId("tasks-3m");
+    expect(within(three).getByText("Send your invitations")).toBeInTheDocument();
+    expect(
+      screen
+        .getByRole("button", { name: "Assign people to Send your invitations" })
+        .querySelectorAll("[data-holder]"),
+    ).toHaveLength(0);
+    await waitFor(() => expect(dialogNamed()).toBeNull());
+  });
+
   it("starts a reopened preview from nothing ticked, so a pick from before cannot be sent", async () => {
     setCachedTasks("wed_1", []);
     authFetchMock.mockResolvedValueOnce(preview("2027-06-05", ITEMS));
