@@ -281,17 +281,26 @@ owners, each with an `owner` seat. Two consequences:
   `UPDATE unlock_code_redemptions SET redeemed_by_osn_profile_id = NULL WHERE redeemed_by_osn_profile_id = ?`.
   The row stays, so the code's use and the wedding's tier keep their record; it
   goes with the wedding when the purge deletes it ([[retention]]).
-- **Checklist assignments (migration 0087).** `tasks.assigned_host_id` names
-  the `wedding_hosts` seat holding a task, so which tasks an organiser holds is
-  part of their cire data. An access request finds them through the
-  requester's seats:
-  `SELECT t.wedding_id, t.title, t.status FROM tasks t JOIN wedding_hosts h ON h.id = t.assigned_host_id WHERE h.osn_profile_id = ?`.
-  Removing the seat — an erasure, an owner removing them, or their own leave —
-  clears every assignment through the foreign key (ON DELETE SET NULL) and
-  keeps the tasks, which are the wedding's planning record, so no separate
-  step is needed. An OSN account deletion does not reach the seat, so its
-  assignments stay with it, the same orphan as `wedding_hosts` below. See
-  [[cire-checklist-tasks#Assignee]].
+- **Checklist assignments (migration 0091).** Each `task_assignees` row names
+  a `wedding_hosts` seat holding a task and when it was put on it, so which
+  tasks an organiser holds is part of their cire data. An access request finds
+  them through the requester's seats:
+  `SELECT a.wedding_id, t.title, t.status, a.assigned_at FROM task_assignees a JOIN wedding_hosts h ON h.id = a.host_id AND h.wedding_id = a.wedding_id JOIN tasks t ON t.id = a.task_id WHERE h.osn_profile_id = ?`.
+  The other seats on the same tasks are their co-holders, other people's data
+  (Art. 15(4)), so the export leaves them out. Removing the seat — an erasure,
+  an owner removing them, or their own leave — deletes every one of its rows
+  through the foreign key (ON DELETE CASCADE) and keeps the tasks, which are the
+  wedding's planning record, with their other holders, so no separate step is
+  needed. An OSN account deletion does not reach the seat, so its assignments
+  stay with it, the same orphan as `wedding_hosts` below. Until the first
+  cire-api release after the one shipping 0091 reaches production drops it
+  (englishstreetventures/osn#1636), `tasks.assigned_host_id` (migration 0087)
+  also holds, per task, the seat that held it when 0091 copied it onto
+  `task_assignees`, read and written only by the Worker before 0091 if it
+  serves again; an access request reads it too,
+  `SELECT t.wedding_id, t.title FROM tasks t JOIN wedding_hosts h ON h.id = t.assigned_host_id WHERE h.osn_profile_id = ?`,
+  and removing the seat clears it (ON DELETE SET NULL). See
+  [[cire-checklist-tasks#Assignees]].
 
 **Cross-DB deletion orphan — decision: orphan-tolerance (for now).** Nothing
 fans OSN-account deletion out into cire. `DELETE /account` and

@@ -19,6 +19,8 @@ export { DIETARY_CONSENT_VERSION, ORGANISER_DIETARY_CONSENT_VERSION, rsvps } fro
 export type { SeedRsvp } from "./rsvps";
 export { seatingTables, seats } from "./seating";
 export type { SeedSeat, SeedSeatingTable } from "./seating";
+export { taskAssignees } from "./task-assignees";
+export type { SeedTaskAssignee } from "./task-assignees";
 export { tasks } from "./tasks";
 export type { SeedTask } from "./tasks";
 export { bootstrapWedding, DEV_OWNER_PROFILE_ID, DEV_OWNER_SEAT_ID } from "./wedding";

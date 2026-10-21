@@ -9,7 +9,7 @@ import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api"
 import { TIMEFRAME_BUCKETS } from "../lib/checklist-buckets";
 import { haptic } from "../lib/haptics";
 import { toLocalDateKey } from "../lib/overview-agenda";
-import { setFreshTasks, type TaskRow } from "../lib/tasks-store";
+import { readTaskRow, setFreshTasks, type TaskWire } from "../lib/tasks-store";
 
 /** One template item as `GET …/tasks/templates/:id` previews it. */
 interface PreviewItem {
@@ -125,9 +125,9 @@ export default function ChecklistStarter(props: ChecklistStarterProps) {
       });
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error(`apply ${res.status}`);
-      const { added, tasks } = (await res.json()) as { added: number; tasks: TaskRow[] };
+      const { added, tasks } = (await res.json()) as { added: number; tasks: TaskWire[] };
       // The answer is the whole checklist after the apply, so it is the list.
-      setFreshTasks(props.weddingId, tasks);
+      setFreshTasks(props.weddingId, tasks.map(readTaskRow));
       haptic("commit");
       toast.success(
         added === 0

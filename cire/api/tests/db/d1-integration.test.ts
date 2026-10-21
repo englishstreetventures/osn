@@ -21,6 +21,7 @@ import {
   rsvps,
   seatingAssignments,
   seatingTables,
+  taskAssignees,
   taskTemplateDismissals,
   tasks,
   unlockCodeRedemptions,
@@ -50,7 +51,7 @@ import {
   runInD1Session,
   withD1Session,
 } from "../../src/db/d1-session";
-import { commitBatch, createD1Db, DbService } from "../../src/db/index";
+import { commitBatch, createD1Db, DbService, driverErrorText } from "../../src/db/index";
 import type { Db } from "../../src/db/index";
 import { DDL } from "../../src/db/setup";
 import { CHECKLIST_TEMPLATES } from "../../src/lib/checklist-templates";
@@ -148,6 +149,8 @@ const MIGRATION_0063 = "0063_invite_section_visibility.sql";
 const MIGRATION_0065 = "0065_invite_sections_switched_on.sql";
 const MIGRATION_0073 = "0073_wedding_tiers.sql";
 const MIGRATION_0076 = "0076_wedding_owners.sql";
+// A live migration, read from MIGRATIONS_DIR.
+const MIGRATION_0091 = "0091_task_assignees.sql";
 
 /**
  * A migration file as the statements wrangler would send: split on drizzle's
@@ -356,6 +359,7 @@ beforeEach(async () => {
     families,
     events,
     taskTemplateDismissals,
+    taskAssignees,
     tasks,
     registrySettings,
     weddingFaqs,
@@ -984,18 +988,26 @@ describe("cire/api over real D1 (Miniflare)", () => {
   );
 
   it(
-    "a task's assignee is a seat of its wedding, and goes when the seat does, over D1",
+    "a task's holders are seats of its wedding, and go when the seat or the task does, over D1",
     async () => {
-      // The statements only D1 can judge: the assign UPDATE, guarded by EXISTS
-      // on a seat of the same wedding, with the task read that names a
-      // refusal, and the FK's ON DELETE SET NULL firing from the seat delete in
-      // hostsService.remove's batch.
+      // The statements only D1 can judge: the guarded INSERT … SELECT and the
+      // DELETE, each batched with the reads that name the answer; the composite
+      // foreign keys that refuse a task and a seat of different weddings; and
+      // both cascades, from the seat delete in hostsService.remove's batch and
+      // from the task delete.
       const now = new Date();
-      await db.insert(weddingHosts).values({
-        ...ownerSeat(BOOTSTRAP_WEDDING_ID, "usr_helper", now),
-        id: "whost_d1_helper",
-        role: "helper",
-      });
+      await db.insert(weddingHosts).values([
+        {
+          ...ownerSeat(BOOTSTRAP_WEDDING_ID, "usr_helper", now),
+          id: "whost_d1_helper",
+          role: "helper",
+        },
+        {
+          ...ownerSeat(BOOTSTRAP_WEDDING_ID, "usr_viewer", now),
+          id: "whost_d1_viewer",
+          role: "viewer",
+        },
+      ]);
       await db.insert(weddings).values({
         id: "wed_d1_other",
         slug: "other",
@@ -1006,53 +1018,83 @@ describe("cire/api over real D1 (Miniflare)", () => {
       await db
         .insert(weddingHosts)
         .values({ ...ownerSeat("wed_d1_other", "usr_other", now), id: "whost_d1_other" });
-      const task = await run(
-        tasksService.create({
-          weddingId: BOOTSTRAP_WEDDING_ID,
-          title: "Carry the rings",
-          timeframeBucket: "day_of",
-          notes: null,
-          dueAt: null,
-        }),
-      );
+      const newTask = (title: string) =>
+        run(
+          tasksService.create({
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            title,
+            timeframeBucket: "day_of",
+            notes: null,
+            dueAt: null,
+          }),
+        );
+      const task = await newTask("Carry the rings");
+      const doomed = await newTask("Mind the cake");
 
-      const assigned = await run(
-        tasksService.assign(BOOTSTRAP_WEDDING_ID, task.id, "whost_d1_helper"),
+      const add = (weddingId: string, taskId: string, hostId: string) =>
+        run(tasksService.addAssignee(weddingId, taskId, hostId));
+      expect((await add(BOOTSTRAP_WEDDING_ID, task.id, "whost_d1_helper")).assigneeHostIds).toEqual(
+        ["whost_d1_helper"],
       );
-      expect(assigned.assignedHostId).toBe("whost_d1_helper");
+      expect((await add(BOOTSTRAP_WEDDING_ID, task.id, "whost_d1_viewer")).assigneeHostIds).toEqual(
+        ["whost_d1_helper", "whost_d1_viewer"],
+      );
+      // Already there: unchanged, still one row.
+      expect((await add(BOOTSTRAP_WEDDING_ID, task.id, "whost_d1_helper")).assigneeHostIds).toEqual(
+        ["whost_d1_helper", "whost_d1_viewer"],
+      );
+      await add(BOOTSTRAP_WEDDING_ID, doomed.id, "whost_d1_viewer");
 
-      const foreignSeat = await Effect.runPromiseExit(
-        tasksService
-          .assign(BOOTSTRAP_WEDDING_ID, task.id, "whost_d1_other")
-          .pipe(Effect.provideService(DbService, db)),
-      );
-      expect(Exit.isFailure(foreignSeat) && Cause.squash(foreignSeat.cause)).toMatchObject({
-        _tag: "HostNotInWedding",
-      });
-      const foreignTask = await Effect.runPromiseExit(
-        tasksService
-          .assign("wed_d1_other", task.id, "whost_d1_other")
-          .pipe(Effect.provideService(DbService, db)),
-      );
-      expect(Exit.isFailure(foreignTask) && Cause.squash(foreignTask.cause)).toMatchObject({
-        _tag: "TaskNotInWedding",
-      });
-      const stored = async () =>
+      const refusal = async (eff: Effect.Effect<unknown, unknown, DbService>) => {
+        const exit = await Effect.runPromiseExit(eff.pipe(Effect.provideService(DbService, db)));
+        return Exit.isFailure(exit) ? Cause.squash(exit.cause) : undefined;
+      };
+      expect(
+        await refusal(tasksService.addAssignee(BOOTSTRAP_WEDDING_ID, task.id, "whost_d1_other")),
+      ).toMatchObject({ _tag: "HostNotInWedding" });
+      expect(
+        await refusal(tasksService.addAssignee("wed_d1_other", task.id, "whost_d1_other")),
+      ).toMatchObject({ _tag: "TaskNotInWedding" });
+      expect(
+        await refusal(tasksService.removeAssignee("wed_d1_other", task.id, "whost_d1_helper")),
+      ).toMatchObject({ _tag: "TaskNotInWedding" });
+
+      // Past the service, the database itself refuses a row that pairs this
+      // wedding's task with another wedding's seat, whichever wedding it names.
+      for (const weddingId of [BOOTSTRAP_WEDDING_ID, "wed_d1_other"]) {
+        const written = await db
+          .insert(taskAssignees)
+          .values({ taskId: task.id, hostId: "whost_d1_other", weddingId, assignedAt: now })
+          .then(
+            () => "written",
+            (error: unknown) => driverErrorText(error),
+          );
+        expect(written, weddingId).toMatch(/FOREIGN KEY constraint failed/);
+      }
+
+      const stored = async (taskId: string) =>
         (
           await db
-            .select({ assignedHostId: tasks.assignedHostId })
-            .from(tasks)
-            .where(eq(tasks.id, task.id))
-        )[0]?.assignedHostId;
-      expect(await stored()).toBe("whost_d1_helper");
+            .select({ hostId: taskAssignees.hostId })
+            .from(taskAssignees)
+            .where(eq(taskAssignees.taskId, taskId))
+            .orderBy(asc(taskAssignees.assignedAt), asc(sql`rowid`))
+        ).map((r) => r.hostId);
+      expect(await stored(task.id)).toEqual(["whost_d1_helper", "whost_d1_viewer"]);
 
       await run(
         hostsService.remove({ weddingId: BOOTSTRAP_WEDDING_ID, osnProfileId: "usr_helper" }),
       );
-      expect(await stored()).toBeNull();
+      expect(await stored(task.id)).toEqual(["whost_d1_viewer"]);
 
-      const unassigned = await run(tasksService.assign(BOOTSTRAP_WEDDING_ID, task.id, null));
-      expect(unassigned.assignedHostId).toBeNull();
+      const removed = await run(
+        tasksService.removeAssignee(BOOTSTRAP_WEDDING_ID, task.id, "whost_d1_viewer"),
+      );
+      expect(removed.assigneeHostIds).toEqual([]);
+      expect(await stored(task.id)).toEqual([]);
+
+      await run(tasksService.remove(BOOTSTRAP_WEDDING_ID, doomed.id));
+      expect(await stored(doomed.id)).toEqual([]);
     },
     MF_TIMEOUT_MS,
   );
@@ -3645,6 +3687,83 @@ describe("cire/api over real D1 (Miniflare)", () => {
   );
 
   it(
+    "runs migration 0091 on D1's own SQLite: each assignee becomes a holder, the old column kept",
+    async () => {
+      // Its own instance, holding the live chain up to 0090 with tasks that
+      // 0087's single assignee already holds, so the copy runs over rows that
+      // exist before it. The live chain is one statement per chunk throughout.
+      const chainMf = new Miniflare({
+        modules: true,
+        script: "export default { fetch() { return new Response('ok'); } };",
+        d1Databases: { DB: ":memory:" },
+      });
+      try {
+        const chainD1 = (await chainMf.getD1Database("DB")) as unknown as D1Database;
+        const files = readdirSync(MIGRATIONS_DIR)
+          .filter((f) => f.endsWith(".sql"))
+          .toSorted();
+        const cut = files.indexOf(MIGRATION_0091);
+        expect(cut).toBeGreaterThan(0);
+        for (const file of files.slice(0, cut)) {
+          for (const stmt of migrationStatements(file, MIGRATIONS_DIR)) {
+            await chainD1.prepare(stmt).run();
+          }
+        }
+        // `tsk_stray` names the other wedding's seat, which 0087's key allowed.
+        for (const stmt of [
+          "INSERT INTO weddings (id, slug, display_name, created_at, updated_at) VALUES ('wed_h1', 'h1', 'H1', 1, 1), ('wed_h2', 'h2', 'H2', 1, 1)",
+          "INSERT INTO wedding_hosts (id, wedding_id, osn_profile_id, added_by_osn_profile_id, role, created_at) VALUES ('whost_h1_owner', 'wed_h1', 'usr_h1', 'usr_h1', 'owner', 1), ('whost_h1_ed', 'wed_h1', 'usr_ed', 'usr_h1', 'editor', 1), ('whost_h2_owner', 'wed_h2', 'usr_h2', 'usr_h2', 'owner', 1)",
+          "INSERT INTO tasks (id, wedding_id, title, timeframe_bucket, created_at, assigned_host_id) VALUES ('tsk_ed', 'wed_h1', 'Book the venue', '12m', 1, 'whost_h1_ed'), ('tsk_none', 'wed_h1', 'Send thanks', 'after', 1, NULL), ('tsk_stray', 'wed_h1', 'Order the cake', '3m', 1, 'whost_h2_owner'), ('tsk_h2', 'wed_h2', 'Pick the music', '6m', 1, 'whost_h2_owner')",
+        ]) {
+          await chainD1.prepare(stmt).run();
+        }
+        const tasksBefore = await chainD1.prepare("SELECT * FROM tasks ORDER BY id").all();
+
+        const before = Math.floor(Date.now() / 1000);
+        const statements = migrationStatements(MIGRATION_0091, MIGRATIONS_DIR);
+        expect(statements).toHaveLength(6);
+        for (const stmt of statements) await chainD1.prepare(stmt).run();
+
+        const holders = async () =>
+          (
+            await chainD1
+              .prepare(
+                "SELECT task_id, host_id, wedding_id, assigned_at FROM task_assignees ORDER BY task_id",
+              )
+              .all<{ task_id: string; host_id: string; wedding_id: string; assigned_at: number }>()
+          ).results;
+        const copied = await holders();
+        expect(copied.map((r) => [r.task_id, r.host_id, r.wedding_id])).toEqual([
+          ["tsk_ed", "whost_h1_ed", "wed_h1"],
+          ["tsk_h2", "whost_h2_owner", "wed_h2"],
+        ]);
+        for (const row of copied) {
+          expect(row.assigned_at).toBeGreaterThanOrEqual(before);
+          expect(row.assigned_at).toBeLessThan(before + 60);
+        }
+        // The Worker before 0091 still reads the column: every task, and every
+        // value in it, is as it was.
+        expect((await chainD1.prepare("SELECT * FROM tasks ORDER BY id").all()).results).toEqual(
+          tasksBefore.results,
+        );
+
+        // With foreign keys enforced, a removed seat takes its holder row and
+        // clears its old assignee, and the task stays.
+        await chainD1.prepare("DELETE FROM wedding_hosts WHERE id = 'whost_h1_ed'").run();
+        expect((await holders()).map((r) => r.task_id)).toEqual(["tsk_h2"]);
+        expect(
+          await chainD1
+            .prepare("SELECT id, assigned_host_id FROM tasks WHERE id = 'tsk_ed'")
+            .first<{ id: string; assigned_host_id: string | null }>(),
+        ).toEqual({ id: "tsk_ed", assigned_host_id: null });
+      } finally {
+        await chainMf.dispose();
+      }
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
     "guards the last owner and both seat ceilings over D1's batch path",
     async () => {
       // On D1 the role change and the removal each ride one atomic batch with
@@ -3751,6 +3870,79 @@ describe("cire/api over real D1 (Miniflare)", () => {
       expect(Exit.isFailure(overCap) && Cause.squash(overCap.cause)).toMatchObject({
         _tag: "HostConflict",
         reason: "host_cap_reached",
+      });
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "guards a helper's run-sheet scope on D1, and resets it over the role change's batch",
+    async () => {
+      // The scope write is one guarded UPDATE whose RETURNING is the answer,
+      // with a read of the seat after it only when it matched nothing, to name
+      // the refusal. The role change rides one batch with the seat read that
+      // names a refusal; bun:sqlite runs that batch one statement at a time.
+      // These are the results D1 hands back.
+      const storedScope = async (osnProfileId: string) =>
+        (
+          await db
+            .select({ scope: weddingHosts.runSheetScope })
+            .from(weddingHosts)
+            .where(eq(weddingHosts.osnProfileId, osnProfileId))
+        )[0]?.scope;
+      const scopeExit = (osnProfileId: string) =>
+        Effect.runPromiseExit(
+          hostsService
+            .setRunSheetScope({ weddingId: BOOTSTRAP_WEDDING_ID, osnProfileId, scope: "full" })
+            .pipe(Effect.provideService(DbService, db)),
+        );
+      const setRole = (role: "helper" | "viewer") =>
+        run(
+          hostsService.setRole({
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            osnProfileId: "usr_helper",
+            role,
+            actorOsnProfileId: "usr_test",
+          }),
+        );
+
+      await run(
+        hostsService.add({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          osnProfileId: "usr_helper",
+          addedByOsnProfileId: "usr_test",
+          role: "helper",
+        }),
+      );
+      expect(await storedScope("usr_helper")).toBe("own");
+
+      const widened = await run(
+        hostsService.setRunSheetScope({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          osnProfileId: "usr_helper",
+          scope: "full",
+        }),
+      );
+      expect(widened).toMatchObject({ role: "helper", runSheetScope: "full" });
+      expect(await storedScope("usr_helper")).toBe("full");
+
+      // helper → helper keeps it; any move away resets it, so coming back is own.
+      expect((await setRole("helper")).runSheetScope).toBe("full");
+      expect(await storedScope("usr_helper")).toBe("full");
+      await setRole("viewer");
+      expect(await storedScope("usr_helper")).toBe("own");
+      expect((await setRole("helper")).runSheetScope).toBe("own");
+
+      // The owner's seat exists and is no helper: refused, unchanged. A
+      // profile with no seat here is not found.
+      const owner = await scopeExit("usr_test");
+      expect(Exit.isFailure(owner) && Cause.squash(owner.cause)).toMatchObject({
+        _tag: "NotAHelper",
+      });
+      expect(await storedScope("usr_test")).toBe("own");
+      const ghost = await scopeExit("usr_ghost");
+      expect(Exit.isFailure(ghost) && Cause.squash(ghost.cause)).toMatchObject({
+        _tag: "HostNotFound",
       });
     },
     MF_TIMEOUT_MS,

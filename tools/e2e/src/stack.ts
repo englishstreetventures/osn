@@ -170,6 +170,8 @@ export function appSpecs(): AppSpec[] {
         // Keeps the client address a request sends, so the organiser's claim
         // (`claimFromOrganiserAddress`) spends its own limiter window.
         CIRE_E2E_CLIENT_ADDRESS: "1",
+        // Adds the organiser weddings (`CIRE_ORGANISER`) to cire-api's seed.
+        CIRE_E2E_ORGANISER: "1",
         // Guest site, organiser portal, vendor portal — the order `local.ts`
         // reads them in. The vendor portal is not in the stack; naming its
         // dev origin keeps cire-api from minting production vendor links.

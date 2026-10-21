@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, guests, tasks, weddingHosts } from "@cire/db";
-import { eq } from "drizzle-orm";
+import { BOOTSTRAP_WEDDING_ID, guests, taskAssignees, tasks, weddingHosts } from "@cire/db";
+import { eq, sql } from "drizzle-orm";
 
 import { createApp } from "../../src/app";
 import { createDb, DEV_OWNER_SEAT_ID, seedDb } from "../../src/db/setup";
@@ -128,6 +128,38 @@ describe("tasks routes", () => {
     expect((await req(buildApp(), "GET", base, STRANGER)).status).toBe(403);
   });
 
+  // Every task's holders are seat ids of the whole wedding; a helper may be
+  // scoped to its own rows, so the checklist read stays behind the member gate.
+  it("refuses the checklist to a helper, even one that holds a task", async () => {
+    const db = buildDb("gold");
+    const app = createApp(db, { osnTestKey: auth.key });
+    const created = await req(app, "POST", base, EDITOR, CREATE);
+    const { task } = (await created.json()) as { task: { id: string } };
+    expect(
+      (await req(app, "PUT", `${base}/${task.id}/assignees/whost_helper`, EDITOR)).status,
+    ).toBe(200);
+
+    const res = await req(app, "GET", base, HELPER);
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toEqual({ error: "forbidden" });
+  });
+
+  // The portal reads the checklist with the session cookie, and the seat it
+  // names as the reader's comes from that cookie's account.
+  it("reads the checklist on the session cookie, naming the caller's seat, and refuses a dead one", async () => {
+    const db = buildDb("gold");
+    const app = createApp(db, { osnTestKey: auth.key });
+    const read = (cookie: string) => appRequest(app, base, { headers: { cookie } });
+
+    const live = await read(`cire_org_session=${await seedOrganiserSession(db, VIEWER)}`);
+    expect(live.status).toBe(200);
+    expect(((await live.json()) as { viewerHostId: string }).viewerHostId).toBe("whost_viewer");
+    const dead = await read("cire_org_session=not-a-live-session-token");
+    expect(dead.status).toBe(401);
+    expect(await dead.json()).not.toHaveProperty("tasks");
+  });
+
   it("editor creates, lists, patches (done), and deletes", async () => {
     const app = buildApp();
     const created = await req(app, "POST", base, EDITOR, CREATE);
@@ -173,7 +205,8 @@ describe("the checklist is a Gold module", () => {
       ["POST", base, EDITOR, CREATE],
       ["PATCH", `${base}/reorder`, EDITOR, { order: [] }],
       ["PATCH", `${base}/tsk_x`, EDITOR, { title: "x" }],
-      ["PUT", `${base}/tsk_x/assignee`, EDITOR, { assignedHostId: null }],
+      ["PUT", `${base}/tsk_x/assignees/whost_helper`, EDITOR],
+      ["DELETE", `${base}/tsk_x/assignees/whost_helper`, EDITOR],
       ["DELETE", `${base}/tsk_x`, OWNER],
     ];
     for (const [method, path, caller, body] of calls) {
@@ -210,232 +243,369 @@ describe("the checklist is a Gold module", () => {
   });
 });
 
-type TaskBody = { task: { id: string; assignedHostId: string | null } };
+type TaskBody = { task: { id: string; assigneeHostIds: string[] } };
+type ListBody = { tasks: TaskBody["task"][]; viewerHostId: string };
 
-describe("assigning a task to a seat", () => {
-  const assignee = (taskId: string) => `${base}/${taskId}/assignee`;
+describe("the people holding a task", () => {
+  const seatPath = (taskId: string, seat: string) => `${base}/${taskId}/assignees/${seat}`;
 
   async function createTask(app: App, title = "Carry the rings"): Promise<string> {
     const res = await req(app, "POST", base, EDITOR, { title, timeframeBucket: "day_of" });
     expect(res.status).toBe(200);
     const { task } = (await res.json()) as TaskBody;
     // Nobody holds a task the couple has just typed.
-    expect(task.assignedHostId).toBeNull();
+    expect(task.assigneeHostIds).toEqual([]);
     return task.id;
   }
 
-  async function assigneeOf(app: App, taskId: string): Promise<string | null | undefined> {
+  async function holdersOf(app: App, taskId: string): Promise<string[] | undefined> {
     const res = await req(app, "GET", base, OWNER);
-    const { tasks: list } = (await res.json()) as { tasks: TaskBody["task"][] };
-    return list.find((t) => t.id === taskId)?.assignedHostId;
+    const { tasks: list } = (await res.json()) as ListBody;
+    return list.find((t) => t.id === taskId)?.assigneeHostIds;
   }
 
-  /** Set up an assignment the test goes on to depend on. */
-  async function assignTo(app: App, taskId: string, seat: string): Promise<void> {
-    const res = await req(app, "PUT", assignee(taskId), EDITOR, { assignedHostId: seat });
+  /** Add a seat the test goes on to depend on, and return the answer's holders. */
+  async function add(app: App, taskId: string, seat: string, who = EDITOR): Promise<string[]> {
+    const res = await req(app, "PUT", seatPath(taskId, seat), who);
     expect(res.status, seat).toBe(200);
+    return ((await res.json()) as TaskBody).task.assigneeHostIds;
   }
+
+  async function remove(app: App, taskId: string, seat: string, who = EDITOR): Promise<string[]> {
+    const res = await req(app, "DELETE", seatPath(taskId, seat), who);
+    expect(res.status, seat).toBe(200);
+    return ((await res.json()) as TaskBody).task.assigneeHostIds;
+  }
+
+  const rowsFor = (db: ReturnType<typeof buildDb>, taskId: string) =>
+    db
+      .select({ hostId: taskAssignees.hostId })
+      .from(taskAssignees)
+      .where(eq(taskAssignees.taskId, taskId))
+      .all()
+      .map((r) => r.hostId)
+      .toSorted();
 
   const counted = (action: string, result: string) =>
     counterValue(CIRE_METRICS.taskAssignmentChanged, { action, result });
 
-  it("assigns, reassigns and unassigns, and the list carries each answer", async () => {
-    const app = buildApp();
-    const id = await createTask(app);
-    const assignedBefore = await counted("assign", "ok");
-    const unassignedBefore = await counted("unassign", "ok");
+  // ── Refusals ──────────────────────────────────────────────────────────────
 
-    const toHelper = await req(app, "PUT", assignee(id), EDITOR, {
-      assignedHostId: "whost_helper",
-    });
-    expect(toHelper.status).toBe(200);
-    expect(((await toHelper.json()) as TaskBody).task).toMatchObject({
-      id,
-      assignedHostId: "whost_helper",
-    });
-    expect(await assigneeOf(app, id)).toBe("whost_helper");
-
-    const toViewer = await req(app, "PUT", assignee(id), OWNER, { assignedHostId: "whost_viewer" });
-    expect(((await toViewer.json()) as TaskBody).task.assignedHostId).toBe("whost_viewer");
-    expect(await assigneeOf(app, id)).toBe("whost_viewer");
-
-    const cleared = await req(app, "PUT", assignee(id), EDITOR, { assignedHostId: null });
-    expect(cleared.status).toBe(200);
-    expect(((await cleared.json()) as TaskBody).task.assignedHostId).toBeNull();
-    expect(await assigneeOf(app, id)).toBeNull();
-
-    expect((await counted("assign", "ok")) - assignedBefore).toBe(2);
-    expect((await counted("unassign", "ok")) - unassignedBefore).toBe(1);
-  });
-
-  it("assigns to any seat of the wedding, whatever its role", async () => {
-    const app = buildApp();
-    const id = await createTask(app);
-    for (const seat of [DEV_OWNER_SEAT_ID, "whost_editor", "whost_viewer", "whost_helper"]) {
-      const res = await req(app, "PUT", assignee(id), EDITOR, { assignedHostId: seat });
-      expect(res.status, seat).toBe(200);
-      expect(await assigneeOf(app, id), seat).toBe(seat);
-    }
-  });
-
-  it("422s a seat of another wedding, a guest id and an id that names nothing, and keeps the assignee", async () => {
+  it("422s a seat of another wedding, a guest id, a task id and an id that names nothing, and writes nothing", async () => {
     const db = buildDb("gold");
     const app = createApp(db, { osnTestKey: auth.key });
     const id = await createTask(app);
-    await assignTo(app, id, "whost_helper");
+    await add(app, id, "whost_helper");
     const guestId = db.select({ id: guests.id }).from(guests).limit(1).all()[0]!.id;
-    const before = await counted("assign", "assignee_not_in_wedding");
+    const before = await counted("add", "assignee_not_in_wedding");
 
-    for (const stranger of [OTHER_SEAT, guestId, "whost_nobody", id]) {
-      const res = await req(app, "PUT", assignee(id), EDITOR, { assignedHostId: stranger });
+    for (const stranger of [OTHER_SEAT, guestId, "whost_nobody", id, "w".repeat(64)]) {
+      const res = await req(app, "PUT", seatPath(id, stranger), EDITOR);
       expect(res.status, stranger).toBe(422);
       expect(await jsonBody(res)).toEqual({ error: "assignee_not_in_wedding" });
     }
-    expect(await assigneeOf(app, id)).toBe("whost_helper");
-    expect((await counted("assign", "assignee_not_in_wedding")) - before).toBe(4);
+    expect(await holdersOf(app, id)).toEqual(["whost_helper"]);
+    expect(rowsFor(db, id)).toEqual(["whost_helper"]);
+    expect((await counted("add", "assignee_not_in_wedding")) - before).toBe(5);
   });
 
-  it("400s a body that is not one seat id or null", async () => {
-    const app = buildApp();
+  it("400s a seat id past 64 characters, and routes no empty one, writing nothing", async () => {
+    const db = buildDb("gold");
+    const app = createApp(db, { osnTestKey: auth.key });
     const id = await createTask(app);
-    for (const body of [
-      {},
-      { assignedHostId: 7 },
-      { assignedHostId: "" },
-      { assignedHostId: "w".repeat(65) },
-      { assignedHostId: ["whost_helper"] },
-      "whost_helper",
-    ]) {
-      const res = await req(app, "PUT", assignee(id), EDITOR, body);
-      expect(res.status, JSON.stringify(body)).toBe(400);
+    await add(app, id, "whost_helper");
+    const overLong = "w".repeat(65);
+
+    for (const method of ["PUT", "DELETE"]) {
+      const res = await req(app, method, seatPath(id, overLong), EDITOR);
+      expect(res.status, method).toBe(400);
       expect(await jsonBody(res)).toEqual({ error: "Missing or invalid fields" });
+      // An empty seat id matches no route at all.
+      const empty = await req(app, method, seatPath(id, ""), EDITOR);
+      expect(empty.status, method).toBe(404);
     }
-    const garbled = await appRequest(app, assignee(id), {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${await auth.sign(EDITOR)}`,
-      },
-      body: "{not json",
-    });
-    expect(garbled.status).toBe(400);
-    expect(await assigneeOf(app, id)).toBeNull();
+    expect(rowsFor(db, id)).toEqual(["whost_helper"]);
   });
 
-  it("refuses a viewer, a helper, a stranger and no token, and changes nothing", async () => {
-    const app = buildApp();
+  it("404s a task of another wedding and a missing one, for adding and removing, and leaves the task alone", async () => {
+    const db = buildDb("gold");
+    const app = createApp(db, { osnTestKey: auth.key });
     const id = await createTask(app);
-    const body = { assignedHostId: "whost_helper" };
+    await add(app, id, "whost_viewer");
+    const addedBefore = await counted("add", "task_not_found");
+    const removedBefore = await counted("remove", "task_not_found");
 
-    const viewer = await req(app, "PUT", assignee(id), VIEWER, body);
-    expect(viewer.status).toBe(403);
-    expect(await jsonBody(viewer)).toMatchObject({ error: "read_only_role" });
-
-    for (const caller of [HELPER, STRANGER]) {
-      const res = await req(app, "PUT", assignee(id), caller, body);
-      expect(res.status, caller).toBe(403);
-      expect(await jsonBody(res), caller).toMatchObject({ error: "forbidden" });
+    // usr_bob owns wed_other: the task id is real, but not that wedding's —
+    // with a seat of wed_other, so only the task decides the answer.
+    const foreign = `/api/organiser/weddings/wed_other/tasks/${id}/assignees`;
+    for (const [method, path, caller] of [
+      ["PUT", `${foreign}/${OTHER_SEAT}`, "usr_bob"],
+      ["DELETE", `${foreign}/whost_viewer`, "usr_bob"],
+      ["PUT", seatPath("tsk_missing", "whost_helper"), EDITOR],
+      ["DELETE", seatPath("tsk_missing", "whost_helper"), EDITOR],
+    ] as const) {
+      const res = await req(app, method, path, caller);
+      expect(res.status, `${method} ${path}`).toBe(404);
+      expect(await jsonBody(res)).toEqual({ error: "task_not_found" });
     }
-    expect((await req(app, "PUT", assignee(id), undefined, body)).status).toBe(401);
-    expect(await assigneeOf(app, id)).toBeNull();
+    expect(rowsFor(db, id)).toEqual(["whost_viewer"]);
+    expect((await counted("add", "task_not_found")) - addedBefore).toBe(2);
+    expect((await counted("remove", "task_not_found")) - removedBefore).toBe(2);
   });
 
-  // The portal reaches this route with the organiser session cookie, so the
-  // cookie path has to hold for it, not only the bearer the tests above send.
+  it("refuses a viewer, a helper, a stranger and no token, adding or removing, and changes nothing", async () => {
+    const db = buildDb("gold");
+    const app = createApp(db, { osnTestKey: auth.key });
+    const id = await createTask(app);
+    await add(app, id, "whost_viewer");
+
+    for (const [method, seat] of [
+      ["PUT", "whost_helper"],
+      ["DELETE", "whost_viewer"],
+    ] as const) {
+      const viewer = await req(app, method, seatPath(id, seat), VIEWER);
+      expect(viewer.status, method).toBe(403);
+      expect(await jsonBody(viewer)).toMatchObject({ error: "read_only_role" });
+      for (const caller of [HELPER, STRANGER]) {
+        const res = await req(app, method, seatPath(id, seat), caller);
+        expect(res.status, `${method} ${caller}`).toBe(403);
+        expect(await jsonBody(res), caller).toMatchObject({ error: "forbidden" });
+      }
+      expect((await req(app, method, seatPath(id, seat), undefined)).status, method).toBe(401);
+    }
+    expect(rowsFor(db, id)).toEqual(["whost_viewer"]);
+  });
+
+  // The portal reaches these routes with the organiser session cookie, so the
+  // cookie path has to hold for them, not only the bearer the tests above send.
   it("accepts the session cookie, and refuses a dead one without writing", async () => {
     const db = buildDb("gold");
     const app = createApp(db, { osnTestKey: auth.key });
     const id = await createTask(app);
-    const put = (cookie: string, assignedHostId: string) =>
-      appRequest(app, assignee(id), {
-        method: "PUT",
-        headers: { "Content-Type": "application/json", cookie },
-        body: JSON.stringify({ assignedHostId }),
-      });
+    const send = (method: string, cookie: string, seat: string) =>
+      appRequest(app, seatPath(id, seat), { method, headers: { cookie } });
 
-    const token = await seedOrganiserSession(db, EDITOR);
-    const ok = await put(`cire_org_session=${token}`, "whost_helper");
-    expect(ok.status).toBe(200);
-    expect(await assigneeOf(app, id)).toBe("whost_helper");
-
-    const dead = await put("cire_org_session=not-a-live-session-token", "whost_viewer");
-    expect(dead.status).toBe(401);
-    expect(await assigneeOf(app, id)).toBe("whost_helper");
+    const live = `cire_org_session=${await seedOrganiserSession(db, EDITOR)}`;
+    const dead = "cire_org_session=not-a-live-session-token";
+    expect((await send("PUT", live, "whost_helper")).status).toBe(200);
+    expect((await send("PUT", dead, "whost_viewer")).status).toBe(401);
+    expect((await send("DELETE", dead, "whost_helper")).status).toBe(401);
+    expect(rowsFor(db, id)).toEqual(["whost_helper"]);
+    expect((await send("DELETE", live, "whost_helper")).status).toBe(200);
+    expect(rowsFor(db, id)).toEqual([]);
   });
 
-  // Only the assignee route checks that a seat is the wedding's, so no other
+  // Only the assignee routes check that a seat is the wedding's, so no other
   // task route may write one: creating or editing a task drops the field.
-  it("writes no assignee sent to the task create or edit route", async () => {
-    const app = buildApp();
+  it("writes no holder sent to the task create or edit route", async () => {
+    const db = buildDb("gold");
+    const app = createApp(db, { osnTestKey: auth.key });
     const id = await createTask(app);
+    await add(app, id, "whost_helper");
 
     const patched = await req(app, "PATCH", `${base}/${id}`, EDITOR, {
       title: "Carry both rings",
+      assigneeHostIds: [OTHER_SEAT],
       assignedHostId: OTHER_SEAT,
     });
     expect(patched.status).toBe(200);
-    expect(((await patched.json()) as TaskBody).task.assignedHostId).toBeNull();
-    expect(await assigneeOf(app, id)).toBeNull();
+    expect(((await patched.json()) as TaskBody).task.assigneeHostIds).toEqual(["whost_helper"]);
+    expect(rowsFor(db, id)).toEqual(["whost_helper"]);
 
     const created = await req(app, "POST", base, EDITOR, {
       title: "Mind the cake",
       timeframeBucket: "day_of",
+      assigneeHostIds: ["whost_helper"],
       assignedHostId: "whost_helper",
     });
     expect(created.status).toBe(200);
     const { task } = (await created.json()) as TaskBody;
-    expect(task.assignedHostId).toBeNull();
-    expect(await assigneeOf(app, task.id)).toBeNull();
-  });
+    expect(task.assigneeHostIds).toEqual([]);
+    expect(rowsFor(db, task.id)).toEqual([]);
 
-  it("404s a task of another wedding, and leaves that task alone", async () => {
-    const db = buildDb("gold");
-    const app = createApp(db, { osnTestKey: auth.key });
-    const id = await createTask(app);
-    await assignTo(app, id, "whost_viewer");
-    const before = await counted("assign", "task_not_found");
-
-    // usr_bob owns wed_other: the task id is real, but not that wedding's —
-    // with a seat of wed_other, so only the task decides the answer.
-    const foreign = `/api/organiser/weddings/wed_other/tasks/${id}/assignee`;
-    const res = await req(app, "PUT", foreign, "usr_bob", { assignedHostId: OTHER_SEAT });
-    expect(res.status).toBe(404);
-    expect(await jsonBody(res)).toEqual({ error: "task_not_found" });
-    const cleared = await req(app, "PUT", foreign, "usr_bob", { assignedHostId: null });
-    expect(cleared.status).toBe(404);
-    expect(await assigneeOf(app, id)).toBe("whost_viewer");
-    expect((await counted("assign", "task_not_found")) - before).toBe(1);
-
-    const missing = await req(app, "PUT", assignee("tsk_missing"), EDITOR, {
-      assignedHostId: "whost_helper",
-    });
-    expect(missing.status).toBe(404);
-    expect(await jsonBody(missing)).toEqual({ error: "task_not_found" });
+    // Nor into the single-assignee column the database still holds, which
+    // this API never names.
+    expect(
+      db.$client
+        .query("SELECT id, assigned_host_id FROM tasks WHERE id IN (?, ?) ORDER BY id")
+        .all(...[id, task.id].toSorted()),
+    ).toEqual([id, task.id].toSorted().map((taskId) => ({ id: taskId, assigned_host_id: null })));
   });
 
   it("answers 500 and writes nothing when the database fails the write", async () => {
     const db = buildDb("gold");
     const app = createApp(db, { osnTestKey: auth.key });
     const id = await createTask(app);
-    const failure = failStatements(db, (sql) =>
-      sql.startsWith('update "tasks" set "assigned_host_id"'),
-    );
+    await add(app, id, "whost_viewer");
+    const addErrors = await counted("add", "error");
+    const removeErrors = await counted("remove", "error");
 
-    const res = await req(app, "PUT", assignee(id), EDITOR, { assignedHostId: "whost_helper" });
-    expect(failure.failed()).toBe(1);
-    expect(res.status).toBe(500);
-    expect(await jsonBody(res)).toEqual({ error: "Internal error" });
-    failure.restore();
-    expect(await assigneeOf(app, id)).toBeNull();
+    for (const [method, seat, statement] of [
+      ["PUT", "whost_helper", 'insert into "task_assignees"'],
+      ["DELETE", "whost_viewer", 'delete from "task_assignees"'],
+    ] as const) {
+      const failure = failStatements(db, (text) => text.startsWith(statement));
+      const res = await req(app, method, seatPath(id, seat), EDITOR);
+      expect(failure.failed(), method).toBe(1);
+      expect(res.status, method).toBe(500);
+      expect(await jsonBody(res)).toEqual({ error: "Internal error" });
+      failure.restore();
+    }
+    expect(rowsFor(db, id)).toEqual(["whost_viewer"]);
+    expect((await counted("add", "error")) - addErrors).toBe(1);
+    expect((await counted("remove", "error")) - removeErrors).toBe(1);
   });
 
-  it("keeps the task, unassigned, when an owner removes the seat it was assigned to", async () => {
+  // ── What the routes do ────────────────────────────────────────────────────
+
+  it("adds and removes seats, and every answer and the list carry them in the order they were added", async () => {
+    const app = buildApp();
+    const id = await createTask(app);
+    const addedBefore = await counted("add", "ok");
+    const removedBefore = await counted("remove", "ok");
+
+    expect(await add(app, id, "whost_helper")).toEqual(["whost_helper"]);
+    expect(await add(app, id, "whost_viewer", OWNER)).toEqual(["whost_helper", "whost_viewer"]);
+    expect(await holdersOf(app, id)).toEqual(["whost_helper", "whost_viewer"]);
+
+    expect(await remove(app, id, "whost_helper")).toEqual(["whost_viewer"]);
+    // Added again, a seat goes to the end.
+    expect(await add(app, id, "whost_helper")).toEqual(["whost_viewer", "whost_helper"]);
+    expect(await holdersOf(app, id)).toEqual(["whost_viewer", "whost_helper"]);
+
+    expect((await counted("add", "ok")) - addedBefore).toBe(3);
+    expect((await counted("remove", "ok")) - removedBefore).toBe(1);
+  });
+
+  it("adds any seat of the wedding, whatever its role", async () => {
+    const app = buildApp();
+    const id = await createTask(app);
+    const seats = [DEV_OWNER_SEAT_ID, "whost_editor", "whost_viewer", "whost_helper"];
+    for (const seat of seats) await add(app, id, seat);
+    expect(await holdersOf(app, id)).toEqual(seats);
+  });
+
+  it("answers 200 unchanged to adding a seat the task holds, and keeps its place", async () => {
     const db = buildDb("gold");
     const app = createApp(db, { osnTestKey: auth.key });
     const id = await createTask(app);
-    const kept = await createTask(app, "Mind the cake");
-    await assignTo(app, id, "whost_helper");
-    await assignTo(app, kept, "whost_viewer");
+    await add(app, id, "whost_helper");
+    await add(app, id, "whost_viewer");
+    const before = await counted("add", "unchanged");
+
+    expect(await add(app, id, "whost_helper")).toEqual(["whost_helper", "whost_viewer"]);
+    expect(rowsFor(db, id)).toEqual(["whost_helper", "whost_viewer"]);
+    expect((await counted("add", "unchanged")) - before).toBe(1);
+  });
+
+  it("answers 200 unchanged to removing a seat the task does not hold", async () => {
+    const app = buildApp();
+    const id = await createTask(app);
+    await add(app, id, "whost_helper");
+    const before = await counted("remove", "unchanged");
+
+    for (const seat of ["whost_viewer", "whost_nobody", OTHER_SEAT]) {
+      expect(await remove(app, id, seat), seat).toEqual(["whost_helper"]);
+    }
+    expect((await counted("remove", "unchanged")) - before).toBe(3);
+  });
+
+  it("keeps both seats when two people add different seats at once", async () => {
+    const app = buildApp();
+    const id = await createTask(app);
+    const [byEditor, byOwner] = await Promise.all([
+      req(app, "PUT", seatPath(id, "whost_helper"), EDITOR),
+      req(app, "PUT", seatPath(id, "whost_viewer"), OWNER),
+    ]);
+    expect([byEditor.status, byOwner.status]).toEqual([200, 200]);
+    expect(((await byEditor.json()) as TaskBody).task.assigneeHostIds).toContain("whost_helper");
+    expect(((await byOwner.json()) as TaskBody).task.assigneeHostIds).toContain("whost_viewer");
+    expect((await holdersOf(app, id))?.toSorted()).toEqual(["whost_helper", "whost_viewer"]);
+  });
+
+  it("keeps the order seats were added in when they were added in the same second", async () => {
+    const db = buildDb("gold");
+    const app = createApp(db, { osnTestKey: auth.key });
+    const id = await createTask(app);
+    // Written straight in, so the second is the same for all three; the seat
+    // ids run against the order they were added in.
+    const second = new Date();
+    const order = ["whost_viewer", "whost_helper", "whost_editor"];
+    for (const hostId of order) {
+      db.insert(taskAssignees)
+        .values({ taskId: id, hostId, weddingId: BOOTSTRAP_WEDDING_ID, assignedAt: second })
+        .run();
+    }
+    expect(await holdersOf(app, id)).toEqual(order);
+    const patched = await req(app, "PATCH", `${base}/${id}`, EDITOR, {});
+    expect(((await patched.json()) as TaskBody).task.assigneeHostIds).toEqual(order);
+    expect(await add(app, id, DEV_OWNER_SEAT_ID)).toEqual([...order, DEV_OWNER_SEAT_ID]);
+    expect(await remove(app, id, "whost_helper")).toEqual([
+      "whost_viewer",
+      "whost_editor",
+      DEV_OWNER_SEAT_ID,
+    ]);
+  });
+
+  // The index the checklist read uses happens to return holders in the order
+  // they were added; the order must not rest on which index the database picks.
+  it("keeps the order seats were added in, whichever index the database reads them through", async () => {
+    const db = buildDb("gold");
+    const app = createApp(db, { osnTestKey: auth.key });
+    const id = await createTask(app);
+    // Written out of order: by row, editor, viewer, helper; by seat id, editor,
+    // helper, viewer; by when they were added, viewer, helper, editor.
+    const second = Math.floor(Date.now() / 1000);
+    for (const [hostId, offset] of [
+      ["whost_editor", 2],
+      ["whost_viewer", 0],
+      ["whost_helper", 1],
+    ] as const) {
+      db.insert(taskAssignees)
+        .values({
+          taskId: id,
+          hostId,
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          assignedAt: new Date((second + offset) * 1000),
+        })
+        .run();
+    }
+    const added = ["whost_viewer", "whost_helper", "whost_editor"];
+    const answers = async () => {
+      const patched = await req(app, "PATCH", `${base}/${id}`, EDITOR, {});
+      return [await holdersOf(app, id), ((await patched.json()) as TaskBody).task.assigneeHostIds];
+    };
+
+    expect(await answers()).toEqual([added, added]);
+    db.run(sql`DROP INDEX task_assignees_wedding_task_idx`);
+    expect(await answers()).toEqual([added, added]);
+  });
+
+  it("keeps a task's holders when it is ticked off and opened again", async () => {
+    const app = buildApp();
+    const id = await createTask(app);
+    await add(app, id, "whost_helper");
+    await add(app, id, "whost_viewer");
+
+    for (const status of ["done", "open"]) {
+      const res = await req(app, "PATCH", `${base}/${id}`, EDITOR, { status });
+      expect(res.status, status).toBe(200);
+      expect(((await res.json()) as TaskBody).task.assigneeHostIds, status).toEqual([
+        "whost_helper",
+        "whost_viewer",
+      ]);
+    }
+    expect(await holdersOf(app, id)).toEqual(["whost_helper", "whost_viewer"]);
+  });
+
+  it("takes only the removed seat off its tasks, and keeps the tasks", async () => {
+    const db = buildDb("gold");
+    const app = createApp(db, { osnTestKey: auth.key });
+    const shared = await createTask(app);
+    const alone = await createTask(app, "Mind the cake");
+    await add(app, shared, "whost_helper");
+    await add(app, shared, "whost_viewer");
+    await add(app, alone, "whost_helper");
 
     const removed = await req(
       app,
@@ -444,16 +614,16 @@ describe("assigning a task to a seat", () => {
       OWNER,
     );
     expect(removed.status).toBe(200);
-    expect(await assigneeOf(app, id)).toBeNull();
-    // Another seat's assignment is untouched.
-    expect(await assigneeOf(app, kept)).toBe("whost_viewer");
-    expect(db.select().from(tasks).where(eq(tasks.id, id)).all()).toHaveLength(1);
+    expect(await holdersOf(app, shared)).toEqual(["whost_viewer"]);
+    expect(await holdersOf(app, alone)).toEqual([]);
+    expect(db.select().from(tasks).where(eq(tasks.id, alone)).all()).toHaveLength(1);
   });
 
-  it("keeps the task, unassigned, when its assignee leaves the wedding", async () => {
+  it("takes a seat that leaves the wedding off its tasks, and keeps the tasks", async () => {
     const app = buildApp();
     const id = await createTask(app);
-    await assignTo(app, id, "whost_viewer");
+    await add(app, id, "whost_viewer");
+    await add(app, id, "whost_helper");
 
     const left = await req(
       app,
@@ -462,13 +632,13 @@ describe("assigning a task to a seat", () => {
       VIEWER,
     );
     expect(left.status).toBe(200);
-    expect(await assigneeOf(app, id)).toBeNull();
+    expect(await holdersOf(app, id)).toEqual(["whost_helper"]);
   });
 
-  it("keeps the assignment when the last owner's leave is refused", async () => {
+  it("keeps the last owner's tasks when their leave is refused", async () => {
     const app = buildApp();
     const id = await createTask(app);
-    await assignTo(app, id, DEV_OWNER_SEAT_ID);
+    await add(app, id, DEV_OWNER_SEAT_ID);
 
     const left = await req(
       app,
@@ -477,6 +647,33 @@ describe("assigning a task to a seat", () => {
       OWNER,
     );
     expect(left.status).toBe(409);
-    expect(await assigneeOf(app, id)).toBe(DEV_OWNER_SEAT_ID);
+    expect(await holdersOf(app, id)).toEqual([DEV_OWNER_SEAT_ID]);
+  });
+
+  it("takes a deleted task's holders with it, and no other task's", async () => {
+    const db = buildDb("gold");
+    const app = createApp(db, { osnTestKey: auth.key });
+    const gone = await createTask(app);
+    const kept = await createTask(app, "Mind the cake");
+    await add(app, gone, "whost_helper");
+    await add(app, gone, "whost_viewer");
+    await add(app, kept, "whost_helper");
+
+    expect((await req(app, "DELETE", `${base}/${gone}`, EDITOR)).status).toBe(200);
+    expect(rowsFor(db, gone)).toEqual([]);
+    expect(rowsFor(db, kept)).toEqual(["whost_helper"]);
+  });
+
+  it("tells each reader of the checklist which seat is theirs", async () => {
+    const app = buildApp();
+    for (const [caller, seat] of [
+      [OWNER, DEV_OWNER_SEAT_ID],
+      [EDITOR, "whost_editor"],
+      [VIEWER, "whost_viewer"],
+    ] as const) {
+      const res = await req(app, "GET", base, caller);
+      expect(res.status, caller).toBe(200);
+      expect(((await res.json()) as ListBody).viewerHostId, caller).toBe(seat);
+    }
   });
 });

@@ -23,7 +23,7 @@ related:
   - "[[commands]]"
   - "[[bundle-size-guards]]"
   - "[[cire-registry]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-21
 ---
 
 # Cire development guide
@@ -319,13 +319,22 @@ the archived chain in `cire/db/migrations-archive/`, and
 that chain, where wrangler would skip the rest without a word. Why, and how to
 squash the chain again: `cire/db/README.md`.
 
-Local sign-in also needs an `oauth_clients` row in the local OSN database and the
-client's credentials: `CIRE_OIDC_CLIENT_SECRET` in `cire/api/.dev.vars` under
-`wrangler dev`, or `OSN_ISSUER_URL`, `CIRE_API_ORIGIN`, `CIRE_OIDC_CLIENT_ID` and
-`CIRE_OIDC_CLIENT_SECRET` in the environment of the bun server (`src/local.ts`,
-which needs all four). Without them `/api/auth/oidc/*` answers 503 and the rest of
-cire works as normal. The E2E stack sets all four, against its own osn-api
-([[testing-patterns#The end-to-end suite]]).
+Organiser sign-in needs five values, read by `oidcConfigFromEnv`
+(`cire/api/src/lib/oidc.ts`) in the Worker and the Bun server alike:
+`OSN_ISSUER_URL`, `OSN_JWKS_URL`, `CIRE_API_ORIGIN`, `CIRE_OIDC_CLIENT_ID` and
+`CIRE_OIDC_CLIENT_SECRET`. `wrangler dev` reads the first four from
+`wrangler.toml` and the secret from `cire/api/.dev.vars`. `bun run dev:cire`
+gets the issuer, the JWKS URL and `CIRE_API_ORIGIN` from `dev-env` (the
+worktree's own portless host), and the client id and secret from
+`cire/api/.env`; the Bun server (`src/local.ts`) takes the issuer's own JWKS
+path when `OSN_JWKS_URL` is unset. Either way the local OSN database needs an
+`oauth_clients` row for that client whose redirect URI is exactly
+`<CIRE_API_ORIGIN>/api/auth/oidc/callback` and whose `client_secret_hash` is the
+secret's SHA-256; only the E2E suite seeds one (`tools/e2e/src/seed.ts`), and
+its stack sets every value, against its own osn-api
+([[testing-patterns#The end-to-end suite]]). With any of it missing,
+`/api/auth/oidc/*` sends the browser back to `/login` with
+`?auth_error=sign_in_unavailable`, and the rest of cire works as normal.
 
 Local mail goes to the in-memory recorder. To read it in an inbox instead, run
 the Resend emulator and set `RESEND_API_KEY` and `RESEND_API_URL` in
@@ -375,6 +384,26 @@ step that has to run before the drop goes at the top of the same file.
 `0076_wedding_owners.sql` is the example, and `migration-0076.test.ts` is the
 shape of its test: seed rows before the migration, then prove nothing cascaded.
 
+**A column the serving Worker uses is dropped a release later.** Every deploy
+migrates before the new Worker serves, and a rollback leaves the migration in
+place ([[production-deploy#4. Database migrations]]). So the release that stops
+using a column keeps it in the database, and a later one drops it. Stopping
+means taking it out of `cire/db/src/schema.ts`, not only out of the reads:
+Drizzle names every declared column in each insert, select and `returning`, so
+a declared column is still in the Worker's statements. In that first release,
+`db:generate` writes a drop or a `__new_<table>` rebuild for the column. Delete
+it from the migration by hand, and leave the snapshot as drizzle-kit wrote it.
+Keep the column in `setup.ts`, and list it in `UNDECLARED_COLUMNS` in
+`ddl-lockstep.test.ts`, which excuses it from the Drizzle comparison only while
+the chain still has it. This works only for a nullable column or one with a
+`DEFAULT`: every insert the Worker sends leaves the column out, and SQLite fills
+it with NULL or the default. A `NOT NULL` column with no default cannot be
+retired this way, since each insert would fail, and needs its own plan; the same
+test fails on one. The drop comes once the first release is in production:
+`db:generate --custom`, then `DROP INDEX` and `DROP COLUMN` as above.
+`tasks.assigned_host_id` is the example: `0091_task_assignees.sql` keeps it, and
+englishstreetventures/osn#1636 drops it.
+
 **A field the guest site reads is optional there.** `deploy-cire-invites` has no
 `needs:` edge on `deploy-cire-api` in `production-release.yml`, and a release can
 ship one without the other (a `surfaces` dispatch, or the dev check holding one
@@ -387,6 +416,15 @@ it is present, and let the reader supply a default that fails closed — as the 
 dietary fields on `RsvpSummary` do. If the page also writes the field back, an
 API older than the column accepts the write and drops the field, so a value
 entered in that window is not stored.
+
+**The organiser portal reads both shapes of a field the API changes.**
+`deploy-cire-host` has no `needs:` edge on `deploy-cire-api` either
+([[production-deploy#5.6 Approval order when a cire release changes what a plan tier opens]]),
+so the portal can serve against the API before the one it ships with. A portal
+that reads only the new shape throws, or shows nothing, for that window. Read the
+old shape as well, at the one place every answer passes through, until the old
+API is gone: `readTaskRow` (`cire/host/src/lib/tasks-store.ts`) takes a task's
+`assigneeHostIds`, or the single `assignedHostId` the API before holders sends.
 
 ### Deploying by hand
 

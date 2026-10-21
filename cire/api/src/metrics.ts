@@ -31,7 +31,7 @@ import type { Result } from "@shared/observability/metrics";
 import { Effect } from "effect";
 
 import type { ChecklistTemplateId } from "./lib/checklist-templates";
-import type { WeddingRole } from "./services/hosts";
+import type { RunSheetScope, WeddingRole } from "./services/hosts";
 import type { ImageVariant, OutputFormat } from "./services/invite-image-transform";
 import type { PaidTier, Tier } from "./services/tiers";
 
@@ -100,7 +100,7 @@ export const CIRE_METRICS = {
   plusOnePermissionSet: "cire.plus_one.permission.set",
   // Checklist tasks seeded from a template, by template.
   checklistTemplateApplied: "cire.tasks.template.applied",
-  // Checklist assignee writes, by action and outcome.
+  // Seats put on or taken off a checklist task, by action and outcome.
   taskAssignmentChanged: "cire.tasks.assignment.changed",
   // Organiser spreadsheet import.
   importApplied: "cire.import.applied",
@@ -162,6 +162,8 @@ export const CIRE_METRICS = {
   hostRemoved: "cire.host.removed",
   // Co-host role changes (owner flips a host between editor and viewer).
   hostRoleChanged: "cire.host.role_changed",
+  // An owner opening a helper's run sheet to every task, or narrowing it back.
+  hostRunSheetScopeChanged: "cire.host.run_sheet_scope.changed",
   // S2S osn-api handle→profile resolve latency (the ARC call for add-host).
   hostResolveDuration: "cire.host.resolve.duration",
   // CSP violation reports posted to the public collector (`POST /api/csp-report`)
@@ -346,6 +348,15 @@ export type HostRoleChangeResult =
  *  column's enum. */
 export type HostMetricRole = WeddingRole | "none";
 
+/** Outcome of setting a helper's run-sheet scope. `not_a_helper` — refused,
+ *  the seat holds another role, for which the scope means nothing; `error` — a
+ *  malformed body or a failed write. */
+export type HostRunSheetScopeResult = "ok" | "not_found" | "not_a_helper" | "error";
+
+/** The scope a write asked for, as a metric attribute: `own`, `full`, or
+ *  `none` before a request body named one. Bounded by the column's enum. */
+export type HostMetricRunSheetScope = RunSheetScope | "none";
+
 /**
  * The CSP directive a violation report names, reduced to a BOUNDED label so it
  * is safe as a metric attribute (CSP directive names are a small fixed set; a
@@ -502,11 +513,18 @@ export type PlusOneAction = "added" | "renamed" | "removed";
 export type PlusOneActor = "guest" | "organiser";
 type PlusOneChangedAttrs = { action: PlusOneAction; actor: PlusOneActor };
 type ChecklistTemplateAppliedAttrs = { template: ChecklistTemplateId };
-/** `assign` hands a task to a seat; `unassign` leaves it with nobody. */
-export type TaskAssignmentAction = "assign" | "unassign";
-/** `task_not_found` — no such task on the wedding; `assignee_not_in_wedding`
- *  — the seat named is not one of the wedding's. */
-export type TaskAssignmentResult = "ok" | "task_not_found" | "assignee_not_in_wedding";
+/** `add` puts a seat on a task; `remove` takes one off. */
+export type TaskAssignmentAction = "add" | "remove";
+/** `ok` — the write changed the task's holders; `unchanged` — the seat was
+ *  already on it (add) or not on it (remove); `task_not_found` — no such task
+ *  on the wedding; `assignee_not_in_wedding` — the seat named is not one of
+ *  the wedding's (add only); `error` — the database failed the write. */
+export type TaskAssignmentResult =
+  | "ok"
+  | "unchanged"
+  | "task_not_found"
+  | "assignee_not_in_wedding"
+  | "error";
 type TaskAssignmentChangedAttrs = {
   action: TaskAssignmentAction;
   result: TaskAssignmentResult;
@@ -712,6 +730,10 @@ type WeddingSettingsSavedAttrs = { result: WeddingSettingsSavedResult };
 type HostAddedAttrs = { result: HostAddResult; role: HostMetricRole };
 type HostRemovedAttrs = { result: HostRemoveResult; actor: HostRemoveActor };
 type HostRoleChangedAttrs = { result: HostRoleChangeResult; role: HostMetricRole };
+type HostRunSheetScopeChangedAttrs = {
+  result: HostRunSheetScopeResult;
+  scope: HostMetricRunSheetScope;
+};
 type HostResolveDurationAttrs = { result: ResolveResult };
 export type CspReportAttrs = {
   effectiveDirective: CspDirective;
@@ -964,7 +986,7 @@ const checklistTemplateApplied = createCounter<ChecklistTemplateAppliedAttrs>({
 
 const taskAssignmentChanged = createCounter<TaskAssignmentChangedAttrs>({
   name: CIRE_METRICS.taskAssignmentChanged,
-  description: "Checklist assignee writes, by action and outcome",
+  description: "Seats put on or taken off a checklist task, by action and outcome",
   unit: "{request}",
 });
 
@@ -1204,6 +1226,12 @@ const hostRoleChanged = createCounter<HostRoleChangedAttrs>({
   unit: "{host}",
 });
 
+const hostRunSheetScopeChanged = createCounter<HostRunSheetScopeChangedAttrs>({
+  name: CIRE_METRICS.hostRunSheetScopeChanged,
+  description: "Helper run-sheet scope writes, by outcome and the scope asked for",
+  unit: "{host}",
+});
+
 const hostResolveDuration = createHistogram<HostResolveDurationAttrs>({
   name: CIRE_METRICS.hostResolveDuration,
   description: "S2S osn-api handle→profile resolve latency (the ARC call for add-host)",
@@ -1329,7 +1357,7 @@ export const metricChecklistTemplateApplied = (
   count: number,
 ): void => checklistTemplateApplied.add(count, { template });
 
-/** One assignee write on a checklist task, and how it ended. */
+/** One seat put on or taken off a checklist task, and how it ended. */
 export const metricTaskAssignmentChanged = (
   action: TaskAssignmentAction,
   result: TaskAssignmentResult,
@@ -1540,6 +1568,11 @@ export const metricHostRoleChanged = (
   result: HostRoleChangeResult,
   role: HostMetricRole = "none",
 ): void => hostRoleChanged.inc({ result, role });
+
+export const metricHostRunSheetScopeChanged = (
+  result: HostRunSheetScopeResult,
+  scope: HostMetricRunSheetScope = "none",
+): void => hostRunSheetScopeChanged.inc({ result, scope });
 
 /** The bounded CSP directive labels, as a runtime Set for `bucketCspDirective`. */
 const CSP_DIRECTIVE_LABELS = new Set<CspDirective>([

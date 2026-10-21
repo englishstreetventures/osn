@@ -1,6 +1,6 @@
 // A `weddingId`-keyed cache of a wedding's seats (`GET …/hosts`), for the
-// checklist: it names who holds each task, and the task drawer offers them as
-// assignees. The sibling of `tasks-store.ts`, with the same stale-while-
+// checklist: it names and pictures who holds each task, and its assign popover
+// offers them. The sibling of `tasks-store.ts`, with the same stale-while-
 // revalidate contract (wiki/cire/cire-host-portal-layout.md §Organiser client
 // caches) and the same lifetime, dropped with the wedding's other caches.
 //
@@ -15,12 +15,14 @@ import { isWeddingClosed } from "./wedding-scope";
 
 /** One seat as `GET …/hosts` returns it, reduced to what the checklist reads. */
 export interface HostSeat {
-  /** The seat id — what a task's `assignedHostId` names. */
+  /** The seat id — what a task's `assigneeHostIds` name. */
   hostId: string;
   osnProfileId: string;
   /** Absent when OSN could not resolve the profile. */
   handle?: string;
   displayName?: string;
+  /** The person's OSN photo, an https URL; absent when they have none. */
+  avatarUrl?: string;
   role: WeddingRole;
 }
 

@@ -14,7 +14,7 @@ related:
   - "[[dev-environment]]"
   - "[[cire-entitlements]]"
   - "[[stripe-webhooks]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-21
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -417,7 +417,7 @@ quietly accepting tokens from anywhere.
 | `OSN_API_URL` | `wrangler secret put OSN_API_URL` (or var) | **Conditional** | osn-api base URL the ARC bridge calls. §6.2 |
 | `CIRE_API_ORIGIN` | `wrangler.toml` `[env.production.vars]` | **Yes** | This Worker's own public origin. It builds the OIDC redirect URI (`<origin>/api/auth/oidc/callback`), which must match one of the client's registered `redirect_uris` **byte for byte**. Prod = **`https://api.cireweddings.com`**. |
 | `CIRE_OIDC_CLIENT_ID` | `wrangler.toml` `[env.production.vars]` | **Yes** | **`cid_cire`** — the registered client. Not a secret. |
-| `CIRE_OIDC_CLIENT_SECRET` | `wrangler secret put CIRE_OIDC_CLIENT_SECRET --env production` | **Yes** | The client secret, presented as `client_secret_post` at the token endpoint. Must be the pre-image of `oauth_clients.client_secret_hash` in osn's D1 — **rotate both together or organiser sign-in dies at the exchange** (§3.5). Any of the four OIDC values absent ⇒ `/api/auth/oidc/*` answers **503 `sign_in_unavailable`** and nothing else changes (`src/index.ts:291-308`). |
+| `CIRE_OIDC_CLIENT_SECRET` | `wrangler secret put CIRE_OIDC_CLIENT_SECRET --env production` | **Yes** | The client secret, presented as `client_secret_post` at the token endpoint. Must be the pre-image of `oauth_clients.client_secret_hash` in osn's D1 — **rotate both together or organiser sign-in dies at the exchange** (§3.5). Any of the five OIDC values (these three, `OSN_ISSUER_URL` and `OSN_JWKS_URL`) absent ⇒ `/api/auth/oidc/*` sends the browser to the organiser `/login` with `?auth_error=sign_in_unavailable`, logs `OIDC client config incomplete`, and nothing else changes (`oidcConfigFromEnv` in `src/lib/oidc.ts`). |
 | `CIRE_OPS_EMAIL` | `wrangler secret put CIRE_OPS_EMAIL --env production` | **Optional** | The operator address for the daily "vendor claims are waiting for review" email and the R2 orphan reconcilers' alerts ([[backup-dr]]). A secret because the repo is public. Needs `RESEND_API_KEY` on this Worker too; with either unset no email is sent and the cron's log line is the only signal (`src/index.ts` `scheduled`). [[cire-vendors]] |
 | `CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS` | `wrangler secret put CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS --env production` | **Optional** | Comma-separated wedding ids whose households get the household member step ("Who are you?", reply attribution, `member_required`, "Answered by") only while `cire.account-linking` is on for them (and the ARC bridge is configured); every other guest household always gets it. A secret because the repo is public and a wedding id is the couple's; never a `[vars]` entry, since a declared var's name cannot also be a secret. Unset or empty ⇒ no wedding excluded. Find an id by hand, never in a pull request, issue or changeset: `bunx wrangler d1 execute cire-db --env production --remote --command "SELECT id FROM weddings WHERE slug = '<slug>'"`. Set it **before** approving the release that first deploys the code reading it, or that wedding's households are asked "Who are you?" and their replies stamped until it lands; rows stamped by then keep their stamp. An isolate reads it once when it builds the app and logs `member step exclusion loaded` with the count (a warning when an entry is not a `wed_…` id), never the ids; a later change needs a forced `production-release.yml` run (`force`, surface `cire_api`). [[cire-auth]] |
 | `CIRE_R2_RECONCILE_DISABLED` | `wrangler.toml` `[env.production.vars]` (and every other tier's vars block) | **Yes — `"false"` or `"true"`** | Tier-wide switch for the cron's two R2 orphan reconcilers. `"true"` (any value but `"false"`) leaves both out of `scheduled`, logs `r2 reconcile disabled by CIRE_R2_RECONCILE_DISABLED` and emails `CIRE_OPS_EMAIL` each run; every other cron job still runs. It changes only with a deploy; to stop the reconcilers at once, around a `cire-db` restore, put `reconcile/stop` in each bucket instead ([[backup-dr]]). A dashboard edit is written back by the next deploy. Never a secret: it is a declared var. `tests/services/r2-reconcile.test.ts` fails unless every tier holds `"false"` or `"true"`. |
@@ -592,10 +592,13 @@ The row's shape — the columns that carry a trust decision are listed in
 > one-click stop links in RSVP digest emails already sent ([[cire-rsvp-changes]]);
 > the Overview switch keeps working.
 
-**Local development** needs its own row in the **local** D1 with a
-`http://localhost:8787/api/auth/oidc/callback` redirect URI, and the secret in
-`cire/api/.dev.vars`. Without them `/api/auth/oidc/*` answers 503 and the portal shows
-"sign-in unavailable" — which is the correct inert state, not a bug.
+**Local development** needs its own row in the **local** OSN database whose redirect URI
+is exactly `<CIRE_API_ORIGIN>/api/auth/oidc/callback` for the devloop in use
+(`http://localhost:8787` under `wrangler dev`, the worktree's portless host under
+`bun run dev:cire`), and the secret where that devloop reads it — `cire/api/.dev.vars`
+or `cire/api/.env`; [[cire-development]] has the details. Without them
+`/api/auth/oidc/*` sends the browser back to `/login?auth_error=sign_in_unavailable` and
+the portal shows "sign-in unavailable" — which is the correct inert state, not a bug.
 
 ---
 
@@ -664,7 +667,9 @@ bunx wrangler secret put STRIPE_PLATFORM_WEBHOOK_SECRET --env production
 > with: add a column or table in one release and use it in a later one; stop reading
 > a column in one release and drop or rename it in a later one. A migration that
 > drops or renames something the previous version still reads takes the surface
-> down the moment its deploy rolls back.
+> down the moment its deploy rolls back. A migration that moves data between
+> stores makes a rollback lossy for writes made in that window: the old Worker
+> writes the old store, and the new one does not read it when it returns.
 
 ### 4.1 Apply cire D1 migrations (remote)
 
@@ -1421,8 +1426,8 @@ How it decides:
    in through the OIDC redirect instead — step 6. [[musubi-identity-migration]]
 6. **Organiser sign-in redirects and lands.** From `host.cireweddings.com`, click sign in:
    the browser must leave for `https://musubi.social/authorize`, run the ceremony there,
-   and come back to the page it started on with the portal signed in. A **503
-   `sign_in_unavailable`** at `/api/auth/oidc/start` means one of the four OIDC values is
+   and come back to the page it started on with the portal signed in. Landing back on
+   `/login?auth_error=sign_in_unavailable` means one of the five OIDC values is
    missing on cire-api (§3.2); `?auth_error=sign_in_failed` on the callback means the
    exchange failed — check that `CIRE_OIDC_CLIENT_SECRET` still matches
    `oauth_clients.client_secret_hash` and that the callback URI is registered byte for
