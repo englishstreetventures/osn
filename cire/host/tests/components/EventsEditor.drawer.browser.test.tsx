@@ -9,9 +9,12 @@ import "../../src/styles/global.css";
  * four controls — the grip, a time, a name and a remove button — inside a
  * drawer that is the whole width of a phone, and only an engine can say
  * whether they fit: a `type="time"` input's width is the browser's, and a row
- * that overflows clips sideways in the drawer's scroller. The fast tier pins
- * the draft's rules (`tests/lib/guest-event-draft.test.ts`); the end-to-end
- * flow (`cire-event-details`) adds, reorders and saves a run of show.
+ * that overflows clips sideways in the drawer's scroller. A move button shown
+ * on focus, where focus lands after Add and Remove, and how an item's error
+ * and its after-midnight line are tied to its fields are a real browser's to
+ * answer too. The fast tier pins the draft's rules
+ * (`tests/lib/guest-event-draft.test.ts`); the end-to-end flow
+ * (`cire-event-details`) adds, reorders and saves a run of show.
  *
  * The factories below are written literally: the shared-factory idiom in
  * `test-support/mocks.ts` does not resolve in the browser project.
@@ -147,5 +150,169 @@ describe.each([
       row.textContent?.includes("guests read it as after midnight"),
     );
     expect(marked).toEqual([false, true, false]);
+  });
+});
+
+/** The visible controls in the run-of-show list: buttons and inputs with a box. */
+function visibleControls(list: HTMLElement): HTMLElement[] {
+  return [...list.querySelectorAll<HTMLElement>("input, button")].filter((el) => {
+    const box = el.getBoundingClientRect();
+    return box.width > 1 && box.height > 1;
+  });
+}
+
+function overlaps(a: DOMRect, b: DOMRect): boolean {
+  return (
+    a.left < b.right - 0.5 &&
+    b.left < a.right - 0.5 &&
+    a.top < b.bottom - 0.5 &&
+    b.top < a.bottom - 0.5
+  );
+}
+
+describe.each([
+  ["a phone", 390, 844],
+  ["a desktop", 1280, 800],
+] as const)("moving, adding and removing items in the drawer, on %s", (_name, width, height) => {
+  afterEach(() => cleanup());
+
+  // A move button shows when it is focused, and is wider than the room beside
+  // the grip on a phone: the row makes room for it rather than letting it sit
+  // over the fields or Remove.
+  it("keeps every control clear of the others while a move button is focused", async () => {
+    const { list } = await openDrawer(width, height);
+    const moves = [...list.querySelectorAll<HTMLElement>("button")].filter((b) =>
+      (b.textContent ?? "").startsWith("Move "),
+    );
+    expect(moves.length).toBeGreaterThan(0);
+    for (const move of moves) {
+      move.focus();
+      await settle();
+      const boxes = visibleControls(list).map((el) => ({
+        name: el.getAttribute("aria-label") ?? el.textContent ?? el.id,
+        box: el.getBoundingClientRect(),
+      }));
+      const clashes: string[] = [];
+      for (const [i, a] of boxes.entries()) {
+        for (const b of boxes.slice(i + 1)) {
+          if (overlaps(a.box, b.box)) clashes.push(`${a.name} / ${b.name}`);
+        }
+      }
+      expect({ focused: move.textContent, clashes }).toEqual({
+        focused: move.textContent,
+        clashes: [],
+      });
+      expect(scrollerOf(list).scrollWidth).toBeLessThanOrEqual(scrollerOf(list).clientWidth);
+    }
+  });
+
+  // Remove takes its own button with it: focus goes to the next item's grip,
+  // else the previous one's, else Add item.
+  it("puts focus on a neighbour's grip, then on Add item, as items are removed", async () => {
+    const { drawer, list } = await openDrawer(width, height);
+    const remove = (name: string) =>
+      userEvent.click(within(drawer).getByRole("button", { name: `Remove ${name}` }));
+    await remove("Tea is poured");
+    expect(document.activeElement?.getAttribute("aria-label")).toMatch(/^Reorder Doors,/);
+    const last = list.querySelectorAll<HTMLElement>(":scope > li")[1]!;
+    await userEvent.click(within(last).getByRole("button", { name: /^Remove / }));
+    expect(document.activeElement?.getAttribute("aria-label")).toMatch(/^Reorder Doors,/);
+    await remove("Doors");
+    expect(document.activeElement?.textContent).toBe("Add item");
+  });
+
+  // Add item opens a row ready to type in. A row is not called wrong while it
+  // is being filled in; once focus leaves it, its error is said under the
+  // field it is about, by the item's number, and the field is marked.
+  it("focuses a new item's name, and names its error only once it is left", async () => {
+    const { drawer } = await openDrawer(width, height);
+    await userEvent.click(within(drawer).getByRole("button", { name: "Add item" }));
+    const name = within(drawer).getByLabelText("Item 4");
+    expect(document.activeElement).toBe(name);
+    // An unnamed item is "item 4" wherever it is named.
+    expect(
+      within(drawer).getByRole("button", { name: /^Reorder item 4, position 4 of 4/ }),
+    ).toBeTruthy();
+    expect(within(drawer).getByRole("button", { name: "Remove item 4" })).toBeTruthy();
+    expect(drawer.textContent).not.toContain("needs a name");
+    expect(name.getAttribute("aria-invalid")).toBeNull();
+
+    await userEvent.click(within(drawer).getByLabelText("Venue name"));
+    const error = within(drawer).getByText("Item 4 needs a name.");
+    expect(name.getAttribute("aria-invalid")).toBe("true");
+    const described = (name.getAttribute("aria-describedby") ?? "")
+      .split(" ")
+      .map((id) => document.getElementById(id)?.textContent ?? "");
+    expect(described.join(" ")).toContain("Item 4 needs a name.");
+    // Said under the item, not in the list above the form.
+    expect(name.closest("li")?.contains(error)).toBe(true);
+  });
+
+  // The after-midnight line is a description of the item's time.
+  it("describes an after-midnight time with its line", async () => {
+    const { drawer } = await openDrawer(width, height);
+    const time = within(drawer).getByLabelText("Time of item 2");
+    const line = within(drawer).getByText(
+      "Earlier than the start, so guests read it as after midnight.",
+    );
+    expect(time.getAttribute("aria-describedby")?.split(" ")).toContain(line.id);
+    expect(
+      within(drawer).getByLabelText("Time of item 1").getAttribute("aria-describedby"),
+    ).toBeNull();
+  });
+
+  // A swatch's Remove goes with its row too: focus moves to the swatch that
+  // took its place, else the one before, else Add swatch.
+  it("puts focus on a neighbouring swatch, then on Add swatch, as swatches are removed", async () => {
+    const { drawer } = await openDrawer(width, height);
+    const add = within(drawer).getByRole("button", { name: "Add swatch" });
+    await userEvent.click(add);
+    await userEvent.click(add);
+    await userEvent.click(within(drawer).getByRole("button", { name: "Remove swatch 1" }));
+    expect(document.activeElement).toBe(within(drawer).getByLabelText("Swatch 1 name"));
+    await userEvent.click(within(drawer).getByRole("button", { name: "Remove swatch 1" }));
+    expect(document.activeElement).toBe(within(drawer).getByRole("button", { name: "Add swatch" }));
+  });
+});
+
+describe("the rest of the drawer", () => {
+  afterEach(() => cleanup());
+
+  // The guest policy's two selects share a row where both fit and stack on a
+  // phone (DESIGN.md §7).
+  it.each([
+    ["stack on a phone", 390, 844, true],
+    ["share a row on a desktop", 1280, 800, false],
+  ] as const)("the guest policy selects %s", async (_name, width, height, stacked) => {
+    const { drawer } = await openDrawer(width, height);
+    const children = within(drawer).getByLabelText("Children").getBoundingClientRect();
+    const plusOnes = within(drawer).getByLabelText("Plus-ones").getBoundingClientRect();
+    expect(plusOnes.top >= children.bottom).toBe(stacked);
+  });
+
+  // An API older than the run of show, notes and policy sends none of them; the
+  // drawer then leaves them out rather than take what the save would drop.
+  it("leaves the three sections out for an API whose events read carries none of them", async () => {
+    __resetEventsCache();
+    const {
+      runOfShow: _runOfShow,
+      gettingThere: _gettingThere,
+      childrenPolicy: _childrenPolicy,
+      plusOnePolicy: _plusOnePolicy,
+      guestPolicyNote: _guestPolicyNote,
+      ...older
+    } = KITCHEN_TEA;
+    authFetch.mockImplementation(async (url: unknown) =>
+      String(url).endsWith("/changes/head") ? json({ revision: "rev_1" }) : json([older]),
+    );
+    await page.viewport(390, 844);
+    render(() => <EventsEditor weddingId="wed_1" />);
+    await userEvent.click(await screen.findByRole("button", { name: "Edit" }));
+    const drawer = await screen.findByRole("dialog", { name: "Edit event" });
+    expect(within(drawer).queryByTestId("run-of-show")).toBeNull();
+    expect(within(drawer).queryByRole("button", { name: "Add item" })).toBeNull();
+    expect(within(drawer).queryByLabelText("Getting there (optional)")).toBeNull();
+    expect(within(drawer).queryByLabelText("Children")).toBeNull();
+    expect(within(drawer).getByLabelText("Venue name")).toBeTruthy();
   });
 });

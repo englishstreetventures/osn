@@ -597,6 +597,20 @@ describe("an event's run of show, getting-there notes and guest policy", () => {
     guestPolicyNote: "Hats encouraged.",
   };
   const items = (event: DraftEvent) => event.runOfShow.map(({ time, label }) => ({ time, label }));
+  /** The events as a current API reads them: every event carries the keys. */
+  const CURRENT: EventRow[] = EVENTS.map((e) => ({
+    runOfShow: [],
+    gettingThere: null,
+    childrenPolicy: null,
+    plusOnePolicy: null,
+    guestPolicyNote: null,
+    ...e,
+  }));
+  const loadedCurrent = () => {
+    const store = createGuestEventDraft();
+    store.load(CURRENT, GUESTS, [], REVISION);
+    return store;
+  };
 
   // What the events read sends is what the drawer opens on; an API older
   // than these fields sends none, which is none of each.
@@ -629,7 +643,7 @@ describe("an event's run of show, getting-there notes and guest policy", () => {
   // A guests save governs no event and leaves them out.
   it("sends them on an events save and leaves them out of a guests save", () => {
     createRoot((dispose) => {
-      const store = loaded();
+      const store = loadedCurrent();
       const key = store.draft.events[0]!.key;
       store.updateEvent(key, {
         runOfShow: [runOfShowItem("16:45", "  Garden games "), runOfShowItem("16:00", "Tea")],
@@ -671,6 +685,37 @@ describe("an event's run of show, getting-there notes and guest policy", () => {
     });
   });
 
+  // An API older than the fields sends none of them on any event, and would
+  // drop them from a save unstored: the draft says so, and the events save
+  // leaves them out. With no events there is nothing to tell by.
+  it("leaves them out of a save to an API whose events read carries none of them", () => {
+    createRoot((dispose) => {
+      const store = loaded();
+      expect(store.eventDetails()).toBe(false);
+      store.updateEvent(store.draft.events[0]!.key, { description: "Mass at 3." });
+      const [event] = store.toWire("events").events;
+      expect(event).toMatchObject({ description: "Mass at 3." });
+      for (const field of [
+        "runOfShow",
+        "gettingThere",
+        "childrenPolicy",
+        "plusOnePolicy",
+        "guestPolicyNote",
+      ]) {
+        expect(event).not.toHaveProperty(field);
+      }
+      expect(loadedCurrent().eventDetails()).toBe(true);
+      const empty = createGuestEventDraft();
+      empty.load([], GUESTS, [], REVISION);
+      expect(empty.eventDetails()).toBe(true);
+      // A reload against the older API says so too.
+      const current = loadedCurrent();
+      current.rebase(EVENTS, GUESTS, [], "rev-2");
+      expect(current.eventDetails()).toBe(false);
+      dispose();
+    });
+  });
+
   // The drawer says what the server would refuse, before the save does.
   it("flags a run of show or notes the server would refuse", () => {
     createRoot((dispose) => {
@@ -680,17 +725,20 @@ describe("an event's run of show, getting-there notes and guest policy", () => {
         store.updateEvent(key, patch);
         return validateDraft(store.draft).map((e) => e.message);
       };
-      expect(messagesFor({ runOfShow: [runOfShowItem("", "Tea")] })).toContain(
-        "Each run-of-show item needs a time.",
-      );
+      // An item's own errors name it by its number and say which field, so
+      // the drawer shows each under that item's field.
+      const named = runOfShowItem("16:00", "Tea");
+      const blank = runOfShowItem("", "  ");
+      store.updateEvent(key, { runOfShow: [named, blank] });
+      expect(validateDraft(store.draft)).toEqual([
+        { key, item: blank.key, field: "time", message: "Item 2 needs a time." },
+        { key, item: blank.key, field: "label", message: "Item 2 needs a name." },
+      ]);
       // "Add item" opens an empty row.
       expect(runOfShowItem()).toMatchObject({ time: "", label: "" });
-      expect(messagesFor({ runOfShow: [runOfShowItem("16:00", "  ")] })).toContain(
-        "Each run-of-show item needs a name.",
-      );
-      expect(messagesFor({ runOfShow: [runOfShowItem("16:00", "x".repeat(201))] })).toContain(
-        "A run-of-show item is longer than 200 characters.",
-      );
+      expect(messagesFor({ runOfShow: [runOfShowItem("16:00", "x".repeat(201))] })).toEqual([
+        "Item 1 is longer than 200 characters.",
+      ]);
       expect(
         messagesFor({ runOfShow: Array.from({ length: 41 }, () => runOfShowItem("16:00", "Tea")) }),
       ).toContain("A run of show holds at most 40 items.");

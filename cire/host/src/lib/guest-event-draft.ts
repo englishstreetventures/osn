@@ -207,6 +207,17 @@ export interface DesiredStateWire {
 // ── Load: server rows → draft ─────────────────────────────────────────────────
 
 /**
+ * Whether the API these rows came from reads an event's run of show, notes and
+ * guest policy: it sends `runOfShow` on every event. One older than them sends
+ * none, and drops them from a save unstored, so the drawer hides them and the
+ * save leaves them out. With no events there is nothing to tell by; the API is
+ * taken to be current, the one a deploy order of API first gives.
+ */
+export function readsEventDetails(events: readonly EventRow[]): boolean {
+  return events.every((e) => "runOfShow" in e);
+}
+
+/**
  * Build a draft from the cached server reads. Events come from the shared events
  * cache (the schedule the guests are invited to); guests come from the flat
  * organiser guest rows (one row per guest, grouped here into households by
@@ -317,10 +328,15 @@ function trimmedOrNull(value: string | null): string | null {
  * `scope` is the save's: a `"guests"` save governs no event, so its events
  * leave out the description and venue name, which can run long and which the
  * server would only store with the change; absent means "leave as stored".
+ *
+ * `eventDetails` says whether the API reads an event's run of show, notes and
+ * guest policy ({@link readsEventDetails}). When it does not, they are left out
+ * too, so nothing is sent that would be dropped unstored.
  */
 export function toDesiredState(
   draft: DraftState,
   scope: "events" | "guests" | "both" = "both",
+  eventDetails = true,
 ): DesiredStateWire {
   const eventNameByKey = new Map(draft.events.map((e) => [e.key, e.name]));
 
@@ -346,6 +362,8 @@ export function toDesiredState(
     if (scope !== "guests") {
       wire.description = e.description;
       wire.venueName = e.venueName;
+    }
+    if (scope !== "guests" && eventDetails) {
       // Trimmed, and blank notes are none, so what is stored is what a
       // download writes and a re-upload of it reads back unchanged.
       wire.runOfShow = e.runOfShow.map((item) => ({ time: item.time, label: item.label.trim() }));
@@ -652,6 +670,10 @@ export interface FieldError {
   /** Draft key of the offending row (family or guest). */
   key: string;
   message: string;
+  /** For a run-of-show item's own error, that item's draft key and the field
+   *  it is about: the drawer shows it under that field, not above the form. */
+  item?: string;
+  field?: "time" | "label";
 }
 
 /**
@@ -754,23 +776,24 @@ export function validateDraft(draft: DraftState): FieldError[] {
       }
     }
 
-    // The run of show: each rule named once per event, however many items
-    // break it, so the drawer's list of errors stays short.
-    const runOfShowErrors = new Set<string>();
+    // The run of show: the cap is the list's, and each item's own errors name
+    // it by the number its fields are labelled with, so the drawer can show
+    // them under the item.
     if (evt.runOfShow.length > MAX_RUN_OF_SHOW_ITEMS) {
-      runOfShowErrors.add(`A run of show holds at most ${MAX_RUN_OF_SHOW_ITEMS} items.`);
+      errors.push({
+        key: evt.key,
+        message: `A run of show holds at most ${MAX_RUN_OF_SHOW_ITEMS} items.`,
+      });
     }
-    for (const item of evt.runOfShow) {
-      if (!isClockTime(item.time)) runOfShowErrors.add("Each run-of-show item needs a time.");
-      if (isBlankName(item.label)) {
-        runOfShowErrors.add("Each run-of-show item needs a name.");
-      } else if (item.label.trim().length > MAX_RUN_OF_SHOW_LABEL) {
-        runOfShowErrors.add(
-          `A run-of-show item is longer than ${MAX_RUN_OF_SHOW_LABEL} characters.`,
-        );
+    for (const [i, item] of evt.runOfShow.entries()) {
+      const at = (field: "time" | "label", message: string) =>
+        errors.push({ key: evt.key, item: item.key, field, message });
+      if (!isClockTime(item.time)) at("time", `Item ${i + 1} needs a time.`);
+      if (isBlankName(item.label)) at("label", `Item ${i + 1} needs a name.`);
+      else if (item.label.trim().length > MAX_RUN_OF_SHOW_LABEL) {
+        at("label", `Item ${i + 1} is longer than ${MAX_RUN_OF_SHOW_LABEL} characters.`);
       }
     }
-    for (const message of runOfShowErrors) errors.push({ key: evt.key, message });
     if (evt.gettingThere && tooLong(evt.gettingThere.trim())) {
       errors.push({ key: evt.key, message: "Getting-there notes are too long." });
     }
@@ -874,6 +897,9 @@ export interface GuestEventDraft {
   /** Drop the draft entirely — nothing loaded, nothing dirty, nothing to save.
    *  For when the draft can no longer be trusted and must be re-seeded. */
   reset: () => void;
+  /** Whether the API the draft was loaded from reads an event's run of show,
+   *  notes and guest policy ({@link readsEventDetails}). */
+  readonly eventDetails: () => boolean;
 
   // Events-tab mutations (each records an undo checkpoint first). A new event's
   // `sortOrder` lands at the end; reorder rewrites every event's `sortOrder` to
@@ -923,6 +949,7 @@ export function createGuestEventDraft(): GuestEventDraft {
   const [draft, setDraft] = createStore<DraftState>({ events: [], families: [] });
   const [loaded, setLoaded] = createSignal(false);
   const [baseRevision, setBaseRevision] = createSignal<string | null>(null);
+  const [eventDetails, setEventDetails] = createSignal(true);
   const [baseline, setBaseline] = createSignal<string>("");
   // The loaded state itself, kept alongside its fingerprint so "discard" can
   // restore it directly. The undo stack can NOT stand in for it: it is bounded,
@@ -957,6 +984,7 @@ export function createGuestEventDraft(): GuestEventDraft {
     revision: string,
   ) {
     const built = buildDraft(events, guests, households);
+    setEventDetails(readsEventDetails(events));
     setDraft(reconcile(built, { key: "key" }));
     setBaseline(fingerprint(built));
     setBaselineDraft(structuredClone(built));
@@ -972,6 +1000,7 @@ export function createGuestEventDraft(): GuestEventDraft {
     revision: string,
   ): string[] {
     const fresh = buildDraft(events, guests, households);
+    setEventDetails(readsEventDetails(events));
     // `replayDraft` copies what it takes from the live draft and from `fresh`,
     // so neither needs a copy of its own here.
     const { draft: replayed, notes } = replayDraft(baselineDraft(), unwrap(draft), fresh);
@@ -994,6 +1023,7 @@ export function createGuestEventDraft(): GuestEventDraft {
     setBaselineDraft(structuredClone(empty));
     setUndoStack([]);
     setBaseRevision(null);
+    setEventDetails(true);
   }
 
   function eventIndex(key: string) {
@@ -1232,6 +1262,7 @@ export function createGuestEventDraft(): GuestEventDraft {
     undo,
     discard,
     commit,
-    toWire: (scope) => toDesiredState(draft, scope),
+    eventDetails,
+    toWire: (scope) => toDesiredState(draft, scope, eventDetails()),
   };
 }

@@ -11,7 +11,7 @@ import { formatEventWhen } from "../lib/event-display";
 import {
   CHILDREN_POLICY_WORDS,
   clockLabel,
-  isClockTime,
+  guestOrder,
   PLUS_ONE_POLICY_WORDS,
 } from "../lib/event-guest-details";
 import {
@@ -258,14 +258,17 @@ export default function EventTable(props: EventTableProps) {
                   </Show>
                   {/* What the guest's details sheet adds for this event, each
                       shown when the sheet would show it (`invite-emptiness`).
-                      The run of show is in the organiser's order here; the
-                      sheet reads it in time order from the start. */}
+                      The run of show is in the order guests read it, by time
+                      from the start, an item after midnight last and marked;
+                      the drawer keeps the organiser's order. */}
                   <Show when={hasRunOfShow(event.runOfShow)}>
                     <Detail
                       label="Run of show"
-                      value={(event.runOfShow ?? [])
-                        .filter((item) => isClockTime(item.time) && hasText(item.label))
-                        .map((item) => `${clockLabel(item.time)}  ${item.label}`)
+                      value={guestOrder(event.runOfShow ?? [], event.startAt, event.timezone)
+                        .map(
+                          (line) =>
+                            `${clockLabel(line.time)}  ${line.label}${line.afterMidnight ? " (after midnight)" : ""}`,
+                        )
                         .join("\n")}
                       span
                       multiline
@@ -461,7 +464,9 @@ function Detail(props: { label: string; value: string; span?: boolean; multiline
       <dt class="font-body text-text-muted text-ui-xs tracking-ui-wider uppercase">
         {props.label}
       </dt>
-      <dd class="text-text" classList={{ "whitespace-pre-line": props.multiline }}>
+      {/* `wrap-anywhere`: a link or a long word in organiser text breaks
+          rather than widening the card. */}
+      <dd class="text-text wrap-anywhere" classList={{ "whitespace-pre-line": props.multiline }}>
         {props.value}
       </dd>
     </div>

@@ -10,6 +10,8 @@
 //                                           event's start, which is what
 //                                           `afterMidnight` warns about)
 
+import { isDateOnly } from "./event-datetime";
+
 /** Mirror of `MAX_RUN_OF_SHOW_ITEMS`: the most items one event's run of show holds. */
 export const MAX_RUN_OF_SHOW_ITEMS = 40;
 
@@ -77,21 +79,37 @@ function minutesOf(time: string): number {
   return Number(time.slice(0, 2)) * 60 + Number(time.slice(3, 5));
 }
 
+/** One `Intl` clock per zone, built on first use: a drawer of 40 items asks
+ *  for the same zone's clock on every render. */
+const clocks = new Map<string, Intl.DateTimeFormat>();
+
+function clockIn(timezone: string): Intl.DateTimeFormat {
+  let clock = clocks.get(timezone);
+  if (!clock) {
+    clock = new Intl.DateTimeFormat("en-GB", {
+      timeZone: timezone,
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    });
+    clocks.set(timezone, clock);
+  }
+  return clock;
+}
+
 /**
  * Minutes past midnight of the event's start on its own zone's clock, or null
- * when it cannot be read. The zone first, from the instant; the stored value's
- * own clock when the zone does not resolve.
+ * when it cannot be read: no start, a date with no time yet (the value the
+ * drawer holds while the start time is empty), or no instant. The zone first,
+ * from the instant; the stored value's own clock when the zone does not
+ * resolve.
  */
-function startMinutes(startAt: string, timezone: string): number | null {
+export function startMinutes(startAt: string, timezone: string): number | null {
+  if (isDateOnly(startAt)) return null;
   const instant = new Date(startAt);
   if (!Number.isNaN(instant.getTime())) {
     try {
-      const parts = new Intl.DateTimeFormat("en-GB", {
-        timeZone: timezone,
-        hour: "2-digit",
-        minute: "2-digit",
-        hourCycle: "h23",
-      }).formatToParts(instant);
+      const parts = clockIn(timezone).formatToParts(instant);
       const hour = parts.find((p) => p.type === "hour")?.value;
       const minute = parts.find((p) => p.type === "minute")?.value;
       if (hour && minute) return Number(hour) * 60 + Number(minute);
@@ -104,12 +122,49 @@ function startMinutes(startAt: string, timezone: string): number | null {
 }
 
 /**
- * Whether a guest reads this item as after midnight: its clock time is earlier
- * than the event's start, and the guest sheet orders the run of show from the
- * start. False for a time not yet set, or a start that cannot be read.
+ * Whether a guest reads an item at `time` as after midnight, given the start's
+ * minutes ({@link startMinutes}): its clock time is earlier than the start, and
+ * the guest sheet orders the run of show from the start. False for a time not
+ * yet set, or a start that cannot be read.
  */
+export function readsAfterMidnight(time: string, start: number | null): boolean {
+  return isClockTime(time) && start !== null && minutesOf(time) < start;
+}
+
+/** {@link readsAfterMidnight} for one item, reading the start itself. */
 export function afterMidnight(time: string, startAt: string, timezone: string): boolean {
-  if (!isClockTime(time)) return false;
+  return readsAfterMidnight(time, startMinutes(startAt, timezone));
+}
+
+/** One run-of-show item as the guest's sheet lists it. */
+export interface GuestOrderLine {
+  time: string;
+  label: string;
+  afterMidnight: boolean;
+}
+
+/**
+ * The run of show in the order the guest's sheet reads it, as the guest site's
+ * `runOfShowLines` orders it: the items with a time and a name, by time counted
+ * from the event's start, items at the same time in the organiser's order, an
+ * item earlier on the clock than the start last and marked. With no start to
+ * read, plain clock order.
+ */
+export function guestOrder(
+  items: readonly { time: string; label: string }[],
+  startAt: string,
+  timezone: string,
+): GuestOrderLine[] {
   const start = startMinutes(startAt, timezone);
-  return start !== null && minutesOf(time) < start;
+  const from = start ?? 0;
+  const lines = items
+    .filter((item) => isClockTime(item.time) && item.label.trim().length > 0)
+    .map((item) => ({
+      time: item.time,
+      label: item.label.trim(),
+      afterMidnight: readsAfterMidnight(item.time, start),
+      at: (minutesOf(item.time) - from + 1440) % 1440,
+    }));
+  // `toSorted` is stable, so items at the same time keep the organiser's order.
+  return lines.toSorted((a, b) => a.at - b.at).map(({ at: _at, ...line }) => line);
 }

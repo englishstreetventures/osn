@@ -188,6 +188,29 @@ describe("EventTable venue and description", () => {
     expect(description.className).toContain("whitespace-pre-line");
   });
 
+  // The list shows the run of show the way guests will read it: by time from
+  // the 6 pm start, the 12:30 am item last and marked, whatever order the
+  // organiser keeps it in.
+  it("lists the run of show in the guests' order, marking an item after midnight", async () => {
+    authFetchMock.mockResolvedValueOnce(
+      json([
+        {
+          ...EVENT,
+          runOfShow: [
+            { time: "00:30", label: "Carriages" },
+            { time: "21:00", label: "Speeches" },
+            { time: "18:00", label: "Canapés" },
+          ],
+        },
+      ]),
+    );
+    render(() => <EventTable weddingId="wed_1" weddingSlug="my-wedding" />);
+    const term = await screen.findByText("Run of show");
+    expect(term.nextElementSibling?.textContent).toBe(
+      "6:00 pm  Canapés\n9:00 pm  Speeches\n12:30 am  Carriages (after midnight)",
+    );
+  });
+
   it("shows no Venue row for an event without a name, from an API that sends none", async () => {
     authFetchMock.mockResolvedValueOnce(json([{ ...EVENT, address: "124 Sample Avenue" }]));
     render(() => <EventTable weddingId="wed_1" weddingSlug="my-wedding" />);
