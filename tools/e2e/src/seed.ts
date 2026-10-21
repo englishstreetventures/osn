@@ -30,11 +30,11 @@ function freshDatabase(path: string): Database {
   return sqlite;
 }
 
-/** A first-party relying party, as osn-api stores one: the secret only as its SHA-256. */
+/** A first-party OIDC client row for osn-api's `oauth_clients`. */
 function firstPartyClient(
-  name: string,
   client: { rowId: string; clientId: string; secret: string; redirectUri: string },
-): typeof oauthClients.$inferInsert {
+  name: string,
+) {
   return {
     id: client.rowId,
     clientId: client.clientId,
@@ -43,13 +43,13 @@ function firstPartyClient(
     clientSecretHash: createHash("sha256").update(client.secret).digest("hex"),
     sectorIdentifier: new URL(client.redirectUri).host,
     // First-party skips consent and puts `osn_profile_id` in the ID token,
-    // which is what Pulse and cire key their sessions on.
+    // which is what each relying party keys its session on.
     isFirstParty: true,
     createdAt: Math.floor(CLOCK_T0 / 1000),
   };
 }
 
-/** osn-api: the schema, plus Pulse and cire's organiser portal as first-party OIDC clients. */
+/** osn-api: the schema, plus Pulse and cire registered as first-party OIDC clients. */
 export function seedOsn(path: string): void {
   const sqlite = freshDatabase(path);
   try {
@@ -58,7 +58,7 @@ export function seedOsn(path: string): void {
       applyOsnSchema(sqlite);
       drizzle(sqlite)
         .insert(oauthClients)
-        .values([firstPartyClient("Pulse", PULSE_OIDC), firstPartyClient("Cire", CIRE_OIDC)])
+        .values([firstPartyClient(PULSE_OIDC, "Pulse"), firstPartyClient(CIRE_OIDC, "Cire")])
         .run();
     })();
   } finally {

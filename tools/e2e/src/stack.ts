@@ -28,6 +28,9 @@ import {
 
 export const CLOCK_MODULE = resolve(import.meta.dirname, "clock.mjs");
 
+/** `@cire/vendor`'s dev origin (`DEV_APPS`). Not booted; cire-api is told it. */
+export const VENDOR_PORTAL_ORIGIN = "http://localhost:4326";
+
 /**
  * The only variables a child inherits from the shell that starts the suite.
  * Everything else (a developer's `REDIS_URL`, `OSN_ENV`, Turnstile keys,
@@ -127,8 +130,10 @@ export function appSpecs(): AppSpec[] {
         RESEND_API_KEY: "re_e2e_local",
         RESEND_API_URL: ORIGINS.mail,
         OSN_EMAIL_FROM: "Musubi <no-reply@e2e.test>",
-        // Mounts `/dev/login`, which an organiser flow signs in through.
+        // The organiser signs in to cire's portal as the dev principal, which
+        // owns cire's sample wedding, and is sent back to the portal after.
         DEV_LOGIN_SECRET,
+        DEV_LOGIN_RETURN_ORIGINS: ORIGINS.cireHost,
       },
     },
     {
@@ -167,10 +172,11 @@ export function appSpecs(): AppSpec[] {
         CIRE_E2E_CLIENT_ADDRESS: "1",
         // Adds the organiser weddings (`CIRE_ORGANISER`) to cire-api's seed.
         CIRE_E2E_ORGANISER: "1",
-        // Guest site, then organiser portal: the order `WEB_ORIGIN` is read in.
-        WEB_ORIGIN: [ORIGINS.cireInvites, ORIGINS.cireHost].join(","),
-        // Organiser sign-in through osn-api, as the `cire` client the seed
-        // registers (`CIRE_OIDC`).
+        // Guest site, organiser portal, vendor portal — the order `local.ts`
+        // reads them in. The vendor portal is not in the stack; naming its
+        // dev origin keeps cire-api from minting production vendor links.
+        WEB_ORIGIN: [ORIGINS.cireInvites, ORIGINS.cireHost, VENDOR_PORTAL_ORIGIN].join(","),
+        // Organiser sign-in through osn-api, as a first-party client.
         OSN_ISSUER_URL: ORIGINS.osnApi,
         OSN_JWKS_URL: `${ORIGINS.osnApi}/.well-known/jwks.json`,
         CIRE_API_ORIGIN: ORIGINS.cireApi,
@@ -206,9 +212,9 @@ export function appSpecs(): AppSpec[] {
       env: { PORT: String(PORTS.cireInvites), PUBLIC_API_URL: ORIGINS.cireApi },
     },
     {
-      // host.cireweddings.com: the organiser portal, under `astro dev`, which
-      // serves no CSP (the build writes it), so the browser tier keeps that.
-      // `/login` is the page an organiser flow starts on.
+      // The organiser portal. Like cire landing, its font pipeline fetches
+      // Google Fonts when `astro dev` starts, and serves fallback faces when
+      // there is no network.
       name: "cireHost",
       dir: "cire/host",
       command: ["bun", "run", "dev:app", "--ignore-lock"],
@@ -216,8 +222,6 @@ export function appSpecs(): AppSpec[] {
       env: {
         PORT: String(PORTS.cireHost),
         PUBLIC_CIRE_API_URL: ORIGINS.cireApi,
-        PUBLIC_API_URL: ORIGINS.cireApi,
-        PUBLIC_OSN_ACCOUNT_URL: ORIGINS.musubi,
         PUBLIC_CIRE_WEB_URL: ORIGINS.cireInvites,
         PUBLIC_MARKETING_URL: ORIGINS.cireLanding,
       },

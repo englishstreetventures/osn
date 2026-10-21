@@ -30,6 +30,10 @@ export const EventSummary = Schema.Struct({
   startAt: Schema.String,
   endAt: Schema.String,
   timezone: Schema.String,
+  // The venue's name, shown above the address; null when the organiser gave
+  // none. Always sent; the guest site reads it as optional, because it can
+  // deploy before an API that sends it.
+  venueName: Schema.NullOr(Schema.String),
   address: Schema.NullOr(Schema.String),
   dressCodeDescription: Schema.NullOr(Schema.String),
   dressCodePalette: Schema.NullOr(Schema.Array(DressSwatch)),

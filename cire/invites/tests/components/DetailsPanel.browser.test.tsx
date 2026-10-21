@@ -36,7 +36,10 @@ const event: EventSummary = {
   startAt: "2026-11-14T17:30:00+11:00",
   endAt: "2026-11-14T23:30:00+11:00",
   timezone: "Australia/Sydney",
-  address: "The Grounds of Alexandria, 7a/2 Huntley Street, Alexandria NSW 2015, Australia",
+  // The name over the address: the taller of the two venue rows, and the one
+  // whose second line is in muted ink.
+  venueName: "The Grounds of Alexandria",
+  address: "7a/2 Huntley Street, Alexandria NSW 2015, Australia",
   dressCodeDescription: "Black tie optional. Jewel tones encouraged.",
   // Midnight is the case the ring exists for: a near-black colour on a
   // near-black invite has no edge but its ring.
@@ -209,6 +212,7 @@ describe.each(PALETTE_PRESET_KEYS)("on the %s scheme", (palettePreset) => {
       line(/^Your time:/),
       within(dialog()).getByRole("button", { name: "Add to calendar" }),
       line(/The Grounds of Alexandria/),
+      line(/7a\/2 Huntley Street/),
       within(dialog()).getByRole("link", { name: "Open in maps" }),
     ];
     for (const el of facts) {
@@ -271,7 +275,11 @@ describe("on a phone", () => {
     await openSheet();
 
     const visible = Math.min(PHONE[1], scroller().getBoundingClientRect().bottom);
-    for (const text of ["Saturday 14 November 2026", /The Grounds of Alexandria/]) {
+    for (const text of [
+      "Saturday 14 November 2026",
+      /The Grounds of Alexandria/,
+      /7a\/2 Huntley Street/,
+    ]) {
       const box = line(text).getBoundingClientRect();
       expect(box.top).toBeGreaterThanOrEqual(0);
       expect(box.bottom).toBeLessThanOrEqual(visible);
@@ -297,6 +305,35 @@ describe("on a phone", () => {
       .map((el) => ({ name: el.textContent?.trim(), height: el.getBoundingClientRect().height }))
       .filter((c) => c.height < 44);
     expect(short).toEqual([]);
+  });
+
+  // An organiser pastes a link into the description, and a link with no
+  // hyphen has nowhere a line may break.
+  it("keeps a link in the description inside the sheet", async () => {
+    await page.viewport(...PHONE);
+    await openSheet({
+      ...event,
+      description:
+        "Parking is on Huntley Street. Shuttle times: https://maps.app.goo.gl/q4Zt9XaBcDeFgHiJkLmNoPqRsTuVwXyZ12345\nSee you there!",
+    });
+
+    const about = line(/^Parking is on Huntley Street/);
+    expect(about.scrollWidth).toBeLessThanOrEqual(about.clientWidth);
+    expect(scroller().scrollWidth).toBeLessThanOrEqual(scroller().clientWidth);
+  });
+});
+
+describe("the venue row", () => {
+  // The name over the address reads as the day over the time does, so the
+  // address is set as the time line is: muted, at the same weight.
+  it("sets the address under a name at the time line's weight", async () => {
+    await page.viewport(...PHONE);
+    await openSheet();
+
+    const address = getComputedStyle(line(/7a\/2 Huntley Street/));
+    const time = getComputedStyle(line(/AEDT \(Sydney time\)/));
+    expect(address.fontWeight).toBe(time.fontWeight);
+    expect(address.color).toBe(time.color);
   });
 });
 

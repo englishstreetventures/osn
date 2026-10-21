@@ -36,6 +36,8 @@ export interface EventRow {
   startAt: string;
   endAt: string;
   timezone: string;
+  /** The venue's name. Optional: an API older than the column sends none. */
+  venueName?: string | null;
   address: string | null;
   description: string;
   dressCodeDescription: string | null;

@@ -40,7 +40,7 @@ that it matches nobody. Photos load with no `Referer`. A viewer sees the faces, 
 circle on an open task nobody holds. The task drawer, its Edit button and the
 "Needs an owner" mark are gone.
 
-Migration `0090_task_assignees.sql` adds the `task_assignees` table — one row
+Migration `0091_task_assignees.sql` adds the `task_assignees` table — one row
 per task and seat, with `assigned_at` — whose two foreign keys,
 `(task_id, wedding_id)` to `tasks` and `(host_id, wedding_id)` to
 `wedding_hosts`, both cascade on delete and refuse a task paired with another

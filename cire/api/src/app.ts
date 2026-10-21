@@ -442,7 +442,8 @@ export interface AppOptions {
    * a tier that has no client secret, not a silent downgrade. Built by
    * `oidcConfigFromEnv` (`lib/oidc.ts`), in `index.ts` and `local.ts` alike,
    * from `OSN_ISSUER_URL`, `OSN_JWKS_URL`, `CIRE_API_ORIGIN`,
-   * `CIRE_OIDC_CLIENT_ID` and `CIRE_OIDC_CLIENT_SECRET`.
+   * `CIRE_OIDC_CLIENT_ID` and `CIRE_OIDC_CLIENT_SECRET`; `local.ts` defaults
+   * `OSN_JWKS_URL` to the issuer's JWKS path.
    */
   oidc?: OidcConfig | null;
   /** Override the OIDC start/callback rate limiter (useful for testing). */
@@ -1047,7 +1048,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
       .use(createOrganiserChangeRoutes(db, r2, osnAuthOptions))
       // Wedding-profile Settings (platform Phase 0). Reads admit owner OR
       // co-host; the profile save is owner-only. No event location config —
-      // an event's place is its free-text `address` (the sole location source).
+      // an event's place is its venue name and free-text `address`.
       .use(createOrganiserSettingsRoutes(db, osnAuthOptions))
       // Organiser-recorded RSVPs (platform Phase 0). Editor records a
       // phone/paper RSVP on a guest's behalf into the SAME `rsvps` table the

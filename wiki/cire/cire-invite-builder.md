@@ -421,8 +421,7 @@ set (`REQUIRED_EVENT_COLUMNS` in `cire/api/src/services/spreadsheet.ts`,
   drawer asks for, so a sheet and the editor describe an event identically; see
   `[[cire-guest-event-editor]]` E9 for why asking for both was a bug factory.
 
-**End and Location are optional** (2026-07-08; previously both were required —
-Location since `feat/invite-conditional-segments`):
+**End, Location and Description are optional:**
 
 - A blank/absent **End** stores the `""` no-stated-end sentinel in
   `events.end_at` (column stays `NOT NULL`, no rebuild). Consumers handle it:
@@ -431,15 +430,17 @@ Location since `feat/invite-conditional-segments`):
   a zero-duration entry (`calendar.ts` `effectiveEnd`), and the **retention
   sweep** compares `max(max(end_at, start_at))` so an all-open-ended wedding
   is aged by its start dates, never by `max("")`.
-- **Location** was parsed-then-discarded (there is no `events.location` column —
-  the "Where" + Open-in-Maps derive from **Address**, see
-  `cire/invites/src/components/event-details.ts`). It is now optional and, when
-  provided with a blank Address, is written into `events.address` at
-  import-apply time so the venue name actually reaches the invite.
+- **Location** is the venue's name and fills `events.venue_name`, which the
+  invite shows above the address and calendar entries put before it. A blank
+  **Address** stays blank: Location never stands in for it.
+- **Description** fills `events.description`, the event's About text.
+- A sheet **without** a Location or Description column leaves what each event
+  already has; one that has the column but a blank cell clears it
+  ([[cire-guest-event-editor#3.3 A column a change leaves out says nothing]]).
 
 The organiser-facing template mirror (`cire/host/src/lib/import-templates.ts`,
-`EVENT_REQUIRED_HEADERS` / `EVENT_OPTIONAL_HEADERS`) lists End + Location under
-the **optional** chips, kept in lockstep with the parser by
+`EVENT_REQUIRED_HEADERS` / `EVENT_OPTIONAL_HEADERS`) lists End, Location and
+Description under the **optional** chips, kept in lockstep with the parser by
 `import-templates.test.ts`.
 
 ## Theme (fonts + a five-colour scheme)

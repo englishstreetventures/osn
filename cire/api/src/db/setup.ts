@@ -36,7 +36,7 @@ export { DEV_OWNER_PROFILE_ID, DEV_OWNER_SEAT_ID };
 //
 // `tasks.assigned_host_id` and its index are here and in the migrations but
 // not in the Drizzle schema, so no statement the app sends names them; only the
-// Worker before migration 0090 reads and writes the column, if it serves again.
+// Worker before migration 0091 reads and writes the column, if it serves again.
 // Dropped by englishstreetventures/osn#1636.
 export const DDL = `
 CREATE TABLE IF NOT EXISTS weddings (
@@ -121,6 +121,7 @@ CREATE TABLE IF NOT EXISTS events (
   start_at TEXT NOT NULL,
   end_at TEXT NOT NULL,
   timezone TEXT NOT NULL,
+  venue_name TEXT,
   address TEXT,
   dress_code_description TEXT,
   dress_code_palette TEXT,

@@ -3,28 +3,28 @@ import { describe, expect, it } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-// Data proof for migration 0090, which creates `task_assignees` and copies
+// Data proof for migration 0091, which creates `task_assignees` and copies
 // 0087's single assignee onto it: one holder row for every task whose
 // `assigned_host_id` names a seat of the task's own wedding. The column and its
-// values stay, because the Worker before 0090 still reads them. The D1 replay
+// values stay, because the Worker before 0091 still reads them. The D1 replay
 // of the same file is in d1-integration.test.ts.
 //
-// 0090 is a live migration, so the chain before it is the live directory: the
+// 0091 is a live migration, so the chain before it is the live directory: the
 // baseline and everything after it, in name order, as wrangler runs them.
 const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations");
-const MIG_0090 = "0090_task_assignees.sql";
+const MIG_0091 = "0091_task_assignees.sql";
 
 function apply(db: Database, file: string): void {
   db.exec(readFileSync(join(MIGRATIONS_DIR, file), "utf8"));
 }
 
 /**
- * 0090 as wrangler sends it, one statement at a time, so a statement SQLite
+ * 0091 as wrangler sends it, one statement at a time, so a statement SQLite
  * refuses throws here: `exec` over the whole file can stop at a failed
  * statement without throwing.
  */
-function apply0090(db: Database): void {
-  const statements = readFileSync(join(MIGRATIONS_DIR, MIG_0090), "utf8")
+function apply0091(db: Database): void {
+  const statements = readFileSync(join(MIGRATIONS_DIR, MIG_0091), "utf8")
     .split("--> statement-breakpoint")
     .map((chunk) =>
       chunk
@@ -37,11 +37,11 @@ function apply0090(db: Database): void {
   for (const statement of statements) db.run(statement);
 }
 
-function databaseBefore0090(): Database {
+function databaseBefore0091(): Database {
   const db = new Database(":memory:");
   db.exec("PRAGMA foreign_keys = ON");
   for (const file of readdirSync(MIGRATIONS_DIR)
-    .filter((f) => f.endsWith(".sql") && f < MIG_0090)
+    .filter((f) => f.endsWith(".sql") && f < MIG_0091)
     .toSorted()) {
     apply(db, file);
   }
@@ -49,13 +49,13 @@ function databaseBefore0090(): Database {
 }
 
 /**
- * Two weddings as the chain before 0090 leaves them. On `wed_a`, `tsk_ed` is held by the
+ * Two weddings as the chain before 0091 leaves them. On `wed_a`, `tsk_ed` is held by the
  * editor, `tsk_own` by the owner and `tsk_none` by nobody; `tsk_stray` names
  * `wed_b`'s seat, which 0087's single-column key allowed although no API path
  * wrote it. On `wed_b`, `tsk_b` is held by its owner.
  */
 function seeded(): Database {
-  const db = databaseBefore0090();
+  const db = databaseBefore0091();
   db.exec(`
     INSERT INTO weddings (id, slug, display_name, created_at, updated_at) VALUES
       ('wed_a', 'a', 'A', 1, 1), ('wed_b', 'b', 'B', 1, 1);
@@ -84,11 +84,11 @@ const holders = (db: Database): Holder[] =>
 
 const taskRows = (db: Database): unknown[] => db.query("SELECT * FROM tasks ORDER BY id").all();
 
-describe("migration 0090 — a task's assignee becomes its holder", () => {
+describe("migration 0091 — a task's assignee becomes its holder", () => {
   it("copies each task's assignee onto task_assignees, stamped in seconds as it runs", () => {
     const db = seeded();
     const before = Math.floor(Date.now() / 1000);
-    apply0090(db);
+    apply0091(db);
     const rows = holders(db);
     expect(rows.map(({ task_id, host_id, wedding_id }) => [task_id, host_id, wedding_id])).toEqual([
       ["tsk_b", "whost_b_owner", "wed_b"],
@@ -103,7 +103,7 @@ describe("migration 0090 — a task's assignee becomes its holder", () => {
 
   it("gives no holder to a task nobody held or one naming another wedding's seat", () => {
     const db = seeded();
-    apply0090(db);
+    apply0091(db);
     expect(holders(db).map((row) => row.task_id)).toEqual(["tsk_b", "tsk_ed", "tsk_own"]);
   });
 
@@ -111,14 +111,14 @@ describe("migration 0090 — a task's assignee becomes its holder", () => {
     const db = seeded();
     const tasksBefore = taskRows(db);
     const seatsBefore = db.query("SELECT * FROM wedding_hosts ORDER BY id").all();
-    apply0090(db);
+    apply0091(db);
     expect(taskRows(db)).toEqual(tasksBefore);
     expect(db.query("SELECT * FROM wedding_hosts ORDER BY id").all()).toEqual(seatsBefore);
   });
 
   it("then takes a removed seat's holder rows and clears its old assignee, keeping the task", () => {
     const db = seeded();
-    apply0090(db);
+    apply0091(db);
     db.exec("DELETE FROM wedding_hosts WHERE id = 'whost_a_ed'");
     expect(holders(db).map((row) => row.task_id)).toEqual(["tsk_b", "tsk_own"]);
     expect(db.query("SELECT id, assigned_host_id FROM tasks WHERE id = 'tsk_ed'").get()).toEqual({

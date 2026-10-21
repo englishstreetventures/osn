@@ -60,8 +60,9 @@ describe("flow sources", () => {
     expect(organiserClaims).toBeLessThanOrEqual(5);
   });
 
-  // An organiser flow signs in with `signInToCireHost`, which spends two of
-  // cire-api's OIDC redirect legs (15 a minute per address,
+  // An organiser flow signs in with `signInToCireHost`, or itself through
+  // osn-api's `/dev/login?…` as `cire-event-details` does. Either way a sign-in
+  // spends two of cire-api's OIDC redirect legs (15 a minute per address,
   // `defaultOidcStartLimiter` in cire/api/src/app.ts), one osn-api `/dev/login`
   // (10 a minute, osn/api/src/routes/auth/dev-login.ts) and one osn-api
   // `/authorize` (20 a minute, shared with the Pulse flow's two sign-ins). All
@@ -71,7 +72,10 @@ describe("flow sources", () => {
     const dir = join(import.meta.dirname, "flows");
     const signIns = readdirSync(dir)
       .map((file) => readFileSync(join(dir, file), "utf8"))
-      .reduce((sum, source) => sum + (source.match(/signInToCireHost\(/g)?.length ?? 0), 0);
+      .reduce(
+        (sum, source) => sum + (source.match(/signInToCireHost\(|\/dev\/login\?/g)?.length ?? 0),
+        0,
+      );
     expect(signIns).toBeGreaterThan(0);
     expect(signIns).toBeLessThanOrEqual(5);
   });

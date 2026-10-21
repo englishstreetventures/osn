@@ -127,11 +127,9 @@ export const PULSE_OIDC = {
 } as const;
 
 /**
- * The cire organiser portal's relying party the seed registers with osn-api:
- * first-party, so `/authorize` hands a signed-in organiser a code with no
- * screen. cire-api is started with the same id, secret and origin
- * (`CIRE_OIDC_CLIENT_ID`, `CIRE_OIDC_CLIENT_SECRET`, `CIRE_API_ORIGIN`), and
- * builds the same redirect URI from the origin.
+ * cire registered with osn-api as a first-party OIDC client, so an organiser
+ * with an OSN session signs in to the portal with no consent screen. cire-api
+ * reads the id and secret as `CIRE_OIDC_CLIENT_ID` / `CIRE_OIDC_CLIENT_SECRET`.
  */
 export const CIRE_OIDC = {
   rowId: "oc_cire_e2e",
@@ -141,10 +139,10 @@ export const CIRE_OIDC = {
 } as const;
 
 /**
- * Mounts osn-api's passkey-less `/dev/login` on the stack (`DEV_LOGIN_SECRET`,
- * honoured on the local tier only). An organiser flow signs in as the one
- * account it mints a session for, the dev profile, which owns the cire
- * organiser weddings below; the OIDC hop from the portal to osn-api stays real.
+ * osn-api's dev sign-in (`GET /dev/login`, local and dev tiers only, mounted
+ * when this is set). It signs in as the fixed dev principal, whose profile id
+ * owns cire's sample wedding (`DEV_OWNER_PROFILE_ID`) and the `CIRE_ORGANISER`
+ * weddings below. Local only.
  */
 export const DEV_LOGIN_SECRET = "e2e-dev-login-secret-not-a-real-secret";
 
@@ -183,6 +181,23 @@ export const CIRE_ORGANISER = {
     weddingId: "wed_e2e_scope",
     helper: { hostId: "whost_e2e_dee", profileId: "usr_e2e_dee" },
   },
+} as const;
+
+/**
+ * The organiser's edit in `cire-event-details`: the sample wedding's Kitchen
+ * Tea (`cire/db/seed/data/events.ts`) gains a venue name and a description.
+ * No other flow reads Kitchen Tea, so the edit reaches none of them.
+ */
+export const CIRE_EVENT_EDIT = {
+  weddingId: "wed_bootstrap",
+  slug: "cire-wedding",
+  event: "Kitchen Tea",
+  address: "124 Sample Avenue, Exampleville NSW 2001",
+  venueName: "The Glasshouse",
+  description: "High tea on the lawn, then games; bring a hat.\nCars can park on Sample Lane.",
+  /** What the second save changes, so the venue name and description it
+   *  carries are the ones the editor read back. */
+  dressCode: "Garden party. Flat shoes for the lawn.",
 } as const;
 
 /** Seeded cire guest: the first canonical family in `cire/db/seed/data/guests.ts`. */

@@ -238,6 +238,39 @@ describe("the answer button at the Reflow floor", () => {
     expect(badge.height).toBeLessThan(30);
   });
 
+  // The organiser writes the venue name and the description, and nothing
+  // between their input and here gives a long word somewhere to break: a
+  // pasted link, or a venue named in one token.
+  it("keeps the answer button inside the card beside a link in the description and a one-word venue", async () => {
+    await page.viewport(390, 900);
+    const { container } = render(() => (
+      <div class="px-6">
+        <div class="max-w-column-xl mx-auto">
+          <EventCard
+            event={{
+              ...baseEvent,
+              venueName: "Thegrandoldboathousebytheharbourfrontmarina",
+              description:
+                "Shuttle times: https://maps.app.goo.gl/q4Zt9XaBcDeFgHiJkLmNoPqRsTuVwXyZ12345",
+            }}
+            onRespond={noop}
+            onDetails={noop}
+          />
+        </div>
+      </div>
+    ));
+    await document.fonts.ready;
+
+    const article = container.querySelector("article")!.getBoundingClientRect();
+    const { respond } = actions(container);
+    expect(respond.right).toBeLessThanOrEqual(article.right);
+    for (const p of container.querySelectorAll("p")) {
+      expect({ text: p.textContent, fits: p.scrollWidth <= p.clientWidth }).toMatchObject({
+        fits: true,
+      });
+    }
+  });
+
   it("still clips the confirmation fill to the button's rounded box", async () => {
     await page.viewport(...REFLOW);
     const { container } = renderCard(false);

@@ -2,7 +2,13 @@ import { buttonClass } from "@cire/ui/button";
 import { Show } from "solid-js";
 
 import { ConsentGate } from "./consent/ConsentGate";
-import { resolveMapsEmbedUrl, resolveMapsUrl, venueLine } from "./event-details";
+import {
+  addressRepeatsName,
+  resolveMapsEmbedUrl,
+  resolveMapsUrl,
+  venueLine,
+  venueName,
+} from "./event-details";
 import type { EventSummary } from "./types";
 
 interface MapPreviewProps {
@@ -10,21 +16,22 @@ interface MapPreviewProps {
 }
 
 /**
- * The venue row of the event details: the address, a map, and "Open in maps".
+ * The venue row of the event details: the venue's name and address, a map,
+ * and "Open in maps".
  *
  * The map is one of two things:
  *
  *  - **Real map** — when `PUBLIC_GOOGLE_MAPS_EMBED_KEY` is configured at build
- *    time AND the event has a venue address AND the guest has switched on
- *    Google Maps: a Google Maps Embed API `place` iframe keyed on the free-text
- *    address (no lat/lng, no geocoding, no schema change). The key is
+ *    time AND the event has an address or a venue name AND the guest has
+ *    switched on Google Maps: a Google Maps Embed API `place` iframe keyed on
+ *    the free-text address, else the name (no lat/lng, no geocoding). The key is
  *    referrer-restricted at the Maps Platform console, which is what makes
  *    baking it into static HTML safe. The iframe is sandboxed and sends only
  *    the page's origin as its referrer, so the slug-bearing invite path never
  *    reaches Google.
  *
- *  - **Drawn card (fallback)** — when no key is configured, when there is no
- *    address to query, OR when the guest has not switched on Google Maps: a
+ *  - **Drawn card (fallback)** — when no key is configured, when there is
+ *    nothing to query, OR when the guest has not switched on Google Maps: a
  *    small card drawn in CSS from the invite's own palette — a wash of the gold
  *    round a pin and faint roads in the ink, on the page colour — so it belongs
  *    to every scheme. It ships no image, needs no secret, makes no request, and
@@ -47,14 +54,19 @@ interface MapPreviewProps {
  * using voice control can say what they see.
  *
  * The whole component renders nothing when there is no usable maps target at
- * all (no http(s) `mapsUrl` and no address) — `hasVenue` makes the same test, so
- * the details panel leaves the row out rather than show an empty one.
+ * all (no http(s) `mapsUrl`, no address and no venue name) — `hasVenue` makes
+ * the same test, so the details panel leaves the row out rather than show an
+ * empty one.
  *
- * Security: the address is the only interpolated value and is always
- * `encodeURIComponent`-escaped (in `resolveMapsEmbedUrl`); organiser text never
- * reaches the iframe URL or the DOM unescaped, and the key is never logged.
+ * Security: the map query (address, else name) is the only interpolated value
+ * and is always `encodeURIComponent`-escaped (in `resolveMapsEmbedUrl`);
+ * organiser text never reaches the iframe URL or the DOM unescaped, and the key
+ * is never logged.
  */
 export function MapPreview(props: MapPreviewProps) {
+  // An address that already starts with the name says it all, so it is the
+  // headline alone, as it is when there is no name.
+  const name = () => (addressRepeatsName(props.event) ? null : venueName(props.event));
   const venue = () => venueLine(props.event);
   const mapsHref = () => resolveMapsUrl(props.event);
   // Vite statically replaces `import.meta.env.PUBLIC_*` at build time for the
@@ -66,6 +78,17 @@ export function MapPreview(props: MapPreviewProps) {
     <Show when={mapsHref()}>
       {(href) => (
         <>
+          {/* With a name, the row reads as the When row above it does: the
+              headline line (the name, as the day is there), then the detail
+              under it in muted ink (the address, as the time is). Without one,
+              the address is the headline. */}
+          <Show when={name()}>
+            {(line) => (
+              <p class="font-body text-text text-ui-md line-clamp-2 font-light wrap-anywhere">
+                {line()}
+              </p>
+            )}
+          </Show>
           <Show when={venue()}>
             {(line) => (
               // The address wraps rather than being cut off: it is the one
@@ -76,7 +99,14 @@ export function MapPreview(props: MapPreviewProps) {
               // unlimited length, since nothing between the organiser's input
               // and here constrains it. A full address down to its country
               // takes three lines in the narrowest column this row renders in.
-              <p class="font-body text-text text-ui-base line-clamp-4 font-light wrap-anywhere">
+              // The name above takes two lines at most, for the same reason.
+              <p
+                class="font-body text-ui-base line-clamp-4 wrap-anywhere"
+                classList={{
+                  "text-text font-light": !name(),
+                  "text-text-muted mt-0.5": Boolean(name()),
+                }}
+              >
                 {line()}
               </p>
             )}
@@ -84,7 +114,7 @@ export function MapPreview(props: MapPreviewProps) {
           <Show when={embedSrc()} fallback={<MapCard />}>
             {(src) => (
               <ConsentGate category="maps" vendor="google-maps" fallback={<MapCard />}>
-                <MapEmbed venue={venue()} src={src()} />
+                <MapEmbed venue={name() ?? venue()} src={src()} />
               </ConsentGate>
             )}
           </Show>

@@ -26,6 +26,11 @@ export interface EventSummary {
   startAt: string;
   endAt: string;
   timezone: string;
+  /**
+   * The venue's name, shown above the address. Optional: the guest site can
+   * deploy before an API that sends it, and absent reads as no name.
+   */
+  venueName?: string | null;
   address: string | null;
   dressCodeDescription: string | null;
   dressCodePalette: DressSwatch[] | null;

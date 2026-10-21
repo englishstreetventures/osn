@@ -203,6 +203,223 @@ describe("dress-code palette colours are checked on the server", () => {
   });
 });
 
+// ── An event's description and venue name ──────────────────────────────────
+
+describe("an event's description and venue name", () => {
+  const LONG = "x".repeat(10_001);
+  /** The events editor's event, as the current host sends it. */
+  const editorEvent = (extra: object = {}) => ({
+    name: "Kitchen Tea",
+    startAt: "2026-11-20T16:00:00+11:00",
+    endAt: "",
+    timezone: "Australia/Sydney",
+    location: null,
+    address: "124 Sample Avenue",
+    dressCodeDescription: null,
+    dressCodePalette: [],
+    pinterestUrl: null,
+    mapsUrl: null,
+    sortOrder: 0,
+    ...extra,
+  });
+
+  async function previewAndApply(app: ReturnType<typeof buildApp>["app"], body: object) {
+    const preview = await editorPreview(app, { ...body, scope: "events" });
+    expect(preview.status).toBe(200);
+    const json = (await preview.json()) as {
+      changeId: string;
+      plan: { eventCreates: { event: object }[]; eventUpdates: { event: object }[] };
+    };
+    const apply = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId: json.changeId });
+    expect(apply.status).toBe(200);
+    return json.plan;
+  }
+
+  const stored = (db: ReturnType<typeof buildApp>["db"]) =>
+    db
+      .select({
+        id: events.id,
+        description: events.description,
+        venueName: events.venueName,
+        address: events.address,
+      })
+      .from(events)
+      .all();
+
+  it("sets both from the editor, on create and on update, and the preview's plan carries them", async () => {
+    const { app, db } = buildApp();
+    const created = await previewAndApply(app, {
+      desiredState: {
+        events: [
+          editorEvent({ description: "High tea.\nGames after.", venueName: "The Glasshouse" }),
+        ],
+        families: [],
+      },
+    });
+    expect(created.eventCreates[0]!.event).toMatchObject({
+      description: "High tea.\nGames after.",
+      venueName: "The Glasshouse",
+    });
+    const [row] = stored(db);
+    expect(row).toMatchObject({
+      description: "High tea.\nGames after.",
+      venueName: "The Glasshouse",
+      address: "124 Sample Avenue",
+    });
+
+    const updated = await previewAndApply(app, {
+      desiredState: {
+        events: [editorEvent({ id: row!.id, description: "", venueName: null })],
+        families: [],
+      },
+    });
+    expect(updated.eventUpdates[0]!.event).toMatchObject({ description: "", venueName: null });
+    expect(stored(db)[0]).toMatchObject({ description: "", venueName: null });
+  });
+
+  // An older host sends `location: null` and neither field. Its save must not
+  // wipe what a newer host (or a sheet) stored.
+  it("keeps both when an older host's save carries neither", async () => {
+    const { app, db } = buildApp();
+    await previewAndApply(app, {
+      desiredState: {
+        events: [editorEvent({ description: "High tea.", venueName: "The Glasshouse" })],
+        families: [],
+      },
+    });
+    const [row] = stored(db);
+    await previewAndApply(app, {
+      desiredState: {
+        events: [editorEvent({ id: row!.id, address: "125 Sample Avenue" })],
+        families: [],
+      },
+    });
+    expect(stored(db)[0]).toMatchObject({
+      description: "High tea.",
+      venueName: "The Glasshouse",
+      address: "125 Sample Avenue",
+    });
+  });
+
+  // One event, so the body is far under the 1 MB caps and the field check is
+  // what answers.
+  for (const field of ["description", "venueName"] as const) {
+    it(`400s an editor draft whose ${field} is over 10,000 characters, and stores nothing`, async () => {
+      const { app, db } = buildApp();
+      const res = await editorPreview(app, {
+        desiredState: { events: [editorEvent({ [field]: LONG })], families: [] },
+        scope: "events",
+      });
+      expect(res.status).toBe(400);
+      expect(db.select().from(imports).all()).toHaveLength(0);
+
+      const atCap = await editorPreview(app, {
+        desiredState: { events: [editorEvent({ [field]: LONG.slice(1) })], families: [] },
+        scope: "events",
+      });
+      expect(atCap.status).toBe(200);
+    });
+  }
+
+  // A sheet previewed before this change re-parses at apply, so it takes the
+  // new rule: its Location is the venue's name, and a blank Address stays blank.
+  it("applies a sheet's Location to the venue name, leaving a blank Address NULL", async () => {
+    const { app, db } = buildApp();
+    const preview = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+      eventsCsv: [
+        "Event Name,Start,Timezone,Location,Address",
+        "Kitchen Tea,2026-11-20T16:00,Australia/Sydney,The Glasshouse,",
+      ].join("\n"),
+    });
+    expect(preview.status).toBe(200);
+    const { changeId } = (await preview.json()) as { changeId: string };
+    expect((await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId })).status).toBe(200);
+    expect(stored(db)[0]).toMatchObject({
+      venueName: "The Glasshouse",
+      address: null,
+      description: "",
+    });
+  });
+
+  // A download made before the venue name existed has a Location column that
+  // is always blank and no Description column. Re-uploading one clears what
+  // the editor set since, and the preview is where the organiser can see that.
+  it("warns when a sheet's blank cells would clear an event's venue name or description, and not when the columns are left out", async () => {
+    const { app, db } = buildApp();
+    await previewAndApply(app, {
+      desiredState: {
+        events: [editorEvent({ description: "High tea.", venueName: "The Glasshouse" })],
+        families: [],
+      },
+    });
+    const warningsFor = async (header: string, row: string) => {
+      const res = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+        eventsCsv: [header, row].join("\n"),
+      });
+      expect(res.status).toBe(200);
+      return ((await res.json()) as { warnings: string[] }).warnings;
+    };
+
+    expect(
+      await warningsFor(
+        "Event Name,Start,Timezone,Location,Address",
+        "Kitchen Tea,2026-11-20T16:00,Australia/Sydney,,124 Sample Avenue",
+      ),
+    ).toEqual(['Event "Kitchen Tea" would lose its venue name.']);
+    expect(
+      await warningsFor(
+        "Event Name,Start,Timezone,Location,Address,Description",
+        "Kitchen Tea,2026-11-20T16:00,Australia/Sydney,,124 Sample Avenue,",
+      ),
+    ).toEqual(['Event "Kitchen Tea" would lose its venue name and description.']);
+    expect(
+      await warningsFor(
+        "Event Name,Start,Timezone,Location,Address,Description",
+        "Kitchen Tea,2026-11-20T16:00,Australia/Sydney,The Glasshouse,124 Sample Avenue,",
+      ),
+    ).toEqual(['Event "Kitchen Tea" would lose its description.']);
+    expect(
+      await warningsFor(
+        "Event Name,Start,Timezone,Address",
+        "Kitchen Tea,2026-11-20T16:00,Australia/Sydney,124 Sample Avenue",
+      ),
+    ).toEqual([]);
+
+    // Nothing to lose, nothing to warn about: blank cells beside an event
+    // that has no venue name and no description.
+    await previewAndApply(app, {
+      desiredState: {
+        events: [editorEvent({ id: stored(db)[0]!.id, description: "", venueName: null })],
+        families: [],
+      },
+    });
+    expect(
+      await warningsFor(
+        "Event Name,Start,Timezone,Location,Address,Description",
+        "Kitchen Tea,2026-11-20T16:00,Australia/Sydney,,124 Sample Avenue,",
+      ),
+    ).toEqual([]);
+  });
+
+  // A cire-api older than the venue name requires `location` on every editor
+  // event. What a preview stores is what apply decodes, so it keeps the key
+  // and a change previewed here still applies after a rollback.
+  it("keeps the editor's location: null in the change it stores", async () => {
+    const { app, r2 } = buildApp();
+    const res = await editorPreview(app, {
+      desiredState: { events: [editorEvent({ venueName: "The Glasshouse" })], families: [] },
+      scope: "events",
+    });
+    expect(res.status).toBe(200);
+    // The editor's JSON rides in the events slot; the guests slot is "".
+    const changes = [...r2._store.values()]
+      .filter((text) => text !== "")
+      .map((text) => JSON.parse(text) as { events: object[] });
+    expect(changes).toHaveLength(1);
+    expect(changes[0]!.events[0]).toHaveProperty("location", null);
+  });
+});
+
 // ── Size of an editor draft ────────────────────────────────────────────────
 
 describe("an editor draft is bounded in events and households", () => {
@@ -787,6 +1004,61 @@ describe("POST /changes/preview + /apply — editor (DesiredState JSON) front do
     };
     const res = await editorPreview(app, { desiredState: blankName });
     expect(res.status).toBe(400);
+  });
+
+  it("rejects a household name over 10,000 characters, and takes one of 10,000", async () => {
+    const { app } = buildApp();
+    const named = (familyName: string) => ({
+      ...desiredState,
+      families: [{ ...desiredState.families[0]!, familyName }],
+    });
+    expect((await editorPreview(app, { desiredState: named("x".repeat(10_001)) })).status).toBe(
+      400,
+    );
+    expect((await editorPreview(app, { desiredState: named("x".repeat(10_000)) })).status).toBe(
+      200,
+    );
+  });
+
+  // Every value the editor door can store is held to the sheet's cell cap, so
+  // the two doors admit the same text. One event and one household keep the
+  // body far under the 1 MB caps, so the field check is what answers.
+  describe("an editor value over 10,000 characters", () => {
+    const over = "x".repeat(10_001);
+    const event = desiredState.events[0]!;
+    const family = desiredState.families[0]!;
+    const guest = family.guests[0]!;
+    const withEvent = (patch: object) => ({ events: [{ ...event, ...patch }], families: [] });
+    const withGuest = (patch: object) => ({
+      ...desiredState,
+      families: [{ ...family, guests: [{ ...guest, ...patch }] }],
+    });
+    it.each([
+      ["the event name", withEvent({ name: over })],
+      ["the start", withEvent({ startAt: over })],
+      ["the end", withEvent({ endAt: over })],
+      ["the timezone", withEvent({ timezone: over })],
+      ["the address", withEvent({ address: over })],
+      ["the dress code description", withEvent({ dressCodeDescription: over })],
+      ["a swatch name", withEvent({ dressCodePalette: [{ name: over, color: "#1f6f50" }] })],
+      [
+        "a swatch colour",
+        withEvent({
+          dressCodePalette: [{ name: "Emerald", color: `#1f6f50${" ".repeat(10_001)}` }],
+        }),
+      ],
+      ["the Pinterest link", withEvent({ pinterestUrl: `https://pinterest.test/${over}` })],
+      ["the maps link", withEvent({ mapsUrl: `https://maps.test/${over}` })],
+      ["the household code", { ...desiredState, families: [{ ...family, publicId: over }] }],
+      ["a first name", withGuest({ firstName: over })],
+      ["a last name", withGuest({ lastName: over })],
+      ["a nickname", withGuest({ nickname: over })],
+    ])("is refused in %s, and nothing is stored", async (_field, body) => {
+      const { app, db } = buildApp();
+      const res = await editorPreview(app, { desiredState: body });
+      expect(res.status).toBe(400);
+      expect(db.select().from(imports).all()).toHaveLength(0);
+    });
   });
 
   it("saves a HOUSEHOLD NAME edit — id-matched rename writes through, code + guests survive", async () => {

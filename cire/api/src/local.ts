@@ -90,6 +90,13 @@ const assets = createAssetsStub();
 // one.
 const stripe = createStripeClientFromEnv({ STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY });
 
+// Organiser sign-in's JWKS URL. The Worker's boot requires `OSN_JWKS_URL`;
+// here an unset one is the issuer's own JWKS path, so the four values that
+// name the client are enough to sign an organiser in.
+const issuerBase = process.env.OSN_ISSUER_URL?.replace(/\/+$/, "");
+const oidcJwksUrl =
+  process.env.OSN_JWKS_URL ?? (issuerBase ? `${issuerBase}/.well-known/jwks.json` : undefined);
+
 // The guest, organiser and vendor origins come from WEB_ORIGIN's three
 // entries, read as the Worker reads them. Without the organiser and vendor
 // entries `createApp` falls back to its PRODUCTION defaults, so every Stripe
@@ -103,14 +110,15 @@ const appOptions: Parameters<typeof createApp>[1] = {
   osnJwksUrl: process.env.OSN_JWKS_URL,
   osnIssuerUrl: process.env.OSN_ISSUER_URL,
   osnAudience: process.env.OSN_AUDIENCE,
-  // Organiser sign-in, built as the Worker builds it: all five values or none,
-  // and none (no issuer) is the usual local state. Named one by one: Bun types
-  // `process.env` with no property in common with the env interface, which
-  // TypeScript refuses as a weak type.
+  // Organiser sign-in, built by the Worker's own function: all five values
+  // (the JWKS URL defaulted above) or none, and none is the usual local state.
+  // The E2E stack sets them, against its own osn-api. Named one by one: Bun
+  // types `process.env` with no property in common with the env interface,
+  // which TypeScript refuses as a weak type.
   oidc: oidcConfigFromEnv(
     {
       OSN_ISSUER_URL: process.env.OSN_ISSUER_URL,
-      OSN_JWKS_URL: process.env.OSN_JWKS_URL,
+      OSN_JWKS_URL: oidcJwksUrl,
       CIRE_API_ORIGIN: process.env.CIRE_API_ORIGIN,
       CIRE_OIDC_CLIENT_ID: process.env.CIRE_OIDC_CLIENT_ID,
       CIRE_OIDC_CLIENT_SECRET: process.env.CIRE_OIDC_CLIENT_SECRET,

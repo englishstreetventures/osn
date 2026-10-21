@@ -326,11 +326,14 @@ Organiser sign-in needs five values, read by `oidcConfigFromEnv`
 `wrangler.toml` and the secret from `cire/api/.dev.vars`. `bun run dev:cire`
 gets the issuer, the JWKS URL and `CIRE_API_ORIGIN` from `dev-env` (the
 worktree's own portless host), and the client id and secret from
-`cire/api/.env`. Either way the local OSN database needs an `oauth_clients`
-row for that client whose redirect URI is exactly
+`cire/api/.env`; the Bun server (`src/local.ts`) takes the issuer's own JWKS
+path when `OSN_JWKS_URL` is unset. Either way the local OSN database needs an
+`oauth_clients` row for that client whose redirect URI is exactly
 `<CIRE_API_ORIGIN>/api/auth/oidc/callback` and whose `client_secret_hash` is the
-secret's SHA-256; only the E2E suite seeds one (`tools/e2e/src/seed.ts`). With
-any of it missing, `/api/auth/oidc/*` sends the browser back to `/login` with
+secret's SHA-256; only the E2E suite seeds one (`tools/e2e/src/seed.ts`), and
+its stack sets every value, against its own osn-api
+([[testing-patterns#The end-to-end suite]]). With any of it missing,
+`/api/auth/oidc/*` sends the browser back to `/login` with
 `?auth_error=sign_in_unavailable`, and the rest of cire works as normal.
 
 Local mail goes to the in-memory recorder. To read it in an inbox instead, run
@@ -398,7 +401,7 @@ it with NULL or the default. A `NOT NULL` column with no default cannot be
 retired this way, since each insert would fail, and needs its own plan; the same
 test fails on one. The drop comes once the first release is in production:
 `db:generate --custom`, then `DROP INDEX` and `DROP COLUMN` as above.
-`tasks.assigned_host_id` is the example: `0090_task_assignees.sql` keeps it, and
+`tasks.assigned_host_id` is the example: `0091_task_assignees.sql` keeps it, and
 englishstreetventures/osn#1636 drops it.
 
 **A field the guest site reads is optional there.** `deploy-cire-invites` has no
