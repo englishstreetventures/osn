@@ -1,3 +1,4 @@
+import { Toaster } from "@shared/toast";
 import {
   createMemo,
   createSignal,
@@ -31,6 +32,7 @@ import {
   type GiftRegistryItem,
   type GiftRegistryWrite,
 } from "../../lib/gift-registry";
+import { Z_CLASS } from "../../lib/z-index";
 import { CLAIM_SESSION_EVENT, hasClaimedHint } from "../claim-session";
 import { GiftRegistryItemCard } from "./GiftRegistryItemCard";
 
@@ -526,9 +528,9 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
                   preview={preview()}
                   funds={funds()}
                   fundImageBase={imageBase}
-                  // The fund closed while this page was open: the fresh list
-                  // drops it, and the panel's choice goes back to the couple.
-                  onFundClosed={() => void loadList()}
+                  // The Refresh on a closed fund's toast: the fresh list drops
+                  // the fund, and the panel's choice goes back to the couple.
+                  refreshList={() => void loadList()}
                 />
               </Suspense>
             </Show>
@@ -624,6 +626,12 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
           </Match>
         </Switch>
       </div>
+      {/* The page's one toaster. `@shared/toast` portals it to <body>, so
+          where it sits here does not matter. `top-center`, as on the
+          invitation; `Z_CLASS.TOAST` puts it over the sticky rail. No
+          `topLayer`: the only modals here are the consent dialogs, which make
+          the page inert while open, so no gift is given under one. */}
+      <Toaster position="top-center" class={Z_CLASS.TOAST} />
     </section>
   );
 }
