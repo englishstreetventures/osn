@@ -187,7 +187,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   unpinZone();
-  document.body.style.overflow = "";
+  document.documentElement.style.overflow = "";
   applyPaletteToRoot(null);
   const root = document.documentElement;
   for (const name of Array.from(root.style)) {

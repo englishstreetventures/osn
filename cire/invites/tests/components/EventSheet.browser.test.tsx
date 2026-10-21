@@ -133,7 +133,7 @@ const afterTheCloseEvent = () => new Promise((resolve) => setTimeout(resolve, 0)
 
 afterEach(async () => {
   cleanup();
-  document.body.style.overflow = "";
+  document.documentElement.style.overflow = "";
   await emulate({ reducedMotion: "no-preference" });
 });
 
@@ -1078,7 +1078,7 @@ describe("EventSheet — one height for both panels", () => {
         await swipeFrom("rsvp");
         heights.fromDetails = stop();
         first.unmount();
-        document.body.style.overflow = "";
+        document.documentElement.style.overflow = "";
 
         // Opened on the form: answer, which grows the form, then a swipe to
         // the details as the first switch, and the badge back.

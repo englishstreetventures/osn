@@ -18,7 +18,6 @@ import { AnimatedModal } from "../../src/components/AnimatedModal";
 describe("the guest sheet, in a real engine", () => {
   afterEach(() => {
     cleanup();
-    document.body.style.overflow = "";
     document.documentElement.style.overflow = "";
   });
 
@@ -144,9 +143,31 @@ describe("the guest sheet, in a real engine", () => {
       expect(window.scrollY).toBe(0);
 
       unmount();
+      expect(document.documentElement.style.overflow).toBe("");
       await userEvent.wheel(tall, { delta: { y: 600 } });
       await new Promise((resolve) => setTimeout(resolve, 100));
       expect(window.scrollY).toBeGreaterThan(0);
+    } finally {
+      tall.remove();
+      window.scrollTo(0, 0);
+    }
+  });
+
+  it("leaves the page where it was when the sheet closes", async () => {
+    const tall = document.createElement("div");
+    tall.style.height = "4000px";
+    document.body.append(tall);
+    try {
+      window.scrollTo(0, 300);
+      const { getByRole, unmount } = render(() => (
+        <AnimatedModal onClose={() => {}} label="Event details">
+          <p>body</p>
+        </AnimatedModal>
+      ));
+      await userEvent.wheel(getByRole("dialog"), { delta: { y: 600 } });
+      unmount();
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+      expect(window.scrollY).toBe(300);
     } finally {
       tall.remove();
       window.scrollTo(0, 0);

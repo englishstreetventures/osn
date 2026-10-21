@@ -92,7 +92,7 @@ describe("the settle's timing, read back from the computed style", () => {
 describe("EventSheet", () => {
   afterEach(() => {
     cleanup();
-    document.body.style.overflow = "";
+    document.documentElement.style.overflow = "";
   });
 
   it("hands the details its site origin, for the calendar invite's link", () => {

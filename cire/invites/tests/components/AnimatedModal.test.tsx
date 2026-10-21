@@ -28,7 +28,7 @@ describe("AnimatedModal", () => {
     cleanup();
     vi.restoreAllMocks();
     // Defensive: ensure the body scroll lock is never left applied between tests.
-    document.body.style.overflow = "";
+    document.documentElement.style.overflow = "";
   });
 
   it("names the dialog via labelledBy → the referenced title element", () => {
@@ -129,18 +129,6 @@ describe("AnimatedModal", () => {
 
     fireEvent.click(getByLabelText("Close"));
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
-  });
-
-  it("locks body scroll while open and restores it on close", async () => {
-    const { unmount } = render(() => (
-      <AnimatedModal onClose={() => {}} label="Event details">
-        <p>body</p>
-      </AnimatedModal>
-    ));
-
-    await waitFor(() => expect(document.body.style.overflow).toBe("hidden"));
-    unmount();
-    expect(document.body.style.overflow).toBe("");
   });
 
   it("keeps the close button outside the scroll container so it cannot scroll away", () => {
