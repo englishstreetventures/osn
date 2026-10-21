@@ -1,5 +1,7 @@
 import { it, expect, describe } from "@effect/vitest";
+import { accounts, emailChanges } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
+import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { beforeAll } from "vitest";
 
@@ -211,18 +213,16 @@ describe("beginEmailChange + completeEmailChange", () => {
       // UNIQUE violation, so the emailChanges insert and sessions delete
       // never execute. These assert nothing about A changed, not that a
       // partial write was rolled back.
-      const [aAccount] = yield* Effect.promise(() =>
-        db.query.accounts.findMany({ where: (acc, { eq }) => eq(acc.id, a.profile.accountId) }),
+      const [aAccount] = yield* Effect.promise(async () =>
+        db.select().from(accounts).where(eq(accounts.id, a.profile.accountId)).all(),
       );
       expect(aAccount?.email).toBe("ec-race-a@example.com");
-      const [bAccount] = yield* Effect.promise(() =>
-        db.query.accounts.findMany({ where: (acc, { eq }) => eq(acc.id, b.profile.accountId) }),
+      const [bAccount] = yield* Effect.promise(async () =>
+        db.select().from(accounts).where(eq(accounts.id, b.profile.accountId)).all(),
       );
       expect(bAccount?.email).toBe(target);
-      const aEmailChanges = yield* Effect.promise(() =>
-        db.query.emailChanges.findMany({
-          where: (ec, { eq }) => eq(ec.accountId, a.profile.accountId),
-        }),
+      const aEmailChanges = yield* Effect.promise(async () =>
+        db.select().from(emailChanges).where(eq(emailChanges.accountId, a.profile.accountId)).all(),
       );
       expect(aEmailChanges).toHaveLength(0);
 

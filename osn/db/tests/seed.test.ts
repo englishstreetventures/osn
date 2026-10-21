@@ -22,7 +22,7 @@ function createTestDb() {
   // turns foreign keys ON, so the insert order below is checked against the
   // constraints production actually enforces.
   applySchema(sqlite);
-  return drizzle(sqlite, { schema });
+  return drizzle({ client: sqlite });
 }
 
 describe("buildSeedUsers", () => {

@@ -1,4 +1,4 @@
-import { describe, expect, it, spyOn } from "bun:test";
+import { describe, expect, it } from "bun:test";
 
 import * as cireSchema from "@cire/db";
 import { events, registryItems, weddingInviteCustomisations } from "@cire/db";
@@ -7,6 +7,7 @@ import { getTableConfig, SQLiteTable } from "drizzle-orm/sqlite-core";
 import { Effect } from "effect";
 
 import { DbService } from "../../src/db";
+import type { TestDb } from "../../src/db/setup";
 import {
   ASSET_LIST_LIMITS,
   ASSET_POSITION_KEY,
@@ -22,7 +23,7 @@ import {
   type ReconcileAlert,
 } from "../../src/services/r2-reconcile";
 import { TestDbLayer } from "../db/test-layer";
-import { effWith } from "../test-helpers";
+import { effWith, recordStatements } from "../test-helpers";
 import { insertWedding } from "../test-helpers/wedding";
 
 const withDb = effWith(TestDbLayer);
@@ -415,16 +416,13 @@ describe("assetReconcileService.reconcileOrphans", () => {
           { key: "assets/wedH/orphan", uploaded: OLD },
         ]);
         const db = yield* DbService;
-        const client = (db as unknown as { $client: { prepare: (sql: string) => unknown } })
-          .$client;
-        const prepare = spyOn(client, "prepare");
+        const statements = recordStatements(db as TestDb);
 
         const deleted = yield* assetReconcileService.reconcileOrphans(bucket, NOW);
 
-        const selects = prepare.mock.calls.filter(([sql]) =>
+        const selects = statements.filter(({ sql }) =>
           sql.trim().toLowerCase().startsWith("select"),
         );
-        prepare.mockRestore();
         expect(deleted).toBe(1);
         // Customisations, event images and registry images, in one statement.
         expect(selects).toHaveLength(1);

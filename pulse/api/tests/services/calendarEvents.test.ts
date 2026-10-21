@@ -1,7 +1,6 @@
 import { Database } from "bun:sqlite";
 
 import { it, expect } from "@effect/vitest";
-import * as schema from "@pulse/db/schema";
 import { eventRsvps } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
 import { drizzle } from "drizzle-orm/bun-sqlite";
@@ -14,7 +13,7 @@ import { createTestLayer, seedEvent } from "../helpers/db";
 // Db layer over a schema-less SQLite — every query fails at execution
 // ("no such table"), exercising the DatabaseError channel.
 const noSchemaLayer = () =>
-  Layer.succeed(Db, { db: drizzle(new Database(":memory:"), { schema }) });
+  Layer.succeed(Db, { db: drizzle({ client: new Database(":memory:") }) });
 
 const VIEWER = "usr_me";
 const OTHER = "usr_alice";

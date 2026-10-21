@@ -674,8 +674,8 @@ bunx wrangler secret put STRIPE_PLATFORM_WEBHOOK_SECRET --env production
 ### 4.1 Apply cire D1 migrations (remote)
 
 Migrations live in `cire/db/migrations/`: one baseline file,
-`0001_initial.sql`, holding the whole schema, plus anything numbered `0082` and
-up. The baseline builds exactly what migrations `0001`–`0081` in
+`0001_initial.sql`, holding the whole schema, then the numbered files `0082` to
+`0090` and the timestamped files (`<YYYYMMDDHHMMSS>_<name>.sql`) after them. The baseline builds exactly what migrations `0001`–`0081` in
 `cire/db/migrations-archive/` build; nothing applies the archive. Production
 applied that chain file by file, so its `d1_migrations` ledger holds every
 archived name, `0001_initial.sql` among them, and wrangler skips the baseline

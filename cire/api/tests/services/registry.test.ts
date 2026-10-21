@@ -1738,7 +1738,7 @@ describe("registry ownership + range guards", () => {
       .run();
     const client = db.$client;
     const prepare = client.prepare.bind(client);
-    Object.defineProperty(client, "prepare", {
+    Object.defineProperty(client, "query", {
       configurable: true,
       value: (sql: string) => {
         if (sql.startsWith('insert into "registry_settings"')) {
@@ -1752,7 +1752,7 @@ describe("registry ownership + range guards", () => {
       db,
       registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { cashGiftsEnabled: true }),
     );
-    Reflect.deleteProperty(client, "prepare");
+    Reflect.deleteProperty(client, "query");
     expect(Exit.isFailure(blocked)).toBe(true);
     if (Exit.isFailure(blocked)) {
       // The true reason, not "someone else saved these settings".
@@ -1777,7 +1777,7 @@ describe("registry ownership + range guards", () => {
       .run();
     const client = db.$client;
     const prepare = client.prepare.bind(client);
-    Object.defineProperty(client, "prepare", {
+    Object.defineProperty(client, "query", {
       configurable: true,
       value: (sql: string) => {
         if (sql.startsWith('insert into "registry_settings"')) {
@@ -1793,7 +1793,7 @@ describe("registry ownership + range guards", () => {
       db,
       registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { cashGiftsEnabled: true }),
     );
-    Reflect.deleteProperty(client, "prepare");
+    Reflect.deleteProperty(client, "query");
     expect(Exit.isFailure(blocked)).toBe(true);
     if (Exit.isFailure(blocked)) {
       expect(blocked.cause.toString()).toContain(new SettlementCurrencyUnknown()._tag);

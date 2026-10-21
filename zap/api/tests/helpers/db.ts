@@ -1,6 +1,5 @@
 import { Database } from "bun:sqlite";
 
-import * as schema from "@zap/db/schema";
 import {
   chats,
   chatMembers,
@@ -29,7 +28,7 @@ import { Effect, Layer } from "effect";
 export function createTestLayer() {
   const sqlite = new Database(":memory:");
   applySchema(sqlite);
-  const db = drizzle(sqlite, { schema });
+  const db = drizzle({ client: sqlite });
   return Layer.succeed(Db, { db });
 }
 
@@ -49,8 +48,8 @@ export function createCapturingTestLayer() {
   const captured: CapturedStatement[] = [];
   const sqlite = new Database(":memory:");
   applySchema(sqlite);
-  const db = drizzle(sqlite, {
-    schema,
+  const db = drizzle({
+    client: sqlite,
     logger: { logQuery: (sql, params) => captured.push({ sql, params }) },
   });
   return { layer: Layer.succeed(Db, { db }), captured };

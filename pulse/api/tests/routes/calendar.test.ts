@@ -1,6 +1,5 @@
 import { Database } from "bun:sqlite";
 
-import * as schema from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
 import { makeAccessTokenSigner, type AccessTokenSigner } from "@shared/crypto/testing";
 import { drizzle } from "drizzle-orm/bun-sqlite";
@@ -13,7 +12,7 @@ import { createTestLayer } from "../helpers/db";
 
 // Db layer over a schema-less SQLite — every query fails, so the calendar
 // route hits its catch-all → 500 branch.
-const brokenLayer = () => Layer.succeed(Db, { db: drizzle(new Database(":memory:"), { schema }) });
+const brokenLayer = () => Layer.succeed(Db, { db: drizzle({ client: new Database(":memory:") }) });
 
 vi.mock("../../src/services/graphBridge", () => ({
   GraphBridgeError: class GraphBridgeError {

@@ -56,7 +56,7 @@ export function seedOsn(path: string): void {
     // One transaction: on a file each autocommitted statement syncs its own journal.
     sqlite.transaction(() => {
       applyOsnSchema(sqlite);
-      drizzle(sqlite)
+      drizzle({ client: sqlite })
         .insert(oauthClients)
         .values([firstPartyClient(PULSE_OIDC, "Pulse"), firstPartyClient(CIRE_OIDC, "Cire")])
         .run();

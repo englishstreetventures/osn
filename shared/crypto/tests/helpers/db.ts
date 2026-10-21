@@ -1,6 +1,5 @@
 import { Database } from "bun:sqlite";
 
-import * as schema from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { Layer } from "effect";
@@ -85,6 +84,6 @@ export function createTestLayer() {
     )
   `);
   sqlite.run(`CREATE INDEX service_account_keys_service_idx ON service_account_keys (service_id)`);
-  const db = drizzle(sqlite, { schema });
+  const db = drizzle({ client: sqlite });
   return Layer.succeed(Db, { db });
 }

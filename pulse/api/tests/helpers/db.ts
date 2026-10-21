@@ -1,6 +1,5 @@
 import { Database } from "bun:sqlite";
 
-import * as schema from "@pulse/db/schema";
 import { events, pulseCloseFriends, type Event } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
 import { applySchema } from "@pulse/db/testing";
@@ -10,7 +9,7 @@ import { Effect, Layer } from "effect";
 export function createTestLayer() {
   const sqlite = new Database(":memory:");
   applySchema(sqlite);
-  const db = drizzle(sqlite, { schema });
+  const db = drizzle({ client: sqlite });
   return Layer.succeed(Db, { db });
 }
 
