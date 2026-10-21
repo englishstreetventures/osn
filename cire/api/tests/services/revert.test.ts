@@ -215,9 +215,8 @@ describe("revertImport — before-image path (E3)", () => {
 
     // Change 2 is an editor-style IN-PLACE rename: an id-carrying desired state
     // diffed with the editor's options, producing a familyUpdates-only plan —
-    // the op this fix introduced. Before it existed the rename never applied,
-    // so no revert could meaningfully exercise restoring FROM one.
-    await Effect.runPromise(
+    // so the revert below restores FROM an in-place update.
+    const applied = await Effect.runPromise(
       Effect.gen(function* () {
         const eventsCsv = yield* stateExportService.eventsCsv(BOOTSTRAP_WEDDING_ID, "full");
         const guestsCsv = yield* stateExportService.guestsCsv(BOOTSTRAP_WEDDING_ID, "full");
@@ -251,12 +250,11 @@ describe("revertImport — before-image path (E3)", () => {
           .run();
         return summary;
       }).pipe(Effect.provide(layer)),
-    ).then((summary) => {
-      // The rename applied in place — one family updated, nothing else touched.
-      expect(summary.familiesUpdated).toBe(1);
-      expect(summary.familiesCreated).toBe(0);
-      expect(summary.familiesRemoved).toBe(0);
-    });
+    );
+    // The rename applied in place — one family updated, nothing else touched.
+    expect(applied.familiesUpdated).toBe(1);
+    expect(applied.familiesCreated).toBe(0);
+    expect(applied.familiesRemoved).toBe(0);
     const [famRenamed] = db
       .select({ name: families.familyName })
       .from(families)

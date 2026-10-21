@@ -15,7 +15,7 @@ import {
 } from "../../src/lib/invite-emptiness";
 
 /**
- * T-M2 (web.md). `invite-emptiness.ts` is a hand-maintained mirror of
+ * `invite-emptiness.ts` is a hand-maintained mirror of
  * `cire/invites/src/components/invite-emptiness.ts`, and nothing checked that the
  * two agree. The stakes are quiet but real: these predicates decide whether the
  * builder's per-section badge says "Shown" or "Hidden — empty", so a drift

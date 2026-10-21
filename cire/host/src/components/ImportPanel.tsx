@@ -202,7 +202,7 @@ export default function ImportPanel(props: {
       haptic("reject");
       return setError(`Choose a ${copy().fileName} file.`);
     }
-    // Refuse an oversized file HERE rather than after reading it (S-L1). The
+    // Refuse an oversized file HERE rather than after reading it. The
     // server is still the authority (it 413s on Content-Length, then again on
     // the parsed bytes) — but reaching that answer costs the tab a full read of
     // the file into a JS string plus a `JSON.stringify` of the same bytes again,
@@ -276,7 +276,7 @@ export default function ImportPanel(props: {
       // rows on its next mount (rather than reusing the pre-import cache).
       invalidateEvents(props.weddingId);
       // An apply also changes households/guests, so drop the guest cache too
-      // (both are lifted to weddingId-keyed stores now — P-I3). The reload below
+      // (both are weddingId-keyed stores). The reload below
       // re-mounts every module fresh; invalidating keeps the caches honest even
       // if the reload is ever removed.
       invalidateGuests(props.weddingId);
@@ -305,7 +305,7 @@ export default function ImportPanel(props: {
    * Point the panel at a different sheet — or at none.
    *
    * The `setPreview(null)` is the load-bearing line, and it belongs to EVERY
-   * change of selection, not just to Remove (S-M1). A standing preview holds the
+   * change of selection, not just to Remove. A standing preview holds the
    * `changeId` of the plan the server computed for the OLD bytes, and Apply
    * commits that id — so a panel that keeps the diff on screen while the control
    * names a different file is offering to apply the wrong sheet, with a
@@ -336,7 +336,7 @@ export default function ImportPanel(props: {
    * through this panel.
    */
   async function downloadCurrent() {
-    // In-flight guard (P-I3): a double-click must not fire duplicate export
+    // In-flight guard: a double-click must not fire duplicate export
     // fetches — same shape as EventTable's export button.
     if (exporting()) return;
     setExporting(true);
@@ -453,8 +453,8 @@ export default function ImportPanel(props: {
           <div class="border-border bg-bg/40 flex flex-col gap-4 rounded-sm border p-4">
             <h3 class="font-display text-gold-ink text-ui-md">Diff preview</h3>
             {/* The reassurance under a destructive confirm is read off the
-                SERVER's echoed scope, not off what this panel believes it sent
-                (S-L2). Today they cannot disagree — one key goes out, and the API
+                SERVER's echoed scope, not off what this panel believes it sent.
+                Today they cannot disagree — one key goes out, and the API
                 derives scope from which keys are present — but "your events won't
                 be touched" is the sentence an organiser trusts before applying a
                 plan that can reconcile away a whole half of the wedding, and a

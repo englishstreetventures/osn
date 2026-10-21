@@ -114,7 +114,7 @@ export function decodePalette(raw: string | null): DecodedPalette {
  * Public path to an event's image, or null when it has none. The version is
  * derived SERVER-SIDE from the stored R2 key (events have no `updated_at`), so a
  * re-upload mints a fresh key ⇒ a fresh version ⇒ the new image is never served
- * stale, while the client `?v=` is never trusted for cache keying (S-M1). The
+ * stale, while the client `?v=` is never trusted for cache keying. The
  * slug scopes the path to this wedding; the guest site prepends its API origin.
  */
 function eventImageUrl(slug: string, eventId: string, key: string | null): string | null {
@@ -535,8 +535,8 @@ function buildInvite(
     // stay out of the page. The stored content is untouched.
     const closingVisible = closing?.visible ?? true;
     const closingContent = closingVisible ? closing : undefined;
-    // The image URL's `?v=` is derived from the closing image's own R2 key
-    // (WT-P-I1 / P-I1) — a digest of the key, not the row's `updatedAt` — so
+    // The image URL's `?v=` is derived from the closing image's own R2 key —
+    // a digest of the key, not the row's `updatedAt` — so
     // bumping the hero or story slot never busts this one, and a byte-neutral
     // crop save (same key) never busts it either.
     const closingImageUrl = closingContent?.imageKey
