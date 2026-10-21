@@ -176,6 +176,12 @@ export const taskTemplatesService = {
                   templateItem: sql<string>`${picked("item")}`.as("template_item"),
                   dueOffsetDays: sql<number>`${picked("offset")}`.as("due_offset_days"),
                   dueSource: bound("template", tasks.dueSource),
+                  // A seeded task starts untimed.
+                  runAt: sql`NULL`.as("run_at"),
+                  runTimezone: sql`NULL`.as("run_timezone"),
+                  eventId: sql`NULL`.as("event_id"),
+                  runOffsetMinutes: sql`NULL`.as("run_offset_minutes"),
+                  eventRemovedAt: sql`NULL`.as("event_removed_at"),
                 })
                 .from(sql`json_each(${JSON.stringify(rows)}) AS picked`)
                 // SQLite needs a WHERE before the ON CONFLICT of an

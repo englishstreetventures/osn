@@ -356,12 +356,18 @@ CREATE TABLE IF NOT EXISTS tasks (
   template_item TEXT,
   due_offset_days INTEGER,
   due_source TEXT NOT NULL DEFAULT 'manual',
-  assigned_host_id TEXT REFERENCES wedding_hosts(id) ON DELETE SET NULL
+  assigned_host_id TEXT REFERENCES wedding_hosts(id) ON DELETE SET NULL,
+  run_at TEXT,
+  run_timezone TEXT,
+  event_id TEXT REFERENCES events(id) ON DELETE SET NULL,
+  run_offset_minutes INTEGER,
+  event_removed_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS tasks_wedding_bucket_sort_idx ON tasks(wedding_id, timeframe_bucket, sort_order);
 CREATE UNIQUE INDEX IF NOT EXISTS tasks_wedding_template_item_unique ON tasks(wedding_id, template_id, template_item) WHERE template_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS tasks_assigned_host_idx ON tasks(assigned_host_id) WHERE assigned_host_id IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS tasks_id_wedding_unique ON tasks(id, wedding_id);
+CREATE INDEX IF NOT EXISTS tasks_event_idx ON tasks(event_id) WHERE event_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS task_assignees (
   task_id TEXT NOT NULL,
