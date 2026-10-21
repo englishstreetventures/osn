@@ -26,8 +26,10 @@
 -- Worker serves and a failed smoke check rolls the Worker back without undoing
 -- the migration, so the Worker before it, which reads and writes the column,
 -- must keep working (wiki/shared/production-deploy.md §4). The values stay too,
--- so that Worker still sees its assignments after a rollback. The column goes
--- in a later release: englishstreetventures/osn#1636.
+-- so that Worker still sees its assignments after a rollback, though holders
+-- changed while it serves are lost when the new Worker returns, since that one
+-- reads task_assignees alone. The column goes in the first release after this
+-- one reaches production: englishstreetventures/osn#1636.
 --
 -- Additive: a new table, new indexes and one copy, never a table rebuild (D1
 -- enforces foreign keys, so dropping `tasks` to rebuild it would cascade). Two

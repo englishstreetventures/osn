@@ -98,8 +98,9 @@ export default function TaskHolders(props: TaskHoldersProps) {
   // `beforePlus`: the + follows the stack. It covers the count's edge as it
   // covers a face's — the 8px overlap and its 2px ring — so the count holds
   // that strip as padding at its inline end, and its figures, however many,
-  // keep 6px clear of the dotted circle. With nothing after it the count is a
-  // disc with its figures centred.
+  // keep 7px clear of the +'s ring; that padding makes it a pill always. With
+  // nothing after it the count is a disc with its figures centred, until they
+  // need more room.
   const stack = (beforePlus: boolean): JSX.Element => (
     <>
       <For each={faces()}>

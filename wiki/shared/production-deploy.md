@@ -14,7 +14,7 @@ related:
   - "[[dev-environment]]"
   - "[[cire-entitlements]]"
   - "[[stripe-webhooks]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-21
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -667,7 +667,9 @@ bunx wrangler secret put STRIPE_PLATFORM_WEBHOOK_SECRET --env production
 > with: add a column or table in one release and use it in a later one; stop reading
 > a column in one release and drop or rename it in a later one. A migration that
 > drops or renames something the previous version still reads takes the surface
-> down the moment its deploy rolls back.
+> down the moment its deploy rolls back. A migration that moves data between
+> stores makes a rollback lossy for writes made in that window: the old Worker
+> writes the old store, and the new one does not read it when it returns.
 
 ### 4.1 Apply cire D1 migrations (remote)
 

@@ -28,9 +28,9 @@ In the organiser portal each checklist row shows who holds the task as an
 overlapping stack of faces — the reader first, then the order they were added,
 three faces and a "+N" count — with each person's OSN photo, or a default empty
 avatar when they have none or it will not load. An owner or editor gets a dotted
-+ on top of the stack, over the count's edge as over a face's; the count widens
-to a pill when its figures need the room and keeps them clear of the +, so
-"+2" or "+12" always reads whole. The + opens a popover of everyone on the wedding: clicking
++ on top of the stack, over the count's edge as over a face's; before the + the
+count is always a pill, its figures 7px clear of the +'s ring, so "+2" or "+12"
+always reads whole. A viewer's count is a disc until its figures need more room. The + opens a popover of everyone on the wedding: clicking
 a person puts them on the task or takes them off at once, and the popover stays
 open until a click outside it, Escape or Tab. Above five people it opens on a
 search over names and handles. The person Enter will toggle is marked by a bar
@@ -52,8 +52,16 @@ without walking the wedding's. It then copies each task's single assignee from
 `0087_task_assigned_host.sql` onto the table, when that seat is of the task's
 own wedding. `tasks.assigned_host_id` stays in the database, unread, so the API
 version before this one keeps working while a deploy migrates and if it rolls
-back; the Drizzle schema no longer declares it, and a later release drops it
-(englishstreetventures/osn#1636).
+back, though holders changed while that version serves are lost when this one
+returns, so roll forward rather than leave it serving. The Drizzle schema no
+longer declares the column, and the first cire-api release after this one
+reaches production drops it (englishstreetventures/osn#1636).
+
+Release order: the organiser portal reads both task shapes — `assigneeHostIds`,
+or the single `assignedHostId` the API before this one sends, shown as the
+task's one holder — so `@cire/host` can ship first, and should: the portal
+before this one reads no holders from this API, and its assign drawer writes a
+route this API no longer has.
 
 The hosts' privacy notice on the marketing site now says that everyone on a
 wedding sees the others' musubi name, handle and profile photo, and which

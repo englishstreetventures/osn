@@ -390,7 +390,11 @@ a declared column is still in the Worker's statements. In that first release,
 it from the migration by hand, and leave the snapshot as drizzle-kit wrote it.
 Keep the column in `setup.ts`, and list it in `UNDECLARED_COLUMNS` in
 `ddl-lockstep.test.ts`, which excuses it from the Drizzle comparison only while
-the chain still has it. The drop comes once the first release is in production:
+the chain still has it. This works only for a nullable column or one with a
+`DEFAULT`: every insert the Worker sends leaves the column out, and SQLite fills
+it with NULL or the default. A `NOT NULL` column with no default cannot be
+retired this way, since each insert would fail, and needs its own plan; the same
+test fails on one. The drop comes once the first release is in production:
 `db:generate --custom`, then `DROP INDEX` and `DROP COLUMN` as above.
 `tasks.assigned_host_id` is the example: `0088_task_assignees.sql` keeps it, and
 englishstreetventures/osn#1636 drops it.
@@ -407,6 +411,15 @@ it is present, and let the reader supply a default that fails closed — as the 
 dietary fields on `RsvpSummary` do. If the page also writes the field back, an
 API older than the column accepts the write and drops the field, so a value
 entered in that window is not stored.
+
+**The organiser portal reads both shapes of a field the API changes.**
+`deploy-cire-host` has no `needs:` edge on `deploy-cire-api` either
+([[production-deploy#5.6 Approval order when a cire release changes what a plan tier opens]]),
+so the portal can serve against the API before the one it ships with. A portal
+that reads only the new shape throws, or shows nothing, for that window. Read the
+old shape as well, at the one place every answer passes through, until the old
+API is gone: `readTaskRow` (`cire/host/src/lib/tasks-store.ts`) takes a task's
+`assigneeHostIds`, or the single `assignedHostId` the API before holders sends.
 
 ### Deploying by hand
 

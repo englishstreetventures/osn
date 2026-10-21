@@ -59,12 +59,17 @@ Who holds a task is not a column here: it is the `task_assignees` table
 > new Worker serves and the Worker before it still reads the column
 > ([[production-deploy#4. Database migrations]]). `cire/db/src/schema.ts` does not
 > declare it, since Drizzle names every declared column in each insert, select
-> and returning, so no statement the API sends names it and nothing reads or
-> writes it; the test DDL in `cire/api/src/db/setup.ts` keeps it, and
-> `tests/db/ddl-lockstep.test.ts` excuses it from the Drizzle comparison alone.
-> Never declare it again, and never copy it onto `task_assignees` a second time:
-> a holder removed since `0088` may still be in it. englishstreetventures/osn#1636
-> drops it.
+> and returning, so no statement this API sends names it; only the Worker before
+> `0088` reads and writes it, if it serves again. The test DDL in
+> `cire/api/src/db/setup.ts` keeps it, and `cire/api/tests/db/ddl-lockstep.test.ts`
+> excuses it from the Drizzle comparison alone. Never declare it again, and never
+> copy it onto `task_assignees` a second time: a holder removed since `0088` may
+> still be in it. englishstreetventures/osn#1636 drops it, in the first cire-api
+> release after the one shipping `0088` reaches production.
+>
+> If cire-api rolls back past this release, holders changed while the old Worker
+> serves are lost when the new Worker returns. Roll forward rather than leave the
+> old Worker serving.
 
 **Indexes:**
 
@@ -307,7 +312,12 @@ in screen-reader text for every role, and each face shows its name on hover.
 
 The reader's seat is `viewerHostId` from `GET /tasks`; `readTaskList` in
 `tasks-store.ts` keeps it beside the rows, and both readers of the list — the
-checklist and Overview — go through it. The seats come from `lib/hosts-store.ts`,
+checklist and Overview — go through it. Every task the portal reads, from the
+list or from a write's answer, goes through `readTaskRow`, which also reads the
+API before holders: that API sends one `assignedHostId` and no
+`assigneeHostIds`, and `deploy-cire-host` does not wait for `deploy-cire-api`
+([[production-deploy#5.6 Approval order when a cire release changes what a plan tier opens]]),
+so the portal shows that one seat as the task's holder, or nobody. The seats come from `lib/hosts-store.ts`,
 a cache with the contract in [[cire-host-portal-layout#Organiser client caches: stale-while-revalidate]];
 the checklist reads it only once some task is held, or when an owner or editor
 opens a popover. Until the seats answer, the stack shows an empty avatar per
@@ -508,7 +518,8 @@ Public API:
 | `ensureTasksLoaded(weddingId, fetcher)` | Fetch if not fresh; dedupes concurrent callers. On success, writes the rows and clears the stale mark; on a refused/failed refetch, blanks the signal and rethrows |
 | `openTaskCount(weddingId)` | `number \| null` — open-task count for the Overview widget |
 | `taskCounts(weddingId)` | `{ open, done, total } \| null` — reactive counts for the Overview completion bar |
-| `readTaskList(weddingId, list)` | Take a `GET /tasks` answer apart: keeps its `viewerHostId` for the wedding and returns the rows for the loader. Keeps nothing for a closed wedding |
+| `readTaskList(weddingId, list)` | Take a `GET /tasks` answer apart: keeps its `viewerHostId` for the wedding and returns the rows, each through `readTaskRow`, for the loader. Keeps nothing for a closed wedding |
+| `readTaskRow(task)` | A task from either API shape (`TaskWire`) as a `TaskRow`: its `assigneeHostIds`, else the single `assignedHostId` the API before holders sends as its one holder, else none. The create, tick and starter-apply answers go through it too |
 | `viewerHostIdOf(weddingId)` | `string \| null` — the reader's own seat, as the last task read named it; reactive |
 
 `TaskRow` mirrors `TaskDto` from the API (ms-epoch numbers for `createdAt` /
