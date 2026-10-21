@@ -4255,6 +4255,47 @@ describe("a schedule change and the checklist tasks linked to its events", () =>
     ]);
   });
 
+  it("tells the open tabs when a change gives an event a run of show and nothing else, and when it is reverted", async () => {
+    const { db, app, publishes, reception } = await linkedWedding();
+    // The schedule as it stands, the Reception's run of show the one difference.
+    const [header, mehndi, receptionLine] = EVENTS_CSV.split("\n");
+    const eventsCsv = [
+      `${header},Run of Show`,
+      `${mehndi},`,
+      `${receptionLine},"16:30 Speeches\n17:00 Cake is cut"`,
+    ].join("\n");
+    const res = await ownerPost(app, `${CHANGES_BASE}/preview`, { eventsCsv });
+    expect(res.status).toBe(200);
+    const { changeId, plan } = (await res.json()) as {
+      changeId: string;
+      plan: { eventCreates: unknown[]; eventRemoves: unknown[]; linkedTasks?: unknown[] };
+    };
+    expect(plan.eventCreates).toEqual([]);
+    expect(plan.eventRemoves).toEqual([]);
+    expect(plan.linkedTasks).toBeUndefined();
+
+    expect((await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId })).status).toBe(200);
+    const stored = () =>
+      db
+        .select({ label: runOfShowItems.label })
+        .from(runOfShowItems)
+        .where(eq(runOfShowItems.eventId, reception.id))
+        .all()
+        .map((r) => r.label);
+    expect(stored()).toEqual(["Speeches", "Cake is cut"]);
+    // The tasks stay linked to the Reception: only its run of show changed.
+    expect(task(db, "tsk_cake")?.eventId).toBe(reception.id);
+    const topic = `cire:wedding:${BOOTSTRAP_WEDDING_ID}`;
+    expect(publishes).toEqual([{ name: topic, kind: "tasks-changed" }]);
+
+    expect((await ownerPost(app, `${CHANGES_BASE}/revert`, { changeId })).status).toBe(200);
+    expect(stored()).toEqual([]);
+    expect(publishes).toEqual([
+      { name: topic, kind: "tasks-changed" },
+      { name: topic, kind: "tasks-changed" },
+    ]);
+  });
+
   it("tells nobody about a change to the guests alone", async () => {
     const { app, publishes } = await linkedWedding();
     const preview = await ownerPost(app, `${CHANGES_BASE}/preview`, {

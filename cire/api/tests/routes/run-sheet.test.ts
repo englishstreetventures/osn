@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 
-import { events, taskAssignees, tasks, weddingHosts, weddings } from "@cire/db";
+import { events, runOfShowItems, taskAssignees, tasks, weddingHosts, weddings } from "@cire/db";
 import { createRateLimiter } from "@shared/rate-limit";
 import { eq } from "drizzle-orm";
 
@@ -62,6 +62,9 @@ beforeAll(async () => {
  *  - `stray`: linked (by raw SQL, which no writer does) to another wedding's
  *    event, held by the helper;
  *  - `thanks`: `1m`, untimed: never on the run sheet.
+ * Runs of show, each stored in an order that is not clock order: arrival
+ * (14:45 "Welcome drinks", 14:35 "Valet opens"), speeches (16:20 "Best man",
+ * 16:05 "Father of the bride"); the first dance has none.
  */
 function build(tier: "ivory" | "gold" = "gold") {
   const db = createDb(":memory:");
@@ -115,6 +118,28 @@ function build(tier: "ivory" | "gold" = "gold") {
       ev("evt_speeches", WED, "Speeches", "2099-06-20T16:00:00+10:00", 1),
       ev("evt_dance", WED, "First dance", "2099-06-20T20:00:00+10:00", 2),
       ev("evt_theirs", "wed_rs_other", "Their secret", "2099-06-20T13:00:00+10:00", 0),
+    ])
+    .run();
+  const item = (
+    eventId: string,
+    weddingId: string,
+    sortOrder: number,
+    time: string,
+    label: string,
+  ) => ({
+    eventId,
+    weddingId,
+    sortOrder,
+    time,
+    label,
+  });
+  db.insert(runOfShowItems)
+    .values([
+      item("evt_arrival", WED, 0, "14:45", "Welcome drinks"),
+      item("evt_arrival", WED, 1, "14:35", "Valet opens"),
+      item("evt_speeches", WED, 0, "16:20", "Best man"),
+      item("evt_speeches", WED, 1, "16:05", "Father of the bride"),
+      item("evt_theirs", "wed_rs_other", 0, "13:10", "Their secret toast"),
     ])
     .run();
 
@@ -271,12 +296,20 @@ describe("GET /run-sheet: what each reader is given", () => {
       SEAT.idle,
       "description",
       "dress code",
+      // Only the runs of show of the events their tasks link to.
+      "Best man",
+      "Father of the bride",
+      "Their secret toast",
     ]) {
       expect(raw, secret).not.toContain(secret);
     }
+    expect(sheet.items.find((i) => i.id === "evt_arrival")?.runOfShow).toEqual([
+      { time: "14:45", label: "Welcome drinks" },
+      { time: "14:35", label: "Valet opens" },
+    ]);
   });
 
-  it("gives every reader an event's name, times, zone, venue name and address, and no other field", async () => {
+  it("gives every reader an event's name, times, zone, venue name, address and run of show, and no other field", async () => {
     for (const who of [HELPER, OWNER]) {
       const sheet = await sheetFor(who);
       const arrival = sheet.items.find((i) => i.id === "evt_arrival");
@@ -289,9 +322,30 @@ describe("GET /run-sheet: what each reader is given", () => {
         timezone: "Australia/Sydney",
         venueName: "Guest arrival venue",
         address: "Guest arrival address",
+        // The organiser's order, as stored: the portal orders it from the start.
+        runOfShow: [
+          { time: "14:45", label: "Welcome drinks" },
+          { time: "14:35", label: "Valet opens" },
+        ],
       });
     }
   });
+
+  for (const who of [OWNER, EDITOR, VIEWER, FULL]) {
+    it(`gives ${who} every event's run of show, and an empty one for an event with none`, async () => {
+      const sheet = await sheetFor(who);
+      const runOfShow = (id: string) => sheet.items.find((i) => i.id === id)?.runOfShow;
+      expect(runOfShow("evt_arrival")).toEqual([
+        { time: "14:45", label: "Welcome drinks" },
+        { time: "14:35", label: "Valet opens" },
+      ]);
+      expect(runOfShow("evt_speeches")).toEqual([
+        { time: "16:20", label: "Best man" },
+        { time: "16:05", label: "Father of the bride" },
+      ]);
+      expect(runOfShow("evt_dance")).toEqual([]);
+    });
+  }
 
   it("answers a task's derived time, its holders and its status, and no other field", async () => {
     const sheet = await sheetFor(HELPER);
@@ -475,7 +529,15 @@ describe("GET /run-sheet: failure and counting", () => {
     expect(await jsonBody(res!)).toEqual({ error: "Internal error" });
     expect(logs).toContain("run sheet read failed");
     expect(logs).toContain(WED);
-    for (const secret of ["Title", "Notes", "address", "Guest arrival", HELPER, SEAT.helper]) {
+    for (const secret of [
+      "Title",
+      "Notes",
+      "address",
+      "Guest arrival",
+      "Welcome drinks",
+      HELPER,
+      SEAT.helper,
+    ]) {
       expect(logs, secret).not.toContain(secret);
     }
     expect((await counted("own", "error")) - before).toBe(1);

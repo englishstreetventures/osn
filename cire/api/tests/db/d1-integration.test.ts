@@ -105,6 +105,7 @@ import {
 import { rsvpService } from "../../src/services/rsvp";
 import { rsvpChangeService } from "../../src/services/rsvp-changes";
 import { rsvpDigestService } from "../../src/services/rsvp-digest";
+import { runSheetService } from "../../src/services/run-sheet";
 import {
   SeatingEventNotFound,
   SeatingTableFull,
@@ -4236,6 +4237,84 @@ describe("cire/api over real D1 (Miniflare)", () => {
         _tag: "HostConflict",
         reason: "host_cap_reached",
       });
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "reads the run sheet in one D1 batch: a linked task's derived time, and each event's run of show",
+    async () => {
+      // The read is one batch of four SELECTs, the events' carrying each
+      // event's run of show as a correlated JSON column. bun:sqlite runs a
+      // batch one statement at a time; these are the rows D1 hands back.
+      const now = new Date();
+      await db.insert(events).values([
+        {
+          id: "evt_rs_ceremony",
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          slug: "rs-ceremony",
+          name: "RS Ceremony",
+          startAt: "2099-06-20T15:00:00+10:00",
+          endAt: "",
+          timezone: "Australia/Sydney",
+          sortOrder: 90,
+        },
+        {
+          id: "evt_rs_dinner",
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          slug: "rs-dinner",
+          name: "RS Dinner",
+          startAt: "2099-06-20T19:00:00+10:00",
+          endAt: "",
+          timezone: "Australia/Sydney",
+          sortOrder: 91,
+        },
+      ]);
+      await db.insert(runOfShowItems).values([
+        {
+          eventId: "evt_rs_ceremony",
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          sortOrder: 0,
+          time: "15:20",
+          label: "Vows",
+        },
+        {
+          eventId: "evt_rs_ceremony",
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          sortOrder: 1,
+          time: "15:05",
+          label: "Processional",
+        },
+      ]);
+      await db.insert(tasks).values({
+        id: "tsk_rs_rings",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        title: "Bring the rings",
+        timeframeBucket: "day_of",
+        createdAt: now,
+        eventId: "evt_rs_ceremony",
+        runOffsetMinutes: -30,
+      });
+
+      const sheet = await run(
+        runSheetService.read({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          scope: "full",
+          viewerHostId: "whost_none",
+        }),
+      );
+      const byId = new Map(sheet.items.map((item) => [item.id, item]));
+      expect(byId.get("tsk_rs_rings")).toMatchObject({
+        runAt: "2099-06-20T14:30:00+10:00",
+        anchored: true,
+      });
+      expect(byId.get("evt_rs_ceremony")).toMatchObject({
+        runOfShow: [
+          { time: "15:20", label: "Vows" },
+          { time: "15:05", label: "Processional" },
+        ],
+      });
+      expect(byId.get("evt_rs_dinner")).toMatchObject({ runOfShow: [] });
     },
     MF_TIMEOUT_MS,
   );

@@ -8,6 +8,8 @@
  *  - tasks: only those the reader's seat holds (`runSheetVisibleTo`);
  *  - events: only those one of those tasks is linked to;
  *  - people: only the seats holding one of those tasks.
+ * An event carries its run of show, so an `own` reader gets the items of the
+ * events they are given and of no other.
  * For `full`, every listed task, every event and every holder. No count, total
  * or other collection rides alongside, so nothing about the rest of the day
  * can be read off the answer's shape.
@@ -25,6 +27,7 @@ import type { RunSheetEventRow, RunSheetItem } from "../lib/run-sheet";
 import { metricRunSheetRead } from "../metrics";
 import { runSheetVisibleTo } from "../middleware/wedding-role";
 import type { RunSheetScope } from "./hosts";
+import { runOfShowColumn, runOfShowFrom } from "./run-of-show";
 import { eventTimesOf, weddingAssignees, withAssignees } from "./tasks";
 import type { AssigneeRow, TaskRow } from "./tasks";
 
@@ -84,6 +87,7 @@ export const runSheetService = {
               venueName: events.venueName,
               address: events.address,
               sortOrder: events.sortOrder,
+              runOfShow: runOfShowColumn,
             })
             .from(events)
             .where(eq(events.weddingId, weddingId)),
@@ -95,7 +99,9 @@ export const runSheetService = {
         ]),
       );
 
-      const weddingEvents = eventRows as RunSheetEventRow[];
+      const weddingEvents: RunSheetEventRow[] = (
+        eventRows as Array<Omit<RunSheetEventRow, "runOfShow"> & { runOfShow: string | null }>
+      ).map((row) => ({ ...row, runOfShow: runOfShowFrom(row.runOfShow) }));
       const listed = withAssignees(
         taskRows as TaskRow[],
         assigned as AssigneeRow[],

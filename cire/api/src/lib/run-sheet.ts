@@ -15,6 +15,13 @@
 
 import type { DerivedRunTime } from "./run-time";
 
+/** One item of an event's run of show: an `HH:MM` on the event's own clock
+ *  and what happens then. */
+export interface RunOfShowLine {
+  time: string;
+  label: string;
+}
+
 /** An event as the run sheet reads it. */
 export interface RunSheetEventRow {
   id: string;
@@ -25,6 +32,8 @@ export interface RunSheetEventRow {
   venueName: string | null;
   address: string | null;
   sortOrder: number;
+  /** The event's run of show, in the organiser's order. */
+  runOfShow: readonly RunOfShowLine[];
 }
 
 /** A task as the run sheet reads it: its time already derived. */
@@ -46,6 +55,9 @@ export interface RunSheetEventItem {
   timezone: string;
   venueName: string | null;
   address: string | null;
+  /** In the organiser's order: the portal reads it from the event's start, as
+   *  the guest's sheet does. */
+  runOfShow: RunOfShowLine[];
 }
 
 export interface RunSheetTaskItem extends DerivedRunTime {
@@ -71,6 +83,7 @@ export function projectEvent(row: RunSheetEventRow): RunSheetEventItem {
     timezone: row.timezone,
     venueName: row.venueName,
     address: row.address,
+    runOfShow: row.runOfShow.map((line) => ({ time: line.time, label: line.label })),
   };
 }
 

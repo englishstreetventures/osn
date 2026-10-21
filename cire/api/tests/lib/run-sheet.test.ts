@@ -21,6 +21,7 @@ const event = (over: Partial<RunSheetEventRow> & { id: string }): RunSheetEventR
   venueName: null,
   address: null,
   sortOrder: 0,
+  runOfShow: [],
   ...over,
 });
 
@@ -146,7 +147,16 @@ describe("orderRunSheet", () => {
 
   it("answers each item with its kind and exactly the fields a reader is given", () => {
     const [ceremony, rings] = orderRunSheet(
-      [event({ id: "ceremony", venueName: "The Hall", address: "1 Hall St", sortOrder: 4 })],
+      [
+        event({
+          id: "ceremony",
+          venueName: "The Hall",
+          address: "1 Hall St",
+          sortOrder: 4,
+          // A field the read might carry one day never reaches a reader.
+          runOfShow: [{ time: "15:10", label: "Vows", sortOrder: 0 } as never],
+        }),
+      ],
       [
         task({
           id: "rings",
@@ -171,6 +181,7 @@ describe("orderRunSheet", () => {
       timezone: "Australia/Sydney",
       venueName: "The Hall",
       address: "1 Hall St",
+      runOfShow: [{ time: "15:10", label: "Vows" }],
     });
     expect(rings).toEqual({
       kind: "task",
