@@ -326,6 +326,8 @@ describe("a task's time on its row, painted", () => {
         checklist();
         await screen.findByTestId("tasks-day_of");
         const dialog = await openFor("Greet the celebrant");
+        // Linked, there is no zone to pick — even before the events land.
+        expect(within(dialog).queryByLabelText("Time zone")).toBeNull();
         await waitFor(() =>
           expect((within(dialog).getByLabelText("Event") as HTMLSelectElement).value).toBe(
             "evt_ceremony",
@@ -344,7 +346,9 @@ describe("a task's time on its row, painted", () => {
           "before",
         );
         expect(within(dialog).queryByLabelText("Time zone")).toBeNull();
-        expect(dialog.textContent).toContain("Sat 20 Jun, 1:30 pm, on Ceremony's clock");
+        await waitFor(() =>
+          expect(dialog.textContent).toContain("Sat 20 Jun, 1:30 pm, on Ceremony's clock"),
+        );
         // The row's droplet: the same spring the holders' popover lands with.
         expect(getComputedStyle(dialog).animationName).toBe("droplet-grow, droplet-round");
 

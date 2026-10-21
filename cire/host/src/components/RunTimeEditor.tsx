@@ -156,6 +156,9 @@ export default function RunTimeEditor(props: RunTimeEditorProps) {
       ),
   );
   const chosen = () => events().find((e) => e.event.id === eventId()) ?? null;
+  /** The linked event's name, or how to speak of it while the events load or
+   *  once it is gone. */
+  const eventName = () => chosen()?.event.name ?? "the event";
 
   /** The zone every event shares, else the browser's. */
   const defaultZone = () => {
@@ -340,6 +343,13 @@ export default function RunTimeEditor(props: RunTimeEditorProps) {
                       Loading the events…
                     </option>
                   </Show>
+                  {/* The task's event before the list holds it: still loading,
+                      or taken off the schedule since the task was read. */}
+                  <Show when={eventId() !== "" && chosen() === null}>
+                    <option value={eventId()} selected>
+                      {props.events === null ? "Its event" : "An event no longer on the schedule"}
+                    </option>
+                  </Show>
                   {/* `selected` on each option, not `value` on the select: the
                       events can be read again under an open popover. */}
                   <For each={events()}>
@@ -356,7 +366,7 @@ export default function RunTimeEditor(props: RunTimeEditorProps) {
             </Field>
 
             <Show
-              when={chosen()}
+              when={eventId() !== ""}
               fallback={
                 <>
                   <DateAndTime
@@ -394,87 +404,84 @@ export default function RunTimeEditor(props: RunTimeEditorProps) {
                 </>
               }
             >
-              {(picked) => (
-                <>
-                  <fieldset class="flex flex-col gap-2">
-                    <legend class="sr-only">How the time follows {picked().event.name}</legend>
-                    <Choice
-                      name={`${id}-mode`}
-                      checked={mode() === "offset"}
-                      onPick={() => setMode("offset")}
-                    >
-                      Before or after the start
-                    </Choice>
-                    <Choice
-                      name={`${id}-mode`}
-                      checked={mode() === "clock"}
-                      onPick={() => setMode("clock")}
-                    >
-                      At a clock time
-                    </Choice>
-                  </fieldset>
-                  <Show
-                    when={mode() === "offset"}
-                    fallback={
-                      <div class="flex flex-col gap-1.5">
-                        <DateAndTime
-                          date={date()}
-                          time={time()}
-                          onDate={(v) => {
-                            dateTouched = true;
-                            setDate(v);
-                          }}
-                          onTime={setTime}
-                        />
-                        <p class="font-body text-text-muted text-ui-xs leading-snug">
-                          {`On ${picked().event.name}'s clock: ${describeTimeZone(picked().event.timezone, date())}`}
-                        </p>
-                      </div>
-                    }
+              <>
+                <fieldset class="flex flex-col gap-2">
+                  <legend class="sr-only">How the time follows {eventName()}</legend>
+                  <Choice
+                    name={`${id}-mode`}
+                    checked={mode() === "offset"}
+                    onPick={() => setMode("offset")}
                   >
+                    Before or after the start
+                  </Choice>
+                  <Choice
+                    name={`${id}-mode`}
+                    checked={mode() === "clock"}
+                    onPick={() => setMode("clock")}
+                  >
+                    At a clock time
+                  </Choice>
+                </fieldset>
+                <Show
+                  when={mode() === "offset"}
+                  fallback={
                     <div class="flex flex-col gap-1.5">
-                      <div class="flex items-end gap-2">
-                        <Field label="Minutes" class="w-24 shrink-0">
-                          {(field) => (
-                            <Input
-                              {...field}
-                              type="number"
-                              inputMode="numeric"
-                              min="0"
-                              max={String(MAX_OFFSET_MINUTES)}
-                              step="1"
-                              value={minutes()}
-                              onInput={(e) => setMinutes(e.currentTarget.value)}
-                            />
-                          )}
-                        </Field>
-                        <Field label="Before or after" class="min-w-0 flex-1">
-                          {(field) => (
-                            <Select
-                              {...field}
-                              value={direction()}
-                              onChange={(e) =>
-                                setDirection(e.currentTarget.value === "after" ? "after" : "before")
-                              }
-                            >
-                              <option value="before">before the start</option>
-                              <option value="after">after the start</option>
-                            </Select>
-                          )}
-                        </Field>
-                      </div>
-                      <p
-                        class="font-body text-text-muted text-ui-xs leading-snug"
-                        aria-live="polite"
-                      >
-                        {lands()
-                          ? `${lands()}, on ${picked().event.name}'s clock`
-                          : `Moves with ${picked().event.name}.`}
+                      <DateAndTime
+                        date={date()}
+                        time={time()}
+                        onDate={(v) => {
+                          dateTouched = true;
+                          setDate(v);
+                        }}
+                        onTime={setTime}
+                      />
+                      <p class="font-body text-text-muted text-ui-xs leading-snug">
+                        {chosen()
+                          ? `On ${eventName()}'s clock: ${describeTimeZone(chosen()!.event.timezone, date())}`
+                          : "On the event's own clock."}
                       </p>
                     </div>
-                  </Show>
-                </>
-              )}
+                  }
+                >
+                  <div class="flex flex-col gap-1.5">
+                    <div class="flex items-end gap-2">
+                      <Field label="Minutes" class="w-24 shrink-0">
+                        {(field) => (
+                          <Input
+                            {...field}
+                            type="number"
+                            inputMode="numeric"
+                            min="0"
+                            max={String(MAX_OFFSET_MINUTES)}
+                            step="1"
+                            value={minutes()}
+                            onInput={(e) => setMinutes(e.currentTarget.value)}
+                          />
+                        )}
+                      </Field>
+                      <Field label="Before or after" class="min-w-0 flex-1">
+                        {(field) => (
+                          <Select
+                            {...field}
+                            value={direction()}
+                            onChange={(e) =>
+                              setDirection(e.currentTarget.value === "after" ? "after" : "before")
+                            }
+                          >
+                            <option value="before">before the start</option>
+                            <option value="after">after the start</option>
+                          </Select>
+                        )}
+                      </Field>
+                    </div>
+                    <p class="font-body text-text-muted text-ui-xs leading-snug" aria-live="polite">
+                      {lands()
+                        ? `${lands()}, on ${eventName()}'s clock`
+                        : `Moves with ${eventName()}.`}
+                    </p>
+                  </div>
+                </Show>
+              </>
             </Show>
 
             <Show when={error()}>
