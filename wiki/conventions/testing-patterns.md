@@ -11,7 +11,7 @@ related:
   - "[[browser-tests]]"
   - "[[infrastructure-as-code]]"
   - "[[realtime]]"
-last-reviewed: 2026-10-21
+last-reviewed: 2026-10-22
 ---
 
 # Testing Patterns
@@ -277,7 +277,7 @@ describe("events routes", () => {
 
 - **Never hand-write a DDL mirror.** Test databases are built from the live Drizzle schema via `applySchema()` (`@osn/db/testing`, `@pulse/db/testing`, `@zap/db/testing`) — never a `CREATE TABLE` string in a helper or a test file. A hand-written mirror makes constraint tests tautological: they assert the `UNIQUE` the author typed a few lines above, not the one the schema declares, so dropping `.unique()` from `src/schema` leaves them green. See [[#Schema-derived test databases]].
 
-- **A test must fail for the reason it is named.** Before landing a test that asserts a side effect (a row written, a notice sent), break the code path and confirm the test goes red. `expect(true).toBe(true)` after an action asserts nothing. Three ways that check is passed by a test which still cannot fail — a timestamp tie, a `waitFor`ed absence, and a red-proof that ate its own fix — are in [[#Assertions that cannot fail]].
+- **A test must fail for the reason it is named.** Before landing a test that asserts a side effect (a row written, a notice sent), break the code path and confirm the test goes red. `expect(true).toBe(true)` after an action asserts nothing. Ways that check is passed by a test which still cannot fail — a timestamp tie, a `waitFor`ed absence, a red-proof that ate its own fix, a route the app never mounted, a hand-written input where the driver's output belongs, and a helper that supplies the thing under test — are in [[#Assertions that cannot fail]].
 
 - **Wait on the event, never on a fixed sleep.** A test that sleeps 10 ms for a forked fiber fails whenever a loaded CI runner takes longer. Have the forked effect resolve a `Promise.withResolvers()` promise and await that; if the work never runs, the test fails on Vitest's timeout ("is a no-op reference outside a request" in `osn/api/tests/lib/background.test.ts`).
 
@@ -450,6 +450,23 @@ element itself — `expect(document.activeElement).toBe(target)` — or at least
 that it is not `document.body` before any `contains` check.
 `cire/host/tests/components/HostsPanel.test.tsx` ("moves focus to the offer…")
 shows the form.
+
+### A route the app never mounted
+
+A test POSTed to `/api/stripe/platform-webhook` on an app that did not mount it, and asserted the response was not 403. An Elysia `onBeforeHandle` hook never runs for a path the router does not match, so an unmatched POST returns 404 with or without the exemption under test. The assertion passed on the 404.
+*Instead:* mount a stub route at the real path on a bare origin guard, as `cire/api/tests/lib/origin-guard.test.ts` does, so the hook is reached.
+
+### Hand-written input where the driver's output should be
+
+A test passed a literal error string containing an index name to the classifier that reads it. SQLite names the columns in a unique-violation message, never the index, so the production path could never reach the matching branch, and the test was green either way.
+*Instead:* drive a real insert against the real index, and assert the message does **not** contain the index name, so the classifier cannot match on it.
+
+### A test helper that supplies the thing under test
+
+`appRequest` in `cire/api/tests/test-helpers.ts` adds an `Origin` header to every request. Any origin-guard test written through it passes whether or not the guard works.
+*Instead:* build the request by hand for any test of a header the helper injects.
+
+Each of these was caught the same way: revert the fix and watch the test go red. Two cautions. A revert made by text substitution must be confirmed applied before the result is trusted: `oxfmt` reflows code, so a multi-line pattern captured before formatting can fail to match, and the "mutation" never happens while the test stays green. And restore the fix before committing.
 
 ## Mutation testing
 
