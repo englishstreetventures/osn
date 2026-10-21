@@ -25,6 +25,7 @@
       "dependencies": {
         "@cire/db": "workspace:*",
         "@cire/dietary": "workspace:*",
+        "@cire/guest-email": "workspace:*",
         "@cire/invite-designs": "workspace:*",
         "@cire/theme": "workspace:*",
         "@elysiajs/cors": "^1.4.2",
@@ -80,11 +81,18 @@
         "@shared/typescript-config": "workspace:*",
       },
     },
+    "cire/guest-email": {
+      "name": "@cire/guest-email",
+      "devDependencies": {
+        "@shared/typescript-config": "workspace:*",
+      },
+    },
     "cire/host": {
       "name": "@cire/host",
       "dependencies": {
         "@astrojs/solid-js": "^7.0.2",
         "@cire/dietary": "workspace:*",
+        "@cire/guest-email": "workspace:*",
         "@cire/invite-designs": "workspace:*",
         "@cire/theme": "workspace:*",
         "@cire/ui": "workspace:*",
@@ -148,6 +156,7 @@
         "@astrojs/cloudflare": "^14.2.6",
         "@astrojs/solid-js": "^7.0.2",
         "@cire/dietary": "workspace:*",
+        "@cire/guest-email": "workspace:*",
         "@cire/invite-designs": "workspace:*",
         "@cire/theme": "workspace:*",
         "@cire/ui": "workspace:*",
@@ -1245,6 +1254,8 @@
     "@cire/db": ["@cire/db@workspace:cire/db"],
 
     "@cire/dietary": ["@cire/dietary@workspace:cire/dietary"],
+
+    "@cire/guest-email": ["@cire/guest-email@workspace:cire/guest-email"],
 
     "@cire/host": ["@cire/host@workspace:cire/host"],
 

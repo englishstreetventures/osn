@@ -1,0 +1,23 @@
+{
+  "name": "@cire/guest-email",
+  "private": true,
+  "type": "module",
+  "author": "English Street Ventures Pty Ltd",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/englishstreetventures/osn.git"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "check": "tsc --noEmit && tsc --noEmit -p tests/tsconfig.json",
+    "test": "bun test",
+    "test:mutation": "bun ../../tools/stryker/src/cli.ts",
+    "test:run": "bun test"
+  },
+  "devDependencies": {
+    "@shared/typescript-config": "workspace:*"
+  }
+}

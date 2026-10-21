@@ -98,6 +98,7 @@ describe("which surfaces a change redeploys", () => {
       "cire/dietary/src/index.ts",
       ["cire_api", "cire_invites", "cire_host", "cire_vendor", "cire_landing"],
     ],
+    ["cire/guest-email/src/index.ts", ["cire_api", "cire_invites", "cire_host"]],
     ["cire/theme/src/index.ts", ["cire_api", "cire_invites", "cire_host", "cire_vendor"]],
     ["cire/invite-designs/src/index.ts", ["cire_api", "cire_invites", "cire_host"]],
     ["cire/build-tools/src/index.ts", ["cire_invites", "cire_host", "cire_vendor"]],
