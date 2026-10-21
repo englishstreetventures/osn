@@ -211,11 +211,20 @@ describe("RegistryView — the gift list", () => {
     render(() => <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />);
     const title = await screen.findByPlaceholderText(/copper pan/i);
     fireEvent.input(title, { target: { value: "Wine fridge" } });
+    fireEvent.input(screen.getByLabelText("How many"), { target: { value: "2" } });
+    fireEvent.input(screen.getByLabelText("Link (optional)"), {
+      target: { value: "https://shop.example/fridge" },
+    });
     fireEvent.click(screen.getByRole("button", { name: /add gift/i }));
     await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
     const [url, init] = authFetch.mock.calls[0]!;
     expect(String(url)).toMatch(/\/registry\/items$/);
     expect(init.method).toBe("POST");
+    // A gift sends a gift's fields and no fund's.
+    const sent = JSON.parse(init.body);
+    expect(sent).toMatchObject({ quantityWanted: 2, externalUrl: "https://shop.example/fridge" });
+    expect(sent).not.toHaveProperty("kind");
+    expect(sent).not.toHaveProperty("targetMinor");
     expect(await screen.findByText("Wine fridge")).toBeInTheDocument();
   });
 
@@ -368,12 +377,26 @@ describe("RegistryView — the gift list", () => {
     fireEvent.input(within(editForm).getByLabelText("Gift"), {
       target: { value: "Copper saucepan" },
     });
+    // A gift's editor carries a gift's fields and no fund's goal.
+    expect(within(editForm).queryByLabelText("Goal")).toBeNull();
+    fireEvent.input(within(editForm).getByLabelText("How many"), { target: { value: "2" } });
+    fireEvent.input(within(editForm).getByLabelText("Category"), { target: { value: "Kitchen" } });
+    fireEvent.input(within(editForm).getByLabelText("Link"), {
+      target: { value: "https://shop.example/pan" },
+    });
     fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
     await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
     const [url, init] = authFetch.mock.calls[0]!;
     expect(String(url)).toMatch(/\/registry\/items\/a$/);
     expect(init.method).toBe("PATCH");
-    expect(JSON.parse(init.body)).toMatchObject({ title: "Copper saucepan", priceMinor: 12_000 });
+    expect(JSON.parse(init.body)).toMatchObject({
+      title: "Copper saucepan",
+      priceMinor: 12_000,
+      quantityWanted: 2,
+      category: "Kitchen",
+      externalUrl: "https://shop.example/pan",
+    });
+    expect(JSON.parse(init.body)).not.toHaveProperty("targetMinor");
     expect(await screen.findByText("Copper saucepan")).toBeInTheDocument();
   });
 
@@ -1359,13 +1382,15 @@ describe("RegistryView — cash funds", () => {
     fireEvent.input(screen.getByLabelText("Fund"), { target: { value: "Honeymoon in Kyoto" } });
     fireEvent.input(screen.getByLabelText("Goal (optional)"), { target: { value: "50000" } });
     fireEvent.input(screen.getByLabelText("What it’s for (optional)"), {
-      target: { value: "Trains, temples and a very good dinner." },
+      target: { value: "  Trains, temples and a very good dinner.  " },
     });
     fireEvent.click(screen.getByRole("button", { name: /add fund/i }));
 
     await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
     const [url, init] = authFetch.mock.calls[0]!;
     expect(String(url)).toMatch(/\/registry\/items$/);
+    expect(init.method).toBe("POST");
+    expect(init.headers).toEqual({ "Content-Type": "application/json" });
     expect(JSON.parse(init.body)).toEqual({
       kind: "cash_fund",
       title: "Honeymoon in Kyoto",
@@ -1374,6 +1399,85 @@ describe("RegistryView — cash funds", () => {
       imageKey: null,
     });
     expect(await screen.findByText("Honeymoon in Kyoto")).toBeInTheDocument();
+    // The form is cleared for the next fund.
+    expect((screen.getByLabelText("Fund") as HTMLInputElement).value).toBe("");
+    expect((screen.getByLabelText("Goal (optional)") as HTMLInputElement).value).toBe("");
+    expect((screen.getByLabelText("What it’s for (optional)") as HTMLTextAreaElement).value).toBe(
+      "",
+    );
+  });
+
+  it("starts on a gift, and switching to a fund and back shows each kind's own fields", async () => {
+    setCachedRegistry("wed_1", snapshot());
+    authFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ item: fund({ targetMinor: null, description: null }) }), {
+        status: 200,
+      }),
+    );
+    render(() => <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />);
+
+    const giftChoice = (await screen.findByRole("radio", {
+      name: "A gift to reserve",
+    })) as HTMLInputElement;
+    const fundChoice = screen.getByRole("radio", { name: "A cash fund" }) as HTMLInputElement;
+    expect(giftChoice.checked).toBe(true);
+    expect(fundChoice.checked).toBe(false);
+    expect(screen.getByPlaceholderText(/copper pan/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText("Fund")).toBeNull();
+
+    fireEvent.click(fundChoice);
+    expect(screen.queryByPlaceholderText(/copper pan/i)).toBeNull();
+    expect(screen.queryByLabelText("Price (optional)")).toBeNull();
+    fireEvent.click(giftChoice);
+    expect(screen.getByPlaceholderText(/copper pan/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText("Goal (optional)")).toBeNull();
+
+    // A fund with nothing but a name sends no words and no goal.
+    fireEvent.click(fundChoice);
+    fireEvent.input(screen.getByLabelText("Fund"), { target: { value: "Honeymoon" } });
+    fireEvent.input(screen.getByLabelText("Goal (optional)"), { target: { value: "   " } });
+    fireEvent.click(screen.getByRole("button", { name: /add fund/i }));
+    await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(authFetch.mock.calls[0]![1].body)).toMatchObject({
+      description: null,
+      targetMinor: null,
+    });
+  });
+
+  it("refuses a goal below the currency's smallest unit, naming it", async () => {
+    setCachedRegistry("wed_1", snapshot());
+    render(() => <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />);
+
+    fireEvent.click(await screen.findByRole("radio", { name: "A cash fund" }));
+    fireEvent.input(screen.getByLabelText("Fund"), { target: { value: "Honeymoon" } });
+    fireEvent.input(screen.getByLabelText("Goal (optional)"), { target: { value: "0.004" } });
+    fireEvent.click(screen.getByRole("button", { name: /add fund/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/not allowed/);
+    expect(authFetch).not.toHaveBeenCalled();
+  });
+
+  it("says the list is full, or that the fund could not be added, without adding it", async () => {
+    for (const [answer, words] of [
+      [new Response("{}", { status: 409 }), "Your gift list is full"],
+      [new Response("{}", { status: 500 }), "Couldn't add that fund."],
+    ] as const) {
+      __resetRegistryCache();
+      authFetch.mockReset();
+      setCachedRegistry("wed_1", snapshot());
+      authFetch
+        .mockResolvedValueOnce(answer)
+        .mockResolvedValue(new Response(JSON.stringify(snapshot()), { status: 200 }));
+      const view = render(() => (
+        <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />
+      ));
+      fireEvent.click(await screen.findByRole("radio", { name: "A cash fund" }));
+      fireEvent.input(screen.getByLabelText("Fund"), { target: { value: "Honeymoon" } });
+      fireEvent.click(screen.getByRole("button", { name: /add fund/i }));
+      expect(await screen.findByRole("alert")).toHaveTextContent(words);
+      expect(screen.queryByText("Honeymoon")).toBeNull();
+      view.unmount();
+    }
   });
 
   it("shows the couple a fund's goal, and no count of anything claimed", async () => {
@@ -1391,6 +1495,7 @@ describe("RegistryView — cash funds", () => {
     // A gift beside it keeps its claimed count.
     const panRow = rows.find((r) => r.textContent?.includes("Copper pan"))!;
     expect(panRow.textContent).toMatch(/0 of 1 claimed/);
+    expect(panRow.textContent).not.toMatch(/all taken/);
   });
 
   it("edits a fund's goal through the currency's exponent and sends no gift fields", async () => {
@@ -1512,8 +1617,12 @@ describe("RegistryView — cash funds", () => {
     const [url, init] = authFetch.mock.calls[1]!;
     expect(String(url)).toMatch(/\/registry\/items\/oops$/);
     expect(init.method).toBe("DELETE");
-    expect((await screen.findByRole("alert")).textContent).toMatch(/cash funds/i);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Cash funds aren’t available yet. Try again in a few minutes.",
+    );
     expect(screen.queryByText("Honeymoon")).toBeNull();
+    // Taken back, so nothing to re-read.
+    expect(authFetch).toHaveBeenCalledTimes(2);
   });
 
   it("shows the couple a gift it could not take back, so they can remove it", async () => {
@@ -1563,10 +1672,49 @@ describe("RegistryView — cash funds", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /edit honeymoon in kyoto/i }));
     const editForm = container.querySelectorAll("form")[1]!;
+    expect(within(editForm).getByLabelText("Fund")).toBeInTheDocument();
     expect((within(editForm).getByLabelText("Goal") as HTMLInputElement).value).toBe("");
     fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
     await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
     expect(JSON.parse(authFetch.mock.calls[0]![1].body).targetMinor).toBeNull();
+  });
+
+  it("edits a fund only with a name and a real goal, and trims what was typed", async () => {
+    setCachedRegistry("wed_1", snapshot({ settings: takingMoney, items: [fund()] }));
+    authFetch.mockResolvedValue(new Response(JSON.stringify({ item: fund() }), { status: 200 }));
+    const { container } = render(() => (
+      <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />
+    ));
+    const openEditor = async () => {
+      fireEvent.click(await screen.findByRole("button", { name: /edit honeymoon in kyoto/i }));
+      return container.querySelectorAll("form")[1]!;
+    };
+
+    const editForm = await openEditor();
+    fireEvent.input(within(editForm).getByLabelText("Goal"), { target: { value: "0" } });
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("A goal must be a positive amount.");
+
+    fireEvent.input(within(editForm).getByLabelText("Fund"), { target: { value: "   " } });
+    fireEvent.input(within(editForm).getByLabelText("Goal"), { target: { value: "100" } });
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    expect(authFetch).not.toHaveBeenCalled();
+
+    fireEvent.input(within(editForm).getByLabelText("Fund"), {
+      target: { value: "  Honeymoon  " },
+    });
+    fireEvent.input(within(editForm).getByLabelText("Description"), {
+      target: { value: "  Somewhere warm  " },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+    await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(authFetch.mock.calls[0]![1].body)).toMatchObject({
+      title: "Honeymoon",
+      description: "Somewhere warm",
+      targetMinor: 10_000,
+    });
+    // The error from the refused goal does not outlive a save that worked.
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
   });
 
   it("refuses a goal of nothing without asking the server", async () => {
@@ -1593,6 +1741,22 @@ describe("RegistryView — cash funds", () => {
     fireEvent.click(screen.getByRole("button", { name: /add fund/i }));
 
     await waitFor(() => expect(redirectToLoginMock).toHaveBeenCalledTimes(1));
+  });
+
+  it("loads the list when nothing is cached yet, funds and all", async () => {
+    // The first visit to the module: no snapshot until the read answers.
+    authFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify(snapshot({ items: [fund(), item({ id: "pan", sortOrder: 1 })] })),
+        {
+          status: 200,
+        },
+      ),
+    );
+    render(() => <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />);
+    expect(await screen.findByText("Honeymoon in Kyoto")).toBeInTheDocument();
+    // A fund among gifts, with money off, still says guests cannot see it.
+    expect(screen.getByText(/only while money gifts are on/i)).toBeInTheDocument();
   });
 
   it("says when guests cannot see the funds, and not when they can", async () => {

@@ -295,18 +295,18 @@ export default function RegistryView(props: RegistryViewProps) {
   };
 
   /**
-   * A goal or price typed in major units, as minor units of the wedding's
+   * A fund's goal, typed in major units, as minor units of the wedding's
    * currency; `null` for an empty box. `undefined` means it was refused, and
    * the error is already on screen.
    */
-  const typedMinor = (raw: string, what: "Price" | "A goal"): number | null | undefined => {
+  const typedGoal = (raw: string): number | null | undefined => {
     const typed = raw.trim();
     if (typed === "") return null;
     const minor = parseMinor(typed, currency());
     // A goal of nothing is no goal: the box is left empty for that.
-    if (minor === null || (what === "A goal" && minor === 0)) {
+    if (minor === null || minor === 0) {
       haptic("reject");
-      setError(belowSmallestUnitError(typed, currency()) ?? `${what} must be a positive amount.`);
+      setError(belowSmallestUnitError(typed, currency()) ?? "A goal must be a positive amount.");
       return undefined;
     }
     return minor;
@@ -318,7 +318,7 @@ export default function RegistryView(props: RegistryViewProps) {
   // save a gift guests can reserve, so a fund answered as anything else is
   // deleted at once and the couple told.
   const addFund = async (title: string) => {
-    const targetMinor = typedMinor(newTarget(), "A goal");
+    const targetMinor = typedGoal(newTarget());
     if (targetMinor === undefined) return;
     const body = {
       kind: "cash_fund" as const,
@@ -454,7 +454,7 @@ export default function RegistryView(props: RegistryViewProps) {
   const editPatch = (item: RegistryItem, title: string): ItemPatch | undefined => {
     const description = editDescription().trim() || null;
     if (item.kind === "cash_fund") {
-      const targetMinor = typedMinor(editTarget(), "A goal");
+      const targetMinor = typedGoal(editTarget());
       if (targetMinor === undefined) return undefined;
       return { title, description, targetMinor, imageKey: editImageKey() };
     }

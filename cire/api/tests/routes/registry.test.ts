@@ -311,9 +311,11 @@ describe("registry routes (Gold)", () => {
 
   it("authors a cash fund with a target the couple alone read back", async () => {
     const app = buildApp({ tier: "gold" });
-    const fundWrites = () =>
-      counterValue(CIRE_METRICS.registryItemWrite, { action: "create", kind: "cash_fund" });
+    const fundWrites = (action: "create" | "update" | "remove" = "create") =>
+      counterValue(CIRE_METRICS.registryItemWrite, { action, kind: "cash_fund" });
     const before = await fundWrites();
+    const updatesBefore = await fundWrites("update");
+    const removesBefore = await fundWrites("remove");
     const res = await req(app, "POST", `${base}/items`, EDITOR, {
       kind: "cash_fund",
       title: "Honeymoon in Kyoto",
@@ -334,6 +336,7 @@ describe("registry routes (Gold)", () => {
       title: "Honeymoon",
     });
     expect(moved.status).toBe(200);
+    expect((await fundWrites("update")) - updatesBefore).toBe(1);
     const snap = (await (await req(app, "GET", base, VIEWER)).json()) as RegistrySnapshot;
     expect(snap.items).toHaveLength(1);
     expect(snap.items[0]).toMatchObject({
@@ -349,6 +352,10 @@ describe("registry routes (Gold)", () => {
     });
     expect(open.status).toBe(200);
     expect(((await open.json()) as { item: RegistryItemDto }).item.targetMinor).toBeNull();
+
+    // Removing a fund with no picture is counted as a fund's removal too.
+    expect((await req(app, "DELETE", `${base}/items/${item.id}`, EDITOR)).status).toBe(200);
+    expect((await fundWrites("remove")) - removesBefore).toBe(1);
   });
 
   /**

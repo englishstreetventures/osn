@@ -312,20 +312,46 @@ describe("giving to a fund", () => {
     // The radios are visually hidden, so the border is all a sighted guest
     // sees of their choice.
     const card = (radio: HTMLInputElement) => radio.closest("label") as HTMLLabelElement;
+    /** Chosen: the gold border and no plain one; not chosen: the reverse. */
+    const chosen = (radio: HTMLInputElement) => [
+      card(radio).classList.contains("border-gold"),
+      card(radio).classList.contains("border-border"),
+    ];
+
+    // Before any choice the money goes to the couple, and only that row says so.
+    expect(general.checked).toBe(true);
+    expect(honeymoon.checked).toBe(false);
+    expect(chosen(general)).toEqual([true, false]);
+    expect(chosen(honeymoon)).toEqual([false, true]);
 
     fireEvent.click(honeymoon);
     expect(honeymoon.checked).toBe(true);
-    expect(card(honeymoon).classList.contains("border-gold")).toBe(true);
-    expect(card(general).classList.contains("border-gold")).toBe(false);
+    expect(chosen(honeymoon)).toEqual([true, false]);
+    expect(chosen(general)).toEqual([false, true]);
 
     fireEvent.click(general);
     expect(general.checked).toBe(true);
-    expect(card(general).classList.contains("border-gold")).toBe(true);
-    expect(card(honeymoon).classList.contains("border-gold")).toBe(false);
+    expect(chosen(general)).toEqual([true, false]);
+    expect(chosen(honeymoon)).toEqual([false, true]);
 
     fireEvent.submit(container.querySelector("form") as HTMLFormElement);
     await waitFor(() => expect(calls).toHaveLength(1));
     expect((calls[0]?.body as { itemId: string | null } | undefined)?.itemId).toBeNull();
+  });
+
+  it("shows funds without pictures when the page has no way to load one", () => {
+    const { container } = renderPanel({ funds: [HONEYMOON] });
+    const choice = container.querySelector("[data-gift-money-funds]") as HTMLElement;
+    expect(choice.textContent).toContain("Honeymoon in Kyoto");
+    expect(choice.querySelector("img")).toBeNull();
+  });
+
+  it("says a fund has closed even on a page that asked for no fresh list", async () => {
+    stubFetch(json({ error: "fund_unavailable" }, 409));
+    const { container } = renderPanel({ funds: [HONEYMOON] });
+    fireEvent.click(screen.getByRole("radio", { name: /Honeymoon in Kyoto/ }));
+    fireEvent.submit(container.querySelector("form") as HTMLFormElement);
+    expect(await screen.findByText(giftMoneyMessage({ kind: "fund-closed" }))).toBeTruthy();
   });
 
   it("offers no choice of fund when the couple have none", () => {

@@ -136,6 +136,10 @@ describe("publishing", () => {
     expect(document.getElementById("registry-publish-blocked")?.textContent).toMatch(
       /Add a gift before publishing/i,
     );
+    // No fund, so nothing to say about funds.
+    expect(document.getElementById("registry-publish-blocked")?.textContent).not.toMatch(
+      /cash funds/i,
+    );
   });
 
   it("is allowed once there is a gift", async () => {
