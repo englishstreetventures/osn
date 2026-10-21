@@ -209,7 +209,7 @@ the guard's warning regardless of how large or small the app's own baseline is:
 | App | Mode | Measured | Threshold |
 |---|---|---:|---:|
 | cire/invites | worker | 176733 B | 188433 B *(re-baselined, englishstreetventures/osn#1325 — see below)* |
-| cire/host | static | 288812 B | 300512 B *(re-baselined, englishstreetventures/osn#479 — see below)* |
+| cire/host | static | 288927 B | 300627 B *(re-baselined, englishstreetventures/osn#479 — see below)* |
 | cire/vendor | static | 77305 B | 81644 B |
 | cire/landing | static | 164847 B | 176547 B |
 | musubi/landing | static | 15206 B | 26865 B |
@@ -291,12 +291,12 @@ guard prints.*
 The seating chart (englishstreetventures/osn#479) raised it again, on the same
 trade as the vendors split. `main` measured **279974 B** across 54 files, 185 B
 under the 280159 B threshold. With the Seating module, loaded on demand like the
-registry, it came to **288812 B** across 61 files: **+8838 B**. Loading it
+registry, it came to **288927 B** across 61 files: **+8953 B**. Loading it
 eagerly instead put `OrganiserApp`'s chunk at **79585 B** against **63737 B**
 on demand: Seating is a Gold module, and its view, the sortable package's drop
 zones and the menu it shares with other on-demand panels would otherwise land on
 every organiser's first load, about 15.8 KB of it. The threshold moved to
-measured + ~11.7 KB, **300512 B**. No dependency was added.
+measured + ~11.7 KB, **300627 B**. No dependency was added.
 
 *Measured 2026-10-21 — `bun run --cwd cire/host build`, which ends with
 `../../scripts/guard-bundle-size.sh .`, on `feat/cire-seating` rebased onto
