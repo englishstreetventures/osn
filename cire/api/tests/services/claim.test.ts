@@ -1349,8 +1349,8 @@ describe("claimService.lookup — a household invited to many events", () => {
     );
 
     expect(result.events.map((e) => e.id)).toEqual(expect.arrayContaining(extra));
-    const reads = statements.filter((s) =>
-      s.sql.includes('from "events" where ("events"."id" in ('),
+    const reads = statements.filter(
+      (s) => s.sql.includes('from "events" where') && s.sql.includes('"events"."id" in ('),
     );
     expect(reads).toHaveLength(1);
     // The ids as one JSON parameter, and the household's wedding.
