@@ -1,8 +1,7 @@
 ---
-// Marketing-site footer. Carries the wordmark, in-page section links, the docs
-// link, and — so the privacy notice + terms are reachable from every page — the
-// legal nav.
-import { APP_URL, DOCS_URL } from '../lib/site'
+// Marketing-site footer. Carries the wordmark, in-page section links, and — so
+// the privacy notice + terms are reachable from every page — the legal nav.
+import { APP_URL } from '../lib/site'
 
 const year = 2026
 ---
@@ -18,7 +17,6 @@ const year = 2026
       <a href="/#features">Features</a>
       <a href="/#apps">Apps</a>
       <a href="/#faq">Questions</a>
-      <a href={DOCS_URL} target="_blank" rel="noopener noreferrer">Docs</a>
       <a href={APP_URL}>Get started</a>
     </nav>
   </div>

@@ -19,7 +19,7 @@ import { runPasskeyRegistrationDeferred } from "../lib/webauthn-registration-def
  * required.
  *
  * Both halves of "who are you" live here. A visitor sent by an app they have
- * never used may not have an OSN account at all, and until this screen offered
+ * never used may not have a Musubi account at all, and until this screen offered
  * a way to make one they were simply stuck: registration used to exist only
  * inside the identity app's own sidebar, which is not where the redirect
  * lands. `mode` starts on registration when the relying party asked for it

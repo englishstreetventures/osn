@@ -34,6 +34,7 @@ import {
   ORIGINS,
   SCREENSHOT_DIR,
 } from "../../src/config";
+import type { CapturedMail } from "../../src/mail";
 import { requestLine, requestSet, type Assertion, type FlowRecord } from "../../src/record";
 import { RECORD_ATTACHMENT } from "../../src/reporter";
 
@@ -127,6 +128,28 @@ export const test = base.extend<{ flow: Flow }>({
 });
 
 export { expect };
+
+/**
+ * Every message sent to `email` so far, oldest first, once one of them matches
+ * `until` — by default, once any has landed.
+ */
+export async function mailFor(
+  email: string,
+  until: (message: CapturedMail) => boolean = () => true,
+): Promise<CapturedMail[]> {
+  let messages: CapturedMail[] = [];
+  await expect
+    .poll(
+      async () => {
+        const response = await fetch(`${ORIGINS.mail}/__e2e/mail?to=${encodeURIComponent(email)}`);
+        messages = (await response.json()) as CapturedMail[];
+        return messages.some(until);
+      },
+      { message: `no matching message reached ${email}`, timeout: 15_000 },
+    )
+    .toBe(true);
+  return messages;
+}
 
 /** The newest one-time code sent to `email`, waiting for the mail to land. */
 export async function otpFor(email: string, after = 0): Promise<string> {

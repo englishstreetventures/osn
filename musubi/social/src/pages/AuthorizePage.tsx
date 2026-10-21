@@ -16,6 +16,7 @@ import {
   Switch,
 } from "solid-js";
 
+import { PRODUCT_NAME } from "../lib/auth";
 import { authorizeClient } from "../lib/authorize";
 import { profileInitials, safeAvatarUrl } from "../lib/utils";
 
@@ -609,7 +610,7 @@ export function AuthorizePage() {
             </Button>
           </div>
           <p class="text-subtle text-meta mt-3 text-center">
-            You can undo this later in your OSN settings.
+            You can undo this later in your {PRODUCT_NAME} settings.
           </p>
         </Match>
       </Switch>
@@ -664,11 +665,11 @@ function ClientCard(props: { context: AuthorizeContext | undefined }) {
         )}
       </Show>
       <h1 class="text-foreground text-title font-medium">{client()?.name}</h1>
-      <p class="text-muted-foreground text-body mt-1">wants to use your OSN account</p>
+      <p class="text-muted-foreground text-body mt-1">wants to use your {PRODUCT_NAME} account</p>
       {/* Verifiable identity signal. The name above is self-asserted and can
           impersonate a first-party app; the redirect host is what the client
           actually registered, and third-party clients are called out so a
-          look-alike cannot pass itself off as an OSN app. */}
+          look-alike cannot pass itself off as a first-party app. */}
       <Show
         when={client()?.firstParty}
         fallback={
@@ -686,7 +687,7 @@ function ClientCard(props: { context: AuthorizeContext | undefined }) {
           </p>
         }
       >
-        <p class="text-caption text-success mt-3 font-medium">Verified OSN app</p>
+        <p class="text-caption text-success mt-3 font-medium">Verified by {PRODUCT_NAME}</p>
       </Show>
     </div>
   );

@@ -11,6 +11,12 @@ export interface AuthConfig {
   /** Human-readable RP name */
   rpName: string;
   /**
+   * The identity instance's name as its users know it — e.g. "Musubi". Account
+   * emails and the account-export filename name it; osn-api itself names no
+   * product.
+   */
+  instanceName: string;
+  /**
    * Accepted WebAuthn origin(s) — a single origin or several (e.g. one per dev
    * frontend). Passed straight to @simplewebauthn's `expectedOrigin`, which
    * matches the ceremony's origin against the string or any member of the array.

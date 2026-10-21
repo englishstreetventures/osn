@@ -26,6 +26,7 @@ import {
   type RegistryGiftSummaryTotal,
 } from "./gift-summary";
 import {
+  type OtpData,
   renderEmailChangeOtp,
   renderRecoveryOtp,
   renderRegistrationOtp,
@@ -38,6 +39,7 @@ import {
   type RsvpDigestChangeKind,
 } from "./rsvp-digest";
 import {
+  type InstanceNameData,
   type RecoveryUsedData,
   renderCrossDeviceLogin,
   renderPasskeyAdded,
@@ -87,23 +89,41 @@ export type EmailTemplate =
   | "wedding-delete-started"
   | "wedding-owner-change";
 
+/**
+ * The account emails osn-api sends to an account holder. Each names the
+ * identity instance it comes from, from `instanceName` in its data.
+ */
+export type AccountEmailTemplate =
+  | "otp-registration"
+  | "otp-step-up"
+  | "otp-email-change"
+  | "otp-recovery"
+  | "recovery-generated"
+  | "recovery-consumed"
+  | "recovery-used"
+  | "passkey-added"
+  | "passkey-removed"
+  | "totp-enrolled"
+  | "totp-disabled"
+  | "cross-device-login";
+
 /** Typed data bag per template. Extend the map when adding a template. */
 export interface EmailTemplateDataMap {
   "enquiry-new": EnquiryNewData;
   "enquiry-reply": EnquiryReplyData;
   "enquiry-quote": EnquiryQuoteData;
-  "otp-registration": { code: string; ttlMinutes: number };
-  "otp-step-up": { code: string; ttlMinutes: number };
-  "otp-email-change": { code: string; ttlMinutes: number };
-  "otp-recovery": { code: string; ttlMinutes: number };
-  "recovery-generated": Record<string, never>;
-  "recovery-consumed": Record<string, never>;
+  "otp-registration": OtpData;
+  "otp-step-up": OtpData;
+  "otp-email-change": OtpData;
+  "otp-recovery": OtpData;
+  "recovery-generated": InstanceNameData;
+  "recovery-consumed": InstanceNameData;
   "recovery-used": RecoveryUsedData;
-  "passkey-added": Record<string, never>;
-  "passkey-removed": Record<string, never>;
-  "totp-enrolled": Record<string, never>;
-  "totp-disabled": Record<string, never>;
-  "cross-device-login": Record<string, never>;
+  "passkey-added": InstanceNameData;
+  "passkey-removed": InstanceNameData;
+  "totp-enrolled": InstanceNameData;
+  "totp-disabled": InstanceNameData;
+  "cross-device-login": InstanceNameData;
   "r2-reconcile-alert": R2ReconcileAlertData;
   "registry-gift-summary": RegistryGiftSummaryData;
   "rsvp-change-digest": RsvpChangeDigestData;
@@ -153,21 +173,21 @@ export function renderTemplate<T extends EmailTemplate>(
     case "otp-recovery":
       return renderRecoveryOtp(data as EmailTemplateData<"otp-recovery">);
     case "recovery-generated":
-      return renderRecoveryGenerated();
+      return renderRecoveryGenerated(data as EmailTemplateData<"recovery-generated">);
     case "recovery-consumed":
-      return renderRecoveryConsumed();
+      return renderRecoveryConsumed(data as EmailTemplateData<"recovery-consumed">);
     case "recovery-used":
       return renderRecoveryUsed(data as EmailTemplateData<"recovery-used">);
     case "passkey-added":
-      return renderPasskeyAdded();
+      return renderPasskeyAdded(data as EmailTemplateData<"passkey-added">);
     case "passkey-removed":
-      return renderPasskeyRemoved();
+      return renderPasskeyRemoved(data as EmailTemplateData<"passkey-removed">);
     case "totp-enrolled":
-      return renderTotpEnrolled();
+      return renderTotpEnrolled(data as EmailTemplateData<"totp-enrolled">);
     case "totp-disabled":
-      return renderTotpDisabled();
+      return renderTotpDisabled(data as EmailTemplateData<"totp-disabled">);
     case "cross-device-login":
-      return renderCrossDeviceLogin();
+      return renderCrossDeviceLogin(data as EmailTemplateData<"cross-device-login">);
     case "r2-reconcile-alert":
       return renderR2ReconcileAlert(data as EmailTemplateData<"r2-reconcile-alert">);
     case "registry-gift-summary":
@@ -217,9 +237,12 @@ export {
 
 export type {
   EnquiryNewData,
+  InstanceNameData,
+  OtpData,
   EnquiryReplyData,
   EnquiryQuoteData,
   R2ReconcileAlertData,
+  RecoveryUsedData,
   RegistryGiftSummaryData,
   RegistryGiftSummaryGift,
   RegistryGiftSummaryTotal,
