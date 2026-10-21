@@ -10,12 +10,43 @@ import {
   EVENT_SHEET_HEADERS,
   FAMILY_CODE_HEADER,
   FAMILY_SOURCE_HEADER,
+  GUEST_EMAIL_HEADER,
+  GUEST_EMAIL_RECORD_HEADER,
   GUEST_ID_HEADER,
   GUEST_NICKNAME_HEADER,
   GUEST_SHEET_FIXED_HEADERS,
   GUEST_SOURCE_HEADER,
 } from "../lib/sheet-headers";
 import { MAX_ROWS } from "../schemas/import";
+import type { EmailRecord } from "../schemas/import";
+
+/**
+ * A snapshot row's `Guest Email Record` cell: the stored consent record as
+ * JSON, or blank when the guest has no address or no complete record.
+ */
+function emailRecordCell(row: {
+  email: string | null;
+  emailSource: "guest" | "organiser_attested" | null;
+  emailConsentAt: Date | null;
+  emailConsentVersion: string | null;
+  emailAttestedBy: string | null;
+}): string {
+  if (
+    row.email === null ||
+    row.emailSource === null ||
+    row.emailConsentAt === null ||
+    row.emailConsentVersion === null
+  ) {
+    return "";
+  }
+  const record: EmailRecord = {
+    source: row.emailSource,
+    consentAt: row.emailConsentAt.getTime(),
+    version: row.emailConsentVersion,
+    attestedBy: row.emailAttestedBy,
+  };
+  return JSON.stringify(record);
+}
 import { decodePalette, safeHttpUrl } from "./claim";
 import {
   CHILDREN_POLICY_LABEL,
@@ -195,6 +226,7 @@ export const stateExportService = {
         firstName: guests.firstName,
         lastName: guests.lastName,
         nickname: guests.nickname,
+        email: guests.email,
         sortOrder: guests.sortOrder,
         familyId: families.id,
         familyName: families.familyName,
@@ -205,6 +237,10 @@ export const stateExportService = {
         ...guestColumns,
         guestSource: guests.source,
         familySource: families.source,
+        emailSource: guests.emailSource,
+        emailConsentAt: guests.emailConsentAt,
+        emailConsentVersion: guests.emailConsentVersion,
+        emailAttestedBy: guests.emailAttestedByOsnProfileId,
       };
 
       // The reads are independently wedding-scoped — collapse them to one D1
@@ -264,8 +300,11 @@ export const stateExportService = {
         readonly firstName: string;
         readonly lastName: string;
         readonly nickname: string | null;
+        readonly email: string | null;
         readonly sortOrder: number;
         readonly source: string;
+        /** The consent record behind `email`, as JSON; read only into a snapshot. */
+        readonly emailRecord: string;
       }
       interface Household {
         readonly familyId: string;
@@ -294,8 +333,10 @@ export const stateExportService = {
           firstName: row.firstName,
           lastName: row.lastName,
           nickname: row.nickname,
+          email: row.email,
           sortOrder: row.sortOrder ?? 0,
           source: ("guestSource" in row ? row.guestSource : null) ?? "import",
+          emailRecord: "emailSource" in row ? emailRecordCell(row) : "",
         });
       }
       const householdKey = (h: Household) => h.familyName.trim().toLowerCase();
@@ -311,9 +352,10 @@ export const stateExportService = {
       const header = [
         ...GUEST_SHEET_FIXED_HEADERS,
         GUEST_NICKNAME_HEADER,
+        GUEST_EMAIL_HEADER,
         ...eventRows.map((e) => e.name),
         ...(withIds ? [FAMILY_CODE_HEADER, GUEST_ID_HEADER] : []),
-        ...(snapshot ? [FAMILY_SOURCE_HEADER, GUEST_SOURCE_HEADER] : []),
+        ...(snapshot ? [FAMILY_SOURCE_HEADER, GUEST_SOURCE_HEADER, GUEST_EMAIL_RECORD_HEADER] : []),
       ];
 
       const data: string[][] = [];
@@ -327,10 +369,12 @@ export const stateExportService = {
             "",
             "",
             "",
+            "",
             ...eventRows.map(() => ""),
             h.publicId,
             "",
             h.source,
+            "",
             "",
           ]);
           return;
@@ -342,10 +386,11 @@ export const stateExportService = {
             g.firstName,
             g.lastName,
             g.nickname ?? "",
+            g.email ?? "",
             ...eventRows.map((e) => (invited.has(`${g.guestId}::${e.id}`) ? "x" : "")),
           ];
           if (withIds) cells.push(h.publicId, g.guestId);
-          if (snapshot) cells.push(h.source, g.source);
+          if (snapshot) cells.push(h.source, g.source, g.emailRecord);
           data.push(cells);
         }
       });

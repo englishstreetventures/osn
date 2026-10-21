@@ -1,10 +1,12 @@
 import { imports, weddings } from "@cire/db";
+import { ORGANISER_EMAIL_ATTESTATION } from "@cire/guest-email";
 import { and, desc, eq, lt, sql } from "drizzle-orm";
 import { Effect, Option, Schema } from "effect";
 import { Elysia } from "elysia";
 
 import { DbService, dbQuery } from "../db";
 import type { Db } from "../db";
+import { metricGuestEmailBlocked } from "../metrics";
 import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { weddingEditor } from "../middleware/wedding-editor";
@@ -24,7 +26,12 @@ import {
 } from "../services/changes";
 import type { ChangeConflict } from "../services/changes";
 import { captureBeforeImage, pruneBeforeImages } from "../services/checkpoint";
-import { applyImport, diffAgainstDb } from "../services/import";
+import {
+  applyImport,
+  diffAgainstDb,
+  type EmailMode,
+  emailsNeedingAttestation,
+} from "../services/import";
 import type { DeletableBucket } from "../services/r2-cleanup";
 import { R2Service, fetchUpload, storeUpload } from "../services/r2-imports";
 import type { R2Bucket } from "../services/r2-imports";
@@ -140,6 +147,15 @@ function catchParseErrors(set: { status?: number | string }) {
     MissingRequiredColumn: handle,
     UnmatchedEventColumn: handle,
   };
+}
+
+/**
+ * How a change's addresses are reconciled, from the door it came through: an
+ * editor save may remove an address a guest gave themselves; a spreadsheet
+ * never touches one ({@link EmailMode}).
+ */
+function emailModeFor(kind: "import" | "editor"): EmailMode {
+  return kind === "editor" ? "editor" : "upload";
 }
 
 // Sentinel parse hook: stops Elysia from consuming the body so handlers can
@@ -420,6 +436,7 @@ export const createOrganiserChangeRoutes = (
                     scope: decoded.scope,
                     matchByName: decoded.matchByName,
                     createSource: decoded.createSource,
+                    emails: emailModeFor(decoded.kind),
                   },
                 );
 
@@ -488,9 +505,14 @@ export const createOrganiserChangeRoutes = (
                     guestRemoves: [...plan.guestRemoves],
                     eventLinkCreates: [...plan.eventLinkCreates],
                     eventLinkRemoves: [...plan.eventLinkRemoves],
+                    emailWrites: [...(plan.emailWrites ?? [])],
                     warnings: [...plan.warnings],
                   },
                   warnings: [...plan.warnings],
+                  // How many addresses this change sets on the organiser's
+                  // word. Above zero, the preview shows the attestation and
+                  // apply wants `emailAttestation` back.
+                  emailAttestations: emailsNeedingAttestation(plan),
                 };
               }).pipe(
                 Effect.provideService(DbService, db),
@@ -526,8 +548,8 @@ export const createOrganiserChangeRoutes = (
         )
         .post(
           "/apply",
-          async ({ request, weddingId, set }) => {
-            if (!weddingId) {
+          async ({ request, weddingId, osnProfileId, set }) => {
+            if (!weddingId || !osnProfileId) {
               set.status = 500;
               return { error: "Internal error" };
             }
@@ -536,7 +558,7 @@ export const createOrganiserChangeRoutes = (
 
             return runCire(
               Effect.gen(function* () {
-                const { changeId, confirmClears, removeLinkedTasks } =
+                const { changeId, confirmClears, removeLinkedTasks, emailAttestation } =
                   yield* Schema.decodeUnknownEffect(ApplyBody)(raw);
                 const dbService = yield* DbService;
 
@@ -641,11 +663,29 @@ export const createOrganiserChangeRoutes = (
                     // From the column, as the preview's was from the body:
                     // an editor save's new rows are `'manual'`.
                     createSource: createSourceFor(row.kind),
+                    emails: emailModeFor(row.kind),
                     // The organiser saw the warnings on the preview; the apply
                     // reads nothing only they need.
                     warnings: false,
                   },
                 );
+
+                // An address set on the organiser's word stands on their
+                // attestation that the guest agreed, naming the words the
+                // portal showed. Refused before the claim, so nothing is
+                // checkpointed or written.
+                if (
+                  emailsNeedingAttestation(plan) > 0 &&
+                  emailAttestation !== ORGANISER_EMAIL_ATTESTATION.version
+                ) {
+                  yield* Effect.logWarning("change refused: email attestation missing");
+                  metricGuestEmailBlocked("attestation_required");
+                  set.status = 422;
+                  return {
+                    error: "Confirm the guests agreed to be emailed — re-open the preview",
+                    reason: "email_attestation_required",
+                  };
+                }
 
                 // An editor save that empties every event or every household is
                 // applied only when the request echoes the counts the preview
@@ -731,7 +771,10 @@ export const createOrganiserChangeRoutes = (
                           })
                           .where(and(eq(imports.id, changeId), eq(imports.status, "preview"))),
                       ],
-                      { removeLinkedTasks },
+                      {
+                        removeLinkedTasks,
+                        emailStamp: { osnProfileId, version: ORGANISER_EMAIL_ATTESTATION.version },
+                      },
                     );
                   }),
                   // Both are raised before any data statement is sent.

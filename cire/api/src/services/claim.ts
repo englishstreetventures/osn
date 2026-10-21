@@ -35,6 +35,7 @@ import type {
 import type { ChildrenPolicy, PlusOnePolicy, RunOfShowItem } from "../schemas/import";
 import { decodeCrop, type ImageCrop } from "../schemas/invite";
 import { type LinkFacts, linkStateFor, readLinkFacts } from "./account-link";
+import { hashGuestEmail, suppressedHashes } from "./email-suppression";
 import { eventImagePath, versionFromKey } from "./event-image";
 import { inviteFaqService } from "./invite-faq";
 import type { OsnAccountResolver } from "./osn-bridge";
@@ -854,6 +855,8 @@ export const claimService = {
             codeSharedAt: families.codeSharedAt,
             firstOpenedAt: families.firstOpenedAt,
             deactivatedAt: families.deactivatedAt,
+            email: guests.email,
+            emailSource: guests.emailSource,
             eventId: guestEvents.eventId,
           })
           .from(guests)
@@ -896,12 +899,29 @@ export const claimService = {
             // code is disabled (a withdrawn invite); drives the muted row + the
             // Reactivate toggle in the organiser guest table.
             deactivatedAt: row.deactivatedAt === null ? null : row.deactivatedAt.getTime(),
+            email: row.email,
+            emailSource: row.email === null ? null : row.emailSource,
+            emailOptedOut: false,
           };
           byGuest.set(row.guestId, entry);
         }
         if (row.eventId !== null) entry.events.push(row.eventId);
       }
-      return Array.from(byGuest.values());
+      const roster = Array.from(byGuest.values());
+      // Which addresses the wedding's suppression list holds. Read only when a
+      // guest has an address, and then once for the wedding.
+      if (roster.some((g) => g.email !== null)) {
+        const suppressed = yield* suppressedHashes(weddingId);
+        if (suppressed.size > 0) {
+          for (const entry of roster) {
+            if (entry.email === null) continue;
+            const email = entry.email;
+            const hash = yield* Effect.promise(() => hashGuestEmail(weddingId, email));
+            entry.emailOptedOut = suppressed.has(hash);
+          }
+        }
+      }
+      return roster;
     }).pipe(Effect.withSpan("cire.claim.getAllGuests"));
   },
 

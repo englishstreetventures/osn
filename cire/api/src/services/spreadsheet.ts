@@ -1,4 +1,5 @@
-import { Effect, Data, type Types } from "effect";
+import { parseGuestEmail } from "@cire/guest-email";
+import { Effect, Data, Option, Schema, type Types } from "effect";
 
 import { unguardCsvCell } from "../lib/csv";
 import { isKnownTimeZone, parseWallTime, stampEventOffset } from "../lib/event-time";
@@ -8,12 +9,20 @@ import {
   FAMILY_CODE_HEADER,
   FAMILY_SOURCE_HEADER,
   GUEST_ID_HEADER,
+  GUEST_EMAIL_HEADER,
+  GUEST_EMAIL_RECORD_HEADER,
   GUEST_NICKNAME_HEADER,
   GUEST_SHEET_FIXED_HEADERS,
   GUEST_SOURCE_HEADER,
 } from "../lib/sheet-headers";
 import { bucketParseReason, metricImportParseRejected } from "../metrics";
-import { MAX_CELL_LENGTH, MAX_EVENTS, MAX_ROWS, MAX_RUN_OF_SHOW_ITEMS } from "../schemas/import";
+import {
+  EmailRecord,
+  MAX_CELL_LENGTH,
+  MAX_EVENTS,
+  MAX_ROWS,
+  MAX_RUN_OF_SHOW_ITEMS,
+} from "../schemas/import";
 import type {
   DesiredFamily,
   DesiredGuest,
@@ -84,7 +93,9 @@ export type MalformedSpreadsheetReason =
   | "Plus-Ones must be By invitation, Welcome or blank"
   // Required per-row guest fields.
   | "Family Name is required"
-  | "Guest First Name is required";
+  | "Guest First Name is required"
+  // An optional guest cell that holds something other than one address.
+  | "Guest Email is not a valid email address";
 
 /**
  * Which uploaded sheet a parse error came from. Stamped by the parser itself
@@ -895,9 +906,19 @@ export function parseGuestsCsv(
     const idxLast = indexOf("Guest Last Name");
     // Optional: an informal name for the single-guest greeting. Absent ⇒ -1.
     const idxNickname = indexOf(GUEST_NICKNAME_HEADER);
+    // Optional: the guest's address. Absent ⇒ -1, and then no row says
+    // anything about addresses, so every stored one is left as it is.
+    const idxEmail = indexOf(GUEST_EMAIL_HEADER);
     // Fixed (non-event) columns. Absent lookups are -1, which
     // `fixedCols.has(c)` (c ≥ 0) never matches.
-    const fixedCols = new Set([idxFamilyId, idxFamilyName, idxFirst, idxLast, idxNickname]);
+    const fixedCols = new Set([
+      idxFamilyId,
+      idxFamilyName,
+      idxFirst,
+      idxLast,
+      idxNickname,
+      idxEmail,
+    ]);
 
     // Map event-column index → canonical event name. Strict match — any
     // unmatched event column surfaces as `UnmatchedEventColumn`.
@@ -938,8 +959,15 @@ export function parseGuestsCsv(
     // event columns like any other header.
     const idxFamilySource = snapshot ? chosenFidelityIndex(FAMILY_SOURCE_HEADER) : -1;
     const idxGuestSource = snapshot ? chosenFidelityIndex(GUEST_SOURCE_HEADER) : -1;
+    const idxEmailRecord = snapshot ? chosenFidelityIndex(GUEST_EMAIL_RECORD_HEADER) : -1;
     const fidelityLabels = snapshot
-      ? [GUEST_ID_HEADER, FAMILY_CODE_HEADER, FAMILY_SOURCE_HEADER, GUEST_SOURCE_HEADER]
+      ? [
+          GUEST_ID_HEADER,
+          FAMILY_CODE_HEADER,
+          FAMILY_SOURCE_HEADER,
+          GUEST_SOURCE_HEADER,
+          GUEST_EMAIL_RECORD_HEADER,
+        ]
       : [GUEST_ID_HEADER, FAMILY_CODE_HEADER];
     for (const label of fidelityLabels) {
       const norm = normaliseName(label);
@@ -980,6 +1008,16 @@ export function parseGuestsCsv(
     // rows just append guests.
     const families: DesiredFamily[] = [];
     const familyByKey = new Map<string, DesiredFamily>();
+    // A before-image's consent record, or undefined for a blank or unreadable
+    // cell — never a failure, so a damaged record cannot stop a revert.
+    const recordAt = (idx: number, row: string[]): EmailRecord | undefined => {
+      if (idx === -1) return undefined;
+      const cell = (row[idx] ?? "").trim();
+      if (cell.length === 0) return undefined;
+      return Option.getOrUndefined(
+        Schema.decodeUnknownOption(Schema.fromJsonString(EmailRecord))(cell),
+      );
+    };
     const provenanceAt = (idx: number, row: string[]): Provenance | undefined => {
       if (idx === -1) return undefined;
       const cell = (row[idx] ?? "").trim();
@@ -1012,6 +1050,26 @@ export function parseGuestsCsv(
       }
 
       const nickname = idxNickname === -1 ? null : nullableString(row[idxNickname] ?? "");
+      // The address: undefined when the sheet has no column (leave it as it
+      // is), null for a blank cell (clear it), else the stored form. An upload
+      // refuses a cell that is not one address, naming the cell, never its
+      // text; a before-image is the app's own output and is read leniently, so
+      // a value it cannot read leaves the address as it is.
+      let email: string | null | undefined;
+      if (idxEmail !== -1) {
+        const cell = (row[idxEmail] ?? "").trim();
+        const address = cell.length === 0 ? null : parseGuestEmail(cell);
+        if (cell.length > 0 && address === null && !snapshot) {
+          return yield* Effect.fail(
+            new MalformedSpreadsheet({
+              reason: "Guest Email is not a valid email address",
+              atRow: r + 1,
+              atColumn: idxEmail + 1,
+            }),
+          );
+        }
+        email = cell.length === 0 || address !== null ? address : undefined;
+      }
       // Fidelity ids — honoured only when their column is present AND the cell is
       // non-blank (a blank cell = a manually-added row in a full-fidelity sheet,
       // which must stay id-less so it name-matches / creates). See the collision
@@ -1032,6 +1090,7 @@ export function parseGuestsCsv(
         firstName.length === 0 &&
         lastName.length === 0 &&
         nickname === null &&
+        (email === undefined || email === null) &&
         eventNames.length === 0;
       if (firstName.length === 0 && !householdOnly && !(snapshot && guestId !== undefined)) {
         return yield* Effect.fail(
@@ -1070,6 +1129,9 @@ export function parseGuestsCsv(
       if (guestId !== undefined) guest.id = guestId;
       const guestSource = provenanceAt(idxGuestSource, row);
       if (guestSource !== undefined) guest.source = guestSource;
+      if (email !== undefined) guest.email = email;
+      const emailRecord = recordAt(idxEmailRecord, row);
+      if (emailRecord !== undefined) guest.emailRecord = emailRecord;
       // Mutate in place — the array reference is the same one in `families`.
       // The family's id/publicId come from its FIRST row; subsequent rows only
       // append guests, matching how the exporter writes one code per family.
