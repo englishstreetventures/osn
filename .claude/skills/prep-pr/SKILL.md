@@ -491,6 +491,20 @@ grep -c '^## ' <body-file>
 
 Both must print `6`. A first count under 6 means a section is missing, renamed, or demoted to `###`. A second count above 6 means you added a top-level section of your own — the most common one is a place to park notes about gates that could not run, and those belong in the report file instead. Custom top-level headings are not allowed: a change-specific title goes in the PR title and in `## Summary`, never as a `##` of its own.
 
+### Check the wording before the push
+
+When the body closes a tracker issue, the before-and-after wording check runs over the changeset, the wiki changes and the commit messages too, not only the body. A commit message and a changeset are public once pushed. The pattern is `write-pr` Step 6's, verbatim; change both together.
+
+```bash
+PAT='down from|no longer|previously|used to|→|->|was exposed'
+if grep -q 'osn-tracker#' PR-BODY.md; then
+  { git diff -U0 "$DIFF_BASE" -- .changeset wiki | grep '^+' | grep -v '^+++'
+    git log --format=%B "$DIFF_BASE"..HEAD; } | grep -iE "$PAT"
+fi
+```
+
+It prints every line that matches. **The push waits until it prints nothing.** Reword each line in its own file, amend or rewrite the commit message while the branch is unpushed, and run the command again.
+
 ---
 
 ## Step 9 — Push and open the PR

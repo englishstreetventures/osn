@@ -118,6 +118,14 @@ Four rules about that pair:
   `git add` of the whole of it sweeps in anything a concurrent session left
   there.
 
+Before the push or the body edit below, read the pull request's state:
+
+```bash
+gh api repos/englishstreetventures/osn/pulls/"$PR" --jq '{state, merged}'
+```
+
+On `merged: true` or `state: closed`, stop before the push and the body edit. Do not push to the branch, and do not edit the body: a merged pull request's body is the record of what merged. Cut a new branch from `origin/main`, commit the card there, and open a follow-up pull request as `write-pr` Step 6 says.
+
 ```bash
 SLUG=$(printf '%s' "$BRANCH" | tr -c 'a-zA-Z0-9._-' '-' | sed 's/^-*//;s/-*$//')
 CARD=".claude/metrics/$SLUG.json"

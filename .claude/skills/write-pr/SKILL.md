@@ -256,7 +256,13 @@ gh api repos/englishstreetventures/osn/pulls \
 - `-F body=@<file>` reads the file and `-f` keeps the title a string. Never pass the body inline: an inline body mangles backticks and `$` in the local shell.
 - It opens ready for review. Add `-F draft=true` only when the task asks for a draft.
 
-Edit it whenever the title or body stops being true:
+Edit it whenever the title or body stops being true. Before any push to its branch or any body edit, read its state:
+
+```bash
+gh api repos/englishstreetventures/osn/pulls/<n> --jq '{state, merged}'
+```
+
+On `merged: true` or `state: closed`, stop. Do not PATCH the body and do not push to the branch: a merged pull request's body is the record of what merged. Cut a new branch from `origin/main` and open a follow-up pull request for the change instead, with the open command above.
 
 ```bash
 gh api -X PATCH repos/englishstreetventures/osn/pulls/<n> -F body=@PR-BODY.md --jq .html_url
