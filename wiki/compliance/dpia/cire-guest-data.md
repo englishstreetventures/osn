@@ -2,6 +2,7 @@
 title: DPIA — Cire guest data (special-category dietary)
 tags: [compliance, gdpr, dpia, weddings, special-category]
 related:
+  - "[[cire-run-sheet]]"
   - "[[index]]"
   - "[[gdpr]]"
   - "[[data-map]]"
@@ -174,8 +175,8 @@ final sign-off now turns only on the residual retention gaps below.
   may also carry a guest's dietary or health detail** ("table 4: Sam's nut
   allergy"), special-category data under Art. 9 that no guest-list gate
   covers once an organiser has written it into a task, which a `full` helper
-  will receive with every task from englishstreetventures/osn#1396 (an `own`
-  helper only with the tasks they hold); it is mitigated by widening being an
+  receives with every task on the run sheet (an `own` helper only with the
+  tasks they hold); it is mitigated by widening being an
   owner's alone, behind a confirmation saying the helper will see every task,
   and by every helper starting at `own` and returning to it on a role
   change, and it is **accepted**, because the owner chose names readable to
@@ -183,12 +184,25 @@ final sign-off now turns only on the residual retention gaps below.
   (2026-10-20) that the names of the people the run sheet assigns are readable
   to every helper, `own` helpers included**, so this is a deliberate
   disclosure within the wedding team, not a leak to guard against. **The
-  disclosure begins when the run-sheet view ships**
-  (englishstreetventures/osn#1396): until then no route serves a helper any
-  task, so a scope set today discloses nothing. Assessed as acceptable: only
-  an owner widens it, behind a confirmation; it never opens the guest list;
-  and a helper's own-scope response is narrowed on the server, not in the
-  page. See [[cire-auth#The run-sheet scope]].
+  disclosure is live** (2026-10-21): `GET …/run-sheet` serves it, on Gold
+  weddings only ([[cire-run-sheet]]). What each helper receives:
+  - **`own`** — the tasks their seat holds (title, notes, status, time), the
+    names and photo URLs of the people who hold those tasks with them, and
+    the events those tasks are linked to: name, start, end, time zone, venue
+    name and **full address**. The owner chose (2026-10-21) to give an `own`
+    helper the address, since someone carrying the cake has to find the venue;
+    an event's address can be a private home. Nothing of any task, event or
+    person not linked to their own tasks.
+  - **`full`** — every task on the run sheet and who holds it, and every event
+    of the wedding with the same fields, addresses included.
+
+  Never the guest list, an RSVP, a dietary answer or a claim code, and no
+  event field beyond those named (no description, dress code or image).
+  Assessed as acceptable: only an owner widens a helper, behind a
+  confirmation; it never opens the guest list; a helper's response is
+  narrowed on the server, not in the page, and a test pins the exact fields;
+  and no task text, person's name or event address is written to a log by
+  the route. See [[cire-auth#The run-sheet scope]].
 - **Granularity (2026-08-01).** The field is stored per **(guest, event)** — a
   guest answers once per event they are invited to — and `GET …/rsvps.csv` now
   discloses it that way, one dietary column per event. It previously collapsed

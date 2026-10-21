@@ -17,7 +17,7 @@ related:
   - "[[cire-invite-designs]]"
   - "[[cire-host-portal-layout]]"
   - "[[cire-seating]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-21
 ---
 # Plan tiers — what a wedding has paid for
 
@@ -36,7 +36,7 @@ everything a lower one does.
 | Tier | Price | Opens | Guest cap | People limit |
 |---|---|---|---|---|
 | `ivory` | free | The invite and its design, events, the guest list, RSVPs, import, settings, co-hosts | 100 | 6 |
-| `gold` | paid | Everything in Ivory, plus the budget, the checklist, the gift registry and the seating chart | 500 | 15 |
+| `gold` | paid | Everything in Ivory, plus the budget, the checklist, the run sheet, the gift registry and the seating chart | 500 | 15 |
 | `crimson` | paid | Everything in Gold, plus vendors (the CRM, the directory and enquiries) and every premium invite design | 1,000 | 40 |
 
 `cire/api/src/services/tiers.ts` is the authority (`TIERS`, `tierAtLeast`,
@@ -147,6 +147,7 @@ already validated it) degrades to the 402 rather than throwing.
 | Gold | `routes/budget.ts` | 3 | Every `/budget/*` route, reads included ([[cire-budget]]) |
 | Gold | `routes/tasks.ts` | 2 | Every `/tasks/*` route, reads included ([[cire-checklist-tasks]]) |
 | Gold | `routes/registry.ts` | 6 | The organiser registry, its link preview and the preview's thumbnails ([[cire-registry]]) |
+| Gold | `routes/run-sheet.ts` | 1 | The day-of run sheet, behind `weddingRunSheet()`, so a helper below Gold is refused 402 too ([[cire-run-sheet]]) |
 | Gold | `routes/registry-stripe.ts` | 1 | Connect onboarding for gift payouts |
 | Gold | `routes/seating.ts` | 2 | The seating chart's read and write groups ([[cire-seating]]) |
 | Crimson | `routes/vendors.ts` | 2 | The vendor CRM ([[cire-vendors]]) |
@@ -348,7 +349,7 @@ wedding with `tier: "ivory"`, `entitlements: []`, `guestCap: 100`.
 
 `isModuleLocked(id, tier)` (`cire/host/src/lib/module-nav.ts`) is the one
 predicate every surface uses: each `MODULE_NAV` entry with a `lock` names its
-`tier` — Checklist, Budget, Registry and Seating `gold`, Vendors `crimson`.
+`tier` — Checklist, Run sheet, Budget, Registry and Seating `gold`, Vendors `crimson`.
 
 - **`tierOf(summary)`** (`cire/host/src/lib/tiers.ts`) reads the list's `tier`.
   With no `tier` at all the list came from an API that predates tiers, and the

@@ -2,6 +2,7 @@
 title: Cire checklist / tasks
 tags: [systems, platform, phase1, tasks, cire]
 related:
+  - "[[cire-run-sheet]]"
   - "[[index]]"
   - "[[cire-platform-plan]]"
   - "[[cire-host-portal-layout]]"
@@ -29,7 +30,8 @@ first); `0086_task_templates.sql` added the four template columns and the
 unique index with `ALTER TABLE ADD` and no rebuild, and
 `0091_task_assignees.sql` the unique index on `(id, wedding_id)` that the
 holders table references ([[#Assignees]]). `0087_task_assigned_host.sql` added
-`assigned_host_id`, below the table.
+`assigned_host_id`, below the table. `0093_task_run_time.sql` added the five
+run-time columns and `tasks_event_idx`, again in place ([[cire-run-sheet]]).
 
 | Column | Type | Notes |
 |---|---|---|
@@ -47,6 +49,16 @@ holders table references ([[#Assignees]]). `0087_task_assigned_host.sql` added
 | `template_item` | `text` | the item's stable key in that template; NULL on a typed task |
 | `due_offset_days` | `integer` | days from the wedding date the item was seeded with, negative before the day; NULL on a typed task |
 | `due_source` | `text` NOT NULL | `'template'`: `due_at` follows the wedding date. `'manual'` (default, and every typed task): `due_at` is whatever the couple set |
+| `run_at` | `text` | a fixed time on the day, `YYYY-MM-DDTHH:MM:SS±HH:MM`, or the time a task kept when its event was removed; NULL on an untimed or linked task |
+| `run_timezone` | `text` | the IANA zone of `run_at`, as the organiser chose it |
+| `event_id` | `text` | FK → `events(id)` ON DELETE SET NULL; the event a linked task's time is counted from |
+| `run_offset_minutes` | `integer` | minutes from that event's start, negative before it, −1440..1440; set exactly when `event_id` is |
+| `event_removed_at` | `integer` | unix seconds; when a schedule change removed the task's event and it kept its time |
+
+The five run-time columns hold one of four states — untimed, fixed, linked,
+frozen — written together by the task service and the schedule change and by
+nothing else; no CHECK holds them. A linked task's time is derived on every
+read. See [[cire-run-sheet#A task's time]].
 
 Who holds a task is not a column here: it is the `task_assignees` table
 ([[#Assignees]]).
@@ -77,6 +89,7 @@ Who holds a task is not a column here: it is the `task_assignees` table
 - `tasks_wedding_bucket_sort_idx ON tasks (wedding_id, timeframe_bucket, sort_order)` — serves the list read (filtered + ordered) without a full scan.
 - `tasks_wedding_template_item_unique ON tasks (wedding_id, template_id, template_item) WHERE template_id IS NOT NULL`, unique and partial — one task per template item per wedding, so a repeated or racing apply adds nothing. A typed task has no template and no entry in it.
 - `tasks_id_wedding_unique ON tasks (id, wedding_id)`, unique — the parent key of `task_assignees`' task foreign key. `id` alone is already unique; the pair is what lets a holder row name the task's wedding as well.
+- `tasks_event_idx ON tasks (event_id) WHERE event_id IS NOT NULL`, partial — the probe each event delete's SET NULL runs. Most tasks are linked to nothing.
 
 ## Bucket single-source
 
@@ -168,6 +181,17 @@ layer.
 
 Viewers (403 `read_only_role`) can read tasks but cannot create, update, or
 delete them.
+
+**A task's time.** `PATCH /tasks/:taskId` also takes `runTime`, the task's
+whole run time at once: `null`, a fixed time in a zone, or a link to an event
+by an offset or by a clock time on the event's clock. A link to an event not of
+the wedding is 422 `event_not_in_wedding`, a clock time more than a day from
+the event's start 422 `run_time_out_of_range`, and neither writes any field of
+the patch. Every answer that carries a task — the list, every write, the
+starter apply — carries its time: `runAt`, `runTimezone`, `eventId`,
+`runOffsetMinutes`, `anchored`, `eventRemoved`, a linked task's derived from
+its event (one more statement in each batch reads the events). See
+[[cire-run-sheet]]; counted by `cire.tasks.run_time.changed`.
 
 In the portal each bucket is its own sortable list (`ChecklistView.tsx`): a
 grip to drag or to move with the arrow keys, plus move-up and move-down buttons
@@ -352,9 +376,10 @@ search or the list. The rows stay usable while writes are out; the list says
 it, says the popover is finding the people, how many a search matches, or
 that it matches nobody.
 
-The rows are keyed by task id behind a memo that ignores `assigneeHostIds` as it
-ignores `sortOrder` (`sameButOrder` in `lib/sortable-rows.ts`, with the field
-named), and the stack reads the live task by id. A change of who holds a task
+The rows are keyed by task id behind a memo that ignores `assigneeHostIds` and
+the six run-time fields as it ignores `sortOrder` (`sameButOrder` in
+`lib/sortable-rows.ts`, with the fields named in `LIVE_FIELDS`), and the stack
+reads the live task by id. A change of who holds a task, or of when it runs,
 therefore keeps its row, its button and an open popover.
 
 The writes (`lib/holder-writes.ts`) go one at a time **per task and seat**, so
@@ -525,6 +550,7 @@ through the gated API, which filters as it always does.
 | `POST /tasks/templates/:templateId` | the apply added at least one task (`added > 0`) |
 | `PUT` / `DELETE /tasks/:taskId/assignees/:hostId` | a seat was put on or taken off; one already so publishes nothing |
 | `PUT /settings` | the save re-dated at least one seeded task (`weddingSettingsService.save` answers `tasksRedated`, from the re-dating's `RETURNING`) |
+| `POST /changes/apply`, `POST /changes/revert` | the change created, updated or removed an event, which moves the derived time of every task linked to it, or freezes or removes them; also after one that failed part way. A change to the guests alone publishes nothing ([[cire-run-sheet#When a schedule change removes an event]]) |
 
 A refused write — 400, 402, 403, 404, 422, 500 — publishes nothing. A seat
 that goes takes its holds by cascade and publishes `members-changed`, not
@@ -545,9 +571,13 @@ that sees the write therefore always goes, whichever reaches the tab first,
 the write's answer or its signal, and no re-read undoes what the organiser did
 on screen. See [[cire-host-portal-layout]].
 
+The run sheet (`run-sheet-store.ts`) follows the same writes and the same
+signals ([[cire-run-sheet#In the portal]]).
+
 The tests are `cire/api/tests/routes/tasks.test.ts` ("task writes publish
 tasks-changed"), `organiser-settings.test.ts` ("a date move tells open
-checklists"), `cire/host/tests/lib/tasks-store.test.ts` ("the portal's own
+checklists"), `organiser-changes.test.ts` ("a schedule change and the checklist
+tasks linked to its events"), `cire/host/tests/lib/tasks-store.test.ts` ("the portal's own
 writes", "a signal's re-read") and `cire/host/tests/components/ChecklistView.test.tsx`. No E2E flow
 reaches the hub ([[realtime#Tests]]).
 
@@ -558,6 +588,13 @@ cache — the sibling of `guests-store.ts` and `events-store.ts`. The fetch-lift
 pattern means a module switch does not refetch: both the **Overview widget**
 (`openTaskCount`) and the **ChecklistView** read from the same signal. This file
 deliberately does NOT import Effect (frontend code only).
+
+The cache is a `createRereadCache` (`cire/host/src/lib/reread-cache.ts`): the
+coalescing re-read, the generation guard and the rule that no read lands across
+one of the portal's own writes live there, and the run sheet's cache is a
+second one. The writes are counted by `taskWrites` (`task-writes.ts`), which
+both caches follow; `beginTaskWrite` is its `begin`. `tasks-store.test.ts`
+covers the factory through the store's own exports.
 
 Public API:
 
@@ -582,7 +619,10 @@ Public API:
 `TaskRow` mirrors `TaskDto` from the API (ms-epoch numbers for `createdAt` /
 `completedAt`; `timeframeBucket` string key; `status: "open" | "done"`;
 `assigneeHostIds`, the holders' seat ids in the order they were put on the task,
-empty for nobody). The DTO's provenance fields
+empty for nobody; and the six run-time fields, optional, absent from an API
+older than them and then read as untimed — left absent rather than filled in, so
+a row keeps the same keys however it reached the cache, which the checklist's
+row memo compares). The DTO's provenance fields
 (`templateId`, `templateItem`, `dueSource`) are left out of it: nothing in the
 portal reads them.
 
@@ -596,7 +636,6 @@ additively:
 | Due-date editor | Change a task's due date from the portal (englishstreetventures/osn#1590) |
 | Category taxonomy | Closed enum (e.g. venue / catering / flowers / admin); filter UI |
 | Vendor linkage | `tasks.vendor_id` → `vendors` (Phase 2); booking a vendor ticks matching tasks |
-| Day-of → Schedule sync | Day-of tasks reference a `schedule_event_id`; surface in a run-sheet view |
 | `skipped` status | Third status alongside `open`/`done` for tasks that don't apply |
 | Cross-bucket drag | Moving a task between buckets (currently reorder is within-bucket only) |
 

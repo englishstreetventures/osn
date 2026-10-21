@@ -2,6 +2,7 @@
 title: Cire host portal layout system
 tags: [architecture, web, organiser, cire]
 related:
+  - "[[cire-run-sheet]]"
   - "[[index]]"
   - "[[cire-invite-builder]]"
   - "[[cire-organiser]]"
@@ -306,11 +307,12 @@ component was previously reading a container it did not live in.
 
 ## Organiser client caches: stale-while-revalidate
 
-Nine `weddingId`-keyed SolidJS signal caches share this contract:
+Ten `weddingId`-keyed SolidJS signal caches share this contract:
 `budget-store.ts`, `enquiries-store.ts`, `events-store.ts`, `guests-store.ts`,
-`hosts-store.ts`, `households-store.ts`, `registry-store.ts`, `tasks-store.ts`,
-`vendors-store.ts` (all `cire/host/src/lib/`). One page for the mechanism
-they all share, rather than nine copies that drift — a module's own page
+`hosts-store.ts`, `households-store.ts`, `registry-store.ts`,
+`run-sheet-store.ts`, `tasks-store.ts`, `vendors-store.ts` (all
+`cire/host/src/lib/`). One page for the mechanism they all share, rather than
+ten copies that drift — a module's own page
 (e.g. [[cire-checklist-tasks]]) documents only what is genuinely that
 module's. `hosts-store.ts` holds the wedding's seats for the checklist, which
 names and pictures who holds each task and offers every seat in its assign
@@ -322,6 +324,16 @@ add, role change and removal. `tasks-store.ts` also keeps the reader's own seat
 from each `GET /tasks` answer (`readTaskList`), which the checklist puts first
 among a task's holders. A helper's run-sheet scope is not in the cache, so
 changing one marks nothing stale.
+
+`tasks-store.ts` and `run-sheet-store.ts` are both built by one factory,
+`createRereadCache` (`reread-cache.ts`), which adds two things to this
+contract: a coalescing re-read for a push signal (`rereadXxx`; a burst costs at
+most two reads) and the rule that no read lands across one of the portal's own
+task writes, counted by `taskWrites` (`task-writes.ts`) for both. A read that
+lands while a write is out, or that was sent before one ended, is dropped and
+sent again once the last write ends. The run sheet's cache is also marked stale
+each time a task write ends, since a checklist write changes the run sheet
+without answering with it ([[cire-run-sheet#In the portal]]).
 
 A cached wedding is in one of four states:
 
@@ -400,11 +412,12 @@ check).
 
 The caches hold guest names, vendor emails and phone numbers, budget figures
 and the gift log. A wedding keeps them only while its dashboard is mounted.
-This covers the nine caches above, the seats among them, and the upgrade catalogue
+This covers the ten caches above, the seats among them, and the upgrade catalogue
 (`upgrade-store.ts`), which keeps prices and has no stale mark.
 
-- **Open.** `WeddingCacheScope` in `OrganiserApp.tsx` wraps the module shell.
-  Its body calls `openWeddingCaches(id)` before any view below it runs.
+- **Open.** `WeddingCacheScope` in `OrganiserApp.tsx` wraps the module shell,
+  and for a helper the run-sheet seat in its place. Its body calls
+  `openWeddingCaches(id)` before any view below it runs.
 - **Drop.** The same scope's `onCleanup` calls `dropWeddingCaches(id)`
   (`lib/wedding-caches.ts`). One hook covers every way out: another wedding,
   back to the list, Security, a hash edit or Back/Forward, a role that loses
@@ -456,8 +469,9 @@ drops the rows. The re-read runs on:
   changes who may open the wedding. A member removed or who left, and every
   member of a deleted wedding, gets the signal and then a 1008 close, so their
   tab re-reads and stops listening. A member narrowed to `helper` keeps the
-  socket: the re-read swaps in the helper's seat, which goes on listening. See
-  [[realtime]].
+  socket: the re-read swaps in the helper's seat, which goes on listening.
+  Either kind of signal, and a reconnect, also marks the run sheet stale for
+  every listening seat, a helper's included. See [[realtime]].
 - **a 403 from a wedding route.** `Dashboard` provides its own `AuthContext`
   whose `authFetch` is wrapped by `watchForbidden` (`lib/forbidden-watch.ts`).
   Every request below it is watched.
