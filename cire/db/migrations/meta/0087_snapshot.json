@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "78b7499f-83e1-427c-84c6-2713b7af64df",
+  "id": "315306c3-c6e8-441b-be06-a29063c918ca",
   "prevId": "983e4c15-e3fb-40fb-91d5-6df07a9410b1",
   "tables": {
     "budget_items": {
@@ -2690,101 +2690,6 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "task_assignees": {
-      "name": "task_assignees",
-      "columns": {
-        "task_id": {
-          "name": "task_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "host_id": {
-          "name": "host_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "wedding_id": {
-          "name": "wedding_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "assigned_at": {
-          "name": "assigned_at",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "task_assignees_host_wedding_idx": {
-          "name": "task_assignees_host_wedding_idx",
-          "columns": [
-            "host_id",
-            "wedding_id"
-          ],
-          "isUnique": false
-        },
-        "task_assignees_wedding_task_idx": {
-          "name": "task_assignees_wedding_task_idx",
-          "columns": [
-            "wedding_id",
-            "task_id",
-            "assigned_at"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "task_assignees_task_id_wedding_id_tasks_id_wedding_id_fk": {
-          "name": "task_assignees_task_id_wedding_id_tasks_id_wedding_id_fk",
-          "tableFrom": "task_assignees",
-          "tableTo": "tasks",
-          "columnsFrom": [
-            "task_id",
-            "wedding_id"
-          ],
-          "columnsTo": [
-            "id",
-            "wedding_id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "task_assignees_host_id_wedding_id_wedding_hosts_id_wedding_id_fk": {
-          "name": "task_assignees_host_id_wedding_id_wedding_hosts_id_wedding_id_fk",
-          "tableFrom": "task_assignees",
-          "tableTo": "wedding_hosts",
-          "columnsFrom": [
-            "host_id",
-            "wedding_id"
-          ],
-          "columnsTo": [
-            "id",
-            "wedding_id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "task_assignees_task_id_host_id_pk": {
-          "columns": [
-            "task_id",
-            "host_id"
-          ],
-          "name": "task_assignees_task_id_host_id_pk"
-        }
-      },
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
     "task_template_dismissals": {
       "name": "task_template_dismissals",
       "columns": {
@@ -2949,6 +2854,13 @@
           "notNull": true,
           "autoincrement": false,
           "default": "'manual'"
+        },
+        "assigned_host_id": {
+          "name": "assigned_host_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         }
       },
       "indexes": {
@@ -2961,13 +2873,13 @@
           ],
           "isUnique": false
         },
-        "tasks_id_wedding_unique": {
-          "name": "tasks_id_wedding_unique",
+        "tasks_assigned_host_idx": {
+          "name": "tasks_assigned_host_idx",
           "columns": [
-            "id",
-            "wedding_id"
+            "assigned_host_id"
           ],
-          "isUnique": true
+          "isUnique": false,
+          "where": "assigned_host_id IS NOT NULL"
         },
         "tasks_wedding_template_item_unique": {
           "name": "tasks_wedding_template_item_unique",
@@ -2992,6 +2904,19 @@
             "id"
           ],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "tasks_assigned_host_id_wedding_hosts_id_fk": {
+          "name": "tasks_assigned_host_id_wedding_hosts_id_fk",
+          "tableFrom": "tasks",
+          "tableTo": "wedding_hosts",
+          "columnsFrom": [
+            "assigned_host_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -3809,14 +3734,6 @@
             "wedding_id"
           ],
           "isUnique": false
-        },
-        "wedding_hosts_id_wedding_unique": {
-          "name": "wedding_hosts_id_wedding_unique",
-          "columns": [
-            "id",
-            "wedding_id"
-          ],
-          "isUnique": true
         }
       },
       "foreignKeys": {
