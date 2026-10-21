@@ -1,0 +1,113 @@
+name: Main audit
+
+# Runs the pre-push `audit` command from lefthook.yml against main every day.
+#
+# The pre-push hook refuses to push a branch while any installed package has a
+# high or critical advisory. A new advisory against a package already on main
+# therefore blocks every branch at once, though no branch changed the package.
+# Nothing else ran `bun audit` on a schedule, so the first sign was a refused
+# push. This job finds the advisory within a day, and the issue it opens says
+# which package to fix.
+#
+# Read-only against the code: it installs, audits and reports. It pushes
+# nothing and changes no file.
+name: Main audit
+
+on:
+  schedule:
+    # 06:00 UTC. The advisory feeds update through the day, so the run sees
+    # what was published the day before and is ready before the Sydney working
+    # day starts (16:00 UTC).
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+# The job reads the repository and writes one issue, and nothing else.
+permissions:
+  contents: read
+  issues: write
+
+# One run at a time, so a hand-started run and the scheduled one cannot both
+# decide that the issue is missing and both open it.
+concurrency:
+  group: main-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    name: Audit main
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      # The pre-push hook audits an installed tree, so install the lockfile as
+      # committed. No install scripts: this job runs no code from a package.
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      # Runs the command lefthook's pre-push `audit` runs, read from
+      # lefthook.yml, so the schedule and the hook cannot drift apart. The
+      # command's shape (no shell syntax, only --ignore flags) is held by
+      # scripts/check-audit-ignores.ts, so it is split into words and run
+      # without a shell. The output is kept for the issue.
+      - name: Run the pre-push audit command
+        id: audit
+        run: |
+          command=$(ruby -ryaml -e 'puts YAML.load_file("lefthook.yml").dig("pre-push", "commands", "audit", "run")')
+          read -r -a argv <<< "$command"
+          echo "Running: ${argv[*]}"
+          "${argv[@]}" 2>&1 | tee "$RUNNER_TEMP/audit.txt"
+
+      # Runs only when the audit itself failed, not when the install did. One
+      # open issue carries the current findings: opened if absent, otherwise
+      # its body is replaced.
+      - name: Open or update the audit issue
+        if: ${{ failure() && steps.audit.outcome == 'failure' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="main fails bun audit"
+          {
+            echo "The daily audit of \`main\` failed at the high level. Every branch's pre-push hook runs the same audit, so every push is refused until the advisory is fixed or the audit is ignored with an expiry."
+            echo
+            echo "Run: $RUN_URL"
+            echo
+            echo '```'
+            tail -n 200 "$RUNNER_TEMP/audit.txt"
+            echo '```'
+          } > "$RUNNER_TEMP/issue.md"
+          number=$(gh issue list --repo "$REPO" --state open --limit 100 --json number,title \
+            --jq ".[] | select(.title == \"$title\") | .number" | head -n 1)
+          if [ -n "$number" ]; then
+            gh issue edit "$number" --repo "$REPO" --body-file "$RUNNER_TEMP/issue.md"
+            echo "Updated issue #$number"
+          else
+            gh issue create --repo "$REPO" --title "$title" --body-file "$RUNNER_TEMP/issue.md"
+          fi
+
+      # Closes the issue once main passes again, so it never outlives the
+      # advisory it names. Skipped when the install or the audit failed.
+      - name: Close the audit issue when main passes
+        if: ${{ success() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          title="main fails bun audit"
+          number=$(gh issue list --repo "$REPO" --state open --limit 100 --json number,title \
+            --jq ".[] | select(.title == \"$title\") | .number" | head -n 1)
+          if [ -n "$number" ]; then
+            gh issue close "$number" --repo "$REPO" --comment "The daily audit of \`main\` passed."
+            echo "Closed issue #$number"
+          fi
