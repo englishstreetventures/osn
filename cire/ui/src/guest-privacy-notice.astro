@@ -29,7 +29,7 @@ const { level = 2 } = Astro.props
 const Section = level === 2 ? 'h2' : 'h3'
 const Sub = level === 2 ? 'h3' : 'h4'
 
-const updated = '2026-10-20'
+const updated = '2026-10-21'
 
 // The third-party lists are generated from the consent vendor registry, so the
 // notice cannot disagree with what the guest site's consent framework governs:
@@ -124,6 +124,13 @@ const ph = (value: string) => (isPlaceholder(value) ? 'placeholder' : undefined)
       to the venue; other guests never do.
     </li>
     <li>
+      <strong>Your email address, if you or your hosts add one</strong> — so your hosts can
+      send you news about the wedding through us. You can add, change or remove your own on
+      your invitation. If your hosts add it, they confirm to us that you agreed, and your
+      invitation shows it as added by them. With it we keep who added it, when, and the wording
+      that was agreed to. We use it for nothing else.
+    </li>
+    <li>
       <strong>Gifts, if you give one through the registry</strong> — what your household
       reserves or marks as bought from your hosts’ list, and any money you send: the amount,
       the currency, the day, and the name and note you choose to add. Your hosts see these
@@ -177,6 +184,13 @@ const ph = (value: string) => (isPlaceholder(value) ? 'placeholder' : undefined)
       bringing them.
     </li>
     <li>
+      <strong>Your email address</strong> — so your hosts can send you news about the
+      wedding. The basis is your consent: given when you add it on your invitation, or given
+      to your hosts when they add it. Remove the address on your invitation to withdraw it at
+      any time; after that we will not email it about this wedding, even if it is added again,
+      unless you add it back yourself.
+    </li>
+    <li>
       <strong>The first-opened timestamp</strong> — so your hosts can tell a delivered
       invitation from one that never arrived. Their legitimate interest in administering
       their own wedding; you can ask for it to be removed.
@@ -222,6 +236,12 @@ const ph = (value: string) => (isPlaceholder(value) ? 'placeholder' : undefined)
     Your hosts, and the people they have asked to help — a caterer or a venue, for
     instance — strictly so those people can do their job. Your hosts choose who that
     is; we don’t.
+  </p>
+  <p>
+    Your email address, if one is held, is seen by your hosts and everyone helping them with
+    the guest list. Your invitation shows it to whoever opens it with your household’s code and
+    says they are you, so that you can check and correct it, and never shows it to anyone for
+    another member of your household.
   </p>
   <p>
     On our side, the site and its data are hosted on <strong>Cloudflare</strong>, which
@@ -316,7 +336,7 @@ const ph = (value: string) => (isPlaceholder(value) ? 'placeholder' : undefined)
 
   <Section>How long it is kept</Section>
   <p>
-    Guest information — names, RSVPs, dietary needs — is deleted
+    Guest information — names, RSVPs, dietary needs, email addresses — is deleted
     <strong>1 year after the final wedding event</strong>, after which it is
     permanently removed from our systems. Now and then it goes up to 30 days later,
     while we finish the record of your hosts’ gifts. That period is set by us and applies to every
@@ -332,6 +352,13 @@ const ph = (value: string) => (isPlaceholder(value) ? 'placeholder' : undefined)
     The record of when your household’s replies changed is kept for
     <strong>90 days</strong>, or less if the rest of your information goes first.
   </p>
+  <p>
+    When you remove your email address it comes off your guest record at once, though copies
+    can remain in your hosts’ saved guest-list history until that is deleted on the schedule
+    above. We keep the removed address only in a one-way scrambled form, which cannot be turned
+    back into the address, so that it is not emailed again, and delete that with the rest of
+    the wedding’s guest information.
+  </p>
 
   <Section>Your rights</Section>
   <p>You can ask to:</p>
@@ -340,8 +367,8 @@ const ph = (value: string) => (isPlaceholder(value) ? 'placeholder' : undefined)
     <li><strong>Correct</strong> anything wrong or out of date;</li>
     <li><strong>Delete</strong> your information;</li>
     <li>
-      <strong>Withdraw your consent</strong> to the dietary and access information at
-      any time — this doesn’t undo anything done while it stood.
+      <strong>Withdraw your consent</strong> to the dietary and access information, or to your
+      email address being used, at any time — this doesn’t undo anything done while it stood.
     </li>
   </ul>
   <p>

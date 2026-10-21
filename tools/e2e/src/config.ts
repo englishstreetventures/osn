@@ -265,6 +265,17 @@ export const CIRE_ORGANISER = {
     bo: { guestId: "gst_e2e_seating_bo", name: "Bo Alpha" },
     cy: { guestId: "gst_e2e_seating_cy", name: "Cy Charlie" },
   },
+  /**
+   * One household: Gus with no address, and Hana with one she gave herself
+   * on the invite. The organiser adds Gus's (`added`) in the guest editor.
+   */
+  emails: {
+    weddingId: "wed_e2e_emails",
+    household: "Tanaka",
+    noAddress: "Gus",
+    guestsOwn: { firstName: "Hana", address: "hana.own@e2e.test" },
+    added: "gus.tanaka@e2e.test",
+  },
 } as const;
 
 /**
@@ -348,6 +359,8 @@ export const CIRE_HOUSEHOLD = {
   member: "Cleo",
   /** Who a second tab says is answering, after "Not you?". */
   otherMember: "Bo",
+  /** The address `member` gives on the invite, then removes. */
+  email: "cleo.sampleton@e2e.test",
 } as const;
 
 /** Identities the flows create. Fixed, so every run registers the same people. */

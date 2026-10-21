@@ -67,7 +67,6 @@ A row graduates to an issue when its "Revisit When" lands.
 | External vendor-discovery overlay | None (recommended start) vs Google Places live-search layer (ToS: display-only, never stored in D1) | After directory v1 proves thin coverage — see [[cire-platform-plan]] §5.2 |
 | Pricing baseline sourcing + regions | Hand-curated AU-first dataset vs licensed data | Phase 3 start — see [[cire-platform-plan]] §6 |
 | Multi-currency budget entries | v1 single-currency (all figures in the wedding's main `currency`, organiser converts on entry — decided) vs additive v2: display-only `original_currency` + `original_amount_minor` (+ entered rate) on `budget_items`/`payments` | Budget v1 build, or first real multi-country wedding asking for it — see [[cire-platform-plan]] §4.2 |
-| Guest email collection point (comms) | Guest-entered at RSVP vs organiser-entered vs both; consent design first | Comms build (Phase 4) — see [[cire-platform-plan]] §7 |
 | Guest photo sharing | R2 + moderation | Post-MVP |
 | iPhone AirDrop sharing | Web Share API + custom payload | After core invite is built |
 | Account-linking ARC key provisioning + rotation | Stable `CIRE_API_ARC_PRIVATE_KEY` secret pre-registered in osn-api `service_accounts` (shipped) vs. lazy self-registration per isolate vs. KV-persisted rotating key | Before production launch of linking — wire the secret + osn-side registration; decide rotation story (Workers have no startup hook) |
@@ -81,6 +80,10 @@ A row graduates to an issue when its "Revisit When" lands.
 ### Decided 2026-10-26
 
 - **The vite 8 and Astro 7 upgrade is done.** The repo runs `astro` 7.4 and `vite` 8.3.3 (the root `overrides` pin), and `@astrojs/check` is gone: the Astro sites type-check with TypeScript 7.1 and `@astrojs/ts-content-mapper` ([[frontend-patterns#Type-checking .astro files]]).
+
+### Decided 2026-10-20 and 2026-10-21
+
+- **Guest email collection point → both, per guest, each tagged by source** (englishstreetventures/osn#480). Hosts add addresses in the guest editor or a spreadsheet and attest the guest agreed; guests add, correct or remove their own on the invite. Each address records its source (`guest` | `organiser_attested`) and consent, like `rsvps.consent_source`. A guest may remove a host's address, and the removal is an opt-out a host cannot undo by re-adding; one seat's opt-out stops mail to that address for every seat holding it; a host may remove a guest's own address but never change it, and a spreadsheet or revert never touches it; the guest sees their full address; everyone who sees the guest list sees addresses; plus-ones have none. See [[data-map]] and [[dpia/cire-guest-data]].
 
 ### Decided 2026-10-08
 

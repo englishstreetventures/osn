@@ -7,6 +7,7 @@ import {
   events as eventsData,
   guests as guestsData,
 } from "@cire/db/seed";
+import { GUEST_EMAIL_CONSENT } from "@cire/guest-email";
 import { and, eq, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
@@ -1113,7 +1114,7 @@ function seatDevOwner(db: TestDb, weddingId: string, seatId: string, now: Date):
 }
 
 /**
- * Seven weddings for the E2E suite's organiser flows, each on Gold. The dev
+ * Eight weddings for the E2E suite's organiser flows, each on Gold. The dev
  * profile, which osn-api's `/dev/login` signs in as, owns all but
  * `wed_e2e_rs_helper`, where it is a helper:
  *
@@ -1134,6 +1135,9 @@ function seatDevOwner(db: TestDb, weddingId: string, seatId: string, now: Date):
  *   and settles in the wedding's currency, one cash fund and nothing to
  *   reserve, unpublished. For the portal on a site that cannot take a money
  *   gift: the stack's cire-api holds a Stripe key and no webhook secret.
+ * - `wed_e2e_emails`: one household, Tanaka, of Gus with no address and Hana
+ *   with an address she gave herself on the invite, for adding an address in
+ *   the guest editor under the organiser's attestation.
  * - `wed_e2e_seating`: a reception whose one seating plan, "Plan 1", is in
  *   use — Ada and Bo Alpha at Table 1, Cy Charlie at Table 2, all three having
  *   said yes — and an after party, inviting Ada, with no plan yet; for setting
@@ -1449,6 +1453,45 @@ export function seedE2eOrganiser(db: TestDb): void {
       createdAt: now,
       updatedAt: now,
     })
+    .run();
+
+  wedding("wed_e2e_emails", "emails-wedding", "Emails Wedding");
+  seatDevOwner(db, "wed_e2e_emails", "whost_e2e_emails_owner", now);
+  db.insert(schema.families)
+    .values({
+      id: "fam_e2e_tanaka",
+      weddingId: "wed_e2e_emails",
+      publicId: "TANAKA-E2E-EM01",
+      familyName: "Tanaka",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  db.insert(schema.guests)
+    .values([
+      {
+        id: "gst_e2e_gus",
+        familyId: "fam_e2e_tanaka",
+        firstName: "Gus",
+        lastName: "Tanaka",
+        sortOrder: 0,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: "gst_e2e_hana",
+        familyId: "fam_e2e_tanaka",
+        firstName: "Hana",
+        lastName: "Tanaka",
+        sortOrder: 1,
+        createdAt: now,
+        updatedAt: now,
+        email: "hana.own@e2e.test",
+        emailSource: "guest",
+        emailConsentAt: now,
+        emailConsentVersion: GUEST_EMAIL_CONSENT.version,
+      },
+    ])
     .run();
 
   seedE2eSeating(db, now);
