@@ -491,32 +491,24 @@ export default function HostsPanel(props: HostsPanelProps) {
 
   /**
    * Mark one of this panel's own writes as out, and get back the function that
-   * marks it done (calling it again does nothing). While a write is out, a
-   * signal's re-read waits, and a read sent before the write started is
-   * dropped when it lands, since the server may have answered it from before
-   * the write committed. Once the last write ends, one read goes for all of
-   * them, so the read that sees the write always goes, whichever reached the
-   * tab first, the write's answer or its signal.
+   * marks it done; each write calls it once, in its `finally`. While a write
+   * is out, a signal's re-read waits, and a read sent before the write started
+   * is dropped when it lands, since the server may have answered it from
+   * before the write committed. Once the last write ends, one read goes for
+   * all of them (`loadHosts` waits for the others), so the read that sees the
+   * write always goes, whichever reached the tab first, the write's answer or
+   * its signal.
    */
   function beginWrite(): () => void {
     writesOut += 1;
     loadSeq += 1;
-    let ended = false;
     return () => {
-      if (ended) return;
-      ended = true;
       writesOut -= 1;
-      if (writesOut === 0 && readOwed) {
+      if (readOwed) {
         readOwed = false;
         void loadHosts(false);
       }
     };
-  }
-
-  /** Read the seats again once no write of this panel's is out. */
-  function owe(): void {
-    if (writesOut > 0) readOwed = true;
-    else void loadHosts(false);
   }
 
   /** Apply this panel's own write to the list. It runs inside the write
@@ -549,7 +541,7 @@ export default function HostsPanel(props: HostsPanelProps) {
       if (seq !== loadSeq) {
         // A newer read answers for itself. Otherwise one of this panel's own
         // writes started while this was out: read again once it is over.
-        if (seq === newestRead) owe();
+        if (seq === newestRead) void loadHosts(false);
         return;
       }
       const rows = body.hosts.map(withKnownRole);

@@ -381,8 +381,11 @@ describe("ChecklistView — the open wedding's signals", () => {
 
     write();
 
-    // The refusal's own re-read lands: the write is over when it is sent.
+    // The refusal's own re-read lands: the write is over when it is sent, so
+    // it is read once.
     expect(await screen.findByText("From the server")).toBeInTheDocument();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(calls("/tasks")).toHaveLength(1);
   });
 
   it("reads the seats again on members-changed once a popover asked for them", async () => {

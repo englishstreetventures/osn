@@ -2145,6 +2145,65 @@ describe("HostsPanel — the open wedding's members-changed signal", () => {
     expect(String(authFetchMock.mock.calls[2]![0])).toBe(
       "https://api.test/api/organiser/weddings/wed_a/hosts",
     );
+
+    // The read is paid: a later write that no signal crossed reads nothing.
+    authFetchMock.mockResolvedValueOnce(json({ removed: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove @dee" }));
+    await waitFor(() => expect(screen.queryByText("@dee")).toBeNull());
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(authFetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("keeps the list, with no error, when the read after its own write fails", async () => {
+    let answerAdd: (res: Response) => void = () => {};
+    authFetchMock
+      .mockResolvedValueOnce(json({ hosts: [carol] }))
+      .mockReturnValueOnce(new Promise<Response>((resolve) => (answerAdd = resolve)))
+      .mockResolvedValueOnce(json({ error: "down" }, 500));
+    const [changed, setChanged] = createSignal(0);
+    render(() => (
+      <MembersChangedContext.Provider value={changed}>
+        <HostsPanel weddingId="wed_a" callerRole="owner" />
+      </MembersChangedContext.Provider>
+    ));
+    await waitFor(() => expect(screen.getByText("@carol")).toBeTruthy());
+
+    typeHandle("bob");
+    fireEvent.click(screen.getByRole("button", { name: /Add host/i }));
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
+    setChanged(1);
+    answerAdd(json({ host: { ...bob, role: "viewer" } }, 201));
+
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(3));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(screen.getByText("@bob")).toBeTruthy();
+    expect(screen.getByText("@carol")).toBeTruthy();
+    expect(screen.queryByText(/Could not load hosts/)).toBeNull();
+  });
+
+  it("reads the seats on a signal once its own role change has answered", async () => {
+    authFetchMock
+      .mockResolvedValueOnce(json({ hosts: [bob, carol] }))
+      .mockResolvedValueOnce(json({ host: { ...bob, role: "viewer" } }))
+      .mockResolvedValueOnce(json({ hosts: [{ ...bob, role: "viewer" }, carol] }));
+    const [changed, setChanged] = createSignal(0);
+    render(() => (
+      <MembersChangedContext.Provider value={changed}>
+        <HostsPanel weddingId="wed_a" callerRole="owner" />
+      </MembersChangedContext.Provider>
+    ));
+    await waitFor(() => expect(screen.getByText("@carol")).toBeTruthy());
+
+    // A step down goes straight through, with no question.
+    fireEvent.change(roleSelect("@bob"), { target: { value: "viewer" } });
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect((roleSelect("@bob") as HTMLSelectElement).disabled).toBe(false));
+    setChanged(1);
+
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(3));
+    expect(String(authFetchMock.mock.calls[2]![0])).toBe(
+      "https://api.test/api/organiser/weddings/wed_a/hosts",
+    );
   });
 
   describe("a helper's scope", () => {
