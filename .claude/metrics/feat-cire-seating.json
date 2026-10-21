@@ -1,0 +1,185 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1640,
+    "branch": "feat/cire-seating",
+    "base_sha": "ad5d69f70c2a380608cb41af0b6a4eceaa9be112",
+    "head_sha": "8812689e7831fe14ef0b3c4703d737da0bec5b0a",
+    "generated_at": "2026-10-21T01:19:03.636Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 479,
+    "type": null,
+    "labels": [
+      "product:cire",
+      "complexity:5",
+      "complexity:unconfirmed"
+    ]
+  },
+  "complexity": {
+    "declared": 5,
+    "method": "unconfirmed"
+  },
+  "window": {
+    "sessions": 21,
+    "first_ts": "2026-10-20T05:27:36.323Z",
+    "last_ts": "2026-10-21T01:19:00.689Z",
+    "span_seconds": 71484,
+    "active_seconds": 15086,
+    "compactions": 1
+  },
+  "spend": {
+    "usd_equivalent": 253.11455860000038,
+    "tokens": {
+      "input": 3364,
+      "output": 34790,
+      "thinking": 9024,
+      "cache_write_5m": 9708845,
+      "cache_write_1h": 0,
+      "cache_read": 509652694
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 3364,
+          "output": 34790,
+          "thinking": 9024,
+          "cache_write_5m": 9708845,
+          "cache_write_1h": 0,
+          "cache_read": 509652694
+        },
+        "usd_equivalent": 253.11455860000038,
+        "messages": 1666
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 5
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 82,
+          "output": 15605,
+          "thinking": 8522,
+          "cache_write_5m": 391783,
+          "cache_write_1h": 0,
+          "cache_read": 836372
+        },
+        "usd_equivalent": 2.6058918,
+        "messages": 40
+      },
+      "subagent": {
+        "tokens": {
+          "input": 3282,
+          "output": 19185,
+          "thinking": 502,
+          "cache_write_5m": 9317062,
+          "cache_write_1h": 0,
+          "cache_read": 508816322
+        },
+        "usd_equivalent": 250.50866680000033,
+        "messages": 1631
+      }
+    },
+    "effort": {
+      "medium": 40,
+      "xhigh": 1388,
+      "high": 238
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 2,
+      "test": 30,
+      "docs": 21,
+      "config": 2,
+      "source": 46
+    },
+    "loc": {
+      "generated": {
+        "added": 25,
+        "deleted": 0
+      },
+      "test": {
+        "added": 4155,
+        "deleted": 20
+      },
+      "docs": {
+        "added": 409,
+        "deleted": 56
+      },
+      "config": {
+        "added": 4682,
+        "deleted": 0
+      },
+      "source": {
+        "added": 3166,
+        "deleted": 108
+      }
+    },
+    "packages": [
+      "cire/api",
+      "cire/db",
+      "cire/host",
+      "cire/landing",
+      "cire/ui",
+      "shared/sortable"
+    ],
+    "touches_migration": true,
+    "commits": 8
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 1528,
+      "Read": 76,
+      "Edit": 28,
+      "Write": 26,
+      "Skill": 18,
+      "StructuredOutput": 18,
+      "Monitor": 13,
+      "Grep": 12,
+      "Agent": 10,
+      "SubagentHandback": 8,
+      "ToolSearch": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 4,
+      "max_edits_one_file": 11
+    },
+    "skills": {
+      "new-feat": 1,
+      "design-system": 1,
+      "stress-plan": 1,
+      "write-wiki": 2,
+      "obsidian:obsidian-markdown": 2,
+      "prep-pr": 1,
+      "review-performance": 2,
+      "review-security": 1,
+      "review-tests": 2,
+      "review-docs": 2,
+      "write-issue": 1,
+      "write-pr": 1,
+      "retro": 1
+    },
+    "subagents": {
+      "attacker": 2,
+      "reviewer": 8
+    }
+  }
+}
