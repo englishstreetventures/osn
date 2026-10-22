@@ -60,6 +60,7 @@ When you call Vitest yourself, use `bunx --bun vitest` instead of plain `vitest`
 bun run lint             # Run oxlint across the monorepo
 bun run fmt              # Format code with oxfmt
 bun run fmt:check        # Check formatting (used in CI)
+bun scripts/check-wikilinks.ts  # Every wikilink in wiki/ resolves; exit 1 lists the ones that do not
 ```
 
 Pre-commit hooks (via lefthook) automatically run oxlint + oxfmt on staged files. Pre-push hooks run the type checker.
