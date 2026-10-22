@@ -80,7 +80,8 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
   const [consent, setConsent] = createSignal(false);
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
-  // The status region's text: the note after a removal, empty otherwise.
+  // The status region's text: the note after a removal, until the next save.
+  // Only a save leads back to a stored address, so it is the one that clears it.
   const [note, setNote] = createSignal("");
 
   const address = (): "empty" | "invalid" | "valid" =>
@@ -98,7 +99,6 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
     setDraft(props.email?.address ?? "");
     setConsent(false);
     setError(null);
-    setNote("");
     setEditing(true);
     focusAfterRender(() => input);
   }
