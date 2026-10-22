@@ -107,7 +107,7 @@ final sign-off now turns only on the residual retention gaps below.
   the person themselves: the plus-one's name, and in time their reply. Their
   replies carry `rsvps.consent_source = 'inviter_attested'`. See §2 for the
   consent basis and [[cire-plus-ones]] for the contract.
-- **Guest email addresses (migration 0092).** Each guest may have one address,
+- **Guest email addresses (migration `20261022145310_guest_emails`).** Each guest may have one address,
   for the wedding's guest email (sending is a later change, so today no mail
   provider receives one). It makes a guest contactable, so it is a new class
   of data with its own consent record, kept beside it on the guest row:
@@ -506,7 +506,7 @@ final sign-off now turns only on the residual retention gaps below.
   where a plus-one is named is refused unless the organiser also asks for the
   plus-one to be removed, so a plus-one's data is never deleted — or kept past
   its permission — without an explicit choice.
-- **Guest email addresses (migration 0092).** An address needs its consent
+- **Guest email addresses (migration `20261022145310_guest_emails`).** An address needs its consent
   record at every door: the guest route refuses a consent version the page
   did not show (422), and an apply that sets an address on the organiser's
   word is refused without the attestation's current version (422
