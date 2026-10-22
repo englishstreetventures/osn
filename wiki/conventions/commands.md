@@ -52,7 +52,7 @@ The E2E suite refuses to start while anything holds its ports, so stop `bun run 
 `test` and `test:run` there cover the unit project alone and `test:browser` is a
 separate script. `@osn/auth-ui` has a single config and no `test:browser`.
 
-When you call Vitest yourself, use `bunx --bun vitest` instead of plain `vitest`: the `--bun` flag is required for `bun:sqlite` module access. A package's own `test` and `test:run` scripts already carry the flags its tests need — most say `bunx --bun vitest`, and the few whose tests never load `bun:sqlite` call plain `vitest` — so prefer those scripts. The one exception is a mutation run (`test:mutation`, cire only): Stryker starts Vitest under Node itself — [[testing-patterns#Mutation testing]].
+When you call Vitest yourself, use `bunx --bun vitest` instead of plain `vitest`: the `--bun` flag is required for `bun:sqlite` module access. A package's own `test` and `test:run` scripts already carry the flags its tests need — most of those that run Vitest say `bunx --bun vitest`, and the few whose tests never load `bun:sqlite` call plain `vitest` — so prefer those scripts. The one exception is a mutation run (`test:mutation`, cire only): Stryker starts Vitest under Node itself — [[testing-patterns#Mutation testing]].
 
 ## Code Quality
 

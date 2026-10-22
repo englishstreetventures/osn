@@ -49,6 +49,27 @@ describe("findBrokenWikilinks — what it reports", () => {
     expect(broken(text)).toEqual(["no-such-page"]);
   });
 
+  test("a broken link after a fence closed inside a blockquote", () => {
+    const text = [
+      "> [!note]",
+      "> ```toml",
+      "> [[env.production.d1_databases]]",
+      "> ```",
+      "> Then read [[no-such-page]].",
+    ].join("\n");
+    expect(broken(text)).toEqual(["no-such-page"]);
+  });
+
+  test("a broken link after a blockquote that ends with its fence still open", () => {
+    const text = [
+      "> ```toml",
+      "> [[env.production.d1_databases]]",
+      "",
+      "Then read [[no-such-page]].",
+    ].join("\n");
+    expect(broken(text)).toEqual(["no-such-page"]);
+  });
+
   test("the line each broken link sits on, counted from 1", () => {
     const text = ["---", 'related: ["[[gone-page]]"]', "---", "", "Body [[also-gone]]."].join("\n");
     expect(findBrokenWikilinks(VAULT, [{ path: "wiki/page.md", text }])).toEqual([

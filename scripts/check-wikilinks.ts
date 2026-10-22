@@ -21,8 +21,9 @@
  *
  * Text inside fenced code blocks and inline code spans is not read: a TOML
  * array header such as `[[env.production.d1_databases]]` has a wikilink's
- * shape, and Obsidian renders neither as a link. Relative `./` and `../`
- * targets are not resolved and are reported.
+ * shape, and Obsidian renders neither as a link. A fence inside a blockquote
+ * or callout counts, and ends where its quote ends if nothing closes it first.
+ * Relative `./` and `../` targets are not resolved and are reported.
  *
  * Exit codes: 0 every link resolves, 1 at least one does not, 2 the check
  * could not run (no `wiki/` folder under the working directory, or git failed).
@@ -44,6 +45,18 @@ export type BrokenLink = {
 const WIKILINK = /\[\[([^\]\n]*)\]\]/g;
 const CODE_SPAN = /(`+).*?\1/g;
 const FENCE = /^\s*(`{3,}|~{3,})/;
+const QUOTE_PREFIX = /^(?:[ \t]*>)*/;
+
+/** How many blockquote `>` markers open a line, and the line without them. */
+type QuotedLine = {
+  readonly depth: number;
+  readonly body: string;
+};
+
+function unquote(line: string): QuotedLine {
+  const prefix = QUOTE_PREFIX.exec(line)?.[0] ?? "";
+  return { depth: prefix.split(">").length - 1, body: line.slice(prefix.length) };
+}
 
 function basename(path: string): string {
   return path.slice(path.lastIndexOf("/") + 1);
@@ -93,21 +106,28 @@ export function findBrokenWikilinks(
   const broken: BrokenLink[] = [];
 
   for (const page of pages) {
-    let fence: { readonly char: string; readonly length: number } | null = null;
+    let fence: {
+      readonly char: string;
+      readonly length: number;
+      readonly depth: number;
+    } | null = null;
 
     for (const [i, line] of page.text.split("\n").entries()) {
-      const marker = FENCE.exec(line)?.[1];
+      const { depth, body } = unquote(line);
+      const marker = FENCE.exec(body)?.[1];
+      // A line with fewer `>` than the fence opened behind ends the quote, and the fence with it.
+      if (fence !== null && depth < fence.depth) fence = null;
       if (fence !== null) {
         const closes =
           marker !== undefined &&
           marker[0] === fence.char &&
           marker.length >= fence.length &&
-          line.trim() === marker;
+          body.trim() === marker;
         if (closes) fence = null;
         continue;
       }
       if (marker !== undefined) {
-        fence = { char: marker[0] ?? "`", length: marker.length };
+        fence = { char: marker[0] ?? "`", length: marker.length, depth };
         continue;
       }
 
