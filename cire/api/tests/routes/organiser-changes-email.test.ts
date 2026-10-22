@@ -884,19 +884,30 @@ describe("more of what a revert restores", () => {
     expect(record(db, "Ada")).toEqual(original);
   });
 
-  it("leaves an address cleared when the before-image's record is unreadable", async () => {
-    const { db, r2, app } = buildApp();
-    await seeded(app, "ada@example.test");
-    const cleared = await change(app, { guestsCsv: guestsCsv("", "") });
-    const [row] = db.select().from(imports).where(eq(imports.id, cleared)).all();
-    const key = row!.beforeGuestsR2Key!;
-    const csv = await (await r2.get(key))!.text();
-    const tampered = csv.replace(/"\{[^\n]*\}"/, '"{not json"');
-    expect(tampered).not.toBe(csv);
-    await r2.put(key, tampered);
-    await revert(app, cleared);
-    expect(record(db, "Ada")?.email).toBeNull();
-  });
+  // Neither text that is not JSON nor JSON that is not a consent record is a
+  // record: either way the address stays cleared, never restored on a source
+  // nobody wrote.
+  for (const [what, cell] of [
+    ["is not JSON", '"{not json"'],
+    [
+      "names no known source",
+      '"{""source"":""admin"",""consentAt"":0,""version"":""v"",""attestedBy"":null}"',
+    ],
+  ] as const) {
+    it(`leaves an address cleared when the before-image's record ${what}`, async () => {
+      const { db, r2, app } = buildApp();
+      await seeded(app, "ada@example.test");
+      const cleared = await change(app, { guestsCsv: guestsCsv("", "") });
+      const [row] = db.select().from(imports).where(eq(imports.id, cleared)).all();
+      const key = row!.beforeGuestsR2Key!;
+      const csv = await (await r2.get(key))!.text();
+      const tampered = csv.replace(/"\{[^\n]*\}"/, cell);
+      expect(tampered).not.toBe(csv);
+      await r2.put(key, tampered);
+      await revert(app, cleared);
+      expect(record(db, "Ada")?.email).toBeNull();
+    });
+  }
 
   it("leaves the live address when the before-image's cell is not an address", async () => {
     const { db, r2, app } = buildApp();
