@@ -204,9 +204,15 @@ export function startEdgeColours(
     paint();
   };
 
-  /** Set a root property or style only when its value differs, so an unchanged frame writes nothing. */
+  /**
+   * Values this loop last wrote, keyed by property. Compared as written, not as
+   * the browser reports them, so an unchanged frame writes nothing.
+   */
+  const written = new Map<string, string>();
   const setIfChanged = (name: string, value: string) => {
-    if (root.style.getPropertyValue(name) !== value) root.style.setProperty(name, value);
+    if (written.get(name) === value) return;
+    written.set(name, value);
+    root.style.setProperty(name, value);
   };
 
   /** Decide the two edge colours from the hero's position and paint them. */

@@ -935,6 +935,11 @@ html.has-safe-top {
   scroll-padding-top: max(12px, env(safe-area-inset-top));
 }
 
+/* A control focused in the bottom band is scrolled clear of the bottom strip. */
+html.has-safe-bottom {
+  scroll-padding-bottom: max(12px, env(safe-area-inset-bottom));
+}
+
 /* Invite pages only (the body class is set by the classic and gala shells).
    The hero pads its own top and bottom; this supplies the side insets for
    everything else on a notched device held sideways. */

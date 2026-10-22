@@ -156,6 +156,17 @@ test("cire-invite-edges", async ({ page, browser, flow }) => {
     flow.check("bottom colour is a hex value", true, HEX.test(m.bottomVar));
     flow.check("theme-color matches the top colour", m.topVar, m.themeColor ?? "missing");
     flow.check("anchors scroll below the top strip", "47px", m.scrollPaddingTop);
+    // A control focused in the footer must scroll clear of the bottom strip, or a
+    // keyboard user can focus the privacy choices and never see them.
+    const clearOfStrip = await page.evaluate(() => {
+      const target = [...document.querySelectorAll<HTMLElement>("footer button, footer a")].find(
+        (el) => /Privacy Choices/.test(el.textContent ?? ""),
+      );
+      if (!target) return "missing";
+      target.focus();
+      return window.innerHeight - target.getBoundingClientRect().bottom >= 34;
+    });
+    flow.check("focused footer control clears the bottom strip", true, clearOfStrip === true);
     await page.screenshot({ path: resolve(SHOTS, "phone-top.png") });
   });
 
