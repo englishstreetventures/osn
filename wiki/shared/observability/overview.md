@@ -10,7 +10,7 @@ related:
   - "[[feature-checklist]]"
   - "[[observability-setup]]"
 packages: ["@shared/observability"]
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-23
 ---
 
 # Observability Overview
@@ -54,7 +54,7 @@ shared/observability/
 
 1. **Never call `console.*` in backend code.** Use `Effect.logInfo` / `Effect.logWarn` / `Effect.logError`. `ObservabilityLive` swaps the logger for `Logger.jsonLogger` in prod and `Logger.prettyLogger()` in dev. See [[logging]] for the full rules.
 
-2. **Never construct OTel meters/tracers directly.** Use the typed helpers from `@shared/observability/metrics`. A lint rule bans raw `metrics.getMeter(...)` calls. See [[metrics]] for the factory API and naming conventions.
+2. **Never construct OTel meters/tracers directly.** Use the typed helpers from `@shared/observability/metrics`. This is a convention checked in review, not a lint rule: a raw `metrics.getMeter(...)` call lints and type-checks clean, so the reviewer has to look for one. See [[metrics]] for the factory API and naming conventions.
 
 3. **Never put unbounded values in metric attributes.** No `userId`, no `requestId`, no `eventId`, no email, no handle. Those belong in traces (spans) or logs (annotations), never metrics. See [[metrics]] for the cardinality rules.
 

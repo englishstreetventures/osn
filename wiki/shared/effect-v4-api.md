@@ -18,7 +18,7 @@ packages:
   - "@pulse/api"
   - "@zap/api"
   - "@cire/api"
-last-reviewed: 2026-10-15
+last-reviewed: 2026-10-23
 ---
 
 # Effect v4 API Shapes
@@ -132,7 +132,7 @@ disappears with no error and no failing type-check. Levels are string literals
 annotations live on the fiber rather than the logger's `Options`, and **the
 JSON severity field is `level`, not `logLevel`** — a Grafana query on the old
 name matches nothing. `@shared/observability` owns all of this; see
-`[[wiki/shared/observability/logging]]`.
+[[logging]].
 
 ## Layer memoization
 

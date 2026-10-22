@@ -69,7 +69,7 @@ Two things to check, both in the same PR as the code:
 - **`AGENTS.md`** — only if this branch adds a pattern, package, convention or architectural decision a future session needs. Reusable context, not noise.
 - **The wiki page for every system this branch changes.** A modified system means an updated page; a new one means a new page, linked from at least two existing pages and `wiki/index.md`. The `write-wiki` skill holds the frontmatter and linking requirements — follow them there rather than repeating them here.
 
-**Then check the links you just wrote resolve.** `mcp__obsidian-wiki__find_broken_links` indexes `main` and cannot see this branch, so check locally — the `comm -23` recipe is in `references/wikilink-check.md`.
+**Then check the links you just wrote resolve.** `mcp__obsidian-wiki__find_broken_links` indexes `main` and cannot see this branch, so check locally with `bun scripts/check-wikilinks.ts` — `references/wikilink-check.md` says what its output means.
 
 Commit any doc updates with the message: `docs: update wiki for <branch-summary>`.
 

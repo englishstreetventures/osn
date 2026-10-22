@@ -7,7 +7,7 @@ related:
   - "[[review-findings]]"
   - "[[stacked-prs]]"
   - "[[testing-patterns]]"
-last-reviewed: 2026-10-15
+last-reviewed: 2026-10-23
 ---
 
 # Contributing
@@ -117,7 +117,7 @@ Before opening a PR, verify:
 - [ ] Changeset valid (`./scripts/validate-changesets.sh`) -- package names match workspace `name` fields, and no changeset mixes ignored with versioned packages
 - [ ] Lockfile honest (`bun install --frozen-lockfile`) -- if `bun.lock` is in the diff, this must pass without rewriting it. An install on one machine prunes entries for every platform it is not running on; splice the entry by hand rather than committing that
 - [ ] Vitest DOM markers intact (`bun run check:jest-dom-markers`) -- every `vitest.config.ts` using `vite-plugin-solid` still names a `jest-dom` path in `setupFiles`
-- [ ] Tests pass (`bun run --cwd <package> test:run`)
+- [ ] Tests pass (`bun run --cwd <package> test:run`, or `test` where the package's `test` script is `bun test` or it has no `test:run`)
 - [ ] Linting passes (`bun run lint`)
 - [ ] Formatting passes (`bun run fmt:check`)
 - [ ] Type check passes (`bun run check`)

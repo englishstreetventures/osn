@@ -11,7 +11,7 @@ related:
   - "[[browser-tests]]"
   - "[[infrastructure-as-code]]"
   - "[[realtime]]"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-23
 ---
 
 # Testing Patterns
@@ -271,7 +271,7 @@ describe("events routes", () => {
 
 - **OSN auth routes use `createAuthRoutes(authConfig, dbLayer?)`.** The `authConfig` parameter is required (no global default). `dbLayer` defaults to `DbLive`.
 
-- **Use `bunx --bun vitest`** (not plain `vitest`) -- the flag is required for `bun:sqlite` module access. The `test:run` scripts in `package.json` already set it.
+- **Use `bunx --bun vitest`** (not plain `vitest`) when you call Vitest yourself -- the flag is required for `bun:sqlite` module access. A package's own `test` and `test:run` scripts already carry the flags its tests need: most of those that run Vitest say `bunx --bun vitest`, and the few whose tests never load `bun:sqlite` call plain `vitest`.
 
 - **Use future dates for test events.** For example, `2030-06-01T10:00:00.000Z`. The default `listEvents` implementation filters out past events, so tests with past dates will produce confusing empty results.
 
@@ -858,9 +858,10 @@ The route tests for the upgrade checkout and the vendor directory's add use both
 
 ## Testing an oxlint rule
 
-`tools/oxlint/house` holds the repo's own oxlint rules, and its tests are the odd
-one out: they run under `bun test`, not vitest, and they lint fixtures instead of
-calling a function.
+`tools/oxlint/house` holds the repo's own oxlint rules. Its tests lint fixtures
+instead of calling a function, and its `test` script is `bun test`, not vitest:
+like every package whose `test` script is `bun test`, run them with
+`bun run --cwd tools/oxlint/house test`, not `test:run`.
 
 `@oxlint/plugins` ships no `RuleTester` — the package is four files and exports
 `definePlugin`, `defineRule` and `eslintCompatPlugin`, nothing else. So a rule

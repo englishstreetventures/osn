@@ -73,7 +73,8 @@ packages:
   - "@tools/metrics"
   - "@tools/oxlint-house"
   - "@tools/pr-metrics"
-last-reviewed: 2026-10-20
+  - "@tools/stryker"
+last-reviewed: 2026-10-23
 ---
 
 # Monorepo Structure
@@ -162,6 +163,7 @@ tools/                 # local-only developer tooling, never shipped
   metrics/             # @tools/metrics — session-metrics dashboard over .claude/metrics
   pr-metrics/          # @tools/pr-metrics — the session-performance cards themselves
   oxlint/house/        # @tools/oxlint-house — this repo's own lint rules (oxlint/anti-slop beside it is a vendored upstream copy)
+  stryker/             # @tools/stryker — runs Stryker mutation testing for a cire package (`test:mutation`)
 ```
 
 ## Where to find things
