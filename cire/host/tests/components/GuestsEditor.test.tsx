@@ -220,6 +220,35 @@ describe("GuestsEditor", () => {
     await waitFor(() => expect(screen.getByText(/First name is required/i)).toBeTruthy());
     const save = screen.getByRole("button", { name: /Save changes/i }) as HTMLButtonElement;
     expect(save.disabled).toBe(true);
+    // The error row spans the whole table, Email and event columns included.
+    const cell = screen.getByText(/First name is required/i).closest("td")!;
+    const headers = cell.closest("table")!.querySelectorAll("thead th");
+    expect(cell.colSpan).toBe(headers.length);
+  });
+
+  // A refused address is announced on the field itself: invalid, and
+  // described by the row's error, as assistive technology reads it.
+  it("marks an address that is not one address invalid, and points the field at the error", async () => {
+    authFetchMock.mockImplementation((url: string) => {
+      if (String(url).endsWith("/events")) return Promise.resolve(json(EVENTS));
+      if (String(url).endsWith("/guests")) {
+        return Promise.resolve(
+          json(GUESTS.map((g) => ({ ...g, email: null, emailSource: null, emailOptedOut: false }))),
+        );
+      }
+      if (String(url).endsWith("/households")) return Promise.resolve(json(HOUSEHOLDS));
+      return Promise.resolve(fallback(url));
+    });
+    render(() => <GuestsEditor weddingId="wed_a" />);
+    const field = (await screen.findByRole("textbox", { name: "Email" })) as HTMLInputElement;
+    expect(field.getAttribute("aria-invalid")).not.toBe("true");
+
+    fireEvent.input(field, { target: { value: "Ada <ada@example.test>" } });
+    const error = await screen.findByText("Enter one email address, like name@example.com.");
+    expect(field.getAttribute("aria-invalid")).toBe("true");
+    expect(field.getAttribute("aria-describedby")).toBe(error.closest("td")!.id);
+    const save = screen.getByRole("button", { name: /Save changes/i }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
   });
 
   it("runs the save flow: preview → shared modal → apply → toast", async () => {
