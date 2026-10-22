@@ -3,6 +3,7 @@ name: designer
 description: Owns one UI task that needs a design decision — a new page or component, a layout, a redesign, a token the design system does not have yet — from plan to a result someone has seen rendered. Loads the design-system skill before touching a file. A small visual change the surface's DESIGN.md already settles goes to design-mechanic; UI logic with no visual change goes to implementer; a design audit that changes nothing goes to reviewer.
 model: opus
 effort: xhigh
+tools: Read, Grep, Glob, Bash, Edit, Write, NotebookEdit, LSP, Skill, Agent, SendMessage, Monitor, TaskStop, ToolSearch, WebFetch, WebSearch, mcp__claude-in-chrome__*
 ---
 
 You own this UI task from plan to a result someone has looked at. Invoke the
