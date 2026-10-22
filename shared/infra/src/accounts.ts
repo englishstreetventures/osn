@@ -16,8 +16,8 @@ export interface TierAccount {
 
 export const TIER_ACCOUNTS = {
   // A separate account from production. Its credentials take names of their
-  // own, because the dev Environment's CLOUDFLARE_ACCOUNT_ID and
-  // CLOUDFLARE_API_TOKEN_DEV reach the production account.
+  // own: production's account-id name, read in the dev Environment, falls
+  // back to the repository's CLOUDFLARE_ACCOUNT_ID, the production account.
   dev: {
     environment: "dev",
     accountIdSecret: "CLOUDFLARE_DEV_ACCOUNT_ID",
@@ -33,11 +33,12 @@ export const TIER_ACCOUNTS = {
 } as const satisfies Readonly<Record<Tier, TierAccount>>;
 
 /**
- * Credentials the `dev` Environment holds for the old dev tier's Wrangler
- * deploys. Both reach the production account; they are deleted with the old
- * dev tier.
+ * Credential names the `dev` Environment must never hold: the production
+ * account's id, and the name a Wrangler token on that account goes by. `dev`
+ * has no reviewer, so either there gives every workflow on `main` a path to
+ * production. Forbidden on every tier whose own account does not use the name.
  */
-export const RETIRING_DEV_CREDENTIALS: readonly string[] = [
+export const RETIRED_DEV_CREDENTIALS: readonly string[] = [
   "CLOUDFLARE_ACCOUNT_ID",
   "CLOUDFLARE_API_TOKEN_DEV",
 ];
@@ -70,16 +71,10 @@ export function requiredCredentials(tier: Tier): readonly string[] {
   return [...accountSecrets(tier), ...(tier === "dev" ? DEV_READONLY_CREDENTIALS : [])].toSorted();
 }
 
-/** Credential names `tier`'s Environment may still hold, though no workflow needs them: the old dev tier's. Sorted. */
-export function allowedCredentials(tier: Tier): readonly string[] {
-  return tier === "dev" ? [...RETIRING_DEV_CREDENTIALS].toSorted() : [];
-}
-
-/** Credential names `tier`'s Environment must never hold: the other tier's, where this tier does not use the name too. */
+/** Credential names `tier`'s Environment must never hold: the other tier's and the retired dev ones, where this tier does not use the name too. Sorted. */
 export function forbiddenCredentials(tier: Tier): readonly string[] {
-  const own = new Set([...requiredCredentials(tier), ...allowedCredentials(tier)]);
-  const other = otherTier(tier);
-  return [...new Set([...requiredCredentials(other), ...allowedCredentials(other)])]
+  const own = new Set(requiredCredentials(tier));
+  return [...new Set([...requiredCredentials(otherTier(tier)), ...RETIRED_DEV_CREDENTIALS])]
     .filter((name) => !own.has(name))
     .toSorted();
 }
@@ -90,7 +85,6 @@ export function knownCredentials(): readonly string[] {
     ...new Set([
       ...accountSecrets("dev"),
       ...accountSecrets("production"),
-      ...RETIRING_DEV_CREDENTIALS,
       ...DEV_READONLY_CREDENTIALS,
       ...REPOSITORY_CREDENTIALS,
     ]),

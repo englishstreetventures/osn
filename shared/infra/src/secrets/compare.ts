@@ -1,4 +1,4 @@
-import { allowedCredentials, forbiddenCredentials, requiredCredentials } from "../accounts";
+import { forbiddenCredentials, requiredCredentials } from "../accounts";
 import type { Tier } from "../stage";
 import { SECRET_INVENTORY, WORKFLOW_SECRETS, type WorkerKey } from "./inventory";
 
@@ -105,16 +105,15 @@ export function githubExpectations(tier: Tier): string[] {
 }
 
 /**
- * Missing required names and the other tier's credentials fail; optional
- * secrets and the old credentials the tier may still hold are not unexpected.
+ * Missing required names and forbidden credentials (`forbiddenCredentials`)
+ * fail; optional secrets held during a rotation are not unexpected.
  */
 export function githubDiff(tier: Tier, actual: readonly string[]): NameDiff {
-  const optional = SECRET_INVENTORY.flatMap((entry) => entry.tiers[tier].optional);
   return diffNames(
     `GitHub Environment ${tier}`,
     githubExpectations(tier),
     actual,
-    [...optional, ...allowedCredentials(tier)],
+    SECRET_INVENTORY.flatMap((entry) => entry.tiers[tier].optional),
     forbiddenCredentials(tier),
   );
 }

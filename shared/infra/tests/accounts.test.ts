@@ -6,7 +6,6 @@ import { describe, expect, test } from "vitest";
 
 import {
   accountSecrets,
-  allowedCredentials,
   DEV_READONLY_CREDENTIALS,
   forbiddenCredentials,
   knownCredentials,
@@ -14,6 +13,7 @@ import {
   requiredCredentials,
   TIER_ACCOUNTS,
 } from "../src/accounts";
+import { githubExpectations } from "../src/secrets/compare";
 import type { Tier } from "../src/stage";
 
 const TIERS: readonly Tier[] = ["dev", "production"];
@@ -34,18 +34,26 @@ describe("TIER_ACCOUNTS", () => {
     for (const name of accountSecrets("production")) expect(dev).not.toContain(name);
   });
 
-  test("each Environment is forbidden the other tier's credentials and none of its own", () => {
-    expect(forbiddenCredentials("dev")).toEqual(["CLOUDFLARE_API_TOKEN"]);
+  test("each Environment is forbidden the other tier's credentials and the retired dev ones, and nothing it must hold", () => {
+    expect(forbiddenCredentials("dev")).toEqual([
+      "CLOUDFLARE_ACCOUNT_ID",
+      "CLOUDFLARE_API_TOKEN",
+      "CLOUDFLARE_API_TOKEN_DEV",
+    ]);
     expect(forbiddenCredentials("production")).toEqual([
       "CLOUDFLARE_API_TOKEN_DEV",
       "CLOUDFLARE_DEV_ACCOUNT_API_TOKEN",
       "CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY",
       "CLOUDFLARE_DEV_ACCOUNT_ID",
     ]);
+    // A name both forbidden and expected would fail the check whether or not
+    // the Environment held it.
     for (const tier of TIERS) {
-      for (const name of [...requiredCredentials(tier), ...allowedCredentials(tier)]) {
-        expect(forbiddenCredentials(tier)).not.toContain(name);
-      }
+      const expected = githubExpectations(tier);
+      expect({
+        tier,
+        both: forbiddenCredentials(tier).filter((name) => expected.includes(name)),
+      }).toEqual({ tier, both: [] });
     }
   });
 
@@ -55,7 +63,6 @@ describe("TIER_ACCOUNTS", () => {
     expect(requiredCredentials("dev")).toEqual(
       [...accountSecrets("dev"), "CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY"].toSorted(),
     );
-    expect(allowedCredentials("dev")).not.toContain("CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY");
     expect(forbiddenCredentials("production")).toContain(
       "CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY",
     );

@@ -110,9 +110,9 @@ jobs:
     timeout-minutes: 5
     # The dev account's credentials are `dev` Environment secrets. That
     # Environment has no reviewers, only a `main` branch policy, so the nightly
-    # run reaches them. It also holds the retiring CLOUDFLARE_ACCOUNT_ID, which
-    # names the production account, so this job reads the dev account's own
-    # names only.
+    # run reaches them. Read here, CLOUDFLARE_ACCOUNT_ID would fall back to the
+    # repository secret that names the production account, so this job reads
+    # the dev account's own names only.
     environment: dev
     steps:
       - uses: actions/checkout@v4

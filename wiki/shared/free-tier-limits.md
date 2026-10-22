@@ -13,7 +13,7 @@ related:
   - "[[cire-auth]]"
   - "[[dev-environment]]"
   - "[[realtime]]"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-23
 ---
 
 # Free-Tier Limits & Unavailability Runbook
@@ -260,7 +260,7 @@ Over about an hour of one organiser checklist tab on `host.dev.cireweddings.com`
 | Rows written | **100,000 / day** |
 | Storage | **5 GB / account total** |
 | Max DB size | **500 MB** |
-| Databases | **10 / account** — production 5 (7 until the old dev tier's two databases are deleted, [[dev-environment#Retiring the old dev tier]], englishstreetventures/osn#1579), dev 3 (see below) |
+| Databases | **10 / account** — production 5, dev 3 (see below) |
 | Queries per Worker invocation | **50** |
 | Max row size | **2 MB** |
 
