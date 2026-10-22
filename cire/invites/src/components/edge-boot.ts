@@ -153,6 +153,11 @@ function readInsets(doc: Document): Insets {
  * removes every listener. Idempotent with the boot script: it sets the same
  * classes from the same rule, so a late run changes nothing it has not already
  * set. Called once from the invite shell's module script.
+ *
+ * The insets and the palette change only on a viewport or palette event, so
+ * they are read there and cached. A scroll only moves the hero's edge, so a
+ * scroll frame does the one comparison it needs and writes nothing that has
+ * not changed.
  */
 export function startEdgeColours(
   doc: Document = document,
@@ -161,33 +166,63 @@ export function startEdgeColours(
   const win = doc.defaultView;
   if (!win) return () => {};
   const root = doc.documentElement;
-  let frame = 0;
 
-  const apply = () => {
-    frame = 0;
+  let frame = 0;
+  let needMeasure = false;
+  let scrollOn = false;
+  let stripHeight = 0;
+  let colours = { page: FALLBACK_HEX, heroTop: FALLBACK_HEX, heroEnd: FALLBACK_HEX };
+
+  /** The scroll listener exists only while a bottom strip can depend on it. */
+  const setScrollListener = (on: boolean) => {
+    if (on === scrollOn) return;
+    scrollOn = on;
+    if (on) win.addEventListener("scroll", request, { passive: true });
+    else win.removeEventListener("scroll", request);
+  };
+
+  /** Read the palette colours once; they change only with `cire:palette`. */
+  const readColours = () => {
+    const cs = win.getComputedStyle(root);
+    const page = oklchToHex(cs.getPropertyValue("--color-bg")) ?? FALLBACK_HEX;
+    colours = {
+      page,
+      heroTop: oklchToHex(cs.getPropertyValue("--invite-hero-grad-1")) ?? page,
+      heroEnd: oklchToHex(cs.getPropertyValue("--invite-hero-grad-3")) ?? page,
+    };
+  };
+
+  /** Re-read the insets and the palette, set the classes, then paint. */
+  const measure = () => {
     const insets = readInsetsFrom(doc);
     const edges = decideEdges(insets.top, insets.bottom);
     root.classList.toggle(EDGE_TOP_CLASS, edges.top);
     root.classList.toggle(EDGE_BOTTOM_CLASS, edges.bottom);
+    stripHeight = edges.bottom ? Math.max(EDGE_MIN_PX, insets.bottom) : 0;
+    readColours();
+    setScrollListener(stripHeight > 0);
+    paint();
+  };
 
-    const cs = win.getComputedStyle(root);
-    const pageHex = oklchToHex(cs.getPropertyValue("--color-bg")) ?? FALLBACK_HEX;
-    const heroTop = oklchToHex(cs.getPropertyValue("--invite-hero-grad-1")) ?? pageHex;
-    const heroEnd = oklchToHex(cs.getPropertyValue("--invite-hero-grad-3")) ?? pageHex;
+  /** Set a root property or style only when its value differs, so an unchanged frame writes nothing. */
+  const setIfChanged = (name: string, value: string) => {
+    if (root.style.getPropertyValue(name) !== value) root.style.setProperty(name, value);
+  };
 
+  /** Decide the two edge colours from the hero's position and paint them. */
+  const paint = () => {
     const hero = doc.querySelector<HTMLElement>(`[${EDGE_HERO_ATTR}]`);
-    const top = hero ? heroTop : pageHex;
-    const stripHeight = edges.bottom ? Math.max(EDGE_MIN_PX, insets.bottom) : 0;
+    const top = hero ? colours.heroTop : colours.page;
     const bottom =
       hero &&
       stripHeight > 0 &&
       bottomIsHero(hero.getBoundingClientRect().bottom, win.innerHeight, stripHeight)
-        ? heroEnd
-        : pageHex;
+        ? colours.heroEnd
+        : colours.page;
 
-    root.style.setProperty("--edge-top-bg", top);
-    root.style.setProperty("--edge-bottom-bg", bottom);
-    root.style.background = top;
+    setIfChanged("--edge-top-bg", top);
+    setIfChanged("--edge-bottom-bg", bottom);
+    setIfChanged("background", top);
 
     let meta = doc.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
     if (!meta) {
@@ -195,26 +230,42 @@ export function startEdgeColours(
       meta.name = "theme-color";
       doc.head.appendChild(meta);
     }
-    meta.content = top;
+    if (meta.content !== top) meta.content = top;
   };
 
-  const schedule = () => {
-    if (frame === 0) frame = win.requestAnimationFrame(apply);
+  /** One pending frame for every event in it; a measure in the frame covers the paint. */
+  function request() {
+    if (frame === 0) frame = win.requestAnimationFrame(run);
+  }
+  const requestMeasure = () => {
+    needMeasure = true;
+    request();
   };
+  function run() {
+    frame = 0;
+    if (needMeasure) {
+      needMeasure = false;
+      measure();
+    } else {
+      paint();
+    }
+  }
 
-  const events = ["scroll", "resize", "orientationchange", "pageshow"] as const;
-  for (const name of events) win.addEventListener(name, schedule, { passive: true });
+  // Viewport and palette events change the insets or the colours: re-measure.
+  const viewportEvents = ["resize", "orientationchange", "pageshow"] as const;
+  for (const name of viewportEvents) win.addEventListener(name, requestMeasure);
   const vv = win.visualViewport;
-  vv?.addEventListener("resize", schedule);
-  doc.addEventListener("cire:palette", schedule);
-  if (doc.readyState === "loading") doc.addEventListener("DOMContentLoaded", schedule);
-  apply();
+  vv?.addEventListener("resize", requestMeasure);
+  doc.addEventListener("cire:palette", requestMeasure);
+  if (doc.readyState === "loading") doc.addEventListener("DOMContentLoaded", requestMeasure);
+  measure();
 
   return () => {
-    for (const name of events) win.removeEventListener(name, schedule);
-    vv?.removeEventListener("resize", schedule);
-    doc.removeEventListener("cire:palette", schedule);
-    doc.removeEventListener("DOMContentLoaded", schedule);
+    for (const name of viewportEvents) win.removeEventListener(name, requestMeasure);
+    vv?.removeEventListener("resize", requestMeasure);
+    doc.removeEventListener("cire:palette", requestMeasure);
+    doc.removeEventListener("DOMContentLoaded", requestMeasure);
+    setScrollListener(false);
     if (frame !== 0) win.cancelAnimationFrame(frame);
     frame = 0;
   };
