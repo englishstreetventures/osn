@@ -28,5 +28,5 @@ export function makeEffectD1Layer<I>(tag: Context.Service<I, EffectD1Db>, shim: 
     db: shim as D1Database,
     prepareCacheSize: 0,
   });
-  return Layer.effect(tag, makeWithDefaults({})).pipe(Layer.provide(client));
+  return Layer.effect(tag, makeWithDefaults({})).pipe(Layer.provideMerge(client));
 }
