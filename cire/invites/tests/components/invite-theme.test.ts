@@ -320,3 +320,21 @@ describe("applyPaletteToRoot", () => {
     expect(document.documentElement.style.getPropertyValue("--color-bg")).not.toBe("");
   });
 });
+
+describe("applyPaletteToRoot announces the palette", () => {
+  it("dispatches cire:palette once, after the variables are on the root", () => {
+    const root = document.documentElement;
+    let seenWhenFired: string | null = null;
+    const listener = () => {
+      seenWhenFired = root.style.getPropertyValue("--invite-hero-grad-1");
+    };
+    document.addEventListener("cire:palette", listener);
+    try {
+      applyPaletteToRoot(themed);
+      expect(seenWhenFired).not.toBe("");
+      expect(seenWhenFired).toBe(root.style.getPropertyValue("--invite-hero-grad-1"));
+    } finally {
+      document.removeEventListener("cire:palette", listener);
+    }
+  });
+});

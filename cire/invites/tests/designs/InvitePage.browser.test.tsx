@@ -497,9 +497,13 @@ describe.each([
     // puts the toast over it.
     const painted = Number.parseInt(getComputedStyle(container!).zIndex, 10);
     expect(painted, "the toast stacks below the page's own furniture").toBeGreaterThan(
-      Z_LAYER.STICKY_RAIL,
+      Z_LAYER.HERO_CUE,
     );
     expect(painted, "the toast stacks above the consent layers").toBeLessThan(Z_LAYER.CONSENT);
+    // The top inset clears the status bar and Dynamic Island on a notched phone (issue #1700).
+    expect(container!.style.top, "the toast sits below the status bar").toBe(
+      "env(safe-area-inset-top)",
+    );
     expect(container!.matches(":popover-open"), "the toast never entered the top layer").toBe(true);
 
     // Painted, on screen, and anchored where `top-center` says.
@@ -571,9 +575,13 @@ describe.each([
     // puts the toast over it.
     const painted = Number.parseInt(getComputedStyle(container!).zIndex, 10);
     expect(painted, "the toast stacks below the page's own furniture").toBeGreaterThan(
-      Z_LAYER.STICKY_RAIL,
+      Z_LAYER.HERO_CUE,
     );
     expect(painted, "the toast stacks above the consent layers").toBeLessThan(Z_LAYER.CONSENT);
+    // The top inset clears the status bar and Dynamic Island on a notched phone (issue #1700).
+    expect(container!.style.top, "the toast sits below the status bar").toBe(
+      "env(safe-area-inset-top)",
+    );
     expect(container!.matches(":popover-open"), "the toast never entered the top layer").toBe(true);
 
     // Painted, on screen, and anchored where `top-center` says.

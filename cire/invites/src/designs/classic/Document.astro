@@ -6,6 +6,9 @@ import { heroPreloadHref } from '../../components/invite-images'
 import InviteHeader from './InviteHeader'
 import InvitePage from './InvitePage'
 import { filterThemeVars, paletteRootVars, sectionVars, styleAttr } from '../../components/invite-theme'
+import { heroState } from '../../components/invite-emptiness'
+import { EDGE_BOOT_SCRIPT, EDGE_STRIP_CLASS, edgeStyle, serverEdgeColours } from '../../components/edge-boot'
+import { Z_CLASS } from '../../lib/z-index'
 import { GiftRegistryTeaser } from '../../components/gift-registry/GiftRegistryTeaser'
 import SiteFooter from '../../components/SiteFooter.astro'
 import { ConsentBanner } from '../../components/consent/ConsentBanner'
@@ -28,7 +31,18 @@ const pageTitle = inviteTitle(initialInvite?.hero.title)
 // the built-in dark green until the island hydrated. When the route had no
 // payload, the islands' browser-side retry re-applies it (`applyPaletteToRoot`)
 // once the invite arrives.
-const paletteStyle = styleAttr(paletteRootVars(initialInvite?.theme ?? null))
+const palette = paletteRootVars(initialInvite?.theme ?? null)
+const paletteStyle = styleAttr(palette)
+// The first-paint edge colours (issue #1700). The hero is shown when the same
+// state function the client uses says so, so the server and client agree.
+const heroShown =
+  heroState(initialInvite?.visibility?.hero, {
+    imageUrl: initialInvite?.hero?.imageUrl,
+    title: initialInvite?.hero?.title,
+    subtitle: initialInvite?.hero?.subtitle,
+  }) === 'shown'
+const edgeColours = serverEdgeColours(palette, heroShown)
+const edgeInline = edgeStyle(edgeColours)
 
 // Warm the browser's connection to cire-api. See `lib/api-origin.ts` for why
 // this is separate from the hero preload and why it carries no `crossorigin`.
@@ -41,10 +55,14 @@ const apiPreconnect = apiPreconnectHref(apiUrl)
 const registryVars = filterThemeVars(sectionVars(initialInvite?.theme ?? null, 'registry'))
 ---
 <!DOCTYPE html>
-<html lang="en" style={paletteStyle}>
+<html lang="en" style={`${paletteStyle};${edgeInline}`}>
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content={edgeColours.top} />
+    {/* Sets the safe-area classes before first paint. Runs after the viewport meta:
+        iOS reports the insets as 0 until viewport-fit=cover is in effect. */}
+    <script is:inline set:html={EDGE_BOOT_SCRIPT}></script>
     {/* S-L1: keep the ?code= preview credential out of cross-origin Referer headers. */}
     <meta name="referrer" content="strict-origin-when-cross-origin" />
     <title>{pageTitle}</title>
@@ -60,7 +78,8 @@ const registryVars = filterThemeVars(sectionVars(initialInvite?.theme ?? null, '
     {apiPreconnect && <link rel="preconnect" href={apiPreconnect} />}
     {preloadHeroHref && <link rel="preload" as="image" href={preloadHeroHref} />}
   </head>
-  <body>
+  <body class="invite-page">
+    <div class={`${EDGE_STRIP_CLASS} edge-top ${Z_CLASS.EDGE}`} aria-hidden="true"></div>
     <InviteHeader client:load apiUrl={apiUrl} slug={slug} initial={initialInvite} />
     {/* rootMargin so the island hydrates while the full-viewport hero is
         still on screen. Bare `client:visible` cannot fire at scroll position
@@ -107,5 +126,11 @@ const registryVars = filterThemeVars(sectionVars(initialInvite?.theme ?? null, '
         invite's first paint — nothing third-party can load before it hydrates
         anyway, since every ConsentGate defaults to denied until then. */}
     <ConsentBanner client:idle />
+    <div class={`${EDGE_STRIP_CLASS} edge-bottom ${Z_CLASS.EDGE}`} aria-hidden="true"></div>
   </body>
 </html>
+
+<script>
+  import { startEdgeColours } from '../../components/edge-boot'
+  startEdgeColours()
+</script>

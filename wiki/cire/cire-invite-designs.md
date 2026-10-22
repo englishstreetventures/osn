@@ -723,6 +723,35 @@ time order, no "Plus-ones welcome" for the organiser's own household — its
 claim response and its `.ics` file, and in the sheet of a household allowed a
 plus-one, which is told plus-ones are welcome.
 
+## Edges in mobile Safari
+
+Safari colours the status bar and the bottom toolbar from what is painted
+behind them. Each invite shell draws two fixed strips, one at each viewport
+edge, in the colour of the page there (issue #1700).
+
+- **Shells.** `designs/classic/Document.astro` and `designs/gala/Document.astro`
+  set `viewport-fit=cover` and `body.invite-page`, and render the two
+  `.edge-strip` divs. Without cover, iOS reports the safe-area insets as 0.
+  The gift-registry, not-found and legal shells do not change.
+- **Probe.** An inline script in `<head>` (`EDGE_BOOT_SCRIPT` in
+  `components/edge-boot.ts`) measures each inset and sets `has-safe-top` or
+  `has-safe-bottom` on `<html>` before first paint. A strip shows only on an
+  edge that has an inset, so desktop, Android and Chromium get none.
+- **Colours.** The server writes `--edge-top-bg`, `--edge-bottom-bg` and the
+  `theme-color` meta from the palette. The top edge is the hero's start colour
+  and the bottom edge is the hero's end colour while the hero covers the bottom
+  strip zone; otherwise both are the page background. `startEdgeColours` keeps
+  them current on scroll, resize, orientation change and `cire:palette`.
+- **Stacking.** The strip is `Z_CLASS.EDGE` (z-30) and the scroll cue is
+  `Z_CLASS.HERO_CUE` (z-31), so the cue paints over the strip where they meet.
+- **Landscape.** `body.invite-page` takes the side insets, and the hero takes
+  its side inset from the body. The closing band's height reserve is too large
+  in landscape; a follow-up issue tracks it.
+- **Limits.** A scrim or photo hero differs from the solid strip. Raised-tone
+  sections show the page colour, not their own. A sheet is a top-layer dialog,
+  so it paints over the strips. Behaviour on iOS Safari itself is not yet
+  verified on a device.
+
 ## Adding a design
 
 1. Catalog entry in `@cire/invite-designs` (type error in the web registry
@@ -734,7 +763,9 @@ plus-one, which is told plus-ones are welcome.
    markup of the pack's own. Its hero ends with `<HeroScrollCue>` and keeps
    2.5rem of bottom padding under the title (see
    [The hero scroll cue](#the-hero-scroll-cue)); list the pack in
-   `InviteHeader.ssr.test.tsx` and `InviteHeader.browser.test.tsx`.
+   `InviteHeader.ssr.test.tsx` and `InviteHeader.browser.test.tsx`. Its shell
+   also renders the edge strips and puts `data-edge-hero` on the hero root (see
+   [Edges in mobile Safari](#edges-in-mobile-safari)).
 3. Row in `cire/host/src/components/invite/design-layout.ts` describing how
    the pack is SHAPED, so the builder's preview stops previewing it as Classic.
    Not optional — `design-layout.test.ts` asserts every catalog id has its own
