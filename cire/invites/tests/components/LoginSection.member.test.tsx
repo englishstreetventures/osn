@@ -112,6 +112,23 @@ it("records the choice and takes the API's link state for that member", async ()
   expect((await view.findByTestId("pulse-account-link-stub")).dataset.member).toBe("g-Ada");
 });
 
+// The API's answer carries the chosen member's own address; the page keeps
+// it, so the email box opens on what is stored rather than an empty field.
+it("keeps the chosen member's own address from the API's answer", async () => {
+  const email = { address: "ada@example.test", source: "organiser_attested" };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() =>
+      Promise.resolve(Response.json({ member: { guestId: "g-Ada", email }, accountLink: null })),
+    ),
+  );
+  const { view, result } = renderPanel(household([member("Chidi"), member("Ada")], null));
+
+  fireEvent.click(view.getByRole("button", { name: "Ada" }));
+  await view.findByText(/Answering as Ada/);
+  expect(result().member).toEqual({ guestId: "g-Ada", email });
+});
+
 it("'Not you?' clears the member and ends the musubi sign-in", async () => {
   const fetchMock = vi.fn(() => Promise.resolve(new Response(null, { status: 204 })));
   vi.stubGlobal("fetch", fetchMock);

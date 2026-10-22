@@ -219,6 +219,9 @@ describe("createGuestEventDraft — id-stable rows", () => {
       expect(fam.id).toBeUndefined();
       expect(fam.publicId).toBeUndefined(); // reconcile auto-mints the code
       expect(fam.guests[0]!.id).toBeUndefined();
+      // Blank but for the name typed: no address, no invitation.
+      expect(fam.guests[0]).toMatchObject({ lastName: "", nickname: null, eventNames: [] });
+      expect(fam.guests[0]).not.toHaveProperty("email");
       dispose();
     });
   });
@@ -1237,6 +1240,30 @@ describe("replayDraft — keeping unsaved edits across a reload", () => {
     });
   });
 
+  // An address the organiser did not touch is not an edit after a reload
+  // either, even when the guest changed it meanwhile: the save sends none.
+  it("sends no address for a guest whose address the organiser left alone across a reload", () => {
+    const base = baseline();
+    Object.assign(base.families[0]!.guests[0]!, {
+      email: "a@example.test",
+      emailLoaded: "a@example.test",
+      emailSource: "organiser_attested",
+    });
+    const current = structuredClone(base);
+    current.families[0]!.guests[0]!.nickname = "Ads";
+    const fresh = freshOf(base);
+    Object.assign(fresh.families[0]!.guests[0]!, {
+      email: "c@example.test",
+      emailLoaded: "c@example.test",
+      emailSource: "guest",
+    });
+
+    const { draft } = replayDraft(base, current, fresh);
+    const wire = toDesiredState(draft).families[0]!.guests[0]!;
+    expect(wire).toMatchObject({ nickname: "Ads" });
+    expect(wire).not.toHaveProperty("email");
+  });
+
   it("keeps the organiser's field edits and the other change's edits to other fields", () => {
     const base = baseline();
     const current = structuredClone(base);
@@ -1579,17 +1606,21 @@ describe("guest addresses in the draft", () => {
       const store = loaded();
       store.updateGuest(guestKey(store, "Ada"), { nickname: "A" });
       expect(wireGuest(store, "Ada")).not.toHaveProperty("email");
+      // Nor does the draft itself, so the editor draws no address field.
+      for (const family of store.draft.families) {
+        for (const guest of family.guests) expect(guest).not.toHaveProperty("email");
+      }
       dispose();
     });
   });
 
-  // Every guest without an address carries `email: ""`: flagging a blank
-  // would block every save in a wedding with one such guest.
+  // Every guest without an address carries `email: ""`: flagging a blank —
+  // empty, or only spaces — would block every save in a wedding with one.
   it("lets a blank or a valid address save", () => {
     createRoot((dispose) => {
       const store = createGuestEventDraft();
       store.load(EVENTS, WITH_EMAILS, [], REVISION);
-      store.updateGuest(guestKey(store, "Ben"), { email: "" });
+      store.updateGuest(guestKey(store, "Ben"), { email: "   " });
       store.updateGuest(guestKey(store, "Ada"), { email: "Ada@Example.test " });
       expect(validateDraft(store.draft)).toEqual([]);
       dispose();
