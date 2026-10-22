@@ -286,9 +286,12 @@ owners, each with an `owner` seat. Two consequences:
   its `imports` rows name in `cire-sheets` (uploads, editor drafts, previews,
   before-images). The attester's profile id identifies a co-host:
   an access answer says the hosts added the address, not which host
-  (Art. 15(4)). Erasure: the guest removes the address on the invite at once,
-  which also records their opt-out; an owner or editor removes it in the guest
-  editor; deleting the guest deletes the row. A guest asking never to be
+  (Art. 15(4)). Rectification (Art. 16): the guest replaces the address on
+  the invite; an address the hosts added that it replaces is recorded as the
+  seat's opt-out (`reason = 'guest_corrected'`), so a later sheet or revert
+  does not put it back unseen. Erasure: the guest removes the address on the
+  invite at once, which also records their opt-out; an owner or editor removes
+  it in the guest editor; deleting the guest deletes the row. A guest asking never to be
   emailed again keeps their suppression row, which is the record of that
   objection (Art. 21(3)); deleting it as well is erasure of the objection, and
   an operator does it by hand on request. The same hand delete — by

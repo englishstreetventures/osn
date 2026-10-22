@@ -126,12 +126,17 @@ final sign-off now turns only on the residual retention gaps below.
   anyone holding the code who picks that member sees it — the household trust
   model that already shows every member's dietary answers. `guest` therefore
   means "given on a household session for this seat"; nothing verifies the
-  inbox, and double opt-in is left to the sending work. A guest's Remove
+  inbox, and double opt-in is left to the sending work. Every door stores an
+  address in one form, trimmed, lower-cased and in printable ASCII only, so
+  one mailbox has one stored value and one hash. A guest's Remove
   clears the address and its record and writes a row to the suppression list
   (`email_suppressions`), which holds a per-wedding SHA-256 of the address,
-  never the address, so the withdrawal outlives the address. One seat's
+  never the address, so the withdrawal outlives the address. A guest who
+  replaces an address the hosts added with another writes a row for the old
+  one too (`guest_corrected`): they have said it is wrong. One seat's
   opt-out stops mail to that address for every seat holding it; only that
-  seat can clear it, by giving the address again. A host may re-add a
+  seat can clear it, by giving the address again, which it may do even at its
+  cap of 10 opt-outs. A host may re-add a
   withdrawn address; it is stored, shown as opted out, and not mailed. Hosts
   cannot change an address a guest gave themselves, only remove it from the
   editor; a spreadsheet or a revert never touches one, and a revert never
@@ -465,7 +470,7 @@ final sign-off now turns only on the residual retention gaps below.
 | One household member relays another adult's dietary consent | Medium | Medium | Existing gap, now visible in the record (which member ticked the box for whom). Accepted: the consent gate is unchanged and the household relays consent on its own word; revisit on request. |
 | A guest's email address used without their agreement — an organiser attests falsely, or one household member gives another's address | Medium | Medium | Every address carries who supplied it and the consent behind it: the guest's own tick, or the attestation of a named owner or editor under a versioned wording that also commits them to passing on the notice. The guest sees a host-added address on the invite, labelled as the hosts', with Remove; Remove stops mail to it for the wedding. Residuals: an attestation is the organiser's word, not proof; an address is never verified, so a mistyped or someone else's address is stored as given until sending adds confirmation. |
 | A guest's address disclosed to the wrong person in the household | Low | Low–Medium | The household receives only the chosen member's own address, never a list, and only on its own session. Anyone holding the household code who picks that member's name sees it — the household trust model the dietary answers already rest on. Accepted. |
-| A withdrawn address mailed anyway, or a withdrawal undone by someone else | Low | Medium | Removal writes a suppression row, in the same batch as the clear and naming the address the row held then, that sending must check; any matching row suppresses the address for every seat. Only the seat that withdrew it can clear its row, so another household saving the same address cannot undo it. A revert never restores a withdrawn address, and a host re-adding one is warned before attesting and sees it marked opted out. A seat holds at most 10 opt-outs. Residual: anyone holding a household code can block an address for the wedding by adding then removing it — this fails safe, since nobody is mailed, but neither the guest nor the hosts can clear it; an operator deletes the row by hand on request ([[dsar]]). Whether a removal must first prove the inbox is the sending work's question (englishstreetventures/osn#481). |
+| A withdrawn address mailed anyway, or a withdrawal undone by someone else | Low | Medium | Removal writes a suppression row, in the same batch as the clear and naming the address the row held then, that sending must check; so does a guest's replacement of an address the hosts added, for the replaced one. Any matching row suppresses the address for every seat. Only the seat that withdrew it can clear its row, so another household saving the same address cannot undo it. A revert never restores a withdrawn address, and a host re-adding one is warned before attesting — an apply whose addresses or withdrawals differ from its preview's is refused for a fresh preview — and sees it marked opted out. A seat gives a new address only while it holds fewer than 10 opt-outs, and may always give back one it withdrew. Residual: anyone holding a household code can block an address for the wedding by adding then removing it — this fails safe, since nobody is mailed, but neither the guest nor the hosts can clear it; an operator deletes the row by hand on request ([[dsar]]). Whether a removal must first prove the inbox is the sending work's question (englishstreetventures/osn#481). |
 | The suppression hash reversed by guessing | Low | Low | It is an unkeyed SHA-256 of the wedding id and the address, so anyone holding the database and a candidate address can test it. It keeps the plain address out of the table and needs no secret whose rotation would drop every opt-out. Accepted while the change history in R2 still holds addresses in plain text for up to a year. |
 | Addresses left in copies after a guest removes theirs | Medium | Low | The uploads, editor drafts, previews and before-images in `cire-sheets` keep the addresses their rows held, until the 1-year sweep, the 7-day preview sweep, the 10-change prune or the purge deletes them ([[retention]]). Not reachable from any guest-facing path. Accepted, and stated in the data map. |
 | Guest claim code (`public_id`) leaking — it is a credential | Low–Medium | Medium | Rate-limited claim endpoint; redacted in logs. Still a shared, low-entropy-looking string. |
@@ -511,7 +516,11 @@ final sign-off now turns only on the residual retention gaps below.
   did not show (422), and an apply that sets an address on the organiser's
   word is refused without the attestation's current version (422
   `email_attestation_required`), before any write; the stamped record names
-  the organiser. The editor sends an address only for a guest the organiser
+  the organiser. The attestation covers only the addresses the preview
+  showed: apply refuses (409) when the addresses it would set on the
+  organiser's word, or which of them a guest has withdrawn, differ from the
+  preview's, so a guest's removal between preview and apply sends the
+  organiser back to a preview that warns of it. The editor sends an address only for a guest the organiser
   changed, with the address it loaded, and the write applies only while the
   stored address and its source are still those, so a guest's own save —
   even of the same address — is never overwritten. No address appears in a log line: `email` is a redacted key and
