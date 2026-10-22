@@ -175,6 +175,70 @@ describe("guest email routes — refusals", () => {
     expect(emailRow(db, cleo)).toEqual(NOTHING_STORED);
   });
 
+  // `DELETE` builds its own seat request, so each seat refusal is checked on
+  // it too: a refused removal leaves the address and writes no opt-out.
+  describe("DELETE", () => {
+    function seed(db: TestDb, id: string) {
+      db.update(guests)
+        .set({
+          email: ADDRESS,
+          emailSource: "guest",
+          emailConsentAt: new Date(0),
+          emailConsentVersion: GUEST_EMAIL_CONSENT.version,
+        })
+        .where(eq(guests.id, id))
+        .run();
+    }
+
+    function expectKept(db: TestDb, id: string) {
+      expect(emailRow(db, id)?.email).toBe(ADDRESS);
+      expect(db.select().from(emailSuppressions).all()).toEqual([]);
+    }
+
+    it("refuses the host preview household", async () => {
+      const { db, app } = buildApp();
+      const { publicId } = await Effect.runPromise(
+        hostCodeService
+          .ensureForWedding(BOOTSTRAP_WEDDING_ID, "cire-wedding")
+          .pipe(Effect.provideService(DbService, db)),
+      );
+      const cookie = await claim(app, publicId);
+      const [hostSeat] = db
+        .select({ id: guests.id })
+        .from(guests)
+        .innerJoin(families, eq(guests.familyId, families.id))
+        .where(eq(families.publicId, publicId))
+        .all();
+      seed(db, hostSeat!.id);
+      const res = await remove(app, cookie, hostSeat!.id);
+      expect(res.status).toBe(403);
+      expect(await jsonBody(res)).toEqual({ error: "not_a_guest" });
+      expectKept(db, hostSeat!.id);
+    });
+
+    it("answers 404 where the member step is off for the wedding", async () => {
+      const { db, app } = buildApp(new Set([BOOTSTRAP_WEDDING_ID]));
+      const cookie = await claim(app, TESTFAMILY);
+      const ada = guestId(db, "Ada");
+      seed(db, ada);
+      const res = await remove(app, cookie, ada);
+      expect(res.status).toBe(404);
+      expect(await jsonBody(res)).toEqual({ error: "Not found" });
+      expectKept(db, ada);
+    });
+
+    it("refuses a household that has not said who is answering", async () => {
+      const { db, app } = buildApp();
+      const cookie = await claim(app, SAMPLETON);
+      const cleo = guestId(db, "Cleo");
+      seed(db, cleo);
+      const res = await remove(app, cookie, cleo);
+      expect(res.status).toBe(409);
+      expect(await jsonBody(res)).toEqual({ error: "member_required" });
+      expectKept(db, cleo);
+    });
+  });
+
   // The page names one member; a second tab may have chosen another since.
   // The address goes on the seat the page showed or nowhere.
   it("refuses a body naming a member the session no longer holds", async () => {
@@ -386,7 +450,7 @@ describe("guest email routes — bodies and failed writes", () => {
     expect(emailRow(db, cleo)).toEqual(NOTHING_STORED);
   });
 
-  it("answers 500 and changes nothing when the write fails", async () => {
+  it("answers 500 and leaves the stored address as it was when the write fails", async () => {
     const { db, app } = buildApp();
     const cookie = await answeringAs(app, db, "Cleo");
     const cleo = guestId(db, "Cleo");
