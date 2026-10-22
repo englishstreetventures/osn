@@ -2602,6 +2602,69 @@ describe("cire/api over real D1 (Miniflare)", () => {
     MF_TIMEOUT_MS,
   );
 
+  it("the retention sweep counts a plus-one with their inviter's household, each row once", async () => {
+    // Real D1 applies the inviter's delete cascade to the plus-one and reports
+    // every row it removed. The plus-one is inserted after the inviter, so the
+    // guests delete meets the inviter first and the cascade takes the plus-one.
+    // The bootstrap wedding's events carry no date, which reads as long past,
+    // and its guests would join the count; a recent date keeps it out.
+    await db
+      .update(events)
+      .set({ startAt: "2026-06-01T10:00:00+00:00", endAt: "2026-06-01T11:00:00+00:00" })
+      .where(eq(events.weddingId, BOOTSTRAP_WEDDING_ID));
+    const stamp = new Date("2023-01-01T00:00:00.000Z");
+    await db.insert(weddings).values({
+      id: "wed_d1_plus",
+      slug: "slug-wed_d1_plus",
+      displayName: "Plus-one wedding",
+      createdAt: stamp,
+      updatedAt: stamp,
+    });
+    await db.insert(events).values({
+      id: "ev_d1_plus",
+      weddingId: "wed_d1_plus",
+      slug: "ceremony",
+      name: "Ceremony",
+      startAt: "2023-02-01T10:00:00+00:00",
+      endAt: "2023-02-01T11:00:00+00:00",
+      timezone: "UTC",
+    });
+    await db.insert(families).values({
+      id: "fam_d1_plus",
+      weddingId: "wed_d1_plus",
+      publicId: "PLUS0001",
+      familyName: "Plus",
+      createdAt: stamp,
+      updatedAt: stamp,
+    });
+    await db.insert(guests).values({
+      id: "gst_d1_plus",
+      familyId: "fam_d1_plus",
+      firstName: "Ana",
+      source: "manual",
+      createdAt: stamp,
+      updatedAt: stamp,
+    });
+    await db.insert(guests).values({
+      id: "gst_d1_plus_one",
+      familyId: "fam_d1_plus",
+      firstName: "Sam",
+      source: "manual",
+      plusOneOfGuestId: "gst_d1_plus",
+      createdAt: stamp,
+      updatedAt: stamp,
+    });
+
+    expect(
+      await run(retentionService.sweepExpiredGuestData(new Date("2026-06-17T04:00:00.000Z"))),
+    ).toBe(2);
+    const left = await db
+      .select({ id: guests.id })
+      .from(guests)
+      .where(eq(guests.familyId, "fam_d1_plus"));
+    expect(left).toEqual([]);
+  });
+
   it(
     "the retention sweep deletes a wedding past the 30-day hold-back without its summary, and holds back one inside it",
     async () => {
