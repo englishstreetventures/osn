@@ -15,7 +15,7 @@ related:
   - "[[cire-entitlements]]"
   - "[[stripe-webhooks]]"
   - "[[infrastructure-as-code]]"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-23
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -1260,12 +1260,22 @@ ships only once this one is live on both jobs.
 
 Two accounts back the two tiers: the dev account's credentials on the `dev`
 Environment, the existing `CLOUDFLARE_API_TOKEN` only on `production`. A
-push-triggered job reaches a production-scoped credential only through the
-`production` Environment, which admits only `main` and waits for its reviewer.
-`deploy.yml` reads the dev account's credentials alone (W8 in
-`shared/infra/tests/workflow-secrets.test.ts`). The `dev` Environment still holds two old credentials
-that reach the production account, which no workflow reads; deleting them is
-englishstreetventures/osn#1579 ([[dev-environment#Retiring the old dev tier]]).
+push-triggered job reaches a Cloudflare credential that can write to the
+production account only through the `production` Environment, which admits
+only `main` and waits for its reviewer, a wait a repository admin can bypass.
+Repository scope holds the production account's read-only pair,
+`CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN_READONLY`, which any job can
+read ([[dev-environment#Two accounts, two Environments]]). `deploy.yml` reads the dev
+account's credentials alone (W8 in `shared/infra/tests/workflow-secrets.test.ts`),
+and `secrets:check-github -- --tier dev` fails when the `dev` Environment holds
+`CLOUDFLARE_ACCOUNT_ID` or `CLOUDFLARE_API_TOKEN_DEV`, the two names that point
+at the production account ([[dev-environment#The production account holds no dev tier]]).
+
+*Measured 2026-10-23 — `gh api repos/englishstreetventures/osn/environments`
+lists `dev` (branch policy `main`) and `production` (one required reviewer,
+self-review allowed, admins may bypass, branch policy `main`); `gh secret list`
+on the repository and on each Environment shows Cloudflare names only as
+stated here.*
 
 ---
 

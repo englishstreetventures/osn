@@ -71,9 +71,9 @@ jobs:
           bun-version-file: .bun-version
       - name: Install @shared/infra and its dependencies
         run: bun install --frozen-lockfile --filter @shared/infra
-      # The dev account's credentials have names of their own: the dev
-      # Environment's CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN_DEV
-      # reach the production account.
+      # The dev account's credentials have names of their own: read in the
+      # dev Environment, CLOUDFLARE_ACCOUNT_ID falls back to the repository
+      # secret of that name, which names the production account.
       - name: Run against the dev account
         if: inputs.tier == 'dev'
         working-directory: shared/infra
