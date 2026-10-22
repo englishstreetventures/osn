@@ -21,7 +21,7 @@
 
 import { createHash } from "node:crypto";
 
-import type { Route } from "@playwright/test";
+import type { Request, Route } from "@playwright/test";
 
 import { CIRE_HOUSEHOLD, DB_FILES, ORIGINS } from "../../src/config";
 import { expect, onSuiteClock, queryOne, test } from "../support/fixtures";
@@ -240,23 +240,51 @@ test("cire-member-step", async ({ page, context, flow }) => {
   const staleSave = await flow.step(
     `this tab's address save, still as ${CIRE_HOUSEHOLD.member}, is refused`,
     async () => {
-      await emailBox.getByLabel(`Your email, ${CIRE_HOUSEHOLD.member}`).fill(CIRE_HOUSEHOLD.email);
-      // Nothing is stored until the guest ticks the consent box.
-      await expect(emailBox.getByRole("button", { name: "Add email" })).toBeDisabled();
-      await emailBox.getByRole("checkbox", { name: /emails about this wedding/ }).check();
-      const response = emailCall("PUT");
-      await emailBox.getByRole("button", { name: "Add email" }).click();
-      const res = await response;
-      const body = (await res.json()) as { error?: unknown };
-      await expect(whoAreYou).toBeVisible();
-      return `${res.status()} ${String(body.error)}`;
+      const field = emailBox.getByLabel(`Your email, ${CIRE_HOUSEHOLD.member}`);
+      const addEmail = emailBox.getByRole("button", { name: "Add email" });
+      let puts = 0;
+      const countPut = (r: Request) => {
+        if (r.url() === `${ORIGINS.cireApi}/api/claim/member/email` && r.method() === "PUT") {
+          puts += 1;
+        }
+      };
+      page.on("request", countPut);
+      try {
+        // An address the rule refuses is named at the field, and by the button.
+        await field.fill("cleo@");
+        await expect(field).toHaveAttribute("aria-invalid", "true");
+        await expect(field).toHaveAccessibleDescription(/look like one email address/);
+        await expect(addEmail).toHaveAccessibleDescription(
+          "To save, check your email address and tick the box above.",
+        );
+        await field.fill(CIRE_HOUSEHOLD.email);
+        await expect(field).not.toHaveAttribute("aria-invalid", "true");
+        // Nothing is stored until the guest ticks the consent box. The button
+        // stays in the tab order, says why, and a press does nothing.
+        await expect(addEmail).toHaveAttribute("aria-disabled", "true");
+        await expect(addEmail).not.toHaveAttribute("disabled");
+        await expect(addEmail).toHaveAccessibleDescription("To save, tick the box above.");
+        await addEmail.click({ force: true });
+        await field.press("Enter");
+        await emailBox.getByRole("checkbox", { name: /emails about this wedding/ }).check();
+        await expect(addEmail).not.toHaveAttribute("aria-disabled", "true");
+        const response = emailCall("PUT");
+        await addEmail.click();
+        const res = await response;
+        const body = (await res.json()) as { error?: unknown };
+        await expect(whoAreYou).toBeVisible();
+        return { refused: `${res.status()} ${String(body.error)}`, puts };
+      } finally {
+        page.off("request", countPut);
+      }
     },
   );
   flow.check(
     "an address save under a member the session no longer holds",
     "409 member_changed",
-    staleSave,
+    staleSave.refused,
   );
+  flow.check("a press on the blocked button sends nothing; the save sends one", 1, staleSave.puts);
 
   await flow.step(`answer as ${CIRE_HOUSEHOLD.member} once more`, async () => {
     await whoAreYou.getByRole("button", { name: CIRE_HOUSEHOLD.member, exact: true }).click();
@@ -410,9 +438,15 @@ test("cire-member-step", async ({ page, context, flow }) => {
   );
 
   const removed = await flow.step(`${CIRE_HOUSEHOLD.member} removes the address`, async () => {
+    // The status region is on the page, empty, before the removal, so a
+    // screen reader announces the note when it arrives.
+    const note = emailBox.getByRole("status");
+    await expect(note).toBeAttached();
+    await expect(note).toBeEmpty();
     const response = emailCall("DELETE");
     await emailBox.getByRole("button", { name: "Remove email" }).click();
     const status = (await response).status();
+    await expect(note).toContainText("Removed.");
     await expect(emailBox.getByText("Removed.", { exact: false })).toBeVisible();
     await expect(boxHeading).toBeFocused();
     return status;
