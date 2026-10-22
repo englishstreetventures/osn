@@ -12,6 +12,10 @@
  * for wedding emails, ticking the consent box, corrects it, and removes it: the
  * row records the guest's own consent, and the removal clears it and records
  * the opt-out, a hash of the wedding and the address, on the suppression list.
+ * Until the address is one and the box is ticked, the save button stays
+ * focusable and says which is missing; the removal's note is announced from a
+ * status region already on the page. Giving the address back clears the
+ * seat's own opt-out.
  *
  * The stack runs with `cire.account-linking` off (no GrowthBook key) and no
  * musubi bridge, so this is the guest experience with the flag off: the member
@@ -250,6 +254,13 @@ test("cire-member-step", async ({ page, context, flow }) => {
       };
       page.on("request", countPut);
       try {
+        await expect(
+          emailBox.getByText("Optional. Add your email", { exact: false }),
+        ).toBeVisible();
+        // The button names what blocks it: the address, the consent box, or both.
+        await expect(addEmail).toHaveAccessibleDescription(
+          "To save, enter your email address and tick the box above.",
+        );
         // An address the rule refuses is named at the field, and by the button.
         await field.fill("cleo@");
         await expect(field).toHaveAttribute("aria-invalid", "true");
@@ -267,6 +278,11 @@ test("cire-member-step", async ({ page, context, flow }) => {
         await addEmail.click({ force: true });
         await field.press("Enter");
         await emailBox.getByRole("checkbox", { name: /emails about this wedding/ }).check();
+        await field.fill("");
+        await expect(addEmail).toHaveAccessibleDescription("To save, enter your email address.");
+        await field.fill("cleo@");
+        await expect(addEmail).toHaveAccessibleDescription("To save, check your email address.");
+        await field.fill(CIRE_HOUSEHOLD.email);
         await expect(addEmail).not.toHaveAttribute("aria-disabled", "true");
         const response = emailCall("PUT");
         await addEmail.click();
@@ -448,6 +464,8 @@ test("cire-member-step", async ({ page, context, flow }) => {
     const status = (await response).status();
     await expect(note).toContainText("Removed.");
     await expect(emailBox.getByText("Removed.", { exact: false })).toBeVisible();
+    // The note stands where the form's opening line was.
+    await expect(emailBox.getByText("Optional. Add your email", { exact: false })).toBeHidden();
     await expect(boxHeading).toBeFocused();
     return status;
   });
@@ -495,5 +513,34 @@ test("cire-member-step", async ({ page, context, flow }) => {
       .update(`${optOuts?.weddingId ?? ""}:${CIRE_HOUSEHOLD.correctedEmail}`)
       .digest("hex"),
     optOuts?.hash ?? "none",
+  );
+
+  // Giving the address back clears the note, and the seat's own opt-out with it.
+  const givenBack = await flow.step(`${CIRE_HOUSEHOLD.member} gives the address back`, async () => {
+    await emailBox
+      .getByLabel(`Your email, ${CIRE_HOUSEHOLD.member}`)
+      .fill(CIRE_HOUSEHOLD.correctedEmail);
+    await emailBox.getByRole("checkbox", { name: /emails about this wedding/ }).check();
+    const response = emailCall("PUT");
+    await emailBox.getByRole("button", { name: "Add email" }).click();
+    const status = (await response).status();
+    await expect(emailBox.getByText(CIRE_HOUSEHOLD.correctedEmail)).toBeVisible();
+    await expect(emailBox.getByRole("status")).toBeEmpty();
+    return status;
+  });
+  flow.check("the address given back is saved", 200, givenBack);
+  flow.check(
+    "giving an address back clears the seat's own opt-out for it",
+    0,
+    queryOne<{ n: number }>(
+      DB_FILES.cire,
+      `SELECT COUNT(*) AS n
+         FROM email_suppressions s
+         JOIN guests g ON g.id = s.guest_id
+         JOIN families f ON f.id = g.family_id
+        WHERE f.public_id = ? AND g.first_name = ?`,
+      CIRE_HOUSEHOLD.code,
+      CIRE_HOUSEHOLD.member,
+    )?.n ?? -1,
   );
 });
