@@ -123,7 +123,7 @@ then a table of Pending upgrades: Package, Current, Available, Type, Eligible fr
 
 Show the changes table and ask: "Apply these changes?" With no user, stop here — the report is complete.
 
-If yes: edit each `package.json`; run `bun install` at the root, which rewrites `bun.lock` (an install on one machine prunes the other platforms' entries, so check `bun install --frozen-lockfile` still passes before committing the lockfile); run `bun run check`; then surface every Step 5 migration note and let the user handle it before anything is committed. A pre-push `bun audit --audit-level=high` runs on the result — an advisory it raises is a stop, not a `--no-verify`.
+If yes: edit each `package.json`; run `bun install` at the root, which rewrites `bun.lock` (an install on one machine prunes the other platforms' entries, so check `bun install --frozen-lockfile` still passes before committing the lockfile); run `bun run typecheck`; then surface every Step 5 migration note and let the user handle it before anything is committed. A pre-push `bun audit --audit-level=high` runs on the result — an advisory it raises is a stop, not a `--no-verify`.
 
 ### Check the file before you finish
 

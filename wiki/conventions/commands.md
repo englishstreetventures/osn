@@ -6,7 +6,7 @@ related:
   - "[[contributing]]"
   - "[[testing-patterns]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-10-21
+last-reviewed: 2026-10-23
 ---
 
 # CLI Commands Reference
@@ -16,7 +16,7 @@ last-reviewed: 2026-10-21
 ```bash
 bun run dev              # Start all dev servers (turbo)
 bun run build            # Build all packages (turbo)
-bun run check            # Type-check all packages (turbo)
+bun run typecheck        # Type-check all packages (turbo, bun check per package)
 ```
 
 Dev servers answer on named HTTPS hosts, not ports — `https://id.musubi.localhost`, `https://host.cire.localhost` — and each worktree gets its own stack. The names, the one-time `portless proxy start`, and the `PORTLESS=0` fallback are in [[devloop-urls]].
@@ -57,11 +57,11 @@ Always use `bunx --bun vitest` instead of plain `vitest`. The `--bun` flag is re
 
 ```bash
 bun run lint             # Run oxlint across the monorepo
-bun run fmt              # Format code with oxfmt
+bun run fmt              # Format code with bun fmt
 bun run fmt:check        # Check formatting (used in CI)
 ```
 
-Pre-commit hooks (via lefthook) automatically run oxlint + oxfmt on staged files. Pre-push hooks run the type checker.
+Pre-commit hooks (via lefthook) automatically run oxlint + bun fmt on staged files. Pre-push hooks run the type checker.
 
 ## Database
 

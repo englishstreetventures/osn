@@ -6,7 +6,7 @@ related:
   - "[[cire-invite-builder]]"
   - "[[monorepo-structure]]"
   - "[[cire-guest-event-editor]]"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-23
 ---
 # Platform Plan — from digital invite to wedding management platform
 
@@ -285,7 +285,7 @@ the phase's epic in GitHub Issues + the phase's section above; skim the rest.
 2. Migration mirrored in all three DDL surfaces (if schema changed).
 3. Close the issue, update this page if the design changed, bump `last-reviewed`, note new decisions in [[decisions/deferred-decisions]].
 4. Changeset (`bun run changeset`) — `@cire/*` exact workspace names, never mixed with versioned packages.
-5. `bun run --cwd cire/api test` + organiser/web suites + root `bun run check` green.
+5. `bun run --cwd cire/api test` + organiser/web suites + root `bun run typecheck` green.
 
 ### Per-phase entry points
 

@@ -10,7 +10,7 @@
     "url": "git+https://github.com/englishstreetventures/osn.git"
   },
   "scripts": {
-    "check": "tsc --noEmit",
+    "typecheck": "bun check",
     "test": "bunx --bun vitest",
     "test:run": "bunx --bun vitest run",
     "plan:dev": "DO_NOT_TRACK=1 bun alchemy plan --stage dev",

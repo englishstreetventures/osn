@@ -21,7 +21,7 @@
     "./username-input": "./src/username-input.tsx"
   },
   "scripts": {
-    "check": "tsc --noEmit",
+    "typecheck": "bun check",
     "test": "bunx --bun vitest",
     "test:mutation": "bun ../../tools/stryker/src/cli.ts",
     "test:run": "bunx --bun vitest run"

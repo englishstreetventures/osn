@@ -7,7 +7,7 @@ Set up the development environment for this repository: check each requirement i
 
 ## What this run must produce
 
-A working tree in which `bun run check`, `bun run lint` and `bun run fmt:check` all pass, and a final table — requirement, state found, action taken — so the user sees what changed on their machine. A requirement that could not be met stays in the table with the reason, never silently dropped.
+A working tree in which `bun run typecheck`, `bun run lint` and `bun run fmt:check` all pass, and a final table — requirement, state found, action taken — so the user sees what changed on their machine. A requirement that could not be met stays in the table with the reason, never silently dropped.
 
 ## Read the tree first — versions live there, not here
 
@@ -41,7 +41,7 @@ Never claim a gate passed that did not run here.
 bun --version
 ```
 
-If absent: `brew install bun`. If it does not print the version in `.bun-version`, install that exact version: `curl -fsSL https://bun.sh/install | bash -s "bun-v$(cat .bun-version)"`. Verify again; Turborepo, oxlint, oxfmt, lefthook and changesets all run through `bunx --bun`, so this one gate decides all of them.
+If absent: `brew install bun`. If it does not print the version in `.bun-version`, install that exact version: `curl -fsSL https://bun.sh/install | bash -s "bun-v$(cat .bun-version)"`. Verify again; Turborepo, oxlint, lefthook and changesets all run through `bunx --bun`, so this one gate decides all of them.
 
 ## Step 3 — Xcode Command Line Tools (macOS; Swift work only)
 
@@ -90,9 +90,9 @@ Confirm with `git config --global --list | grep -E 'rerere|push.auto|pull.rebase
 bash scripts/setup.sh
 ```
 
-It runs `bun install`, `bunx --bun lefthook install`, `bun run scripts/bootstrap-bare-root.ts`, and then `bun run check`, `bun run lint` and `bun run fmt:check`.
+It runs `bun install`, `bunx --bun lefthook install`, `bun run scripts/bootstrap-bare-root.ts`, and then `bun run typecheck`, `bun run lint` and `bun run fmt:check`.
 
-The bootstrap step is the one that changes something outside the checkout. Where the worktrees are subdirectories of the repository — `~/.work/osn.git`, with `main/` inside it — that parent is not a worktree and holds none of this repository's agent configuration, so a session started there runs with no hooks, no skills and no `AGENTS.md`, and nothing says so. The script writes a `SessionStart` hook there telling such a session to stop, and links that directory's `.claude/skills` to `main`'s. It never overwrites a `settings.json` or a `settings.local.json` already there — it reports instead — and in an ordinary clone it does nothing. Tell the user what it wrote, or why it wrote nothing. Read `lefthook.yml` for what the hooks do — as of this writing pre-commit runs oxlint and oxfmt in write mode with `stage_fixed`, and pre-push runs the type check, `bun audit --audit-level=high`, the audit-ignore expiry check and the release-age check — and tell the user, because a pre-push that refuses on an advisory reads like a broken hook to someone who was not told.
+The bootstrap step is the one that changes something outside the checkout. Where the worktrees are subdirectories of the repository — `~/.work/osn.git`, with `main/` inside it — that parent is not a worktree and holds none of this repository's agent configuration, so a session started there runs with no hooks, no skills and no `AGENTS.md`, and nothing says so. The script writes a `SessionStart` hook there telling such a session to stop, and links that directory's `.claude/skills` to `main`'s. It never overwrites a `settings.json` or a `settings.local.json` already there — it reports instead — and in an ordinary clone it does nothing. Tell the user what it wrote, or why it wrote nothing. Read `lefthook.yml` for what the hooks do — as of this writing pre-commit runs oxlint and `bun fmt` in write mode with `stage_fixed`, and pre-push runs the type check, `bun audit --audit-level=high`, the audit-ignore expiry check and the release-age check — and tell the user, because a pre-push that refuses on an advisory reads like a broken hook to someone who was not told.
 
 `bunfig.toml` sets a three-day `minimumReleaseAge`, so a package published yesterday will not install; that is the gate working, not a network fault.
 

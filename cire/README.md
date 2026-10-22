@@ -47,7 +47,7 @@ OSN-facing integration docs live in the root wiki: `wiki/cire/cire.md` and `wiki
 | Auth       | Guests: claim-code → hashed session cookie. Organisers: OSN passkey (WebAuthn) — access JWTs verified via `@shared/osn-auth-client` |
 | Testing    | bun:test (cire) — platform `it.effect` alignment tracked in root wiki TODO    |
 | Linting    | oxlint (root config)                                                          |
-| Formatting | oxfmt (root config)                                                           |
+| Formatting | `bun fmt` (root config)                                                       |
 | Git hooks  | lefthook (root config)                                                        |
 | CI/CD      | GitHub Actions → Cloudflare Pages + Workers                                   |
 

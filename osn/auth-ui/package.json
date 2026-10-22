@@ -25,7 +25,7 @@
     "./TotpView": "./src/TotpView.tsx"
   },
   "scripts": {
-    "check": "tsc --noEmit",
+    "typecheck": "bun check",
     "test": "bunx --bun vitest",
     "test:run": "bunx --bun vitest run"
   },

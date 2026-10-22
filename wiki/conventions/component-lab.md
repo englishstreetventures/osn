@@ -8,7 +8,7 @@ related:
   - "[[frontend-patterns]]"
   - "[[commands]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-23
 ---
 
 # Component Lab
@@ -260,7 +260,7 @@ worked out in `src/lab/three.tsx`:
 > folder, which `scripts/check-skills-lock.ts` recomputes on every pull
 > request. Fixing something in place fails that check, and the next install
 > throws the fix away. A fix goes upstream and comes back as a new pin. oxlint and
-> oxfmt leave the tree alone for that reason, and `scripts/skill-evals.ts` never
+> bun fmt and oxlint leave the tree alone for that reason, and `scripts/skill-evals.ts` never
 > lists a symlinked skill — see [[agent-tooling#Third-party skills]].
 
 ## Gates

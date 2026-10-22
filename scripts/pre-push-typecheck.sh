@@ -2,7 +2,7 @@
 #
 # Pre-push type check, with a guard for fresh worktrees.
 #
-# `bun run check` shells out to `turbo`, which lives in `node_modules/.bin`.
+# `bun run typecheck` shells out to `turbo`, which lives in `node_modules/.bin`.
 # A worktree created with `git worktree add` starts with no `node_modules`, so
 # the hook died with `turbo: command not found` and an exit code of 127 — a
 # tooling gap that reads like a type error. Every agent that hit it reached for
@@ -19,4 +19,4 @@ if [ ! -x node_modules/.bin/turbo ]; then
   bun install --frozen-lockfile
 fi
 
-exec bun run check
+exec bun run typecheck

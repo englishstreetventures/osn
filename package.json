@@ -8,7 +8,7 @@
     "type": "git",
     "url": "git+https://github.com/englishstreetventures/osn.git"
   },
-  "packageManager": "bun@1.4.2",
+  "packageManager": "bun@1.4.4",
   "workspaces": [
     "cire/*",
     "musubi/*",
@@ -38,7 +38,7 @@
     "dev:metrics": "turbo dev --filter=@tools/metrics",
     "dev:pulse-landing": "turbo dev --filter=@pulse/landing",
     "lint": "oxlint -c oxlintrc.json .",
-    "check": "turbo check",
+    "typecheck": "turbo typecheck",
     "test": "turbo test --continue",
     "test:d1": "turbo test:d1 --continue --concurrency=1",
     "test:browser": "turbo test:browser --continue --concurrency=1",
@@ -50,8 +50,8 @@
     "check:alchemy-usage": "bun run scripts/check-alchemy-usage.ts",
     "clean": "git clean -fdX",
     "db:reset": "bun run --cwd osn/db db:reset && bun run --cwd pulse/db db:reset && bun run --cwd zap/db db:reset && bun run --cwd cire/db db:reset",
-    "fmt": "bunx --bun oxfmt musubi osn pulse zap shared cire tools/e2e tools/lab tools/metrics tools/oxlint/house tools/pr-metrics tools/stryker '!**/*.{json,jsonc,md,yml,yaml,css,html,astro}'",
-    "fmt:check": "bunx --bun oxfmt musubi osn pulse zap shared cire tools/e2e tools/lab tools/metrics tools/oxlint/house tools/pr-metrics tools/stryker '!**/*.{json,jsonc,md,yml,yaml,css,html,astro}' --check",
+    "fmt": "bun fmt musubi osn pulse zap shared cire tools/e2e tools/lab tools/metrics tools/oxlint/house tools/pr-metrics tools/stryker '!**/*.{json,jsonc,md,yml,yaml,css,html,astro}'",
+    "fmt:check": "bun fmt --check musubi osn pulse zap shared cire tools/e2e tools/lab tools/metrics tools/oxlint/house tools/pr-metrics tools/stryker '!**/*.{json,jsonc,md,yml,yaml,css,html,astro}'",
     "reset": "bun run clean && bun i",
     "changeset": "changeset",
     "version": "changeset version",

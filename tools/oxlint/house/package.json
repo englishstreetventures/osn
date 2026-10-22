@@ -10,7 +10,7 @@
     "url": "git+https://github.com/englishstreetventures/osn.git"
   },
   "scripts": {
-    "check": "tsc --noEmit",
+    "typecheck": "bun check",
     "test": "bun test"
   },
   "devDependencies": {

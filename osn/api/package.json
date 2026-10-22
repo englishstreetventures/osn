@@ -17,7 +17,7 @@
     "deploy": "wrangler deploy --env production",
     "types": "wrangler types",
     "start": "bun run src/local.ts",
-    "check": "tsc --noEmit",
+    "typecheck": "bun check",
     "openapi:generate": "bun run scripts/generate-openapi.ts",
     "test": "bunx --bun vitest",
     "test:run": "bunx --bun vitest run",

@@ -171,9 +171,9 @@ jobs:
         run: bun install
 
       - name: Type check
-        run: bun run check
+        run: bun run typecheck
 
-      # `scripts/` is in no workspace, so `turbo check` never reaches it and a
+      # `scripts/` is in no workspace, so `turbo typecheck` never reaches it and a
       # type error there ships. One did: `skill-evals.ts` read an optional
       # `scenario.path` unguarded, which crashed `ready`, `compare` and `record`
       # on a payload the API really returns.

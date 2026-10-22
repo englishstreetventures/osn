@@ -43,7 +43,7 @@
     "./ui/username-input": "./src/ui/username-input.tsx"
   },
   "scripts": {
-    "check": "tsc --noEmit && tsc --noEmit -p tests/tsconfig.json",
+    "typecheck": "bun check && bun check -p tests/tsconfig.json",
     "test": "bunx --bun vitest --project unit",
     "test:run": "bunx --bun vitest run --project unit",
     "test:browser": "bunx --bun vitest run --project browser"

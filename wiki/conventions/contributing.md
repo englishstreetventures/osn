@@ -7,7 +7,7 @@ related:
   - "[[review-findings]]"
   - "[[stacked-prs]]"
   - "[[testing-patterns]]"
-last-reviewed: 2026-10-15
+last-reviewed: 2026-10-23
 ---
 
 # Contributing
@@ -39,7 +39,7 @@ Android is deferred. iOS is the primary native target (Swift). Web support follo
 
 Lefthook runs automatically on every commit:
 - **oxlint** -- lints staged files
-- **oxfmt** -- formats staged files
+- **bun fmt** -- formats staged files
 
 ### Pre-push (lefthook)
 
@@ -120,7 +120,7 @@ Before opening a PR, verify:
 - [ ] Tests pass (`bun run --cwd <package> test:run`)
 - [ ] Linting passes (`bun run lint`)
 - [ ] Formatting passes (`bun run fmt:check`)
-- [ ] Type check passes (`bun run check`)
+- [ ] Type check passes (`bun run typecheck`)
 
 ## Observability Checklist
 

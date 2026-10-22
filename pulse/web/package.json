@@ -15,7 +15,7 @@
     "dev:app": "dev-env vite dev",
     "build": "vite build",
     "preview": "vite preview",
-    "check": "tsc --noEmit",
+    "typecheck": "bun check",
     "test": "bunx --bun vitest --project unit",
     "test:run": "bunx --bun vitest run --project unit",
     "test:browser": "bunx --bun vitest run --project browser"

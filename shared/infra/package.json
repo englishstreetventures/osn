@@ -13,7 +13,7 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "check": "tsc --noEmit",
+    "typecheck": "bun check",
     "test": "bunx --bun vitest --project package",
     "test:repo": "bunx --bun vitest run --project repo",
     "test:run": "bunx --bun vitest run",
