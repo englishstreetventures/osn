@@ -34,8 +34,9 @@ class UnresolvedBindingError extends Data.TaggedError("UnresolvedBindingError")<
 
 /**
  * Each described binding as the value Alchemy binds: a database or bucket
- * this stack declares, the Images service, or a rate limiter. A storage
- * binding resolves by its name, so it can only reach this stack's resources.
+ * this stack declares, the Images service, a rate limiter, or a Durable
+ * Object namespace the Worker hosts. A storage binding resolves by its name,
+ * so it can only reach this stack's resources.
  */
 function toBindings(
   described: Readonly<Record<string, BindingDescription>>,
@@ -57,6 +58,9 @@ function toBindings(
           ];
         case "images":
           return [name, Cloudflare.Images.Images(name)];
+        case "durable-object":
+          // No script name: the class lives on this Worker, which exports it.
+          return [name, Cloudflare.DurableObject(binding.className)];
         case "d1":
         case "r2": {
           const resource = binding.kind === "d1" ? storage.databases[name] : storage.buckets[name];

@@ -19,8 +19,19 @@ const cireApiWrangler = fileURLToPath(new URL("../../api/wrangler.toml", import.
 /** Workers Free's limit on a Worker's compressed size: 3 MiB. */
 const FREE_LIMIT = 3 * 1024 * 1024;
 
+const textOf = (content: string | Uint8Array): string =>
+  typeof content === "string" ? content : new TextDecoder().decode(content);
+
+/** A Durable Object namespace binding whose class this Worker hosts: no script name. */
+const isHostedDurableObject = (binding: unknown): binding is { readonly className: string } =>
+  typeof binding === "object" &&
+  binding !== null &&
+  (binding as { kind?: unknown }).kind === "Cloudflare.DurableObject" &&
+  typeof (binding as { className?: unknown }).className === "string" &&
+  (binding as { scriptName?: unknown }).scriptName === undefined;
+
 describe("cire-api's bundle", () => {
-  test("K10: bundled offline through Alchemy's rolldown path with the stack's build options, no module names bun:sqlite, and every file gzips to 3 MiB or less in total", async () => {
+  test("K10: bundled offline through Alchemy's rolldown path with the stack's build options, its main module exports every Durable Object class it binds, no module names bun:sqlite, and every file gzips to 3 MiB or less in total", async () => {
     const evaluation = await evaluateCire({ stage: "dev", env: stackEnv() });
     const props = resourcesOf(evaluation).CireApi?.Props;
     if (props?.main === undefined) throw new Error("cire-api declares no main");
@@ -48,13 +59,19 @@ describe("cire-api's bundle", () => {
 
     const modules = bundle.files.filter((file) => !file.path.endsWith(".map"));
     expect(modules.length).toBeGreaterThan(0);
+
+    // Cloudflare refuses an upload whose bindings name a class the main
+    // module does not export, and Alchemy runs no dry run that would say so.
+    const hosted = Object.values(props.env ?? {}).flatMap((binding) =>
+      isHostedDurableObject(binding) ? [binding.className] : [],
+    );
+    expect(hosted).toEqual(["TopicHub"]);
+    // Alchemy's BundleOutput puts the entry first (alchemy src/Bundle/Bundle.ts).
+    const [entry] = bundle.files;
+    const exported = new Bun.Transpiler({ loader: "js" }).scan(textOf(entry.content)).exports;
+    expect(hosted.filter((className) => !exported.includes(className))).toEqual([]);
     const naming = modules
-      .filter((file) =>
-        (typeof file.content === "string"
-          ? file.content
-          : new TextDecoder().decode(file.content)
-        ).includes("bun:sqlite"),
-      )
+      .filter((file) => textOf(file.content).includes("bun:sqlite"))
       .map((file) => file.path);
     expect(naming).toEqual([]);
 

@@ -19,8 +19,14 @@ interface UnsafeBinding {
   readonly simple: { readonly limit: number; readonly period: number };
 }
 
+interface DurableObjectBinding {
+  readonly name: string;
+  readonly class_name: string;
+}
+
 interface WranglerTier {
   readonly vars: Readonly<Record<string, string>>;
+  readonly durable_objects: { readonly bindings: readonly DurableObjectBinding[] };
   readonly unsafe: { readonly bindings: readonly UnsafeBinding[] };
   readonly d1_databases: readonly { readonly binding: string }[];
   readonly r2_buckets: readonly { readonly binding: string }[];
@@ -91,6 +97,7 @@ describe("cire on dev against Wrangler's production config", () => {
       ...production.d1_databases.map((database) => database.binding),
       ...production.r2_buckets.map((bucket) => bucket.binding),
       production.images.binding,
+      ...production.durable_objects.bindings.map((binding) => binding.name),
       ...secrets.secrets,
       ...secrets.optional,
     ]);
@@ -114,6 +121,15 @@ describe("cire on dev against Wrangler's production config", () => {
           simple: limiter.simple,
         },
       });
+    }
+
+    // Each Durable Object namespace binds production's class, hosted by
+    // cire-api itself: no script name, so the dev Worker exports the class.
+    for (const binding of production.durable_objects.bindings) {
+      expect({ [binding.name]: devEnv[binding.name] }).toMatchObject({
+        [binding.name]: { kind: "Cloudflare.DurableObject", className: binding.class_name },
+      });
+      expect(devEnv[binding.name]).not.toHaveProperty("scriptName", expect.anything());
     }
 
     expect(resourcesOf(dev).CireInvites?.Props.env).toEqual({});

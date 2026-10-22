@@ -20,6 +20,8 @@ export type BindingDescription =
   | { readonly kind: "d1" }
   | { readonly kind: "r2" }
   | { readonly kind: "images" }
+  /** A Durable Object namespace whose class the Worker itself exports. */
+  | { readonly kind: "durable-object"; readonly className: string }
   | {
       readonly kind: "ratelimit";
       readonly namespaceId: number;
@@ -179,7 +181,9 @@ export function cireDeclaration(input: {
         stage,
       ),
       stage,
-      main: "../api/src/index.ts",
+      // The module that exports the Worker's handler and the realtime hub's
+      // Durable Object class, as `cire/api/wrangler.toml`'s `main` does.
+      main: "../api/src/entry.ts",
       bundle: true,
       assets: null,
       // Wrangler's flags plus the module registry Wrangler deploys with; a
@@ -216,6 +220,10 @@ export function cireDeclaration(input: {
         SHEETS: { kind: "r2" },
         ASSETS: { kind: "r2" },
         IMAGES: { kind: "images" },
+        // `@shared/realtime`'s hub, one object per wedding topic. Alchemy
+        // declares a class this Worker hosts SQLite-backed, the one storage
+        // backend Workers Free allows.
+        REALTIME_HUB: { kind: "durable-object", className: "TopicHub" },
         ...Object.fromEntries(
           RATE_LIMITS.map((limit): [string, BindingDescription] => [
             limit.name,

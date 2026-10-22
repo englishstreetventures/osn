@@ -10,8 +10,9 @@ related:
   - "[[testing-patterns]]"
   - "[[cire-auth]]"
   - "[[cire-host-portal-layout]]"
+  - "[[infrastructure-as-code]]"
 packages: ["@shared/realtime"]
-last-reviewed: 2026-10-21
+last-reviewed: 2026-10-22
 ---
 
 # Realtime push
@@ -66,6 +67,8 @@ When a cap closed a socket, the hub's 101 says which in the `x-realtime-capacity
 ## Adopting it in a product
 
 1. **Bind the hub** in the product's `wrangler.toml`. Add `[[durable_objects.bindings]]` (name of your choice, `class_name = "TopicHub"`) at the top level **and** under every `[env.*]`, because named environments inherit no bindings. Add one top-level `[[migrations]]` with `new_sqlite_classes = ["TopicHub"]`, which named environments do inherit. Check with `wrangler deploy --dry-run --env <tier>` that the binding table lists the Durable Object. A bound class the entry does not export fails the dry run.
+
+   On dev the Worker comes from the product's Alchemy stack, not from `wrangler.toml`. Bind the hub there too: `Cloudflare.DurableObject("TopicHub")` under the binding's name, with no script name, as `cire/infra` does for `REALTIME_HUB`. Alchemy declares a class the Worker hosts as SQLite-backed and reads no `[[migrations]]`. The stack runs no dry run, so the stack's K10 test bundles the Worker offline and fails when the entry does not export a class the Worker binds ([[infrastructure-as-code#The stacks]]).
 2. **Export `TopicHub` from the Worker entry** (`export { TopicHub } from "@shared/realtime/hub"`). Keep that export out of any module Bun tests import, because `cloudflare:workers` exists only on workerd.
 3. **Add the subscribe route before the web framework**, behind the product's per-IP limiter. Run `runtime.runPromise(subscribe(request, rawTopic, options))` on the product's `ManagedRuntime`, so its logs pass through the redacting logger, and return the `Response` it resolves to as is. An Elysia route cannot do this. Elysia rebuilds a returned `Response` whenever a plugin such as CORS has set headers, and a rebuilt 101 either throws `RangeError` on workerd or loses its socket. Because the route runs before the framework, the framework's middleware does not cover it: put the path behind the product's per-IP limiter (or a Cloudflare rate-limiting rule) before `subscribe()` runs, since `subscribe()`'s own limiters are keyed on the subject and run after `authenticate`.
 

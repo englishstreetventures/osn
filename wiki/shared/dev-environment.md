@@ -10,7 +10,7 @@ related:
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-10-21
+last-reviewed: 2026-10-22
 ---
 
 # Dev environment (cire + OSN identity)
@@ -688,7 +688,7 @@ osn-api's `/health` and JWKS, cire-api's `/api/auth/session`, zap-api's
 `/health`, the guest site's `/` and an unknown-slug page, each site's `/`,
 musubi social's deep-link fallback and pulse landing's `/api/geo`, and on each
 browser host `/` without the Access token (§5). Steps 1 and 2 below go further
-by hand; steps 3 to 5 are what no machine checks; step 6 repeats by hand what
+by hand; steps 3 to 6 are what no machine checks; step 7 repeats by hand what
 the checks already ask.
 
 1. `cire-api` has **no health route** in any tier — `/health` is a 404 on dev and
@@ -716,10 +716,16 @@ the checks already ask.
    consent row in `osn-db-dev` with no `organiser_sessions` row in `cire-db-dev`
    means the token came back but cire refused it — look at
    `CIRE_OIDC_CLIENT_SECRET` and the pairwise salt.
-5. Claim the seeded code `TESTFOR-JOY-DD44` on `https://invite.cire.<D>` and
+5. Open one wedding's checklist on `https://host.cire.<D>` in two tabs and tick
+   a task in one: the other shows it without a reload. Proves cire-api's
+   `REALTIME_HUB` binding and the `TopicHub` class the cire stack declares
+   ([[realtime]]); no smoke probe reaches the hub. A tab that changes only on
+   reload means push is off — cire-api logs an error when the binding is
+   missing.
+6. Claim the seeded code `TESTFOR-JOY-DD44` on `https://invite.cire.<D>` and
    submit an RSVP. Proves the guest session cookie, the `WEB_ORIGIN` ordering and
    the D1 seed: the reply lands in `rsvps` with `status = 'attending'`.
-6. Every browser host prompts for Access; the three API hosts do not. Each
+7. Every browser host prompts for Access; the three API hosts do not. Each
    browser host's smoke check fails when Access does not answer `/`, and an API
    host's fails when Access answers in its place. By hand, `curl -sI`
    each one: a browser host answers 302 to `…cloudflareaccess.com/cdn-cgi/access/login/<host>`,
