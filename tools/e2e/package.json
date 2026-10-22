@@ -12,7 +12,7 @@
   "scripts": {
     "e2e": "bun run src/launcher.ts",
     "e2e:repro": "bun run src/repro.ts",
-    "typecheck": "bun check",
+    "typecheck": "bun check --no-script",
     "test": "bun test"
   },
   "dependencies": {

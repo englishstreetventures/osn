@@ -11,7 +11,7 @@
   },
   "scripts": {
     "card": "bun run index.ts",
-    "typecheck": "bun check",
+    "typecheck": "bun check --no-script",
     "test": "bun test",
     "backfill": "bun run backfill.ts",
     "report": "bun run report.ts"

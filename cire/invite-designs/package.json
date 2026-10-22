@@ -12,7 +12,7 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "bun check",
+    "typecheck": "bun check --no-script",
     "test": "bunx --bun vitest",
     "test:mutation": "bun ../../tools/stryker/src/cli.ts",
     "test:run": "bunx --bun vitest run"

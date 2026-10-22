@@ -13,7 +13,7 @@
     "dev:app": "dev-env astro dev",
     "build": "astro build && ../../scripts/guard-bundle-size.sh .",
     "preview": "astro preview",
-    "typecheck": "bunx --bun astro check && bun check -p tests/tsconfig.json",
+    "typecheck": "bunx --bun astro check && bun check --no-script -p tests/tsconfig.json",
     "favicon": "bun scripts/favicon.ts",
     "test": "vitest run --project unit --project ssr",
     "test:mutation": "bun ../../tools/stryker/src/cli.ts",

@@ -40,7 +40,7 @@
     },
     "lint": {},
     // A package type-checks the source of the workspace packages it imports
-    // (they export `src/*.ts`), so its `check` result depends on theirs as
+    // (they export `src/*.ts`), so its `typecheck` result depends on theirs as
     // well as its own files. `transit` has no script in any package: it exists
     // so `typecheck` hashes every workspace dependency's files through
     // `^transit`, and an edit to `shared/db-utils` re-runs

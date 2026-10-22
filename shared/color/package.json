@@ -13,7 +13,7 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "bun check && bun check -p tests/tsconfig.json",
+    "typecheck": "bun check --no-script && bun check --no-script -p tests/tsconfig.json",
     "test": "bunx --bun vitest",
     "test:run": "bunx --bun vitest run"
   },

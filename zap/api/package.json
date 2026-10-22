@@ -21,7 +21,7 @@
     "deploy:staging": "wrangler deploy --env staging",
     "deploy:prod": "wrangler deploy --env production",
     "types": "wrangler types",
-    "typecheck": "bun check",
+    "typecheck": "bun check --no-script",
     "test": "bunx --bun vitest",
     "test:run": "bunx --bun vitest run",
     "test:d1": "bun test tests/d1/d1-integration.test.ts"

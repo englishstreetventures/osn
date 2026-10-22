@@ -17,7 +17,7 @@
     "./solid": "./src/client/solid.ts"
   },
   "scripts": {
-    "typecheck": "bun check && bun check -p src/client && bun check -p tests && bun check -p tests/client",
+    "typecheck": "bun check --no-script && bun check --no-script -p src/client && bun check --no-script -p tests && bun check --no-script -p tests/client",
     "test": "bunx --bun vitest",
     "test:run": "bunx --bun vitest run",
     "test:d1": "bun test tests/d1/"
