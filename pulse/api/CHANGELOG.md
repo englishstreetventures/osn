@@ -1,5 +1,14 @@
 # @osn/api
 
+## 0.27.28
+
+### Patch Changes
+
+- Updated dependencies [961a09e]
+  - @zap/db@0.6.10
+  - @shared/crypto@0.14.8
+  - @shared/osn-auth-client@0.4.46
+
 ## 0.27.27
 
 ### Patch Changes
