@@ -13,7 +13,8 @@
     ".": "./src/index.ts",
     "./search": "./src/search.ts",
     "./effect/d1": "./src/effect/d1.ts",
-    "./effect/sqlite": "./src/effect/sqlite.ts"
+    "./effect/sqlite": "./src/effect/sqlite.ts",
+    "./effect/batch": "./src/effect/batch.ts"
   },
   "scripts": {
     "check": "tsc --noEmit && tsc --noEmit -p tests/tsconfig.json",
