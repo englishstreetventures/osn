@@ -78,6 +78,19 @@ export const bound = (value: unknown, column: AnySQLiteColumn) =>
   sql`${sql.param(value, column)}`.as(column.name);
 
 /**
+ * `column` as a named member of a `UNION ALL` that is then ordered, limited or
+ * offset. Drizzle wraps such a union in a derived table and re-selects each
+ * output by name; a plain column reference there renders table-qualified
+ * (`"registry_claims"."item_id"`), which the derived table does not expose.
+ * Aliased by the column's own name, decoded through the column so a timestamp
+ * or JSON value comes back as it does from a plain select.
+ */
+export const unionColumn = <T extends AnyColumn>(column: T) =>
+  sql`${column}`.mapWith(column).as(column.name) as SQL.Aliased<
+    T["_"]["notNull"] extends true ? T["_"]["data"] : T["_"]["data"] | null
+  >;
+
+/**
  * A non-empty statement list — the shape `batch()` demands (D1 rejects an empty
  * batch), so callers filter out the empty case before building one.
  */

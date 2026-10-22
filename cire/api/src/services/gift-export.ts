@@ -4,7 +4,7 @@ import type { SQL } from "drizzle-orm";
 import { unionAll } from "drizzle-orm/sqlite-core";
 import { Effect } from "effect";
 
-import { DbService, dbQuery } from "../db";
+import { DbService, dbQuery, unionColumn } from "../db";
 import type { Db } from "../db";
 import { serialiseCsv } from "../lib/csv";
 import { minorToDecimal } from "../lib/money";
@@ -119,19 +119,19 @@ export const giftExportService = {
       const claims = db
         .select({
           kind: sql<GiftKind>`'Gift list'`.as("kind"),
-          itemTitle: sql<string | null>`${registryItems.title}`,
-          familyName: families.familyName,
-          displayName: registryClaims.displayName,
-          quantity: sql<number | null>`${registryClaims.quantity}`,
-          status: sql<string>`${registryClaims.status}`,
-          note: registryClaims.note,
-          noteHiddenAt: registryClaims.noteHiddenAt,
+          itemTitle: sql<string | null>`${registryItems.title}`.as("item_title"),
+          familyName: unionColumn(families.familyName),
+          displayName: unionColumn(registryClaims.displayName),
+          quantity: sql<number | null>`${registryClaims.quantity}`.as("quantity"),
+          status: sql<string>`${registryClaims.status}`.as("status"),
+          note: unionColumn(registryClaims.note),
+          noteHiddenAt: unionColumn(registryClaims.noteHiddenAt),
           amountMinor: sql<number | null>`NULL`.as("amount_minor"),
           currency: sql<string | null>`NULL`.as("currency"),
           primaryAmountMinor: sql<number | null>`NULL`.as("primary_amount_minor"),
           primaryCurrency: sql<string | null>`NULL`.as("primary_currency"),
           fxRate: sql<string | null>`NULL`.as("fx_rate"),
-          thankedAt: registryClaims.thankedAt,
+          thankedAt: unionColumn(registryClaims.thankedAt),
           // Aliased because a compound SELECT can only ORDER BY a name its
           // first branch declares with AS.
           createdAt: sql<Date>`${registryClaims.createdAt}`
@@ -148,19 +148,19 @@ export const giftExportService = {
           kind: sql<GiftKind>`'Cash gift'`.as("kind"),
           // The fund's name as the guest saw it, kept on the gift: the same
           // column the portal's log reads.
-          itemTitle: registryContributions.itemTitle,
-          familyName: families.familyName,
-          displayName: registryContributions.displayName,
+          itemTitle: unionColumn(registryContributions.itemTitle),
+          familyName: unionColumn(families.familyName),
+          displayName: unionColumn(registryContributions.displayName),
           quantity: sql<number | null>`NULL`.as("quantity"),
-          status: registryContributions.status,
-          note: registryContributions.message,
-          noteHiddenAt: registryContributions.noteHiddenAt,
-          amountMinor: registryContributions.amountMinor,
-          currency: registryContributions.currency,
-          primaryAmountMinor: registryContributions.primaryAmountMinor,
-          primaryCurrency: registryContributions.primaryCurrency,
-          fxRate: registryContributions.fxRate,
-          thankedAt: registryContributions.thankedAt,
+          status: unionColumn(registryContributions.status),
+          note: unionColumn(registryContributions.message),
+          noteHiddenAt: unionColumn(registryContributions.noteHiddenAt),
+          amountMinor: unionColumn(registryContributions.amountMinor),
+          currency: unionColumn(registryContributions.currency),
+          primaryAmountMinor: unionColumn(registryContributions.primaryAmountMinor),
+          primaryCurrency: unionColumn(registryContributions.primaryCurrency),
+          fxRate: unionColumn(registryContributions.fxRate),
+          thankedAt: unionColumn(registryContributions.thankedAt),
           createdAt: sql<Date>`${registryContributions.createdAt}`
             .mapWith(registryContributions.createdAt)
             .as("created_at"),
