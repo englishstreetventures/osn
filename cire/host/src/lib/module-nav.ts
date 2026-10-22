@@ -1,5 +1,6 @@
 import type { LucideIcon } from "lucide-solid";
 import Armchair from "lucide-solid/icons/armchair";
+import CalendarClock from "lucide-solid/icons/calendar-clock";
 import CalendarDays from "lucide-solid/icons/calendar-days";
 import Gift from "lucide-solid/icons/gift";
 import ListChecks from "lucide-solid/icons/list-checks";
@@ -72,6 +73,17 @@ export const MODULE_NAV: ModuleDef[] = [
       tier: "gold",
       title: "Planning checklist",
       blurb: "Every task in order of lead time, so nothing is left to the last week.",
+    },
+  },
+  {
+    id: "run-sheet",
+    label: "Run sheet",
+    icon: CalendarClock,
+    hint: "The day, hour by hour, and who does what",
+    lock: {
+      tier: "gold",
+      title: "Run sheet",
+      blurb: "Every event and timed task of the day in order, with who does what.",
     },
   },
   {

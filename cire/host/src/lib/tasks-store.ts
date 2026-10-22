@@ -2,8 +2,15 @@
 // `guests-store.ts`/`events-store.ts`. Same fetch-lift so switching modules
 // doesn't refetch, and so the Overview "open tasks" widget and the Checklist
 // view share ONE fetch. Effect is deliberately NOT imported (frontend code).
+//
+// The cache itself is a `createRereadCache` (`reread-cache.ts`): the coalescing
+// re-read, the generation guard and the rule that no read lands across one of
+// the portal's own task writes all live there, shared with the run sheet,
+// whose rows the same writes change. The writes are counted by `taskWrites`.
 import { type Accessor, createSignal, type Setter } from "solid-js";
 
+import { createRereadCache } from "./reread-cache";
+import { taskWrites } from "./task-writes";
 import { isWeddingClosed } from "./wedding-scope";
 
 /** One task row as the organiser API returns it (timestamps are ms-epoch numbers). */
@@ -21,6 +28,24 @@ export interface TaskRow {
   /** The seats (`hostId` in `GET …/hosts`) holding the task, in the order they
    *  were put on it; empty for nobody. */
   assigneeHostIds: string[];
+  // ── The task's time on the day ─────────────────────────────────────────────
+  // Every answer from an API that has run times carries all six. An older API
+  // sends none, and the row keeps none: absent reads as untimed (`?? null`).
+  // Left absent rather than filled in, so a row keeps the same keys however it
+  // reached the cache — the checklist's row memo compares them.
+  /** When the task runs, `YYYY-MM-DDTHH:MM:SS±HH:MM`; for a task linked to an
+   *  event, the event's start moved by `runOffsetMinutes`. */
+  runAt?: string | null;
+  /** The zone `runAt` is read in — the event's, for a linked task. */
+  runTimezone?: string | null;
+  /** The event the task is linked to. */
+  eventId?: string | null;
+  /** Minutes from the linked event's start, negative before it. */
+  runOffsetMinutes?: number | null;
+  /** The time follows the linked event. */
+  anchored?: boolean;
+  /** The task's event was removed by a schedule change; it kept its time. */
+  eventRemoved?: boolean;
 }
 
 /**
@@ -49,28 +74,29 @@ export interface TaskList {
   viewerHostId?: string | null;
 }
 
-interface CacheEntry {
-  tasks: Accessor<TaskRow[] | null>;
-  setTasks: Setter<TaskRow[] | null>;
-  viewerHostId: Accessor<string | null>;
-  setViewerHostId: Setter<string | null>;
+/** The checklist's rows, per wedding. The run sheet has its own cache. */
+const cache = createRereadCache<TaskRow[]>({ writes: taskWrites, staleOnWriteEnd: false });
+
+interface SeatEntry {
+  seat: Accessor<string | null>;
+  setSeat: Setter<string | null>;
 }
 
-const cache = new Map<string, CacheEntry>();
+/** The caller's own seat per wedding, as the last task read named it. */
+const seats = new Map<string, SeatEntry>();
 
-function entryFor(weddingId: string): CacheEntry {
-  let entry = cache.get(weddingId);
+function seatFor(weddingId: string): SeatEntry {
+  let entry = seats.get(weddingId);
   if (!entry) {
-    const [tasks, setTasks] = createSignal<TaskRow[] | null>(null);
-    const [viewerHostId, setViewerHostId] = createSignal<string | null>(null);
-    entry = { tasks, setTasks, viewerHostId, setViewerHostId };
-    cache.set(weddingId, entry);
+    const [seat, setSeat] = createSignal<string | null>(null);
+    entry = { seat, setSeat };
+    seats.set(weddingId, entry);
   }
   return entry;
 }
 
 export function tasksAccessor(weddingId: string): Accessor<TaskRow[] | null> {
-  return entryFor(weddingId).tasks;
+  return cache.accessor(weddingId);
 }
 
 /**
@@ -81,26 +107,25 @@ export function tasksAccessor(weddingId: string): Accessor<TaskRow[] | null> {
  * first.
  */
 export function readTaskList(weddingId: string, list: TaskList): TaskRow[] {
-  if (!isWeddingClosed(weddingId)) entryFor(weddingId).setViewerHostId(list.viewerHostId ?? null);
+  if (!isWeddingClosed(weddingId)) seatFor(weddingId).setSeat(list.viewerHostId ?? null);
   return list.tasks.map(readTaskRow);
 }
 
 /** The caller's own seat on the wedding, as the last task read named it;
  *  `null` before one. Reactive, and subscribes from a cold cache too. */
 export function viewerHostIdOf(weddingId: string): string | null {
-  return entryFor(weddingId).viewerHostId();
+  return seatFor(weddingId).seat();
 }
 
 /** Subscribes only when the entry already exists — a read from a cold cache
  *  registers no dependency. Never use it for a value a view must track; use
  *  the accessor for that. */
 export function hasCachedTasks(weddingId: string): boolean {
-  return !stale.has(weddingId) && cache.get(weddingId)?.tasks() != null;
+  return cache.has(weddingId);
 }
 
 export function setCachedTasks(weddingId: string, tasks: TaskRow[]): void {
-  if (isWeddingClosed(weddingId)) return;
-  entryFor(weddingId).setTasks(tasks);
+  cache.setCached(weddingId, tasks);
 }
 
 /**
@@ -110,17 +135,14 @@ export function setCachedTasks(weddingId: string, tasks: TaskRow[]): void {
  * fetches instead of landing on top.
  */
 export function setFreshTasks(weddingId: string, tasks: TaskRow[]): void {
-  if (isWeddingClosed(weddingId)) return;
-  generation.set(weddingId, generationOf(weddingId) + 1);
-  entryFor(weddingId).setTasks(tasks);
-  stale.delete(weddingId);
+  cache.setFresh(weddingId, tasks);
 }
 
 /** Subscribes only when the entry already exists — a read from a cold cache
  *  registers no dependency. Never use it for a value a view must track; use
  *  the accessor for that. */
 export function peekCachedTasks(weddingId: string): TaskRow[] | null {
-  return cache.get(weddingId)?.tasks() ?? null;
+  return cache.peek(weddingId);
 }
 
 /**
@@ -130,8 +152,7 @@ export function peekCachedTasks(weddingId: string): TaskRow[] | null {
  * leaves the wedding stale, since it may predate what changed.
  */
 export function markTasksStale(weddingId: string): void {
-  stale.add(weddingId);
-  staleMarks.set(weddingId, staleMarksOf(weddingId) + 1);
+  cache.markStale(weddingId);
 }
 
 /**
@@ -149,97 +170,18 @@ export function rereadTasks(
   weddingId: string,
   fetcher: () => Promise<TaskRow[]>,
 ): Promise<boolean> {
-  if (isWeddingClosed(weddingId)) return Promise.resolve(false);
-  markTasksStale(weddingId);
-  const settled = queueReread(weddingId, fetcher);
-  sendReread(weddingId);
-  return settled;
+  return cache.reread(weddingId, fetcher);
 }
 
-/** A read the store owes a wedding, and the promise every view that asked
- *  waits on. */
-interface Reread {
-  fetcher: () => Promise<TaskRow[]>;
-  readonly settled: Promise<boolean>;
-  readonly start: (load: Promise<boolean>) => void;
-}
-
-const rereads = new Map<string, Reread>();
-
-function queueReread(weddingId: string, fetcher: () => Promise<TaskRow[]>): Promise<boolean> {
-  const queued = rereads.get(weddingId);
-  if (queued) {
-    queued.fetcher = fetcher;
-    return queued.settled;
-  }
-  let start!: (load: Promise<boolean>) => void;
-  const settled = new Promise<boolean>((resolve) => {
-    start = resolve;
-  });
-  // A read queued again after a drop has no caller of its own; a failure is
-  // still handed to every view that asked for it.
-  settled.catch(() => undefined);
-  rereads.set(weddingId, { fetcher, settled, start });
-  return settled;
-}
-
-/** Send the read a wedding is owed, unless a read is in flight or one of the
- *  portal's own writes is out: each calls this again when it ends. */
-function sendReread(weddingId: string): void {
-  const queued = rereads.get(weddingId);
-  if (!queued || writing.has(weddingId) || inflight.has(weddingId)) return;
-  rereads.delete(weddingId);
-  // The wedding is still stale unless a read that started after the signal,
-  // and after the tab's writes, has landed: then this answers from the cache.
-  queued.start(ensureTasksLoaded(weddingId, queued.fetcher));
-}
-
-/** Settle a wedding's owed read as not loaded, and send nothing. */
-function forgetReread(weddingId: string): void {
-  rereads.get(weddingId)?.start(Promise.resolve(false));
-  rereads.delete(weddingId);
-}
-
+/**
+ * The wedding's rows are known out of date. A mounted Checklist view keeps
+ * rendering the last-known rows rather than flickering for one round trip; the
+ * next `ensureTasksLoaded` reads again, and a load already in flight —
+ * issued against state that has since changed — discards what it fetches.
+ */
 export function invalidateTasks(weddingId: string): void {
-  // A mounted Checklist view is still rendering the last-known rows, and
-  // pulling them out from under it for one round trip is the flicker this
-  // cache exists to avoid — so the signal is left alone and the wedding is
-  // marked `stale` instead. `hasCachedTasks` treats a stale id as a miss,
-  // which is what makes the next `ensureTasksLoaded` actually refetch rather
-  // than short-circuiting on the (still-present) cached value.
-  stale.add(weddingId);
-  // A load already in flight was issued against PRE-mutation state, so its
-  // rows describe state that has since been mutated: the wedding's
-  // GENERATION is bumped too, and a resolving fetch from an older generation
-  // discards its result instead of caching it. Dropping the in-flight slot
-  // here (not just bumping the generation) means the next
-  // `ensureTasksLoaded` does not join that doomed fetch — it starts a new
-  // one, at the cost of one extra request. That is the right trade: joining
-  // would await a promise whose result the generation guard is about to
-  // discard, leaving the caller with `false` and the view unrefreshed until
-  // whatever call comes next.
-  inflight.delete(weddingId);
-  generation.set(weddingId, generationOf(weddingId) + 1);
+  cache.invalidate(weddingId);
 }
-
-/** Monotonic per-wedding load generation, bumped by every invalidation, by a
- *  write's whole-list answer and by forgetting the wedding: a load from an
- *  older generation has been replaced, and drops what it fetches. */
-const generation = new Map<string, number>();
-const generationOf = (weddingId: string) => generation.get(weddingId) ?? 0;
-
-/** Per-wedding count of the starts and ends of the portal's own task writes:
- *  a load that sees it move was answered across one of them. */
-const writeEpoch = new Map<string, number>();
-const writeEpochOf = (weddingId: string) => writeEpoch.get(weddingId) ?? 0;
-
-/** Per-wedding count of {@link markTasksStale} calls: a load that sees it move
- *  may predate the change it was told of. */
-const staleMarks = new Map<string, number>();
-const staleMarksOf = (weddingId: string) => staleMarks.get(weddingId) ?? 0;
-
-/** How many of the portal's own task writes are out, per wedding. */
-const writing = new Map<string, number>();
 
 /**
  * Mark one of the portal's own task writes as out, and get back the function
@@ -251,46 +193,29 @@ const writing = new Map<string, number>();
  * rows would undo what the organiser just did on screen. A dropped read is
  * sent again once the last write ends, as is a re-read a signal asked for
  * while one was out, so the read that sees the write always goes, whichever
- * reached the tab first, the write's answer or its signal.
+ * reached the tab first, the write's answer or its signal. The run sheet's
+ * cache follows the same writes.
  */
 export function beginTaskWrite(weddingId: string): () => void {
-  writing.set(weddingId, (writing.get(weddingId) ?? 0) + 1);
-  writeEpoch.set(weddingId, writeEpochOf(weddingId) + 1);
-  let ended = false;
-  return () => {
-    if (ended) return;
-    ended = true;
-    const left = (writing.get(weddingId) ?? 1) - 1;
-    if (left > 0) writing.set(weddingId, left);
-    else writing.delete(weddingId);
-    writeEpoch.set(weddingId, writeEpochOf(weddingId) + 1);
-    sendReread(weddingId);
-  };
+  return taskWrites.begin(weddingId);
 }
-
-/** Wedding ids whose cached rows are known out of date but still worth showing
- *  while the refetch is in flight. */
-const stale = new Set<string>();
 
 /** Reactive open-task count for the Overview widget: `null` until first load.
  *  Mints the wedding's cache entry so the read subscribes even from a cold
- *  cache — the entry is per-wedding and bounded by the same key space
- *  `cache`, `generation` and `stale` already occupy. */
+ *  cache. */
 export function openTaskCount(weddingId: string): number | null {
-  const rows = entryFor(weddingId).tasks();
+  const rows = cache.accessor(weddingId)();
   if (rows == null) return null;
   return rows.filter((t) => t.status === "open").length;
 }
 
 /** Reactive open/done/total counts for the Overview completion bar: `null`
  *  until first load. Mints the wedding's cache entry so the read subscribes
- *  even from a cold cache (mirrors {@link openTaskCount}) — the entry is
- *  per-wedding and bounded by the same key space `cache`, `generation` and
- *  `stale` already occupy. */
+ *  even from a cold cache (mirrors {@link openTaskCount}). */
 export function taskCounts(
   weddingId: string,
 ): { open: number; done: number; total: number } | null {
-  const rows = entryFor(weddingId).tasks();
+  const rows = cache.accessor(weddingId)();
   if (rows == null) return null;
   let open = 0;
   let done = 0;
@@ -301,89 +226,30 @@ export function taskCounts(
   return { open, done, total: rows.length };
 }
 
-const inflight = new Map<string, Promise<boolean>>();
-
 export function ensureTasksLoaded(
   weddingId: string,
   fetcher: () => Promise<TaskRow[]>,
 ): Promise<boolean> {
-  // A closed wedding loads nothing: the caller is a view that has already
-  // been torn down.
-  if (isWeddingClosed(weddingId)) return Promise.resolve(false);
-  if (hasCachedTasks(weddingId)) return Promise.resolve(true);
-  let pending = inflight.get(weddingId);
-  if (!pending) {
-    const startedAt = generationOf(weddingId);
-    const startedEpoch = writeEpochOf(weddingId);
-    const startedMarks = staleMarksOf(weddingId);
-    const load = fetcher()
-      .then(
-        (rows) => {
-          // A newer invalidation or a write's whole-list answer landed while
-          // this was in flight: a newer load owns the entry, so drop the rows.
-          if (generationOf(weddingId) !== startedAt) return false;
-          // One of the portal's own writes started or ended while this was in
-          // flight, or one is out now: the rows may predate it. Drop them and
-          // read again once the last write has ended.
-          if (writeEpochOf(weddingId) !== startedEpoch || writing.has(weddingId)) {
-            void queueReread(weddingId, fetcher);
-            return false;
-          }
-          setCachedTasks(weddingId, rows);
-          if (staleMarksOf(weddingId) === startedMarks) stale.delete(weddingId);
-          return true;
-        },
-        (err: unknown) => {
-          // The refetch was refused or failed. The rows still on screen were
-          // fetched under an authorisation this request could not confirm, so
-          // they stop being shown: a demoted organiser must not keep reading
-          // checklist detail behind an error banner. Same generation guard —
-          // if a newer invalidation has landed, a newer load owns the entry
-          // and this one touches nothing.
-          if (generationOf(weddingId) === startedAt) {
-            entryFor(weddingId).setTasks(null);
-            stale.delete(weddingId);
-          }
-          throw err;
-        },
-      )
-      .finally(() => {
-        // Only clear the slot if it is still OURS: an invalidation may already
-        // have replaced it with a newer load.
-        if (inflight.get(weddingId) === load) inflight.delete(weddingId);
-        sendReread(weddingId);
-      });
-    pending = load;
-    inflight.set(weddingId, pending);
-  }
-  return pending;
+  return cache.ensureLoaded(weddingId, fetcher);
 }
 
 /**
- * Forget a wedding: release its rows, drop its in-flight slot, and bump its
- * generation so a load still in flight discards what it fetches. A view still
- * holding the old accessor reads `null` from then on. The generation is bumped
- * rather than deleted, because a deleted one reads as 0 — the same value an
- * old load captured — and that load would then cache what it fetched.
+ * Forget a wedding: release its rows and its reader's seat, drop its in-flight
+ * slot and stop counting its writes as out, and bump its generation so a load
+ * still in flight discards what it fetches. A view still holding the old
+ * accessor reads `null` from then on.
  */
 export function dropTasks(weddingId: string): void {
-  cache.get(weddingId)?.setTasks(null);
-  cache.delete(weddingId);
-  inflight.delete(weddingId);
-  stale.delete(weddingId);
-  writing.delete(weddingId);
-  forgetReread(weddingId);
-  generation.set(weddingId, generationOf(weddingId) + 1);
+  cache.drop(weddingId);
+  taskWrites.forget(weddingId);
+  seats.get(weddingId)?.setSeat(null);
+  seats.delete(weddingId);
 }
 
-/** Test-only: clear the whole cache so each test starts cold. */
+/** Test-only: clear the whole cache, and the write counts, so each test starts
+ *  cold. */
 export function __resetTasksCache(): void {
-  for (const weddingId of rereads.keys()) forgetReread(weddingId);
-  cache.clear();
-  inflight.clear();
-  generation.clear();
-  writeEpoch.clear();
-  staleMarks.clear();
-  stale.clear();
-  writing.clear();
+  cache.reset();
+  taskWrites.reset();
+  seats.clear();
 }

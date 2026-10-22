@@ -167,15 +167,15 @@ before the Elysia app, for every seat that reads the run sheet — a helper's
 included. On `cire:wedding:<id>` it publishes `members-changed` after a seat is
 added, re-roled, removed or left, after a helper's run-sheet scope moves, and
 after the wedding is deleted, and `tasks-changed` after every checklist write
-that changed something. An open organiser tab re-reads its wedding list and its
-co-host panel on the first, and its checklist and Overview on the second. A
-member who lost their seat is revoked: their sockets close and their tab stops
-listening. See [[realtime]], [[cire-auth]], [[cire-checklist-tasks]] and
+that changed something and every schedule change, applied or reverted, that
+touched an event. An open organiser tab re-reads its wedding list and its
+co-host panel on the first, its checklist and Overview on the second, and its
+run sheet — a helper's included — on both. A member who lost their seat is
+revoked: their sockets close and their tab stops listening. See [[realtime]],
+[[cire-auth]], [[cire-checklist-tasks]], [[cire-run-sheet]] and
 [[cire-host-portal-layout]].
 Seed runs (the nightly dev rebuild) and data migrations change `wedding_hosts`
-and `tasks` with no signal. Open tabs catch up on their next refetch. A helper's
-tab listens today but has no rows to re-read; the run-sheet view
-(englishstreetventures/osn#1396) must re-read on both kinds.
+and `tasks` with no signal. Open tabs catch up on their next refetch.
 
 ### Turning realtime push off
 
@@ -200,7 +200,7 @@ one on 2026-08-21, so every cire page is now a wikilink away instead of a backti
 path that resolves nowhere:
 
 - Architecture — [[cire-platform-plan]], [[cire-invite-builder]], [[cire-guest-event-editor]], [[cire-consent]], [[cire-host-portal-layout]], [[drag-and-drop]]
-- Systems — [[cire-organiser]], [[cire-budget]], [[cire-checklist-tasks]], [[cire-entitlements]] (the Ivory, Gold and Crimson plan tiers), [[cire-upgrades]], [[cire-invite-designs]], [[cire-registry]], [[cire-seating]], [[cire-rsvp-deadline]], [[cire-rsvp-changes]], [[cire-rsvp-table]], [[cire-vendors]], [[feature-flags]]
+- Systems — [[cire-organiser]], [[cire-budget]], [[cire-checklist-tasks]], [[cire-run-sheet]], [[cire-entitlements]] (the Ivory, Gold and Crimson plan tiers), [[cire-upgrades]], [[cire-invite-designs]], [[cire-registry]], [[cire-seating]], [[cire-rsvp-deadline]], [[cire-rsvp-changes]], [[cire-rsvp-table]], [[cire-vendors]], [[feature-flags]]
 - Observability — [[cire-workerd]] · Conventions — [[browser-tests]]
 
 Cire's build conventions — the backend patterns, the two test tiers, and the

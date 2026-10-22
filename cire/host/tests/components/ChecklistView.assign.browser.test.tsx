@@ -643,7 +643,7 @@ describe("the popover's motion", () => {
     await commands.emulateMedia({ reducedMotion: "reduce" });
     fireEvent.click(screen.getByRole("button", { name: "Assign people to Book venue" }));
     dialog = await screen.findByRole("dialog", { name: "Assign people" });
-    for (const part of [dialog, dialog.querySelector(".assign-popover-body")!]) {
+    for (const part of [dialog, dialog.querySelector(".droplet-popover-body")!]) {
       expect(Number.parseFloat(getComputedStyle(part).animationDuration)).toBeLessThan(0.001);
       expect(
         getComputedStyle(part)

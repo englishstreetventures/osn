@@ -127,12 +127,15 @@ PRs 0–2 can run in parallel. The IA shell deliberately lands **early** (not la
 tasks: id, wedding_id FK↘, title, notes, category (service-category enum + 'general'),
        due_at (nullable), timeframe_bucket ('12m'|'9m'|'6m'|'3m'|'1m'|'2w'|'week_of'|'day_of'),
        status ('open'|'done'|'skipped'), vendor_id (nullable FK, Phase 2), sort_order,
-       created_at, completed_at
+       created_at, completed_at,
+       run_at, run_timezone (a fixed time on the day),
+       event_id (FK → events, SET NULL), run_offset_minutes (a time counted from
+       that event's start), event_removed_at
 task_assignees: task_id, host_id (a wedding_hosts seat), wedding_id, assigned_at
        — any number of seats per task, each a seat of the task's own wedding
 ```
 
-Seed from the starter template (`cire/api/src/lib/checklist-starter.ts`, registered in `cire/api/src/lib/checklist-templates.ts`) resolved against `wedding_date` — "visit and book your venues" lands at 12 months out, "confirm timings with every supplier" at 2 weeks. Re-anchoring when the date changes shifts *open* seeded tasks whose date the couple has not set. Built: [[cire-checklist-tasks#Starter checklist]]. A task's holders are seats of the wedding, not profile ids, so the helper run sheet can filter on them; built: [[cire-checklist-tasks#Assignees]]. Day-of tasks link to Schedule events → the day-of run-sheet view falls out of Schedule + `day_of` tasks.
+Seed from the starter template (`cire/api/src/lib/checklist-starter.ts`, registered in `cire/api/src/lib/checklist-templates.ts`) resolved against `wedding_date` — "visit and book your venues" lands at 12 months out, "confirm timings with every supplier" at 2 weeks. Re-anchoring when the date changes shifts *open* seeded tasks whose date the couple has not set. Built: [[cire-checklist-tasks#Starter checklist]]. A task's holders are seats of the wedding, not profile ids, so the helper run sheet can filter on them; built: [[cire-checklist-tasks#Assignees]]. A task links to an event by an offset from its start, or keeps a fixed time of its own, and the day-of run sheet lists the events with every timed or `day_of` task; built: [[cire-run-sheet]].
 
 ### 4.2 Budget v1
 

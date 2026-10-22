@@ -2,6 +2,7 @@
 title: Production Access Control Matrix (SOC 2 CC6)
 tags: [compliance, soc2, access-control]
 related:
+  - "[[cire-run-sheet]]"
   - "[[index]]"
   - "[[soc2]]"
   - "[[arc-tokens]]"
@@ -192,7 +193,8 @@ grant in the matrix above. Expectations:
   owners may seat other OSN accounts (`wedding_hosts.role`: another `owner`, an
   `editor` for module writes, a `viewer` for read-only, or a `helper`, refused
   every gate on the guest data and given only the day's run sheet, behind
-  `weddingRunSheet()`), change a role or
+  `weddingRunSheet()` and Gold — `GET …/run-sheet`, narrowed on the server to
+  their scope ([[cire-run-sheet]])), change a role or
   revoke someone else's seat; any co-host, a `helper` included, may give up
   their own (`DELETE /hosts/me`, which takes no profile id and so reaches no
   other seat), and an unknown/corrupted stored role degrades to `helper`, the

@@ -47,6 +47,9 @@ vi.mock("../../src/lib/households-store", async (importOriginal) => ({
   invalidateHouseholds: invalidateHouseholdsMock,
 }));
 
+const scheduleChangedMock = vi.hoisted(() => vi.fn());
+vi.mock("../../src/lib/schedule-changed", () => ({ scheduleChanged: scheduleChangedMock }));
+
 import EventsEditor from "../../src/components/EventsEditor";
 import { __resetEventsCache } from "../../src/lib/events-store";
 import { __resetGuestsCache } from "../../src/lib/guests-store";
@@ -741,6 +744,74 @@ describe("EventsEditor", () => {
     // Exactly the id: an ordinary save's `clears` is null, and a `confirmClears:
     // null` would fail the API's decode and refuse every save.
     expect(JSON.parse(String((applyCall[1] as RequestInit).body))).toEqual({ changeId: "chg_1" });
+  });
+
+  it("sends the linked tasks the organiser chose to remove, and has the checklist and run sheet read again", async () => {
+    primeLoad();
+    render(() => <EventsEditor weddingId="wed_a" />);
+    await waitFor(() => expect(screen.getByText("Ceremony")).toBeTruthy());
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Edit$/i })[0]!);
+    await waitFor(() => expect(screen.getByLabelText("Event name")).toBeTruthy());
+    fireEvent.input(screen.getByLabelText("Event name"), { target: { value: "Wedding Ceremony" } });
+    await waitFor(() => expect(screen.getByRole("button", { name: /Save changes/i })).toBeTruthy());
+
+    authFetchMock.mockImplementation((url: string) => {
+      const u = String(url);
+      if (u.endsWith("/changes/preview")) {
+        return Promise.resolve(
+          json({
+            changeId: "chg_1",
+            baseRevision: "genesis",
+            clears: null,
+            warnings: [],
+            plan: {
+              eventCreates: [],
+              eventUpdates: [],
+              eventRemoves: [{ id: "evt_rec", name: "Reception" }],
+              familyCreates: [],
+              familyRemoves: [],
+              guestCreates: [],
+              guestUpdates: [],
+              guestRemoves: [],
+              eventLinkCreates: [],
+              eventLinkRemoves: [],
+              warnings: [],
+              linkedTasks: [
+                {
+                  id: "tsk_cake",
+                  title: "Set up the cake table",
+                  eventId: "evt_rec",
+                  frozenRunAt: "2099-06-20T17:00:00+10:00",
+                  frozenTimezone: "Australia/Sydney",
+                },
+              ],
+            },
+          }),
+        );
+      }
+      if (u.endsWith("/changes/apply"))
+        return Promise.resolve(json({ summary: { changeId: "chg_1" } }));
+      if (u.endsWith("/events")) return Promise.resolve(json([EVENTS[0]]));
+      if (u.endsWith("/guests")) return Promise.resolve(json(GUESTS));
+      if (u.endsWith("/households")) return Promise.resolve(json(HOUSEHOLDS));
+      return Promise.resolve(fallback(url));
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
+    await waitFor(() => expect(screen.getByText("Set up the cake table")).toBeTruthy());
+    fireEvent.click(screen.getByRole("checkbox", { name: /Also remove this task/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Confirm & save/i }));
+
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
+    const applyCall = authFetchMock.mock.calls.find((c) =>
+      String(c[0]).endsWith("/changes/apply"),
+    )!;
+    expect(JSON.parse(String((applyCall[1] as RequestInit).body))).toEqual({
+      changeId: "chg_1",
+      removeLinkedTasks: ["tsk_cake"],
+    });
+    expect(scheduleChangedMock).toHaveBeenCalledWith("wed_a");
   });
 
   it("apply invalidates events and guests, but NOT households (T-S2)", async () => {

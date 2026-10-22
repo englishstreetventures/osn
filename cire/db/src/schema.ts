@@ -509,6 +509,28 @@ export const tasks = sqliteTable(
     dueSource: text("due_source", { enum: ["manual", "template"] })
       .notNull()
       .default("manual"),
+    // ── Run time (migration 20261021153838_task_run_time) ───────────────────
+    // When the task happens on the day. One of four states, which only the
+    // task service writes (cire/api/src/services/tasks.ts) — no CHECK holds
+    // them, so every writer sets all five columns together:
+    //  - untimed: all five NULL;
+    //  - fixed: `run_at` (`YYYY-MM-DDTHH:MM:SS±HH:MM`, the offset stamped from
+    //    the zone) and `run_timezone`, the IANA zone as the organiser chose it;
+    //  - linked: `event_id` and `run_offset_minutes` (minutes from the event's
+    //    start, negative before it), and no `run_at`: the time follows the
+    //    event and is derived on every read;
+    //  - frozen: the linked event was removed by a schedule change, so the
+    //    task keeps the time it last had, in that event's zone, and
+    //    `event_removed_at` says so.
+    runAt: text("run_at"),
+    runTimezone: text("run_timezone"),
+    // Single-column on purpose. A composite (event_id, wedding_id) key, like
+    // task_assignees', would null `wedding_id` too on SET NULL — it is NOT
+    // NULL, so every event delete would fail. The task service checks the
+    // event is the task's own wedding's on every write instead.
+    eventId: text("event_id").references(() => events.id, { onDelete: "set null" }),
+    runOffsetMinutes: integer("run_offset_minutes"),
+    eventRemovedAt: integer("event_removed_at", { mode: "timestamp" }),
     // ── Not declared: `assigned_host_id` ────────────────────────────────────
     // The database still holds `assigned_host_id` (migration 0087: a nullable
     // seat id, REFERENCES wedding_hosts(id) ON DELETE SET NULL) and its partial
@@ -533,6 +555,12 @@ export const tasks = sqliteTable(
     uniqueIndex("tasks_wedding_template_item_unique")
       .on(t.weddingId, t.templateId, t.templateItem)
       .where(sql`template_id IS NOT NULL`),
+    // The probe an event delete's SET NULL runs, and the schedule change's
+    // read of the tasks linked to the events it removes. Partial: most tasks
+    // are linked to nothing.
+    index("tasks_event_idx")
+      .on(t.eventId)
+      .where(sql`event_id IS NOT NULL`),
   ],
 );
 

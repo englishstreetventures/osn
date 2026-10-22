@@ -29,6 +29,10 @@ vi.mock("../../src/lib/guests-store", () => ({
   invalidateGuests: (id: string) => invalidateGuestsMock(id),
 }));
 
+const scheduleChangedMock = vi.fn();
+vi.mock("../../src/lib/schedule-changed", () => ({
+  scheduleChanged: (id: string) => scheduleChangedMock(id),
+}));
 import ChangeHistory from "../../src/components/ChangeHistory";
 import { authFetchMock, resetOrganiserMocks } from "../test-support/mocks";
 
@@ -184,6 +188,8 @@ describe("ChangeHistory", () => {
     expect(JSON.parse(String((revertCall[1] as RequestInit).body)).changeId).toBe("chg_editor");
     expect(invalidateEventsMock).toHaveBeenCalledWith("wed_a");
     expect(invalidateGuestsMock).toHaveBeenCalledWith("wed_a");
+    // A revert moves events, so the checklist and the run sheet read again.
+    expect(scheduleChangedMock).toHaveBeenCalledWith("wed_a");
   });
 
   it("does not revert when the confirm is declined", async () => {
@@ -238,5 +244,43 @@ describe("ChangeHistory", () => {
     confirmMock.mockClear();
     const legacy = await confirmTextFor(IMPORT_APPLIED);
     expect(legacy).toBe(both);
+  });
+
+  it("says the tasks linked to an event the change removed stay unlinked, and removed ones stay gone", async () => {
+    const text = await confirmTextFor({
+      ...EDITOR_APPLIED,
+      scope: "events",
+      summary: { eventRemoves: 1, linkedTasksKept: 2, linkedTasksRemoved: 1 },
+    });
+    expect(text).toMatch(
+      /2 checklist tasks linked to an event this change removed stay unlinked, and 1 checklist task removed with its event is not restored\.$/,
+    );
+  });
+
+  it("says one or the other when only one happened, and nothing about tasks when none did", async () => {
+    const kept = await confirmTextFor({
+      ...EDITOR_APPLIED,
+      scope: "events",
+      summary: { linkedTasksKept: 1, linkedTasksRemoved: 0 },
+    });
+    expect(kept).toMatch(
+      /1 checklist task linked to an event this change removed stays unlinked\.$/,
+    );
+    expect(kept).not.toMatch(/not restored\.$/);
+    cleanup();
+    confirmMock.mockClear();
+    const plain = await confirmTextFor({ ...EDITOR_APPLIED, scope: "events" });
+    expect(plain).not.toMatch(/checklist/);
+    expect(plain).toMatch(/discarded by the change are not restored\.$/);
+    cleanup();
+    confirmMock.mockClear();
+    const removed = await confirmTextFor({
+      ...EDITOR_APPLIED,
+      scope: "events",
+      summary: { linkedTasksKept: 0, linkedTasksRemoved: 2 },
+    });
+    expect(removed).toMatch(
+      /are not restored\. 2 checklist tasks removed with their events are not restored\.$/,
+    );
   });
 });

@@ -28,7 +28,8 @@ import {
   anchoredDueAt,
   type AssigneeRow,
   type TaskDto,
-  type TaskRow,
+  tasksAndEventTimes,
+  tasksWithEventTimes,
   weddingAssignees,
   withAssignees,
 } from "./tasks";
@@ -176,6 +177,12 @@ export const taskTemplatesService = {
                   templateItem: sql<string>`${picked("item")}`.as("template_item"),
                   dueOffsetDays: sql<number>`${picked("offset")}`.as("due_offset_days"),
                   dueSource: bound("template", tasks.dueSource),
+                  // A seeded task starts untimed.
+                  runAt: sql`NULL`.as("run_at"),
+                  runTimezone: sql`NULL`.as("run_timezone"),
+                  eventId: sql`NULL`.as("event_id"),
+                  runOffsetMinutes: sql`NULL`.as("run_offset_minutes"),
+                  eventRemovedAt: sql`NULL`.as("event_removed_at"),
                 })
                 .from(sql`json_each(${JSON.stringify(rows)}) AS picked`)
                 // SQLite needs a WHERE before the ON CONFLICT of an
@@ -183,21 +190,21 @@ export const taskTemplatesService = {
                 .where(sql`true`),
             )
             .onConflictDoNothing(),
-          db
-            .select()
-            .from(tasks)
+          // The checklist as it stands, each task with its event's time, and
+          // the holders of the tasks already there: the portal replaces its
+          // checklist with this answer.
+          tasksWithEventTimes(db)
             .where(eq(tasks.weddingId, weddingId))
             .orderBy(asc(tasks.timeframeBucket), asc(tasks.sortOrder)),
-          // The holders of the tasks already there: the portal replaces its
-          // checklist with this answer.
           weddingAssignees(db, weddingId),
         ]),
       );
       const added = rowsChanged(results[1]);
       metricChecklistTemplateApplied(templateId, added);
+      const checklist = tasksAndEventTimes(results[2]);
       return {
         added,
-        tasks: withAssignees(results[2] as TaskRow[], results[3] as AssigneeRow[]),
+        tasks: withAssignees(checklist.rows, results[3] as AssigneeRow[], checklist.eventTimes),
       };
     }).pipe(Effect.withSpan("cire.tasks.template_apply"));
   },

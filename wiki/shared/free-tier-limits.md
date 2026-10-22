@@ -200,7 +200,9 @@ Two kinds of subscribe come on top of a tab's first. The hub closes, at the next
 
 *Counted from the code on 2026-10-21 (`socketCap`, `maxSocketAgeMs` and the ping interval in `@shared/realtime`, the statements each cire route runs), not measured.*
 
-Whether pings are billed is englishstreetventures/osn#1585, and helpers make it matter more: a helper keeps a phone open on the day. If a ping is one request, 10 helpers with the run sheet visible for 8 hours spend 11,520 a wedding-day (10 × 1,152, below), so nine such weddings on one day spend more than the whole allowance; at 20:1 it is 580 a wedding-day (10 × 58). Until englishstreetventures/osn#1396 ships the run-sheet view, a helper's screen has nothing to keep visible.
+Whether pings are billed is englishstreetventures/osn#1585, and helpers make it matter more: a helper keeps a phone open on the day. If a ping is one request, 10 helpers with the run sheet visible for 8 hours spend 11,520 a wedding-day (10 × 1,152, below), so nine such weddings on one day spend more than the whole allowance; at 20:1 it is 580 a wedding-day (10 × 58). A helper's screen is the run sheet ([[cire-run-sheet]]), and every `tasks-changed` or `members-changed` sends each open one to read `GET …/run-sheet` again: one cire-api request with three D1 round trips — the session lookup, the seat lookup (which carries the tier) and one batch of four statements, six statements in all — bounded per organiser at 120 a minute by its limiter. A read whose answer names anyone also asks osn-api over ARC for the names the Worker isolate has not cached in the last five minutes: that is a second Worker request on the same account, with osn-api's own D1 reads. Within five minutes of a first read, a burst of publishes costs no ARC call in that isolate.
+
+*Counted from the code on 2026-10-21 (`osnAuth`, `weddingRunSheet`, `runSheetService.read`, `createRunSheetRoutes` and `cacheProfileDisplayResolver`), not measured.*
 
 | Limit | Free value (re-verify) |
 |---|---|

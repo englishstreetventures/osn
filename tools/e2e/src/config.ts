@@ -149,8 +149,9 @@ export const DEV_LOGIN_SECRET = "e2e-dev-login-secret-not-a-real-secret";
 /**
  * The organiser weddings cire-api adds when the stack sets
  * `CIRE_E2E_ORGANISER=1` (`seedE2eOrganiser` in `cire/api/src/db/setup.ts`,
- * which these values copy). All three are on Gold and owned by `profileId`,
- * the profile osn-api's `/dev/login` signs in as. The co-hosts are bare
+ * which these values copy). All five are on Gold; `profileId`, the profile
+ * osn-api's `/dev/login` signs in as, owns four and is a helper on
+ * `runSheetHelper`. The co-hosts are bare
  * profile ids: the local cire-api resolves no names, so the portal shows the
  * ids, and a flow finds each person by theirs.
  */
@@ -180,6 +181,45 @@ export const CIRE_ORGANISER = {
   scope: {
     weddingId: "wed_e2e_scope",
     helper: { hostId: "whost_e2e_dee", profileId: "usr_e2e_dee" },
+  },
+  /**
+   * The day of 2026-10-01 in Sydney (+10:00 that day, so the suite's clock
+   * starts at 10:00 there). Greet the celebrant is linked 40 minutes before the
+   * Ceremony, so at 10:05 it is coming up; the Reception's run of show is
+   * stored out of clock order, one item after midnight.
+   */
+  runSheet: {
+    weddingId: "wed_e2e_runsheet",
+    events: {
+      ceremony: { id: "evt_e2e_rs_ceremony", name: "Ceremony", movedStart: "11:30" },
+      reception: { id: "evt_e2e_rs_reception", name: "Reception" },
+      brunch: { id: "evt_e2e_rs_brunch", name: "Brunch" },
+    },
+    tasks: {
+      greet: { id: "tsk_e2e_rs_greet", title: "Greet the celebrant" },
+      cake: { id: "tsk_e2e_rs_cake", title: "Set up the cake table" },
+      hamper: { id: "tsk_e2e_rs_hamper", title: "Pack the hamper" },
+      rings: { id: "tsk_e2e_rs_rings", title: "Bring the rings" },
+      cards: { id: "tsk_e2e_rs_cards", title: "Order thank-you cards" },
+    },
+    /** The Reception's run of show as the run sheet reads it. */
+    receptionRunOfShow: [
+      "6:30 pm Entrée",
+      "12:15 am Last dance (after midnight)",
+      "5:30 pm Doors close (after midnight)",
+    ],
+    /** The cake table's time once the Reception is removed and it is kept. */
+    cakeFrozenAt: "2026-10-01T17:00:00+10:00",
+  },
+  /** The same day, where the dev profile is a helper seeing its own tasks. */
+  runSheetHelper: {
+    weddingId: "wed_e2e_rs_helper",
+    seatId: "whost_e2e_rs_helper_me",
+    owner: { hostId: "whost_e2e_gus", profileId: "usr_e2e_gus" },
+    arrival: { id: "evt_e2e_rsh_arrival", name: "Guest arrival", runOfShow: "Welcome drinks" },
+    speeches: { id: "evt_e2e_rsh_speeches", name: "Speeches", runOfShow: "Best man" },
+    programmes: { id: "tsk_e2e_rsh_programmes", title: "Hand out programmes" },
+    cue: { id: "tsk_e2e_rsh_cue", title: "Cue the speeches" },
   },
 } as const;
 

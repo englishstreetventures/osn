@@ -7,6 +7,7 @@ import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api"
 import { invalidateEvents } from "../lib/events-store";
 import { invalidateGuests } from "../lib/guests-store";
 import { invalidateHouseholds } from "../lib/households-store";
+import { scheduleChanged } from "../lib/schedule-changed";
 /**
  * One row of the change list as returned by
  * `GET /api/organiser/weddings/:weddingId/changes/list` (the E4 endpoint).
@@ -26,6 +27,10 @@ interface ChangeSummaryCounts {
   guestCreates?: number;
   guestUpdates?: number;
   guestRemoves?: number;
+  /** Checklist tasks linked to an event the change removed: kept (unlinked)
+   *  and removed with it. Absent when it met none, and from an older API. */
+  linkedTasksKept?: number;
+  linkedTasksRemoved?: number;
 }
 
 type ChangeStatus = "preview" | "applied" | "reverted";
@@ -81,6 +86,29 @@ const REVERT_CONFIRM = {
   guests:
     "Revert this change? Households, guests and their invitations are restored to exactly the state before it was applied. Events are not changed: invitations to an event deleted since are not restored, and invitations to an event added since are kept. RSVPs and seating-chart seats discarded by the change are not restored.",
 } satisfies Record<ChangeScope, string>;
+
+/**
+ * What reverting a change does NOT undo for the checklist: the tasks linked to
+ * an event it removed stay unlinked, and those removed with it stay removed.
+ * Empty when the change met no linked task.
+ */
+export function linkedTasksRevertNote(summary: ChangeSummaryCounts): string {
+  const kept = summary.linkedTasksKept ?? 0;
+  const removed = summary.linkedTasksRemoved ?? 0;
+  const tasks = (n: number) => `${n} checklist ${n === 1 ? "task" : "tasks"}`;
+  const parts: string[] = [];
+  if (kept > 0) {
+    parts.push(
+      `${tasks(kept)} linked to an event this change removed ${kept === 1 ? "stays" : "stay"} unlinked`,
+    );
+  }
+  if (removed > 0) {
+    parts.push(
+      `${tasks(removed)} removed with ${removed === 1 ? "its event is" : "their events are"} not restored`,
+    );
+  }
+  return parts.length > 0 ? ` ${parts.join(", and ")}.` : "";
+}
 
 function formatDate(ms: number): string {
   try {
@@ -176,7 +204,10 @@ export default function ChangeHistory(props: { weddingId: string }) {
 
   async function handleRevert(entry: ChangeEntry) {
     if (entry.status !== "applied" || !entry.revertable) return;
-    const ok = window.confirm(REVERT_CONFIRM[entry.scope ?? "both"] ?? REVERT_CONFIRM.both);
+    const ok = window.confirm(
+      (REVERT_CONFIRM[entry.scope ?? "both"] ?? REVERT_CONFIRM.both) +
+        linkedTasksRevertNote(entry.summary),
+    );
     if (!ok) return;
 
     setRevertingId(entry.id);
@@ -195,6 +226,8 @@ export default function ChangeHistory(props: { weddingId: string }) {
       // drop both, then a full reload re-pulls every module fresh. We refresh
       // the list first so the row flips to "Reverted" even if the reload no-ops.
       invalidateEvents(props.weddingId);
+      // A revert moves or removes events, and with them linked tasks' times.
+      scheduleChanged(props.weddingId);
       invalidateGuests(props.weddingId);
       // Same three-cache consistency unit as the import apply — a revert can
       // resurrect or remove households, so the household cache is as stale as

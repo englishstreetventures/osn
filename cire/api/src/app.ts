@@ -84,6 +84,7 @@ import {
 import { createRegistryStripeRoutes } from "./routes/registry-stripe";
 import { createRsvpRoutes } from "./routes/rsvp";
 import { createRsvpDigestStopRoutes } from "./routes/rsvp-digest-stop";
+import { createRunSheetRoutes } from "./routes/run-sheet";
 import { createSeatingRoutes } from "./routes/seating";
 import { createStripePlatformWebhookRoutes } from "./routes/stripe-platform-webhook";
 import { createStripeWebhookRoutes } from "./routes/stripe-webhook";
@@ -112,7 +113,7 @@ import type {
   OsnProfileDisplayResolver,
   OsnProfileOrgsResolver,
 } from "./services/osn-bridge";
-import { cacheAccountResolver } from "./services/osn-bridge";
+import { cacheAccountResolver, cacheProfileDisplayResolver } from "./services/osn-bridge";
 import type { R2Bucket } from "./services/r2-imports";
 import { createWeddingSignals } from "./services/realtime";
 import type { StripeClient } from "./services/stripe";
@@ -203,6 +204,15 @@ const defaultOrganiserRsvpLimiter = createRateLimiter({ maxRequests: 60, windowM
  * editing session reaches it, while a script is held to it.
  */
 const defaultTaskWriteLimiter = createRateLimiter({ maxRequests: 120, windowMs: 60_000 });
+/**
+ * Default per-USER limiter for the day-of run sheet's read, mounted after its
+ * role and tier gates. A read may look up the names of the people on it over
+ * ARC, and every publish of `tasks-changed` sends each open run sheet to read
+ * again, so this bounds what one seat — a helper's included, who has no other
+ * limited surface — can make the Worker do. 120 a minute is two a second, far
+ * past what reading the day by hand sends.
+ */
+const defaultRunSheetReadLimiter = createRateLimiter({ maxRequests: 120, windowMs: 60_000 });
 /**
  * Default per-USER limiter shared by an owner's wedding delete and restore.
  * Owner-gated already, so this only caps a scripted toggle; 5/min is more than
@@ -450,6 +460,8 @@ export interface AppOptions {
   organiserRsvpLimiter?: RateLimiterBackend;
   /** Override the checklist write rate limiter (useful for testing). */
   taskWriteLimiter?: RateLimiterBackend;
+  /** Override the run-sheet read rate limiter (useful for testing). */
+  runSheetReadLimiter?: RateLimiterBackend;
   /** Override the co-host handle-search rate limiter (useful for testing). */
   handleSearchLimiter?: RateLimiterBackend;
   /** Override the public CSP-report collector rate limiter (useful for testing). */
@@ -750,6 +762,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
     weddingLifecycleLimiter = defaultWeddingLifecycleLimiter,
     organiserRsvpLimiter = defaultOrganiserRsvpLimiter,
     taskWriteLimiter = defaultTaskWriteLimiter,
+    runSheetReadLimiter = defaultRunSheetReadLimiter,
     handleSearchLimiter = defaultHandleSearchLimiter,
     cspReportLimiter = defaultCspReportLimiter,
     vendorPortalLimiter = defaultVendorPortalLimiter,
@@ -870,6 +883,13 @@ export function createApp(db: Db, options: AppOptions = {}) {
 
   // What decides whether a household is offered account linking. The claim and
   // restore responses report it, and a link can only complete with a resolver.
+  // The run sheet's name lookup, cached for this app's life — one Worker
+  // isolate. Every open run sheet reads again on each publish, and most
+  // publishes are task writes, which change no name. The host list keeps the
+  // uncached resolver: it is read once a panel, not once a publish.
+  const runSheetDisplays =
+    resolveOsnProfileDisplays && cacheProfileDisplayResolver(resolveOsnProfileDisplays);
+
   const accountLinking: AccountLinking = {
     flags,
     canLink: resolveOsnAccountId !== undefined,
@@ -885,9 +905,9 @@ export function createApp(db: Db, options: AppOptions = {}) {
     memberStepExcludedWeddings: options.memberStepExcludedWeddings,
   };
 
-  // One publisher for the co-host, checklist and settings writes. No hub
-  // bound ⇒ every signal is a counted no-op and the writes behave exactly as
-  // they did before push.
+  // One publisher for the co-host, checklist, schedule-change and settings
+  // writes. No hub bound ⇒ every signal is a counted no-op and the writes
+  // behave exactly as they did before push.
   const weddingSignals = createWeddingSignals(realtimeHub);
 
   // Capture the chain so we can conditionally mount the payment webhook below.
@@ -1108,7 +1128,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
       )
       // General change API (guest+event editor E4). Both front doors
       // (DesiredState JSON + `{eventsCsv, guestsCsv}`) funnel into one pipeline.
-      .use(createOrganiserChangeRoutes(db, r2, osnAuthOptions))
+      .use(createOrganiserChangeRoutes(db, r2, osnAuthOptions, weddingSignals))
       // Wedding-profile Settings (platform Phase 0). Reads admit owner OR
       // co-host; the profile save is owner-only. No event location config —
       // an event's place is its venue name and free-text `address`.
@@ -1136,6 +1156,10 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // write gate.
       .use(createTaskReadRoutes(db, osnAuthOptions))
       .use(createTaskWriteRoutes(db, osnAuthOptions, taskWriteLimiter, weddingSignals))
+      // The day-of run sheet: read-only, for every role, a helper's included —
+      // so behind `weddingRunSheet()`, never `weddingMember()` — then Gold, then
+      // a per-user limiter. Narrowed on the server to the reader's scope.
+      .use(createRunSheetRoutes(db, osnAuthOptions, runSheetReadLimiter, runSheetDisplays))
       .use(createBudgetReadRoutes(db, osnAuthOptions))
       .use(createBudgetWriteRoutes(db, osnAuthOptions))
       // Gift registry. Same read/write gate split as the modules above, and the

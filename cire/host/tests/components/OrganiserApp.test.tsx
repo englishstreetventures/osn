@@ -213,8 +213,28 @@ vi.mock("@shared/realtime/solid", () => ({
   },
 }));
 
+// The run sheet's own view is the designer's and has its own tests; here it
+// stands in with what the seat hands it.
+vi.mock("../../src/components/RunSheetView", () => ({
+  default: (p: { weddingId: string; tier: string; callerRole: string; canEdit: boolean }) => (
+    <div
+      data-testid="run-sheet"
+      data-wedding={p.weddingId}
+      data-tier={p.tier}
+      data-role={p.callerRole}
+      data-can-edit={String(p.canEdit)}
+    />
+  ),
+}));
+
 import OrganiserApp from "../../src/components/OrganiserApp";
 import { __resetHostsCache, hasCachedHosts, setFreshHosts } from "../../src/lib/hosts-store";
+import {
+  __resetRunSheetCache,
+  ensureRunSheetLoaded,
+  type RunSheet,
+  runSheetAccessor,
+} from "../../src/lib/run-sheet-store";
 import { __resetTasksCache, hasCachedTasks, setCachedTasks } from "../../src/lib/tasks-store";
 // The unsaved-changes guard is real (unmocked) — the veto tests below register
 // a guard directly, standing in for any mounted dirty form (the invite builder).
@@ -381,7 +401,10 @@ describe("OrganiserApp Dashboard", () => {
 
     fireEvent.click(screen.getByText("select-first"));
     expect(screen.queryByTestId("module-shell")).toBeNull();
-    expect(screen.getByText(/Helper access/i)).toBeTruthy();
+    expect(screen.getByTestId("run-sheet-seat")).toBeTruthy();
+    // Under the header the shell gives the module, so it reads as the same page.
+    expect(screen.getByRole("heading", { level: 2, name: "Run sheet" })).toBeTruthy();
+    expect(screen.getByText("The day, hour by hour, and who does what")).toBeTruthy();
     // The preview button mints a code through a member-gated route, so it is
     // not offered either.
     expect(screen.queryByTestId("preview-button")).toBeNull();
@@ -397,13 +420,13 @@ describe("OrganiserApp Dashboard", () => {
     render(() => <OrganiserApp />);
     await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
     fireEvent.click(screen.getByText("select-first"));
-    expect(screen.getByText(/Helper access/i)).toBeTruthy();
+    expect(screen.getByTestId("run-sheet-seat")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: /Leave this wedding/i }));
     fireEvent.click(await screen.findByRole("button", { name: /Yes, leave/i }));
 
     await waitFor(() => expect(screen.getByTestId("count").textContent).toBe("0"));
-    expect(screen.queryByText(/Helper access/i)).toBeNull();
+    expect(screen.queryByTestId("run-sheet-seat")).toBeNull();
     const del = authFetchMock.mock.calls.find(([, init]) => init?.method === "DELETE");
     expect(String(del?.[0])).toBe("https://api.test/api/organiser/weddings/wed_h/hosts/me");
   });
@@ -420,7 +443,7 @@ describe("OrganiserApp Dashboard", () => {
 
     fireEvent.click(screen.getByText("select-first"));
     expect(screen.queryByTestId("module-shell")).toBeNull();
-    expect(screen.getByText(/Helper access/i)).toBeTruthy();
+    expect(screen.getByTestId("run-sheet-seat")).toBeTruthy();
   });
 
   it("hands the wedding's tier to the module shell", async () => {
@@ -885,7 +908,7 @@ describe("OrganiserApp Dashboard", () => {
       listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob", role: "helper" }]),
     );
     render(() => <OrganiserApp />);
-    await waitFor(() => expect(screen.getByText(/Helper access/i)).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId("run-sheet-seat")).toBeTruthy());
     expect(topic.url?.()).toMatch(/\/realtime\/cire%3Awedding%3Awed_a$/);
   });
 
@@ -896,7 +919,7 @@ describe("OrganiserApp Dashboard", () => {
       listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob", role }]),
     );
     render(() => <OrganiserApp />);
-    await waitFor(() => expect(screen.getByText(/Helper access/i)).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId("run-sheet-seat")).toBeTruthy());
 
     role = "viewer";
     topic.onSignal?.(message("members-changed"));
@@ -938,6 +961,92 @@ describe("OrganiserApp Dashboard", () => {
     expect(hasCachedTasks("wed_a")).toBe(false);
     expect(shell().dataset.membersChanged).toBe("0");
     expect(authFetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  describe("a helper's run sheet", () => {
+    const day: RunSheet = { scope: "own", viewerHostId: "whost_h", items: [], people: [] };
+
+    /** A helper's seat on `wed_a`, open, with its run sheet read once. */
+    async function helperSeat(listed: () => boolean = () => true) {
+      history.replaceState(null, "", "#/w/wed_a");
+      authFetchMock.mockImplementation(async () =>
+        listResponse(
+          listed()
+            ? [{ id: "wed_a", slug: "a", displayName: "Alice & Bob", role: "helper", tier: "gold" }]
+            : [],
+        ),
+      );
+      render(() => <OrganiserApp />);
+      await waitFor(() => expect(screen.getByTestId("run-sheet-seat")).toBeTruthy());
+      let reads = 0;
+      const fetcher = async () => {
+        reads += 1;
+        return day;
+      };
+      await ensureRunSheetLoaded("wed_a", fetcher);
+      return { fetcher, reads: () => reads };
+    }
+
+    afterEach(() => __resetRunSheetCache());
+
+    it("opens a helper onto the run sheet, handed the wedding's tier and no editing", async () => {
+      await helperSeat();
+      expect((await screen.findByTestId("run-sheet")).dataset).toMatchObject({
+        wedding: "wed_a",
+        tier: "gold",
+        role: "helper",
+        canEdit: "false",
+      });
+      expect(screen.getByRole("button", { name: /Leave this wedding/i })).toBeTruthy();
+    });
+
+    it.each([
+      ["tasks-changed", message("tasks-changed")],
+      ["members-changed", message("members-changed")],
+      ["a reconnect", { reason: "reconnected" } as const],
+    ])("reads the run sheet again after %s", async (_label, event) => {
+      const seat = await helperSeat();
+      await ensureRunSheetLoaded("wed_a", seat.fetcher);
+      expect(seat.reads()).toBe(1);
+
+      topic.onSignal?.(event);
+
+      await ensureRunSheetLoaded("wed_a", seat.fetcher);
+      expect(seat.reads()).toBe(2);
+    });
+
+    it("releases the run sheet when the wedding leaves the helper's list", async () => {
+      let listed = true;
+      await helperSeat(() => listed);
+      expect(runSheetAccessor("wed_a")()).toEqual(day);
+
+      listed = false;
+      topic.onSignal?.(message("members-changed"));
+
+      await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
+      expect(runSheetAccessor("wed_a")()).toBeNull();
+    });
+  });
+
+  it("marks a dashboard's run sheet stale on either kind of signal too", async () => {
+    history.replaceState(null, "", "#/w/wed_a");
+    authFetchMock.mockResolvedValue(
+      listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+    let reads = 0;
+    const fetcher = async () => {
+      reads += 1;
+      return { scope: "full" as const, viewerHostId: "w", items: [], people: [] };
+    };
+    await ensureRunSheetLoaded("wed_a", fetcher);
+    for (const kind of ["tasks-changed", "members-changed"] as const) {
+      topic.onSignal?.(message(kind));
+      await ensureRunSheetLoaded("wed_a", fetcher);
+    }
+    expect(reads).toBe(3);
+    __resetRunSheetCache();
   });
 
   it("tells both kinds of view on a reconnect, which may have missed either", async () => {
@@ -1256,7 +1365,7 @@ describe("OrganiserApp Dashboard", () => {
     role = "helper";
     fireEvent.click(screen.getByText("read-vendors"));
 
-    await waitFor(() => expect(screen.getByText(/Helper access/i)).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId("run-sheet-seat")).toBeTruthy());
     expect(screen.queryByTestId("module-shell")).toBeNull();
     expect(peekCachedVendors("wed_a")).toBeNull();
   });

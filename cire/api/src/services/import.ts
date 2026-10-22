@@ -6,16 +6,27 @@ import {
   rsvps,
   seatingAssignments,
   seatingTables,
+  taskTemplateDismissals,
+  tasks,
   weddings,
 } from "@cire/db";
 import { formatDietaryCell, parsePresets } from "@cire/dietary";
 import { jsonEachIn } from "@shared/db-utils";
-import { and, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, ne, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Effect, Data, type Types } from "effect";
 
-import { DbService, dbQuery, driverErrorText } from "../db";
-import type { BatchableDb, BatchStatements, Db } from "../db";
+import {
+  bound,
+  commitGroupedBatches,
+  DbService,
+  dbQuery,
+  driverErrorText,
+  startsNewChunk,
+  MAX_STATEMENTS_PER_BATCH,
+} from "../db";
+import type { Db } from "../db";
+import { anchoredRunAt } from "../lib/run-time";
 import { metricImportApplied } from "../metrics";
 import type {
   ChangeScope,
@@ -32,6 +43,7 @@ import type {
   ImportPlan,
   DesiredFamily,
   ImportSummary,
+  LinkedTask,
   ParsedEvent,
   Provenance,
   RunOfShowItem,
@@ -255,6 +267,10 @@ interface ExistingEvent {
   /** The stored run of show as {@link runOfShowColumn} reads it, or null when
    *  the diff did not read it. */
   readonly runOfShow?: string | null;
+  /** When it starts and on which clock, so a task linked to it can keep the
+   *  time it last had if the change removes it. */
+  readonly startAt?: string;
+  readonly timezone?: string;
 }
 
 /** "a", "a and b", "a, b and c". */
@@ -385,6 +401,8 @@ export function diffAgainstDb(
                 Boolean,
               ),
               runOfShow: statesRunOfShow ? runOfShowColumn : sql<string | null>`NULL`,
+              startAt: events.startAt,
+              timezone: events.timezone,
             })
             .from(events)
             .where(eq(events.weddingId, weddingId))
@@ -460,6 +478,52 @@ export function diffAgainstDb(
           const live = existingEventById.get(parsed.id);
           if (!live || normaliseName(live.name) !== normaliseName(parsed.name)) unresolvedIds += 1;
         }
+      }
+    }
+
+    // ── Tasks linked to a removed event ────────────────────────────────────
+    // A checklist task linked to an event this change removes is listed, with
+    // the time it would keep: the event's start moved by its offset, on the
+    // event's clock. Read at preview (the organiser chooses which to remove
+    // with the event) and again at apply, where the times are what the freeze
+    // writes. Only when the change removes an event.
+    const linkedTasks: LinkedTask[] = [];
+    if (eventRemoves.length > 0) {
+      const linkedRows = yield* dbQuery(() =>
+        db
+          .select({
+            id: tasks.id,
+            title: tasks.title,
+            eventId: tasks.eventId,
+            offsetMinutes: tasks.runOffsetMinutes,
+          })
+          .from(tasks)
+          .where(
+            and(
+              eq(tasks.weddingId, weddingId),
+              inArray(tasks.eventId, jsonEachIn(eventRemoves.map((e) => e.id))),
+            ),
+          )
+          .orderBy(asc(tasks.eventId), asc(tasks.sortOrder), asc(tasks.id))
+          .all(),
+      );
+      for (const linked of linkedRows) {
+        const eventId = linked.eventId!;
+        const event = existingEventById.get(eventId);
+        const frozenRunAt =
+          event?.startAt !== undefined &&
+          event.timezone !== undefined &&
+          linked.offsetMinutes !== null
+            ? anchoredRunAt(event.startAt, event.timezone, linked.offsetMinutes)
+            : null;
+        linkedTasks.push({
+          id: linked.id,
+          title: linked.title,
+          eventId,
+          offsetMinutes: linked.offsetMinutes,
+          frozenRunAt,
+          frozenTimezone: frozenRunAt === null ? null : event!.timezone!,
+        });
       }
     }
 
@@ -1025,6 +1089,7 @@ export function diffAgainstDb(
       eventLinkCreates,
       eventLinkRemoves,
       warnings,
+      linkedTasks: linkedTasks.length > 0 ? linkedTasks : undefined,
       derivedCap,
     };
   }).pipe(Effect.withSpan("cire.import.diff"));
@@ -1033,96 +1098,152 @@ export function diffAgainstDb(
 // ── Apply ─────────────────────────────────────────────────────────────────────
 
 /**
- * Maximum Drizzle statements committed in a single `db.batch([...])`.
- *
- * D1 bounds a Worker invocation to 50 queries on the Free tier (1000 on Paid),
- * and every statement in a `batch()` counts as one query against that cap — so
- * an unchunked batch of a few-hundred-row guest list would blow straight past
- * 50 and fail on the tier cire runs on. 50 is the documented Free-tier ceiling;
- * we sit one notch below the SAFE limit by capping each *batch* at 50 so no
- * single batch can exceed the per-invocation cap, while still amortising the
- * Workers↔D1 round-trip over many statements. (The separate per-query limit —
- * ≤100 bound parameters — is unaffected: chunking groups whole statements, never
- * splits one, and our widest insert binds well under 100 params.)
- *
- * See https://developers.cloudflare.com/d1/platform/limits/.
- */
-const MAX_STATEMENTS_PER_BATCH = 50;
-
-/**
- * Commit the import write set, which is built in FK-dependency order.
- *  - D1 (production): atomic `db.batch([...])` calls — one Workers↔D1 round-trip
- *    per chunk, all-or-nothing *within* a chunk. D1 has no interactive
- *    transaction, but a single batch IS a transaction.
+ * Commit the import write set, built in FK-dependency order as GROUPS of
+ * statements that must commit together.
+ *  - D1 (production): `commitGroupedBatches` — atomic `db.batch([...])` calls
+ *    of at most `MAX_STATEMENTS_PER_BATCH` (50: D1 Free counts every statement
+ *    of a batch as one of the invocation's 50 queries) — one Workers↔D1
+ *    round-trip per chunk, all-or-nothing *within* a chunk, and a group never
+ *    split across two. Every statement is its own group but these: the removed
+ *    events' checklist-task writes and their deletes (at most six statements
+ *    for any number of events), so a task is never unlinked from an event that
+ *    survives, nor its event gone while it still names it; and the caller's
+ *    `finalize` statements.
  *  - bun:sqlite (tests/local): awaited sequentially in the same order
  *    (bun:sqlite exposes no `.batch()`; awaiting a Drizzle builder executes it).
  *
- * Chunking (D1 path): the statement list is split into sequential chunks of
- * ≤`MAX_STATEMENTS_PER_BATCH`, awaited IN ORDER (never in parallel) — see the
- * dependency-ordering + atomicity invariants documented on the chunk loop below.
+ * INVARIANT (dependency ordering): splitting the one ordered list into
+ * in-order, sequentially-awaited chunks preserves that order — a later chunk is
+ * dispatched only after the earlier one has committed — so a chunk boundary can
+ * never make a child run before its parent.
  *
- * `batch` exists only on the D1 driver, so feature-detection picks the path.
+ * ATOMICITY TRADEOFF: D1 `batch()` is atomic per call but NOT across calls, and
+ * D1 has no multi-batch transaction primitive. So a failure mid-import (after
+ * chunk k commits, before chunk k+1) can leave a PARTIAL apply. This is the
+ * accepted design: `services/revert.ts` re-diffs the prior import's CSVs
+ * against current DB state and re-applies, which reconciles a partial apply
+ * just as it reconciles a fully-applied one. Chunks stay small and the whole
+ * import is well under the 30s wall-clock, so the window is narrow.
  */
-async function commitWriteSet(db: Db, statements: BatchItem<"sqlite">[]): Promise<void> {
-  if (statements.length === 0) return;
-  // Bound and captured before the guard, so the narrowing survives into the
-  // chain below — a property read off a mutable object does not — and so the
-  // driver method keeps its receiver.
-  const batchable = db as BatchableDb;
-  const batch = typeof batchable.batch === "function" ? batchable.batch.bind(batchable) : null;
-  if (batch) {
-    // INVARIANT (dependency ordering): `statements` is built in strict
-    // FK-dependency order by applyImport (removes → event creates →
-    // family creates → guest creates → link creates, etc.). Splitting that
-    // single ordered list into in-order, sequentially-awaited chunks PRESERVES
-    // that order: every parent insert still precedes its child insert, even
-    // across a chunk boundary, because a later chunk is only dispatched after
-    // the earlier chunk has fully committed. A chunk boundary can never make a
-    // child run before its parent.
-    //
-    // ATOMICITY TRADEOFF: D1 `batch()` is atomic per call but NOT across calls,
-    // and D1 has no multi-batch transaction primitive. So a failure mid-import
-    // (after chunk k commits, before chunk k+1) can leave a PARTIAL apply. This
-    // is the accepted design: `services/revert.ts` re-diffs the prior import's
-    // CSVs against current DB state and re-applies, which reconciles a partial
-    // apply just as it reconciles a fully-applied one. We deliberately do NOT
-    // add cross-batch transaction machinery (it doesn't exist on D1); chunking
-    // + revert is the tradeoff. Chunks stay small + the whole import is well
-    // under the 30s wall-clock, so the partial-apply window is narrow.
-    const chunks: BatchStatements[] = [];
-    for (let i = 0; i < statements.length; i += MAX_STATEMENTS_PER_BATCH) {
-      chunks.push(statements.slice(i, i + MAX_STATEMENTS_PER_BATCH) as BatchStatements);
-    }
-    // Chained, never gathered: the ordering invariant above is the whole point,
-    // and `Promise.all` would dispatch a child's chunk alongside its parent's.
-    await chunks.reduce<Promise<unknown>>(
-      (chain, chunk) => chain.then(() => batch(chunk)),
-      Promise.resolve<unknown>(undefined),
-    );
-    return;
-  }
-  // Sequential FK order is required and bun:sqlite has no batch; these run
-  // in-process (no network round-trip), and chaining them keeps the order the
-  // statement list was built in.
-  await statements.reduce<Promise<unknown>>(
-    (chain, stmt) => chain.then(() => stmt),
-    Promise.resolve<unknown>(undefined),
-  );
+function commitWriteSet(db: Db, groups: BatchItem<"sqlite">[][]): Promise<void> {
+  return commitGroupedBatches(db, groups);
+}
+
+/** What the apply does with the tasks linked to the events it removes. */
+export interface ApplyImportOptions {
+  /**
+   * The ids of the preview's `linkedTasks` the organiser chose to remove with
+   * their events. Only an id still linked to an event this apply removes is
+   * removed; absent keeps every linked task.
+   */
+  readonly removeLinkedTasks?: readonly string[];
 }
 
 /**
- * Whether the statement at `index` of a write set is the last of a run ending
- * at `lastIndex` to commit in its D1 batch: it is the run's last, or the next
- * statement starts the next batch. {@link commitWriteSet} slices the write set
- * into batches of {@link MAX_STATEMENTS_PER_BATCH}, so statement `i` commits in
- * batch `floor(i / MAX_STATEMENTS_PER_BATCH)`.
+ * The one write group for every removed event: the checklist tasks linked to
+ * them first, then their RSVPs, invitations and the event rows — at most six
+ * statements however many events the change removes, each binding the ids as
+ * one JSON parameter.
+ *
+ *  1. The tasks the organiser chose to remove, still linked to an event this
+ *     change removes — a removed seeded task leaves its dismissal, as a delete
+ *     from the checklist does, so the starter does not bring it back.
+ *  2. Every other task still linked to one is FROZEN: unlinked, at the time
+ *     the diff read for its offset (`linkedTasks`), on its event's clock and in
+ *     its event's zone, and marked removed. The times ride as one bound JSON
+ *     parameter keyed by event and offset. A task linked since the diff read,
+ *     at an offset it did not see, keeps no time rather than an offset with no
+ *     event.
+ *  3. The events' RSVPs, invitations and rows: after the tasks, so no task is
+ *     ever left naming an event that is gone.
  */
-function closesBatch(index: number, lastIndex: number): boolean {
-  return (
-    index === lastIndex ||
-    Math.floor((index + 1) / MAX_STATEMENTS_PER_BATCH) !==
-      Math.floor(index / MAX_STATEMENTS_PER_BATCH)
+function removedEventsGroup(
+  db: Db,
+  weddingId: string,
+  eventIds: readonly string[],
+  linked: readonly LinkedTask[],
+  removing: ReadonlySet<string>,
+  now: Date,
+): BatchItem<"sqlite">[] {
+  const group: BatchItem<"sqlite">[] = [];
+  const removed = jsonEachIn(eventIds);
+  const chosen = linked.filter((t) => removing.has(t.id)).map((t) => t.id);
+  if (chosen.length > 0) {
+    const doomed = and(
+      eq(tasks.weddingId, weddingId),
+      inArray(tasks.eventId, removed),
+      inArray(tasks.id, jsonEachIn(chosen)),
+    );
+    group.push(
+      db
+        .insert(taskTemplateDismissals)
+        .select(
+          db
+            .select({
+              weddingId: tasks.weddingId,
+              templateId: sql<string>`${tasks.templateId}`.as("template_id"),
+              templateItem: sql<string>`${tasks.templateItem}`.as("template_item"),
+              dismissedAt: bound(now, taskTemplateDismissals.dismissedAt),
+            })
+            .from(tasks)
+            .where(and(doomed, isNotNull(tasks.templateId), isNotNull(tasks.templateItem))),
+        )
+        .onConflictDoNothing(),
+      db.delete(tasks).where(doomed),
+    );
+  }
+  const times = JSON.stringify(
+    linked
+      .filter((t) => t.offsetMinutes !== null && t.frozenRunAt !== null)
+      .map((t) => ({ e: t.eventId, o: t.offsetMinutes, r: t.frozenRunAt, z: t.frozenTimezone })),
   );
+  // Every SET reads the row as it was, so the lookup sees the old link.
+  const frozen = (field: "r" | "z") =>
+    sql`(SELECT json_extract(value, ${`$.${field}`}) FROM json_each(${times}) WHERE json_extract(value, '$.e') = ${tasks.eventId} AND json_extract(value, '$.o') = ${tasks.runOffsetMinutes})`;
+  group.push(
+    db
+      .update(tasks)
+      .set({
+        runAt: frozen("r"),
+        runTimezone: frozen("z"),
+        eventId: null,
+        runOffsetMinutes: null,
+        eventRemovedAt: now,
+      })
+      .where(and(eq(tasks.weddingId, weddingId), inArray(tasks.eventId, removed))),
+    db.delete(rsvps).where(inArray(rsvps.eventId, removed)),
+    db.delete(guestEvents).where(inArray(guestEvents.eventId, removed)),
+    db.delete(events).where(and(inArray(events.id, removed), eq(events.weddingId, weddingId))),
+  );
+  return group;
+}
+
+/**
+ * The write set as it is built: its groups in order, and how many statements
+ * the D1 batch they are filling holds, packed exactly as
+ * {@link commitWriteSet} packs them ({@link startsNewChunk}). So a builder can
+ * ask, before it adds a one-statement group, whether that statement will be
+ * the last its batch holds.
+ */
+function writeSet() {
+  const groups: BatchItem<"sqlite">[][] = [];
+  let fill = 0;
+  const add = (group: BatchItem<"sqlite">[]): void => {
+    fill = startsNewChunk(fill, group.length) ? group.length : fill + group.length;
+    groups.push(group);
+  };
+  return {
+    groups,
+    add,
+    /** Each statement as a group of its own. */
+    push: (...stmts: BatchItem<"sqlite">[]): void => {
+      for (const stmt of stmts) add([stmt]);
+    },
+    /** Whether a one-statement group added now fills its batch, so the group
+     *  after it starts the next. */
+    nextFillsBatch: (): boolean =>
+      (startsNewChunk(fill, 1) ? 1 : fill + 1) === MAX_STATEMENTS_PER_BATCH,
+  };
 }
 
 /**
@@ -1165,12 +1286,13 @@ export function applyImport(
   importId: string,
   plan: ImportPlan,
   weddingId: string,
-  // Statements appended to the END of the write set, committing in the same
-  // final batch as the tail of the data writes. The apply route passes its
+  // Statements appended to the END of the write set as one group, so they
+  // commit together in its last batch. The apply route passes its
   // `imports` status flip here so "data mutated" and "row marked applied"
   // can't be split by a crash — the window that used to allow a second apply
   // to overwrite the before-image with a post-change snapshot.
   finalize: BatchItem<"sqlite">[] = [],
+  options: ApplyImportOptions = {},
 ): Effect.Effect<ImportSummary, ImportError | CapacityExceeded, DbService> {
   return Effect.gen(function* () {
     const db = yield* DbService;
@@ -1204,11 +1326,13 @@ export function applyImport(
       resolvedPinByEventId.has(eventId) ? (resolvedPinByEventId.get(eventId) ?? null) : fallback;
 
     // Build the write set in FK-dependency order, then commit it as one or more
-    // ≤MAX_STATEMENTS_PER_BATCH atomic D1 batches (prod) or a sequential
-    // bun:sqlite run (tests) — see commitWriteSet. The build order below IS the
-    // dependency order the chunker relies on (removes → event/family/guest
-    // creates → updates → link removes → link creates).
-    const statements: BatchItem<"sqlite">[] = [];
+    // atomic D1 batches (prod) or a sequential bun:sqlite run (tests) — see
+    // commitWriteSet. The build order below IS the dependency order the
+    // chunker relies on (removes → event/family/guest creates → updates → link
+    // removes → link creates). Each statement is its own group but a removed
+    // event's, which commits with its tasks.
+    const statements = writeSet();
+    const { groups, add: addGroup } = statements;
 
     // 1. event removes. The event_id FKs cascade since migration 0052, but the
     // child deletes stay explicit so this write set does not depend on cascade
@@ -1243,11 +1367,20 @@ export function applyImport(
         ),
       );
     }
-    for (const er of plan.eventRemoves) {
-      statements.push(
-        db.delete(rsvps).where(eq(rsvps.eventId, er.id)),
-        db.delete(guestEvents).where(eq(guestEvents.eventId, er.id)),
-        db.delete(events).where(eq(events.id, er.id)),
+    // Then the removed events themselves, as one group with the checklist
+    // tasks linked to them (see removedEventsGroup).
+    const linkedTasks = plan.linkedTasks ?? [];
+    const removing = new Set(options.removeLinkedTasks ?? []);
+    if (plan.eventRemoves.length > 0) {
+      addGroup(
+        removedEventsGroup(
+          db,
+          weddingId,
+          plan.eventRemoves.map((er) => er.id),
+          linkedTasks,
+          removing,
+          now,
+        ),
       );
     }
 
@@ -1416,9 +1549,8 @@ export function applyImport(
     // writes inside a batch, so a batch commits only when it ends within the
     // cap, whatever another writer committed after the check above. Every
     // removal sits in steps 1-6, so the places it frees are already counted.
-    const lastGuestCreate = statements.length + plan.guestCreates.length - 1;
-    for (const gc of plan.guestCreates) {
-      const checkCap = closesBatch(statements.length, lastGuestCreate);
+    for (const [index, gc] of plan.guestCreates.entries()) {
+      const checkCap = index === plan.guestCreates.length - 1 || statements.nextFillsBatch();
       statements.push(insertGuest(db, gc, weddingId, now, checkCap));
     }
 
@@ -1455,10 +1587,12 @@ export function applyImport(
       );
     }
 
-    statements.push(...finalize);
+    // Together, last: the caller's status flip must not commit without the
+    // claim check beside it.
+    if (finalize.length > 0) addGroup(finalize);
 
     yield* Effect.tryPromise({
-      try: () => commitWriteSet(db, statements),
+      try: () => commitWriteSet(db, groups),
       catch: (cause) => new ImportError({ reason: "apply failed", cause }),
     }).pipe(
       // A guest insert found no room: a batch would have ended past the cap,
@@ -1479,8 +1613,10 @@ export function applyImport(
       ),
     );
 
+    // Counts only, never a task's title.
+    const linkedRemoved = linkedTasks.filter((t) => removing.has(t.id)).length;
     yield* Effect.logInfo(
-      `import applied: families=${plan.familyCreates.length} guests=${plan.guestCreates.length} events=${plan.eventCreates.length}`,
+      `import applied: families=${plan.familyCreates.length} guests=${plan.guestCreates.length} events=${plan.eventCreates.length} linkedTasksKept=${linkedTasks.length - linkedRemoved} linkedTasksRemoved=${linkedRemoved}`,
       { importId },
     );
 

@@ -23,8 +23,14 @@ import {
   buildEventsTemplateCsv,
   buildGuestsTemplateCsv,
 } from "../lib/import-templates";
+import { scheduleChanged } from "../lib/schedule-changed";
 import ChangeHistory from "./ChangeHistory";
-import { PlanCounts } from "./ChangePreview";
+import {
+  type ApplyChangeBody,
+  type LinkedTaskPreview,
+  LinkedTasksChoice,
+  PlanCounts,
+} from "./ChangePreview";
 import SectionIntro from "./SectionIntro";
 interface ImportPlan {
   eventCreates: unknown[];
@@ -39,6 +45,8 @@ interface ImportPlan {
   eventLinkCreates: unknown[];
   eventLinkRemoves: unknown[];
   warnings: string[];
+  /** Checklist tasks linked to the events the upload removes; absent when none. */
+  linkedTasks?: LinkedTaskPreview[];
 }
 
 /**
@@ -190,6 +198,9 @@ export default function ImportPanel(props: {
   const [error, setError] = createSignal<string | null>(null);
   const [preview, setPreview] = createSignal<PreviewResponse | null>(null);
   const [applied, setApplied] = createSignal<ApplyResponse["summary"] | null>(null);
+  // Whether the organiser chose to remove the checklist tasks linked to the
+  // events the upload removes. Asked afresh for every preview.
+  const [removeLinked, setRemoveLinked] = createSignal(false);
 
   async function handlePreview(e: Event) {
     e.preventDefault();
@@ -233,6 +244,7 @@ export default function ImportPanel(props: {
         const body = (await res.json().catch(() => ({}))) as ImportErrorBody;
         throw new Error(formatImportError(res.status, body));
       }
+      setRemoveLinked(false);
       setPreview((await res.json()) as PreviewResponse);
       haptic("commit");
     } catch (err) {
@@ -249,11 +261,15 @@ export default function ImportPanel(props: {
     if (!p) return;
     setError(null);
     setBusy(true);
+    // Linked tasks are kept unless the organiser ticked the box.
+    const applyBody: ApplyChangeBody = { changeId: p.changeId };
+    const linked = p.plan.linkedTasks ?? [];
+    if (removeLinked() && linked.length > 0) applyBody.removeLinkedTasks = linked.map((t) => t.id);
     try {
       const res = await authFetch(importUrl("apply"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ changeId: p.changeId }),
+        body: JSON.stringify(applyBody),
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as ImportErrorBody;
@@ -275,6 +291,8 @@ export default function ImportPanel(props: {
       // this wedding is now stale — drop it so the Events tab refetches fresh
       // rows on its next mount (rather than reusing the pre-import cache).
       invalidateEvents(props.weddingId);
+      // And the times of the checklist tasks linked to those events.
+      scheduleChanged(props.weddingId);
       // An apply also changes households/guests, so drop the guest cache too
       // (both are weddingId-keyed stores). The reload below
       // re-mounts every module fresh; invalidating keeps the caches honest even
@@ -472,6 +490,14 @@ export default function ImportPanel(props: {
               </Notice>
             </Show>
             <PlanCounts plan={p().plan} />
+            <Show when={p().plan.linkedTasks?.length}>
+              <LinkedTasksChoice
+                plan={p().plan}
+                tasks={p().plan.linkedTasks ?? []}
+                remove={removeLinked()}
+                onChange={setRemoveLinked}
+              />
+            </Show>
             <Show when={p().plan.warnings.length > 0}>
               {/* A real list with the platform's own markers, rather than a
                   flex column with a `::before` glyph: a flex item is blockified

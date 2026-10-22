@@ -129,7 +129,7 @@ describe("on the rail", () => {
     // Tab from the card's last control goes on to the row after this one,
     // and the card goes.
     await userEvent.tab();
-    expect(focused()).toBe(lockedRow(container, "Budget"));
+    expect(focused()).toBe(lockedRow(container, "Run sheet"));
     await expect.poll(upgradeButton).toBeNull();
   });
 
@@ -280,7 +280,7 @@ describe("in the sheet", () => {
 
     await userEvent.tab();
 
-    expect(focused()).toBe(lockedRow("Budget"));
+    expect(focused()).toBe(lockedRow("Run sheet"));
     await expect.poll(upgradeButton).toBeNull();
     expect(sheet()).toBeTruthy();
   });

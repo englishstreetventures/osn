@@ -52,6 +52,9 @@ vi.mock("../../src/lib/households-store", async (importOriginal) => ({
   invalidateHouseholds: invalidateHouseholdsMock,
 }));
 
+const scheduleChangedMock = vi.hoisted(() => vi.fn());
+vi.mock("../../src/lib/schedule-changed", () => ({ scheduleChanged: scheduleChangedMock }));
+
 import ImportPanel from "../../src/components/ImportPanel";
 import { resetImportHelpSeen } from "../../src/lib/import-help";
 import { authFetchMock, resetOrganiserMocks } from "../test-support/mocks";
@@ -89,6 +92,7 @@ afterEach(() => {
   invalidateEventsMock.mockReset();
   invalidateGuestsMock.mockReset();
   invalidateHouseholdsMock.mockReset();
+  scheduleChangedMock.mockReset();
   URL.createObjectURL = realCreate;
   URL.revokeObjectURL = realRevoke;
 });
@@ -738,5 +742,84 @@ describe("ImportPanel — download current data (round-trip export)", () => {
     render(() => <ImportPanel weddingId="wed_a" kind="guests" />);
     expect(screen.queryByRole("button", { name: /download current guests/i })).toBeNull();
     expect(screen.getByRole("button", { name: /download guests template/i })).toBeTruthy();
+  });
+});
+
+describe("ImportPanel — checklist tasks linked to an event the upload removes", () => {
+  const preview = () =>
+    new Response(
+      JSON.stringify({
+        changeId: "chg_1",
+        scope: "events",
+        warnings: [],
+        plan: {
+          eventCreates: [],
+          eventUpdates: [],
+          eventRemoves: [{ id: "evt_rec", name: "Reception" }],
+          familyCreates: [],
+          familyUpdates: [],
+          familyRemoves: [],
+          guestCreates: [],
+          guestUpdates: [],
+          guestRemoves: [],
+          eventLinkCreates: [],
+          eventLinkRemoves: [],
+          warnings: [],
+          linkedTasks: [
+            {
+              id: "tsk_cake",
+              title: "Set up the cake table",
+              eventId: "evt_rec",
+              frozenRunAt: "2099-06-20T17:00:00+10:00",
+              frozenTimezone: "Australia/Sydney",
+            },
+          ],
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+  const applied = () =>
+    new Response(
+      JSON.stringify({
+        summary: {
+          changeId: "chg_1",
+          eventsCreated: 0,
+          eventsUpdated: 0,
+          eventsRemoved: 1,
+          familiesCreated: 0,
+          familiesUpdated: 0,
+          familiesRemoved: 0,
+          guestsCreated: 0,
+          guestsUpdated: 0,
+          guestsRemoved: 0,
+          warnings: [],
+        },
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    );
+
+  /** Previews, optionally ticks the box, applies; answers the apply's body. */
+  async function applyWith(tick: boolean): Promise<Record<string, unknown>> {
+    authFetchMock.mockResolvedValueOnce(preview()).mockResolvedValueOnce(applied());
+    render(() => <ImportPanel weddingId="wed_a" kind="events" />);
+    choose(csvFile("events.csv"));
+    fireEvent.click(previewButton());
+    const box = await screen.findByRole("checkbox", {
+      name: "Also remove this task from the checklist",
+    });
+    expect((box as HTMLInputElement).checked).toBe(false);
+    if (tick) fireEvent.click(box);
+    fireEvent.click(screen.getByRole("button", { name: /apply import/i }));
+    await waitFor(() => expect(scheduleChangedMock).toHaveBeenCalledWith("wed_a"));
+    const [, init] = authFetchMock.mock.calls[1] as [string, RequestInit];
+    return JSON.parse(String(init.body)) as Record<string, unknown>;
+  }
+
+  it("keeps the linked tasks unless the box is ticked", async () => {
+    expect(await applyWith(false)).toEqual({ changeId: "chg_1" });
+  });
+
+  it("names the linked tasks for removal when the box is ticked, and drops the checklist and run sheet", async () => {
+    expect(await applyWith(true)).toEqual({ changeId: "chg_1", removeLinkedTasks: ["tsk_cake"] });
   });
 });

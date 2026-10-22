@@ -354,6 +354,23 @@ export const EventLink = Schema.Struct({
 });
 export type EventLink = Schema.Schema.Type<typeof EventLink>;
 
+/**
+ * A checklist task linked to an event the plan removes. The preview lists them
+ * so the organiser can choose to remove some with the event; every one not
+ * chosen is kept, unlinked, at `frozenRunAt` — the time it last had, on the
+ * removed event's clock (`frozenTimezone`) — and marked "event removed".
+ * `frozenRunAt` is null when the event's start could not be read.
+ */
+export const LinkedTask = Schema.Struct({
+  id: Schema.String,
+  title: Schema.String,
+  eventId: Schema.String,
+  offsetMinutes: Schema.NullOr(Schema.Number),
+  frozenRunAt: Schema.NullOr(Schema.String),
+  frozenTimezone: Schema.NullOr(Schema.String),
+});
+export type LinkedTask = Schema.Schema.Type<typeof LinkedTask>;
+
 export const ImportPlan = Schema.Struct({
   eventCreates: Schema.Array(EventCreate),
   eventUpdates: Schema.Array(EventUpdate),
@@ -367,6 +384,9 @@ export const ImportPlan = Schema.Struct({
   eventLinkCreates: Schema.Array(EventLink),
   eventLinkRemoves: Schema.Array(EventLink),
   warnings: Schema.Array(Schema.String),
+  /** The tasks linked to the events in `eventRemoves`; absent when it removes
+   *  none, or none has a task linked to it. */
+  linkedTasks: Schema.optional(Schema.Array(LinkedTask)),
   /**
    * The wedding's guest-capacity ceiling, when `diffAgainstDb`'s preview
    * warning already read it from the wedding's tier — lets `applyImport`'s
@@ -416,6 +436,17 @@ export const ApplyBody = Schema.Struct({
       events: Schema.Number,
       households: Schema.Number,
     }),
+  ),
+  /**
+   * The ids of the preview's `linkedTasks` the organiser chose to remove with
+   * their events. Absent — an older portal, or nothing chosen — keeps every
+   * one. Only an id still linked to an event the apply removes is removed;
+   * any other is ignored.
+   */
+  removeLinkedTasks: Schema.optional(
+    Schema.Array(Schema.NonEmptyString.check(Schema.isMaxLength(64))).check(
+      Schema.isMaxLength(500),
+    ),
   ),
 });
 export type ApplyBody = Schema.Schema.Type<typeof ApplyBody>;
