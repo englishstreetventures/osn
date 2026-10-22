@@ -45,8 +45,9 @@ describe("onRequest middleware", () => {
     expect(res.headers.get("X-Frame-Options")).toBe("DENY");
     expect(res.headers.get("Permissions-Policy")).toBe("camera=(), microphone=(), geolocation=()");
     expect(res.headers.get("X-Robots-Tag")).toBe("noindex, nofollow");
-    // The downstream response is passed through (headers added in place).
-    expect(res.headers.get("Content-Type")).toBe("text/html");
+    // The downstream response is passed through (headers added in place), and an
+    // HTML response with no charset gets one.
+    expect(res.headers.get("Content-Type")).toBe("text/html; charset=utf-8");
   });
 
   it("hardens a redirect response too (the bare-domain 302)", async () => {
@@ -65,5 +66,14 @@ describe("onRequest middleware", () => {
     expect(res.headers.get("Location")).toBe("https://cireweddings.com");
     expect(res.headers.get("X-Frame-Options")).toBe("DENY");
     expect(res.headers.get(cspHeaderName())).toContain("frame-ancestors 'none'");
+  });
+
+  it("leaves a charset the route already declared alone", async () => {
+    const downstream = new Response("<html>invite</html>", {
+      headers: { "Content-Type": "text/html; charset=iso-8859-1" },
+    });
+    const next = (() => Promise.resolve(downstream)) as unknown as MiddlewareNext;
+    const res = await run(next);
+    expect(res.headers.get("Content-Type")).toBe("text/html; charset=iso-8859-1");
   });
 });

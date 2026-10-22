@@ -1,9 +1,13 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library";
 import "@testing-library/jest-dom/vitest";
+import { createSignal } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import ChecklistView from "../../src/components/ChecklistView";
+import { __resetHostsCache } from "../../src/lib/hosts-store";
+import { MembersChangedContext } from "../../src/lib/members-changed";
+import { TasksChangedContext } from "../../src/lib/tasks-changed";
 import { __resetTasksCache, setCachedTasks, type TaskRow } from "../../src/lib/tasks-store";
 
 // useAuth: a stub authFetch we drive per-test.
@@ -190,5 +194,289 @@ describe("ChecklistView", () => {
 
     await waitFor(() => expect(screen.queryByText("Book venue")).not.toBeInTheDocument());
     expect(screen.getByText("Send invites")).toBeInTheDocument();
+  });
+});
+
+describe("ChecklistView — the open wedding's signals", () => {
+  const json = (body: unknown) =>
+    new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  const calls = (suffix: string) =>
+    authFetch.mock.calls.filter(([url, init]) => String(url).endsWith(suffix) && !init?.method);
+
+  /** The view under both providers, with a bump for each. */
+  function renderWithSignals() {
+    const [tasksChanged, setTasksChanged] = createSignal(0);
+    const [membersChanged, setMembersChanged] = createSignal(0);
+    render(() => (
+      <MembersChangedContext.Provider value={membersChanged}>
+        <TasksChangedContext.Provider value={tasksChanged}>
+          <ChecklistView weddingId="wed_1" canEdit={true} />
+        </TasksChangedContext.Provider>
+      </MembersChangedContext.Provider>
+    ));
+    return {
+      tasksChanged: () => setTasksChanged((n) => n + 1),
+      membersChanged: () => setMembersChanged((n) => n + 1),
+    };
+  }
+
+  beforeEach(() => {
+    __resetHostsCache();
+  });
+
+  it("reads the tasks again on tasks-changed and shows the answer", async () => {
+    setCachedTasks("wed_1", [row({ id: "a", title: "Book venue" })]);
+    authFetch.mockImplementation(async () =>
+      json({ tasks: [row({ id: "a", title: "Book the hall" })] }),
+    );
+    const signals = renderWithSignals();
+    await screen.findByText("Book venue");
+
+    signals.tasksChanged();
+
+    expect(await screen.findByText("Book the hall")).toBeInTheDocument();
+    expect(calls("/tasks")).toHaveLength(1);
+  });
+
+  // The tick's own signal can reach the tab before the tick's answer. The read
+  // it asks for waits for the answer, so it can neither undo the tick nor be
+  // lost: it goes once the tick is over, and shows what a co-host did meanwhile.
+  it("reads once the organiser's own tick has answered, never over it, when its signal lands first", async () => {
+    setCachedTasks("wed_1", [row({ id: "a", status: "open" })]);
+    let answerTick!: (res: Response) => void;
+    let committed = false;
+    authFetch.mockImplementation(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "PATCH") {
+        return new Promise<Response>((resolve) => {
+          answerTick = resolve;
+        });
+      }
+      return committed
+        ? json({
+            tasks: [
+              row({ id: "a", status: "done", completedAt: 2 }),
+              row({ id: "b", title: "Order flowers", sortOrder: 1 }),
+            ],
+          })
+        : json({ tasks: [row({ id: "a", status: "open" })] });
+    });
+    const signals = renderWithSignals();
+    // Asked afresh each time: a row may be rebuilt when its task changes.
+    const ticked = () =>
+      (screen.getByRole("checkbox", { name: /book venue/i }) as HTMLInputElement).checked;
+    await screen.findByRole("checkbox", { name: /book venue/i });
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /book venue/i }));
+    await waitFor(() => expect(ticked()).toBe(true));
+    signals.tasksChanged();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    // Nothing is read while the tick is out.
+    expect(calls("/tasks")).toHaveLength(0);
+    expect(ticked()).toBe(true);
+
+    committed = true;
+    answerTick(json({ task: row({ id: "a", status: "done", completedAt: 2 }) }));
+
+    expect(await screen.findByText("Order flowers")).toBeInTheDocument();
+    expect(calls("/tasks")).toHaveLength(1);
+    expect(ticked()).toBe(true);
+  });
+
+  it("sends one more read, not one per signal, for a burst that lands while a read is out", async () => {
+    setCachedTasks("wed_1", [row({ id: "a", title: "Book venue" })]);
+    let answerFirst!: (res: Response) => void;
+    let reads = 0;
+    authFetch.mockImplementation(async () => {
+      reads += 1;
+      if (reads === 1) {
+        return new Promise<Response>((resolve) => {
+          answerFirst = resolve;
+        });
+      }
+      return json({ tasks: [row({ id: "a", title: "Book the hall" })] });
+    });
+    const signals = renderWithSignals();
+    await screen.findByText("Book venue");
+
+    signals.tasksChanged();
+    await waitFor(() => expect(calls("/tasks")).toHaveLength(1));
+    signals.tasksChanged();
+    signals.tasksChanged();
+    signals.tasksChanged();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(calls("/tasks")).toHaveLength(1);
+
+    answerFirst(json({ tasks: [row({ id: "a", title: "Book a band" })] }));
+
+    expect(await screen.findByText("Book the hall")).toBeInTheDocument();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(calls("/tasks")).toHaveLength(2);
+  });
+
+  it("says the checklist could not refresh when a signal's re-read is refused", async () => {
+    setCachedTasks("wed_1", [row({ id: "a", title: "Book venue" })]);
+    authFetch.mockImplementation(async () => new Response(null, { status: 500 }));
+    const signals = renderWithSignals();
+    await screen.findByText("Book venue");
+
+    signals.tasksChanged();
+
+    expect(await screen.findByText("Couldn't refresh your checklist.")).toBeInTheDocument();
+  });
+
+  /** The organiser's own writes, each on the cached list of two 12-month tasks. */
+  const writes: [string, () => void][] = [
+    ["a tick", () => fireEvent.click(screen.getByRole("checkbox", { name: /book venue/i }))],
+    ["a delete", () => fireEvent.click(screen.getAllByRole("button", { name: "Delete task" })[0]!)],
+    [
+      "a move",
+      () => fireEvent.click(screen.getByRole("button", { name: "Move Draft guest list up" })),
+    ],
+    [
+      "an add",
+      () => {
+        fireEvent.input(screen.getByRole("textbox", { name: /^Task/ }), {
+          target: { value: "Send invites" },
+        });
+        fireEvent.click(screen.getByRole("button", { name: /add task/i }));
+      },
+    ],
+  ];
+  const twoTasks = () => [
+    row({ id: "a", title: "Book venue", sortOrder: 0 }),
+    row({ id: "b", title: "Draft guest list", sortOrder: 1 }),
+  ];
+  const writeCalls = () => authFetch.mock.calls.filter(([, init]) => init?.method);
+
+  it.each(writes)("takes the next re-read once %s has answered", async (_label, write) => {
+    setCachedTasks("wed_1", twoTasks());
+    authFetch.mockImplementation(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "PATCH" && String(_url).endsWith("/reorder")) return json({ ok: true });
+      if (init?.method) return json({ task: row({ id: "c", title: "Send invites" }), ok: true });
+      return json({ tasks: [row({ id: "z", title: "From the server" })] });
+    });
+    const signals = renderWithSignals();
+    await screen.findByText("Book venue");
+
+    write();
+    await waitFor(() => expect(writeCalls()).toHaveLength(1));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    signals.tasksChanged();
+
+    expect(await screen.findByText("From the server")).toBeInTheDocument();
+  });
+
+  it.each(writes)("puts the server's list back when %s is refused", async (_label, write) => {
+    setCachedTasks("wed_1", twoTasks());
+    authFetch.mockImplementation(async (_url: string, init?: RequestInit) =>
+      init?.method
+        ? new Response(null, { status: 500 })
+        : json({ tasks: [row({ id: "z", title: "From the server" })] }),
+    );
+    renderWithSignals();
+    await screen.findByText("Book venue");
+
+    write();
+
+    // The refusal's own re-read lands: the write is over when it is sent, so
+    // it is read once.
+    expect(await screen.findByText("From the server")).toBeInTheDocument();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(calls("/tasks")).toHaveLength(1);
+  });
+
+  it("reads the seats again on members-changed once a popover asked for them", async () => {
+    setCachedTasks("wed_1", [row({ id: "a" })]);
+    authFetch.mockImplementation(async () => json({ hosts: [] }));
+    const signals = renderWithSignals();
+    fireEvent.click(await screen.findByRole("button", { name: "Assign people to Book venue" }));
+    await waitFor(() => expect(calls("/hosts")).toHaveLength(1));
+
+    signals.membersChanged();
+
+    await waitFor(() => expect(calls("/hosts")).toHaveLength(2));
+  });
+
+  it("reads the seats again on members-changed once it has read them, and not before", async () => {
+    setCachedTasks("wed_1", [row({ id: "a" })]);
+    authFetch.mockImplementation(async () => json({ hosts: [] }));
+    const quiet = renderWithSignals();
+    await screen.findByText("Book venue");
+    quiet.membersChanged();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // Nobody holds a task, so no seats were wanted, and none are read.
+    expect(calls("/hosts")).toHaveLength(0);
+    cleanup();
+
+    __resetTasksCache();
+    __resetHostsCache();
+    setCachedTasks("wed_1", [row({ id: "a", assigneeHostIds: ["whost_sam"] })]);
+    const held = renderWithSignals();
+    await waitFor(() => expect(calls("/hosts")).toHaveLength(1));
+    held.membersChanged();
+    await waitFor(() => expect(calls("/hosts")).toHaveLength(2));
+  });
+});
+
+describe("ChecklistView — a task's time on its row", () => {
+  const ok = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
+
+  it("reads the events when a time is first opened, and says so when they cannot be read", async () => {
+    setCachedTasks("wed_1", [row({ id: "a", timeframeBucket: "day_of" })]);
+    authFetch.mockResolvedValue(new Response("{}", { status: 500 }));
+    render(() => <ChecklistView weddingId="wed_1" canEdit={true} />);
+    await screen.findByText("Book venue");
+    // Nothing read until a time is opened.
+    expect(authFetch.mock.calls.some(([url]) => String(url).endsWith("/events"))).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: /Set a time for Book venue/ }));
+    expect(
+      await screen.findByText("Couldn't load the events: set a fixed time."),
+    ).toBeInTheDocument();
+    expect(authFetch.mock.calls.filter(([url]) => String(url).endsWith("/events"))).toHaveLength(1);
+  });
+
+  it("shows the time it saved on the row, the row and its trigger kept", async () => {
+    // As the API answers it: every run-time field present, untimed.
+    const untimed = {
+      runAt: null,
+      runTimezone: null,
+      eventId: null,
+      runOffsetMinutes: null,
+      anchored: false,
+      eventRemoved: false,
+    };
+    setCachedTasks("wed_1", [row({ id: "a", timeframeBucket: "day_of", ...untimed })]);
+    authFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (String(url).endsWith("/events")) return ok([]);
+      if (init?.method === "PATCH") {
+        return ok({
+          task: {
+            ...row({ id: "a", timeframeBucket: "day_of" }),
+            runAt: "2099-06-20T12:00:00+10:00",
+            runTimezone: "Australia/Sydney",
+            eventId: null,
+            runOffsetMinutes: null,
+            anchored: false,
+            eventRemoved: false,
+          },
+        });
+      }
+      throw new Error(`unexpected ${url}`);
+    });
+    render(() => <ChecklistView weddingId="wed_1" canEdit={true} />);
+    await screen.findByText("Book venue");
+    const trigger = screen.getByRole("button", { name: /Set a time for Book venue/ });
+    fireEvent.click(trigger);
+    fireEvent.input(await screen.findByLabelText("Date"), { target: { value: "2099-06-20" } });
+    fireEvent.input(screen.getByLabelText("Time"), { target: { value: "12:00" } });
+    fireEvent.change(screen.getByLabelText("Time zone"), {
+      target: { value: "Australia/Sydney" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(trigger.textContent).toMatch(/12:00\s?pm/));
+    expect(trigger.isConnected).toBe(true);
   });
 });

@@ -339,9 +339,9 @@ describe("parseEventsCsv", () => {
     // this copy must be updated in the same PR). Feeding it through the parser
     // guarantees the shipped starter CSV can never fail its own import.
     const template = [
-      "Event Name,Start,Timezone,End,Location,Address,Description,Dress Code Description,Dress Code Palette,Pinterest URL,Maps URL",
-      'Ceremony,2026-11-14T15:00,Australia/Sydney,2026-11-14T16:00,St Mary\'s Cathedral,"St Marys Rd, Sydney NSW 2000, Australia",The service begins at 3 pm sharp. Please be seated by 2:45.,Formal — suits and cocktail dresses,Blush:#f4c2c2|Sage:#b2ac88,https://pinterest.com/example/ceremony,https://maps.google.com/?q=St+Marys+Cathedral+Sydney',
-      'Reception,2026-11-14T18:00,Australia/Sydney,,The Grounds of Alexandria,"7A/2 Huntley St, Alexandria NSW 2015, Australia","Dinner, speeches and dancing until late.",Black tie,Midnight:#191970|Gold:#d4af37,https://pinterest.com/example/reception,https://maps.google.com/?q=The+Grounds+of+Alexandria',
+      "Event Name,Start,Timezone,End,Location,Address,Description,Dress Code Description,Dress Code Palette,Pinterest URL,Maps URL,Run of Show,Getting There,Children,Plus-Ones,Guest Policy Note",
+      'Ceremony,2026-11-14T15:00,Australia/Sydney,2026-11-14T16:00,St Mary\'s Cathedral,"St Marys Rd, Sydney NSW 2000, Australia",The service begins at 3 pm sharp. Please be seated by 2:45.,Formal — suits and cocktail dresses,Blush:#f4c2c2|Sage:#b2ac88,https://pinterest.com/example/ceremony,https://maps.google.com/?q=St+Marys+Cathedral+Sydney,"15:00 Processional\n15:20 Vows\n15:45 Signing of the register",Street parking on St Marys Rd. St James station is a five-minute walk.,Children welcome,By invitation,',
+      'Reception,2026-11-14T18:00,Australia/Sydney,,The Grounds of Alexandria,"7A/2 Huntley St, Alexandria NSW 2015, Australia","Dinner, speeches and dancing until late.",Black tie,Midnight:#191970|Gold:#d4af37,https://pinterest.com/example/reception,https://maps.google.com/?q=The+Grounds+of+Alexandria,"18:00 Canapés\n19:30 Dinner\n21:00 Speeches\n00:30 Carriages",,Adults only,,Babes in arms are welcome.',
     ].join("\r\n");
     const events = await Effect.runPromise(parseEventsCsv(template));
     expect(events).toHaveLength(2);
@@ -351,6 +351,18 @@ describe("parseEventsCsv", () => {
     expect(events[1]!.venueName).toBe("The Grounds of Alexandria");
     expect(events[0]!.address).toBe("St Marys Rd, Sydney NSW 2000, Australia");
     expect(events[1]!.description).toBe("Dinner, speeches and dancing until late.");
+    expect(events[0]!.runOfShow).toHaveLength(3);
+    expect(events[1]!.runOfShow?.at(-1)).toEqual({ time: "00:30", label: "Carriages" });
+    expect(events[0]!).toMatchObject({
+      childrenPolicy: "children_welcome",
+      plusOnePolicy: "by_invitation",
+    });
+    expect(events[1]!).toMatchObject({
+      childrenPolicy: "adults_only",
+      plusOnePolicy: null,
+      gettingThere: null,
+      guestPolicyNote: "Babes in arms are welcome.",
+    });
   });
 
   it("accepts http and https URLs", async () => {
@@ -1165,5 +1177,171 @@ describe("an upload takes the download's formula guard back off", () => {
     const [family] = await Effect.runPromise(parseGuestsCsv(csv, drinks, { snapshot: true }));
     expect(family!.familyName).toBe("'=Stored");
     expect(family!.guests[0]!.eventNames).toEqual(["+1 Drinks"]);
+  });
+});
+
+// ── An event's run of show, getting-there notes and guest policy ────────────
+
+describe("parseEventsCsv — run of show, getting there and guest policy", () => {
+  const HEADER =
+    "Event Name,Start,Timezone,Run of Show,Getting There,Children,Plus-Ones,Guest Policy Note";
+  const row = (cells: string) =>
+    [HEADER, `Kitchen Tea,2026-11-20T16:00,Australia/Sydney,${cells}`].join("\n");
+  const parse = (csv: string) => Effect.runPromise(parseEventsCsv(csv));
+  const refusal = async (csv: string) => {
+    const error = await Effect.runPromise(Effect.flip(parseEventsCsv(csv)));
+    expect(error).toBeInstanceOf(MalformedSpreadsheet);
+    return error as MalformedSpreadsheet;
+  };
+  const hours = (count: number, minutes: string, label: (i: number) => string) =>
+    Array.from(
+      { length: count },
+      (_, i) => `${String(i % 24).padStart(2, "0")}:${minutes} ${label(i)}`,
+    ).join("\n");
+
+  // What a sheet carries is what the event gets. One item per line, the time
+  // first; an hour without its leading zero is the same clock; blank lines are
+  // nothing; the presets read whatever their case and spacing.
+  it("reads every column, normalising each time to HH:MM and skipping blank lines", async () => {
+    const [event] = await parse(
+      row(
+        '"4:00 Tea is poured\n\n   \n  16:45   Garden games \n17:59 Speeches",Park on Sample Lane.,  adults ONLY ,by  invitation,Hats welcome.',
+      ),
+    );
+    expect(event).toMatchObject({
+      runOfShow: [
+        { time: "04:00", label: "Tea is poured" },
+        { time: "16:45", label: "Garden games" },
+        { time: "17:59", label: "Speeches" },
+      ],
+      gettingThere: "Park on Sample Lane.",
+      childrenPolicy: "adults_only",
+      plusOnePolicy: "by_invitation",
+      guestPolicyNote: "Hats welcome.",
+    });
+    const [other] = await parse(row(",,Children welcome,Welcome,"));
+    expect(other).toMatchObject({ childrenPolicy: "children_welcome", plusOnePolicy: "welcome" });
+  });
+
+  // A column that is there but blank clears; "Not stated" is the same as blank,
+  // and so is a cell a short row leaves off.
+  it("reads blank cells, Not stated, and cells a short row leaves off, as clears", async () => {
+    const cleared = {
+      runOfShow: [],
+      gettingThere: null,
+      childrenPolicy: null,
+      plusOnePolicy: null,
+      guestPolicyNote: null,
+    };
+    const [event] = await parse(row(",,,not stated,"));
+    expect(event).toMatchObject(cleared);
+    const [short] = await parse(
+      [HEADER, "Kitchen Tea,2026-11-20T16:00,Australia/Sydney"].join("\n"),
+    );
+    expect(short).toMatchObject(cleared);
+  });
+
+  // A column the sheet does not carry says nothing about its field.
+  it("leaves every field out when the sheet has none of the columns", async () => {
+    const [event] = await parse(
+      ["Event Name,Start,Timezone", "Kitchen Tea,2026-11-20T16:00,Australia/Sydney"].join("\n"),
+    );
+    for (const field of [
+      "runOfShow",
+      "gettingThere",
+      "childrenPolicy",
+      "plusOnePolicy",
+      "guestPolicyNote",
+    ]) {
+      expect(event).not.toHaveProperty(field);
+    }
+  });
+
+  // A cell the parser cannot read is refused where it is, by row and column.
+  const NO_TIME = "Run of Show lines must start with a 24-hour time (HH:MM)";
+  const TWELVE_HOUR = "Run of Show times are 24-hour (16:00, not 4:00 pm)";
+  it.each([
+    ["a line with no time", '"16:00 Tea\nSpeeches at five"', NO_TIME],
+    ["a time past the clock", '"25:00 Late"', NO_TIME],
+    ["a minute past the hour", '"16:60 Late"', NO_TIME],
+    ["text before the time", '"x16:00 Tea"', NO_TIME],
+    ["a third minute digit", '"16:000 Tea"', NO_TIME],
+    ["a 12-hour time", '"4pm Tea"', TWELVE_HOUR],
+    ["an afternoon time on a 12-hour clock", '"4:00 pm Tea"', TWELVE_HOUR],
+    ["a time after midnight on a 12-hour clock", '"12:30 am Carriages"', TWELVE_HOUR],
+    ["a 12-hour time in capitals", '"4:00 PM Tea"', TWELVE_HOUR],
+    ["a 12-hour time with stops", '"4:00 p.m. Tea"', TWELVE_HOUR],
+    ["a 12-hour time with nothing after it", '"4:00 pm"', TWELVE_HOUR],
+    ["a 12-hour time after spaces", '"   4:00 pm Tea"', TWELVE_HOUR],
+    ["a 12-hour time on a later line", '"16:00 Tea\n5:30 pm Speeches"', TWELVE_HOUR],
+    ["a time with no label", '"16:00   "', "Run of Show lines need a label after the time"],
+    [
+      "a label over 200 characters",
+      `"16:00 ${"x".repeat(201)}"`,
+      "Run of Show labels must be at most 200 characters",
+    ],
+    [
+      "more than 40 lines",
+      `"${hours(41, "00", (i) => `Item ${i}`)}"`,
+      "Run of Show holds at most 40 items",
+    ],
+  ])("refuses %s in Run of Show", async (_case, cell, reason) => {
+    const error = await refusal(row(`${cell},,,,`));
+    expect(error.reason).toBe(reason as MalformedSpreadsheet["reason"]);
+    expect(error.atRow).toBe(2);
+    expect(error.atColumn).toBe(4);
+  });
+
+  // An hour past 12 is on no 12-hour clock, so what follows it is the label.
+  it("reads a label that starts with PM after an hour past 12", async () => {
+    const [event] = await parse(
+      row('"16:00 PM speech\n17:00 pmb drinks\n18:00 Doors open, bar from 7 pm",,,,'),
+    );
+    expect(event!.runOfShow).toEqual([
+      { time: "16:00", label: "PM speech" },
+      { time: "17:00", label: "pmb drinks" },
+      { time: "18:00", label: "Doors open, bar from 7 pm" },
+    ]);
+  });
+
+  it("takes a label of exactly 200 characters, 40 times over", async () => {
+    const [event] = await parse(row(`"${hours(40, "30", () => "y".repeat(200))}",,,,`));
+    expect(event!.runOfShow).toHaveLength(40);
+  });
+
+  it("refuses a Children or Plus-Ones value that is not one of the presets", async () => {
+    const children = await refusal(row(",,Kids fine,,"));
+    expect(children).toMatchObject({
+      reason: "Children must be Adults only, Children welcome or blank",
+      atRow: 2,
+      atColumn: 6,
+    });
+    const plusOnes = await refusal(row(",,,Yes,"));
+    expect(plusOnes).toMatchObject({
+      reason: "Plus-Ones must be By invitation, Welcome or blank",
+      atRow: 2,
+      atColumn: 7,
+    });
+  });
+
+  // A before-image is the app's own output, read back by a revert. A cell it
+  // cannot read must not make the change unrevertable: a bad line is dropped,
+  // a stored label that starts with "PM" stays a label, and an unknown preset
+  // reads as not stated, as a non-http URL reads blank.
+  it("reads a before-image leniently", async () => {
+    const [event] = await Effect.runPromise(
+      parseEventsCsv(
+        row('"16:00 Tea\nnot a line\n99:99 Late\n11:00 PM speech",,Sometimes,Maybe,'),
+        { snapshot: true },
+      ),
+    );
+    expect(event).toMatchObject({
+      runOfShow: [
+        { time: "16:00", label: "Tea" },
+        { time: "11:00", label: "PM speech" },
+      ],
+      childrenPolicy: null,
+      plusOnePolicy: null,
+    });
   });
 });

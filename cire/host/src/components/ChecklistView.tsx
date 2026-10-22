@@ -15,10 +15,11 @@ import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
 import { Select } from "@shared/ui/ui/select";
-import { createEffect, createMemo, createSignal, For, onMount, Show, untrack } from "solid-js";
+import { createEffect, createMemo, createSignal, For, on, onMount, Show, untrack } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { TIMEFRAME_BUCKETS, type TimeframeBucket } from "../lib/checklist-buckets";
+import { ensureEventsLoaded, type EventRow, eventsAccessor } from "../lib/events-store";
 import { haptic } from "../lib/haptics";
 import { createHolderWrites, readerFirst } from "../lib/holder-writes";
 import {
@@ -27,13 +28,17 @@ import {
   hostsAccessor,
   invalidateHosts,
 } from "../lib/hosts-store";
+import { useMembersChanged } from "../lib/members-changed";
 import { sameButOrder } from "../lib/sortable-rows";
+import { useTasksChanged } from "../lib/tasks-changed";
 import {
+  beginTaskWrite,
   ensureTasksLoaded,
   invalidateTasks,
   peekCachedTasks,
   readTaskList,
   readTaskRow,
+  rereadTasks,
   setCachedTasks,
   type TaskList,
   type TaskRow,
@@ -44,6 +49,7 @@ import {
 import { normaliseWeddingRole } from "../lib/wedding-roles";
 import ChecklistStarter from "./ChecklistStarter";
 import ReorderControls from "./ReorderControls";
+import RunTimeEditor, { RunTimeChip } from "./RunTimeEditor";
 import TaskHolders, { type Holder } from "./TaskHolders";
 /** A bucket with nothing in it. One shared array, so `sameRows` sees an empty
  *  bucket as unchanged from one write to the next. */
@@ -53,6 +59,18 @@ const NO_TASKS: TaskRow[] = [];
  *  this bucket alone, so nothing that reads it needs to run again. */
 const sameRows = <T,>(a: readonly T[], b: readonly T[]): boolean =>
   a.length === b.length && a.every((row, k) => row === b[k]);
+
+/** The fields a row reads live rather than from its memo, so a change to them
+ *  alone keeps the row's node: who holds the task, and its time on the day. */
+const LIVE_FIELDS: readonly (keyof TaskRow & string)[] = [
+  "assigneeHostIds",
+  "runAt",
+  "runTimezone",
+  "eventId",
+  "runOffsetMinutes",
+  "anchored",
+  "eventRemoved",
+];
 
 interface ChecklistViewProps {
   weddingId: string;
@@ -128,6 +146,25 @@ export default function ChecklistView(props: ChecklistViewProps) {
     });
   };
 
+  // ── When each task runs on the day ─────────────────────────────────────
+  // The events a time can follow are read when an owner or editor first opens
+  // a task's time, not with the checklist: most visits set no time, and the
+  // other modules usually have the events cached already.
+  const events = eventsAccessor(props.weddingId);
+  const [eventsFailed, setEventsFailed] = createSignal(false);
+  const openEvents = () => {
+    setEventsFailed(false);
+    ensureEventsLoaded(props.weddingId, async () => {
+      const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/events")));
+      if (res.status === 401) redirectToLogin();
+      if (!res.ok) throw new Error(`Failed to load the events (${res.status})`);
+      return (await res.json()) as EventRow[];
+    }).catch((err: unknown) => {
+      if (isAuthExpired(err)) return redirectToLogin();
+      setEventsFailed(true);
+    });
+  };
+
   const anyAssigned = createMemo(() => (tasks() ?? []).some((t) => t.assigneeHostIds.length > 0));
   createEffect(() => {
     if (anyAssigned()) void untrack(ensureSeats);
@@ -142,16 +179,22 @@ export default function ChecklistView(props: ChecklistViewProps) {
   };
 
   const holderWrites = createHolderWrites({
-    send: (taskId, hostId, on) =>
-      authFetch(
-        apiUrl(
-          weddingPath(
-            props.weddingId,
-            `/tasks/${encodeURIComponent(taskId)}/assignees/${encodeURIComponent(hostId)}`,
+    send: async (taskId, hostId, putOn) => {
+      const done = beginTaskWrite(props.weddingId);
+      try {
+        return await authFetch(
+          apiUrl(
+            weddingPath(
+              props.weddingId,
+              `/tasks/${encodeURIComponent(taskId)}/assignees/${encodeURIComponent(hostId)}`,
+            ),
           ),
-        ),
-        { method: on ? "PUT" : "DELETE" },
-      ),
+          { method: putOn ? "PUT" : "DELETE" },
+        );
+      } finally {
+        done();
+      }
+    },
     holdersOf: (taskId) =>
       peekCachedTasks(props.weddingId)?.find((t) => t.id === taskId)?.assigneeHostIds,
     setHolders: (taskId, assigneeHostIds) =>
@@ -191,16 +234,47 @@ export default function ChecklistView(props: ChecklistViewProps) {
     });
   };
 
-  // Refetch from the server and repopulate the cache (used after a write fails).
-  const reload = async () => {
-    invalidateTasks(props.weddingId);
+  /** Wait for a refetch and say so if it failed. */
+  const refreshed = async (read: Promise<boolean>) => {
     try {
-      await ensureTasksLoaded(props.weddingId, load);
+      await read;
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
       setError("Couldn't refresh your checklist.");
     }
   };
+
+  // Refetch from the server and repopulate the cache after a write fails: the
+  // read in flight predates the failure, so it is thrown away.
+  const reload = () => {
+    invalidateTasks(props.weddingId);
+    return refreshed(ensureTasksLoaded(props.weddingId, load));
+  };
+
+  // The open wedding's socket: someone changed the tasks, or the socket came
+  // back and may have missed it. The re-read waits while a read is in flight
+  // or one of this view's own writes is out, and goes once both are over
+  // (`rereadTasks`), so a burst of signals costs two reads, a re-read never
+  // undoes what the organiser just did, and the one after their write always
+  // goes, whichever reached the tab first, the write's answer or its signal.
+  createEffect(
+    on(useTasksChanged(), () => void refreshed(rereadTasks(props.weddingId, load)), {
+      defer: true,
+    }),
+  );
+  // Someone's seat changed. The holder stacks name seats, so a view that has
+  // read them reads them again; one that never needed them asks for nothing.
+  createEffect(
+    on(
+      useMembersChanged(),
+      () => {
+        if (!untrack(anyAssigned) && !seatsReadThisVisit) return;
+        invalidateHosts(props.weddingId);
+        void ensureSeats();
+      },
+      { defer: true },
+    ),
+  );
 
   // Each bucket's tasks in order. A map of fresh arrays holding the SAME task
   // objects, so a bucket untouched by a write compares equal (`sameRows`).
@@ -237,6 +311,7 @@ export default function ChecklistView(props: ChecklistViewProps) {
     };
     setNewTitle("");
     setNewDue("");
+    const done = beginTaskWrite(props.weddingId);
     try {
       const res = await authFetch(listUrl(), {
         method: "POST",
@@ -246,13 +321,18 @@ export default function ChecklistView(props: ChecklistViewProps) {
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error(`create ${res.status}`);
       const task = readTaskRow(((await res.json()) as { task: TaskWire }).task);
+      const added = patchTasks((rows) => [...rows, task]);
+      done();
       // No list to add it to: load one, which will carry the new task.
-      if (!patchTasks((rows) => [...rows, task])) void reload();
+      if (!added) void reload();
       haptic("commit");
     } catch {
+      done();
       haptic("reject");
       setError("Couldn't add that task.");
       void reload();
+    } finally {
+      done();
     }
   };
 
@@ -261,6 +341,7 @@ export default function ChecklistView(props: ChecklistViewProps) {
     // Optimistic flip. The haptic rides with it rather than with the response:
     // the tick is what the host is confirming, and a buzz arriving a network
     // round-trip after the box changed would read as a second, separate event.
+    const done = beginTaskWrite(props.weddingId);
     patchTasks((rows) => rows.map((t) => (t.id === task.id ? { ...t, status: nextStatus } : t)));
     haptic("commit");
     try {
@@ -278,13 +359,17 @@ export default function ChecklistView(props: ChecklistViewProps) {
       patchTasks((rows) => rows.map((t) => (t.id === updated.id ? updated : t)));
     } catch {
       // The optimistic tick is about to be taken back — say so.
+      done();
       haptic("reject");
       setError("Couldn't update that task.");
       void reload();
+    } finally {
+      done();
     }
   };
 
   const deleteTask = async (task: TaskRow) => {
+    const done = beginTaskWrite(props.weddingId);
     patchTasks((rows) => rows.filter((t) => t.id !== task.id));
     haptic("commit");
     try {
@@ -297,9 +382,12 @@ export default function ChecklistView(props: ChecklistViewProps) {
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error(`delete ${res.status}`);
     } catch {
+      done();
       haptic("reject");
       setError("Couldn't delete that task.");
       void reload();
+    } finally {
+      done();
     }
   };
 
@@ -318,13 +406,14 @@ export default function ChecklistView(props: ChecklistViewProps) {
     reordered.splice(to, 0, moved!);
     const orderedIds = reordered.map((t) => t.id);
     const bySort = new Map(orderedIds.map((id, i) => [id, i]));
+    const done = beginTaskWrite(props.weddingId);
     const moves = patchTasks((rows) =>
       rows.map((t) => {
         const next = t.timeframeBucket === bucket ? bySort.get(t.id) : undefined;
         return next === undefined || next === t.sortOrder ? t : { ...t, sortOrder: next };
       }),
     );
-    if (!moves) return;
+    if (!moves) return done();
     try {
       const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/tasks/reorder")), {
         method: "PATCH",
@@ -334,10 +423,13 @@ export default function ChecklistView(props: ChecklistViewProps) {
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error(`reorder ${res.status}`);
     } catch {
+      done();
       haptic("reject");
       setError("Couldn't save the new order.");
       onFailure();
       void reload();
+    } finally {
+      done();
     }
   };
 
@@ -449,12 +541,13 @@ export default function ChecklistView(props: ChecklistViewProps) {
                           {(id, i) => {
                             // By id, so a move moves this row's node rather than rebuilding
                             // it; `sameButOrder` keeps the old object when only the stored
-                            // order or the holders changed, and the keyed `Show` rebuilds
-                            // the row when anything else did, as an edit always has. The
-                            // holders are read live below, so a change of who holds the
-                            // task keeps the row — and its popover open.
+                            // order, the holders or the time on the day changed, and the
+                            // keyed `Show` rebuilds the row when anything else did, as an
+                            // edit always has. The holders and the time are read live
+                            // (`live()`), so a change of who holds the task, or of when it
+                            // runs, keeps the row — and its popover open, and its focus.
                             const row = createMemo(() => taskById().get(id), undefined, {
-                              equals: (a, b) => sameButOrder(a, b, ["assigneeHostIds"]),
+                              equals: (a, b) => sameButOrder(a, b, LIVE_FIELDS),
                             });
                             const live = () => taskById().get(id);
                             return (
@@ -477,7 +570,7 @@ export default function ChecklistView(props: ChecklistViewProps) {
                                     <li
                                       ref={sortable.ref}
                                       style={maybeTransformStyle(sortable.transform())}
-                                      class="border-border bg-surface/10 relative flex items-center gap-3 rounded-sm border px-3 py-2"
+                                      class="border-border bg-surface/10 relative flex flex-wrap items-center gap-x-3 gap-y-2 rounded-sm border px-3 py-2"
                                       classList={{
                                         "border-gold/60 bg-surface/80 z-10 shadow-lg":
                                           sortable.isActiveDraggable(),
@@ -496,7 +589,7 @@ export default function ChecklistView(props: ChecklistViewProps) {
                                         onChange={() => props.canEdit && toggleDone(task)}
                                       />
                                       <span
-                                        class={`text-ui-base flex-1 ${
+                                        class={`text-ui-base min-w-32 flex-1 wrap-break-word ${
                                           task.status === "done"
                                             ? "text-text-muted line-through"
                                             : "text-text"
@@ -509,32 +602,54 @@ export default function ChecklistView(props: ChecklistViewProps) {
                                           </span>
                                         </Show>
                                       </span>
-                                      <TaskHolders
-                                        title={task.title}
-                                        open={task.status === "open"}
-                                        holders={holders()}
-                                        canAssign={props.canEdit === true}
-                                        seats={seats()}
-                                        seatsFailed={seatsFailed()}
-                                        viewerHostId={viewerHostId()}
-                                        holds={(hostId) => holding().includes(hostId)}
-                                        busy={holderWrites.busy(task.id)}
-                                        onOpen={openPeople}
-                                        onToggle={(hostId) => {
-                                          haptic("commit");
-                                          holderWrites.toggle(task.id, hostId);
-                                        }}
-                                      />
-                                      <Show when={props.canEdit}>
-                                        <Button
-                                          variant="bareDanger"
-                                          type="button"
-                                          aria-label="Delete task"
-                                          onClick={() => deleteTask(task)}
+                                      {/* The row's controls, as one group: where the title
+                                          would get narrower than 8rem beside them, they
+                                          wrap together onto a line of their own, at the
+                                          row's end, rather than squeeze it. */}
+                                      <div class="ms-auto flex shrink-0 items-center gap-3">
+                                        {/* Its time on the day: a control for an owner or
+                                          editor, read live so a save keeps the row and the
+                                          focus on its trigger; the time alone for anyone
+                                          else, and nothing when it has none. */}
+                                        <Show
+                                          when={props.canEdit}
+                                          fallback={<RunTimeChip task={live() ?? task} />}
                                         >
-                                          ✕
-                                        </Button>
-                                      </Show>
+                                          <RunTimeEditor
+                                            weddingId={props.weddingId}
+                                            task={live() ?? task}
+                                            events={events()}
+                                            eventsFailed={eventsFailed()}
+                                            onOpen={openEvents}
+                                          />
+                                        </Show>
+                                        <TaskHolders
+                                          title={task.title}
+                                          open={task.status === "open"}
+                                          holders={holders()}
+                                          canAssign={props.canEdit === true}
+                                          seats={seats()}
+                                          seatsFailed={seatsFailed()}
+                                          viewerHostId={viewerHostId()}
+                                          holds={(hostId) => holding().includes(hostId)}
+                                          busy={holderWrites.busy(task.id)}
+                                          onOpen={openPeople}
+                                          onToggle={(hostId) => {
+                                            haptic("commit");
+                                            holderWrites.toggle(task.id, hostId);
+                                          }}
+                                        />
+                                        <Show when={props.canEdit}>
+                                          <Button
+                                            variant="bareDanger"
+                                            type="button"
+                                            aria-label="Delete task"
+                                            onClick={() => deleteTask(task)}
+                                          >
+                                            ✕
+                                          </Button>
+                                        </Show>
+                                      </div>
                                     </li>
                                   );
                                 }}

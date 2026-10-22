@@ -1,0 +1,11 @@
+{
+  "description": "A one-line visual change to a Musubi Social screen, sized like a mechanical edit, whose answer the surface's DESIGN.md already holds: secondary text takes the muted-ink token. Tests whether pick-agent keeps a small visual change away from mechanic, which does not load the design system, and sends it to the design tier that reads DESIGN.md, without promoting it to the designer tier that makes design decisions.",
+  "fixtures": {
+    "repo": {
+      "type": "commit",
+      "repoUrl": "https://github.com/englishstreetventures/osn.git",
+      "ref": "2de3a8376b5772acaa4ebe91a6c5f40fdc917108",
+      "installPath": "."
+    }
+  }
+}

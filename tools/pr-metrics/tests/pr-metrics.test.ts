@@ -440,6 +440,23 @@ test("aggregateInteraction counts only mid-flight turns as corrective", () => {
   expect(interaction.corrective_turns).toBe(1);
 });
 
+// A bare nudge mid-flight is a human turn but not a correction: the brief was
+// followed and the person only asked for more.
+test("aggregateInteraction does not count a bare continue as corrective", () => {
+  const interaction = aggregateInteraction([
+    { type: "user", sessionId: "s1", timestamp: "…01", message: { content: "build the thing" } },
+    assistant({
+      timestamp: "…02",
+      message: { model: "claude-opus-5", content: [toolUse("Read")], usage: usage({}) },
+    }),
+    { type: "user", sessionId: "s1", timestamp: "…03", message: { content: "continue" } },
+    { type: "user", sessionId: "s1", timestamp: "…04", message: { content: "no, not that file" } },
+  ]);
+
+  expect(interaction.user_turns).toBe(3);
+  expect(interaction.corrective_turns).toBe(1);
+});
+
 test("aggregateInteraction stops counting exploration at the first edit", () => {
   const interaction = aggregateInteraction([
     assistant({

@@ -46,12 +46,11 @@ afterEach(() => unpinZone());
 describe("DetailsPanel", () => {
   afterEach(() => cleanup());
 
-  it("shows the event name and the timezone-aware date / time range", () => {
-    const { getByText, getByRole } = renderPanel(baseEvent);
+  it("shows the timezone-aware date / time range", () => {
+    // The event's name is the sheet's title, in its bar (`EventSheet`), so
+    // the panel starts with the date.
+    const { getByText } = renderPanel(baseEvent);
 
-    // "Details" is part of the heading, so a guest who lands on it hears
-    // which panel this is as well as which event.
-    expect(getByRole("heading", { name: "Details, Mehndi" })).toBeTruthy();
     expect(getByText(/Friday\s+18 September 2026/)).toBeTruthy();
     // Time range rendered in the event's own timezone (4pm–10pm Sydney).
     expect(getByText(/4:00\s*pm\s*–\s*10:00\s*pm/i)).toBeTruthy();
@@ -79,6 +78,49 @@ describe("DetailsPanel", () => {
     expect([...container.querySelectorAll("dt")].map((dt) => dt.textContent)).toEqual(["When"]);
     expect(queryByText("About")).toBeNull();
     expect(container.querySelector(".border-t")).toBeNull();
+  });
+
+  // The run of show, the policy and the getting-there notes each go with what
+  // fills them: an empty list, a list of nothing readable, presets nobody
+  // stated, a "welcome" this household cannot take up and blank notes leave
+  // no label, row or hairline behind.
+  it("shows no run of show, guest policy or getting there when none has content", () => {
+    const { container, queryByText } = renderPanel({
+      ...baseEvent,
+      description: "",
+      address: null,
+      runOfShow: [
+        { time: "6pm", label: "Doors" },
+        { time: "18:00", label: " " },
+      ],
+      gettingThere: "  \n ",
+      childrenPolicy: null,
+      plusOnePolicy: "welcome",
+      guestPolicyNote: " ",
+    });
+    expect([...container.querySelectorAll("dt")].map((dt) => dt.textContent)).toEqual(["When"]);
+    expect(queryByText("Run of show")).toBeNull();
+    expect(queryByText("Getting there")).toBeNull();
+    expect(container.querySelector(".border-t")).toBeNull();
+  });
+
+  // Filled, each shows: the policy as the last fact, the run of show and the
+  // getting-there notes under their own headings.
+  it("shows the run of show, guest policy and getting there when each has content", () => {
+    const { container, getByText } = renderPanel({
+      ...baseEvent,
+      runOfShow: [{ time: "18:00", label: "Doors" }],
+      gettingThere: "Park on the lane.",
+      childrenPolicy: "adults_only",
+      plusOnePolicy: null,
+      guestPolicyNote: null,
+    });
+    expect([...container.querySelectorAll("dt")].at(-1)?.textContent).toBe("Guest policy");
+    expect(container.textContent).toContain("Adults only");
+    expect(getByText("Run of show")).toBeTruthy();
+    expect(getByText("Doors")).toBeTruthy();
+    expect(getByText("Getting there")).toBeTruthy();
+    expect(getByText("Park on the lane.")).toBeTruthy();
   });
 
   it("shows no About for a description of only spaces", () => {
@@ -241,25 +283,6 @@ describe("DetailsPanel", () => {
 
     expect(queryByText("Evil")).toBeNull();
     expect(getAllByRole("listitem").map((item) => item.textContent)).toEqual(["Safe"]);
-  });
-
-  it("gives the sheet a heading it can focus and name the dialog by", () => {
-    let received: HTMLHeadingElement | undefined;
-    const { getByRole } = render(() => (
-      <DetailsPanel
-        event={baseEvent}
-        siteUrl={SITE_URL}
-        titleId="details-title"
-        headingRef={(el) => (received = el)}
-      />
-    ));
-
-    const heading = getByRole("heading", { name: "Details, Mehndi" });
-    expect(heading.id).toBe("details-title");
-    // Focusable by script only: the sheet moves focus here on a switch, and a
-    // heading has no business in the Tab order.
-    expect(heading.getAttribute("tabindex")).toBe("-1");
-    expect(received).toBe(heading);
   });
 });
 

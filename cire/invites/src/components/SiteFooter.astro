@@ -9,6 +9,13 @@
 // preferences dialog is what makes the earlier "you can change this later"
 // promise true. The footer is the one component every document shell already
 // renders, which makes it the right home.
+//
+// And the build's version, under the legal row: the first seven characters of
+// the commit this surface was built from, so a guest's report (or the
+// owner's, from a phone) says which build it was. Everything merged at or
+// before that commit is in it. CI sets `PUBLIC_BUILD_SHA` on the build
+// (`deploy.yml` for dev, `production-release.yml` for production); a build
+// without it — a local one, the end-to-end suite's dev server — says "local".
 import { ConsentPreferencesLink } from './consent/ConsentBanner'
 
 interface Props {
@@ -22,6 +29,8 @@ interface Props {
 }
 
 const { closing } = Astro.props
+const sha = import.meta.env.PUBLIC_BUILD_SHA?.trim()
+const version = sha ? sha.slice(0, 7) : 'local'
 ---
 <footer class="site-footer">
   {closing && <p class="closing">{closing}</p>}
@@ -32,6 +41,10 @@ const { closing } = Astro.props
     <span aria-hidden="true">&middot;</span>
     <ConsentPreferencesLink client:idle label="Privacy Choices" class="consent-link" />
   </nav>
+  {/* Its own line, not a fourth item in the row: the row is three links wide
+      and already fills a 320px phone. `translate="no"`, so a browser's page
+      translation leaves the reference as a bug report quotes it. */}
+  <p class="version" translate="no">Version {version}</p>
 </footer>
 
 <style>
@@ -96,6 +109,16 @@ const { closing } = Astro.props
   .site-footer :global(.consent-link:focus-visible) {
     color: var(--color-gold-ink, oklch(74.99% 0.0854 82.08));
     border-bottom-color: currentColor;
+  }
+
+  /* Quieter than the links above it, in the same muted ink: a reference for a
+     bug report, not something to act on. Tabular figures so two versions read
+     at the same width. */
+  .site-footer .version {
+    margin: 0.75rem 0 0;
+    font-size: 0.75rem;
+    letter-spacing: 0.02em;
+    font-variant-numeric: tabular-nums;
   }
 
   /* Keep the island from introducing a line box of its own inside the flex row. */

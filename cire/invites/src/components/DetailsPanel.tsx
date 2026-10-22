@@ -1,4 +1,4 @@
-import { createMemo, createSignal, createUniqueId, For, onMount, Show, type JSX } from "solid-js";
+import { createMemo, createSignal, For, onMount, Show, type JSX } from "solid-js";
 
 import { AddToCalendar } from "./AddToCalendar";
 import { isValidColor, truncateSwatchName } from "./dress-code-render";
@@ -7,10 +7,19 @@ import {
   formatEventDay,
   formatTimeRange,
   guestLocalTime,
+  guestPolicyLines,
   invitedNames,
+  runOfShowLines,
   timezoneName,
 } from "./event-details";
-import { hasDressCode, hasPinterest, hasText, hasVenue } from "./invite-emptiness";
+import {
+  hasDressCode,
+  hasGuestPolicy,
+  hasPinterest,
+  hasRunOfShow,
+  hasText,
+  hasVenue,
+} from "./invite-emptiness";
 import { MapPreview } from "./MapPreview";
 import { PinterestBoard } from "./PinterestBoard";
 import type { EventSummary, FamilyMember } from "./types";
@@ -34,19 +43,18 @@ export interface DetailsPanelProps {
   replied?: boolean;
   /** The deadline day in words, for the closed notice ("RSVPs closed on …"). */
   rsvpClosedOn?: string;
-  /** `id` for the heading, which names the sheet while this panel shows. */
-  titleId?: string;
-  /** Receives the heading, which takes focus when the guest switches here. */
-  headingRef?: (el: HTMLHeadingElement) => void;
 }
 
-/** A labelled part of the occasion, under its gold eyebrow. */
+/**
+ * A labelled part of the panel, under its gold eyebrow: an `<h3>`, one level
+ * under the sheet's title, which is an `<h2>` in its bar.
+ */
 function Section(props: { label: string; children: JSX.Element }) {
   return (
     <section>
-      <h4 class="font-body text-gold-ink text-ui-xs tracking-ui-ultra mb-3 font-normal uppercase">
+      <h3 class="font-body text-gold-ink text-ui-xs tracking-ui-ultra mb-3 font-normal uppercase">
         {props.label}
-      </h4>
+      </h3>
       {props.children}
     </section>
   );
@@ -107,6 +115,17 @@ function PinGlyph() {
   );
 }
 
+/** A guest and a plus: who may come. */
+function GuestPolicyGlyph() {
+  return (
+    <Glyph>
+      <circle cx="9" cy="8" r="3" />
+      <path d="M3.5 19c.6-3 2.8-5 5.5-5s4.9 2 5.5 5" />
+      <path d="M18 7.5v6M15 10.5h6" />
+    </Glyph>
+  );
+}
+
 function PeopleGlyph() {
   return (
     <Glyph>
@@ -120,26 +139,27 @@ function PeopleGlyph() {
 
 /**
  * The holistic "everything about this event" view, one of `EventSheet`'s two
- * panels. The way to the RSVP form is the sheet's, in its chrome beside the
- * close button (`EventSheet`).
+ * panels. Its title, the event's name, and the way to the RSVP form are the
+ * sheet's, in the bar above it (`EventSheet`).
  *
- * It leads with the plan, the facts a guest opens it for, as a short list under
- * the heading: when (in the event's own zone,
+ * It leads with the plan, the facts a guest opens it for, as a short list at
+ * its top: when (in the event's own zone,
  * spelt out, and on the guest's own clock where that reads differently, with
  * Add to calendar on the row), where (the address, a small map and Open in
- * maps), and — for a household not all of whom are asked — who is invited.
- * One hairline, then the occasion: about, the dress code, and the moodboard.
+ * maps), for a household not all of whom are asked who is invited, and the
+ * guest policy. Then, each under its own hairline: the run of show in time
+ * order, the occasion (about, the dress code and the moodboard), and how to get
+ * there.
  *
  * Every row and section renders only when it has content, so a sparse event —
- * a name, a start and a timezone — collapses to its heading and its date,
- * with no empty label and no hairline over nothing.
+ * a name, a start and a timezone — collapses to its date, with no empty label
+ * and no hairline over nothing.
  */
 export function DetailsPanel(props: DetailsPanelProps) {
   // Memos: each is read by its `Show` and again inside it.
   const day = createMemo(() => formatEventDay(props.event));
   const timeRange = createMemo(() => formatTimeRange(props.event));
   const zone = createMemo(() => timezoneName(props.event));
-  const titleId = props.titleId ?? createUniqueId();
   const invited = () => invitedNames(props.members ?? [], props.event.id);
   const description = () => (hasText(props.event.description) ? props.event.description : null);
   const swatches = () =>
@@ -151,6 +171,23 @@ export function DetailsPanel(props: DetailsPanelProps) {
     hasText(props.event.dressCodeDescription) ? props.event.dressCodeDescription : null;
   const moodboard = () =>
     hasPinterest(props.event.pinterestUrl) ? props.event.pinterestUrl : null;
+  // Each block shows when `invite-emptiness` says it has content, the rule
+  // the organiser's Events list mirrors.
+  const runOfShow = createMemo(() =>
+    hasRunOfShow(props.event.runOfShow) ? runOfShowLines(props.event) : [],
+  );
+  // Also needs the household: "Plus-ones welcome" is said only to one that
+  // can bring someone, so a policy of only that shows nothing to the rest.
+  const policy = createMemo(() =>
+    hasGuestPolicy(
+      props.event.childrenPolicy,
+      props.event.plusOnePolicy,
+      props.event.guestPolicyNote,
+    )
+      ? guestPolicyLines(props.event, props.members)
+      : null,
+  );
+  const gettingThere = () => (hasText(props.event.gettingThere) ? props.event.gettingThere : null);
 
   // The guest's own clock is read in the browser, once mounted, so the first
   // render matches a server render whatever zone the server ran in.
@@ -176,24 +213,9 @@ export function DetailsPanel(props: DetailsPanelProps) {
 
   return (
     <>
-      <header class="mb-6">
-        {/* The eyebrow is part of the heading, not a paragraph above it. The
-            sheet moves focus here when the guest switches panels, and both
-            panels' titles are the event's name — so "Details" is what tells a
-            screen-reader user which panel they have arrived on. The comma is
-            for the ear only. */}
-        <h3
-          id={titleId}
-          ref={(el) => props.headingRef?.(el)}
-          tabindex="-1"
-          class="font-display text-text text-ui-xl mb-5 leading-tight font-light italic"
-        >
-          <span class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-3 block leading-normal [font-weight:var(--invite-body-weight,400)] uppercase [font-style:var(--invite-body-style,normal)]">
-            Details
-            <span class="sr-only">,</span>
-          </span>{" "}
-          {props.event.name}
-        </h3>
+      {/* Room under it only while it says something: with RSVPs open the
+          header is an empty live region, and the facts start at the top. */}
+      <header classList={{ "mb-6": props.rsvpClosed === true }}>
         {/* Rendered whether or not RSVPs have closed, and empty while they
             are open: assistive tech announces a change inside a live region
             it was already watching, so a deadline that passes with this
@@ -252,7 +274,71 @@ export function DetailsPanel(props: DetailsPanelProps) {
             </Fact>
           )}
         </Show>
+
+        {/* Last of the facts, so the date and the venue keep the first screen. */}
+        <Show when={policy()}>
+          {(lines) => (
+            <Fact term="Guest policy" icon={<GuestPolicyGlyph />}>
+              <Show when={lines().presets.length > 0}>
+                <p class="font-body text-text text-ui-base font-light">
+                  <For each={lines().presets}>
+                    {(preset, i) => (
+                      <>
+                        <Show when={i() > 0}>
+                          <span aria-hidden="true"> · </span>
+                          <span class="sr-only">, </span>
+                        </Show>
+                        {preset}
+                      </>
+                    )}
+                  </For>
+                </p>
+              </Show>
+              <Show when={lines().note}>
+                {(note) => (
+                  <p class="font-body text-text-muted text-ui-sm leading-ui-normal mt-0.5 wrap-anywhere whitespace-pre-line">
+                    {note()}
+                  </p>
+                )}
+              </Show>
+            </Fact>
+          )}
+        </Show>
       </dl>
+
+      {/* The run of show, in time order from the start, on the event's own
+          clock; the zone is named when the guest's own clock reads
+          differently, as the When row's "Your time" is. */}
+      <Show when={runOfShow().length > 0}>
+        <div class="border-border/80 mt-7 border-t pt-7">
+          <Section label="Run of show">
+            <ol class="m-0 flex list-none flex-col gap-2.5 p-0">
+              <For each={runOfShow()}>
+                {(line) => (
+                  <li class="grid grid-cols-[4.75rem_minmax(0,1fr)] gap-x-3">
+                    <time
+                      datetime={line.time}
+                      class="font-body text-text-muted text-ui-sm pt-0.5 whitespace-nowrap tabular-nums"
+                    >
+                      {line.clock}
+                    </time>
+                    {/* A space, so the line reads "4:00 pm Ceremony" rather
+                        than run together; a grid draws none for it. */}{" "}
+                    <span class="font-body text-text text-ui-base leading-ui-normal font-light wrap-anywhere">
+                      {line.label}
+                    </span>
+                  </li>
+                )}
+              </For>
+            </ol>
+            <Show when={localTime() && zone()}>
+              {(name) => (
+                <p class="font-body text-text-muted text-ui-sm mt-3">Times are {name()}.</p>
+              )}
+            </Show>
+          </Section>
+        </div>
+      </Show>
 
       {/* The occasion, under one hairline, and only when there is any. */}
       <Show when={description() || dressCode() || moodboard()}>
@@ -314,6 +400,20 @@ export function DetailsPanel(props: DetailsPanelProps) {
             )}
           </Show>
         </div>
+      </Show>
+
+      {/* How to get there: last, after the occasion. Line breaks kept, and
+          `wrap-anywhere` for a pasted link, as About has. */}
+      <Show when={gettingThere()}>
+        {(notes) => (
+          <div class="border-border/80 mt-7 border-t pt-7">
+            <Section label="Getting there">
+              <p class="font-body text-text-muted text-ui-base leading-ui-relaxed font-light wrap-anywhere whitespace-pre-line">
+                {notes()}
+              </p>
+            </Section>
+          </div>
+        )}
       </Show>
     </>
   );

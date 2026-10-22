@@ -3,10 +3,12 @@ import { describe, expect, it } from "vitest";
 import { Z_CLASS, Z_LAYER } from "../../src/lib/z-index";
 
 describe("z-index layer scale", () => {
-  it("orders the layers low → high (BASE < EVENT_CARD < STICKY_RAIL < MODAL_POPOVER < TOAST < CONSENT)", () => {
+  it("orders the layers low → high (BASE < EVENT_CARD < STICKY_RAIL < EDGE < HERO_CUE < MODAL_POPOVER < TOAST < CONSENT)", () => {
     expect(Z_LAYER.BASE).toBeLessThan(Z_LAYER.EVENT_CARD);
     expect(Z_LAYER.EVENT_CARD).toBeLessThan(Z_LAYER.STICKY_RAIL);
-    expect(Z_LAYER.STICKY_RAIL).toBeLessThan(Z_LAYER.MODAL_POPOVER);
+    expect(Z_LAYER.STICKY_RAIL).toBeLessThan(Z_LAYER.EDGE);
+    expect(Z_LAYER.EDGE).toBeLessThan(Z_LAYER.HERO_CUE);
+    expect(Z_LAYER.HERO_CUE).toBeLessThan(Z_LAYER.MODAL_POPOVER);
     expect(Z_LAYER.MODAL_POPOVER).toBeLessThan(Z_LAYER.TOAST);
     expect(Z_LAYER.TOAST).toBeLessThan(Z_LAYER.CONSENT);
   });

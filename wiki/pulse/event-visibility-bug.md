@@ -7,7 +7,7 @@ related:
   - "[[event-access]]"
   - "[[pulse-close-friends]]"
   - "[[pulse]]"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-10-22
 ---
 
 # Event Visibility Bug Runbook
@@ -41,7 +41,7 @@ Check which route exposes the data. All of these MUST use `loadVisibleEvent`:
 
 ### 2. Check if the Route Uses `loadVisibleEvent`
 
-Every direct-fetch route must call `loadVisibleEvent(eventId, viewerId)` from `pulse/api/src/services/eventAccess.ts`. If a route loads the event with `getEvent` instead of `loadVisibleEvent`, it bypasses the visibility check (this is the S-H12 pattern).
+Every direct-fetch route must call `loadVisibleEvent(eventId, viewerId)` from `pulse/api/src/services/eventAccess.ts`. If a route loads the event with `getEvent` instead of `loadVisibleEvent`, it bypasses the visibility check.
 
 **Where to look:** `pulse/api/src/routes/events.ts` and any new route files.
 
@@ -90,7 +90,7 @@ Check both:
 
 | Cause | Severity | Resolution |
 |-------|----------|------------|
-| New route bypassing `loadVisibleEvent` (S-H12 pattern) | Critical | Replace `getEvent` with `loadVisibleEvent` in the route handler |
+| New route bypassing `loadVisibleEvent` | Critical | Replace `getEvent` with `loadVisibleEvent` in the route handler |
 | SQL predicate out of sync with JS filter | High | Align the `WHERE` clause in `listEvents` with the logic in `canViewEvent` |
 | Route returning 403 instead of 404 | Medium | Change to 404 -- never reveal private event existence |
 | Missing RSVP status in visibility check | High | Ensure all valid RSVP statuses (`going`, `interested`, `not_going`, `invited`) grant access |
@@ -100,13 +100,13 @@ Check both:
 
 ## Historical Findings
 
-| Finding | Route | Issue | Status |
-|---------|-------|-------|--------|
-| S-H12 | `GET /events/:id` | No visibility gate | Fixed via `loadVisibleEvent` |
-| S-H13 | `GET /events/:id/ics` | Leaked GEO coordinates | Fixed via `loadVisibleEvent` |
-| S-H14 | `GET /events/:id/comms` | Leaked blast bodies | Fixed via `loadVisibleEvent` |
-| S-H15 | `GET /events/:id/rsvps` | Invited list exposed | Fixed via `loadVisibleEvent` |
-| S-H16 | `GET /events/:id/rsvps/counts` | Private event existence | Fixed via `loadVisibleEvent` |
+| Route | Issue | Status |
+| ------- | ------- | -------- |
+| `GET /events/:id` | No visibility gate | Fixed via `loadVisibleEvent` |
+| `GET /events/:id/ics` | Leaked GEO coordinates | Fixed via `loadVisibleEvent` |
+| `GET /events/:id/comms` | Leaked blast bodies | Fixed via `loadVisibleEvent` |
+| `GET /events/:id/rsvps` | Invited list exposed | Fixed via `loadVisibleEvent` |
+| `GET /events/:id/rsvps/counts` | Private event existence | Fixed via `loadVisibleEvent` |
 
 The shared `loadVisibleEvent` helper fixed all of these.
 

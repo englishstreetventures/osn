@@ -181,6 +181,7 @@ export default function InviteHeader(props: InviteHeaderProps) {
           // min-h, not a fixed h-dvh: a long couple title at 6.5rem must be able
           // to grow the hero rather than be clipped by it. The gradient and
           // photo layers below are absolute inset-0, so they stretch with it.
+          data-edge-hero
           class="relative min-h-dvh overflow-hidden"
           style={{ ...filterThemeVars(heroVars()), ...SECTION_SURFACE }}
         >
@@ -263,8 +264,8 @@ export default function InviteHeader(props: InviteHeaderProps) {
             Structural difference from classic: the content column is anchored
             BOTTOM-LEFT (`items-start justify-end`) instead of centered — the
             editorial hero the gala pack is named for — and padding respects the
-            left/bottom safe-area insets to match. */}
-          <div class="relative flex min-h-dvh flex-col items-start justify-end bg-[radial-gradient(ellipse_at_center,var(--invite-scrim-from)_0%,var(--invite-scrim-to)_100%)] px-[max(1.5rem,env(safe-area-inset-left))] pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(2.5rem,env(safe-area-inset-bottom))]">
+            top/bottom safe-area insets to match; the side insets come from the body. */}
+          <div class="relative flex min-h-dvh flex-col items-start justify-end bg-[radial-gradient(ellipse_at_center,var(--invite-scrim-from)_0%,var(--invite-scrim-to)_100%)] px-6 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(2.5rem,env(safe-area-inset-bottom))]">
             {/* Title block. A title legibility panel sits behind the title +
               monogram, driven by the two backdrop sliders: its opacity (0–100 ⇒
               0–1) controls how solid the dark scrim panel is, and its blur (0–20px)

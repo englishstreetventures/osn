@@ -53,7 +53,18 @@ Use tables and mermaid for anything a GitHub reader needs. A `.base` or `.canvas
 
 A page says what is true now. No "used to", "was moved", "the first attempt" — `git log` holds history. A reason that stops a mistake stays.
 
-## 7. Numbers
+## 7. A sentence you edit is a sentence you vouch for
+
+When an edit changes one fact in a sentence or table row, the other claims in that sentence or row are yours to check too. Either check each one against the code, or narrow the edit to the words that change. Four misses from a branch that rewrote the production deploy path:
+
+- `shared/production-deploy.md` §3.4 named three builds that read the Turnstile sitekey. Only one does. Following the list breaks sign-in.
+- `cire/cire.md` kept "cire-web / organiser Pages" and two archived migrations.
+- `shared/production-deploy.md` §4.3 kept "dev and staging, which no CI job touches". CI now migrates dev.
+- The §5.0 table kept "(no public route yet)" for zap, which serves `zap.cireweddings.com`.
+
+Each one sat in a line the branch had already rewritten. Re-read the whole sentence or row before you finish.
+
+## 8. Numbers
 
 Two kinds, written differently.
 

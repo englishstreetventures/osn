@@ -123,6 +123,10 @@ CREATE TABLE IF NOT EXISTS events (
   timezone TEXT NOT NULL,
   venue_name TEXT,
   address TEXT,
+  getting_there TEXT,
+  children_policy TEXT,
+  plus_one_policy TEXT,
+  guest_policy_note TEXT,
   dress_code_description TEXT,
   dress_code_palette TEXT,
   pinterest_url TEXT,
@@ -136,6 +140,16 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE INDEX IF NOT EXISTS events_wedding_id_sort_idx ON events(wedding_id, sort_order);
 CREATE UNIQUE INDEX IF NOT EXISTS events_wedding_slug_unique ON events(wedding_id, slug);
 CREATE UNIQUE INDEX IF NOT EXISTS events_id_wedding_uniq ON events(id, wedding_id);
+
+CREATE TABLE IF NOT EXISTS run_of_show_items (
+  event_id TEXT NOT NULL,
+  wedding_id TEXT NOT NULL,
+  sort_order INTEGER NOT NULL,
+  time TEXT NOT NULL,
+  label TEXT NOT NULL,
+  PRIMARY KEY (event_id, sort_order),
+  FOREIGN KEY (event_id, wedding_id) REFERENCES events(id, wedding_id) ON DELETE CASCADE
+);
 
 CREATE TABLE IF NOT EXISTS guest_events (
   guest_id TEXT NOT NULL REFERENCES guests(id) ON DELETE CASCADE,
@@ -195,6 +209,13 @@ CREATE TABLE IF NOT EXISTS owner_notice_budget (
   day TEXT NOT NULL,
   sent INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (key, day)
+);
+
+CREATE TABLE IF NOT EXISTS realtime_subscribe_budget (
+  osn_profile_id TEXT NOT NULL,
+  day TEXT NOT NULL,
+  subscribes INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (day, osn_profile_id)
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
@@ -335,12 +356,18 @@ CREATE TABLE IF NOT EXISTS tasks (
   template_item TEXT,
   due_offset_days INTEGER,
   due_source TEXT NOT NULL DEFAULT 'manual',
-  assigned_host_id TEXT REFERENCES wedding_hosts(id) ON DELETE SET NULL
+  assigned_host_id TEXT REFERENCES wedding_hosts(id) ON DELETE SET NULL,
+  run_at TEXT,
+  run_timezone TEXT,
+  event_id TEXT REFERENCES events(id) ON DELETE SET NULL,
+  run_offset_minutes INTEGER,
+  event_removed_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS tasks_wedding_bucket_sort_idx ON tasks(wedding_id, timeframe_bucket, sort_order);
 CREATE UNIQUE INDEX IF NOT EXISTS tasks_wedding_template_item_unique ON tasks(wedding_id, template_id, template_item) WHERE template_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS tasks_assigned_host_idx ON tasks(assigned_host_id) WHERE assigned_host_id IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS tasks_id_wedding_unique ON tasks(id, wedding_id);
+CREATE INDEX IF NOT EXISTS tasks_event_idx ON tasks(event_id) WHERE event_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS task_assignees (
   task_id TEXT NOT NULL,
@@ -1008,8 +1035,9 @@ function seatDevOwner(db: TestDb, weddingId: string, seatId: string, now: Date):
 }
 
 /**
- * Three weddings for the E2E suite's organiser flows, each on Gold and owned by
- * the dev profile, which osn-api's `/dev/login` signs in as:
+ * Five weddings for the E2E suite's organiser flows, each on Gold. The dev
+ * profile, which osn-api's `/dev/login` signs in as, owns the first four and is
+ * a helper on the fifth:
  *
  * - `wed_e2e_checklist`: a wedding date (2099-06-20) and an empty checklist,
  *   for the starter checklist.
@@ -1017,6 +1045,13 @@ function seatDevOwner(db: TestDb, weddingId: string, seatId: string, now: Date):
  *   putting people on a task and removing one from the wedding.
  * - `wed_e2e_scope`: a helper seeing their own tasks, for widening, narrowing
  *   and resetting what a helper sees on the run sheet.
+ * - `wed_e2e_runsheet`: the day of 2026-10-01 in Sydney — the suite's clock
+ *   starts at 10:00 there — with three events, two of them carrying a run of
+ *   show, and tasks linked to each, one twenty minutes away; for reading the
+ *   run sheet as an owner and moving and removing its events.
+ * - `wed_e2e_rs_helper`: the same day, where the dev profile is a helper who
+ *   sees their own tasks, and a co-host holds a task of another event; for
+ *   reading what such a helper is given.
  *
  * The co-hosts are bare profile ids with no OSN account behind them; the local
  * server resolves no names, so the portal shows the ids. Every id and value a
@@ -1088,6 +1123,217 @@ export function seedE2eOrganiser(db: TestDb): void {
       runSheetScope: "own",
       createdAt: now,
     })
+    .run();
+
+  const event = (
+    id: string,
+    weddingId: string,
+    name: string,
+    startAt: string,
+    endAt: string,
+    sortOrder: number,
+    place: { venueName?: string; address?: string } = {},
+  ): typeof schema.events.$inferInsert => ({
+    id,
+    weddingId,
+    slug: id.replace(/_/g, "-"),
+    name,
+    startAt,
+    endAt,
+    timezone: "Australia/Sydney",
+    venueName: place.venueName ?? null,
+    address: place.address ?? null,
+    sortOrder,
+  });
+  const runOfShow = (eventId: string, weddingId: string, items: [string, string][]) =>
+    items.map(([time, label], sortOrder) => ({ eventId, weddingId, sortOrder, time, label }));
+  const task = (
+    id: string,
+    weddingId: string,
+    title: string,
+    timeframeBucket: string,
+    link: { eventId: string; runOffsetMinutes: number } | null,
+    sortOrder: number,
+  ): typeof schema.tasks.$inferInsert => ({
+    id,
+    weddingId,
+    title,
+    timeframeBucket,
+    status: "open",
+    sortOrder,
+    createdAt: now,
+    eventId: link?.eventId ?? null,
+    runOffsetMinutes: link?.runOffsetMinutes ?? null,
+  });
+  const hold = (taskId: string, hostId: string, weddingId: string) => ({
+    taskId,
+    hostId,
+    weddingId,
+    assignedAt: now,
+  });
+
+  wedding("wed_e2e_runsheet", "run-sheet-wedding", "Run Sheet Wedding");
+  seatDevOwner(db, "wed_e2e_runsheet", "whost_e2e_runsheet_owner", now);
+  db.insert(schema.weddingHosts)
+    .values({
+      id: "whost_e2e_fay",
+      weddingId: "wed_e2e_runsheet",
+      osnProfileId: "usr_e2e_fay",
+      addedByOsnProfileId: DEV_OWNER_PROFILE_ID,
+      role: "helper",
+      runSheetScope: "own",
+      createdAt: now,
+    })
+    .run();
+  db.insert(schema.events)
+    .values([
+      event(
+        "evt_e2e_rs_ceremony",
+        "wed_e2e_runsheet",
+        "Ceremony",
+        "2026-10-01T11:00:00+10:00",
+        "2026-10-01T12:00:00+10:00",
+        0,
+        { venueName: "The Chapel", address: "1 Chapel Lane, Exampleville NSW 2001" },
+      ),
+      event(
+        "evt_e2e_rs_reception",
+        "wed_e2e_runsheet",
+        "Reception",
+        "2026-10-01T18:00:00+10:00",
+        "2026-10-01T23:00:00+10:00",
+        1,
+      ),
+      event("evt_e2e_rs_brunch", "wed_e2e_runsheet", "Brunch", "2026-10-02T10:00:00+10:00", "", 2),
+    ])
+    .run();
+  db.insert(schema.runOfShowItems)
+    .values([
+      ...runOfShow("evt_e2e_rs_ceremony", "wed_e2e_runsheet", [
+        ["11:00", "Processional"],
+        ["11:40", "Signing the register"],
+      ]),
+      // Stored in the organiser's order, not the clock's: the run sheet reads
+      // it from the start, an item earlier than the start after midnight.
+      ...runOfShow("evt_e2e_rs_reception", "wed_e2e_runsheet", [
+        ["18:30", "Entrée"],
+        ["00:15", "Last dance"],
+        ["17:30", "Doors close"],
+      ]),
+    ])
+    .run();
+  db.insert(schema.tasks)
+    .values([
+      task(
+        "tsk_e2e_rs_greet",
+        "wed_e2e_runsheet",
+        "Greet the celebrant",
+        "day_of",
+        { eventId: "evt_e2e_rs_ceremony", runOffsetMinutes: -40 },
+        0,
+      ),
+      task(
+        "tsk_e2e_rs_cake",
+        "wed_e2e_runsheet",
+        "Set up the cake table",
+        "week_of",
+        { eventId: "evt_e2e_rs_reception", runOffsetMinutes: -60 },
+        0,
+      ),
+      task(
+        "tsk_e2e_rs_hamper",
+        "wed_e2e_runsheet",
+        "Pack the hamper",
+        "day_of",
+        { eventId: "evt_e2e_rs_brunch", runOffsetMinutes: -30 },
+        1,
+      ),
+      task("tsk_e2e_rs_rings", "wed_e2e_runsheet", "Bring the rings", "day_of", null, 2),
+      task("tsk_e2e_rs_cards", "wed_e2e_runsheet", "Order thank-you cards", "1m", null, 0),
+    ])
+    .run();
+  db.insert(schema.taskAssignees)
+    .values([
+      hold("tsk_e2e_rs_greet", "whost_e2e_runsheet_owner", "wed_e2e_runsheet"),
+      hold("tsk_e2e_rs_cake", "whost_e2e_fay", "wed_e2e_runsheet"),
+      hold("tsk_e2e_rs_rings", "whost_e2e_runsheet_owner", "wed_e2e_runsheet"),
+    ])
+    .run();
+
+  wedding("wed_e2e_rs_helper", "helper-wedding", "Helper Wedding");
+  db.insert(schema.weddingHosts)
+    .values([
+      {
+        id: "whost_e2e_gus",
+        weddingId: "wed_e2e_rs_helper",
+        osnProfileId: "usr_e2e_gus",
+        addedByOsnProfileId: "usr_e2e_gus",
+        role: "owner",
+        createdAt: now,
+      },
+      {
+        id: "whost_e2e_rs_helper_me",
+        weddingId: "wed_e2e_rs_helper",
+        osnProfileId: DEV_OWNER_PROFILE_ID,
+        addedByOsnProfileId: "usr_e2e_gus",
+        role: "helper",
+        runSheetScope: "own",
+        createdAt: now,
+      },
+    ])
+    .run();
+  db.insert(schema.events)
+    .values([
+      event(
+        "evt_e2e_rsh_arrival",
+        "wed_e2e_rs_helper",
+        "Guest arrival",
+        "2026-10-01T14:30:00+10:00",
+        "",
+        0,
+        { venueName: "The Barn", address: "9 Barn Road, Exampleville NSW 2001" },
+      ),
+      event(
+        "evt_e2e_rsh_speeches",
+        "wed_e2e_rs_helper",
+        "Speeches",
+        "2026-10-01T16:00:00+10:00",
+        "",
+        1,
+      ),
+    ])
+    .run();
+  db.insert(schema.runOfShowItems)
+    .values([
+      ...runOfShow("evt_e2e_rsh_arrival", "wed_e2e_rs_helper", [["14:45", "Welcome drinks"]]),
+      ...runOfShow("evt_e2e_rsh_speeches", "wed_e2e_rs_helper", [["16:10", "Best man"]]),
+    ])
+    .run();
+  db.insert(schema.tasks)
+    .values([
+      task(
+        "tsk_e2e_rsh_programmes",
+        "wed_e2e_rs_helper",
+        "Hand out programmes",
+        "day_of",
+        { eventId: "evt_e2e_rsh_arrival", runOffsetMinutes: -30 },
+        0,
+      ),
+      task(
+        "tsk_e2e_rsh_cue",
+        "wed_e2e_rs_helper",
+        "Cue the speeches",
+        "day_of",
+        { eventId: "evt_e2e_rsh_speeches", runOffsetMinutes: -10 },
+        1,
+      ),
+    ])
+    .run();
+  db.insert(schema.taskAssignees)
+    .values([
+      hold("tsk_e2e_rsh_programmes", "whost_e2e_rs_helper_me", "wed_e2e_rs_helper"),
+      hold("tsk_e2e_rsh_cue", "whost_e2e_gus", "wed_e2e_rs_helper"),
+    ])
     .run();
 }
 

@@ -20,6 +20,7 @@ describe("the guest sheet, in a real engine", () => {
     cleanup();
     document.documentElement.style.overflow = "";
     document.documentElement.style.scrollbarGutter = "";
+    document.documentElement.style.overscrollBehavior = "";
   });
 
   /**
@@ -44,21 +45,41 @@ describe("the guest sheet, in a real engine", () => {
     expect(getByRole("dialog").matches(":modal")).toBe(true);
   });
 
-  it("lands focus on the scroll container, so the keyboard can scroll the sheet", () => {
-    const { getByRole } = render(() => (
-      <AnimatedModal onClose={() => {}} label="Event details">
-        <p>body</p>
-      </AnimatedModal>
-    ));
+  it.each([false, true])(
+    "lands focus on the scroll container, so the keyboard can scroll the sheet (toolbar: %s)",
+    (toolbar) => {
+      const { getByRole } = render(() =>
+        toolbar ? (
+          <AnimatedModal
+            onClose={() => {}}
+            labelledBy="sheet-title"
+            toolbar
+            title={
+              <h2 id="sheet-title" tabindex="-1">
+                Mehndi
+              </h2>
+            }
+            action={<button type="button">Give RSVP</button>}
+          >
+            <p>body</p>
+          </AnimatedModal>
+        ) : (
+          <AnimatedModal onClose={() => {}} label="Event details">
+            <p>body</p>
+          </AnimatedModal>
+        ),
+      );
 
-    // The dialog's focusing steps prefer the autofocus delegate over the first
-    // tabbable descendant, which is the close button — a sibling of the
-    // scrollport, so landing there leaves Arrow and PageDown with nothing to
-    // move. This is the assertion the unit tier can only approximate by
-    // checking that the attribute is present.
-    const scroller = getByRole("dialog").lastElementChild;
-    expect(document.activeElement).toBe(scroller);
-  });
+      // The dialog's focusing steps prefer the autofocus delegate over the
+      // first tabbable descendant: the close button without a toolbar (a
+      // sibling of the scrollport, so landing there leaves Arrow and PageDown
+      // with nothing to move), and the bar's action with one. This is the
+      // assertion the unit tier can only approximate by checking that the
+      // attribute is present.
+      const scroller = getByRole("dialog").lastElementChild;
+      expect(document.activeElement).toBe(scroller);
+    },
+  );
 
   it("closes on Escape and says so, without the caller wiring a key handler", async () => {
     const onClose = vi.fn();
@@ -142,9 +163,13 @@ describe("the guest sheet, in a real engine", () => {
       await userEvent.wheel(getByRole("dialog"), { delta: { y: 600 } });
       await new Promise((resolve) => requestAnimationFrame(resolve));
       expect(window.scrollY).toBe(0);
+      // Nor does a drag that reaches the end of the sheet's own scroll chain
+      // into the page, or rubber-band it, where an engine does either.
+      expect(getComputedStyle(document.documentElement).overscrollBehaviorY).toBe("none");
 
       unmount();
       expect(document.documentElement.style.overflow).toBe("");
+      expect(getComputedStyle(document.documentElement).overscrollBehaviorY).toBe("auto");
       await userEvent.wheel(tall, { delta: { y: 600 } });
       await new Promise((resolve) => setTimeout(resolve, 100));
       expect(window.scrollY).toBeGreaterThan(0);
@@ -155,19 +180,45 @@ describe("the guest sheet, in a real engine", () => {
   });
 
   /**
+   * How much a `scrollbar-gutter: stable` gutter on the root narrows the page
+   * in this engine, set the way the sheet's lock sets it. A classic
+   * scrollbar's width where scrollbars are classic (Chromium on Linux, as in
+   * CI); nothing where they overlay the page (macOS's default when no mouse
+   * is connected), because an overlay scrollbar has no gutter.
+   */
+  const rootGutter = () => {
+    const root = document.documentElement;
+    const { overflow, scrollbarGutter } = root.style;
+    const open = document.body.getBoundingClientRect().width;
+    root.style.overflow = "hidden";
+    root.style.scrollbarGutter = "stable";
+    const locked = document.body.getBoundingClientRect().width;
+    root.style.overflow = overflow;
+    root.style.scrollbarGutter = scrollbarGutter;
+    return open - locked;
+  };
+
+  /**
    * The gutter stands in for a classic scrollbar while the lock takes it away,
    * and has to go with the sheet: left behind, every page after the first
    * sheet is a scrollbar narrower for the rest of the visit.
    *
-   * This Chromium never shows a classic scrollbar — it reports `innerWidth`
-   * equal to the root's `clientWidth` whatever the page holds — so the sheet
-   * would never reserve a gutter here. The stub is that one reading, a window
-   * 15px wider than its root as a classic scrollbar makes it; the rest is the
-   * engine's own, and the gutter it reserves really does narrow the page.
+   * This Chromium never shows a scrollbar on the root — it reports
+   * `innerWidth` equal to the root's `clientWidth` whatever the page holds —
+   * so the sheet would never reserve a gutter here. The stub is that one
+   * reading, a window 15px wider than its root as a classic scrollbar makes
+   * it. The computed `scrollbar-gutter` shows the sheet set the gutter on the
+   * root and took it away, on every platform. The width shows the page
+   * narrowed by exactly the gutter this engine reserves at the root and got
+   * all of it back: 15px where scrollbars are classic, nothing where they
+   * overlay the page. Whether the engine's gutter matches the scrollbar it
+   * replaces is the engine's to keep, and is not checked here.
    */
   it("gives the page its full width back when the sheet closes", () => {
     const root = document.documentElement;
-    const before = document.body.getBoundingClientRect().width;
+    const width = () => document.body.getBoundingClientRect().width;
+    const before = width();
+    const gutter = rootGutter();
     vi.stubGlobal("innerWidth", root.clientWidth + 15);
     try {
       const { unmount } = render(() => (
@@ -175,25 +226,27 @@ describe("the guest sheet, in a real engine", () => {
           <p>body</p>
         </AnimatedModal>
       ));
-      // Open, the gutter takes the scrollbar's place, so the page is narrower.
-      expect(document.body.getBoundingClientRect().width).toBeLessThan(before);
+      expect({ width: width(), gutter: getComputedStyle(root).scrollbarGutter }).toEqual({
+        width: before - gutter,
+        gutter: "stable",
+      });
 
       unmount();
-      expect({
-        width: document.body.getBoundingClientRect().width,
-        gutter: getComputedStyle(root).scrollbarGutter,
-      }).toEqual({ width: before, gutter: "auto" });
+      expect({ width: width(), gutter: getComputedStyle(root).scrollbarGutter }).toEqual({
+        width: before,
+        gutter: "auto",
+      });
     } finally {
       vi.unstubAllGlobals();
     }
   });
 
   /**
-   * A page that shows no classic scrollbar — an invite shorter than the
-   * window, or any page on a phone, whose scrollbars overlay the content —
-   * has no width for the lock to take away, so a gutter would only narrow it
-   * as the sheet opens and widen it again as it closes. This engine shows
-   * none, as above.
+   * A page that shows no classic scrollbar has no width for the lock to take
+   * away. On an invite shorter than the window, with classic scrollbars, a
+   * gutter would only narrow the page as the sheet opens and widen it again
+   * as it closes; where scrollbars overlay the page, as on a phone, there is
+   * no gutter to reserve. This engine shows no scrollbar on the root, as above.
    */
   it("adds no gutter to a page that shows no scrollbar, so it does not narrow as the sheet opens", () => {
     const before = document.body.getBoundingClientRect().width;

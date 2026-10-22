@@ -3,13 +3,16 @@ import { describe, expect, it, beforeEach } from "vitest";
 
 import {
   __resetTasksCache,
+  beginTaskWrite,
   dropTasks,
   ensureTasksLoaded,
   hasCachedTasks,
   invalidateTasks,
+  markTasksStale,
   openTaskCount,
   peekCachedTasks,
   readTaskList,
+  rereadTasks,
   setCachedTasks,
   setFreshTasks,
   taskCounts,
@@ -324,6 +327,316 @@ describe("tasks-store", () => {
 
     expect(tasksAccessor("wed_1")()?.map((t) => t.id)).toEqual(["seed"]);
     expect(hasCachedTasks("wed_1")).toBe(false);
+  });
+
+  describe("the portal's own writes", () => {
+    /** A read held open until `release`, answering `rows`. */
+    function heldRead(rows: TaskRow[]) {
+      let release!: () => void;
+      const gate = new Promise<void>((r) => {
+        release = r;
+      });
+      return {
+        release,
+        fetcher: async () => {
+          await gate;
+          return rows;
+        },
+      };
+    }
+
+    // A signal can ask for a re-read while the organiser's own tick is out. The
+    // server answers it from before the tick commits, and taking that answer
+    // would flip the tick back under them.
+    it("drops a read that lands while a write is out, and leaves the wedding stale", async () => {
+      setCachedTasks("wed_1", [row({ id: "a", status: "open" })]);
+      const end = beginTaskWrite("wed_1");
+      setCachedTasks("wed_1", [row({ id: "a", status: "done" })]);
+
+      invalidateTasks("wed_1");
+      let committed = false;
+      const read = heldRead([row({ id: "a", status: "open" })]);
+      const pending = ensureTasksLoaded("wed_1", () =>
+        committed ? Promise.resolve([row({ id: "a", status: "done" })]) : read.fetcher(),
+      );
+      read.release();
+
+      await expect(pending).resolves.toBe(false);
+      expect(peekCachedTasks("wed_1")?.[0]?.status).toBe("done");
+      expect(hasCachedTasks("wed_1")).toBe(false);
+
+      // Once the write is over, the dropped read goes again and sees it.
+      committed = true;
+      end();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(peekCachedTasks("wed_1")?.[0]?.status).toBe("done");
+      expect(hasCachedTasks("wed_1")).toBe(true);
+    });
+
+    it("drops a read sent while a write was out that answers after it ends, and reads again", async () => {
+      setCachedTasks("wed_1", [row({ id: "a", status: "done" })]);
+      const end = beginTaskWrite("wed_1");
+      invalidateTasks("wed_1");
+      let committed = false;
+      let reads = 0;
+      const read = heldRead([row({ id: "a", status: "open" })]);
+      const pending = ensureTasksLoaded("wed_1", async () => {
+        reads += 1;
+        // The first answer was read before the write committed.
+        return committed ? [row({ id: "a", status: "done" }), row({ id: "b" })] : read.fetcher();
+      });
+
+      end();
+      committed = true;
+      read.release();
+
+      await expect(pending).resolves.toBe(false);
+      expect(peekCachedTasks("wed_1")?.[0]?.status).toBe("done");
+      // The read it dropped goes again, after the write.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(reads).toBe(2);
+      expect(peekCachedTasks("wed_1")?.map((t) => t.id)).toEqual(["a", "b"]);
+      expect(hasCachedTasks("wed_1")).toBe(true);
+    });
+
+    it("loads a wedding dropped while a write was out as soon as it is opened again", async () => {
+      const end = beginTaskWrite("wed_1");
+      dropTasks("wed_1");
+      await expect(ensureTasksLoaded("wed_1", async () => [row({ id: "b" })])).resolves.toBe(true);
+      expect(peekCachedTasks("wed_1")?.map((t) => t.id)).toEqual(["b"]);
+      // The write that was out ending later changes nothing.
+      end();
+      expect(hasCachedTasks("wed_1")).toBe(true);
+    });
+
+    it("takes a read sent after every write has ended", async () => {
+      setCachedTasks("wed_1", [row({ id: "a", status: "done" })]);
+      const first = beginTaskWrite("wed_1");
+      const second = beginTaskWrite("wed_1");
+      first();
+      // Ending twice ends one write once: the other is still out.
+      first();
+      invalidateTasks("wed_1");
+      await expect(ensureTasksLoaded("wed_1", async () => [row({ id: "x" })])).resolves.toBe(false);
+      second();
+
+      invalidateTasks("wed_1");
+      await expect(ensureTasksLoaded("wed_1", async () => [row({ id: "b" })])).resolves.toBe(true);
+      expect(peekCachedTasks("wed_1")?.map((t) => t.id)).toEqual(["b"]);
+      expect(hasCachedTasks("wed_1")).toBe(true);
+    });
+  });
+
+  describe("a signal's re-read", () => {
+    /** A stand-in server: each read answers what `rows` holds when it is
+     *  answered, and a held read waits for `release()`. */
+    function server(initial: TaskRow[]) {
+      let rows = initial;
+      const gates: (() => void)[] = [];
+      let holding = false;
+      let reads = 0;
+      return {
+        set: (next: TaskRow[]) => {
+          rows = next;
+        },
+        hold: () => {
+          holding = true;
+        },
+        /** Answer the oldest held read; later ones answer at once. */
+        release: () => {
+          holding = false;
+          for (const open of gates.splice(0)) open();
+        },
+        reads: () => reads,
+        fetcher: async () => {
+          reads += 1;
+          if (holding) await new Promise<void>((open) => gates.push(open));
+          return rows;
+        },
+      };
+    }
+    const ids = (weddingId = "wed_1") => peekCachedTasks(weddingId)?.map((t) => t.id);
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+    it("sends one more read, not one per signal, for a burst that arrives while a read is out", async () => {
+      setCachedTasks("wed_1", [row({ id: "a" })]);
+      const api = server([row({ id: "a" }), row({ id: "b" })]);
+      api.hold();
+      const first = rereadTasks("wed_1", api.fetcher);
+      await settle();
+      expect(api.reads()).toBe(1);
+
+      // Four more signals while that read is out.
+      api.set([row({ id: "a" }), row({ id: "b" }), row({ id: "c" })]);
+      const later = [1, 2, 3, 4].map(() => rereadTasks("wed_1", api.fetcher));
+      await settle();
+      expect(api.reads()).toBe(1);
+
+      api.release();
+      await first;
+      await Promise.all(later);
+      expect(api.reads()).toBe(2);
+      // The read sent after the burst is the one that shows.
+      expect(ids()).toEqual(["a", "b", "c"]);
+      expect(hasCachedTasks("wed_1")).toBe(true);
+    });
+
+    it("sends no read while one of the portal's own writes is out, and one once it ends", async () => {
+      setCachedTasks("wed_1", [row({ id: "a", status: "open" })]);
+      const end = beginTaskWrite("wed_1");
+      setCachedTasks("wed_1", [row({ id: "a", status: "done" })]);
+      // The write's own signal beats its answer.
+      const api = server([row({ id: "a", status: "open" })]);
+      const pending = rereadTasks("wed_1", api.fetcher);
+      await settle();
+      expect(api.reads()).toBe(0);
+      expect(peekCachedTasks("wed_1")?.[0]?.status).toBe("done");
+
+      // The write commits, a co-host adds a task, and the write answers.
+      api.set([row({ id: "a", status: "done" }), row({ id: "b" })]);
+      end();
+      await expect(pending).resolves.toBe(true);
+      expect(api.reads()).toBe(1);
+      expect(ids()).toEqual(["a", "b"]);
+      expect(peekCachedTasks("wed_1")?.[0]?.status).toBe("done");
+    });
+
+    it("sends a read the portal's own write made it drop again once the write ends", async () => {
+      setCachedTasks("wed_1", [row({ id: "a", status: "open" })]);
+      const api = server([row({ id: "a", status: "open" }), row({ id: "b" })]);
+      api.hold();
+      const pending = rereadTasks("wed_1", api.fetcher);
+      await settle();
+      const end = beginTaskWrite("wed_1");
+      setCachedTasks("wed_1", [row({ id: "a", status: "done" })]);
+
+      // Answered from before the tick committed: dropped, not shown.
+      api.release();
+      await settle();
+      expect(peekCachedTasks("wed_1")?.map((t) => t.status)).toEqual(["done"]);
+      expect(api.reads()).toBe(1);
+
+      api.set([row({ id: "a", status: "done" }), row({ id: "b" })]);
+      end();
+      await pending;
+      await settle();
+      expect(api.reads()).toBe(2);
+      expect(ids()).toEqual(["a", "b"]);
+      expect(peekCachedTasks("wed_1")?.[0]?.status).toBe("done");
+    });
+
+    it("drops a read sent before a write that answers after it ended, and reads again", async () => {
+      setCachedTasks("wed_1", [row({ id: "a", status: "open" })]);
+      const api = server([row({ id: "a", status: "open" })]);
+      api.hold();
+      const pending = rereadTasks("wed_1", api.fetcher);
+      await settle();
+      // The whole write starts and ends while that read is out.
+      const end = beginTaskWrite("wed_1");
+      setCachedTasks("wed_1", [row({ id: "a", status: "done" })]);
+      end();
+      api.set([row({ id: "a", status: "done" })]);
+      api.release();
+      await pending;
+      await settle();
+      expect(api.reads()).toBe(2);
+      expect(peekCachedTasks("wed_1")?.[0]?.status).toBe("done");
+      expect(hasCachedTasks("wed_1")).toBe(true);
+    });
+
+    it("blanks the rows when a read sent again after a write fails, and leaves nothing unhandled", async () => {
+      setCachedTasks("wed_1", [row({ id: "a" })]);
+      invalidateTasks("wed_1");
+      let reads = 0;
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const pending = ensureTasksLoaded("wed_1", async () => {
+        reads += 1;
+        if (reads === 1) {
+          await gate;
+          return [row({ id: "a" })];
+        }
+        throw new Error("refused");
+      });
+      const end = beginTaskWrite("wed_1");
+      release();
+      await expect(pending).resolves.toBe(false);
+      end();
+      await settle();
+      await settle();
+      expect(reads).toBe(2);
+      expect(peekCachedTasks("wed_1")).toBeNull();
+    });
+
+    it("waits for every write that is out, and then reads once", async () => {
+      setCachedTasks("wed_1", [row({ id: "a" })]);
+      const first = beginTaskWrite("wed_1");
+      const second = beginTaskWrite("wed_1");
+      const api = server([row({ id: "b" })]);
+      const pending = rereadTasks("wed_1", api.fetcher);
+      void rereadTasks("wed_1", api.fetcher);
+
+      first();
+      await settle();
+      expect(api.reads()).toBe(0);
+      second();
+      await expect(pending).resolves.toBe(true);
+      await settle();
+      expect(api.reads()).toBe(1);
+      expect(ids()).toEqual(["b"]);
+    });
+
+    it("marks the wedding stale without dropping the read in flight", async () => {
+      setCachedTasks("wed_1", [row({ id: "a" })]);
+      invalidateTasks("wed_1");
+      const api = server([row({ id: "b" })]);
+      api.hold();
+      const pending = ensureTasksLoaded("wed_1", api.fetcher);
+
+      // A tab that shows no tasks: the signal only marks the cache.
+      markTasksStale("wed_1");
+      api.release();
+      await expect(pending).resolves.toBe(true);
+      expect(api.reads()).toBe(1);
+      // The rows that read brought are shown, but they may predate the
+      // signal, so the next view to open reads again.
+      expect(ids()).toEqual(["b"]);
+      expect(hasCachedTasks("wed_1")).toBe(false);
+      await ensureTasksLoaded("wed_1", api.fetcher);
+      expect(api.reads()).toBe(2);
+    });
+
+    it("sends no queued read for a wedding forgotten while it waited", async () => {
+      setCachedTasks("wed_1", [row({ id: "a" })]);
+      const end = beginTaskWrite("wed_1");
+      const api = server([row({ id: "b" })]);
+      const pending = rereadTasks("wed_1", api.fetcher);
+
+      dropTasks("wed_1");
+      await expect(pending).resolves.toBe(false);
+      end();
+      await settle();
+      expect(api.reads()).toBe(0);
+    });
+
+    it("sends no read for a wedding the organiser has left", async () => {
+      closeWeddingScope("wed_1");
+      const api = server([row({ id: "b" })]);
+      await expect(rereadTasks("wed_1", api.fetcher)).resolves.toBe(false);
+      expect(api.reads()).toBe(0);
+    });
+
+    it("hands the view that asked the error of a re-read that failed", async () => {
+      setCachedTasks("wed_1", [row({ id: "a" })]);
+      const end = beginTaskWrite("wed_1");
+      const pending = rereadTasks("wed_1", async () => {
+        throw new Error("refused");
+      });
+      end();
+      await expect(pending).rejects.toThrow("refused");
+    });
   });
 
   describe("the reader's own seat", () => {

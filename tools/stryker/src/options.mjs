@@ -45,6 +45,9 @@ export function cireStryker(configDir) {
         "**/.turbo",
         "**/.wrangler",
         "**/reports",
+        // Written by `bun run test:e2e`, live database files included; a run
+        // beside the e2e suite would copy files it is deleting.
+        "e2e-artifacts",
         "**/.env",
         "**/.env.*",
         "**/.dev.vars",

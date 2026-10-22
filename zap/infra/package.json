@@ -17,11 +17,11 @@
     "deploy:dev": "DO_NOT_TRACK=1 bun alchemy deploy --stage dev --yes"
   },
   "dependencies": {
-    "@effect/platform-bun": "4.0.3",
-    "@effect/platform-node": "4.0.3",
+    "@effect/platform-bun": "4.0.5",
+    "@effect/platform-node": "4.0.5",
     "@shared/infra": "workspace:*",
     "alchemy": "2.0.0-beta.83",
-    "effect": "4.0.3"
+    "effect": "4.0.5"
   },
   "devDependencies": {
     "@shared/typescript-config": "workspace:*",

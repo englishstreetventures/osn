@@ -105,3 +105,41 @@ export function faqState(
 ): SectionState {
   return sectionState(visible, isFaqEmpty(entries));
 }
+
+// ── The per-event blocks of the guest's details sheet ─────────────────────────
+// Twins of the guest module's run-of-show and guest-policy predicates, so the
+// organiser's events tab shows a block exactly when the guest's sheet would.
+// The guest site also hides "Plus-ones welcome" from a household with no
+// plus-one permission, which needs a household and so has no twin here.
+
+/** A 24-hour `HH:MM` clock time. */
+const CLOCK_TIME_RE = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+
+/** One run-of-show item, as far as emptiness is concerned. */
+export interface RunOfShowContent {
+  time: string;
+  label: string;
+}
+
+/** The run of show renders when any item has both a 24-hour time and a label. */
+export function hasRunOfShow(items: readonly RunOfShowContent[] | null | undefined): boolean {
+  return (items ?? []).some((item) => CLOCK_TIME_RE.test(item.time) && hasText(item.label));
+}
+
+/**
+ * The guest policy row renders with a children or plus-one preset the guest
+ * site knows, or a note.
+ */
+export function hasGuestPolicy(
+  childrenPolicy: string | null | undefined,
+  plusOnePolicy: string | null | undefined,
+  note: string | null | undefined,
+): boolean {
+  return (
+    childrenPolicy === "adults_only" ||
+    childrenPolicy === "children_welcome" ||
+    plusOnePolicy === "by_invitation" ||
+    plusOnePolicy === "welcome" ||
+    hasText(note)
+  );
+}

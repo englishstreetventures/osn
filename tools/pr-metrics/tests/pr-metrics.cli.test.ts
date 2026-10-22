@@ -1168,14 +1168,15 @@ test("--resolve-issue recovers the pull request, issue and rating", async () => 
 
 // The one that must not regress. Most of this repository's pull requests close
 // a finding in the private `englishstreetventures/osn-tracker`, whose `severity:`/`area:`
-// labels must never reach a card committed to a public repository. `not-fetched`
-// is not `none`: a rating may exist there and nobody looked.
-test("--resolve-issue withholds the labels of an issue in another repository", async () => {
+// labels must never reach a card committed to a public repository. A pull request
+// that closes only such an issue records no issue at all: it is not a candidate.
+test("--resolve-issue records no issue for one that closes only a tracker issue", async () => {
   const card = await runResolving(
     "englishstreetventures/osn-tracker",
     "severity:high,area:security,complexity:5",
   );
 
-  expect(card.complexity).toEqual({ declared: null, method: "not-fetched" });
+  expect(card.issue.number).toBeNull();
+  expect(card.complexity).toEqual({ declared: null, method: "none" });
   expect(card.issue.labels).toEqual([]);
 });

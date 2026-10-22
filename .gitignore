@@ -294,3 +294,6 @@ e2e-artifacts/
 
 # What each stack writes on every run: flattened migrations and generated seed SQL
 */infra/.generated/
+
+# Private business research (plans, financial models) kept beside the repo; the repository is public
+/research/

@@ -136,13 +136,20 @@ vi.mock("../../src/components/HostsPanel", () => ({
   // reading only weddingId, a wrong role there would leave every test green.
   // `canLeave` is surfaced for the same reason: it is derived here, and nothing
   // downstream can see a wrong derivation.
+  // The tier too: below Gold it names the helper role as needing Gold.
   default: (p: {
     weddingId: string;
     callerRole: string;
     canLeave?: boolean;
+    tier?: string;
     onLeft?: () => void;
   }) => (
-    <div data-testid="hosts" data-caller-role={p.callerRole} data-can-leave={String(p.canLeave)}>
+    <div
+      data-testid="hosts"
+      data-caller-role={p.callerRole}
+      data-can-leave={String(p.canLeave)}
+      data-tier={p.tier}
+    >
       {p.weddingId}
       <button onClick={() => p.onLeft?.()}>hosts-left</button>
     </div>
@@ -193,6 +200,30 @@ vi.mock("../../src/components/ChecklistView", () => ({
   default: (p: { weddingId: string; canManage: boolean }) => (
     <div data-testid="checklist" data-can-manage={String(p.canManage)}>
       {p.weddingId}
+    </div>
+  ),
+}));
+vi.mock("../../src/components/RunSheetView", () => ({
+  // Surfaces what the shell derives for it: the tier (below Gold the view says
+  // the run sheet is not available), the role, and whether the reader may go
+  // and set times on the checklist.
+  default: (p: {
+    weddingId: string;
+    tier: string;
+    callerRole: string;
+    canEdit: boolean;
+    onOpenChecklist?: () => void;
+  }) => (
+    <div
+      data-testid="run-sheet"
+      data-tier={p.tier}
+      data-role={p.callerRole}
+      data-can-edit={String(p.canEdit)}
+    >
+      {p.weddingId}
+      <button onClick={() => p.onOpenChecklist?.()} disabled={!p.onOpenChecklist}>
+        open-checklist
+      </button>
     </div>
   ),
 }));
@@ -455,6 +486,14 @@ describe("ModuleShell", () => {
       for (const role of ["owner", "editor", "viewer"] as const) {
         renderShell({ role, module: "settings", sub: "hosts" });
         expect(screen.getByTestId("hosts").getAttribute("data-can-leave")).toBe("true");
+        cleanup();
+      }
+    });
+
+    it("hands the panel the wedding's tier, which decides whether a helper needs Gold", () => {
+      for (const tier of ["ivory", "gold"] as const) {
+        renderShell({ role: "owner", module: "settings", sub: "hosts", tier });
+        expect(screen.getByTestId("hosts").getAttribute("data-tier")).toBe(tier);
         cleanup();
       }
     });
@@ -738,18 +777,45 @@ describe("ModuleShell", () => {
    * lazy, so their panels are in the DOM on the same render. Both answer 402
    * below Gold, reads included, so a locked one must never mount.
    */
-  describe("tier gating — checklist and budget (Gold)", () => {
-    it.each(["checklist", "budget"] as const)("renders Overview instead of %s on Ivory", (id) => {
-      renderShell({ module: id, tier: "ivory" });
-      expect(screen.getByTestId("overview")).toBeTruthy();
-      expect(screen.queryByTestId(id)).toBeNull();
-      expect(screen.getByRole("heading", { name: /Overview/ })).toBeTruthy();
+  describe("tier gating — checklist, run sheet and budget (Gold)", () => {
+    it.each(["checklist", "run-sheet", "budget"] as const)(
+      "renders Overview instead of %s on Ivory",
+      (id) => {
+        renderShell({ module: id, tier: "ivory" });
+        expect(screen.getByTestId("overview")).toBeTruthy();
+        expect(screen.queryByTestId(id)).toBeNull();
+        expect(screen.getByRole("heading", { name: /Overview/ })).toBeTruthy();
+      },
+    );
+
+    // The run sheet is its own chunk, so it may land after the first paint.
+    it.each(["checklist", "run-sheet", "budget"] as const)("renders %s on Gold", async (id) => {
+      renderShell({ module: id, tier: "gold" });
+      expect(await screen.findByTestId(id)).toBeTruthy();
+      expect(screen.queryByTestId("overview")).toBeNull();
     });
 
-    it.each(["checklist", "budget"] as const)("renders %s on Gold", (id) => {
-      renderShell({ module: id, tier: "gold" });
-      expect(screen.getByTestId(id)).toBeTruthy();
-      expect(screen.queryByTestId("overview")).toBeNull();
+    it("hands the run sheet the tier and role, and a way to the checklist only to an editor", async () => {
+      const editor = renderShell({
+        module: "run-sheet",
+        tier: "gold",
+        canEdit: true,
+        role: "editor",
+      });
+      const view = await screen.findByTestId("run-sheet");
+      expect(view.dataset).toMatchObject({ tier: "gold", role: "editor", canEdit: "true" });
+      fireEvent.click(screen.getByRole("button", { name: "open-checklist" }));
+      expect(editor.onModule).toHaveBeenCalledWith("checklist");
+      cleanup();
+
+      renderShell({ module: "run-sheet", tier: "gold", canEdit: false, role: "viewer" });
+      expect((await screen.findByTestId("run-sheet")).dataset).toMatchObject({
+        role: "viewer",
+        canEdit: "false",
+      });
+      expect(
+        (screen.getByRole("button", { name: "open-checklist" }) as HTMLButtonElement).disabled,
+      ).toBe(true);
     });
 
     it.each([true, false])("hands the checklist the caller's owner flag (%s)", (canManage) => {

@@ -13,7 +13,7 @@ related:
   - "[[cire-auth]]"
   - "[[dev-environment]]"
   - "[[realtime]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-22
 ---
 
 # Free-Tier Limits & Unavailability Runbook
@@ -42,17 +42,17 @@ last-reviewed: 2026-10-20
 | **Upstash Redis** | `@osn/api` (rate limiters + the stateful auth stores: step-up JTI, rotated-session, recovery lockout, ceremonies) when `REDIS_URL` / `UPSTASH_*` is set | **cire-api** (no Redis at all — see below), Pulse/Zap client apps |
 | **Cloudflare Workers** | `osn-api`, **cire-api** (both are Workers) | static Pages sites |
 | **Cloudflare D1** | `osn-db-prod` (osn-api), `cire-db` (cire-api) | — |
-| **Cloudflare Durable Objects** | nothing deployed yet: `@shared/realtime`'s `TopicHub` is the one class the repo defines, and no Worker binds it (cire's adoption is englishstreetventures/osn#1249) | every deployed Worker today |
 | **Cloudflare Pages** | `cire/invites` (guest), `cire/host`, `@musubi/social`, `@musubi/landing` | the Worker APIs |
-| **Cloudflare Rate Limiting binding** (Workers, not WAF) | **cire-api** `CLAIM_RATE_LIMITER` (the pre-auth `/api/claim` edge limiter) | osn-api (uses Upstash) |
+| **Cloudflare Rate Limiting binding** (Workers, not WAF) | **cire-api** `CLAIM_RATE_LIMITER` (the pre-auth `/api/claim` edge limiter) and the other bindings in its `wrangler.toml` | osn-api (uses Upstash) |
+| **Cloudflare Durable Objects** | **cire-api** `REALTIME_HUB` (`TopicHub`, realtime push — [[realtime]]) | osn-api |
 | **Turnstile** (widget live; the cire gate is inert — see the 2026-07-20 incident below) | osn-api register + passkey-login, cire-api guest claim + RSVP — gated only while the Worker secret is set | — |
 
-> **Key accuracy note:** **cire-api does NOT use Upstash/Redis.** Its only
-> rate limiter is the native Cloudflare Workers Rate Limiting binding
-> (`CLAIM_RATE_LIMITER` in `cire/api/wrangler.toml`), and its state lives in
-> D1. So an **Upstash outage does not touch cire** — it degrades **osn-api**
-> auth + (via osn-api) any downstream that needs an osn access token. Keep the
-> two apart.
+> **Key accuracy note:** **cire-api does NOT use Upstash/Redis.** Its rate
+> limiters are native Cloudflare Workers Rate Limiting bindings, declared per
+> tier in `cire/api/wrangler.toml`, and in-memory counters per isolate for
+> every route without a binding. Its state lives in D1. So an **Upstash outage
+> does not touch cire** — it degrades **osn-api** auth + (via osn-api) any
+> downstream that needs an osn access token. Keep the two apart.
 
 ---
 
@@ -200,7 +200,25 @@ once both APIs are in production. Re-verify pricing.
 
 **Source:** [DO pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/) · [DO limits](https://developers.cloudflare.com/durable-objects/platform/limits/) · [state API](https://developers.cloudflare.com/durable-objects/api/state/) · [lifecycle](https://developers.cloudflare.com/durable-objects/concepts/durable-object-lifecycle/) — re-verify.
 
-Durable Objects run on Workers Free since 2025-04-07, **SQLite storage backend only**. `@shared/realtime`'s `TopicHub` is the one class the repo defines ([[realtime]]). No Worker binds it yet; the figures below are what the first product to bind it (cire, englishstreetventures/osn#1249) runs within.
+Durable Objects run on Workers Free since 2025-04-07, **SQLite storage backend only**. `@shared/realtime`'s `TopicHub` is the one class the repo defines ([[realtime]]), and cire-api binds it as `REALTIME_HUB` on both tiers. The client's pings are not counted as requests (measured below).
+
+**cire's bound.** Each organiser gets at most 300 subscribes a UTC day (`REALTIME_SUBSCRIBES_PER_DAY` in `cire/api/src/services/realtime.ts`), so spending the allowance on subscribes alone takes more than 333 accounts (100,000 ÷ 300). A helper is an organiser account with the same ceiling, and any account can already create a wedding and subscribe as its owner, so helpers listening adds no subscriber the ceiling did not already bound. The count lives in D1 (`realtime_subscribe_budget`), from the same account-wide 100,000 rows written a day: each subscribe under the ceiling writes one row, whether or not the membership check then admits it, plus one primary-key entry on an organiser's first of the day; a refusal at the ceiling writes none.
+
+Publishes and the client's pings are not bounded per day. A publish is one request (one RPC on the hub's stub; the fan-out to the topic's sockets is outgoing and free), sent only by a write that changed something: a seat change (owner-only but for a member's own leave; 20 a minute per organiser) and a checklist write (`tasks-changed`, [[cire-checklist-tasks#Live refresh]]; 120 a minute per organiser, `defaultTaskWriteLimiter` in `cire/api/src/app.ts`). Every publish and every subscribe also costs a Worker request, so neither spends the Durable Object allowance faster than the Workers allowance anyone can spend.
+
+What a publish costs beyond itself is the re-reads it prompts, from the Workers and D1 allowances. A topic holds at most 50 sockets (`TopicHub.socketCap`), so a publish reaches at most 50 tabs:
+
+- **`members-changed`**: every listening tab re-reads the wedding list (1 Worker request), a helper's included; a tab with the co-host panel open, or a checklist that has read the seats, also reads `GET …/hosts`.
+- **`tasks-changed`**: only a tab showing the tasks re-reads them: Overview, the dashboard's default module, or the checklist, on a Gold wedding. Every other tab marks its cache stale and sends nothing. A task re-read is 1 Worker request and 4 D1 statements (the session lookup, the seat lookup, and the two-statement list batch), reading about 3 + T + A rows, T being the wedding's tasks and A its holder rows; the list has no LIMIT. Signals coalesce in each tab: however many land while a re-read is out, one more read follows it.
+- So one task write costs, beyond its own request, 1 Durable Object request and at most 50 Worker requests and 200 D1 statements. With 5 tabs showing tasks and T + A = 50, it is 5 Worker requests, 20 statements and about 265 rows read; a busy wedding's 100 task writes a day are 100 Durable Object requests, 500 Worker requests, 2,000 statements and about 26,500 rows read.
+
+Two kinds of subscribe come on top of a tab's first. The hub closes, at the next publish, any socket accepted more than an hour ago (`TopicHub.maxSocketAgeMs`), so the reconnect re-checks the session and the seat; with checklist writes publishing, every listening tab on an active wedding meets this about once an hour. Each reconnect is a subscribe (1 Worker request, 1 Durable Object request, about 4 D1 statements, 1 D1 row written), two wedding-list reads (the client's `dropped` and `reconnected`), and a task re-read where the tab shows tasks: 10 tabs over an 8-hour day are about 80 Durable Object requests, 80 rows written and 240 to 320 Worker requests. And a tab hidden for two ping intervals closes its socket, so a helper's phone subscribes again on every return to the page, with the same re-reads. The daily ceiling bounds both: at most 300 Durable Object requests a day per organiser, a helper's included.
+
+*Counted from the code on 2026-10-21 (`socketCap`, `maxSocketAgeMs` and the ping interval in `@shared/realtime`, the statements each cire route runs), not measured.*
+
+Pings are not counted (below), so a helper who keeps a phone open on the day costs about one request a connection, plus one for each reconnect. A helper's screen is the run sheet ([[cire-run-sheet]]), and every `tasks-changed` or `members-changed` sends each open one to read `GET …/run-sheet` again: one cire-api request with three D1 round trips — the session lookup, the seat lookup (which carries the tier) and one batch of four statements, six statements in all — bounded per organiser at 120 a minute by its limiter. A read whose answer names anyone also asks osn-api over ARC for the names the Worker isolate has not cached in the last five minutes: that is a second Worker request on the same account, with osn-api's own D1 reads. Within five minutes of a first read, a burst of publishes costs no ARC call in that isolate.
+
+*Counted from the code on 2026-10-21 (`osnAuth`, `weddingRunSheet`, `runSheetService.read`, `createRunSheetRoutes` and `cacheProfileDisplayResolver`), not measured.*
 
 | Limit | Free value (re-verify) |
 |---|---|
@@ -216,7 +234,11 @@ Durable Objects run on Workers Free since 2025-04-07, **SQLite storage backend o
 
 The client's `ping` is an application text frame, not a protocol ping. The page says only this about it: "Application level auto-response messages handled by state.setWebSocketAutoResponse() will not incur additional wall-clock time, and so they will not be charged". It does not say whether that sentence covers the request count. The 20:1 ratio for incoming messages is stated "for compute requests billing-only", and the page does not say whether it applies on Free.
 
-So a visible tab's pings cost somewhere between nothing and one request each. At the client's 25 s interval, a visible tab open for 8 hours sends 1,152 pings. That is 0 requests, 58 at 20:1, or 1,152 at 1:1. A hidden tab sends at most two before the client closes its socket, two ping intervals after the tab was hidden; showing the tab again costs a new subscribe, one request. Which of the three holds is measured on the dev tier before a production hub relies on it: englishstreetventures/osn#1585.
+A visible tab's pings cost no requests. At the client's 25 s interval (`PING_INTERVAL_MS`), a visible tab open for 8 hours sends 1,152 pings; if each counted, that tab would cost 1,152 requests, or 58 at 20:1. Neither happens: a live connection costs about one request however long it stays open. A hidden tab sends at most two pings before the client closes its socket, two ping intervals after the tab was hidden; showing the tab again opens a new connection, so each reconnect is one more request.
+
+Over about an hour of one organiser checklist tab on `host.dev.cireweddings.com`, in several sessions of about 30 minutes, with its socket open (`101 Switching Protocols`) and pinging every 25 s, the namespace's request chart showed only isolated spikes of 1 to 3 when a connection opened or closed, and nothing between them. Across the 24 hours of testing the namespace logged about 10 requests. If each ping counted, an open socket would add about 144 an hour. A connection's one request is recorded when it closes, not when it opens. Requests that end because the browser dropped the socket (tab closed, hidden-tab pause, reconnect) show as "Errors" in that chart; they are disconnect outcomes, not failures. The session start and end times were not recorded to the minute.
+
+*Measured 2026-10-22 on the dev tier — Cloudflare dashboard, Workers & Pages, Durable Objects, the `cire-api-dev` Worker's `TopicHub` namespace (binding `REALTIME_HUB`), Metrics, Requests, 24-hour view; one organiser checklist tab, about 1 hour.*
 
 **What keeps an object awake.** A pending `setTimeout`/`setInterval`, pending I/O or a request in flight stops hibernation. An idle object that meets the hibernation conditions hibernates after 10 s and is not billed for duration, even in those 10 s. One that does not meet them stays in memory, billed, until it is evicted 70–140 s after its last request. `TopicHub` holds no timer, alarm or storage write, so it is billed only while a handler runs.
 
@@ -438,7 +460,7 @@ fail-open vs fail-closed split is NOT uniform — read this table, don't guess.*
 | **D1** down / over daily rows quota | cire-api + osn-api | **fail-CLOSED** — cire `index.ts` returns **503** on absent/erroring `env.DB` | App-wide 503 on DB routes | CF D1 metrics vs daily line; 503 in Workers Logs | Wait for UTC reset, free storage, or upgrade to Workers Paid (D1 paid tier). |
 | **A Worker** over daily request quota | osn-api / cire-api | CF edge **429** before handler runs | Site-wide 429 (resets UTC midnight) | account Requests metric vs 100K | Upgrade to **Workers Paid** ($5/mo). |
 | **Pages** build cap | static sites | already-deployed site keeps serving; new deploys queue/fail | stale deploys, build failures | Pages build history | Wait for month reset or Pages Pro. |
-| **Durable Objects** over daily quota | realtime push (`@shared/realtime`), once a product binds the hub | **fail-SOFT** — `subscribe()` answers 503, `publish()` logs and counts `result="error"` (`shared/realtime/src/server/subscribe.ts`, `publish.ts`) | Tabs stop receiving push and refetch on focus or next request, as before push existed | DO requests/duration vs the daily line in the dashboard; `realtime subscribe failed` and `realtime publish failed` in the product's logs | Wait for the UTC reset, or upgrade to Workers Paid. |
+| **Durable Objects** over daily quota | realtime push (`@shared/realtime`): cire-api's `REALTIME_HUB` | **fail-SOFT** — `subscribe()` answers 503, `publish()` logs and counts `result="error"` (`shared/realtime/src/server/subscribe.ts`, `publish.ts`) | Tabs stop receiving push and refetch on focus or next request, as before push existed | DO requests/duration vs the daily line in the dashboard; `realtime subscribe failed` and `realtime publish failed` in the product's logs | Wait for the UTC reset, or upgrade to Workers Paid. |
 
 > The Upstash split above matters: **rate limiters + step-up JTI +
 > ceremonies fail closed; rotated-session + recovery lockout fail OPEN.** If you
@@ -482,9 +504,9 @@ allowance yet — englishstreetventures/osn#1505.
   - **Workers requests** approaching **100K/day** (account-wide) → upgrade soon.
   - **D1 rows-read / rows-written** approaching the daily lines (5M / 100K) →
     investigate a hot query path or upgrade.
-  - **Durable Object requests** approaching **100K/day** (account-wide), once a
-    product binds the realtime hub → check the subscribe limits and the ping
-    cost, or upgrade.
+  - **Durable Object requests** approaching **100K/day** (account-wide), from
+    cire-api's realtime hub → check the subscribe limits and the ping cost, or
+    upgrade.
   - **`osn.auth.rate_limited`** spiking without a traffic spike → likely an
     Upstash command-cap / outage failing the limiters closed (see playbook).
   - **Ceremony/step-up store error logs** → Upstash degraded; expect login

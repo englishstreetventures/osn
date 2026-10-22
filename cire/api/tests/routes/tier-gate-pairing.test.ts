@@ -260,6 +260,7 @@ describe("weddingTier mounts in cire/api/src", () => {
       "routes/organiser-enquiries.ts": 2,
       "routes/registry-stripe.ts": 1,
       "routes/registry.ts": 6,
+      "routes/run-sheet.ts": 1,
       "routes/seating.ts": 2,
       "routes/tasks.ts": 2,
       "routes/vendor-directory.ts": 2,

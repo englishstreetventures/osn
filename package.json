@@ -59,7 +59,7 @@
     "prepare": "lefthook install"
   },
   "devDependencies": {
-    "@changesets/cli": "^3.0.2",
+    "@changesets/cli": "^3.0.3",
     "@oxlint/plugins": "1.80.0",
     "@shadcn/lint": "0.1.0",
     "@stryker-mutator/core": "10.0.0",
@@ -75,9 +75,9 @@
   },
   "overrides": {
     "@cloudflare/vite-plugin": "^1.63.1",
-    "@effect/platform-node-shared": "4.0.3",
-    "@effect/sql-d1": "4.0.3",
-    "@effect/sql-sqlite-do": "4.0.3",
+    "@effect/platform-node-shared": "4.0.5",
+    "@effect/sql-d1": "4.0.5",
+    "@effect/sql-sqlite-do": "4.0.5",
     "@hono/node-server": "^1.19.15",
     "@opentelemetry/core": "^2.10.0",
     "brace-expansion": "^5.0.11",
@@ -97,6 +97,8 @@
     "shell-quote": "^1.11.0",
     "svgo": "^4.1.0",
     "tinypool": "^2.1.2",
+    "valibot": "^1.4.2",
+    "@cloudflare/workers-types": "5.20260903.1",
     "smol-toml": "^1.7.1",
     "source-map-js": "^1.2.2",
     "undici": "^8.10.2",

@@ -16,7 +16,7 @@ packages:
   - "@pulse/db"
   - "@pulse/api"
   - "@pulse/web"
-last-reviewed: 2026-10-19
+last-reviewed: 2026-10-22
 ---
 
 # Venues & Event Lineups
@@ -42,21 +42,21 @@ The `id` column (`ven_*` prefix) is opaque: it is the FK target for `events.venu
 
 ## API surface (`@pulse/api`)
 
-Routes nest under `/venues` (`createVenuesRoutes`, public — no viewer-scoped auth). The whole group is per-IP rate-limited (60 req/min, fail-closed, injectable backend — same posture as `/events/discover` S-L3; see [[rate-limiting]]):
+Routes nest under `/venues` (`createVenuesRoutes`, public — no viewer-scoped auth). The whole group is per-IP rate-limited (60 req/min, fail-closed, injectable backend — same posture as `/events/discover`; see [[rate-limiting]]):
 
 | Route | Service | Notes |
 |---|---|---|
-| `GET /venues` | `listAllVenues` | Feeds the Explore map. Unbounded scan — tracked as P-W28 for a bbox-aware replacement. |
+| `GET /venues` | `listAllVenues` | Feeds the Explore map. Unbounded scan — a bbox-aware replacement is still to do. |
 | `GET /venues/:orgHandle/:venueHandle` | `getVenue` | 404 via `VenueNotFound` tag. |
 | `GET /venues/:orgHandle/:venueHandle/events` | `listVenueEvents` | `scope=upcoming|past|all` (default upcoming; past reads most-recent-first), `limit` validated 1–200 at the TypeBox boundary. **Public events only** (see [[event-access]]); rows pass through the `toPublicVenueEvent` allowlist serializer so organiser-internal fields (`chatId`, `commsChannels`, `createdByProfileId`, policies) never reach this anonymous surface — new columns are private-by-default. |
-| `GET /venues/:orgHandle/:venueHandle/events/:eventId/lineup` | `listEventLineup` | Gated (S-H1): the event must pass `loadVisibleEvent(eventId, null)` (anonymous → public only) AND `event.venueId === venue.id`; otherwise 404 + `metricEventAccessDenied("lineup", …)`. |
+| `GET /venues/:orgHandle/:venueHandle/events/:eventId/lineup` | `listEventLineup` | Gated: the event must pass `loadVisibleEvent(eventId, null)` (anonymous → public only) AND `event.venueId === venue.id`; otherwise 404 + `metricEventAccessDenied("lineup", …)`. |
 
 Services are Effect-based with `pulse.venue.*` spans. Metrics (`pulse.venue.detail.requests/.duration`, `pulse.venue.events.listed`, `pulse.venue.lineup.listed`) use bounded attributes — `bucketVenueKind()` collapses free-text kinds to a closed union (`club | bar | warehouse | outdoor | theatre | other`) so crafted kind values can't inflate cardinality. `getVenue` records the detail metric only when called with `{ recordMetric: true }` (the detail route) — internal reuse by the programme/lineup paths stays out of the counter so it measures page views.
 
 ## Frontend (`@pulse/web`)
 
-- **`VenueDetailPage`** (`/venues/:orgHandle/:venueHandle`): vertical mono-time lineup timeline (`VenueLineupTimeline`), snap-scroll event carousel (`VenueEventCarousel`), real-time open/closed badge computed in the venue's timezone (`computeOpenStatus` handles midnight-crossing windows), "Open in Maps" (`venueMapsUrl`), website + Instagram icon links. Fetches `scope=upcoming`; falls back to `scope=past&limit=1` only when no upcoming nights exist. `website_url` / `hero_image_url` render through `safeHttpUrl()`, which drops non-http(s) schemes (S-M2).
-- **Explore map venue layer**: diamond venue pins wrapped in `<A>` links. When a visible event pin sits at the same venue, the diamond is hidden and the event popover gains a "See venue →" CTA. Event pins are focusable `<button>`s — the popover opens on focus as well as hover (grace-timer dismiss, Escape closes), so the venue link stays keyboard-reachable (C-M2 / WCAG 2.1.1).
+- **`VenueDetailPage`** (`/venues/:orgHandle/:venueHandle`): vertical mono-time lineup timeline (`VenueLineupTimeline`), snap-scroll event carousel (`VenueEventCarousel`), real-time open/closed badge computed in the venue's timezone (`computeOpenStatus` handles midnight-crossing windows), "Open in Maps" (`venueMapsUrl`), website + Instagram icon links. Fetches `scope=upcoming`; falls back to `scope=past&limit=1` only when no upcoming nights exist. `website_url` / `hero_image_url` render through `safeHttpUrl()`, which drops non-http(s) schemes.
+- **Explore map venue layer**: diamond venue pins wrapped in `<A>` links. When a visible event pin sits at the same venue, the diamond is hidden and the event popover gains a "See venue →" CTA. Event pins are focusable `<button>`s — the popover opens on focus as well as hover (grace-timer dismiss, Escape closes), so the venue link stays keyboard-reachable.
 - Client fetchers in `pulse/web/src/lib/venues.ts` are fail-soft (null / `[]` on error) and `encodeURIComponent` every path segment.
 - `Icon` was promoted from `explore/` to `components/` with `globe` + `instagram` glyphs added.
 
@@ -64,5 +64,5 @@ Services are Effect-based with `pulse.venue.*` spans. Metrics (`pulse.venue.deta
 
 - Replace `GET /venues` (and `listEvents`) with a shared bbox query contract `(minLat, maxLat, minLng, maxLng, limit)`; indexes already exist.
 - Discovery routes linking *into* venue pages beyond the Explore map (search, event page → venue link) are intentionally deferred.
-- Venue CRUD/admin is out of scope — rows are seed-only until organiser tooling lands. **Prerequisites for org self-service venue editing** (C-L1): DSA notice-and-action path (`POST /reports` coverage + `moderation_actions` rows) for venue descriptions/images, and server-side http(s) scheme validation on `website_url`/`hero_image_url` (the client already validates at render time — S-M2).
+- Venue CRUD/admin is out of scope — rows are seed-only until organiser tooling lands. **Prerequisites for org self-service venue editing**: DSA notice-and-action path (`POST /reports` coverage + `moderation_actions` rows) for venue descriptions/images, and server-side http(s) scheme validation on `website_url`/`hero_image_url` (the client already validates at render time).
 - Artist → profile linking would be a join table, not a restructure of `event_lineup`.

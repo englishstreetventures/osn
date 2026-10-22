@@ -1,0 +1,193 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1688,
+    "branch": "chore/session-metrics-acted-on-rate",
+    "base_sha": "06832a2c324de1f7a2ca420a07ac2a934eca8aab",
+    "head_sha": "54827fd1fb70ee0a1808f84d354f9a63d74de272",
+    "generated_at": "2026-10-21T16:54:35.771Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 1662,
+    "type": null,
+    "labels": [
+      "product:shared",
+      "area:ops",
+      "complexity:5"
+    ]
+  },
+  "complexity": {
+    "declared": 5,
+    "method": "confirmed"
+  },
+  "window": {
+    "sessions": 10,
+    "first_ts": "2026-10-21T12:17:31.144Z",
+    "last_ts": "2026-10-21T16:54:27.246Z",
+    "span_seconds": 16616,
+    "active_seconds": 4467,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 39.57037300000001,
+    "tokens": {
+      "input": 844,
+      "output": 150422,
+      "thinking": 33426,
+      "cache_write_5m": 1188953,
+      "cache_write_1h": 0,
+      "cache_read": 76534480
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 844,
+          "output": 150422,
+          "thinking": 33426,
+          "cache_write_5m": 1188953,
+          "cache_write_1h": 0,
+          "cache_read": 76534480
+        },
+        "usd_equivalent": 39.57037300000001,
+        "messages": 421
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 1
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 362,
+          "output": 147599,
+          "thinking": 33415,
+          "cache_write_5m": 558609,
+          "cache_write_1h": 0,
+          "cache_read": 49553483
+        },
+        "usd_equivalent": 25.567866200000005,
+        "messages": 181
+      },
+      "subagent": {
+        "tokens": {
+          "input": 482,
+          "output": 2823,
+          "thinking": 11,
+          "cache_write_5m": 630344,
+          "cache_write_1h": 0,
+          "cache_read": 26980997
+        },
+        "usd_equivalent": 14.002506799999995,
+        "messages": 241
+      }
+    },
+    "effort": {
+      "medium": 180,
+      "xhigh": 179,
+      "high": 62
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 4,
+      "docs": 8,
+      "config": 1,
+      "source": 4
+    },
+    "loc": {
+      "generated": {
+        "added": 11,
+        "deleted": 0
+      },
+      "test": {
+        "added": 940,
+        "deleted": 0
+      },
+      "docs": {
+        "added": 131,
+        "deleted": 27
+      },
+      "config": {
+        "added": 193,
+        "deleted": 0
+      },
+      "source": {
+        "added": 680,
+        "deleted": 26
+      }
+    },
+    "packages": [
+      "tools/pr-metrics"
+    ],
+    "touches_migration": false,
+    "commits": 8
+  },
+  "interaction": {
+    "user_turns": 2,
+    "corrective_turns": 2,
+    "tokens_before_first_edit": 1208123,
+    "sessions_with_observed_edit": 1,
+    "tool_calls": {
+      "Bash": 363,
+      "Edit": 92,
+      "Read": 47,
+      "Write": 36,
+      "Skill": 9,
+      "StructuredOutput": 9,
+      "Agent": 4,
+      "SubagentHandback": 4,
+      "Grep": 4,
+      "EnterWorktree": 1,
+      "AskUserQuestion": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 10,
+      "max_edits_one_file": 26
+    },
+    "skills": {
+      "stress-plan": 1,
+      "write-wiki": 1,
+      "obsidian:obsidian-markdown": 1,
+      "prep-pr": 1,
+      "review-tests": 1,
+      "review-security": 1,
+      "review-performance": 1,
+      "write-pr": 1,
+      "retro": 1
+    },
+    "subagents": {
+      "attacker": 1,
+      "reviewer": 3
+    },
+    "requests": {
+      "main": 180,
+      "subagent": 241,
+      "with_tools": 415,
+      "with_one_tool": 318,
+      "context_median": 149377,
+      "context_p90": 367227
+    }
+  },
+  "review": {
+    "reports": 1,
+    "findings": 13,
+    "located": 12,
+    "acted_on": 5,
+    "paired": 12,
+    "acted_on_paired": 5,
+    "control_changed": 3
+  }
+}

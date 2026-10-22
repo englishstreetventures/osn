@@ -11,6 +11,7 @@ import {
   type DraftState,
   draftWarnings,
   replayDraft,
+  runOfShowItem,
   toDesiredState,
   validateDraft,
 } from "../../src/lib/guest-event-draft";
@@ -583,6 +584,267 @@ describe("an event's description and venue name", () => {
   });
 });
 
+describe("an event's run of show, getting-there notes and guest policy", () => {
+  const FULL: EventRow = {
+    ...EVENTS[0]!,
+    runOfShow: [
+      { time: "17:15", label: "Speeches" },
+      { time: "15:00", label: "Vows" },
+    ],
+    gettingThere: "Park on Sample Lane.",
+    childrenPolicy: "adults_only",
+    plusOnePolicy: "welcome",
+    guestPolicyNote: "Hats encouraged.",
+  };
+  const items = (event: DraftEvent) => event.runOfShow.map(({ time, label }) => ({ time, label }));
+  /** The events as a current API reads them: every event carries the keys. */
+  const CURRENT: EventRow[] = EVENTS.map((e) => ({
+    runOfShow: [],
+    gettingThere: null,
+    childrenPolicy: null,
+    plusOnePolicy: null,
+    guestPolicyNote: null,
+    ...e,
+  }));
+  const loadedCurrent = () => {
+    const store = createGuestEventDraft();
+    store.load(CURRENT, GUESTS, [], REVISION);
+    return store;
+  };
+
+  // What the events read sends is what the drawer opens on; an API older
+  // than these fields sends none, which is none of each.
+  it("loads them from the events read, and an API that sends none as empty", () => {
+    createRoot((dispose) => {
+      const store = createGuestEventDraft();
+      store.load([FULL, EVENTS[1]!], GUESTS, [], REVISION);
+      const [ceremony, reception] = store.draft.events;
+      expect(items(ceremony!)).toEqual(FULL.runOfShow);
+      expect(ceremony).toMatchObject({
+        gettingThere: "Park on Sample Lane.",
+        childrenPolicy: "adults_only",
+        plusOnePolicy: "welcome",
+        guestPolicyNote: "Hats encouraged.",
+      });
+      expect(reception).toMatchObject({
+        runOfShow: [],
+        gettingThere: null,
+        childrenPolicy: null,
+        plusOnePolicy: null,
+        guestPolicyNote: null,
+      });
+      expect(store.dirty()).toBe(false);
+      dispose();
+    });
+  });
+
+  // An events save states all of them, in the organiser's order, trimmed, so
+  // a download of what is stored re-imports unchanged; blank notes are none.
+  // A guests save governs no event and leaves them out.
+  it("sends them on an events save and leaves them out of a guests save", () => {
+    createRoot((dispose) => {
+      const store = loadedCurrent();
+      const key = store.draft.events[0]!.key;
+      store.updateEvent(key, {
+        runOfShow: [runOfShowItem("16:45", "  Garden games "), runOfShowItem("16:00", "Tea")],
+        gettingThere: "  Park on Sample Lane.\n",
+        childrenPolicy: "children_welcome",
+        plusOnePolicy: "by_invitation",
+        guestPolicyNote: "   ",
+      });
+      expect(store.toWire("events").events[0]).toMatchObject({
+        runOfShow: [
+          { time: "16:45", label: "Garden games" },
+          { time: "16:00", label: "Tea" },
+        ],
+        gettingThere: "Park on Sample Lane.",
+        childrenPolicy: "children_welcome",
+        plusOnePolicy: "by_invitation",
+        guestPolicyNote: null,
+      });
+      expect(store.toWire("events").events[1]).toMatchObject({
+        runOfShow: [],
+        gettingThere: null,
+        childrenPolicy: null,
+        plusOnePolicy: null,
+        guestPolicyNote: null,
+      });
+      for (const event of store.toWire("guests").events) {
+        for (const field of [
+          "runOfShow",
+          "gettingThere",
+          "childrenPolicy",
+          "plusOnePolicy",
+          "guestPolicyNote",
+        ]) {
+          expect(event).not.toHaveProperty(field);
+        }
+      }
+      expect(store.dirty()).toBe(true);
+      dispose();
+    });
+  });
+
+  // An API older than the fields sends none of them on any event, and would
+  // drop them from a save unstored: the draft says so, and the events save
+  // leaves them out. With no events there is nothing to tell by.
+  it("leaves them out of a save to an API whose events read carries none of them", () => {
+    createRoot((dispose) => {
+      // Nothing loaded, or the draft dropped: no API has said otherwise yet.
+      const unloaded = createGuestEventDraft();
+      expect(unloaded.eventDetails()).toBe(true);
+      const store = loaded();
+      expect(store.eventDetails()).toBe(false);
+      store.reset();
+      expect(store.eventDetails()).toBe(true);
+      store.load(EVENTS, GUESTS, [], REVISION);
+      store.updateEvent(store.draft.events[0]!.key, { description: "Mass at 3." });
+      const [event] = store.toWire("events").events;
+      expect(event).toMatchObject({ description: "Mass at 3." });
+      for (const field of [
+        "runOfShow",
+        "gettingThere",
+        "childrenPolicy",
+        "plusOnePolicy",
+        "guestPolicyNote",
+      ]) {
+        expect(event).not.toHaveProperty(field);
+      }
+      expect(loadedCurrent().eventDetails()).toBe(true);
+      const empty = createGuestEventDraft();
+      empty.load([], GUESTS, [], REVISION);
+      expect(empty.eventDetails()).toBe(true);
+      // A reload against the older API says so too.
+      const current = loadedCurrent();
+      current.rebase(EVENTS, GUESTS, [], "rev-2");
+      expect(current.eventDetails()).toBe(false);
+      dispose();
+    });
+  });
+
+  // The drawer says what the server would refuse, before the save does.
+  it("flags a run of show or notes the server would refuse", () => {
+    createRoot((dispose) => {
+      const store = loaded();
+      const key = store.draft.events[0]!.key;
+      const messagesFor = (patch: Parameters<typeof store.updateEvent>[1]) => {
+        store.updateEvent(key, patch);
+        return validateDraft(store.draft).map((e) => e.message);
+      };
+      // An item's own errors name it by its number and say which field, so
+      // the drawer shows each under that item's field.
+      const named = runOfShowItem("16:00", "Tea");
+      const blank = runOfShowItem("", "  ");
+      store.updateEvent(key, { runOfShow: [named, blank] });
+      expect(validateDraft(store.draft)).toEqual([
+        { key, item: blank.key, field: "time", message: "Item 2 needs a time." },
+        { key, item: blank.key, field: "label", message: "Item 2 needs a name." },
+      ]);
+      // "Add item" opens an empty row.
+      expect(runOfShowItem()).toMatchObject({ time: "", label: "" });
+      const long = runOfShowItem("16:00", "x".repeat(201));
+      store.updateEvent(key, { runOfShow: [long] });
+      expect(validateDraft(store.draft)).toEqual([
+        {
+          key,
+          item: long.key,
+          field: "label",
+          message: "Item 1 is longer than 200 characters.",
+        },
+      ]);
+      expect(
+        messagesFor({ runOfShow: Array.from({ length: 41 }, () => runOfShowItem("16:00", "Tea")) }),
+      ).toContain("A run of show holds at most 40 items.");
+      expect(messagesFor({ runOfShow: [], gettingThere: "x".repeat(10_001) })).toContain(
+        "Getting-there notes are too long.",
+      );
+      expect(messagesFor({ gettingThere: null, guestPolicyNote: "x".repeat(10_001) })).toContain(
+        "The guest policy note is too long.",
+      );
+      // At the cap, measured after the trim the save applies.
+      store.updateEvent(key, {
+        runOfShow: Array.from({ length: 40 }, () => runOfShowItem("23:59", ` ${"x".repeat(200)} `)),
+        gettingThere: `${"x".repeat(10_000)}\n`,
+        guestPolicyNote: ` ${"x".repeat(10_000)}`,
+      });
+      expect(validateDraft(store.draft)).toEqual([]);
+      dispose();
+    });
+  });
+
+  // Someone else's change landed; the organiser's unsaved run of show, policy
+  // and notes go back on top, and what they did not touch takes the new rows.
+  it("keeps unsaved changes to them across a stale reload, and takes fresh ones it did not touch", () => {
+    createRoot((dispose) => {
+      const store = createGuestEventDraft();
+      store.load([FULL, EVENTS[1]!], GUESTS, [], REVISION);
+      const key = store.draft.events[0]!.key;
+      store.updateEvent(key, {
+        runOfShow: [runOfShowItem("15:00", "Vows"), runOfShowItem("17:15", "Speeches")],
+        childrenPolicy: "children_welcome",
+      });
+      store.rebase(
+        [{ ...FULL, gettingThere: "Park behind the hall.", plusOnePolicy: null }, EVENTS[1]!],
+        GUESTS,
+        [],
+        "rev-2",
+      );
+      const [ceremony] = store.draft.events;
+      expect(items(ceremony!)).toEqual([
+        { time: "15:00", label: "Vows" },
+        { time: "17:15", label: "Speeches" },
+      ]);
+      expect(ceremony).toMatchObject({
+        childrenPolicy: "children_welcome",
+        gettingThere: "Park behind the hall.",
+        plusOnePolicy: null,
+      });
+      expect(store.dirty()).toBe(true);
+      dispose();
+    });
+  });
+
+  // Removing an item and adding it back as it was ends where it started, so
+  // it is no edit, and someone else's change to the list stands.
+  it("takes the fresh run of show over one the organiser put back as it was", () => {
+    createRoot((dispose) => {
+      const store = createGuestEventDraft();
+      store.load([FULL, EVENTS[1]!], GUESTS, [], REVISION);
+      const key = store.draft.events[0]!.key;
+      store.updateEvent(key, {
+        runOfShow: [runOfShowItem("17:15", "Speeches"), runOfShowItem("15:00", "Vows")],
+      });
+      store.rebase(
+        [{ ...FULL, runOfShow: [{ time: "16:00", label: "Tea" }] }, EVENTS[1]!],
+        GUESTS,
+        [],
+        "rev-2",
+      );
+      expect(items(store.draft.events[0]!)).toEqual([{ time: "16:00", label: "Tea" }]);
+      dispose();
+    });
+  });
+
+  // The drawer's rows follow their items: an item moved or edited is the same
+  // item in the store, so its row and the input being typed in stay.
+  it("keeps each item's identity when the list is reordered or edited", () => {
+    createRoot((dispose) => {
+      const store = createGuestEventDraft();
+      store.load([FULL, EVENTS[1]!], GUESTS, [], REVISION);
+      const key = store.draft.events[0]!.key;
+      const [speeches, vows] = store.draft.events[0]!.runOfShow;
+      store.updateEvent(key, {
+        runOfShow: [{ ...vows! }, { ...speeches!, label: "Speeches and toasts" }],
+      });
+      const [first, second] = store.draft.events[0]!.runOfShow;
+      expect(first).toBe(vows);
+      expect(second).toBe(speeches);
+      expect(second!.label).toBe("Speeches and toasts");
+      dispose();
+    });
+  });
+});
+
 describe("validateDraft — event field rules (E6)", () => {
   it("flags a blank name + start on a new event", () => {
     createRoot((dispose) => {
@@ -899,6 +1161,11 @@ describe("replayDraft — keeping unsaved edits across a reload", () => {
       description: "",
       venueName: null,
       address: null,
+      runOfShow: [],
+      gettingThere: null,
+      childrenPolicy: null,
+      plusOnePolicy: null,
+      guestPolicyNote: null,
       dressCodeDescription: null,
       dressCodePalette: [],
       pinterestUrl: null,
@@ -1130,6 +1397,11 @@ describe("replayDraft — edge branches", () => {
       description: "",
       venueName: null,
       address: null,
+      runOfShow: [],
+      gettingThere: null,
+      childrenPolicy: null,
+      plusOnePolicy: null,
+      guestPolicyNote: null,
       dressCodeDescription: null,
       dressCodePalette: [],
       pinterestUrl: null,

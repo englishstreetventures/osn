@@ -62,12 +62,14 @@ The platform shape is in [[backend-patterns]]. Cire's departures:
 - **Errors are tagged classes** extending `Data.TaggedError`. Nothing in the
   service layer throws.
 - **Tell one constraint failure from another by `driverErrorText(e)`**
-  (`cire/api/src/db/index.ts`), never `String(e)`. On D1, drizzle wraps a failed
+  (`cire/api/src/db/index.ts`), never `String(e)`. Drizzle wraps a failed
   single statement in `DrizzleQueryError`, whose message names only the
-  statement; the database's reason (`D1_ERROR: UNIQUE constraint failed: …`)
-  sits on its `cause`. bun:sqlite and a failed `batch()` put it on the error
-  itself, so a sniffer reading `String(e)` passes every route test and misses
-  every conflict in production. Match the database's own `table.column`
+  statement, on D1 and bun:sqlite alike; the database's reason sits down its
+  `cause` chain, one level deeper on D1 (`D1_ERROR: UNIQUE constraint failed:
+  …`) than on bun:sqlite. A failed D1 `batch()` puts it on the error itself.
+  `driverErrorText` walks the whole chain; a sniffer reading `String(e)` misses
+  every conflict, and one reading a fixed depth of `cause` can pass every
+  bun:sqlite test and miss on D1. Match the database's own `table.column`
   wording (`guest_account_links.guest_id`), never a bare column or table name:
   on D1 the text also holds the statement, and drizzle's INSERT names every
   column of the table whatever the conflict was on. Drizzle quotes each name,
@@ -473,9 +475,12 @@ not read that file, so the devloop runs with no CSP at all.
 
 **The committed file is the production policy.** Its `connect-src`, `img-src`,
 `report-uri` and `Reporting-Endpoints` name `https://api.cireweddings.com` and
-nothing else. After `astro build`, an Astro integration rewrites the copy in
-`dist/`: every production cire-api origin becomes the origin of the
-`PUBLIC_CIRE_API_URL` the bundle was built with. So:
+nothing else, except that the organiser portal's `connect-src` also names
+`wss://api.cireweddings.com` for its realtime socket, since an `https:` source
+does not admit a `wss:` URL. After `astro build`, an Astro integration rewrites
+the copy in `dist/`: every production cire-api origin becomes the origin of the
+`PUBLIC_CIRE_API_URL` the bundle was built with, and the socket origin its
+`ws:`/`wss:` twin. So:
 
 | Build | The policy in `dist/_headers` names |
 |---|---|
@@ -514,7 +519,8 @@ loopback one; `tests/lib/headers.test.ts` in each portal fails on either.
 reports each block to cire-api's collector (`POST /api/csp-report`). Neither
 sends a `Content-Security-Policy-Report-Only` header: every directive is
 enforced and reports already, so one would file each violation twice. The two
-policies match except for `img-src`:
+policies match except for `img-src`, and the organiser portal's `wss:` source in
+`connect-src`:
 
 | Portal | Enforced `img-src` |
 |---|---|

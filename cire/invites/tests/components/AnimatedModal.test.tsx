@@ -16,8 +16,9 @@ import { AnimatedModal } from "../../src/components/AnimatedModal";
 
 /**
  * The panel is a non-scrolling frame whose only in-flow child is the scroll
- * container (the close button is absolutely positioned alongside it). Padding
- * and overflow live on the scroller, so assertions about them target this.
+ * container (without a toolbar, the close button is absolutely positioned
+ * alongside it; with one, it is in the bar inside it). Padding and overflow
+ * live on the scroller, so assertions about them target this.
  */
 function scrollerOf(panel: HTMLElement): HTMLElement {
   return panel.lastElementChild as HTMLElement;
@@ -120,10 +121,13 @@ describe("AnimatedModal", () => {
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
   });
 
-  it("closes via the close button", async () => {
+  it.each([
+    ["in the corner", false],
+    ["in a toolbar's bar", true],
+  ])("closes via the close button %s", async (_, toolbar) => {
     const onClose = vi.fn();
     const { getByLabelText } = render(() => (
-      <AnimatedModal onClose={onClose} label="Event details">
+      <AnimatedModal onClose={onClose} label="Event details" toolbar={toolbar}>
         <p>body</p>
       </AnimatedModal>
     ));
@@ -178,28 +182,40 @@ describe("AnimatedModal", () => {
     expect(scroller.className).toContain("scroll-pt-14");
   });
 
-  it("draws an action beside the close button, in the same row outside the scroller", () => {
+  it("draws a toolbar's title, action and close button in a bar at the top of the scroller", () => {
     const { getByRole } = render(() => (
       <AnimatedModal
         onClose={() => {}}
-        label="Event details"
+        labelledBy="sheet-title"
         toolbar
-        action={<button type="button">Respond</button>}
+        title={<h2 id="sheet-title">Mehndi</h2>}
+        action={<button type="button">Give RSVP</button>}
       >
         <p>Body</p>
       </AnimatedModal>
     ));
     const close = getByRole("button", { name: "Close" });
-    const action = getByRole("button", { name: "Respond" });
+    const action = getByRole("button", { name: "Give RSVP" });
+    const title = getByRole("heading", { name: "Mehndi" });
     const scroller = scrollerOf(close.closest("dialog")!);
+    const bar = close.parentElement!;
 
-    expect(action.parentElement).toBe(close.parentElement);
-    // Before the cross, which keeps the corner the cross has always had.
+    // Inside the scrollport, ahead of the content, so the content scrolls
+    // under it: the bar is `sticky`, and a sticky box only stays put over the
+    // box that scrolls it.
+    expect(scroller.firstElementChild).toBe(bar);
+    expect(bar.contains(title)).toBe(true);
+    // Title, then the action, then the cross, which keeps its corner.
+    expect(action.parentElement).toBe(bar);
     expect(action.nextElementSibling).toBe(close);
-    expect(scroller.contains(action)).toBe(false);
-    // The content starts below the row rather than level with it.
-    expect(scroller.className).toContain("pt-16");
-    expect(scroller.className).not.toContain("pt-8");
+    expect(title.compareDocumentPosition(action) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(bar.className.split(/\s+/)).toEqual(expect.arrayContaining(["sticky", "top-0", "z-10"]));
+    // The bar takes its own height in flow, so the content needs no top
+    // padding to clear it; it grows with a title that wraps, and focus
+    // scrolling keeps a target below whatever height it has.
+    expect(scroller.className).not.toMatch(/(^|\s)pt-(8|16)(\s|$)/);
+    expect(bar.className.split(/\s+/)).toContain("min-h-15");
+    expect(scroller.className.split(/\s+/)).toContain("scroll-pt-[var(--sheet-bar,3.75rem)]");
   });
 
   it("keeps the plain top padding without a toolbar", () => {

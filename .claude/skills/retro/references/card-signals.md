@@ -30,6 +30,16 @@ file is only about what a **single** card licenses you to say.
 | `tool_calls` | What the session actually did | "Forty `Grep` calls and four `Read`s — the thing being looked for had no obvious home" | Shell writes count as edits here by design; a low `Edit` count does not mean little was changed |
 | `skills` | Which skills ran | "`stress-plan` never ran on a plan that touched a Worker binding" → a `new-feat` gap | An empty map is also what a session that predates a skill looks like |
 | `subagents` | Which agents ran | "`review-tests` ran and the gap it exists to catch shipped anyway" → that `SKILL.md` | — |
+| `requests.main + .subagent` | How many model calls the work took | "400 calls for a one-file change, most of them a single `Read`" — a missing map, or reads not run in parallel | Calls rise with honest difficulty too. Read it next to `complexity.declared`, never alone |
+| `requests.with_one_tool ÷ .with_tools` | How often a call ran one tool when it could have run several | "Nine in ten tool calls were single, and the session read files one at a time" → the brief or the skill that drove it | A step that must wait on the last result is single by nature. Only a run of independent single calls is the finding |
+| `requests.context_median` | How much context each call carried | "Median context 120k on a small task — something loaded that did not need to" | Context grows within a session by design; compare medians across cards, which is `analyse-sessions` |
+
+## Review
+
+| Field | Answers | A finding it supports | The trap |
+|---|---|---|---|
+| `review: null` | No review report was read | Nothing | Not "no findings". The reports had gone, or none could be placed on this branch |
+| `review.acted_on_paired` vs `.control_changed` | Whether the cited lines changed more than lines nearby did | Nothing from one card | `prep-pr` fixes every in-scope finding, so a high rate says the rule was followed, not that the findings were good. Only tests and docs findings are counted, and most tests findings carry no line |
 
 ## Window
 

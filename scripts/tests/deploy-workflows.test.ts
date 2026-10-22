@@ -135,8 +135,9 @@ const DEV_HOST_OUTPUT: Readonly<Record<SurfaceKey, string>> = {
 /**
  * Each stack job's site builds, in order, with exactly the values each dev
  * build sets. A host is always the dev-hosts step's output; Turnstile and Maps
- * keys are dev Environment variables; ASTRO_KEY fixes the guest site's server
- * build so two builds of one commit are byte-identical. Pulse landing gets no
+ * keys are dev Environment variables; the guest site's footer prints the
+ * commit (PUBLIC_BUILD_SHA); ASTRO_KEY fixes the guest site's server build so
+ * two builds of one commit are byte-identical. Pulse landing gets no
  * PUBLIC_APP_URL: the Pulse app has no dev deploy.
  */
 const DEV_BUILDS: Readonly<
@@ -167,6 +168,7 @@ const DEV_BUILDS: Readonly<
         PUBLIC_MARKETING_URL: hostOutput("cire_landing_origin"),
         PUBLIC_TURNSTILE_SITEKEY: "${{ vars.PUBLIC_TURNSTILE_SITEKEY }}",
         PUBLIC_GOOGLE_MAPS_EMBED_KEY: "${{ vars.PUBLIC_GOOGLE_MAPS_EMBED_KEY }}",
+        PUBLIC_BUILD_SHA: "${{ github.sha }}",
         ASTRO_KEY: "${{ secrets.ASTRO_KEY }}",
       },
     },

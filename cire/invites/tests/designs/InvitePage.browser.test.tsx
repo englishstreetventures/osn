@@ -380,15 +380,16 @@ describe.each([
     await waitFor(() => expect(document.querySelector("dialog")).toBeTruthy(), SHEET_OPENS);
     const sheet = document.querySelector("dialog") as HTMLDialogElement;
 
-    // The sheet's switch, by role and name inside the dialog: the card behind
-    // it has a "Respond" of its own.
-    const segment = (name: string) => within(sheet).getByRole("button", { name });
-    await userEvent.click(segment("Respond"));
+    // The sheet's badge, by the name it has on the panel on screen: one
+    // button whose words change with the panel.
+    const badge = (name: "Give RSVP" | "See details") =>
+      within(sheet).getByRole("button", { name });
+    await userEvent.click(badge("Give RSVP"));
     expect(document.activeElement?.textContent).toMatch(/Respond.*Mehndi/);
     answer("Priya");
     await panelSettled(sheet);
 
-    await userEvent.click(segment("Details"));
+    await userEvent.click(badge("See details"));
     expect(document.activeElement?.textContent).toMatch(/Details.*Mehndi/);
     expect(document.querySelector("dialog")).toBe(sheet);
     expect(sheet.matches(":modal")).toBe(true);
@@ -496,9 +497,13 @@ describe.each([
     // puts the toast over it.
     const painted = Number.parseInt(getComputedStyle(container!).zIndex, 10);
     expect(painted, "the toast stacks below the page's own furniture").toBeGreaterThan(
-      Z_LAYER.STICKY_RAIL,
+      Z_LAYER.HERO_CUE,
     );
     expect(painted, "the toast stacks above the consent layers").toBeLessThan(Z_LAYER.CONSENT);
+    // The top inset clears the status bar and Dynamic Island on a notched phone (issue #1700).
+    expect(container!.style.top, "the toast sits below the status bar").toBe(
+      "env(safe-area-inset-top)",
+    );
     expect(container!.matches(":popover-open"), "the toast never entered the top layer").toBe(true);
 
     // Painted, on screen, and anchored where `top-center` says.
@@ -570,9 +575,13 @@ describe.each([
     // puts the toast over it.
     const painted = Number.parseInt(getComputedStyle(container!).zIndex, 10);
     expect(painted, "the toast stacks below the page's own furniture").toBeGreaterThan(
-      Z_LAYER.STICKY_RAIL,
+      Z_LAYER.HERO_CUE,
     );
     expect(painted, "the toast stacks above the consent layers").toBeLessThan(Z_LAYER.CONSENT);
+    // The top inset clears the status bar and Dynamic Island on a notched phone (issue #1700).
+    expect(container!.style.top, "the toast sits below the status bar").toBe(
+      "env(safe-area-inset-top)",
+    );
     expect(container!.matches(":popover-open"), "the toast never entered the top layer").toBe(true);
 
     // Painted, on screen, and anchored where `top-center` says.

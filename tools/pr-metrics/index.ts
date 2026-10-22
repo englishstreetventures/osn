@@ -43,7 +43,7 @@
  * Readers key off this.
  */
 
-import { closeSync, openSync, readdirSync, readFileSync, readSync } from "node:fs";
+import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync } from "node:fs";
 
 import { compactTokens, humanDuration } from "./format.ts";
 
@@ -409,7 +409,27 @@ function humanText(raw: string | undefined): string | null {
   const trimmed = raw?.trim();
   if (!trimmed) return null;
 
-  return trimmed.startsWith("<") ? null : trimmed;
+  if (trimmed.startsWith("<")) return null;
+
+  // A subagent hand-back or task notification can also arrive as a plain
+  // `user` record that opens with prose before its block. Only the block's
+  // position decides it, so a person who quotes the tag mid-sentence still
+  // counts.
+  if (MACHINE_PREFIX.test(trimmed)) return null;
+
+  return trimmed;
+}
+
+const MACHINE_PREFIX =
+  /^(?:Another Claude session sent a message:\s*)?<(?:agent-message|task-notification)\b/;
+
+/**
+ * A bare "continue" or "go on" — a nudge to keep an agent running, not a
+ * correction. It is still a human turn, so it counts in `user_turns`, but it
+ * says nothing about the brief and so is not `corrective_turns`.
+ */
+export function isBareContinuation(text: string): boolean {
+  return /^(?:continue|go on|keep going|carry on|proceed)[.!]*$/i.test(text.trim());
 }
 
 /**
@@ -664,6 +684,89 @@ export interface InteractionSummary {
   edit_churn: { files_edited_3plus: number; max_edits_one_file: number };
   skills: Record<string, number>;
   subagents: Record<string, number>;
+  /** Absent on cards written before the field existed. */
+  requests?: RequestSummary;
+}
+
+/**
+ * Model calls, and the context each one carried.
+ *
+ * Cache reads are most of what a session costs, and each call re-reads the
+ * whole context, so cost grows with calls times context. `with_one_tool`
+ * against `with_tools` says how often a call did one thing when it could have
+ * done several in parallel — the cheapest lever on the call count.
+ */
+export interface RequestSummary {
+  main: number;
+  subagent: number;
+  with_tools: number;
+  with_one_tool: number;
+  /** Input plus cache read plus cache write, per call. Nearest-rank. */
+  context_median: number;
+  context_p90: number;
+}
+
+/** Nearest-rank percentile of an ascending list; 0 for an empty one. */
+function nearestRank(sorted: number[], p: number): number {
+  if (sorted.length === 0) return 0;
+
+  return sorted[Math.max(0, Math.ceil(p * sorted.length) - 1)];
+}
+
+/**
+ * One entry per model response. A response is split over several records that
+ * share a `requestId`, each carrying the same usage and some of the tool
+ * calls, so records are grouped before anything is counted. `<synthetic>`
+ * records are the harness's own, not a call, and would pull the median context
+ * toward zero.
+ */
+export function aggregateRequests(records: SessionRecord[]): RequestSummary {
+  const calls = new Map<string, { sidechain: boolean; tools: number; context: number }>();
+  let unkeyed = 0;
+
+  for (const record of records) {
+    if (record.type !== "assistant" || record.message?.model === "<synthetic>") continue;
+
+    const key = typeof record.requestId === "string" ? record.requestId : `\u0000${unkeyed++}`;
+    const tools = toolUses(record).length;
+    const call = calls.get(key);
+
+    if (call) {
+      call.tools += tools;
+      continue;
+    }
+
+    const usage = readUsage(record.message?.usage);
+    calls.set(key, {
+      sidechain: record.isSidechain === true,
+      tools,
+      context: usage.input + usage.cache_read + usage.cache_write_5m + usage.cache_write_1h,
+    });
+  }
+
+  const summary: RequestSummary = {
+    main: 0,
+    subagent: 0,
+    with_tools: 0,
+    with_one_tool: 0,
+    context_median: 0,
+    context_p90: 0,
+  };
+  const contexts: number[] = [];
+
+  for (const call of calls.values()) {
+    if (call.sidechain) summary.subagent += 1;
+    else summary.main += 1;
+    if (call.tools > 0) summary.with_tools += 1;
+    if (call.tools === 1) summary.with_one_tool += 1;
+    contexts.push(call.context);
+  }
+
+  const sorted = contexts.toSorted((a, b) => a - b);
+  summary.context_median = nearestRank(sorted, 0.5);
+  summary.context_p90 = nearestRank(sorted, 0.9);
+
+  return summary;
 }
 
 /**
@@ -733,7 +836,7 @@ export function aggregateInteraction(records: SessionRecord[]): InteractionSumma
       userTurns += 1;
       // Work had already started in this session, so this turn is steering an
       // agent mid-flight rather than opening the task.
-      if (sessionsWithWork.has(session)) correctiveTurns += 1;
+      if (sessionsWithWork.has(session) && !isBareContinuation(turnText)) correctiveTurns += 1;
       continue;
     }
 
@@ -808,10 +911,25 @@ export function aggregateInteraction(records: SessionRecord[]): InteractionSumma
     },
     skills,
     subagents,
+    requests: aggregateRequests(records),
   };
 }
 
-const WORKSPACE_ROOTS = ["osn", "pulse", "zap", "cire", "shared", "tools"];
+const WORKSPACE_ROOTS = ["osn", "pulse", "zap", "cire", "shared", "tools", "musubi"];
+
+/**
+ * The path a `--numstat` line names after its change. A rename arrives as
+ * `dir/{old => new}/file` or, at the top level, `old => new`; the new side is
+ * the one that exists once the change lands.
+ */
+export function renamedTo(path: string): string {
+  const braced = path.replace(/\{[^{}]*? => ([^{}]*?)\}/g, "$1");
+  if (braced !== path) return braced.replace(/\/{2,}/g, "/");
+
+  const arrow = path.indexOf(" => ");
+
+  return arrow === -1 ? path : path.slice(arrow + 4);
+}
 
 export type PathBucket = "generated" | "test" | "docs" | "config" | "source";
 
@@ -892,9 +1010,10 @@ export function parseNumstat(numstat: string, commits: number): DiffSummary {
     if (!trimmed) continue;
 
     const [addedRaw, deletedRaw, ...rest] = trimmed.split("\t");
-    const path = rest.join("\t");
-    if (!path) continue;
+    const rawPath = rest.join("\t");
+    if (!rawPath) continue;
 
+    const path = renamedTo(rawPath);
     const bucket = classifyPath(path);
     files[bucket] += 1;
     loc[bucket].added += addedRaw === "-" ? 0 : num(Number.parseInt(addedRaw, 10));
@@ -902,12 +1021,14 @@ export function parseNumstat(numstat: string, commits: number): DiffSummary {
 
     if (path.includes("/drizzle/") || path.includes("/migrations/")) touchesMigration = true;
 
-    // The workspace globs are `<dir>/*` for the five product directories and
-    // for `tools`, so the first two segments name the package. `tools/oxlint`
-    // is the one place that resolves to a parent of the real workspace
-    // (`tools/oxlint/house`) — still the right grouping for a card.
+    // The workspace globs are `<dir>/*` for the product directories, `tools`
+    // and `musubi`, so the first two segments name the package. A file
+    // directly inside one of those directories (`zap/README.md`) is not in a
+    // package, so it needs a third segment before it counts.
+    // `tools/oxlint` is the one place that resolves to a parent of the real
+    // workspace (`tools/oxlint/house`) — still the right grouping for a card.
     const parts = path.split("/");
-    if (parts.length >= 2 && WORKSPACE_ROOTS.includes(parts[0])) {
+    if (parts.length >= 3 && WORKSPACE_ROOTS.includes(parts[0])) {
       packages.add(`${parts[0]}/${parts[1]}`);
     }
   }
@@ -966,6 +1087,120 @@ interface IssueReference {
   repository: { name: string; owner: { login: string } };
 }
 
+/**
+ * Whether the review findings on a branch led to a change, counted the way an
+ * author's next push is read: did the flagged line change after the review?
+ *
+ * Counts only, and only for `T-` and `D-` findings. The card is committed to a
+ * public repository, and `S-`, `P-` and `C-` findings live in the private
+ * tracker — a count of those left unchanged would describe an unpatched defect
+ * in public. No ID, lens, severity or path is recorded for any finding.
+ *
+ * The control is a line 30 to 40 lines away in the same file, tested the same
+ * way: the rate at which lines change anyway. `acted_on_paired` against
+ * `control_changed` compares the same findings; `acted_on` includes findings
+ * with no room for a control.
+ */
+export interface ReviewSummary {
+  reports: number;
+  findings: number;
+  located: number;
+  acted_on: number;
+  paired: number;
+  acted_on_paired: number;
+  control_changed: number;
+}
+
+/** The review reports whose findings a public card may count. The security
+ * and performance reports hold only tracker kinds, so they are never opened. */
+export const DEFAULT_REVIEW_REPORTS = ["TEST-REVIEW.md", "DOCS-REVIEW.md"];
+
+/** Finding kinds that may be counted on a public card. */
+const PUBLIC_FINDING_KINDS = new Set(["T", "D"]);
+
+const FINDING_LABEL = /^\*\*([A-Z])-[A-Z]\d+\*\*/;
+const LOCATION = /([A-Za-z0-9_@./-]+\.[A-Za-z0-9]+):(\d+)/g;
+
+/** A fix often edits a neighbouring line rather than the one cited; the
+ * control uses the same window, so the choice cancels out of the comparison. */
+export const FINDING_WINDOW = 3;
+const CONTROL_OFFSET = 35;
+
+/**
+ * Each counted finding's `**Issue:**` line, or `null` where it has none.
+ *
+ * A finding runs from its bold label to the next label or the next `## `
+ * heading. The sections after the findings (`## Coverage`, `## Files audited`)
+ * cite `path:line` freely and are no finding's location.
+ */
+export function parseFindings(text: string): (string | null)[] {
+  const issues: (string | null)[] = [];
+  let open = false;
+
+  for (const line of text.split("\n")) {
+    const label = FINDING_LABEL.exec(line);
+    if (label) {
+      open = PUBLIC_FINDING_KINDS.has(label[1]);
+      if (open) issues.push(null);
+      continue;
+    }
+
+    if (line.startsWith("## ")) {
+      open = false;
+      continue;
+    }
+
+    if (open && issues[issues.length - 1] === null && line.startsWith("**Issue:**")) {
+      issues[issues.length - 1] = line;
+    }
+  }
+
+  return issues;
+}
+
+/** Every `path:line` an Issue line names, in order, with a leading repository
+ * root stripped so an absolute path matches the tree. */
+export function locationsIn(issue: string, root: string): { path: string; line: number }[] {
+  const prefix = `${root.replace(/\/+$/, "")}/`;
+
+  return [...issue.matchAll(LOCATION)].map((match) => {
+    let path = match[1];
+    if (path.startsWith(prefix)) path = path.slice(prefix.length);
+    else if (path.startsWith("./")) path = path.slice(2);
+
+    return { path, line: Number.parseInt(match[2], 10) };
+  });
+}
+
+/** Old-side line ranges from `git diff -U0`. A count git omits is 1; a count
+ * of 0 is an insertion after line `a`, which touches `a`. */
+export function changedRanges(diff: string): [number, number][] {
+  const ranges: [number, number][] = [];
+
+  for (const match of diff.matchAll(/^@@ -(\d+)(?:,(\d+))? /gm)) {
+    const start = Number.parseInt(match[1], 10);
+    const count = match[2] === undefined ? 1 : Number.parseInt(match[2], 10);
+    ranges.push(count === 0 ? [start, start] : [start, start + count - 1]);
+  }
+
+  return ranges;
+}
+
+export function windowTouched(ranges: [number, number][], line: number): boolean {
+  const low = line - FINDING_WINDOW;
+  const high = line + FINDING_WINDOW;
+
+  return ranges.some(([start, end]) => start <= high && end >= low);
+}
+
+/** The control line for a finding, or `null` where the file has no room. */
+export function controlLine(line: number, length: number): number | null {
+  if (line + CONTROL_OFFSET + FINDING_WINDOW <= length) return line + CONTROL_OFFSET;
+  if (line - CONTROL_OFFSET - FINDING_WINDOW >= 1) return line - CONTROL_OFFSET;
+
+  return null;
+}
+
 export interface Card {
   schema_version: number;
   pr: {
@@ -983,6 +1218,8 @@ export interface Card {
   spend: SpendSummary;
   diff: DiffSummary;
   interaction: InteractionSummary;
+  /** `null` when no review report was read; absent on older cards. */
+  review?: ReviewSummary | null;
 }
 
 export interface CardContext {
@@ -998,6 +1235,7 @@ export interface CardContext {
   mergedAt: string | null;
   phase: "at-open" | "at-merge";
   generatedAt: string;
+  review?: ReviewSummary | null;
 }
 
 export function buildCard(records: SessionRecord[], diff: DiffSummary, context: CardContext): Card {
@@ -1025,6 +1263,7 @@ export function buildCard(records: SessionRecord[], diff: DiffSummary, context: 
     spend: aggregateSpend(records),
     diff,
     interaction: aggregateInteraction(records),
+    review: context.review ?? null,
   };
 }
 
@@ -1128,6 +1367,22 @@ export function renderDetails(card: Card, file = `${branchSlug(card.pr.branch)}.
             )} (${share(spend.by_actor.subagent.usd_equivalent, spend.usd_equivalent)} of spend)`,
     ],
   ];
+
+  if (interaction.requests !== undefined) {
+    const calls = interaction.requests;
+    rows.push([
+      "Model calls",
+      `${calls.main + calls.subagent} · ${calls.with_tools > 0 ? share(calls.with_one_tool, calls.with_tools) : "—"} of those using tools used one · median context ${compactTokens(calls.context_median)}`,
+    ]);
+  }
+
+  if (card.review) {
+    const { paired, acted_on_paired, control_changed } = card.review;
+    rows.push([
+      "Review (tests and docs lenses)",
+      `${acted_on_paired} of ${paired} paired findings changed · control ${control_changed} of ${paired}`,
+    ]);
+  }
 
   const summary =
     `Session metrics — $${spend.usd_equivalent.toFixed(2)} · ${compactTokens(total)} tok · ` +
@@ -1705,25 +1960,64 @@ export interface ReadOptions {
   repoPaths?: string[];
 }
 
-/** Every transcript file under a `~/.claude/projects`-shaped directory. */
+/** One or more `~/.claude/projects`-shaped directories. */
+export type SessionsRoots = string | string[];
+
+/**
+ * Where Claude Code keeps transcripts. It writes them under
+ * `$CLAUDE_CONFIG_DIR/projects` when that variable is set, so a session started
+ * with a second config directory lands there and not in `~/.claude/projects`.
+ * Both are read when both exist: the older one holds the earlier sessions, and
+ * the branch filter decides which records belong to the card.
+ */
+export function defaultSessionsRoots(
+  env: Record<string, string | undefined> = process.env,
+): string[] {
+  const roots: string[] = [];
+  const configured = env.CLAUDE_CONFIG_DIR?.replace(/\/+$/, "");
+  if (configured) roots.push(`${configured}/projects`);
+
+  // With no HOME there is no home directory to read. Without this guard the
+  // root would be the literal string "undefined/.claude/projects".
+  if (env.HOME) {
+    const home = `${env.HOME}/.claude/projects`;
+    if (!roots.includes(home)) roots.push(home);
+  }
+
+  return roots;
+}
+
+/** Every transcript file under one or more `~/.claude/projects`-shaped directories. */
 function transcriptFiles(
-  sessionsDir: string,
+  sessionsDir: SessionsRoots,
   repoPaths?: string[],
 ): { file: string; isSubagent: boolean; ownedByRepo: boolean }[] {
-  const roots: [string, boolean][] = [
-    [`${sessionsDir}/*/*.jsonl`, false],
-    [`${sessionsDir}/*/*/subagents/*.jsonl`, true],
-  ];
-  const files: { file: string; isSubagent: boolean; ownedByRepo: boolean }[] = [];
   const prefixes = repoPaths?.map(encodeProjectDir);
+  const files: { file: string; isSubagent: boolean; ownedByRepo: boolean }[] = [];
 
-  for (const [pattern, isSubagent] of roots) {
-    const found = Bun.spawnSync(["sh", "-c", `ls -1 ${pattern} 2>/dev/null || true`], {
-      stdout: "pipe",
-    });
+  for (const root of [sessionsDir].flat()) {
+    // A root that does not exist holds no transcripts. Scanning it would throw.
+    if (!existsSync(root)) continue;
 
-    for (const file of found.stdout.toString().split("\n").filter(Boolean)) {
-      files.push({ file, isSubagent, ownedByRepo: ownedByRepo(sessionsDir, file, prefixes) });
+    const patterns: [string, boolean][] = [
+      ["*/*.jsonl", false],
+      ["*/*/subagents/*.jsonl", true],
+      // Agents a Workflow run starts write one level deeper, under
+      // `subagents/workflows/<run-id>/`. They are subagent spend all the same.
+      ["*/*/subagents/workflows/*/*.jsonl", true],
+    ];
+
+    // Globbed in-process rather than through `sh -c`: the root comes from an
+    // environment variable, and a path with a space or a metacharacter in it
+    // would otherwise split the pattern and drop transcripts without a word.
+    for (const [pattern, isSubagent] of patterns) {
+      const matches = [
+        ...new Bun.Glob(pattern).scanSync({ cwd: root, absolute: true, followSymlinks: true }),
+      ].toSorted();
+
+      for (const file of matches) {
+        files.push({ file, isSubagent, ownedByRepo: ownedByRepo(root, file, prefixes) });
+      }
     }
   }
 
@@ -1751,10 +2045,10 @@ function firstLine(file: string): string | null {
 
 /** Whether a transcript's project directory belongs to this repository. With
  * no prefixes given, nothing is scoped and every file counts as owned. */
-function ownedByRepo(sessionsDir: string, file: string, prefixes: string[] | undefined): boolean {
+function ownedByRepo(root: string, file: string, prefixes: string[] | undefined): boolean {
   if (!prefixes || prefixes.length === 0) return true;
 
-  const project = file.slice(sessionsDir.length + 1).split("/")[0] ?? "";
+  const project = file.slice(root.length + 1).split("/")[0] ?? "";
 
   return prefixes.some((prefix) => project === prefix || project.startsWith(`${prefix}-`));
 }
@@ -1806,7 +2100,10 @@ function isAmbiguousBranch(branch: string | undefined): boolean {
  * write. This is what makes a forgotten one visible on the next card instead
  * of silently reproducing the under-reporting the marker exists to fix.
  */
-export function unattributedSubagentFiles(sessionsDir: string, options: ReadOptions = {}): number {
+export function unattributedSubagentFiles(
+  sessionsDir: SessionsRoots,
+  options: ReadOptions = {},
+): number {
   let count = 0;
 
   for (const { file, isSubagent, ownedByRepo } of transcriptFiles(sessionsDir, options.repoPaths)) {
@@ -1839,7 +2136,7 @@ export function unattributedSubagentFiles(sessionsDir: string, options: ReadOpti
  * and a live card that disagreed about the same branch.
  */
 export function recordsByBranch(
-  sessionsDir: string,
+  sessionsDir: SessionsRoots,
   options: ReadOptions = {},
 ): Map<string, SessionRecord[]> {
   const byBranch = new Map<string, SessionRecord[]>();
@@ -1903,7 +2200,7 @@ export function recordsByBranch(
  * one conversation into two files, and both copies are real.
  */
 export function readRecordsForBranch(
-  sessionsDir: string,
+  sessionsDir: SessionsRoots,
   branch: string,
   options: ReadOptions = {},
 ): SessionRecord[] {
@@ -1987,6 +2284,196 @@ function git(args: string[]): string {
   gitAnswers.set(key, out);
 
   return out;
+}
+
+/**
+ * A git call's exit code and stdout, run at the repository root.
+ *
+ * Separate from `git()` because the questions here are answered by the exit
+ * code — `cat-file -e` prints nothing either way — and `git()` maps every
+ * failure to "" and memoises it. `-C <root>` because `retro` runs this script
+ * from `tools/pr-metrics`, where a pathspec would resolve inside the package.
+ */
+interface GitAnswer {
+  ok: boolean;
+  out: string;
+}
+
+function gitStatus(root: string, args: string[]): GitAnswer {
+  const result = Bun.spawnSync(["git", "-C", root, ...args], { stdout: "pipe", stderr: "pipe" });
+
+  return { ok: result.success, out: result.success ? result.stdout.toString() : "" };
+}
+
+/**
+ * Read the review reports and count, for each counted finding, whether its line
+ * changed after the review ran. `null` when no report could be placed.
+ *
+ * The baseline — the commit the review read — is the newest commit on this
+ * branch whose **author** time is no later than the report's mtime. Author
+ * time, because a rebase between the review and this run resets every
+ * committer time. On this branch only (first parent, after the merge base),
+ * because a report left by another branch, or older than this branch's first
+ * commit, describes code this branch never had; such a report is not read.
+ */
+export function summariseReviews(
+  root: string,
+  base: string,
+  files: string[],
+): ReviewSummary | null {
+  const fs = require("node:fs") as typeof import("node:fs");
+
+  const reports: { text: string; written: number }[] = [];
+  for (const file of files) {
+    try {
+      const text = fs.readFileSync(file, "utf8");
+      reports.push({ text, written: Math.floor(fs.statSync(file).mtimeMs / 1000) });
+    } catch {
+      // Absent: that review did not run, or its worktree has gone.
+    }
+  }
+  // No report, no git: the common case on a branch nobody has reviewed yet.
+  if (reports.length === 0) return null;
+
+  const commits = gitStatus(root, ["log", "--first-parent", "--format=%H %at %ct", `${base}..HEAD`])
+    .out.split("\n")
+    .filter(Boolean)
+    .map((line) => {
+      const [sha, at, ct] = line.split(" ");
+
+      return { sha, at: Number.parseInt(at, 10), ct: Number.parseInt(ct, 10) };
+    });
+
+  const summary: ReviewSummary = {
+    reports: 0,
+    findings: 0,
+    located: 0,
+    acted_on: 0,
+    paired: 0,
+    acted_on_paired: 0,
+    control_changed: 0,
+  };
+
+  for (const { text, written } of reports) {
+    const baseline = commits.find((commit) => commit.at <= written);
+    if (baseline === undefined) continue;
+    // The newest commit, written before the review but committed after it:
+    // the reviewed commit was amended or squashed, and any fix went into it.
+    // Nothing after it is left to diff, so the report cannot be read — a zero
+    // here would claim the fixes did not happen.
+    if (baseline === commits[0] && baseline.ct > written) continue;
+
+    summary.reports += 1;
+
+    const issues = parseFindings(text);
+    const candidates = issues.map((issue) => (issue === null ? [] : locationsIn(issue, root)));
+    const lengths = lineCounts(
+      root,
+      baseline.sha,
+      candidates.flat().map(({ path }) => path),
+    );
+
+    const located = candidates.map((options) =>
+      options.find(({ path, line }) => {
+        const length = lengths.get(path);
+
+        return length !== undefined && line >= 1 && line <= length;
+      }),
+    );
+    const ranges = changedRangesByPath(
+      root,
+      baseline.sha,
+      located.flatMap((location) => (location ? [location.path] : [])),
+    );
+
+    summary.findings += issues.length;
+
+    for (const location of located) {
+      if (location === undefined) continue;
+
+      summary.located += 1;
+      const changed = ranges.get(location.path) ?? [];
+      const acted = windowTouched(changed, location.line);
+      if (acted) summary.acted_on += 1;
+
+      const control = controlLine(location.line, lengths.get(location.path) ?? 0);
+      if (control === null) continue;
+
+      summary.paired += 1;
+      if (acted) summary.acted_on_paired += 1;
+      if (windowTouched(changed, control)) summary.control_changed += 1;
+    }
+  }
+
+  return summary.reports > 0 ? summary : null;
+}
+
+/** Each path's line count at `sha`, from one `cat-file --batch`; a path absent
+ * there has no entry. */
+function lineCounts(root: string, sha: string, paths: string[]): Map<string, number> {
+  const unique = [...new Set(paths)];
+  const counts = new Map<string, number>();
+  if (unique.length === 0) return counts;
+
+  const result = Bun.spawnSync(["git", "-C", root, "cat-file", "--batch"], {
+    stdin: Buffer.from(unique.map((path) => `${sha}:${path}\n`).join("")),
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (!result.success) return counts;
+
+  // Each answer is `<oid> <type> <size>\n<size bytes>\n`, or `<input> missing\n`.
+  const out = result.stdout;
+  let at = 0;
+  for (const path of unique) {
+    const end = out.indexOf(10, at);
+    if (end < 0) break;
+
+    const header = out.subarray(at, end).toString().split(" ");
+    at = end + 1;
+    if (header.length !== 3 || header[1] !== "blob") continue;
+
+    const size = Number.parseInt(header[2], 10);
+    const body = out.subarray(at, at + size);
+    at += size + 1;
+
+    let lines = 0;
+    for (const byte of body) if (byte === 10) lines += 1;
+    if (size > 0 && body[size - 1] !== 10) lines += 1;
+    counts.set(path, lines);
+  }
+
+  return counts;
+}
+
+/** Old-side changed ranges per path between `sha` and HEAD, from one diff. */
+function changedRangesByPath(
+  root: string,
+  sha: string,
+  paths: string[],
+): Map<string, [number, number][]> {
+  const unique = [...new Set(paths)];
+  const ranges = new Map<string, [number, number][]>();
+  if (unique.length === 0) return ranges;
+
+  const diff = gitStatus(root, [
+    "diff",
+    "-U0",
+    "--no-renames",
+    sha,
+    "HEAD",
+    "--",
+    ...unique.map((path) => `:(top)${path}`),
+  ]);
+
+  // Every path here existed at `sha`, so each file's section names it on its
+  // `--- a/` line, deleted files included.
+  for (const section of diff.out.split(/^diff --git /m)) {
+    const old = /^--- a\/(.+)$/m.exec(section);
+    if (old) ranges.set(old[1], changedRanges(section));
+  }
+
+  return ranges;
 }
 
 /** One `gh` invocation's stdout, or `null` where `gh` is missing, unauthenticated
@@ -2073,11 +2560,11 @@ function resolveIdentity(branch: string): ResolvedIdentity {
     "--limit",
     "1",
     "--json",
-    "number,closingIssuesReferences",
+    "number,body,closingIssuesReferences",
   ]);
   if (listed === null) return miss;
 
-  let pulls: { number: number; closingIssuesReferences: IssueReference[] }[];
+  let pulls: { number: number; body: string | null; closingIssuesReferences: IssueReference[] }[];
   try {
     pulls = JSON.parse(listed) as typeof pulls;
   } catch {
@@ -2087,17 +2574,38 @@ function resolveIdentity(branch: string): ResolvedIdentity {
   const pull = pulls[0];
   if (pull === undefined) return miss;
 
-  const ref = pull.closingIssuesReferences[0];
-  if (ref === undefined) return { ...miss, prNumber: pull.number };
+  // Only this repository's issues are candidates. A private tracker issue
+  // never reaches a public card, so it is not even a candidate.
+  const sameRepoClosing = pull.closingIssuesReferences
+    .filter(
+      (ref) => repo !== null && `${ref.repository.owner.login}/${ref.repository.name}` === repo,
+    )
+    .map((ref) => ref.number);
+  const links = bodyIssueLinks(pull.body ?? "");
 
-  const identity = { ...miss, prNumber: pull.number, issueNumber: ref.number };
-  const sameRepo = repo !== null && `${ref.repository.owner.login}/${ref.repository.name}` === repo;
-  if (!sameRepo) return { ...identity, method: "not-fetched" };
+  // A closing link decides the rating. `Part of` is consulted only when the
+  // pull request closes nothing, so a child issue that closes one issue and
+  // advances its epic still rates the one it closes.
+  const closing = chooseLinkedIssue([...sameRepoClosing, ...links.closes]);
+  const { issue, candidates } =
+    closing.candidates.length > 0 ? closing : chooseLinkedIssue(links.partOf);
+
+  if (candidates.length === 0) return { ...miss, prNumber: pull.number };
+  if (issue === null) {
+    process.stderr.write(
+      `⚠️  pr-metrics: pull request #${pull.number} links ${candidates.map((n) => `#${n}`).join(", ")}. The card cannot tell which one the branch was cut for, so it records no rating. Pass --issue to choose.\n`,
+    );
+
+    return { ...miss, prNumber: pull.number, method: "lookup-failed" };
+  }
+
+  const identity = { ...miss, prNumber: pull.number, issueNumber: issue };
+  if (repo === null) return { ...identity, method: "not-fetched" };
 
   const raw = gh([
     "issue",
     "view",
-    String(ref.number),
+    String(issue),
     "--repo",
     repo,
     "--json",
@@ -2114,6 +2622,72 @@ function resolveIdentity(branch: string): ResolvedIdentity {
   const rating = declaredFromLabels(labels);
 
   return { ...identity, labels, method: rating.method, declared: rating.declared };
+}
+
+/**
+ * The branch a stacked branch was cut from, as `wiki/conventions/stacked-prs.md`
+ * tells a worktree to record it (`git config branch.<name>.gh-merge-base`), or
+ * `null` for an unstacked branch. The parent is read from `origin` when the
+ * remote has it, so the diff runs against what the pull request will merge into.
+ */
+export function parentBranch(branch: string): string | null {
+  const parent = git(["config", "--get", `branch.${branch}.gh-merge-base`]);
+  // A branch name cannot start with `-`. Passed to `git diff`, such a value
+  // would be read as an option, so it is refused rather than used.
+  if (!parent || parent.startsWith("-")) return null;
+
+  return git(["rev-parse", "--verify", "--quiet", `origin/${parent}`])
+    ? `origin/${parent}`
+    : parent;
+}
+
+/**
+ * Issue numbers a pull-request body links with a closing or `Part of` keyword,
+ * in body order. Only the same-repository form (`#N`) matches: a reference such
+ * as one that names another repository's owner and name belongs to that
+ * repository.
+ */
+export interface BodyIssueLinks {
+  /** Issues the pull request closes on merge. */
+  closes: number[];
+  /** Issues it only advances: a `Part of` line, for partial work. */
+  partOf: number[];
+}
+
+export function bodyIssueLinks(body: string): BodyIssueLinks {
+  // The alternatives have no overlapping quantifiers, so a long run of spaces
+  // after a keyword cannot backtrack quadratically on a crafted pull-request body.
+  const matches = body.matchAll(
+    /\b(close[sd]?|fix(?:e[sd])?|resolve[sd]?|part\s+of)(?::\s*|\s+)#(\d+)\b/gi,
+  );
+  const closes = new Set<number>();
+  const partOf = new Set<number>();
+
+  for (const [, keyword = "", digits = ""] of matches) {
+    const number = Number(digits);
+    if (/^part/i.test(keyword)) partOf.add(number);
+    else closes.add(number);
+  }
+
+  return { closes: [...closes], partOf: [...partOf] };
+}
+
+/**
+ * The one issue a card rates, from the same-repository issues its pull request
+ * links. One link is the answer. Several are not: GitHub lists them by number,
+ * not by what the branch was cut for, so taking one would divide the spend by a
+ * rating the branch never earned. The caller gets the candidates to name.
+ */
+export interface LinkedIssueChoice {
+  issue: number | null;
+  candidates: number[];
+}
+
+export function chooseLinkedIssue(candidates: number[]): LinkedIssueChoice {
+  const unique = [...new Set(candidates)];
+  const only = unique.length === 1 ? (unique[0] ?? null) : null;
+
+  return { issue: only, candidates: unique };
 }
 
 function flag(name: string): string | null {
@@ -2296,8 +2870,8 @@ if (import.meta.main) {
     process.exit(1);
   }
 
-  const sessionsDir = flag("sessions-dir") ?? `${process.env.HOME}/.claude/projects`;
-  const base = flag("base") ?? "origin/main";
+  const sessionsDir: SessionsRoots = flag("sessions-dir") ?? defaultSessionsRoots();
+  const base = flag("base") ?? parentBranch(branch) ?? "origin/main";
   const records = recordsInWindow(
     readRecordsForBranch(sessionsDir, branch, { repoPaths: repoProjectPaths() }),
     window,
@@ -2306,6 +2880,27 @@ if (import.meta.main) {
   const numstat = git(["diff", "--numstat", `${base}...HEAD`]);
   const commits = git(["rev-list", "--count", `${base}..HEAD`]);
   const diff = parseNumstat(numstat, Number.parseInt(commits, 10) || 0);
+
+  // The reports are gitignored scratch, gone once the worktree is, so the
+  // first run that reads them is the record: a later refresh finds none, or a
+  // report rewritten since, and must not replace that record. Only a run that
+  // names its reports explicitly does.
+  //
+  // The `--if-absent` fallback never reads them. It fires when a session ends,
+  // which can fall between the reviews and the commits that fix what they
+  // found; counted then, every finding reads as not acted on, and the rule
+  // above would keep that figure. `retro` runs after the fixes.
+  const namedReports = flag("review-reports");
+  const root = repoRoot();
+  const reportFiles = (namedReports?.split(",").filter(Boolean) ?? DEFAULT_REVIEW_REPORTS).map(
+    (file) => (file.startsWith("/") ? file : `${root}/${file}`),
+  );
+  const review =
+    namedReports === null && existing?.review != null
+      ? existing.review
+      : Bun.argv.includes("--if-absent")
+        ? null
+        : summariseReviews(root, base, reportFiles);
 
   const card = buildCard(records, diff, {
     branch,
@@ -2325,6 +2920,7 @@ if (import.meta.main) {
     mergedAt: selfMergedAt,
     phase: flag("phase") === "at-merge" ? "at-merge" : "at-open",
     generatedAt: new Date().toISOString(),
+    review,
   });
 
   // `--format markdown` prints the `<details>` block on stdout and writes
@@ -2345,7 +2941,7 @@ if (import.meta.main) {
 
   if (records.length === 0) {
     console.warn(
-      `⚠️  pr-metrics: no session records matched branch \`${branch}\` under ${sessionsDir}.`,
+      `⚠️  pr-metrics: no session records matched branch \`${branch}\` under ${[sessionsDir].flat().join(" or ")}.`,
     );
     console.warn("   The card still carries the diff; spend and interaction are zero.");
   }

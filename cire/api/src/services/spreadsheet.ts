@@ -13,15 +13,26 @@ import {
   GUEST_SOURCE_HEADER,
 } from "../lib/sheet-headers";
 import { bucketParseReason, metricImportParseRejected } from "../metrics";
-import { MAX_CELL_LENGTH, MAX_EVENTS, MAX_ROWS } from "../schemas/import";
-import type { DesiredFamily, DesiredGuest, ParsedEvent, Provenance } from "../schemas/import";
+import { MAX_CELL_LENGTH, MAX_EVENTS, MAX_ROWS, MAX_RUN_OF_SHOW_ITEMS } from "../schemas/import";
+import type {
+  DesiredFamily,
+  DesiredGuest,
+  ParsedEvent,
+  Provenance,
+  RunOfShowItem,
+} from "../schemas/import";
 import {
+  CHILDREN_POLICY_LABEL,
   isFormulaCell,
   isTruthy,
   normaliseName,
   nullableString,
   parseDressCodePalette,
   parseHttpUrl,
+  parseRunOfShowLine,
+  startsWithTwelveHourTime,
+  PLUS_ONE_POLICY_LABEL,
+  presetFromCell,
 } from "./guest-event-validation";
 
 // ── Tagged errors ────────────────────────────────────────────────────────────
@@ -61,6 +72,16 @@ export type MalformedSpreadsheetReason =
   // URL-cell scheme rejections.
   | "Pinterest URL must be an http(s) URL"
   | "Maps URL must be an http(s) URL"
+  // Run of Show cell rules (`parseRunOfShowLine`, `startsWithTwelveHourTime`)
+  // and its item cap.
+  | "Run of Show lines must start with a 24-hour time (HH:MM)"
+  | "Run of Show times are 24-hour (16:00, not 4:00 pm)"
+  | "Run of Show lines need a label after the time"
+  | "Run of Show labels must be at most 200 characters"
+  | "Run of Show holds at most 40 items"
+  // Guest-policy preset cells (`presetFromCell`).
+  | "Children must be Adults only, Children welcome or blank"
+  | "Plus-Ones must be By invitation, Welcome or blank"
   // Required per-row guest fields.
   | "Family Name is required"
   | "Guest First Name is required";
@@ -435,6 +456,102 @@ function sheetText(
   return out;
 }
 
+/** Where an events sheet keeps the run of show, getting-there and policy cells; -1 when absent. */
+interface DetailColumns {
+  readonly runOfShow: number;
+  readonly gettingThere: number;
+  readonly children: number;
+  readonly plusOnes: number;
+  readonly policyNote: number;
+}
+
+type SheetDetails = Pick<
+  ParsedEvent,
+  "runOfShow" | "gettingThere" | "childrenPolicy" | "plusOnePolicy" | "guestPolicyNote"
+>;
+
+/** A cell {@link sheetDetails} refuses, with its 0-based column. */
+interface DetailRefusal {
+  readonly reason: MalformedSpreadsheetReason;
+  readonly column: number;
+}
+
+const RUN_OF_SHOW_REASON = {
+  time: "Run of Show lines must start with a 24-hour time (HH:MM)",
+  label: "Run of Show lines need a label after the time",
+  long: "Run of Show labels must be at most 200 characters",
+} as const satisfies Record<string, MalformedSpreadsheetReason>;
+
+/**
+ * The run of show, getting-there notes and guest policy as a sheet states them,
+ * by {@link sheetText}'s rule: a column the sheet does not carry leaves its
+ * field out, and one it does is the whole truth, blank cells included. A blank
+ * Run of Show cell is `[]`, a blank Getting There or Guest Policy Note `null`,
+ * and a blank or "Not stated" preset `null`. Each line of a Run of Show cell is
+ * one item, the time first (`parseRunOfShowLine`); blank lines are skipped. A
+ * line that starts with a 12-hour time is refused rather than read 12 hours out.
+ *
+ * An upload is refused at the first cell that breaks a rule. A before-image
+ * (`snapshot`) is the app's own output and must stay revertable, so there a
+ * line that is not an item is dropped, a stored label that starts with "pm" is
+ * read as a label, and an unknown preset reads as not stated, as a non-http URL
+ * reads blank.
+ */
+function sheetDetails(
+  row: readonly string[],
+  cols: DetailColumns,
+  snapshot: boolean,
+): { readonly ok: true; readonly value: SheetDetails } | ({ readonly ok: false } & DetailRefusal) {
+  const out: Types.Mutable<SheetDetails> = {};
+  if (cols.runOfShow !== -1) {
+    const items: RunOfShowItem[] = [];
+    for (const line of (row[cols.runOfShow] ?? "").split(/\r\n|\r|\n/)) {
+      if (line.trim().length === 0) continue;
+      if (!snapshot && startsWithTwelveHourTime(line)) {
+        return {
+          ok: false,
+          reason: "Run of Show times are 24-hour (16:00, not 4:00 pm)",
+          column: cols.runOfShow,
+        };
+      }
+      const parsed = parseRunOfShowLine(line);
+      if (parsed.ok) items.push(parsed.item);
+      else if (!snapshot) {
+        return { ok: false, reason: RUN_OF_SHOW_REASON[parsed.problem], column: cols.runOfShow };
+      }
+    }
+    if (!snapshot && items.length > MAX_RUN_OF_SHOW_ITEMS) {
+      return { ok: false, reason: "Run of Show holds at most 40 items", column: cols.runOfShow };
+    }
+    out.runOfShow = items;
+  }
+  if (cols.gettingThere !== -1) out.gettingThere = nullableString(row[cols.gettingThere] ?? "");
+  if (cols.policyNote !== -1) out.guestPolicyNote = nullableString(row[cols.policyNote] ?? "");
+  if (cols.children !== -1) {
+    const preset = presetFromCell(row[cols.children] ?? "", CHILDREN_POLICY_LABEL);
+    if (preset === undefined && !snapshot) {
+      return {
+        ok: false,
+        reason: "Children must be Adults only, Children welcome or blank",
+        column: cols.children,
+      };
+    }
+    out.childrenPolicy = preset ?? null;
+  }
+  if (cols.plusOnes !== -1) {
+    const preset = presetFromCell(row[cols.plusOnes] ?? "", PLUS_ONE_POLICY_LABEL);
+    if (preset === undefined && !snapshot) {
+      return {
+        ok: false,
+        reason: "Plus-Ones must be By invitation, Welcome or blank",
+        column: cols.plusOnes,
+      };
+    }
+    out.plusOnePolicy = preset ?? null;
+  }
+  return { ok: true, value: out };
+}
+
 /** A stored Start/End that carries its own UTC offset (or `Z`). */
 const HAS_OFFSET_RE = /(?:Z|[+-]\d{2}:?\d{2})$/;
 
@@ -512,6 +629,13 @@ export function parseEventsCsv(
     // as today. Present ⇒ each event carries its stable id, so the ID-aware diff
     // treats a rename as an update rather than remove+create.
     const idxEventId = indexOf(EVENT_ID_HEADER);
+    const detailColumns: DetailColumns = {
+      runOfShow: indexOf("Run of Show"),
+      gettingThere: indexOf("Getting There"),
+      children: indexOf("Children"),
+      plusOnes: indexOf("Plus-Ones"),
+      policyNote: indexOf("Guest Policy Note"),
+    };
 
     const out: ParsedEvent[] = [];
     for (let r = 1; r < rows.length; r += 1) {
@@ -540,6 +664,16 @@ export function parseEventsCsv(
           }),
         );
       }
+      const details = sheetDetails(row, detailColumns, snapshot);
+      if (!details.ok) {
+        return yield* Effect.fail(
+          new MalformedSpreadsheet({
+            reason: details.reason,
+            atRow: r + 1,
+            atColumn: details.column + 1,
+          }),
+        );
+      }
       if (snapshot) {
         const zoneKnown = isKnownTimeZone(timezone);
         if (!zoneKnown && ![startAt, endAt].every((v) => v === "" || HAS_OFFSET_RE.test(v))) {
@@ -559,6 +693,7 @@ export function parseEventsCsv(
           endAt: zoneKnown ? stampEventOffset(endAt, timezone) : endAt,
           timezone,
           ...sheetText(row, idxDescription, idxVenueName),
+          ...details.value,
           address: idxAddress === -1 ? null : nullableString(row[idxAddress] ?? ""),
           dressCodeDescription:
             idxDressDesc === -1 ? null : nullableString(row[idxDressDesc] ?? ""),
@@ -668,6 +803,7 @@ export function parseEventsCsv(
         endAt: stampEventOffset(endAt, timezone),
         timezone,
         ...sheetText(row, idxDescription, idxVenueName),
+        ...details.value,
         address: idxAddress === -1 ? null : nullableString(row[idxAddress] ?? ""),
         dressCodeDescription: idxDressDesc === -1 ? null : nullableString(row[idxDressDesc] ?? ""),
         dressCodePalette: idxPalette === -1 ? [] : parseDressCodePalette(row[idxPalette] ?? ""),

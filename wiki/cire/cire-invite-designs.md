@@ -12,7 +12,7 @@ related:
   - "[[frontend-patterns]]"
   - "[[cire-rsvp-deadline]]"
   - "[[component-library]]"
-last-reviewed: 2026-10-21
+last-reviewed: 2026-10-22
 ---
 # Invite design selector
 
@@ -33,7 +33,7 @@ round-trips.
   holds the one-off `premium_templates` entitlement (`hasPremiumTemplates`,
   given the tier `weddingEditor` already read: no statement on Crimson, the
   entitlement probe alone below it — see [[cire-entitlements]]). `inviteService.setDesign` bumps
-  `updatedAt` only — never `imagesUpdatedAt` (WT-P-I1).
+  `updatedAt` only — never `imagesUpdatedAt`.
 - **Web** — `cire/invites/src/designs/`: `registry.ts` maps `DesignId` →
   per-design component tree (`classic/` holds the original layout);
   `resolve.ts` (`resolveDesignId`) falls back to classic on unknown ids so a
@@ -341,67 +341,121 @@ event and the panel to open on.
 - **It opens on the panel whose button was pressed**, every time. The page
   clears the sheet on every close, so nothing from an earlier visit carries
   over. That is the owner's choice over remembering the last panel per event.
-- **A switch beside the close button moves between the panels** without
-  closing the dialog: [`PanelSwitch`](../../cire/invites/src/components/PanelSwitch.tsx),
-  two segments, **Details** and **Respond** ("Your RSVP" past the deadline),
-  in the order the guest can also swipe. Both are always there, so the row
-  never stands empty and says where else there is to go; the one on screen
-  is filled gold. It sits in the sheet's chrome, so it stays put while the
-  panel scrolls under it, and the sheet's content starts below the row
-  (`toolbar` on `AnimatedModal`).
-  - **Its look.** A pill matching the round close button: `rounded-full`, a
-    `border-gold/40` hairline, the `bg-surface` fill, centred level with the
-    cross. Each segment is a 44px-tall half of an equal two-column grid, its
-    word in the `text-ui-xs` tracked uppercase of the invite's labels, in the
-    prose gold (`text-gold-ink`). The chosen segment carries a gold pill with
-    its word in `text-on-gold`, the pair every gold fill on the invite uses.
-  - **Three layers.** The pill (gold, no words) under the buttons; the buttons,
-    transparent, carrying the words and taking every press and focus; and over
-    them an overlay of the same words in the on-gold ink, clipped to the pill's
-    shape and place. Pill and overlay are `aria-hidden` and
-    `pointer-events-none`. The overlay's clip stays inside the chosen button's
-    box, so that button's focus ring, drawn outside it, is never covered.
-  - **The pill follows a swipe.** Pill and clip move on one custom property,
-    `--seg-progress` — 0 under Details, 1 under Respond — written only through
-    the switch's control: at build time from the panel on screen (so a sheet
-    opened on the form does not slide its pill across), on every switch, and
-    by the swipe, which writes the share of the panels' width the finger has
-    covered. Under the finger nothing eases (`data-dragging` turns the
-    transition off); at rest and on a press they ease on
-    `transition-switch-settle`, the panels' own 280ms and curve. The words
-    change ink exactly where the pill's edge crosses them.
-  - **Its states.** A `group` named "Event sheet" of two toggle buttons with
-    `aria-pressed`. On the form the Details segment is `disabled` (40%
-    opacity) while a save is in flight and while the sheet closes itself on a
-    saved reply. A press of the segment already chosen does nothing. A tap on
-    the other one while a slide or swipe is still running is ignored, so a tap
-    that lands on it as the panels move cannot send the guest straight back. No
-    hover state of its own: the invite is read on a phone, and the gold fill is
-    the one mark of the chosen panel.
+- **A bar at the top stays put while the panel scrolls under it**: the
+  sheet's title, then the badge, then the close button
+  ([`AnimatedModal`](../../cire/invites/src/components/AnimatedModal.tsx)'s
+  `toolbar`). It is the scrollport's first child and `sticky` at its top, so
+  the panel passes beneath it rather than past it. It is no part of either
+  panel: a swipe never moves it, and a touch on it starts none.
+  - **Its look.** Full-bleed across the sheet and at least 3.75rem tall
+    (`min-h-15`, with `py-2` keeping a wrapped title's lines off its edges),
+    with the title on the content's 24px edge, the cross 8px in from the
+    sheet's corner, the badge and the cross centred on the bar's height, a
+    hairline (`border-border/60`) under it, and 1.25rem between it and the
+    content at rest. Frosted: 75% of the sheet's own surface
+    (`bg-surface/75`) over a 12px blur (`backdrop-blur-md`) of what passes
+    under it, so the content shows through as a soft shadow moving under the
+    title. The badge and the cross keep opaque surface fills of their own: on
+    an 80% frost the badge's gold words (`--color-gold-ink`) measure
+    3.34–4.20:1 over black or white content, depending on the scheme, and
+    they need a 92% fill to hold 4.5:1, which leaves no glass to see through.
+    On the 75% frost the title holds 4.5:1, and the cross 3:1, over pure
+    black and pure white on every built-in scheme.
+
+    *Measured 2026-10-21 — a temporary probe in Chromium 1194 compositing each preset's `--color-surface` at 80–100% over #000 and #fff and reading `--color-gold-ink` against it; the 75% figures are `EventSheet.browser.test.tsx` "frosts the bar"*
+  - **The title** is the event's name in the display face (`text-ui-lg`,
+    and one step down, `text-ui-md`, on a phone narrower than 380px; light
+    italic), whole: it wraps onto as many lines as it needs in the room the
+    badge and the cross leave it, and is never cut short or clamped. The bar
+    grows with it. It breaks between words, and inside a word only when the
+    word is longer than a whole line (`wrap-break-word`), hyphenated there
+    where the engine has the page's language (`hyphens-auto`; the invite's
+    `<html>` is `lang="en"`). The smaller step is what keeps a word and the
+    comma after it on one line where the title has least room: at `text-ui-lg`
+    on a 320px phone beside "View your RSVP →", "Reception," does not fit a
+    line and its comma is left alone on the next. On a 320px phone "Sangeet
+    and Reception, Thiruvananthapuram" takes four lines beside any of the
+    badge's labels, only "Thiruvananthapuram" breaking inside itself; "Mehndi"
+    takes one. A word longer than a whole line still breaks where the line
+    ends, and with no hyphenation dictionary (Chromium on Linux, where these
+    are measured) that can be just before a comma. The badge and the cross
+    never shrink.
+
+    *Measured 2026-10-21 — `EventSheet.browser.test.tsx` "shows the whole of …" screenshots at 320×568 and 390×844, and the same test with `text-ui-lg` at every width, Chromium 1194*
+  - **Nothing hides under it.** The bar takes its own height in flow, so the
+    content starts below it, and the scrollport's `scroll-padding-top` is that
+    same height, whatever the title's lines make it: a `ResizeObserver` on the
+    bar writes its border-box height to `--sheet-bar` on the scrollport
+    (`scroll-pt-[var(--sheet-bar,3.75rem)]`, the floor until the first
+    observation). So a control reached by Shift+Tab is never parked under it.
+    The swipe's arriving panel is held from the rail's `offsetTop` down, so
+    it follows the bar's height without a second measurement.
+  - **Unverified on WebKit** — how the frost clips at the sheet's rounded top
+    corners, and everything else engine-specific about it; this repository's
+    browser tier is Chromium only.
+- **A badge in the bar leads to the other panel** without closing the
+  dialog: "Give RSVP →" on the details, "← See details" on the form ("View
+  your RSVP →" on the details past the deadline, for a household with a reply
+  on file), each arrow pointing the way the guest can also swipe. It is one
+  `Button` of `@cire/ui`'s `chip` variant ([[component-library]], cire's
+  `Button`): a pill matching the round close button, `rounded-full`, an accent
+  hairline, the opaque surface fill, the `text-ui-xs` tracked uppercase of the
+  invite's labels in the prose gold, 44px tall (`min-h-11`).
+  - **Two labels in one button.** Both labels sit stacked in one grid cell,
+    so the badge is always as wide as the wider of them ("← See details" on
+    an open invite, "View your RSVP →" past the deadline) and never changes
+    width, at rest or mid-swipe. The cell is the badge's window, clipped
+    (`overflow-clip`) inside the button's padding, pill and hairline. The
+    label for the panel on screen fills it; the other waits just outside it,
+    transparent and `aria-hidden`, so the button's name is only ever "Give
+    RSVP", "See details" or "View your RSVP".
+  - **Its words follow a swipe, like a ticker.** One custom property on the
+    button, `--badge-progress`, is 0 on the details and 1 on the form. Each
+    label is the window's full width; the details' moves `p × 100%` of it
+    out by the start and fades to `opacity: calc(1 - p)`, while the form's
+    comes in from `100%` by the end at `opacity: p` — the way the panels go.
+    The two stay exactly one width apart, so mid-swipe each shows in part,
+    side by side, and never over the other. The property is written only through
+    `setBadgeProgress`: as the badge is built, from the panel on screen (so a
+    sheet opened on the form shows its words with no fade); on every switch;
+    and by the swipe, which writes the share of the panels' width the finger
+    has covered. Under the finger nothing eases (`data-dragging` turns the
+    transition off); at rest, on a press and at a swipe's settle — carried on
+    or sprung back — the words ease on `transition-badge-settle`, the panels'
+    own 280ms and curve, as inline `transform`s so one transition list covers
+    the opacity and the slide. Under reduced motion the global clamp makes it
+    instant.
+  - **Its states.** Shown on the form always, and on the details while the
+    form can be reached. Disabled (40% opacity) on the form while a save is
+    in flight and while the sheet closes itself on a saved reply. A tap on it
+    while a slide or swipe is still running is ignored: it sits in the same
+    place on both panels, so the second tap of a double tap would otherwise go
+    straight back; a key press always goes through. No hover state beyond the
+    variant's hairline: the invite is read on a phone.
 - **One height.** The sheet keeps one height whichever panel shows: 70% of a
   phone's screen (`70dvh`), and from `md` 85% of the window (`85vh`, the
   presentation's own cap) up to 640px (`AnimatedModal`). Its edge does not move on a press of the
-  switch or a swipe, in either direction, nor when the form grows as the guest answers: a
+  badge or a swipe, in either direction, nor when the form grows as the guest answers: a
   panel taller than the sheet scrolls inside it. Nothing is measured, so
   neither panel loads anything for the other's sake. A sparse event leaves
   empty sheet under its details; the form fills the sheet with its action bar
   on the bottom edge however short it is, and a form a swipe draws in is drawn
-  at the sheet's full height, so its bar does not drop when it lands. The
-  scrollport has no bottom padding for either panel (the bar is `sticky`, and
-  a sticky box keeps inside its scrollport's padding); the details carry that
-  padding on their own wrapper. The values are the owner's request for less
-  empty sheet under a sparse event, settled by rendering. At 390×844 the
-  sheet is 591px, and a sparse event's details leave 323px of it empty
-  (about 450px at 85%); a household of one answering "Attending" needs 410px, so its
-  whole reply shows, as it still does at 375×667. At 1280×800 the sheet is
-  640px, and the same reply shows every diet and allergy choice above its
-  bar, with only "Other" below (722px needed); 600px would put an allergy row
-  under the bar. The chrome is clear of every safe area: on a phone the
-  sheet's top is at 30% of the screen (× at 262px on 390×844, 179px on
-  320×568), and in landscape, which takes the `md` rule, it sits 182px in from
-  each side.
+  at the height it will have at rest — from where the panels start under the
+  bar to the sheet's bottom edge — so its bar does not drop when it lands. The
+  scrollport has no bottom padding for either panel (the action bar is
+  `sticky`, and a sticky box keeps inside its scrollport's padding); the
+  details carry that padding on their own wrapper. The values are the owner's
+  request for less empty sheet under a sparse event, settled by rendering
+  (65, 70 and 75dvh; 600, 640 and 680px tried). At 390×844 the sheet is 591px,
+  and a sparse event leaves 394px of it empty under its date; a household of
+  one answering "Attending" needs 330px, so its whole reply shows, as it does
+  at 375×667. At 1280×800 the sheet is 640px, and the same reply needs 637px,
+  so every diet and allergy choice, "Other" included, shows above its bar.
+  The bar is clear of every safe area: on a phone the sheet's top is at 30% of
+  the screen (× at 262px on 390×844, 179px on 320×568), and in landscape,
+  which takes the `md` rule, it sits 182px in from each side.
 
-  *Measured 2026-10-21 — a temporary probe test forcing candidate heights on `EventSheet` (65, 70, 75dvh; 600, 640, 680px) at 390×844, 375×667, 320×568, 844×390 and 1280×800, Chromium 1194; the 722px and 410px are the content-sized sheet on main (364cabde)*
+  *Measured 2026-10-21 — temporary probe tests in Chromium 1194 at 390×844, 375×667, 320×568 and 1280×800: the sheet's and the ×'s rects, the details' `dl` bottom to the scrollport's bottom for a sparse event, and the form's needed height as the scrollport's `scrollHeight` with the dialog forced to 100px; the 182px is from the candidate-height probe at 844×390*
 - **A swipe does the same.** On a touch screen the panel on screen follows a
   sideways drag toward the other panel — the details sit on the start side,
   the form on the end side — with the other panel drawn beside it, `inert`
@@ -411,31 +465,52 @@ event and the panel to open on.
   The wrapper is `touch-action: pan-y pinch-zoom`, so vertical scroll and
   zoom stay the browser's. A mouse drag, a drag that starts in a text field,
   and a drag on a box that scrolls sideways of its own (the dietary chips, the
-  moodboard) never move the panel. The same rule gates the switch and the
-  swipe: from the details while RSVPs are open or a reply is on file, from the
-  form while it is not busy. Once a drag begins it clears any text selection a
+  moodboard) never move the panel, and nor does a drag on the bar, which is
+  outside the panels. The same rule gates the badge and the swipe: from the
+  details while RSVPs are open or a reply is on file, from the form while it
+  is not busy. Once a drag begins it clears any text selection a
   long press started, and the panels are `select-none` until it settles; a
   still long press, before the drag, can still select the address to copy it.
 - **Nothing typed is lost.** A panel mounts the first time it shows and stays
   mounted, hidden, until the sheet closes, so the form keeps its answers
   across a look at the details. A guest who only answers never mounts the
   details, so the consent-gated map and moodboard ([[cire-consent]]) load only
-  for a guest who asks for them — by the switch, or by starting a swipe
+  for a guest who asks for them — by the badge, or by starting a swipe
   toward them.
-- **Focus moves to the new panel's heading.** Both panels are titled with the
-  event's name, so each heading also carries its panel's name — "Respond,
-  Mehndi" ("Your RSVP, Mehndi" past the deadline), "Details, Mehndi" — and the
-  dialog takes its name from the heading on screen. After a tap, a click or a
-  swipe that focus is quiet: nobody reached the heading by keyboard, so it is
-  marked `data-quiet-focus` (`quiet-focus.ts`) and `global.css` draws no ring
-  on it, where an engine that matches `:focus-visible` on a script's focus
-  after a touch (iOS Safari) would otherwise show the heading as selected. A
-  key press on the switch keeps the ring. Closing from either panel hands
-  focus back to the card button that opened the sheet; the platform's
-  `<dialog>` does that.
-- **The scroll goes to the top** of the new panel, so its heading is in view.
-  The form's scroll position is not kept across a visit to the details; its
-  answers are.
+- **One title per panel, in the bar; none in the panels.** The bar holds two
+  `<h2>` titles, the details' and the form's, and shows the one for the panel
+  on screen. Each reads as the event's name and says its panel's name to
+  assistive technology only — "Details, Mehndi", "Respond, Mehndi" ("Your
+  RSVP, Mehndi" past the deadline) — and the dialog takes its name from the
+  one shown. The panels carry no title or eyebrow of their own: the badge
+  points to the other one, and a panel starts with its first content (the
+  details with their date, the form with its first notice or guest).
+- **Focus moves to the new panel's title.** Two titles rather than one
+  relabelled, because focus sent to the element already holding it is no
+  move, and nothing would be announced. After a tap, a click or a swipe that
+  focus is quiet: nobody reached the title by keyboard, so it is marked
+  `data-quiet-focus` (`quiet-focus.ts`) and `global.css` draws no ring on it,
+  where an engine that matches `:focus-visible` on a script's focus after a
+  touch (iOS Safari) would otherwise show the title as selected. A key press
+  on the badge keeps the ring, drawn on the title in the bar. Closing from
+  either panel hands focus back to the card button that opened the sheet; the
+  platform's `<dialog>` does that.
+- **The scroll goes to the top** of the new panel, so its first content is in
+  view under the bar. The form's scroll position is not kept across a visit
+  to the details; its answers are.
+- **No tap flash.** The sheet sets `-webkit-tap-highlight-color: transparent`:
+  iOS flashes grey over a tapped element that is focusable or takes pointer
+  events, and the scrollport (focusable, for its keyboard) and the panels'
+  swipe rail are each the size of the sheet.
+- **The page behind stays still.** The lock is the root's `overflow: hidden`,
+  with `overscroll-behavior: none` beside it so a drag that reaches the end of
+  the sheet's own scroll neither chains into the invite nor rubber-bands it;
+  both are put back on close, with the scrollbar gutter that stands in for a
+  classic scrollbar while it holds (`AnimatedModal`).
+  *Unverified on iOS* — whether a touch drag on WebKit can still move the
+  page behind; the browser tier is Chromium only, and the footer's version
+  ([[cire-invite-builder#The footer's version]]) is how a report from a phone
+  names its build.
 - **Motion.** The arriving panel fades in while sliding the last 1.5rem from
   its own side — the details from the start, the form from the end, the order
   of the card's buttons — over 280ms (`animate-panel-from-*` in
@@ -443,7 +518,7 @@ event and the panel to open on.
   arrives with the sheet, and one that arrived by a swipe does not slide
   again: it eases from where the finger let go to rest on
   `transition-panel-settle`, the slide's own 280ms and curve, before the
-  switch. The switch's pill moves in step with both: with the finger during a
+  switch. The badge's words move in step with both: with the finger during a
   swipe, and on the same 280ms after a press or a release. Until the slide ends the arriving panel takes no
   pointer input, so the second tap of a double tap cannot land on a control it
   has not shown yet, and the panels' wrapper clips sideways overflow, which
@@ -457,29 +532,45 @@ event and the panel to open on.
   next step — to reply, or to change a reply, contact the couple directly — in
   a live region present from the start, so a deadline that passes with the
   sheet open is announced. A household with a reply on
-  file keeps its way into the form, the switch's second segment relabelled
-  "Your RSVP" in the same element, so focus on it stays; one with none loses
-  the switch and the swipe on the details, and if focus was on the switch when
-  it went, focus moves to the details heading ([[cire-rsvp-deadline]]).
+  file keeps its way into the form, the badge relabelled "View your RSVP →"
+  in the same element, so focus on it stays; one with none loses the badge
+  and the swipe on the details, and if focus was on the badge when it went,
+  focus moves to the details' title ([[cire-rsvp-deadline]]).
 - **The card's mark waits for the sheet.** `covered` holds the answer
   button's confirmation back while the sheet is open on either panel.
 
 Tests: `tests/components/EventSheet.test.tsx` (what mounts, hides, names and
-takes focus; the switch's segments, `aria-pressed` and place in the chrome;
-the deadline), `sheet-swipe.test.ts` (the swipe's
+takes focus; the bar's two titles, one per panel; the badge's names, its
+place in the bar ahead of the panels, its double-tap guard and its states;
+the deadline), `AnimatedModal.test.tsx` (the bar's order — title, action,
+cross — as the scrollport's first child), `sheet-swipe.test.ts` (the swipe's
 thresholds), `EventSheet.browser.test.tsx` (in Chromium, see
 [[browser-tests]]; the swipes are real touches sent through `cdp()`; the
-sheet's height read on every frame of a journey by the switch and by swipe, for a
-sparse event and a full one; a full event's panels scrolled to their ends;
-the pill's place mid-drag, at rest and on open, and the overlay's clip on it;
-the quiet focus after a swipe or a click and the ring after a key press;
-with screenshots of each panel and of the switch mid-swipe under `__screenshots__/`), the
-`cire-rsvp` end-to-end flow (a phone-sized round trip by swipe and switch,
-a drag on the chrome and the backdrop that leaves the page still, the switch
-part-way under a held swipe, with screenshots of both panels and the
-mid-swipe), both packs' `InvitePage.test.tsx` (which panel each button
-opens, on every open) and `InvitePage.browser.test.tsx` (the round trip in each
-pack, ending with focus on Event Details).
+bar unmoved while the details scroll 200px under it at 390×844 and 320×568,
+frosted with its words held over black and white content on every scheme;
+the whole event name, unclipped, beside each of the badge's three labels at
+390×844 and 320×568 for a short name and a long one, with the badge and the
+cross inside the bar and the scroll padding at the bar's height; a long name
+wrapping at 320px; Shift+Tab up a form under a four-line bar never parking a
+control under it at any step; the sheet's height read on every frame of a journey by
+badge and by swipe, for a sparse event and a full one; a full event's panels
+scrolled to their ends; the badge's words mid-drag at 20px and 60px holds,
+each moved and faded by the finger's share, side by side in its clipped
+window, back on a cancel, landed on a commit, eased on a press and still on
+open, and its width the same throughout; no comma left alone on a line of
+the title, and the title a type step down below 380px; the quiet focus after a swipe or a click
+and the ring after a key press; with screenshots of each panel, of the bar
+at both sizes for each label and name and scrolled on each scheme, and of the
+badge mid-swipe under `__screenshots__/`), `AnimatedModal.browser.test.tsx`
+(the root lock and its `overscroll-behavior`; first focus on the scrollport
+with and without a toolbar), the `cire-rsvp` end-to-end flow (a phone-sized
+round trip by swipe and badge, a drag on the bar and the backdrop that leaves
+the page still, a sideways flick on the bar's title that leaves the details
+on screen, the details scrolled 200px under the bar, the badge's words
+part-way under a held swipe, with screenshots of both panels, the scrolled
+bar and the mid-swipe), both packs' `InvitePage.test.tsx` (which panel each
+button opens, on every open) and `InvitePage.browser.test.tsx` (the round
+trip in each pack, ending with focus on Event Details).
 
 ### The details panel
 
@@ -488,16 +579,42 @@ for after.
 
 | Part | What it holds | Shown when |
 |---|---|---|
-| Header | The "Details, {event}" heading and the closed notice (the closed treatment of `RsvpDeadlineNotice`: a hairline box, muted ink) inside an always-mounted `role="status"` region. The way to the form is the sheet's switch, not the panel's | Always; the notice once RSVPs close |
+| Header | The closed notice (the closed treatment of `RsvpDeadlineNotice`: a hairline box, muted ink) inside an always-mounted `role="status"` region, which takes no room while it is empty. The title and the way to the form are the sheet's bar's, not the panel's | Always; the notice once RSVPs close |
 | When | The day; the time range, naming both days when the event ends on a later day in its own zone ("Fri 6:00 pm – Sun 11:00 am"); the zone spelt out ("AEDT (Sydney time)"); "Your time: …" when the guest's own clock reads differently; Add to calendar | The start parses |
 | Where | The venue's name over its address (with no name, the address alone); a compact map — the consented Google embed, or a card drawn from the palette tokens; "Open in maps", a menu of Google Maps, Apple Maps and Waze, or a plain link when the organiser's own is the only place to go | Something can open a map (`hasVenue`: an address, a venue name or a maps link) |
 | Who's invited | "Invited: Alex and Sam" | Some member the couple invited is not invited to this event (`invitedNames`; plus-ones are named, never decide it) |
+| Guest policy | The presets in words on one line ("Adults only · Plus-ones by invitation"), the note under them in muted ink. The last of the facts, so the date and the venue keep a phone's first screen | A preset this build knows or a note (`hasGuestPolicy`, then `guestPolicyLines`); "Plus-ones welcome" only for a household with a member invited to this event whose `plusOneAllowed` is true, which the claim also sends `welcome` to alone |
+| Run of show | Under its own hairline: the items in time order from the event's start, each a time on a 12-hour clock in a 4.75rem column ("4:00 pm") and its name; "Times are AEDT (Sydney time)." under them when the guest's own clock reads differently | Any item has a 24-hour time and a label (`hasRunOfShow`, then `runOfShowLines`) |
 | Occasion | About, Dress Code, Inspiration, under one hairline, with no hairline between them | Any of the three has content |
+| Getting there | Under its own hairline, last: the organiser's notes, line breaks kept | The notes have text |
 
-The facts are a `<dl>`: each row's term ("When", "Where", "Who's invited")
-is for assistive technology, and a glyph in the metal says it on screen. The
-guest's own zone is read after mount, so the first render matches a server
-render wherever the server ran.
+The facts are a `<dl>`: each row's term ("When", "Where", "Who's invited",
+"Guest policy") is for assistive technology, and a glyph in the metal says it
+on screen. Each labelled block's gold label (Run of show, About, Dress Code,
+Inspiration, Getting there) is an `<h3>`, one level under the bar's `<h2>`
+title. The guest's own zone is read after mount, so the first render matches
+a server render wherever the server ran.
+
+- **The run of show reads from the start.** The organiser keeps the items in
+  their own order; the sheet sorts them by their distance from the event's
+  start on its own clock, so a time earlier than the start comes last, as after
+  midnight — a reception's "12:30 am Carriages". Items at the same time keep
+  the organiser's order. The start's clock is read with `Intl` in the event's
+  zone, and from the stored value when the zone does not resolve, so a bad zone
+  never throws during a server render. The 12-hour clock is written out rather
+  than formatted, so a server render and the browser always agree. An item on
+  the second day of a multi-day event cannot be said; the times carry no date.
+- **The guest policy never contradicts the household.** The presets are
+  wording; who may bring a plus-one is each member's own permission
+  ([[cire-plus-ones]]). So the organiser's own Preview invite, a household with
+  no allowance, does not show "Plus-ones welcome" either. The claim payload
+  carries the preset as stored; the rule is the guest site's
+  (`guestPolicyLines`).
+- **A malformed value costs its own block.** The claim guard proves the notes
+  and the presets as strings when present; the run of show is read through
+  `runOfShowLines`, which keeps only well-formed items, and an unknown preset
+  reads as not stated, so a newer or broken API never sends a household back to
+  the code form through them.
 
 - **The venue reads as the day does.** With a name, the Where row's first line
   is the name, set as the When row's day is (`text-ui-md`, body ink, light,
@@ -532,9 +649,10 @@ render wherever the server ran.
   shows its first three lines and, on its venue line, the venue's name when
   there is one (the address otherwise); the whole of both is in the sheet.
   Organiser text here (the card's venue line and description, About, the
-  dress-code text, the Where row) is `wrap-anywhere`: a pasted link or a venue
-  named in one token has nowhere else to break, and would otherwise widen the
-  card past the screen or clip at the sheet's edge.
+  dress-code text, the Where row, the run of show's names, the policy note and
+  Getting there) is `wrap-anywhere`: a pasted link or a venue named in one
+  token has nowhere else to break, and would otherwise widen the card past the
+  screen or clip at the sheet's edge.
 - **Text actions, not boxes.** Add to calendar, Open in maps and Open on
   Pinterest are `@cire/ui`'s `touchLink` variant at a 44px target, so the
   sheet's switch stays the one way between the panels drawn as a control. `touchLink`
@@ -577,25 +695,62 @@ render wherever the server ran.
   under the finger that just pressed.
 
 Tests: `tests/components/DetailsPanel.test.tsx` (which rows and sections
-render, the words, the notice), `event-details.test.ts` and
-`invite-emptiness.test.ts` (the helpers, one case per failure mode),
+render, the words, the notice, and no run of show, policy or getting there
+when none has content), `event-details.test.ts` and
+`invite-emptiness.test.ts` (the helpers, one case per failure mode: the run
+of show's order across midnight, the stored-clock fallback and malformed
+items; the policy's plus-one rule), `utils.test.ts` (the claim guard),
 `calendar.test.ts` (the venue in the Google link), `MapPreview.test.tsx` (the
 maps menu's items, the organiser's link in its app's place, the plain link
 when it is alone, the refused `javascript:` link), `AddToCalendar.test.tsx`
 (the menu opened by a key on its first item, by a pointer on the menu), and
 `DetailsPanel.browser.test.tsx` (on every preset: each key fact at 4.5:1, the
-venue's name and its muted address included, and each swatch ring at 3:1 on the
+venue's name and its muted address, the policy, the run of show's times and
+names and Getting there included, and each swatch ring at 3:1 on the
 sheet; at 390px the date, the venue's name and its address on the first
-screen, every control 44px tall, every text action underlined at rest and a
-link in the description kept inside the sheet; the address under a name at
+screen, every control 44px tall, every text action underlined at rest, and a
+link in the description, a run-of-show name, the policy note and Getting
+there kept inside the sheet; the address under a name at
 the time line's weight and colour; the calendar menu's keys, its focus return
 and its placement, opened by a click on the menu with no item filled; the maps
 menu over the sheet, its item answering a hit test, with a screenshot at 390px; focus after "Show it here" and the switch-off's double-tap guard),
 and `EventCard.actions.browser.test.tsx` (the answer button inside the card
 beside a link in the description and a one-word venue name). The
-`cire-event-details` end-to-end flow sets a venue name and a description in
-the organiser's drawer and reads them in the preview's sheet, its claim
-response and its `.ics` file.
+`cire-event-details` end-to-end flow sets a venue name, a description, a run
+of show, getting-there notes and a guest policy in the organiser's drawer and
+reads them in the preview's sheet — the blocks in order, the run of show in
+time order, no "Plus-ones welcome" for the organiser's own household — its
+claim response and its `.ics` file, and in the sheet of a household allowed a
+plus-one, which is told plus-ones are welcome.
+
+## Edges in mobile Safari
+
+Safari colours the status bar and the bottom toolbar from what is painted
+behind them. Each invite shell draws two fixed strips, one at each viewport
+edge, in the colour of the page there (issue #1700).
+
+- **Shells.** `designs/classic/Document.astro` and `designs/gala/Document.astro`
+  set `viewport-fit=cover` and `body.invite-page`, and render the two
+  `.edge-strip` divs. Without cover, iOS reports the safe-area insets as 0.
+  The gift-registry, not-found and legal shells do not change.
+- **Probe.** An inline script in `<head>` (`EDGE_BOOT_SCRIPT` in
+  `components/edge-boot.ts`) measures each inset and sets `has-safe-top` or
+  `has-safe-bottom` on `<html>` before first paint. A strip shows only on an
+  edge that has an inset, so desktop, Android and Chromium get none.
+- **Colours.** The server writes `--edge-top-bg`, `--edge-bottom-bg` and the
+  `theme-color` meta from the palette. The top edge is the hero's start colour
+  and the bottom edge is the hero's end colour while the hero covers the bottom
+  strip zone; otherwise both are the page background. `startEdgeColours` keeps
+  them current on scroll, resize, orientation change and `cire:palette`.
+- **Stacking.** The strip is `Z_CLASS.EDGE` (z-30) and the scroll cue is
+  `Z_CLASS.HERO_CUE` (z-31), so the cue paints over the strip where they meet.
+- **Landscape.** `body.invite-page` takes the side insets, and the hero takes
+  its side inset from the body. The closing band's height reserve is too large
+  in landscape; a follow-up issue tracks it.
+- **Limits.** A scrim or photo hero differs from the solid strip. Raised-tone
+  sections show the page colour, not their own. A sheet is a top-layer dialog,
+  so it paints over the strips. Behaviour on iOS Safari itself is not yet
+  verified on a device.
 
 ## Adding a design
 
@@ -608,7 +763,9 @@ response and its `.ics` file.
    markup of the pack's own. Its hero ends with `<HeroScrollCue>` and keeps
    2.5rem of bottom padding under the title (see
    [The hero scroll cue](#the-hero-scroll-cue)); list the pack in
-   `InviteHeader.ssr.test.tsx` and `InviteHeader.browser.test.tsx`.
+   `InviteHeader.ssr.test.tsx` and `InviteHeader.browser.test.tsx`. Its shell
+   also renders the edge strips and puts `data-edge-hero` on the hero root (see
+   [Edges in mobile Safari](#edges-in-mobile-safari)).
 3. Row in `cire/host/src/components/invite/design-layout.ts` describing how
    the pack is SHAPED, so the builder's preview stops previewing it as Classic.
    Not optional — `design-layout.test.ts` asserts every catalog id has its own

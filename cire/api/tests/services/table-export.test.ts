@@ -1,11 +1,19 @@
 import { describe, it, expect } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, events, families, guestEvents, guests } from "@cire/db";
+import {
+  BOOTSTRAP_WEDDING_ID,
+  events,
+  families,
+  guestEvents,
+  guests,
+  runOfShowItems,
+} from "@cire/db";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { DbService, dbQuery } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
+import { parseCsv } from "../../src/services/spreadsheet";
 import { tableExportService } from "../../src/services/table-export";
 import { TestDbLayer } from "../db/test-layer";
 import { effWith } from "../test-helpers";
@@ -245,7 +253,7 @@ describe("tableExportService.eventsCsv", () => {
         // Header + the seed's 5 events.
         expect(rows).toHaveLength(6);
         expect(rows[0]).toBe(
-          "Event Name,Slug,Starts At,Ends At,Timezone,Venue,Address,Description,Dress Code,Dress Code Palette,Pinterest URL,Maps URL,Invited Guests",
+          "Event Name,Slug,Starts At,Ends At,Timezone,Venue,Address,Description,Dress Code,Dress Code Palette,Pinterest URL,Maps URL,Run of Show,Getting There,Children,Plus-Ones,Guest Policy Note,Invited Guests",
         );
         const names = rows.slice(1).map((r) => r.split(",")[0]!);
         expect(names).toEqual([
@@ -280,6 +288,70 @@ describe("tableExportService.eventsCsv", () => {
         expect(kitchenTea[header.indexOf("Venue")]).toBe("The Glasshouse");
         const catholic = rows.find((r) => r.startsWith("Catholic Ceremony,"))!.split(",");
         expect(catholic[header.indexOf("Venue")]).toBe("");
+      }),
+    ),
+  );
+
+  it(
+    "writes each event's run of show, getting-there notes and guest policy as the dashboard shows them",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        const [kitchenTea] = yield* dbQuery(() =>
+          db.select({ id: events.id }).from(events).where(eq(events.name, "Kitchen Tea")).all(),
+        );
+        yield* dbQuery(() =>
+          db
+            .update(events)
+            .set({
+              gettingThere: "Park on Sample Lane.",
+              childrenPolicy: "adults_only",
+              plusOnePolicy: "welcome",
+              guestPolicyNote: "Hats encouraged.",
+            })
+            .where(eq(events.id, kitchenTea!.id))
+            .run(),
+        );
+        yield* dbQuery(() =>
+          db
+            .insert(runOfShowItems)
+            .values([
+              {
+                eventId: kitchenTea!.id,
+                weddingId: BOOTSTRAP_WEDDING_ID,
+                sortOrder: 0,
+                time: "17:15",
+                label: "Speeches",
+              },
+              {
+                eventId: kitchenTea!.id,
+                weddingId: BOOTSTRAP_WEDDING_ID,
+                sortOrder: 1,
+                time: "16:00",
+                label: "Tea is poured",
+              },
+            ])
+            .run(),
+        );
+        const [header, ...rows] = parseCsv(
+          yield* tableExportService.eventsCsv(BOOTSTRAP_WEDDING_ID),
+        );
+        const cell = (name: string, column: string) =>
+          rows.find((cells) => cells[0] === name)![header!.indexOf(column)];
+        expect(cell("Kitchen Tea", "Run of Show")).toBe("17:15 Speeches\n16:00 Tea is poured");
+        expect(cell("Kitchen Tea", "Getting There")).toBe("Park on Sample Lane.");
+        expect(cell("Kitchen Tea", "Children")).toBe("Adults only");
+        expect(cell("Kitchen Tea", "Plus-Ones")).toBe("Welcome");
+        expect(cell("Kitchen Tea", "Guest Policy Note")).toBe("Hats encouraged.");
+        for (const column of [
+          "Run of Show",
+          "Getting There",
+          "Children",
+          "Plus-Ones",
+          "Guest Policy Note",
+        ]) {
+          expect(cell("Catholic Ceremony", column)).toBe("");
+        }
       }),
     ),
   );
@@ -395,7 +467,7 @@ describe("tableExportService.eventsCsv", () => {
 
         const csv = yield* tableExportService.eventsCsv("wed_empty");
         expect(lines(csv)).toEqual([
-          "Event Name,Slug,Starts At,Ends At,Timezone,Venue,Address,Description,Dress Code,Dress Code Palette,Pinterest URL,Maps URL,Invited Guests",
+          "Event Name,Slug,Starts At,Ends At,Timezone,Venue,Address,Description,Dress Code,Dress Code Palette,Pinterest URL,Maps URL,Run of Show,Getting There,Children,Plus-Ones,Guest Policy Note,Invited Guests",
         ]);
       }),
     ),

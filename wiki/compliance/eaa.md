@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[scope-matrix]]"
   - "[[component-library]]"
-last-reviewed: 2026-09-09
+last-reviewed: 2026-10-22
 ---
 
 # EAA — Accessibility
@@ -37,17 +37,17 @@ as "consumer-oriented services" once we have EU users.
 
 Tracked with `C-` IDs:
 
-1. **Axe-core in CI** — `@axe-core/playwright` running against `@musubi/landing`, `@musubi/social`, `@pulse/web` on every PR. Fail on serious / critical violations. ID: **C-M14**. Locked design constraints:
+1. **Axe-core in CI** — `@axe-core/playwright` running against `@musubi/landing`, `@musubi/social`, `@pulse/web` on every PR. Fail on serious / critical violations. Locked design constraints:
    - **Per-app route allowlist** kept in each app's repo as `tests/a11y/routes.ts`. Initial set: landing `/`, `/legal/*`; social `/`, `/login`, `/account`, `/sessions`; pulse `/`, `/event/[id]`, `/explore`. Add every new top-level route to the allowlist. A lint rule enforces this by comparing the top-level pages to the allowlist file.
    - **Browser pinned** via `playwright install chromium --with-deps` cached by the Playwright version hash so CI cold-start stays under a minute.
    - **Run-time budget** ≤90 s for the full PR suite, parallelised across the three apps via `playwright --workers`.
    - **Severity gating** — PR job fails on `serious` + `critical` only; full WCAG 2.1 AA audit (incl. `moderate` + `minor`) runs nightly, so PR latency stays low and we still catch drift.
-2. **Solid-aware a11y lint coverage** — `oxlintrc.json` already enables `jsx-a11y`; verify the rule set matches WCAG 2.1 AA (some rules may be off by default). ID: **C-L12**.
-3. **Manual screen-reader test** — pre-release checklist: VoiceOver on macOS Safari, NVDA on Windows Firefox, TalkBack on Android Chrome (when Android lands). ID: **C-L13**.
-4. **Pulse map keyboard parity** — make sure marker selection, zoom, pan, and detail expand are all reachable by keyboard. ID: **C-L14**.
-5. **Pulse calendar non-colour state cues** — icons / text labels distinguish "Not Started / Started / Ongoing / Finished" beyond colour. ID: **C-L15**.
-6. **Accessibility statement** on `@musubi/landing/legal/accessibility` listing supported AT, known gaps, contact. EAA Art. 13 requires this. ID: **C-L16**.
-7. **Captions for any video content** on `@musubi/landing`. EAA Art. 4. ID: **C-L17**.
+2. **Solid-aware a11y lint coverage** — `oxlintrc.json` already enables `jsx-a11y`; verify the rule set matches WCAG 2.1 AA (some rules may be off by default).
+3. **Manual screen-reader test** — pre-release checklist: VoiceOver on macOS Safari, NVDA on Windows Firefox, TalkBack on Android Chrome (when Android lands).
+4. **Pulse map keyboard parity** — make sure marker selection, zoom, pan, and detail expand are all reachable by keyboard.
+5. **Pulse calendar non-colour state cues** — icons / text labels distinguish "Not Started / Started / Ongoing / Finished" beyond colour.
+6. **Accessibility statement** on `@musubi/landing/legal/accessibility` listing supported AT, known gaps, contact. EAA Art. 13 requires this.
+7. **Captions for any video content** on `@musubi/landing`. EAA Art. 4.
 
 ## See also
 

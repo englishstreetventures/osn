@@ -2,12 +2,13 @@
 title: Cire host portal layout system
 tags: [architecture, web, organiser, cire]
 related:
+  - "[[cire-run-sheet]]"
   - "[[index]]"
   - "[[cire-invite-builder]]"
   - "[[cire-organiser]]"
   - "[[cire-entitlements]]"
   - "[[cire-rsvp-table]]"
-last-reviewed: 2026-10-21
+last-reviewed: 2026-10-22
 ---
 # Host Portal Layout System
 
@@ -133,6 +134,7 @@ That guard is the one CSS-layer risk here that *is* mechanically checkable.
 | `builder` | the invite-builder card | form-only vs form + preview pane |
 | `card` | an event card | the card's own details grid |
 | `enquiries` | the enquiries view | inbox-or-thread vs inbox-and-thread |
+| `run-sheet` | a loaded run sheet (`RunSheetView`) | the time column's width, the holders' column |
 
 A container cannot be queried by the element that declares it — the query always
 sits on a descendant. `card` and `enquiries` are new; both exist because a
@@ -214,7 +216,7 @@ component was previously reading a container it did not live in.
   preview layers — five inline per-section previews, and the composed pane — used
   to both be mounted at every width with the container query hiding one, so the
   idle layer still took every token write on every keystroke and colour-drag
-  frame (perf **P-I1**). The builder now observes its own `@container/builder`
+  frame. The builder now observes its own `@container/builder`
   element and mounts one layer or the other:
 
   - A `ResizeObserver`'s `contentRect` **is** the content box a container query
@@ -303,14 +305,28 @@ component was previously reading a container it did not live in.
     scrolled frame for a column that cannot slide.
   - Switching event keeps the box and puts it back to its top-left; it is not
     remounted.
+- **Run sheet** (`RunSheetView`) — the view declares `@container/run-sheet`
+  itself, because in a helper's seat there is no `panel` to measure. Each day's
+  rows are grids on three lengths (`--rs-pad`, `--rs-time`, `--rs-gap`, in the
+  `run-sheet-*` utilities of `global.css`), so every row's marker sits on the
+  day's thread. At 36rem the time column widens from 4.5rem to 5.5rem and a
+  task's holders move from a line under its words to a third column. The look
+  is in `cire/host/DESIGN.md` §7, the behaviour in [[cire-run-sheet#In the portal]].
+- **Checklist row** (`ChecklistView`) — the task's time on the day sits between
+  the title and the holders' stack: an empty dotted slot or a pill for an owner
+  or editor (`RunTimeEditor`), the pill as text for anyone else. The time,
+  the holders and delete are one group at the row's end: where the title
+  would fall under 8rem beside them, the group wraps onto a line of its own,
+  still at the end, and the title keeps the row's width.
 
 ## Organiser client caches: stale-while-revalidate
 
-Nine `weddingId`-keyed SolidJS signal caches share this contract:
+Ten `weddingId`-keyed SolidJS signal caches share this contract:
 `budget-store.ts`, `enquiries-store.ts`, `events-store.ts`, `guests-store.ts`,
-`hosts-store.ts`, `households-store.ts`, `registry-store.ts`, `tasks-store.ts`,
-`vendors-store.ts` (all `cire/host/src/lib/`). One page for the mechanism
-they all share, rather than nine copies that drift — a module's own page
+`hosts-store.ts`, `households-store.ts`, `registry-store.ts`,
+`run-sheet-store.ts`, `tasks-store.ts`, `vendors-store.ts` (all
+`cire/host/src/lib/`). One page for the mechanism they all share, rather than
+ten copies that drift — a module's own page
 (e.g. [[cire-checklist-tasks]]) documents only what is genuinely that
 module's. `hosts-store.ts` holds the wedding's seats for the checklist, which
 names and pictures who holds each task and offers every seat in its assign
@@ -322,6 +338,16 @@ add, role change and removal. `tasks-store.ts` also keeps the reader's own seat
 from each `GET /tasks` answer (`readTaskList`), which the checklist puts first
 among a task's holders. A helper's run-sheet scope is not in the cache, so
 changing one marks nothing stale.
+
+`tasks-store.ts` and `run-sheet-store.ts` are both built by one factory,
+`createRereadCache` (`reread-cache.ts`), which adds two things to this
+contract: a coalescing re-read for a push signal (`rereadXxx`; a burst costs at
+most two reads) and the rule that no read lands across one of the portal's own
+task writes, counted by `taskWrites` (`task-writes.ts`) for both. A read that
+lands while a write is out, or that was sent before one ended, is dropped and
+sent again once the last write ends. The run sheet's cache is also marked stale
+each time a task write ends, since a checklist write changes the run sheet
+without answering with it ([[cire-run-sheet#In the portal]]).
 
 A cached wedding is in one of four states:
 
@@ -400,11 +426,12 @@ check).
 
 The caches hold guest names, vendor emails and phone numbers, budget figures
 and the gift log. A wedding keeps them only while its dashboard is mounted.
-This covers the nine caches above, the seats among them, and the upgrade catalogue
+This covers the ten caches above, the seats among them, and the upgrade catalogue
 (`upgrade-store.ts`), which keeps prices and has no stale mark.
 
-- **Open.** `WeddingCacheScope` in `OrganiserApp.tsx` wraps the module shell.
-  Its body calls `openWeddingCaches(id)` before any view below it runs.
+- **Open.** `WeddingCacheScope` in `OrganiserApp.tsx` wraps the module shell,
+  and for a helper the run-sheet seat in its place. Its body calls
+  `openWeddingCaches(id)` before any view below it runs.
 - **Drop.** The same scope's `onCleanup` calls `dropWeddingCaches(id)`
   (`lib/wedding-caches.ts`). One hook covers every way out: another wedding,
   back to the list, Security, a hash edit or Back/Forward, a role that loses
@@ -447,6 +474,18 @@ applies the answer. A wedding missing from the answer sends the route back to
 the list. A `helper` role swaps in its seat. Either way the scope unmounts and
 drops the rows. The re-read runs on:
 
+- **a push signal for the open wedding.** `Dashboard` listens on
+  `cire:wedding:<id>` with `useTopic` (`@shared/realtime/solid`) while a
+  wedding is open, for every role — a helper's seat included
+  (`surfacesFor().canListen`). A `members-changed` signal, a dropped socket, a
+  reconnect and a stop each re-read the list at once, outside the
+  once-a-minute limit; a `tasks-changed` signal does not, since no task
+  changes who may open the wedding. A member removed or who left, and every
+  member of a deleted wedding, gets the signal and then a 1008 close, so their
+  tab re-reads and stops listening. A member narrowed to `helper` keeps the
+  socket: the re-read swaps in the helper's seat, which goes on listening.
+  Either kind of signal, and a reconnect, also marks the run sheet stale for
+  every listening seat, a helper's included. See [[realtime]].
 - **a 403 from a wedding route.** `Dashboard` provides its own `AuthContext`
   whose `authFetch` is wrapped by `watchForbidden` (`lib/forbidden-watch.ts`).
   Every request below it is watched.
@@ -457,15 +496,66 @@ drops the rows. The re-read runs on:
   module to module and never be refused. A 401 on the re-read signs the tab
   out, and that full page load discards the heap.
 
-Concurrent triggers share one request. The exception is a 403 on a request
-sent after the shared request started: the answer may predate the change the
-403 reports, so a new request goes out. A request unanswered after 30 s is
+Concurrent triggers share one request. The exceptions are a 403 on a request
+sent after the shared request started, and a push signal, reconnect or stop
+that arrives after it started: the answer may predate the change they report,
+so a new request goes out. A dropped socket reports no change of its own, so
+it joins a request in flight. A request unanswered after 30 s is
 abandoned, and only the newest request's answer is applied. A failed answer,
 or one without a list, changes nothing. The list is also written locally: a
 created wedding, a rename, or the upgrade return's own refresh. An answer
 that arrives after one of those local writes is thrown away and the list is
-asked for once more. Nothing pushes a change to a tab left untouched. It
-waits for the tab's next request, move or return to view.
+asked for once more.
+
+Push stops in a tab when no hub is bound on the tier, when the socket is
+blocked, after six failed attempts, or when the hub closes the socket with
+1008 (access revoked, the topic or the member's socket cap, or a frame other
+than `ping`). It stays stopped in that tab
+until the open wedding changes or the page reloads. Until then, a tab left
+untouched waits for its next request, move or return to view. Each time push
+stops, the tab reports it to `POST /api/realtime/fallback`
+([realtime.ts](../../cire/host/src/lib/realtime.ts)).
+
+The views below read from the same socket, never one of their own.
+`Dashboard` sorts each signal by its kind and counts it in one of two
+contexts:
+
+| Event | Caches marked stale | Context bumped | Read by |
+|---|---|---|---|
+| `members-changed` | the seats (`hosts-store`) | `MembersChangedContext` ([members-changed.ts](../../cire/host/src/lib/members-changed.ts)) | the co-host panel; the checklist, for its holder faces |
+| `tasks-changed` | the tasks (`tasks-store`) | `TasksChangedContext` ([tasks-changed.ts](../../cire/host/src/lib/tasks-changed.ts)) | the checklist; Overview's checklist card |
+| a reconnect | both | both | all of the above |
+
+Marking a cache stale sends nothing and leaves a read in flight alone: a view
+that is not on screen reads again when it next mounts. A view that is on
+screen reads again at once, or as soon as its read in flight and its own
+writes are over.
+
+- **The co-host panel** (`HostsPanel`) reads `GET /hosts` again, so it shows an
+  added, re-roled or removed member, and a helper's new scope, within seconds.
+  A failed re-read keeps the list on screen, and only the newest read's answer
+  is applied. While one of the panel's own writes is out (an add, a removal, a
+  role change or a scope change), a signal's re-read waits, and a read that
+  lands, or was sent before a write ended, is dropped, since it may predate the
+  write; once the last write ends, one read goes. A seat the re-read shows as
+  the panel already does keeps its row object, so `<For>` keeps the row and the
+  focus of an owner on its role or scope select. A scope write in flight is
+  kept by the seat's profile id, so its select shows the scope being set and
+  stays `aria-busy` until the write ends.
+- **The checklist** (`ChecklistView`) reads `GET /tasks` again on
+  `tasks-changed`, and `GET /hosts` on `members-changed` once it has needed the
+  seats. Its own create, tick, delete, move and holder writes are marked out
+  in `tasks-store` (`beginTaskWrite`): a signal's re-read waits while one is
+  out, a read that lands while one is out, or was sent before one ended, is
+  dropped, and one read goes once the last write ends. So a re-read never
+  undoes what the organiser just did on screen, and the read after the write
+  goes whichever reaches the tab first, the write's answer or its signal.
+  See [[cire-checklist-tasks#Live refresh]].
+- **Overview** reads the tasks again on `tasks-changed`, unless the checklist
+  is locked below Gold.
+- Both task views re-read through `rereadTasks`: signals that land while a
+  read is out cost one more read between them, so a burst of writes costs a
+  tab at most two reads.
 
 ## Testing
 
@@ -494,4 +584,5 @@ What that leaves testable, and where it lives:
 | Master-detail behaviour: draft-per-enquiry, no cross-thread messages, placeholder, `aria-current` cardinality, post-reply refresh | `EnquiriesView.test.tsx`, `EnquiryInbox.test.tsx` |
 | Which preview layer mounts, and that its crossover matches `@4xl/builder` | `InviteBuilder.test.tsx` — a stub `ResizeObserver` reporting a fixed content-box width; a reasonable cheap choice in the unit tier, since happy-dom runs no layout, not a workaround for a missing harness |
 | The RSVP view's event tabs (ids beside the shell's, keys, a strip of twelve), sort heads, the pinned head row at 1280 and Guest column at 390 (in flow at 1280), focus kept clear of the pinned cells, and the box fitting under the top bar | `RsvpView.events.browser.test.tsx`, real Chromium, with the real `ModuleShell` around it; screenshots in light and dark land in its gitignored `__screenshots__/` |
+| The run sheet's thread, and its `run-sheet` switch from two grid tracks to three | `RunSheetView.browser.test.tsx`, at 390 and 1280px |
 | The container queries themselves | `bun run --cwd cire/host test:browser` — a real-Chromium tier documented in `wiki/conventions/browser-tests.md`. Worked example: `cire/host/tests/components/PreviewInviteButton.browser.test.tsx`, which asserts the "Preview invite" label is clipped to `sr-only` at phone width and swaps to the written label once the `frame` container passes 42rem. |

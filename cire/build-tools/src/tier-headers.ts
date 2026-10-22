@@ -6,15 +6,17 @@
  *
  * Each app's `public/_headers` is written for production: `connect-src`,
  * `img-src`, `report-uri` and `Reporting-Endpoints` all name
- * `https://api.cireweddings.com`. Astro copies it into the directory it serves
+ * `https://api.cireweddings.com`, and a `connect-src` that admits a socket
+ * names `wss://api.cireweddings.com` too. Astro copies it into the directory it serves
  * (`dist/` for a static portal, `dist/client/` for the guest-site Worker)
  * unchanged, and the same file would otherwise ship to every tier — the dev
  * tier calls its own cire-api host, derived from the dev domain, which that
  * policy does not allow, and would file its violation reports with the
  * production collector.
  * After the build, this integration swaps the production origin for the origin
- * of the cire-api URL the app's own code resolves, so each tier's policy names
- * its own API and its own collector. On a production build the file is left
+ * of the cire-api URL the app's own code resolves, and the socket origin for
+ * its `ws:`/`wss:` twin, so each tier's policy names its own API and its own
+ * collector. On a production build the file is left
  * byte-for-byte as committed.
  *
  * The env comes from Vite's resolved config, the same object that fills
@@ -39,6 +41,9 @@ export const PRODUCTION_API_ORIGIN = "https://api.cireweddings.com";
  * `lastIndex`.
  */
 const productionOrigin = () => /https:\/\/api\.cireweddings\.com(?![\w.:-])/g;
+
+/** The production socket origin, bounded the same way as {@link productionOrigin}. */
+const productionSocketOrigin = () => /wss:\/\/api\.cireweddings\.com(?![\w.:-])/g;
 
 /**
  * A DNS name as `new URL` leaves it: lowercased, internationalised labels in
@@ -82,16 +87,21 @@ function originOf(apiUrl: string): string {
 }
 
 /**
- * `contents` with every production cire-api origin replaced by `apiUrl`'s.
- * Throws when the file names no production origin, since there would be
- * nothing to point at the tier's API and the policy would ship unchanged.
+ * `contents` with every production cire-api origin replaced by `apiUrl`'s, and
+ * every production socket origin by its `ws:`/`wss:` twin, since an `https:`
+ * source does not admit a `wss:` URL. Throws when the file names no production
+ * origin, since there would be nothing to point at the tier's API and the
+ * policy would ship unchanged.
  */
 export function retargetHeaders(contents: string, apiUrl: string): string {
   const origin = originOf(apiUrl);
   if (!productionOrigin().test(contents)) {
     throw new Error(`tier-headers: _headers does not name ${PRODUCTION_API_ORIGIN}`);
   }
-  return contents.replace(productionOrigin(), () => origin);
+  const socketOrigin = origin.replace(/^http/, "ws");
+  return contents
+    .replace(productionSocketOrigin(), () => socketOrigin)
+    .replace(productionOrigin(), () => origin);
 }
 
 /** Whether any `.js` or `.mjs` file under `dir` contains `origin`. */

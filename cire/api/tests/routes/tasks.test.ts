@@ -1,12 +1,15 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, guests, taskAssignees, tasks, weddingHosts } from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, events, guests, taskAssignees, tasks, weddingHosts } from "@cire/db";
+import { createRateLimiter } from "@shared/rate-limit";
+import type { CloseTargets, HubNamespace } from "@shared/realtime/server";
 import { eq, sql } from "drizzle-orm";
 
 import { createApp } from "../../src/app";
 import { createDb, DEV_OWNER_SEAT_ID, seedDb } from "../../src/db/setup";
+import { CHECKLIST_TEMPLATES } from "../../src/lib/checklist-templates";
 import { CIRE_METRICS } from "../../src/metrics";
-import { appRequest, failStatements, jsonBody, setTier } from "../test-helpers";
+import { appRequest, failStatements, jsonBody, recordStatements, setTier } from "../test-helpers";
 import { counterValue } from "../test-helpers/metrics-harness";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
@@ -18,6 +21,8 @@ const EDITOR = "usr_editor";
 const VIEWER = "usr_viewer";
 const HELPER = "usr_helper";
 const STRANGER = "usr_stranger";
+/** The sample wedding's first seeded event, which `seedDb` inserts. */
+const SEED_EVENT = "9f7a2c14-1b3d-4e5f-8a01-000000000001";
 /** A seat on the other wedding, so never assignable on the bootstrap one. */
 const OTHER_SEAT = "whost_other_editor";
 
@@ -26,8 +31,15 @@ beforeAll(async () => {
   auth = await makeOsnTestAuth();
 });
 
+/** The app's options here: a task-write limit of its own per app, far above
+ *  anything a test sends, so no test spends another's. */
+const appOptions = () => ({
+  osnTestKey: auth.key,
+  taskWriteLimiter: createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 }),
+});
+
 function buildApp(tier: "ivory" | "gold" | "crimson" = "gold") {
-  return createApp(buildDb(tier), { osnTestKey: auth.key });
+  return createApp(buildDb(tier), appOptions());
 }
 
 /** The checklist is a Gold module, so every wedding here is on it unless a test
@@ -132,7 +144,7 @@ describe("tasks routes", () => {
   // scoped to its own rows, so the checklist read stays behind the member gate.
   it("refuses the checklist to a helper, even one that holds a task", async () => {
     const db = buildDb("gold");
-    const app = createApp(db, { osnTestKey: auth.key });
+    const app = createApp(db, appOptions());
     const created = await req(app, "POST", base, EDITOR, CREATE);
     const { task } = (await created.json()) as { task: { id: string } };
     expect(
@@ -149,7 +161,7 @@ describe("tasks routes", () => {
   // names as the reader's comes from that cookie's account.
   it("reads the checklist on the session cookie, naming the caller's seat, and refuses a dead one", async () => {
     const db = buildDb("gold");
-    const app = createApp(db, { osnTestKey: auth.key });
+    const app = createApp(db, appOptions());
     const read = (cookie: string) => appRequest(app, base, { headers: { cookie } });
 
     const live = await read(`cire_org_session=${await seedOrganiserSession(db, VIEWER)}`);
@@ -233,7 +245,7 @@ describe("the checklist is a Gold module", () => {
 
   it("keeps a wedding's tasks while it is locked, and shows them again on Gold", async () => {
     const db = buildDb("gold");
-    const app = createApp(db, { osnTestKey: auth.key });
+    const app = createApp(db, appOptions());
     expect((await req(app, "POST", base, EDITOR, CREATE)).status).toBe(200);
     setTier(db, BOOTSTRAP_WEDDING_ID, "ivory");
     expect((await req(app, "GET", base, OWNER)).status).toBe(402);
@@ -293,7 +305,7 @@ describe("the people holding a task", () => {
 
   it("422s a seat of another wedding, a guest id, a task id and an id that names nothing, and writes nothing", async () => {
     const db = buildDb("gold");
-    const app = createApp(db, { osnTestKey: auth.key });
+    const app = createApp(db, appOptions());
     const id = await createTask(app);
     await add(app, id, "whost_helper");
     const guestId = db.select({ id: guests.id }).from(guests).limit(1).all()[0]!.id;
@@ -311,7 +323,7 @@ describe("the people holding a task", () => {
 
   it("400s a seat id past 64 characters, and routes no empty one, writing nothing", async () => {
     const db = buildDb("gold");
-    const app = createApp(db, { osnTestKey: auth.key });
+    const app = createApp(db, appOptions());
     const id = await createTask(app);
     await add(app, id, "whost_helper");
     const overLong = "w".repeat(65);
@@ -329,7 +341,7 @@ describe("the people holding a task", () => {
 
   it("404s a task of another wedding and a missing one, for adding and removing, and leaves the task alone", async () => {
     const db = buildDb("gold");
-    const app = createApp(db, { osnTestKey: auth.key });
+    const app = createApp(db, appOptions());
     const id = await createTask(app);
     await add(app, id, "whost_viewer");
     const addedBefore = await counted("add", "task_not_found");
@@ -355,7 +367,7 @@ describe("the people holding a task", () => {
 
   it("refuses a viewer, a helper, a stranger and no token, adding or removing, and changes nothing", async () => {
     const db = buildDb("gold");
-    const app = createApp(db, { osnTestKey: auth.key });
+    const app = createApp(db, appOptions());
     const id = await createTask(app);
     await add(app, id, "whost_viewer");
 
@@ -380,7 +392,7 @@ describe("the people holding a task", () => {
   // cookie path has to hold for them, not only the bearer the tests above send.
   it("accepts the session cookie, and refuses a dead one without writing", async () => {
     const db = buildDb("gold");
-    const app = createApp(db, { osnTestKey: auth.key });
+    const app = createApp(db, appOptions());
     const id = await createTask(app);
     const send = (method: string, cookie: string, seat: string) =>
       appRequest(app, seatPath(id, seat), { method, headers: { cookie } });
@@ -399,7 +411,7 @@ describe("the people holding a task", () => {
   // task route may write one: creating or editing a task drops the field.
   it("writes no holder sent to the task create or edit route", async () => {
     const db = buildDb("gold");
-    const app = createApp(db, { osnTestKey: auth.key });
+    const app = createApp(db, appOptions());
     const id = await createTask(app);
     await add(app, id, "whost_helper");
 
@@ -434,7 +446,7 @@ describe("the people holding a task", () => {
 
   it("answers 500 and writes nothing when the database fails the write", async () => {
     const db = buildDb("gold");
-    const app = createApp(db, { osnTestKey: auth.key });
+    const app = createApp(db, appOptions());
     const id = await createTask(app);
     await add(app, id, "whost_viewer");
     const addErrors = await counted("add", "error");
@@ -487,7 +499,7 @@ describe("the people holding a task", () => {
 
   it("answers 200 unchanged to adding a seat the task holds, and keeps its place", async () => {
     const db = buildDb("gold");
-    const app = createApp(db, { osnTestKey: auth.key });
+    const app = createApp(db, appOptions());
     const id = await createTask(app);
     await add(app, id, "whost_helper");
     await add(app, id, "whost_viewer");
@@ -525,7 +537,7 @@ describe("the people holding a task", () => {
 
   it("keeps the order seats were added in when they were added in the same second", async () => {
     const db = buildDb("gold");
-    const app = createApp(db, { osnTestKey: auth.key });
+    const app = createApp(db, appOptions());
     const id = await createTask(app);
     // Written straight in, so the second is the same for all three; the seat
     // ids run against the order they were added in.
@@ -551,7 +563,7 @@ describe("the people holding a task", () => {
   // they were added; the order must not rest on which index the database picks.
   it("keeps the order seats were added in, whichever index the database reads them through", async () => {
     const db = buildDb("gold");
-    const app = createApp(db, { osnTestKey: auth.key });
+    const app = createApp(db, appOptions());
     const id = await createTask(app);
     // Written out of order: by row, editor, viewer, helper; by seat id, editor,
     // helper, viewer; by when they were added, viewer, helper, editor.
@@ -600,7 +612,7 @@ describe("the people holding a task", () => {
 
   it("takes only the removed seat off its tasks, and keeps the tasks", async () => {
     const db = buildDb("gold");
-    const app = createApp(db, { osnTestKey: auth.key });
+    const app = createApp(db, appOptions());
     const shared = await createTask(app);
     const alone = await createTask(app, "Mind the cake");
     await add(app, shared, "whost_helper");
@@ -652,7 +664,7 @@ describe("the people holding a task", () => {
 
   it("takes a deleted task's holders with it, and no other task's", async () => {
     const db = buildDb("gold");
-    const app = createApp(db, { osnTestKey: auth.key });
+    const app = createApp(db, appOptions());
     const gone = await createTask(app);
     const kept = await createTask(app, "Mind the cake");
     await add(app, gone, "whost_helper");
@@ -675,5 +687,740 @@ describe("the people holding a task", () => {
       expect(res.status, caller).toBe(200);
       expect(((await res.json()) as ListBody).viewerHostId, caller).toBe(seat);
     }
+  });
+});
+
+// ── A task's run time ───────────────────────────────────────────────────────
+
+/** A task as every answer carries its time. */
+type TimedTask = {
+  id: string;
+  title: string;
+  runAt: string | null;
+  runTimezone: string | null;
+  eventId: string | null;
+  runOffsetMinutes: number | null;
+  anchored: boolean;
+  eventRemoved: boolean;
+};
+
+describe("a task's run time", () => {
+  const CEREMONY = "evt_rt_ceremony";
+  const THEIRS = "evt_rt_theirs";
+
+  /** The bootstrap wedding with a ceremony at 15:00 Sydney on a June day (AEST,
+   *  +10:00), and the other wedding with an event of its own. */
+  function build() {
+    const db = buildDb("gold");
+    db.insert(events)
+      .values([
+        {
+          id: CEREMONY,
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          slug: "rt-ceremony",
+          name: "Ceremony",
+          startAt: "2099-06-20T15:00:00+10:00",
+          endAt: "",
+          timezone: "Australia/Sydney",
+        },
+        {
+          id: THEIRS,
+          weddingId: "wed_other",
+          slug: "rt-theirs",
+          name: "Their ceremony",
+          startAt: "2099-06-20T15:00:00+10:00",
+          endAt: "",
+          timezone: "Australia/Sydney",
+        },
+      ])
+      .run();
+    return { db, app: createApp(db, appOptions()) };
+  }
+
+  async function newTask(app: App): Promise<string> {
+    const res = await req(app, "POST", base, EDITOR, {
+      title: "Bring the rings",
+      timeframeBucket: "day_of",
+    });
+    expect(res.status).toBe(200);
+    const { task } = (await res.json()) as { task: TimedTask };
+    expect(task).toMatchObject({
+      runAt: null,
+      runTimezone: null,
+      eventId: null,
+      runOffsetMinutes: null,
+      anchored: false,
+      eventRemoved: false,
+    });
+    return task.id;
+  }
+
+  const patch = (app: App, id: string, body: unknown) =>
+    req(app, "PATCH", `${base}/${id}`, EDITOR, body);
+
+  /** The row's five run-time columns, as stored. */
+  const stored = (db: ReturnType<typeof buildDb>, id: string) =>
+    db
+      .select({
+        title: tasks.title,
+        runAt: tasks.runAt,
+        runTimezone: tasks.runTimezone,
+        eventId: tasks.eventId,
+        runOffsetMinutes: tasks.runOffsetMinutes,
+        eventRemovedAt: tasks.eventRemovedAt,
+      })
+      .from(tasks)
+      .where(eq(tasks.id, id))
+      .all()[0];
+
+  const UNTIMED = {
+    runAt: null,
+    runTimezone: null,
+    eventId: null,
+    runOffsetMinutes: null,
+    eventRemovedAt: null,
+  };
+
+  const counted = (kind: string, result: string) =>
+    counterValue(CIRE_METRICS.taskRunTimeChanged, { kind, result });
+
+  // ── Refusals ──────────────────────────────────────────────────────────────
+
+  it("400s a run time that cannot say what it means, and writes nothing", async () => {
+    const { db, app } = build();
+    const id = await newTask(app);
+    for (const runTime of [
+      { kind: "fixed", at: "2099-06-20T15:00" },
+      { kind: "fixed", timezone: "Australia/Sydney" },
+      { kind: "offset", eventId: CEREMONY },
+      { kind: "offset", offsetMinutes: -30 },
+      { kind: "clock", eventId: CEREMONY },
+      { kind: "clock", at: "2099-06-20T14:30" },
+      { kind: "later" },
+      { at: "2099-06-20T15:00", timezone: "Australia/Sydney" },
+      "2099-06-20T15:00",
+      { kind: "offset", eventId: "", offsetMinutes: 0 },
+      { kind: "offset", eventId: "e".repeat(65), offsetMinutes: 0 },
+    ]) {
+      const res = await patch(app, id, { runTime, title: "Changed" });
+      expect(res.status, JSON.stringify(runTime)).toBe(400);
+    }
+    expect(stored(db, id)).toEqual({ title: "Bring the rings", ...UNTIMED });
+  });
+
+  it("400s a zone that is not a real IANA zone, a fixed offset included", async () => {
+    const { db, app } = build();
+    const id = await newTask(app);
+    for (const timezone of ["+10:00", "UTC+10", "GMT+10", "Mars/Base", "", "A".repeat(65)]) {
+      const res = await patch(app, id, {
+        runTime: { kind: "fixed", at: "2099-06-20T15:00", timezone },
+      });
+      expect(res.status, timezone).toBe(400);
+    }
+    expect(stored(db, id)).toEqual({ title: "Bring the rings", ...UNTIMED });
+  });
+
+  it("400s a date and time that does not exist or is not one", async () => {
+    const { db, app } = build();
+    const id = await newTask(app);
+    for (const at of ["2099-13-40T99:99", "tomorrow", "2099-06-20", "15:00", ""]) {
+      for (const runTime of [
+        { kind: "fixed", at, timezone: "Australia/Sydney" },
+        { kind: "clock", eventId: CEREMONY, at },
+      ]) {
+        expect((await patch(app, id, { runTime })).status, `${runTime.kind} ${at}`).toBe(400);
+      }
+    }
+    expect(stored(db, id)).toEqual({ title: "Bring the rings", ...UNTIMED });
+  });
+
+  it("400s an offset that is not whole minutes or is more than a day from the start", async () => {
+    const { db, app } = build();
+    const id = await newTask(app);
+    for (const offsetMinutes of [0.5, 1441, -1441, Number.MAX_SAFE_INTEGER, "30", null]) {
+      const res = await patch(app, id, {
+        runTime: { kind: "offset", eventId: CEREMONY, offsetMinutes },
+      });
+      expect(res.status, String(offsetMinutes)).toBe(400);
+    }
+    expect(stored(db, id)).toEqual({ title: "Bring the rings", ...UNTIMED });
+  });
+
+  it("422s a link to another wedding's event, a task, a guest or nothing, and writes no field of the patch", async () => {
+    const { db, app } = build();
+    const id = await newTask(app);
+    const other = await newTask(app);
+    const guestId = db.select({ id: guests.id }).from(guests).limit(1).all()[0]!.id;
+    const before = await counted("offset", "event_not_in_wedding");
+    const beforeClock = await counted("clock", "event_not_in_wedding");
+
+    for (const eventId of [THEIRS, other, guestId, "evt_nope"]) {
+      const offset = await patch(app, id, {
+        title: "Changed",
+        runTime: { kind: "offset", eventId, offsetMinutes: -30 },
+      });
+      expect(offset.status, eventId).toBe(422);
+      expect(await jsonBody(offset)).toEqual({ error: "event_not_in_wedding" });
+      const clock = await patch(app, id, {
+        title: "Changed",
+        runTime: { kind: "clock", eventId, at: "2099-06-20T14:30" },
+      });
+      expect(clock.status, eventId).toBe(422);
+      expect(await jsonBody(clock)).toEqual({ error: "event_not_in_wedding" });
+    }
+    expect(stored(db, id)).toEqual({ title: "Bring the rings", ...UNTIMED });
+    expect((await counted("offset", "event_not_in_wedding")) - before).toBe(4);
+    expect((await counted("clock", "event_not_in_wedding")) - beforeClock).toBe(4);
+  });
+
+  it("404s a missing task before it judges the event, and counts it as one", async () => {
+    const { app } = build();
+    const offsetBefore = await counted("offset", "task_not_found");
+    const clockBefore = await counted("clock", "task_not_found");
+    for (const runTime of [
+      { kind: "offset", eventId: THEIRS, offsetMinutes: 0 },
+      { kind: "clock", eventId: THEIRS, at: "2099-06-20T14:30" },
+      { kind: "offset", eventId: CEREMONY, offsetMinutes: 0 },
+      { kind: "clock", eventId: CEREMONY, at: "2099-06-20T14:30" },
+    ]) {
+      const res = await patch(app, "tsk_nope", { runTime });
+      expect(res.status, JSON.stringify(runTime)).toBe(404);
+      expect(await jsonBody(res)).toEqual({ error: "task_not_found" });
+    }
+    expect((await counted("offset", "task_not_found")) - offsetBefore).toBe(2);
+    expect((await counted("clock", "task_not_found")) - clockBefore).toBe(2);
+  });
+
+  it("422s a clock time more than a day from the event's start, and writes nothing", async () => {
+    const { db, app } = build();
+    const id = await newTask(app);
+    const before = await counted("clock", "out_of_range");
+    for (const at of ["2099-06-21T15:01", "2099-06-19T14:59", "2098-06-20T15:00"]) {
+      const res = await patch(app, id, {
+        title: "Changed",
+        runTime: { kind: "clock", eventId: CEREMONY, at },
+      });
+      expect(res.status, at).toBe(422);
+      expect(await jsonBody(res)).toEqual({ error: "run_time_out_of_range" });
+    }
+    expect(stored(db, id)).toEqual({ title: "Bring the rings", ...UNTIMED });
+    expect((await counted("clock", "out_of_range")) - before).toBe(3);
+  });
+
+  it("takes an offset and a clock time exactly a day either side of the event's start", async () => {
+    const { db, app } = build();
+    const id = await newTask(app);
+    const cases = [
+      [{ kind: "offset", offsetMinutes: -1440 }, "2099-06-19T15:00:00+10:00", -1440],
+      [{ kind: "offset", offsetMinutes: 1440 }, "2099-06-21T15:00:00+10:00", 1440],
+      [{ kind: "clock", at: "2099-06-21T15:00" }, "2099-06-21T15:00:00+10:00", 1440],
+      [{ kind: "clock", at: "2099-06-19T15:00" }, "2099-06-19T15:00:00+10:00", -1440],
+    ] as const;
+    for (const [runTime, runAt, runOffsetMinutes] of cases) {
+      const res = await patch(app, id, { runTime: { ...runTime, eventId: CEREMONY } });
+      expect(res.status, JSON.stringify(runTime)).toBe(200);
+      expect(((await res.json()) as { task: TimedTask }).task).toMatchObject({
+        runAt,
+        runOffsetMinutes,
+        anchored: true,
+      });
+      expect(stored(db, id)?.runOffsetMinutes).toBe(runOffsetMinutes);
+    }
+  });
+
+  // ── Writes ────────────────────────────────────────────────────────────────
+
+  it("stamps a fixed time with its own zone's offset for that date, ignoring any offset sent", async () => {
+    const { db, app } = build();
+    const id = await newTask(app);
+    const before = await counted("fixed", "ok");
+
+    const winter = await patch(app, id, {
+      runTime: { kind: "fixed", at: "2099-06-20T15:00+05:30", timezone: "Australia/Sydney" },
+    });
+    expect(winter.status).toBe(200);
+    expect(((await winter.json()) as { task: TimedTask }).task).toMatchObject({
+      runAt: "2099-06-20T15:00:00+10:00",
+      runTimezone: "Australia/Sydney",
+      eventId: null,
+      runOffsetMinutes: null,
+      anchored: false,
+      eventRemoved: false,
+    });
+
+    const summer = await patch(app, id, {
+      runTime: { kind: "fixed", at: "2099-12-20T15:00", timezone: "Australia/Sydney" },
+    });
+    expect(summer.status).toBe(200);
+    expect(stored(db, id)).toEqual({
+      title: "Bring the rings",
+      ...UNTIMED,
+      runAt: "2099-12-20T15:00:00+11:00",
+      runTimezone: "Australia/Sydney",
+    });
+    expect((await counted("fixed", "ok")) - before).toBe(2);
+  });
+
+  it("stores a zone as it was sent, an alias included", async () => {
+    const { db, app } = build();
+    const id = await newTask(app);
+    const res = await patch(app, id, {
+      runTime: { kind: "fixed", at: "2099-06-20T12:00", timezone: "Asia/Calcutta" },
+    });
+    expect(res.status).toBe(200);
+    expect(stored(db, id)).toMatchObject({
+      runAt: "2099-06-20T12:00:00+05:30",
+      runTimezone: "Asia/Calcutta",
+    });
+  });
+
+  it("links a task by an offset, and answers the time it derives in the event's zone", async () => {
+    const { db, app } = build();
+    const id = await newTask(app);
+    const res = await patch(app, id, {
+      runTime: { kind: "offset", eventId: CEREMONY, offsetMinutes: -30 },
+    });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { task: TimedTask }).task).toMatchObject({
+      runAt: "2099-06-20T14:30:00+10:00",
+      runTimezone: "Australia/Sydney",
+      eventId: CEREMONY,
+      runOffsetMinutes: -30,
+      anchored: true,
+      eventRemoved: false,
+    });
+    // Only the link is stored: the time is derived on every read.
+    expect(stored(db, id)).toEqual({
+      title: "Bring the rings",
+      ...UNTIMED,
+      eventId: CEREMONY,
+      runOffsetMinutes: -30,
+    });
+  });
+
+  it("saves a clock time typed against an event as an offset from its start", async () => {
+    const { db, app } = build();
+    const id = await newTask(app);
+    const res = await patch(app, id, {
+      runTime: { kind: "clock", eventId: CEREMONY, at: "2099-06-20T16:15" },
+    });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { task: TimedTask }).task).toMatchObject({
+      runAt: "2099-06-20T16:15:00+10:00",
+      runOffsetMinutes: 75,
+      anchored: true,
+    });
+    expect(stored(db, id)).toMatchObject({ eventId: CEREMONY, runOffsetMinutes: 75, runAt: null });
+  });
+
+  it("replaces the whole run time each write: a link drops a fixed time, a fixed time drops a link, null drops both", async () => {
+    const { db, app } = build();
+    const id = await newTask(app);
+    const fixed = { kind: "fixed", at: "2099-06-20T12:00", timezone: "Australia/Sydney" };
+    const linked = { kind: "offset", eventId: CEREMONY, offsetMinutes: 10 };
+
+    expect((await patch(app, id, { runTime: fixed })).status).toBe(200);
+    expect((await patch(app, id, { runTime: linked })).status).toBe(200);
+    expect(stored(db, id)).toEqual({
+      title: "Bring the rings",
+      ...UNTIMED,
+      eventId: CEREMONY,
+      runOffsetMinutes: 10,
+    });
+
+    // A key the kind does not take is ignored, never stored beside it.
+    expect(
+      (await patch(app, id, { runTime: { ...fixed, eventId: CEREMONY, offsetMinutes: 5 } })).status,
+    ).toBe(200);
+    expect(stored(db, id)).toEqual({
+      title: "Bring the rings",
+      ...UNTIMED,
+      runAt: "2099-06-20T12:00:00+10:00",
+      runTimezone: "Australia/Sydney",
+    });
+
+    expect((await patch(app, id, { runTime: linked })).status).toBe(200);
+    const before = await counted("clear", "ok");
+    expect((await patch(app, id, { runTime: null })).status).toBe(200);
+    expect(stored(db, id)).toEqual({ title: "Bring the rings", ...UNTIMED });
+    expect((await counted("clear", "ok")) - before).toBe(1);
+  });
+
+  it("drops the event-removed mark on any run-time write, and keeps it on any other", async () => {
+    const { db, app } = build();
+    const id = await newTask(app);
+    const freeze = () =>
+      db
+        .update(tasks)
+        .set({
+          runAt: "2099-06-20T14:30:00+10:00",
+          runTimezone: "Australia/Sydney",
+          eventRemovedAt: new Date(),
+        })
+        .where(eq(tasks.id, id))
+        .run();
+
+    freeze();
+    expect((await patch(app, id, { title: "Still frozen" })).status).toBe(200);
+    expect(stored(db, id)?.eventRemovedAt).not.toBeNull();
+    const kept = (await (await req(app, "GET", base, OWNER)).json()) as { tasks: TimedTask[] };
+    expect(kept.tasks.find((t) => t.id === id)).toMatchObject({
+      runAt: "2099-06-20T14:30:00+10:00",
+      runTimezone: "Australia/Sydney",
+      eventRemoved: true,
+    });
+
+    for (const runTime of [
+      { kind: "offset", eventId: CEREMONY, offsetMinutes: 0 },
+      { kind: "fixed", at: "2099-06-20T12:00", timezone: "Australia/Sydney" },
+      null,
+    ]) {
+      freeze();
+      const res = await patch(app, id, { runTime });
+      expect(res.status, JSON.stringify(runTime)).toBe(200);
+      expect(((await res.json()) as { task: TimedTask }).task.eventRemoved).toBe(false);
+      expect(stored(db, id)?.eventRemovedAt).toBeNull();
+    }
+  });
+
+  // ── Every answer carries the derived time ─────────────────────────────────
+
+  it("answers a linked task's time on the list, the holder writes and the starter, and follows the event when it moves", async () => {
+    const { db, app } = build();
+    const id = await newTask(app);
+    expect(
+      (await patch(app, id, { runTime: { kind: "offset", eventId: CEREMONY, offsetMinutes: -30 } }))
+        .status,
+    ).toBe(200);
+    const want = { id, runAt: "2099-06-20T14:30:00+10:00", anchored: true, runOffsetMinutes: -30 };
+
+    const list = (await (await req(app, "GET", base, VIEWER)).json()) as { tasks: TimedTask[] };
+    expect(list.tasks.find((t) => t.id === id)).toMatchObject(want);
+
+    const put = await req(app, "PUT", `${base}/${id}/assignees/whost_helper`, EDITOR);
+    expect(((await put.json()) as { task: TimedTask }).task).toMatchObject(want);
+    const del = await req(app, "DELETE", `${base}/${id}/assignees/whost_helper`, EDITOR);
+    expect(((await del.json()) as { task: TimedTask }).task).toMatchObject(want);
+
+    const key = CHECKLIST_TEMPLATES.starter[0]!.key;
+    const starter = await req(app, "POST", `${base}/templates/starter`, EDITOR, { items: [key] });
+    expect(starter.status).toBe(200);
+    const applied = (await starter.json()) as { tasks: TimedTask[] };
+    expect(applied.tasks.find((t) => t.id === id)).toMatchObject(want);
+    // A seeded task starts untimed.
+    expect(applied.tasks.filter((t) => t.id !== id).every((t) => t.runAt === null)).toBe(true);
+
+    // The ceremony moves to Kolkata, a day later: the task goes with it.
+    db.update(events)
+      .set({ startAt: "2099-06-21T10:00:00+05:30", timezone: "Asia/Kolkata" })
+      .where(eq(events.id, CEREMONY))
+      .run();
+    const moved = (await (await req(app, "GET", base, OWNER)).json()) as { tasks: TimedTask[] };
+    expect(moved.tasks.find((t) => t.id === id)).toMatchObject({
+      runAt: "2099-06-21T09:30:00+05:30",
+      runTimezone: "Asia/Kolkata",
+      anchored: true,
+    });
+  });
+
+  it("reads each answer's linked events in the statement that reads its tasks", async () => {
+    const { db, app } = build();
+    const id = await newTask(app);
+    await patch(app, id, { runTime: { kind: "offset", eventId: CEREMONY, offsetMinutes: -30 } });
+    const recorded = recordStatements(db);
+    expect((await req(app, "GET", base, VIEWER)).status).toBe(200);
+    expect((await req(app, "PUT", `${base}/${id}/assignees/whost_helper`, EDITOR)).status).toBe(
+      200,
+    );
+    expect((await req(app, "DELETE", `${base}/${id}/assignees/whost_helper`, EDITOR)).status).toBe(
+      200,
+    );
+    const key = CHECKLIST_TEMPLATES.starter[0]!.key;
+    expect(
+      (await req(app, "POST", `${base}/templates/starter`, EDITOR, { items: [key] })).status,
+    ).toBe(200);
+    const sqls = recorded.map((r) => r.sql.toLowerCase());
+    // The list, both holder writes and the starter each read their tasks with
+    // the events they link to, and never the events on their own.
+    expect(
+      sqls.filter((q) => q.startsWith("select") && q.includes('left join "events"')),
+    ).toHaveLength(4);
+    expect(sqls.filter((q) => /^select .* from "events"/.test(q))).toEqual([]);
+  });
+
+  it("reads a link no writer leaves, to another wedding's event, as untimed", async () => {
+    const { db, app } = build();
+    const id = await newTask(app);
+    db.update(tasks).set({ eventId: THEIRS, runOffsetMinutes: -30 }).where(eq(tasks.id, id)).run();
+    const list = (await (await req(app, "GET", base, OWNER)).json()) as { tasks: TimedTask[] };
+    expect(list.tasks.find((t) => t.id === id)).toMatchObject({
+      runAt: null,
+      eventId: null,
+      anchored: false,
+    });
+  });
+
+  it("answers 500, counts the failure and writes nothing when the database fails a run-time write", async () => {
+    const { db, app } = build();
+    const id = await newTask(app);
+    const before = await counted("offset", "error");
+    const failure = failStatements(db, (text) => text.startsWith('update "tasks"'));
+    const res = await patch(app, id, {
+      runTime: { kind: "offset", eventId: CEREMONY, offsetMinutes: 0 },
+    });
+    failure.restore();
+    expect(res.status).toBe(500);
+    expect(stored(db, id)).toEqual({ title: "Bring the rings", ...UNTIMED });
+    expect((await counted("offset", "error")) - before).toBe(1);
+  });
+});
+
+describe("task writes publish tasks-changed", () => {
+  type Published = { name: string; signal: unknown; targets: CloseTargets };
+
+  function recordingHub(rejects = false) {
+    const publishes: Published[] = [];
+    const hub: HubNamespace = {
+      getByName: (name) => ({
+        publish: async (signal, targets) => {
+          publishes.push({ name, signal, targets });
+          if (rejects) throw new Error("hub down");
+          return 1;
+        },
+        fetch: async () => new Response(null, { status: 426 }),
+      }),
+    };
+    return { hub, publishes };
+  }
+
+  function buildWithHub(
+    tier: "ivory" | "gold" = "gold",
+    rejects = false,
+    taskWriteLimiter = createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 }),
+  ) {
+    const db = buildDb(tier);
+    const { hub, publishes } = recordingHub(rejects);
+    const app = createApp(db, { ...appOptions(), realtimeHub: hub, taskWriteLimiter });
+    return { db, app, publishes };
+  }
+
+  const topic = `cire:wedding:${BOOTSTRAP_WEDDING_ID}`;
+  /** What one accepted task write sends the hub: the topic, the kind and a
+   *  time, nothing about the task, and nobody's socket closed. */
+  const changed = (): Published => ({
+    name: topic,
+    signal: { topic, kind: "tasks-changed", at: expect.any(Number) },
+    targets: { evict: [], revoke: [] },
+  });
+
+  async function newTask(app: App, title = "Book venue"): Promise<string> {
+    const res = await req(app, "POST", base, EDITOR, { ...CREATE, title });
+    expect(res.status).toBe(200);
+    return ((await res.json()) as { task: { id: string } }).task.id;
+  }
+
+  const holderPath = (taskId: string, hostId: string) => `${base}/${taskId}/assignees/${hostId}`;
+
+  it("after a create", async () => {
+    const { app, publishes } = buildWithHub();
+    await newTask(app);
+    expect(publishes).toStrictEqual([changed()]);
+    // The signal names the change, never the task.
+    expect(JSON.stringify(publishes[0]!.signal)).not.toContain("Book venue");
+  });
+
+  it.each([
+    ["an edit", { title: "Book the hall" }],
+    ["a tick", { status: "done" }],
+    ["an untick", { status: "open" }],
+    [
+      "a fixed time",
+      { runTime: { kind: "fixed", at: "2099-06-20T15:00", timezone: "Australia/Sydney" } },
+    ],
+    ["a cleared time", { runTime: null }],
+    // The sample wedding's first seeded event (cire/db/seed/data/events.ts).
+    ["a link", { runTime: { kind: "offset", eventId: SEED_EVENT, offsetMinutes: -30 } }],
+    ["a clock time", { runTime: { kind: "clock", eventId: SEED_EVENT, at: "2026-10-31T09:30" } }],
+  ])("after %s", async (_label, patch) => {
+    const { app, publishes } = buildWithHub();
+    const id = await newTask(app);
+    const res = await req(app, "PATCH", `${base}/${id}`, EDITOR, patch);
+    expect(res.status).toBe(200);
+    expect(publishes).toStrictEqual([changed(), changed()]);
+  });
+
+  it("after a delete", async () => {
+    const { app, publishes } = buildWithHub();
+    const id = await newTask(app);
+    expect((await req(app, "DELETE", `${base}/${id}`, EDITOR)).status).toBe(200);
+    expect(publishes).toStrictEqual([changed(), changed()]);
+  });
+
+  it("after a reorder", async () => {
+    const { app, publishes } = buildWithHub();
+    const first = await newTask(app, "One");
+    const second = await newTask(app, "Two");
+    const res = await req(app, "PATCH", `${base}/reorder`, EDITOR, {
+      timeframeBucket: "12m",
+      orderedIds: [second, first],
+    });
+    expect(res.status).toBe(200);
+    expect(publishes).toStrictEqual([changed(), changed(), changed()]);
+  });
+
+  it("after the starter adds tasks, and not when it adds none", async () => {
+    const { app, publishes } = buildWithHub();
+    const key = CHECKLIST_TEMPLATES.starter[0]!.key;
+    const apply = () => req(app, "POST", `${base}/templates/starter`, EDITOR, { items: [key] });
+    expect((await apply()).status).toBe(200);
+    expect(publishes).toStrictEqual([changed()]);
+    // The item is on the checklist already, so the apply adds nothing.
+    expect((await apply()).status).toBe(200);
+    expect(publishes).toStrictEqual([changed()]);
+  });
+
+  it("after a holder is put on and taken off, and not when either changes nothing", async () => {
+    const { app, publishes } = buildWithHub();
+    const id = await newTask(app);
+    expect((await req(app, "PUT", holderPath(id, "whost_helper"), EDITOR)).status).toBe(200);
+    expect(publishes).toHaveLength(2);
+    // Already on: answered as it is, and nobody is told.
+    expect((await req(app, "PUT", holderPath(id, "whost_helper"), EDITOR)).status).toBe(200);
+    expect(publishes).toHaveLength(2);
+    expect((await req(app, "DELETE", holderPath(id, "whost_helper"), EDITOR)).status).toBe(200);
+    expect(publishes).toHaveLength(3);
+    // Not on: the same.
+    expect((await req(app, "DELETE", holderPath(id, "whost_helper"), EDITOR)).status).toBe(200);
+    expect(publishes).toStrictEqual([changed(), changed(), changed()]);
+  });
+
+  it("never for a refused write", async () => {
+    const { app, publishes } = buildWithHub();
+    const id = await newTask(app);
+    publishes.length = 0;
+    const refusals: [string, string, string | undefined, unknown, number][] = [
+      ["POST", base, EDITOR, { title: "" }, 400],
+      ["POST", base, VIEWER, CREATE, 403],
+      ["POST", base, HELPER, CREATE, 403],
+      ["POST", base, STRANGER, CREATE, 403],
+      ["PATCH", `${base}/tsk_nope`, EDITOR, { status: "done" }, 404],
+      ["PATCH", `${base}/${id}`, VIEWER, { status: "done" }, 403],
+      ["DELETE", `${base}/tsk_nope`, EDITOR, undefined, 404],
+      ["PATCH", `${base}/reorder`, EDITOR, { timeframeBucket: "nope", orderedIds: [id] }, 400],
+      ["POST", `${base}/templates/starter`, EDITOR, { items: ["no-such-item"] }, 400],
+      ["POST", `${base}/templates/nope`, EDITOR, { items: [] }, 404],
+      ["PUT", holderPath(id, OTHER_SEAT), EDITOR, undefined, 422],
+      [
+        "PATCH",
+        `${base}/${id}`,
+        EDITOR,
+        { runTime: { kind: "fixed", at: "soon", timezone: "Australia/Sydney" } },
+        400,
+      ],
+      [
+        "PATCH",
+        `${base}/${id}`,
+        EDITOR,
+        { runTime: { kind: "offset", eventId: "evt_nope", offsetMinutes: 0 } },
+        422,
+      ],
+      [
+        "PATCH",
+        `${base}/${id}`,
+        EDITOR,
+        { runTime: { kind: "clock", eventId: "evt_nope", at: "2099-06-20T15:00" } },
+        422,
+      ],
+      ["PUT", holderPath("tsk_nope", "whost_helper"), EDITOR, undefined, 404],
+      ["DELETE", holderPath("tsk_nope", "whost_helper"), EDITOR, undefined, 404],
+    ];
+    for (const [method, path, who, body, status] of refusals) {
+      expect((await req(app, method, path, who, body)).status, `${method} ${path}`).toBe(status);
+    }
+    expect(publishes).toStrictEqual([]);
+  });
+
+  it("not for a write that names nothing to change", async () => {
+    const { app, publishes } = buildWithHub();
+    const id = await newTask(app);
+    publishes.length = 0;
+    // A patch with no field reads the task and writes nothing.
+    expect((await req(app, "PATCH", `${base}/${id}`, EDITOR, {})).status).toBe(200);
+    // A reorder naming no task moves none.
+    const reorder = { timeframeBucket: "12m", orderedIds: [] };
+    expect((await req(app, "PATCH", `${base}/reorder`, EDITOR, reorder)).status).toBe(200);
+    expect(publishes).toStrictEqual([]);
+  });
+
+  it("not for a reorder that moves nothing", async () => {
+    const { app, publishes } = buildWithHub();
+    const first = await newTask(app, "One");
+    const second = await newTask(app, "Two");
+    const other = await req(app, "POST", "/api/organiser/weddings/wed_other/tasks", "usr_bob", {
+      ...CREATE,
+      title: "Theirs",
+    });
+    expect(other.status).toBe(200);
+    const theirs = ((await other.json()) as { task: { id: string } }).task.id;
+    const reorder = (timeframeBucket: string, orderedIds: string[]) =>
+      req(app, "PATCH", `${base}/reorder`, EDITOR, { timeframeBucket, orderedIds });
+    // Put the bucket in a known order first.
+    expect((await reorder("12m", [second, first])).status).toBe(200);
+    publishes.length = 0;
+
+    // The order it is already in.
+    expect((await reorder("12m", [second, first])).status).toBe(200);
+    // Another wedding's task.
+    expect((await reorder("12m", [theirs])).status).toBe(200);
+    // This wedding's tasks, named under a bucket they are not in.
+    expect((await reorder("6m", [first, second])).status).toBe(200);
+    expect(publishes).toStrictEqual([]);
+
+    // A real move still tells the open tabs, once.
+    expect((await reorder("12m", [first, second])).status).toBe(200);
+    expect(publishes).toStrictEqual([changed()]);
+  });
+
+  it("not for a write past the organiser's limit, which is refused 429", async () => {
+    const { app, publishes } = buildWithHub(
+      "gold",
+      false,
+      createRateLimiter({ maxRequests: 1, windowMs: 60_000 }),
+    );
+    expect((await req(app, "POST", base, EDITOR, CREATE)).status).toBe(200);
+    const refused = await req(app, "POST", base, EDITOR, CREATE);
+    expect(refused.status).toBe(429);
+    expect(refused.headers.get("retry-after")).toBe("60");
+    expect(publishes).toStrictEqual([changed()]);
+    // Each organiser has a limit of their own, and reading spends none of it.
+    expect((await req(app, "POST", base, OWNER, CREATE)).status).toBe(200);
+    expect((await req(app, "GET", base, EDITOR)).status).toBe(200);
+    // A caller the gates refuse is refused by them, before the limit.
+    expect((await req(app, "POST", base, VIEWER, CREATE)).status).toBe(403);
+    expect((await req(app, "POST", base, VIEWER, CREATE)).status).toBe(403);
+  });
+
+  it("never on a wedding below Gold, which refuses every task write", async () => {
+    const { app, publishes } = buildWithHub("ivory");
+    expect((await req(app, "POST", base, EDITOR, CREATE)).status).toBe(402);
+    expect(publishes).toStrictEqual([]);
+  });
+
+  it("never for a write the database fails", async () => {
+    const { db, app, publishes } = buildWithHub();
+    const id = await newTask(app);
+    publishes.length = 0;
+    const failure = failStatements(db, (text) => text.startsWith('update "tasks"'));
+    expect((await req(app, "PATCH", `${base}/${id}`, EDITOR, { status: "done" })).status).toBe(500);
+    failure.restore();
+    expect(publishes).toStrictEqual([]);
+  });
+
+  it("does not fail the write when the hub rejects", async () => {
+    const { db, app } = buildWithHub("gold", true);
+    const before = db.select().from(tasks).all().length;
+    const res = await req(app, "POST", base, EDITOR, CREATE);
+    expect(res.status).toBe(200);
+    expect(db.select().from(tasks).all()).toHaveLength(before + 1);
   });
 });

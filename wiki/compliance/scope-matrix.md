@@ -11,7 +11,7 @@ related:
   - "[[eaa]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-22
 ---
 
 # Compliance Scope Matrix
@@ -42,11 +42,11 @@ compliance obligations.
 | `@osn/api` sessions | `ua_label`, `ip_hash` (HMAC-peppered), `last_used_at` | GDPR storage minimisation; SOC 2 CC6 logical access controls |
 | `@osn/api` security events | `ip_hash`, UA, kind, timestamp | SOC 2 CC7 monitoring; GDPR Art. 32 |
 | `@pulse/api` events | event title, description, location (lat/lng), guest list, RSVPs | GDPR (special-category if event reveals health / orientation / political views); DSA (UGC); EAA (UI WCAG) |
-| `@pulse/api` discovery (Photon geocoder) | every keystroke sent to a third party | **Outstanding gap** — S-M13 in security backlog. Needs proxy + IP shielding OR explicit consent. Until fixed, we are out of compliance with GDPR data-minimisation. |
+| `@pulse/api` discovery (Photon geocoder) | every keystroke sent to a third party | **Outstanding gap** — the geocoder keystroke leak is open. Needs proxy + IP shielding OR explicit consent. Until fixed, we are out of compliance with GDPR data-minimisation. |
 | `@zap/api` DMs | message ciphertext (E2E), sender / recipient handles, timestamps | GDPR (metadata is personal data even when content is encrypted); ePrivacy Art. 5(1); CDA / DSA notice-and-action for reports |
 | `@zap/api` org chats (M3) | customer chat transcripts under verified org | **B2B trigger for SOC 2 Type II.** Customer becomes a controller, OSN becomes processor → DPA required. |
 | `@zap/api` locality channels (M4) | locality opt-in (= location), broadcast subscriptions | GDPR Art. 9 if locality reveals special-category info; DSA broadcaster transparency |
-| `@cire/api` guest RSVP | family + guest names, RSVP status, **dietary free-text (Art. 9 special-category)**, guest claim code | GDPR Art. 6(1)(f) (organiser-controlled) + **Art. 9(2)(a) explicit consent for dietary (cire C-H2)**; DPIA filed ([[dpia/cire-guest-data]]); controller = organiser, processor = cire; cross-DB DSAR/deletion orphan (cire C-M1) |
+| `@cire/api` guest RSVP | family + guest names, RSVP status, **dietary free-text (Art. 9 special-category)**, guest claim code | GDPR Art. 6(1)(f) (organiser-controlled) + **Art. 9(2)(a) explicit consent for dietary**; DPIA filed ([[dpia/cire-guest-data]]); controller = organiser, processor = cire; cross-DB DSAR/deletion orphan |
 | `@cire/api` organiser import | raw organiser spreadsheets (R2 `cire-sheets`), bulk guest PII | GDPR storage-limitation — deleted with the guest data 1 year after the final event, and unreferenced objects reaped by a daily reconciler within one pass over the bucket, except while an operator has it stopped ([[retention]]); SOC 2 CC6 (separate D1/R2 access grant, [[access-control]]) |
 | `@cire/api` vendor enquiries (S4) | `vendor_enquiries` linkage (`wedding_id`, `directory_vendor_id`, `status`, `quoted_minor`); `pending_body` (transient first-message text, stored only until the vendor claims the listing and the buffer is flushed); `directory_vendors.lead_forward_email` (a second address for the lead; nothing writes it — englishstreetventures/osn#1622); Zap c2b message bodies (server-visible personal data, routed via `@zap/api` — see [[data-map]] S4 rows) | GDPR Art. 6(1)(b) — contract (couple–vendor pre-contractual communications); Art. 6(1)(f) — legit interest in business lead routing (`lead_forward_email`). DSA Art. 30 **out of scope** (pre-contractual only; no on-platform contract concluded — see DSA section). |
 | `@cire/invites` Pinterest embed | guest IP / UA / behaviour (only once the guest switches on Pinterest moodboards) | ePrivacy + GDPR — consent-gated under its own `pinterest` switch (off until allowed, separate from Google Maps), outbound link shown whenever the board is not; Pinterest subprocessor row + transfer basis TODO ([[subprocessors]]) |
@@ -151,5 +151,5 @@ and `@musubi/landing`. We audit it with:
 | [[event-access]] | Art. 5(1)(f) | CC6 | — | DSA Art. 16 (event reports) | — | — |
 | [[social-graph]] | Art. 5(1)(c) | — | ✓ | — | — | — |
 | [[shared/observability/overview]] | Art. 5(1)(c), Art. 32 | CC4, CC7 | — | — | — | — |
-| [[cire-auth]] | Art. 6, Art. 9 (dietary), Art. 32 | CC6 | ✓ | — | household-mediated (session-restored — see C-M1) | WCAG |
+| [[cire-auth]] | Art. 6, Art. 9 (dietary), Art. 32 | CC6 | ✓ | — | household-mediated (session-restored) | WCAG |
 | [[cire]] | Art. 5(1)(e) (retention), Art. 28 (processor) | CC6, CC9 | ✓ | — | — | WCAG |

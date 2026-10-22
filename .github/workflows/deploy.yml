@@ -590,6 +590,12 @@ jobs:
           PUBLIC_MARKETING_URL: ${{ steps.hosts.outputs.cire_landing_origin }}
           PUBLIC_TURNSTILE_SITEKEY: ${{ vars.PUBLIC_TURNSTILE_SITEKEY }}
           PUBLIC_GOOGLE_MAPS_EMBED_KEY: ${{ vars.PUBLIC_GOOGLE_MAPS_EMBED_KEY }}
+          # The commit this build is made from. The footer prints its first
+          # seven characters as the version, so a report from a phone says
+          # which build it was. A `PUBLIC_*` var is in turbo's build hash, so
+          # a new commit never replays an older `dist/`; a rerun of one commit
+          # still builds the same bytes.
+          PUBLIC_BUILD_SHA: ${{ github.sha }}
           ASTRO_KEY: ${{ secrets.ASTRO_KEY }}
 
       - name: Build cire/host (dev)

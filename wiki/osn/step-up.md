@@ -7,7 +7,7 @@ related:
   - "[[recovery-codes]]"
   - "[[passkey-primary]]"
   - "[[sessions]]"
-last-reviewed: 2026-09-10
+last-reviewed: 2026-10-22
 ---
 
 # Step-up (sudo) tokens
@@ -39,7 +39,7 @@ widen by accident:
 
 - **`passkeyDeleteAllowedAmr` stays `["webauthn"]`.** By construction the caller
   already holds a passkey — the last-passkey guard fires otherwise — so
-  requiring one costs nothing (S-L4).
+  requiring one costs nothing.
 - **Email change keeps a set of its own, and no knob reaches it.** Its `otp` arm
   proves control of the **current** mailbox; a TOTP seed does not. Email change
   is the silent pivot to permanent takeover, so it is the one gate where the two
@@ -96,7 +96,7 @@ An amr-only check says *how* the user proved themselves, not *what for*. Without
 
 | Value | Gate |
 |---|---|
-| `recovery_generate` | `POST /recovery/generate` (S-M1) |
+| `recovery_generate` | `POST /recovery/generate` |
 | `account_delete` | account deletion |
 | `account_export` | account export |
 | `pulse_app_delete`, `zap_app_delete` | downstream app-data deletion, via `verifyStepUpForExternalPurpose` |

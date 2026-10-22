@@ -9,7 +9,7 @@ related:
   - "[[metrics]]"
   - "[[arc-tokens]]"
 packages: ["@shared/observability"]
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-22
 ---
 # Tracing
 

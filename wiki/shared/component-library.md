@@ -795,7 +795,7 @@ error rather than needing a trip to the source.
 
 `@cire/ui`'s `Button` is the house style rather than the shadcn set — uppercase,
 tracked, a sharp 4px corner, a gold primary — and on a cire surface it is where a
-call site's colour, shape and padding have to come from. Fifteen variants,
+call site's colour, shape and padding have to come from. Sixteen variants,
 grouped by the job rather than by the look:
 
 | Group          | Variants                              | What each is for                                                                                                                                                                                                                              |
@@ -806,6 +806,7 @@ grouped by the job rather than by the look:
 | Text           | `link`, `subtle`, `touchLink`         | Accent ink, muted ink, and muted ink carrying its underline at rest. The last is for a link whose underline must show without hover: on `@cire/invites`, read on a phone where there is no hover to reveal one, and for a link set inside a sentence, where colour alone does not mark it (WCAG 1.4.1) |
 | Glyph          | `bare`                                | An arrow, a cross, a disclosure caret. No underline, because there is no word to underline                                                                                                                                                    |
 | Field          | `field`                               | A control shaped like the field it stands in for — the dietary picker's collapsed trigger, in a column of text inputs: sentence case, an input's padding, transparent like the inputs around it |
+| Chrome         | `chip`                                | A control in a sheet's own chrome rather than its content — the guest event sheet's badge, "Give RSVP →" and "← See details", in its bar beside the round close button. A pill on the surface fill, opaque because content scrolls under it, in accent ink because it leads somewhere |
 | State and fill | `choice`, `tile`                      | One option among several, marked through `aria-pressed` **or** `aria-checked` so a toggle group and a radio group look the same; and the control that _is_ a block — a card, a row — where a hairline stops describing the target             |
 
 Five sizes, and they are not one scale:

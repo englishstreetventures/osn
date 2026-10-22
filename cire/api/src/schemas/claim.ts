@@ -35,6 +35,19 @@ export const EventSummary = Schema.Struct({
   // deploy before an API that sends it.
   venueName: Schema.NullOr(Schema.String),
   address: Schema.NullOr(Schema.String),
+  // The run of show in the organiser's order (the guest site reads it in time
+  // order), the getting-there notes and the guest policy. Sent only here, to a
+  // session that proved household membership, never on the public invite read.
+  // Always sent; the guest site reads each as optional, because it can deploy
+  // before an API that sends them. The plus-one preset "welcome" is sent only
+  // to a household with a member who may bring a plus-one and is invited to
+  // the event, and is null for any other; the guest site applies the same rule
+  // again to what it receives.
+  runOfShow: Schema.Array(Schema.Struct({ time: Schema.String, label: Schema.String })),
+  gettingThere: Schema.NullOr(Schema.String),
+  childrenPolicy: Schema.NullOr(Schema.String),
+  plusOnePolicy: Schema.NullOr(Schema.String),
+  guestPolicyNote: Schema.NullOr(Schema.String),
   dressCodeDescription: Schema.NullOr(Schema.String),
   dressCodePalette: Schema.NullOr(Schema.Array(DressSwatch)),
   pinterestUrl: Schema.NullOr(Schema.String),

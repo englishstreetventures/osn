@@ -1,6 +1,6 @@
 {
   "name": "@shared/crypto",
-  "version": "0.14.6",
+  "version": "0.14.7",
   "private": true,
   "type": "module",
   "author": "English Street Ventures Pty Ltd",
@@ -27,11 +27,11 @@
     "@osn/db": "workspace:*",
     "@shared/observability": "workspace:*",
     "drizzle-orm": "1.0.0-rc.4",
-    "effect": "4.0.3",
+    "effect": "4.0.5",
     "jose": "^6.2.12"
   },
   "devDependencies": {
-    "@effect/vitest": "4.0.3",
+    "@effect/vitest": "4.0.5",
     "@shared/typescript-config": "workspace:*",
     "vitest": "5.0.3"
   }

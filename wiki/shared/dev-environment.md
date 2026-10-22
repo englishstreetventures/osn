@@ -74,6 +74,7 @@ Backing resources, all in the dev account:
 | R2 | `cire-sheets-dev`, `cire-assets-dev` | `cire-sheets`, `cire-assets` |
 | Redis | a second Upstash database (**paid** — see below), its REST URL and token in the `dev` Environment | `osn-redis` (Sydney) |
 | Rate-limit namespaces | cire `1101`–`1106`, osn `2101`–`2105` | cire `1001`–`1006`, osn `2001`–`2005` |
+| Durable Object namespace | the dev Worker's own `TopicHub` namespace, which the cire stack declares | the production Worker's |
 
 No file holds a dev database id: Alchemy creates each database and binds it by
 resource. The dev stacks declare production's storage settings ([[database-environments]]).

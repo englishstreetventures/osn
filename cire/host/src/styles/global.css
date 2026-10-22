@@ -733,9 +733,10 @@
   }
 }
 
-/* ── The assign popover: a droplet ──────────────────────────────────────────
- * The popover that puts people on a checklist task grows out of the + that
- * opened it: a small round drop at the trigger, springing out to the panel and
+/* ── A row's popover: a droplet ─────────────────────────────────────────────
+ * The popovers on a checklist row — the one that puts people on a task and
+ * the one that sets its time on the day — grow out of the control that opened
+ * them: a small round drop at the trigger, springing out to the panel and
  * squaring its corners as it lands, with what is inside fading in once it has
  * room. `transform-origin` is the point Kobalte works out for the side the
  * panel opened on, so the drop leaves from the trigger whether the panel
@@ -794,7 +795,7 @@
   }
 }
 
-@utility assign-popover {
+@utility droplet-popover {
   transform-origin: var(--kb-popover-content-transform-origin);
 
   &[data-expanded] {
@@ -807,7 +808,7 @@
   }
 }
 
-@utility assign-popover-body {
+@utility droplet-popover-body {
   animation: droplet-content var(--dur-slow) var(--ease-out);
 }
 
@@ -825,6 +826,95 @@
 
 @utility tick-pop {
   animation: tick-pop var(--dur-base) var(--ease-spring);
+}
+
+/* ── The run sheet's thread ─────────────────────────────────────────────────
+ * A day of the run sheet hangs on one vertical hairline of `--gold-dim`
+ * (metal, not ink: a rule, held to no contrast floor) running down the gap
+ * between the time column and what happens then. Each row is a grid on the
+ * same three lengths, so its marker — an event's diamond, a task's bead — sits
+ * on the thread whatever the row holds:
+ *
+ *   --rs-pad   the row's inline-start padding: room for the reader's bar
+ *   --rs-time  the time column, end-aligned
+ *   --rs-gap   between the two; the thread runs down its middle
+ *
+ * The row's items align on their first baselines, so a time in `text-ui-sm`
+ * reads on the line of a title in `text-ui-base`, and the marker is centred
+ * on that first line (`0.5lh` of the title's own leading, which it copies).
+ * The holders take a third column once the view (`@container/run-sheet`) is
+ * wide enough, and a line under the title before that.
+ *
+ * An event is a raised band: it is positioned, so it paints over the thread
+ * and its diamond marks the spot; a task's row is transparent and the thread
+ * shows through.
+ */
+@utility run-sheet-day {
+  --rs-pad: 0.75rem;
+  --rs-time: 4.5rem;
+  --rs-gap: 1.75rem;
+  position: relative;
+
+  /* Wide enough for a time and its zone on one line. */
+  @container run-sheet (min-width: 36rem) {
+    --rs-time: 5.5rem;
+    --rs-gap: 2.25rem;
+  }
+
+  &::before {
+    content: "";
+    position: absolute;
+    inset-block: 1rem;
+    inset-inline-start: calc(var(--rs-pad) + var(--rs-time) + var(--rs-gap) / 2 - 0.5px);
+    inline-size: 1px;
+    background: var(--gold-dim);
+  }
+}
+
+@utility run-sheet-row {
+  grid-template-columns: var(--rs-time) minmax(0, 1fr);
+  column-gap: var(--rs-gap);
+  row-gap: 0.5rem;
+  align-items: first baseline;
+  padding-block: 0.75rem;
+  /* A band's border is inside the row's box: its padding gives that width
+     back, so the columns and the marker stay on the thread. */
+  padding-inline: calc(var(--rs-pad) - var(--rs-inset, 0px)) 0.75rem;
+
+  @container run-sheet (min-width: 36rem) {
+    grid-template-columns: var(--rs-time) minmax(0, 1fr) auto;
+  }
+}
+
+@utility run-sheet-mark {
+  position: absolute;
+  inset-inline-start: calc(
+    var(--rs-pad) + var(--rs-time) + var(--rs-gap) / 2 - 5px - var(--rs-inset, 0px)
+  );
+  /* The title's first line: its size, and the leading it inherits too, so
+     `lh` is that line. */
+  font-size: var(--text-ui-base);
+  line-height: inherit;
+  inset-block-start: calc(0.75rem + 0.5lh - 5px);
+  inline-size: 10px;
+  block-size: 10px;
+}
+
+/* An event's band: a card's hairline, which the row's padding and marker
+   allow for. */
+@utility run-sheet-band {
+  --rs-inset: 1px;
+  border: var(--rs-inset) solid var(--border);
+}
+
+@utility run-sheet-holders {
+  grid-column: 2;
+  align-self: start;
+
+  @container run-sheet (min-width: 36rem) {
+    grid-column: 3;
+    grid-row: 1;
+  }
 }
 
 /* ── The empty avatar ───────────────────────────────────────────────────────

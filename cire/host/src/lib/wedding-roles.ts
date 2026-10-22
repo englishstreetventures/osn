@@ -124,6 +124,10 @@ export function normaliseWeddingRole(role: string): WeddingRole {
 
 /** The surfaces the portal offers a role — one field per API gate. */
 export interface RoleSurfaces {
+  /** The wedding's push socket, which tells the tab its rows may have
+   *  changed — `GET /realtime/:topic`, which admits every seat that reads the
+   *  run sheet (`weddingRunSheet()`). */
+  canListen: boolean;
   /** The wedding dashboard and everything it reads — `weddingMember()`. */
   canOpenDashboard: boolean;
   /** The module write surfaces — `weddingEditor()`. */
@@ -135,6 +139,7 @@ export interface RoleSurfaces {
 }
 
 const NO_SURFACES: RoleSurfaces = {
+  canListen: false,
   canOpenDashboard: false,
   canEdit: false,
   canManage: false,
@@ -150,15 +155,17 @@ const NO_SURFACES: RoleSurfaces = {
 export function surfacesFor(role: WeddingRole): RoleSurfaces {
   switch (role) {
     case "owner":
-      return { canOpenDashboard: true, canEdit: true, canManage: true };
+      return { canListen: true, canOpenDashboard: true, canEdit: true, canManage: true };
     case "editor":
-      return { canOpenDashboard: true, canEdit: true, canManage: false };
+      return { canListen: true, canOpenDashboard: true, canEdit: true, canManage: false };
     case "viewer":
-      return { canOpenDashboard: true, canEdit: false, canManage: false };
+      return { canListen: true, canOpenDashboard: true, canEdit: false, canManage: false };
     case "helper":
       // The day-of run sheet and nothing else. Every dashboard read is refused
-      // for a helper, so opening it would be a screen of errors.
-      return { ...NO_SURFACES };
+      // for a helper, so opening it would be a screen of errors. The socket is
+      // theirs too: what they see moves when a task, a seat or their scope
+      // does.
+      return { ...NO_SURFACES, canListen: true };
   }
   const _exhaustive: never = role;
   return NO_SURFACES;

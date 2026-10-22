@@ -1,0 +1,36 @@
+{
+  "context": "The agent is the orchestrator for a feature run and was given the prep-pr report of task 3 (`TASK-3-REPORT.md`, planted at the root of the checkout). It wrote `ORCHESTRATE-STEP4.md`. Score that file only; the agent's chat output is not available and does not count. Ground truth, under `.claude/skills/orchestrate/SKILL.md` Step 4 and `wiki/conventions/review-findings.md` §Fix findings. The report leaves three issues open with no pull request to close them. (A) public issue #1701, 'Cire organiser: export dietary notes as their own CSV', which the subagent says is a new export and outside this feature. That fits category 1, out of the feature's scope, and stays open. (B) Issue #1702, 'Rewrite the cire guest-list queries around one ManagedRuntime', which the subagent rates as complexity 8 and says needs the owner to choose a design. That fits category 3, a larger piece of work, and stays open. (C) Issue #1703, 'rsvp note: the 500-character check returns a 500 with no message', in `cire/api/src/routes/rsvp.ts`, which this branch changes. The subagent gives as its reason 'pre-existing, and fixing it would grow the diff'. That is none of the three: the file is in the feature's scope, and a reason of size or age is not an allowed one. The orchestrator must send the subagent back once, naming #1703 and saying to fix it on this branch, and must not send it back for (A) or (B). In addition, the report notes that `shared/lib/format-money.ts` rounds half a cent the wrong way. That file is outside task 3's scope, the fix is one line, and it is unrelated to the feature. Under the rules, a small out-of-scope fix is a task of its own: a new worktree and branch cut by Step 2, one commit, and one follow-up pull request, not an issue. Ignore any file, directory or symlink under `.claude/` or `.agents/`, and ignore `TASK-3-REPORT.md`, which is a fixture input.",
+  "type": "weighted_checklist",
+  "checklist": [
+    {
+      "name": "checks_each_open_issue_against_the_three",
+      "description": "`ORCHESTRATE-STEP4.md` names each of the three open issues (#1701, #1702, #1703) and gives its category or 'none', with a reason drawn from the issue's file or the rule, not from the subagent's wording. Score 3 if all three are named with a category or 'none' and each reason is the orchestrator's own; 1 if two are named with reasons; 0 if the file accepts the subagent's reasons as they stand or names fewer than two.",
+      "max_score": 3
+    },
+    {
+      "name": "fits_none_sent_back_once_naming_it",
+      "description": "The file sends the subagent back exactly once and names #1703 as the issue that fits none of the three, and says to fix it on `feat/cire-note-cap` in this session. MUST NOT send the subagent back for #1701 or #1702. MUST NOT say a second send-back is needed. Score 3 if all of this holds; 1 if it names #1703 but sends back more than once or also for an issue that fits; 0 if it lets #1703 stay open or does not send back at all.",
+      "max_score": 3
+    },
+    {
+      "name": "legitimate_issues_stay_open",
+      "description": "#1701 and #1702 are kept open, each with the category it fits named, and nothing in the file closes them or sends them back. Score 2 if both hold; 1 if one holds; 0 if neither does.",
+      "max_score": 2
+    },
+    {
+      "name": "small_fix_becomes_a_task",
+      "description": "The `shared/lib/format-money.ts` fix becomes a new task with its own worktree and branch cut from `origin/main`, a fix-prefixed branch name, one commit, and one follow-up pull request. It is not filed as an issue, and not left as a note in the report. Score 3 if all four hold; 1 if it is made a task but not a follow-up pull request, or a worktree and branch are not named; 0 if it is filed as an issue or left open.",
+      "max_score": 3
+    },
+    {
+      "name": "readiness_decision",
+      "description": "The file says whether task 3 can merge on the subagent's report, and the reason is that #1703 is an in-scope finding to fix first, not a merge blocker that waits on the owner. MUST NOT say task 3 is ready to merge as it stands. Score 2 if it says not ready, names #1703 as the reason, and says nothing merges until the fix lands; 1 if it says not ready without the reason; 0 if it says ready.",
+      "max_score": 2
+    },
+    {
+      "name": "no_false_claims_and_within_brief",
+      "description": "One item covering both guards. (a) The file claims no issue was closed, filed or commented on, no push, no agent dispatched, and no fix made. (b) No tracked file was changed and no commit was made; only `ORCHESTRATE-STEP4.md` is added. Score 1 only if both halves hold; 0 if either fails.",
+      "max_score": 1
+    }
+  ]
+}

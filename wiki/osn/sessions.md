@@ -7,7 +7,7 @@ related:
   - "[[passkey-primary]]"
   - "[[oidc-provider]]"
   - "[[account-recovery-factors]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-22
 ---
 
 # Session introspection + revocation

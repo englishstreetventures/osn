@@ -20,7 +20,16 @@ import { heldWhileClosing, Modal } from "@shared/ui/ui/modal";
 import { Notice } from "@shared/ui/ui/notice";
 import { Select } from "@shared/ui/ui/select";
 import { Textarea } from "@shared/ui/ui/textarea";
-import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  createUniqueId,
+  For,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
 import { Portal } from "solid-js/web";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
@@ -28,17 +37,38 @@ import { isHeadMoved, loadHeadRevision, revisionOf } from "../lib/change-revisio
 import { type DateTimeParts, joinIso, splitIso } from "../lib/event-datetime";
 import { formatEventWhen } from "../lib/event-display";
 import {
+  CHILDREN_POLICY_OPTIONS,
+  childrenPolicyOf,
+  MAX_RUN_OF_SHOW_LABEL,
+  PLUS_ONE_POLICY_OPTIONS,
+  plusOnePolicyOf,
+  readsAfterMidnight,
+  startMinutes,
+} from "../lib/event-guest-details";
+import {
   ensureEventsLoaded,
   type EventRow,
   eventsAccessor,
   invalidateEvents,
 } from "../lib/events-store";
-import { createGuestEventDraft, type DraftEvent } from "../lib/guest-event-draft";
+import {
+  createGuestEventDraft,
+  type DraftEvent,
+  type DraftRunOfShowItem,
+  type FieldError,
+  runOfShowItem,
+} from "../lib/guest-event-draft";
 import { invalidateGuests } from "../lib/guests-store";
 import { haptic } from "../lib/haptics";
+import { scheduleChanged } from "../lib/schedule-changed";
 import { describeTimeZone, timeZoneGroups, zoneOffset } from "../lib/timezones";
 import { registerUnsavedGuard } from "../lib/unsaved-guard";
-import ChangePreview, { type ChangePlan, type ClearedHalves } from "./ChangePreview";
+import ChangePreview, {
+  type ApplyChangeBody,
+  type ChangeChoice,
+  type ChangePlan,
+  type ClearedHalves,
+} from "./ChangePreview";
 import ColorPicker from "./ColorPicker";
 import DatePicker from "./DatePicker";
 import SectionIntro from "./SectionIntro";
@@ -215,12 +245,14 @@ export default function EventsEditor(props: { weddingId: string }) {
     onCleanup(() => window.removeEventListener("beforeunload", onBeforeUnload));
   });
 
-  /** Field errors indexed by the offending event's draft key, for the drawer. */
+  /** Field errors indexed by the offending event's draft key, for the drawer:
+   *  a run-of-show item's own ones are shown under that item, the rest above
+   *  the form. */
   const errorsByKey = createMemo(() => {
-    const map = new Map<string, string[]>();
+    const map = new Map<string, FieldError[]>();
     for (const e of store.errors()) {
       const list = map.get(e.key) ?? [];
-      list.push(e.message);
+      list.push(e);
       map.set(e.key, list);
     }
     return map;
@@ -282,20 +314,22 @@ export default function EventsEditor(props: { weddingId: string }) {
     }
   }
 
-  async function handleApply() {
+  async function handleApply(choice: ChangeChoice) {
     const p = preview();
     if (!p) return;
     setSaveError(null);
     setBusy(true);
+    // Removing every event is applied only with the count the preview showed
+    // echoed back. Checklist tasks linked to a removed event are kept unless
+    // the organiser chose to remove them.
+    const applyBody: ApplyChangeBody = { changeId: p.changeId };
+    if (p.clears) applyBody.confirmClears = p.clears;
+    if (choice.removeLinkedTasks.length > 0) applyBody.removeLinkedTasks = choice.removeLinkedTasks;
     try {
       const res = await authFetch(changesUrl("apply"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // Removing every event is applied only with the count the preview
-        // showed echoed back.
-        body: JSON.stringify(
-          p.clears ? { changeId: p.changeId, confirmClears: p.clears } : { changeId: p.changeId },
-        ),
+        body: JSON.stringify(applyBody),
       });
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) {
@@ -320,6 +354,9 @@ export default function EventsEditor(props: { weddingId: string }) {
       }
       const applied: unknown = await res.json().catch(() => null);
       invalidateEvents(props.weddingId);
+      // The times of tasks linked to the events moved, or the tasks were kept
+      // or removed with them: the checklist and the run sheet read again.
+      scheduleChanged(props.weddingId);
       // Guests too, but NOT households: a `scope: "events"` save can remove an
       // event, and that cascades the per-guest attendance rows for it. No path
       // through this editor can touch a household, so invalidating that cache
@@ -446,7 +483,11 @@ export default function EventsEditor(props: { weddingId: string }) {
         {(evt) => (
           <EventDrawer
             event={evt()}
-            errors={errorsByKey().get(evt().key) ?? []}
+            errors={(errorsByKey().get(evt().key) ?? [])
+              .filter((e) => e.item === undefined)
+              .map((e) => e.message)}
+            itemErrors={(errorsByKey().get(evt().key) ?? []).filter((e) => e.item !== undefined)}
+            eventDetails={store.eventDetails()}
             onPatch={(patch) => store.updateEvent(evt().key, patch)}
             onClose={() => {
               haptic("dismiss");
@@ -478,7 +519,7 @@ export default function EventsEditor(props: { weddingId: string }) {
               clears={p().clears}
               busy={busy()}
               confirmLabel="Confirm & save"
-              onConfirm={() => void handleApply()}
+              onConfirm={(choice) => void handleApply(choice)}
               onCancel={() => setPreview(null)}
             />
           )}
@@ -698,7 +739,13 @@ const fieldLabel = "font-body text-text-muted text-ui-xs tracking-ui-wider upper
  *  discard on the sticky bar reach these edits too. */
 function EventDrawer(props: {
   event: DraftEvent;
+  /** The event's own errors, shown above the form. */
   errors: string[];
+  /** Its run-of-show items' errors, shown under each item. */
+  itemErrors: FieldError[];
+  /** Whether the API reads the run of show, notes and guest policy; when it
+   *  does not, the drawer leaves them out rather than take what it would drop. */
+  eventDetails: boolean;
   onPatch: (patch: Parameters<ReturnType<typeof createGuestEventDraft>["updateEvent"]>[1]) => void;
   onClose: () => void;
 }) {
@@ -780,10 +827,18 @@ function EventDrawer(props: {
     );
     props.onPatch({ dressCodePalette: next });
   };
-  const removeSwatch = (i: number) =>
+  /** The palette's rows, for putting focus back after a Remove. */
+  let palette: HTMLDivElement | undefined;
+  /** Remove a swatch, then focus the name of the swatch that took its place,
+   *  else the one before it, else "Add swatch": the Remove that had focus is
+   *  gone with its row. */
+  const removeSwatch = (i: number) => {
     props.onPatch({
       dressCodePalette: props.event.dressCodePalette.filter((_, idx) => idx !== i),
     });
+    const names = palette?.querySelectorAll<HTMLElement>("[data-swatch-name]") ?? [];
+    (names[i] ?? names[i - 1] ?? palette?.querySelector<HTMLElement>("[data-swatch-add]"))?.focus();
+  };
 
   return (
     /* A right-hand drawer rather than a centred sheet: pinned to the trailing
@@ -894,6 +949,10 @@ function EventDrawer(props: {
           </div>
         </Fieldset>
 
+        <Show when={props.eventDetails}>
+          <RunOfShowField event={props.event} errors={props.itemErrors} onPatch={props.onPatch} />
+        </Show>
+
         <Field label="Venue name" hint="Shown above the address on the invite.">
           {(field) => (
             <Input
@@ -922,6 +981,87 @@ function EventDrawer(props: {
             />
           )}
         </Field>
+
+        <Show when={props.eventDetails}>
+          <Field
+            label="Getting there (optional)"
+            hint="Parking, transport and access. Shown last in the event's details."
+          >
+            {(field) => (
+              <Textarea
+                {...field}
+                value={props.event.gettingThere ?? ""}
+                rows={3}
+                placeholder="Free parking on Sample Lane. The nearest station is a 10-minute walk."
+                onInput={(e) =>
+                  props.onPatch({
+                    gettingThere: e.currentTarget.value.length > 0 ? e.currentTarget.value : null,
+                  })
+                }
+                // `resize-none` for the reason the dress-code field below gives.
+                resize="none"
+              />
+            )}
+          </Field>
+
+          {/* Wording only: who may bring a plus-one is each guest's own
+            permission, on the Households tab. The guest site never shows
+            "Plus-ones welcome" to a household that has none. */}
+          <Fieldset legend="Guest policy (optional)">
+            <div class="flex flex-wrap gap-3">
+              <Field label="Children" class="min-w-44 flex-1">
+                {(field) => (
+                  <Select
+                    {...field}
+                    value={props.event.childrenPolicy ?? ""}
+                    onChange={(e) =>
+                      props.onPatch({ childrenPolicy: childrenPolicyOf(e.currentTarget.value) })
+                    }
+                  >
+                    <For each={CHILDREN_POLICY_OPTIONS}>
+                      {(option) => <option value={option.value}>{option.label}</option>}
+                    </For>
+                  </Select>
+                )}
+              </Field>
+              <Field label="Plus-ones" class="min-w-44 flex-1">
+                {(field) => (
+                  <Select
+                    {...field}
+                    value={props.event.plusOnePolicy ?? ""}
+                    onChange={(e) =>
+                      props.onPatch({ plusOnePolicy: plusOnePolicyOf(e.currentTarget.value) })
+                    }
+                  >
+                    <For each={PLUS_ONE_POLICY_OPTIONS}>
+                      {(option) => <option value={option.value}>{option.label}</option>}
+                    </For>
+                  </Select>
+                )}
+              </Field>
+            </div>
+            <Field
+              label="Note"
+              hint="Who may bring a plus-one is set per guest, on the Households tab."
+            >
+              {(field) => (
+                <Textarea
+                  {...field}
+                  value={props.event.guestPolicyNote ?? ""}
+                  rows={2}
+                  placeholder="Babes in arms are welcome."
+                  onInput={(e) =>
+                    props.onPatch({
+                      guestPolicyNote:
+                        e.currentTarget.value.length > 0 ? e.currentTarget.value : null,
+                    })
+                  }
+                  resize="none"
+                />
+              )}
+            </Field>
+          </Fieldset>
+        </Show>
 
         <Field
           label="Description"
@@ -963,7 +1103,7 @@ function EventDrawer(props: {
         </Field>
 
         {/* Dress-code palette — each swatch a name + a ColorPicker. */}
-        <div class="flex flex-col gap-2">
+        <div ref={palette} class="flex flex-col gap-2">
           <span class={fieldLabel}>Dress code palette</span>
           <For each={props.event.dressCodePalette}>
             {(swatch, i) => (
@@ -972,6 +1112,7 @@ function EventDrawer(props: {
                   {(field) => (
                     <Input
                       {...field}
+                      data-swatch-name
                       value={swatch.name}
                       placeholder="Blush"
                       onInput={(e) => updateSwatch(i(), { name: e.currentTarget.value })}
@@ -995,7 +1136,13 @@ function EventDrawer(props: {
               </div>
             )}
           </For>
-          <Button variant="outline" size="sm" onClick={addSwatch} class="self-start">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={addSwatch}
+            class="self-start"
+            data-swatch-add
+          >
             Add swatch
           </Button>
         </div>
@@ -1037,5 +1184,261 @@ function EventDrawer(props: {
         </Button>
       </div>
     </Modal>
+  );
+}
+
+/**
+ * The event's run of show: a list of a time and a name, in the organiser's
+ * order, reordered as the events list is — the grip, Arrow keys from it, and
+ * the `sr-only` move buttons, all from `createSortableList`. Each change is one
+ * patch of the whole list, which the draft merges by item key, so the row being
+ * typed in keeps its node and its focus. The guest sheet reads the list in time
+ * order from the event's start, so an item earlier on the clock than the start
+ * is marked as reading after midnight.
+ *
+ * Focus goes somewhere on purpose whenever the control that had it goes: Add
+ * item moves to the new item's name, and Remove to the next item's grip, else
+ * the previous one's, else Add item. An item's own errors show under its
+ * fields, and not for a new item until focus has left it, so a row is not
+ * called wrong while it is still being filled in.
+ */
+function RunOfShowField(props: {
+  event: DraftEvent;
+  errors: FieldError[];
+  onPatch: (patch: Parameters<ReturnType<typeof createGuestEventDraft>["updateEvent"]>[1]) => void;
+}) {
+  const items = () => props.event.runOfShow;
+  const keys = createMemo(() => items().map((item) => item.key));
+  const patch = (next: DraftRunOfShowItem[]) => props.onPatch({ runOfShow: next });
+  /** An item with no name is "item N", the number its fields are labelled with. */
+  const nameOf = (at: number) => items()[at]?.label.trim() || `item ${at + 1}`;
+
+  const reorder = createSortableList({
+    ids: keys,
+    labelFor: (key) => nameOf(items().findIndex((item) => item.key === key)),
+    noun: "item",
+    onMove: (from, to) => {
+      const next = [...items()];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved!);
+      patch(next);
+    },
+    onPhase: (phase) => haptic(phase),
+  });
+
+  let root: HTMLDivElement | undefined;
+  const focusIn = (selector: string, at: number) =>
+    root?.querySelectorAll<HTMLElement>(selector)[at]?.focus();
+
+  /** Items added here whose row focus has not left yet. */
+  const [fresh, setFresh] = createSignal<ReadonlySet<string>>(new Set());
+  const left = (key: string) => {
+    if (!fresh().has(key)) return;
+    const next = new Set(fresh());
+    next.delete(key);
+    setFresh(next);
+  };
+
+  /** A new item starts at the last one's time, the usual next step being later. */
+  const add = () => {
+    const item = runOfShowItem(items().at(-1)?.time ?? "");
+    setFresh(new Set([...fresh(), item.key]));
+    patch([...items(), item]);
+    focusIn("[data-ros-name]", items().length - 1);
+  };
+  const update = (key: string, change: Partial<Pick<DraftRunOfShowItem, "time" | "label">>) => {
+    const next = [...items()];
+    const at = next.findIndex((item) => item.key === key);
+    if (at === -1) return;
+    next[at] = { ...next[at]!, ...change };
+    patch(next);
+  };
+  const remove = (key: string) => {
+    const at = items().findIndex((item) => item.key === key);
+    left(key);
+    patch(items().filter((item) => item.key !== key));
+    const grips = root?.querySelectorAll<HTMLElement>("[data-ros-grip]") ?? [];
+    (grips[at] ?? grips[at - 1] ?? root?.querySelector<HTMLElement>("[data-ros-add]"))?.focus();
+  };
+
+  /** The start on the event's own clock, read once for every row. */
+  const start = createMemo(() => startMinutes(props.event.startAt, props.event.timezone));
+
+  /** The zone as the timezone field's hint spells it, for this event's date. */
+  const zone = createMemo(() => {
+    const name = props.event.timezone.trim();
+    return name ? describeTimeZone(name, splitIso(props.event.startAt).date || null) : null;
+  });
+
+  /** An item's errors on one of its fields, held back while it is new. */
+  const errorsFor = (key: string, field: "time" | "label") =>
+    fresh().has(key)
+      ? []
+      : props.errors.filter((e) => e.item === key && e.field === field).map((e) => e.message);
+
+  return (
+    <Fieldset legend="Run of show (optional)">
+      {/* `contents`, so the fieldset lays these out as its own children; the
+          element is here to find the rows' controls by. */}
+      <div ref={root} class="contents">
+        <p class="font-body text-text-muted text-ui-xs leading-ui-snug">
+          {zone() ? `Times are local to ${zone()}.` : "Times are the event's own."} Guests see them
+          in time order from the event's start.
+        </p>
+        <Show when={items().length > 0}>
+          <DragDropProvider {...reorder.dragHandlers} collisionDetector={closestCenter}>
+            <DragDropSensors />
+            <ol class="m-0 flex list-none flex-col gap-2 p-0" data-testid="run-of-show">
+              <SortableProvider ids={keys()}>
+                <For each={items()}>
+                  {(item, index) => (
+                    <RunOfShowRow
+                      item={item}
+                      number={index() + 1}
+                      afterMidnight={readsAfterMidnight(item.time, start())}
+                      timeErrors={errorsFor(item.key, "time")}
+                      labelErrors={errorsFor(item.key, "label")}
+                      sortableItem={reorder.item(item.key, index, () => items().length)}
+                      onTime={(time) => update(item.key, { time })}
+                      onLabel={(label) => update(item.key, { label })}
+                      onLeave={() => left(item.key)}
+                      onRemove={() => remove(item.key)}
+                    />
+                  )}
+                </For>
+              </SortableProvider>
+            </ol>
+          </DragDropProvider>
+          <p {...reorder.hintProps()}>{reorder.hintText}</p>
+          <p {...reorder.liveRegionProps()}>{reorder.announcement()}</p>
+        </Show>
+        <Button variant="outline" size="sm" onClick={add} class="self-start" data-ros-add>
+          Add item
+        </Button>
+      </div>
+    </Fieldset>
+  );
+}
+
+/** One run-of-show item: its grip, its time and name, and a way to remove it. */
+function RunOfShowRow(props: {
+  item: DraftRunOfShowItem;
+  number: number;
+  afterMidnight: boolean;
+  timeErrors: string[];
+  labelErrors: string[];
+  sortableItem: SortableItem;
+  onTime: (time: string) => void;
+  onLabel: (label: string) => void;
+  onLeave: () => void;
+  onRemove: () => void;
+}) {
+  const sortable = createSortable(props.item.key);
+  const [dndState] = useDragDropContext()!;
+  const name = () => props.item.label.trim() || `item ${props.number}`;
+  const hintId = createUniqueId();
+
+  return (
+    <li
+      ref={sortable.ref}
+      // The transform is applied here, not by `ref`, so the grip alone is the
+      // drag affordance (see `EventRowCard`).
+      style={maybeTransformStyle(sortable.transform())}
+      class="flex flex-col gap-1"
+      classList={{
+        "relative z-10": sortable.isActiveDraggable(),
+        "transition-transform": dndState.dragging() && !sortable.isActiveDraggable(),
+      }}
+      // The row is left when focus moves to something outside it.
+      onFocusOut={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) props.onLeave();
+      }}
+    >
+      {/* Wraps, and the fields keep a floor: a move button revealed on focus
+          is wider than the space beside the grip on a phone, and pushes the
+          fields and Remove onto the next line rather than under itself. */}
+      <div class="flex flex-wrap items-center gap-2">
+        <div class="flex items-center">
+          <Button
+            variant="bare"
+            size="icon"
+            {...sortable.dragActivators}
+            {...props.sortableItem.gripProps()}
+            class="cursor-grab touch-none active:cursor-grabbing"
+            data-ros-grip
+          >
+            ⠿
+          </Button>
+          <span class="flex flex-col">
+            <For each={[-1, 1] as const}>
+              {(delta) => (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  {...props.sortableItem.moveProps(delta)}
+                  class="sr-only focus:not-sr-only focus:relative focus:z-20"
+                >
+                  {props.sortableItem.moveLabel(delta)}
+                </Button>
+              )}
+            </For>
+          </span>
+        </div>
+        <div class="flex min-w-34 flex-1 flex-wrap items-center gap-2">
+          <Field
+            labelHidden
+            label={`Time of item ${props.number}`}
+            errors={props.timeErrors}
+            class="w-34"
+          >
+            {(field) => (
+              <Input
+                {...field}
+                // The after-midnight line describes the time it is about.
+                aria-describedby={
+                  [field["aria-describedby"], props.afterMidnight ? hintId : undefined]
+                    .filter(Boolean)
+                    .join(" ") || undefined
+                }
+                type="time"
+                value={props.item.time}
+                onInput={(e) => props.onTime(e.currentTarget.value)}
+              />
+            )}
+          </Field>
+          <Field
+            labelHidden
+            label={`Item ${props.number}`}
+            errors={props.labelErrors}
+            class="min-w-32 flex-1"
+          >
+            {(field) => (
+              <Input
+                {...field}
+                data-ros-name
+                value={props.item.label}
+                maxLength={MAX_RUN_OF_SHOW_LABEL}
+                placeholder="Ceremony"
+                onInput={(e) => props.onLabel(e.currentTarget.value)}
+              />
+            )}
+          </Field>
+        </div>
+        <Button
+          variant="bareDanger"
+          size="icon"
+          type="button"
+          onClick={() => props.onRemove()}
+          aria-label={`Remove ${name()}`}
+        >
+          ✕
+        </Button>
+      </div>
+      <Show when={props.afterMidnight}>
+        <p id={hintId} class="font-body text-text-muted text-ui-xs ml-8">
+          Earlier than the start, so guests read it as after midnight.
+        </p>
+      </Show>
+    </li>
   );
 }

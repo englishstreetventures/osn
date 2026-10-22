@@ -62,6 +62,8 @@ each became a heading fails the shape check with four correct sections still
 sitting in the file. The same goes for `## Summary`, `## Filing notes` and
 anything else the analysis suggests along the way.
 
+**Record each finding the moment you have it.** Write it under its section in the finding format before you read the next bullet, file or area, and fill `## Coverage` and `## Sections checked` area by area as each one finishes, not in one pass at the end. A run that a usage limit or an error stops keeps what the file already holds, and a reviewer resumed later starts from that file, not from memory.
+
 What each section holds is under **Report shape** at the end of this file.
 
 ## Step 1 — Route the diff
@@ -275,6 +277,8 @@ first.
 `## Sections checked` lists each mandatory section and, under it, each bullet with the code you looked at and the verdict. This is what catches a skim: a bullet with no file and line beside it was not checked.
 
 ### Check the file before you finish
+
+Once every area is covered, end the file with one line that is not a heading: `**Review complete.** <n> findings: <tally by tier>.` Neither count below depends on that line, so the counts pass on a partial file too. A file without the line is a partial review, and a resumed run finishes it.
 
 The same two counts as Step 2's mid-run check, run once more on the finished
 file:

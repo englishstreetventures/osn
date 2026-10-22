@@ -23,8 +23,14 @@ import {
   buildEventsTemplateCsv,
   buildGuestsTemplateCsv,
 } from "../lib/import-templates";
+import { scheduleChanged } from "../lib/schedule-changed";
 import ChangeHistory from "./ChangeHistory";
-import { PlanCounts } from "./ChangePreview";
+import {
+  type ApplyChangeBody,
+  type LinkedTaskPreview,
+  LinkedTasksChoice,
+  PlanCounts,
+} from "./ChangePreview";
 import SectionIntro from "./SectionIntro";
 interface ImportPlan {
   eventCreates: unknown[];
@@ -39,6 +45,8 @@ interface ImportPlan {
   eventLinkCreates: unknown[];
   eventLinkRemoves: unknown[];
   warnings: string[];
+  /** Checklist tasks linked to the events the upload removes; absent when none. */
+  linkedTasks?: LinkedTaskPreview[];
 }
 
 /**
@@ -190,6 +198,9 @@ export default function ImportPanel(props: {
   const [error, setError] = createSignal<string | null>(null);
   const [preview, setPreview] = createSignal<PreviewResponse | null>(null);
   const [applied, setApplied] = createSignal<ApplyResponse["summary"] | null>(null);
+  // Whether the organiser chose to remove the checklist tasks linked to the
+  // events the upload removes. Asked afresh for every preview.
+  const [removeLinked, setRemoveLinked] = createSignal(false);
 
   async function handlePreview(e: Event) {
     e.preventDefault();
@@ -202,7 +213,7 @@ export default function ImportPanel(props: {
       haptic("reject");
       return setError(`Choose a ${copy().fileName} file.`);
     }
-    // Refuse an oversized file HERE rather than after reading it (S-L1). The
+    // Refuse an oversized file HERE rather than after reading it. The
     // server is still the authority (it 413s on Content-Length, then again on
     // the parsed bytes) — but reaching that answer costs the tab a full read of
     // the file into a JS string plus a `JSON.stringify` of the same bytes again,
@@ -233,6 +244,7 @@ export default function ImportPanel(props: {
         const body = (await res.json().catch(() => ({}))) as ImportErrorBody;
         throw new Error(formatImportError(res.status, body));
       }
+      setRemoveLinked(false);
       setPreview((await res.json()) as PreviewResponse);
       haptic("commit");
     } catch (err) {
@@ -249,11 +261,15 @@ export default function ImportPanel(props: {
     if (!p) return;
     setError(null);
     setBusy(true);
+    // Linked tasks are kept unless the organiser ticked the box.
+    const applyBody: ApplyChangeBody = { changeId: p.changeId };
+    const linked = p.plan.linkedTasks ?? [];
+    if (removeLinked() && linked.length > 0) applyBody.removeLinkedTasks = linked.map((t) => t.id);
     try {
       const res = await authFetch(importUrl("apply"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ changeId: p.changeId }),
+        body: JSON.stringify(applyBody),
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as ImportErrorBody;
@@ -275,8 +291,10 @@ export default function ImportPanel(props: {
       // this wedding is now stale — drop it so the Events tab refetches fresh
       // rows on its next mount (rather than reusing the pre-import cache).
       invalidateEvents(props.weddingId);
+      // And the times of the checklist tasks linked to those events.
+      scheduleChanged(props.weddingId);
       // An apply also changes households/guests, so drop the guest cache too
-      // (both are lifted to weddingId-keyed stores now — P-I3). The reload below
+      // (both are weddingId-keyed stores). The reload below
       // re-mounts every module fresh; invalidating keeps the caches honest even
       // if the reload is ever removed.
       invalidateGuests(props.weddingId);
@@ -305,7 +323,7 @@ export default function ImportPanel(props: {
    * Point the panel at a different sheet — or at none.
    *
    * The `setPreview(null)` is the load-bearing line, and it belongs to EVERY
-   * change of selection, not just to Remove (S-M1). A standing preview holds the
+   * change of selection, not just to Remove. A standing preview holds the
    * `changeId` of the plan the server computed for the OLD bytes, and Apply
    * commits that id — so a panel that keeps the diff on screen while the control
    * names a different file is offering to apply the wrong sheet, with a
@@ -336,7 +354,7 @@ export default function ImportPanel(props: {
    * through this panel.
    */
   async function downloadCurrent() {
-    // In-flight guard (P-I3): a double-click must not fire duplicate export
+    // In-flight guard: a double-click must not fire duplicate export
     // fetches — same shape as EventTable's export button.
     if (exporting()) return;
     setExporting(true);
@@ -453,8 +471,8 @@ export default function ImportPanel(props: {
           <div class="border-border bg-bg/40 flex flex-col gap-4 rounded-sm border p-4">
             <h3 class="font-display text-gold-ink text-ui-md">Diff preview</h3>
             {/* The reassurance under a destructive confirm is read off the
-                SERVER's echoed scope, not off what this panel believes it sent
-                (S-L2). Today they cannot disagree — one key goes out, and the API
+                SERVER's echoed scope, not off what this panel believes it sent.
+                Today they cannot disagree — one key goes out, and the API
                 derives scope from which keys are present — but "your events won't
                 be touched" is the sentence an organiser trusts before applying a
                 plan that can reconcile away a whole half of the wedding, and a
@@ -472,6 +490,14 @@ export default function ImportPanel(props: {
               </Notice>
             </Show>
             <PlanCounts plan={p().plan} />
+            <Show when={p().plan.linkedTasks?.length}>
+              <LinkedTasksChoice
+                plan={p().plan}
+                tasks={p().plan.linkedTasks ?? []}
+                remove={removeLinked()}
+                onChange={setRemoveLinked}
+              />
+            </Show>
             <Show when={p().plan.warnings.length > 0}>
               {/* A real list with the platform's own markers, rather than a
                   flex column with a `::before` glyph: a flex item is blockified
@@ -700,10 +726,34 @@ function EventsGuidance() {
             </dd>
           </div>
           <div class="flex flex-col gap-0.5">
+            <dt class="text-text">Run of show</dt>
+            <dd class="text-text-muted">
+              <Col>Run of Show</Col> is one item per line in the cell: a 24-hour time, a space, then
+              what happens — e.g. <span class="text-text font-mono">15:30 Vows</span>. Times are the
+              event's own <Col required>Timezone</Col>. Guests see the items in time order from the
+              start, so a time earlier than <Col required>Start</Col> reads as after midnight. At
+              most 40 items of 200 characters.
+            </dd>
+          </div>
+          <div class="flex flex-col gap-0.5">
+            <dt class="text-text">Getting there and guest policy</dt>
+            <dd class="text-text-muted">
+              <Col>Getting There</Col> is parking, transport and access, shown last in the event's
+              details. <Col>Children</Col> is <span class="text-text">Adults only</span> or{" "}
+              <span class="text-text">Children welcome</span>; <Col>Plus-Ones</Col> is{" "}
+              <span class="text-text">By invitation</span> or <span class="text-text">Welcome</span>
+              . Leave either blank to say nothing. Who may bring a plus-one is still set per guest,
+              and the invite never tells a household without one that plus-ones are welcome.{" "}
+              <Col>Guest Policy Note</Col> is any words to go with them.
+            </dd>
+          </div>
+          <div class="flex flex-col gap-0.5">
             <dt class="text-text">Leaving a column out</dt>
             <dd class="text-text-muted">
-              A sheet without a <Col>Location</Col> or <Col>Description</Col> column leaves what
-              each event already has. A blank cell in one clears it.
+              A sheet without a <Col>Location</Col>, <Col>Description</Col>, <Col>Run of Show</Col>,{" "}
+              <Col>Getting There</Col>, <Col>Children</Col>, <Col>Plus-Ones</Col> or{" "}
+              <Col>Guest Policy Note</Col> column leaves what each event already has. A blank cell
+              in one clears it.
             </dd>
           </div>
           <div class="flex flex-col gap-0.5">

@@ -47,6 +47,7 @@ export type ButtonVariant =
   | "dashed"
   | "field"
   | "danger"
+  | "chip"
   | "link"
   | "subtle"
   | "touchLink"
@@ -182,6 +183,25 @@ const VARIANT = {
     "base:hover:border-ui-accent-soft",
   danger:
     "base:border-ui-danger/40 base:text-ui-danger base:hover:border-ui-danger base:hover:bg-ui-danger/10",
+  /**
+   * A control in a sheet's own chrome rather than in its content — the guest
+   * site's "Give RSVP →" and "← See details" beside the event sheet's close
+   * cross, which move between the sheet's two panels.
+   *
+   * A pill on the surface fill, because it is drawn as a sibling of that round
+   * close button and has to read as one row with it; and filled rather than
+   * transparent, because the sheet's content scrolls underneath it. Accent ink
+   * and an accent hairline, because it leads somewhere — `quiet`'s neutral ink
+   * would make the way to the RSVP form the dimmest thing on the details.
+   *
+   * `rounded-full` is the one plain utility in this table: {@link BASE}'s
+   * `base:rounded-ui-sm` is a zero-specificity `:where()` as a `base:` corner
+   * here would be, so the two would tie and the stylesheet's order would pick
+   * the corner. A plain class outranks it.
+   */
+  chip:
+    "rounded-full base:border-ui-accent/40 base:bg-ui-surface base:text-ui-accent-ink " +
+    "base:hover:border-ui-accent",
 
   /*
    * The four borderless ones.

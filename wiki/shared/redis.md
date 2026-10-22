@@ -16,11 +16,11 @@ related:
 packages:
   - "@shared/redis"
   - "@osn/api"
-last-reviewed: 2026-08-24
+last-reviewed: 2026-10-22
 ---
 # Redis Migration
 
-Migrate in-memory rate limiters and auth state stores to Redis for horizontal scaling. One piece of work covers six findings: S-M2, S-M8, P-W1, P-W4, S-L18, S-L23.
+Migrate in-memory rate limiters and auth state stores to Redis for horizontal scaling. One piece of work covers six findings: the rate limiter's reset on restart, process-memory auth state, unbounded rate-limit and auth maps, and the PKCE store.
 
 ## Motivation
 
@@ -36,7 +36,7 @@ The original in-memory rate limiter and the auth-state stores that need cross-pr
 |---|---|---|
 | **1 — Abstraction layer** | Extract `RateLimiterBackend` interface; refactor graph route to share the limiter; DI on every route factory | ✅ |
 | **2 — `@shared/redis` package** | `Redis` service tag, `RedisLive` / `RedisMemoryLive` layers, Lua-backed `createRedisRateLimiter`, health probe, in-memory fallback | ✅ |
-| **3 — Wire-up (rate limits)** | `createRedisAuthRateLimiters` / `createRedisGraphRateLimiter` / `createRedisRecommendationRateLimiters`; env-driven backend selection in `osn/api/src/index.ts`; fail-closed on individual check errors (S-M36); fail-open on startup fallback | ✅ |
+| **3 — Wire-up (rate limits)** | `createRedisAuthRateLimiters` / `createRedisGraphRateLimiter` / `createRedisRecommendationRateLimiters`; env-driven backend selection in `osn/api/src/index.ts`; fail-closed on individual check errors; fail-open on startup fallback | ✅ |
 | **4 — Cluster-safe auth state** | `RotatedSessionStore` (C2 reuse detection — see [[sessions]]) and `StepUpJtiStore` (single-use step-up replay guard — see [[step-up]]) both have Redis-backed implementations | ✅ |
 
 `pkceStore`, `otpStore`, `magicStore`, `pendingRegistrations` no longer exist — the OTP/magic-link/PKCE primary login surfaces were deleted with the move to passkey-primary login (see [[passkey-primary]]).
@@ -90,19 +90,19 @@ Every short-lived ceremony / pending-state entry in the auth service (registrati
 
 Decision deferred until the first deploy beyond localhost. **Resolved: Upstash, region
 `ap-southeast-2` (Sydney)** — co-located with the D1 databases (`oc`/Sydney) + AU edge
-traffic for low latency (C-M18; see [[compliance/subprocessors]], [[production-deploy]]).
+traffic for low latency (see [[compliance/subprocessors]], [[production-deploy]]).
 
 ## Finding Cross-References
 
-| ID | Status | Description |
-|----|---|---|
-| S-M2 | ✅ | In-memory rate limiter resets on restart — Redis-backed when `REDIS_URL` set |
-| S-M8 | ✅ | Auth state in process memory — replaced with cluster-safe `RotatedSessionStore` + `StepUpJtiStore` |
-| P-W1 | ✅ | Graph rate-limit store grew without bound — now uses shared limiter |
-| P-W4 | ✅ | Auth Maps never evict expired entries — Redis backend uses native PX expiry |
-| S-L18 | ✅ | Graph rate-limit store never evicted expired windows |
-| S-L23 | n/a | `pkceStore` deleted with PKCE removal |
-| S-L1 | ✅ | Upstash `eval` returned the HTTP reply unchecked — `wrapUpstash` now runs it through `toRedisReply`, as the ioredis path already did |
+| Status | Description |
+| --- | --- |
+| ✅ | In-memory rate limiter resets on restart — Redis-backed when `REDIS_URL` set |
+| ✅ | Auth state in process memory — replaced with cluster-safe `RotatedSessionStore` + `StepUpJtiStore` |
+| ✅ | Graph rate-limit store grew without bound — now uses shared limiter |
+| ✅ | Auth Maps never evict expired entries — Redis backend uses native PX expiry |
+| ✅ | Graph rate-limit store never evicted expired windows |
+| n/a | `pkceStore` deleted with PKCE removal |
+| ✅ | Upstash `eval` returned the HTTP reply unchecked — `wrapUpstash` now runs it through `toRedisReply`, as the ioredis path already did |
 
 ## Source Files
 

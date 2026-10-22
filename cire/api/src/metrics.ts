@@ -102,6 +102,10 @@ export const CIRE_METRICS = {
   checklistTemplateApplied: "cire.tasks.template.applied",
   // Seats put on or taken off a checklist task, by action and outcome.
   taskAssignmentChanged: "cire.tasks.assignment.changed",
+  // Run-time writes on a checklist task, by kind and outcome.
+  taskRunTimeChanged: "cire.tasks.run_time.changed",
+  // Day-of run-sheet reads, by the scope served and outcome.
+  runSheetReadCompleted: "cire.run_sheet.read.completed",
   // Organiser spreadsheet import.
   importApplied: "cire.import.applied",
   importRows: "cire.import.rows",
@@ -529,6 +533,24 @@ type TaskAssignmentChangedAttrs = {
   action: TaskAssignmentAction;
   result: TaskAssignmentResult;
 };
+/** What a run-time write set: a fixed time, a link by offset, a link by a
+ *  clock time, or nothing (`clear`). */
+export type TaskRunTimeKind = "fixed" | "offset" | "clock" | "clear";
+/** `ok` — written; `event_not_in_wedding` — the event named is not the task's
+ *  wedding's; `out_of_range` — a clock time more than a day from the event's
+ *  start; `task_not_found` — no such task on the wedding; `error` — the
+ *  database failed. */
+export type TaskRunTimeResult =
+  | "ok"
+  | "event_not_in_wedding"
+  | "out_of_range"
+  | "task_not_found"
+  | "error";
+type TaskRunTimeChangedAttrs = { kind: TaskRunTimeKind; result: TaskRunTimeResult };
+/** The run sheet a reader was served: their own tasks, or the whole day. */
+export type RunSheetScopeAttr = "own" | "full";
+export type RunSheetReadResult = "ok" | "error";
+type RunSheetReadCompletedAttrs = { scope: RunSheetScopeAttr; result: RunSheetReadResult };
 /** Why a guest plus-one write was refused before any write — one label per
  *  gate on the guest routes. */
 export type PlusOneBlockedReason = "preview" | "deadline" | "not_allowed" | "capacity";
@@ -990,6 +1012,18 @@ const taskAssignmentChanged = createCounter<TaskAssignmentChangedAttrs>({
   unit: "{request}",
 });
 
+const taskRunTimeChanged = createCounter<TaskRunTimeChangedAttrs>({
+  name: CIRE_METRICS.taskRunTimeChanged,
+  description: "Run-time writes on a checklist task, by kind and outcome",
+  unit: "{request}",
+});
+
+const runSheetReadCompleted = createCounter<RunSheetReadCompletedAttrs>({
+  name: CIRE_METRICS.runSheetReadCompleted,
+  description: "Day-of run-sheet reads, by the scope served and outcome",
+  unit: "{request}",
+});
+
 const plusOneBlocked = createCounter<PlusOneBlockedAttrs>({
   name: CIRE_METRICS.plusOneBlocked,
   description: "Guest plus-one writes refused before any write, by gate",
@@ -1362,6 +1396,14 @@ export const metricTaskAssignmentChanged = (
   action: TaskAssignmentAction,
   result: TaskAssignmentResult,
 ): void => taskAssignmentChanged.inc({ action, result });
+
+/** One run-time write on a checklist task, and how it ended. */
+export const metricTaskRunTimeChanged = (kind: TaskRunTimeKind, result: TaskRunTimeResult): void =>
+  taskRunTimeChanged.inc({ kind, result });
+
+/** One run-sheet read, the scope it served, and how it ended. */
+export const metricRunSheetRead = (scope: RunSheetScopeAttr, result: RunSheetReadResult): void =>
+  runSheetReadCompleted.inc({ scope, result });
 
 export const metricPlusOneBlocked = (reason: PlusOneBlockedReason): void =>
   plusOneBlocked.inc({ reason });

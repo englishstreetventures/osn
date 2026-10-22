@@ -8,28 +8,39 @@ related:
   - "[[frontend-patterns]]"
   - "[[metrics]]"
   - "[[testing-patterns]]"
+  - "[[cire-auth]]"
+  - "[[cire-host-portal-layout]]"
 packages: ["@shared/realtime"]
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-21
 ---
 
 # Realtime push
 
 `@shared/realtime` tells open browser tabs that something on the server changed, so they re-read it through the product's normal API. A signal names a **topic** and a **kind**. It never carries data. The product API's per-request role check stays the only authorisation boundary.
 
-No product uses it yet. cire is the first to adopt it (englishstreetventures/osn#1249), so `cire` is the one entry in `REALTIME_PRODUCTS`.
+cire is the one product that uses it, so `cire` is the one entry in `REALTIME_PRODUCTS`. See [Adopters](#adopters).
 
 ## Topics
 
-`<product>:<entity>:<id>`, matched by `TOPIC_PATTERN` in [protocol.ts](../../shared/realtime/src/protocol.ts): a lowercase product, a lowercase entity of at most 32 letters, and an id of 1–64 characters of `[A-Za-z0-9_-]`. A topic's product must be in `REALTIME_PRODUCTS`. Kinds are `SIGNAL_KINDS`, and today there is one, `members-changed`.
+`<product>:<entity>:<id>`, matched by `TOPIC_PATTERN` in [protocol.ts](../../shared/realtime/src/protocol.ts): a lowercase product, a lowercase entity of at most 32 letters, and an id of 1–64 characters of `[A-Za-z0-9_-]`. A topic's product must be in `REALTIME_PRODUCTS`.
+
+Kinds are `SIGNAL_KINDS`, a closed list, so a publish with a misspelt kind fails the type check:
+
+| Kind | Says |
+|---|---|
+| `members-changed` | who holds a place on the entity, or what that place lets them see, changed |
+| `tasks-changed` | the entity's tasks, or who holds them, changed |
+
+A kind is coarse on purpose: it tells a tab which of its views to re-read, never what changed, and every re-read goes through the product's own gates. A client built before a kind existed drops a frame carrying it (`isSignal`), so adding a kind never makes an older tab misread one.
 
 ## Pieces
 
 | Piece | Import | Runs on |
 |---|---|---|
-| Protocol: topics, `Signal`, `PING`/`PONG`, `PING_INTERVAL_MS`, `CLOSE_CODES` | `@shared/realtime` | anywhere |
-| `publish()`, `subscribe()`, `HubNamespace` | `@shared/realtime/server` | the product Worker (Effect) |
+| Protocol: topics, `Signal`, `PING`/`PONG`, `PING_INTERVAL_MS`, `CLOSE_CODES`, `FALLBACK_OUTCOMES` | `@shared/realtime` | anywhere |
+| `publish()`, `subscribe()`, `HubNamespace`; the fallback beacon's `readFallbackOutcome`, `recordClientFallback`, `MAX_FALLBACK_BEACON_BYTES` | `@shared/realtime/server` | the product Worker (Effect) |
 | `TopicHub` Durable Object | `@shared/realtime/hub` | workerd only — the Worker entry imports it, nothing else |
-| `createTopicSubscription()` | `@shared/realtime/client` | the browser (no Effect) |
+| `createTopicSubscription()`, `sendFallbackBeacon()` | `@shared/realtime/client` | the browser (no Effect) |
 | `useTopic()` | `@shared/realtime/solid` | Solid components |
 
 ## The hub
@@ -86,8 +97,8 @@ When a cap closed a socket, the hub's 101 says which in the `x-realtime-capacity
    | the hub answers 101 | 503 | `unavailable` |
 
    A callback that throws, or a defect, also answers 503. On success the hub's own 101 comes back, counted as `accepted`, or as `topic_full` when the hub closed the newcomer at the topic cap. A browser sees none of these statuses: a refused upgrade reaches the client as close 1006.
-4. **Publish after each write commits, in the background.** Hand `runtime.runPromise(publish(hub, topic, kind, { evictSubjects, revokeSubjects }))` to the request's `ctx.waitUntil`, so the write's response never waits on the hub (up to `PUBLISH_TIMEOUT_MS`, 2 s). Run it inline only where no execution context exists (tests). Name the members whose access changed: `evictSubjects` for a member who may still have access (their socket reconnects and is checked again), `revokeSubjects` for one who lost it (their open sockets are closed with 1008 and the client stops, so they make no refused reconnects). A subject in both lists is revoked. Each entry must be exactly the subject `authenticate` returned for that member, since the hub tags sockets with it; any other string closes nothing. A revoked member's tab that was paused or closed when the publish ran has no socket to close: when it returns it reconnects, is refused, and stops after its failed attempts. Publish only when the write changed something, because every publish is a billed Durable Object request.
-5. **Subscribe in the client** with `useTopic(() => url, onSignal)`, and treat every event as "re-read now".
+4. **Publish after each write commits, in the background.** Hand `runtime.runPromise(publish(hub, topic, kind, { evictSubjects, revokeSubjects }))` to the request's `ctx.waitUntil`, so the write's response never waits on the hub (up to `PUBLISH_TIMEOUT_MS`, 2 s). Run it inline only where no execution context exists (tests). Name the members whose access changed: `evictSubjects` for a member who may still have access (their socket reconnects and is checked again), `revokeSubjects` for one who lost it (their open sockets are closed with 1008 and the client stops, so they make no refused reconnects). A subject in both lists is revoked. Each entry must be exactly the subject `authenticate` returned for that member, since the hub tags sockets with it; any other string closes nothing. A revoked member's tab that was paused or closed when the publish ran has no socket to close: when it returns it reconnects, is refused, and stops after its failed attempts. A publish that names `revokeSubjects` tries the hub again if a call fails, after each pause in `REVOKE_RETRY_DELAYS_MS` (250 ms, then 750 ms), all inside the same `waitUntil`; if every try fails it logs `realtime revoke failed`, since the member's sockets then stay open until the first publish after they are an hour old. A publish that revokes nobody tries once. Publish only when the write changed something, because every publish is a billed Durable Object request.
+5. **Subscribe in the client** with `useTopic(() => url, onSignal, { onFallback: (outcome) => sendFallbackBeacon(endpoint, outcome) })`, and treat every event as "re-read now". Add the beacon route at `endpoint`: it checks the declared length, limits per IP, and reads the body bounded as it arrives — counting bytes and cancelling the stream once they pass `MAX_FALLBACK_BEACON_BYTES`, as cire's `readBoundedText` ([webhook-body.ts](../../cire/api/src/lib/webhook-body.ts)) does. Never `request.text()` followed by a length check: a body sent with no declared length would be buffered whole first, on a public route. It then hands the text to `readFallbackOutcome` (which refuses anything over `MAX_FALLBACK_BEACON_BYTES` or other than one outcome), counts the outcome with `recordClientFallback`, and answers 204 whatever it was sent. cire's [realtime-fallback.ts](../../cire/api/src/routes/realtime-fallback.ts) is the model.
 6. **Allow `wss:` in the portal's CSP.** Chromium 151 blocks a `wss://api.example` socket when `connect-src` lists only `https://api.example`, and opens it once `wss://api.example` is listed. So did the `ws:`/`http:` pair.
 
    *Measured 2026-09-26 — Playwright's Chromium 151.0.7922.34 against a local page and socket server, one run per policy.*
@@ -120,7 +131,16 @@ When a cap closed a socket, the hub's 101 says which in the `x-realtime-capacity
 
 Nothing about access control depends on a signal arriving.
 
-For one change, a member who keeps access and is evicted gets three signals: the message, the eviction's `dropped`, and `reconnected`. A revoked member gets the message and `stopped`, or only `stopped` when their socket was past its maximum age. The others on the topic get the message. Each prompts a re-read.
+For one change, a member who keeps access and is evicted gets three signals: the message, the eviction's `dropped`, and `reconnected`. A revoked member gets the message and `stopped`, or only `stopped` when their socket was past its maximum age. The others on the topic get the message. Each prompts a re-read. The message needs a fresh re-read, since a read already in flight may predate the change, and so does the reconnect, since a signal can be lost while the socket is down. The `dropped` carries no time of change, so a product can let it join a re-read already in flight: after an eviction, that is the message's re-read, which already postdates the change. cire does this.
+
+## Adopters
+
+- **cire** — hub bound as `REALTIME_HUB` in [wrangler.toml](../../cire/api/wrangler.toml) (entry `src/entry.ts`).
+  - **Route.** `GET /realtime/:topic` ([routes/realtime.ts](../../cire/api/src/routes/realtime.ts)) admits every seat that reads the run sheet — owner, editor, viewer and helper, a helper at either scope — by the same capability `weddingRunSheet()` checks (`LISTEN_CAPABILITY`). It checks a per-IP limit of 30 a minute, for requests from the portal's origin only, before it looks anything up; a page on another site cannot spend a visitor's limit, and `subscribe()` refuses that origin anyway. Its `allow` is 30 a minute per organiser and its `allowDaily` is 300 a day per organiser (`REALTIME_SUBSCRIBES_PER_DAY`), counted in D1 (`realtime_subscribe_budget`), so every isolate reads the same count. The per-IP and per-organiser limits count in memory, per isolate. A per-IP refusal answers 429 and logs `realtime subscribe refused` with `outcome: "ip_rate_limited"`, never the address. See [[cire-auth]].
+  - **Publish.** On `cire:wedding:<id>`, in the request's `waitUntil` ([services/realtime.ts](../../cire/api/src/services/realtime.ts)), and only when the write changed something:
+    - `members-changed` after a seat is added, re-roled (the role moved), removed or left (a seat went), after a helper's run-sheet scope moves, and after the wedding is deleted (revoking every seat holder). A removal and a leave **revoke** that member, so their sockets close with 1008 and their tab stops. A role change revokes only a role that may not listen, which none is, so a member narrowed to `helper` keeps listening. A scope change, narrowing or widening, closes nobody.
+    - `tasks-changed` after every checklist write that changed the checklist, a settings save that re-dated a seeded task included, and after a schedule change, applied or reverted, that created, updated or removed an event — which moves the time of every task linked to it, or changes a run of show the run sheet shows; one that changes a run of show alone is an update too — also when one fails part way. The list is in [[cire-checklist-tasks#Live refresh]].
+  - **Portal.** `Dashboard` listens on the open wedding for every seat, a helper's included. `members-changed` re-reads the wedding list and tells the views that show seats; `tasks-changed` tells the views that show tasks and reads no list; a reconnect does both. Both kinds mark the run sheet stale, a helper's included, and a mounted run sheet reads again on either ([[cire-run-sheet]]). A view's own write drops a re-read that may predate it, and the read goes again once the view's last write has ended. Signals that land while a task re-read is out cost one more read between them. When push stops, the portal reports the outcome to `POST /api/realtime/fallback`. See [[cire-host-portal-layout]].
 
 ## Observability
 
@@ -129,12 +149,22 @@ Counters in [metrics.ts](../../shared/realtime/src/server/metrics.ts) — see [[
 - `realtime.subscribe.attempts`, by `product` and `outcome` (the outcomes in the table above)
 - `realtime.signal.published`, by `product`, `kind` and `result` (`ok`, `error`, `disabled`)
 - `realtime.hub.capacity_refused`, by `product` and `cap` (`topic`: the newcomer was closed; `subject`: the member's own least recently seen socket was)
+- `realtime.client.fallbacks`, by `product` and `outcome` (`refused` | `exhausted`)
 
-Spans are `realtime.publish` and `realtime.subscribe`; the subscribe span carries `realtime.outcome`. Logs: `realtime subscribe refused` (warning, for `bad_origin`, `rate_limited` and `daily_limited`), `realtime topic at its socket cap` (warning), `realtime subscribe failed` with the failing step, `realtime hub refused an admitted upgrade`, and `realtime publish failed` (errors). None carries a subject; only the publish failure carries the topic. The browser client records no metric of its own until [englishstreetventures/osn#1242](https://github.com/englishstreetventures/osn/issues/1242) lands. It exposes `onFallback`, which is where a product hooks one.
+Spans are `realtime.publish` and `realtime.subscribe`; the subscribe span carries `realtime.outcome`. Logs: `realtime subscribe refused` (warning, for `bad_origin`, `rate_limited` and `daily_limited`), `realtime topic at its socket cap` (warning), `realtime subscribe failed` with the failing step, `realtime hub refused an admitted upgrade`, `realtime publish failed`, and `realtime revoke failed` for a publish that named members to revoke and reached no hub in any try (errors). None carries a subject; only the two publish failures carry the topic, and the revoke failure carries how many members it named.
+
+The browser client records nothing itself. When a subscription gives up, it calls `onFallback` with the outcome. A product passes that to `sendFallbackBeacon` ([beacon.ts](../../shared/realtime/src/client/beacon.ts)), which POSTs the outcome word to the product's beacon route. The route counts it with `recordClientFallback` ([fallback.ts](../../shared/realtime/src/server/fallback.ts)).
+
+What that count can and cannot show:
+
+- Counters are no-ops on workerd today, so on a deployed Worker the record is the `realtime client fell back` warning in Workers Logs, which keeps 3 days on the Workers Free plan ([[retention]]).
+- `refused` is the hub's 1008 close, so it counts every revoked member's tab as well as the caps and protocol errors: a product that revokes on access loss sees one `refused` per revoked tab.
+- `exhausted` merges every refused subscribe (401, 403, 429, 503), a CSP block and a missing hub: the client sees each as a socket that failed to open.
+- A dead network stops the beacon too, so the count undercounts.
 
 ## Tests
 
-No E2E flow can reach the hub: `tools/e2e` runs each API's Bun entry, which never runs the Worker entry, so the stack has no Durable Object. These tiers are the signal path's only coverage ([[testing-patterns]]):
+No E2E flow can reach the hub: `tools/e2e` runs each API's Bun entry, which never runs the Worker entry, so the stack has no Durable Object. These tiers are the package's coverage ([[testing-patterns]]), and each adopter adds its own route, Worker-entry and browser tests (cire's are listed in [[cire-host-portal-layout]] and `cire/api/tests/routes/realtime.test.ts`):
 
-- **Vitest**, `bun run --cwd shared/realtime test:run`: the topic and signal parsers, `subscribe()`'s refusals and their order, `publish()` against a failing or silent hub, the close-code mapping, the client's reconnect, fallback, hidden-tab and fallback-memory behaviour, and `useTopic()`.
+- **Vitest**, `bun run --cwd shared/realtime test:run`: the topic and signal parsers, `subscribe()`'s refusals and their order, `publish()` against a failing or silent hub, the close-code mapping, the client's reconnect, fallback (with its outcome), hidden-tab and fallback-memory behaviour, `useTopic()`, the fallback beacon, and `readFallbackOutcome`'s bounds.
 - **Miniflare**, `bun run --cwd shared/realtime test:d1` ([hub.test.ts](../../shared/realtime/tests/d1/hub.test.ts)): `TopicHub` on real workerd through `subscribe()` and `publish()` — the upgrade, the ping auto-response without a wake, fan-out by topic, eviction and revocation through the helper over a real binding, a publish that meets a socket closed in the same turn, the maximum age, both caps and the stale cull, the close reply, and the hub's own 426 and 400 refusals.

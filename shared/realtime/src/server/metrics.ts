@@ -7,13 +7,14 @@
  */
 import { createCounter } from "@shared/observability/metrics";
 
-import type { RealtimeProduct, SignalKind } from "../protocol";
+import type { FallbackOutcome, RealtimeProduct, SignalKind } from "../protocol";
 import type { HubCapacity } from "./headers";
 
 export const REALTIME_METRICS = {
   subscribeAttempts: "realtime.subscribe.attempts",
   signalPublished: "realtime.signal.published",
   hubCapacityRefused: "realtime.hub.capacity_refused",
+  clientFallbacks: "realtime.client.fallbacks",
 } as const;
 
 /**
@@ -60,6 +61,13 @@ const hubCapacityRefused = createCounter<{ product: RealtimeProduct; cap: HubCap
   unit: "{socket}",
 });
 
+const clientFallbacks = createCounter<{ product: RealtimeProduct; outcome: FallbackOutcome }>({
+  name: REALTIME_METRICS.clientFallbacks,
+  description:
+    "Browser subscriptions that gave up and fell back to refetching, by product and why, as reported by the client's beacon",
+  unit: "{fallback}",
+});
+
 export const metricSubscribe = (product: RealtimeProduct, outcome: SubscribeOutcome): void =>
   subscribeAttempts.inc({ product, outcome });
 
@@ -71,3 +79,6 @@ export const metricSignalPublished = (
 
 export const metricHubCapacityRefused = (product: RealtimeProduct, cap: HubCapacity): void =>
   hubCapacityRefused.inc({ product, cap });
+
+export const metricClientFallback = (product: RealtimeProduct, outcome: FallbackOutcome): void =>
+  clientFallbacks.inc({ product, outcome });

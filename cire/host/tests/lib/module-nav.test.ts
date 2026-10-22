@@ -34,11 +34,12 @@ describe("MODULE_NAV", () => {
     const gated = Object.fromEntries(
       MODULE_NAV.filter((mod) => mod.lock !== undefined).map((mod) => [mod.id, mod.lock!.tier]),
     );
-    // The same split as the API's tier gate: budget, the checklist, the
-    // registry and seating at Gold, vendors at Crimson. A module that disagrees
-    // would be offered to a wedding the API then answers 402.
+    // The same split as the API's tier gate: budget, the checklist, the run
+    // sheet, the registry and seating at Gold, vendors at Crimson. A module
+    // that disagrees would be offered to a wedding the API then answers 402.
     expect(gated).toEqual({
       checklist: "gold",
+      "run-sheet": "gold",
       budget: "gold",
       registry: "gold",
       seating: "gold",
@@ -67,13 +68,21 @@ describe("MODULE_NAV", () => {
 
 describe("isModuleLocked", () => {
   it("locks every gated module on Ivory", () => {
-    for (const id of ["checklist", "budget", "registry", "seating", "vendors"] as const) {
+    for (const id of [
+      "checklist",
+      "run-sheet",
+      "budget",
+      "registry",
+      "seating",
+      "vendors",
+    ] as const) {
       expect(isModuleLocked(id, "ivory"), `${id} on Ivory`).toBe(true);
     }
   });
 
   it("opens the Gold modules on Gold and keeps Vendors locked", () => {
     expect(isModuleLocked("checklist", "gold")).toBe(false);
+    expect(isModuleLocked("run-sheet", "gold")).toBe(false);
     expect(isModuleLocked("budget", "gold")).toBe(false);
     expect(isModuleLocked("registry", "gold")).toBe(false);
     expect(isModuleLocked("vendors", "gold")).toBe(true);

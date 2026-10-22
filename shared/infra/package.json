@@ -1,6 +1,6 @@
 {
   "name": "@shared/infra",
-  "version": "0.0.0",
+  "version": "0.1.1",
   "private": true,
   "license": "UNLICENSED",
   "author": "English Street Ventures Pty Ltd",
@@ -26,10 +26,10 @@
     "state:check": "DO_NOT_TRACK=1 bun alchemy state ls --backend cloudflare"
   },
   "dependencies": {
-    "@effect/platform-bun": "4.0.3",
-    "@effect/platform-node": "4.0.3",
+    "@effect/platform-bun": "4.0.5",
+    "@effect/platform-node": "4.0.5",
     "alchemy": "2.0.0-beta.83",
-    "effect": "4.0.3"
+    "effect": "4.0.5"
   },
   "devDependencies": {
     "@shared/typescript-config": "workspace:*",

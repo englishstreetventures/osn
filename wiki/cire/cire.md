@@ -20,10 +20,11 @@ related:
   - "[[identity-model]]"
   - "[[passkey-primary]]"
   - "[[turnstile]]"
+  - "[[realtime]]"
   - "[[data-map]]"
   - "[[dpia/cire-guest-data]]"
   - "[[cire-rsvp-changes]]"
-last-reviewed: 2026-10-21
+last-reviewed: 2026-10-22
 ---
 
 # Cire
@@ -57,7 +58,7 @@ Two separate systems by design — full contract in [[cire-auth]]:
 
 ## Guest + organiser features (shipped by 2026-07-22)
 
-- **Per-section invite theming (#152)** — organisers theme each invite section with a bounded set of fonts + colours (migration `0014`). The allowlist is CSS-injection-safe: only known font keys and validated colour values reach the rendered styles, so a malicious value can't break out into arbitrary CSS. The colour validator's single source of truth is the zero-dependency `@cire/theme` package (`isSafeCssColor`) — `cire/api` validates at write time and `cire/invites` re-checks at render time from the same definition (IB-S-L1, fixed 2026-07-03). A shared **scoped token bridge** (`sectionTokenBridge`, 2026-07-09) re-points the guest site's Tailwind tokens at the validated `--invite-*` vars per section, so the theme reaches every descendant (event-card buttons, hover states, the RSVP/details modals). This fixed the reported "details theme only changed the header" bug. Migration `0028` made the last hardcoded guest-facing copy editable (events-section eyebrow/heading + the post-claim welcome greeting), and the guest tab `<title>` follows the couple's hero title. Full contract in [[cire-invite-builder]].
+- **Per-section invite theming (#152)** — organisers theme each invite section with a bounded set of fonts + colours (migration `0014`). The allowlist is CSS-injection-safe: only known font keys and validated colour values reach the rendered styles, so a malicious value can't break out into arbitrary CSS. The colour validator's single source of truth is the zero-dependency `@cire/theme` package (`isSafeCssColor`) — `cire/api` validates at write time and `cire/invites` re-checks at render time from the same definition. A shared **scoped token bridge** (`sectionTokenBridge`, 2026-07-09) re-points the guest site's Tailwind tokens at the validated `--invite-*` vars per section, so the theme reaches every descendant (event-card buttons, hover states, the RSVP/details modals). This fixed the reported "details theme only changed the header" bug. Migration `0028` made the last hardcoded guest-facing copy editable (events-section eyebrow/heading + the post-claim welcome greeting), and the guest tab `<title>` follows the couple's hero title. Full contract in [[cire-invite-builder]].
 - **Google Maps Embed preview (#146)** — venue/location previews use the Maps Embed API, key-optional with a CSS-card fallback when no key is set (same graceful-degradation pattern as Turnstile and the optional email).
 - **Turnstile bot protection (#154)** — guest claim + RSVP (and the organiser-portal OSN register/login) are gated by Cloudflare Turnstile, key-optional + fail-closed; **inert until a widget is created**. See [[turnstile]].
 - **Organiser Security / Devices section (#155)** — the portal's `SecurityPanel` mounts `@osn/auth-ui`'s `PasskeysView` to list / add / rename / remove passkeys, with passkey-only step-up (the `passkeyOnly` flag on `StepUpDialog`). The flag is still forced on, but its original reason has expired: it was set because the deployed osn-api ran with email degraded, and osn-api has delivered through Resend since 2026-06-18 ([[email]]). Whether to re-enable the OTP factor is an open decision, tracked as an issue in `englishstreetventures/osn`; the code comment in `cire/host/src/components/SecurityPanel.tsx` still cites the degraded-email reason. New-device help points at synced/backed-up passkeys, the cross-device QR ceremony, or a recovery code. See [[passkey-primary]], [[sessions]].
@@ -119,7 +120,8 @@ wedding, because a profile holds one seat per wedding. They are two copies of
 one rule — SQL in a shell string in
 [`scripts/cire-db-seed.sh`](../../scripts/cire-db-seed.sh), Drizzle in
 `setup.ts` — so a change to one belongs in the other. Both paths are dev-only:
-neither runs in the deployed Worker (entry `src/index.ts`).
+neither runs in the deployed Worker (entry `src/entry.ts`, which
+re-exports the handler in `src/index.ts` and the realtime hub class).
 
 `cire/db` drizzle.config points `db:studio` at the local D1 sqlite (override via
 `CIRE_DATABASE_URL`; the content-hashed path changes on `db:reset`).
@@ -151,11 +153,45 @@ approval, it applies the remote cire D1 migrations and deploys the **cire-api Wo
 the **cire-invites guest Worker** and the **organiser, vendor and landing Pages**
 projects in each daily or hand-run release; the dev tier deploys from `deploy.yml` on
 every merge. The Cloudflare API tokens sit on the `production`
-and `dev` GitHub Environments. Prod wrangler config redeclares the D1 + R2 bindings under
+and `dev` GitHub Environments. Prod wrangler config redeclares the D1, R2, rate-limit and Durable Object bindings under
 `[env.production]` (named envs don't inherit top-level bindings); cire-api no
 longer needs a bootstrap owner (#156). The full secret/var checklist, the
 one-time Turnstile widget step, and post-deploy smoke checks live in the
 [[production-deploy]] runbook.
+
+### Realtime push
+
+cire-api binds the `@shared/realtime` hub as `REALTIME_HUB` in every tier of
+[wrangler.toml](../../cire/api/wrangler.toml) and answers `GET /realtime/:topic`
+before the Elysia app, for every seat that reads the run sheet — a helper's
+included. On `cire:wedding:<id>` it publishes `members-changed` after a seat is
+added, re-roled, removed or left, after a helper's run-sheet scope moves, and
+after the wedding is deleted, and `tasks-changed` after every checklist write
+that changed something and every schedule change, applied or reverted, that
+touched an event. An open organiser tab re-reads its wedding list and its
+co-host panel on the first, its checklist and Overview on the second, and its
+run sheet — a helper's included — on both. A member who lost their seat is
+revoked: their sockets close and their tab stops listening. See [[realtime]],
+[[cire-auth]], [[cire-checklist-tasks]], [[cire-run-sheet]] and
+[[cire-host-portal-layout]].
+Seed runs (the nightly dev rebuild) and data migrations change `wedding_hosts`
+and `tasks` with no signal. Open tabs catch up on their next refetch.
+
+### Turning realtime push off
+
+After the first deploy, reverting the change that added push is not enough on
+its own. A revert removes the `TopicHub` export from `src/entry.ts` and the
+`v1` migration. Wrangler then refuses the upload, because existing Durable
+Objects depend on the class. So the dev deploy (`deploy-cire-api-dev` in
+`.github/workflows/deploy.yml`) fails, and a production release
+(`deploy-cire-api` in `.github/workflows/production-release.yml`) fails the same
+way. To turn push off, delete the three `REALTIME_HUB` binding blocks from
+`cire/api/wrangler.toml` and deploy. `/realtime/*` then answers 503, publishes
+do nothing, tabs fall back, and the class export and migration stay. Each
+deployed isolate then logs `REALTIME_HUB binding missing in a deployed tier`
+once, as an error, which is expected while push is off. Removing the class
+itself needs a new migration with `deleted_classes = ["TopicHub"]`, deployed
+first.
 
 ## Cire-internal docs
 
@@ -164,7 +200,7 @@ one on 2026-08-21, so every cire page is now a wikilink away instead of a backti
 path that resolves nowhere:
 
 - Architecture — [[cire-platform-plan]], [[cire-invite-builder]], [[cire-guest-event-editor]], [[cire-consent]], [[cire-host-portal-layout]], [[drag-and-drop]]
-- Systems — [[cire-organiser]], [[cire-budget]], [[cire-checklist-tasks]], [[cire-entitlements]] (the Ivory, Gold and Crimson plan tiers), [[cire-upgrades]], [[cire-invite-designs]], [[cire-registry]], [[cire-seating]], [[cire-rsvp-deadline]], [[cire-rsvp-changes]], [[cire-rsvp-table]], [[cire-vendors]], [[feature-flags]]
+- Systems — [[cire-organiser]], [[cire-budget]], [[cire-checklist-tasks]], [[cire-run-sheet]], [[cire-entitlements]] (the Ivory, Gold and Crimson plan tiers), [[cire-upgrades]], [[cire-invite-designs]], [[cire-registry]], [[cire-seating]], [[cire-rsvp-deadline]], [[cire-rsvp-changes]], [[cire-rsvp-table]], [[cire-vendors]], [[feature-flags]]
 - Observability — [[cire-workerd]] · Conventions — [[browser-tests]]
 
 Cire's build conventions — the backend patterns, the two test tiers, and the
@@ -216,14 +252,14 @@ Guest data (family/guest names, RSVP status, **special-category dietary
 free-text**, claim codes) lives in cire's own Cloudflare D1 + R2 and is
 recorded in the OSN compliance programme:
 
-- [[data-map]] — cire section (fields, lawful basis, recipients); dietary Art. 9(2)(a) consent captured (C-H2 (cire dietary), PR #123), covering both `rsvps.dietary` and the `rsvps.dietary_presets` vocabulary; residual C-H1 R2 retention + C-L1 age-gate note
-- [[dpia/cire-guest-data]] — Art. 35 DPIA (dietary special-category, presets and free text alike; consent asked once per submission and never pre-ticked for a member with no record; gating consent mitigation RESOLVED PR #123, sign-off pending residual C-H1)
-- [[retention]] — cire rows: guest data swept at 1 year (PR #132) + expired guest sessions swept daily (PR #127); R2-object lifecycle still open (C-H1)
-- [[subprocessors]] — Cloudflare D1/R2 (guest-PII volume) + Pinterest embed (C-H3)
-- privacy notice — guest site publishes `/privacy` + `/terms` (PR #124, C-H4)
-- [[dsar]] — cross-DB reachability + orphan-tolerance decision (C-M1)
-- [[access-control]] — cire D1/R2 operator access + the two cire credential classes (C-M3)
-- [[soc2]] — `@cire/api` observability exception; redaction deny-list interim guard (C-M2)
+- [[data-map]] — cire section (fields, lawful basis, recipients); dietary Art. 9(2)(a) consent captured (PR #123), covering both `rsvps.dietary` and the `rsvps.dietary_presets` vocabulary; residual R2 retention + the age-gate note
+- [[dpia/cire-guest-data]] — Art. 35 DPIA (dietary special-category, presets and free text alike; consent asked once per submission and never pre-ticked for a member with no record; gating consent mitigation RESOLVED PR #123, sign-off pending residual retention items)
+- [[retention]] — cire rows: guest data swept at 1 year (PR #132) + expired guest sessions swept daily (PR #127); R2-object lifecycle still open
+- [[subprocessors]] — Cloudflare D1/R2 (guest-PII volume) + Pinterest embed
+- privacy notice — guest site publishes `/privacy` + `/terms`
+- [[dsar]] — cross-DB reachability + orphan-tolerance decision
+- [[access-control]] — cire D1/R2 operator access + the two cire credential classes
+- [[soc2]] — `@cire/api` observability exception; redaction deny-list interim guard
 
 ## Related
 

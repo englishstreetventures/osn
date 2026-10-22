@@ -8,6 +8,7 @@ import {
   guestEvents,
   guests,
   rsvps,
+  runOfShowItems,
   weddingFaqs,
   weddings,
 } from "@cire/db";
@@ -33,6 +34,7 @@ import { TestDbLayer } from "../db/test-layer";
 import { boundParameterCount, effWith, recordStatements } from "../test-helpers";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { allowPlusOne, eventIdsOf, guestNamed, seedPlusOne } from "../test-helpers/plus-one";
+import { insertWedding } from "../test-helpers/wedding";
 
 /** Read a family's `first_opened_at` (epoch-ms or null) by public id. */
 function firstOpenedAt(db: Db, publicId: string): Effect.Effect<number | null> {
@@ -227,6 +229,202 @@ describe("claimService.lookup", () => {
         // Both rows still carry the data; only the "still current?" answer moves.
         expect(current?.dietaryPresets).toEqual(["halal"]);
         expect(stale?.dietaryPresets).toEqual(["halal"]);
+      }),
+    ),
+  );
+});
+
+// The household's details sheet and the organiser's events tab read an
+// event's run of show, getting-there notes and guest policy from these two
+// reads; an event that has none of them carries an empty list and nulls.
+describe("an event's run of show, notes and policy in the claim and the events read", () => {
+  const seedDetails = (db: Db) => {
+    db.update(eventsTable)
+      .set({
+        gettingThere: "Park on Sample Lane.",
+        childrenPolicy: "adults_only",
+        plusOnePolicy: "by_invitation",
+        guestPolicyNote: "Hats encouraged.",
+      })
+      .where(eq(eventsTable.id, CATHOLIC_ID))
+      .run();
+    // Written out of order: the reads return the organiser's order.
+    db.insert(runOfShowItems)
+      .values([
+        {
+          eventId: CATHOLIC_ID,
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          sortOrder: 1,
+          time: "15:30",
+          label: "Vows",
+        },
+        {
+          eventId: CATHOLIC_ID,
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          sortOrder: 0,
+          time: "15:00",
+          label: "Processional",
+        },
+      ])
+      .run();
+  };
+  const DETAILS = {
+    runOfShow: [
+      { time: "15:00", label: "Processional" },
+      { time: "15:30", label: "Vows" },
+    ],
+    gettingThere: "Park on Sample Lane.",
+    childrenPolicy: "adults_only",
+    plusOnePolicy: "by_invitation",
+    guestPolicyNote: "Hats encouraged.",
+  };
+  const NONE = {
+    runOfShow: [],
+    gettingThere: null,
+    childrenPolicy: null,
+    plusOnePolicy: null,
+    guestPolicyNote: null,
+  };
+
+  it(
+    "the claim carries them for each invited event",
+    withDb(
+      Effect.gen(function* () {
+        seedDetails(yield* DbService);
+        const result = yield* claimService.lookup("TESTONE-IVY-AA11");
+        expect(result.events.find((e) => e.id === CATHOLIC_ID)).toMatchObject(DETAILS);
+        expect(result.events.find((e) => e.id === RECEPTION_ID)).toMatchObject(NONE);
+      }),
+    ),
+  );
+
+  it(
+    "the organiser's events read carries them for every event",
+    withDb(
+      Effect.gen(function* () {
+        seedDetails(yield* DbService);
+        const listed = yield* claimService.listEvents(BOOTSTRAP_WEDDING_ID, "cire-wedding");
+        expect(listed.find((e) => e.id === CATHOLIC_ID)).toMatchObject(DETAILS);
+        expect(listed.find((e) => e.id === KITCHEN_TEA_ID)).toMatchObject(NONE);
+      }),
+    ),
+  );
+
+  it(
+    "holds the claim's events to the household's own wedding",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        const now = new Date();
+        insertWedding(db, {
+          id: "wed_other",
+          slug: "other-wedding",
+          displayName: "Other Wedding",
+          createdAt: now,
+          updatedAt: now,
+          owners: ["usr_someone_else"],
+        });
+        db.insert(eventsTable)
+          .values({
+            id: "evt_other",
+            weddingId: "wed_other",
+            slug: "other-party",
+            name: "Other Party",
+            description: "",
+            startAt: "2027-02-02T10:00:00+11:00",
+            endAt: "2027-02-02T12:00:00+11:00",
+            timezone: "Australia/Sydney",
+            sortOrder: 0,
+          })
+          .run();
+        const [ada] = yield* Effect.promise(() =>
+          Promise.resolve(
+            db
+              .select({ id: guests.id })
+              .from(guests)
+              .innerJoin(families, eq(families.id, guests.familyId))
+              .where(eq(families.publicId, "TESTONE-IVY-AA11"))
+              .all(),
+          ),
+        );
+        // An invitation row naming another wedding's event.
+        db.insert(guestEvents).values({ guestId: ada!.id, eventId: "evt_other" }).run();
+        const result = yield* claimService.lookup("TESTONE-IVY-AA11");
+        expect(result.events.map((e) => e.id)).not.toContain("evt_other");
+        expect(result.events.map((e) => e.id)).toContain(CATHOLIC_ID);
+      }),
+    ),
+  );
+
+  // "Welcome" goes only to a household one of whose members may bring a
+  // plus-one to that event; any other reads the preset as not stated.
+  it(
+    "sends the welcome preset only to a household with a member who may bring a plus-one",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        db.update(eventsTable)
+          .set({ plusOnePolicy: "welcome" })
+          .where(eq(eventsTable.id, CATHOLIC_ID))
+          .run();
+        db.update(eventsTable)
+          .set({ plusOnePolicy: "by_invitation" })
+          .where(eq(eventsTable.id, RECEPTION_ID))
+          .run();
+        const policyOf = (result: {
+          readonly events: readonly {
+            readonly id: string;
+            readonly plusOnePolicy: string | null;
+          }[];
+        }) =>
+          [CATHOLIC_ID, RECEPTION_ID].map(
+            (id) => result.events.find((e) => e.id === id)?.plusOnePolicy,
+          );
+        expect(policyOf(yield* claimService.lookup("TESTONE-IVY-AA11"))).toEqual([
+          null,
+          "by_invitation",
+        ]);
+        const [ada] = yield* Effect.promise(() =>
+          Promise.resolve(
+            db
+              .select({ id: guests.id })
+              .from(guests)
+              .innerJoin(families, eq(families.id, guests.familyId))
+              .where(eq(families.publicId, "TESTONE-IVY-AA11"))
+              .all(),
+          ),
+        );
+        db.update(guests).set({ plusOneAllowed: true }).where(eq(guests.id, ada!.id)).run();
+        expect(policyOf(yield* claimService.lookup("TESTONE-IVY-AA11"))).toEqual([
+          "welcome",
+          "by_invitation",
+        ]);
+        // The organiser's own read gives the preset as stored.
+        const listed = yield* claimService.listEvents(BOOTSTRAP_WEDDING_ID, "cire-wedding");
+        expect(listed.find((e) => e.id === CATHOLIC_ID)?.plusOnePolicy).toBe("welcome");
+      }),
+    ),
+  );
+
+  it(
+    "a household invited to no events claims with none",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        seedDetails(db);
+        const [ada] = yield* Effect.promise(() =>
+          Promise.resolve(
+            db
+              .select({ id: guests.id })
+              .from(guests)
+              .innerJoin(families, eq(families.id, guests.familyId))
+              .where(eq(families.publicId, "TESTONE-IVY-AA11"))
+              .all(),
+          ),
+        );
+        db.delete(guestEvents).where(eq(guestEvents.guestId, ada!.id)).run();
+        const result = yield* claimService.lookup("TESTONE-IVY-AA11");
+        expect(result.events).toEqual([]);
       }),
     ),
   );
@@ -1151,10 +1349,11 @@ describe("claimService.lookup — a household invited to many events", () => {
     );
 
     expect(result.events.map((e) => e.id)).toEqual(expect.arrayContaining(extra));
-    const reads = statements.filter((s) =>
-      s.sql.includes('from "events" where "events"."id" in ('),
+    const reads = statements.filter(
+      (s) => s.sql.includes('from "events" where') && s.sql.includes('"events"."id" in ('),
     );
     expect(reads).toHaveLength(1);
-    expect(boundParameterCount(reads[0]!.sql)).toBe(1);
+    // The ids as one JSON parameter, and the household's wedding.
+    expect(boundParameterCount(reads[0]!.sql)).toBe(2);
   });
 });

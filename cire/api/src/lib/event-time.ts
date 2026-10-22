@@ -196,6 +196,23 @@ export function zoneOffsetAt(zone: string, date: string, time: string): string |
 }
 
 /**
+ * An INSTANT read on `zone`'s clock, in the canonical stored shape
+ * `YYYY-MM-DDTHH:MM:SS±HH:MM`, the offset being the one the zone is on at that
+ * instant. The other direction from {@link zoneOffsetAt}: no ambiguity to
+ * resolve, because an instant has exactly one reading on any clock. Null when
+ * `zone` is not a real IANA zone or the runtime names no offset.
+ */
+export function formatInstantInZone(ms: number, zone: string): string | null {
+  const canonical = resolveTimeZone(zone);
+  if (canonical === null || !Number.isFinite(ms)) return null;
+  const offset = offsetMinutesAt(canonical, new Date(ms));
+  if (offset === null) return null;
+  // The wall clock is the instant moved by the offset, read as UTC fields.
+  const wall = new Date(ms + offset * 60_000).toISOString();
+  return `${wall.slice(0, 19)}${formatOffsetMinutes(offset)}`;
+}
+
+/**
  * Stamp a Start/End cell with the offset its ZONE is on for that wall clock,
  * producing the canonical stored shape `YYYY-MM-DDTHH:MM:SS±HH:MM`.
  *

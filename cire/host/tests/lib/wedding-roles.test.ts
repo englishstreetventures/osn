@@ -26,9 +26,10 @@ import {
 const ROLES = Object.keys(ROLE_COPY) as WeddingRole[];
 
 describe("the vocabulary", () => {
-  it("puts the floor at the narrowest role, and offers it nothing", () => {
+  it("puts the floor at the narrowest role, and offers it nothing but the socket", () => {
     expect(LEAST_PRIVILEGE_ROLE).toBe("helper");
     expect(surfacesFor(LEAST_PRIVILEGE_ROLE)).toEqual({
+      canListen: true,
       canOpenDashboard: false,
       canEdit: false,
       canManage: false,
@@ -54,6 +55,7 @@ describe("normaliseWeddingRole", () => {
 describe("surfacesFor", () => {
   it("gives the owner every surface", () => {
     expect(surfacesFor("owner")).toEqual({
+      canListen: true,
       canOpenDashboard: true,
       canEdit: true,
       canManage: true,
@@ -62,6 +64,7 @@ describe("surfacesFor", () => {
 
   it("gives an editor the dashboard and the writes, but not management", () => {
     expect(surfacesFor("editor")).toEqual({
+      canListen: true,
       canOpenDashboard: true,
       canEdit: true,
       canManage: false,
@@ -70,14 +73,16 @@ describe("surfacesFor", () => {
 
   it("gives a viewer the dashboard and nothing that writes", () => {
     expect(surfacesFor("viewer")).toEqual({
+      canListen: true,
       canOpenDashboard: true,
       canEdit: false,
       canManage: false,
     });
   });
 
-  it("gives a helper no dashboard at all", () => {
+  it("gives a helper no dashboard at all, only the socket their run sheet follows", () => {
     expect(surfacesFor("helper")).toEqual({
+      canListen: true,
       canOpenDashboard: false,
       canEdit: false,
       canManage: false,

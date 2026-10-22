@@ -8,7 +8,7 @@ related:
   - "[[shared/observability/metrics]]"
   - "[[shared/observability/logging]]"
   - "[[shared/observability/tracing]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-22
 ---
 
 # Observability Setup Runbook

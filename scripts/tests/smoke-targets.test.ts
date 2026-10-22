@@ -108,6 +108,20 @@ describe("the guest site", () => {
     );
     expect(redirect?.expects).toEqual({ kind: "redirect", to: marketing });
   });
+
+  // The footer prints the commit a guest-site build came from, so a report
+  // from a phone names its build. Each job that builds it hands the build the
+  // commit the workflow runs on, which is also in turbo's hash as a `PUBLIC_*`
+  // variable, so a new commit never replays an old build.
+  test.each([
+    ["production", WORKFLOW_FILE.production, "deploy-cire-invites"],
+    ["dev", WORKFLOW_FILE.dev, "stack-cire-dev"],
+  ] as const)(
+    "%s builds the guest site with the workflow's commit as PUBLIC_BUILD_SHA",
+    (_, path, job) => {
+      expect(guestBuildEnv(path, job).PUBLIC_BUILD_SHA).toBe("${{ github.sha }}");
+    },
+  );
 });
 
 test("only the dev browser hosts, which sit behind Cloudflare Access, send the Access token", () => {

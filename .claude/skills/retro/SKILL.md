@@ -118,6 +118,14 @@ Four rules about that pair:
   `git add` of the whole of it sweeps in anything a concurrent session left
   there.
 
+Before the push or the body edit below, read the pull request's state:
+
+```bash
+gh api repos/englishstreetventures/osn/pulls/"$PR" --jq '{state, merged}'
+```
+
+On `merged: true` or `state: closed`, stop before the push and the body edit. Do not push to the branch, and do not edit the body: a merged pull request's body is the record of what merged. Cut a new branch from `origin/main`, commit the card there, and open a follow-up pull request as `write-pr` Step 6 says.
+
 ```bash
 SLUG=$(printf '%s' "$BRANCH" | tr -c 'a-zA-Z0-9._-' '-' | sed 's/^-*//;s/-*$//')
 CARD=".claude/metrics/$SLUG.json"
@@ -192,6 +200,8 @@ below has to cite:
 | `window.compactions` and `window.sessions` | Whether the context ran out, and how many restarts |
 | `diff.files` split by bucket | Where the change actually landed |
 | `spend.by_actor` | Whether delegation paid |
+| `interaction.requests` | Model calls, how many ran one tool, and the context each carried. Cost is calls times context |
+| `review` | Whether tests and docs findings led to a change, against a control. **`null` means no report was read**; the first run that reads the reports is the record |
 
 `references/card-signals.md` maps each of those to the question it answers and
 the artefact a finding about it belongs in. Read it before Step 3.

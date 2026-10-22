@@ -173,8 +173,11 @@ describe.skipIf(process.env.CIRE_D1_TIER !== "1")("cire-db-migrate.ts on a local
 describe.skipIf(process.env.CIRE_D1_TIER !== "1" || process.env.MIGRATION_FLOW !== "1")(
   "timestamped migrations on a local D1",
   () => {
-    const STAMPED = "20261021031500_e2e_add_note.sql";
-    const FAILING = "20261021031501_e2e_fails.sql";
+    // The new file must sort after every file in the live chain, as the next
+    // migration generated does: these are the last seconds a 14-digit stamp
+    // can hold, so no real migration sorts after them.
+    const STAMPED = "99991231235958_e2e_add_note.sql";
+    const FAILING = "99991231235959_e2e_fails.sql";
     const artifact: Record<string, unknown> = {};
 
     /** A wrangler config over a copy of the live chain plus `extra` files. */

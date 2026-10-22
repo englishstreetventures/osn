@@ -16,7 +16,7 @@ related:
   - "[[pulse]]"
 packages:
   - "@pulse/api"
-last-reviewed: 2026-09-23
+last-reviewed: 2026-10-22
 ---
 
 # Platform Limits
@@ -34,7 +34,7 @@ Platform-wide caps live in a single `limits.ts` file per workspace. Schemas, rou
 The 1000 guest cap is the hard ceiling for event attendance across the Pulse platform. It affects:
 
 - **Bulk invite:** the maximum number of users that can be invited to a single event
-- **Graph bridge:** `getConnectionIds` in [[s2s-patterns|graphBridge.ts]] caps its result set at this value (raised from 100 after S-M28/P-W13)
+- **Graph bridge:** `getConnectionIds` in [[s2s-patterns|graphBridge.ts]] caps its result set at this value (raised from 100 after a review)
 - **Batch lookups:** Pulse's `getCloseFriendsOfBatch` (in [[pulse-close-friends]]) is clamped to 1000, which matches this limit
 
 ## Beyond 1000 Guests

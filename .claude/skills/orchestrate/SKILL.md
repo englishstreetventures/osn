@@ -198,7 +198,10 @@ A `taken` line means an earlier pull request used the name, and the session-metr
 ```bash
 git -C /Users/ac/.work/osn.git worktree add /Users/ac/.work/osn.git/<dir> -b <prefix>/<dir> origin/main
 (cd /Users/ac/.work/osn.git/<dir> && bun install --frozen-lockfile)      # a fresh worktree has no node_modules
+git -C /Users/ac/.work/osn.git/main merge --ff-only origin/main          # main/ holds the AGENTS.md and skills subagents load
 ```
+
+Subagents start in `main/`, so Claude Code loads its `CLAUDE.md`, `AGENTS.md` and skills from there, not from the task worktree. The fast-forward above brings that copy to `origin/main` before the dispatch. If it refuses, `main/` has local commits or edits, which is someone else's work: do not reset or stash it. Write the refusal into `ORCHESTRATE.md` and stop, because a subagent would load the stale copy.
 
 `<prefix>` is `feat/`, `fix/`, `chore/`, `refactor/` or `docs/`; `<dir>` is the branch name without it. Skip only when the task genuinely continues an existing, unmerged branch. A task that stacks on an open PR's branch is cut from that branch and gets `git config branch.<name>.gh-merge-base <parent>` — `wiki/conventions/stacked-prs.md`.
 

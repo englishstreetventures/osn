@@ -1,5 +1,5 @@
 import { events, families, guestEvents, guests } from "@cire/db";
-import { and, asc, eq, isNull, ne } from "drizzle-orm";
+import { and, asc, eq, getTableColumns, isNull, ne } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { DbService, dbQuery } from "../db";
@@ -17,6 +17,12 @@ import {
 } from "../lib/sheet-headers";
 import { MAX_ROWS } from "../schemas/import";
 import { decodePalette, safeHttpUrl } from "./claim";
+import {
+  CHILDREN_POLICY_LABEL,
+  PLUS_ONE_POLICY_LABEL,
+  runOfShowCell,
+} from "./guest-event-validation";
+import { runOfShowColumn, runOfShowFrom } from "./run-of-show";
 
 /**
  * Round-trip exports: the wedding's CURRENT events + guests serialised in the
@@ -98,9 +104,11 @@ export const stateExportService = {
   /**
    * Events sheet: one row per event in `sortOrder` order — the parser assigns
    * `sortOrder` from row order, so exporting in that order makes the
-   * re-imported ordering a fixpoint. `Location` carries the venue's name and
-   * `Description` the event's description, at every fidelity, so a re-import
-   * and a before-image both put them back. URLs pass the http(s) guard so a
+   * re-imported ordering a fixpoint. `Location` carries the venue's name,
+   * `Description` the event's description, `Run of Show` one `HH:MM label` line
+   * per item in the organiser's order, and `Children` and `Plus-Ones` their
+   * presets' words, at every fidelity, so a re-import and a before-image both
+   * put them back. URLs pass the http(s) guard so a
    * legacy non-http value can't make the exported sheet un-importable.
    */
   eventsCsv(
@@ -111,7 +119,7 @@ export const stateExportService = {
       const db = yield* DbService;
       const rows = yield* dbQuery(() =>
         db
-          .select()
+          .select({ ...getTableColumns(events), runOfShow: runOfShowColumn })
           .from(events)
           .where(eq(events.weddingId, weddingId))
           .orderBy(asc(events.sortOrder), asc(events.name))
@@ -142,6 +150,11 @@ export const stateExportService = {
           paletteCell(e.dressCodePalette),
           safeHttpUrl(e.pinterestUrl) ?? "",
           safeHttpUrl(e.mapsUrl) ?? "",
+          runOfShowCell(runOfShowFrom(e.runOfShow)),
+          e.gettingThere ?? "",
+          e.childrenPolicy ? CHILDREN_POLICY_LABEL[e.childrenPolicy] : "",
+          e.plusOnePolicy ? PLUS_ONE_POLICY_LABEL[e.plusOnePolicy] : "",
+          e.guestPolicyNote ?? "",
         ];
         if (withIds) cells.push(e.id);
         return cells;

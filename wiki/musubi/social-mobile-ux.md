@@ -9,7 +9,7 @@ related:
   - "[[social]]"
   - "[[authorize-ui]]"
   - "[[component-library]]"
-last-reviewed: 2026-10-17
+last-reviewed: 2026-10-22
 ---
 
 # Social — Mobile UX analysis & plan
@@ -44,11 +44,8 @@ pulse consume them too).
 > top-center mobile toasts). Verified headless-Chromium at 320/390/768/1280
 > widths — zero horizontal overflow, both themes; `/authorize` untouched.
 >
-> **Prep-pr review round (2026-07-28):** security pass (S-L1 duplicate
-> dialog mounts → resolved structurally by single-shell mounting; C-L1
-> nav icons now `aria-hidden`), perf pass (P-W1 both shells always
-> mounted → conditional mount + one `MobileChrome` chunk; P-I1 duplicate
-> dialog/memo work → falls out of P-W1; P-I2 `useIsMobile` first-frame
+> **Prep-pr review round (2026-07-28):** security pass (duplicate dialog mounts → resolved structurally by single-shell mounting; nav icons now `aria-hidden`), perf pass (both shells always
+> mounted → conditional mount + one `MobileChrome` chunk; duplicate dialog/memo work → falls out of that; `useIsMobile` first-frame
 > flip → synchronous matchMedia init), tests (T-M1/T-M2/T-U1/T-U2/T-S1
 > written; T-S2 Layout-composition test deferred — `AuthProvider`
 > bootstraps a network `POST /token`, so it needs a heavier fixture).

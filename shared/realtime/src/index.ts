@@ -1,6 +1,8 @@
 export {
   CLOSE_CODES,
+  FALLBACK_OUTCOMES,
   formatTopic,
+  isFallbackOutcome,
   isSignal,
   parseTopic,
   PING,
@@ -9,6 +11,7 @@ export {
   REALTIME_PRODUCTS,
   SIGNAL_KINDS,
   TOPIC_PATTERN,
+  type FallbackOutcome,
   type ParsedTopic,
   type RealtimeProduct,
   type Signal,

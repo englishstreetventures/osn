@@ -9,17 +9,34 @@
  * even with a leaked task id — a mismatched (weddingId, taskId) fails
  * `TaskNotInWedding` rather than touching a row.
  */
-import { taskAssignees, taskTemplateDismissals, tasks, weddingHosts, weddings } from "@cire/db";
-import { and, asc, eq, exists, isNotNull, type SQL, sql } from "drizzle-orm";
+import {
+  events,
+  taskAssignees,
+  taskTemplateDismissals,
+  tasks,
+  weddingHosts,
+  weddings,
+} from "@cire/db";
+import { rowsChanged } from "@shared/db-utils";
+import { and, asc, eq, exists, inArray, isNotNull, ne, type SQL, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import type { SQLiteUpdateSetSource } from "drizzle-orm/sqlite-core";
 import { Data, Effect } from "effect";
 
-import { bound, commitBatchResults, DbService, commitGroupedBatches, dbQuery } from "../db";
+import { bound, commitBatchResults, commitGroupedBatchResults, DbService, dbQuery } from "../db";
 import type { Db } from "../db";
 import type { TimeframeBucket } from "../lib/checklist-buckets";
-import { metricTaskAssignmentChanged } from "../metrics";
-import type { TaskAssignmentAction, TaskAssignmentResult } from "../metrics";
+import { stampEventOffset } from "../lib/event-time";
+import { clockOffsetMinutes, deriveRunTime, isRunOffsetInRange } from "../lib/run-time";
+import type { DerivedRunTime, EventTime } from "../lib/run-time";
+import { metricTaskAssignmentChanged, metricTaskRunTimeChanged } from "../metrics";
+import type {
+  TaskAssignmentAction,
+  TaskAssignmentResult,
+  TaskRunTimeKind,
+  TaskRunTimeResult,
+} from "../metrics";
+import type { RunTimePatch } from "../schemas/tasks";
 
 /** No task with this id under this wedding (missing or another wedding's). 404-class. */
 export class TaskNotInWedding extends Data.TaggedError("TaskNotInWedding") {}
@@ -28,13 +45,21 @@ export class TaskNotInWedding extends Data.TaggedError("TaskNotInWedding") {}
  *  wedding's seat, a guest's id, or no seat at all. 422-class. */
 export class HostNotInWedding extends Data.TaggedError("HostNotInWedding") {}
 
+/** The event a run time links to is not one of the task's wedding: another
+ *  wedding's event, any other id, or nothing. 422-class. */
+export class EventNotInWedding extends Data.TaggedError("EventNotInWedding") {}
+
+/** A clock time typed against an event is more than a day from its start, or
+ *  the event's start cannot be read. 422-class. */
+export class RunTimeOutOfRange extends Data.TaggedError("RunTimeOutOfRange") {}
+
 export type TaskStatus = "open" | "done";
 
 /** Where a task's due date comes from: `template` follows the wedding date,
  *  `manual` is whatever the couple set. */
 export type TaskDueSource = "manual" | "template";
 
-export interface TaskDto {
+export interface TaskDto extends DerivedRunTime {
   id: string;
   weddingId: string;
   title: string;
@@ -72,6 +97,8 @@ export interface UpdateTaskPatch {
   dueAt?: string | null;
   status?: TaskStatus;
   sortOrder?: number;
+  /** The task's whole run time; `null` makes it untimed. */
+  runTime?: RunTimePatch | null;
 }
 
 export interface TaskRow {
@@ -89,10 +116,23 @@ export interface TaskRow {
   templateItem: string | null;
   dueOffsetDays: number | null;
   dueSource: TaskDueSource;
+  runAt: string | null;
+  runTimezone: string | null;
+  eventId: string | null;
+  runOffsetMinutes: number | null;
+  eventRemovedAt: Date | null;
 }
 
-/** A task row and the seats holding it, in the order they were added. */
-export const toDto = (r: TaskRow, assigneeHostIds: string[]): TaskDto => ({
+/** A wedding's events by id, as a linked task's time is counted from them. */
+export type EventTimes = ReadonlyMap<string, EventTime>;
+
+/** No events: for a task known to be linked to none. */
+const NO_EVENTS: EventTimes = new Map();
+
+/** A task row, the seats holding it in the order they were added, and its
+ *  time, derived from `eventTimes` — which must hold only the task's own
+ *  wedding's events — when it is linked to one. */
+export const toDto = (r: TaskRow, assigneeHostIds: string[], eventTimes: EventTimes): TaskDto => ({
   id: r.id,
   weddingId: r.weddingId,
   title: r.title,
@@ -106,8 +146,81 @@ export const toDto = (r: TaskRow, assigneeHostIds: string[]): TaskDto => ({
   templateId: r.templateId,
   templateItem: r.templateItem,
   dueSource: r.dueSource,
+  ...deriveRunTime(r, eventTimes),
   assigneeHostIds,
 });
+
+/** One event's time, as {@link taskEventTime} reads it. */
+interface EventTimeRow {
+  id: string;
+  startAt: string;
+  timezone: string;
+}
+
+/**
+ * Task rows, each with the start and zone of the event it is linked to, in
+ * one statement: the event is LEFT JOINed on the task's own wedding, so a link
+ * to another wedding's event finds none and reads as unlinked. Returned
+ * unrun, for the caller's `where` and `orderBy`; read its rows with
+ * {@link tasksAndEventTimes}.
+ */
+export const tasksWithEventTimes = (db: Db) =>
+  db
+    .select({ task: tasks, eventStartAt: events.startAt, eventTimezone: events.timezone })
+    .from(tasks)
+    .leftJoin(events, and(eq(events.id, tasks.eventId), eq(events.weddingId, tasks.weddingId)));
+
+/** A {@link tasksWithEventTimes} row. */
+interface TaskWithEventTimeRow {
+  task: TaskRow;
+  eventStartAt: string | null;
+  eventTimezone: string | null;
+}
+
+/** Task rows, in the order they were read, and the times of the events they
+ *  are linked to. */
+export interface TasksAndEventTimes {
+  rows: TaskRow[];
+  eventTimes: EventTimes;
+}
+
+/** {@link tasksWithEventTimes} rows, split into the tasks and their events. */
+export function tasksAndEventTimes(result: unknown): TasksAndEventTimes {
+  const read = result as readonly TaskWithEventTimeRow[];
+  const eventTimes = new Map<string, EventTime>();
+  for (const { task, eventStartAt, eventTimezone } of read) {
+    if (task.eventId !== null && eventStartAt !== null && eventTimezone !== null) {
+      eventTimes.set(task.eventId, { startAt: eventStartAt, timezone: eventTimezone });
+    }
+  }
+  return { rows: read.map((row) => row.task), eventTimes };
+}
+
+/** The event one task of `weddingId` is linked to, if it is that wedding's.
+ *  Returned unrun, to ride after the batch's write: the link it reads is the
+ *  one the write left — an `UPDATE … RETURNING` row cannot join. */
+export const taskEventTime = (db: Db, weddingId: string, taskId: string) =>
+  db
+    .select({ id: events.id, startAt: events.startAt, timezone: events.timezone })
+    .from(events)
+    .where(
+      and(
+        eq(events.weddingId, weddingId),
+        eq(
+          events.id,
+          sql`(SELECT ${tasks.eventId} FROM ${tasks} WHERE ${tasks.id} = ${taskId} AND ${tasks.weddingId} = ${weddingId})`,
+        ),
+      ),
+    );
+
+/** {@link taskEventTime} rows, or a wedding's events, by event id. */
+export const eventTimesOf = (rows: unknown): EventTimes =>
+  new Map(
+    (rows as readonly EventTimeRow[]).map((row) => [
+      row.id,
+      { startAt: row.startAt, timezone: row.timezone },
+    ]),
+  );
 
 /** One (task, seat) row of `task_assignees`. */
 export interface AssigneeRow {
@@ -119,15 +232,30 @@ export interface AssigneeRow {
  *  rowid orders two seats added in the same second. */
 const ASSIGNMENT_ORDER = [asc(taskAssignees.assignedAt), asc(sql`rowid`)];
 
-/** Every holder of every task of `weddingId`, task by task, each task's in the
- *  order they were added — the order of `task_assignees_wedding_task_idx`, so
- *  the read needs no sort. Returned unrun, so it rides in the batch that reads
- *  the tasks. */
-export const weddingAssignees = (db: Db, weddingId: string) =>
+/** The ids of the tasks of `weddingId` that the seat `hostId` holds, as a
+ *  subquery (`task_assignees_host_wedding_idx`). */
+const tasksHeldBy = (db: Db, weddingId: string, hostId: string) =>
+  db
+    .select({ taskId: taskAssignees.taskId })
+    .from(taskAssignees)
+    .where(and(eq(taskAssignees.hostId, hostId), eq(taskAssignees.weddingId, weddingId)));
+
+/** Every holder of every task of `weddingId` — or, given `heldBy`, of the
+ *  tasks that seat holds — task by task, each task's in the order they were
+ *  added: the order of `task_assignees_wedding_task_idx`, so the read needs no
+ *  sort. Returned unrun, so it rides in the batch that reads the tasks. */
+export const weddingAssignees = (db: Db, weddingId: string, heldBy?: string) =>
   db
     .select({ taskId: taskAssignees.taskId, hostId: taskAssignees.hostId })
     .from(taskAssignees)
-    .where(eq(taskAssignees.weddingId, weddingId))
+    .where(
+      and(
+        eq(taskAssignees.weddingId, weddingId),
+        heldBy === undefined
+          ? undefined
+          : inArray(taskAssignees.taskId, tasksHeldBy(db, weddingId, heldBy)),
+      ),
+    )
     .orderBy(asc(taskAssignees.taskId), ...ASSIGNMENT_ORDER);
 
 /** The holders of one task of `weddingId`, in the order they were added.
@@ -143,10 +271,12 @@ const hostIdsOf = (rows: unknown): string[] =>
   (rows as readonly { hostId: string }[]).map((row) => row.hostId);
 
 /** A wedding's task rows as DTOs, each with its holders from `assigned`
- *  ({@link weddingAssignees}, read in the same batch). */
+ *  ({@link weddingAssignees}) and its time from `eventTimes`
+ *  ({@link tasksAndEventTimes}), both read in the same batch. */
 export function withAssignees(
   rows: readonly TaskRow[],
   assigned: readonly AssigneeRow[],
+  eventTimes: EventTimes,
 ): TaskDto[] {
   const byTask = new Map<string, string[]>();
   for (const { taskId, hostId } of assigned) {
@@ -154,37 +284,79 @@ export function withAssignees(
     if (held) held.push(hostId);
     else byTask.set(taskId, [hostId]);
   }
-  return rows.map((row) => toDto(row, byTask.get(row.id) ?? []));
+  return rows.map((row) => toDto(row, byTask.get(row.id) ?? [], eventTimes));
 }
 
 /**
- * One batch for a holder write: `write`, then the task and its holders as they
- * stand after it. `task` is undefined when `taskId` is not `weddingId`'s;
- * `changed` says whether `write` touched a row.
+ * One batch for a holder write: `write`, then the task, its holders and its
+ * event as they stand after it. `task` is undefined when `taskId` is not
+ * `weddingId`'s; `changed` says whether `write` touched a row.
  */
 function writeAssignee(
   db: Db,
   weddingId: string,
   taskId: string,
   write: BatchItem<"sqlite">,
-): Effect.Effect<{ task: TaskRow | undefined; holders: string[]; changed: boolean }> {
+): Effect.Effect<{
+  task: TaskRow | undefined;
+  holders: string[];
+  eventTimes: EventTimes;
+  changed: boolean;
+}> {
   return Effect.map(
     dbQuery(() =>
       commitBatchResults(db, [
         write,
-        db
-          .select()
-          .from(tasks)
-          .where(and(eq(tasks.id, taskId), eq(tasks.weddingId, weddingId))),
+        tasksWithEventTimes(db).where(and(eq(tasks.id, taskId), eq(tasks.weddingId, weddingId))),
         taskAssigneeIds(db, weddingId, taskId),
       ]),
     ),
-    (results) => ({
-      task: (results[1] as readonly TaskRow[])[0],
-      holders: hostIdsOf(results[2]),
-      changed: (results[0] as readonly unknown[]).length > 0,
-    }),
+    (results) => {
+      const { rows, eventTimes } = tasksAndEventTimes(results[1]);
+      return {
+        task: rows[0],
+        holders: hostIdsOf(results[2]),
+        eventTimes,
+        changed: (results[0] as readonly unknown[]).length > 0,
+      };
+    },
   );
+}
+
+/** Count one run-time write's outcome. */
+const countRunTime = (kind: TaskRunTimeKind, result: TaskRunTimeResult) =>
+  Effect.sync(() => metricTaskRunTimeChanged(kind, result));
+
+/** The run-time columns a write sets, all five every time, so no write leaves
+ *  a state the readers do not know. `eventId` and `offsetMinutes` for a link;
+ *  a stamped instant and its zone for a fixed time; nothing for untimed. Any
+ *  write clears the event-removed mark: the organiser has given the task a
+ *  time, or none, on purpose. */
+function runTimeColumns(
+  value:
+    | { kind: "untimed" }
+    | { kind: "fixed"; at: string; timezone: string }
+    | { kind: "linked"; eventId: string; offsetMinutes: number },
+): SQLiteUpdateSetSource<typeof tasks> {
+  const none = {
+    runAt: null,
+    runTimezone: null,
+    eventId: null,
+    runOffsetMinutes: null,
+    eventRemovedAt: null,
+  };
+  switch (value.kind) {
+    case "untimed":
+      return none;
+    case "fixed":
+      return {
+        ...none,
+        runAt: stampEventOffset(value.at, value.timezone),
+        runTimezone: value.timezone,
+      };
+    case "linked":
+      return { ...none, eventId: value.eventId, runOffsetMinutes: value.offsetMinutes };
+  }
 }
 
 /** Count one holder write's outcome. */
@@ -217,7 +389,8 @@ export const anchoredDueAt = (weddingId: string, offset: SQL): SQL =>
  * against, and a date the couple set (`due_source = 'manual'`) is never
  * touched. A task already on the right date is not written, so a save that
  * does not move the date writes no task row. Returned unrun, so the settings
- * save can commit it in the same batch as the date it reads.
+ * save can commit it in the same batch as the date it reads; it answers the id
+ * of each task it re-dated.
  */
 export const reanchorTemplateDueDates = (db: Db, weddingId: string) => {
   const anchored = anchoredDueAt(weddingId, sql`${tasks.dueOffsetDays}`);
@@ -232,26 +405,33 @@ export const reanchorTemplateDueDates = (db: Db, weddingId: string) => {
         eq(tasks.status, "open"),
         sql`${tasks.dueAt} IS NOT ${anchored}`,
       ),
-    );
+    )
+    .returning({ id: tasks.id });
 };
+
+/** A holder write's answer: the task as it stands after it, and whether the
+ *  write put a seat on or took one off (false when it was already so). */
+export interface HolderWrite {
+  task: TaskDto;
+  changed: boolean;
+}
 
 export const tasksService = {
   list(weddingId: string): Effect.Effect<TaskDto[], never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      // One batch: the tasks and every holder of them, so a checklist of any
-      // length costs two statements.
-      const [rows, assigned] = yield* dbQuery(() =>
+      // One batch: the tasks with their events' times, and every holder of
+      // them, so a checklist of any length costs two statements.
+      const [read, assigned] = yield* dbQuery(() =>
         commitBatchResults(db, [
-          db
-            .select()
-            .from(tasks)
+          tasksWithEventTimes(db)
             .where(eq(tasks.weddingId, weddingId))
             .orderBy(asc(tasks.timeframeBucket), asc(tasks.sortOrder)),
           weddingAssignees(db, weddingId),
         ]),
       );
-      return withAssignees(rows as TaskRow[], assigned as AssigneeRow[]);
+      const { rows, eventTimes } = tasksAndEventTimes(read);
+      return withAssignees(rows, assigned as AssigneeRow[], eventTimes);
     }).pipe(Effect.withSpan("cire.tasks.list"));
   },
 
@@ -289,23 +469,40 @@ export const tasksService = {
         templateItem: null,
         dueOffsetDays: null,
         dueSource: "manual",
+        runAt: null,
+        runTimezone: null,
+        eventId: null,
+        runOffsetMinutes: null,
+        eventRemovedAt: null,
       };
       yield* dbQuery(() => db.insert(tasks).values(row).run());
-      // A task with a fresh id has no holders to read.
-      return toDto(row, []);
+      // A task with a fresh id has no holders to read, and no time.
+      return toDto(row, [], NO_EVENTS);
     }).pipe(Effect.withSpan("cire.tasks.create"));
   },
 
+  /**
+   * Patch a task. Every SET reads the row as it was before the UPDATE.
+   *
+   * `runTime` replaces the task's whole run time (see `RunTimePatch`). A link
+   * is written only when the event is the task's own wedding's: the UPDATE's
+   * WHERE says so, so a link to anything else writes no field of the patch at
+   * all, and a probe of the task in the same batch tells `TaskNotInWedding`
+   * (404, which wins) from `EventNotInWedding` (422). A clock time against an
+   * event reads the event first, to count the offset from its start; one more
+   * than a day away is `RunTimeOutOfRange`, with nothing written.
+   */
   update(input: {
     weddingId: string;
     taskId: string;
     patch: UpdateTaskPatch;
-  }): Effect.Effect<TaskDto, TaskNotInWedding, DbService> {
-    return Effect.gen(function* () {
+  }): Effect.Effect<TaskDto, TaskNotInWedding | EventNotInWedding | RunTimeOutOfRange, DbService> {
+    const { weddingId, taskId, patch } = input;
+    const runTime = patch.runTime;
+    const write = Effect.gen(function* () {
       const db = yield* DbService;
-      const { weddingId, taskId, patch } = input;
+      const ours = and(eq(tasks.id, taskId), eq(tasks.weddingId, weddingId));
 
-      // Every SET expression below reads the row as it was before this UPDATE.
       const set: SQLiteUpdateSetSource<typeof tasks> = {};
       if (patch.title !== undefined) set.title = patch.title;
       if (patch.timeframeBucket !== undefined) set.timeframeBucket = patch.timeframeBucket;
@@ -329,24 +526,105 @@ export const tasksService = {
         }
       }
 
-      // One batch: the UPDATE, whose RETURNING reports whether a (task,
-      // wedding) row existed — zero rows maps to TaskNotInWedding with no
-      // separate existence SELECT — and the task's holders, which no patch
-      // touches. An empty patch degrades to a plain read (drizzle rejects an
-      // empty SET).
-      const ours = and(eq(tasks.id, taskId), eq(tasks.weddingId, weddingId));
-      const results = yield* dbQuery(() =>
-        commitBatchResults(db, [
-          Object.keys(set).length === 0
-            ? db.select().from(tasks).where(ours)
-            : db.update(tasks).set(set).where(ours).returning(),
-          taskAssigneeIds(db, weddingId, taskId),
-        ]),
-      );
+      // The event a link names, which must be this wedding's.
+      let linkTo: string | null = null;
+      if (runTime === null) Object.assign(set, runTimeColumns({ kind: "untimed" }));
+      else if (runTime?.kind === "fixed") {
+        Object.assign(
+          set,
+          runTimeColumns({ kind: "fixed", at: runTime.at, timezone: runTime.timezone }),
+        );
+      } else if (runTime !== undefined) {
+        linkTo = runTime.eventId;
+        let offsetMinutes: number;
+        if (runTime.kind === "offset") offsetMinutes = runTime.offsetMinutes;
+        else {
+          // A clock time is counted from the event's start, so the event is
+          // read first — with the task, so a missing task is still a 404.
+          const [found, probe] = yield* dbQuery(() =>
+            commitBatchResults(db, [
+              db
+                .select({ startAt: events.startAt, timezone: events.timezone })
+                .from(events)
+                .where(and(eq(events.id, runTime.eventId), eq(events.weddingId, weddingId))),
+              db.select({ id: tasks.id }).from(tasks).where(ours),
+            ]),
+          );
+          if ((probe as readonly unknown[]).length === 0) {
+            return yield* Effect.fail(new TaskNotInWedding());
+          }
+          const event = (found as readonly EventTime[])[0];
+          if (!event) return yield* Effect.fail(new EventNotInWedding());
+          const counted = clockOffsetMinutes(event.startAt, event.timezone, runTime.at);
+          if (counted === null || !isRunOffsetInRange(counted)) {
+            return yield* Effect.fail(new RunTimeOutOfRange());
+          }
+          offsetMinutes = counted;
+        }
+        Object.assign(set, runTimeColumns({ kind: "linked", eventId: linkTo, offsetMinutes }));
+      }
+
+      // A link is written only to an event of this same wedding: bound, not
+      // correlated to the task row, since the statement is scoped already.
+      const where =
+        linkTo === null
+          ? ours
+          : and(
+              ours,
+              exists(
+                db
+                  .select({ one: sql`1` })
+                  .from(events)
+                  .where(and(eq(events.id, linkTo), eq(events.weddingId, weddingId))),
+              ),
+            );
+
+      // One batch: the UPDATE, whose RETURNING reports whether it wrote the
+      // row — zero rows maps to TaskNotInWedding with no separate existence
+      // SELECT, unless the patch links an event, when the probe at the end
+      // tells the two refusals apart — then the task's holders and its event
+      // as they stand after it. An empty patch degrades to a plain read
+      // (drizzle rejects an empty SET).
+      const statements: BatchItem<"sqlite">[] = [
+        Object.keys(set).length === 0
+          ? db.select().from(tasks).where(ours)
+          : db.update(tasks).set(set).where(where).returning(),
+        taskAssigneeIds(db, weddingId, taskId),
+        taskEventTime(db, weddingId, taskId),
+      ];
+      if (linkTo !== null) statements.push(db.select({ id: tasks.id }).from(tasks).where(ours));
+      const results = yield* dbQuery(() => commitBatchResults(db, statements));
       const [updated] = results[0] as readonly TaskRow[];
-      if (!updated) return yield* Effect.fail(new TaskNotInWedding());
-      return toDto(updated, hostIdsOf(results[1]));
-    }).pipe(Effect.withSpan("cire.tasks.update"));
+      if (!updated) {
+        const taskThere = linkTo !== null && (results[3] as readonly unknown[]).length > 0;
+        return yield* Effect.fail(taskThere ? new EventNotInWedding() : new TaskNotInWedding());
+      }
+      return toDto(updated, hostIdsOf(results[1]), eventTimesOf(results[2]));
+    });
+
+    if (runTime === undefined) return write.pipe(Effect.withSpan("cire.tasks.update"));
+    // A patch naming the run time is counted, whatever else it names.
+    const kind: TaskRunTimeKind = runTime === null ? "clear" : runTime.kind;
+    return write.pipe(
+      Effect.tap(() => countRunTime(kind, "ok")),
+      Effect.tapError((e) =>
+        countRunTime(
+          kind,
+          e._tag === "EventNotInWedding"
+            ? "event_not_in_wedding"
+            : e._tag === "RunTimeOutOfRange"
+              ? "out_of_range"
+              : "task_not_found",
+        ),
+      ),
+      Effect.tapDefect(() =>
+        countRunTime(kind, "error").pipe(
+          Effect.andThen(Effect.logError("checklist run-time write failed")),
+          Effect.annotateLogs({ weddingId, kind }),
+        ),
+      ),
+      Effect.withSpan("cire.tasks.update"),
+    );
   },
 
   /**
@@ -366,7 +644,7 @@ export const tasksService = {
     weddingId: string,
     taskId: string,
     hostId: string,
-  ): Effect.Effect<TaskDto, TaskNotInWedding | HostNotInWedding, DbService> {
+  ): Effect.Effect<HolderWrite, TaskNotInWedding | HostNotInWedding, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const insert = db
@@ -401,7 +679,12 @@ export const tasksService = {
         )
         .onConflictDoNothing()
         .returning({ hostId: taskAssignees.hostId });
-      const { task, holders, changed } = yield* writeAssignee(db, weddingId, taskId, insert);
+      const { task, holders, eventTimes, changed } = yield* writeAssignee(
+        db,
+        weddingId,
+        taskId,
+        insert,
+      );
       if (!task) {
         yield* countAssignment("add", "task_not_found");
         return yield* Effect.fail(new TaskNotInWedding());
@@ -411,7 +694,7 @@ export const tasksService = {
         return yield* Effect.fail(new HostNotInWedding());
       }
       yield* countAssignment("add", changed ? "ok" : "unchanged");
-      return toDto(task, holders);
+      return { task: toDto(task, holders, eventTimes), changed };
     }).pipe(onAssignmentDefect("add", weddingId), Effect.withSpan("cire.tasks.assign"));
   },
 
@@ -425,7 +708,7 @@ export const tasksService = {
     weddingId: string,
     taskId: string,
     hostId: string,
-  ): Effect.Effect<TaskDto, TaskNotInWedding, DbService> {
+  ): Effect.Effect<HolderWrite, TaskNotInWedding, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const del = db
@@ -438,13 +721,18 @@ export const tasksService = {
           ),
         )
         .returning({ hostId: taskAssignees.hostId });
-      const { task, holders, changed } = yield* writeAssignee(db, weddingId, taskId, del);
+      const { task, holders, eventTimes, changed } = yield* writeAssignee(
+        db,
+        weddingId,
+        taskId,
+        del,
+      );
       if (!task) {
         yield* countAssignment("remove", "task_not_found");
         return yield* Effect.fail(new TaskNotInWedding());
       }
       yield* countAssignment("remove", changed ? "ok" : "unchanged");
-      return toDto(task, holders);
+      return { task: toDto(task, holders, eventTimes), changed };
     }).pipe(onAssignmentDefect("remove", weddingId), Effect.withSpan("cire.tasks.unassign"));
   },
 
@@ -480,22 +768,27 @@ export const tasksService = {
     }).pipe(Effect.withSpan("cire.tasks.remove"));
   },
 
+  /**
+   * Give each id its array index as `sort_order`, and answer how many tasks
+   * moved. A foreign or wrong-bucket id, and a task already at its index,
+   * match nothing, so an order that changes nothing answers 0 and writes no
+   * row.
+   */
   reorder(
     weddingId: string,
     bucket: TimeframeBucket,
     orderedIds: readonly string[],
-  ): Effect.Effect<void, never, DbService> {
+  ): Effect.Effect<number, never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      // Each id gets its array index as sort_order, scoped to (wedding, bucket)
-      // so a foreign or wrong-bucket id is a no-op UPDATE rather than a write.
-      // commitGroupedBatches, not db.transaction(): D1 has no BEGIN/COMMIT —
-      // batch() is its only atomic primitive — and the body allows up to 500
-      // ids, so the write set must chunk under the 50-statement batch cap.
-      // Singleton groups: each row's UPDATE is independent (a re-sent reorder
-      // converges), so chunking loses nothing.
-      yield* dbQuery(() =>
-        commitGroupedBatches(
+      // Each UPDATE is scoped to (wedding, bucket) and to a task not already at
+      // its index. commitGroupedBatchResults, not db.transaction(): D1 has no
+      // BEGIN/COMMIT — batch() is its only atomic primitive — and the body
+      // allows up to 500 ids, so the write set must chunk under the
+      // 50-statement batch cap. Singleton groups: each row's UPDATE is
+      // independent (a re-sent reorder converges), so chunking loses nothing.
+      const results = yield* dbQuery(() =>
+        commitGroupedBatchResults(
           db,
           orderedIds.map((id, index) => [
             db
@@ -506,11 +799,13 @@ export const tasksService = {
                   eq(tasks.id, id),
                   eq(tasks.weddingId, weddingId),
                   eq(tasks.timeframeBucket, bucket),
+                  ne(tasks.sortOrder, index),
                 ),
               ),
           ]),
         ),
       );
+      return results.reduce<number>((moved, result) => moved + rowsChanged(result), 0);
     }).pipe(Effect.withSpan("cire.tasks.reorder"));
   },
 };

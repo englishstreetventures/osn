@@ -20,6 +20,7 @@
 // cire/host"). Plain Solid primitives only.
 import { type Accessor, createSignal, type Setter } from "solid-js";
 
+import type { ChildrenPolicy, PlusOnePolicy } from "./event-guest-details";
 import type { ImageCrop } from "./image-crop";
 import { isWeddingClosed } from "./wedding-scope";
 
@@ -40,6 +41,16 @@ export interface EventRow {
   venueName?: string | null;
   address: string | null;
   description: string;
+  /**
+   * The run of show in the organiser's order, each time a 24-hour `HH:MM` in
+   * the event's zone; the getting-there notes; and the guest policy's presets
+   * and note. Optional: an API older than them sends none.
+   */
+  runOfShow?: readonly { time: string; label: string }[];
+  gettingThere?: string | null;
+  childrenPolicy?: ChildrenPolicy | null;
+  plusOnePolicy?: PlusOnePolicy | null;
+  guestPolicyNote?: string | null;
   dressCodeDescription: string | null;
   dressCodePalette: DressSwatch[] | null;
   pinterestUrl: string | null;

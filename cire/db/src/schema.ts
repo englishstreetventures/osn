@@ -381,6 +381,17 @@ export const events = sqliteTable(
     // the address (if any) stands alone. Migration 0090; no back-fill.
     venueName: text("venue_name"),
     address: text("address"),
+    // Free-text parking, transport and accessibility notes, shown last on the
+    // event's details sheet under "Getting there". NULL ⇒ none. Migration
+    // 20261021132850_event_run_of_show.
+    gettingThere: text("getting_there"),
+    // The guest policy: two presets and a note, wording only. The RSVP form and
+    // each guest's `plus_one_allowed` stay the source of truth; the guest site
+    // never shows a plus-one line that contradicts the household's own
+    // permission. NULL ⇒ not stated. Migration 20261021132850_event_run_of_show.
+    childrenPolicy: text("children_policy", { enum: ["adults_only", "children_welcome"] }),
+    plusOnePolicy: text("plus_one_policy", { enum: ["by_invitation", "welcome"] }),
+    guestPolicyNote: text("guest_policy_note"),
     dressCodeDescription: text("dress_code_description"),
     // JSON-encoded `Array<{name: string, color: string}>` — decoded by the
     // claim service before serialising the response.
@@ -435,6 +446,39 @@ export const events = sqliteTable(
   ],
 );
 
+// An event's run of show (migration 20261021132850_event_run_of_show): the
+// timed list a guest reads on the event's details sheet ("4:00 pm Ceremony").
+// Organiser-written, edited and reordered in the event drawer or the events
+// sheet's Run of Show column.
+//
+// `time` is a 24-hour wall clock, `HH:MM`, in the event's own zone: no date and
+// no offset, so moving the event carries its run of show with it. `sort_order`
+// is the organiser's order; the guest sheet reads the list in time order from
+// the event's start. Every write replaces an event's whole list, so the row's
+// place in it is its identity and there is no id.
+//
+// `wedding_id` repeats the event's, held equal to it by the `(event_id,
+// wedding_id)` foreign key onto `events_id_wedding_uniq`, as `seating_tables`
+// does. The rows go with their event, and so with the wedding. No index leads
+// with `wedding_id`: a wedding's rows are read through its events.
+export const runOfShowItems = sqliteTable(
+  "run_of_show_items",
+  {
+    eventId: text("event_id").notNull(),
+    weddingId: text("wedding_id").notNull(),
+    sortOrder: integer("sort_order").notNull(),
+    time: text("time").notNull(),
+    label: text("label").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.eventId, t.sortOrder] }),
+    foreignKey({
+      columns: [t.eventId, t.weddingId],
+      foreignColumns: [events.id, events.weddingId],
+    }).onDelete("cascade"),
+  ],
+);
+
 export const tasks = sqliteTable(
   "tasks",
   {
@@ -465,6 +509,28 @@ export const tasks = sqliteTable(
     dueSource: text("due_source", { enum: ["manual", "template"] })
       .notNull()
       .default("manual"),
+    // ── Run time (migration 20261021153838_task_run_time) ───────────────────
+    // When the task happens on the day. One of four states, which only the
+    // task service writes (cire/api/src/services/tasks.ts) — no CHECK holds
+    // them, so every writer sets all five columns together:
+    //  - untimed: all five NULL;
+    //  - fixed: `run_at` (`YYYY-MM-DDTHH:MM:SS±HH:MM`, the offset stamped from
+    //    the zone) and `run_timezone`, the IANA zone as the organiser chose it;
+    //  - linked: `event_id` and `run_offset_minutes` (minutes from the event's
+    //    start, negative before it), and no `run_at`: the time follows the
+    //    event and is derived on every read;
+    //  - frozen: the linked event was removed by a schedule change, so the
+    //    task keeps the time it last had, in that event's zone, and
+    //    `event_removed_at` says so.
+    runAt: text("run_at"),
+    runTimezone: text("run_timezone"),
+    // Single-column on purpose. A composite (event_id, wedding_id) key, like
+    // task_assignees', would null `wedding_id` too on SET NULL — it is NOT
+    // NULL, so every event delete would fail. The task service checks the
+    // event is the task's own wedding's on every write instead.
+    eventId: text("event_id").references(() => events.id, { onDelete: "set null" }),
+    runOffsetMinutes: integer("run_offset_minutes"),
+    eventRemovedAt: integer("event_removed_at", { mode: "timestamp" }),
     // ── Not declared: `assigned_host_id` ────────────────────────────────────
     // The database still holds `assigned_host_id` (migration 0087: a nullable
     // seat id, REFERENCES wedding_hosts(id) ON DELETE SET NULL) and its partial
@@ -489,6 +555,12 @@ export const tasks = sqliteTable(
     uniqueIndex("tasks_wedding_template_item_unique")
       .on(t.weddingId, t.templateId, t.templateItem)
       .where(sql`template_id IS NOT NULL`),
+    // The probe an event delete's SET NULL runs, and the schedule change's
+    // read of the tasks linked to the events it removes. Partial: most tasks
+    // are linked to nothing.
+    index("tasks_event_idx")
+      .on(t.eventId)
+      .where(sql`event_id IS NOT NULL`),
   ],
 );
 
@@ -1367,6 +1439,26 @@ export const ownerNoticeBudget = sqliteTable(
     sent: integer("sent").notNull().default(0),
   },
   (t) => [primaryKey({ columns: [t.key, t.day] })],
+);
+
+/**
+ * The realtime subscribe budget: how many WebSocket subscribes one organiser
+ * was admitted past the daily ceiling on one UTC day. Every admitted subscribe
+ * is a Durable Object request from an allowance the whole Cloudflare account
+ * shares, and an in-memory counter counts per isolate, so the ceiling lives
+ * here where every isolate reads the same count. Rows older than the current
+ * day are deleted by the next subscribe and by the daily cron. `day` leads the
+ * primary key, so that delete reads only the rows it removes.
+ */
+export const realtimeSubscribeBudget = sqliteTable(
+  "realtime_subscribe_budget",
+  {
+    osnProfileId: text("osn_profile_id").notNull(),
+    // `YYYY-MM-DD`, UTC.
+    day: text("day").notNull(),
+    subscribes: integer("subscribes").notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.day, t.osnProfileId] })],
 );
 
 export const sessions = sqliteTable(

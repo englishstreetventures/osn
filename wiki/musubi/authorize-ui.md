@@ -12,7 +12,7 @@ related:
   - "[[passkey-primary]]"
   - "[[sessions]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-10-17
+last-reviewed: 2026-10-22
 ---
 
 # Authorize UI — the OIDC consent screen
@@ -232,8 +232,7 @@ screen shows even when consent is on record (pinned in
 - `musubi/social/public/_headers` carries `frame-ancestors 'none'`,
   `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff` and
   `Referrer-Policy: strict-origin-when-cross-origin`.
-- **The READ has a deadline; the WRITE deliberately does not** (AZ-P-I2 +
-  S-M1, 2026-07-30). `getContext` runs under a default 10 s ceiling
+- **The READ has a deadline; the WRITE deliberately does not** (2026-07-30). `getContext` runs under a default 10 s ceiling
   (`DEFAULT_AUTHORIZE_TIMEOUT_MS`, overridable via `timeoutMs`, `0` to opt
   out) and carries the page's abort signal, which fires on unmount. That is
   what makes the retry screen above reachable — a screen that only helps once
@@ -272,7 +271,7 @@ screen shows even when consent is on record (pinned in
   failure twice. The element is an `<output>` — its implicit `role="status"`
   carries `aria-live="polite"` and is the semantic element for a value the
   page computes rather than one the user typed.
-- **The issuer origin is preconnected** (AZ-P-I1, 2026-07-30). `/authorize`
+- **The issuer origin is preconnected**. `/authorize`
   is a cold cross-origin landing: the browser arrives from the relying party
   with no warm connection, so `GET /authorize/context` paid DNS + TCP + TLS
   before a byte moved. An `issuerPreconnect()` plugin in

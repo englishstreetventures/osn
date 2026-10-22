@@ -19,6 +19,7 @@ import {
   registrySettings,
   rsvpChanges,
   rsvps,
+  runOfShowItems,
   seatingAssignments,
   seatingTables,
   taskAssignees,
@@ -31,6 +32,7 @@ import {
   vendors,
   weddingFaqs,
   platformSales,
+  realtimeSubscribeBudget,
   weddingEntitlements,
   weddingHosts,
   weddingInviteCustomisations,
@@ -77,13 +79,14 @@ import {
 import { createEnquiryService, listingEnquiriesQuery } from "../../src/services/enquiries";
 import { giftExportService } from "../../src/services/gift-export";
 import { hostsService, MAX_HOSTS_PER_WEDDING } from "../../src/services/hosts";
-import { applyImport } from "../../src/services/import";
+import { applyImport, diffAgainstDb } from "../../src/services/import";
 import { inviteService } from "../../src/services/invite";
 import { FaqLimitReached, inviteFaqService } from "../../src/services/invite-faq";
 import { maintenanceSweeps } from "../../src/services/maintenance-sweeps";
 import { organiserSessionService } from "../../src/services/organiser-session";
 import { plusOneService } from "../../src/services/plus-one";
 import { RECONCILE_GRACE_MS } from "../../src/services/r2-reconcile";
+import { spendRealtimeSubscribe } from "../../src/services/realtime";
 import {
   CurrencyMismatch,
   registryGuestService,
@@ -102,6 +105,7 @@ import {
 import { rsvpService } from "../../src/services/rsvp";
 import { rsvpChangeService } from "../../src/services/rsvp-changes";
 import { rsvpDigestService } from "../../src/services/rsvp-digest";
+import { runSheetService } from "../../src/services/run-sheet";
 import {
   SeatingEventNotFound,
   SeatingTableFull,
@@ -150,8 +154,9 @@ const MIGRATION_0063 = "0063_invite_section_visibility.sql";
 const MIGRATION_0065 = "0065_invite_sections_switched_on.sql";
 const MIGRATION_0073 = "0073_wedding_tiers.sql";
 const MIGRATION_0076 = "0076_wedding_owners.sql";
-// A live migration, read from MIGRATIONS_DIR.
+// Live migrations, read from MIGRATIONS_DIR.
 const MIGRATION_0091 = "0091_task_assignees.sql";
+const MIGRATION_TASK_RUN_TIME = "20261021153838_task_run_time.sql";
 
 /**
  * A migration file as the statements wrangler would send: split on drizzle's
@@ -416,6 +421,7 @@ beforeEach(async () => {
     rsvps,
     seatingAssignments,
     seatingTables,
+    runOfShowItems,
     guestEvents,
     guests,
     families,
@@ -821,6 +827,248 @@ describe("cire/api over real D1 (Miniflare)", () => {
   );
 
   it(
+    "applyImport removes events with their linked tasks in one D1 batch: chosen ones deleted, the rest frozen on their own event's clock",
+    async () => {
+      const now = new Date();
+      await db.insert(events).values([
+        {
+          id: "evt_rm_lunch",
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          slug: "rm-lunch",
+          name: "RM Lunch",
+          startAt: "2099-06-20T12:00:00+10:00",
+          endAt: "",
+          timezone: "Australia/Sydney",
+          sortOrder: 80,
+        },
+        {
+          id: "evt_rm_dinner",
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          slug: "rm-dinner",
+          name: "RM Dinner",
+          startAt: "2099-06-20T19:00:00+05:30",
+          endAt: "",
+          timezone: "Asia/Kolkata",
+          sortOrder: 81,
+        },
+      ]);
+      const linked = (
+        id: string,
+        eventId: string,
+        over: Partial<typeof tasks.$inferInsert> = {},
+      ) => ({
+        id,
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        title: id,
+        timeframeBucket: "day_of",
+        createdAt: now,
+        eventId,
+        runOffsetMinutes: -30,
+        ...over,
+      });
+      await db.insert(tasks).values([
+        linked("tsk_rm_lunch", "evt_rm_lunch"),
+        linked("tsk_rm_dinner", "evt_rm_dinner"),
+        linked("tsk_rm_seeded", "evt_rm_dinner", {
+          templateId: "starter",
+          templateItem: "rm-seeded",
+          dueSource: "template",
+        }),
+      ]);
+      const plan: ImportPlan = {
+        eventCreates: [],
+        eventUpdates: [],
+        eventRemoves: [
+          { id: "evt_rm_lunch", name: "RM Lunch" },
+          { id: "evt_rm_dinner", name: "RM Dinner" },
+        ],
+        familyCreates: [],
+        familyUpdates: [],
+        familyRemoves: [],
+        guestCreates: [],
+        guestUpdates: [],
+        guestRemoves: [],
+        eventLinkCreates: [],
+        eventLinkRemoves: [],
+        warnings: [],
+        linkedTasks: [
+          {
+            id: "tsk_rm_lunch",
+            title: "tsk_rm_lunch",
+            eventId: "evt_rm_lunch",
+            offsetMinutes: -30,
+            frozenRunAt: "2099-06-20T11:30:00+10:00",
+            frozenTimezone: "Australia/Sydney",
+          },
+          {
+            id: "tsk_rm_dinner",
+            title: "tsk_rm_dinner",
+            eventId: "evt_rm_dinner",
+            offsetMinutes: -30,
+            frozenRunAt: "2099-06-20T18:30:00+05:30",
+            frozenTimezone: "Asia/Kolkata",
+          },
+          {
+            id: "tsk_rm_seeded",
+            title: "tsk_rm_seeded",
+            eventId: "evt_rm_dinner",
+            offsetMinutes: -30,
+            frozenRunAt: "2099-06-20T18:30:00+05:30",
+            frozenTimezone: "Asia/Kolkata",
+          },
+        ],
+      };
+
+      await run(
+        applyImport("imp_rm_linked", plan, BOOTSTRAP_WEDDING_ID, [], {
+          removeLinkedTasks: ["tsk_rm_seeded"],
+        }),
+      );
+
+      const left = await db
+        .select({
+          id: tasks.id,
+          eventId: tasks.eventId,
+          runOffsetMinutes: tasks.runOffsetMinutes,
+          runAt: tasks.runAt,
+          runTimezone: tasks.runTimezone,
+          removed: isNotNull(tasks.eventRemovedAt),
+        })
+        .from(tasks)
+        .where(inArray(tasks.id, ["tsk_rm_lunch", "tsk_rm_dinner", "tsk_rm_seeded"]))
+        .orderBy(asc(tasks.id));
+      expect(left).toEqual([
+        {
+          id: "tsk_rm_dinner",
+          eventId: null,
+          runOffsetMinutes: null,
+          runAt: "2099-06-20T18:30:00+05:30",
+          runTimezone: "Asia/Kolkata",
+          removed: 1,
+        },
+        {
+          id: "tsk_rm_lunch",
+          eventId: null,
+          runOffsetMinutes: null,
+          runAt: "2099-06-20T11:30:00+10:00",
+          runTimezone: "Australia/Sydney",
+          removed: 1,
+        },
+      ]);
+      expect(
+        await db
+          .select({ item: taskTemplateDismissals.templateItem })
+          .from(taskTemplateDismissals)
+          .where(eq(taskTemplateDismissals.templateItem, "rm-seeded")),
+      ).toEqual([{ item: "rm-seeded" }]);
+      expect(
+        await db
+          .select({ id: events.id })
+          .from(events)
+          .where(inArray(events.id, ["evt_rm_lunch", "evt_rm_dinner"])),
+      ).toEqual([]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "applyImport writes full runs of show under D1's parameter cap, and the claim and the diff read them back",
+    async () => {
+      // 40 items of five columns is 200 values: a plain multi-row insert of
+      // one event's list is over D1's 100 bound parameters, which bun:sqlite
+      // never enforces.
+      const list = (tag: string) =>
+        Array.from({ length: 40 }, (_, i) => ({
+          time: `${String(i % 24).padStart(2, "0")}:${i < 24 ? "00" : "30"}`,
+          label: `${tag} ${i}`,
+        }));
+      const event = (name: string, runOfShow: { time: string; label: string }[]) => ({
+        name,
+        startAt: "",
+        endAt: "",
+        timezone: "",
+        address: null,
+        dressCodeDescription: null,
+        dressCodePalette: [],
+        pinterestUrl: null,
+        mapsUrl: null,
+        sortOrder: 0,
+        runOfShow,
+      });
+      const plan = (
+        creates: ImportPlan["eventCreates"],
+        updates: ImportPlan["eventUpdates"],
+      ): ImportPlan => ({
+        eventCreates: creates,
+        eventUpdates: updates,
+        eventRemoves: [],
+        familyCreates: [],
+        familyUpdates: [],
+        familyRemoves: [],
+        guestCreates: [],
+        guestUpdates: [],
+        guestRemoves: [],
+        eventLinkCreates: [],
+        eventLinkRemoves: [],
+        warnings: [],
+      });
+
+      await run(
+        applyImport(
+          "imp_ros_1",
+          plan(
+            [
+              { id: "evt_ros_1", event: event("Brunch", list("Brunch")) },
+              { id: "evt_ros_2", event: event("Picnic", list("Picnic")) },
+            ],
+            [{ id: EVENT_A, event: event("Ceremony", list("First")) }],
+          ),
+          BOOTSTRAP_WEDDING_ID,
+        ),
+      );
+      expect(await db.select().from(runOfShowItems)).toHaveLength(120);
+
+      // A changed list replaces the whole of the old one.
+      await run(
+        applyImport(
+          "imp_ros_2",
+          plan([], [{ id: EVENT_A, event: event("Ceremony", list("Second")) }]),
+          BOOTSTRAP_WEDDING_ID,
+        ),
+      );
+      const ceremony = await db
+        .select({ label: runOfShowItems.label })
+        .from(runOfShowItems)
+        .where(eq(runOfShowItems.eventId, EVENT_A))
+        .orderBy(runOfShowItems.sortOrder);
+      expect(ceremony.map((r) => r.label)).toEqual(list("Second").map((i) => i.label));
+
+      // The household is invited to the Ceremony: its claim carries the list.
+      const claimed = await run(claimService.lookup(PUBLIC_ID));
+      expect(claimed.events.find((e) => e.id === EVENT_A)?.runOfShow).toEqual(list("Second"));
+
+      // The diff reads every stored list in one statement and writes none
+      // that is unchanged.
+      const diffed = await run(
+        diffAgainstDb(
+          [
+            { ...event("Ceremony", list("Second")), id: EVENT_A },
+            { ...event("Reception", []), id: EVENT_B, sortOrder: 1 },
+            { ...event("Brunch", list("Brunch")), id: "evt_ros_1", sortOrder: 2 },
+            { ...event("Picnic", list("Changed")), id: "evt_ros_2", sortOrder: 3 },
+          ],
+          [],
+          BOOTSTRAP_WEDDING_ID,
+          { scope: "events", matchByName: false },
+        ),
+      );
+      const written = diffed.eventUpdates.filter((u) => u.event.runOfShow !== undefined);
+      expect(written.map((u) => u.id)).toEqual(["evt_ros_2"]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
     "submitRsvps commits a 51-pair batch over D1's per-batch ceiling (P-W2)",
     async () => {
       // MAX_STATEMENTS_PER_BATCH is 50; a 51-statement submit must be chunked by
@@ -1033,13 +1281,12 @@ describe("cire/api over real D1 (Miniflare)", () => {
       );
       expect(picked.added).toBe(1);
 
-      await run(
-        weddingSettingsService.update(
-          BOOTSTRAP_WEDDING_ID,
-          { weddingDate: "2027-09-04" },
-          "usr_d1",
-        ),
+      // The batch's re-dating answers each task it moved, which is what tells
+      // open checklists to read again.
+      const saved = await run(
+        weddingSettingsService.save(BOOTSTRAP_WEDDING_ID, { weddingDate: "2027-09-04" }, "usr_d1"),
       );
+      expect(saved.tasksRedated).toBeGreaterThan(0);
       const moved = await db
         .select({ item: tasks.templateItem, dueAt: tasks.dueAt })
         .from(tasks)
@@ -1095,16 +1342,19 @@ describe("cire/api over real D1 (Miniflare)", () => {
 
       const add = (weddingId: string, taskId: string, hostId: string) =>
         run(tasksService.addAssignee(weddingId, taskId, hostId));
-      expect((await add(BOOTSTRAP_WEDDING_ID, task.id, "whost_d1_helper")).assigneeHostIds).toEqual(
-        ["whost_d1_helper"],
-      );
-      expect((await add(BOOTSTRAP_WEDDING_ID, task.id, "whost_d1_viewer")).assigneeHostIds).toEqual(
-        ["whost_d1_helper", "whost_d1_viewer"],
-      );
-      // Already there: unchanged, still one row.
-      expect((await add(BOOTSTRAP_WEDDING_ID, task.id, "whost_d1_helper")).assigneeHostIds).toEqual(
-        ["whost_d1_helper", "whost_d1_viewer"],
-      );
+      expect(await add(BOOTSTRAP_WEDDING_ID, task.id, "whost_d1_helper")).toMatchObject({
+        task: { assigneeHostIds: ["whost_d1_helper"] },
+        changed: true,
+      });
+      expect(await add(BOOTSTRAP_WEDDING_ID, task.id, "whost_d1_viewer")).toMatchObject({
+        task: { assigneeHostIds: ["whost_d1_helper", "whost_d1_viewer"] },
+        changed: true,
+      });
+      // Already there: unchanged, still one row, and said so.
+      expect(await add(BOOTSTRAP_WEDDING_ID, task.id, "whost_d1_helper")).toMatchObject({
+        task: { assigneeHostIds: ["whost_d1_helper", "whost_d1_viewer"] },
+        changed: false,
+      });
       await add(BOOTSTRAP_WEDDING_ID, doomed.id, "whost_d1_viewer");
 
       const refusal = async (eff: Effect.Effect<unknown, unknown, DbService>) => {
@@ -1152,8 +1402,11 @@ describe("cire/api over real D1 (Miniflare)", () => {
       const removed = await run(
         tasksService.removeAssignee(BOOTSTRAP_WEDDING_ID, task.id, "whost_d1_viewer"),
       );
-      expect(removed.assigneeHostIds).toEqual([]);
+      expect(removed).toMatchObject({ task: { assigneeHostIds: [] }, changed: true });
       expect(await stored(task.id)).toEqual([]);
+      expect(
+        await run(tasksService.removeAssignee(BOOTSTRAP_WEDDING_ID, task.id, "whost_d1_viewer")),
+      ).toMatchObject({ task: { assigneeHostIds: [] }, changed: false });
 
       await run(tasksService.remove(BOOTSTRAP_WEDDING_ID, doomed.id));
       expect(await stored(doomed.id)).toEqual([]);
@@ -1183,7 +1436,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
       }
 
       const reversed = created.toReversed();
-      await run(tasksService.reorder(BOOTSTRAP_WEDDING_ID, "12m", reversed));
+      const moved = await run(tasksService.reorder(BOOTSTRAP_WEDDING_ID, "12m", reversed));
 
       const rows = await db
         .select({ id: tasks.id })
@@ -1191,6 +1444,10 @@ describe("cire/api over real D1 (Miniflare)", () => {
         .where(eq(tasks.weddingId, BOOTSTRAP_WEDDING_ID))
         .orderBy(asc(tasks.sortOrder));
       expect(rows.map((r) => r.id)).toEqual(reversed);
+      // D1 reports each UPDATE's change count, so the route can tell a move
+      // from an order the checklist already had.
+      expect(moved).toBeGreaterThan(0);
+      expect(await run(tasksService.reorder(BOOTSTRAP_WEDDING_ID, "12m", reversed))).toBe(0);
     },
     MF_TIMEOUT_MS,
   );
@@ -1631,6 +1888,39 @@ describe("cire/api over real D1 (Miniflare)", () => {
         ["claim", "rclaim_log", 1, null],
       ]);
       expect(second.entries[1]!.createdAt).toBe(at(0).getTime());
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "realtime subscribe budget: one admission per unit, none past the ceiling, a fresh count each UTC day",
+    async () => {
+      // The refusal rests on the upsert's `DO UPDATE ... WHERE` returning no
+      // row, and the race on D1's batch running as one transaction, so both
+      // are pinned on D1 as well as on bun:sqlite.
+      const morning = new Date("2026-10-20T01:00:00Z");
+      const spend = (at: Date) => run(spendRealtimeSubscribe("usr_rt_budget", 2, at));
+      const budgetRows = () =>
+        db
+          .select()
+          .from(realtimeSubscribeBudget)
+          .where(eq(realtimeSubscribeBudget.osnProfileId, "usr_rt_budget"));
+
+      expect(await spend(morning)).toBe(true);
+      // Two at once with one unit left: exactly one is admitted.
+      expect((await Promise.all([spend(morning), spend(morning)])).toSorted()).toEqual([
+        false,
+        true,
+      ]);
+      expect(await spend(morning)).toBe(false);
+      expect(await budgetRows()).toEqual([
+        { osnProfileId: "usr_rt_budget", day: "2026-10-20", subscribes: 2 },
+      ]);
+
+      expect(await spend(new Date("2026-10-21T00:00:01Z"))).toBe(true);
+      expect(await budgetRows()).toEqual([
+        { osnProfileId: "usr_rt_budget", day: "2026-10-21", subscribes: 1 },
+      ]);
     },
     MF_TIMEOUT_MS,
   );
@@ -3905,6 +4195,86 @@ describe("cire/api over real D1 (Miniflare)", () => {
   );
 
   it(
+    "runs migration 20261021153838_task_run_time on D1's own SQLite: tasks keep their rows and holders, and an event delete unlinks",
+    async () => {
+      // Its own instance, holding the live chain up to the migration before it
+      // with a task, its holder and an event, so the five ADDs run over rows
+      // that exist. D1 enforces foreign keys, which is where a table rebuild
+      // would cascade.
+      const chainMf = new Miniflare({
+        modules: true,
+        script: "export default { fetch() { return new Response('ok'); } };",
+        d1Databases: { DB: ":memory:" },
+      });
+      try {
+        const chainD1 = (await chainMf.getD1Database("DB")) as unknown as D1Database;
+        const files = listMigrations(MIGRATIONS_DIR);
+        const cut = files.indexOf(MIGRATION_TASK_RUN_TIME);
+        expect(cut).toBeGreaterThan(0);
+        for (const file of files.slice(0, cut)) {
+          for (const stmt of fileStatements(file, MIGRATIONS_DIR)) {
+            await chainD1.prepare(stmt).run();
+          }
+        }
+        for (const stmt of [
+          "INSERT INTO weddings (id, slug, display_name, created_at, updated_at) VALUES ('wed_r1', 'r1', 'R1', 1, 1)",
+          "INSERT INTO wedding_hosts (id, wedding_id, osn_profile_id, added_by_osn_profile_id, role, created_at) VALUES ('whost_r1', 'wed_r1', 'usr_r1', 'usr_r1', 'owner', 1)",
+          "INSERT INTO events (id, wedding_id, slug, name, start_at, end_at, timezone) VALUES ('evt_r1', 'wed_r1', 'ceremony', 'Ceremony', '2099-06-20T15:00:00+10:00', '', 'Australia/Sydney')",
+          "INSERT INTO tasks (id, wedding_id, title, timeframe_bucket, created_at) VALUES ('tsk_r1', 'wed_r1', 'Bring the rings', 'day_of', 1)",
+          "INSERT INTO task_assignees (task_id, host_id, wedding_id, assigned_at) VALUES ('tsk_r1', 'whost_r1', 'wed_r1', 1)",
+        ]) {
+          await chainD1.prepare(stmt).run();
+        }
+
+        const statements = fileStatements(MIGRATION_TASK_RUN_TIME, MIGRATIONS_DIR);
+        expect(statements).toHaveLength(6);
+        for (const stmt of statements) await chainD1.prepare(stmt).run();
+
+        expect(
+          await chainD1
+            .prepare(
+              "SELECT id, run_at, run_timezone, event_id, run_offset_minutes, event_removed_at FROM tasks",
+            )
+            .all(),
+        ).toMatchObject({
+          results: [
+            {
+              id: "tsk_r1",
+              run_at: null,
+              run_timezone: null,
+              event_id: null,
+              run_offset_minutes: null,
+              event_removed_at: null,
+            },
+          ],
+        });
+        expect((await chainD1.prepare("SELECT task_id FROM task_assignees").all()).results).toEqual(
+          [{ task_id: "tsk_r1" }],
+        );
+
+        // Linked, then the event goes: the task and its holder stay, unlinked.
+        await chainD1
+          .prepare(
+            "UPDATE tasks SET event_id = 'evt_r1', run_offset_minutes = -30 WHERE id = 'tsk_r1'",
+          )
+          .run();
+        await chainD1.prepare("DELETE FROM events WHERE id = 'evt_r1'").run();
+        expect(
+          await chainD1
+            .prepare("SELECT id, event_id FROM tasks")
+            .first<{ id: string; event_id: string | null }>(),
+        ).toEqual({ id: "tsk_r1", event_id: null });
+        expect((await chainD1.prepare("SELECT task_id FROM task_assignees").all()).results).toEqual(
+          [{ task_id: "tsk_r1" }],
+        );
+      } finally {
+        await chainMf.dispose();
+      }
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
     "guards the last owner and both seat ceilings over D1's batch path",
     async () => {
       // On D1 the role change and the removal each ride one atomic batch with
@@ -4017,6 +4387,119 @@ describe("cire/api over real D1 (Miniflare)", () => {
   );
 
   it(
+    "reads the run sheet in one D1 batch: a linked task's derived time, and each event's run of show",
+    async () => {
+      // The read is one batch of four SELECTs, the events' carrying each
+      // event's run of show as a correlated JSON column. bun:sqlite runs a
+      // batch one statement at a time; these are the rows D1 hands back.
+      const now = new Date();
+      await db.insert(events).values([
+        {
+          id: "evt_rs_ceremony",
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          slug: "rs-ceremony",
+          name: "RS Ceremony",
+          startAt: "2099-06-20T15:00:00+10:00",
+          endAt: "",
+          timezone: "Australia/Sydney",
+          sortOrder: 90,
+        },
+        {
+          id: "evt_rs_dinner",
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          slug: "rs-dinner",
+          name: "RS Dinner",
+          startAt: "2099-06-20T19:00:00+10:00",
+          endAt: "",
+          timezone: "Australia/Sydney",
+          sortOrder: 91,
+        },
+      ]);
+      await db.insert(runOfShowItems).values([
+        {
+          eventId: "evt_rs_ceremony",
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          sortOrder: 0,
+          time: "15:20",
+          label: "Vows",
+        },
+        {
+          eventId: "evt_rs_ceremony",
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          sortOrder: 1,
+          time: "15:05",
+          label: "Processional",
+        },
+      ]);
+      await db.insert(tasks).values({
+        id: "tsk_rs_rings",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        title: "Bring the rings",
+        timeframeBucket: "day_of",
+        createdAt: now,
+        eventId: "evt_rs_ceremony",
+        runOffsetMinutes: -30,
+      });
+
+      const sheet = await run(
+        runSheetService.read({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          scope: "full",
+          viewerHostId: "whost_none",
+        }),
+      );
+      const byId = new Map(sheet.items.map((item) => [item.id, item]));
+      expect(byId.get("tsk_rs_rings")).toMatchObject({
+        runAt: "2099-06-20T14:30:00+10:00",
+        anchored: true,
+      });
+      expect(byId.get("evt_rs_ceremony")).toMatchObject({
+        runOfShow: [
+          { time: "15:20", label: "Vows" },
+          { time: "15:05", label: "Processional" },
+        ],
+      });
+      expect(byId.get("evt_rs_dinner")).toMatchObject({ runOfShow: [] });
+
+      // A helper's own read, narrowed in SQL on D1 as on SQLite: their task,
+      // its event and the seat holding it, and nothing else of the day.
+      await db.insert(weddingHosts).values({
+        id: "whost_rs_helper",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        osnProfileId: "usr_rs_helper",
+        addedByOsnProfileId: "usr_test",
+        role: "helper",
+        createdAt: now,
+      });
+      await db.insert(taskAssignees).values({
+        taskId: "tsk_rs_rings",
+        hostId: "whost_rs_helper",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        assignedAt: now,
+      });
+      const mine = await run(
+        runSheetService.read({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          scope: "own",
+          viewerHostId: "whost_rs_helper",
+        }),
+      );
+      expect(mine.items.map((item) => item.id)).toEqual(["tsk_rs_rings", "evt_rs_ceremony"]);
+      expect(mine.people).toEqual([{ hostId: "whost_rs_helper", osnProfileId: "usr_rs_helper" }]);
+
+      // The checklist reads the same task with its event's time, in the one
+      // statement that reads the tasks.
+      const checklist = await run(tasksService.list(BOOTSTRAP_WEDDING_ID));
+      expect(checklist.find((task) => task.id === "tsk_rs_rings")).toMatchObject({
+        runAt: "2099-06-20T14:30:00+10:00",
+        anchored: true,
+        assigneeHostIds: ["whost_rs_helper"],
+      });
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
     "guards a helper's run-sheet scope on D1, and resets it over the role change's batch",
     async () => {
       // The scope write is one guarded UPDATE whose RETURNING is the answer,
@@ -4064,8 +4547,14 @@ describe("cire/api over real D1 (Miniflare)", () => {
           scope: "full",
         }),
       );
-      expect(widened).toMatchObject({ role: "helper", runSheetScope: "full" });
+      expect(widened).toMatchObject({ role: "helper", runSheetScope: "full", changed: true });
       expect(await storedScope("usr_helper")).toBe("full");
+      // The same scope again matches no row in the UPDATE, and the read that
+      // follows answers it as unchanged, not as a refusal.
+      expect(await scopeExit("usr_helper")).toMatchObject({
+        _tag: "Success",
+        value: { role: "helper", runSheetScope: "full", changed: false },
+      });
 
       // helper → helper keeps it; any move away resets it, so coming back is own.
       expect((await setRole("helper")).runSheetScope).toBe("full");

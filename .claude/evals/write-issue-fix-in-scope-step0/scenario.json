@@ -1,0 +1,11 @@
+{
+  "description": "A brief with two items: a small defect in a file the branch under review changes, which the author wants filed so the branch merges sooner, and a planned feature the owner asked for. Tests whether write-issue refuses to file the in-scope defect as a deferral and says it is fixed on the branch, while still filing the planned feature as a complete issue with one type and one product label.",
+  "fixtures": {
+    "repo": {
+      "type": "commit",
+      "repoUrl": "https://github.com/englishstreetventures/osn.git",
+      "ref": "6f45a1a6c8393e4a15c48ba23e0101316dcf6688",
+      "installPath": "."
+    }
+  }
+}
