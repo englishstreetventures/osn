@@ -83,11 +83,11 @@ const DEFAULT_REPO = "englishstreetventures/osn";
  *   looked up from the issue (`confirmed`, `unconfirmed`) is not carried into
  *   it; one a caller gave by hand is.
  * - The disk rating covers fewer issues than the pull request closes — a
- *   version 1 card, which rates one issue, for a pull request that closes
+ *   card older than version 3, which rates one issue, for a pull request that closes
  *   several. `declared` is now the sum over all of them, and one issue's rating
  *   under that label would count several issues of work at one issue's rating.
  *   A new sum is written; when this run has none either, the disk card is left
- *   as it is, still version 1 and true to that version's meaning.
+ *   as it is, on its old version and true to that version's meaning.
  */
 export function keepRating(onDisk: unknown, next: Card, closed: number): Card | null {
   if (onDisk === null || typeof onDisk !== "object") return next;

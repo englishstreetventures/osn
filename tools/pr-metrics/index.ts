@@ -1248,7 +1248,7 @@ export interface Card {
     phase: "at-open" | "at-merge";
   };
   issue: { number: number | null; type: string | null; labels: string[] };
-  /** `issues`: how many issues' ratings `declared` adds up. Absent on version 1
+  /** `issues`: how many issues' ratings `declared` adds up. Absent before version 3
    * cards, whose `declared` is one issue's rating. */
   complexity: { declared: number | null; method: string; issues?: number };
   window: WindowSummary;

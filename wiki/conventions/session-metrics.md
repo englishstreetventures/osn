@@ -155,7 +155,7 @@ Four things this does to the comparison of spend against declared difficulty:
   records `part-of` on each but the one that closes the issue, which carries the
   whole rating against its own spend.
 
-Cards with `schema_version: 1` predate the sum: their `declared` is one issue's
+Cards with a `schema_version` below 3 predate the sum: their `declared` is one issue's
 rating, taken from the first issue GitHub listed or from the body's one link.
 
 ## Who writes a card
@@ -468,7 +468,7 @@ added `complexity.issues`; on an older card `declared` is one issue's rating.
 | `issue.number`, `issue.type`, `issue.labels` | The issue the branch was cut for — see [[#Which issue a card names, and what it divides by]]. With `--resolve-issue`, `labels` are read only when that issue is one the pull request closes |
 | `complexity.declared` | The sum of the ratings of the issues in this repository the pull request closes — 1, 2, 3, 5 or 8 for one issue. The only judgement in the file |
 | `complexity.method` | How that number was arrived at: `confirmed`, `unconfirmed`, `none`, `not-fetched`, `lookup-failed`, `part-of`, or `manual` for `--complexity` |
-| `complexity.issues` | How many issues' ratings `declared` adds up. Absent on version 1 cards |
+| `complexity.issues` | How many issues' ratings `declared` adds up. Absent before version 3 |
 | `window.sessions` | Distinct sessions on this branch |
 | `window.span_seconds` | First to last timestamp, idle included |
 | `window.active_seconds` | Per-message gaps, each capped at 300s, summed per session |
@@ -695,10 +695,10 @@ a lowered rating, or cannot carry one:
   read. A rating looked up from the issue (`confirmed`, `unconfirmed`) is
   dropped, since it describes the whole issue; one given by hand is kept.
 - **The card on disk rates fewer issues than the pull request closes.** A
-  version 1 card rates one issue, and version 2's `declared` is the sum over
+  card before version 3 rates one issue, and version 3's `declared` is the sum over
   all of them: carried across, one issue's rating would count four issues of
   work as one. A new sum is written instead. When this run has no sum either,
-  the card on disk is left as it is, still version 1, and the run names it.
+  the card on disk is left as it is, on its old version, and the run names it.
 
 Only `"confirmed"` is a rating to act on; every other method is either an
 agent's guess (`"unconfirmed"`) or a null `complexity.declared`, for the reasons

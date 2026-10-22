@@ -1238,11 +1238,11 @@ test("backfill never replaces a rating on disk with a lookup that failed", async
   }
 });
 
-// A version 1 card rates one issue. Under version 2 `declared` is the sum over
+// A card before version 3 rates one issue. Under version 3 `declared` is the sum over
 // every issue the pull request closes, so one issue's rating cannot be carried
 // into a rebuilt card for a pull request that closes several: it would count
 // four issues of work at one issue's rating. When this run cannot read the sum
-// either, the card on disk stays exactly as it was, still version 1.
+// either, the card on disk stays exactly as it was, on its old version.
 test("backfill leaves a one-issue card alone rather than relabel it as a batched sum", async () => {
   const f = await fixture({ withTranscript: false });
   try {

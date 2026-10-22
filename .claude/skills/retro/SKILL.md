@@ -220,8 +220,8 @@ Three readings that are wrong every time:
 
 - **A `null` rating means the work is unrated.** `complexity.declared` is the
   sum of the `complexity:` ratings of every issue in this repository the pull
-  request closes, and `complexity.issues` says how many it adds up (a version 1
-  card has no `issues` and rates one issue). A `null` has a reason, and
+  request closes, and `complexity.issues` says how many it adds up (a card
+  older than `schema_version` 3 has no `issues` and rates one issue). A `null` has a reason, and
   `complexity.method` names it. Read it before you conclude anything:
   - `lookup-failed`, or `none` on a card with `pr.number: null` — the card did
     not read a rating. Look at the issues the pull request closes; where each
