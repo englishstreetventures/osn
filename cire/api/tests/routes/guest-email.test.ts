@@ -455,7 +455,7 @@ describe("guest email routes — bodies and failed writes", () => {
     const cookie = await answeringAs(app, db, "Cleo");
     const cleo = guestId(db, "Cleo");
     expect((await save(app, cookie, cleo)).status).toBe(200);
-    db.$client.exec(
+    db.$client.run(
       "CREATE TRIGGER fail_email BEFORE UPDATE OF email ON guests BEGIN SELECT RAISE(ABORT, 'x'); END;",
     );
 
