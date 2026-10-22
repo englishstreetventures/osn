@@ -18,6 +18,11 @@ describe("parseInsetPx", () => {
     expect(parseInsetPx("21.5px")).toBe(21.5);
   });
 
+  it("reads a negative or infinite value as 0", () => {
+    expect(parseInsetPx("-5px")).toBe(0);
+    expect(parseInsetPx("Infinity")).toBe(0);
+  });
+
   it("reads anything that is not a positive number as 0", () => {
     expect(parseInsetPx("")).toBe(0);
     expect(parseInsetPx("0px")).toBe(0);
@@ -60,6 +65,12 @@ describe("edgeStyle", () => {
 
   it("falls back to a constant for anything that is not six-digit hex", () => {
     expect(edgeStyle({ top: "oklch(20% 0.03 150)", bottom: "#fff" })).toBe(
+      "--edge-top-bg:#000000;--edge-bottom-bg:#000000",
+    );
+  });
+
+  it("rejects a value that carries a declaration in front of the hex", () => {
+    expect(edgeStyle({ top: "x;background:red;--y:#000000", bottom: "#000000" })).toBe(
       "--edge-top-bg:#000000;--edge-bottom-bg:#000000",
     );
   });
@@ -121,10 +132,16 @@ describe("EDGE_BOOT_SCRIPT", () => {
   });
 
   it("removes its probe element", () => {
+    // jsdom drops env() from inline styles, so count the root's children instead.
+    const before = document.documentElement.children.length;
     run("34px", "0px");
-    expect(
-      document.documentElement.querySelector('[aria-hidden="true"][style*="env("]'),
-    ).toBeNull();
+    expect(document.documentElement.children.length).toBe(before);
+  });
+
+  it("sets neither class for a negative or infinite inset", () => {
+    run("-5px", "Infinity");
+    expect(document.documentElement.classList.contains(EDGE_TOP_CLASS)).toBe(false);
+    expect(document.documentElement.classList.contains(EDGE_BOTTOM_CLASS)).toBe(false);
   });
 });
 

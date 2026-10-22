@@ -1,5 +1,5 @@
-import { cleanup, render } from "@solidjs/testing-library";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, render, waitFor } from "@solidjs/testing-library";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { page } from "vitest/browser";
 
 import "../../src/styles/global.css";
@@ -10,6 +10,7 @@ import {
   startEdgeColours,
 } from "../../src/components/edge-boot";
 import ClassicInviteHeader from "../../src/designs/classic/InviteHeader";
+import GalaInviteHeader from "../../src/designs/gala/InviteHeader";
 import type { InviteCustomisation } from "../../src/designs/types";
 import { Z_CLASS } from "../../src/lib/z-index";
 
@@ -166,5 +167,88 @@ describe("startEdgeColours in the real classic hero", () => {
     expect(Number(getComputedStyle(cue).zIndex)).toBeGreaterThan(
       Number(getComputedStyle(strip).zIndex),
     );
+    // A z-index only ranks inside its own stacking context. No ancestor of the
+    // cue below <body> may create one, or the cue could fall under the strip
+    // while the numbers still compare correctly.
+    const trapping: string[] = [];
+    for (let el = cue.parentElement; el && el !== document.body; el = el.parentElement) {
+      const cs = getComputedStyle(el);
+      const creates =
+        cs.zIndex !== "auto" ||
+        cs.transform !== "none" ||
+        cs.filter !== "none" ||
+        cs.isolation === "isolate" ||
+        cs.willChange !== "auto" ||
+        cs.contain.includes("paint") ||
+        cs.contain.includes("layout") ||
+        Number(cs.opacity) < 1;
+      if (creates) trapping.push(el.tagName.toLowerCase());
+    }
+    expect(trapping, "ancestors that would trap the cue's z-index").toEqual([]);
   });
+
+  it("re-reads the insets when the viewport changes, so a rotated phone gets the right strips", async () => {
+    await page.viewport(390, 844);
+    await mountHeader();
+    mountStrips();
+    let current = { top: 0, bottom: 0 };
+    stop = startEdgeColours(document, () => current);
+    await frame();
+    expect(document.documentElement.classList.contains("has-safe-bottom")).toBe(false);
+
+    current = { top: 0, bottom: 34 };
+    window.dispatchEvent(new Event("resize"));
+    await frame();
+    await frame();
+    expect(document.documentElement.classList.contains("has-safe-bottom")).toBe(true);
+  });
+  it.each([
+    ["classic", ClassicInviteHeader],
+    ["gala", GalaInviteHeader],
+  ] as const)(
+    "takes the hero colour on the top edge when the %s invite arrives after start-up, with no event sent by the test",
+    async (_name, Header) => {
+      await page.viewport(390, 844);
+      // A scroll left by an earlier case would clamp when this page's content
+      // changes, and that scroll event would re-run the loop and hide the gap.
+      window.scrollTo(0, 0);
+      await frame();
+      const body = {
+        hero: { title: "Anita & Ben", subtitle: null, imageUrl: null },
+        story: { eyebrow: null, heading: "How it began", body: null, imageUrl: null },
+        heroDisplay: { blur: 28, titleBackdrop: { opacity: 0, blur: 0 } },
+        theme: { headingFont: null, bodyFont: null, palette: null, tones: null },
+      };
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          async () =>
+            new Response(JSON.stringify(body), {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            }),
+        ),
+      );
+      try {
+        mountStrips();
+        stop = startEdgeColours(document, insets(0, 34));
+        const { container } = render(() => (
+          <>
+            <Header apiUrl="https://api.test" slug="anita-and-ben" initial={null} />
+            <div style={{ height: "200vh" }} />
+          </>
+        ));
+        await waitFor(() => {
+          expect(container.querySelector(`[${EDGE_HERO_ATTR}]`)).not.toBeNull();
+        });
+        await frame();
+        await frame();
+
+        const grad1 = oklchToHex(cssVar("--invite-hero-grad-1"));
+        expect(document.documentElement.style.getPropertyValue("--edge-top-bg")).toBe(grad1);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    },
+  );
 });

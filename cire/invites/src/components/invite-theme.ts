@@ -216,6 +216,9 @@ export function applyPaletteToRoot(theme: InviteTheme | null | undefined): void 
   for (const [key, value] of Object.entries(vars)) {
     root.style.setProperty(key, value);
   }
+  // Tells the edge loop (components/edge-boot.ts) the colours it reads have
+  // changed: the palette may have arrived after the loop started.
+  document.dispatchEvent(new Event("cire:palette"));
 }
 
 /** The custom properties the last {@link applyPaletteToRoot} call set. */

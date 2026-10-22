@@ -500,6 +500,10 @@ describe.each([
       Z_LAYER.HERO_CUE,
     );
     expect(painted, "the toast stacks above the consent layers").toBeLessThan(Z_LAYER.CONSENT);
+    // The top inset clears the status bar and Dynamic Island on a notched phone (issue #1700).
+    expect(container!.style.top, "the toast sits below the status bar").toBe(
+      "env(safe-area-inset-top)",
+    );
     expect(container!.matches(":popover-open"), "the toast never entered the top layer").toBe(true);
 
     // Painted, on screen, and anchored where `top-center` says.
@@ -574,6 +578,10 @@ describe.each([
       Z_LAYER.HERO_CUE,
     );
     expect(painted, "the toast stacks above the consent layers").toBeLessThan(Z_LAYER.CONSENT);
+    // The top inset clears the status bar and Dynamic Island on a notched phone (issue #1700).
+    expect(container!.style.top, "the toast sits below the status bar").toBe(
+      "env(safe-area-inset-top)",
+    );
     expect(container!.matches(":popover-open"), "the toast never entered the top layer").toBe(true);
 
     // Painted, on screen, and anchored where `top-center` says.
