@@ -84,9 +84,15 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
   // Only a save leads back to a stored address, so it is the one that clears it.
   const [note, setNote] = createSignal("");
 
+  // Set when the guest leaves the field or presses the blocked save button;
+  // cleared once the address is valid or empty. The field's own error waits
+  // for it, so a half-typed address is not called wrong mid-word.
+  const [touched, setTouched] = createSignal(false);
+
   const address = (): "empty" | "invalid" | "valid" =>
     draft().trim() === "" ? "empty" : parseGuestEmail(draft()) === null ? "invalid" : "valid";
   const blocked = () => blockedReason(address(), consent());
+  const showInvalid = () => touched() && address() === "invalid";
   let heading: HTMLHeadingElement | undefined;
   let input: HTMLInputElement | undefined;
   // Each view replaces the button that was pressed, so focus moves on with
@@ -98,6 +104,7 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
   function startEditing() {
     setDraft(props.email?.address ?? "");
     setConsent(false);
+    setTouched(false);
     setError(null);
     setEditing(true);
     focusAfterRender(() => input);
@@ -105,6 +112,7 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
 
   async function save(e: SubmitEvent) {
     e.preventDefault();
+    if (blocked() !== null) setTouched(true);
     if (blocked() !== null || busy()) return;
     setBusy(true);
     setError(null);
@@ -171,6 +179,7 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
       setNote(REMOVED_NOTE);
       setDraft("");
       setConsent(false);
+      setTouched(false);
       setEditing(true);
       focusAfterRender(() => heading);
     } catch {
@@ -221,15 +230,19 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
                 type="email"
                 class={INPUT}
                 value={draft()}
-                onInput={(e) => setDraft(e.currentTarget.value)}
+                onInput={(e) => {
+                  setDraft(e.currentTarget.value);
+                  if (address() !== "invalid") setTouched(false);
+                }}
+                onBlur={() => setTouched(true)}
                 name="email"
                 autocomplete="email"
                 spellcheck={false}
                 disabled={busy()}
-                aria-invalid={address() === "invalid" ? "true" : undefined}
-                aria-describedby={address() === "invalid" ? invalidId : undefined}
+                aria-invalid={showInvalid() ? "true" : undefined}
+                aria-describedby={showInvalid() ? invalidId : undefined}
               />
-              <Show when={address() === "invalid"}>
+              <Show when={showInvalid()}>
                 <p id={invalidId} class="text-error text-ui-sm mt-1.5">
                   {INVALID_ADDRESS}
                 </p>
@@ -256,7 +269,16 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
                 .
               </span>
             </label>
-            <span class="flex flex-wrap items-center gap-2">
+            <span
+              class="flex flex-wrap items-center gap-2"
+              onClick={(e) => {
+                // `Button` swallows the press without calling `onClick`, so the
+                // press is read here, as it bubbles from the blocked button.
+                if (blocked() !== null && e.target.closest("button[type=submit]")) {
+                  setTouched(true);
+                }
+              }}
+            >
               {/* `aria-disabled`, not `disabled`, while the address or the
                   consent blocks it: the button keeps its tab stop and its
                   reason, and `Button` swallows the press. Natively disabled

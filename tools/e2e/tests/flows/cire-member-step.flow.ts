@@ -261,15 +261,25 @@ test("cire-member-step", async ({ page, context, flow }) => {
         await expect(addEmail).toHaveAccessibleDescription(
           "To save, enter your email address and tick the box above.",
         );
-        // An address the rule refuses is named at the field, and by the button.
+        // While the guest is still typing, only the button names the problem.
+        // Once focus leaves the field, the field names it too.
+        const invalidSentence = emailBox.getByText("look like one email address", {
+          exact: false,
+        });
         await field.fill("cleo@");
-        await expect(field).toHaveAttribute("aria-invalid", "true");
-        await expect(field).toHaveAccessibleDescription(/look like one email address/);
+        await expect(field).toBeFocused();
         await expect(addEmail).toHaveAccessibleDescription(
           "To save, check your email address and tick the box above.",
         );
+        await expect(invalidSentence).toHaveCount(0);
+        await expect(field).not.toHaveAttribute("aria-invalid", "true");
+        await field.blur();
+        await expect(field).toHaveAttribute("aria-invalid", "true");
+        await expect(invalidSentence).toBeVisible();
+        await expect(field).toHaveAccessibleDescription(/look like one email address/);
         await field.fill(CIRE_HOUSEHOLD.email);
         await expect(field).not.toHaveAttribute("aria-invalid", "true");
+        await expect(invalidSentence).toHaveCount(0);
         // Nothing is stored until the guest ticks the consent box. The button
         // stays in the tab order, says why, and a press does nothing.
         await expect(addEmail).toHaveAttribute("aria-disabled", "true");
