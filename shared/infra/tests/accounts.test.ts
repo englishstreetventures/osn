@@ -11,6 +11,7 @@ import {
   forbiddenCredentials,
   knownCredentials,
   REPOSITORY_CREDENTIALS,
+  requiredCredentials,
   TIER_ACCOUNTS,
 } from "../src/accounts";
 import type { Tier } from "../src/stage";
@@ -42,18 +43,23 @@ describe("TIER_ACCOUNTS", () => {
       "CLOUDFLARE_DEV_ACCOUNT_ID",
     ]);
     for (const tier of TIERS) {
-      for (const name of [...accountSecrets(tier), ...allowedCredentials(tier)]) {
+      for (const name of [...requiredCredentials(tier), ...allowedCredentials(tier)]) {
         expect(forbiddenCredentials(tier)).not.toContain(name);
       }
     }
   });
 
-  test("I4: the dev read-only token is classified, allowed in dev and forbidden in production", () => {
+  test("I4: the dev read-only token is classified, required in dev and forbidden in production", () => {
+    // free-tier-ceiling-alert.yml's dev job fails every night without it.
     expect(knownCredentials()).toContain("CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY");
-    expect(allowedCredentials("dev")).toContain("CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY");
+    expect(requiredCredentials("dev")).toEqual(
+      [...accountSecrets("dev"), "CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY"].toSorted(),
+    );
+    expect(allowedCredentials("dev")).not.toContain("CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY");
     expect(forbiddenCredentials("production")).toContain(
       "CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY",
     );
+    expect(requiredCredentials("production")).toEqual(accountSecrets("production"));
   });
 });
 

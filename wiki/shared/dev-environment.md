@@ -403,20 +403,26 @@ printf '%s' "$VALUE" | gh secret set NAME --env dev --repo englishstreetventures
      passes it to the build without hashing it, and that build runs with turbo's
      cache off, so the key never reaches a cache.
    - The smoke check behind Access: `CF_ACCESS_CLIENT_ID`,
-     `CF_ACCESS_CLIENT_SECRET` (§5).
+     `CF_ACCESS_CLIENT_SECRET` (§5), a service token of the **dev** account's
+     Zero Trust organisation; another account's token passes the name check
+     and fails every browser host's smoke check. Until the merge that first
+     deploys the stacks, the old dev tier's smoke check reads the same two
+     names against the production account's Access, so replace them just
+     before that merge.
 
    The cire and musubi stacks refuse to deploy while a value breaks its dev
    rule: a `STRIPE_SECRET_KEY` that is not a test-mode key, or a
    `DEV_LOGIN_SECRET` shorter than 32 characters
    ([[infrastructure-as-code#GitHub Environment secrets]]).
 
-   `secrets:check-github -- --tier dev` lists any missing Worker secret or
-   account credential ([[infrastructure-as-code#Checking the inventory]]). It
-   does not check `ASTRO_KEY`, the `CF_ACCESS_*` pair, the read-only token or
-   `DEV_DOMAIN`, and prints `ASTRO_KEY` and the `CF_ACCESS_*` pair, when set,
-   as not in the inventory, which does not fail it. Check those by eye with
-   `gh secret list --env dev` and `gh variable list --env dev`. The OSN JWT keys
-   are **base64-encoded** JWK JSON; the ARC key is a **raw** JWK string.
+   `secrets:check-github -- --tier dev` lists any missing Worker secret,
+   credential (the read-only token included) or secret only a workflow reads
+   (`ASTRO_KEY` and the `CF_ACCESS_*` pair)
+   ([[infrastructure-as-code#Checking the inventory]]). It reads names only:
+   it cannot tell that the `CF_ACCESS_*` pair is the dev account's service
+   token rather than another account's, and it does not check `DEV_DOMAIN`,
+   which `gh variable list --env dev` shows. The OSN JWT keys are
+   **base64-encoded** JWK JSON; the ARC key is a **raw** JWK string.
 
    > [!warning] Never rotate the dev `OSN_PAIRWISE_SALT`
    > Rotation changes every pairwise `sub`, so every dev relying party sees its

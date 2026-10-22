@@ -157,6 +157,54 @@ describe("checkGithub", () => {
     expect(outcome.stdout).toContain("forbidden but set: CLOUDFLARE_API_TOKEN");
   });
 
+  // Secrets the dev Environment holds for its workflows alone, and the read-only
+  // token the free-tier alert's dev job reads: none is a Worker secret, and a
+  // dev job fails without each.
+  const DEV_WORKFLOW_ONLY = [
+    "ASTRO_KEY",
+    "CF_ACCESS_CLIENT_ID",
+    "CF_ACCESS_CLIENT_SECRET",
+    "CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY",
+  ];
+
+  test("C1: accepts the dev Environment's workflow-only secrets and read-only token as its own", async () => {
+    const workerAndAccount = githubExpectations("dev").filter(
+      (name) => !DEV_WORKFLOW_ONLY.includes(name),
+    );
+    const outcome = await checkGithub("dev", listed([...workerAndAccount, ...DEV_WORKFLOW_ONLY]));
+    expect(outcome.exitCode).toBe(0);
+    expect(outcome.stdout).toBe("ok    GitHub Environment dev\n");
+  });
+
+  test.each(DEV_WORKFLOW_ONLY.map((name) => [name] as const))(
+    "C2: exits 1 when the dev Environment lacks %s, naming it",
+    async (name) => {
+      const others = [...new Set([...githubExpectations("dev"), ...DEV_WORKFLOW_ONLY])].filter(
+        (candidate) => candidate !== name,
+      );
+      const outcome = await checkGithub("dev", listed(others));
+      expect(outcome.exitCode).toBe(1);
+      expect(outcome.stdout).toContain(`missing: ${name}\n`);
+    },
+  );
+
+  test("C3: the production Environment holding the dev read-only token fails; holding a dev workflow secret is reported", async () => {
+    const withToken = await checkGithub(
+      "production",
+      listed([...githubExpectations("production"), "CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY"]),
+    );
+    expect(withToken.exitCode).toBe(1);
+    expect(withToken.stdout).toContain(
+      "forbidden but set: CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY",
+    );
+    // A guard on the change's reach: dev's workflow secrets stay dev's.
+    const withDevSecrets = await checkGithub(
+      "production",
+      listed([...githubExpectations("production"), "ASTRO_KEY", "CF_ACCESS_CLIENT_ID"]),
+    );
+    expect(withDevSecrets.stdout).toContain("not in the inventory: ASTRO_KEY, CF_ACCESS_CLIENT_ID");
+  });
+
   test.each([
     ["fails", failed],
     ["does not start", { status: null, stdout: "", stderr: "", startError: "spawn gh ENOENT" }],

@@ -168,6 +168,27 @@ export const SHARED_SECRET_VALUES: readonly {
 ];
 
 /**
+ * Secrets a tier's GitHub Environment holds for its workflows alone: no Worker
+ * holds one, and none is a Cloudflare credential. `secrets:check-github`
+ * requires each on its tier, since the job that reads it fails without it.
+ * `tests/secrets/environments.test.ts` holds this list to what the jobs bound
+ * to each Environment read.
+ */
+export const WORKFLOW_SECRETS = {
+  dev: [
+    // Fixes the key Astro writes into the guest site's build, read by the
+    // cire stack job's build step (deploy.yml).
+    "ASTRO_KEY",
+    // The Cloudflare Access service token the smoke checks of the dev browser
+    // hosts send (deploy.yml; wiki/shared/dev-environment.md §5).
+    "CF_ACCESS_CLIENT_ID",
+    "CF_ACCESS_CLIENT_SECRET",
+  ],
+  // production-release.yml's jobs read the production account's pair alone.
+  production: [],
+} as const satisfies Readonly<Record<Tier, readonly string[]>>;
+
+/**
  * Names a deploy job already sets in its environment or reads as a
  * credential; no Worker secret may share one.
  */
