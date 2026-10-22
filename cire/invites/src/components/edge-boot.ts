@@ -127,7 +127,7 @@ export const EDGE_BOOT_SCRIPT = `(function () {
 })();`;
 
 /** A pair of insets in px. */
-interface Insets {
+export interface Insets {
   top: number;
   bottom: number;
 }
@@ -154,7 +154,10 @@ function readInsets(doc: Document): Insets {
  * classes from the same rule, so a late run changes nothing it has not already
  * set. Called once from the invite shell's module script.
  */
-export function startEdgeColours(doc: Document = document): () => void {
+export function startEdgeColours(
+  doc: Document = document,
+  readInsetsFrom: (d: Document) => Insets = readInsets,
+): () => void {
   const win = doc.defaultView;
   if (!win) return () => {};
   const root = doc.documentElement;
@@ -162,7 +165,7 @@ export function startEdgeColours(doc: Document = document): () => void {
 
   const apply = () => {
     frame = 0;
-    const insets = readInsets(doc);
+    const insets = readInsetsFrom(doc);
     const edges = decideEdges(insets.top, insets.bottom);
     root.classList.toggle(EDGE_TOP_CLASS, edges.top);
     root.classList.toggle(EDGE_BOTTOM_CLASS, edges.bottom);
