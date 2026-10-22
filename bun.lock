@@ -273,7 +273,7 @@
     },
     "musubi/infra": {
       "name": "@musubi/infra",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "dependencies": {
         "@effect/platform-bun": "4.0.5",
         "@effect/platform-node": "4.0.5",
@@ -483,7 +483,7 @@
     },
     "pulse/infra": {
       "name": "@pulse/infra",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@effect/platform-bun": "4.0.5",
         "@effect/platform-node": "4.0.5",
@@ -644,7 +644,7 @@
     },
     "shared/infra": {
       "name": "@shared/infra",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "dependencies": {
         "@effect/platform-bun": "4.0.5",
         "@effect/platform-node": "4.0.5",
@@ -982,7 +982,7 @@
     },
     "zap/infra": {
       "name": "@zap/infra",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@effect/platform-bun": "4.0.5",
         "@effect/platform-node": "4.0.5",
