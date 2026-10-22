@@ -20,6 +20,12 @@ import { readEmail } from "./utils";
  * Purely additive, like the account-link box: a failure says so in the box and
  * never touches the invite around it. Its buttons are named for the address
  * and never contain "Save", so they never collide with the RSVP sheet's.
+ *
+ * While the address is not one or the consent box is unticked, the save button
+ * stays focusable with `aria-disabled` and a reason naming what blocks it, so
+ * a keyboard or screen-reader user can reach and read why. One status region
+ * is mounted for the box's whole life, so the note a removal sets in it is
+ * announced.
  */
 interface GuestEmailBoxProps {
   /** cire-api origin (the same value the rest of the invite fetches from). */
@@ -39,6 +45,22 @@ interface GuestEmailBoxProps {
 const INPUT =
   "border-text/55 bg-text/[0.045] font-body text-text focus:border-gold sm:text-ui-base mt-1.5 block w-full cursor-text rounded-sm border px-3 py-2.5 text-base transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)] disabled:cursor-not-allowed disabled:opacity-50";
 
+const INVALID_ADDRESS = "That doesn’t look like one email address. Please check it.";
+const REMOVED_NOTE =
+  "Removed. Your hosts won’t email that address about the wedding unless you add it again.";
+
+/** Why the save button is unavailable, naming what blocks it; null when nothing does. */
+function blockedReason(address: "empty" | "invalid" | "valid", consented: boolean): string | null {
+  const fix =
+    address === "empty"
+      ? "enter your email address"
+      : address === "invalid"
+        ? "check your email address"
+        : null;
+  if (fix === null) return consented ? null : "To save, tick the box above.";
+  return consented ? `To save, ${fix}.` : `To save, ${fix} and tick the box above.`;
+}
+
 /** What the API's refusal means for the guest, by its `error` code. */
 async function refusalOf(res: Response): Promise<"member" | "invalid" | "outdated" | "other"> {
   const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
@@ -51,14 +73,19 @@ async function refusalOf(res: Response): Promise<"member" | "invalid" | "outdate
 export function GuestEmailBox(props: GuestEmailBoxProps) {
   const headingId = createUniqueId();
   const inputId = createUniqueId();
+  const invalidId = createUniqueId();
+  const reasonId = createUniqueId();
   const [editing, setEditing] = createSignal(props.email === null);
   const [draft, setDraft] = createSignal("");
   const [consent, setConsent] = createSignal(false);
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
-  const [removedNote, setRemovedNote] = createSignal(false);
+  // The status region's text: the note after a removal, empty otherwise.
+  const [note, setNote] = createSignal("");
 
-  const valid = () => parseGuestEmail(draft()) !== null;
+  const address = (): "empty" | "invalid" | "valid" =>
+    draft().trim() === "" ? "empty" : parseGuestEmail(draft()) === null ? "invalid" : "valid";
+  const blocked = () => blockedReason(address(), consent());
   let heading: HTMLHeadingElement | undefined;
   let input: HTMLInputElement | undefined;
   // Each view replaces the button that was pressed, so focus moves on with
@@ -71,15 +98,17 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
     setDraft(props.email?.address ?? "");
     setConsent(false);
     setError(null);
+    setNote("");
     setEditing(true);
     focusAfterRender(() => input);
   }
 
   async function save(e: SubmitEvent) {
     e.preventDefault();
-    if (!valid() || !consent() || busy()) return;
+    if (blocked() !== null || busy()) return;
     setBusy(true);
     setError(null);
+    setNote("");
     try {
       const res = await fetch(`${props.apiUrl}/api/claim/member/email`, {
         method: "PUT",
@@ -99,7 +128,7 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
         }
         setError(
           refusal === "invalid"
-            ? "That doesn’t look like one email address. Please check it."
+            ? INVALID_ADDRESS
             : refusal === "outdated"
               ? "This page is out of date. Please reload it and try again."
               : "Couldn’t save your email. Please try again.",
@@ -110,7 +139,6 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
       const saved =
         typeof body === "object" && body !== null && "email" in body ? readEmail(body.email) : null;
       props.onChange(saved);
-      setRemovedNote(false);
       setEditing(false);
       focusAfterRender(() => heading);
     } catch {
@@ -140,7 +168,7 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
         return;
       }
       props.onChange(null);
-      setRemovedNote(true);
+      setNote(REMOVED_NOTE);
       setDraft("");
       setConsent(false);
       setEditing(true);
@@ -165,24 +193,24 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
       >
         Wedding emails
       </h3>
+      {/* Mounted for the box's whole life, empty until a removal lands: a live
+          region inserted already holding its text is not reliably announced. */}
+      <output
+        class="text-text-muted text-ui-sm leading-ui-normal block font-light"
+        classList={{ "mb-3": note() !== "" }}
+      >
+        {note()}
+      </output>
       <Show
         when={!editing() && props.email}
         fallback={
           <form class="flex flex-col gap-3" onSubmit={(e) => void save(e)}>
-            <output class="text-text-muted text-ui-sm leading-ui-normal block font-light">
-              <Show
-                when={removedNote()}
-                fallback={
-                  <>
-                    Optional. Add your email so your hosts can send you news about the wedding
-                    through Cire.
-                  </>
-                }
-              >
-                Removed. Your hosts won’t email that address about the wedding unless you add it
-                again.
-              </Show>
-            </output>
+            <Show when={note() === ""}>
+              <p class="text-text-muted text-ui-sm leading-ui-normal font-light">
+                Optional. Add your email so your hosts can send you news about the wedding through
+                Cire.
+              </p>
+            </Show>
             <div>
               <label for={inputId} class="font-body text-text-muted text-ui-sm block">
                 Your email, {props.member.firstName}
@@ -198,7 +226,14 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
                 autocomplete="email"
                 spellcheck={false}
                 disabled={busy()}
+                aria-invalid={address() === "invalid" ? "true" : undefined}
+                aria-describedby={address() === "invalid" ? invalidId : undefined}
               />
+              <Show when={address() === "invalid"}>
+                <p id={invalidId} class="text-error text-ui-sm mt-1.5">
+                  {INVALID_ADDRESS}
+                </p>
+              </Show>
             </div>
             <label class="font-body text-text-muted text-ui-sm flex items-start gap-2.5 leading-relaxed normal-case">
               <input
@@ -222,7 +257,17 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
               </span>
             </label>
             <span class="flex flex-wrap items-center gap-2">
-              <Button type="submit" variant="cta" disabled={busy() || !valid() || !consent()}>
+              {/* `aria-disabled`, not `disabled`, while the address or the
+                  consent blocks it: the button keeps its tab stop and its
+                  reason, and `Button` swallows the press. Natively disabled
+                  only while the request is in flight. */}
+              <Button
+                type="submit"
+                variant="cta"
+                disabled={busy()}
+                aria-disabled={blocked() !== null ? "true" : undefined}
+                aria-describedby={blocked() !== null ? reasonId : undefined}
+              >
                 {busy() ? "Saving…" : props.email ? "Use this email" : "Add email"}
               </Button>
               <Show when={props.email}>
@@ -240,6 +285,13 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
                 </Button>
               </Show>
             </span>
+            <Show when={blocked()}>
+              {(reason) => (
+                <p id={reasonId} class="text-text-muted text-ui-sm leading-ui-normal font-light">
+                  {reason()}
+                </p>
+              )}
+            </Show>
           </form>
         }
       >
