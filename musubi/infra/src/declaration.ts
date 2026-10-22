@@ -58,8 +58,7 @@ const RATE_LIMITS: readonly {
   { name: "RL_AUTH_IP_5_60", namespaceId: 2101, limit: 5 },
   { name: "RL_AUTH_IP_10_60", namespaceId: 2102, limit: 10 },
   { name: "RL_AUTH_IP_20_60", namespaceId: 2103, limit: 20 },
-  // Dev only: production keeps 30 in `osn/api/wrangler.toml`.
-  { name: "RL_AUTH_IP_30_60", namespaceId: 2104, limit: 60 },
+  { name: "RL_AUTH_IP_30_60", namespaceId: 2104, limit: 30 },
   { name: "RL_AUTH_IP_60_60", namespaceId: 2105, limit: 60 },
 ];
 

@@ -18,13 +18,8 @@ const wranglerProductionLimits: readonly WranglerRateLimit[] = (
   ) as { env: { production: { ratelimits: WranglerRateLimit[] } } }
 ).env.production.ratelimits;
 
-/** Dev tiers whose limit differs from production's, each with why. Every other tier must match. */
-const DEV_LIMIT_DIFFERENCES: Readonly<Record<string, number>> = {
-  RL_AUTH_IP_30_60: 60,
-};
-
 describe("musubiDeclaration", () => {
-  test("dev's auth rate-limit tiers share production's period, keep their own namespace, and match its limit bar the listed differences", () => {
+  test("dev's auth rate-limit tiers match production's period and limit, and keep their own namespace", () => {
     const declared = musubiDeclaration({
       stage: "dev",
       hosts: stageHosts("example.test", "dev"),
@@ -36,7 +31,7 @@ describe("musubiDeclaration", () => {
         production.name,
         {
           period: production.simple.period,
-          limit: DEV_LIMIT_DIFFERENCES[production.name] ?? production.simple.limit,
+          limit: production.simple.limit,
         },
       ]),
     );

@@ -51,6 +51,8 @@ export interface Flow {
   newPage(context: BrowserContext): Promise<Page>;
   /** True when an API request recorded so far normalises to `line` (`POST osn-api /token 200`). */
   saw(line: string): boolean;
+  /** How many recorded API request lines start with `prefix`, repeats and every status included. */
+  count(prefix: string): number;
   /** A request made outside the browser (the API request context), recorded like a browser one. */
   recordRequest(method: string, url: string, status: number): void;
   /** The page whose final state is the flow's screenshot. Defaults to `page`. */
@@ -92,6 +94,9 @@ export const test = base.extend<{ flow: Flow }>({
       },
       saw(line) {
         return lines.includes(line);
+      },
+      count(prefix) {
+        return lines.filter((recorded) => recorded.startsWith(prefix)).length;
       },
       recordRequest(method, url, status) {
         const line = requestLine(method, url, status, API_LABELS);
