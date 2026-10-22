@@ -459,6 +459,14 @@ export const ImportPlan = Schema.Struct({
   /** Addresses set or cleared, after the guest creates and updates. Absent
    *  on a plan from a caller that changes none. */
   emailWrites: Schema.optional(Schema.Array(GuestEmailWrite)),
+  /**
+   * A digest of the addresses the plan sets on the organiser's word: for each,
+   * the guest, the address's hash and whether the wedding has suppressed it.
+   * The preview stores it and apply refuses a plan whose digest differs, so
+   * the attestation covers the set the preview showed. Absent when the plan
+   * sets no such address. Holds no address or hash in the clear.
+   */
+  emailAttestationDigest: Schema.optional(Schema.String),
   warnings: Schema.Array(Schema.String),
   /** The tasks linked to the events in `eventRemoves`; absent when it removes
    *  none, or none has a task linked to it. */

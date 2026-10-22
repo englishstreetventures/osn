@@ -872,17 +872,19 @@ describe("cire/api over real D1 (Miniflare)", () => {
   );
 
   it(
-    "guest email save is atomic — a failed opt-out delete keeps the old address",
+    "guest email save is atomic — a failed opt-out delete keeps the old address and records no correction",
     async () => {
       const oldAddress = "old@example.test";
       const newAddress = "new@example.test";
       const newHash = await hashGuestEmail(BOOTSTRAP_WEDDING_ID, newAddress);
+      // The hosts added the old address, so the batch first records it as
+      // corrected away; the failure must take that row down too.
       await db
         .update(guests)
         .set({
           email: oldAddress,
           emailHash: await hashGuestEmail(BOOTSTRAP_WEDDING_ID, oldAddress),
-          emailSource: "guest",
+          emailSource: "organiser_attested",
         })
         .where(eq(guests.id, GUEST_1));
       await db.insert(emailSuppressions).values({
@@ -900,7 +902,8 @@ describe("cire/api over real D1 (Miniflare)", () => {
         optOuts: 1,
       };
 
-      // The address write runs first; failing the opt-out delete must undo it.
+      // The correction and the address write run first; failing the opt-out
+      // delete must undo both.
       await d1
         .prepare(
           "CREATE TRIGGER fail_suppression_delete BEFORE DELETE ON email_suppressions BEGIN SELECT RAISE(ABORT, 'boom'); END",

@@ -656,12 +656,15 @@ export const createClaimMemberRoutes = (
     /**
      * `PUT` / `DELETE /api/claim/member/email` — the chosen member's own
      * address. `PUT { memberGuestId, email, consentVersion }` stores it under
-     * the guest's consent; `DELETE { memberGuestId }` removes it and records the
-     * member's opt-out, so the wedding never mails it again until this seat
-     * gives it back. Refused, in this order: a host preview (403), a wedding
-     * without the member step (404), no member chosen or a page showing another
-     * member (409), then for `PUT` an address that is not one (400) and consent
-     * to words the page did not show (422). Never logs the address.
+     * the guest's consent, recording an address the hosts added that it
+     * replaces as the member's opt-out; `DELETE { memberGuestId }` removes it
+     * and records the member's opt-out, so the wedding never mails it again
+     * until this seat gives it back. Refused, in this order: a host preview
+     * (403), a wedding without the member step (404), no member chosen or a
+     * page showing another member (409), then for `PUT` an address that is not
+     * one (400), consent to words the page did not show (422), and an address
+     * the seat did not withdraw itself once it holds its cap of opt-outs (429).
+     * Never logs the address.
      */
     .put(
       "/member/email",
@@ -677,12 +680,13 @@ export const createClaimMemberRoutes = (
           Effect.gen(function* () {
             const body = yield* Schema.decodeUnknownEffect(GuestEmailBody)(raw);
             // The seat is checked before the address, so a refused seat learns
-            // nothing about the address rule.
+            // nothing about the address rule. Only a save reads the opt-outs.
             const seat = yield* guestEmailService.resolveSeat({
               familyId,
               sessionMember: memberGuestId,
               bodyMember: body.memberGuestId,
               memberStepOff,
+              countOptOuts: true,
             });
             const address = parseGuestEmail(body.email);
             if (address === null) return yield* addressRefusal("invalid", set);

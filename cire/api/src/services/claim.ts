@@ -1,4 +1,5 @@
 import {
+  emailSuppressions,
   families,
   guests,
   events,
@@ -10,11 +11,11 @@ import {
 import { parsePresets } from "@cire/dietary";
 import { isSafeCssColor } from "@cire/theme";
 import { jsonEachIn } from "@shared/db-utils";
-import { eq, and, asc, count, getTableColumns, inArray, ne, isNull } from "drizzle-orm";
+import { eq, and, asc, count, getTableColumns, inArray, ne, isNull, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import { Effect, Data } from "effect";
 
-import { DbService, dbQuery } from "../db";
+import { DbService, dbQuery, outerColumn } from "../db";
 import { memberStepOn } from "../lib/account-linking";
 import { resolveRsvpDeadline } from "../lib/rsvp-deadline";
 import {
@@ -35,7 +36,6 @@ import type {
 import type { ChildrenPolicy, PlusOnePolicy, RunOfShowItem } from "../schemas/import";
 import { decodeCrop, type ImageCrop } from "../schemas/invite";
 import { type LinkFacts, linkStateFor, readLinkFacts } from "./account-link";
-import { optedOutGuests } from "./email-suppression";
 import { eventImagePath, versionFromKey } from "./event-image";
 import { inviteFaqService } from "./invite-faq";
 import type { OsnAccountResolver } from "./osn-bridge";
@@ -840,41 +840,38 @@ export const claimService = {
     return Effect.gen(function* () {
       const db = yield* DbService;
 
-      // The roster and the guests whose address the wedding has suppressed are
-      // independent reads, run together.
-      const [rows, optedOut] = yield* Effect.all(
-        [
-          dbQuery(() =>
-            db
-              .select({
-                guestId: guests.id,
-                familyId: families.id,
-                firstName: guests.firstName,
-                lastName: guests.lastName,
-                nickname: guests.nickname,
-                plusOneAllowed: guests.plusOneAllowed,
-                plusOneOf: guests.plusOneOfGuestId,
-                publicId: families.publicId,
-                familyName: families.familyName,
-                codeSharedAt: families.codeSharedAt,
-                firstOpenedAt: families.firstOpenedAt,
-                deactivatedAt: families.deactivatedAt,
-                email: guests.email,
-                emailSource: guests.emailSource,
-                eventId: guestEvents.eventId,
-              })
-              .from(guests)
-              .innerJoin(families, eq(guests.familyId, families.id))
-              .leftJoin(guestEvents, eq(guestEvents.guestId, guests.id))
-              // Exclude the synthetic host preview family — it must never appear in
-              // the organiser's real guest roster or counts.
-              .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
-              .orderBy(asc(guests.sortOrder))
-              .all(),
-          ),
-          optedOutGuests(weddingId),
-        ],
-        { concurrency: "unbounded" },
+      const rows = yield* dbQuery(() =>
+        db
+          .select({
+            guestId: guests.id,
+            familyId: families.id,
+            firstName: guests.firstName,
+            lastName: guests.lastName,
+            nickname: guests.nickname,
+            plusOneAllowed: guests.plusOneAllowed,
+            plusOneOf: guests.plusOneOfGuestId,
+            publicId: families.publicId,
+            familyName: families.familyName,
+            codeSharedAt: families.codeSharedAt,
+            firstOpenedAt: families.firstOpenedAt,
+            deactivatedAt: families.deactivatedAt,
+            email: guests.email,
+            emailSource: guests.emailSource,
+            // Whether the wedding has suppressed the stored address: one seek
+            // on the list's `(wedding_id, email_hash)` index per row, and none
+            // that finds a row for a guest with no address (NULL matches
+            // nothing).
+            emailOptedOut: sql<number>`exists (select 1 from ${emailSuppressions} where ${emailSuppressions.weddingId} = ${outerColumn(families.weddingId)} and ${emailSuppressions.emailHash} = ${outerColumn(guests.emailHash)})`,
+            eventId: guestEvents.eventId,
+          })
+          .from(guests)
+          .innerJoin(families, eq(guests.familyId, families.id))
+          .leftJoin(guestEvents, eq(guestEvents.guestId, guests.id))
+          // Exclude the synthetic host preview family — it must never appear in
+          // the organiser's real guest roster or counts.
+          .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
+          .orderBy(asc(guests.sortOrder))
+          .all(),
       );
 
       const byGuest = new Map<
@@ -909,7 +906,7 @@ export const claimService = {
             deactivatedAt: row.deactivatedAt === null ? null : row.deactivatedAt.getTime(),
             email: row.email,
             emailSource: row.email === null ? null : row.emailSource,
-            emailOptedOut: optedOut.has(row.guestId),
+            emailOptedOut: Boolean(row.emailOptedOut),
           };
           byGuest.set(row.guestId, entry);
         }

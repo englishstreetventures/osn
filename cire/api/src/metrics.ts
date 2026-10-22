@@ -525,7 +525,9 @@ export type GuestEmailActor = "guest" | "organiser";
 /** `set` stores an address (new or replaced); `cleared` removes one. */
 export type GuestEmailAction = "set" | "cleared";
 type GuestEmailChangedAttrs = { by: GuestEmailActor; action: GuestEmailAction };
-/** Why a write was refused. Bounded, one per refusal. */
+/** Why a write was refused. Bounded, one per refusal. `attestation_stale`:
+ *  an apply would set addresses on the organiser's word other than the ones
+ *  its preview showed. */
 export type GuestEmailBlockReason =
   | "not_a_guest"
   | "member_step_off"
@@ -534,7 +536,8 @@ export type GuestEmailBlockReason =
   | "invalid"
   | "consent_outdated"
   | "too_many_changes"
-  | "attestation_required";
+  | "attestation_required"
+  | "attestation_stale";
 type GuestEmailBlockedAttrs = { reason: GuestEmailBlockReason };
 type ChecklistTemplateAppliedAttrs = { template: ChecklistTemplateId };
 /** `add` puts a seat on a task; `remove` takes one off. */
