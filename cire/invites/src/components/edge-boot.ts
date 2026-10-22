@@ -240,14 +240,14 @@ export function startEdgeColours(
   };
 
   /** One pending frame for every event in it; a measure in the frame covers the paint. */
-  function request() {
+  const request = () => {
     if (frame === 0) frame = win.requestAnimationFrame(run);
-  }
+  };
   const requestMeasure = () => {
     needMeasure = true;
     request();
   };
-  function run() {
+  const run = () => {
     frame = 0;
     if (needMeasure) {
       needMeasure = false;
@@ -255,7 +255,7 @@ export function startEdgeColours(
     } else {
       paint();
     }
-  }
+  };
 
   // Viewport and palette events change the insets or the colours: re-measure.
   const viewportEvents = ["resize", "orientationchange", "pageshow"] as const;
