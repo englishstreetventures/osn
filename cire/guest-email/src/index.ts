@@ -15,19 +15,28 @@ export const MAX_GUEST_EMAIL_LENGTH = 254;
 const MAX_LOCAL_PART_LENGTH = 64;
 
 /**
- * Characters that never appear in an address this product stores. Whitespace
- * and control characters, and the punctuation that separates a list
- * (`,` `;`), quotes a display name (`"`), brackets one (`<` `>` `(` `)`
- * `[` `]`) or escapes (`\`). Some are legal in a quoted local part, which no
- * guest list needs and no mail provider here accepts.
+ * Characters that never appear in an address this product stores: anything
+ * outside printable ASCII (U+0021–U+007E), and the punctuation that separates
+ * a list (`,` `;`), quotes a display name (`"`), brackets one (`<` `>` `(`
+ * `)` `[` `]`) or escapes (`\`).
+ *
+ * Printable ASCII only, so one mailbox has one stored form: no space or
+ * control character, no invisible or text-reordering character (zero-width
+ * space, bidi overrides and isolates, soft hyphen), no no-break space, no
+ * accented letter that could arrive composed or decomposed, and no Unicode
+ * domain beside its `xn--` form, which stays valid. Nothing here sends with
+ * SMTPUTF8, so no address this refuses could be mailed anyway. The listed
+ * punctuation is legal in a quoted local part, which no guest list needs and
+ * no mail provider here accepts.
  */
-// oxlint-disable-next-line no-control-regex -- control characters are exactly what this refuses
-const FORBIDDEN = /[\s\u0000-\u001f\u007f,;"<>()[\]\\]/u;
+const FORBIDDEN = /[^\u0021-\u007e]|[,;"<>()[\]\\]/u;
 
 /**
  * The stored form of an address: surrounding space removed and lower-cased,
  * so two spellings of one address store one value. The comparison the import
- * diff makes and the suppression hash are both taken over this form.
+ * diff makes and the suppression hash are both taken over this form, and
+ * {@link isValidGuestEmail} admits only printable ASCII in it, so the form is
+ * the only one a mailbox has.
  */
 export function normaliseGuestEmail(raw: string): string {
   return raw.trim().toLowerCase();
@@ -36,9 +45,10 @@ export function normaliseGuestEmail(raw: string): string {
 /**
  * Whether an already-normalised address is one this product will store: one
  * `@`, a local part of 1–64 characters, a domain of dot-separated non-empty
- * labels with at least one dot, nothing from {@link FORBIDDEN}, and at most
- * {@link MAX_GUEST_EMAIL_LENGTH} characters in all. Deliberately not a full
- * RFC 5322 parser: it refuses what cannot be one deliverable address.
+ * labels with at least one dot, printable ASCII only and nothing else from
+ * {@link FORBIDDEN}, and at most {@link MAX_GUEST_EMAIL_LENGTH} characters in
+ * all. Deliberately not a full RFC 5322 parser: it refuses what cannot be one
+ * deliverable address, and any second spelling of one.
  */
 export function isValidGuestEmail(address: string): boolean {
   if (address.length > MAX_GUEST_EMAIL_LENGTH) return false;

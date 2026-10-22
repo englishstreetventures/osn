@@ -100,6 +100,20 @@ describe("formatImportError — malformed spreadsheet", () => {
     expect(msg).not.toContain("null");
     expect(msg).toMatch(/empty/i);
   });
+
+  // The address rule refuses accented letters and spaces, which a host would
+  // otherwise read as "one email address" and retype unchanged.
+  it("says a Guest Email cell takes no spaces or accented letters", () => {
+    const msg = formatImportError(422, {
+      error: "Malformed spreadsheet",
+      reason: "Guest Email is not a valid email address",
+      row: 3,
+      column: 5,
+      sheet: "guests",
+    });
+    expect(msg).toContain("row 3");
+    expect(msg).toContain("no spaces or accented letters");
+  });
 });
 
 describe("formatImportError — every reason arm resolves", () => {
