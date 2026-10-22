@@ -78,12 +78,12 @@ export const bound = (value: unknown, column: AnySQLiteColumn) =>
   sql`${sql.param(value, column)}`.as(column.name);
 
 /**
- * `column` as a named member of a `UNION ALL` that is then ordered, limited or
- * offset. Drizzle wraps such a union in a derived table and re-selects each
- * output by name; a plain column reference there renders table-qualified
- * (`"registry_claims"."item_id"`), which the derived table does not expose.
- * Aliased by the column's own name, decoded through the column so a timestamp
- * or JSON value comes back as it does from a plain select.
+ * `column` as a named member of a `UNION ALL`. drizzle-orm 1.0.0-rc.5 wraps a
+ * set operation in a derived table and re-selects each output by name whenever
+ * it casts codecs. Every raw `sql` field in the first member must carry `.as()`:
+ * without it the field keeps its table qualifier and the wrapper cannot resolve
+ * it. This helper aliases by the column's own name and decodes through the
+ * column, so a timestamp or JSON value comes back as it does from a plain select.
  */
 export const unionColumn = <T extends AnyColumn>(column: T) =>
   sql`${column}`.mapWith(column).as(column.name) as SQL.Aliased<
@@ -270,7 +270,7 @@ export type ReturningTail<T> = BatchItem<"sqlite"> & PromiseLike<T[]>;
  * ceiling, it ships as its own trailing batch instead. Either way it ends up
  * the last statement of the last batch actually sent, so its rows are always
  * `results.at(-1)` of that batch — D1 returns one result per statement, and
- * `drizzle-orm@1.0.0-rc.4`'s `d1/session` `batch` maps a SELECT's element to
+ * `drizzle-orm@1.0.0-rc.5`'s `d1/session` `batch` maps a SELECT's element to
  * its rows. Correctness never depends on the tail sharing a
  * batch with the writes (every earlier batch is already committed by the
  * time the next one runs) — only the saved round-trip does.

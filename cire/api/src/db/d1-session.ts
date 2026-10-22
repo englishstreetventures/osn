@@ -80,7 +80,7 @@ import { runCireSync } from "../observability";
 
 /**
  * The half of `D1Database` that Drizzle's D1 driver actually calls.
- * `drizzle-orm@1.0.0-rc.4`'s `d1/session.js` uses `client.prepare(sql)` and
+ * `drizzle-orm@1.0.0-rc.5`'s `d1/session.js` uses `client.prepare(sql)` and
  * `client.batch(statements)` and nothing else — no `exec`, no `dump` — which is
  * also exactly what a `D1DatabaseSession` exposes. Naming the narrow type here
  * lets a session stand in for a database without pretending it is one.
