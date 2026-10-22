@@ -16,6 +16,7 @@
   "globalDependencies": [
     "shared/test-config/no-jest-dom.ts",
     ".browserslistrc",
+    ".bun-version",
     "patches/**",
     "scripts/migration-files.ts",
     "scripts/cire-db-migrate.ts",

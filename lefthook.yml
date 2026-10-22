@@ -73,7 +73,8 @@ pre-push:
       # and fast-glob, which only its Vite plugins call (the route scanner and
       # the server-function scan), at build and dev time, on patterns from
       # repository config; no deployed build contains braces code. Copies
-      # bundled in vite, tsx, prettier and playwright-core are build,
+      # bundled in vite, tsx, prettier, oxfmt (installed but no longer run, and
+      # removed in a follow-up) and playwright-core are build,
       # dev and test tooling. Drop when braces > 3.0.3 ships and bun.lock
       # resolves it, or when @solidjs/start stops depending on micromatch.
       # DROP AFTER GHSA-vfj7-8cjw-p6xm 2027-01-07
