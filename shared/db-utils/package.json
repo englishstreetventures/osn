@@ -11,7 +11,9 @@
   },
   "exports": {
     ".": "./src/index.ts",
-    "./search": "./src/search.ts"
+    "./search": "./src/search.ts",
+    "./effect/d1": "./src/effect/d1.ts",
+    "./effect/sqlite": "./src/effect/sqlite.ts"
   },
   "scripts": {
     "check": "tsc --noEmit && tsc --noEmit -p tests/tsconfig.json",
