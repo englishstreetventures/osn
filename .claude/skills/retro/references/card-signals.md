@@ -39,7 +39,7 @@ file is only about what a **single** card licenses you to say.
 | Field | Answers | A finding it supports | The trap |
 |---|---|---|---|
 | `review: null` | No review report was read | Nothing | Not "no findings". The reports had gone, or none could be placed on this branch |
-| `review.acted_on_paired` vs `.control_changed` | Whether the cited lines changed more than lines nearby did | Nothing from one card | `prep-pr` fixes every in-scope finding, so a high rate says the rule was followed, not that the findings were good. Only tests and docs findings are counted, and most tests findings carry no line |
+| `review.acted_on_paired` vs `.control_changed` | Whether the findings were acted on more often than lines nearby changed | Nothing from one card | `prep-pr` fixes every in-scope finding, so a high rate says the rule was followed, not that the findings were good. Only tests and docs findings are counted, and most tests findings carry no line. A tests finding also counts when a test importing its file landed, which the control cannot do: compare `acted_on_paired - acted_on_paired_by_test` with the control |
 
 ## Window
 

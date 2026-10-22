@@ -201,15 +201,22 @@ ORDER BY month;
 --------------------------------------------------------------------------------
 -- 9. Review findings that led to a change
 --------------------------------------------------------------------------------
--- Tests and docs findings only. Paired findings whose line changed after the
--- review, against control lines 35 away. prep-pr fixes every in-scope finding,
--- so this measures what got changed, not how good the findings were.
+-- Tests and docs findings only. Paired findings acted on after the review —
+-- the cited line changed, or, for a tests finding, a test importing its file
+-- landed — against control lines 35 away. By line leaves out the findings a
+-- landed test counted, so it is counted as the control is: compare by line,
+-- not acted on, with the control. A block with no by-test count has none to
+-- leave out. prep-pr fixes every in-scope finding, so this measures what got
+-- changed, not how good the findings were.
 
 SELECT count(*) AS prs,
        sum((json_extract_string(json, '$.review.located'))::INT) AS located,
        sum((json_extract_string(json, '$.review.paired'))::INT) AS paired,
        round(sum((json_extract_string(json, '$.review.acted_on_paired'))::INT) * 100.0
              / nullif(sum((json_extract_string(json, '$.review.paired'))::INT), 0)) AS acted_on_pct,
+       round(sum((json_extract_string(json, '$.review.acted_on_paired'))::INT
+                 - coalesce((json_extract_string(json, '$.review.acted_on_paired_by_test'))::INT, 0)) * 100.0
+             / nullif(sum((json_extract_string(json, '$.review.paired'))::INT), 0)) AS by_line_pct,
        round(sum((json_extract_string(json, '$.review.control_changed'))::INT) * 100.0
              / nullif(sum((json_extract_string(json, '$.review.paired'))::INT), 0)) AS control_pct
 FROM raw

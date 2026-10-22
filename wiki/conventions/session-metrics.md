@@ -14,7 +14,7 @@ related:
   - "[[shared/observability/metrics]]"
   - "[[conventions/review-findings]]"
   - "[[conventions/stacked-prs]]"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-23
 ---
 
 # Session Metrics
@@ -350,7 +350,7 @@ Two things worth keeping in mind:
 
 ## Schema
 
-`schema_version` is `1`. Bump it when a field changes meaning or leaves.
+`schema_version` is `2`. Bump it when a field changes meaning or leaves.
 
 | Field | Meaning |
 |---|---|
@@ -436,20 +436,40 @@ several in parallel.
 
 `card` reads the review reports at the checkout root (`TEST-REVIEW.md` and
 `DOCS-REVIEW.md`, or the files `--review-reports` names) and asks of each
-finding: did a commit after the review change the line it cites? The security
-and performance reports are not opened: they hold only tracker kinds.
+finding: did a commit after the review act on it? The security and performance
+reports are not opened: they hold only tracker kinds.
+
+A finding is acted on when a line within 3 of the one it cites changed after
+the review. A tests finding is also acted on when its fix is a new test rather
+than a change at the cited line: a commit after the review added lines to a
+file under the same package's `tests/`, and that file imports the cited file.
+
+- **The package** is the nearest directory above the cited file that holds a
+  `package.json` or a `tests/` directory at the branch's head, or the
+  repository root where none does. `scripts/` counts through its `tests/`.
+- **Imports** means a relative specifier that resolves to the cited file:
+  `from`, a bare or dynamic `import`, `require`, `importActual`, a mock
+  (`vi.mock`, `doMock`, `mock.module`) or `new URL(…, import.meta.url)`. A code
+  extension and a trailing `/index` are ignored on both sides. A path in a
+  plain string is not an import.
+- **Added lines** is the net diff from the reviewed commit to the head: lines
+  added and then removed again do not count, and a test file that only lost
+  lines does not count.
 
 | Field | Meaning |
 |---|---|
 | `reports` | Reports read |
 | `findings` | `T-` and `D-` findings in them |
 | `located` | Those whose **Issue** line names a `path:line` inside a file that existed when the review ran |
-| `acted_on` | Located findings where a line within 3 of the cited one changed afterwards |
+| `acted_on` | Located findings acted on, by either rule above |
 | `paired` | Located findings with room for a control line 35 lines away in the same file |
-| `acted_on_paired`, `control_changed` | Of the paired, how many cited lines changed, and how many control lines did |
+| `acted_on_paired`, `control_changed` | Of the paired, how many were acted on, and how many control lines changed |
+| `acted_on_by_test`, `acted_on_paired_by_test` | Of `acted_on` and `acted_on_paired`, the tests findings whose cited lines did not change and that count only because a test landed |
 
-`control_changed / paired` is the rate at which lines change anyway; read
-`acted_on_paired / paired` against it, never alone.
+The control has no test half: it asks only whether a line changed. Read
+`acted_on_paired - acted_on_paired_by_test` (the report's **by line**) against
+`control_changed`, never `acted_on_paired` alone. `control_changed / paired` is
+the rate at which lines change anyway.
 
 > [!important] Only tests and docs findings are counted.
 > The card is public. `S-`, `P-` and `C-` findings live in the private tracker,
@@ -474,14 +494,25 @@ What the figure cannot say:
 - **It measures what changed, not how good a finding was.** `prep-pr` fixes
   every in-scope finding, so a weak finding is changed as surely as a strong
   one. A finding moved to a follow-up pull request reads as not acted on.
-- **A tests finding is fixed somewhere else.** It cites the untested line, and
-  its fix is a new test under `tests/`, so the cited line rarely changes. On the
-  branch that added this field, every tests finding was fixed and the card read
-  5 of 12 acted on, against a control of 3 of 12. Read `acted_on` as a measure
-  of docs findings until englishstreetventures/osn#1689 decides how a tests finding
-  is matched to its fix.
+- **A `review` block without `acted_on_by_test` counts every finding by its
+  cited line alone.** The collector that wrote it did not count a landed test.
+  Which collector a branch runs depends on when the branch was cut, not when it
+  merged, and a later run keeps the block it finds, so neither the card's date
+  nor its `schema_version` says which rule a block used; the field does.
+- **The test rule reads high.** Any lines added to a test file that imports the
+  cited file count, whatever they test. A type-only import counts, and so does
+  an import written inside a string, as lint-rule tests hold. In a package
+  whose tests all import one module (`tools/pr-metrics` and its `index.ts`), a
+  tests finding on that module counts once any test there changes.
+- **The test rule misses some real fixes.** It never matches an import by
+  package name, a test that imports a barrel (`../src`) rather than the cited
+  file, a CLI test that names its script with `join(…)` or a plain path, or an
+  E2E flow under `tools/e2e`, which is another package and drives the running
+  stack rather than importing anything. A test file moved after the review
+  counts as added.
 - **Most findings are unlocated.** `review-tests` names a file and an export,
-  not a line, so `located` is mostly docs findings.
+  not a line, so `located` is mostly docs findings, and most tests findings are
+  counted by neither rule.
 
 ## Comparing before and after a change
 

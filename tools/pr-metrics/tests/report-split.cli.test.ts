@@ -11,7 +11,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import type { Card } from "../index";
+import type { Card, ReviewSummary } from "../index";
 
 interface Shape {
   number: number;
@@ -207,6 +207,10 @@ test("the requests and review tables read old and new cards together", async () 
       review: true,
     }),
   ];
+  // Counted by a collector that counts a landed test: two of its paired
+  // findings were acted on only by a new test, which by line leaves out.
+  const counted = cards[2].review as ReviewSummary;
+  cards[2].review = { ...counted, acted_on_by_test: 2, acted_on_paired_by_test: 2 };
 
   await withRepo(cards, async (repo, dir) => {
     const { code, stdout } = await report(repo, ["--dir", dir, "--requests", "--review", "--json"]);
@@ -217,7 +221,9 @@ test("the requests and review tables read old and new cards together", async () 
     // 50 calls, 30 of 40 tool calls single, median context 50,000.
     expect(tables.requests?.rows).toEqual([["2026-09", "2", "50", "75%", "50.0K"]]);
     expect(tables.requests?.note).toContain("1 card(s) excluded");
-    expect(tables.review?.rows[0]).toEqual(["2", "6", "4", "100%", "0%"]);
+    // By line: 4 acted on, less 2 counted by a new test, of 4 paired. The card
+    // with no by-test count subtracts nothing.
+    expect(tables.review?.rows[0]).toEqual(["2", "6", "4", "100%", "50%", "0%"]);
     expect(tables.review?.note).toContain("1 card(s) excluded");
   });
 });
@@ -265,8 +271,8 @@ test("--split-at groups cards by when their sessions ran against the commit's ti
     // Cost per point is the median of $10/2 and $20/2; cache-write tokens are
     // 1,000 of 10,000.
     expect(split?.rows).toEqual([
-      ["before", "2", "2", "$7.50", "50", "10%", "—", "—"],
-      ["after", "1", "1", "$15.00", "50", "10%", "—", "—"],
+      ["before", "2", "2", "$7.50", "50", "10%", "—", "—", "—"],
+      ["after", "1", "1", "$15.00", "50", "10%", "—", "—", "—"],
     ]);
     expect(split?.note).toContain("2 card(s) excluded");
   });
