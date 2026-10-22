@@ -178,6 +178,7 @@ export default function InviteHeader(props: InviteHeaderProps) {
           // min-h, not a fixed h-dvh: a long couple title at 7rem must be able
           // to grow the hero rather than be clipped by it. The gradient and
           // photo layers below are absolute inset-0, so they stretch with it.
+          data-edge-hero
           class="relative min-h-dvh overflow-hidden"
           style={{ ...filterThemeVars(heroVars()), ...SECTION_SURFACE }}
         >
@@ -261,7 +262,7 @@ export default function InviteHeader(props: InviteHeaderProps) {
               feel for every normal-length title. The 2.5rem bottom padding is
               the scroll cue's lane, so a title tall enough to grow the hero
               still stops above the cue. */}
-          <div class="relative flex min-h-dvh flex-col items-center justify-center bg-[radial-gradient(ellipse_at_center,var(--invite-scrim-from)_0%,var(--invite-scrim-to)_100%)] px-[max(1.5rem,env(safe-area-inset-left))] pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(2.5rem,env(safe-area-inset-bottom))]">
+          <div class="relative flex min-h-dvh flex-col items-center justify-center bg-[radial-gradient(ellipse_at_center,var(--invite-scrim-from)_0%,var(--invite-scrim-to)_100%)] px-6 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(2.5rem,env(safe-area-inset-bottom))]">
             {/* Title block. A title legibility panel sits behind the title +
               monogram, driven by the two backdrop sliders: its opacity (0–100 ⇒
               0–1) controls how solid the dark scrim panel is, and its blur (0–20px)

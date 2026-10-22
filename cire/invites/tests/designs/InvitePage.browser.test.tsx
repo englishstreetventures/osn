@@ -497,7 +497,7 @@ describe.each([
     // puts the toast over it.
     const painted = Number.parseInt(getComputedStyle(container!).zIndex, 10);
     expect(painted, "the toast stacks below the page's own furniture").toBeGreaterThan(
-      Z_LAYER.STICKY_RAIL,
+      Z_LAYER.HERO_CUE,
     );
     expect(painted, "the toast stacks above the consent layers").toBeLessThan(Z_LAYER.CONSENT);
     expect(container!.matches(":popover-open"), "the toast never entered the top layer").toBe(true);
@@ -571,7 +571,7 @@ describe.each([
     // puts the toast over it.
     const painted = Number.parseInt(getComputedStyle(container!).zIndex, 10);
     expect(painted, "the toast stacks below the page's own furniture").toBeGreaterThan(
-      Z_LAYER.STICKY_RAIL,
+      Z_LAYER.HERO_CUE,
     );
     expect(painted, "the toast stacks above the consent layers").toBeLessThan(Z_LAYER.CONSENT);
     expect(container!.matches(":popover-open"), "the toast never entered the top layer").toBe(true);

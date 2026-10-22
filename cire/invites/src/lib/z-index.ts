@@ -12,6 +12,8 @@
  * | `BASE`          | 0   | Normal page flow — hero, story, event grid (default).   |
  * | `EVENT_CARD`    | 10  | An event card's own local stacking context.             |
  * | `STICKY_RAIL`   | 20  | The gift list's sticky return rail.                     |
+ * | `EDGE`          | 30  | Mobile-Safari edge strips (`.edge-strip`, touch notch).  |
+ * | `HERO_CUE`      | 31  | The hero's scroll cue, painted over the edge strip.     |
  * | `MODAL_POPOVER` | 110 | A link menu: Add to calendar, Open in maps.             |
  * | `TOAST`         | 150 | Confirmation toasts (`@shared/toast` `<Toaster>`).       |
  * | `CONSENT`       | 200 | Consent banner, legal pages only (`ConsentBanner`).     |
@@ -79,6 +81,17 @@ export const Z_LAYER = {
    */
   STICKY_RAIL: 20,
   /**
+   * The fixed edge strips that colour the status bar and bottom toolbar in
+   * mobile Safari (`components/edge-boot.ts`). Above page flow, below every
+   * overlay. Only rendered on a device that reports a safe-area inset.
+   */
+  EDGE: 30,
+  /**
+   * The hero's scroll cue. One step above EDGE, so the cue paints over the
+   * bottom strip where they overlap.
+   */
+  HERO_CUE: 31,
+  /**
    * A link menu (`LinkMenu`: Add to calendar, Open in maps). Named for where
    * it is opened from — inside the details sheet — though that case is settled
    * by the top layer rather than by this number; see the note above. What the
@@ -112,6 +125,8 @@ export const Z_CLASS = {
   BASE: "z-0",
   EVENT_CARD: "z-10",
   STICKY_RAIL: "z-20",
+  EDGE: "z-30",
+  HERO_CUE: "z-31",
   MODAL_POPOVER: "z-110",
   TOAST: "z-150",
   CONSENT: "z-200",

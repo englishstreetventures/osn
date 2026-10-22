@@ -900,3 +900,44 @@
   --ui-leading-normal: 1.6;
   --ui-leading-relaxed: 1.75;
 }
+
+/* Mobile-Safari edge strips (components/edge-boot.ts, issue #1700). A strip is
+   drawn only on an edge the device reports an inset for, so desktop, Android
+   and Chromium get none. Stacking comes from Z_CLASS.EDGE in the markup. */
+.edge-strip {
+  display: none;
+}
+
+html.has-safe-top .edge-top {
+  display: block;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: max(12px, env(safe-area-inset-top));
+  pointer-events: none;
+  background: var(--edge-top-bg);
+}
+
+html.has-safe-bottom .edge-bottom {
+  display: block;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: max(12px, env(safe-area-inset-bottom));
+  pointer-events: none;
+  background: var(--edge-bottom-bg);
+}
+
+/* Anchors and focus scrolls land below the top strip, not under it. */
+html.has-safe-top {
+  scroll-padding-top: max(12px, env(safe-area-inset-top));
+}
+
+/* Invite pages only (the body class is set by the classic and gala shells).
+   The hero pads its own top and bottom; this supplies the side insets for
+   everything else on a notched device held sideways. */
+body.invite-page {
+  padding-inline: env(safe-area-inset-left) env(safe-area-inset-right);
+}

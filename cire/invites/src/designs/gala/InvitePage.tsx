@@ -576,6 +576,8 @@ export default function InvitePage(props: InvitePageProps) {
         // `containerStyle`. Two-sided bound asserted in
         // `InvitePage.browser.test.tsx`.)
         class={Z_CLASS.TOAST}
+        // Below the status bar and the Dynamic Island, not under them (issue #1700).
+        style={{ top: "env(safe-area-inset-top)" }}
       />
     </>
   );

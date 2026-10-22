@@ -1,3 +1,4 @@
+import { Z_CLASS } from "../lib/z-index";
 import { createFirstScroll } from "./first-scroll";
 
 /**
@@ -45,7 +46,7 @@ export function HeroScrollCue(props: HeroScrollCueProps) {
       // The hide lives here and the entry animation on the glyph: while the
       // entry applies (its delay included) it outranks a class, so on one
       // element a scroll in its first 1.6s could not fade it.
-      class={`pointer-events-none absolute bottom-4 flex transition-opacity duration-500 ${ALIGN[props.align ?? "center"]} ${scrolled() ? "opacity-0" : "opacity-100"}`}
+      class={`pointer-events-none absolute bottom-4 flex ${Z_CLASS.HERO_CUE} transition-opacity duration-500 ${ALIGN[props.align ?? "center"]} ${scrolled() ? "opacity-0" : "opacity-100"}`}
     >
       <svg
         viewBox="0 0 28 14"
