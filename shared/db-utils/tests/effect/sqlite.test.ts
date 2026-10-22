@@ -1,4 +1,3 @@
-import { Database } from "bun:sqlite";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -13,14 +12,14 @@ import {
   makeEffectSqliteLayer,
   type EffectSqliteDb,
 } from "../../src/effect/sqlite";
-import { driverErrorText, rowsChanged } from "../../src/index";
+import { driverErrorText } from "../../src/index";
 
 class TestDb extends Context.Service<TestDb, EffectSqliteDb>()("TestDb") {}
 
 const newRuntime = (filename = ":memory:") =>
   ManagedRuntime.make(makeEffectSqliteLayer(TestDb, filename));
 
-// B1: the layer turns foreign keys on, as the promise path does (`createDrizzleClient`).
+// the layer turns foreign keys on, as the promise path does (`createDrizzleClient`).
 describe("effect bun:sqlite layer", () => {
   it("B1: enforces foreign keys", async () => {
     const rt = newRuntime();
@@ -36,7 +35,7 @@ describe("effect bun:sqlite layer", () => {
     await rt.dispose();
   });
 
-  // B2: @effect/sql-sqlite-bun switches files to WAL unless disableWAL is set.
+  // @effect/sql-sqlite-bun switches files to WAL unless disableWAL is set.
   it("B2: keeps the journal mode of a file database", async () => {
     const path = join(mkdtempSync(join(tmpdir(), "d1-layer-")), "dev.sqlite");
     const rt = newRuntime(path);
@@ -51,7 +50,7 @@ describe("effect bun:sqlite layer", () => {
     await rt.dispose();
   });
 
-  // B3: nothing in the subpath uses drizzle's EffectLogger layer, which writes bound params as annotations.
+  // nothing in the subpath uses drizzle's EffectLogger layer, which writes bound params as annotations.
   it("B3: does not use drizzle's EffectLogger layer", () => {
     for (const file of ["sqlite.ts", "d1.ts"]) {
       const src = readFileSync(
@@ -62,7 +61,7 @@ describe("effect bun:sqlite layer", () => {
     }
   });
 
-  // F5: the layer is built once per runtime, so both effects see one database.
+  // the layer is built once per runtime, so both effects see one database.
   it("F5: builds the database once per runtime", async () => {
     const rt = newRuntime();
     const grab = Effect.gen(function* () {
@@ -73,7 +72,7 @@ describe("effect bun:sqlite layer", () => {
     await rt.dispose();
   });
 
-  // D-1: on bun the write result is a row array, so the change count is read from the connection.
+  // on bun the write result is a row array, so the change count is read from the connection.
   it("D-1: changesAfterWrite reads 0 for a no-op and 1 for a real update", async () => {
     const rt = newRuntime();
     const counts = await rt.runPromise(
@@ -92,7 +91,7 @@ describe("effect bun:sqlite layer", () => {
     await rt.dispose();
   });
 
-  // F3: a failed write must not render its bound value in any form a log or response can read.
+  // a failed write must not render its bound value in any form a log or response can read.
   it("F3: keeps a bound value out of the failed-query renderings", async () => {
     const NAME = "Annabelle Quigley-Smythe";
     const rt = newRuntime();
@@ -111,7 +110,7 @@ describe("effect bun:sqlite layer", () => {
     await rt.dispose();
   });
 
-  // F7: a UNIQUE violation reaches the caller as an effect Cause; the text must still match.
+  // a UNIQUE violation reaches the caller as an effect Cause; the text must still match.
   it("F7: driverErrorText finds the database reason inside an effect Cause", async () => {
     const rt = newRuntime();
     const exit = await rt.runPromiseExit(
@@ -125,13 +124,5 @@ describe("effect bun:sqlite layer", () => {
     const text = Exit.isFailure(exit) ? driverErrorText(exit.cause) : "";
     expect(text).toContain("UNIQUE constraint failed");
     await rt.dispose();
-  });
-});
-
-// Sanity: the promise-path helper is unchanged on the bun path.
-describe("rowsChanged on promise-path results", () => {
-  it("reads bun:sqlite changes", () => {
-    const d = new Database(":memory:");
-    expect(rowsChanged({ changes: 3 })).toBe(3);
   });
 });

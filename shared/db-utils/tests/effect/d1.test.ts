@@ -44,7 +44,7 @@ function runtimeOver(binding: ReturnType<typeof fakeD1>) {
 }
 
 describe("effect D1 layer", () => {
-  // F2: the production config turns the prepare cache off. A cached read would reuse a statement prepared under an earlier session.
+  // the production config turns the prepare cache off. A cached read would reuse a statement prepared under an earlier session.
   it("F2: prepares a statement again for every read", async () => {
     const binding = fakeD1(new Database(":memory:"));
     const rt = runtimeOver(binding);
@@ -66,7 +66,7 @@ describe("effect D1 layer", () => {
     await rt.dispose();
   });
 
-  // F4: on D1 the write result carries meta.changes, and rowsChanged must read it.
+  // on D1 the write result carries meta.changes, and rowsChanged must read it.
   it("F4: rowsChanged reads the true count from a D1 write result", async () => {
     const t = sqliteTable("t", { id: text("id").primaryKey(), v: text("v") });
     const binding = fakeD1(new Database(":memory:"));
@@ -84,7 +84,7 @@ describe("effect D1 layer", () => {
     await rt.dispose();
   });
 
-  // T1: @effect/sql-d1 has no transactions and dies on the first one.
+  // @effect/sql-d1 has no transactions and dies on the first one.
   it("T1: a transaction on the D1 layer dies rather than succeeding", async () => {
     const binding = fakeD1(new Database(":memory:"));
     const rt = runtimeOver(binding);
