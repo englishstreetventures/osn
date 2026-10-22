@@ -115,7 +115,8 @@ and the wiki pages above, which hold everything a skill would be checked against
 A design that only type-checks has not been looked at. Before you report done:
 
 - **Look at it rendered** at a phone width and a desktop width, and in light and
-  dark on a surface that themes. With the Chrome browser tools, open the dev
+  dark on a surface that themes. With the Chrome browser tools
+  (`mcp__claude-in-chrome__*`), open the dev
   server for that surface alone — never a bare `bun run dev`, which starts
   every workspace in the repository, in every worktree that runs it. Prefix
   each with `CLAUDECODE=`; hosts are in `wiki/conventions/devloop-urls.md`.

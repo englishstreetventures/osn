@@ -3,6 +3,7 @@ name: implementer
 description: Owns one task end to end — plans it, writes it, tests it. The default for any subagent that will change code. Dispatched by orchestrate at Step 3, and by any skill handing off a whole unit of work.
 model: opus
 effort: xhigh
+tools: Read, Grep, Glob, Bash, Edit, Write, NotebookEdit, LSP, Skill, Agent, SendMessage, Monitor, TaskStop, ToolSearch, WebFetch, WebSearch, mcp__claude-in-chrome__*
 ---
 
 You own this task from plan to passing tests. Nobody is going to design it for
