@@ -149,9 +149,12 @@ function catchParseErrors(set: { status?: number | string }) {
   };
 }
 
-/** The plan the preview returns: everything but the address writes. */
-function planWithoutEmails(plan: ImportPlan): Omit<ImportPlan, "emailWrites"> {
-  const { emailWrites: _emailWrites, ...rest } = plan;
+/** The plan the preview returns: everything but the address writes and
+ *  their attestation digest. */
+function planWithoutEmails(
+  plan: ImportPlan,
+): Omit<ImportPlan, "emailWrites" | "emailAttestationDigest"> {
+  const { emailWrites: _emailWrites, emailAttestationDigest: _digest, ...rest } = plan;
   return rest;
 }
 
@@ -244,6 +247,12 @@ interface ChangeSummary {
    * row and treats a sheet as `"both"`; revert restores both.
    */
   scope?: ChangeScope;
+  /**
+   * The plan's `emailAttestationDigest`: which addresses the preview showed
+   * as set on the organiser's word, and which of them a guest had withdrawn.
+   * Absent when it set none. Apply refuses a re-diff whose digest differs.
+   */
+  emailAttestationDigest?: string;
   eventCreates: number;
   eventUpdates: number;
   eventRemoves: number;
@@ -451,6 +460,7 @@ export const createOrganiserChangeRoutes = (
                   removeManual: decoded.removeManual,
                   matchByName: decoded.matchByName,
                   scope: decoded.scope,
+                  emailAttestationDigest: plan.emailAttestationDigest,
                   eventCreates: plan.eventCreates.length,
                   eventUpdates: plan.eventUpdates.length,
                   eventRemoves: plan.eventRemoves.length,
@@ -676,6 +686,24 @@ export const createOrganiserChangeRoutes = (
                     warnings: false,
                   },
                 );
+
+                // The attestation covers the addresses the preview showed, with
+                // every withdrawal among them in view. A guest's own change
+                // does not move the head, so the re-diff can set an address
+                // the preview neither counted nor warned about; then the
+                // preview is out of date. Refused before the claim, so nothing
+                // is checkpointed or written.
+                const previewedDigest = Option.getOrUndefined(
+                  Schema.decodeUnknownOption(Schema.String)(stored.emailAttestationDigest),
+                );
+                if (plan.emailAttestationDigest !== previewedDigest) {
+                  yield* Effect.logWarning(
+                    "change refused: attested addresses changed since preview",
+                  );
+                  metricGuestEmailBlocked("attestation_stale");
+                  set.status = 409;
+                  return { error: "State changed — re-preview" };
+                }
 
                 // An address set on the organiser's word stands on their
                 // attestation that the guest agreed, naming the words the

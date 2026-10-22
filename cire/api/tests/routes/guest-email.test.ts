@@ -585,6 +585,97 @@ describe("guest email routes — the member step and opt-outs", () => {
     expect(emailRow(db, cleo)?.email).toBeNull();
     expect(db.select().from(emailSuppressions).all()).toHaveLength(MAX_OPT_OUTS_PER_SEAT);
   });
+
+  // Giving back an address the seat withdrew deletes that seat's row, so it
+  // never raises the count the cap bounds: the guest notice's "unless you add
+  // it back yourself" holds for a seat at the cap too.
+  it("lets a seat at the cap give back an address it withdrew, and drops that opt-out", async () => {
+    const { db, app } = buildApp();
+    const cookie = await answeringAs(app, db, "Cleo");
+    const cleo = guestId(db, "Cleo");
+    for (let i = 0; i < MAX_OPT_OUTS_PER_SEAT; i += 1) {
+      expect((await save(app, cookie, cleo, `cleo${i}@example.test`)).status).toBe(200);
+      expect((await remove(app, cookie, cleo)).status).toBe(200);
+    }
+    const res = await save(app, cookie, cleo, "cleo3@example.test");
+    expect(res.status).toBe(200);
+    expect(emailRow(db, cleo)?.email).toBe("cleo3@example.test");
+    const hashes = db
+      .select({ hash: emailSuppressions.emailHash })
+      .from(emailSuppressions)
+      .all()
+      .map((r) => r.hash);
+    expect(hashes).toHaveLength(MAX_OPT_OUTS_PER_SEAT - 1);
+    expect(hashes).not.toContain(await hashGuestEmail(BOOTSTRAP_WEDDING_ID, "cleo3@example.test"));
+  });
+});
+
+describe("guest email routes — a guest's correction of a hosts' address", () => {
+  /** Store `address` on the seat as the hosts would, with its hash. */
+  async function hostsAdded(db: TestDb, id: string, address: string) {
+    db.update(guests)
+      .set({
+        email: address,
+        emailHash: await hashGuestEmail(BOOTSTRAP_WEDDING_ID, address),
+        emailSource: "organiser_attested",
+        emailConsentAt: new Date(0),
+        emailConsentVersion: ORGANISER_EMAIL_ATTESTATION.version,
+        emailAttestedByOsnProfileId: "usr_owner",
+      })
+      .where(eq(guests.id, id))
+      .run();
+  }
+
+  function optOuts(db: TestDb) {
+    return db
+      .select({
+        hash: emailSuppressions.emailHash,
+        guestId: emailSuppressions.guestId,
+        reason: emailSuppressions.reason,
+      })
+      .from(emailSuppressions)
+      .all();
+  }
+
+  // The guest has said the hosts' address is wrong. Kept as an opt-out for
+  // the seat, so a later sheet or revert that puts it back is caught.
+  it("records the hosts' address it replaces as the seat's opt-out", async () => {
+    const { db, app } = buildApp();
+    const cleo = guestId(db, "Cleo");
+    await hostsAdded(db, cleo, "typo@example.test");
+    const cookie = await answeringAs(app, db, "Cleo");
+
+    expect((await save(app, cookie, cleo)).status).toBe(200);
+    expect(emailRow(db, cleo)?.email).toBe(ADDRESS);
+    expect(optOuts(db)).toEqual([
+      {
+        hash: await hashGuestEmail(BOOTSTRAP_WEDDING_ID, "typo@example.test"),
+        guestId: cleo,
+        reason: "guest_corrected",
+      },
+    ]);
+  });
+
+  it("records nothing when the guest replaces an address they gave themselves", async () => {
+    const { db, app } = buildApp();
+    const cookie = await answeringAs(app, db, "Cleo");
+    const cleo = guestId(db, "Cleo");
+    expect((await save(app, cookie, cleo, "first@example.test")).status).toBe(200);
+    expect((await save(app, cookie, cleo)).status).toBe(200);
+    expect(emailRow(db, cleo)?.email).toBe(ADDRESS);
+    expect(optOuts(db)).toEqual([]);
+  });
+
+  // Saving the hosts' own address takes it as the guest's: nothing withdrawn.
+  it("records nothing when the guest keeps the hosts' address as their own", async () => {
+    const { db, app } = buildApp();
+    const cleo = guestId(db, "Cleo");
+    await hostsAdded(db, cleo, ADDRESS);
+    const cookie = await answeringAs(app, db, "Cleo");
+    expect((await save(app, cookie, cleo, ADDRESS.toUpperCase())).status).toBe(200);
+    expect(emailRow(db, cleo)).toMatchObject({ email: ADDRESS, source: "guest" });
+    expect(optOuts(db)).toEqual([]);
+  });
 });
 
 describe("the suppression hash", () => {

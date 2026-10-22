@@ -157,7 +157,9 @@ test("cire-guest-emails", async ({ page, flow }) => {
     await expect(attestation).not.toBeChecked();
     await expect(applyImport).toBeDisabled();
     // Gus withdrew this address on his invite, so the preview says so.
-    await expect(page.getByText("removed by the guest", { exact: false })).toBeVisible();
+    await expect(
+      page.getByText("removed or replaced by the guest", { exact: false }),
+    ).toBeVisible();
   });
 
   const imported = await flow.step("confirm and apply the sheet", async () => {

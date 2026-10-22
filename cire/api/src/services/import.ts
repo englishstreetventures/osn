@@ -53,7 +53,7 @@ import type {
   Provenance,
   RunOfShowItem,
 } from "../schemas/import";
-import { hashGuestEmail, suppressedAmong } from "./email-suppression";
+import { hashGuestEmail, sha256Hex, suppressedAmong } from "./email-suppression";
 import { generateFamilyCode } from "./family-code";
 import type { CodeStyle } from "./family-code";
 import { sameRunOfShow } from "./guest-event-validation";
@@ -281,6 +281,13 @@ export type EmailMode = "editor" | "upload" | "restore" | "ignore";
 /** One desired guest's address, beside what is stored for the row it lands on. */
 interface EmailCandidate {
   readonly guestId: string;
+  /**
+   * The guest as the attestation digest names it: the row's id for an existing
+   * guest, and for a guest this plan creates (whose id is minted afresh by each
+   * diff) its place in the desired state, which the preview and the apply read
+   * from the same stored input.
+   */
+  readonly attestationKey: string;
   readonly stored: string | null;
   readonly storedSource: "guest" | "organiser_attested" | null;
   readonly desired: DesiredGuest;
@@ -297,24 +304,45 @@ function storedForm(value: string | null | undefined): string | null {
 const count = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
 
 /**
+ * The digest of the addresses a plan sets on the organiser's word: SHA-256 hex
+ * over the sorted entries, one per address, each the guest's
+ * {@link EmailCandidate.attestationKey}, the address's hash and whether the
+ * wedding has suppressed it. Undefined when there are none. Holds no address
+ * or hash in the clear, so it can sit in the change's stored summary.
+ */
+function attestationDigest(entries: readonly string[]): Effect.Effect<string | undefined> {
+  if (entries.length === 0) return Effect.succeed(undefined);
+  return Effect.promise(() => sha256Hex(entries.toSorted().join("\n")));
+}
+
+/** What {@link planEmailWrites} plans. */
+interface EmailPlan {
+  readonly writes: GuestEmailWrite[];
+  readonly warnings: string[];
+  /** {@link attestationDigest} of the writes that need the attestation. */
+  readonly attestationDigest: string | undefined;
+}
+
+/**
  * The address writes a plan makes, and the preview warnings for the changes it
  * declined, under the rules of {@link EmailMode}. No warning names an address.
  *
  * Every write that sets an address carries its suppression hash, so apply
  * stores it beside the address. The suppression list is read only for the
- * addresses the plan would set (one bounded read): always on a restore, which
- * must not bring back a withdrawn address, and on a preview (`readWarnings`)
- * so the organiser is told before attesting that a guest withdrew one.
+ * addresses the plan would set (one bounded read, none when it sets none): a
+ * restore must not bring back a withdrawn address, the preview tells the
+ * organiser before attesting that a guest withdrew one, and the
+ * {@link EmailPlan.attestationDigest} the preview stores and apply compares
+ * records which ones were withdrawn.
  */
 function planEmailWrites(
   candidates: readonly EmailCandidate[],
   mode: EmailMode,
   weddingId: string,
-  readWarnings: boolean,
-): Effect.Effect<{ writes: GuestEmailWrite[]; warnings: string[] }, never, DbService> {
+): Effect.Effect<EmailPlan, never, DbService> {
   return Effect.gen(function* () {
     const warnings: string[] = [];
-    if (mode === "ignore") return { writes: [], warnings };
+    if (mode === "ignore") return { writes: [], warnings, attestationDigest: undefined };
     let keptForGuests = 0;
     let stale = 0;
     let unrecorded = 0;
@@ -354,16 +382,22 @@ function planEmailWrites(
       ),
     );
     const setHashes = hashes.filter((h): h is string => h !== null);
-    const suppressed =
-      mode === "restore" || readWarnings
-        ? yield* suppressedAmong(weddingId, setHashes)
-        : new Set<string>();
     // A restored record names the organiser who attested; an organiser who no
     // longer holds a seat on the wedding (removed, or erased on request) is
-    // not written back.
-    const seated = mode === "restore" ? yield* seatedAttesters(planned, weddingId) : new Set();
+    // not written back. The two reads share nothing, so they run together.
+    const { suppressed, seated } = yield* Effect.all(
+      {
+        suppressed: suppressedAmong(weddingId, setHashes),
+        seated:
+          mode === "restore"
+            ? seatedAttesters(planned, weddingId)
+            : Effect.succeed(new Set<string>()),
+      },
+      { concurrency: "unbounded" },
+    );
 
     const writes: GuestEmailWrite[] = [];
+    const attested: string[] = [];
     let withdrawn = 0;
     let readded = 0;
     planned.forEach(({ candidate, email }, i) => {
@@ -387,8 +421,10 @@ function planEmailWrites(
               ? { ...record, attestedBy: null }
               : record;
         }
-      } else if (emailHash !== null && suppressed.has(emailHash)) {
-        readded += 1;
+      } else if (emailHash !== null) {
+        const isSuppressed = suppressed.has(emailHash);
+        if (isSuppressed) readded += 1;
+        attested.push(`${candidate.attestationKey}:${emailHash}:${isSuppressed ? 1 : 0}`);
       }
       writes.push(write);
     });
@@ -405,7 +441,7 @@ function planEmailWrites(
     }
     if (readded > 0) {
       warnings.push(
-        `${count(readded, "email address you are adding was", "email addresses you are adding were")} removed by the guest, who asked not to be emailed there: ${readded === 1 ? "it is" : "they are"} stored, and no wedding email will be sent to ${readded === 1 ? "it" : "them"}.`,
+        `${count(readded, "email address you are adding was", "email addresses you are adding were")} removed or replaced by the guest, who asked not to be emailed there: ${readded === 1 ? "it is" : "they are"} stored, and no wedding email will be sent to ${readded === 1 ? "it" : "them"}.`,
       );
     }
     // Only a revert restores, and a revert reports no warning to the
@@ -413,7 +449,7 @@ function planEmailWrites(
     if (withdrawn > 0 || unrecorded > 0) {
       yield* Effect.logInfo("revert left addresses unrestored", { withdrawn, unrecorded });
     }
-    return { writes, warnings };
+    return { writes, warnings, attestationDigest: yield* attestationDigest(attested) };
   });
 }
 
@@ -1027,6 +1063,7 @@ export function diffAgainstDb(
           }
           emailCandidates.push({
             guestId: existing.id,
+            attestationKey: existing.id,
             stored: existing.email,
             storedSource: existing.emailSource,
             desired: parsedGuest,
@@ -1045,6 +1082,7 @@ export function diffAgainstDb(
           resolvedIds[sortOrder] = id;
           emailCandidates.push({
             guestId: id,
+            attestationKey: `new:${familyIndex}:${sortOrder}`,
             stored: null,
             storedSource: null,
             desired: parsedGuest,
@@ -1187,12 +1225,11 @@ export function diffAgainstDb(
       }
     }
 
-    const { writes: emailWrites, warnings: emailWarnings } = yield* planEmailWrites(
-      emailCandidates,
-      options.emails ?? "upload",
-      weddingId,
-      options.warnings ?? true,
-    );
+    const {
+      writes: emailWrites,
+      warnings: emailWarnings,
+      attestationDigest: emailAttestationDigest,
+    } = yield* planEmailWrites(emailCandidates, options.emails ?? "upload", weddingId);
     const warnings: string[] = [...clearWarnings, ...plusOneWarnings, ...emailWarnings];
 
     // ── Claim-code collisions on a CARRIED publicId ──────────────────────────
@@ -1332,6 +1369,7 @@ export function diffAgainstDb(
       eventLinkCreates,
       eventLinkRemoves,
       emailWrites,
+      emailAttestationDigest,
       warnings,
       linkedTasks: linkedTasks.length > 0 ? linkedTasks : undefined,
       derivedCap,

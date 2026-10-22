@@ -10,18 +10,21 @@ import {
   weddingHosts,
 } from "@cire/db";
 import { GUEST_EMAIL_CONSENT, ORGANISER_EMAIL_ATTESTATION } from "@cire/guest-email";
-import { eq } from "drizzle-orm";
+import { createRateLimiter } from "@shared/rate-limit";
+import { eq, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { createApp } from "../../src/app";
 import { DbService } from "../../src/db";
 import { createDb, seedBootstrapWedding } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
+import { parseSessionToken } from "../../src/lib/cookie";
 import { CIRE_METRICS } from "../../src/metrics";
 import { hashGuestEmail } from "../../src/services/email-suppression";
 import { applyImport, diffAgainstDb } from "../../src/services/import";
 import { createR2Stub } from "../../src/services/r2-imports";
 import { appRequest, jsonBody } from "../test-helpers";
+import { captureLogs } from "../test-helpers/capture-logs";
 import { counterValue } from "../test-helpers/metrics-harness";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
@@ -71,7 +74,14 @@ function buildApp() {
   const db = createDb(":memory:");
   seedBootstrapWedding(db);
   const r2 = createR2Stub();
-  const app = createApp(db, { r2, osnTestKey: auth.key });
+  // Room for the guest sessions some tests open, whatever the file runs first.
+  const limiter = () => createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 });
+  const app = createApp(db, {
+    r2,
+    osnTestKey: auth.key,
+    claimLimiter: limiter(),
+    claimSessionLimiter: limiter(),
+  });
   return { db, r2, app };
 }
 
@@ -756,7 +766,7 @@ describe("more of what a change must not do to an address", () => {
       })
       .run();
     const p = await preview(app, { guestsCsv: guestsCsv("", "bo@example.test") });
-    expect(p.warnings.join(" ")).toContain("removed by the guest");
+    expect(p.warnings.join(" ")).toContain("removed or replaced by the guest");
     expect(p.warnings.join(" ")).not.toContain("bo@example.test");
     expect((await apply(app, p.changeId, ATTESTED)).status).toBe(200);
   });
@@ -970,5 +980,157 @@ describe("more of what a revert restores", () => {
       source: "organiser_attested",
       attestedBy: null,
     });
+  });
+});
+
+/**
+ * A household session for `firstName`'s household that has said it is them,
+ * as the invite opens one: claim the household's code, then choose the member.
+ */
+async function guestSession(app: App, db: TestDb, firstName: string) {
+  const [row] = db
+    .select({ id: guests.id, publicId: families.publicId })
+    .from(guests)
+    .innerJoin(families, eq(families.id, guests.familyId))
+    .where(eq(guests.firstName, firstName))
+    .all();
+  if (!row) throw new Error(`no guest named ${firstName}`);
+  const claimed = await appRequest(app, "/api/claim", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ publicId: row.publicId }),
+  });
+  expect(claimed.status).toBe(200);
+  const cookie = `cire_session=${parseSessionToken(claimed.headers.get("Set-Cookie"))}`;
+  const guestCall = (method: string, path: string, body: object) =>
+    appRequest(app, path, {
+      method,
+      headers: { "Content-Type": "application/json", Cookie: cookie },
+      body: JSON.stringify(body),
+    });
+  expect((await guestCall("POST", "/api/claim/member", { guestId: row.id })).status).toBe(200);
+  return {
+    /** The guest's own `PUT /api/claim/member/email`. */
+    give: (email: string) =>
+      guestCall("PUT", "/api/claim/member/email", {
+        memberGuestId: row.id,
+        email,
+        consentVersion: GUEST_EMAIL_CONSENT.version,
+      }),
+    /** The guest's own `DELETE /api/claim/member/email`. */
+    remove: () => guestCall("DELETE", "/api/claim/member/email", { memberGuestId: row.id }),
+  };
+}
+
+// The organiser attests to the addresses the preview counted, with every
+// withdrawal in view. A guest's own change does not move the wedding's head,
+// so apply checks the set it would attest to against the preview's.
+describe("apply attests only the addresses the preview showed", () => {
+  it("refuses an address a guest withdrew after the preview, writing and checkpointing nothing", async () => {
+    const { db, app } = buildApp();
+    await seeded(app, "ada@example.test");
+    const body = { guestsCsv: guestsCsv("ada@example.test", "bo@example.test") };
+    // Ada's row already holds the sheet's address, so only Bo's is counted.
+    const p = await preview(app, body);
+    expect(p.emailAttestations).toBe(1);
+    expect((await (await guestSession(app, db, "Ada")).remove()).status).toBe(200);
+
+    const blocked = () =>
+      counterValue(CIRE_METRICS.guestEmailBlocked, { reason: "attestation_stale" });
+    const before = await blocked();
+    let res: Response | undefined;
+    const logs = await captureLogs(async () => {
+      res = await apply(app, p.changeId, ATTESTED);
+    });
+    expect(res?.status).toBe(409);
+    expect(await jsonBody(res!)).toEqual({ error: "State changed — re-preview" });
+    expect(await blocked()).toBe(before + 1);
+    expect(logs).not.toContain("example.test");
+    expect(record(db, "Ada")?.email).toBeNull();
+    expect(record(db, "Bo")?.email).toBeNull();
+    const [row] = db.select().from(imports).where(eq(imports.id, p.changeId)).all();
+    expect(row?.status).toBe("preview");
+    expect(row?.beforeGuestsR2Key).toBeNull();
+
+    // A fresh preview counts the address and says the guest withdrew it.
+    const again = await preview(app, body);
+    expect(again.emailAttestations).toBe(2);
+    expect(again.warnings.join(" ")).toContain("removed or replaced by the guest");
+  });
+
+  it("applies when a guest's change elsewhere leaves the attested addresses as they were", async () => {
+    const { db, app } = buildApp();
+    await seeded(app, "ada@example.test");
+    // Clears Ada's address, which needs no attestation, and sets Bo's.
+    const p = await preview(app, { guestsCsv: guestsCsv("", "bo@example.test") });
+    expect(p.emailAttestations).toBe(1);
+    expect((await (await guestSession(app, db, "Ada")).remove()).status).toBe(200);
+
+    expect((await apply(app, p.changeId, ATTESTED)).status).toBe(200);
+    expect(record(db, "Ada")?.email).toBeNull();
+    expect(record(db, "Bo")).toMatchObject({
+      email: "bo@example.test",
+      source: "organiser_attested",
+      attestedBy: OWNER,
+    });
+  });
+
+  it("refuses a change whose stored summary holds no record of the attested addresses", async () => {
+    const { db, app } = buildApp();
+    await seeded(app, "");
+    const p = await preview(app, { guestsCsv: guestsCsv("", "bo@example.test") });
+    db.update(imports)
+      .set({ summary: sql`json_remove(${imports.summary}, '$.emailAttestationDigest')` })
+      .where(eq(imports.id, p.changeId))
+      .run();
+
+    const res = await apply(app, p.changeId, ATTESTED);
+    expect(res.status).toBe(409);
+    expect(await jsonBody(res)).toEqual({ error: "State changed — re-preview" });
+    expect(record(db, "Bo")?.email).toBeNull();
+  });
+
+  it("keeps no address and no address hash in the change's summary", async () => {
+    const { db, app } = buildApp();
+    await seeded(app, "");
+    const p = await preview(app, { guestsCsv: guestsCsv("", "bo@example.test") });
+    const [row] = db.select().from(imports).where(eq(imports.id, p.changeId)).all();
+    expect(row?.summary).toContain("emailAttestationDigest");
+    expect(row?.summary).not.toContain("bo@example.test");
+    expect(row?.summary).not.toContain(
+      await hashGuestEmail(BOOTSTRAP_WEDDING_ID, "bo@example.test"),
+    );
+  });
+});
+
+// A guest who replaces the address the hosts added has said it is wrong. A
+// later sheet or revert holding the old address must not put it back unseen.
+describe("an address a guest corrected away", () => {
+  it("is warned about when a later sheet puts it back", async () => {
+    const { db, app } = buildApp();
+    await seeded(app, "ada@example.test");
+    const ada = await guestSession(app, db, "Ada");
+    expect((await ada.give("ada.real@example.test")).status).toBe(200);
+    expect((await ada.remove()).status).toBe(200);
+
+    const p = await preview(app, { guestsCsv: guestsCsv("ada@example.test", "") });
+    expect(p.emailAttestations).toBe(1);
+    expect(p.warnings.join(" ")).toContain("removed or replaced by the guest");
+    expect(p.warnings.join(" ")).not.toContain("ada@example.test");
+  });
+
+  it("is not restored by a revert", async () => {
+    const { db, app } = buildApp();
+    await seeded(app, "ada@example.test");
+    const unrelated = await change(app, {
+      guestsCsv: guestsCsv("ada@example.test", "bo@example.test"),
+    });
+    const ada = await guestSession(app, db, "Ada");
+    expect((await ada.give("ada.real@example.test")).status).toBe(200);
+    expect((await ada.remove()).status).toBe(200);
+
+    await revert(app, unrelated);
+    expect(record(db, "Ada")?.email).toBeNull();
+    expect(record(db, "Bo")?.email).toBeNull();
   });
 });

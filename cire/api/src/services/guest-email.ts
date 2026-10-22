@@ -3,12 +3,14 @@ import { GUEST_EMAIL_CONSENT } from "@cire/guest-email";
 import { and, eq, sql } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
-import { commitBatch, DbService, dbQuery, outerColumn } from "../db";
+import { commitBatch, DbService, dbQuery } from "../db";
 import { metricGuestEmailChanged } from "../metrics";
 import type { MemberEmail } from "../schemas/claim";
 import {
   hashGuestEmail,
+  holdsOwnOptOut,
   suppressCurrentStatement,
+  suppressReplacedStatement,
   unsuppressOwnStatement,
 } from "./email-suppression";
 
@@ -22,9 +24,11 @@ import {
 
 /**
  * The most opt-outs one seat may hold before it may give no new address.
- * Each removal of a different address adds a row, so without a cap one
- * household session could grow the wedding's suppression list without end.
- * A guest reaches it only by withdrawing this many different addresses.
+ * Each removal of a different address adds a row, as does replacing an address
+ * the hosts added, so without a cap one household session could grow the
+ * wedding's suppression list without end. A guest reaches it only by
+ * withdrawing this many different addresses, and at it may still give back one
+ * they withdrew, which removes a row.
  */
 export const MAX_OPT_OUTS_PER_SEAT = 10;
 
@@ -62,6 +66,11 @@ export interface SeatRequest {
    * is on). A promise, so the flag read overlaps the seat read.
    */
   readonly memberStepOff: Promise<ReadonlySet<string>>;
+  /**
+   * Whether to count the seat's opt-outs, which only a save reads
+   * ({@link CountedSeat}). A removal leaves it out and reads no count.
+   */
+  readonly countOptOuts?: boolean;
 }
 
 /** The chosen member's seat, resolved once per request. */
@@ -69,56 +78,75 @@ export interface Seat {
   readonly guestId: string;
   readonly weddingId: string;
   readonly email: string | null;
-  /** How many opt-outs this seat has made. */
+}
+
+/** A seat about to take an address: its opt-outs counted up to the cap. */
+export interface CountedSeat extends Seat {
+  /**
+   * How many opt-outs this seat has made, counted no further than
+   * {@link MAX_OPT_OUTS_PER_SEAT}: the save asks only whether it is there.
+   */
   readonly optOuts: number;
 }
 
+/**
+ * The chosen member's seat, after every check the routes refuse on, in order.
+ * One read: the household, and the member's row when the session has one and
+ * it is a choosable member of this household, with its opt-outs counted when
+ * the request asks.
+ */
+function resolveSeat(
+  request: SeatRequest & { readonly countOptOuts: true },
+): Effect.Effect<CountedSeat, GuestEmailSeatRefused, DbService>;
+function resolveSeat(request: SeatRequest): Effect.Effect<Seat, GuestEmailSeatRefused, DbService>;
+function resolveSeat(
+  request: SeatRequest,
+): Effect.Effect<Seat | CountedSeat, GuestEmailSeatRefused, DbService> {
+  return Effect.gen(function* () {
+    const db = yield* DbService;
+    const refuse = (reason: SeatRefusal) => Effect.fail(new GuestEmailSeatRefused({ reason }));
+    const member = request.sessionMember ?? "";
+    const [row] = yield* dbQuery(() =>
+      db
+        .select({
+          kind: families.kind,
+          weddingId: families.weddingId,
+          guestId: guests.id,
+          email: guests.email,
+          // Bounded: the count stops at the cap, the one value the save
+          // compares it with. Keyed by the session's member, the only seat
+          // this read can answer for.
+          optOuts:
+            request.countOptOuts === true
+              ? sql<number>`(select count(*) from (select 1 from ${emailSuppressions} where ${emailSuppressions.guestId} = ${member} limit ${MAX_OPT_OUTS_PER_SEAT}))`
+              : sql<null>`null`,
+        })
+        .from(families)
+        .leftJoin(
+          guests,
+          and(
+            eq(guests.familyId, families.id),
+            eq(guests.id, member),
+            sql`${guests.plusOneOfGuestId} IS NULL`,
+          ),
+        )
+        .where(eq(families.id, request.familyId))
+        .all(),
+    );
+    const memberStepOff = yield* Effect.promise(() => request.memberStepOff);
+    if (!row || row.kind !== "guest") return yield* refuse("not_a_guest");
+    if (memberStepOff.has(row.weddingId)) return yield* refuse("member_step_off");
+    if (request.sessionMember === null || row.guestId === null) {
+      return yield* refuse("member_required");
+    }
+    if (request.bodyMember !== request.sessionMember) return yield* refuse("member_changed");
+    const seat: Seat = { guestId: row.guestId, weddingId: row.weddingId, email: row.email };
+    return request.countOptOuts === true ? { ...seat, optOuts: Number(row.optOuts ?? 0) } : seat;
+  });
+}
+
 export const guestEmailService = {
-  /**
-   * The chosen member's seat, after every check the routes refuse on, in
-   * order. One read: the household, and the member's row when the session has
-   * one and it is a choosable member of this household.
-   */
-  resolveSeat(request: SeatRequest): Effect.Effect<Seat, GuestEmailSeatRefused, DbService> {
-    return Effect.gen(function* () {
-      const db = yield* DbService;
-      const refuse = (reason: SeatRefusal) => Effect.fail(new GuestEmailSeatRefused({ reason }));
-      const [row] = yield* dbQuery(() =>
-        db
-          .select({
-            kind: families.kind,
-            weddingId: families.weddingId,
-            guestId: guests.id,
-            email: guests.email,
-            optOuts: sql<number>`(select count(*) from ${emailSuppressions} where ${emailSuppressions.guestId} = ${outerColumn(guests.id)})`,
-          })
-          .from(families)
-          .leftJoin(
-            guests,
-            and(
-              eq(guests.familyId, families.id),
-              eq(guests.id, request.sessionMember ?? ""),
-              sql`${guests.plusOneOfGuestId} IS NULL`,
-            ),
-          )
-          .where(eq(families.id, request.familyId))
-          .all(),
-      );
-      const memberStepOff = yield* Effect.promise(() => request.memberStepOff);
-      if (!row || row.kind !== "guest") return yield* refuse("not_a_guest");
-      if (memberStepOff.has(row.weddingId)) return yield* refuse("member_step_off");
-      if (request.sessionMember === null || row.guestId === null) {
-        return yield* refuse("member_required");
-      }
-      if (request.bodyMember !== request.sessionMember) return yield* refuse("member_changed");
-      return {
-        guestId: row.guestId,
-        weddingId: row.weddingId,
-        email: row.email,
-        optOuts: Number(row.optOuts ?? 0),
-      };
-    });
-  },
+  resolveSeat,
 
   /** A household member's own stored address, or undefined for none (or a
    *  guest outside `familyId`). One read. */
@@ -143,25 +171,39 @@ export const guestEmailService = {
 
   /**
    * Store `address` (already normalised and valid) as the seat's own, under
-   * the guest's consent. Replaces any address on the seat, an organiser's
-   * included, and clears the opt-out this seat made for the same address, in
-   * one batch. Another seat's opt-out stays. Refused once the seat holds
-   * {@link MAX_OPT_OUTS_PER_SEAT} opt-outs.
+   * the guest's consent, in one batch: record an address the hosts added that
+   * this one replaces as the seat's opt-out (`guest_corrected`), write the
+   * address, and clear the opt-out this seat made for the same address.
+   * Another seat's opt-out stays. Once the seat holds
+   * {@link MAX_OPT_OUTS_PER_SEAT} opt-outs it may give back only an address it
+   * withdrew itself, which takes one away.
    */
   setOwn(
-    seat: Seat,
+    seat: CountedSeat,
     address: string,
   ): Effect.Effect<MemberEmail, GuestEmailTooManyChanges | GuestEmailWriteError, DbService> {
     return Effect.gen(function* () {
-      if (seat.optOuts >= MAX_OPT_OUTS_PER_SEAT) {
-        return yield* Effect.fail(new GuestEmailTooManyChanges());
-      }
       const db = yield* DbService;
       const emailHash = yield* Effect.promise(() => hashGuestEmail(seat.weddingId, address));
+      if (seat.optOuts >= MAX_OPT_OUTS_PER_SEAT) {
+        const givesOwnBack = yield* holdsOwnOptOut({
+          weddingId: seat.weddingId,
+          emailHash,
+          guestId: seat.guestId,
+        });
+        if (!givesOwnBack) return yield* Effect.fail(new GuestEmailTooManyChanges());
+      }
       const now = new Date();
       yield* Effect.tryPromise({
         try: () =>
           commitBatch(db, [
+            // Before the address changes, so it reads the one being replaced.
+            suppressReplacedStatement(db, {
+              weddingId: seat.weddingId,
+              guestId: seat.guestId,
+              replacementHash: emailHash,
+              now,
+            }),
             db
               .update(guests)
               .set({
