@@ -1,5 +1,11 @@
 # @osn/osn
 
+## 3.29.12
+
+### Patch Changes
+
+- cfe1171: The consent page's context read allows 60 requests a minute per IP on every stage.
+
 ## 3.29.11
 
 ### Patch Changes

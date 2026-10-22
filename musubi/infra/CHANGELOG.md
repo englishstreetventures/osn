@@ -1,5 +1,11 @@
 # @musubi/infra
 
+## 0.1.1
+
+### Patch Changes
+
+- cfe1171: The consent page's context read allows 60 requests a minute per IP on every stage.
+
 ## 0.1.0
 
 ### Minor Changes
