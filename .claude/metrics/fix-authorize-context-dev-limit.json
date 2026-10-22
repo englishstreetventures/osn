@@ -4,8 +4,8 @@
     "number": 1711,
     "branch": "fix/authorize-context-dev-limit",
     "base_sha": "9e80fd2b22c0f38fe024e9520205a32d17ef5a10",
-    "head_sha": "96d261e2fea0aba8bfaea30970bc6359777afda4",
-    "generated_at": "2026-10-22T14:38:26.436Z",
+    "head_sha": "7c19f89f6a4d119ed0742074476305711f78725c",
+    "generated_at": "2026-10-22T14:39:04.754Z",
     "merged_at": null,
     "phase": "at-open"
   },
@@ -23,61 +23,61 @@
     "method": "unconfirmed"
   },
   "window": {
-    "sessions": 5,
+    "sessions": 6,
     "first_ts": "2026-10-22T13:45:22.090Z",
-    "last_ts": "2026-10-22T14:38:18.739Z",
-    "span_seconds": 3177,
-    "active_seconds": 2457,
+    "last_ts": "2026-10-22T14:39:01.458Z",
+    "span_seconds": 3219,
+    "active_seconds": 2499,
     "compactions": 0
   },
   "spend": {
-    "usd_equivalent": 3.0044057700000004,
+    "usd_equivalent": 3.0546031500000006,
     "tokens": {
-      "input": 318,
-      "output": 59668,
-      "thinking": 25284,
-      "cache_write_5m": 239036,
-      "cache_write_1h": 181637,
-      "cache_read": 16362383
+      "input": 326,
+      "output": 63328,
+      "thinking": 27809,
+      "cache_write_5m": 245293,
+      "cache_write_1h": 184501,
+      "cache_read": 16811359
     },
     "by_model": {
       "claude-opus-5-5": {
         "tokens": {
-          "input": 142,
-          "output": 2521,
-          "thinking": 947,
-          "cache_write_5m": 239036,
+          "input": 146,
+          "output": 2794,
+          "thinking": 1064,
+          "cache_write_5m": 245293,
           "cache_write_1h": 0,
-          "cache_read": 3922296
+          "cache_read": 3939424
         },
-        "usd_equivalent": 2.8150863999999998,
-        "messages": 71
+        "usd_equivalent": 2.8586985999999994,
+        "messages": 73
       },
       "claude-haiku-5-5": {
         "tokens": {
-          "input": 176,
-          "output": 57147,
-          "thinking": 24337,
+          "input": 180,
+          "output": 60534,
+          "thinking": 26745,
           "cache_write_5m": 0,
-          "cache_write_1h": 181637,
-          "cache_read": 12440087
+          "cache_write_1h": 184501,
+          "cache_read": 12871935
         },
-        "usd_equivalent": 0.18931937000000007,
-        "messages": 88
+        "usd_equivalent": 0.19590455000000007,
+        "messages": 90
       }
     },
     "by_actor": {
       "main": {
         "tokens": {
-          "input": 188,
-          "output": 58647,
-          "thinking": 25284,
-          "cache_write_5m": 29693,
-          "cache_write_1h": 181637,
-          "cache_read": 12473718
+          "input": 196,
+          "output": 62307,
+          "thinking": 27809,
+          "cache_write_5m": 35950,
+          "cache_write_1h": 184501,
+          "cache_read": 12922694
         },
-        "usd_equivalent": 0.38128477,
-        "messages": 94
+        "usd_equivalent": 0.4314821499999999,
+        "messages": 98
       },
       "subagent": {
         "tokens": {
@@ -93,7 +93,7 @@
       }
     },
     "effort": {
-      "medium": 94,
+      "medium": 98,
       "high": 26,
       "xhigh": 39
     },
@@ -104,7 +104,7 @@
       "generated": 1,
       "test": 1,
       "docs": 2,
-      "config": 0,
+      "config": 1,
       "source": 2
     },
     "loc": {
@@ -121,7 +121,7 @@
         "deleted": 4
       },
       "config": {
-        "added": 0,
+        "added": 191,
         "deleted": 0
       },
       "source": {
@@ -134,7 +134,7 @@
       "osn/api"
     ],
     "touches_migration": false,
-    "commits": 5
+    "commits": 6
   },
   "interaction": {
     "user_turns": 3,
@@ -142,11 +142,11 @@
     "tokens_before_first_edit": 1830188,
     "sessions_with_observed_edit": 1,
     "tool_calls": {
-      "Bash": 105,
-      "Read": 26,
+      "Bash": 107,
+      "Read": 27,
       "Edit": 19,
       "Skill": 9,
-      "StructuredOutput": 3,
+      "StructuredOutput": 4,
       "Agent": 3,
       "SubagentHandback": 3,
       "Write": 2,
@@ -171,12 +171,12 @@
       "reviewer": 3
     },
     "requests": {
-      "main": 94,
+      "main": 98,
       "subagent": 65,
-      "with_tools": 152,
-      "with_one_tool": 139,
+      "with_tools": 156,
+      "with_one_tool": 143,
       "context_median": 99009,
-      "context_p90": 194994
+      "context_p90": 195215
     }
   },
   "review": {
