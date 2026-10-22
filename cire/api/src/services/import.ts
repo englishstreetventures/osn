@@ -1520,11 +1520,12 @@ type GuestEmailColumns = Pick<
 >;
 
 /**
- * One planned guest's insert, with its address when the plan sets one. When `checkCap` is set, the row names its
- * household only while the wedding has room for one more guest under the cap
- * its tier gives it now, counting every guest written before it, the earlier
- * rows of its own batch included. Without room the household is NULL: the NOT
- * NULL column fails the statement and, on D1, rolls back the batch it rides in.
+ * One planned guest's insert, with its address when the plan sets one. When
+ * `checkCap` is set, the row names its household only while the wedding has
+ * room for one more guest under the cap its tier gives it now, counting every
+ * guest written before it, the earlier rows of its own batch included. Without
+ * room the household is NULL: the NOT NULL column fails the statement and, on
+ * D1, rolls back the batch it rides in.
  */
 function insertGuest(
   db: Db,

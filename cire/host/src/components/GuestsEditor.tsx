@@ -51,7 +51,12 @@ import {
   type OrganiserHouseholdRow,
 } from "../lib/households-store";
 import { registerUnsavedGuard } from "../lib/unsaved-guard";
-import ChangePreview, { type ChangePlan, type ClearedHalves } from "./ChangePreview";
+import ChangePreview, {
+  type ApplyChangeBody,
+  type ChangeChoice,
+  type ChangePlan,
+  type ClearedHalves,
+} from "./ChangePreview";
 import SectionIntro from "./SectionIntro";
 interface PreviewResponse {
   changeId: string;
@@ -63,15 +68,6 @@ interface PreviewResponse {
   /** How many guest addresses the save sets on the organiser's word. Absent
    *  from an API older than addresses. */
   emailAttestations?: number;
-}
-
-/** The `changes/apply` body the editor sends. */
-interface ApplyRequest {
-  changeId: string;
-  /** The counts the preview showed, echoed back for a save that empties a list. */
-  confirmClears?: ClearedHalves;
-  /** `ORGANISER_EMAIL_ATTESTATION.version`, once the organiser ticked it. */
-  emailAttestation?: string;
 }
 
 /**
@@ -276,14 +272,14 @@ export default function GuestsEditor(props: { weddingId: string }) {
 
   /** The apply body: the change, the counts a clear needs echoed back, and
    *  the address attestation once ticked. */
-  function applyBody(p: PreviewResponse, attested: { emailAttestation?: string }): ApplyRequest {
-    const body: ApplyRequest = { changeId: p.changeId };
+  function applyBody(p: PreviewResponse, choice: ChangeChoice): ApplyChangeBody {
+    const body: ApplyChangeBody = { changeId: p.changeId };
     if (p.clears) body.confirmClears = p.clears;
-    if (attested.emailAttestation !== undefined) body.emailAttestation = attested.emailAttestation;
+    if (choice.emailAttestation !== undefined) body.emailAttestation = choice.emailAttestation;
     return body;
   }
 
-  async function handleApply(attested: { emailAttestation?: string } = {}) {
+  async function handleApply(choice: ChangeChoice) {
     const p = preview();
     if (!p) return;
     setSaveError(null);
@@ -294,7 +290,7 @@ export default function GuestsEditor(props: { weddingId: string }) {
         headers: { "Content-Type": "application/json" },
         // Removing every household is applied only with the count the preview
         // showed echoed back.
-        body: JSON.stringify(applyBody(p, attested)),
+        body: JSON.stringify(applyBody(p, choice)),
       });
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) {
@@ -450,7 +446,7 @@ export default function GuestsEditor(props: { weddingId: string }) {
                 emailAttestations={p().emailAttestations ?? 0}
                 busy={busy()}
                 confirmLabel="Confirm & save"
-                onConfirm={(attested) => void handleApply(attested)}
+                onConfirm={(choice) => void handleApply(choice)}
                 onCancel={() => setPreview(null)}
               />
               {/* An apply error has to render HERE as well as in the sticky
