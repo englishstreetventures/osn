@@ -101,6 +101,7 @@ test("the real CLI exits non-zero on an un-prefixed *.spec.ts under src/pages", 
     async (appRoot) => {
       const { exitCode, stderr } = await runCli([appRoot]);
       expect(stderr).toContain("checkout.spec.ts");
+      expect(stderr).toContain("move it to the package's tests/");
       expect(exitCode).not.toBe(0);
     },
   );

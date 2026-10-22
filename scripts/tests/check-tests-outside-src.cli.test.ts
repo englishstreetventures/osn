@@ -71,12 +71,14 @@ test("exits non-zero naming each test file under a workspace's src/", async () =
       "tools/one/src/lib/Panel.browser.test.tsx": "",
       // `bun test` collects the underscore form too.
       "pkgs/b/src/util_test.ts": "",
+      "pkgs/a/src/deep/Thing.spec.tsx": "",
     },
     async (root) => {
       const { exitCode, stdout, stderr } = await runCli(root);
       expect(stderr).toContain("pkgs/a/src/x.test.ts");
       expect(stderr).toContain("tools/one/src/lib/Panel.browser.test.tsx");
       expect(stderr).toContain("pkgs/b/src/util_test.ts");
+      expect(stderr).toContain("pkgs/a/src/deep/Thing.spec.tsx");
       expect(stdout).not.toContain(SUCCESS_LINE);
       expect(exitCode).not.toBe(0);
     },
@@ -119,6 +121,16 @@ test.each([
       expect(exitCode).not.toBe(0);
     },
   );
+});
+
+// Only a missing src/ means nothing to check. One the walk cannot read is an
+// error, not an empty directory.
+test("exits non-zero when a workspace's src/ cannot be read", async () => {
+  await withFixtureRoot({ ...WORKSPACES, "pkgs/b/src": "" }, async (root) => {
+    const { exitCode, stdout } = await runCli(root);
+    expect(stdout).not.toContain(SUCCESS_LINE);
+    expect(exitCode).not.toBe(0);
+  });
 });
 
 // The walk does not follow links, so it cannot see what sits behind one.
