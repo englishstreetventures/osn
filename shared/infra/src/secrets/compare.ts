@@ -106,7 +106,7 @@ export function githubExpectations(tier: Tier): string[] {
 
 /**
  * Missing required names and forbidden credentials (`forbiddenCredentials`)
- * fail; optional secrets held during a rotation are not unexpected.
+ * fail; a Worker's optional secrets are not unexpected.
  */
 export function githubDiff(tier: Tier, actual: readonly string[]): NameDiff {
   return diffNames(

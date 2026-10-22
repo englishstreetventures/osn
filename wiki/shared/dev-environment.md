@@ -36,9 +36,10 @@ account, and a dev account is not a production account. Tests, not the
 Environment, keep it so: W8 in `shared/infra/tests/workflow-secrets.test.ts`
 holds `deploy.yml` to the dev account's credentials, and
 `shared/infra/tests/accounts.test.ts` holds `alchemy-state.yml` and the
-free-tier alert to theirs. The `dev` Environment holds no production-account
-name, and `secrets:check-github -- --tier dev` fails if it holds one again
-([[#The production account holds no dev tier]]).
+free-tier alert to theirs. The `dev` Environment holds neither
+`CLOUDFLARE_ACCOUNT_ID` nor `CLOUDFLARE_API_TOKEN_DEV`, the two names that
+point at the production account, and `secrets:check-github -- --tier dev`
+fails when it holds either ([[#The production account holds no dev tier]]).
 
 ---
 
@@ -216,7 +217,7 @@ done
 
 | Environment | Cloudflare account | Credential secrets | Reviewers |
 |---|---|---|---|
-| `dev` | the dev account | `CLOUDFLARE_DEV_ACCOUNT_ID`, `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN`, `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY` | none; branch policy `main` |
+| `dev` | the dev account | `CLOUDFLARE_DEV_ACCOUNT_ID`, `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN`, `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY` (not set yet, englishstreetventures/osn#1538) | none; branch policy `main` |
 | `production` | the production account | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` | required; branch policy `main` |
 
 The separate account is the hard boundary: `Workers Scripts: Edit` and
@@ -364,10 +365,11 @@ surface.
 ## 4. Bootstrapping the dev account
 
 Everything below needs the dashboard or a credential CI does not hold. Do it in
-this order, and set every value **before** the merge that first deploys the
-stacks: that merge changes `deploy.yml` and the surface map, so it deploys every
-dev stack at once. A stack whose value is missing fails before it uploads
-anything; set the value and dispatch **Deploy**.
+this order, and set every value **before** the first deploy into a new dev
+account: a dispatch of **Deploy** deploys every dev stack at once, and a merge
+to `main` deploys every stack whose files it changes. A stack whose value is
+missing fails before it uploads anything; set the value and dispatch
+**Deploy**.
 
 Set each secret with no trailing newline:
 
@@ -444,7 +446,7 @@ printf '%s' "$VALUE" | gh secret set NAME --env dev --repo englishstreetventures
 7. **The state store.** Run **Actions → Alchemy state store** with `tier: dev,
    action: bootstrap`, then `action: check`.
 8. **The first deploys**, on `main`:
-   1. The merge deploys every stack; the first deploy creates every resource.
+   1. Dispatch **Deploy**; the first deploy creates every resource.
       Each custom domain waits about two minutes for its certificate, longer
       than the smoke check tries, so this run may go red with "unreachable" or
       TLS failures and no rollback. That is provisioning: go on to step 2.
@@ -478,14 +480,16 @@ Environment has no reviewer, so
 `bun run --cwd shared/infra secrets:check-github -- --tier dev`
 exits 1 when it holds either (`RETIRED_DEV_CREDENTIALS`,
 [[infrastructure-as-code#Accounts]]). Nothing in CI runs that check: run it
-after any change to the `dev` Environment. It lists Environment secrets only,
-so a production token set at repository scope passes it; check that scope with
+after any change to the `dev` Environment and read its output, since it also
+exits 1 for a missing name; a held production name prints as
+`forbidden but set`. It reads names alone, so a production token under any
+other name passes it, and it lists Environment secrets only, so a token set at
+repository scope passes it too; check that scope with
 `gh secret list --repo englishstreetventures/osn`
 ([[#Two accounts, two Environments]]).
 
-Deleting a secret from GitHub leaves its Cloudflare token valid, so a token
-that leaves an Environment is also revoked in its account's dashboard
-([[access-control]]).
+Deleting a secret from GitHub leaves its Cloudflare token valid: revoke the
+token in its account's dashboard as well ([[access-control]]).
 
 *Measured 2026-10-23 — in the production account, `wrangler d1 list` (five
 databases, none a dev one), `wrangler pages project list` (none ending `-dev`)

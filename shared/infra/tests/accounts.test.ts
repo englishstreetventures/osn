@@ -76,6 +76,18 @@ describe("the credentials the workflows read", () => {
     expect(read.filter((name) => !knownCredentials().includes(name))).toEqual([]);
   });
 
+  test("no workflow may read CLOUDFLARE_API_TOKEN_DEV: it points at the production account", () => {
+    expect(knownCredentials()).not.toContain("CLOUDFLARE_API_TOKEN_DEV");
+  });
+
+  test("every workflow reads a secret by name, the only form the scans here see", () => {
+    const unseen = /secrets\s*\[|toJSON\(\s*secrets\s*\)|secrets:\s*inherit/;
+    const files = workflowFiles.filter((file) =>
+      unseen.test(readFileSync(join(WORKFLOWS, file), "utf8")),
+    );
+    expect(files).toEqual([]);
+  });
+
   test("production's Alchemy credentials are the ones the production release deploys with today", () => {
     expect(cloudflareSecrets("production-release.yml")).toEqual([...accountSecrets("production")]);
   });
