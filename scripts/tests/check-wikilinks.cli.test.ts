@@ -23,7 +23,13 @@ function git(...args: string[]): void {
 }
 
 function run(): { exitCode: number; stdout: string; stderr: string } {
-  const result = Bun.spawnSync(["bun", SCRIPT], { cwd: root, stdout: "pipe", stderr: "pipe" });
+  // The ceiling stops git from finding a repository above the temp folder.
+  const result = Bun.spawnSync(["bun", SCRIPT], {
+    cwd: root,
+    env: { ...process.env, GIT_CEILING_DIRECTORIES: dirname(root) },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
   return {
     exitCode: result.exitCode,
     stdout: result.stdout.toString(),
@@ -73,6 +79,29 @@ describe("check-wikilinks CLI", () => {
     expect(stdout).toBe("");
     expect(stderr).toContain("wiki/");
     expect(exitCode).toBe(2);
+  });
+
+  test("a wiki/ folder git cannot list refuses with exit 2 instead of passing on no pages", async () => {
+    await page("wiki/index.md", "# Index\n\n[[nowhere]]\n");
+    await rm(join(root, ".git"), { recursive: true, force: true });
+
+    const { exitCode, stdout, stderr } = run();
+
+    expect(stdout).toBe("");
+    expect(stderr).toContain("git ls-files failed");
+    expect(exitCode).toBe(2);
+  });
+
+  test("a page deleted from the working tree but not from the index is not a page", async () => {
+    await page("wiki/index.md", "# Index\n\n[[old-page]]\n");
+    await page("wiki/shared/old-page.md", "# Old\n");
+    git("add", "-A");
+    await rm(join(root, "wiki/shared/old-page.md"));
+
+    const { exitCode, stdout } = run();
+
+    expect(stdout).toContain("wiki/index.md:3: [[old-page]]");
+    expect(exitCode).toBe(1);
   });
 
   test("a page git ignores is not a page, and its own links are not checked", async () => {
