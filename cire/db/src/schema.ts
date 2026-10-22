@@ -336,7 +336,8 @@ export const guests = sqliteTable(
     }),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
-    // ── Email address (migration 0092, [[wiki/compliance/data-map]]) ────────
+    // ── Email address (migration 20261022145310_guest_emails) ──────────────
+    // The data-map row: [[wiki/compliance/data-map]].
     // Per guest, never per household. Stored normalised (`normaliseGuestEmail`
     // in `@cire/guest-email`): trimmed, lower-cased. NULL = no address, and
     // then every column below is NULL too.
@@ -382,10 +383,10 @@ export const guests = sqliteTable(
 
 /**
  * Addresses a wedding must not email: the suppression list guest comms read
- * before every send (migration 0092). A row is written when a guest removes
- * the address on their seat (`reason = 'guest_removed'`); sending code adds
- * its own reasons (an unsubscribe, a bounce) without DDL, since `reason` has
- * no CHECK.
+ * before every send (migration 20261022145310_guest_emails). A row is
+ * written when a guest removes the address on their seat
+ * (`reason = 'guest_removed'`); sending code adds its own reasons (an
+ * unsubscribe, a bounce) without DDL, since `reason` has no CHECK.
  *
  * Holds no address: `email_hash` is the SHA-256 hex of
  * `wedding_id + ":" + address` (`hashGuestEmail` in

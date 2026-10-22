@@ -274,7 +274,7 @@ owners, each with an `owner` seat. Two consequences:
   replies they last wrote or attested; guest, household and event ids or names
   go in only for a wedding where the requester still holds a seat, since
   outside it they are other people's data (Art. 15(4)).
-- **Guest email addresses (migration 0092).** A guest's `guests.email` and its
+- **Guest email addresses (migration `20261022145310_guest_emails`).** A guest's `guests.email` and its
   consent record (`email_source`, `email_consent_at`, `email_consent_version`,
   `email_attested_by_osn_profile_id`) are the guest's data, and their requests
   go to an owner like any guest's. Access: the six columns on their row
