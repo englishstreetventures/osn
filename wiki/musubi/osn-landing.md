@@ -12,7 +12,7 @@ related:
   - "[[social]]"
   - "[[pulse-landing]]"
   - "[[cire-landing]]"
-last-reviewed: 2026-10-17
+last-reviewed: 2026-10-22
 ---
 
 # Musubi Landing
@@ -104,8 +104,10 @@ data:`), Google Fonts allowed in `style-src` / `font-src`, immutable cache on
 
 ## Deferred
 
-- **CI deploy** — no workflow deploys the site (cf. the `deploy-cire-landing` job in
-  `production-release.yml`); add one when a hosting domain is chosen. The
+- **CI deploy** — no workflow deploys the site to production (cf. the
+  `deploy-cire-landing` job in `production-release.yml`); add one when a hosting
+  domain is chosen. On dev, the musubi stack in `deploy.yml` deploys it as
+  `musubi-landing-dev` ([[infrastructure-as-code#Sites]]). The
   `osn-landing` Pages project already exists and still serves an old preview build
   at `osn-landing.pages.dev`.
 - **Real domain** — `SITE` / `PUBLIC_APP_URL` use placeholders until Musubi's

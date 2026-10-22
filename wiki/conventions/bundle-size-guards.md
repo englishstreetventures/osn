@@ -178,18 +178,21 @@ touching a threshold. In short:
 Every app's own `build` script chains the guard on with `&&` (`astro build &&
 … guard-bundle-size.sh .`) — that is what runs it on a local build and the
 by-hand cire/invites deploy. It ALSO runs as its own step in `ci.yml`'s
-`build-test` job (one `--all` step covering every app) and in every deploy
-job — dev in `deploy.yml`, production in `production-release.yml` — that builds a
-guarded app (one `guard-bundle-size.sh <app>` step each — each deploy job builds
-one app, so there is no `--all` there). That is not a redundant belt-and-suspenders: a
-Turborepo cache replay of `build` replays its logged output without executing
-the script, so the chained invocation never runs on a cache hit — the explicit
-workflow step is what still checks the artifact that IS on disk in that case.
-Both invocations matter; neither one alone covers both paths.
+`build-test` job (one `--all` step covering every app), in every production
+deploy job in `production-release.yml` that builds a guarded app (one
+`guard-bundle-size.sh <app>` step; each such job builds one app), and in the
+stack jobs in `deploy.yml`, with one step per guarded app each builds: the cire
+stack job for `cire/invites`, `cire/host`, `cire/vendor` and `cire/landing`, the
+musubi stack job for `musubi/landing`, and the pulse stack job for
+`pulse/landing`. `scripts/tests/deploy-workflows.test.ts` holds each stack job to
+its list. That is not
+redundant: a Turborepo cache replay of `build` replays its logged output
+without executing the script, so the chained invocation never runs on a cache
+hit — the explicit workflow step is what still checks the artifact that IS on
+disk in that case. Both invocations matter; neither one alone covers both paths.
 
-No workflow deploys `musubi/landing` or `pulse/landing`, so for those two the
-guard runs only from each app's own chained `build` script and the `--all` step
-in `ci.yml`.
+No workflow deploys `musubi/landing` or `pulse/landing` to production; on dev,
+the musubi and pulse stack jobs build and guard them as above.
 
 ### Per-app thresholds — mirrors `scripts/bundle-size-budgets.txt`
 

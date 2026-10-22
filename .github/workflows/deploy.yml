@@ -1,89 +1,102 @@
 name: Deploy
 
-# The dev tier: every push to main deploys the dev surfaces it changed,
-# unattended. Production is not deployed here — it ships in releases from
-# production-release.yml, which compares each surface with what production
-# runs and waits for one approval.
+# The dev tier: every push to main deploys the dev stacks it changed, into the
+# dev Cloudflare account, unattended. Production is not deployed here — it
+# ships in releases from production-release.yml, which compares each surface
+# with what production runs and waits for one approval.
 #
 # Triggers:
 #   - push to `main` (after a merge)
-#   - manual `workflow_dispatch` (deploys every dev surface)
+#   - manual `workflow_dispatch` (deploys every dev stack), with two inputs:
+#       expect_no_change  each stack job fails unless its deploy planned no
+#                         change: the proof that a second deploy is a no-op
+#       force             every resource is re-uploaded, unchanged ones too
 #
 # Shape of a run:
 #
 #   changes ──┐
-#             ├──> deploy-<surface>-dev   (automatic)
+#             ├──> stack-<stack>-dev ──> deploy-<surface>-dev  (one per surface)
 #   build ────┘
 #
-# `build` re-runs the same install + build + test CI does, so nothing ships from
-# a broken tree. `changes` computes one boolean per dev surface from the push
-# diff, so a landing-page tweak does not redeploy seven things.
+# `build` re-runs the same install + build + test CI does, so nothing ships
+# from a broken tree. `changes` computes one boolean per dev surface and one
+# per stack from the push diff, so a landing-page tweak deploys one stack.
 #
-# Two Environments, two Cloudflare credential NAMES:
+# Each stack job deploys one Alchemy stack whole, at stage `dev`: musubi/infra
+# (osn-api, musubi social, musubi landing), cire/infra (cire-api and the four
+# cire sites), zap/infra (zap-api), pulse/infra (pulse landing). In order, it
+#   1. derives every dev host from the dev Environment's DEV_DOMAIN variable
+#      (`dev-hosts`) and builds the stack's sites against those hosts;
+#   2. checks that the dev token reaches the dev account alone, acts on no
+#      zone of another account and no production zone, and acts on the
+#      DEV_DOMAIN zone (`token:check`), before any other step holds it;
+#   3. records each Worker's newest deployment (scripts/worker-deployments.ts
+#      snapshot); in the musubi job, derives osn-api's cire seed values from
+#      three cire-api secrets (the `cire_seed` step); deploys the stack, then
+#      names the deployment the deploy made for each Worker, or `unchanged`
+#      when it uploaded none (compare);
+#   4. runs scripts/smoke-check.ts for every surface of the stack. A failing
+#      check rolls back the deployment this run made, never one it did not,
+#      and the job fails once every surface has been checked.
+# A Worker a smoke check rolled back still matches Alchemy's state, so the next
+# run's snapshot sees the rollback and deploys with --force, re-uploading what
+# the commit declares.
 #
-#   dev         -> CLOUDFLARE_API_TOKEN_DEV, held only by the `dev` Environment
-#   production  -> CLOUDFLARE_API_TOKEN, held only by the `production`
-#                  Environment, reachable only from an approved job in
-#                  production-release.yml
+# A record job runs only when its stack job's deploy succeeded and its own
+# surface's check passed, and does nothing else: it leaves the run's one dev
+# Deployment record for that surface, under the job name
+# scripts/release-plan.ts reads to hold a production release until the same
+# content passed on dev. scripts/deploy-surfaces.ts holds the job ids and
+# names; scripts/tests/deploy-workflows.test.ts holds this file to it.
 #
-# Both are set as of 2026-09-11, so the `|| secrets.CLOUDFLARE_API_TOKEN`
-# fallback in every dev job below is now unreachable. It stays because a `||`
-# that never fires is free, and it is what makes a wrongly-placed job fail on an
-# empty token rather than deploy with the other tier's rights. The `Cloudflare
-# credential scope` job prints which credential a run actually got.
-#
-# The two tokens still share ONE Cloudflare account (decided 2026-08-14 — ship
-# the dev tier now, split accounts later), so inside that account the second
-# token grants what the first one does, for the reason below. Secret VALUES are
-# never embedded here.
-#
-# What the split does NOT buy: `Workers Scripts:Edit` and `D1:Edit` are
-# ACCOUNT-level permissions — Cloudflare has no per-script or per-database
-# resource filter (only R2 scopes per bucket). So CLOUDFLARE_API_TOKEN_DEV can
-# technically write production Workers too. The boundary here is the approval
-# gate and the separate credential, not a narrower grant. A real boundary needs
-# a separate Cloudflare account.
-#
-# The dev tier is fully isolated — own Workers, own D1, own R2, own OSN identity
-# origin. Its database takes migrations forward on each deploy and is wiped and
-# re-seeded once a night by cire-dev-db-rebuild.yml, not on every merge. See
-# [[wiki/shared/dev-environment]].
-#
-# After each dev Worker deploy (cire-api, cire-invites, osn-api),
-# scripts/smoke-check.ts asks the Worker's dev host whether it serves, and
-# rolls it back when it answers wrongly — the same check production-release.yml
-# runs, pinned the same way to the version each deploy step reports in
-# WRANGLER_OUTPUT_FILE_PATH. A failed check fails the job, so GitHub marks its
-# Deployment `failure` and the release planner's dev gate holds the change back
-# from production.
+# Credentials: the dev account's id and token (CLOUDFLARE_DEV_ACCOUNT_ID,
+# CLOUDFLARE_DEV_ACCOUNT_API_TOKEN, `dev` Environment secrets) reach the token
+# check, the deploy step and the steps that read or roll back deployments:
+# snapshot, compare and the smoke checks. Worker secrets reach the deploy step
+# alone, except the three cire-api secrets the musubi job's `cire_seed` step
+# derives its seed values from. No install or build step holds either; the
+# guest site's build reads ASTRO_KEY, which is neither.
+# shared/infra/tests/workflow-secrets.test.ts holds this.
+# See [[wiki/shared/dev-environment]].
 on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      expect_no_change:
+        description: "Fail each stack job unless its deploy planned no change"
+        type: boolean
+        default: false
+      force:
+        description: "Re-upload every resource, even unchanged ones"
+        type: boolean
+        default: false
 
 # Read-only: this workflow deploys to Cloudflare, it never writes to the repo.
 permissions:
   contents: read
 
-# NOTE: concurrency is set PER JOB (below), not here. Each job takes a group
-# named for its own surface and tier (`deploy-dev-<surface>`), so two runs never
-# deploy the same thing at once while unrelated surfaces stay parallel.
-# cire-dev-db-rebuild.yml shares `deploy-dev-cire-api`, so a rebuild and a
-# deploy never touch cire-db-dev at once.
+# Concurrency is set per stack job (below), not here: one group per stack
+# (`deploy-dev-<stack>`), so two runs never deploy the same stack at once while
+# the other stacks stay parallel.
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # Every Alchemy run sends no telemetry.
+  DO_NOT_TRACK: "1"
 
 jobs:
   # ── Path filter ────────────────────────────────────────────────────────────
-  # One boolean per dev surface, from scripts/deploy-surfaces.ts — the same
-  # surface map production-release.yml ships from, so the two tiers cannot
-  # disagree about which paths redeploy what. A push redeploys what its diff
-  # touches; anything every surface builds from (shared/, the lockfile, the
-  # root build config, this file, the map) redeploys everything. A dispatch,
-  # and a push git cannot diff (the all-zero `before` of a first push, the
-  # orphan left by a force-push), deploy everything: a wasted deploy costs a
-  # minute, a silently skipped one ships a half-updated tier.
+  # One boolean per dev surface and one per stack, from
+  # scripts/deploy-surfaces.ts — the same surface map production-release.yml
+  # ships from, so the two tiers cannot disagree about which paths redeploy
+  # what. A push redeploys the stacks whose surfaces its diff touches, and a
+  # stack whose own infra/ directory (or shared/infra/) changed; anything every
+  # surface builds from (shared/, the lockfile, the root build config, this
+  # file, the map) redeploys everything. A dispatch, and a push git cannot diff
+  # (the all-zero `before` of a first push, the orphan left by a force-push),
+  # deploy everything: a wasted deploy costs a minute, a silently skipped one
+  # ships a half-updated tier.
   changes:
     name: Detect changed surfaces
     runs-on: ubuntu-latest
@@ -95,6 +108,13 @@ jobs:
       cire_landing: ${{ steps.filter.outputs.cire_landing }}
       osn_api: ${{ steps.filter.outputs.osn_api }}
       osn_social: ${{ steps.filter.outputs.osn_social }}
+      musubi_landing: ${{ steps.filter.outputs.musubi_landing }}
+      zap_api: ${{ steps.filter.outputs.zap_api }}
+      pulse_landing: ${{ steps.filter.outputs.pulse_landing }}
+      stack_musubi: ${{ steps.filter.outputs.stack_musubi }}
+      stack_cire: ${{ steps.filter.outputs.stack_cire }}
+      stack_zap: ${{ steps.filter.outputs.stack_zap }}
+      stack_pulse: ${{ steps.filter.outputs.stack_pulse }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -113,7 +133,7 @@ jobs:
 
   # ── Gate ─────────────────────────────────────────────────────────────────
   # Re-run install + build + test before any deploy. If this fails, every
-  # deploy job below is skipped (they `needs: build`).
+  # stack job below is skipped (they `needs: build`), and so every record job.
   build:
     name: Build & Test
     runs-on: ubuntu-latest
@@ -177,154 +197,325 @@ jobs:
       - name: D1 integration tests
         run: bun run test:d1
 
-  # ═══ Which credential the dev jobs got ═════════════════════════════════════
-  #
-  # Every dev job resolves its Cloudflare token as
-  # `secrets.CLOUDFLARE_API_TOKEN_DEV || secrets.CLOUDFLARE_API_TOKEN`, and a
-  # `||` cannot tell a missing secret from a deliberate one. Unset, the fallback
-  # is taken in silence and a dev job runs on whatever the second name resolves
-  # to. This job prints which of the two the run got, so the placement is a line
-  # in the log rather than something to infer.
-  #
-  # It prints a NAME, never a value: `secrets.X && 'a' || 'b'` yields a literal,
-  # and the secret itself never reaches the step. Nothing depends on this job —
-  # no `needs:` edge — so it cannot delay or fail a deploy. It exists to be read
-  # on the day the dev credential appears, or the day it goes missing again.
-  # See [[wiki/shared/dev-environment]] §Two Environments, two tokens for the
-  # ordered move and why deleting the repository-scope secret early breaks
-  # every deploy in the repository.
-  credential-scope:
-    name: Cloudflare credential scope
-    needs: [changes]
-    # Only when a job that actually holds the credential is going to run. A
-    # docs-only push deploys nothing, so there is nothing to report on.
-    if: needs.changes.outputs.cire_api == 'true' || needs.changes.outputs.osn_api == 'true'
+  # ═══ musubi stack: osn-api, musubi social, musubi landing ══════════════════
+  # osn-api is the identity issuer, with its own D1 database, seeded with the
+  # cire OIDC client and cire-api's ARC key from what the cire_seed step
+  # derives from three cire secrets.
+  # musubi social's host is the WebAuthn RP ID and osn-api's cookie domain, so
+  # a dev passkey is a separate credential from a production one and no dev
+  # sign-in can touch a real account.
+  stack-musubi-dev:
+    name: Alchemy musubi stack — dev
+    needs: [build, changes]
+    if: needs.changes.outputs.stack_musubi == 'true'
+    runs-on: ubuntu-latest
+    environment: dev
+    timeout-minutes: 45
+    concurrency:
+      group: deploy-dev-musubi
+      cancel-in-progress: false
+    outputs:
+      # False when the deploy or the compare failed: a Worker whose new
+      # version may not have uploaded must not record success.
+      deployed: ${{ steps.deploy.outcome == 'success' && steps.deployments.outcome == 'success' }}
+      osn_api_healthy: ${{ steps.smoke_osn_api.outcome == 'success' }}
+      osn_social_healthy: ${{ steps.smoke_osn_social.outcome == 'success' }}
+      musubi_landing_healthy: ${{ steps.smoke_musubi_landing.outcome == 'success' }}
+    steps:
+      - name: Refuse force with expect_no_change
+        if: ${{ inputs.force == true && inputs.expect_no_change == true }}
+        run: |
+          echo "::error::force re-uploads every resource, so a plan can never be 'no changes'. Dispatch one or the other."
+          exit 1
+
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Cache bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      # turbo hashes each dev build's PUBLIC_*, VITE_* and SITE values, so the
+      # `build` job's cache never holds a dev build. This stack's own cache
+      # does: a site whose files and dev values are unchanged replays its
+      # last build instead of building again. Keyed on the commit so each run
+      # saves, falling back to this stack's newest only, so it never carries
+      # the `build` job's whole cache forward.
+      - name: Cache turbo
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-turbo-dev-musubi-${{ hashFiles('bun.lock') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-dev-musubi-${{ hashFiles('bun.lock') }}-
+            ${{ runner.os }}-turbo-dev-musubi-
+
+      # musubi landing fetches its font metadata at build time; keyed, as
+      # ci.yml's cache is, on the config that names the families.
+      - name: Cache Astro font metadata
+        uses: actions/cache@v4
+        with:
+          path: musubi/landing/node_modules/.astro
+          key: ${{ runner.os }}-astro-fonts-${{ hashFiles('bun.lock', 'musubi/landing/astro.config.mjs') }}
+          restore-keys: |
+            ${{ runner.os }}-astro-fonts-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Dev hosts
+        id: hosts
+        run: bun run --cwd shared/infra dev-hosts -- --stage dev
+        env:
+          DEV_DOMAIN: ${{ vars.DEV_DOMAIN }}
+
+      # osn-api verifies Turnstile only when it holds TURNSTILE_SECRET_KEY,
+      # which its dev secrets leave out; the sitekey ships so the widget
+      # renders as it does in production.
+      - name: Build musubi/social (dev)
+        run: bun run build --filter=@musubi/social
+        env:
+          VITE_OSN_ISSUER_URL: ${{ steps.hosts.outputs.osn_api_origin }}
+          VITE_TURNSTILE_SITEKEY: ${{ vars.PUBLIC_TURNSTILE_SITEKEY }}
+
+      - name: Build musubi/landing (dev)
+        run: bun run build --filter=@musubi/landing
+        env:
+          SITE: ${{ steps.hosts.outputs.musubi_landing_origin }}
+          PUBLIC_APP_URL: ${{ steps.hosts.outputs.musubi_social_origin }}
+
+      # Warns (the step stays green) when the bundle is over its budget, and
+      # fails, stopping the deploy, on a source map anywhere in `dist`, which
+      # is served whole. musubi/landing's `build` script runs
+      # scripts/guard-bundle-size.sh too, but not when turbo replays a cached
+      # build; this checks what is about to upload either way
+      # (wiki/conventions/bundle-size-guards.md).
+      - name: Check musubi/landing bundle size and refuse public source maps
+        run: ./scripts/guard-bundle-size.sh musubi/landing
+
+      # The dev token must reach the dev account and no other: a token created
+      # with "All accounts" or "All zones" by a member of both would reach
+      # production too. It must also act on the DEV_DOMAIN zone, so an account
+      # id that names production fails here. Every step below that holds the
+      # token runs only after this passes.
+      - name: Check the token reaches only the dev account
+        id: token
+        run: bun run --cwd shared/infra token:check -- --tier dev
+        env:
+          DEV_DOMAIN: ${{ vars.DEV_DOMAIN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
+
+      - name: Record each Worker's newest deployment
+        id: snapshot
+        run: bun run scripts/worker-deployments.ts snapshot "$RUNNER_TEMP/deployments.json" osn_api osn_social musubi_landing
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
+
+      - name: Refuse expect_no_change while a rollback awaits re-upload
+        if: ${{ inputs.expect_no_change == true && steps.snapshot.outputs.force == 'true' }}
+        run: |
+          echo "::error::A smoke check rolled a Worker back, so this run would re-upload it with --force and could not plan 'no changes'. Dispatch Deploy plainly first, then expect_no_change."
+          exit 1
+
+      # osn-api's seed stores only the SHA-256 of cire's OIDC client secret
+      # and the public half of cire-api's ARC key. This step is the only one
+      # that holds those secrets: it writes the hash, the public key and the
+      # key id as outputs, and masks the hash in this job's log. It imports
+      # node built-ins alone (DV6 in
+      # musubi/infra/tests/scripts/derive-cire-seed.test.ts), so no package
+      # code runs beside the secrets.
+      - name: Derive osn-api's cire seed values
+        id: cire_seed
+        run: bun --no-install musubi/infra/scripts/derive-cire-seed.ts
+        env:
+          CIRE_OIDC_CLIENT_SECRET: ${{ secrets.CIRE_OIDC_CLIENT_SECRET }}
+          CIRE_API_ARC_KEY_ID: ${{ secrets.CIRE_API_ARC_KEY_ID }}
+          CIRE_API_ARC_PRIVATE_KEY: ${{ secrets.CIRE_API_ARC_PRIVATE_KEY }}
+
+      # The stack refuses to deploy unless OSN_DEPLOY_TIER, both credentials
+      # and every required secret below are set, before anything uploads.
+      - name: Deploy the musubi stack
+        id: deploy
+        working-directory: musubi/infra
+        run: |
+          set -o pipefail
+          bun run deploy:dev ${FORCE:+--force} 2>&1 | tee "$RUNNER_TEMP/alchemy.log"
+        env:
+          FORCE: ${{ (inputs.force == true || steps.snapshot.outputs.force == 'true') && 'yes' || '' }}
+          DO_NOT_TRACK: "1"
+          OSN_DEPLOY_TIER: dev
+          DEV_DOMAIN: ${{ vars.DEV_DOMAIN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
+          # osn-api's dev Worker secrets; OSN_TOTP_ENCRYPTION_KEY_PREVIOUS is
+          # declared only while it holds a value.
+          DEV_LOGIN_SECRET: ${{ secrets.DEV_LOGIN_SECRET }}
+          INTERNAL_SERVICE_SECRET: ${{ secrets.INTERNAL_SERVICE_SECRET }}
+          OSN_JWT_PRIVATE_KEY: ${{ secrets.OSN_JWT_PRIVATE_KEY }}
+          OSN_JWT_PUBLIC_KEY: ${{ secrets.OSN_JWT_PUBLIC_KEY }}
+          OSN_PAIRWISE_SALT: ${{ secrets.OSN_PAIRWISE_SALT }}
+          OSN_SESSION_IP_PEPPER: ${{ secrets.OSN_SESSION_IP_PEPPER }}
+          OSN_TOTP_ENCRYPTION_KEY: ${{ secrets.OSN_TOTP_ENCRYPTION_KEY }}
+          OSN_TOTP_ENCRYPTION_KEY_PREVIOUS: ${{ secrets.OSN_TOTP_ENCRYPTION_KEY_PREVIOUS }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
+          UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
+          # Read by the stack for osn-api's seed, never uploaded, and none of
+          # them secret: the cire_seed step's outputs.
+          CIRE_API_ARC_KEY_ID: ${{ steps.cire_seed.outputs.key_id }}
+          CIRE_API_ARC_PUBLIC_JWK: ${{ steps.cire_seed.outputs.public_jwk }}
+          CIRE_OIDC_CLIENT_SECRET_SHA256: ${{ steps.cire_seed.outputs.client_secret_sha256 }}
+
+      # Change counts and resource names to the run summary; with
+      # expect_no_change, fails unless the plan was "no changes".
+      - name: Summarise the plan
+        if: ${{ !cancelled() && steps.deploy.outcome != 'skipped' }}
+        run: bun run --cwd shared/infra plan-summary -- --stack musubi ${EXPECT_NO_CHANGE:+--expect-no-change} "$RUNNER_TEMP/alchemy.log"
+        env:
+          EXPECT_NO_CHANGE: ${{ inputs.expect_no_change == true && 'yes' || '' }}
+
+      # Runs after a deploy that failed part-way too, so a Worker it managed
+      # to upload is still checked, and rolled back if it fails. A Worker it
+      # cannot read comes out `unknown` (checked, never rolled back), and
+      # this step fails, which leaves `deployed` false.
+      - name: Find what the deploy changed
+        id: deployments
+        if: ${{ !cancelled() && steps.snapshot.outcome == 'success' }}
+        continue-on-error: true
+        run: bun run scripts/worker-deployments.ts compare "$RUNNER_TEMP/deployments.json" osn_api osn_social musubi_landing
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
+
+      # /health and /.well-known/jwks.json.
+      - name: Smoke check osn/api, rolling back on failure
+        id: smoke_osn_api
+        if: ${{ !cancelled() && steps.snapshot.outcome == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 5
+        run: bun run scripts/smoke-check.ts osn_api dev
+        env:
+          SMOKE_ORIGIN: ${{ steps.hosts.outputs.osn_api_origin }}
+          SMOKE_DEPLOYMENT: ${{ steps.deployments.outputs.osn_api_deployment }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
+
+      # The browser hosts sit behind Cloudflare Access. The check sends the
+      # service token when both values are set, and fails without rolling
+      # back when Access answers in the Worker's place, or when `/` asked
+      # without the token gets anything but Access's sign-in redirect.
+      - name: Smoke check musubi/social, rolling back on failure
+        id: smoke_osn_social
+        if: ${{ !cancelled() && steps.snapshot.outcome == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 5
+        run: bun run scripts/smoke-check.ts osn_social dev
+        env:
+          SMOKE_ORIGIN: ${{ steps.hosts.outputs.musubi_social_origin }}
+          SMOKE_DEPLOYMENT: ${{ steps.deployments.outputs.osn_social_deployment }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+
+      - name: Smoke check musubi/landing, rolling back on failure
+        id: smoke_musubi_landing
+        if: ${{ !cancelled() && steps.snapshot.outcome == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 5
+        run: bun run scripts/smoke-check.ts musubi_landing dev
+        env:
+          SMOKE_ORIGIN: ${{ steps.hosts.outputs.musubi_landing_origin }}
+          SMOKE_DEPLOYMENT: ${{ steps.deployments.outputs.musubi_landing_deployment }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+
+      - name: Fail when any check failed
+        if: ${{ !cancelled() && (steps.deployments.outcome == 'failure' || steps.smoke_osn_api.outcome == 'failure' || steps.smoke_osn_social.outcome == 'failure' || steps.smoke_musubi_landing.outcome == 'failure') }}
+        run: |
+          echo "::error::A smoke check failed, or the deployments could not be read; see the steps above."
+          exit 1
+
+  # ── musubi stack's record jobs ─────────────────────────────────────────────
+  # Each runs when the stack job deployed and its surface's check passed, and
+  # leaves that surface's dev Deployment record, named for the surface:
+  # scripts/release-plan.ts reads records by job name.
+  deploy-osn-api-dev:
+    name: Deploy osn/api — dev
+    needs: [stack-musubi-dev]
+    if: ${{ !cancelled() && needs.stack-musubi-dev.outputs.deployed == 'true' && needs.stack-musubi-dev.outputs.osn_api_healthy == 'true' }}
     runs-on: ubuntu-latest
     environment: dev
     timeout-minutes: 2
     steps:
-      - name: Report which Cloudflare credential the dev jobs hold
-        env:
-          SOURCE: ${{ secrets.CLOUDFLARE_API_TOKEN_DEV && 'CLOUDFLARE_API_TOKEN_DEV (dev Environment)' || 'CLOUDFLARE_API_TOKEN (fallback — the dev-only credential is unset)' }}
-        run: echo "Dev jobs in this run hold $SOURCE"
+      - name: Record the dev deploy
+        run: echo "osn-api-dev deployed and passed its smoke check in this run's musubi stack job."
 
-  # ═══ cire API + D1 ═════════════════════════════════════════════════════════
-  #
-  # ── dev ────────────────────────────────────────────────────────────────────
-  # Migrations are applied INCREMENTALLY here, exactly as production applies
-  # them, then the Worker is deployed. No reset, no reseed.
-  #
-  # It used to reset (drop every table incl. the migration ledger) -> migrate
-  # (replay all 57 migrations from 0001 against an empty DB) -> seed on every
-  # merge. That cost 8,007 D1 rows written and ~22,630 read per run, against a
-  # free-tier ceiling of 100,000 written per day ACROSS THE WHOLE ACCOUNT: 13
-  # merges on 2026-09-09 spent 104,091 and went over. Almost none of it was the
-  # seed — SQLite rebuilds the whole table for every `ALTER TABLE ... DROP
-  # COLUMN`, and D1 bills that schema churn even against empty tables. See #979.
-  #
-  # The property that bought was: every merge re-tests the whole migration chain
-  # from zero, so a migration that only works as an increment fails on dev
-  # rather than in production months later. We keep it, twice over and for free:
-  #
-  #   - cire/api/tests/db/ddl-lockstep.test.ts (T-S1) applies the full chain to
-  #     an in-memory DB on every `bun test` — so every PR, not just merges to
-  #     main — and diffs it against the DDL mirror and the Drizzle schema.
-  #   - cire-dev-db-rebuild.yml does the real reset -> replay -> seed against
-  #     remote cire-db-dev nightly and on workflow_dispatch, which is what
-  #     catches the DDL that bun:sqlite accepts and D1 rejects.
-  #
-  # Dev data is still disposable; it just gets its clean floor once a day
-  # instead of once a merge. A wedding a tester made by hand now survives until
-  # the next nightly rather than dying on the next merge.
-  deploy-cire-api-dev:
-    name: Deploy cire/api — dev
-    needs: [build, changes]
-    if: needs.changes.outputs.cire_api == 'true'
+  deploy-osn-social-dev:
+    name: Deploy musubi/social — dev
+    needs: [stack-musubi-dev]
+    if: ${{ !cancelled() && needs.stack-musubi-dev.outputs.deployed == 'true' && needs.stack-musubi-dev.outputs.osn_social_healthy == 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 4
     environment: dev
-    concurrency:
-      group: deploy-dev-cire-api
-      # Supersede queued dev deploys — a burst of merges otherwise runs this
-      # job once per merge, and each run only rebuilds dev to the same shape
-      # the last one would (#980). Cancelling mid-flight can leave dev's DB one
-      # migration ahead of its Worker; both self-heal on the next merge, and
-      # the dev tier is disposable by design. A run cancelled during its smoke
-      # check leaves its version deployed and unchecked, and the next run's
-      # rollback, if it needs one, restores that version. Production deploys
-      # from production-release.yml in its own group, which never cancels.
-      cancel-in-progress: true
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_DEV || secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    timeout-minutes: 2
     steps:
-      - uses: actions/checkout@v4
+      - name: Record the dev deploy
+        run: echo "osn-social-dev deployed and passed its smoke check in this run's musubi stack job."
 
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: .bun-version
-
-      - name: Cache bun dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-bun-
-
-      # @shared/infra's Alchemy tree is about 100 packages and over 1 GB
-      # unpacked, and only a job that builds, tests or type-checks that
-      # package loads it; every other job installs without it.
-      - name: Install dependencies except @shared/infra
-        run: bun install --frozen-lockfile --filter '!@shared/infra'
-
-      - name: Guard against placeholder D1 database_id
-        run: bun run scripts/check-d1-database-id.ts
-
-      - name: Apply cire D1 migrations (remote dev)
-        run: bun run --cwd cire/db db:migrate:dev
-
-      - name: Deploy cire/api Worker (dev)
-        run: bunx wrangler deploy --env dev
-        working-directory: cire/api
-        env:
-          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-deploy.ndjson
-
-      # The same check as production's (scripts/smoke-check.ts), against
-      # api.dev.cireweddings.com.
-      - name: Smoke check, rolling back on failure
-        run: bun run scripts/smoke-check.ts cire_api dev
-        timeout-minutes: 5
-        env:
-          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-deploy.ndjson
-
-  # ═══ cire invites (Astro SSR → Cloudflare Worker) ══════════════════════════
-  # The guest site is Astro SSR on Cloudflare (output: "server", the
-  # @astrojs/cloudflare adapter). It resolves which wedding to render FROM THE
-  # PATH or the redacted query per request — there is NO PUBLIC_WEDDING_SLUG. The adapter
-  # emits a Cloudflare Worker with Static Assets: `dist/server/entry.mjs` (the
-  # SSR Worker), `dist/client/` (prerendered legal pages + JS/CSS), and a
-  # generated `dist/server/wrangler.json` that EXTENDS the committed
-  # cire/invites/wrangler.jsonc (worker name + custom-domain route).
-  # PUBLIC_API_URL / PUBLIC_SITE_URL are read both server-side (per request) and
-  # by the client islands; they bake in at build time, which is why dev needs its
-  # own build and cannot re-point the prod bundle.
-  #
-  # ── dev ────────────────────────────────────────────────────────────────────
-  deploy-cire-invites-dev:
-    name: Deploy cire/invites — dev
-    needs: [build, changes]
-    if: needs.changes.outputs.cire_invites == 'true'
+  deploy-musubi-landing-dev:
+    name: Deploy musubi/landing — dev
+    needs: [stack-musubi-dev]
+    if: ${{ !cancelled() && needs.stack-musubi-dev.outputs.deployed == 'true' && needs.stack-musubi-dev.outputs.musubi_landing_healthy == 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 4
     environment: dev
+    timeout-minutes: 2
+    steps:
+      - name: Record the dev deploy
+        run: echo "musubi-landing-dev deployed and passed its smoke check in this run's musubi stack job."
+
+  # ═══ cire stack: cire-api, the guest site, the three cire sites ════════════
+  # cire-api with its D1 database (migrated and seeded by the stack) and
+  # buckets; the guest site (Astro SSR, its server entry uploaded as built,
+  # its client directory as assets); and the organiser portal, the vendor
+  # portal and the marketing site, each a static-assets Worker. Every site's
+  # PUBLIC_* values bake in at build time, which is why dev builds its own.
+  stack-cire-dev:
+    name: Alchemy cire stack — dev
+    needs: [build, changes]
+    if: needs.changes.outputs.stack_cire == 'true'
+    runs-on: ubuntu-latest
+    environment: dev
+    timeout-minutes: 45
     concurrency:
-      group: deploy-dev-cire-invites
+      group: deploy-dev-cire
       cancel-in-progress: false
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_DEV || secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    outputs:
+      # False when the deploy or the compare failed: a Worker whose new
+      # version may not have uploaded must not record success.
+      deployed: ${{ steps.deploy.outcome == 'success' && steps.deployments.outcome == 'success' }}
+      cire_api_healthy: ${{ steps.smoke_cire_api.outcome == 'success' }}
+      cire_invites_healthy: ${{ steps.smoke_cire_invites.outcome == 'success' }}
+      cire_host_healthy: ${{ steps.smoke_cire_host.outcome == 'success' }}
+      cire_vendor_healthy: ${{ steps.smoke_cire_vendor.outcome == 'success' }}
+      cire_landing_healthy: ${{ steps.smoke_cire_landing.outcome == 'success' }}
     steps:
+      - name: Refuse force with expect_no_change
+        if: ${{ inputs.force == true && inputs.expect_no_change == true }}
+        run: |
+          echo "::error::force re-uploads every resource, so a plan can never be 'no changes'. Dispatch one or the other."
+          exit 1
+
       - uses: actions/checkout@v4
 
       - uses: oven-sh/setup-bun@v2
@@ -339,471 +530,357 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bun-
 
-      - name: Restore turbo cache
-        uses: actions/cache/restore@v4
+      # turbo hashes each dev build's PUBLIC_*, VITE_* and SITE values, so the
+      # `build` job's cache never holds a dev build. This stack's own cache
+      # does: a site whose files and dev values are unchanged replays its
+      # last build instead of building again. The guest site is the
+      # exception: its build holds ASTRO_KEY and runs with the cache off.
+      # Keyed on the commit so each run saves, falling back to this stack's
+      # newest only, so it never carries the `build` job's whole cache forward.
+      - name: Cache turbo
+        uses: actions/cache@v4
         with:
           path: .turbo
-          key: ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-${{ github.sha }}
+          key: ${{ runner.os }}-turbo-dev-cire-${{ hashFiles('bun.lock') }}-${{ github.sha }}
           restore-keys: |
-            ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-
-            ${{ runner.os }}-turbo-build-
+            ${{ runner.os }}-turbo-dev-cire-${{ hashFiles('bun.lock') }}-
+            ${{ runner.os }}-turbo-dev-cire-
 
-      - name: Install dependencies except @shared/infra
-        run: bun install --frozen-lockfile --filter '!@shared/infra'
+      # The same key and paths as the `build` job's, so this restores the font
+      # metadata that job fetched and the three Astro builds below never call
+      # fonts.google.com (see ci.yml's `build-test` job for the key).
+      - name: Cache Astro font metadata
+        uses: actions/cache@v4
+        with:
+          path: |
+            cire/vendor/node_modules/.astro
+            cire/host/node_modules/.astro
+            cire/landing/node_modules/.astro
+          key: ${{ runner.os }}-astro-fonts-${{ hashFiles('bun.lock', 'cire/vendor/astro.config.mjs', 'cire/host/astro.config.mjs', 'cire/landing/astro.config.mjs') }}
+          restore-keys: |
+            ${{ runner.os }}-astro-fonts-
 
-      - name: Build cire/invites (dev)
-        run: bun run build --filter=@cire/invites
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Dev hosts
+        id: hosts
+        run: bun run --cwd shared/infra dev-hosts -- --stage dev
         env:
-          PUBLIC_API_URL: https://api.dev.cireweddings.com
-          PUBLIC_SITE_URL: https://invite.dev.cireweddings.com
-          PUBLIC_MARKETING_URL: https://dev.cireweddings.com
-          # One Turnstile widget serves both tiers — the dev hostnames are added
-          # to its Domains list (dashboard step, see the dev runbook). Whether
-          # the gate actually enforces depends on the API side: cire-api-dev only
-          # verifies if TURNSTILE_SECRET_KEY is set on that Worker (key-optional).
+          DEV_DOMAIN: ${{ vars.DEV_DOMAIN }}
+
+      # ASTRO_KEY fixes the key Astro writes into the guest site's server
+      # manifest. With it, two builds of one commit are byte-identical and an
+      # unchanged commit plans no change; without it every build differs, so
+      # the step refuses to run. turbo.json passes it through to the build.
+      # Because the output holds the key, this build runs with turbo's cache
+      # off: it never replays a build made with another key (turbo does not
+      # hash ASTRO_KEY), and never leaves the key in .turbo, which this job
+      # saves to a cache other runs can restore.
+      - name: Build cire/invites (dev)
+        run: |
+          if [ -z "$ASTRO_KEY" ]; then
+            echo "::error::ASTRO_KEY is empty: set it on the dev Environment (make one with 'bunx --bun astro create-key' in cire/invites). Without it every guest-site build differs, and no deploy can plan 'no changes'."
+            exit 1
+          fi
+          bun run build --filter=@cire/invites --cache=local:,remote:
+        env:
+          PUBLIC_API_URL: ${{ steps.hosts.outputs.cire_api_origin }}
+          PUBLIC_SITE_URL: ${{ steps.hosts.outputs.cire_invites_origin }}
+          PUBLIC_MARKETING_URL: ${{ steps.hosts.outputs.cire_landing_origin }}
           PUBLIC_TURNSTILE_SITEKEY: ${{ vars.PUBLIC_TURNSTILE_SITEKEY }}
           PUBLIC_GOOGLE_MAPS_EMBED_KEY: ${{ vars.PUBLIC_GOOGLE_MAPS_EMBED_KEY }}
           # The commit this build is made from. The footer prints its first
           # seven characters as the version, so a report from a phone says
           # which build it was. A `PUBLIC_*` var is in turbo's build hash, so
-          # a new commit never replays an older `dist/`.
+          # a new commit never replays an older `dist/`; a rerun of one commit
+          # still builds the same bytes.
           PUBLIC_BUILD_SHA: ${{ github.sha }}
-
-      # Two outcomes, and only one stops the deploy. An SSR bundle over its
-      # budget in scripts/bundle-size-budgets.txt prints a ::warning:: on this
-      # run and the step stays green; `ci.yml` annotates the same on the pull
-      # request before it merges. A source map under `dist/client`, which is
-      # served publicly as Static Assets, fails the step and stops the deploy,
-      # as does a missing or empty `dist`. scripts/guard-bundle-size.sh holds
-      # the threshold and the reasoning. Chained onto the `build` script too,
-      # but this step is what still checks the artifact when Turborepo
-      # replays a cached `build` and the chained invocation never runs.
-      - name: Check cire/invites SSR bundle size and refuse public source maps
-        run: ./scripts/guard-bundle-size.sh cire/invites
-
-      # Three edits to the adapter's generated config, in one pass:
-      #
-      #  1. drop `legacy_env` — @astrojs/cloudflare still writes it, wrangler
-      #     4.111+ hard-errors on it, and removing it is a behavioural no-op
-      #     (`true` WAS the default). The production job in
-      #     production-release.yml strips it too.
-      #  2. retarget name + routes at the dev Worker. The committed
-      #     wrangler.jsonc names the PRODUCTION worker and its custom domain;
-      #     rewriting here keeps one checked-in config instead of a near-copy
-      #     that would drift.
-      #  3. trace every request with query strings kept. Dev holds synthetic
-      #     data only; production keeps the committed redaction, which
-      #     scripts/check-trace-redaction.ts checks before the production
-      #     deploy in production-release.yml.
-      - name: Retarget the generated config at dev
-        run: |
-          node -e "
-            const fs = require('fs');
-            const f = 'dist/server/wrangler.json';
-            const c = JSON.parse(fs.readFileSync(f, 'utf8'));
-            delete c.legacy_env;
-            c.name = 'cire-invites-dev';
-            c.routes = [{ pattern: 'invite.dev.cireweddings.com', custom_domain: true }];
-            c.observability = { ...c.observability, redact_query_string: false, traces: { enabled: true, head_sampling_rate: 1 } };
-            fs.writeFileSync(f, JSON.stringify(c));
-          "
-        working-directory: cire/invites
-
-      - name: Deploy cire/invites (dev Worker)
-        run: bunx wrangler deploy --config dist/server/wrangler.json
-        working-directory: cire/invites
-        env:
-          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-deploy.ndjson
-
-      # invite.dev.cireweddings.com sits behind Cloudflare Access
-      # ([[wiki/shared/dev-environment]] §5), so the check needs an Access
-      # service token; without both values on the dev Environment, the check
-      # is skipped with a warning. Rolls back cire-invites-dev, the Worker the
-      # retarget above names.
-      - name: Smoke check, rolling back on failure
-        run: bun run scripts/smoke-check.ts cire_invites dev
-        timeout-minutes: 5
-        env:
-          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-deploy.ndjson
-          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
-
-  # ═══ cire host (Astro → Cloudflare Pages) ══════════════════════════════════
-  # The organiser portal is a separate static Astro build + Pages project from
-  # the guest site. Its PUBLIC_* vars (cire-api origin, musubi account origin for
-  # the security deep-link, guest-site URL for the preview link) bake in at build
-  # time; sign-in itself is a redirect through cire-api, so no issuer var.
-  #
-  # ── dev ────────────────────────────────────────────────────────────────────
-  deploy-cire-host-dev:
-    name: Deploy cire/host — dev
-    needs: [build, changes]
-    if: needs.changes.outputs.cire_host == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 3
-    environment: dev
-    concurrency:
-      group: deploy-dev-cire-host
-      cancel-in-progress: false
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_DEV || secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: .bun-version
-
-      - name: Cache bun dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-bun-
-
-      - name: Restore turbo cache
-        uses: actions/cache/restore@v4
-        with:
-          path: .turbo
-          key: ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-
-            ${{ runner.os }}-turbo-build-
-
-      # See ci.yml's `build-test` job for the reasoning behind this key.
-      # `PUBLIC_CIRE_API_URL` differs between this dev build and the
-      # `build` job's, and turbo.json's `build` task hashes
-      # `PUBLIC_*` env vars as inputs — so this job's `bun run build` is
-      # always a turbo cache MISS against the `build` job above and really
-      # runs `astro build` again, hitting fonts.google.com again unless this
-      # restores what that fetch produced.
-      - name: Cache Astro font metadata
-        uses: actions/cache@v4
-        with:
-          path: cire/host/node_modules/.astro
-          key: ${{ runner.os }}-astro-fonts-${{ hashFiles('bun.lock', 'cire/host/astro.config.mjs') }}
-          restore-keys: |
-            ${{ runner.os }}-astro-fonts-
-
-      - name: Install dependencies except @shared/infra
-        run: bun install --frozen-lockfile --filter '!@shared/infra'
+          ASTRO_KEY: ${{ secrets.ASTRO_KEY }}
 
       - name: Build cire/host (dev)
         run: bun run build --filter=@cire/host
         env:
-          PUBLIC_CIRE_API_URL: https://api.dev.cireweddings.com
-          # Dev account pages live on the dev identity app — a dev passkey is a
-          # different credential from a prod one (RP ID dev.musubi.social), so
-          # this must never deep-link to the production account surface.
-          PUBLIC_OSN_ACCOUNT_URL: https://dev.musubi.social
-          PUBLIC_CIRE_WEB_URL: https://invite.dev.cireweddings.com
+          PUBLIC_CIRE_API_URL: ${{ steps.hosts.outputs.cire_api_origin }}
+          # Account pages live on the dev identity app: a dev passkey is a
+          # different credential from a production one, so this never links
+          # to the production account surface.
+          PUBLIC_OSN_ACCOUNT_URL: ${{ steps.hosts.outputs.musubi_social_origin }}
+          PUBLIC_CIRE_WEB_URL: ${{ steps.hosts.outputs.cire_invites_origin }}
           # The RSVP editor's privacy link: the dev marketing site's /privacy.
-          PUBLIC_MARKETING_URL: https://dev.cireweddings.com
-
-      # Warns (the step stays green) when the bundle is over its budget, and
-      # fails, stopping the deploy, on a source map anywhere in `dist`, which
-      # Pages serves whole. See scripts/guard-bundle-size.sh's own comment and
-      # wiki/conventions/bundle-size-guards.md. Chained onto the `build`
-      # script too, but this step is what still checks the artifact when
-      # Turborepo replays a cached `build` and the chained invocation never
-      # runs.
-      - name: Check cire/host bundle size and refuse public source maps
-        run: ./scripts/guard-bundle-size.sh cire/host
-
-      # Idempotent: creates the project on first run, no-ops after. The custom
-      # domain (host.dev.cireweddings.com) is a dashboard step — wrangler cannot
-      # attach one.
-      - name: Ensure the cire-host-dev Pages project exists
-        run: bash "$GITHUB_WORKSPACE/scripts/ensure-pages-project.sh" cire-host-dev main
-        working-directory: cire/host
-
-      - name: Deploy cire/host to Cloudflare Pages (dev)
-        run: bunx wrangler pages deploy dist --project-name cire-host-dev --branch main --commit-dirty=true
-        working-directory: cire/host
-
-  # ═══ cire vendor (Astro → Cloudflare Pages) ════════════════════════════════
-  # The vendor self-service portal. PUBLIC_* vars bake in at build time.
-  #
-  # ── dev ────────────────────────────────────────────────────────────────────
-  deploy-cire-vendor-dev:
-    name: Deploy cire/vendor — dev
-    needs: [build, changes]
-    if: needs.changes.outputs.cire_vendor == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 3
-    environment: dev
-    concurrency:
-      group: deploy-dev-cire-vendor
-      cancel-in-progress: false
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_DEV || secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: .bun-version
-
-      - name: Cache bun dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-bun-
-
-      - name: Restore turbo cache
-        uses: actions/cache/restore@v4
-        with:
-          path: .turbo
-          key: ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-
-            ${{ runner.os }}-turbo-build-
-
-      # See ci.yml's `build-test` job for the reasoning behind this key, and
-      # the cire/host dev job above for why this always misses turbo's own
-      # cache.
-      - name: Cache Astro font metadata
-        uses: actions/cache@v4
-        with:
-          path: cire/vendor/node_modules/.astro
-          key: ${{ runner.os }}-astro-fonts-${{ hashFiles('bun.lock', 'cire/vendor/astro.config.mjs') }}
-          restore-keys: |
-            ${{ runner.os }}-astro-fonts-
-
-      - name: Install dependencies except @shared/infra
-        run: bun install --frozen-lockfile --filter '!@shared/infra'
+          PUBLIC_MARKETING_URL: ${{ steps.hosts.outputs.cire_landing_origin }}
 
       - name: Build cire/vendor (dev)
         run: bun run build --filter=@cire/vendor
         env:
-          PUBLIC_CIRE_API_URL: https://api.dev.cireweddings.com
-          PUBLIC_OSN_ACCOUNT_URL: https://dev.musubi.social
-
-      # Warns (the step stays green) when the bundle is over its budget, and
-      # fails, stopping the deploy, on a source map anywhere in `dist`, which
-      # Pages serves whole. See scripts/guard-bundle-size.sh's own comment and
-      # wiki/conventions/bundle-size-guards.md. Chained onto the `build`
-      # script too, but this step is what still checks the artifact when
-      # Turborepo replays a cached `build` and the chained invocation never
-      # runs.
-      - name: Check cire/vendor bundle size and refuse public source maps
-        run: ./scripts/guard-bundle-size.sh cire/vendor
-
-      - name: Ensure the cire-vendor-dev Pages project exists
-        run: bash "$GITHUB_WORKSPACE/scripts/ensure-pages-project.sh" cire-vendor-dev main
-        working-directory: cire/vendor
-
-      - name: Deploy cire/vendor to Cloudflare Pages (dev)
-        run: bunx wrangler pages deploy dist --project-name cire-vendor-dev --branch main --commit-dirty=true
-        working-directory: cire/vendor
-
-  # ═══ cire landing (Astro → Cloudflare Pages) ═══════════════════════════════
-  # The marketing site. Built fully static (output: "static", no Cloudflare
-  # adapter) and deployed to its OWN Pages project, separate from the guest site
-  # and organiser portal.
-  #
-  # ── dev ────────────────────────────────────────────────────────────────────
-  deploy-cire-landing-dev:
-    name: Deploy cire/landing — dev
-    needs: [build, changes]
-    if: needs.changes.outputs.cire_landing == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 3
-    environment: dev
-    concurrency:
-      group: deploy-dev-cire-landing
-      cancel-in-progress: false
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_DEV || secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: .bun-version
-
-      - name: Cache bun dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-bun-
-
-      - name: Restore turbo cache
-        uses: actions/cache/restore@v4
-        with:
-          path: .turbo
-          key: ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-
-            ${{ runner.os }}-turbo-build-
-
-      # See ci.yml's `build-test` job for the reasoning behind this key, and
-      # the cire/host dev job above for why this always misses turbo's own
-      # cache.
-      - name: Cache Astro font metadata
-        uses: actions/cache@v4
-        with:
-          path: cire/landing/node_modules/.astro
-          key: ${{ runner.os }}-astro-fonts-${{ hashFiles('bun.lock', 'cire/landing/astro.config.mjs') }}
-          restore-keys: |
-            ${{ runner.os }}-astro-fonts-
-
-      - name: Install dependencies except @shared/infra
-        run: bun install --frozen-lockfile --filter '!@shared/infra'
+          PUBLIC_CIRE_API_URL: ${{ steps.hosts.outputs.cire_api_origin }}
+          PUBLIC_OSN_ACCOUNT_URL: ${{ steps.hosts.outputs.musubi_social_origin }}
 
       - name: Build cire/landing (dev)
         run: bun run build --filter=@cire/landing
         env:
-          PUBLIC_ORGANISER_URL: https://host.dev.cireweddings.com
-          SITE: https://dev.cireweddings.com
+          PUBLIC_ORGANISER_URL: ${{ steps.hosts.outputs.cire_host_origin }}
+          SITE: ${{ steps.hosts.outputs.cire_landing_origin }}
 
-      # Warns (the step stays green) when the bundle is over its budget, and
-      # fails, stopping the deploy, on a source map anywhere in `dist`, which
-      # Pages serves whole. See scripts/guard-bundle-size.sh's own comment and
-      # wiki/conventions/bundle-size-guards.md. Chained onto the `build`
-      # script too, but this step is what still checks the artifact when
-      # Turborepo replays a cached `build` and the chained invocation never
-      # runs.
+      # Each warns (the step stays green) when its bundle is over its budget,
+      # and fails, stopping the deploy, on a public source map (anywhere in a
+      # site's `dist`, or under the guest site's `dist/client`) or a missing or
+      # empty `dist`. Each site's `build` script runs
+      # scripts/guard-bundle-size.sh too, but not when turbo replays a cached
+      # build; these check what is about to upload either way
+      # (wiki/conventions/bundle-size-guards.md).
+      - name: Check cire/invites SSR bundle size and refuse public source maps
+        run: ./scripts/guard-bundle-size.sh cire/invites
+
+      - name: Check cire/host bundle size and refuse public source maps
+        run: ./scripts/guard-bundle-size.sh cire/host
+
+      - name: Check cire/vendor bundle size and refuse public source maps
+        run: ./scripts/guard-bundle-size.sh cire/vendor
+
       - name: Check cire/landing bundle size and refuse public source maps
         run: ./scripts/guard-bundle-size.sh cire/landing
 
-      - name: Ensure the cire-landing-dev Pages project exists
-        run: bash "$GITHUB_WORKSPACE/scripts/ensure-pages-project.sh" cire-landing-dev main
-        working-directory: cire/landing
+      # The dev token must reach the dev account and no other: a token created
+      # with "All accounts" or "All zones" by a member of both would reach
+      # production too. It must also act on the DEV_DOMAIN zone, so an account
+      # id that names production fails here. Every step below that holds the
+      # token runs only after this passes.
+      - name: Check the token reaches only the dev account
+        id: token
+        run: bun run --cwd shared/infra token:check -- --tier dev
+        env:
+          DEV_DOMAIN: ${{ vars.DEV_DOMAIN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
 
-      - name: Deploy cire/landing to Cloudflare Pages (dev)
-        run: bunx wrangler pages deploy dist --project-name cire-landing-dev --branch main --commit-dirty=true
-        working-directory: cire/landing
+      - name: Record each Worker's newest deployment
+        id: snapshot
+        run: bun run scripts/worker-deployments.ts snapshot "$RUNNER_TEMP/deployments.json" cire_api cire_invites cire_host cire_vendor cire_landing
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
 
-  # ═══ osn/api (Worker + D1) ═════════════════════════════════════════════════
-  # osn-api (identity/auth) is a Cloudflare Worker (`main = "src/index.ts"`,
-  # a custom-domain route per env). It runs on workerd with Upstash + native
-  # Workers rate-limiters. Secrets are set out-of-band per tier
-  # (`wrangler secret put … --env <tier>`); this job only migrates + deploys.
-  #
-  # ── dev ────────────────────────────────────────────────────────────────────
-  # The dev issuer is id.dev.musubi.social with its OWN D1 (`osn-db-dev`) and its
-  # own WebAuthn RP ID (dev.musubi.social), so a dev passkey is a separate
-  # credential from a prod one and no dev sign-in can touch a real account.
-  #
-  # Unlike cire's dev D1, this one is NOT reset: accounts and passkeys are the
-  # thing being tested, and wiping them every merge would mean re-registering a
-  # credential before every manual check. Migrations still apply forward.
-  deploy-osn-api-dev:
-    name: Deploy osn/api — dev
-    needs: [build, changes]
-    if: needs.changes.outputs.osn_api == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 4
-    environment: dev
-    concurrency:
-      group: deploy-dev-osn-api
-      cancel-in-progress: false
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_DEV || secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: .bun-version
-
-      - name: Cache bun dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-bun-
-
-      - name: Install dependencies except @shared/infra
-        run: bun install --frozen-lockfile --filter '!@shared/infra'
-
-      - name: Apply osn D1 migrations (remote dev)
-        run: bun run --cwd osn/db db:migrate:dev
-
-      # Same fail-closed secret preflight as the production job in
-      # production-release.yml (see there for why). Dev
-      # needs its OWN OSN_PAIRWISE_SALT — a dev value, and once set it must never
-      # be rotated either, or every dev relying party sees its users as
-      # strangers. Set it with the `Set an osn-api Worker secret` workflow
-      # (secret: OSN_PAIRWISE_SALT, tier: dev).
-      - name: Preflight — required dev secrets are set
+      - name: Refuse expect_no_change while a rollback awaits re-upload
+        if: ${{ inputs.expect_no_change == true && steps.snapshot.outputs.force == 'true' }}
         run: |
-          set -euo pipefail
-          required="OSN_PAIRWISE_SALT"
-          set_names="$(bunx wrangler secret list --env dev | grep -oE '"name" *: *"[^"]+"' | sed -E 's/.*"name" *: *"([^"]+)".*/\1/')"
-          missing=""
-          for name in $required; do
-            if ! printf '%s\n' "$set_names" | grep -qx "$name"; then
-              missing="$missing $name"
-            fi
-          done
-          if [ -n "$missing" ]; then
-            echo "::error::osn-api-dev is missing required secret(s):$missing — run the 'Set an osn-api Worker secret' workflow with secret=OSN_PAIRWISE_SALT, tier=dev. osn-api fails closed on these, so deploying now would 503 every route."
-            exit 1
-          fi
-          echo "All required osn-api dev secrets are set."
-        working-directory: osn/api
+          echo "::error::A smoke check rolled a Worker back, so this run would re-upload it with --force and could not plan 'no changes'. Dispatch Deploy plainly first, then expect_no_change."
+          exit 1
 
-      - name: Deploy osn/api Worker (dev)
-        run: bunx wrangler deploy --env dev
-        working-directory: osn/api
+      # The stack refuses to deploy unless OSN_DEPLOY_TIER, both credentials
+      # and every required secret below are set, before anything uploads. The
+      # database's migrations apply forward on each deploy; a rollback restores
+      # the Worker's code, not the database, so a migration must keep working
+      # with the Worker version before it.
+      - name: Deploy the cire stack
+        id: deploy
+        working-directory: cire/infra
+        run: |
+          set -o pipefail
+          bun run deploy:dev ${FORCE:+--force} 2>&1 | tee "$RUNNER_TEMP/alchemy.log"
         env:
-          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-deploy.ndjson
+          FORCE: ${{ (inputs.force == true || steps.snapshot.outputs.force == 'true') && 'yes' || '' }}
+          DO_NOT_TRACK: "1"
+          OSN_DEPLOY_TIER: dev
+          DEV_DOMAIN: ${{ vars.DEV_DOMAIN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
+          # The profile given the seeded weddings' owner seat; empty seeds none.
+          CIRE_DEV_OWNER_PROFILE_ID: ${{ vars.CIRE_DEV_OWNER_PROFILE_ID }}
+          # cire-api's dev Worker secrets; CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS
+          # is declared only while it holds a value. The guest site holds none.
+          CIRE_API_ARC_KEY_ID: ${{ secrets.CIRE_API_ARC_KEY_ID }}
+          CIRE_API_ARC_PRIVATE_KEY: ${{ secrets.CIRE_API_ARC_PRIVATE_KEY }}
+          CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS: ${{ secrets.CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS }}
+          CIRE_OIDC_CLIENT_SECRET: ${{ secrets.CIRE_OIDC_CLIENT_SECRET }}
+          STRIPE_PLATFORM_WEBHOOK_SECRET: ${{ secrets.STRIPE_PLATFORM_WEBHOOK_SECRET }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
 
-      # /health and /.well-known/jwks.json on id.dev.musubi.social.
-      - name: Smoke check, rolling back on failure
-        run: bun run scripts/smoke-check.ts osn_api dev
+      # Change counts and resource names to the run summary; with
+      # expect_no_change, fails unless the plan was "no changes".
+      - name: Summarise the plan
+        if: ${{ !cancelled() && steps.deploy.outcome != 'skipped' }}
+        run: bun run --cwd shared/infra plan-summary -- --stack cire ${EXPECT_NO_CHANGE:+--expect-no-change} "$RUNNER_TEMP/alchemy.log"
+        env:
+          EXPECT_NO_CHANGE: ${{ inputs.expect_no_change == true && 'yes' || '' }}
+
+      # Runs after a deploy that failed part-way too, so a Worker it managed
+      # to upload is still checked, and rolled back if it fails. A Worker it
+      # cannot read comes out `unknown` (checked, never rolled back), and
+      # this step fails, which leaves `deployed` false.
+      - name: Find what the deploy changed
+        id: deployments
+        if: ${{ !cancelled() && steps.snapshot.outcome == 'success' }}
+        continue-on-error: true
+        run: bun run scripts/worker-deployments.ts compare "$RUNNER_TEMP/deployments.json" cire_api cire_invites cire_host cire_vendor cire_landing
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
+
+      # GET /api/auth/session, which answers without touching D1.
+      - name: Smoke check cire/api, rolling back on failure
+        id: smoke_cire_api
+        if: ${{ !cancelled() && steps.snapshot.outcome == 'success' }}
+        continue-on-error: true
         timeout-minutes: 5
+        run: bun run scripts/smoke-check.ts cire_api dev
         env:
-          WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-deploy.ndjson
+          SMOKE_ORIGIN: ${{ steps.hosts.outputs.cire_api_origin }}
+          SMOKE_DEPLOYMENT: ${{ steps.deployments.outputs.cire_api_deployment }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
 
-  # ═══ musubi/social (Vite SPA → Cloudflare Pages) ══════════════════════════════
-  # The identity web app: profile, connections, organisations, settings — and
-  # `/authorize`, the OIDC consent screen osn-api redirects to. It must be
-  # served under the SAME registrable domain as its osn-api, because the session
-  # cookie and the per-request OIDC binding cookie are host-bound to the issuer
-  # and only ride along on same-site credentialed fetches. That is why each tier
-  # pairs a musubi.social host with its own issuer host, never a *.pages.dev URL.
-  #
-  # The app's host is also the WebAuthn RP ID, so this is the one surface that
-  # can run a passkey ceremony — per tier.
-  #
-  # `musubi/social/public/_redirects` rewrites every path to index.html (200) so
-  # client-side routes deep-link; `_headers` ships the framing denial the
-  # consent screen needs. Both are static files Pages serves as-is.
-  #
-  # There is NO feature-branch preview for this app. `deploy-osn-social-preview.yml`
-  # was removed on 2026-07-27: a preview on `*.pages.dev` can neither run a
-  # passkey ceremony nor complete an OIDC round-trip — wrong RP ID, and the
-  # `__Host-` cookies are bound to the issuer host. The dev tier below replaces
-  # it properly: dev.musubi.social IS a real RP ID with a real issuer behind it.
-  #
-  # ── dev ────────────────────────────────────────────────────────────────────
-  deploy-osn-social-dev:
-    name: Deploy musubi/social — dev
-    needs: [build, changes]
-    if: needs.changes.outputs.osn_social == 'true'
+      # The guest site's `/` redirects to the marketing site, which the check
+      # needs the origin of. The browser hosts sit behind Cloudflare Access.
+      # The check sends the service token when both values are set, and fails
+      # without rolling back when Access answers in the Worker's place, or
+      # when `/` asked without the token gets anything but Access's sign-in
+      # redirect.
+      - name: Smoke check cire/invites, rolling back on failure
+        id: smoke_cire_invites
+        if: ${{ !cancelled() && steps.snapshot.outcome == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 5
+        run: bun run scripts/smoke-check.ts cire_invites dev
+        env:
+          SMOKE_ORIGIN: ${{ steps.hosts.outputs.cire_invites_origin }}
+          SMOKE_MARKETING_ORIGIN: ${{ steps.hosts.outputs.cire_landing_origin }}
+          SMOKE_DEPLOYMENT: ${{ steps.deployments.outputs.cire_invites_deployment }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+
+      - name: Smoke check cire/host, rolling back on failure
+        id: smoke_cire_host
+        if: ${{ !cancelled() && steps.snapshot.outcome == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 5
+        run: bun run scripts/smoke-check.ts cire_host dev
+        env:
+          SMOKE_ORIGIN: ${{ steps.hosts.outputs.cire_host_origin }}
+          SMOKE_DEPLOYMENT: ${{ steps.deployments.outputs.cire_host_deployment }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+
+      - name: Smoke check cire/vendor, rolling back on failure
+        id: smoke_cire_vendor
+        if: ${{ !cancelled() && steps.snapshot.outcome == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 5
+        run: bun run scripts/smoke-check.ts cire_vendor dev
+        env:
+          SMOKE_ORIGIN: ${{ steps.hosts.outputs.cire_vendor_origin }}
+          SMOKE_DEPLOYMENT: ${{ steps.deployments.outputs.cire_vendor_deployment }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+
+      - name: Smoke check cire/landing, rolling back on failure
+        id: smoke_cire_landing
+        if: ${{ !cancelled() && steps.snapshot.outcome == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 5
+        run: bun run scripts/smoke-check.ts cire_landing dev
+        env:
+          SMOKE_ORIGIN: ${{ steps.hosts.outputs.cire_landing_origin }}
+          SMOKE_DEPLOYMENT: ${{ steps.deployments.outputs.cire_landing_deployment }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+
+      - name: Fail when any check failed
+        if: ${{ !cancelled() && (steps.deployments.outcome == 'failure' || steps.smoke_cire_api.outcome == 'failure' || steps.smoke_cire_invites.outcome == 'failure' || steps.smoke_cire_host.outcome == 'failure' || steps.smoke_cire_vendor.outcome == 'failure' || steps.smoke_cire_landing.outcome == 'failure') }}
+        run: |
+          echo "::error::A smoke check failed, or the deployments could not be read; see the steps above."
+          exit 1
+
+  # ── cire stack's record jobs ───────────────────────────────────────────────
+  deploy-cire-api-dev:
+    name: Deploy cire/api — dev
+    needs: [stack-cire-dev]
+    if: ${{ !cancelled() && needs.stack-cire-dev.outputs.deployed == 'true' && needs.stack-cire-dev.outputs.cire_api_healthy == 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 4
     environment: dev
-    concurrency:
-      group: deploy-dev-osn-social
-      cancel-in-progress: false
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_DEV || secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    timeout-minutes: 2
     steps:
+      - name: Record the dev deploy
+        run: echo "cire-api-dev deployed and passed its smoke check in this run's cire stack job."
+
+  deploy-cire-invites-dev:
+    name: Deploy cire/invites — dev
+    needs: [stack-cire-dev]
+    if: ${{ !cancelled() && needs.stack-cire-dev.outputs.deployed == 'true' && needs.stack-cire-dev.outputs.cire_invites_healthy == 'true' }}
+    runs-on: ubuntu-latest
+    environment: dev
+    timeout-minutes: 2
+    steps:
+      - name: Record the dev deploy
+        run: echo "cire-invites-dev deployed and passed its smoke check in this run's cire stack job."
+
+  deploy-cire-host-dev:
+    name: Deploy cire/host — dev
+    needs: [stack-cire-dev]
+    if: ${{ !cancelled() && needs.stack-cire-dev.outputs.deployed == 'true' && needs.stack-cire-dev.outputs.cire_host_healthy == 'true' }}
+    runs-on: ubuntu-latest
+    environment: dev
+    timeout-minutes: 2
+    steps:
+      - name: Record the dev deploy
+        run: echo "cire-host-dev deployed and passed its smoke check in this run's cire stack job."
+
+  deploy-cire-vendor-dev:
+    name: Deploy cire/vendor — dev
+    needs: [stack-cire-dev]
+    if: ${{ !cancelled() && needs.stack-cire-dev.outputs.deployed == 'true' && needs.stack-cire-dev.outputs.cire_vendor_healthy == 'true' }}
+    runs-on: ubuntu-latest
+    environment: dev
+    timeout-minutes: 2
+    steps:
+      - name: Record the dev deploy
+        run: echo "cire-vendor-dev deployed and passed its smoke check in this run's cire stack job."
+
+  deploy-cire-landing-dev:
+    name: Deploy cire/landing — dev
+    needs: [stack-cire-dev]
+    if: ${{ !cancelled() && needs.stack-cire-dev.outputs.deployed == 'true' && needs.stack-cire-dev.outputs.cire_landing_healthy == 'true' }}
+    runs-on: ubuntu-latest
+    environment: dev
+    timeout-minutes: 2
+    steps:
+      - name: Record the dev deploy
+        run: echo "cire-landing-dev deployed and passed its smoke check in this run's cire stack job."
+
+  # ═══ zap stack: zap-api ════════════════════════════════════════════════════
+  # zap-api and its D1 database, migrated by the stack. Nothing to build:
+  # Alchemy bundles the Worker from its source.
+  stack-zap-dev:
+    name: Alchemy zap stack — dev
+    needs: [build, changes]
+    if: needs.changes.outputs.stack_zap == 'true'
+    runs-on: ubuntu-latest
+    environment: dev
+    timeout-minutes: 30
+    concurrency:
+      group: deploy-dev-zap
+      cancel-in-progress: false
+    outputs:
+      # False when the deploy or the compare failed: a Worker whose new
+      # version may not have uploaded must not record success.
+      deployed: ${{ steps.deploy.outcome == 'success' && steps.deployments.outcome == 'success' }}
+      zap_api_healthy: ${{ steps.smoke_zap_api.outcome == 'success' }}
+    steps:
+      - name: Refuse force with expect_no_change
+        if: ${{ inputs.force == true && inputs.expect_no_change == true }}
+        run: |
+          echo "::error::force re-uploads every resource, so a plan can never be 'no changes'. Dispatch one or the other."
+          exit 1
+
       - uses: actions/checkout@v4
 
       - uses: oven-sh/setup-bun@v2
@@ -818,33 +895,294 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bun-
 
-      - name: Restore turbo cache
-        uses: actions/cache/restore@v4
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Dev hosts
+        id: hosts
+        run: bun run --cwd shared/infra dev-hosts -- --stage dev
+        env:
+          DEV_DOMAIN: ${{ vars.DEV_DOMAIN }}
+
+      # The dev token must reach the dev account and no other: a token created
+      # with "All accounts" or "All zones" by a member of both would reach
+      # production too. It must also act on the DEV_DOMAIN zone, so an account
+      # id that names production fails here. Every step below that holds the
+      # token runs only after this passes.
+      - name: Check the token reaches only the dev account
+        id: token
+        run: bun run --cwd shared/infra token:check -- --tier dev
+        env:
+          DEV_DOMAIN: ${{ vars.DEV_DOMAIN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
+
+      - name: Record each Worker's newest deployment
+        id: snapshot
+        run: bun run scripts/worker-deployments.ts snapshot "$RUNNER_TEMP/deployments.json" zap_api
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
+
+      - name: Refuse expect_no_change while a rollback awaits re-upload
+        if: ${{ inputs.expect_no_change == true && steps.snapshot.outputs.force == 'true' }}
+        run: |
+          echo "::error::A smoke check rolled a Worker back, so this run would re-upload it with --force and could not plan 'no changes'. Dispatch Deploy plainly first, then expect_no_change."
+          exit 1
+
+      # The stack refuses to deploy unless OSN_DEPLOY_TIER, both credentials
+      # and the secret below are set, before anything uploads.
+      - name: Deploy the zap stack
+        id: deploy
+        working-directory: zap/infra
+        run: |
+          set -o pipefail
+          bun run deploy:dev ${FORCE:+--force} 2>&1 | tee "$RUNNER_TEMP/alchemy.log"
+        env:
+          FORCE: ${{ (inputs.force == true || steps.snapshot.outputs.force == 'true') && 'yes' || '' }}
+          DO_NOT_TRACK: "1"
+          OSN_DEPLOY_TIER: dev
+          DEV_DOMAIN: ${{ vars.DEV_DOMAIN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
+          # zap-api's dev Worker secret: the one osn-api holds, which zap-api
+          # registers its ARC key with.
+          INTERNAL_SERVICE_SECRET: ${{ secrets.INTERNAL_SERVICE_SECRET }}
+
+      # Change counts and resource names to the run summary; with
+      # expect_no_change, fails unless the plan was "no changes".
+      - name: Summarise the plan
+        if: ${{ !cancelled() && steps.deploy.outcome != 'skipped' }}
+        run: bun run --cwd shared/infra plan-summary -- --stack zap ${EXPECT_NO_CHANGE:+--expect-no-change} "$RUNNER_TEMP/alchemy.log"
+        env:
+          EXPECT_NO_CHANGE: ${{ inputs.expect_no_change == true && 'yes' || '' }}
+
+      # Runs after a deploy that failed part-way too. A Worker it cannot read
+      # comes out `unknown` (checked, never rolled back), and this step
+      # fails, which leaves `deployed` false.
+      - name: Find what the deploy changed
+        id: deployments
+        if: ${{ !cancelled() && steps.snapshot.outcome == 'success' }}
+        continue-on-error: true
+        run: bun run scripts/worker-deployments.ts compare "$RUNNER_TEMP/deployments.json" zap_api
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
+
+      # /health.
+      - name: Smoke check zap/api, rolling back on failure
+        id: smoke_zap_api
+        if: ${{ !cancelled() && steps.snapshot.outcome == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 5
+        run: bun run scripts/smoke-check.ts zap_api dev
+        env:
+          SMOKE_ORIGIN: ${{ steps.hosts.outputs.zap_api_origin }}
+          SMOKE_DEPLOYMENT: ${{ steps.deployments.outputs.zap_api_deployment }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
+
+      - name: Fail when any check failed
+        if: ${{ !cancelled() && (steps.deployments.outcome == 'failure' || steps.smoke_zap_api.outcome == 'failure') }}
+        run: |
+          echo "::error::A smoke check failed, or the deployments could not be read; see the steps above."
+          exit 1
+
+  # ── zap stack's record job ─────────────────────────────────────────────────
+  deploy-zap-api-dev:
+    name: Deploy zap/api — dev
+    needs: [stack-zap-dev]
+    if: ${{ !cancelled() && needs.stack-zap-dev.outputs.deployed == 'true' && needs.stack-zap-dev.outputs.zap_api_healthy == 'true' }}
+    runs-on: ubuntu-latest
+    environment: dev
+    timeout-minutes: 2
+    steps:
+      - name: Record the dev deploy
+        run: echo "zap-api-dev deployed and passed its smoke check in this run's zap stack job."
+
+  # ═══ pulse stack: pulse landing ════════════════════════════════════════════
+  # Pulse landing as a static-assets Worker whose own code serves /api/geo.
+  # Its build sets no PUBLIC_APP_URL: the Pulse app has no dev deploy.
+  stack-pulse-dev:
+    name: Alchemy pulse stack — dev
+    needs: [build, changes]
+    if: needs.changes.outputs.stack_pulse == 'true'
+    runs-on: ubuntu-latest
+    environment: dev
+    timeout-minutes: 30
+    concurrency:
+      group: deploy-dev-pulse
+      cancel-in-progress: false
+    outputs:
+      # False when the deploy or the compare failed: a Worker whose new
+      # version may not have uploaded must not record success.
+      deployed: ${{ steps.deploy.outcome == 'success' && steps.deployments.outcome == 'success' }}
+      pulse_landing_healthy: ${{ steps.smoke_pulse_landing.outcome == 'success' }}
+    steps:
+      - name: Refuse force with expect_no_change
+        if: ${{ inputs.force == true && inputs.expect_no_change == true }}
+        run: |
+          echo "::error::force re-uploads every resource, so a plan can never be 'no changes'. Dispatch one or the other."
+          exit 1
+
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Cache bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      # turbo hashes each dev build's PUBLIC_*, VITE_* and SITE values, so the
+      # `build` job's cache never holds a dev build. This stack's own cache
+      # does: a site whose files and dev values are unchanged replays its
+      # last build instead of building again. Keyed on the commit so each run
+      # saves, falling back to this stack's newest only, so it never carries
+      # the `build` job's whole cache forward.
+      - name: Cache turbo
+        uses: actions/cache@v4
         with:
           path: .turbo
-          key: ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-${{ github.sha }}
+          key: ${{ runner.os }}-turbo-dev-pulse-${{ hashFiles('bun.lock') }}-${{ github.sha }}
           restore-keys: |
-            ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-
-            ${{ runner.os }}-turbo-build-
+            ${{ runner.os }}-turbo-dev-pulse-${{ hashFiles('bun.lock') }}-
+            ${{ runner.os }}-turbo-dev-pulse-
 
-      - name: Install dependencies except @shared/infra
-        run: bun install --frozen-lockfile --filter '!@shared/infra'
+      # Pulse landing fetches its font metadata at build time; keyed, as
+      # ci.yml's cache is, on the config that names the families.
+      - name: Cache Astro font metadata
+        uses: actions/cache@v4
+        with:
+          path: pulse/landing/node_modules/.astro
+          key: ${{ runner.os }}-astro-fonts-${{ hashFiles('bun.lock', 'pulse/landing/astro.config.mjs') }}
+          restore-keys: |
+            ${{ runner.os }}-astro-fonts-
 
-      # No hard sitekey gate here, unlike prod: whether Turnstile enforces on dev
-      # depends on osn-api-dev holding TURNSTILE_SECRET_KEY, which is a
-      # per-tier choice (key-optional, fail-closed only when the secret is set).
-      # The production job's gate (production-release.yml) is what protects the
-      # pairing that actually matters.
-      - name: Build musubi/social (dev)
-        run: bun run build --filter=@musubi/social
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Dev hosts
+        id: hosts
+        run: bun run --cwd shared/infra dev-hosts -- --stage dev
         env:
-          VITE_OSN_ISSUER_URL: https://id.dev.musubi.social
-          VITE_TURNSTILE_SITEKEY: ${{ vars.PUBLIC_TURNSTILE_SITEKEY }}
+          DEV_DOMAIN: ${{ vars.DEV_DOMAIN }}
 
-      - name: Ensure the osn-social-dev Pages project exists
-        run: bash "$GITHUB_WORKSPACE/scripts/ensure-pages-project.sh" osn-social-dev main
-        working-directory: musubi/social
+      - name: Build pulse/landing (dev)
+        run: bun run build --filter=@pulse/landing
+        env:
+          SITE: ${{ steps.hosts.outputs.pulse_landing_origin }}
 
-      - name: Deploy musubi/social to Cloudflare Pages (dev)
-        run: bunx wrangler pages deploy dist --project-name osn-social-dev --branch main --commit-dirty=true
-        working-directory: musubi/social
+      # Warns (the step stays green) when the bundle is over its budget, and
+      # fails, stopping the deploy, on a source map anywhere in `dist`, which
+      # is served whole. pulse/landing's `build` script runs
+      # scripts/guard-bundle-size.sh too, but not when turbo replays a cached
+      # build; this checks what is about to upload either way
+      # (wiki/conventions/bundle-size-guards.md).
+      - name: Check pulse/landing bundle size and refuse public source maps
+        run: ./scripts/guard-bundle-size.sh pulse/landing
+
+      # The dev token must reach the dev account and no other: a token created
+      # with "All accounts" or "All zones" by a member of both would reach
+      # production too. It must also act on the DEV_DOMAIN zone, so an account
+      # id that names production fails here. Every step below that holds the
+      # token runs only after this passes.
+      - name: Check the token reaches only the dev account
+        id: token
+        run: bun run --cwd shared/infra token:check -- --tier dev
+        env:
+          DEV_DOMAIN: ${{ vars.DEV_DOMAIN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
+
+      - name: Record each Worker's newest deployment
+        id: snapshot
+        run: bun run scripts/worker-deployments.ts snapshot "$RUNNER_TEMP/deployments.json" pulse_landing
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
+
+      - name: Refuse expect_no_change while a rollback awaits re-upload
+        if: ${{ inputs.expect_no_change == true && steps.snapshot.outputs.force == 'true' }}
+        run: |
+          echo "::error::A smoke check rolled a Worker back, so this run would re-upload it with --force and could not plan 'no changes'. Dispatch Deploy plainly first, then expect_no_change."
+          exit 1
+
+      # The stack refuses to deploy unless OSN_DEPLOY_TIER and both
+      # credentials are set, before anything uploads. Pulse landing holds no
+      # secret.
+      - name: Deploy the pulse stack
+        id: deploy
+        working-directory: pulse/infra
+        run: |
+          set -o pipefail
+          bun run deploy:dev ${FORCE:+--force} 2>&1 | tee "$RUNNER_TEMP/alchemy.log"
+        env:
+          FORCE: ${{ (inputs.force == true || steps.snapshot.outputs.force == 'true') && 'yes' || '' }}
+          DO_NOT_TRACK: "1"
+          OSN_DEPLOY_TIER: dev
+          DEV_DOMAIN: ${{ vars.DEV_DOMAIN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
+
+      # Change counts and resource names to the run summary; with
+      # expect_no_change, fails unless the plan was "no changes".
+      - name: Summarise the plan
+        if: ${{ !cancelled() && steps.deploy.outcome != 'skipped' }}
+        run: bun run --cwd shared/infra plan-summary -- --stack pulse ${EXPECT_NO_CHANGE:+--expect-no-change} "$RUNNER_TEMP/alchemy.log"
+        env:
+          EXPECT_NO_CHANGE: ${{ inputs.expect_no_change == true && 'yes' || '' }}
+
+      # Runs after a deploy that failed part-way too. A Worker it cannot read
+      # comes out `unknown` (checked, never rolled back), and this step
+      # fails, which leaves `deployed` false.
+      - name: Find what the deploy changed
+        id: deployments
+        if: ${{ !cancelled() && steps.snapshot.outcome == 'success' }}
+        continue-on-error: true
+        run: bun run scripts/worker-deployments.ts compare "$RUNNER_TEMP/deployments.json" pulse_landing
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
+
+      # `/` from the assets and /api/geo from the Worker's own code. The host
+      # sits behind Cloudflare Access. The check sends the service token when
+      # both values are set, and fails without rolling back when Access
+      # answers in the Worker's place, or when `/` asked without the token
+      # gets anything but Access's sign-in redirect.
+      - name: Smoke check pulse/landing, rolling back on failure
+        id: smoke_pulse_landing
+        if: ${{ !cancelled() && steps.snapshot.outcome == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 5
+        run: bun run scripts/smoke-check.ts pulse_landing dev
+        env:
+          SMOKE_ORIGIN: ${{ steps.hosts.outputs.pulse_landing_origin }}
+          SMOKE_DEPLOYMENT: ${{ steps.deployments.outputs.pulse_landing_deployment }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+
+      - name: Fail when any check failed
+        if: ${{ !cancelled() && (steps.deployments.outcome == 'failure' || steps.smoke_pulse_landing.outcome == 'failure') }}
+        run: |
+          echo "::error::A smoke check failed, or the deployments could not be read; see the steps above."
+          exit 1
+
+  # ── pulse stack's record job ───────────────────────────────────────────────
+  deploy-pulse-landing-dev:
+    name: Deploy pulse/landing — dev
+    needs: [stack-pulse-dev]
+    if: ${{ !cancelled() && needs.stack-pulse-dev.outputs.deployed == 'true' && needs.stack-pulse-dev.outputs.pulse_landing_healthy == 'true' }}
+    runs-on: ubuntu-latest
+    environment: dev
+    timeout-minutes: 2
+    steps:
+      - name: Record the dev deploy
+        run: echo "pulse-landing-dev deployed and passed its smoke check in this run's pulse stack job."

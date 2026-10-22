@@ -3,9 +3,10 @@
  * Decide what a production release ships.
  *
  * Run by the `plan` job of .github/workflows/production-release.yml. For each
- * surface in scripts/deploy-surfaces.ts it finds the commit production last
- * deployed, diffs that commit against the release commit, and ships the
- * surface when anything it builds from differs. The baseline is what
+ * production surface in scripts/deploy-surfaces.ts (PRODUCTION_SURFACES; a
+ * surface with only a dev job never ships from here) it finds the commit
+ * production last deployed, diffs that commit against the release commit, and
+ * ships the surface when anything it builds from differs. The baseline is what
  * production runs, not what the previous run tried to ship, so a release that
  * was skipped, cancelled or rejected leaves nothing behind: the next one sees
  * the same gap.
@@ -25,10 +26,10 @@
  * links succeeded at the record's own commit, in a run of a workflow that
  * deploys that tier (`DEPLOYING_WORKFLOWS`), on `main`, from this repository.
  *
- * Dev gates production. A changed surface with a dev tier ships only when a
- * recent successful dev deployment of it was built from the same content (its
- * own paths and the shared ones) as the release commit. Otherwise it is held
- * back, and the next release asks again.
+ * Dev gates production. A changed surface ships only when a recent successful
+ * dev deployment of it was built from the same content (its own paths and the
+ * shared ones) as the release commit. Otherwise it is held back, and the next
+ * release asks again.
  *
  * A release never rolls a surface back. When production already runs a commit
  * that contains the release commit — an older release re-run in full — the
@@ -39,7 +40,8 @@
  *   GITHUB_REPOSITORY   owner/name
  *   GITHUB_SHA          the release commit (default: git rev-parse HEAD)
  *   GITHUB_API_URL, GITHUB_SERVER_URL   default to github.com's
- *   SURFACES            comma or space separated surface keys; empty = all
+ *   SURFACES            comma or space separated production surface keys;
+ *                       empty = all
  *   FORCE               "true" ships the requested surfaces whatever the
  *                       diff and dev say — for a change no path rule sees
  *                       (a repo Variable, a hand-run wrangler deploy)
@@ -63,7 +65,7 @@ import {
   changesContent,
   deployReason,
   isAncestor,
-  isSurfaceKey,
+  PRODUCTION_SURFACES,
   surface,
   SURFACES,
   type Surface,
@@ -309,6 +311,10 @@ export async function findDeployed(
     readonly batch?: number;
   } = {},
 ): Promise<DeployedCommits> {
+  // 300 on both tiers. A walk of 1000 could spend the job token's hourly
+  // request budget in one run when a surface has no record in the window; a
+  // dev surface whose last record falls out of it is held back until dev
+  // deploys it again.
   const maxRecords = options.maxRecords ?? 300;
   const batch = options.batch ?? 10;
   const { accept } = options;
@@ -425,10 +431,11 @@ export function parseRequest(
   force: string | undefined,
 ): ReleaseRequest {
   const names = (surfaces ?? "").split(/[\s,]+/).filter((name) => name !== "");
-  const unknown = names.filter((name) => !isSurfaceKey(name));
+  const keys = PRODUCTION_SURFACES.map((s) => s.key);
+  const unknown = names.filter((name) => !keys.some((key) => key === name));
   if (unknown.length > 0) {
     throw new Error(
-      `SURFACES names ${unknown.join(", ")}, which is not a surface. Use any of: ${SURFACES.map((s) => s.key).join(", ")}`,
+      `SURFACES names ${unknown.join(", ")}, which is not a production surface. Use any of: ${keys.join(", ")}`,
     );
   }
   const flag = force ?? "";
@@ -437,7 +444,7 @@ export function parseRequest(
   }
   const requested = [...new Set(names)] as SurfaceKey[];
   return {
-    surfaces: requested.length > 0 ? requested : SURFACES.map((s) => s.key),
+    surfaces: requested.length > 0 ? requested : keys,
     force: flag === "true",
   };
 }
@@ -477,7 +484,7 @@ export function changedSurfaces(input: {
   /** Whether `production` descends from the release commit. */
   readonly productionIsNewer: (production: string) => boolean;
 }): PlanDecision[] {
-  return SURFACES.map((s): PlanDecision => {
+  return PRODUCTION_SURFACES.map((s): PlanDecision => {
     const production = input.production.get(s.key);
     const decision = (ship: boolean, status: PlanStatus, reason: string): PlanDecision =>
       production === undefined
@@ -521,7 +528,7 @@ export function changedSurfaces(input: {
 /** The surfaces whose dev deployments the gate has to read. */
 export function devGateWanted(decisions: readonly PlanDecision[], force: boolean): SurfaceKey[] {
   if (force) return [];
-  return decisions.filter((d) => d.ship && surface(d.key).dev !== undefined).map((d) => d.key);
+  return decisions.filter((d) => d.ship).map((d) => d.key);
 }
 
 /**
@@ -537,8 +544,7 @@ export function sameContent(target: Surface, files: readonly string[] | undefine
  * Hold back a shipping surface that dev has not deployed from the same
  * content. `dev.accepted` holds, per surface, a successful dev deployment built
  * from the release commit's content — any one, not only the newest, since dev
- * moves on while a release waits. A surface with no dev tier, and a forced
- * release, pass untouched.
+ * moves on while a release waits. A forced release passes untouched.
  */
 export function applyDevGate(input: {
   readonly decisions: readonly PlanDecision[];
@@ -548,7 +554,7 @@ export function applyDevGate(input: {
 }): PlanDecision[] {
   return input.decisions.map((d): PlanDecision => {
     const target = surface(d.key);
-    if (input.force || !d.ship || target.dev === undefined) return d;
+    if (input.force || !d.ship) return d;
     const match = input.dev.accepted.get(d.key);
     if (match !== undefined)
       return { ...d, reason: `${d.reason}; dev ran this content at ${short(match)}` };
@@ -573,9 +579,11 @@ export function applyDevGate(input: {
 /** `<key>=true|false` per surface, then `any`, as $GITHUB_OUTPUT takes them. */
 export function outputLines(decisions: readonly PlanDecision[]): string {
   const ships = new Set(decisions.filter((d) => d.ship).map((d) => d.key));
-  return [...SURFACES.map((s) => `${s.key}=${ships.has(s.key)}`), `any=${ships.size > 0}`, ""].join(
-    "\n",
-  );
+  return [
+    ...PRODUCTION_SURFACES.map((s) => `${s.key}=${ships.has(s.key)}`),
+    `any=${ships.size > 0}`,
+    "",
+  ].join("\n");
 }
 
 /**

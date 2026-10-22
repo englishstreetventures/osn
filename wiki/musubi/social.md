@@ -16,7 +16,7 @@ related:
   - "[[identity-model]]"
   - "[[passkey-primary]]"
   - "[[rate-limiting]]"
-last-reviewed: 2026-10-17
+last-reviewed: 2026-10-22
 ---
 
 # Social
@@ -145,8 +145,13 @@ Environment variables (all prefixed `VITE_`):
 Cloudflare Pages, project **`osn-social`**, served at the apex
 **`https://musubi.social`**. The `deploy-osn-social` job in
 `.github/workflows/production-release.yml` builds and publishes it in each
-production release that ships it; `deploy-osn-social-dev` in `deploy.yml`
-publishes the dev build on every merge to `main`. See [[production-deploy]].
+production release that ships it. On dev the musubi stack serves it as the
+`osn-social-dev` Worker, with static assets, on `musubi.<DEV_DOMAIN>`: `deploy.yml`'s
+musubi stack job builds and deploys it on every merge to `main` that touches it,
+and `deploy-osn-social-dev` records the deploy once its smoke check passes. The
+Worker serves deep links through its single-page not-found handling, not the
+`_redirects` file Pages reads ([[infrastructure-as-code#Sites]]). See
+[[production-deploy]] and [[dev-environment]].
 
 The host is not cosmetic, on two counts.
 

@@ -292,5 +292,8 @@ e2e-artifacts/
 # Alchemy's local state and Worker bundles (`.alchemy/` under the directory a CLI run starts in)
 .alchemy/
 
+# What each stack writes on every run: flattened migrations and generated seed SQL
+*/infra/.generated/
+
 # Private business research (plans, financial models) kept beside the repo; the repository is public
 /research/

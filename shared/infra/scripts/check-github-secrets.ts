@@ -1,15 +1,16 @@
 #!/usr/bin/env bun
 /**
- * Compares the secret inventory and the tier's account credentials with the
- * secret names in one tier's GitHub Environment:
- * `bun run secrets:check-github -- --tier <dev|production>`. Reads names
- * only. Needs a `gh` login that can list Environment secrets, run inside the
- * repository (or with GH_REPO set) so `gh` fills in `{owner}/{repo}`. Exits 0
- * when nothing required is missing and the Environment holds none of the
- * other tier's credentials, 1 otherwise, 2 when the arguments or `gh` fail. A
- * name that is neither a Worker secret nor one of the tier's credentials is
- * printed but does not fail the check. The rules are in
- * `src/secrets/check.ts` (`checkGithub`).
+ * Compares what one tier's GitHub Environment must hold with the secret names
+ * it does hold: `bun run secrets:check-github -- --tier <dev|production>`.
+ * It must hold every required Worker secret in the inventory, the tier's
+ * required credentials and the secrets only its workflows read
+ * (`WORKFLOW_SECRETS`). Reads names only, so it cannot tell which account a
+ * token belongs to. Needs a `gh` login that can list Environment secrets, run
+ * inside the repository (or with GH_REPO set) so `gh` fills in
+ * `{owner}/{repo}`. Exits 0 when nothing required is missing and the
+ * Environment holds none of the other tier's credentials, 1 otherwise, 2 when
+ * the arguments or `gh` fail. A name it does not know is printed but does not
+ * fail the check. The rules are in `src/secrets/check.ts` (`checkGithub`).
  */
 import { spawnSync } from "node:child_process";
 

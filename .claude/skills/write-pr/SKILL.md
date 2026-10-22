@@ -96,7 +96,7 @@ When a person has to do something, the owner reads it straight after the impact:
 ```markdown
 **Do not merge until** production `cire-api` has applied migrations 0062–0081: dispatch a production release with `surfaces: cire_api`, approve it and let it finish.
 
-**After merging** — run `cire-dev-db-rebuild.yml` by `workflow_dispatch` and check its ledger step passes.
+**After merging** — dispatch **Deploy** with `expect_no_change: true` and check every stack job reports `Plan: no changes`.
 ```
 
 Use `**Do not merge until**`, `**At deploy**` or `**After merging**`, and name the command, the workflow or the secret. A deploy step that appears only in the test plan or a closing paragraph is one the owner misses.

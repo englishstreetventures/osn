@@ -1,24 +1,31 @@
 // The pure half of scripts/check-free-tier-ceilings.ts: threshold arithmetic,
-// the issue body, response narrowing and the create/edit/reopen choice. The
-// network half is two `fetch` calls and a `gh` spawn, which is why the parsing
-// is a separate exported function from the fetching.
+// the issue body, response narrowing, the create/edit/reopen choice, each
+// account's issue title and credentials, and the `gh` calls (through a fake
+// runner). The network half is two `fetch` calls and the real `gh` spawn,
+// which is why the parsing is a separate exported function from the fetching.
+// The exit codes are in the .cli.test.ts beside this file.
 //
 // No `bun install`: this imports `bun:test` and the script under test, matching
 // every other file under scripts/.
 
-import { expect, test } from "bun:test";
+import { afterAll, expect, test } from "bun:test";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import {
   CEILINGS,
   type D1Group,
   findBreaches,
   fraction,
-  ISSUE_TITLE,
+  issueTitle,
   matchIssue,
   parseUsage,
   planIssueAction,
+  readCredentials,
   renderIssueBody,
   type StorageGroup,
+  syncIssue,
   type Usage,
   utcDay,
   WARN_FRACTION,
@@ -48,6 +55,9 @@ function storage(databaseId: string, date: string, databaseSizeBytes: number): S
 }
 
 const EMPTY: Usage = { d1: [], workers: [], storage: [] };
+
+/** The production issue's title before the alert learnt a second account. */
+const PRODUCTION_TITLE = "Cloudflare free tier: a daily counter is near its ceiling";
 
 test("the day the ceiling was crossed fires, with the database named", () => {
   // The real 2026-08-30 figures, the first of the two overruns nobody saw.
@@ -186,6 +196,7 @@ test("the body names the database in the heading of a per-database breach", () =
     findBreaches(usage, NAMES),
     { start: "2026-09-10", end: "2026-09-10" },
     "2026-09-10T08:00:00Z",
+    "production",
   );
   expect(body).toContain("## D1 database size: cire-db-dev — 2026-09-10");
   expect(body).toContain("480.0 MB of 500.0 MB (96%)");
@@ -219,6 +230,7 @@ test("the body names the counter, the day, the figure and the database", () => {
     findBreaches(usage, NAMES),
     { start: "2026-09-09", end: "2026-09-10" },
     "2026-09-10T08:00:00Z",
+    "production",
   );
 
   expect(body).toContain("D1 rows written — 2026-09-09");
@@ -235,6 +247,7 @@ test("the body prints storage in megabytes, not raw bytes", () => {
     findBreaches(usage, NAMES),
     { start: "2026-09-10", end: "2026-09-10" },
     "2026-09-10T08:00:00Z",
+    "production",
   );
   expect(body).toContain("4100.0 MB of 5000.0 MB (82%)");
 });
@@ -309,19 +322,154 @@ test("windowFor rejects a date it cannot read", () => {
 test("no match opens a new issue; an open one is edited; a closed one is reopened", () => {
   const listed = JSON.stringify([
     { number: 12, title: "Something else", state: "OPEN" },
-    { number: 34, title: ISSUE_TITLE, state: "CLOSED" },
+    { number: 34, title: PRODUCTION_TITLE, state: "CLOSED" },
   ]);
 
-  expect(planIssueAction(matchIssue("[]", ISSUE_TITLE))).toEqual({ kind: "create" });
-  expect(planIssueAction(matchIssue(listed, ISSUE_TITLE))).toEqual({ kind: "reopen", number: 34 });
+  expect(planIssueAction(matchIssue("[]", PRODUCTION_TITLE))).toEqual({ kind: "create" });
+  expect(planIssueAction(matchIssue(listed, PRODUCTION_TITLE))).toEqual({
+    kind: "reopen",
+    number: 34,
+  });
   expect(
     planIssueAction(
-      matchIssue(JSON.stringify([{ number: 7, title: ISSUE_TITLE, state: "OPEN" }]), ISSUE_TITLE),
+      matchIssue(
+        JSON.stringify([{ number: 7, title: PRODUCTION_TITLE, state: "OPEN" }]),
+        PRODUCTION_TITLE,
+      ),
     ),
   ).toEqual({ kind: "edit", number: 7 });
 });
 
 test("a title that only contains the search text is not the issue", () => {
-  const listed = JSON.stringify([{ number: 9, title: `${ISSUE_TITLE} (again)`, state: "OPEN" }]);
-  expect(matchIssue(listed, ISSUE_TITLE)).toBeUndefined();
+  const listed = JSON.stringify([
+    { number: 9, title: `${PRODUCTION_TITLE} (again)`, state: "OPEN" },
+  ]);
+  expect(matchIssue(listed, PRODUCTION_TITLE)).toBeUndefined();
+});
+
+test("F1: the production issue keeps its title, so the open one is still found", () => {
+  expect(issueTitle("production")).toBe(PRODUCTION_TITLE);
+});
+
+test("F2: the dev account files its own issue, and each run finds only its own", () => {
+  expect(issueTitle("dev")).not.toBe(issueTitle("production"));
+  // GitHub's title search matches words, so one account's search lists the
+  // other's issue too; the exact title is what separates them.
+  const listed = JSON.stringify([
+    { number: 41, title: issueTitle("dev"), state: "OPEN" },
+    { number: 42, title: issueTitle("production"), state: "OPEN" },
+  ]);
+  expect(matchIssue(listed, issueTitle("dev"))?.number).toBe(41);
+  expect(matchIssue(listed, issueTitle("production"))?.number).toBe(42);
+});
+
+test("F4: the body names the account the counters were read from", () => {
+  const breaches = findBreaches({ ...EMPTY, d1: [d1("bf0510eb", "2026-09-09", 90_000)] }, NAMES);
+  const window = { start: "2026-09-09", end: "2026-09-10" };
+  expect(renderIssueBody(breaches, window, "2026-09-10T08:00:00Z", "dev")).toContain(
+    "on the dev account",
+  );
+  expect(renderIssueBody(breaches, window, "2026-09-10T08:00:00Z", "production")).toContain(
+    "on the production account",
+  );
+});
+
+const tempDir = mkdtempSync(join(tmpdir(), "free-tier-ceilings-"));
+afterAll(() => rmSync(tempDir, { recursive: true, force: true }));
+
+/** A `gh` that records its arguments and answers a listing with `listed`. */
+function fakeGh(listed: string) {
+  const calls: string[][] = [];
+  const run = async (args: readonly string[]): Promise<string> => {
+    calls.push([...args]);
+    if (args[1] === "list") return listed;
+    return args[1] === "create" ? "https://github.com/englishstreetventures/osn/issues/1\n" : "";
+  };
+  return { calls, run };
+}
+
+test("F5: production's gh calls are the ones the single-account alert made", async () => {
+  const gh = fakeGh("[]");
+
+  await syncIssue(gh.run, "englishstreetventures/osn", "the body", "production", tempDir);
+
+  expect(gh.calls).toEqual([
+    [
+      "issue",
+      "list",
+      "--repo",
+      "englishstreetventures/osn",
+      "--state",
+      "all",
+      "--limit",
+      "100",
+      "--search",
+      "Cloudflare free tier: a daily counter is near its ceiling in:title",
+      "--json",
+      "number,title,state",
+    ],
+    [
+      "issue",
+      "create",
+      "--repo",
+      "englishstreetventures/osn",
+      "--title",
+      "Cloudflare free tier: a daily counter is near its ceiling",
+      "--type",
+      "Task",
+      "--label",
+      "area:ops,product:shared,complexity:2,complexity:unconfirmed",
+      "--body-file",
+      `${tempDir}/free-tier-ceiling-body.md`,
+    ],
+  ]);
+  expect(readFileSync(`${tempDir}/free-tier-ceiling-body.md`, "utf8")).toBe("the body");
+});
+
+test("F5: dev searches for and opens its own title, and edits its own issue", async () => {
+  const opened = fakeGh("[]");
+  await syncIssue(opened.run, "englishstreetventures/osn", "the body", "dev", tempDir);
+  expect(opened.calls[0]?.[9]).toBe(`${issueTitle("dev")} in:title`);
+  expect(opened.calls[1]?.slice(0, 6)).toEqual([
+    "issue",
+    "create",
+    "--repo",
+    "englishstreetventures/osn",
+    "--title",
+    issueTitle("dev"),
+  ]);
+
+  const both = fakeGh(
+    JSON.stringify([
+      { number: 42, title: issueTitle("production"), state: "OPEN" },
+      { number: 41, title: issueTitle("dev"), state: "OPEN" },
+    ]),
+  );
+  await syncIssue(both.run, "englishstreetventures/osn", "the body", "dev", tempDir);
+  expect(both.calls[1]).toEqual([
+    "issue",
+    "edit",
+    "41",
+    "--repo",
+    "englishstreetventures/osn",
+    "--body-file",
+    `${tempDir}/free-tier-ceiling-body.md`,
+  ]);
+});
+
+test("F7: an empty dev credential fails naming both dev secrets", () => {
+  const set = { CLOUDFLARE_ACCOUNT_ID: "acct", CLOUDFLARE_API_TOKEN: "token" };
+  for (const env of [
+    {},
+    { ...set, CLOUDFLARE_ACCOUNT_ID: "" },
+    { ...set, CLOUDFLARE_API_TOKEN: "" },
+  ]) {
+    expect(() => readCredentials("dev", env)).toThrow(
+      /CLOUDFLARE_DEV_ACCOUNT_ID.*CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY/,
+    );
+  }
+  expect(() => readCredentials("production", {})).toThrow(
+    /CLOUDFLARE_ACCOUNT_ID.*CLOUDFLARE_API_TOKEN_READONLY/,
+  );
+  expect(readCredentials("dev", set)).toEqual({ accountId: "acct", token: "token" });
 });

@@ -2,8 +2,7 @@
 // routes every file under `src/pages`, so an un-prefixed `*.test.ts` there is
 // built and deployed as a live route. This is the guard for that, run as a
 // subprocess against fixture app roots the same way
-// scripts/tests/guard-bundle-size.cli.test.ts and
-// scripts/tests/cire-dev-db-guard.cli.test.ts do.
+// scripts/tests/guard-bundle-size.cli.test.ts does.
 //
 // The real script's app list is the six committed Astro apps, which this test
 // cannot fixture without touching the real repo — `ASTRO_TEST_ROUTE_APPS`

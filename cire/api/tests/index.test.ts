@@ -1191,15 +1191,16 @@ describe("D1 session routing at the entry points", () => {
 // The CSP collector labels a report by the site its document came from, using
 // the origins the Worker reads out of `WEB_ORIGIN` (guest invite, organiser
 // portal, vendor portal). Driven through the real entry point with the
-// committed dev-tier list, so a change to that mapping in `src/index.ts` or to
-// the list's order in `wrangler.toml` shows up here.
+// committed production list, so a change to that mapping in `src/index.ts` or
+// to the list's order in `wrangler.toml` shows up here. The dev list's order is
+// the cire stack's, which its K1 test (`cire/infra/tests/stack.test.ts`) holds.
 describe("CSP report site labels from WEB_ORIGIN", () => {
-  it("labels a report from the dev vendor portal as vendor", async () => {
+  it("labels a report from the vendor portal as vendor", async () => {
     const toml = await Bun.file(new URL("../wrangler.toml", import.meta.url)).text();
-    const devWebOrigin = (
-      Bun.TOML.parse(toml) as { env: { dev: { vars: { WEB_ORIGIN: string } } } }
-    ).env.dev.vars.WEB_ORIGIN;
-    const vendorOrigin = devWebOrigin.split(",").map((origin) => origin.trim())[2];
+    const webOrigin = (
+      Bun.TOML.parse(toml) as { env: { production: { vars: { WEB_ORIGIN: string } } } }
+    ).env.production.vars.WEB_ORIGIN;
+    const vendorOrigin = webOrigin.split(",").map((origin) => origin.trim())[2];
     expect(vendorOrigin).toBeDefined();
 
     // The Worker caches its app per D1 binding, so a binding it has not seen
@@ -1211,7 +1212,7 @@ describe("CSP report site labels from WEB_ORIGIN", () => {
     };
     const env = {
       ...BASE_ENV,
-      WEB_ORIGIN: devWebOrigin,
+      WEB_ORIGIN: webOrigin,
       DB: freshBinding,
     } as unknown as Parameters<NonNullable<typeof handler.fetch>>[1];
 

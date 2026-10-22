@@ -1,0 +1,59 @@
+import { gzipSync } from "node:zlib";
+
+import * as BunServices from "@effect/platform-bun/BunServices";
+import { getCompatibility } from "alchemy/Cloudflare/Workers/Compatibility";
+import { WorkerBundle } from "alchemy/Cloudflare/Workers/Sources/Rolldown";
+import { Effect } from "effect";
+import { afterAll, describe, expect, test } from "vitest";
+
+import { evaluateZap, removeEvaluations, resourcesOf, stackEnv } from "./evaluate";
+
+afterAll(removeEvaluations);
+
+/** Workers Free's limit on a Worker's compressed size: 3 MiB. */
+const FREE_LIMIT = 3 * 1024 * 1024;
+
+describe("zap-api's bundle", () => {
+  test("K10: bundled offline through Alchemy's rolldown path with the stack's build options, no module names bun:sqlite, and every file gzips to 3 MiB or less in total", async () => {
+    const evaluation = await evaluateZap({ stage: "dev", env: stackEnv() });
+    const props = resourcesOf(evaluation).ZapApi?.Props;
+    if (props?.main === undefined) throw new Error("zap-api declares no main");
+    const main = props.main;
+
+    // What the Worker provider does for a bundled Worker declared by props
+    // alone (alchemy src/Cloudflare/Workers/WorkerProvider.ts, prepareBundle).
+    const bundle = await Effect.runPromise(
+      Effect.gen(function* () {
+        const bundler = yield* WorkerBundle;
+        return yield* bundler.build({
+          id: "ZapApi",
+          main,
+          compatibility: getCompatibility({ ...props, isExternal: true }),
+          entry: { kind: "external" },
+          stack: { name: "zap", stage: "dev" },
+          extraOptions: props.build,
+        });
+      }).pipe(Effect.provide(BunServices.layer)),
+    );
+
+    const modules = bundle.files.filter((file) => !file.path.endsWith(".map"));
+    expect(modules.length).toBeGreaterThan(0);
+    const naming = modules
+      .filter((file) =>
+        (typeof file.content === "string"
+          ? file.content
+          : new TextDecoder().decode(file.content)
+        ).includes("bun:sqlite"),
+      )
+      .map((file) => file.path);
+    expect(naming).toEqual([]);
+
+    // Workers Free refuses a Worker over 3 MiB compressed, and Alchemy
+    // uploads every file the bundle holds, source maps included.
+    const gzipBytes = bundle.files.reduce(
+      (sum, file) => sum + gzipSync(file.content).byteLength,
+      0,
+    );
+    expect(gzipBytes, `${gzipBytes} bytes gzip, maps included`).toBeLessThanOrEqual(FREE_LIMIT);
+  }, 60_000);
+});

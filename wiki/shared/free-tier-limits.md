@@ -152,16 +152,32 @@ go. [[dev-environment]]
 | CPU time | **10 ms / invocation** |
 | External subrequests | **50 / invocation** |
 | Subrequests to CF services (D1/R2/KV) | **1,000 / invocation** |
+| Worker size | **3 MB / Worker, compressed** |
 | WebSocket connections | each connection to a Worker is **one request**; messages over it are **not** requests |
+
+**Worker size.** An upload over the limit is refused, so the Worker keeps its
+last version. Alchemy uploads every file a bundled Worker's bundle holds, source
+maps included, so each stack's K10 test bundles its API Worker offline and fails
+when those files gzip to more than 3 MiB, 3,145,728 bytes
+([[infrastructure-as-code#The stacks]]):
+
+| Worker | Bundle, gzip, maps included |
+|---|---|
+| osn-api | 2,406,920 B |
+| cire-api | 2,307,998 B |
+| zap-api | 1,108,319 B |
+
+*Measured 2026-10-20 at commit 0d483b3b — the sum each stack's K10 test computes (`node:zlib` gzip at its default level, file by file, maps included). The test prints it only when it fails, so run an untracked copy of `<stack>/infra/tests/bundle.test.ts` that prints `gzipBytes` in place of its last `expect`, with `bunx --bun vitest run tests/<copy>.test.ts` in `<stack>/infra`.*
 
 **WebSocket connections.** [workers pricing](https://developers.cloudflare.com/workers/platform/pricing/) — "WebSocket connections made to a Worker are charged as a request … WebSocket messages routed through a Worker do not count as requests."
 
 **What happens at the cap.** Past 100K requests/day the account's Workers
-(osn-api **and** cire-api together — **and both dev Workers, and the two
-invites Workers**: the limit is account-wide, not per Worker) start returning
-**HTTP 429 from Cloudflare's edge** — before our handler runs. A dev tier under
-load therefore *can* 429 production. Cloudflare Access on the dev browser hosts
-is the practical guard: it keeps crawlers and randoms off dev entirely.
+(osn-api **and** cire-api **and** zap-api **and** cire-invites together: the
+limit is account-wide, not per Worker) start returning **HTTP 429 from
+Cloudflare's edge** — before our handler runs. The dev tier runs in its own
+Cloudflare account ([[dev-environment]]), with its own 100K a day, so dev load
+cannot 429 production and production load cannot 429 dev. Cloudflare Access on
+the dev browser hosts keeps crawlers and randoms off dev's share.
 CPU overruns terminate the
 single invocation (`exceededCpu`); subrequest overruns throw "Too many
 subrequests" (`exceededResources`).
@@ -236,7 +252,7 @@ Over about an hour of one organiser checklist tab on `host.dev.cireweddings.com`
 
 ## Cloudflare D1 (Free)
 
-**Source:** [d1 pricing](https://developers.cloudflare.com/d1/platform/pricing/) · [limits](https://developers.cloudflare.com/d1/platform/limits/) — re-verify. Applies to every database on the account: `osn-db-prod`, `cire-db`, `zap-db-prod`, the two dev databases, and the two unused ones.
+**Source:** [d1 pricing](https://developers.cloudflare.com/d1/platform/pricing/) · [limits](https://developers.cloudflare.com/d1/platform/limits/) — re-verify. Applies per account. Production: `osn-db-prod`, `cire-db`, `zap-db-prod` and the unused `osn-db-staging` and `osn-db`. Dev: `cire-db-dev`, `osn-db-dev` and `zap-db-dev`.
 
 | Limit | Free value (re-verify) |
 |---|---|
@@ -244,7 +260,7 @@ Over about an hour of one organiser checklist tab on `host.dev.cireweddings.com`
 | Rows written | **100,000 / day** |
 | Storage | **5 GB / account total** |
 | Max DB size | **500 MB** |
-| Databases | **10 / account** — **7 used** (see below) |
+| Databases | **10 / account** — production 5 (7 until the old dev tier's two databases are deleted, [[dev-environment#Retiring the old dev tier]], englishstreetventures/osn#1579), dev 3 (see below) |
 | Queries per Worker invocation | **50** |
 | Max row size | **2 MB** |
 
@@ -256,17 +272,17 @@ DB-touching route** — i.e. effectively the whole app, since auth, claims, RSVP
 graph all read D1. Note the daily counters are **shared across every DB on the
 one account** (5 GB storage and the day's read/write counts are account-wide).
 
-**Dev's share — and the 2026-09 overrun.** The account holds **7 of 10**
-databases: `cire-db`, `osn-db-prod`, `zap-db-prod`, `cire-db-dev`, `osn-db-dev`,
-plus the unused `osn-db-staging` and `osn-db`. The two unused ones are the
-obvious reclaim if a new tier ever needs a slot.
+**Two accounts, two budgets.** The production account holds `cire-db`,
+`osn-db-prod`, `zap-db-prod` and the unused `osn-db-staging` and `osn-db`; the
+dev account holds `cire-db-dev`, `osn-db-dev` and `zap-db-dev`. Each account has
+its own 10-database limit and its own daily row counts, so dev's D1 use never
+spends production's.
 
-**Dev, not production, is what nearly all D1 usage on this account has been.**
-Until 2026-09-10 every merge touching cire dropped `cire-db-dev`, replayed all
-57 migrations from `0001` and re-seeded it. That is **8,007 rows written and
-about 22,630 read per deploy** — so 13 merges on 2026-09-09 spent 104,091 rows
-written and went over the 100K/day ceiling, as did 2026-08-30. Production wrote
-between 3 and 116 rows a day over the same window.
+**A rebuild from zero is the expensive thing.** Replaying the cire chain from
+`0001` (then 57 migrations) and re-seeding cost **8,007 rows written and about
+22,630 read**. Run on every merge, thirteen merges on 2026-09-09 spent 104,091
+rows written and went over the 100K/day ceiling, as did 2026-08-30, while
+production wrote between 3 and 116 rows a day.
 
 *Measured 2026-09-10 — per-day, per-database totals from the Cloudflare GraphQL
 `d1AnalyticsAdaptiveGroups` dataset, dimensions `databaseId` and `date`, summing
@@ -283,11 +299,10 @@ data at all. Of the 200 heaviest queries on `cire-db-dev` in the week to
 
 *Measured 2026-09-10 — `bunx wrangler d1 insights cire-db-dev --time-period=7d --sort-by=writes`, and the same with `--sort-by=reads`.*
 
-Fixed in englishstreetventures/osn#979 and #980: the per-merge dev deploy now applies
-migrations forward like production, the full rebuild runs nightly in
-`.github/workflows/cire-dev-db-rebuild.yml`, and the dev job supersedes queued
-runs. Budget after: one rebuild a day, 8% of the write ceiling.
-[[dev-environment]]
+No job rebuilds a database from zero. The dev stacks migrate each dev database
+forward, as production does, and import a seed only when its file changes; a
+fresh dev database replays the squashed baseline once, on the dev account's
+first deploy ([[dev-environment]]).
 
 **The number to watch is per-deploy, not per-day.** Any job that rebuilds a
 database from zero costs rows in proportion to the *number of migrations*, not
@@ -306,7 +321,7 @@ cannot be read as a share of one rebuild.
 
 **The daily cire cron shares one invocation.** Its eleven jobs (`cire/api/src/index.ts` `scheduled`) all count against the same 50-queries-per-invocation ceiling. Read from the code, a quiet day costs about 11 D1 calls and a busy one 21 or more, before the vendor claim hand-off adds 2 reads plus one write per enquiry, capped at `HANDOFFS_PER_RUN` = 10 (`cire/api/src/services/claim-review.ts`), and the purge of soft-deleted weddings adds 2 reads plus one 5-statement batch per wedding, capped at `MAX_PURGES_PER_RUN` = 3 (`cire/api/src/services/maintenance-sweeps.ts`). The purge's rows written are the cascade of each wedding it deletes — mostly rows the 1-year guest sweep would delete anyway. The two R2 orphan reconcilers each list at most 1,000 objects in at most 3 `list()` calls a run (`ASSET_LIST_LIMITS` in `cire/api/src/services/asset-reconcile.ts`, `SHEET_LIST_LIMITS` in `cire/api/src/services/sheet-reconcile.ts`), resuming where the last run stopped, and make no D1 call when nothing they listed is old enough to delete. Otherwise `cire-assets` makes one read, of every key its three tables hold, and `cire-sheets` two: one row of `imports`, then one lookup of the keys it listed, sent as one bound parameter of about 65 KB at most. D1 still scans `imports` for that lookup, since no index covers the key columns, and returns one row: the table's row count, for the hold on a halving of rows, and the matching rows' keys as one JSON value, both from that one scan.
 
-*Unverified — estimated from reading the code on 2026-10-01, plus both R2 reconcilers on 2026-10-02, counting a batch as one call; neither reconciler's CPU time has been measured; whether D1 counts a batch as one query or one per statement is to re-check. The measurement is a post-merge follow-up: on dev, between the 14:00 UTC rebuild and the 04:00 UTC cron, soft-delete the seeded wedding, backdate `deleted_at` by 8 days, run `bunx wrangler dev --remote --env dev --test-scheduled` from `cire/api` and request `/__scheduled`, then read `bunx wrangler d1 insights cire-db-dev --time-period=1d --sort-by=writes`.*
+*Unverified — estimated from reading the code on 2026-10-01, plus both R2 reconcilers on 2026-10-02, counting a batch as one call; neither reconciler's CPU time has been measured; whether D1 counts a batch as one query or one per statement is to re-check. The measurement is a post-merge follow-up: on dev, soft-delete the seeded wedding and backdate `deleted_at` by 8 days, let the 04:00 UTC cron run, then read `bunx wrangler d1 insights cire-db-dev --time-period=1d --sort-by=writes` with the dev account's credentials.*
 
 **User-visible symptom:** 503 / "service unavailable" across the app until the
 daily counter resets at **UTC midnight**, or storage is freed.
@@ -333,7 +348,7 @@ storage; overage is cheap ($0.001/M read, $1/M written, $0.75/GB-mo). Re-verify.
 
 ## Cloudflare Pages (Free)
 
-**Source:** [pages limits](https://developers.cloudflare.com/pages/platform/limits/) — re-verify. Hosts `cire/invites`, `cire/host`, `@musubi/social`, `@musubi/landing`.
+**Source:** [pages limits](https://developers.cloudflare.com/pages/platform/limits/) — re-verify. Hosts the production sites (`cire/host`, `cire/vendor`, `cire/landing`, `@musubi/social`) and the musubi and pulse landing preview projects, which no workflow deploys. The dev tier's sites are Workers static assets in the dev account, not Pages ([[infrastructure-as-code#Sites]]).
 
 | Limit | Free value (re-verify) |
 |---|---|
@@ -456,16 +471,18 @@ fail-open vs fail-closed split is NOT uniform — read this table, don't guess.*
 ## Monitoring
 
 With **Workers observability enabled** on cire-api, cire-invites and osn-api
-(the `observability` block of each Worker's Wrangler config), Workers Logs
+(the `observability` block of each Worker's Wrangler config, or on dev its
+stack declaration), Workers Logs
 persist for **3 days** on the Workers Free plan, plus invocation records on
 osn-api. Both cire Workers (cire-api in every env, cire-invites) set
 `invocation_logs = false`, because an invocation record stores the request URL
 and the public cire routes carry the wedding slug. Logs are viewable in the CF
 dashboard.
 
-**Native traces** sample every request on each Worker's dev tier and on the
-production `cire-invites` Worker; Cloudflare keeps them for **7 days**. The
-production API Workers keep them off ([[tracing]]).
+**Native traces** sample every request on each dev API Worker and the dev
+`cire-invites`, and on the production `cire-invites` Worker; Cloudflare keeps
+them for **7 days**. The dev static sites and the production API Workers keep
+them off ([[tracing]]).
 
 **From 2026-12-01 the ceiling changes shape.** The Free plan's 200,000 log
 events a day becomes one **0.5 GB a day** ingestion allowance for the whole
@@ -497,15 +514,26 @@ allowance yet — englishstreetventures/osn#1505.
   - Recurring `exceededResources` / `exceededCpu` invocation statuses → a heavy
     request path (e.g. spreadsheet import) bumping the Free CPU/subrequest caps.
 
-**The first two of those are watched for you; the rest are read by eye.**
-`.github/workflows/free-tier-ceiling-alert.yml` runs
-`scripts/check-free-tier-ceilings.ts` at 22:00 UTC daily, and on demand through
-`workflow_dispatch` (with `end` and `days` inputs, so a past day can be
-replayed). It reads per-day totals per database and per Worker script from
-Cloudflare's GraphQL analytics API and files one issue, titled "Cloudflare free
-tier: a daily counter is near its ceiling", when any counter reaches **80%** of
-its line. It reopens and edits that one issue rather than opening another, so a
-week near the line is one thread, and the body names the database and the day.
+**The first two of those are watched for you, on both accounts; the rest are
+read by eye.** `.github/workflows/free-tier-ceiling-alert.yml` runs
+`scripts/check-free-tier-ceilings.ts --account <production|dev>` at 22:00 UTC
+daily, and on demand through `workflow_dispatch` (with `end` and `days` inputs,
+so a past day can be replayed), in one job per account. It reads per-day totals
+per database and per Worker script from Cloudflare's GraphQL analytics API and
+files one issue per account when any counter reaches **80%** of its line:
+"Cloudflare free tier: a daily counter is near its ceiling" for production, and
+"Cloudflare free tier on the dev account: a daily counter is near its ceiling"
+for dev. It reopens and edits its own account's issue rather than opening
+another, so a week near the line is one thread, and the body names the account,
+the database and the day.
+
+| Job | Environment | Credentials |
+|---|---|---|
+| `production` | none, so a nightly run needs no approval | the repository secrets `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN_READONLY` |
+| `dev` | `dev` (no reviewers) | `CLOUDFLARE_DEV_ACCOUNT_ID` and `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY`; either empty fails the job, naming both |
+
+Each read-only token holds `Account Settings: Read`, `D1: Read` and
+`Account Analytics: Read` on its own account and nothing else.
 
 Five ceilings: rows written, rows read and Workers requests per day, plus both
 storage lines — 5 GB across the account and **500 MB for any one database**. The
@@ -514,7 +542,8 @@ failure that arrives first: a 480 MB database has stopped taking writes while th
 account total is still a tenth of its 5 GB.
 
 Two things to know before trusting it. The ceilings are the `CEILINGS` constant
-at the top of that script, and they have to move whenever the tables above do.
+at the top of that script, the same for both accounts, and they have to move
+whenever the tables above do.
 And it fails loudly: a bad API response exits non-zero and fails the run, rather
 than reporting all-clear.
 

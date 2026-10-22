@@ -1,3 +1,7 @@
+import { existsSync, readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
+
 import { Redacted } from "effect";
 import { describe, expect, test } from "vitest";
 
@@ -21,6 +25,17 @@ const cireApiSecrets = (tier: Tier): Record<string, Redacted.Redacted<string>> =
     tierSecrets("cire-api", tier).secrets.map((name) => [name, Redacted.make("not-a-real-secret")]),
   );
 
+/** The installed Alchemy package's directory, as this package resolves it. */
+function alchemyDir(): string {
+  let dir = dirname(createRequire(import.meta.url).resolve("alchemy"));
+  while (!existsSync(join(dir, "src", "Cloudflare", "Workers", "Sources", "Rolldown.ts"))) {
+    const parent = dirname(dir);
+    if (parent === dir) throw new Error("no Alchemy source above the resolved entry");
+    dir = parent;
+  }
+  return dir;
+}
+
 function thrown(run: () => unknown): unknown {
   try {
     run();
@@ -35,6 +50,8 @@ const cireApiDev: ApiWorkerInput = {
   name: "cire-api-dev",
   stage: "dev",
   main: "../../cire/api/src/index.ts",
+  bundle: true,
+  assets: null,
   compatibility: {
     date: "2025-03-01",
     flags: ["nodejs_compat", "nodejs_compat_populate_process_env"],
@@ -245,8 +262,106 @@ describe("apiWorkerProps", () => {
     expect((error as Error).message).not.toContain("not-a-real-secret");
   });
 
+  test("I3: OSN_API_URL is a var on dev and a secret on production, never both", () => {
+    expect(tierSecrets("cire-api", "dev").secrets).not.toContain("OSN_API_URL");
+    const asSecret = {
+      ...cireApiSecrets("dev"),
+      OSN_API_URL: Redacted.make("https://osn.invalid"),
+    };
+    const error = thrown(() => apiWorkerProps({ ...cireApiDev, secrets: asSecret }));
+    expect(error).toBeInstanceOf(UndeclaredSecretsError);
+    expect(error).toMatchObject({ unexpected: ["OSN_API_URL"] });
+    // The dev row lists it as a plain var, so the var passes there, and only
+    // as a var: a binding of that name is still refused.
+    const asVar = { ...cireApiDev.vars, OSN_API_URL: "https://id.musubi.example.test" };
+    expect(apiWorkerProps({ ...cireApiDev, vars: asVar }).env).toMatchObject({
+      OSN_API_URL: "https://id.musubi.example.test",
+    });
+    expect(() => apiWorkerProps({ ...cireApiDev, bindings: { OSN_API_URL: {} as never } })).toThrow(
+      SecretAsPlainBindingError,
+    );
+    // The exemption covers the names the dev row lists and no other: beside
+    // OSN_API_URL, a dev var named like a production secret is still refused.
+    const withSecretName = { ...asVar, GROWTHBOOK_CLIENT_KEY: "not-a-real-key" };
+    const refused = thrown(() => apiWorkerProps({ ...cireApiDev, vars: withSecretName }));
+    expect(refused).toBeInstanceOf(SecretAsPlainBindingError);
+    expect(refused).toMatchObject({ worker: "cire-api", names: ["GROWTHBOOK_CLIENT_KEY"] });
+    // Production lists OSN_API_URL as a required secret, so a var of that name
+    // meets the secret check or the clash check before the plain-var check
+    // could exempt it; the inventory test pins that every plain var is a
+    // required secret on the other tier.
+    expect(() =>
+      apiWorkerProps({
+        ...cireApiProduction,
+        vars: { ...cireApiProduction.vars, OSN_API_URL: "https://osn.invalid" },
+      }),
+    ).toThrow(BindingNameClashError);
+  });
+
   test("leaves zone routes unmanaged", () => {
     expect(apiWorkerProps(cireApiDev)).not.toHaveProperty("routes");
+  });
+
+  test("B1: a prebuilt Worker reaches the props unbundled", () => {
+    expect(apiWorkerProps({ ...cireApiDev, bundle: false }).bundle).toBe(false);
+    expect(apiWorkerProps(cireApiDev).bundle).toBe(true);
+  });
+
+  test("B8: a bundled Worker keeps Alchemy's own externals and every Bun-only module out of its bundle; a prebuilt one passes no build options", () => {
+    // An `input.external` override replaces the list Alchemy sets itself,
+    // so the props must repeat it.
+    const bundler = readFileSync(
+      join(alchemyDir(), "src", "Cloudflare", "Workers", "Sources", "Rolldown.ts"),
+      "utf8",
+    );
+    expect(bundler).toContain('external: ["lightningcss", "fsevents"],');
+    expect(bundler).toContain("...overrides,");
+
+    expect(apiWorkerProps(cireApiDev).build).toEqual({
+      input: { external: ["lightningcss", "fsevents", "drizzle-orm/bun-sqlite"] },
+    });
+    expect(apiWorkerProps({ ...cireApiDev, bundle: false })).not.toHaveProperty("build");
+  });
+
+  test("B2: maps the assets config field for field, copying the routing rules", () => {
+    const runWorkerFirst = ["/_server-islands/*", "!/_astro/*"];
+    const props = apiWorkerProps({
+      ...cireApiDev,
+      assets: {
+        directory: "../../cire/invites/dist/client",
+        htmlHandling: "drop-trailing-slash",
+        notFoundHandling: "404-page",
+        runWorkerFirst,
+      },
+    });
+    expect(props.assets).toEqual({
+      directory: "../../cire/invites/dist/client",
+      htmlHandling: "drop-trailing-slash",
+      notFoundHandling: "404-page",
+      runWorkerFirst: ["/_server-islands/*", "!/_astro/*"],
+    });
+    expect((props.assets as { readonly runWorkerFirst?: unknown }).runWorkerFirst).not.toBe(
+      runWorkerFirst,
+    );
+    const everyRequest = apiWorkerProps({
+      ...cireApiDev,
+      assets: {
+        directory: "dist",
+        htmlHandling: "none",
+        notFoundHandling: "none",
+        runWorkerFirst: true,
+      },
+    });
+    expect(everyRequest.assets).toEqual({
+      directory: "dist",
+      htmlHandling: "none",
+      notFoundHandling: "none",
+      runWorkerFirst: true,
+    });
+  });
+
+  test("B3: a Worker with no assets declares no assets prop", () => {
+    expect("assets" in apiWorkerProps(cireApiDev)).toBe(false);
   });
 });
 
@@ -261,6 +376,8 @@ describe("siteWorkerProps", () => {
     htmlHandling: "auto-trailing-slash",
     notFoundHandling: "404-page",
     issues: true,
+    entry: null,
+    redirectsFile: true,
   } as const;
 
   test("deploys assets only, with every routing choice stated", () => {
@@ -280,6 +397,41 @@ describe("siteWorkerProps", () => {
     expect(() => siteWorkerProps({ ...site, previewUrls: true })).toThrow(
       ProductionPreviewUrlsError,
     );
+  });
+
+  test("B4: a site with an entry runs it before the assets it names; one without has no script", () => {
+    const props = siteWorkerProps({
+      ...site,
+      name: "pulse-landing-dev",
+      stage: "dev",
+      directory: "../../pulse/landing/dist",
+      entry: {
+        main: "../../pulse/landing/worker/index.ts",
+        compatibility: { date: "2026-10-01", flags: ["nodejs_compat"] },
+        runWorkerFirst: ["/api/geo"],
+      },
+    });
+    expect(props.main).toBe("../../pulse/landing/worker/index.ts");
+    expect(props.compatibility).toEqual({ date: "2026-10-01", flags: ["nodejs_compat"] });
+    expect(props.assets).toEqual({
+      directory: "../../pulse/landing/dist",
+      htmlHandling: "auto-trailing-slash",
+      notFoundHandling: "404-page",
+      runWorkerFirst: ["/api/geo"],
+    });
+    const assetsOnly = siteWorkerProps(site);
+    expect(assetsOnly).not.toHaveProperty("main");
+    expect(assetsOnly).not.toHaveProperty("compatibility");
+  });
+
+  test("B7: a site that turns its _redirects file off sends empty redirects; one that keeps it sends none", () => {
+    expect(siteWorkerProps({ ...site, redirectsFile: false }).assets).toEqual({
+      directory: "../../cire/landing/dist",
+      htmlHandling: "auto-trailing-slash",
+      notFoundHandling: "404-page",
+      redirects: "",
+    });
+    expect(siteWorkerProps(site).assets).not.toHaveProperty("redirects");
   });
 
   test("keeps query strings out of logs and native traces off on every stage", () => {

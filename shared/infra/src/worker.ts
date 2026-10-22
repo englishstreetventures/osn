@@ -14,7 +14,25 @@ export interface ApiWorkerObservability {
   readonly issues: boolean;
 }
 
-/** Every setting where Alchemy's default differs from today's Wrangler config is required. */
+/** A Worker's static assets: the built directory and how requests reach it. */
+export interface WorkerAssetsInput {
+  readonly directory: string;
+  readonly htmlHandling:
+    | "auto-trailing-slash"
+    | "force-trailing-slash"
+    | "drop-trailing-slash"
+    | "none";
+  readonly notFoundHandling: "none" | "404-page" | "single-page-application";
+  /** `true` sends every request to the Worker first; a rule list sends only matching paths. */
+  readonly runWorkerFirst: boolean | readonly string[];
+}
+
+/**
+ * Every setting where Alchemy's default differs from today's Wrangler config
+ * is required. `bundle` and `assets` say whether `main` is source Alchemy
+ * bundles or a prebuilt Worker uploaded as it is, and which static assets
+ * the Worker serves beside it.
+ */
 export interface ApiWorkerInput {
   /** The Worker's entry in the secret inventory, which `secrets` must match for the stage's tier. */
   readonly worker: WorkerKey;
@@ -23,6 +41,10 @@ export interface ApiWorkerInput {
   readonly stage: string;
   /** The entry module, relative to the stack's working directory. */
   readonly main: string;
+  /** false: `main` is a prebuilt Worker, uploaded byte for byte with the modules beside it. */
+  readonly bundle: boolean;
+  /** The static assets the Worker serves, or null for none. */
+  readonly assets: WorkerAssetsInput | null;
   readonly compatibility: { readonly date: string; readonly flags: readonly string[] };
   /** The custom-domain hostname, or null to hold none. */
   readonly domain: string | null;
@@ -31,18 +53,35 @@ export interface ApiWorkerInput {
   readonly workersDev: boolean;
   /** Serve each version at its own workers.dev preview URL; refused on production. */
   readonly previewUrls: boolean;
-  /** Plain-text values. Never a name the secret inventory lists for this Worker. */
+  /**
+   * Plain-text values. Never a name the secret inventory lists for this
+   * Worker, except one the stage's own tier lists in `plainVars`.
+   */
   readonly vars: Readonly<Record<string, string>>;
   readonly bindings: Cloudflare.WorkerBindingProps;
   readonly secrets: Readonly<Record<string, Redacted.Redacted<string>>>;
   readonly observability: ApiWorkerObservability;
 }
 
+/**
+ * A static site served from Workers static assets. Alchemy applies the built
+ * directory's `_headers`, and its `_redirects` unless `redirectsFile` is
+ * false. A site with an `entry` also runs that module for the paths its
+ * `runWorkerFirst` rules name; one without uploads no script.
+ */
 export interface SiteWorkerInput {
   readonly name: string;
   readonly stage: string;
-  /** The built site; Alchemy applies its `_headers` and `_redirects`. */
+  /** The built site. */
   readonly directory: string;
+  /** false sends an empty `_redirects`, which overrides the file in `directory`. */
+  readonly redirectsFile: boolean;
+  /** The module that serves the paths `runWorkerFirst` names, or null for an assets-only site. */
+  readonly entry: {
+    readonly main: string;
+    readonly compatibility: { readonly date: string; readonly flags: readonly string[] };
+    readonly runWorkerFirst: readonly string[];
+  } | null;
   readonly domain: string | null;
   readonly workersDev: boolean;
   /** Serve each version at its own workers.dev preview URL; refused on production. */
@@ -149,7 +188,8 @@ function previewsEnabled(name: string, stage: string, previewUrls: boolean): boo
  * A var reaches the Worker as plain text that `wrangler secret list` never
  * shows, and a binding is no secret either, so neither may take a name the
  * inventory lists for the Worker on any tier: required, optional or
- * forbidden.
+ * forbidden. The one exception is a var the stage's own tier lists in
+ * `plainVars`.
  */
 function checkPlainBindings(input: ApiWorkerInput): void {
   const entry = SECRET_INVENTORY.find((candidate) => candidate.worker === input.worker);
@@ -160,7 +200,11 @@ function checkPlainBindings(input: ApiWorkerInput): void {
       if (name !== undefined) listed.add(name);
     }
   }
-  const names = [...Object.keys(input.vars), ...Object.keys(input.bindings)]
+  const plainVars = new Set(entry?.tiers[tierOf(input.stage)].plainVars ?? []);
+  const names = [
+    ...Object.keys(input.vars).filter((name) => !plainVars.has(name)),
+    ...Object.keys(input.bindings),
+  ]
     .filter((name) => listed.has(name))
     .toSorted();
   if (names.length > 0) {
@@ -191,6 +235,30 @@ function checkProductionObservability(input: ApiWorkerInput): void {
   }
 }
 
+const routingRules = (rules: boolean | readonly string[]): boolean | string[] =>
+  typeof rules === "boolean" ? rules : [...rules];
+
+/**
+ * Modules only Bun can load, kept out of every Worker bundle as runtime
+ * imports that never run there. `shared/db-utils` loads drizzle's bun-sqlite
+ * driver through a non-literal specifier so that a bundler leaves it alone;
+ * rolldown folds the constant and would bundle the driver, whose static
+ * `bun:sqlite` import workerd cannot resolve.
+ */
+export const BUN_ONLY_MODULES: readonly string[] = ["drizzle-orm/bun-sqlite"];
+
+/**
+ * Rolldown's `external` for every Worker Alchemy bundles. An `input.external`
+ * override replaces the list Alchemy sets itself (`lightningcss`, `fsevents`:
+ * alchemy src/Cloudflare/Workers/Sources/Rolldown.ts) rather than adding to
+ * it, so that list is repeated first.
+ */
+export const WORKER_BUNDLE_EXTERNAL: readonly string[] = [
+  "lightningcss",
+  "fsevents",
+  ...BUN_ONLY_MODULES,
+];
+
 export function apiWorkerProps(input: ApiWorkerInput): Cloudflare.WorkerProps {
   checkDeclaredSecrets(input);
   const clashes = clashingNames([
@@ -207,9 +275,10 @@ export function apiWorkerProps(input: ApiWorkerInput): Cloudflare.WorkerProps {
   checkPlainBindings(input);
   checkProductionObservability(input);
   const { observability } = input;
-  return {
+  const props: Cloudflare.WorkerProps = {
     name: input.name,
     main: input.main,
+    bundle: input.bundle,
     compatibility: { date: input.compatibility.date, flags: [...input.compatibility.flags] },
     domain: input.domain,
     crons: [...input.crons],
@@ -233,16 +302,32 @@ export function apiWorkerProps(input: ApiWorkerInput): Cloudflare.WorkerProps {
     },
     env: { ...input.vars, ...input.bindings, ...input.secrets },
   };
+  // A prebuilt Worker is uploaded as it is, so it takes no bundler options.
+  const built: Cloudflare.WorkerProps = input.bundle
+    ? { ...props, build: { input: { external: [...WORKER_BUNDLE_EXTERNAL] } } }
+    : props;
+  if (input.assets === null) return built;
+  return {
+    ...built,
+    assets: {
+      directory: input.assets.directory,
+      htmlHandling: input.assets.htmlHandling,
+      notFoundHandling: input.assets.notFoundHandling,
+      runWorkerFirst: routingRules(input.assets.runWorkerFirst),
+    },
+  };
 }
 
 export function siteWorkerProps(input: SiteWorkerInput): Cloudflare.WorkerProps {
-  return {
+  const routing = {
+    directory: input.directory,
+    htmlHandling: input.htmlHandling,
+    notFoundHandling: input.notFoundHandling,
+  };
+  const assets = input.redirectsFile ? routing : { ...routing, redirects: "" };
+  const props: Cloudflare.WorkerProps = {
     name: input.name,
-    assets: {
-      directory: input.directory,
-      htmlHandling: input.htmlHandling,
-      notFoundHandling: input.notFoundHandling,
-    },
+    assets,
     domain: input.domain,
     workersDev: {
       enabled: input.workersDev,
@@ -257,5 +342,13 @@ export function siteWorkerProps(input: SiteWorkerInput): Cloudflare.WorkerProps 
       traces: { enabled: false },
       issues: { enabled: input.issues },
     },
+  };
+  const { entry } = input;
+  if (entry === null) return props;
+  return {
+    ...props,
+    main: entry.main,
+    compatibility: { date: entry.compatibility.date, flags: [...entry.compatibility.flags] },
+    assets: { ...assets, runWorkerFirst: [...entry.runWorkerFirst] },
   };
 }

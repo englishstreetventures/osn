@@ -1,18 +1,13 @@
-// Derives seed/dev-seed.sql from the canonical seed data in ./data, and
-// seed/dev-reset.sql from the Drizzle schema. Run with
-// `bun run --cwd cire/db seed:generate` after editing anything under ./data or
-// adding a table to src/schema.ts — both files are generated, never hand-edited.
-// seed.test.ts fails CI if either committed file drifts from what this emits.
+// Derives seed/dev-seed.sql from the canonical seed data in ./data. Run with
+// `bun run --cwd cire/db seed:generate` after editing anything under ./data —
+// the file is generated, never hand-edited. seed.test.ts fails CI if the
+// committed file drifts from what this emits.
 //
-//   bun run --cwd cire/db seed:generate         # regenerate both files
+//   bun run --cwd cire/db seed:generate         # regenerate dev-seed.sql
 //
-// The output is byte-for-byte deterministic so the in-repo files are a pure
-// function of ./data + src/schema.ts.
+// The output is byte-for-byte deterministic so the in-repo file is a pure
+// function of ./data.
 
-import { getTableName, is } from "drizzle-orm";
-import { getTableConfig, SQLiteTable } from "drizzle-orm/sqlite-core";
-
-import * as schema from "../src/schema";
 import {
   bootstrapWedding,
   budgetItems,
@@ -673,106 +668,7 @@ export function generateSeedSql(): string {
   ].join("\n")}\n`;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// dev-reset.sql — wipe a disposable database back to empty
-// ─────────────────────────────────────────────────────────────────────────────
-
-// Every table Drizzle declares in src/schema.ts, sorted so the output is stable.
-// Read from the schema rather than a hand-kept list: a new table added without a
-// matching DROP would survive the reset, and the next migration replay would die
-// on `CREATE TABLE` — a green deploy that quietly stopped resetting is worse.
-// Drop order matters, and `PRAGMA defer_foreign_keys` does not save us: wrangler
-// sends a --file as separate statements, so the pragma is gone by the next one.
-// With foreign keys on, dropping a parent first makes the later drop of its child
-// fail — SQLite runs an implicit DELETE on the child and cannot find the parent it
-// must check ("no such table: main.events"). So children go first: a table is
-// dropped before anything it points at.
-//
-// Depth is the longest chain of references out of a table. Dropping deepest-first
-// puts every child ahead of its parent. Self-references and cycles are skipped by
-// the in-progress set, which cannot loop.
-function referenceDepth(
-  table: SQLiteTable,
-  byName: ReadonlyMap<string, SQLiteTable>,
-  cache: Map<string, number>,
-  inProgress: ReadonlySet<string>,
-): number {
-  const name = getTableName(table);
-  const cached = cache.get(name);
-  if (cached !== undefined) return cached;
-
-  const walking = new Set(inProgress).add(name);
-  let depth = 0;
-  for (const fk of getTableConfig(table).foreignKeys) {
-    const parentName = getTableName(fk.reference().foreignTable);
-    if (walking.has(parentName)) continue;
-    const parent = byName.get(parentName);
-    if (parent === undefined) continue;
-    depth = Math.max(depth, 1 + referenceDepth(parent, byName, cache, walking));
-  }
-
-  cache.set(name, depth);
-  return depth;
-}
-
-export function schemaTableNames(): readonly string[] {
-  const tables = Object.values(schema).filter((value) => is(value, SQLiteTable));
-  const byName = new Map(tables.map((table) => [getTableName(table), table] as const));
-  const cache = new Map<string, number>();
-  const depths = new Map(
-    tables.map(
-      (table) => [getTableName(table), referenceDepth(table, byName, cache, new Set())] as const,
-    ),
-  );
-
-  // Deepest first, then alphabetical — so the file is stable whatever order
-  // schema.ts happens to export in.
-  const names = [...depths.keys()].toSorted(
-    (a, b) => (depths.get(b) ?? 0) - (depths.get(a) ?? 0) || a.localeCompare(b),
-  );
-
-  // A reflection walk that returns nothing looks exactly like a schema with no
-  // tables, and both regenerate green: seed.test.ts would compare an empty
-  // committed file against an empty generated one and agree. The deploy would
-  // then stop resetting silently, which is the failure this file exists to
-  // prevent. cire has had tables since 0001 and will never have none.
-  if (names.length === 0) {
-    throw new Error(
-      "cire/db/src/schema.ts exported no SQLiteTable — refusing to emit a reset that drops nothing.",
-    );
-  }
-
-  return names;
-}
-
-export function generateResetSql(): string {
-  const drops = [
-    // wrangler's own migration ledger. Dropping it is the point: the dev deploy
-    // then replays every migration from 0001 against an empty database, so each
-    // deploy doubles as a migration test. Leave it and `d1 migrations apply`
-    // believes the (now missing) tables are already there.
-    "d1_migrations",
-    ...schemaTableNames(),
-  ];
-
-  return `-- Wipes a cire D1 back to empty. GENERATED FILE — do not edit by hand.
--- Regenerate with: bun run --cwd cire/db seed:generate
--- The table list is read from cire/db/src/schema.ts; seed.test.ts fails CI on drift.
---
--- DESTRUCTIVE. Only ever run against a disposable database. The dev deploy runs
--- it on every merge (reset -> migrate -> seed), and scripts/cire-db-seed.sh
--- refuses any remote target whose name is not \`cire-db-dev\`.
---
--- Tables are dropped children first (deepest reference chain first). wrangler
--- sends a --file as separate statements, so a PRAGMA cannot hold foreign keys off
--- across the batch: drop a parent early and the child's own drop fails.
-
-${drops.map((name) => `DROP TABLE IF EXISTS ${name};`).join("\n")}
-`;
-}
-
 if (import.meta.main) {
   const { writeFileSync } = await import("node:fs");
   writeFileSync(new URL("./dev-seed.sql", import.meta.url), generateSeedSql());
-  writeFileSync(new URL("./dev-reset.sql", import.meta.url), generateResetSql());
 }

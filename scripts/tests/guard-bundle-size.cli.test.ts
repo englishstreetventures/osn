@@ -7,8 +7,7 @@
 // (previously `guard-bundle-size.sh <package-dir> <mode> <threshold>`, copied
 // by hand into every caller) and into scripts/bundle-size-budgets.txt, the
 // single source of truth every caller now looks its app up in. These tests
-// run the real script as a subprocess, the same way
-// scripts/tests/cire-dev-db-guard.cli.test.ts does, against a FIXTURE budgets
+// run the real script as a subprocess against a FIXTURE budgets
 // file (`BUNDLE_SIZE_BUDGETS_FILE`) and a fixture resolution root
 // (`BUNDLE_SIZE_BUDGETS_ROOT`, which only `--all` uses) — the same
 // env-var-override idiom `ASTRO_TEST_ROUTE_APPS` uses for

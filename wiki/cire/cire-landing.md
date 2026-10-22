@@ -245,11 +245,14 @@ allow-lists `images.unsplash.com` for `img-src`.
 (`cire/invites`); `host.cireweddings.com` → organiser portal (`cire/host`, moved
 off `app.cireweddings.com`). CI job `deploy-cire-landing` in
 `.github/workflows/production-release.yml` mirrors `deploy-cire-host` (the `cire-landing`
-Pages project must exist in the account before first run). A `deploy-cire-landing-dev`
-job in `deploy.yml` serves `dev.cireweddings.com` from the `cire-landing-dev` Pages
-project; the apex job ships only in a production release, once dev has deployed the
-same content and a human has approved the `production` GitHub Environment. See
-[[dev-environment]] and [[production-deploy]].
+Pages project must exist in the account before first run). On dev the cire stack
+serves it as the `cire-landing-dev` Worker, with static assets, on `cire.<DEV_DOMAIN>`,
+a host derived from the `dev` Environment's `DEV_DOMAIN` variable
+([[infrastructure-as-code#Dev hosts]]); `deploy.yml`'s cire stack job deploys and
+smoke-checks it, and its record job `deploy-cire-landing-dev` leaves the dev
+Deployment record. The apex job ships only in a production release, once dev has
+deployed the same content and a human has approved the `production` GitHub
+Environment. See [[dev-environment]] and [[production-deploy]].
 
 **Passkey safety:** prod `OSN_RP_ID = cireweddings.com` (the registrable apex), so
 WebAuthn credentials are scoped to the whole domain — moving the organiser portal

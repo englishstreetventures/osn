@@ -1,0 +1,10 @@
+{
+  "extends": "@shared/typescript-config/node.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM"],
+    "declaration": false,
+    "declarationMap": false
+  },
+  "include": ["alchemy.run.ts", "scripts/**/*", "src/**/*", "tests/**/*"],
+  "exclude": ["node_modules", ".generated", ".alchemy"]
+}

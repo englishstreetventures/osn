@@ -2,10 +2,10 @@
 // wrangler's JSON, and the argument check. The CLI half — what reaches
 // wrangler's apply, and the exit code — is in the .cli.test.ts beside this file.
 //
-// The ledger shapes below are the ones deployed cire databases really hold:
-// production applied the original chain file by file, dev is rebuilt nightly
-// from the baseline and migrated forward on every merge, and a fresh database
-// has no ledger table at all.
+// The ledger shapes below are the ones cire databases really hold: production
+// applied the original chain file by file, a local database is rebuilt from the
+// baseline by `db:reset` and migrated forward, and a fresh database has no
+// ledger table at all.
 
 import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
@@ -54,9 +54,8 @@ test("an empty ledger is fresh, and passes", () => {
 });
 
 test("a ledger holding only the baseline passes the ledger rule and asks for the schema check", () => {
-  // The state the nightly dev rebuild and `db:reset` leave behind, every time
-  // they are checked — and also what an older baseline leaves, which only the
-  // schema can tell apart.
+  // The state `db:reset` leaves behind, every time it is checked — and also
+  // what an older baseline leaves, which only the schema can tell apart.
   expect(check([BASELINE])).toMatchObject({ ok: true, baselineOnly: true });
 });
 
@@ -224,7 +223,7 @@ test("checkBaselineSchema refuses an older baseline, naming what differs", () =>
     missing: ["CREATE TABLE `weddings`", "CREATE INDEX `weddings_tier_idx` ON `weddings`"],
   });
   expect(verdict.message).toContain("older baseline");
-  expect(verdict.message).toContain("cire-dev-db-rebuild.yml");
+  expect(verdict.message).toContain("bun run --cwd cire/db db:reset");
 });
 
 // ── wrangler's JSON ──────────────────────────────────────────────────────────
@@ -318,9 +317,9 @@ test("every chain start is an archived migration, the original chain's first amo
   expect(CHAIN_STARTS).toEqual(CHAIN_STARTS.toSorted());
 });
 
-test("the real archive passes production's and dev's complete ledgers", () => {
-  // Production applied the original chain file by file; dev was built from the
-  // previous baseline and applied everything after it.
+test("the real archive passes a whole-chain ledger and one built from the previous baseline", () => {
+  // Production applied the original chain file by file; a database built from
+  // the previous baseline applied everything after it.
   expect(checkLedger([...archive], archive)).toMatchObject({ ok: true, baselineOnly: false });
   const afterOlderBaseline = archive.slice(archive.indexOf(CHAIN_STARTS[1]!));
   expect(checkLedger([BASELINE, ...afterOlderBaseline], archive)).toMatchObject({ ok: true });
@@ -359,7 +358,8 @@ test("every cire D1 block in wrangler.toml uses the ledger table and directory t
     ...(config.d1_databases ?? []),
     ...Object.values(config.env ?? {}).flatMap((env) => env.d1_databases ?? []),
   ];
-  expect(blocks.length).toBe(3);
+  // The top level (local `wrangler dev`) and [env.production].
+  expect(blocks.length).toBe(2);
   for (const block of blocks) {
     expect(resolve(MIGRATIONS_DIR, "..", "..", "api", block.migrations_dir ?? "")).toBe(
       MIGRATIONS_DIR,

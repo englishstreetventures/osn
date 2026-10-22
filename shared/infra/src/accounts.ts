@@ -42,6 +42,15 @@ export const RETIRING_DEV_CREDENTIALS: readonly string[] = [
   "CLOUDFLARE_API_TOKEN_DEV",
 ];
 
+/**
+ * The `dev` Environment's read-only token for the dev account. The free-tier
+ * ceiling alert's dev job reads it and fails without it, so the dev
+ * Environment must hold it.
+ */
+export const DEV_READONLY_CREDENTIALS: readonly string[] = [
+  "CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY",
+];
+
 /** Repository-level credentials, outside both Environments: read-only access to the production account. */
 export const REPOSITORY_CREDENTIALS: readonly string[] = [
   "CLOUDFLARE_ACCOUNT_ID",
@@ -56,16 +65,21 @@ export function accountSecrets(tier: Tier): readonly string[] {
   return [account.accountIdSecret, account.apiTokenSecret].toSorted();
 }
 
-/** Credential names `tier`'s Environment may hold besides its own account's, sorted. */
+/** The credentials `tier`'s Environment must hold: its account's pair and, on dev, the read-only token. Sorted. */
+export function requiredCredentials(tier: Tier): readonly string[] {
+  return [...accountSecrets(tier), ...(tier === "dev" ? DEV_READONLY_CREDENTIALS : [])].toSorted();
+}
+
+/** Credential names `tier`'s Environment may still hold, though no workflow needs them: the old dev tier's. Sorted. */
 export function allowedCredentials(tier: Tier): readonly string[] {
-  return tier === "dev" ? RETIRING_DEV_CREDENTIALS.toSorted() : [];
+  return tier === "dev" ? [...RETIRING_DEV_CREDENTIALS].toSorted() : [];
 }
 
 /** Credential names `tier`'s Environment must never hold: the other tier's, where this tier does not use the name too. */
 export function forbiddenCredentials(tier: Tier): readonly string[] {
-  const own = new Set([...accountSecrets(tier), ...allowedCredentials(tier)]);
+  const own = new Set([...requiredCredentials(tier), ...allowedCredentials(tier)]);
   const other = otherTier(tier);
-  return [...new Set([...accountSecrets(other), ...allowedCredentials(other)])]
+  return [...new Set([...requiredCredentials(other), ...allowedCredentials(other)])]
     .filter((name) => !own.has(name))
     .toSorted();
 }
@@ -77,6 +91,7 @@ export function knownCredentials(): readonly string[] {
       ...accountSecrets("dev"),
       ...accountSecrets("production"),
       ...RETIRING_DEV_CREDENTIALS,
+      ...DEV_READONLY_CREDENTIALS,
       ...REPOSITORY_CREDENTIALS,
     ]),
   ].toSorted();

@@ -121,6 +121,20 @@
         "vitest": "5.0.3",
       },
     },
+    "cire/infra": {
+      "name": "@cire/infra",
+      "dependencies": {
+        "@effect/platform-bun": "4.0.5",
+        "@effect/platform-node": "4.0.5",
+        "@shared/infra": "workspace:*",
+        "alchemy": "2.0.0-beta.83",
+        "effect": "4.0.5",
+      },
+      "devDependencies": {
+        "@shared/typescript-config": "workspace:*",
+        "vitest": "5.0.3",
+      },
+    },
     "cire/invite-designs": {
       "name": "@cire/invite-designs",
       "devDependencies": {
@@ -254,6 +268,21 @@
         "typescript": "^6.0.3",
         "vite": "^8.3.3",
         "vite-plugin-solid": "^2.11.14",
+        "vitest": "5.0.3",
+      },
+    },
+    "musubi/infra": {
+      "name": "@musubi/infra",
+      "version": "0.0.0",
+      "dependencies": {
+        "@effect/platform-bun": "4.0.5",
+        "@effect/platform-node": "4.0.5",
+        "@shared/infra": "workspace:*",
+        "alchemy": "2.0.0-beta.83",
+        "effect": "4.0.5",
+      },
+      "devDependencies": {
+        "@shared/typescript-config": "workspace:*",
         "vitest": "5.0.3",
       },
     },
@@ -450,6 +479,21 @@
         "drizzle-kit": "1.0.0-rc.4",
         "vitest": "5.0.3",
         "wrangler": "4.149.0",
+      },
+    },
+    "pulse/infra": {
+      "name": "@pulse/infra",
+      "version": "0.0.0",
+      "dependencies": {
+        "@effect/platform-bun": "4.0.5",
+        "@effect/platform-node": "4.0.5",
+        "@shared/infra": "workspace:*",
+        "alchemy": "2.0.0-beta.83",
+        "effect": "4.0.5",
+      },
+      "devDependencies": {
+        "@shared/typescript-config": "workspace:*",
+        "vitest": "5.0.3",
       },
     },
     "pulse/landing": {
@@ -936,6 +980,21 @@
         "wrangler": "4.149.0",
       },
     },
+    "zap/infra": {
+      "name": "@zap/infra",
+      "version": "0.0.0",
+      "dependencies": {
+        "@effect/platform-bun": "4.0.5",
+        "@effect/platform-node": "4.0.5",
+        "@shared/infra": "workspace:*",
+        "alchemy": "2.0.0-beta.83",
+        "effect": "4.0.5",
+      },
+      "devDependencies": {
+        "@shared/typescript-config": "workspace:*",
+        "vitest": "5.0.3",
+      },
+    },
   },
   "patchedDependencies": {
     "@stryker-mutator/vitest-runner@10.0.0": "patches/@stryker-mutator%2Fvitest-runner@10.0.0.patch",
@@ -1188,6 +1247,8 @@
     "@cire/dietary": ["@cire/dietary@workspace:cire/dietary"],
 
     "@cire/host": ["@cire/host@workspace:cire/host"],
+
+    "@cire/infra": ["@cire/infra@workspace:cire/infra"],
 
     "@cire/invite-designs": ["@cire/invite-designs@workspace:cire/invite-designs"],
 
@@ -1595,6 +1656,8 @@
 
     "@mrleebo/prisma-ast": ["@mrleebo/prisma-ast@0.13.1", "", { "dependencies": { "chevrotain": "^10.5.0", "lilconfig": "^2.1.0" } }, "sha512-XyroGQXcHrZdvmrGJvsA9KNeOOgGMg1Vg9OlheUsBOSKznLMDl+YChxbkboRHvtFYJEMRYmlV3uoo/njCw05iw=="],
 
+    "@musubi/infra": ["@musubi/infra@workspace:musubi/infra"],
+
     "@musubi/landing": ["@musubi/landing@workspace:musubi/landing"],
 
     "@musubi/social": ["@musubi/social@workspace:musubi/social"],
@@ -1852,6 +1915,8 @@
     "@pulse/api": ["@pulse/api@workspace:pulse/api"],
 
     "@pulse/db": ["@pulse/db@workspace:pulse/db"],
+
+    "@pulse/infra": ["@pulse/infra@workspace:pulse/infra"],
 
     "@pulse/landing": ["@pulse/landing@workspace:pulse/landing"],
 
@@ -2204,6 +2269,8 @@
     "@zap/api": ["@zap/api@workspace:zap/api"],
 
     "@zap/db": ["@zap/db@workspace:zap/db"],
+
+    "@zap/infra": ["@zap/infra@workspace:zap/infra"],
 
     "acorn": ["acorn@8.18.0", "", { "bin": { "acorn": "bin/acorn" } }, "sha512-lGq+9yr1/GuAWaVYIHRjvvySG5/4VfKIvC8EWxStPdcDh/Ka7FG3twP6v4d5BkravUilhIAsG4Qj83t02LWUPQ=="],
 

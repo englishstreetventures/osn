@@ -61,18 +61,17 @@ describe("CORS", () => {
 // The portals call this API cross-origin with credentials and a JSON body, so
 // every non-GET they send is preflighted, and the browser refuses any method
 // the preflight's `Access-Control-Allow-Methods` leaves out. The origins are
-// the committed `WEB_ORIGIN` allowlists of both deployed tiers, split here with
-// a copy of the split, trim and filter in `src/index.ts`.
+// the committed `[env.production.vars] WEB_ORIGIN` allowlist, split here with
+// a copy of the split, trim and filter in `src/index.ts`. The dev list's three
+// origins come from the cire stack, whose K1 test (`cire/infra/tests/stack.test.ts`)
+// holds them.
 const committedToml = await Bun.file(new URL("../wrangler.toml", import.meta.url)).text();
-const deployedTiers = Bun.TOML.parse(committedToml) as {
-  env: Record<"dev" | "production", { vars: { WEB_ORIGIN: string } }>;
+const production = Bun.TOML.parse(committedToml) as {
+  env: { production: { vars: { WEB_ORIGIN: string } } };
 };
-const originsByTier = (["dev", "production"] as const).map((tier) =>
-  deployedTiers.env[tier].vars.WEB_ORIGIN.split(",")
-    .map((origin) => origin.trim())
-    .filter(Boolean),
-);
-const portalOrigins = originsByTier.flat();
+const portalOrigins = production.env.production.vars.WEB_ORIGIN.split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 
 // Stripe is configured so that every conditionally mounted route group is on
 // the app and in `app.routes`. A preflight never reaches a handler, so no
@@ -124,8 +123,8 @@ const patchPaths = deployedApp.routes
   .map((route) => route.path.replace(/:[^/]+/g, "x"));
 
 describe("CORS preflight for the deployed portal origins", () => {
-  it("reads an allowlist for each deployed tier", () => {
-    for (const origins of originsByTier) expect(origins.length).toBeGreaterThan(0);
+  it("reads the production allowlist", () => {
+    expect(portalOrigins.length).toBeGreaterThan(0);
     expect(patchPaths.length).toBeGreaterThan(0);
   });
 

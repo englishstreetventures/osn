@@ -96,6 +96,23 @@ describe("secret inventory", () => {
     }
   });
 
+  test("a plain var on one tier is a secret on another and nothing on its own tier", () => {
+    const listed = SECRET_INVENTORY.flatMap((entry) =>
+      TIERS.flatMap((tier) =>
+        (entry.tiers[tier].plainVars ?? []).map((name) => ({ entry, tier, name })),
+      ),
+    );
+    expect(listed.map(({ entry, tier, name }) => `${entry.worker} ${tier} ${name}`)).toEqual([
+      "cire-api dev OSN_API_URL",
+    ]);
+    for (const { entry, tier, name } of listed) {
+      const own = entry.tiers[tier];
+      expect([...own.secrets, ...own.optional, ...own.forbidden]).not.toContain(name);
+      const others = TIERS.filter((other) => other !== tier).map((other) => entry.tiers[other]);
+      expect(others.some((row) => row.secrets.includes(name))).toBe(true);
+    }
+  });
+
   test("a tier with no Worker declares nothing, and asking for it is refused", () => {
     for (const row of rows.filter((candidate) => candidate.scriptName === null)) {
       expect([...row.secrets, ...row.optional]).toEqual([]);
@@ -141,6 +158,11 @@ describe("secret inventory", () => {
     for (const worker of ["osn-api", "cire-api"] as const) {
       expect(tierSecrets(worker, "dev").forbidden).toContain("RESEND_API_URL");
     }
+  });
+
+  test("I1: zap-api on dev forbids the GrowthBook key no zap code reads", () => {
+    expect(reads("zap/api/src", "GROWTHBOOK_CLIENT_KEY")).toBe(false);
+    expect(tierSecrets("zap-api", "dev").forbidden).toContain("GROWTHBOOK_CLIENT_KEY");
   });
 
   test("cire-api keeps its member-step exclusion list on both tiers once set, and needs it on neither", () => {

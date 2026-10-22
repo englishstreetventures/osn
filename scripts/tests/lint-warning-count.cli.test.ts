@@ -2,7 +2,7 @@
 // countWarnings() directly, so none of them exercise the import.meta.main
 // block that scripts/guard-lint-warnings.sh actually calls:
 // `bun scripts/lint-warning-count.ts <path>`. These tests run the real
-// script as a subprocess, the same way scripts/tests/cire-dev-db-guard.cli.test.ts
+// script as a subprocess, the same way scripts/tests/guard-bundle-size.cli.test.ts
 // does, against a hand-written fixture JSON file shaped like a real oxlint
 // `--format=json` report — no oxlint invocation, so this needs no
 // `bun install` (matches every other file under scripts/).

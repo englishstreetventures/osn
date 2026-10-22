@@ -1,6 +1,6 @@
-import { accountSecrets, allowedCredentials, forbiddenCredentials } from "../accounts";
+import { allowedCredentials, forbiddenCredentials, requiredCredentials } from "../accounts";
 import type { Tier } from "../stage";
-import { SECRET_INVENTORY, type WorkerKey } from "./inventory";
+import { SECRET_INVENTORY, WORKFLOW_SECRETS, type WorkerKey } from "./inventory";
 
 export interface NameDiff {
   readonly where: string;
@@ -89,19 +89,24 @@ export function liveDiff(expected: LiveExpectation, actual: readonly string[]): 
   );
 }
 
-/** Each required Worker secret name the tier's GitHub Environment must hold, once, and the tier's account credentials. */
+/**
+ * Every name the tier's GitHub Environment must hold, once: each required
+ * Worker secret, the tier's required credentials and the secrets only its
+ * workflows read.
+ */
 export function githubExpectations(tier: Tier): string[] {
   return [
     ...new Set([
       ...SECRET_INVENTORY.flatMap((entry) => entry.tiers[tier].secrets),
-      ...accountSecrets(tier),
+      ...requiredCredentials(tier),
+      ...WORKFLOW_SECRETS[tier],
     ]),
   ].toSorted();
 }
 
 /**
  * Missing required names and the other tier's credentials fail; optional
- * secrets and the credentials the tier may still hold are not unexpected.
+ * secrets and the old credentials the tier may still hold are not unexpected.
  */
 export function githubDiff(tier: Tier, actual: readonly string[]): NameDiff {
   const optional = SECRET_INVENTORY.flatMap((entry) => entry.tiers[tier].optional);

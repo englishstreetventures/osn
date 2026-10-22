@@ -9,7 +9,7 @@ related:
   - "[[dev-environment]]"
   - "[[devloop-urls]]"
   - "[[commands]]"
-last-reviewed: 2026-10-16
+last-reviewed: 2026-10-19
 ---
 
 # Bun 1.4 migration
@@ -182,20 +182,6 @@ make. Dropped.
 
 ## Still to do
 
-### The dev-db guard is the better `Bun.TOML` target
-
-`scripts/cire-dev-db-guard.sh` hand-rolls a TOML *block* parser in awk to pull
-`[env.dev]`'s `database_name` and `database_id` out of the same
-`cire/api/wrangler.toml`. It is the higher-stakes of the two by a distance: it
-fronts an unattended `db:reset:dev` that drops every table, and its failure mode
-is *passing*. Its own comments record that it has already failed open once, from
-exactly the asymmetry a real parser removes — extraction stripped quotes while
-the comparison expected them, so a single-quoted production id passed clean.
-
-Parsing it properly deletes most of what the shell is doing. Do this before
-converting it to `$`, or instead of it. It needs care and its 203 lines of bash
-tests need porting, which is why it is not in the same change as the rest.
-
 ### `$` house rules
 
 Write these into `[[commands]]` when the next script is converted:
@@ -219,18 +205,17 @@ Write these into `[[commands]]` when the next script is converted:
 
 ### Scripts still on bash
 
-12 remain under `scripts/`, plus `scripts/todo-to-issues/labels.sh` — 14 before
-the D1 guard moved. The ones with real logic and bespoke `.test.sh` harnesses are
-the candidates, because converting them folds 393 lines of hand-written bash
-assertion into `bun test`:
+The bash scripts left under `scripts/` (`ls scripts/*.sh`), plus
+`scripts/todo-to-issues/labels.sh`, are the rest. The ones with real logic and
+bespoke `.test.sh` harnesses are the candidates, because converting them folds
+hand-written bash assertion into `bun test`:
 
 | Script | Lines (+test) |
 | --- | --- |
 | `validate-changesets.sh` | 122 + 102 |
 | `changeset-required.sh` | 68 + 88 |
-| `cire-dev-db-guard.sh` | 120 + 203 |
 
-`cire-db-reset.sh`, `cire-db-seed.sh`, `db-reset.sh`, `ensure-pages-project.sh`
+`cire-db-seed.sh`, `db-reset.sh`, `ensure-pages-project.sh`
 and `labels.sh` are straight command sequences — shorter under `$`, but there is
 no correctness argument for moving them.
 

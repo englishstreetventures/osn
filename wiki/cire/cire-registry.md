@@ -78,7 +78,7 @@ A Worker without that check can still write one: the one serving between a relea
 bunx wrangler d1 execute cire-db --env production --remote --command "UPDATE registry_claims SET status = 'released', updated_at = unixepoch() WHERE status <> 'released' AND family_id IN (SELECT id FROM families WHERE kind = 'host')"
 ```
 
-Run it from `cire/api`, where `wrangler.toml` lives; for the dev tier, use `cire-db-dev` and `--env dev`. Never clear such a row by deleting the gift: claims cascade from their item, so that also deletes every household's claim on it.
+Run it from `cire/api`, where `wrangler.toml` lives. For the dev tier, name `cire-db-dev` and leave out `--env`, with the dev account's credentials exported as [[dev-environment#7. Working on dev by hand]] says. Never clear such a row by deleting the gift: claims cascade from their item, so that also deletes every household's claim on it.
 
 CHECK `quantity between 1 and 99` and `status in ('reserved','purchased','released')`. The 99 ceiling matches `MAX_CLAIM_QUANTITY` in the service: a claim is a household saying how many of a listed gift they will bring, so a four-digit quantity is a typo or an attack, never a fact.
 

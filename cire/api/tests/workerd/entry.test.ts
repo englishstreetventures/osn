@@ -22,10 +22,11 @@ beforeAll(async () => {
   // Wrangler's own bundle, the artefact a deploy uploads: the same dry run as
   // `bun run build`, written to a directory of this test's own.
   const outdir = `${import.meta.dirname}/../../.wrangler/entry-test`;
-  const build = Bun.spawnSync(
-    ["bunx", "wrangler", "deploy", "--dry-run", "--env", "dev", "--outdir", outdir],
-    { cwd: `${import.meta.dirname}/../..`, stdout: "pipe", stderr: "pipe" },
-  );
+  const build = Bun.spawnSync(["bunx", "wrangler", "deploy", "--dry-run", "--outdir", outdir], {
+    cwd: `${import.meta.dirname}/../..`,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
   if (build.exitCode !== 0) throw new Error(`wrangler build failed: ${build.stderr.toString()}`);
   mf = new Miniflare({
     modules: true,

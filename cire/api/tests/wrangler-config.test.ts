@@ -1,10 +1,11 @@
 import { describe, expect, it } from "bun:test";
 
 /**
- * The realtime push bindings, per tier. Named environments inherit no
- * bindings, so each tier must declare its own; a tier that forgets ships with
- * push off and nothing fails. The class declaration is the opposite: a
- * top-level migration is inherited, and declaring it once is the rule.
+ * The realtime push bindings, per Wrangler tier. Named environments inherit
+ * no bindings, so each tier must declare its own; a tier that forgets ships
+ * with push off and nothing fails. The class declaration is the opposite: a
+ * top-level migration is inherited, and declaring it once is the rule. The
+ * dev Worker is declared by the cire stack, not here (cire/infra's K2).
  */
 
 interface RateLimit {
@@ -20,7 +21,7 @@ interface Tier {
 interface Config extends Tier {
   main: string;
   migrations?: { tag: string; new_sqlite_classes?: string[] }[];
-  env: { dev: Tier & { migrations?: unknown }; production: Tier & { migrations?: unknown } };
+  env: { production: Tier & { migrations?: unknown } };
 }
 
 const config = Bun.TOML.parse(
@@ -29,7 +30,6 @@ const config = Bun.TOML.parse(
 
 const tiers: [string, Tier][] = [
   ["the top level", config],
-  ["env.dev", config.env.dev],
   ["env.production", config.env.production],
 ];
 
@@ -40,7 +40,6 @@ describe("wrangler.toml — realtime push", () => {
 
   it("declares TopicHub once, SQLite-backed, at the top level only", () => {
     expect(config.migrations).toEqual([{ tag: "v1", new_sqlite_classes: ["TopicHub"] }]);
-    expect(config.env.dev.migrations).toBeUndefined();
     expect(config.env.production.migrations).toBeUndefined();
   });
 

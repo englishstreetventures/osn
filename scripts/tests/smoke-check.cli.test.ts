@@ -1,8 +1,8 @@
 // Runs scripts/smoke-check.ts as a process, the way the workflows' smoke step
 // does: `bun run scripts/smoke-check.ts <surface> <tier>` from the repository
 // root. The exit code is the step's verdict, so these pin it for the cases
-// that decide before any request — a bad call, and the guest site's dev check
-// with no Access token. The
+// that decide before any request — a bad call, and a dev check the stack job
+// gave no origin. The
 // request-and-rollback paths run in smoke-check.test.ts, against a fake fetch.
 
 import { afterAll, expect, test } from "bun:test";
@@ -47,14 +47,14 @@ test("a call with no tier exits 2 with an annotation", async () => {
   expect(result.stdout).toContain("::error::smoke-check: usage");
 });
 
-test("a surface that is not a Worker exits 2", async () => {
+test("a surface with no Worker on the tier exits 2", async () => {
   const result = await run(["osn_social", "production"]);
   expect(result.exitCode).toBe(2);
-  expect(result.stdout).toContain("is not a Worker surface");
+  expect(result.stdout).toContain("osn_social has no production Worker");
 });
 
-test("the guest site's dev check with no Access token is skipped, and the step passes", async () => {
-  const result = await run(["cire_invites", "dev"]);
-  expect(result.exitCode).toBe(0);
-  expect(result.stdout).toContain("::warning::Smoke check skipped for cire_invites (dev)");
+test("a dev check with no SMOKE_ORIGIN exits 2 before asking anything", async () => {
+  const result = await run(["cire_invites", "dev"], { SMOKE_DEPLOYMENT: "unchanged" });
+  expect(result.exitCode).toBe(2);
+  expect(result.stdout).toContain("SMOKE_ORIGIN");
 });

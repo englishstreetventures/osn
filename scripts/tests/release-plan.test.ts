@@ -15,8 +15,8 @@ import { dirname, join } from "node:path";
 import {
   changedFiles,
   deployReason,
+  PRODUCTION_SURFACES,
   surface,
-  SURFACES,
   type SurfaceKey,
   WORKFLOW_FILE,
 } from "../deploy-surfaces";
@@ -197,8 +197,9 @@ describe("a surface whose production deploy never ran", () => {
   test("an older release planned again does not roll production back", async () => {
     await withRepo(async (repo) => {
       // Production already runs B. Re-running the whole release of A plans at
-      // A, whose tree differs — shipping it would be a rollback. Zap has no
-      // dev gate to catch that, so this rule is the only thing that does.
+      // A, whose tree differs — shipping it would be a rollback. The dev gate
+      // passes any content dev once ran, as dev ran A's, so this rule is the
+      // only thing that stops it.
       const a = await commit(repo, { "zap/api/src/index.ts": "1", "osn/api/src/index.ts": "1" });
       const b = await commit(repo, { "zap/api/src/index.ts": "2", "osn/api/src/index.ts": "2" });
       const github = fakeGitHub([...fullRun("production", b, 2), ...fullRun("dev", b, 2)]);
@@ -229,7 +230,7 @@ describe("a surface whose production deploy never ran", () => {
         (await runReleasePlan({ env: env(b), fetch: github.fetch, cwd: repo })).outputs,
       );
       expect(Object.keys(outputs).toSorted()).toEqual(
-        [...SURFACES.map((s) => s.key), "any"].toSorted(),
+        [...PRODUCTION_SURFACES.map((s) => s.key), "any"].toSorted(),
       );
       expect(Object.values(outputs).every((value) => value === "false")).toBe(true);
       // Nothing ships, so no dev record is read.
@@ -323,16 +324,29 @@ describe("dev still gates production", () => {
     });
   });
 
-  test("zap has no dev tier and ships on its own diff", async () => {
+  test("zap waits for its dev deploy, as every surface does", async () => {
     await withRepo(async (repo) => {
       const a = await commit(repo, { "zap/api/src/index.ts": "1" });
       const b = await commit(repo, { "zap/api/src/index.ts": "2" });
-      const github = fakeGitHub([...fullRun("production", a, 1), ...fullRun("dev", a, 1)]);
+      const records = [...fullRun("production", a, 1), ...fullRun("dev", a, 1)];
 
-      const outputs = parseOutputs(
-        (await runReleasePlan({ env: env(b), fetch: github.fetch, cwd: repo })).outputs,
-      );
-      expect(outputs.zap_api).toBe("true");
+      const held = await runReleasePlan({
+        env: env(b),
+        fetch: fakeGitHub(records).fetch,
+        cwd: repo,
+      });
+      expect(parseOutputs(held.outputs).zap_api).toBe("false");
+      expect(held.decisions.find((d) => d.key === "zap_api")?.status).toBe("held back");
+
+      const shipped = await runReleasePlan({
+        env: env(b),
+        fetch: fakeGitHub([
+          { environment: "dev", sha: b, run: 2, job: dev("zap_api"), states: ["success"] },
+          ...records,
+        ]).fetch,
+        cwd: repo,
+      });
+      expect(parseOutputs(shipped.outputs).zap_api).toBe("true");
     });
   });
 
@@ -541,7 +555,7 @@ describe("lastDeployed", () => {
     const found = await lastDeployed(
       reader(github),
       "production",
-      SURFACES.map((s) => s.key),
+      PRODUCTION_SURFACES.map((s) => s.key),
     );
     expect(found.size).toBe(8);
     expect(github.calls.filter((call) => call.includes("/jobs"))).toHaveLength(1);
@@ -918,10 +932,13 @@ describe("restReader", () => {
 describe("parseRequest", () => {
   test("empty means every surface, and force defaults off", () => {
     expect(parseRequest(undefined, undefined)).toEqual({
-      surfaces: SURFACES.map((s) => s.key),
+      surfaces: PRODUCTION_SURFACES.map((s) => s.key),
       force: false,
     });
-    expect(parseRequest("", "")).toEqual({ surfaces: SURFACES.map((s) => s.key), force: false });
+    expect(parseRequest("", "")).toEqual({
+      surfaces: PRODUCTION_SURFACES.map((s) => s.key),
+      force: false,
+    });
   });
 
   test("takes a comma or space separated list, once each", () => {
@@ -942,11 +959,11 @@ describe("parseRequest", () => {
 
   test("force with no surfaces named forces every surface, rollbacks included", () => {
     const request = parseRequest("", "true");
-    expect(request.surfaces).toEqual(SURFACES.map((s) => s.key));
+    expect(request.surfaces).toEqual(PRODUCTION_SURFACES.map((s) => s.key));
     const decisions = changedSurfaces({
       head,
       request,
-      production: new Map(SURFACES.map((s) => [s.key, base])),
+      production: new Map(PRODUCTION_SURFACES.map((s) => [s.key, base])),
       diff: () => [],
       productionIsNewer: () => true,
     });
@@ -969,10 +986,10 @@ function decide(
   return changedSurfaces({
     head,
     request: {
-      surfaces: options.surfaces ?? SURFACES.map((s) => s.key),
+      surfaces: options.surfaces ?? PRODUCTION_SURFACES.map((s) => s.key),
       force: options.force ?? false,
     },
-    production: options.production ?? new Map(SURFACES.map((s) => [s.key, base])),
+    production: options.production ?? new Map(PRODUCTION_SURFACES.map((s) => [s.key, base])),
     diff: () => files,
     productionIsNewer: () => options.productionIsNewer ?? false,
   });
@@ -987,9 +1004,9 @@ describe("changedSurfaces", () => {
   });
 
   test("a shared path ships everything", () => {
-    expect(shipping(decide(["bun.lock"]))).toEqual(SURFACES.map((s) => s.key));
+    expect(shipping(decide(["bun.lock"]))).toEqual(PRODUCTION_SURFACES.map((s) => s.key));
     expect(shipping(decide([".github/workflows/production-release.yml"]))).toEqual(
-      SURFACES.map((s) => s.key),
+      PRODUCTION_SURFACES.map((s) => s.key),
     );
   });
 
@@ -999,13 +1016,13 @@ describe("changedSurfaces", () => {
 
   test("a surface with no production record ships", () => {
     const decisions = decide([], { production: new Map() });
-    expect(shipping(decisions)).toEqual(SURFACES.map((s) => s.key));
+    expect(shipping(decisions)).toEqual(PRODUCTION_SURFACES.map((s) => s.key));
     expect(decisions[0]?.reason).toContain("no successful production deployment");
   });
 
   test("a production commit git cannot compare ships the surface", () => {
     const decisions = decide(undefined);
-    expect(shipping(decisions)).toEqual(SURFACES.map((s) => s.key));
+    expect(shipping(decisions)).toEqual(PRODUCTION_SURFACES.map((s) => s.key));
     expect(decisions[0]?.reason).toContain("cannot compare");
   });
 
@@ -1054,9 +1071,9 @@ describe("applyDevGate", () => {
   const gate = (decisions: PlanDecision[], commits: ReturnType<typeof devRecords>, force = false) =>
     applyDevGate({ decisions, dev: commits, diff: (from) => files.get(from), force });
 
-  test("wants dev records only for shipping surfaces that have a dev tier", () => {
+  test("wants dev records for every shipping surface, and none when forced", () => {
     const decisions = decide(["cire/host/src/App.tsx", "zap/api/x.ts"]);
-    expect(devGateWanted(decisions, false)).toEqual(["cire_host"]);
+    expect(devGateWanted(decisions, false)).toEqual(["cire_host", "zap_api"]);
     expect(devGateWanted(decisions, true)).toEqual([]);
   });
 
@@ -1099,11 +1116,47 @@ describe("applyDevGate", () => {
 });
 
 describe("what the plan job writes", () => {
+  test("names exactly the eight production surfaces, never a dev-only one", async () => {
+    const EIGHT: SurfaceKey[] = [
+      "cire_api",
+      "cire_invites",
+      "cire_host",
+      "cire_vendor",
+      "cire_landing",
+      "osn_api",
+      "osn_social",
+      "zap_api",
+    ];
+    await withRepo(async (repo) => {
+      const a = await commit(repo, { "musubi/landing/src/a.astro": "1", "bun.lock": "1" });
+      const b = await commit(repo, { "musubi/landing/src/a.astro": "2", "bun.lock": "2" });
+      const github = fakeGitHub([...fullRun("production", a, 1), ...fullRun("dev", b, 2)]);
+
+      const plan = await runReleasePlan({ env: env(b), fetch: github.fetch, cwd: repo });
+      expect(plan.decisions.map((d) => d.key)).toEqual(EIGHT);
+      expect(
+        plan.outputs
+          .trim()
+          .split("\n")
+          .map((line) => line.split("=")[0]),
+      ).toEqual([...EIGHT, "any"]);
+      expect(plan.summary).not.toContain("musubi_landing");
+      expect(plan.summary).not.toContain("pulse_landing");
+    });
+    expect(parseRequest("", "").surfaces).toEqual(EIGHT);
+    for (const key of ["musubi_landing", "pulse_landing"]) {
+      expect(() => parseRequest(key, "")).toThrow(`SURFACES names ${key}, which is not a`);
+    }
+  });
+
   test("one line per surface, then any", () => {
     const lines = outputLines(decide(["osn/api/x.ts"]))
       .trim()
       .split("\n");
-    expect(lines).toEqual([...SURFACES.map((s) => `${s.key}=${s.key === "osn_api"}`), "any=true"]);
+    expect(lines).toEqual([
+      ...PRODUCTION_SURFACES.map((s) => `${s.key}=${s.key === "osn_api"}`),
+      "any=true",
+    ]);
     expect(outputLines(decide([])).trim().split("\n").at(-1)).toBe("any=false");
   });
 
@@ -1125,7 +1178,7 @@ describe("what the plan job writes", () => {
       repository: REPO,
       serverUrl: "https://github.com",
     });
-    for (const s of SURFACES) expect(summary).toContain(`| \`${s.key}\``);
+    for (const s of PRODUCTION_SURFACES) expect(summary).toContain(`| \`${s.key}\``);
     expect(summary).toContain(`https://github.com/${REPO}/compare/${base}...${head}`);
     expect(summary).toContain("osn/api/x.ts changed");
   });

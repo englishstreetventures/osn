@@ -15,9 +15,14 @@ last-reviewed: 2026-10-22
 
 ## Native Workers traces
 
-The deployed Worker projects configure Cloudflare's automatic traces in Wrangler.
-Local and dev tiers trace requests without URL redaction. Staging and production
-tiers remove query strings from request URLs in Cloudflare logs and native traces.
+Production Workers configure Cloudflare's automatic traces in Wrangler; dev
+Workers take theirs from their Alchemy stack
+([[infrastructure-as-code#Production observability]]). The local Wrangler
+configs trace requests without URL redaction. On dev every API Worker and the
+guest site trace every request: osn-api, cire-api and cire-invites remove query
+strings, zap-api keeps them, and the static sites trace nothing. Staging and
+production tiers remove query strings from request URLs in Cloudflare logs and
+native traces.
 The production Cire guest Worker traces both existing `/<slug>` links and new
 `/cire/invite?slug=…` and `/cire/registry?slug=…` links. Existing slug paths and
 their outbound API URLs appear in native traces. New links use fixed paths and

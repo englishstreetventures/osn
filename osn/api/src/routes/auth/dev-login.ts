@@ -62,7 +62,7 @@ export interface DevLoginConfig {
   /**
    * Origins a `return_to` may redirect to, from `DEV_LOGIN_RETURN_ORIGINS`
    * (comma-separated). Its own var rather than the tier's CORS allowlist: the
-   * portals that want a redirect (`host.dev.cireweddings.com`) are not the
+   * portals that want a redirect (the dev cire organiser portal) are not the
    * origins that make credentialed fetches to the identity Worker, and
    * widening `OSN_CORS_ORIGIN` to cover them would widen the CSRF origin guard
    * for every route. Empty ⇒ no `return_to` is ever accepted. An off-list

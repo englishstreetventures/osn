@@ -8,10 +8,13 @@
 # 56-64% of the ceiling and looked like ordinary days.
 #
 # All the logic is in `scripts/check-free-tier-ceilings.ts`, tested in
-# `scripts/tests/check-free-tier-ceilings.test.ts`. This job is the caller.
+# `scripts/tests/check-free-tier-ceilings.test.ts`. The two jobs are its
+# callers, one per Cloudflare account: production, and the dev tier's own
+# account. The ceilings are per account, so each job reads its own account and
+# files and updates its own issue (`--account`).
 #
-# Read-only against Cloudflare. It runs two GET/POST analytics queries and
-# writes nothing to any account resource.
+# Read-only against Cloudflare. Each job runs two GET/POST analytics queries
+# and writes nothing to any account resource.
 name: Free-tier ceiling alert
 
 on:
@@ -35,18 +38,19 @@ on:
 
 permissions:
   contents: read
-  # The job opens, reopens and edits one issue in this repository.
+  # Each job opens, reopens and edits its own issue in this repository.
   issues: write
 
 # One run at a time, so a hand-started run and the nightly one cannot both
-# decide whether the issue exists and both create it.
+# decide whether an issue exists and both create it. The two jobs of one run
+# look for different titles, so they never race each other.
 concurrency:
   group: free-tier-ceiling-alert
   cancel-in-progress: false
 
 jobs:
-  check:
-    name: Check the daily counters
+  production:
+    name: Check the production account's daily counters
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -75,9 +79,9 @@ jobs:
       # `d1AnalyticsAdaptiveGroups` and `workersInvocationsAdaptive` GraphQL sets
       # need — and no write right of any kind. It is not a deploy token. The
       # deploy tokens live only on the `dev` and `production` Environments, and
-      # since 2026-09-13 repository scope holds no credential that can write to
-      # Cloudflare at all. See `wiki/shared/dev-environment.md`
-      # §"Two Environments, two tokens".
+      # repository scope holds no credential that can write to Cloudflare at
+      # all. See `wiki/shared/dev-environment.md` §"Two accounts, two
+      # Environments".
       #
       # The env var below keeps the plain name because
       # `check-free-tier-ceilings.ts` reads `CLOUDFLARE_API_TOKEN`, the name
@@ -96,6 +100,40 @@ jobs:
           END: ${{ inputs.end }}
           DAYS: ${{ inputs.days || '2' }}
         run: |
-          ARGS=(--repo "$GITHUB_REPOSITORY" --days "$DAYS")
+          ARGS=(--account production --repo "$GITHUB_REPOSITORY" --days "$DAYS")
+          if [ -n "$END" ]; then ARGS+=(--end "$END"); fi
+          bun run scripts/check-free-tier-ceilings.ts "${ARGS[@]}"
+
+  dev:
+    name: Check the dev account's daily counters
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # The dev account's credentials are `dev` Environment secrets. That
+    # Environment has no reviewers, only a `main` branch policy, so the nightly
+    # run reaches them. It also holds the retiring CLOUDFLARE_ACCOUNT_ID, which
+    # names the production account, so this job reads the dev account's own
+    # names only.
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      # The same rules as the production job: no install, and any bad response
+      # fails the job. `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY` holds the
+      # same three read rights as the production read-only token, on the dev
+      # account, and nothing else. Either secret empty fails the run, naming
+      # both.
+      - name: Read the counters and file or update the issue
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
+          GH_TOKEN: ${{ github.token }}
+          END: ${{ inputs.end }}
+          DAYS: ${{ inputs.days || '2' }}
+        run: |
+          ARGS=(--account dev --repo "$GITHUB_REPOSITORY" --days "$DAYS")
           if [ -n "$END" ]; then ARGS+=(--end "$END"); fi
           bun run scripts/check-free-tier-ceilings.ts "${ARGS[@]}"

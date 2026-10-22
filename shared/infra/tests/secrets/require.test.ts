@@ -2,11 +2,27 @@ import { Redacted } from "effect";
 import { describe, expect, test } from "vitest";
 
 import { tierSecrets, type WorkerKey } from "../../src/secrets/inventory";
-import { MissingSecretsError, requireSecrets } from "../../src/secrets/require";
+import {
+  MissingSecretsError,
+  requireSecrets,
+  requireSeedValue,
+  SeedValueError,
+} from "../../src/secrets/require";
 import type { Tier } from "../../src/stage";
 
+/** Values that meet the dev tier's rules, for the names it sets one for. */
+const RULE_ABIDING: Readonly<Record<string, string>> = {
+  STRIPE_SECRET_KEY: "sk_test_value-of-STRIPE_SECRET_KEY",
+  DEV_LOGIN_SECRET: "value-of-DEV_LOGIN_SECRET-32-characters-or-more",
+};
+
 const envFor = (worker: WorkerKey, tier: Tier): Record<string, string> =>
-  Object.fromEntries(tierSecrets(worker, tier).secrets.map((name) => [name, `value-of-${name}`]));
+  Object.fromEntries(
+    tierSecrets(worker, tier).secrets.map((name) => [
+      name,
+      RULE_ABIDING[name] ?? `value-of-${name}`,
+    ]),
+  );
 
 function thrown(run: () => unknown): unknown {
   try {
@@ -33,15 +49,15 @@ describe("requireSecrets", () => {
 
   test("names every missing or empty secret in one error", () => {
     const env: Record<string, string | undefined> = { ...envFor("cire-api", "dev") };
+    delete env.CIRE_API_ARC_KEY_ID;
     delete env.CIRE_OIDC_CLIENT_SECRET;
-    delete env.OSN_API_URL;
     env.STRIPE_SECRET_KEY = "";
     env.STRIPE_WEBHOOK_SECRET = "   ";
     const error = thrown(() => requireSecrets({ worker: "cire-api", stage: "dev", env }));
     expect(error).toBeInstanceOf(MissingSecretsError);
     expect((error as MissingSecretsError).missing).toEqual([
+      "CIRE_API_ARC_KEY_ID",
       "CIRE_OIDC_CLIENT_SECRET",
-      "OSN_API_URL",
       "STRIPE_SECRET_KEY",
       "STRIPE_WEBHOOK_SECRET",
     ]);
@@ -88,5 +104,85 @@ describe("requireSecrets", () => {
     const env = { ...envFor("osn-api", "dev"), OSN_TOTP_ENCRYPTION_KEY_PREVIOUS: " outgoing-key" };
     const error = thrown(() => requireSecrets({ worker: "osn-api", stage: "dev", env }));
     expect((error as MissingSecretsError).malformed).toEqual(["OSN_TOTP_ENCRYPTION_KEY_PREVIOUS"]);
+  });
+});
+
+describe("SH1: requireSecrets refuses a dev secret that breaks its tier's rule before anything uploads", () => {
+  test.each([
+    "sk_live_51Hx0placeholder",
+    "rk_live_51Hx0placeholder",
+    "pk_test_51Hx0",
+    "sk_test-51Hx0",
+    "whsec_0",
+  ])(
+    "STRIPE_SECRET_KEY %s on dev: refused, naming the secret and the rule, never the value",
+    (value) => {
+      const env = { ...envFor("cire-api", "dev"), STRIPE_SECRET_KEY: value };
+      const error = thrown(() => requireSecrets({ worker: "cire-api", stage: "dev", env }));
+      expect(error).toBeInstanceOf(MissingSecretsError);
+      expect(error).toMatchObject({
+        missing: [],
+        malformed: [],
+        breaksRule: ["STRIPE_SECRET_KEY"],
+      });
+      const { message } = error as Error;
+      expect(message).toContain("STRIPE_SECRET_KEY");
+      expect(message).toContain("sk_test_ or rk_test_");
+      expect(message).not.toContain(value);
+    },
+  );
+
+  test("STRIPE_SECRET_KEY on dev takes a test-mode secret or restricted key", () => {
+    for (const value of ["sk_test_51Hx0placeholder", "rk_test_51Hx0placeholder"]) {
+      const env = { ...envFor("cire-api", "dev"), STRIPE_SECRET_KEY: value };
+      const out = requireSecrets({ worker: "cire-api", stage: "dev", env });
+      expect(Redacted.value(out.STRIPE_SECRET_KEY)).toBe(value);
+    }
+  });
+
+  test("DEV_LOGIN_SECRET under 32 characters is refused on dev and in an investigation stage; 32 is taken", () => {
+    const short = "s3cr3t".padEnd(31, "x");
+    for (const stage of ["dev", "probe"]) {
+      const env = { ...envFor("osn-api", "dev"), DEV_LOGIN_SECRET: short };
+      const error = thrown(() => requireSecrets({ worker: "osn-api", stage, env }));
+      expect(error).toMatchObject({ breaksRule: ["DEV_LOGIN_SECRET"] });
+      expect((error as Error).message).toContain("DEV_LOGIN_SECRET");
+      expect((error as Error).message).toContain("at least 32 characters");
+      expect((error as Error).message).not.toContain(short);
+    }
+    const env = { ...envFor("osn-api", "dev"), DEV_LOGIN_SECRET: "s3cr3t".padEnd(32, "x") };
+    expect(
+      Redacted.value(requireSecrets({ worker: "osn-api", stage: "dev", env }).DEV_LOGIN_SECRET),
+    ).toBe("s3cr3t".padEnd(32, "x"));
+  });
+
+  test("one error names every unset, padded and rule-breaking secret together", () => {
+    const env: Record<string, string | undefined> = {
+      ...envFor("cire-api", "dev"),
+      STRIPE_SECRET_KEY: "sk_live_51Hx0placeholder",
+      STRIPE_WEBHOOK_SECRET: " whsec_padded",
+    };
+    delete env.CIRE_OIDC_CLIENT_SECRET;
+    const error = thrown(() => requireSecrets({ worker: "cire-api", stage: "dev", env }));
+    expect(error).toMatchObject({
+      missing: ["CIRE_OIDC_CLIENT_SECRET"],
+      malformed: ["STRIPE_WEBHOOK_SECRET"],
+      breaksRule: ["STRIPE_SECRET_KEY"],
+    });
+  });
+});
+
+describe("requireSeedValue", () => {
+  test("B6: refuses an unset, blank or padded value, naming the variable and never the value", () => {
+    for (const value of [undefined, "", "   ", " s3cr3t-seed", "s3cr3t-seed\n"]) {
+      const env = { CIRE_OIDC_CLIENT_SECRET: value };
+      const error = thrown(() => requireSeedValue(env, "CIRE_OIDC_CLIENT_SECRET"));
+      expect(error).toBeInstanceOf(SeedValueError);
+      expect((error as Error).message).toContain("CIRE_OIDC_CLIENT_SECRET");
+      expect((error as Error).message).not.toContain("s3cr3t-seed");
+    }
+    expect(
+      requireSeedValue({ CIRE_OIDC_CLIENT_SECRET: "s3cr3t-seed" }, "CIRE_OIDC_CLIENT_SECRET"),
+    ).toBe("s3cr3t-seed");
   });
 });

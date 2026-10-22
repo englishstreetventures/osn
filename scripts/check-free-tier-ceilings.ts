@@ -13,6 +13,10 @@
  * writes the result into one GitHub issue that it reopens and edits rather
  * than filing again. A week spent near the line is one thread.
  *
+ * It watches one account per run, named by the required `--account`:
+ * `production`, or `dev` (the dev tier's own account). The ceilings are per
+ * account, and each account files and updates its own issue.
+ *
  * Everything above the CLI block is pure: feed it a parsed API response and a
  * database-name map, get back the breaches and the issue body. The CLI block
  * is the only part that makes a network call, shells out to `gh`, or sets an
@@ -52,11 +56,73 @@ export const CEILINGS = {
 /** Report a counter once it reaches this share of its ceiling. */
 export const WARN_FRACTION = 0.8;
 
+/** The accounts the alert watches. Each has its own ceilings and its own issue. */
+export const ACCOUNTS = ["production", "dev"] as const;
+export type Account = (typeof ACCOUNTS)[number];
+
 /**
- * The title the issue is found by. Stable, because it is the key: change it
- * and the next run opens a second issue beside the one already open.
+ * The title each account's issue is found by. Stable, because it is the key:
+ * change one and the next run opens a second issue beside the one already
+ * open. Production's is the title the alert used while it watched one account.
  */
-export const ISSUE_TITLE = "Cloudflare free tier: a daily counter is near its ceiling";
+export function issueTitle(account: Account): string {
+  return account === "production"
+    ? "Cloudflare free tier: a daily counter is near its ceiling"
+    : "Cloudflare free tier on the dev account: a daily counter is near its ceiling";
+}
+
+/**
+ * The secrets each account's job fills `CLOUDFLARE_ACCOUNT_ID` and
+ * `CLOUDFLARE_API_TOKEN` from: repository secrets for production, `dev`
+ * Environment secrets for dev. Named in the error when either is empty.
+ */
+export const CREDENTIAL_SECRETS = {
+  production: { accountId: "CLOUDFLARE_ACCOUNT_ID", token: "CLOUDFLARE_API_TOKEN_READONLY" },
+  dev: {
+    accountId: "CLOUDFLARE_DEV_ACCOUNT_ID",
+    token: "CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY",
+  },
+} as const satisfies Readonly<Record<Account, { accountId: string; token: string }>>;
+
+/** A call the script refuses before reading anything; the CLI exits 2 on it. */
+export class UsageError extends Error {}
+
+/** The `--account` value, or a `UsageError` naming what was wrong with it. */
+export function parseAccount(value: string | undefined): Account {
+  if (value === "production" || value === "dev") return value;
+  throw new UsageError(
+    value === undefined || value === ""
+      ? `--account is required: one of ${ACCOUNTS.join(", ")}`
+      : `--account must be one of ${ACCOUNTS.join(", ")}, got ${value}`,
+  );
+}
+
+/** The two values every Cloudflare request here is made with. */
+export interface Credentials {
+  readonly accountId: string;
+  readonly token: string;
+}
+
+/**
+ * The token and account id for `account`, from `CLOUDFLARE_API_TOKEN` and
+ * `CLOUDFLARE_ACCOUNT_ID`. Either empty fails the run naming both secrets the
+ * job fills them from, so a missing secret is a failed job, never a quiet one.
+ */
+export function readCredentials(
+  account: Account,
+  env: Readonly<Record<string, string | undefined>>,
+): Credentials {
+  const accountId = env.CLOUDFLARE_ACCOUNT_ID ?? "";
+  const token = env.CLOUDFLARE_API_TOKEN ?? "";
+  if (accountId === "" || token === "") {
+    const secrets = CREDENTIAL_SECRETS[account];
+    const where = account === "dev" ? "the dev Environment's secrets" : "the repository secrets";
+    throw new Error(
+      `CLOUDFLARE_ACCOUNT_ID or CLOUDFLARE_API_TOKEN is empty: set both ${secrets.accountId} and ${secrets.token} (${where}).`,
+    );
+  }
+  return { accountId, token };
+}
 
 /**
  * Labels for the issue when this opens it. Every one exists in `englishstreetventures/osn`
@@ -283,11 +349,16 @@ export interface Window {
  * scripts that spent it, because "the account is at 82%" tells nobody what to
  * change.
  */
-export function renderIssueBody(breaches: readonly Breach[], window: Window, now: string): string {
+export function renderIssueBody(
+  breaches: readonly Breach[],
+  window: Window,
+  now: string,
+  account: Account,
+): string {
   const lines: string[] = [];
 
   lines.push(
-    `${breaches.length} Cloudflare free-tier ${breaches.length === 1 ? "counter is" : "counters are"} at or above ${Math.round(WARN_FRACTION * 100)}% of a ceiling.`,
+    `${breaches.length} Cloudflare free-tier ${breaches.length === 1 ? "counter is" : "counters are"} at or above ${Math.round(WARN_FRACTION * 100)}% of a ceiling on the ${account} account.`,
     "",
     `Window ${window.start} to ${window.end} (UTC). Read at ${now}.`,
     "",
@@ -327,9 +398,9 @@ export function renderIssueBody(breaches: readonly Breach[], window: Window, now
     "at each, and the upgrade costs are in `wiki/shared/free-tier-limits.md`.",
     "",
     "Filed by `.github/workflows/free-tier-ceiling-alert.yml`, which runs",
-    "`scripts/check-free-tier-ceilings.ts` once a day and edits this issue in",
-    "place. Close it when the numbers are back under the line; a later day over",
-    "the line reopens it.",
+    `\`scripts/check-free-tier-ceilings.ts --account ${account}\` once a day and edits`,
+    "this issue in place. Close it when the numbers are back under the line; a",
+    "later day over the line reopens it.",
   );
 
   return lines.join("\n");
@@ -515,7 +586,7 @@ async function listDatabases(token: string, account: string): Promise<ReadonlyMa
   return names;
 }
 
-type Run = (args: readonly string[]) => Promise<string>;
+export type Run = (args: readonly string[]) => Promise<string>;
 
 const gh: Run = async (args) => {
   const proc = Bun.spawn(["gh", ...args], { stdout: "pipe", stderr: "pipe" });
@@ -562,7 +633,18 @@ export function matchIssue(listJson: string, title: string): ExistingIssue | und
   return issues.find((issue) => issue.title === title);
 }
 
-async function syncIssue(run: Run, repo: string, body: string): Promise<string> {
+/**
+ * Find `account`'s issue by its exact title and create, reopen or edit it.
+ * `run` is `gh`; the body goes through a file in `tempDir`.
+ */
+export async function syncIssue(
+  run: Run,
+  repo: string,
+  body: string,
+  account: Account,
+  tempDir: string,
+): Promise<string> {
+  const title = issueTitle(account);
   const listed = await run([
     "issue",
     "list",
@@ -573,13 +655,13 @@ async function syncIssue(run: Run, repo: string, body: string): Promise<string> 
     "--limit",
     "100",
     "--search",
-    `${ISSUE_TITLE} in:title`,
+    `${title} in:title`,
     "--json",
     "number,title,state",
   ]);
-  const action = planIssueAction(matchIssue(listed, ISSUE_TITLE));
+  const action = planIssueAction(matchIssue(listed, title));
 
-  const bodyFile = `${process.env.RUNNER_TEMP ?? "."}/free-tier-ceiling-body.md`;
+  const bodyFile = `${tempDir}/free-tier-ceiling-body.md`;
   await Bun.write(bodyFile, body);
 
   if (action.kind === "create") {
@@ -589,7 +671,7 @@ async function syncIssue(run: Run, repo: string, body: string): Promise<string> 
       "--repo",
       repo,
       "--title",
-      ISSUE_TITLE,
+      title,
       "--type",
       ISSUE_TYPE,
       "--label",
@@ -621,47 +703,54 @@ function flag(name: string, fallback: string): string {
   return index === -1 ? fallback : (Bun.argv[index + 1] ?? fallback);
 }
 
-function required(name: string): string {
-  const value = process.env[name];
-  if (!value) throw new Error(`${name} is not set`);
-  return value;
-}
-
 if (import.meta.main) {
+  let account: Account;
+  try {
+    const index = Bun.argv.indexOf("--account");
+    account = parseAccount(index === -1 ? undefined : Bun.argv[index + 1]);
+  } catch (error) {
+    if (!(error instanceof UsageError)) throw error;
+    process.stderr.write(
+      `usage: check-free-tier-ceilings.ts --account <${ACCOUNTS.join("|")}> [--days N] [--end YYYY-MM-DD] [--repo OWNER/NAME] [--dry-run]\n${error.message}\n`,
+    );
+    process.exit(2);
+  }
+
   const now = new Date();
   const end = flag("end", utcDay(now, 0));
   const days = Number(flag("days", "2"));
   if (!Number.isInteger(days) || days < 1) throw new Error(`--days must be a positive integer`);
   const window = windowFor(end, days);
 
-  const token = required("CLOUDFLARE_API_TOKEN");
-  const account = required("CLOUDFLARE_ACCOUNT_ID");
+  const { accountId, token } = readCredentials(account, process.env);
 
   const [usage, names] = await Promise.all([
-    fetchUsage(token, account, window),
-    listDatabases(token, account),
+    fetchUsage(token, accountId, window),
+    listDatabases(token, accountId),
   ]);
   const breaches = findBreaches(usage, names);
 
   if (breaches.length === 0) {
-    console.log(
-      `free-tier ceilings: clear for ${window.start} to ${window.end} — nothing at ${Math.round(WARN_FRACTION * 100)}% of a ceiling.`,
+    process.stdout.write(
+      `free-tier ceilings (${account}): clear for ${window.start} to ${window.end} — nothing at ${Math.round(WARN_FRACTION * 100)}% of a ceiling.\n`,
     );
     process.exit(0);
   }
 
-  const body = renderIssueBody(breaches, window, `${now.toISOString().slice(0, 19)}Z`);
+  const body = renderIssueBody(breaches, window, `${now.toISOString().slice(0, 19)}Z`, account);
 
   for (const breach of breaches) {
-    console.log(
-      `free-tier ceilings: ${breach.counter} on ${breach.day} at ${percent(breach)} of its ceiling.`,
+    process.stdout.write(
+      `free-tier ceilings (${account}): ${breach.counter} on ${breach.day} at ${percent(breach)} of its ceiling.\n`,
     );
   }
 
   if (Bun.argv.includes("--dry-run")) {
-    console.log(`\n--- ${ISSUE_TITLE} ---\n${body}`);
+    process.stdout.write(`\n--- ${issueTitle(account)} ---\n${body}\n`);
     process.exit(0);
   }
 
-  console.log(await syncIssue(gh, flag("repo", "englishstreetventures/osn"), body));
+  const repo = flag("repo", "englishstreetventures/osn");
+  const tempDir = process.env.RUNNER_TEMP ?? ".";
+  process.stdout.write(`${await syncIssue(gh, repo, body, account, tempDir)}\n`);
 }

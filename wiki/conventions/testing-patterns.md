@@ -559,6 +559,7 @@ changed without one of the two answers above.
 |---|---|---|
 | `@cire/host`, `@cire/invites`, `@cire/vendor`, `@cire/ui`, `@cire/landing`, `@cire/build-tools`, `@cire/invite-designs` | `@stryker-mutator/vitest-runner` | only the tests that cover the mutated line |
 | `@cire/api`, `@cire/db`, `@cire/dietary`, `@cire/theme` | Stryker's `command` runner | the whole command — `bun test`, or `@cire/api`'s `STRYKER_TESTS` |
+| `@cire/infra` | Stryker's `command` runner | the whole suite, `bunx --bun vitest run`, under Bun: its tests evaluate the stacks with Bun's platform layer and read SQLite through `bun:sqlite`, which the vitest runner cannot, since it runs tests under Node. Four mutants at a time with a 60-second timeout: one per core starves each run past Stryker's default timeout. The sandbox keeps `musubi/`, which the cross-stack test imports |
 
 What the configs depend on, and what breaks without it:
 
@@ -663,7 +664,7 @@ Adding a column is then a one-file change in `src/schema/`. The emitter carries 
 
 **If you extend one emitter, extend all three** — they are copies, and all three (`osn/db`, `pulse/db`, `zap/db`) now carry the lockstep test.
 
-Writing pulse's found **D-H1**: a `user_id` → `profile_id` rename had reached `src/schema` without ever reaching migration `0000`, and three `events` columns existed with no migration at all — so `wrangler d1 migrations apply pulse-db` against a fresh D1 would have failed. Every Pulse test builds from `applySchema()`, so nothing exercised the chain until this test did.
+Writing pulse's found that a `user_id` → `profile_id` rename had reached `src/schema` without ever reaching migration `0000`, and three `events` columns existed with no migration at all — so `wrangler d1 migrations apply pulse-db` against a fresh D1 would have failed. Every Pulse test builds from `applySchema()`, so nothing exercised the chain until this test did.
 
 When you write one of these, prove it can fail. Mutate the emitter — drop a constraint, reverse an index's columns — and confirm the test goes red. The first version of the osn test passed with every foreign key removed and with composite index columns reversed.
 

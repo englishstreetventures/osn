@@ -193,6 +193,30 @@ Env vars: `INTERNAL_SERVICE_SECRET`, `KEY_TTL_HOURS` (default 24), `KEY_ROTATION
 INTERNAL_SERVICE_SECRET=<shared-random-string>
 ```
 
+### A fixed key registered once (cire-api)
+
+cire-api does not self-register. It signs with a fixed ES256 key held as two
+Worker secrets, `CIRE_API_ARC_PRIVATE_KEY` (a raw JWK string) and
+`CIRE_API_ARC_KEY_ID` (a UUID), and its public half is registered under
+`serviceId` `cire-api` with the four scopes the `ARC_*_SCOPE` constants of
+`cire/api/src/services/osn-bridge.ts` request: `graph:read`,
+`graph:resolve-account`, `org:read` and `account:email-read`.
+
+- **Production:** registered by hand with `POST /graph/internal/register-service`
+  ([[production-deploy]] §6.2). Re-run it whenever the scope list changes: a
+  registration holds exactly the scopes its last call listed.
+- **Dev:** the musubi stack writes the `service_accounts` and
+  `service_account_keys` rows straight into `osn-db-dev`, from a seed file it
+  imports on the first dev deploy and again whenever the file changes
+  ([[infrastructure-as-code#Seeds and the ARC registration]]). A step of the
+  musubi stack job, `cire_seed`, derives the public JWK from the `dev`
+  Environment's private key; the step that deploys holds only the public half.
+  Like the route, a re-import never takes a key id another service holds: it
+  leaves that row to its service. It never clears `revoked_at` or
+  `expires_at`, so a revoked or expired dev key stays so. To
+  replace one, set a new `CIRE_API_ARC_KEY_ID` with its new
+  `CIRE_API_ARC_PRIVATE_KEY` in the `dev` Environment and dispatch **Deploy**.
+
 ### osn-api as issuer — outbound key registration (deletion fan-out)
 
 The flow above has `pulse-api` / `zap-api` registering **with** osn-api. The
@@ -282,12 +306,12 @@ the runs where the timing happens to tie.
 
 ## Security Notes
 
-- Untrusted ARC `iss` claim was used as a metric label before verification. Fixed with `safeIssuer()` runtime guard in `arc-metrics.ts`.
-- Revocation now evicts `publicKeyCache` immediately via `evictPublicKeyCacheEntry(kid)` — no 5-minute window.
-- `INTERNAL_SERVICE_SECRET` comparison uses `crypto.timingSafeEqual` — no timing oracle.
+- An unverified ARC `iss` claim reaches a metric label only through the `safeIssuer()` runtime guard in `arc-metrics.ts`.
+- Revocation evicts `publicKeyCache` at once via `evictPublicKeyCacheEntry(kid)` — no 5-minute window in the revoking process.
+- The `INTERNAL_SERVICE_SECRET` comparison uses `crypto.timingSafeEqual` — no timing oracle.
 - `peekClaims` uses base64url decode (RFC 7515 §2) — `-` and `_` in UUID `kid`s are handled correctly.
 - `/register-service` validates `allowedScopes` against `PERMITTED_SCOPES` allowlist — services cannot self-promote.
-- `resolvePublicKey` cache hit stores `allowedScopes` and validates scopes on every hit — no bypass when `tokenScopes` is omitted.
+- A `resolvePublicKey` cache hit stores `allowedScopes` and validates scopes on every hit — no bypass when `tokenScopes` is omitted.
 - ARC tokens are machine-to-machine only. Never use them for user-facing authentication — use access tokens for that.
 - The `Authorization: ARC ...` header is the trust boundary for inbound trace context propagation -- only ARC-authenticated callers have their `traceparent` honoured.
 

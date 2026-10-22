@@ -1,12 +1,17 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, test } from "vitest";
 
+import { READS_REPO } from "../vitest.config";
+
 /** The Alchemy release whose source this package's builders were checked against. */
 const AUDITED_ALCHEMY = "2.0.0-beta.83";
+
+/** The packages every stack runs Alchemy with; each stack pins them at this package's versions. */
+const PINNED = ["alchemy", "effect", "@effect/platform-bun", "@effect/platform-node"];
 
 type Manifest = {
   readonly name?: string;
@@ -43,12 +48,53 @@ describe("pinned Alchemy", () => {
     expect(installed("alchemy", packageDir).manifest.version).toBe(AUDITED_ALCHEMY);
   });
 
-  test("the lockfile resolves exactly one Effect, the one this package pins", () => {
-    // `bun.lock` names each resolved copy as `"effect@<version>"`; a second
+  test("the lockfile resolves exactly one Effect and one Alchemy, the ones this package pins", () => {
+    // `bun.lock` names each resolved copy as `"<name>@<version>"`; a second
     // copy appears as another version under a nested key such as
     // `"@effect/sql-d1/effect"`.
     const lock = readFileSync(join(packageDir, "..", "..", "bun.lock"), "utf8");
-    const versions = new Set([...lock.matchAll(/"effect@([^"]+)"/g)].map((match) => match[1]));
-    expect([...versions]).toEqual([own.dependencies?.effect]);
+    for (const name of ["effect", "alchemy"]) {
+      const versions = new Set(
+        [...lock.matchAll(new RegExp(`"${name}@([^"]+)"`, "g"))].map((match) => match[1]),
+      );
+      expect({ [name]: [...versions] }).toEqual({ [name]: [own.dependencies?.[name]] });
+    }
+  });
+
+  test("every stack package pins Alchemy, Effect and both platform packages at this package's versions", () => {
+    const repoRoot = join(packageDir, "..", "..");
+    const stacks = readdirSync(repoRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => join(repoRoot, entry.name, "infra", "package.json"))
+      .filter((path) => path !== join(packageDir, "package.json") && existsSync(path));
+    expect(stacks.length).toBeGreaterThan(0);
+    for (const path of stacks) {
+      const stack = readManifest(path);
+      for (const name of PINNED) {
+        expect({ [`${stack.name} ${name}`]: stack.dependencies?.[name] }).toEqual({
+          [`${stack.name} ${name}`]: own.dependencies?.[name],
+        });
+      }
+    }
+  });
+});
+
+describe("the vitest projects", () => {
+  test("the repo project holds exactly the test files whose paths climb above this package", () => {
+    // A file in the package project is cached on this package's files alone,
+    // so one that read a workflow or another package from there would pass
+    // from the cache after that file changed.
+    const files = readdirSync(join(packageDir, "tests"), { recursive: true, encoding: "utf8" })
+      .filter((path) => path.endsWith(".test.ts"))
+      .map((path) => `tests/${path}`);
+    const climbing = files.filter((file) => {
+      const source = readFileSync(join(packageDir, file), "utf8");
+      const depth = file.split("/").length - 1;
+      const ups = [...source.matchAll(/new URL\(\s*["'`]((?:\.\.\/)+)/g)].map(
+        (match) => (match[1] ?? "").length / 3,
+      );
+      return ups.some((up) => up > depth) || /join\(packageDir,\s*"\.\.",\s*"\.\."/.test(source);
+    });
+    expect(climbing.toSorted()).toEqual(READS_REPO.toSorted());
   });
 });

@@ -23,12 +23,9 @@
     "db:studio": "drizzle-kit studio",
     "db:push": "bun run ../../scripts/cire-db-migrate.ts cire-db --local",
     "db:migrate:local": "bun run ../../scripts/cire-db-migrate.ts cire-db --local",
-    "db:migrate:dev": "bun run ../../scripts/cire-db-migrate.ts cire-db-dev --env dev --remote",
     "db:migrate:prod": "bun run ../../scripts/cire-db-migrate.ts cire-db --env production --remote",
     "db:seed": "bash ../../scripts/cire-db-seed.sh",
-    "db:seed:dev": "bash ../../scripts/cire-db-seed.sh --dev",
-    "db:reset": "rm -rf ../api/.wrangler/state/v3/d1 && bun run db:push && bun run db:seed",
-    "db:reset:dev": "bash ../../scripts/cire-db-reset.sh --dev"
+    "db:reset": "rm -rf ../api/.wrangler/state/v3/d1 && bun run db:push && bun run db:seed"
   },
   "dependencies": {
     "drizzle-orm": "1.0.0-rc.4",

@@ -10,7 +10,7 @@ related:
   - "[[feature-checklist]]"
   - "[[observability-setup]]"
 packages: ["@shared/observability"]
-last-reviewed: 2026-10-15
+last-reviewed: 2026-10-20
 ---
 
 # Observability Overview
@@ -25,8 +25,9 @@ OSN uses **OpenTelemetry end-to-end**, shipped to **Grafana Cloud** (free tier: 
 > block. Cire keeps invocation records off because existing request paths carry
 > the wedding slug. Free-plan logs currently retain three days and are visible
 > in the Cloudflare dashboard under Workers & Pages → *worker* → Observability.
-> Native Workers traces are enabled in local and dev tiers without URL
-> redaction. Production traces are enabled on the Cire guest Worker, including
+> Native Workers traces are enabled in the local Wrangler configs without URL
+> redaction, and on every dev API Worker and the dev guest site; on dev only
+> zap-api keeps query strings. Production traces are enabled on the Cire guest Worker, including
 > its existing slug paths. New guest links use fixed paths with the slug in the
 > redacted query string. Production API Workers keep native traces disabled
 > while path-bearing URLs are reviewed.

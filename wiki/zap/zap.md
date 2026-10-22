@@ -97,7 +97,7 @@ This split is by design: c2b body content is server-visible, user-attributed dat
 
 ### CI pipeline
 
-`deploy-zap-api` in `.github/workflows/production-release.yml` is **live**. It was written to stay dormant until the production D1 existed, and that condition is met: `[[env.production.d1_databases]]` in `zap/api/wrangler.toml` carries a real `database_id`, so the job's `zapcheck` step sets `provisioned=true` and deploys instead of skipping. Only dev and staging still hold `placeholder-replace-after-d1-create`, which the check ignores on purpose. It runs in a production release that finds `zap/` changed since zap-api last deployed, and waits on that release's one approval of the `production` GitHub Environment — see [[production-deploy]] §5.5. Zap has no dev tier, so the release's dev check does not apply to it.
+`deploy-zap-api` in `.github/workflows/production-release.yml` is **live**. It was written to stay dormant until the production D1 existed, and that condition is met: `[[env.production.d1_databases]]` in `zap/api/wrangler.toml` carries a real `database_id`, so the job's `zapcheck` step sets `provisioned=true` and deploys instead of skipping. Only `[env.dev]` (local `wrangler dev` only) and staging still hold `placeholder-replace-after-d1-create`, which the check ignores on purpose. It runs in a production release that finds `zap/` changed since zap-api last deployed, and waits on that release's one approval of the `production` GitHub Environment — see [[production-deploy]] §5.5. On dev, the zap stack (`zap/infra`) deploys `zap-api-dev` and its database `zap-db-dev` in the dev account on every merge that touches zap; the release ships zap-api only once a dev deploy of the same content passed its smoke check, as it does every surface ([[dev-environment]]). `[env.dev]` in `zap/api/wrangler.toml` is the local `wrangler dev` posture and deploys nothing.
 
 ## Authentication & authorization
 
@@ -151,11 +151,17 @@ add-member) when the two share a permitted OSN social-graph relationship.
 (comma-separated), falling back to the local dev ports only in a local env and
 **failing closed** (throwing at boot) if a non-local deploy leaves it unset.
 
+On dev the zap stack sets two vars production's Wrangler config does not:
+`OSN_ENV=dev`, which marks a deployed tier, so zap-api runs its non-local
+checks on the JWKS URL, the issuer and this CORS list; and `ZAP_CORS_ORIGIN`,
+set to the dev musubi social origin, the one dev browser origin that calls it
+([[infrastructure-as-code#Dev hosts]]). K2 in `zap/infra/tests/parity.test.ts`
+lists both as the dev tier's differences from production.
+
 ### Deferred
 
-- **Z7** — inbound ARC surface (`/internal/chats*` for c2b): **shipped** in the c2b PR (see [[#c2b-consumer-to-business-chats]] above). Pulse-driven event group chats remain a separate PR.
--  — widen the 48-bit UUID-slice IDs (`chat_`/`cmem_`/`msg_`): separate
-  PR.
+- **Z7** — inbound ARC surface (`/internal/chats*` for c2b): **shipped** in the c2b PR (see [[#c2b (consumer-to-business) chats]] above). Pulse-driven event group chats remain a separate PR.
+- Widen the 48-bit UUID-slice IDs (`chat_`/`cmem_`/`msg_`): separate PR.
 
 ## Observability
 

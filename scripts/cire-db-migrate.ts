@@ -15,12 +15,11 @@
  * refuses that case (`checkLedger`, then `checkBaselineSchema` for a ledger
  * holding only the baseline's name), then runs `wrangler d1 migrations apply`
  * with the same arguments. cire/db's `db:push` and `db:migrate:*` scripts call
- * it, and through them deploy.yml, production-release.yml and
- * cire-dev-db-rebuild.yml.
+ * it, and through `db:migrate:prod`, production-release.yml. The dev tier's
+ * database is migrated by the cire stack (cire/infra), not by this script.
  *
  * Usage, as cire/db's package scripts call it:
  *   cire-db-migrate.ts cire-db --local
- *   cire-db-migrate.ts cire-db-dev --env dev --remote
  *   cire-db-migrate.ts cire-db --env production --remote
  * Everything after the database name goes to wrangler unchanged, for the ledger
  * read and the apply alike, so the two can never target different databases.
@@ -79,8 +78,7 @@ const QUERY_TIMEOUT_MS = 120_000;
 const RECOVERY =
   "Production: approve the deploy run of a commit from before the archive took " +
   "these files, let it finish — it applies them and deploys the code that matches — " +
-  "then re-run this one. Dev: run cire-dev-db-rebuild.yml. Local: " +
-  "`bun run --cwd cire/db db:reset`.";
+  "then re-run this one. Local: `bun run --cwd cire/db db:reset`.";
 
 /** The archived chain, in the name order wrangler applied it. */
 export function archivedMigrations(dir: string = ARCHIVE_DIR): readonly string[] {

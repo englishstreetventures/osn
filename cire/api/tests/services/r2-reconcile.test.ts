@@ -1263,7 +1263,7 @@ describe("wrangler.toml", () => {
       ...Object.fromEntries(Object.entries(toml.env).map(([n, e]) => [n, e.vars])),
     };
 
-    expect(Object.keys(tiers).toSorted()).toEqual(["dev", "production", "top"]);
+    expect(Object.keys(tiers).toSorted()).toEqual(["production", "top"]);
     for (const vars of Object.values(tiers)) {
       expect(["false", "true"]).toContain(vars?.CIRE_R2_RECONCILE_DISABLED as string);
     }

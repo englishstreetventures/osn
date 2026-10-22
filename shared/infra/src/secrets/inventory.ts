@@ -9,12 +9,13 @@ import type { Tier } from "../stage";
  * missing here is a secret deleted by the first Alchemy deploy, and a secret
  * a Worker should start holding is a change to this file.
  *
- * The required and present optional names equal `wrangler secret list --name
- * <scriptName>` on each live Worker; `bun run --cwd shared/infra
- * secrets:check-live -- --tier <tier>` compares them and reports any
- * forbidden name a Worker still holds. Each value lives in the GitHub
- * Environment secret of the same name, in the `dev` or `production`
- * Environment.
+ * The production rows' required and present optional names equal `wrangler
+ * secret list --name <scriptName>` on each live Worker. The dev rows name
+ * what the dev account's Workers hold, which the dev stacks create with
+ * these secrets. `bun run --cwd shared/infra secrets:check-live -- --tier
+ * <tier>` compares either tier with what is live and reports any forbidden
+ * name a Worker still holds. Each value lives in the GitHub Environment
+ * secret of the same name, in the `dev` or `production` Environment.
  */
 export type WorkerKey = "osn-api" | "cire-api" | "zap-api" | "cire-invites";
 
@@ -27,6 +28,13 @@ export interface TierSecrets {
   readonly optional: readonly string[];
   /** Names that must never be set on this Worker on this tier. */
   readonly forbidden: readonly string[];
+  /**
+   * Names this tier holds as plain-text vars although another tier holds them
+   * as secrets: values that name no secret, such as a host derived from the
+   * dev domain. `apiWorkerProps()` lets a var, and only a var, take one on
+   * this tier.
+   */
+  readonly plainVars?: readonly string[];
 }
 
 export interface WorkerSecrets {
@@ -88,7 +96,6 @@ export const SECRET_INVENTORY: readonly WorkerSecrets[] = [
           "CIRE_API_ARC_KEY_ID",
           "CIRE_API_ARC_PRIVATE_KEY",
           "CIRE_OIDC_CLIENT_SECRET",
-          "OSN_API_URL",
           "STRIPE_PLATFORM_WEBHOOK_SECRET",
           "STRIPE_SECRET_KEY",
           "STRIPE_WEBHOOK_SECRET",
@@ -97,6 +104,8 @@ export const SECRET_INVENTORY: readonly WorkerSecrets[] = [
         // gets it (cire/api/wrangler.toml, top-level vars note).
         optional: ["CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS"],
         forbidden: ["RESEND_API_URL"],
+        // osn-api's dev origin, derived from the dev domain; a secret on production.
+        plainVars: ["OSN_API_URL"],
       },
       production: {
         scriptName: "cire-api-production",
@@ -116,7 +125,13 @@ export const SECRET_INVENTORY: readonly WorkerSecrets[] = [
     worker: "zap-api",
     sourceDir: "zap/api/src",
     tiers: {
-      dev: { scriptName: null, secrets: [], optional: [], forbidden: [] },
+      dev: {
+        scriptName: "zap-api-dev",
+        secrets: ["INTERNAL_SERVICE_SECRET"],
+        optional: [],
+        // No zap code reads a GrowthBook key.
+        forbidden: ["GROWTHBOOK_CLIENT_KEY"],
+      },
       production: {
         scriptName: "zap-api-production",
         secrets: ["INTERNAL_SERVICE_SECRET"],
@@ -148,8 +163,30 @@ export const SHARED_SECRET_VALUES: readonly {
   readonly workers: readonly WorkerKey[];
 }[] = [
   // zap-api registers its ARC key at osn-api with this value, so both must hold the same one.
+  { tier: "dev", name: "INTERNAL_SERVICE_SECRET", workers: ["osn-api", "zap-api"] },
   { tier: "production", name: "INTERNAL_SERVICE_SECRET", workers: ["osn-api", "zap-api"] },
 ];
+
+/**
+ * Secrets a tier's GitHub Environment holds for its workflows alone: no Worker
+ * holds one, and none is a Cloudflare credential. `secrets:check-github`
+ * requires each on its tier, since the job that reads it fails without it.
+ * `tests/secrets/environments.test.ts` holds this list to what the jobs bound
+ * to each Environment read.
+ */
+export const WORKFLOW_SECRETS = {
+  dev: [
+    // Fixes the key Astro writes into the guest site's build, read by the
+    // cire stack job's build step (deploy.yml).
+    "ASTRO_KEY",
+    // The Cloudflare Access service token the smoke checks of the dev browser
+    // hosts send (deploy.yml; wiki/shared/dev-environment.md §5).
+    "CF_ACCESS_CLIENT_ID",
+    "CF_ACCESS_CLIENT_SECRET",
+  ],
+  // production-release.yml's jobs read the production account's pair alone.
+  production: [],
+} as const satisfies Readonly<Record<Tier, readonly string[]>>;
 
 /**
  * Names a deploy job already sets in its environment or reads as a
