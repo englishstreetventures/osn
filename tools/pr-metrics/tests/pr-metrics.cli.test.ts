@@ -257,12 +257,12 @@ test("the CLI writes a card from a real repo and a real transcript", async () =>
   const { exitCode, card } = await run();
 
   expect(exitCode).toBe(0);
-  expect(card.schema_version).toBe(2);
+  expect(card.schema_version).toBe(3);
   expect(card.pr.number).toBe(908);
   expect(card.pr.branch).toBe(BRANCH);
   expect(card.pr.phase).toBe("at-open");
   expect(card.issue.number).toBe(895);
-  expect(card.complexity).toEqual({ declared: null, method: "none" });
+  expect(card.complexity).toEqual({ declared: null, method: "none", issues: 0 });
 });
 
 test("the CLI counts subagent spend from the sibling directory", async () => {
@@ -310,20 +310,20 @@ test("the CLI charges pre-edit exploration to tokens_before_first_edit", async (
 test("the CLI reads the declared rating out of the issue labels", async () => {
   const { card } = await run(["--issue-labels", "product:osn-core,complexity:3"]);
 
-  expect(card.complexity).toEqual({ declared: 3, method: "confirmed" });
+  expect(card.complexity).toEqual({ declared: 3, method: "confirmed", issues: 1 });
   expect(card.issue.labels).toEqual(["product:osn-core", "complexity:3"]);
 });
 
 test("the CLI keeps an unconfirmed rating marked", async () => {
   const { card } = await run(["--issue-labels", "complexity:5,complexity:unconfirmed"]);
 
-  expect(card.complexity).toEqual({ declared: 5, method: "unconfirmed" });
+  expect(card.complexity).toEqual({ declared: 5, method: "unconfirmed", issues: 1 });
 });
 
 test("the CLI records a hand-passed rating as manual", async () => {
   const { card } = await run(["--complexity", "8"]);
 
-  expect(card.complexity).toEqual({ declared: 8, method: "manual" });
+  expect(card.complexity).toEqual({ declared: 8, method: "manual", issues: 0 });
 });
 
 test("the CLI refuses to card main", async () => {
@@ -1066,15 +1066,30 @@ test("the SessionEnd hook still passes the flags this CLI relies on", async () =
 /**
  * `--resolve-issue` against a stubbed `gh`.
  *
- * Its own fixture, because `run()` always passes `--pr` and `--issue`, and the
- * flag only fires when neither was given. Executable with a shebang, or Bun
- * skips the stub and resolves the REAL `gh` further down `PATH` — which would
- * send the test to the network with the developer's credentials. The blanked
- * tokens are the second line of defence for the same reason `backfill.test.ts`
- * blanks them: shadowing fails on a `noexec` TMPDIR, and the fall-through then
- * exits non-zero and fails loudly instead of quietly going online.
+ * Its own fixture, because `run()` always passes `--pr` and `--issue`. Executable
+ * with a shebang, or Bun skips the stub and resolves the REAL `gh` further down
+ * `PATH` — which would send the test to the network with the developer's
+ * credentials. The blanked tokens are the second line of defence for the same
+ * reason `backfill.test.ts` blanks them: shadowing fails on a `noexec` TMPDIR,
+ * and the fall-through then exits non-zero and fails loudly instead of quietly
+ * going online.
+ *
+ * `labels` maps an issue number to what `gh issue view <n> --json labels`
+ * prints; a number missing from it makes that call fail. The stub writes every
+ * call it receives to a log, returned as `calls`.
  */
-async function runResolving(issueRepo: string, labels: string): Promise<Card> {
+interface ResolvingOptions {
+  /** The pull request `gh pr list` returns; `null` lists none. */
+  pull?: { body?: string; refs: { number: number; repo: string }[] } | null;
+  labels?: Record<number, string[]>;
+  /** Written to `NEW-FEAT.md` at the fixture's root. */
+  newFeat?: string;
+  extraArgs?: string[];
+}
+
+async function runResolving(
+  options: ResolvingOptions,
+): Promise<{ card: Card; stderr: string; calls: string[] }> {
   const dir = await mkdtemp(join(tmpdir(), "pr-metrics-resolve-"));
 
   try {
@@ -1092,30 +1107,58 @@ async function runResolving(issueRepo: string, labels: string): Promise<Card> {
     await writeFile(join(dir, "work.ts"), "export const a = 1;\n");
     await git("add", ".");
     await git("commit", "-qm", "work");
+    if (options.newFeat !== undefined) await writeFile(join(dir, "NEW-FEAT.md"), options.newFeat);
 
-    const [owner, name] = issueRepo.split("/");
+    const pull =
+      options.pull === undefined
+        ? { body: "", refs: [{ number: 1041, repo: "englishstreetventures/osn" }] }
+        : options.pull;
+    const listing = JSON.stringify(
+      pull === null
+        ? []
+        : [
+            {
+              number: 1046,
+              body: pull.body ?? "",
+              closingIssuesReferences: pull.refs.map(({ number, repo }) => {
+                const [login, name] = repo.split("/");
+
+                return { number, repository: { name, owner: { login } } };
+              }),
+            },
+          ],
+    );
+    const issueCases = Object.entries(options.labels ?? {})
+      .map(
+        ([n, names]) =>
+          `  *"issue view ${n} "*) printf '%s' '${JSON.stringify({ labels: names.map((name) => ({ name })) })}' ;;`,
+      )
+      .join("\n");
+
     const binDir = join(dir, "bin");
     await mkdir(binDir, { recursive: true });
     await writeFile(
       join(binDir, "gh"),
       `#!/bin/sh
+printf '%s\\n' "$*" >> "$GH_CALL_LOG"
 case "$*" in
   *"repo view"*) printf '%s' 'englishstreetventures/osn' ;;
-  *"pr list"*)
-    printf '%s' '[{"number":1046,"closingIssuesReferences":[{"number":1041,"repository":{"name":"${name}","owner":{"login":"${owner}"}}}]}]' ;;
-  *"issue view"*) printf '%s' '${labels}' ;;
-  *) printf '%s' '' ;;
+  *"pr list"*) printf '%s' '${listing}' ;;
+${issueCases}
+  *) exit 1 ;;
 esac
 `,
     );
     await chmod(join(binDir, "gh"), 0o755);
     expect((await stat(join(binDir, "gh"))).mode & 0o111).toBeGreaterThan(0);
 
+    const log = join(dir, "gh-calls.log");
     const proc = Bun.spawn(
       [
         "bun",
         "run",
         SCRIPT,
+        ...(options.extraArgs ?? []),
         "--branch",
         BRANCH,
         "--base",
@@ -1138,14 +1181,19 @@ esac
           GH_ENTERPRISE_TOKEN: "",
           GH_CONFIG_DIR: join(dir, "gh-config"),
           GH_NO_UPDATE_NOTIFIER: "1",
+          GH_CALL_LOG: log,
         },
       },
     );
+    const stderr = await new Response(proc.stderr).text();
     await proc.exited;
 
-    return JSON.parse(
+    const card = JSON.parse(
       await Bun.file(join(dir, "out", "feat-metrics-cli-fixture.json")).text(),
     ) as Card;
+    const calls = (await Bun.file(log).text()).split("\n").filter(Boolean);
+
+    return { card, stderr, calls };
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -1156,27 +1204,122 @@ esac
 // card it writes carries a null `complexity.declared` for ever, because nothing
 // re-runs the collector once the transcripts go with the container.
 test("--resolve-issue recovers the pull request, issue and rating", async () => {
-  const card = await runResolving(
-    "englishstreetventures/osn",
-    "product:shared,area:ops,complexity:3",
-  );
+  const { card } = await runResolving({
+    labels: { 1041: ["product:shared", "area:ops", "complexity:3"] },
+  });
 
   expect(card.pr.number).toBe(1046);
   expect(card.issue.number).toBe(1041);
-  expect(card.complexity).toEqual({ declared: 3, method: "confirmed" });
+  expect(card.complexity).toEqual({ declared: 3, method: "confirmed", issues: 1 });
 });
 
 // The one that must not regress. Most of this repository's pull requests close
 // a finding in the private `englishstreetventures/osn-tracker`, whose `severity:`/`area:`
 // labels must never reach a card committed to a public repository. A pull request
-// that closes only such an issue records no issue at all: it is not a candidate.
+// that closes only such an issue records no issue at all, and never asks for its
+// labels: a rating may exist there, and nobody looked.
 test("--resolve-issue records no issue for one that closes only a tracker issue", async () => {
-  const card = await runResolving(
-    "englishstreetventures/osn-tracker",
-    "severity:high,area:security,complexity:5",
-  );
+  const { card, calls } = await runResolving({
+    pull: { refs: [{ number: 1041, repo: "englishstreetventures/osn-tracker" }] },
+    labels: { 1041: ["severity:high", "area:security", "complexity:5"] },
+  });
 
   expect(card.issue.number).toBeNull();
-  expect(card.complexity).toEqual({ declared: null, method: "none" });
+  expect(card.complexity).toEqual({ declared: null, method: "not-fetched", issues: 0 });
   expect(card.issue.labels).toEqual([]);
+  expect(calls.filter((call) => call.includes("issue view"))).toEqual([]);
+});
+
+// GitHub lists the issues a pull request closes by number, not by what the
+// branch was cut for. Taking the first of that list put a $49.77 session
+// against a complexity-1 follow-up it also closed.
+test("--resolve-issue names the first Closes line and divides by every closed issue", async () => {
+  const { card } = await runResolving({
+    pull: {
+      body: "## Issues\n\nCloses #1550\nCloses #1031",
+      refs: [
+        { number: 1031, repo: "englishstreetventures/osn" },
+        { number: 1550, repo: "englishstreetventures/osn" },
+      ],
+    },
+    labels: { 1031: ["complexity:1"], 1550: ["product:musubi", "complexity:3"] },
+  });
+
+  expect(card.issue.number).toBe(1550);
+  expect(card.issue.labels).toEqual(["product:musubi", "complexity:3"]);
+  expect(card.complexity).toEqual({ declared: 4, method: "confirmed", issues: 2 });
+});
+
+test("--resolve-issue warns and names no issue when nothing says which one is the branch's", async () => {
+  const { card, stderr } = await runResolving({
+    pull: {
+      body: "",
+      refs: [
+        { number: 1512, repo: "englishstreetventures/osn" },
+        { number: 1533, repo: "englishstreetventures/osn" },
+      ],
+    },
+    labels: { 1512: ["complexity:2"], 1533: ["complexity:5"] },
+  });
+
+  expect(card.issue.number).toBeNull();
+  expect(stderr).toContain("#1512, #1533");
+  expect(card.complexity).toEqual({ declared: 7, method: "confirmed", issues: 2 });
+});
+
+test("--resolve-issue takes the branch's issue from NEW-FEAT.md when the pull request links it", async () => {
+  const { card } = await runResolving({
+    pull: {
+      body: "Closes #1512\nCloses #1533",
+      refs: [
+        { number: 1512, repo: "englishstreetventures/osn" },
+        { number: 1533, repo: "englishstreetventures/osn" },
+      ],
+    },
+    labels: { 1512: ["complexity:2"], 1533: ["complexity:5"] },
+    newFeat: "# NEW-FEAT — feat/metrics-cli-fixture\n\nIssue: #1533\n",
+  });
+
+  expect(card.issue.number).toBe(1533);
+  expect(card.complexity.declared).toBe(7);
+});
+
+test("--resolve-issue reads a Part of line as the issue and declares no rating", async () => {
+  const { card } = await runResolving({
+    pull: { body: "This branch started from no issue.\n\nPart of #1673", refs: [] },
+    labels: { 1673: ["product:shared", "complexity:8"] },
+  });
+
+  expect(card.issue.number).toBe(1673);
+  expect(card.complexity).toEqual({ declared: null, method: "part-of", issues: 0 });
+});
+
+test("--resolve-issue with no pull request yet records no issue, whatever NEW-FEAT.md says", async () => {
+  const { card } = await runResolving({
+    pull: null,
+    labels: { 1533: ["complexity:5"] },
+    newFeat: "# NEW-FEAT — feat/metrics-cli-fixture\n\nIssue: #1533\n",
+  });
+
+  expect(card.pr.number).toBeNull();
+  expect(card.issue.number).toBeNull();
+  expect(card.complexity).toEqual({ declared: null, method: "none", issues: 0 });
+});
+
+test("--issue with --resolve-issue fixes the identity and still sums what the pull request closes", async () => {
+  const { card } = await runResolving({
+    pull: {
+      body: "Closes #1512\nCloses #1533",
+      refs: [
+        { number: 1512, repo: "englishstreetventures/osn" },
+        { number: 1533, repo: "englishstreetventures/osn" },
+      ],
+    },
+    labels: { 1512: ["complexity:2"], 1533: ["complexity:5"] },
+    extraArgs: ["--issue", "1533"],
+  });
+
+  expect(card.pr.number).toBe(1046);
+  expect(card.issue.number).toBe(1533);
+  expect(card.complexity).toEqual({ declared: 7, method: "confirmed", issues: 2 });
 });

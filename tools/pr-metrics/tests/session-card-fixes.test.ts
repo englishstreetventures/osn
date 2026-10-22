@@ -5,7 +5,6 @@ import { join } from "node:path";
 
 import {
   bodyIssueLinks,
-  chooseLinkedIssue,
   defaultSessionsRoots,
   humanTurnText,
   isBareContinuation,
@@ -59,6 +58,7 @@ describe("bodyIssueLinks", () => {
     expect(bodyIssueLinks("Closes #12\nPart of #7\nFixes #12")).toEqual({
       closes: [12],
       partOf: [7],
+      foreignCloses: 0,
     });
   });
 
@@ -66,15 +66,20 @@ describe("bodyIssueLinks", () => {
     expect(bodyIssueLinks("Closes englishstreetventures/osn-tracker#593")).toEqual({
       closes: [],
       partOf: [],
+      foreignCloses: 1,
     });
   });
 
   test("ignores a number that is not a closing reference", () => {
-    expect(bodyIssueLinks("See #40 for the history.")).toEqual({ closes: [], partOf: [] });
+    expect(bodyIssueLinks("See #40 for the history.")).toEqual({
+      closes: [],
+      partOf: [],
+      foreignCloses: 0,
+    });
   });
 
   test("reads a colon after the keyword", () => {
-    expect(bodyIssueLinks("Closes: #9")).toEqual({ closes: [9], partOf: [] });
+    expect(bodyIssueLinks("Closes: #9")).toEqual({ closes: [9], partOf: [], foreignCloses: 0 });
   });
 
   test("a run of spaces after a keyword resolves quickly", () => {
@@ -85,35 +90,9 @@ describe("bodyIssueLinks", () => {
   });
 });
 
-describe("the issue a card rates", () => {
-  test("a child that closes one issue and is Part of an epic rates the one it closes", () => {
-    const links = bodyIssueLinks("Closes #1041\n\nPart of #1000");
-    const closing = chooseLinkedIssue(links.closes);
-
-    expect(closing.issue).toBe(1041);
-  });
-});
-
 describe("isBareContinuation alternatives", () => {
   test.each(["keep going", "carry on", "proceed", "Proceed!", "GO ON."])("matches %s", (phrase) => {
     expect(isBareContinuation(phrase)).toBe(true);
-  });
-});
-
-describe("chooseLinkedIssue", () => {
-  test("records nothing when no issue is linked", () => {
-    expect(chooseLinkedIssue([])).toEqual({ issue: null, candidates: [] });
-  });
-
-  test("takes the one linked issue", () => {
-    expect(chooseLinkedIssue([5, 5])).toEqual({ issue: 5, candidates: [5] });
-  });
-
-  test("refuses to choose between several, and names them", () => {
-    expect(chooseLinkedIssue([1031, 1550, 1033])).toEqual({
-      issue: null,
-      candidates: [1031, 1550, 1033],
-    });
   });
 });
 

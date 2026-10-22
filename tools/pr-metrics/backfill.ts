@@ -26,12 +26,12 @@
 
 import { existsSync, readFileSync } from "node:fs";
 
-import type { BranchPull, Card, SessionsRoots } from "./index.ts";
+import type { BranchPull, Card, IssueReference, SessionsRoots } from "./index.ts";
 import {
   branchCards,
   buildCard,
   cardFileName,
-  declaredFromLabels,
+  decideComplexity,
   defaultMetricsDir,
   defaultSessionsRoots,
   otherPullRequest,
@@ -40,35 +40,64 @@ import {
   recordsInWindow,
   recordWindow,
   repoProjectPaths,
+  resolveRepo,
   sameApartFromGeneratedAt,
+  sameRepository,
+  selectIssues,
 } from "./index.ts";
 
-/** A pull request's linked issue, as `gh pr list --json closingIssuesReferences`
- * already returns it — unconditionally, not a field this tool asked for by
- * name (`--json` takes no nested selection; see `issueLabelsById`'s doc
- * comment). The issue is usually not in this repository: see below. */
-interface IssueRef {
-  id: string;
-  number: number;
-  repository: { name: string; owner: { login: string } };
-}
-
+/** A merged pull request as `gh pr list --json` returns it. Each linked issue
+ * arrives with its GraphQL node id — unconditionally, not a field this tool
+ * asked for by name (`--json` takes no nested selection; see
+ * `issueLabelsById`'s doc comment). The issue is usually not in this
+ * repository: see below. */
 interface PullRequest {
   number: number;
   headRefName: string;
   mergedAt: string;
   baseRefOid: string;
   headRefOid: string;
-  closingIssuesReferences: IssueRef[];
+  body?: string | null;
+  closingIssuesReferences: IssueReference[];
 }
 
-/** A card's complexity fields, decided per pull request below. Structurally
- * compatible with `DeclaredComplexity` (`index.ts`) but not that type itself:
- * `method` here also carries `"not-fetched"` and `"lookup-failed"`, neither
- * of which `declaredFromLabels` can produce. */
-interface RatingOutcome {
-  declared: number | null;
-  method: string;
+/** The repository `backfill` reads when `--repo` is not given. */
+const DEFAULT_REPO = "englishstreetventures/osn";
+
+/**
+ * The card to write, given the card already on disk: `next`, unless it would
+ * lower the rating the disk card holds for the same pull request.
+ *
+ * A backfill rebuilds every card it can cost, and a run whose label lookup
+ * failed, or that can no longer read an issue, produces a card with a null
+ * rating. Writing it over a card that holds one throws away the only record of
+ * that rating, so the disk card's `issue` and `complexity` are kept when its
+ * `declared` is set and the new one is not, or when it is `confirmed` and the
+ * new one is not. A version 1 card's rating is one issue's, which is what its
+ * kept `issues` count says.
+ */
+export function keepRating(onDisk: unknown, next: Card): Card {
+  if (onDisk === null || typeof onDisk !== "object") return next;
+
+  const disk = onDisk as Partial<Pick<Card, "pr" | "issue" | "complexity">>;
+  const old = disk.complexity;
+  if (disk.pr?.number !== next.pr.number || old === null || typeof old !== "object") return next;
+
+  const oldDeclared = typeof old.declared === "number" ? old.declared : null;
+  const lowered =
+    (oldDeclared !== null && next.complexity.declared === null) ||
+    (old.method === "confirmed" && next.complexity.method !== "confirmed");
+  if (!lowered) return next;
+
+  return {
+    ...next,
+    issue: disk.issue ?? next.issue,
+    complexity: {
+      declared: oldDeclared,
+      method: old.method,
+      issues: old.issues ?? (oldDeclared === null ? 0 : 1),
+    },
+  };
 }
 
 export interface ChangedFile {
@@ -305,7 +334,11 @@ async function fileLists(repo: string, numbers: number[]): Promise<Map<number, C
 }
 
 if (import.meta.main) {
-  const repo = flag("repo") ?? "englishstreetventures/osn";
+  // The canonical name, so a renamed owner or another case still compares
+  // equal to the owner GitHub reports on each linked issue. Every call below
+  // uses it too.
+  const typedRepo = flag("repo") ?? DEFAULT_REPO;
+  const repo = resolveRepo(typedRepo) ?? typedRepo;
   const limit = flag("limit") ?? "100";
   const outDir = flag("out-dir") ?? defaultMetricsDir();
   const sessionsDir: SessionsRoots = flag("sessions-dir") ?? defaultSessionsRoots();
@@ -322,7 +355,7 @@ if (import.meta.main) {
     "--limit",
     limit,
     "--json",
-    "number,headRefName,mergedAt,baseRefOid,headRefOid,closingIssuesReferences",
+    "number,headRefName,mergedAt,baseRefOid,headRefOid,body,closingIssuesReferences",
   ]);
 
   if (!listed.ok) {
@@ -365,26 +398,35 @@ if (import.meta.main) {
   // englishstreetventures/osn#1012 for why one elsewhere (chiefly the private
   // englishstreetventures/osn-tracker) is never fetched at all: its labels can carry a
   // severity/area pair that must not reach a card committed in this public
-  // repository. Keyed by pull-request number so the per-pull loop below can
-  // look its ref back up.
-  const [repoOwner, repoName] = repo.split("/");
-  const localIssueRefs = new Map<number, IssueRef>();
+  // repository. A merged pull request is credited with what its merge closed,
+  // GitHub's references, and its body only names which one the branch was
+  // cut for. Keyed by pull-request number for the per-pull loop below.
+  const selections = new Map(
+    carded.map((pull) => [
+      pull.number,
+      selectIssues({
+        body: pull.body ?? "",
+        refs: pull.closingIssuesReferences ?? [],
+        repo,
+        closedFromBody: false,
+      }),
+    ]),
+  );
+  const localIssueIds = new Map<number, Map<number, string>>();
   for (const pull of carded) {
-    const ref = pull.closingIssuesReferences[0];
-    if (
-      ref &&
-      ref.repository.owner.login.toLowerCase() === repoOwner?.toLowerCase() &&
-      ref.repository.name.toLowerCase() === repoName?.toLowerCase()
-    ) {
-      localIssueRefs.set(pull.number, ref);
+    const ids = new Map<number, string>();
+    for (const ref of pull.closingIssuesReferences ?? []) {
+      if (ref.id !== undefined && sameRepository(ref, repo)) ids.set(ref.number, ref.id);
     }
+    localIssueIds.set(pull.number, ids);
   }
-  const uniqueIssueIds = [...new Set([...localIssueRefs.values()].map((ref) => ref.id))];
+  const uniqueIssueIds = new Set<string>();
+  for (const ids of localIssueIds.values()) for (const id of ids.values()) uniqueIssueIds.add(id);
 
   const [counts, files, labelsById] = await Promise.all([
     commitCounts(repo, numbers),
     fileLists(repo, numbers),
-    issueLabelsById(uniqueIssueIds),
+    issueLabelsById([...uniqueIssueIds]),
   ]);
 
   // Oldest merge first, so on a reused branch name the first pull request
@@ -453,37 +495,43 @@ if (import.meta.main) {
 
     const changed = files.get(pull.number) ?? [];
 
-    const linkedRef = pull.closingIssuesReferences[0] ?? null;
-    const localRef = localIssueRefs.get(pull.number) ?? null;
-    // Only this repository's issue is recorded. A private tracker number on a
-    // public card would reveal that the finding exists.
-    const issueNumber = localRef?.number ?? null;
+    // Only this repository's issues are recorded. A private tracker number on
+    // a public card would reveal that the finding exists, and its labels are
+    // never asked for.
+    const selection = selections.get(pull.number) ?? {
+      issue: null,
+      closed: [],
+      partOf: [],
+      foreign: false,
+      candidates: [],
+    };
+    const ids = localIssueIds.get(pull.number) ?? new Map<number, string>();
+    // `null` marks an issue queried and unresolved — a transport error, or an
+    // issue that vanished between merge and backfill — which reads as
+    // `lookup-failed`, never as a checked issue with no rating.
+    const issueLabels = new Map<number, string[] | null>(
+      selection.closed.map((issue) => {
+        const id = ids.get(issue);
 
-    let labels: string[] = [];
-    let complexity: RatingOutcome;
-    if (linkedRef === null) {
-      // No linked issue at all — nothing to check. Matches what `card`
-      // itself writes when given no `--issue-labels` (index.ts).
-      complexity = { declared: null, method: "none" };
-    } else if (localRef === null) {
-      // A linked issue exists but lives outside this repository —
-      // deliberately never read (see the comment above `localIssueRefs`).
-      // Distinct from "none": a rating may well exist there; nobody checked.
-      complexity = { declared: null, method: "not-fetched" };
-    } else if (!labelsById.has(localRef.id)) {
-      // Queried and unresolved — a transport error, or the issue vanished
-      // between merge and backfill. Distinct from "none" for the same
-      // reason a zero-transcript pull request is skipped rather than carded
-      // at zero: a card must never claim to have checked something it did
-      // not.
-      complexity = { declared: null, method: "lookup-failed" };
-      console.warn(
-        `  ⚠️  could not fetch labels for issue #${localRef.number} (linked from PR #${pull.number}) — leaving complexity unrated rather than guessing.`,
+        return [issue, id === undefined ? null : (labelsById.get(id) ?? null)];
+      }),
+    );
+    const complexity = decideComplexity(selection, issueLabels);
+
+    if (complexity.method === "lookup-failed") {
+      const missing = selection.closed.filter((issue) => issueLabels.get(issue) === null);
+      process.stderr.write(
+        `  ⚠️  could not fetch labels for ${missing.map((n) => `#${n}`).join(", ")} (closed by PR #${pull.number}) — leaving complexity unrated rather than guessing.\n`,
       );
-    } else {
-      labels = labelsById.get(localRef.id) ?? [];
-      complexity = declaredFromLabels(labels);
     }
+    if (complexity.unrated.length > 0) {
+      process.stderr.write(
+        `  ⚠️  ${complexity.unrated.map((n) => `#${n}`).join(", ")} (closed by PR #${pull.number}) carries no complexity: rating, so the sum is unknown.\n`,
+      );
+    }
+
+    const issueNumber = selection.issue;
+    const labels = issueNumber === null ? [] : (issueLabels.get(issueNumber) ?? []);
 
     // `cardFileName` goes through `branchSlug`, never a copy of its first step:
     // the inline version omitted the trailing `^-+|-+$` strip, so a branch name
@@ -495,7 +543,7 @@ if (import.meta.main) {
 
     // The review counts come from report files that are gone by merge time, so
     // the only source a backfill has is the card `retro` already wrote.
-    const card = buildCard(
+    const built = buildCard(
       records,
       parseNumstat(numstatFromApi(changed), counts.get(pull.number) ?? 0),
       {
@@ -507,6 +555,7 @@ if (import.meta.main) {
         issueLabels: labels,
         declaredComplexity: complexity.declared,
         complexityMethod: complexity.method,
+        complexityIssues: complexity.issues,
         baseSha: pull.baseRefOid,
         headSha: pull.headRefOid,
         mergedAt: pull.mergedAt,
@@ -514,6 +563,13 @@ if (import.meta.main) {
         generatedAt: new Date().toISOString(),
       },
     );
+
+    const card = keepRating(onDisk, built);
+    if (card !== built) {
+      process.stderr.write(
+        `  ⚠️  #${pull.number}: keeping the rating already on disk (${card.complexity.method} ${card.complexity.declared}) over this run's (${built.complexity.method} ${built.complexity.declared}).\n`,
+      );
+    }
 
     // `branchSlug` is not injective — `feat/x-`, `feat-x` and `feat/x` all slug
     // to `feat-x` — and this loop writes many cards in one pass. `card` writes

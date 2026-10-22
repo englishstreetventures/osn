@@ -10,7 +10,12 @@ import {
 } from "../index";
 
 function card(
-  overrides: { records?: SessionRecord[]; declared?: number | null; generatedAt?: string } = {},
+  overrides: {
+    records?: SessionRecord[];
+    declared?: number | null;
+    issues?: number;
+    generatedAt?: string;
+  } = {},
 ): Card {
   const records: SessionRecord[] = overrides.records ?? [
     { type: "user", sessionId: "s1", timestamp: "…01", message: { content: "go" } },
@@ -39,6 +44,7 @@ function card(
     issueLabels: [],
     declaredComplexity: overrides.declared === undefined ? 3 : overrides.declared,
     complexityMethod: "confirmed",
+    complexityIssues: overrides.issues,
     baseSha: "abc",
     headSha: "def",
     mergedAt: null,
@@ -82,6 +88,40 @@ test("renderDetails says unrated rather than inventing a number", () => {
 
 test("renderDetails reports no subagents without pretending there were some", () => {
   expect(renderDetails(card())).toContain("| Subagents | none |");
+});
+
+// A subagent whose dispatch fell outside the sessions this card counts still
+// spent from this branch. "none" beside that spend tells a reader delegation
+// never happened, which is the opposite of the truth.
+test("renderDetails never says none over subagent spend it cannot match to a dispatch", () => {
+  const block = renderDetails(
+    card({
+      records: [
+        {
+          type: "assistant",
+          sessionId: "s1",
+          timestamp: "…01",
+          message: { model: "claude-opus-5", usage: { output_tokens: 1_000 } },
+        },
+        {
+          type: "assistant",
+          sessionId: "s2",
+          isSidechain: true,
+          timestamp: "…02",
+          message: { model: "claude-opus-5", usage: { output_tokens: 1_000 } },
+        },
+      ],
+    }),
+  );
+
+  expect(block).not.toContain("| Subagents | none |");
+  expect(block).toContain("| Subagents | no dispatch seen; 50% of spend is subagent work |");
+});
+
+test("renderDetails says how many issues a declared sum covers", () => {
+  const block = renderDetails(card({ declared: 6, issues: 3 }));
+
+  expect(block).toContain("| Declared complexity | 6 (sum of 3 issues) |");
 });
 
 test("renderDetails survives a card with no spend at all", () => {

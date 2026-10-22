@@ -981,3 +981,156 @@ test("resolveDispatchBranch does not fall back to an ambiguous (multi-branch) se
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+// A session that starts in `main/` or the bare-repo root and then enters a
+// worktree with the `EnterWorktree` tool runs no `git worktree add`, so the
+// Bash scan above finds nothing and every record before the move — the
+// opening request and the work that led to the branch — lands on no card.
+// Claude Code writes a `worktree-state` record naming the branch it entered;
+// that record is the signal. `+` is in the fixture on purpose: a worktree
+// name `feat/x` becomes the branch `worktree-feat+x`.
+function worktreeState(branch: string): string {
+  return JSON.stringify({
+    type: "worktree-state",
+    sessionId: "sess-1",
+    worktreeSession: {
+      originalCwd: "/Users/ac/.work/osn.git/main",
+      worktreeName: "feat/x",
+      worktreeBranch: branch,
+      originalBranch: "HEAD",
+    },
+  });
+}
+
+function stampedRecord(gitBranch: string, requestId: string, timestamp: string): string {
+  return JSON.stringify({
+    type: "assistant",
+    sessionId: "sess-1",
+    gitBranch,
+    isSidechain: false,
+    requestId,
+    timestamp,
+    message: { model: "claude-opus-5", usage: { output_tokens: 5 } },
+  });
+}
+
+test("a session that entered one worktree carries its earlier records onto that branch", async () => {
+  const dir = await tree();
+  try {
+    await writeFile(
+      join(dir, "proj/sess-1.jsonl"),
+      [
+        stampedRecord("HEAD", "req-before", "2026-10-21T14:24:42.000Z"),
+        worktreeState("worktree-feat+x"),
+        stampedRecord("worktree-feat+x", "req-after", "2026-10-21T15:03:05.000Z"),
+      ].join("\n"),
+    );
+
+    expect(resolveSessionBranch(join(dir, "proj/sess-1.jsonl"))).toBe("worktree-feat+x");
+
+    const records = readRecordsForBranch(dir, "worktree-feat+x");
+    expect(records.map((r) => r.requestId).toSorted()).toEqual(["req-after", "req-before"]);
+    expect(
+      recordsByBranch(dir)
+        .get("worktree-feat+x")
+        ?.map((r) => r.requestId)
+        .toSorted(),
+    ).toEqual(["req-after", "req-before"]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("a session that entered two different worktrees is attributed to neither", async () => {
+  const dir = await tree();
+  try {
+    const file = join(dir, "proj/sess-1.jsonl");
+    await writeFile(
+      file,
+      [
+        stampedRecord("HEAD", "req-before", "2026-10-21T14:24:42.000Z"),
+        worktreeState("worktree-feat+x"),
+        worktreeState("worktree-feat+y"),
+      ].join("\n"),
+    );
+
+    expect(resolveSessionBranch(file)).toBeNull();
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("a branch the session cut with git outranks a worktree it entered", async () => {
+  const dir = await tree();
+  try {
+    const file = join(dir, "proj/sess-1.jsonl");
+    await writeFile(
+      file,
+      [
+        worktreeState("worktree-scratch"),
+        bashRecord("git worktree add /Users/ac/.work/osn.git/feat-x -b feat/x origin/main"),
+      ].join("\n"),
+    );
+
+    expect(resolveSessionBranch(file)).toBe("feat/x");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("an EnterWorktree call that failed attributes nothing", async () => {
+  const dir = await tree();
+  try {
+    const file = join(dir, "proj/sess-1.jsonl");
+    await writeFile(
+      file,
+      [
+        JSON.stringify({
+          type: "assistant",
+          sessionId: "sess-1",
+          gitBranch: "HEAD",
+          message: {
+            model: "claude-opus-5",
+            content: [
+              { type: "tool_use", id: "toolu_enter", name: "EnterWorktree", input: { name: "x" } },
+            ],
+          },
+        }),
+        stampedRecord("HEAD", "req-after", "2026-10-21T15:03:05.000Z"),
+      ].join("\n"),
+    );
+
+    expect(resolveSessionBranch(file)).toBeNull();
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// Claude Code also writes bookkeeping records into a session file — file
+// history among them — with a timestamp but no session id and no branch. The
+// session fallback must not admit them: each one would count as a session of
+// its own, named "unknown", on the card.
+test("the session fallback admits no record that belongs to no session", async () => {
+  const dir = await tree();
+  try {
+    await writeFile(
+      join(dir, "proj/sess-1.jsonl"),
+      [
+        stampedRecord("HEAD", "req-before", "2026-10-21T14:24:42.000Z"),
+        worktreeState("worktree-feat+x"),
+        JSON.stringify({ type: "file-history-delta", timestamp: "2026-10-21T15:04:27.000Z" }),
+        stampedRecord("worktree-feat+x", "req-after", "2026-10-21T15:03:05.000Z"),
+      ].join("\n"),
+    );
+
+    const records = readRecordsForBranch(dir, "worktree-feat+x");
+    expect(records.every((record) => record.sessionId === "sess-1")).toBe(true);
+    expect(
+      recordsByBranch(dir)
+        .get("worktree-feat+x")
+        ?.every((record) => record.sessionId === "sess-1"),
+    ).toBe(true);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

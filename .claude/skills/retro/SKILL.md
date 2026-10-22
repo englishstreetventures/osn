@@ -84,15 +84,16 @@ Then the two runs, which do different jobs:
 # stacked branch that counts the parent's whole diff as this one's.
 BASE="origin/$(git config --get "branch.$BRANCH.gh-merge-base" || echo main)"
 
-# 1. The committed card. `--resolve-issue` finds the pull request, its first
-#    linked issue and that issue's `complexity:` label for itself.
+# 1. The committed card. `--resolve-issue` finds the pull request, names the
+#    issue the branch was cut for and sums the `complexity:` ratings of every
+#    issue in this repository the pull request closes.
 bun run --cwd tools/pr-metrics card -- --resolve-issue --base "$BASE"
 
 # 2. The `<details>` block for the pull-request body, on stdout, warnings excluded.
 bun run --cwd tools/pr-metrics card -- --resolve-issue --base "$BASE" --format markdown > /tmp/card.md
 ```
 
-Four rules about that pair:
+Five rules about that pair:
 
 - **Let `--resolve-issue` do the lookup; never hand-roll it in the shell.**
   `.closingIssuesReferences[0].number` drops the repository, so a follow-up
@@ -107,10 +108,19 @@ Four rules about that pair:
   `complexity.method: "not-fetched"`, which is **not** `"none"` — a rating may
   well exist there and nobody looked. `"lookup-failed"` is its third answer,
   for a call that did not land.
+- **Check the issue the card names.** It is the issue in the branch's
+  `NEW-FEAT.md` when the pull request links it, else the first `Closes` line of
+  the body, else the first `Part of` line; with several closing references and
+  none of those, it names none and warns. Read `issue.number` and
+  `complexity.issues` off the card: when the issue is not the one the branch
+  was cut for, run both commands again with `--issue <n>` added. `--issue`
+  names the issue and nothing else; the rating stays the sum of what the pull
+  request closes. It takes this repository's issue only — never a tracker
+  number.
 - **Pass explicit flags only where you know better than `gh` does.** `--pr`,
-  `--issue`, `--issue-labels` and `--complexity` all win over the lookup, and
-  passing one turns the rest of it off. The usual reason is a branch whose pull
-  request is not open yet.
+  `--issue-labels` and `--complexity` win over the lookup; `--issue-labels`
+  turns the rating lookup off and declares that one issue's rating. The usual
+  reason is a branch whose pull request is not open yet.
 - **Commit the JSON with the branch.** `~/.claude/projects` is local,
   unversioned and dies with a remote container. The committed file is the
   record; an uncommitted one is nothing. Stage the one card, never the
