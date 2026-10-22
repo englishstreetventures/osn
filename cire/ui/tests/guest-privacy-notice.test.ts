@@ -162,8 +162,9 @@ describe("guest privacy notice", () => {
   /**
    * Each sentence about the email address states something the code does:
    * only the chosen member's own address reaches the invitation; a removal
-   * stops mail even if a host adds the address back; the removed address is
-   * kept only as a hash and goes with the year's sweep.
+   * stops mail even if a host adds the address back; replacing an address the
+   * hosts added withdraws it as a removal does; the removed address is kept
+   * only as a hash and goes with the year's sweep.
    */
   it("names the email address, its basis, who sees it, and how to withdraw it", () => {
     expect(body).toMatch(phrase("Your email address, if you or your hosts add one"));
@@ -174,6 +175,11 @@ describe("guest privacy notice", () => {
     expect(body).toMatch(
       phrase(
         "we will not email it about this wedding, even if it is added again, unless you add it back yourself",
+      ),
+    );
+    expect(body).toMatch(
+      phrase(
+        "When you remove your email address, or replace one your hosts added, it comes off your guest record at once",
       ),
     );
     expect(body).toMatch(

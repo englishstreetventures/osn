@@ -6,7 +6,7 @@ related:
   - "[[cire-invite-builder]]"
   - "[[monorepo-structure]]"
   - "[[cire-guest-event-editor]]"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-23
 ---
 # Platform Plan — from digital invite to wedding management platform
 
@@ -209,7 +209,7 @@ Context-aware estimates from the wedding profile: guest count, date (season + we
 ## 7. Phase 4 — seating, comms, registry
 
 - **Seating — shipped** ([[cire-seating]]): `seating_tables` (id, wedding_id, event_id, name, capacity, sort_order) + `seating_assignments` (table_id, event_id, guest_id; PK `(table_id, guest_id)`). Deltas from the sketch: the seat repeats its table's `event_id`, so "one seat per guest per event" is a unique index the database enforces, with composite foreign keys keeping it equal to the table's event and admitting only an invited guest; a table's `wedding_id` is tied to its event's by a composite foreign key to `events (id, wedding_id)`. Gold module. Reads Guests + live RSVP status (badges declined, maybe, no reply, invite withdrawn). Seat by drag or by a per-guest menu; CSV (`seating.csv`, owner) and a print sheet for the venue. Alternative layouts (englishstreetventures/osn#1391) and a guest's own seat lookup (englishstreetventures/osn#1412) extend it without a rebuild — see [[cire-seating#Extending it]].
-- **Guest comms**: save-the-dates, "the invite is live", RSVP-chaser emails via `@shared/email` (Resend) — englishstreetventures/osn#481. **The addresses exist**: one per guest on `guests.email`, with who supplied it and the consent behind it, and a per-wedding suppression list, `email_suppressions` (migration `20261022145310_guest_emails`; [[data-map]]). Sending must skip any address the wedding has suppressed (a matching `(wedding_id, email_hash)` row), never mail a host-preview household, carry the guest notice in its first mail to an address a host added, and decide whether to confirm an address before mailing it. Build behind the same key-optional/fail-soft pattern as Turnstile/Maps. Comms log table for auditability; unsubscribe from day one.
+- **Guest comms**: save-the-dates, "the invite is live", RSVP-chaser emails via `@shared/email` (Resend) — englishstreetventures/osn#481. **The addresses exist**: one per guest on `guests.email`, with who supplied it and the consent behind it, and a per-wedding suppression list, `email_suppressions` (migration `20261022145310_guest_emails`; [[data-map]]). Sending must skip any address the wedding has suppressed (a matching `(wedding_id, email_hash)` row, whatever its reason: a guest's removal, or a host-added address the guest replaced), never mail a host-preview household, carry the guest notice in its first mail to an address a host added, and decide whether to confirm an address before mailing it. Build behind the same key-optional/fail-soft pattern as Turnstile/Maps. Comms log table for auditability; unsubscribe from day one.
 - **Registry and money gifts**: built — the gift list, money gifts through Stripe Connect and named cash funds ([[cire-registry]]).
 - **Guest photos / Wallet passes**: remain in [[decisions/deferred-decisions]].
 
