@@ -2861,12 +2861,16 @@ function fetchIssueLabels(issue: number, repo: string): string[] | null {
  * about. `backfill.ts` draws the same outcomes from the same functions.
  *
  * `explicitIssue` is `--issue`: it names the issue and nothing else, so the
- * rating is still the sum of what the pull request closes.
+ * rating is still the sum of what the pull request closes. The card is public,
+ * so it is refused when it is the number of another repository's issue the
+ * pull request links and no issue of this repository's with that number is
+ * linked too: the card then names no issue. With no pull request there is
+ * nothing to check it against, and it stands as given.
  */
 function resolveIdentity(branch: string, explicitIssue: number | null): ResolvedIdentity {
   const miss: ResolvedIdentity = {
     prNumber: null,
-    issueNumber: null,
+    issueNumber: explicitIssue,
     labels: [],
     method: "none",
     declared: null,
@@ -2910,7 +2914,23 @@ function resolveIdentity(branch: string, explicitIssue: number | null): Resolved
     preferred: plan === null ? null : newFeatIssue(plan, branch, repo),
     closedFromBody: true,
   });
-  const issueNumber = explicitIssue ?? selection.issue;
+
+  const refs = pull.closingIssuesReferences ?? [];
+  const body = bodyIssueLinks(pull.body ?? "", repo);
+  const elsewhere = new Set([
+    ...body.foreignCloses,
+    ...body.foreignPartOf,
+    ...refs.filter((ref) => repo === null || !sameRepository(ref, repo)).map((ref) => ref.number),
+  ]);
+  const here = new Set([...selection.closed, ...selection.partOf]);
+  const refused =
+    explicitIssue !== null && elsewhere.has(explicitIssue) && !here.has(explicitIssue);
+  if (refused) {
+    process.stderr.write(
+      `⚠️  pr-metrics: --issue ${explicitIssue} is the number of another repository's issue that pull request #${pull.number} links, and a card is public, so the card names no issue.\n`,
+    );
+  }
+  const issueNumber = refused ? null : (explicitIssue ?? selection.issue);
 
   if (issueNumber === null && selection.candidates.length > 1) {
     process.stderr.write(
@@ -3066,17 +3086,19 @@ function findRun(line: string, length: number, from: number): number {
  * body order, from its prose only (see {@link proseOnly}).
  *
  * A bare `#N` is this repository's issue. A qualified `owner/name#N` is this
- * repository's when it names `repo`, and otherwise another repository's: a
- * closing line for one of those is counted in `foreignCloses` and its number
- * kept out of `closes`. With no `repo`, every qualified reference is foreign.
+ * repository's when it names `repo`, and otherwise another repository's: its
+ * number goes to `foreignCloses` or `foreignPartOf`, never to `closes` or
+ * `partOf`. With no `repo`, every qualified reference is foreign.
  */
 export interface BodyIssueLinks {
   /** This repository's issues the pull request closes on merge. */
   closes: number[];
   /** Issues it only advances: a `Part of` line, for partial work. */
   partOf: number[];
-  /** Closing lines that name another repository's issue. */
-  foreignCloses: number;
+  /** Another repository's issues it closes. */
+  foreignCloses: number[];
+  /** Another repository's issues it only advances. */
+  foreignPartOf: number[];
 }
 
 export function bodyIssueLinks(body: string, repo: string | null = null): BodyIssueLinks {
@@ -3087,7 +3109,8 @@ export function bodyIssueLinks(body: string, repo: string | null = null): BodyIs
   );
   const closes = new Set<number>();
   const partOf = new Set<number>();
-  let foreignCloses = 0;
+  const foreignCloses = new Set<number>();
+  const foreignPartOf = new Set<number>();
 
   for (const [, keyword = "", qualifier, digits = ""] of matches) {
     const number = Number(digits);
@@ -3096,14 +3119,19 @@ export function bodyIssueLinks(body: string, repo: string | null = null): BodyIs
     const advances = /^part/i.test(keyword);
 
     if (!here) {
-      if (!advances) foreignCloses += 1;
+      (advances ? foreignPartOf : foreignCloses).add(number);
       continue;
     }
     if (advances) partOf.add(number);
     else closes.add(number);
   }
 
-  return { closes: [...closes], partOf: [...partOf], foreignCloses };
+  return {
+    closes: [...closes],
+    partOf: [...partOf],
+    foreignCloses: [...foreignCloses],
+    foreignPartOf: [...foreignPartOf],
+  };
 }
 
 /** What a pull request links, and which of its issues is the branch's own. */
@@ -3150,7 +3178,7 @@ export function selectIssues(input: {
 
   const closed = [...new Set([...(closedFromBody ? links.closes : []), ...referenced])];
   const partOf = links.partOf.filter((number) => !closed.includes(number));
-  const foreign = links.foreignCloses > 0 || here.length < refs.length;
+  const foreign = links.foreignCloses.length > 0 || here.length < refs.length;
   const linked = new Set([...closed, ...partOf, ...links.closes]);
 
   const issue =
@@ -3239,9 +3267,9 @@ const NEW_FEAT_HEADER_LINES = 30;
  * its first lines name that branch as a whole word. The issue is the first
  * reference on the first line labelled `Issue` or `Issues` (followed by `:` or,
  * in a table, `|`). A bare `#N`, `<repo>#N` or an issues URL of `repo` is this
- * repository's; any other repository's reference — the private tracker's
- * above all — ends the search with no number, so a tracker number is never read
- * as a public issue.
+ * repository's, and a Markdown link counts by its target, not its text; any
+ * other repository's reference — the private tracker's above all — ends the
+ * search with no number, so a tracker number is never read as a public issue.
  */
 export function newFeatIssue(text: string, branch: string, repo: string | null): number | null {
   const header = text.split("\n", NEW_FEAT_HEADER_LINES);
@@ -3259,9 +3287,14 @@ export function newFeatIssue(text: string, branch: string, repo: string | null):
   const labelled = header.find((line) => /^\s*(?:[-*]\s+|\|\s*)?\**Issues?\**\s*[:|]/i.test(line));
   if (labelled === undefined) return null;
 
+  // A Markdown link's target decides which repository it names, whatever its
+  // text says: `[#712](…/osn-tracker/issues/712)` is the tracker's issue.
+  const value = labelled
+    .replace(/^\s*(?:[-*]\s+|\|\s*)?\**Issues?\**\s*[:|]/i, "")
+    .replaceAll(/\[[^\]\n]*\]\(([^)\s]*)\)/g, " $1 ");
   const reference =
     /(?:https?:\/\/github\.com\/([A-Za-z0-9-]+\/[A-Za-z0-9._-]+)\/issues\/(\d+))|(?:([A-Za-z0-9-]+\/[A-Za-z0-9._-]+)#(\d+))|(?:(?<![\w/.-])#(\d+))/.exec(
-      labelled.replace(/^\s*(?:[-*]\s+|\|\s*)?\**Issues?\**\s*[:|]/i, ""),
+      value,
     );
   if (reference === null) return null;
 
@@ -3493,7 +3526,7 @@ if (import.meta.main) {
   const card = buildCard(records, diff, {
     branch,
     prNumber,
-    issueNumber: explicitIssue ?? resolved?.issueNumber ?? null,
+    issueNumber: resolved === null ? explicitIssue : resolved.issueNumber,
     issueType: flag("issue-type"),
     issueLabels: resolved === null ? issueLabels : resolved.labels,
     declaredComplexity: override

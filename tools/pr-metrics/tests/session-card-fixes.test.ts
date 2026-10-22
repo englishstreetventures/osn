@@ -58,7 +58,8 @@ describe("bodyIssueLinks", () => {
     expect(bodyIssueLinks("Closes #12\nPart of #7\nFixes #12")).toEqual({
       closes: [12],
       partOf: [7],
-      foreignCloses: 0,
+      foreignCloses: [],
+      foreignPartOf: [],
     });
   });
 
@@ -66,7 +67,8 @@ describe("bodyIssueLinks", () => {
     expect(bodyIssueLinks("Closes englishstreetventures/osn-tracker#593")).toEqual({
       closes: [],
       partOf: [],
-      foreignCloses: 1,
+      foreignCloses: [593],
+      foreignPartOf: [],
     });
   });
 
@@ -74,12 +76,18 @@ describe("bodyIssueLinks", () => {
     expect(bodyIssueLinks("See #40 for the history.")).toEqual({
       closes: [],
       partOf: [],
-      foreignCloses: 0,
+      foreignCloses: [],
+      foreignPartOf: [],
     });
   });
 
   test("reads a colon after the keyword", () => {
-    expect(bodyIssueLinks("Closes: #9")).toEqual({ closes: [9], partOf: [], foreignCloses: 0 });
+    expect(bodyIssueLinks("Closes: #9")).toEqual({
+      closes: [9],
+      partOf: [],
+      foreignCloses: [],
+      foreignPartOf: [],
+    });
   });
 
   test("a run of spaces after a keyword resolves quickly", () => {

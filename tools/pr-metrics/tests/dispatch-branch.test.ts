@@ -338,7 +338,7 @@ test("a resolved subagent file is not counted as unattributed", async () => {
   }
 });
 
-// T-E1. The exclusion is the only thing keeping one branch's delegated spend
+// The exclusion is the only thing keeping one branch's delegated spend
 // off another branch's card, and a positive-only suite cannot see it: with the
 // guard deleted every test above still passed, while every marked transcript
 // would land on every card.
@@ -387,7 +387,7 @@ test("readRecordsForBranch excludes a subagent marked for a different branch", a
   }
 });
 
-// T-E3. The third arm of the warning's condition: an unmarked subagent whose
+// The third arm of the warning's condition: an unmarked subagent whose
 // own gitBranch is already a real task branch is fine, and counting it would
 // make the warning cry wolf on a healthy run.
 test("unattributedSubagentFiles ignores an unmarked subagent already on a task branch", async () => {
@@ -411,7 +411,7 @@ test("unattributedSubagentFiles ignores an unmarked subagent already on a task b
   }
 });
 
-// T-E4. Both readers call the resolver on every subagent file they see, so one
+// Both readers call the resolver on every subagent file they see, so one
 // bad sidecar escaping the catch would abort the whole card rather than
 // degrade it.
 test("resolveDispatchBranch survives a missing, empty or unparseable sidecar", async () => {
@@ -436,7 +436,7 @@ test("resolveDispatchBranch survives a missing, empty or unparseable sidecar", a
   }
 });
 
-// T-E4, the cycle. `parentCandidates` returns every sibling, so two files each
+// `parentCandidates` returns every sibling, so two files each
 // naming the other's tool_use id recurse until the guard stops them. This test
 // fails by hanging or overflowing the stack, not by asserting.
 test("resolveDispatchBranch terminates when two siblings dispatch each other", async () => {
@@ -456,7 +456,7 @@ test("resolveDispatchBranch terminates when two siblings dispatch each other", a
   }
 });
 
-// T-U1. `uuid` is what a cross-file duplicate repeats, on the assistant side
+// `uuid` is what a cross-file duplicate repeats, on the assistant side
 // and on the `user` records `user_turns` and `corrective_turns` are counted
 // from alike. If the dedupe never fires those numbers double on a duplicated
 // conversation.
@@ -515,7 +515,7 @@ test("the blocks of one split response all survive the dedupe", async () => {
   }
 });
 
-// T-S1. `backfill` reads through `recordsByBranch`, so an un-deduped pass here
+// `backfill` reads through `recordsByBranch`, so an un-deduped pass here
 // is the live-card/backfilled-card disagreement the shared reader exists to end.
 test("recordsByBranch dedupes a record present in two session files", async () => {
   const dir = await tree();
@@ -536,7 +536,7 @@ test("recordsByBranch dedupes a record present in two session files", async () =
   }
 });
 
-// T-S2. The producer is `.claude/skills/orchestrate/SKILL.md` and the consumer
+// The producer is `.claude/skills/orchestrate/SKILL.md` and the consumer
 // is this parser; nothing else couples them. The last case reads the marker out
 // of the skill file itself, so the two fail together the day either changes.
 test("the marker is matched on its own line and nowhere else", async () => {
@@ -575,7 +575,7 @@ test("the marker is matched on its own line and nowhere else", async () => {
   }
 });
 
-// S-M1. `~/.claude/projects` holds every project on this machine, and the cards
+// `~/.claude/projects` holds every project on this machine, and the cards
 // this tool writes are committed to a public repository. A marker is an
 // attribution hint an agent wrote, not a provenance claim, so it must not on
 // its own admit a transcript from another checkout — two projects using
@@ -615,7 +615,7 @@ test("a marked transcript from another project is not admitted to this repo's ca
   }
 });
 
-// S-L2. A dispatch prompt routinely quotes text this repository did not author —
+// A dispatch prompt routinely quotes text this repository did not author —
 // issue bodies, review comments, fetched pages. A planted marker further down
 // must not re-point a subagent's whole spend onto another branch's public card.
 test("a marker planted below the window, or naming an implausible ref, is ignored", async () => {
@@ -1156,13 +1156,18 @@ test("the session fallback admits no record that belongs to no session", async (
       ].join("\n"),
     );
 
-    const records = readRecordsForBranch(dir, "worktree-feat+x");
-    expect(records.every((record) => record.sessionId === "sess-1")).toBe(true);
+    const sessionRecords = ["req-after", "req-before"];
+    expect(
+      readRecordsForBranch(dir, "worktree-feat+x")
+        .map((record) => record.requestId)
+        .toSorted(),
+    ).toEqual(sessionRecords);
     expect(
       recordsByBranch(dir)
         .get("worktree-feat+x")
-        ?.every((record) => record.sessionId === "sess-1"),
-    ).toBe(true);
+        ?.map((record) => record.requestId)
+        .toSorted(),
+    ).toEqual(sessionRecords);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

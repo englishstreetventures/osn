@@ -56,7 +56,7 @@ describe("bodyIssueLinks reads prose only", () => {
     );
 
     expect(links.closes).toEqual([21]);
-    expect(links.foreignCloses).toBe(1);
+    expect(links.foreignCloses).toEqual([598]);
   });
 
   test("unclosed comments and lone backticks are read in linear time", () => {
@@ -323,6 +323,13 @@ describe("newFeatIssue", () => {
       [
         "# NEW-FEAT — fix/pr-metrics",
         "Issue: https://github.com/englishstreetventures/osn-tracker/issues/712",
+      ],
+    ],
+    [
+      "a link whose text is a bare number and whose target is the tracker",
+      [
+        "# NEW-FEAT — fix/pr-metrics",
+        "**Issue:** [#712](https://github.com/englishstreetventures/osn-tracker/issues/712)",
       ],
     ],
     ["a file for another branch", ["# NEW-FEAT — fix/other", "Issue: #9"]],

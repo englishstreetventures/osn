@@ -95,14 +95,17 @@ functions that decide both (`selectIssues` and `decideComplexity` in
 **The issue** — the first of these that applies:
 
 1. `--issue <n>`. With `--resolve-issue` it names the issue and nothing else:
-   the sum below still runs. It takes this repository's issue only, never a
-   tracker number.
+   the sum below still runs, and no label is read for a number the pull request
+   does not close. It takes this repository's issue only, never a tracker
+   number: with `--resolve-issue`, the number of another repository's issue the
+   pull request links is refused, and the card names none.
 2. `NEW-FEAT.md` at the root of the checkout, when it chooses among the pull
    request's own links. The file is untracked scratch and survives a branch
    switch, so it counts only when the checkout has the carded branch out and
    the branch name appears, as a whole word, in its first 30 lines. The issue is
    the first reference on its first `Issue:` or `Issues:` line (a `| Issue |`
-   table row counts too). A tracker reference there names nothing. It never
+   table row counts too), and a Markdown link counts by its target, not its
+   text. A tracker reference there names nothing. It never
    adds an issue the pull request does not link, and it is not read before a
    pull request exists.
 3. The first `Closes`, `Fixes` or `Resolves #N` line of the body, in body order.
@@ -686,9 +689,11 @@ in, compared ignoring case.
 
 **A backfill never lowers a rating on disk.** When the card already written for
 the same pull request holds a rating and this run's has none, or holds a
-`confirmed` one and this run's is not, it keeps the card's `issue` and
-`complexity` and says so on stderr. A failed lookup or an issue that can no
-longer be read must not erase the only record of the rating. Two cases are not
+`confirmed` one and this run's is not, it keeps the card's `complexity` and says
+so on stderr. A failed lookup or an issue that can no longer be read must not
+erase the only record of the rating. The card's `issue` comes with it only when
+this run links that issue to this repository: a card is public, and an issue
+block written some other way may name a tracker issue or carry its labels. Two cases are not
 a lowered rating, or cannot carry one:
 
 - **This run records `part-of`.** That null is the rule's answer, not a failed

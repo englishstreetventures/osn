@@ -1085,7 +1085,7 @@ async function sessionOn(f: Awaited<ReturnType<typeof fixture>>, branch: string)
 function prListing(
   number: number,
   branch: string,
-  refs: { id: string; number: number }[],
+  refs: { id: string; number: number; repo?: string }[],
   body = "",
 ): string {
   return JSON.stringify([
@@ -1096,10 +1096,11 @@ function prListing(
       baseRefOid: "aaa",
       headRefOid: "bbb",
       body,
-      closingIssuesReferences: refs.map((ref) => ({
-        ...ref,
-        repository: { name: "osn", owner: { login: "englishstreetventures" } },
-      })),
+      closingIssuesReferences: refs.map(({ repo = "englishstreetventures/osn", ...ref }) => {
+        const [login = "", name = ""] = repo.split("/");
+
+        return { ...ref, repository: { name, owner: { login } } };
+      }),
     },
   ]);
 }
@@ -1280,24 +1281,70 @@ test("backfill leaves a one-issue card alone rather than relabel it as a batched
   }
 });
 
+// A card is public, and the rating on disk is kept only as a number. Its issue
+// block is kept only when this run links that issue to this repository: a
+// tracker number or tracker labels on a card written some other way never
+// survive a backfill.
+test("backfill keeps a rating on disk but not an issue this repository does not link", async () => {
+  const f = await fixture({ withTranscript: false });
+  try {
+    const branch = "feat/keep-tracker";
+    await stubGh(
+      f,
+      `  *"pr list"*) printf '%s' '${prListing(
+        8006,
+        branch,
+        [{ id: "I_t", number: 619, repo: "englishstreetventures/osn-tracker" }],
+        "Closes englishstreetventures/osn-tracker#619",
+      )}' ;;
+  *"api graphql"*) printf '%s' '{"data":{"repository":{"p8006":{"commits":{"totalCount":1}}}}}' ;;`,
+    );
+    await sessionOn(f, branch);
+
+    const cardPath = join(f.dir, "cards", `${branchSlug(branch)}.json`);
+    await mkdir(join(f.dir, "cards"), { recursive: true });
+    await writeFile(
+      cardPath,
+      JSON.stringify({
+        schema_version: 1,
+        pr: { number: 8006, branch, merged_at: "2026-09-09T12:00:00Z", phase: "at-open" },
+        issue: { number: 619, type: "Bug", labels: ["severity:high", "complexity:3"] },
+        complexity: { declared: 3, method: "confirmed" },
+        spend: { usd_equivalent: 1 },
+        interaction: {},
+      }),
+    );
+
+    expect((await runBackfill(f)).exitCode).toBe(0);
+
+    const card = JSON.parse(await readFile(cardPath, "utf8")) as Card;
+    expect(card.issue.number).toBeNull();
+    expect(card.issue.labels).toEqual([]);
+    expect(card.complexity).toEqual({ declared: 3, method: "confirmed", issues: 1 });
+  } finally {
+    await rm(f.dir, { recursive: true, force: true });
+  }
+});
+
 describe("keepRating", () => {
-  const next = (complexity: Card["complexity"]): Card =>
+  const next = (complexity: Card["complexity"], issue: number | null = 2): Card =>
     ({
       pr: { number: 1 },
-      issue: { number: 2, type: null, labels: [] },
+      issue: { number: issue, type: null, labels: [] },
       complexity,
     }) as unknown as Card;
-  const disk = (complexity: unknown, pr = 1) => ({
+  const disk = (complexity: unknown, pr = 1, issue = 2) => ({
     pr: { number: pr },
-    issue: { number: 2, type: null, labels: ["complexity:5", "complexity:unconfirmed"] },
+    issue: { number: issue, type: null, labels: ["complexity:5", "complexity:unconfirmed"] },
     complexity,
   });
+  const links = (closed: number[], partOf: number[] = []) => ({ closed, partOf });
 
   test("keeps an unconfirmed rating over a null", () => {
     const kept = keepRating(
       disk({ declared: 5, method: "unconfirmed" }),
-      next({ declared: null, method: "not-fetched", issues: 0 }),
-      1,
+      next({ declared: null, method: "lookup-failed", issues: 0 }),
+      links([2]),
     );
 
     expect(kept?.complexity).toEqual({ declared: 5, method: "unconfirmed", issues: 1 });
@@ -1308,7 +1355,7 @@ describe("keepRating", () => {
     const kept = keepRating(
       disk({ declared: 3, method: "confirmed" }),
       next({ declared: 3, method: "unconfirmed", issues: 1 }),
-      1,
+      links([2]),
     );
 
     expect(kept?.complexity).toEqual({ declared: 3, method: "confirmed", issues: 1 });
@@ -1318,7 +1365,7 @@ describe("keepRating", () => {
     const kept = keepRating(
       disk({ declared: 4, method: "confirmed", issues: 2 }),
       next({ declared: null, method: "lookup-failed", issues: 0 }),
-      2,
+      links([2, 3]),
     );
 
     expect(kept?.complexity).toEqual({ declared: 4, method: "confirmed", issues: 2 });
@@ -1327,12 +1374,14 @@ describe("keepRating", () => {
   test("never carries one issue's rating into a pull request that closes several", () => {
     const sum = next({ declared: 5, method: "unconfirmed", issues: 4 });
 
-    expect(keepRating(disk({ declared: 1, method: "confirmed" }), sum, 4)).toBe(sum);
+    expect(keepRating(disk({ declared: 1, method: "confirmed" }), sum, links([2, 3, 4, 5]))).toBe(
+      sum,
+    );
     expect(
       keepRating(
         disk({ declared: 1, method: "confirmed" }),
         next({ declared: null, method: "lookup-failed", issues: 0 }),
-        4,
+        links([2, 3, 4, 5]),
       ),
     ).toBeNull();
   });
@@ -1340,25 +1389,35 @@ describe("keepRating", () => {
   test("a Part of null drops a looked-up rating and keeps one a caller gave", () => {
     const partOf = next({ declared: null, method: "part-of", issues: 0 });
 
-    expect(keepRating(disk({ declared: 8, method: "confirmed" }), partOf, 0)).toBe(partOf);
-    expect(keepRating(disk({ declared: 3, method: "manual" }), partOf, 0)?.complexity).toEqual({
-      declared: 3,
-      method: "manual",
-      issues: 1,
-    });
+    expect(keepRating(disk({ declared: 8, method: "confirmed" }), partOf, links([], [2]))).toBe(
+      partOf,
+    );
+    expect(
+      keepRating(disk({ declared: 3, method: "manual" }), partOf, links([], [2]))?.complexity,
+    ).toEqual({ declared: 3, method: "manual", issues: 1 });
+  });
+
+  test("keeps the rating but not an issue this run does not link to this repository", () => {
+    const fresh = next({ declared: null, method: "not-fetched", issues: 0 }, null);
+    const kept = keepRating(disk({ declared: 3, method: "confirmed" }, 1, 619), fresh, links([]));
+
+    expect(kept?.complexity).toEqual({ declared: 3, method: "confirmed", issues: 1 });
+    expect(kept?.issue).toEqual(fresh.issue);
   });
 
   test("takes a new confirmed rating over an old one", () => {
     const fresh = next({ declared: 6, method: "confirmed", issues: 2 });
 
-    expect(keepRating(disk({ declared: 3, method: "confirmed" }), fresh, 2)).toBe(fresh);
+    expect(keepRating(disk({ declared: 3, method: "confirmed" }), fresh, links([2, 3]))).toBe(
+      fresh,
+    );
   });
 
   test("ignores a card on disk with no rating or for another pull request", () => {
     const fresh = next({ declared: null, method: "none", issues: 0 });
 
-    expect(keepRating({ pr: { number: 1 } }, fresh, 0)).toBe(fresh);
-    expect(keepRating(disk({ declared: 3, method: "confirmed" }, 9), fresh, 0)).toBe(fresh);
-    expect(keepRating(null, fresh, 0)).toBe(fresh);
+    expect(keepRating({ pr: { number: 1 } }, fresh, links([]))).toBe(fresh);
+    expect(keepRating(disk({ declared: 3, method: "confirmed" }, 9), fresh, links([]))).toBe(fresh);
+    expect(keepRating(null, fresh, links([]))).toBe(fresh);
   });
 });

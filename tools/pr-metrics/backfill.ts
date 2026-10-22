@@ -67,14 +67,18 @@ const DEFAULT_REPO = "englishstreetventures/osn";
 /**
  * The card to write, given the card already on disk: `next`; `next` carrying
  * the disk card's rating; or `null`, meaning leave the disk card as it is.
- * `closed` is how many issues in this repository the pull request closes.
+ * `links` are the issues in this repository the pull request closes and the
+ * ones it is `Part of`.
  *
  * A backfill rebuilds every card it can cost, and a run whose label lookup
  * failed, or that can no longer read an issue, produces a card with a null
  * rating. Writing it over a card that holds one throws away the only record of
- * that rating, so the disk card's `issue` and `complexity` are carried into the
- * new card when its `declared` is set and the new one is not, or when it is
- * `confirmed` and the new one is not.
+ * that rating, so the disk card's `complexity` is carried into the new card
+ * when its `declared` is set and the new one is not, or when it is `confirmed`
+ * and the new one is not. Its `issue` comes with it only when this run links
+ * that issue to this repository: the card is public, and an issue block
+ * written some other way may name another repository's issue or carry its
+ * labels.
  *
  * Two cases are not a lowered rating, or cannot carry one:
  *
@@ -82,14 +86,18 @@ const DEFAULT_REPO = "englishstreetventures/osn";
  *   read: the issue's rating describes more than the branch did. A rating
  *   looked up from the issue (`confirmed`, `unconfirmed`) is not carried into
  *   it; one a caller gave by hand is.
- * - The disk rating covers fewer issues than the pull request closes — a
- *   card older than version 3, which rates one issue, for a pull request that closes
+ * - The disk rating covers fewer issues than the pull request closes — a card
+ *   older than version 3, which rates one issue, for a pull request that closes
  *   several. `declared` is now the sum over all of them, and one issue's rating
  *   under that label would count several issues of work at one issue's rating.
  *   A new sum is written; when this run has none either, the disk card is left
  *   as it is, on its old version and true to that version's meaning.
  */
-export function keepRating(onDisk: unknown, next: Card, closed: number): Card | null {
+export function keepRating(
+  onDisk: unknown,
+  next: Card,
+  links: { closed: readonly number[]; partOf: readonly number[] },
+): Card | null {
   if (onDisk === null || typeof onDisk !== "object") return next;
 
   const disk = onDisk as Partial<Pick<Card, "pr" | "issue" | "complexity">>;
@@ -106,11 +114,18 @@ export function keepRating(onDisk: unknown, next: Card, closed: number): Card | 
   if (next.complexity.method === "part-of" && lookedUp) return next;
 
   const covered = typeof old.issues === "number" ? old.issues : oldDeclared === null ? 0 : 1;
-  if (covered < closed) return next.complexity.declared === null ? null : next;
+  if (covered < links.closed.length) return next.complexity.declared === null ? null : next;
+
+  const diskIssue = disk.issue?.number;
+  const linkedHere =
+    typeof diskIssue === "number" &&
+    (diskIssue === next.issue.number ||
+      links.closed.includes(diskIssue) ||
+      links.partOf.includes(diskIssue));
 
   return {
     ...next,
-    issue: disk.issue ?? next.issue,
+    issue: linkedHere && disk.issue !== undefined ? disk.issue : next.issue,
     complexity: { declared: oldDeclared, method: old.method, issues: covered },
   };
 }
@@ -582,7 +597,7 @@ if (import.meta.main) {
       },
     );
 
-    const card = keepRating(onDisk, built, selection.closed.length);
+    const card = keepRating(onDisk, built, selection);
     if (card !== null && card !== built) {
       process.stderr.write(
         `  ⚠️  #${pull.number}: keeping the rating already on disk (${card.complexity.method} ${card.complexity.declared}) over this run's (${built.complexity.method} ${built.complexity.declared}).\n`,

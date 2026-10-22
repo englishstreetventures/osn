@@ -1085,6 +1085,10 @@ interface ResolvingOptions {
   /** Written to `NEW-FEAT.md` at the fixture's root. */
   newFeat?: string;
   extraArgs?: string[];
+  /** What `gh repo view` prints; `null` makes the call fail. */
+  repoView?: string | null;
+  /** A branch the fixture checkout is switched to before the run. */
+  checkout?: string;
 }
 
 async function runResolving(
@@ -1108,6 +1112,7 @@ async function runResolving(
     await git("add", ".");
     await git("commit", "-qm", "work");
     if (options.newFeat !== undefined) await writeFile(join(dir, "NEW-FEAT.md"), options.newFeat);
+    if (options.checkout !== undefined) await git("checkout", "-qb", options.checkout);
 
     const pull =
       options.pull === undefined
@@ -1142,7 +1147,11 @@ async function runResolving(
       `#!/bin/sh
 printf '%s\\n' "$*" >> "$GH_CALL_LOG"
 case "$*" in
-  *"repo view"*) printf '%s' 'englishstreetventures/osn' ;;
+  *"repo view"*) ${
+    options.repoView === null
+      ? "exit 1"
+      : `printf '%s' '${options.repoView ?? "englishstreetventures/osn"}'`
+  } ;;
   *"pr list"*) printf '%s' '${listing}' ;;
 ${issueCases}
   *) exit 1 ;;
@@ -1310,6 +1319,104 @@ test("--resolve-issue names and rates the issue a child closes, not the epic it 
   expect(card.issue.labels).toEqual(["complexity:2"]);
   expect(card.complexity).toEqual({ declared: 2, method: "confirmed", issues: 1 });
   expect(calls.filter((call) => call.includes("issue view 1000"))).toEqual([]);
+});
+
+// `issue view --json labels` answers an issue with no labels with an empty
+// list and a failed call with nothing. The two must stay apart: the first is
+// a checked issue with no rating, the second a rating nobody could read.
+test("--resolve-issue records none for a closed issue with no labels, and names it", async () => {
+  const { card, stderr } = await runResolving({
+    pull: { body: "Closes #1041", refs: [{ number: 1041, repo: "englishstreetventures/osn" }] },
+    labels: { 1041: [] },
+  });
+
+  expect(card.complexity).toEqual({ declared: null, method: "none", issues: 0 });
+  expect(stderr).toContain("#1041 carries no complexity");
+});
+
+test("--resolve-issue records lookup-failed when one closed issue's labels cannot be read", async () => {
+  const { card } = await runResolving({
+    pull: {
+      body: "Closes #1041\nCloses #1042",
+      refs: [
+        { number: 1041, repo: "englishstreetventures/osn" },
+        { number: 1042, repo: "englishstreetventures/osn" },
+      ],
+    },
+    labels: { 1041: ["complexity:2"] },
+  });
+
+  expect(card.complexity).toEqual({ declared: null, method: "lookup-failed", issues: 0 });
+});
+
+// Without a known repository nothing tells a public issue from a tracker one,
+// so no label is read for any of them.
+test.each([
+  ["fails", null],
+  ["answers something that is not owner/name", "3"],
+])("--resolve-issue reads no labels when gh repo view %s", async (_, repoView) => {
+  const { card, calls } = await runResolving({
+    pull: { body: "Closes #1041", refs: [{ number: 1041, repo: "englishstreetventures/osn" }] },
+    labels: { 1041: ["complexity:3"] },
+    repoView,
+  });
+
+  expect(card.complexity).toEqual({ declared: null, method: "not-fetched", issues: 0 });
+  expect(card.issue.labels).toEqual([]);
+  expect(calls.filter((call) => call.includes("issue view"))).toEqual([]);
+});
+
+// `--issue` names the issue; labels come only from what the pull request
+// closes here. A number named by mistake has nothing read for it.
+test("--issue naming an issue the pull request does not close reads none of its labels", async () => {
+  const { card, calls } = await runResolving({
+    pull: { refs: [{ number: 754, repo: "englishstreetventures/osn-tracker" }] },
+    labels: { 1999: ["complexity:8"] },
+    extraArgs: ["--issue", "1999"],
+  });
+
+  expect(card.issue.number).toBe(1999);
+  expect(card.issue.labels).toEqual([]);
+  expect(card.complexity.method).toBe("not-fetched");
+  expect(calls.filter((call) => call.includes("issue view 1999"))).toEqual([]);
+});
+
+// A card is public. `--issue` with the number of another repository's issue
+// the pull request links is refused: the card names no issue.
+test("--issue naming the tracker issue the pull request closes records no issue", async () => {
+  const { card, calls, stderr } = await runResolving({
+    pull: {
+      body: "Closes englishstreetventures/osn-tracker#754",
+      refs: [{ number: 754, repo: "englishstreetventures/osn-tracker" }],
+    },
+    labels: { 754: ["complexity:3"] },
+    extraArgs: ["--issue", "754"],
+  });
+
+  expect(card.issue.number).toBeNull();
+  expect(card.issue.labels).toEqual([]);
+  expect(card.complexity.method).toBe("not-fetched");
+  expect(calls.filter((call) => call.includes("issue view"))).toEqual([]);
+  expect(stderr).toContain("--issue");
+});
+
+// NEW-FEAT.md is untracked and survives a branch switch, so it speaks for the
+// carded branch only while that branch is checked out.
+test("--resolve-issue ignores NEW-FEAT.md when another branch is checked out", async () => {
+  const { card } = await runResolving({
+    pull: {
+      body: "Closes #1512\nCloses #1533",
+      refs: [
+        { number: 1512, repo: "englishstreetventures/osn" },
+        { number: 1533, repo: "englishstreetventures/osn" },
+      ],
+    },
+    labels: { 1512: ["complexity:2"], 1533: ["complexity:5"] },
+    newFeat: "# NEW-FEAT — feat/metrics-cli-fixture\n\nIssue: #1533\n",
+    checkout: "feat/other",
+  });
+
+  expect(card.issue.number).toBe(1512);
 });
 
 test("--resolve-issue with no pull request yet records no issue, whatever NEW-FEAT.md says", async () => {
