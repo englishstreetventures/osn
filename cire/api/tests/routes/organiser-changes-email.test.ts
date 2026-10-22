@@ -593,6 +593,28 @@ describe("GET /guests", () => {
         createdAt: new Date(),
       })
       .run();
+    // The host preview's seat is not a guest, and stays off the list.
+    db.insert(families)
+      .values({
+        id: "fam_host",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        publicId: "HOST-AAAA",
+        familyName: "Wedding Host",
+        kind: "host",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .run();
+    db.insert(guests)
+      .values({
+        id: "gst_host",
+        familyId: "fam_host",
+        firstName: "Hosty",
+        lastName: "McHost",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .run();
     const res = await get(app, `${BASE}/guests`);
     expect(res.status).toBe(200);
     const rows = (await res.json()) as {
@@ -608,6 +630,7 @@ describe("GET /guests", () => {
       emailOptedOut: false,
     });
     expect(byName.get("Bo")).toMatchObject({ email: "bo@example.test", emailOptedOut: true });
+    expect(byName.has("Hosty")).toBe(false);
   });
 });
 
@@ -617,7 +640,13 @@ describe("more of what a change must not do to an address", () => {
     await seeded(app, "");
     const head = ((await (await get(app, `${CHANGES}/head`)).json()) as { revision: string })
       .revision;
-    for (const email of ["Bo <bo@example.test>", `${"b".repeat(1020)}@example.test`]) {
+    // The raw cap counts the text as sent, padding included: 1,024 characters
+    // pass, 1,025 do not, even when trimming would leave one address.
+    for (const email of [
+      "Bo <bo@example.test>",
+      `${"b".repeat(1020)}@example.test`,
+      `${" ".repeat(1010)}bo@example.test`,
+    ]) {
       const res = await post(app, `${CHANGES}/preview`, {
         ...draft(db, { Bo: { email } }),
         baseRevision: head,
@@ -625,6 +654,76 @@ describe("more of what a change must not do to an address", () => {
       expect(res.status).toBe(400);
     }
     expect(record(db, "Bo")?.email).toBeNull();
+    const atCap = await post(app, `${CHANGES}/preview`, {
+      ...draft(db, { Bo: { email: `${" ".repeat(1009)}bo@example.test` } }),
+      baseRevision: head,
+    });
+    expect(atCap.status).toBe(200);
+  });
+
+  // `emailExpected` is optional on the wire: an editor body without it asks
+  // for no check against the stored address, and its change applies.
+  it("applies an editor address change that names no expected address", async () => {
+    const { db, app } = buildApp();
+    await seeded(app, "ada@example.test");
+    const p = await editorChange(app, db, { Ada: { email: "ada.new@example.test" } });
+    expect(p.emailAttestations).toBe(1);
+    expect(p.warnings).toEqual([]);
+    expect((await apply(app, p.changeId, ATTESTED)).status).toBe(200);
+    expect(record(db, "Ada")?.email).toBe("ada.new@example.test");
+  });
+
+  // A field of spaces is a blank field: it clears the address, and a clear
+  // sets nothing on the organiser's word, so it needs no attestation.
+  it("clears an address the editor sends as spaces, with no attestation", async () => {
+    const { db, app } = buildApp();
+    await seeded(app, "ada@example.test");
+    const p = await editorChange(app, db, {
+      Ada: { email: "   ", emailExpected: "ada@example.test" },
+    });
+    expect(p.emailAttestations).toBe(0);
+    expect((await apply(app, p.changeId)).status).toBe(200);
+    expect(record(db, "Ada")?.email).toBeNull();
+  });
+
+  // The route refuses an unattested apply before the service runs; the
+  // service refuses one too, so no other caller can store an address on
+  // nobody's word.
+  it("refuses, in the apply service itself, an address set with no attestation", async () => {
+    const { db, app } = buildApp();
+    await seeded(app, "");
+    const run = <A, E>(effect: Effect.Effect<A, E, DbService>) =>
+      Effect.runPromise(effect.pipe(Effect.provideService(DbService, db)));
+    const ada = db.select().from(guests).where(eq(guests.firstName, "Ada")).all()[0]!;
+    const plan = await run(
+      diffAgainstDb(
+        [],
+        [
+          {
+            id: ada.familyId,
+            familyName: "Testfamily",
+            guests: [
+              {
+                id: ada.id,
+                firstName: "Ada",
+                lastName: "Testfamily",
+                nickname: null,
+                eventNames: ["Mehndi", "Reception"],
+                email: "ada@example.test",
+              },
+            ],
+          },
+        ],
+        BOOTSTRAP_WEDDING_ID,
+        { scope: "guests", matchByName: false, removeManual: false, emails: "upload" },
+      ),
+    );
+    expect(plan.emailWrites).toHaveLength(1);
+    const failure = await run(
+      Effect.flip(applyImport("imp_unattested", plan, BOOTSTRAP_WEDDING_ID)),
+    );
+    expect(failure._tag).toBe("ImportError");
+    expect(record(db, "Ada")?.email).toBeNull();
   });
 
   it("says where the bad Guest Email cell is", async () => {
@@ -751,8 +850,10 @@ describe("more of what a change must not do to an address", () => {
     });
     expect((await apply(app, p.changeId)).status).toBe(422);
     expect((await apply(app, p.changeId, ATTESTED)).status).toBe(200);
-    await change(app, { guestsCsv: guestsCsv("", "") });
     expect(await refused()).toBe(before.refused + 1);
+    expect(await set()).toBe(before.set + 1);
+    expect(await cleared()).toBe(before.cleared);
+    await change(app, { guestsCsv: guestsCsv("", "") });
     expect(await set()).toBe(before.set + 1);
     expect(await cleared()).toBe(before.cleared + 1);
   });

@@ -148,6 +148,7 @@ describe("guest email routes — refusals", () => {
       .all();
     const res = await save(app, cookie, hostSeat!.id);
     expect(res.status).toBe(403);
+    expect(await jsonBody(res)).toEqual({ error: "not_a_guest" });
     expect(emailRow(db, hostSeat!.id)?.email).toBeNull();
   });
 
@@ -160,6 +161,7 @@ describe("guest email routes — refusals", () => {
     const ada = guestId(db, "Ada");
     const res = await save(app, cookie, ada);
     expect(res.status).toBe(404);
+    expect(await jsonBody(res)).toEqual({ error: "Not found" });
     expect(emailRow(db, ada)).toEqual(NOTHING_STORED);
   });
 
@@ -380,6 +382,7 @@ describe("guest email routes — bodies and failed writes", () => {
     }
     const removed = await call(app, "DELETE", PATH, cookie, {});
     expect(removed.status).toBe(400);
+    expect(await jsonBody(removed)).toEqual({ error: "Missing or invalid fields" });
     expect(emailRow(db, cleo)).toEqual(NOTHING_STORED);
   });
 
@@ -506,8 +509,14 @@ describe("guest email routes — the member step and opt-outs", () => {
       expect((await save(app, cookie, cleo, `cleo${i}@example.test`)).status).toBe(200);
       expect((await remove(app, cookie, cleo)).status).toBe(200);
     }
+    const refusedBefore = await counterValue(CIRE_METRICS.guestEmailBlocked, {
+      reason: "too_many_changes",
+    });
     const res = await save(app, cookie, cleo, "one-more@example.test");
     expect(res.status).toBe(429);
+    expect(await counterValue(CIRE_METRICS.guestEmailBlocked, { reason: "too_many_changes" })).toBe(
+      refusedBefore + 1,
+    );
     expect(await jsonBody(res)).toEqual({ error: "too_many_changes" });
     expect(emailRow(db, cleo)?.email).toBeNull();
     expect(db.select().from(emailSuppressions).all()).toHaveLength(MAX_OPT_OUTS_PER_SEAT);
@@ -534,6 +543,7 @@ describe("guest email metrics", () => {
     const before = {
       required: await blocked("member_required"),
       invalid: await blocked("invalid"),
+      outdated: await blocked("consent_outdated"),
       set: await changed("set"),
       cleared: await changed("cleared"),
     };
@@ -542,10 +552,18 @@ describe("guest email metrics", () => {
     await save(app, unchosen, cleo);
     const cookie = await answeringAs(app, db, "Cleo");
     await save(app, cookie, cleo, "not an address");
+    await call(app, "PUT", PATH, cookie, {
+      memberGuestId: cleo,
+      email: ADDRESS,
+      consentVersion: "guest-email-2020-01-01",
+    });
     await save(app, cookie, cleo);
     await remove(app, cookie, cleo);
+    // A second removal finds no address and changes nothing, so counts nothing.
+    expect((await remove(app, cookie, cleo)).status).toBe(200);
     expect(await blocked("member_required")).toBe(before.required + 1);
     expect(await blocked("invalid")).toBe(before.invalid + 1);
+    expect(await blocked("consent_outdated")).toBe(before.outdated + 1);
     expect(await changed("set")).toBe(before.set + 1);
     expect(await changed("cleared")).toBe(before.cleared + 1);
   });
