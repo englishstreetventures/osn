@@ -370,6 +370,28 @@ describe("stateExportService.guestsCsv — snapshot fidelity", () => {
     ),
   );
 
+  // A row wider than its header would shift every column a reader looks up
+  // by position after it; a record cell for a guest with no address would be
+  // a record of nothing.
+  it(
+    "writes every guest row as wide as its header, with no consent record for a guest with no address",
+    withDb(
+      Effect.gen(function* () {
+        for (const fidelity of ["import", "full", "snapshot"] as const) {
+          const [header, ...rows] = parseCsv(
+            yield* stateExportService.guestsCsv(BOOTSTRAP_WEDDING_ID, fidelity),
+          ).filter((row) => row.some((cell) => cell !== ""));
+          expect(rows.length).toBeGreaterThan(0);
+          for (const row of rows) expect(row).toHaveLength(header!.length);
+          if (fidelity === "snapshot") {
+            const recordAt = header!.indexOf("Guest Email Record");
+            for (const row of rows) expect(row[recordAt]).toBe("");
+          }
+        }
+      }),
+    ),
+  );
+
   it(
     "writes the events sheet as full fidelity does, except for stored Start/End",
     withDb(

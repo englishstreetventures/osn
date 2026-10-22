@@ -408,15 +408,10 @@ function planEmailWrites(
         `${count(readded, "email address you are adding was", "email addresses you are adding were")} removed by the guest, who asked not to be emailed there: ${readded === 1 ? "it is" : "they are"} stored, and no wedding email will be sent to ${readded === 1 ? "it" : "them"}.`,
       );
     }
-    if (withdrawn > 0) {
-      warnings.push(
-        `${count(withdrawn, "email address was", "email addresses were")} not restored: the guest removed ${withdrawn === 1 ? "it" : "them"}.`,
-      );
-    }
-    if (unrecorded > 0) {
-      warnings.push(
-        `${count(unrecorded, "email address was", "email addresses were")} not restored: the change history holds no consent record for ${unrecorded === 1 ? "it" : "them"}.`,
-      );
+    // Only a revert restores, and a revert reports no warning to the
+    // organiser, so its skips are logged: counted, never named.
+    if (withdrawn > 0 || unrecorded > 0) {
+      yield* Effect.logInfo("revert left addresses unrestored", { withdrawn, unrecorded });
     }
     return { writes, warnings };
   });

@@ -360,6 +360,21 @@ describe("parseEventsCsv", () => {
     expect((error as MalformedSpreadsheet).reason).toBe("Guest First Name is required");
   });
 
+  // A cell of spaces, or a row that stops before the Guest Email column, is a
+  // blank cell: it clears the address, as an empty one does.
+  it("reads a Guest Email cell of spaces, or one the row leaves out, as blank", async () => {
+    const csv = [
+      "Family ID,Family Name,Guest First Name,Guest Last Name,Guest Email",
+      "3,Newfamily,Ada,Newfamily,   ",
+      "3,Newfamily,Bo,Newfamily",
+    ].join("\n");
+    const families = await Effect.runPromise(parseGuestsCsv(csv, []));
+    expect(families[0]!.guests.map((g) => [g.firstName, g.email])).toEqual([
+      ["Ada", null],
+      ["Bo", null],
+    ]);
+  });
+
   it("round-trips the organiser starter template (header parity + blank-End example)", async () => {
     // Byte-for-byte copy of `buildEventsTemplateCsv()` output from
     // cire/host/src/lib/import-templates.ts (pinned exactly there by
