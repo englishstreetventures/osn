@@ -856,3 +856,141 @@ test(
     expect(card.review?.acted_on_paired_by_test).toBe(0);
   }),
 );
+
+test(
+  "a test in a subdirectory of tests/ resolves its import from its own directory",
+  withFixture(async (f) => {
+    // tests/ mirrors src/, so the test sits one directory deeper than tests/.
+    await commitFiles(
+      f,
+      { "osn/api/package.json": "{}\n", "osn/api/src/services/x.ts": SOURCE },
+      BEFORE_REPORT,
+    );
+    await f.report(finding("T", "osn/api/src/services/x.ts"), REPORT_WRITTEN);
+    await commitFiles(
+      f,
+      { "osn/api/tests/services/x.test.ts": importing("../../src/services/x") },
+      FIXED,
+    );
+
+    const { card } = await f.card();
+
+    expect(card.review?.acted_on).toBe(1);
+    expect(card.review?.acted_on_by_test).toBe(1);
+  }),
+);
+
+test(
+  "a test file belongs to the deepest package whose tests/ holds it",
+  withFixture(async (f) => {
+    // A package kept inside another package's tests/, each with a cited file.
+    // Its own test counts only if it is filed under the inner package.
+    const inner = "tools/kit/tests/fixture";
+    await commitFiles(
+      f,
+      {
+        "tools/kit/package.json": "{}\n",
+        "tools/kit/src/y.ts": SOURCE,
+        "tools/kit/tests/y.test.ts": importing("../src/y"),
+        [`${inner}/package.json`]: "{}\n",
+        [`${inner}/src/x.ts`]: SOURCE,
+      },
+      BEFORE_REPORT,
+    );
+    await f.report(
+      `${finding("T", `${inner}/src/x.ts`)}\n${finding("T", "tools/kit/src/y.ts")}`,
+      REPORT_WRITTEN,
+    );
+    await commitFiles(f, { [`${inner}/tests/x.test.ts`]: importing("../src/x") }, FIXED);
+
+    const { card } = await f.card();
+
+    expect(card.review?.located).toBe(2);
+    expect(card.review?.acted_on).toBe(1);
+    expect(card.review?.acted_on_by_test).toBe(1);
+  }),
+);
+
+const IMPORT_FORMS: [string, string][] = [
+  ["a dynamic import", `const x = await import("../src/x");`],
+  ["a bare import", `import "../src/x";`],
+  ["require", `const x = require("../src/x");`],
+  ["vi.mock", `vi.mock("../src/x", () => ({}));`],
+  ["vi.doMock", `vi.doMock("../src/x", () => ({}));`],
+  ["mock.module", `mock.module("../src/x", () => ({}));`],
+  ["importActual", `const x = await vi.importActual("../src/x");`],
+  ["new URL", `const x = new URL("../src/x.ts", import.meta.url);`],
+];
+
+test.each(IMPORT_FORMS)("a test that loads the cited file through %s counts", (_, statement) =>
+  withFixture(async (f) => {
+    await commitFiles(f, { "src/x.ts": SOURCE }, BEFORE_REPORT);
+    await f.report(finding("T", "src/x.ts"), REPORT_WRITTEN);
+    await commitFiles(
+      f,
+      { "tests/x.test.ts": `${statement}\n\ntest("x", () => expect(x).toBeTruthy());\n` },
+      FIXED,
+    );
+
+    const { card } = await f.card();
+
+    expect(card.review?.acted_on_by_test).toBe(1);
+  })(),
+);
+
+test(
+  "an import of a directory counts for its index file",
+  withFixture(async (f) => {
+    await commitFiles(f, { "src/foo/index.ts": SOURCE }, BEFORE_REPORT);
+    await f.report(finding("T", "src/foo/index.ts"), REPORT_WRITTEN);
+    await commitFiles(f, { "tests/foo.test.ts": importing("../src/foo") }, FIXED);
+
+    const { card } = await f.card();
+
+    expect(card.review?.acted_on_by_test).toBe(1);
+  }),
+);
+
+test(
+  "an import that names another code extension counts for the cited file",
+  withFixture(async (f) => {
+    // TypeScript's ESM form: `./view.js` for `view.tsx`.
+    await commitFiles(f, { "src/view.tsx": SOURCE }, BEFORE_REPORT);
+    await f.report(finding("T", "src/view.tsx"), REPORT_WRITTEN);
+    await commitFiles(f, { "tests/view.test.ts": importing("../src/view.js") }, FIXED);
+
+    const { card } = await f.card();
+
+    expect(card.review?.acted_on_by_test).toBe(1);
+  }),
+);
+
+test(
+  "a long run of whitespace after an import keyword does not stall the card",
+  withFixture(async (f) => {
+    // Each keyword with no quote after it is tried once; the scan stays linear
+    // in the run's length, so the card finishes inside the test's time limit.
+    const stalled = `import${" ".repeat(200_000)}{ v1 } from "../src/x";\n`;
+    await commitFiles(f, { "src/x.ts": SOURCE }, BEFORE_REPORT);
+    await f.report(finding("T", "src/x.ts"), REPORT_WRITTEN);
+    await commitFiles(f, { "tests/x.test.ts": stalled }, FIXED);
+
+    const { card } = await f.card();
+
+    expect(card.review?.acted_on_by_test).toBe(1);
+  }),
+);
+
+test(
+  "a cited path outside the repository leaves the report's other findings located",
+  withFixture(async (f) => {
+    await f.report(`${finding("T", "../outside.ts")}\n${finding("D", TARGET)}`, REPORT_WRITTEN);
+    await editLine(f, 10, FIXED);
+
+    const { card } = await f.card();
+
+    expect(card.review?.findings).toBe(2);
+    expect(card.review?.located).toBe(1);
+    expect(card.review?.acted_on).toBe(1);
+  }),
+);

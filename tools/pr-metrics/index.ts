@@ -2411,11 +2411,16 @@ export function summariseReviews(
       baseline.sha,
       located.flatMap((location) => (location ? [location.path] : [])),
     );
+    // Only a tests finding whose window did not change can count by its test.
     const tested = testedPaths(
       root,
       baseline.sha,
       located.flatMap((location, i) =>
-        location && findings[i].kind === "T" ? [location.path] : [],
+        location &&
+        findings[i].kind === "T" &&
+        !windowTouched(ranges.get(location.path) ?? [], location.line)
+          ? [location.path]
+          : [],
       ),
     );
 
@@ -2444,11 +2449,14 @@ export function summariseReviews(
   return summary.reports > 0 ? summary : null;
 }
 
-/** Each path's blob at `sha`, from one `cat-file --batch`; a path absent there,
- * naming no blob, or holding a newline (the input is one path per line) has no
- * entry. */
+/** Each path's blob at `sha`, from one `cat-file --batch`. A path absent there
+ * or naming no blob has no entry, and neither does one holding a newline (the
+ * input is one path per line) or starting `../`: git reads that against the
+ * working directory, and one that leaves the repository ends the whole batch. */
 function blobsAt(root: string, sha: string, paths: string[]): Map<string, Uint8Array> {
-  const unique = [...new Set(paths)].filter((path) => !path.includes("\n"));
+  const unique = [...new Set(paths)].filter(
+    (path) => !path.includes("\n") && path !== ".." && !path.startsWith("../"),
+  );
   const blobs = new Map<string, Uint8Array>();
   if (unique.length === 0) return blobs;
 
@@ -2501,10 +2509,12 @@ function lineCounts(root: string, sha: string, paths: string[]): Map<string, num
  * A relative specifier in a form that loads a module: `from`, a bare or
  * dynamic `import`, `require`, `importActual`, a mock (`vi.mock`, `doMock`,
  * `mock.module`) or `new URL(…, import.meta.url)`. A path in a plain string is
- * not one.
+ * not one. The whitespace after the keyword and the whitespace inside the
+ * optional `(` are separate runs, so a keyword followed by whitespace and no
+ * quote fails in time linear in the run, not quadratic.
  */
 const MODULE_REFERENCE =
-  /(?:\bfrom|\bimport|\brequire|\bimportActual|[mM]ock|\bmodule|\bURL)\s*\(?\s*["'](\.{1,2}\/[^"'\n]*)["']/g;
+  /(?:\bfrom|\bimport|\brequire|\bimportActual|[mM]ock|\bmodule|\bURL)\s*(?:\(\s*)?["'](\.{1,2}\/[^"'\n]*)["']/g;
 
 const CODE_EXTENSION = /\.[cm]?[jt]sx?$/;
 
