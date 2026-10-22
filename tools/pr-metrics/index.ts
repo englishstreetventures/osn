@@ -44,10 +44,11 @@
  */
 
 import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync } from "node:fs";
+import { posix } from "node:path";
 
 import { compactTokens, humanDuration } from "./format.ts";
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 /**
  * Gaps longer than this are somebody making lunch, not an agent working.
@@ -1090,6 +1091,9 @@ interface IssueReference {
 /**
  * Whether the review findings on a branch led to a change, counted the way an
  * author's next push is read: did the flagged line change after the review?
+ * A tests finding is fixed by a new test rather than at the line it cites, so
+ * it also counts when a commit after the review added lines to a test file in
+ * the cited file's package that imports the cited file.
  *
  * Counts only, and only for `T-` and `D-` findings. The card is committed to a
  * public repository, and `S-`, `P-` and `C-` findings live in the private
@@ -1097,9 +1101,10 @@ interface IssueReference {
  * in public. No ID, lens, severity or path is recorded for any finding.
  *
  * The control is a line 30 to 40 lines away in the same file, tested the same
- * way: the rate at which lines change anyway. `acted_on_paired` against
- * `control_changed` compares the same findings; `acted_on` includes findings
- * with no room for a control.
+ * way: the rate at which lines change anyway. It has no test half, so
+ * `acted_on_paired - acted_on_paired_by_test` against `control_changed` is the
+ * like-for-like comparison; `acted_on` includes findings with no room for a
+ * control.
  */
 export interface ReviewSummary {
   reports: number;
@@ -1109,6 +1114,14 @@ export interface ReviewSummary {
   paired: number;
   acted_on_paired: number;
   control_changed: number;
+  /** Of `acted_on`, the tests findings whose window did not change and that
+   * count only because a test landed. Absent on a block from a collector that
+   * does not count a landed test, which counts every finding by its window
+   * alone — whatever the card's `schema_version`, since a later run keeps the
+   * block it finds. */
+  acted_on_by_test?: number;
+  /** The same, of `acted_on_paired`. */
+  acted_on_paired_by_test?: number;
 }
 
 /** The review reports whose findings a public card may count. The security
@@ -1126,22 +1139,29 @@ const LOCATION = /([A-Za-z0-9_@./-]+\.[A-Za-z0-9]+):(\d+)/g;
 export const FINDING_WINDOW = 3;
 const CONTROL_OFFSET = 35;
 
+/** A counted finding: its kind letter (`T` or `D`) and its `**Issue:**` line,
+ * or `null` where it has none. */
+export interface ParsedFinding {
+  kind: string;
+  issue: string | null;
+}
+
 /**
- * Each counted finding's `**Issue:**` line, or `null` where it has none.
+ * Each counted finding, in report order.
  *
  * A finding runs from its bold label to the next label or the next `## `
  * heading. The sections after the findings (`## Coverage`, `## Files audited`)
  * cite `path:line` freely and are no finding's location.
  */
-export function parseFindings(text: string): (string | null)[] {
-  const issues: (string | null)[] = [];
+export function parseFindings(text: string): ParsedFinding[] {
+  const findings: ParsedFinding[] = [];
   let open = false;
 
   for (const line of text.split("\n")) {
     const label = FINDING_LABEL.exec(line);
     if (label) {
       open = PUBLIC_FINDING_KINDS.has(label[1]);
-      if (open) issues.push(null);
+      if (open) findings.push({ kind: label[1], issue: null });
       continue;
     }
 
@@ -1150,12 +1170,11 @@ export function parseFindings(text: string): (string | null)[] {
       continue;
     }
 
-    if (open && issues[issues.length - 1] === null && line.startsWith("**Issue:**")) {
-      issues[issues.length - 1] = line;
-    }
+    const last = findings[findings.length - 1];
+    if (open && last?.issue === null && line.startsWith("**Issue:**")) last.issue = line;
   }
 
-  return issues;
+  return findings;
 }
 
 /** Every `path:line` an Issue line names, in order, with a leading repository
@@ -1377,10 +1396,11 @@ export function renderDetails(card: Card, file = `${branchSlug(card.pr.branch)}.
   }
 
   if (card.review) {
-    const { paired, acted_on_paired, control_changed } = card.review;
+    const { paired, acted_on_paired, control_changed, acted_on_paired_by_test } = card.review;
+    const byTest = acted_on_paired_by_test ? ` (${acted_on_paired_by_test} by a new test)` : "";
     rows.push([
       "Review (tests and docs lenses)",
-      `${acted_on_paired} of ${paired} paired findings changed · control ${control_changed} of ${paired}`,
+      `${acted_on_paired} of ${paired} paired findings acted on${byTest} · control ${control_changed} of ${paired}`,
     ]);
   }
 
@@ -2307,7 +2327,9 @@ function gitStatus(root: string, args: string[]): GitAnswer {
 
 /**
  * Read the review reports and count, for each counted finding, whether its line
- * changed after the review ran. `null` when no report could be placed.
+ * changed after the review ran — or, for a tests finding, whether a test for
+ * its file landed after it (`testedPaths`). `null` when no report could be
+ * placed.
  *
  * The baseline — the commit the review read — is the newest commit on this
  * branch whose **author** time is no later than the report's mtime. Author
@@ -2352,6 +2374,8 @@ export function summariseReviews(
     paired: 0,
     acted_on_paired: 0,
     control_changed: 0,
+    acted_on_by_test: 0,
+    acted_on_paired_by_test: 0,
   };
 
   for (const { text, written } of reports) {
@@ -2365,8 +2389,10 @@ export function summariseReviews(
 
     summary.reports += 1;
 
-    const issues = parseFindings(text);
-    const candidates = issues.map((issue) => (issue === null ? [] : locationsIn(issue, root)));
+    const findings = parseFindings(text);
+    const candidates = findings.map(({ issue }) =>
+      issue === null ? [] : locationsIn(issue, root),
+    );
     const lengths = lineCounts(
       root,
       baseline.sha,
@@ -2385,22 +2411,37 @@ export function summariseReviews(
       baseline.sha,
       located.flatMap((location) => (location ? [location.path] : [])),
     );
+    // Only a tests finding whose window did not change can count by its test.
+    const tested = testedPaths(
+      root,
+      baseline.sha,
+      located.flatMap((location, i) =>
+        location &&
+        findings[i].kind === "T" &&
+        !windowTouched(ranges.get(location.path) ?? [], location.line)
+          ? [location.path]
+          : [],
+      ),
+    );
 
-    summary.findings += issues.length;
+    summary.findings += findings.length;
 
-    for (const location of located) {
+    for (const [i, location] of located.entries()) {
       if (location === undefined) continue;
 
       summary.located += 1;
       const changed = ranges.get(location.path) ?? [];
-      const acted = windowTouched(changed, location.line);
-      if (acted) summary.acted_on += 1;
+      const lineChanged = windowTouched(changed, location.line);
+      const byTest = !lineChanged && findings[i].kind === "T" && tested.has(location.path);
+      if (lineChanged || byTest) summary.acted_on += 1;
+      if (byTest) summary.acted_on_by_test = (summary.acted_on_by_test ?? 0) + 1;
 
       const control = controlLine(location.line, lengths.get(location.path) ?? 0);
       if (control === null) continue;
 
       summary.paired += 1;
-      if (acted) summary.acted_on_paired += 1;
+      if (lineChanged || byTest) summary.acted_on_paired += 1;
+      if (byTest) summary.acted_on_paired_by_test = (summary.acted_on_paired_by_test ?? 0) + 1;
       if (windowTouched(changed, control)) summary.control_changed += 1;
     }
   }
@@ -2408,42 +2449,178 @@ export function summariseReviews(
   return summary.reports > 0 ? summary : null;
 }
 
-/** Each path's line count at `sha`, from one `cat-file --batch`; a path absent
- * there has no entry. */
-function lineCounts(root: string, sha: string, paths: string[]): Map<string, number> {
-  const unique = [...new Set(paths)];
-  const counts = new Map<string, number>();
-  if (unique.length === 0) return counts;
+/** Each path's blob at `sha`, from one `cat-file --batch`. A path absent there
+ * or naming no blob has no entry, and neither does one holding a newline (the
+ * input is one path per line) or starting `../`: git reads that against the
+ * working directory, and one that leaves the repository ends the whole batch. */
+function blobsAt(root: string, sha: string, paths: string[]): Map<string, Uint8Array> {
+  const unique = [...new Set(paths)].filter(
+    (path) => !path.includes("\n") && path !== ".." && !path.startsWith("../"),
+  );
+  const blobs = new Map<string, Uint8Array>();
+  if (unique.length === 0) return blobs;
 
   const result = Bun.spawnSync(["git", "-C", root, "cat-file", "--batch"], {
     stdin: Buffer.from(unique.map((path) => `${sha}:${path}\n`).join("")),
     stdout: "pipe",
     stderr: "pipe",
   });
-  if (!result.success) return counts;
+  if (!result.success) return blobs;
 
-  // Each answer is `<oid> <type> <size>\n<size bytes>\n`, or `<input> missing\n`.
+  // Each answer is `<oid> <type> <size>\n<size bytes>\n`, or `<input> missing\n`
+  // with no body. A path can hold spaces, so a missing answer is told by its
+  // ending, not by how many words it has.
   const out = result.stdout;
   let at = 0;
   for (const path of unique) {
     const end = out.indexOf(10, at);
     if (end < 0) break;
 
-    const header = out.subarray(at, end).toString().split(" ");
+    const header = out.subarray(at, end).toString();
     at = end + 1;
-    if (header.length !== 3 || header[1] !== "blob") continue;
+    if (header.endsWith(" missing")) continue;
 
-    const size = Number.parseInt(header[2], 10);
-    const body = out.subarray(at, at + size);
+    const [, type, sizeText] = header.split(" ");
+    const size = Number.parseInt(sizeText, 10);
+    if (!Number.isInteger(size)) break;
+
+    if (type === "blob") blobs.set(path, out.subarray(at, at + size));
     at += size + 1;
+  }
 
+  return blobs;
+}
+
+/** Each path's line count at `sha`; a path absent there has no entry. */
+function lineCounts(root: string, sha: string, paths: string[]): Map<string, number> {
+  const counts = new Map<string, number>();
+
+  for (const [path, body] of blobsAt(root, sha, paths)) {
     let lines = 0;
     for (const byte of body) if (byte === 10) lines += 1;
-    if (size > 0 && body[size - 1] !== 10) lines += 1;
+    if (body.length > 0 && body[body.length - 1] !== 10) lines += 1;
     counts.set(path, lines);
   }
 
   return counts;
+}
+
+/**
+ * A relative specifier in a form that loads a module: `from`, a bare or
+ * dynamic `import`, `require`, `importActual`, a mock (`vi.mock`, `doMock`,
+ * `mock.module`) or `new URL(…, import.meta.url)`. A path in a plain string is
+ * not one. The whitespace after the keyword and the whitespace inside the
+ * optional `(` are separate runs, so a keyword followed by whitespace and no
+ * quote fails in time linear in the run, not quadratic.
+ */
+const MODULE_REFERENCE =
+  /(?:\bfrom|\bimport|\brequire|\bimportActual|[mM]ock|\bmodule|\bURL)\s*(?:\(\s*)?["'](\.{1,2}\/[^"'\n]*)["']/g;
+
+const CODE_EXTENSION = /\.[cm]?[jt]sx?$/;
+
+/** What a path is imported as: no trailing `/`, no code extension, and a
+ * directory's `index` named by the directory. */
+function moduleId(path: string): string {
+  const bare = path.replace(/\/+$/, "").replace(CODE_EXTENSION, "");
+
+  return bare.endsWith("/index") ? bare.slice(0, -"/index".length) : bare;
+}
+
+/**
+ * Each path's package: the deepest directory above it that holds a
+ * `package.json` or a `tests/` directory at HEAD, or the repository root (`""`)
+ * where none does. A `tests/` directory counts because `scripts/` keeps its
+ * tests there with no `package.json`; HEAD, because the fix for an untested
+ * file can be the commit that creates `tests/`.
+ */
+function packageRoots(root: string, paths: string[]): Map<string, string> {
+  const ancestors = (path: string): string[] => {
+    const parts = path.split("/").slice(0, -1);
+
+    return parts.map((_, i) => parts.slice(0, parts.length - i).join("/"));
+  };
+
+  const markers = [
+    ...new Set(paths.flatMap(ancestors).flatMap((dir) => [`${dir}/package.json`, `${dir}/tests`])),
+  ];
+  const present = new Set<string>();
+  if (markers.length > 0) {
+    const result = Bun.spawnSync(["git", "-C", root, "cat-file", "--batch-check"], {
+      stdin: Buffer.from(markers.map((marker) => `HEAD:${marker}\n`).join("")),
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    // One line per input, in order: `<oid> <type> <size>`, or `<input> missing`.
+    const answers = result.success ? result.stdout.toString().split("\n") : [];
+    markers.forEach((marker, i) => {
+      if (answers[i] !== undefined && !answers[i].endsWith(" missing") && answers[i] !== "") {
+        present.add(marker.slice(0, marker.lastIndexOf("/")));
+      }
+    });
+  }
+
+  return new Map(
+    paths.map((path) => [path, ancestors(path).find((dir) => present.has(dir)) ?? ""]),
+  );
+}
+
+/**
+ * The cited paths a test landed for after the review: a commit since `sha`
+ * added lines to a file under the same package's `tests/`, and that file, as
+ * it stands at HEAD, imports the cited path by a relative specifier. An import
+ * by package name is not resolved.
+ */
+function testedPaths(root: string, sha: string, paths: string[]): Set<string> {
+  const tested = new Set<string>();
+  if (paths.length === 0) return tested;
+
+  const packages = packageRoots(root, paths);
+  const testDirs = [...new Set(packages.values())].map((pkg) =>
+    pkg === "" ? "tests/" : `${pkg}/tests/`,
+  );
+
+  // `-z` so a path git would quote arrives verbatim: `<added>\t<deleted>\t<path>\0`.
+  const numstat = gitStatus(root, [
+    "diff",
+    "--numstat",
+    "-z",
+    "--no-renames",
+    sha,
+    "HEAD",
+    "--",
+    ...testDirs.map((dir) => `:(top)${dir}`),
+  ]);
+  const grown = numstat.out.split("\0").flatMap((entry) => {
+    const [added, , ...rest] = entry.split("\t");
+    const count = Number(added);
+
+    return rest.length > 0 && Number.isInteger(count) && count > 0 ? [rest.join("\t")] : [];
+  });
+
+  const references = new Set<string>();
+  for (const [file, body] of blobsAt(root, "HEAD", grown)) {
+    // The package whose tests/ holds the file; the deepest one when nested.
+    const owner = testDirs.reduce<string | undefined>(
+      (best, dir) =>
+        file.startsWith(dir) && (best === undefined || dir.length > best.length) ? dir : best,
+      undefined,
+    );
+    if (owner === undefined) continue;
+
+    const text = new TextDecoder().decode(body);
+    for (const match of text.matchAll(MODULE_REFERENCE)) {
+      const resolved = posix.normalize(posix.join(posix.dirname(file), match[1]));
+      references.add(`${owner}\0${moduleId(resolved)}`);
+    }
+  }
+
+  for (const path of paths) {
+    const pkg = packages.get(path) ?? "";
+    const dir = pkg === "" ? "tests/" : `${pkg}/tests/`;
+    if (references.has(`${dir}\0${moduleId(path)}`)) tested.add(path);
+  }
+
+  return tested;
 }
 
 /** Old-side changed ranges per path between `sha` and HEAD, from one diff. */

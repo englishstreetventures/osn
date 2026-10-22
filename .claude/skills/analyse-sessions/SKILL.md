@@ -113,9 +113,12 @@ suggestive unless the change was the only one.
 
 **6. The review acted-on rate measures what changed, not finding quality.**
 `prep-pr` fixes every in-scope finding, so a weak finding is changed as surely
-as a strong one. Read `acted_on_paired` against `control_changed`, never
-alone; only tests and docs findings are counted, and `review` is `null` on
-every card written before the field existed.
+as a strong one. A tests finding also counts as acted on when a test importing
+its file landed, and the control cannot count that way, so read the report's
+**by line** rate (`acted_on_paired - acted_on_paired_by_test`) against
+`control_changed`, never `acted_on_paired` alone. Only tests and docs findings
+are counted, and `review` is `null` on every card written before the field
+existed.
 
 ## Step 2 — Report
 

@@ -257,7 +257,7 @@ test("the CLI writes a card from a real repo and a real transcript", async () =>
   const { exitCode, card } = await run();
 
   expect(exitCode).toBe(0);
-  expect(card.schema_version).toBe(1);
+  expect(card.schema_version).toBe(2);
   expect(card.pr.number).toBe(908);
   expect(card.pr.branch).toBe(BRANCH);
   expect(card.pr.phase).toBe("at-open");
