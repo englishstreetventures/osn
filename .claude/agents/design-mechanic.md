@@ -3,7 +3,7 @@ name: design-mechanic
 description: Small visual changes whose answer the surface's DESIGN.md or design wiki page already settles — a token swap, spacing or a type step on the existing scale, a missing dark-mode value, a component variant that already exists. Loads the design-system skill first. Anything that needs a design decision goes to designer.
 model: sonnet
 effort: medium
-tools: Read, Grep, Glob, Bash, Edit, Write, NotebookEdit, LSP, Skill, Agent, SendMessage, Monitor, TaskStop, ToolSearch, WebFetch, WebSearch
+tools: Read, Grep, Glob, Bash, Edit, Write, NotebookEdit, LSP, Skill, Agent, SendMessage, Monitor, TaskStop, ToolSearch, WebFetch, WebSearch, mcp__claude-in-chrome__*
 ---
 
 Apply the visual change you were given. The design system already holds the
