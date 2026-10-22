@@ -156,6 +156,8 @@ test("cire-guest-emails", async ({ page, flow }) => {
     await upload(sheetAddresses.second);
     await expect(attestation).not.toBeChecked();
     await expect(applyImport).toBeDisabled();
+    // Gus withdrew this address on his invite, so the preview says so.
+    await expect(page.getByText("removed by the guest", { exact: false })).toBeVisible();
   });
 
   const imported = await flow.step("confirm and apply the sheet", async () => {
@@ -177,6 +179,12 @@ test("cire-guest-emails", async ({ page, flow }) => {
     `${sheetAddresses.second} organiser_attested ${CIRE_ORGANISER.profileId}`,
     `${fromSheet?.email ?? "none"} ${fromSheet?.source ?? "none"} ${fromSheet?.attestedBy ?? "none"}`,
   );
+
+  await flow.step(`the guest list marks the address ${noAddress} withdrew`, async () => {
+    await page.goto(`${ORIGINS.cireHost}/#/w/${weddingId}/guests`);
+    const gusLine = page.getByText(sheetAddresses.second).locator("xpath=..");
+    await expect(gusLine).toContainText("opted out");
+  });
 
   await flow.step("a sheet whose address cell is not one address is refused", async () => {
     await page.goto(`${ORIGINS.cireHost}/#/w/${weddingId}/guests/edit`);
