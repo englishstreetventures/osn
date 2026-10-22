@@ -70,6 +70,7 @@ describe("check-wikilinks CLI", () => {
     const { exitCode, stdout } = run();
 
     expect(stdout).not.toContain("[[");
+    expect(stdout).toContain("every wikilink in 2 pages resolves");
     expect(exitCode).toBe(0);
   });
 
@@ -119,11 +120,13 @@ describe("check-wikilinks CLI", () => {
 
   test("a new page nobody has staged yet counts as a page", async () => {
     await page("wiki/index.md", "# Index\n\n[[new-page]]\n");
+    git("add", "-A");
     await page("wiki/shared/new-page.md", "# New\n\n[[index]]\n");
 
     const { exitCode, stdout } = run();
 
     expect(stdout).not.toContain("[[");
+    expect(stdout).toContain("every wikilink in 2 pages resolves");
     expect(exitCode).toBe(0);
   });
 });
