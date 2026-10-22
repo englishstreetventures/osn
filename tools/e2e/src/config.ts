@@ -317,8 +317,10 @@ export const CIRE_HOUSEHOLD = {
   member: "Cleo",
   /** Who a second tab says is answering, after "Not you?". */
   otherMember: "Bo",
-  /** The address `member` gives on the invite, then removes. */
+  /** The address `member` gives on the invite, then corrects. */
   email: "cleo.sampleton@e2e.test",
+  /** What `member` corrects it to, then removes. */
+  correctedEmail: "cleo.s@e2e.test",
   /** The address the hosts added for `otherMember` (`seedE2eOrganiser`). */
   otherMemberEmail: "bo.sampleton@e2e.test",
 } as const;

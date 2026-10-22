@@ -233,15 +233,25 @@ describe("GuestsEditor", () => {
       if (String(url).endsWith("/events")) return Promise.resolve(json(EVENTS));
       if (String(url).endsWith("/guests")) {
         return Promise.resolve(
-          json(GUESTS.map((g) => ({ ...g, email: null, emailSource: null, emailOptedOut: false }))),
+          json(
+            GUESTS.map((g) => ({
+              ...g,
+              email: "ada@example.test",
+              emailSource: "organiser_attested",
+              emailOptedOut: false,
+            })),
+          ),
         );
       }
       if (String(url).endsWith("/households")) return Promise.resolve(json(HOUSEHOLDS));
       return Promise.resolve(fallback(url));
     });
     render(() => <GuestsEditor weddingId="wed_a" />);
+    // A host's address is a field, filled in, and points at no error yet.
     const field = (await screen.findByRole("textbox", { name: "Email" })) as HTMLInputElement;
+    expect(field.value).toBe("ada@example.test");
     expect(field.getAttribute("aria-invalid")).not.toBe("true");
+    expect(field.getAttribute("aria-describedby")).toBeNull();
 
     fireEvent.input(field, { target: { value: "Ada <ada@example.test>" } });
     const error = await screen.findByText("Enter one email address, like name@example.com.");
