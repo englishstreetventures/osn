@@ -7,7 +7,7 @@ related:
   - "[[cire-invite-builder]]"
   - "[[d1-read-replication]]"
   - "[[cire-plus-ones]]"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-23
 ---
 # Guest + Event Editor — plan
 
