@@ -9,9 +9,9 @@
  * Then the other member, in another tab, sees the address the hosts added for
  * them; this tab's address save, still as the first member, is refused and the
  * page asks "Who are you?" again. Answering again, the member gives an address
- * for wedding emails, ticking the consent box, and removes it again: the row
- * records the guest's own consent, and the removal clears it and records the
- * opt-out, a hash of the wedding and the address, on the suppression list.
+ * for wedding emails, ticking the consent box, corrects it, and removes it: the
+ * row records the guest's own consent, and the removal clears it and records
+ * the opt-out, a hash of the wedding and the address, on the suppression list.
  *
  * The stack runs with `cire.account-linking` off (no GrowthBook key) and no
  * musubi bridge, so this is the guest experience with the flag off: the member
@@ -294,11 +294,54 @@ test("cire-member-step", async ({ page, context, flow }) => {
   );
   flow.check("consent recorded on the suite clock", true, onSuiteClock(stored?.consentAt));
 
+  // "Change email" opens the field on the stored address, and "Keep it as it
+  // is" closes it again; each view takes focus from the button it replaced.
+  const yourEmail = emailBox.getByLabel(`Your email, ${CIRE_HOUSEHOLD.member}`);
+  const boxHeading = emailBox.getByRole("heading", { name: "Wedding emails" });
+  await flow.step(`${CIRE_HOUSEHOLD.member} opens the address and keeps it`, async () => {
+    await emailBox.getByRole("button", { name: "Change email" }).click();
+    await expect(yourEmail).toBeFocused();
+    await expect(yourEmail).toHaveValue(CIRE_HOUSEHOLD.email);
+    await emailBox.getByRole("button", { name: "Keep it as it is" }).click();
+    await expect(boxHeading).toBeFocused();
+    await expect(emailBox.getByText(CIRE_HOUSEHOLD.email)).toBeVisible();
+  });
+
+  const corrected = await flow.step(`${CIRE_HOUSEHOLD.member} corrects the address`, async () => {
+    await emailBox.getByRole("button", { name: "Change email" }).click();
+    await yourEmail.fill(CIRE_HOUSEHOLD.correctedEmail);
+    const useIt = emailBox.getByRole("button", { name: "Use this email" });
+    // A correction is a new address, so it asks for consent again.
+    await expect(useIt).toBeDisabled();
+    await emailBox.getByRole("checkbox", { name: /emails about this wedding/ }).check();
+    const response = emailCall("PUT");
+    await useIt.click();
+    const status = (await response).status();
+    await expect(emailBox.getByText(CIRE_HOUSEHOLD.correctedEmail)).toBeVisible();
+    await expect(boxHeading).toBeFocused();
+    return status;
+  });
+  flow.check("the corrected address is saved", 200, corrected);
+  const correctedRow = queryOne<{ email: string | null; source: string | null }>(
+    DB_FILES.cire,
+    `SELECT g.email, g.email_source AS source
+       FROM guests g JOIN families f ON f.id = g.family_id
+      WHERE f.public_id = ? AND g.first_name = ?`,
+    CIRE_HOUSEHOLD.code,
+    CIRE_HOUSEHOLD.member,
+  );
+  flow.check(
+    "the correction replaces the address, still the guest's own",
+    `${CIRE_HOUSEHOLD.correctedEmail} guest`,
+    `${correctedRow?.email ?? "none"} ${correctedRow?.source ?? "none"}`,
+  );
+
   const removed = await flow.step(`${CIRE_HOUSEHOLD.member} removes the address`, async () => {
     const response = emailCall("DELETE");
     await emailBox.getByRole("button", { name: "Remove email" }).click();
     const status = (await response).status();
     await expect(emailBox.getByText("Removed.", { exact: false })).toBeVisible();
+    await expect(boxHeading).toBeFocused();
     return status;
   });
   flow.check("the address is removed", 200, removed);
@@ -342,7 +385,7 @@ test("cire-member-step", async ({ page, context, flow }) => {
   flow.check(
     "the opt-out holds the hash of the wedding and the address, not the address",
     createHash("sha256")
-      .update(`${optOuts?.weddingId ?? ""}:${CIRE_HOUSEHOLD.email}`)
+      .update(`${optOuts?.weddingId ?? ""}:${CIRE_HOUSEHOLD.correctedEmail}`)
       .digest("hex"),
     optOuts?.hash ?? "none",
   );
