@@ -137,7 +137,7 @@ function malformedDetail(body: ImportErrorBody): string {
     case "Guest Email is not a valid email address":
       return at(
         body,
-        "Guest Email must be one email address, like name@example.com — not a name, a list of addresses, or a note. Leave the cell blank for a guest with no address.",
+        "Guest Email must be one email address, like name@example.com, with no spaces or accented letters — not a name, a list of addresses, or a note. Leave the cell blank for a guest with no address.",
       );
 
     case "Start must be an ISO-8601 timestamp":

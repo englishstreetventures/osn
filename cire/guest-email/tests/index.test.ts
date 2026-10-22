@@ -77,6 +77,60 @@ describe("isValidGuestEmail refuses", () => {
   });
 });
 
+// The stored form is the one string the suppression hash and the import diff
+// compare, so one mailbox must have exactly one. Anything outside printable
+// ASCII could store the same mailbox as a second string, or show an organiser
+// a different address from the one held. Each input goes through the stored
+// form first, as every door sends it.
+describe("parseGuestEmail refuses anything outside printable ASCII", () => {
+  it("a zero-width space", () => {
+    expect(parseGuestEmail("ada\u200b@example.com")).toBeNull();
+  });
+
+  it("a right-to-left override", () => {
+    expect(parseGuestEmail("ada@\u202emoc.elpmaxe")).toBeNull();
+  });
+
+  it("a bidi isolate", () => {
+    for (const isolate of ["\u2066", "\u2067", "\u2068", "\u2069"]) {
+      expect(parseGuestEmail(`ada${isolate}@example.com`)).toBeNull();
+    }
+  });
+
+  it("a soft hyphen", () => {
+    expect(parseGuestEmail("ada@exam\u00adple.com")).toBeNull();
+  });
+
+  it("a C1 control character", () => {
+    expect(parseGuestEmail("ada\u0080@example.com")).toBeNull();
+    expect(parseGuestEmail("ada@example.com\u009f")).toBeNull();
+  });
+
+  // Trimming removes one at either end, so only an inner one reaches the rule.
+  it("a no-break space inside the address", () => {
+    expect(parseGuestEmail("ada\u00a0lovelace@example.com")).toBeNull();
+  });
+
+  it("an accented letter, composed or decomposed", () => {
+    expect(parseGuestEmail("andr\u00e9@example.com")).toBeNull();
+    expect(parseGuestEmail("andre\u0301@example.com")).toBeNull();
+  });
+
+  it("a domain in Unicode, while its xn-- form stays valid", () => {
+    expect(parseGuestEmail("anna@m\u00fcller.de")).toBeNull();
+    expect(parseGuestEmail("anna@xn--mller-kva.de")).toBe("anna@xn--mller-kva.de");
+  });
+
+  it("a local part outside ASCII", () => {
+    expect(parseGuestEmail("\u5c71\u7530@example.com")).toBeNull();
+  });
+
+  it("a fullwidth at sign", () => {
+    expect(parseGuestEmail("ada\uff20example.com")).toBeNull();
+    expect(parseGuestEmail("ada\uff20home@example.com")).toBeNull();
+  });
+});
+
 describe("normaliseGuestEmail", () => {
   // The stored form is what the diff compares and what the suppression hash
   // is taken over, so two spellings of one address must store one value.
