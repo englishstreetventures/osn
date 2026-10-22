@@ -988,17 +988,27 @@ test("resolveDispatchBranch does not fall back to an ambiguous (multi-branch) se
 // opening request and the work that led to the branch — lands on no card.
 // Claude Code writes a `worktree-state` record naming the branch it entered;
 // that record is the signal. `+` is in the fixture on purpose: a worktree
-// name `feat/x` becomes the branch `worktree-feat+x`.
-function worktreeState(branch: string): string {
+// name `feat/x` becomes the branch `worktree-feat+x`. The two shapes are the
+// ones Claude Code writes: a worktree the session made names the commit it
+// was made from; one it only entered says `enteredExisting: true`.
+function worktreeState(branch: string, { existing = false } = {}): string {
   return JSON.stringify({
     type: "worktree-state",
     sessionId: "sess-1",
-    worktreeSession: {
-      originalCwd: "/Users/ac/.work/osn.git/main",
-      worktreeName: "feat/x",
-      worktreeBranch: branch,
-      originalBranch: "HEAD",
-    },
+    worktreeSession: existing
+      ? {
+          originalCwd: "/Users/ac/.work/osn.git/main",
+          worktreeName: "feat-x",
+          worktreeBranch: branch,
+          enteredExisting: true,
+        }
+      : {
+          originalCwd: "/Users/ac/.work/osn.git/main",
+          worktreeName: "feat/x",
+          worktreeBranch: branch,
+          originalBranch: "HEAD",
+          originalHeadCommit: "8c0104690cf7a2cb5578285cc939ac63a1337dd1",
+        },
   });
 }
 
@@ -1036,6 +1046,29 @@ test("a session that entered one worktree carries its earlier records onto that 
         ?.map((r) => r.requestId)
         .toSorted(),
     ).toEqual(["req-after", "req-before"]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// A session that steps into a worktree another session made — a review, or
+// an orchestrator checking on a task — did its earlier work for something
+// else. Only the records stamped with that branch are its.
+test("a session that entered a worktree it did not make keeps its earlier records off that branch", async () => {
+  const dir = await tree();
+  try {
+    const file = join(dir, "proj/sess-1.jsonl");
+    await writeFile(
+      file,
+      [
+        stampedRecord("main", "req-before", "2026-10-21T14:24:42.000Z"),
+        worktreeState("feat/x", { existing: true }),
+        stampedRecord("feat/x", "req-after", "2026-10-21T15:03:05.000Z"),
+      ].join("\n"),
+    );
+
+    expect(resolveSessionBranch(file)).toBeNull();
+    expect(readRecordsForBranch(dir, "feat/x").map((r) => r.requestId)).toEqual(["req-after"]);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

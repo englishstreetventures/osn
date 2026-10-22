@@ -1238,6 +1238,48 @@ test("backfill never replaces a rating on disk with a lookup that failed", async
   }
 });
 
+// A version 1 card rates one issue. Under version 2 `declared` is the sum over
+// every issue the pull request closes, so one issue's rating cannot be carried
+// into a rebuilt card for a pull request that closes several: it would count
+// four issues of work at one issue's rating. When this run cannot read the sum
+// either, the card on disk stays exactly as it was, still version 1.
+test("backfill leaves a one-issue card alone rather than relabel it as a batched sum", async () => {
+  const f = await fixture({ withTranscript: false });
+  try {
+    const branch = "feat/keep-batched";
+    await stubGh(
+      f,
+      `  *"pr list"*) printf '%s' '${prListing(8005, branch, [
+        { id: "I_p", number: 1070 },
+        { id: "I_q", number: 1074 },
+      ])}' ;;
+  *"nodes(ids:"*) printf '%s' '{"data":{"nodes":[null]}}'
+    exit 1 ;;
+  *"api graphql"*) printf '%s' '{"data":{"repository":{"p8005":{"commits":{"totalCount":1}}}}}' ;;`,
+    );
+    await sessionOn(f, branch);
+
+    const cardPath = join(f.dir, "cards", `${branchSlug(branch)}.json`);
+    await mkdir(join(f.dir, "cards"), { recursive: true });
+    const planted = `${JSON.stringify({
+      schema_version: 1,
+      pr: { number: 8005, branch, merged_at: "2026-09-09T12:00:00Z", phase: "at-open" },
+      issue: { number: 1070, type: "Bug", labels: ["complexity:1"] },
+      complexity: { declared: 1, method: "confirmed" },
+      spend: { usd_equivalent: 1 },
+      interaction: {},
+    })}\n`;
+    await writeFile(cardPath, planted);
+
+    const run = await runBackfill(f);
+    expect(run.exitCode).toBe(0);
+    expect(run.stderr).toContain("#8005");
+    expect(await readFile(cardPath, "utf8")).toBe(planted);
+  } finally {
+    await rm(f.dir, { recursive: true, force: true });
+  }
+});
+
 describe("keepRating", () => {
   const next = (complexity: Card["complexity"]): Card =>
     ({
@@ -1255,32 +1297,68 @@ describe("keepRating", () => {
     const kept = keepRating(
       disk({ declared: 5, method: "unconfirmed" }),
       next({ declared: null, method: "not-fetched", issues: 0 }),
+      1,
     );
 
-    expect(kept.complexity).toEqual({ declared: 5, method: "unconfirmed", issues: 1 });
-    expect(kept.issue.labels).toEqual(["complexity:5", "complexity:unconfirmed"]);
+    expect(kept?.complexity).toEqual({ declared: 5, method: "unconfirmed", issues: 1 });
+    expect(kept?.issue.labels).toEqual(["complexity:5", "complexity:unconfirmed"]);
   });
 
-  test("keeps a confirmed rating over an unconfirmed one", () => {
+  test("keeps a confirmed rating over an unconfirmed one for the same issue", () => {
     const kept = keepRating(
-      disk({ declared: 1, method: "confirmed" }),
-      next({ declared: 5, method: "unconfirmed", issues: 4 }),
+      disk({ declared: 3, method: "confirmed" }),
+      next({ declared: 3, method: "unconfirmed", issues: 1 }),
+      1,
     );
 
-    expect(kept.complexity).toEqual({ declared: 1, method: "confirmed", issues: 1 });
+    expect(kept?.complexity).toEqual({ declared: 3, method: "confirmed", issues: 1 });
+  });
+
+  test("keeps a sum over a null when it covers every issue the pull request closes", () => {
+    const kept = keepRating(
+      disk({ declared: 4, method: "confirmed", issues: 2 }),
+      next({ declared: null, method: "lookup-failed", issues: 0 }),
+      2,
+    );
+
+    expect(kept?.complexity).toEqual({ declared: 4, method: "confirmed", issues: 2 });
+  });
+
+  test("never carries one issue's rating into a pull request that closes several", () => {
+    const sum = next({ declared: 5, method: "unconfirmed", issues: 4 });
+
+    expect(keepRating(disk({ declared: 1, method: "confirmed" }), sum, 4)).toBe(sum);
+    expect(
+      keepRating(
+        disk({ declared: 1, method: "confirmed" }),
+        next({ declared: null, method: "lookup-failed", issues: 0 }),
+        4,
+      ),
+    ).toBeNull();
+  });
+
+  test("a Part of null drops a looked-up rating and keeps one a caller gave", () => {
+    const partOf = next({ declared: null, method: "part-of", issues: 0 });
+
+    expect(keepRating(disk({ declared: 8, method: "confirmed" }), partOf, 0)).toBe(partOf);
+    expect(keepRating(disk({ declared: 3, method: "manual" }), partOf, 0)?.complexity).toEqual({
+      declared: 3,
+      method: "manual",
+      issues: 1,
+    });
   });
 
   test("takes a new confirmed rating over an old one", () => {
     const fresh = next({ declared: 6, method: "confirmed", issues: 2 });
 
-    expect(keepRating(disk({ declared: 3, method: "confirmed" }), fresh)).toBe(fresh);
+    expect(keepRating(disk({ declared: 3, method: "confirmed" }), fresh, 2)).toBe(fresh);
   });
 
   test("ignores a card on disk with no rating or for another pull request", () => {
     const fresh = next({ declared: null, method: "none", issues: 0 });
 
-    expect(keepRating({ pr: { number: 1 } }, fresh)).toBe(fresh);
-    expect(keepRating(disk({ declared: 3, method: "confirmed" }, 9), fresh)).toBe(fresh);
-    expect(keepRating(null, fresh)).toBe(fresh);
+    expect(keepRating({ pr: { number: 1 } }, fresh, 0)).toBe(fresh);
+    expect(keepRating(disk({ declared: 3, method: "confirmed" }, 9), fresh, 0)).toBe(fresh);
+    expect(keepRating(null, fresh, 0)).toBe(fresh);
   });
 });

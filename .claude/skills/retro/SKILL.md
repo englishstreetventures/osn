@@ -216,14 +216,28 @@ below has to cite:
 `references/card-signals.md` maps each of those to the question it answers and
 the artefact a finding about it belongs in. Read it before Step 3.
 
-Two readings that are wrong every time:
+Three readings that are wrong every time:
 
-- **The rating lives on the issue, and the card only copies it.** A
-  `complexity.declared` of `null` means this card did not fetch one, never that
-  the work is unrated: look at the issue before you conclude anything, and where
-  it carries a `complexity:` label **that label is the denominator**. Only when
-  the issue has no such label is the work genuinely unrated, and only then do
-  you say "unrated, so I cannot tell".
+- **A `null` rating means the work is unrated.** `complexity.declared` is the
+  sum of the `complexity:` ratings of every issue in this repository the pull
+  request closes, and `complexity.issues` says how many it adds up (a version 1
+  card has no `issues` and rates one issue). A `null` has a reason, and
+  `complexity.method` names it. Read it before you conclude anything:
+  - `lookup-failed`, or `none` on a card with `pr.number: null` — the card did
+    not read a rating. Look at the issues the pull request closes; where each
+    carries a `complexity:` label, **their sum is the denominator**.
+  - `not-fetched` — the pull request closes only a private tracker issue, whose
+    labels the card never reads. That issue's `complexity:` label is the
+    denominator; read it there, and never copy the issue or its labels into
+    anything public.
+  - `part-of` — the branch only advances `issue.number`, and that issue's
+    rating describes the whole of it. **Never divide by that label**: there is
+    no denominator.
+  - `none` with a pull request — a closed issue carries no rating (the run's
+    warning named it), or nothing is linked.
+
+  Only for `part-of`, or an issue with no `complexity:` label, is the work
+  genuinely unrated, and only then do you say "unrated, so I cannot tell".
 - **Cost is not waste without the declared rating.** A small diff, a high
   rating and a large spend is a hard problem that ended in a one-line fix, and
   it is fine. The same diff at `complexity:1` is the thing this whole system

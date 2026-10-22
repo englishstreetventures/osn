@@ -1294,6 +1294,24 @@ test("--resolve-issue reads a Part of line as the issue and declares no rating",
   expect(card.complexity).toEqual({ declared: null, method: "part-of", issues: 0 });
 });
 
+// The shape every orchestrated child pull request has: it closes its own issue
+// and advances the epic. The card names and rates the child, and never reads
+// the epic's labels — its rating describes the whole series.
+test("--resolve-issue names and rates the issue a child closes, not the epic it is Part of", async () => {
+  const { card, calls } = await runResolving({
+    pull: {
+      body: "Part of #1000\n\nCloses #1041",
+      refs: [{ number: 1041, repo: "englishstreetventures/osn" }],
+    },
+    labels: { 1041: ["complexity:2"], 1000: ["epic", "complexity:8"] },
+  });
+
+  expect(card.issue.number).toBe(1041);
+  expect(card.issue.labels).toEqual(["complexity:2"]);
+  expect(card.complexity).toEqual({ declared: 2, method: "confirmed", issues: 1 });
+  expect(calls.filter((call) => call.includes("issue view 1000"))).toEqual([]);
+});
+
 test("--resolve-issue with no pull request yet records no issue, whatever NEW-FEAT.md says", async () => {
   const { card } = await runResolving({
     pull: null,

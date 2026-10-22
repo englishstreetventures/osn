@@ -419,25 +419,31 @@ Two things worth keeping in mind:
   unfairly. What stays deliberately uncarded is `orchestrate` at N>1 — there
   is no principled way to divide one session's overhead across several task
   branches, so it is not attributed to any of them.
-- **A session that moved itself into a worktree is attributed to it.** A
-  session started in `main/` or the bare-repo root that enters a worktree with
+- **A session that made a worktree and moved into it is attributed to it.** A
+  session started in `main/` or the bare-repo root that makes a worktree with
   the `EnterWorktree` tool runs no `git worktree add`, so the scan above finds
   nothing — and its records before the move, the request and the work that led
   to the branch, are stamped `HEAD` or `main`. Claude Code writes a
-  `worktree-state` record naming the branch it entered, and only when the move
-  succeeds; `resolveSessionBranch` takes that branch when the session cut none
-  with git, by the same one-branch rule. A branch cut with git outranks one
-  entered. Records after an `ExitWorktree` back on `HEAD` or `main` go to the
-  entered branch too, as does an unmarked subagent the session dispatched
-  (through `resolveDispatchBranch`'s fallback) — the same per-file granularity
-  as above.
+  `worktree-state` record naming the branch, and only when the move succeeds;
+  `resolveSessionBranch` takes that branch when the session cut none with git,
+  by the same one-branch rule. A branch cut with git outranks one made this
+  way. Records after an `ExitWorktree` back on `HEAD` or `main` go to that
+  branch too, as does an unmarked subagent the session dispatched (through
+  `resolveDispatchBranch`'s fallback) — the same per-file granularity as above.
+- **A worktree the session only entered counts for nothing.** `EnterWorktree`
+  given the path of a worktree that already exists writes a `worktree-state`
+  record with `enteredExisting: true`. That worktree was cut for other work —
+  the session is reviewing it, or an orchestrator is checking on a task — and
+  what the session did before the move has nothing to do with it. Only the
+  records stamped with that branch go to its card.
 
   *Measured 2026-10-23 over both transcript roots on the machine that did the
-  work: 12 session files call `EnterWorktree`, 11 hold a `worktree-state`
-  record, and the 12th call failed. Against the rule without it, 11 branches
-  gained spend (none lost), $25.30 in all, and subagent files with no branch
-  fell from 50 to 40. One-off comparison of `recordsByBranch` before and after;
-  no script was kept.*
+  work: 11 session files hold a `worktree-state` record naming a branch, 3 for
+  worktrees the session made and 8 for worktrees it only entered. One of the 3
+  made six worktrees, so it resolves to none. Against the rule without either
+  bullet, 2 branches gained spend and none lost; counting entered worktrees as
+  well would have moved spend onto 6 more. One-off comparison of
+  `recordsByBranch` before and after; no script was kept.*
 - **Only records that belong to a session.** Claude Code also writes
   bookkeeping into a session file — file-history records among them — with a
   timestamp but no session id and no branch. The fallback leaves them out:
@@ -459,7 +465,7 @@ added `complexity.issues`; on an older card `declared` is one issue's rating.
 |---|---|
 | `pr.number`, `pr.branch`, `pr.base_sha`, `pr.head_sha` | Identity |
 | `pr.phase` | `at-open` or `at-merge` — see [[#Two phases]] |
-| `issue.number`, `issue.type`, `issue.labels` | The issue the branch was cut for — see [[#Which issue a card names, and what it divides by]]. with `--resolve-issue`, `labels` are read only when that issue is one the pull request closes |
+| `issue.number`, `issue.type`, `issue.labels` | The issue the branch was cut for — see [[#Which issue a card names, and what it divides by]]. With `--resolve-issue`, `labels` are read only when that issue is one the pull request closes |
 | `complexity.declared` | The sum of the ratings of the issues in this repository the pull request closes — 1, 2, 3, 5 or 8 for one issue. The only judgement in the file |
 | `complexity.method` | How that number was arrived at: `confirmed`, `unconfirmed`, `none`, `not-fetched`, `lookup-failed`, `part-of`, or `manual` for `--complexity` |
 | `complexity.issues` | How many issues' ratings `declared` adds up. Absent on version 1 cards |
@@ -682,7 +688,17 @@ in, compared ignoring case.
 the same pull request holds a rating and this run's has none, or holds a
 `confirmed` one and this run's is not, it keeps the card's `issue` and
 `complexity` and says so on stderr. A failed lookup or an issue that can no
-longer be read must not erase the only record of the rating.
+longer be read must not erase the only record of the rating. Two cases are not
+a lowered rating, or cannot carry one:
+
+- **This run records `part-of`.** That null is the rule's answer, not a failed
+  read. A rating looked up from the issue (`confirmed`, `unconfirmed`) is
+  dropped, since it describes the whole issue; one given by hand is kept.
+- **The card on disk rates fewer issues than the pull request closes.** A
+  version 1 card rates one issue, and version 2's `declared` is the sum over
+  all of them: carried across, one issue's rating would count four issues of
+  work as one. A new sum is written instead. When this run has no sum either,
+  the card on disk is left as it is, still version 1, and the run names it.
 
 Only `"confirmed"` is a rating to act on; every other method is either an
 agent's guess (`"unconfirmed"`) or a null `complexity.declared`, for the reasons

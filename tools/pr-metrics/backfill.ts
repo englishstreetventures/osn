@@ -65,18 +65,31 @@ interface PullRequest {
 const DEFAULT_REPO = "englishstreetventures/osn";
 
 /**
- * The card to write, given the card already on disk: `next`, unless it would
- * lower the rating the disk card holds for the same pull request.
+ * The card to write, given the card already on disk: `next`; `next` carrying
+ * the disk card's rating; or `null`, meaning leave the disk card as it is.
+ * `closed` is how many issues in this repository the pull request closes.
  *
  * A backfill rebuilds every card it can cost, and a run whose label lookup
  * failed, or that can no longer read an issue, produces a card with a null
  * rating. Writing it over a card that holds one throws away the only record of
- * that rating, so the disk card's `issue` and `complexity` are kept when its
- * `declared` is set and the new one is not, or when it is `confirmed` and the
- * new one is not. A version 1 card's rating is one issue's, which is what its
- * kept `issues` count says.
+ * that rating, so the disk card's `issue` and `complexity` are carried into the
+ * new card when its `declared` is set and the new one is not, or when it is
+ * `confirmed` and the new one is not.
+ *
+ * Two cases are not a lowered rating, or cannot carry one:
+ *
+ * - `next` records `part-of`. That null is the rule's answer, not a failed
+ *   read: the issue's rating describes more than the branch did. A rating
+ *   looked up from the issue (`confirmed`, `unconfirmed`) is not carried into
+ *   it; one a caller gave by hand is.
+ * - The disk rating covers fewer issues than the pull request closes — a
+ *   version 1 card, which rates one issue, for a pull request that closes
+ *   several. `declared` is now the sum over all of them, and one issue's rating
+ *   under that label would count several issues of work at one issue's rating.
+ *   A new sum is written; when this run has none either, the disk card is left
+ *   as it is, still version 1 and true to that version's meaning.
  */
-export function keepRating(onDisk: unknown, next: Card): Card {
+export function keepRating(onDisk: unknown, next: Card, closed: number): Card | null {
   if (onDisk === null || typeof onDisk !== "object") return next;
 
   const disk = onDisk as Partial<Pick<Card, "pr" | "issue" | "complexity">>;
@@ -89,14 +102,16 @@ export function keepRating(onDisk: unknown, next: Card): Card {
     (old.method === "confirmed" && next.complexity.method !== "confirmed");
   if (!lowered) return next;
 
+  const lookedUp = old.method === "confirmed" || old.method === "unconfirmed";
+  if (next.complexity.method === "part-of" && lookedUp) return next;
+
+  const covered = typeof old.issues === "number" ? old.issues : oldDeclared === null ? 0 : 1;
+  if (covered < closed) return next.complexity.declared === null ? null : next;
+
   return {
     ...next,
     issue: disk.issue ?? next.issue,
-    complexity: {
-      declared: oldDeclared,
-      method: old.method,
-      issues: old.issues ?? (oldDeclared === null ? 0 : 1),
-    },
+    complexity: { declared: oldDeclared, method: old.method, issues: covered },
   };
 }
 
@@ -375,6 +390,9 @@ if (import.meta.main) {
   // cannot be separated from another pull request's, or another pull request's
   // card holds their file. Each is named on stderr as it happens.
   const heldBack: number[] = [];
+  // Pull requests whose card on disk keeps a rating this run could not carry
+  // into a rebuilt card, so the card was not rebuilt.
+  const leftAsIs: number[] = [];
   let written = 0;
   let unchanged = 0;
   const claimed = new Set<string>();
@@ -564,8 +582,8 @@ if (import.meta.main) {
       },
     );
 
-    const card = keepRating(onDisk, built);
-    if (card !== built) {
+    const card = keepRating(onDisk, built, selection.closed.length);
+    if (card !== null && card !== built) {
       process.stderr.write(
         `  ⚠️  #${pull.number}: keeping the rating already on disk (${card.complexity.method} ${card.complexity.declared}) over this run's (${built.complexity.method} ${built.complexity.declared}).\n`,
       );
@@ -600,6 +618,14 @@ if (import.meta.main) {
 
     claimed.add(file);
 
+    if (card === null) {
+      process.stderr.write(
+        `  ⚠️  #${pull.number}: the card on disk rates fewer issues than the ${selection.closed.length} this pull request closes, and this run could not read their sum — leaving that card as it is.\n`,
+      );
+      leftAsIs.push(pull.number);
+      continue;
+    }
+
     if (onDisk !== null && sameApartFromGeneratedAt(onDisk, card)) {
       unchanged += 1;
       continue;
@@ -624,6 +650,12 @@ if (import.meta.main) {
 
   if (unchanged > 0) {
     console.log(`left ${unchanged} card(s) untouched — nothing but the timestamp would change.`);
+  }
+
+  if (leftAsIs.length > 0) {
+    process.stdout.write(
+      `left ${leftAsIs.length} card(s) as they were, each named above, rather than lose their rating: ${leftAsIs.join(", ")}\n`,
+    );
   }
 
   if (heldBack.length > 0) {

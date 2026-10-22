@@ -1869,8 +1869,8 @@ function plausibleCutBranch(candidate: string): boolean {
 
 /** One transcript file's `tool_use` blocks, scanned once: every dispatch
  * prompt by `tool_use` id, every branch name a `Bash` block's command cut via
- * {@link BRANCH_CUT_COMMAND}, and every branch the session moved onto with the
- * `EnterWorktree` tool. */
+ * {@link BRANCH_CUT_COMMAND}, and the branch of every worktree the session
+ * made with the `EnterWorktree` tool. */
 interface FileScan {
   prompts: Map<string, string>;
   cutBranches: Set<string>;
@@ -1879,10 +1879,12 @@ interface FileScan {
 
 /** The record Claude Code writes when a session enters a worktree. It is
  * written only when the move succeeds, and it names the branch git gave the
- * worktree. */
+ * worktree. `enteredExisting` is `true` when the session stepped into a
+ * worktree that was already there; a worktree the session made has no such
+ * field and names the commit it was made from. */
 interface WorktreeStateRecord {
   type?: string;
-  worktreeSession?: { worktreeBranch?: unknown } | null;
+  worktreeSession?: { worktreeBranch?: unknown; enteredExisting?: unknown } | null;
 }
 
 /**
@@ -1937,6 +1939,10 @@ function scanFile(file: string): FileScan {
     }
 
     if (record.type === "worktree-state") {
+      // Only a worktree this session made. One it stepped into was cut for
+      // other work, and what the session did before the move — a review, a
+      // triage, another task — has nothing to do with that branch.
+      if (record.worktreeSession?.enteredExisting === true) continue;
       const entered = record.worktreeSession?.worktreeBranch;
       if (plausibleEnteredBranch(entered)) scan.enteredBranches.add(entered);
       continue;
@@ -1989,12 +1995,14 @@ const sessionBranches = new Map<string, string | null>();
  * own overhead is attributed to it, which is correct: there is nothing to
  * split unfairly when there is only one task.
  *
- * A session that ran no such command but moved itself into a worktree with
- * the `EnterWorktree` tool resolves to the branch it entered, by the same
- * one-branch rule. Its records before the move — the request and the work that
- * led to the branch — are stamped `HEAD` or `main` and otherwise land on no
- * card. A branch cut with git outranks one entered: a session that enters a
- * scratch worktree and then cuts the task branch keeps the task branch.
+ * A session that ran no such command but made a worktree with the
+ * `EnterWorktree` tool and moved into it resolves to that worktree's branch,
+ * by the same one-branch rule. Its records before the move — the request and
+ * the work that led to the branch — are stamped `HEAD` or `main` and otherwise
+ * land on no card. A worktree the session only entered, one that was already
+ * there, counts for nothing: it was cut for other work. A branch cut with git
+ * outranks one made by `EnterWorktree`: a session that makes a scratch
+ * worktree and then cuts the task branch keeps the task branch.
  */
 export function resolveSessionBranch(file: string): string | null {
   const memo = sessionBranches.get(file);

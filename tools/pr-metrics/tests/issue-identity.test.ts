@@ -93,6 +93,23 @@ describe("selectIssues — the branch's own issue", () => {
     expect(selection.partOf).toEqual([1673]);
   });
 
+  // An orchestrated child pull request closes its own issue and advances the
+  // epic above it. The issue it closes is the branch's, whichever line comes
+  // first; the epic is never its identity.
+  test.each([
+    ["Closes first", "Closes #1041\n\nPart of #1000"],
+    ["Part of first", "Part of #1000\n\nCloses #1041"],
+  ])(
+    "a child that closes one issue and is Part of an epic names the one it closes (%s)",
+    (_, body) => {
+      const selection = selectIssues({ body, refs: [ref(1041)], repo: REPO, closedFromBody: true });
+
+      expect(selection.issue).toBe(1041);
+      expect(selection.closed).toEqual([1041]);
+      expect(selection.partOf).toEqual([1000]);
+    },
+  );
+
   test("several references and no body line name no issue, but every one is still closed", () => {
     const selection = selectIssues({
       body: "",
@@ -223,6 +240,18 @@ describe("decideComplexity — the denominator", () => {
     );
 
     expect(decision).toEqual({ declared: null, method: "part-of", issues: 0, unrated: [] });
+  });
+
+  test("a child that closes one issue and is Part of an epic divides by the one it closes", () => {
+    const decision = decideComplexity(
+      { issue: 1041, closed: [1041], partOf: [1000], foreign: false, candidates: [] },
+      labels([
+        [1041, ["complexity:2"]],
+        [1000, ["epic", "complexity:8"]],
+      ]),
+    );
+
+    expect(decision).toEqual({ declared: 2, method: "confirmed", issues: 1, unrated: [] });
   });
 
   test("a pull request closing only a tracker issue is not-fetched", () => {
