@@ -211,7 +211,7 @@ the guard's warning regardless of how large or small the app's own baseline is:
 
 | App | Mode | Measured | Threshold |
 |---|---|---:|---:|
-| cire/invites | worker | 176733 B | 188433 B *(re-baselined, englishstreetventures/osn#1325 — see below)* |
+| cire/invites | worker | 189842 B | 201542 B *(re-baselined, englishstreetventures/osn#1325 and englishstreetventures/osn#480 — see below)* |
 | cire/host | static | 319202 B | 330902 B *(re-baselined, englishstreetventures/osn#1396 — see below)* |
 | cire/vendor | static | 77305 B | 81644 B |
 | cire/landing | static | 164847 B | 176547 B |
@@ -344,6 +344,20 @@ feature's own code.
 build` on `feat/cire-household-member`, and the same build with
 `cire/invites/src` and `shared/rp-auth/src` taken from `origin/main`, reading
 the total the guard prints.*
+
+### `cire/invites` went up for guest emails
+
+The guest's email box (englishstreetventures/osn#480) — a lazy `GuestEmailBox`
+chunk in the household panel, the address rule and consent wording from
+`@cire/guest-email`, and the claim payload's `member.email` — took the guest
+Worker from **187143 B** on `main` to **189842 B**, **+2699 B** and one more
+file (the box's own chunk, 2255 B), past the 188433 B threshold. The threshold
+moved to measured + ~11.7 KB, **201542 B**. No dependency was added; the bytes
+are the feature's own code.
+
+*Measured 2026-10-23 — `rm -rf cire/invites/dist && bun run --cwd cire/invites
+build` on `feat/cire-guest-emails`, and the same build in a worktree of
+`origin/main` (9e80fd2b2), reading the total the guard prints.*
 
 The threshold is in `scripts/`, which `.github/CODEOWNERS` puts under a human owner
 — a raise like this one is reviewed rather than waved through, which is the
