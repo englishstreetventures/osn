@@ -244,7 +244,7 @@ Over about an hour of one organiser checklist tab on `host.dev.cireweddings.com`
 
 **What happens at the cap.** "Further operations of that type will fail with an error" until the reset at **00:00 UTC**. A subscribe then answers 503 and the client falls back. A publish logs and counts an error, and the write that called it succeeds. The docs do not say which error a WebSocket upgrade sees.
 
-**How to detect:** CF dashboard → Workers & Pages → Durable Objects → the namespace's requests and duration against the daily lines. The allowance is per account, so dev's hubs spend the dev account's and production's hubs spend production's. Adding Durable Objects to `scripts/check-free-tier-ceilings.ts` is englishstreetventures/osn#1256. A spent allowance shows in the product's logs as `realtime subscribe failed` at step `hub` and `realtime publish failed`; the realtime counters record nothing on workerd until englishstreetventures/osn#501 lands.
+**How to detect:** in the Cloudflare dashboard, Workers & Pages, Durable Objects, compare the namespace's requests and duration with the daily lines. The allowance is per account, so dev's hubs spend the dev account's and production's hubs spend production's. Adding Durable Objects to `scripts/check-free-tier-ceilings.ts` is englishstreetventures/osn#1256. A spent allowance shows in the product's logs as `realtime subscribe failed` at step `hub` and `realtime publish failed`; the realtime counters record nothing on workerd until englishstreetventures/osn#501 lands.
 
 **Upgrade path:** Workers Paid ($5/mo) lifts these to paid allowances with no code change.
 
