@@ -6,7 +6,7 @@ related:
   - "[[contributing]]"
   - "[[testing-patterns]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-10-21
+last-reviewed: 2026-10-23
 ---
 
 # CLI Commands Reference
@@ -33,6 +33,7 @@ bun run --cwd osn/client test:run         # OSN Client SDK tests
 bun run --cwd osn/auth-ui test:run        # OSN auth views (SignIn, Register, StepUpDialog, …)
 bun run --cwd shared/ui test:run          # Shared UI primitives — the unit project only
 bun run --cwd pulse/db test:run           # Pulse DB schema tests
+bun run --cwd cire/api test               # instead of test:run where the test script is `bun test`, or there is no test:run
 
 # Watch mode
 bun run --cwd pulse/api test              # Pulse API tests in watch mode
@@ -51,7 +52,7 @@ The E2E suite refuses to start while anything holds its ports, so stop `bun run 
 `test` and `test:run` there cover the unit project alone and `test:browser` is a
 separate script. `@osn/auth-ui` has a single config and no `test:browser`.
 
-Always use `bunx --bun vitest` instead of plain `vitest`. The `--bun` flag is required for `bun:sqlite` module access. The `test:run` scripts in each `package.json` already include this flag. The one exception is a mutation run (`test:mutation`, cire only): Stryker starts Vitest under Node itself — [[testing-patterns#Mutation testing]].
+When you call Vitest yourself, use `bunx --bun vitest` instead of plain `vitest`: the `--bun` flag is required for `bun:sqlite` module access. A package's own `test` and `test:run` scripts already carry the flags its tests need — most say `bunx --bun vitest`, and the few whose tests never load `bun:sqlite` call plain `vitest` — so prefer those scripts. The one exception is a mutation run (`test:mutation`, cire only): Stryker starts Vitest under Node itself — [[testing-patterns#Mutation testing]].
 
 ## Code Quality
 

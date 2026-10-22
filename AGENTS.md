@@ -14,6 +14,7 @@ OSN is a modular social platform: people own their identity and social graph, an
 | `zap/` | `@zap/*` | Messaging: API and DB, no client yet |
 | `cire/` | `@cire/*` | Wedding invites: guest site, organiser portal, vendor portal, marketing site, API, DB, `@cire/ui` |
 | `shared/` | `@shared/*` | Libraries every product uses: UI primitives, design tokens, crypto, email, observability, rate limiting, auth client |
+| `tools/` | `@tools/*` | Local-only developer tooling, never shipped: the E2E suite, house lint rules, session metrics, the mutation-test runner, the component lab |
 
 Which name a new package takes is in `wiki/shared/osn-and-musubi.md`; the full tree is in `wiki/shared/monorepo-structure.md`.
 
@@ -71,8 +72,8 @@ bun run test:e2e             # end-to-end suite: boots the stack, writes e2e-art
 bun run test:e2e:repro       # it, twice, failing unless results.json matches byte for byte
 bun run test:scripts         # bun tests under scripts/
 bun run --cwd cire/<pkg> test:mutation --changed  # Stryker on changed lines, cire only
-bun run --cwd <pkg> test:run # one Vitest package, once
-bun run --cwd <pkg> test     # @cire/api, @cire/db, @tools/oxlint-house use bun test
+bun run --cwd <pkg> test:run # one package, once
+bun run --cwd <pkg> test     # instead, where its test script is `bun test` or it has no test:run
 ```
 
 Database commands differ between cire and the rest; see `wiki/conventions/commands.md` and `wiki/cire/cire-development.md`.

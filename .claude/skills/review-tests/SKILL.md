@@ -83,7 +83,7 @@ git diff --name-only "$DIFF_BASE"...HEAD
 
 A stacked branch does not merge into `main`; taking the base from `gh-merge-base` keeps the parent branch's files out of this branch's diff. `$DIFF_BASE` is `origin/$BASE` when the local branch is behind it: local `main` lags `origin/main` in the worktree layout, and a diff against it reports other pull requests' files as this branch's.
 
-The affected workspaces are the packages owning those files. Map a path to its package by walking up to the nearest `package.json` and reading its `name`.
+The affected workspaces are the packages owning those files. Map a path to its package by walking up to the nearest `package.json` and reading its `name`. A walk that reaches the root `package.json` (`name: osn`) found no workspace: the file sits outside them all, in `scripts/`, `wiki/`, `.claude/`, `.github/` or the root itself. Never run the root's `build` or `test` for it — both are turbo over the whole monorepo. A `scripts/` file is tested by `bun run test:scripts`, plus `bash` for any `scripts/tests/*.test.sh` the branch touches, which `bun test` does not collect; any other file outside a workspace has no test surface.
 
 ## Step 2 — Build and test each workspace
 
@@ -93,13 +93,14 @@ Build:
 bun run --cwd <workspace-path> build
 ```
 
-Then tests, for each workspace whose `package.json` has a `test:run` script:
+Then tests, once per workspace. `test:run` runs a package's tests once; use `test` instead where the `test` script is `bun test` or there is no `test:run`:
 
 ```bash
-bun run --cwd <workspace-path> test:run
+bun run --cwd <workspace-path> test:run   # most workspaces
+bun run --cwd <workspace-path> test       # `test` script is `bun test`, or no test:run
 ```
 
-If there is no `test:run` but a `vitest.config.ts` is present, use `bunx --bun vitest run`. If neither exists, the package has no test surface — record that; it is itself a finding if the branch added source to it.
+If the workspace has neither script, it has no test surface — record that; it is itself a finding if the branch added source to it.
 
 Record for each workspace: build pass or fail, test counts, pass or fail. Quote the shortest decisive line of any failure — a failing assertion, not the whole log.
 

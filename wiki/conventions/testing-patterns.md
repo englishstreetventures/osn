@@ -11,7 +11,7 @@ related:
   - "[[browser-tests]]"
   - "[[infrastructure-as-code]]"
   - "[[realtime]]"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-23
 ---
 
 # Testing Patterns
@@ -858,9 +858,10 @@ The route tests for the upgrade checkout and the vendor directory's add use both
 
 ## Testing an oxlint rule
 
-`tools/oxlint/house` holds the repo's own oxlint rules, and its tests are the odd
-one out: they run under `bun test`, not vitest, and they lint fixtures instead of
-calling a function.
+`tools/oxlint/house` holds the repo's own oxlint rules. Its tests lint fixtures
+instead of calling a function, and its `test` script is `bun test`, not vitest:
+like every package whose `test` script is `bun test`, run them with
+`bun run --cwd tools/oxlint/house test`, not `test:run`.
 
 `@oxlint/plugins` ships no `RuleTester` — the package is four files and exports
 `definePlugin`, `defineRule` and `eslintCompatPlugin`, nothing else. So a rule
