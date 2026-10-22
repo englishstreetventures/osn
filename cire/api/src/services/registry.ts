@@ -1226,10 +1226,16 @@ export const registryService = {
       // already no and the extra row could not change it.
       const lastReachable = offset + limit > MAX_GIFT_LOG_OFFSET;
       const rows = yield* dbQuery(() =>
-        unionAll(claims, contributions)
+        db
+          .select()
+          .from(
+            unionAll(claims, contributions)
+              .orderBy(desc(sql`created_at`))
+              .limit(lastReachable ? limit : limit + 1)
+              .offset(offset)
+              .as("gift_page"),
+          )
           .orderBy(desc(sql`created_at`))
-          .limit(lastReachable ? limit : limit + 1)
-          .offset(offset)
           .all(),
       );
 

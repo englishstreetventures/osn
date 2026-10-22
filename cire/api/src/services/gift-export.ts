@@ -176,9 +176,15 @@ export const giftExportService = {
 
       // Newest first, the order the portal's log is read in.
       const gifts = yield* dbQuery(() =>
-        unionAll(claims, cashGifts)
+        db
+          .select()
+          .from(
+            unionAll(claims, cashGifts)
+              .orderBy(desc(sql`created_at`))
+              .limit(readAhead)
+              .as("gift_export"),
+          )
           .orderBy(desc(sql`created_at`))
-          .limit(readAhead)
           .all(),
       );
 
