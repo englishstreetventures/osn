@@ -690,11 +690,11 @@ in, compared ignoring case.
 **A backfill never lowers a rating on disk.** When the card already written for
 the same pull request holds a rating and this run's has none, or holds a
 `confirmed` one and this run's is not, it keeps the card's `complexity` and says
-so on stderr. A failed lookup or an issue that can no longer be read must not
-erase the only record of the rating. The card's `issue` comes with it only when
+so on stderr. A failed lookup, or an issue this run cannot read, must not erase
+the only record of the rating. The card's `issue` comes with it only when
 this run links that issue to this repository: a card is public, and an issue
-block written some other way may name a tracker issue or carry its labels. Two cases are not
-a lowered rating, or cannot carry one:
+block written some other way may name a tracker issue or carry its labels.
+Two cases are not a lowered rating, or cannot carry one:
 
 - **This run records `part-of`.** That null is the rule's answer, not a failed
   read. A rating looked up from the issue (`confirmed`, `unconfirmed`) is
