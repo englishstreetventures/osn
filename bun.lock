@@ -273,7 +273,7 @@
     },
     "musubi/infra": {
       "name": "@musubi/infra",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "dependencies": {
         "@effect/platform-bun": "4.0.5",
         "@effect/platform-node": "4.0.5",
@@ -342,7 +342,7 @@
     },
     "osn/api": {
       "name": "@osn/api",
-      "version": "3.29.11",
+      "version": "3.29.12",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/openapi": "1.4.16",
