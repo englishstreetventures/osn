@@ -82,6 +82,9 @@ test("the real CLI exits non-zero on an un-prefixed *.test.ts under src/pages", 
       const { exitCode, stderr } = await runCli([appRoot]);
       expect(stderr).toContain("drift-guard.test.ts");
       expect(stderr).toContain("no `_` prefix");
+      // A `_` prefix would satisfy this check and still fail the next step,
+      // check-tests-outside-src.ts, so the message sends the file to tests/.
+      expect(stderr).toContain("move it to the package's tests/");
       expect(exitCode).not.toBe(0);
     },
   );
@@ -223,6 +226,7 @@ test.each([
         const { exitCode, stderr } = await runCli([appRoot]);
         expect(stderr).toContain(`src/pages/${linkName}`);
         expect(stderr).toContain("symlink");
+        expect(stderr).toContain("refuses any symlink under src/");
         expect(exitCode).not.toBe(0);
       },
     );

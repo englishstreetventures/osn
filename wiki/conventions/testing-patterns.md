@@ -118,11 +118,12 @@ The Musubi flow reports conditional mediation as unavailable. The virtual authen
 
 Test files live in `tests/` at the package root and mirror the `src/` structure. **Every**
 package, without exception, `cire/*`, the three landing sites and `scripts/` included.
-Test-only support code (mocks, fixtures, request harnesses) lives under `tests/` too, never
-in `src/`. CI's `Lint & Format` job runs
+CI's `Lint & Format` job runs
 [check-tests-outside-src.ts](../../scripts/check-tests-outside-src.ts), which fails on any
 file under a workspace's `src/` whose name holds `.test.`, `.spec.`, `_test.` or `_spec.`,
-and on any symlink there. It reads names only, so a test helper left in `src/` passes it:
+`_`-prefixed or not, and on any symlink there. It reads names only, so it cannot see a test
+helper. Keep test-only support code (mocks, fixtures, request harnesses) under `tests/`
+too, never in `src/`:
 
 ```
 pulse/api/
@@ -292,7 +293,7 @@ describe("events routes", () => {
 
 - **Import the matchers where you assert with them, and declare the dependency only there.** A test that uses `toHaveAttribute` or `toBeInTheDocument` writes `import "@testing-library/jest-dom/vitest";` at the top of the file, and its package lists `@testing-library/jest-dom` in `devDependencies`. Three packages do — `cire/host`, `cire/vendor` and `pulse/web`. Ten others declared it while importing no matcher and were pruned. Bun's install layout is not hoisted, so an undeclared dependency is unresolvable rather than quietly satisfied: the failure is a red `Cannot find module`, not a green suite. `tsconfig.json` already has the test files in `include`, so the matcher types resolve across a package from any one import. `tools/lab` is the deliberate exception — it leaves the plugin out entirely, so nothing injects and it needs no marker; the guard matches the import statement rather than the plugin's name so its comment about the plugin does not trip it.
 
-- **Check the Bun version before you believe a failure that names no code you touched.** CI installs the Bun that `.bun-version` pins, so a different local Bun can fail a test on its own wording or behaviour while CI stays green. Compare `bun --version` with `.bun-version` first; a `SessionStart` hook runs [check-bun-version.sh](../../scripts/check-bun-version.sh), which warns at the start of every session when they differ. To rerun under the pin without changing the installed Bun, put that version's binary first on `PATH`: the CLI tests under `scripts/tests/` start `bun` by name, so a binary run by path alone leaves them on the installed one.
+- **Check the Bun version before you believe a failure that names no code you touched.** CI installs the Bun that `.bun-version` pins, so a different local Bun can fail a test on its own wording or behaviour while CI stays green. Compare `bun --version` with `.bun-version` first; a `SessionStart` hook runs [check-bun-version.sh](../../scripts/check-bun-version.sh), which warns at the start of every session when they differ. To rerun under the pin without changing the installed Bun, put that version's binary first on `PATH`. Most CLI tests under `scripts/tests/` start their child `bun` by name, so a binary run by its path alone leaves those children on the installed one; the few that start `process.execPath` follow whichever Bun runs the suite.
 
 ## Assertions that cannot fail
 
