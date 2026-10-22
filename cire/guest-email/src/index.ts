@@ -41,10 +41,12 @@ export function normaliseGuestEmail(raw: string): string {
  * RFC 5322 parser: it refuses what cannot be one deliverable address.
  */
 export function isValidGuestEmail(address: string): boolean {
-  if (address.length === 0 || address.length > MAX_GUEST_EMAIL_LENGTH) return false;
+  if (address.length > MAX_GUEST_EMAIL_LENGTH) return false;
   if (FORBIDDEN.test(address)) return false;
+  // An empty string splits to one part, so it fails here too.
   const parts = address.split("@");
   if (parts.length !== 2) return false;
+  // Both parts exist past the check above; the defaults only satisfy the type.
   const [local = "", domain = ""] = parts;
   if (local.length === 0 || local.length > MAX_LOCAL_PART_LENGTH) return false;
   const labels = domain.split(".");
@@ -88,9 +90,9 @@ export const GUEST_EMAIL_CONSENT = {
  * collected ([[dpia/cire-guest-data]]). The address was not obtained from the
  * guest, so the words also commit the organiser to passing on the guest
  * privacy notice (GDPR Art. 14); the portal links the notice under the box.
- * The portal renders `text` beside the box and sends `version` with the apply; the API refuses an apply that sets an
- * address unless the version is this one, and stamps it onto each address it
- * sets.
+ * The portal renders `text` beside the box and sends `version` with the
+ * apply; the API refuses an apply that sets an address unless the version is
+ * this one, and stamps it onto each address it sets.
  *
  * Changing `text` means changing `version` in the same commit.
  */
