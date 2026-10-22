@@ -1090,6 +1090,41 @@ describe("apply attests only the addresses the preview showed", () => {
     expect(record(db, "Bo")?.email).toBeNull();
   });
 
+  // The digest records whether each address is withdrawn, not only which
+  // addresses there are: the same count with a new withdrawal is a change.
+  it("refuses an address another guest withdrew after the preview", async () => {
+    const { db, app } = buildApp();
+    await seeded(app, "");
+    const p = await preview(app, { guestsCsv: guestsCsv("", "shared@example.test") });
+    expect(p.emailAttestations).toBe(1);
+    expect(p.warnings.join(" ")).not.toContain("removed or replaced by the guest");
+    const ada = await guestSession(app, db, "Ada");
+    expect((await ada.give("shared@example.test")).status).toBe(200);
+    expect((await ada.remove()).status).toBe(200);
+
+    const res = await apply(app, p.changeId, ATTESTED);
+    expect(res.status).toBe(409);
+    expect(await jsonBody(res)).toEqual({ error: "State changed — re-preview" });
+    expect(record(db, "Bo")?.email).toBeNull();
+    const [row] = db.select().from(imports).where(eq(imports.id, p.changeId)).all();
+    expect(row?.beforeGuestsR2Key).toBeNull();
+  });
+
+  // A summary with no digest is refused only when the change needs one.
+  it("applies a change that sets no address on the organiser's word, whatever its summary holds", async () => {
+    const { db, app } = buildApp();
+    await seeded(app, "ada@example.test");
+    const p = await preview(app, { guestsCsv: guestsCsv("", "") });
+    expect(p.emailAttestations).toBe(0);
+    db.update(imports)
+      .set({ summary: sql`json_remove(${imports.summary}, '$.emailAttestationDigest')` })
+      .where(eq(imports.id, p.changeId))
+      .run();
+
+    expect((await apply(app, p.changeId)).status).toBe(200);
+    expect(record(db, "Ada")?.email).toBeNull();
+  });
+
   it("keeps no address and no address hash in the change's summary", async () => {
     const { db, app } = buildApp();
     await seeded(app, "");

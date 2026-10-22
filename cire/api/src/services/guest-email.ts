@@ -47,7 +47,7 @@ export class GuestEmailSeatRefused extends Data.TaggedError("GuestEmailSeatRefus
   readonly reason: SeatRefusal;
 }> {}
 
-/** The seat holds {@link MAX_OPT_OUTS_PER_SEAT} opt-outs already. */
+/** The seat holds {@link MAX_OPT_OUTS_PER_SEAT} opt-outs and the address is not one it withdrew. */
 export class GuestEmailTooManyChanges extends Data.TaggedError("GuestEmailTooManyChanges") {}
 
 export class GuestEmailWriteError extends Data.TaggedError("GuestEmailWriteError")<{
