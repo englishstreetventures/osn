@@ -9,7 +9,7 @@ related:
   - "[[rate-limiting]]"
   - "[[cire-auth]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-23
 ---
 
 # OIDC provider
@@ -159,7 +159,7 @@ The redirect URI points at **cire-api**, never at a browser origin: cire runs th
 
 ## Rate limits
 
-Nine per-IP limiters: `oidc_authorize` (20/min), `oidc_authorize_context` (30/min), `oidc_authorize_decision` (10/min), `oidc_token` (60/min), `oidc_connections_list` (30/min), `oidc_connections_revoke` (10/min), `oidc_client_create` (**5/hour** — mints a durable credential, so it rides the hour-window Redis tier like `email_change_begin`), `oidc_client_list` (30/min), `oidc_client_disable` (10/min). See [[rate-limiting]].
+Nine per-IP limiters: `oidc_authorize` (20/min), `oidc_authorize_context` (30/min on production, 60/min on dev), `oidc_authorize_decision` (10/min), `oidc_token` (60/min), `oidc_connections_list` (30/min), `oidc_connections_revoke` (10/min), `oidc_client_create` (**5/hour** — mints a durable credential, so it rides the hour-window Redis tier like `email_change_begin`), `oidc_client_list` (30/min), `oidc_client_disable` (10/min). See [[rate-limiting]].
 
 ## Client registration (self-serve)
 

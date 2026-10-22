@@ -37,6 +37,8 @@ import type { AuthRateLimiters } from "../routes/auth";
  * The five native binding tiers, named `RL_AUTH_IP_<limit>_<periodSeconds>`.
  * Each is declared as a `[[ratelimits]]` block in `osn/api/wrangler.toml` with
  * `simple = { limit = <limit>, period = 60 }`, mirrored into every named env.
+ * Dev's declaration (`musubi/infra/src/declaration.ts`) sets `RL_AUTH_IP_30_60` to
+ * 60, so the name's limit holds on production and staging only.
  * Optional in the type: absent (local / Bun / non-Workers) ⇒ Redis fallback.
  */
 export interface OsnRateLimitBindings {

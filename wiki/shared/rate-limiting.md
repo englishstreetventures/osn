@@ -22,7 +22,7 @@ packages:
   - "@cire/api"
   - "@shared/rate-limit"
   - "@shared/redis"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-23
 ---
 # Rate Limiting
 
@@ -70,7 +70,7 @@ osn-api runs on Cloudflare Workers. The **60-second-window, per-IP auth limiters
 
 So the change **reduces but does not remove** the Upstash dependency — `UPSTASH_*` stays required in non-local.
 
-**Tiers + keying.** The native binding's `limit`/`period` live in `wrangler.toml`, so there is one binding per request-budget tier (`RL_AUTH_IP_{5,10,20,30,60}_60`, each `simple = { limit, period = 60 }`), declared at top level **and mirrored into every named env** (named envs do NOT inherit top-level bindings). Each endpoint keeps its existing budget by mapping to the matching tier; `selectAuthRateLimiters` (`osn/api/src/lib/native-rate-limiters.ts`) namespaces the key as `"<endpoint>:" + ip` so endpoints sharing a tier never share a counter bucket. `selectAuthRateLimiters` runs **once per isolate** (inside the per-isolate-cached `buildAll`), not per request.
+**Tiers + keying.** The native binding's `limit`/`period` live in `wrangler.toml`, so there is one binding per request-budget tier (`RL_AUTH_IP_{5,10,20,30,60}_60`, each `simple = { limit, period = 60 }`), declared at top level **and mirrored into every named env** (named envs do NOT inherit top-level bindings). Dev's declaration in `musubi/infra/src/declaration.ts` sets `RL_AUTH_IP_30_60` to 60 instead, so the 30-per-minute tier allows 60 on dev only; production and staging keep 30. Each endpoint keeps its existing budget by mapping to the matching tier; `selectAuthRateLimiters` (`osn/api/src/lib/native-rate-limiters.ts`) namespaces the key as `"<endpoint>:" + ip` so endpoints sharing a tier never share a counter bucket. `selectAuthRateLimiters` runs **once per isolate** (inside the per-isolate-cached `buildAll`), not per request.
 
 **Per-colo trade-off (accepted).** Cloudflare counts native rate limits **per colo**, not globally — a caller spread across colos sees a slightly looser effective cap. We approved this explicitly: a single attacker stays pinned to one colo, and the durable brute-force guards (recovery lockout) remain on Upstash. The `namespace_id`s (2001–2005) are account-scoped — verify they're unused in the account at deploy.
 
