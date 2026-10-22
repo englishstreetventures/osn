@@ -273,7 +273,7 @@
     },
     "musubi/infra": {
       "name": "@musubi/infra",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@effect/platform-bun": "4.0.5",
         "@effect/platform-node": "4.0.5",
@@ -342,7 +342,7 @@
     },
     "osn/api": {
       "name": "@osn/api",
-      "version": "3.29.10",
+      "version": "3.29.11",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/openapi": "1.4.16",
@@ -414,7 +414,7 @@
     },
     "osn/db": {
       "name": "@osn/db",
-      "version": "0.24.10",
+      "version": "0.24.11",
       "dependencies": {
         "@shared/db-utils": "workspace:*",
         "drizzle-orm": "1.0.0-rc.4",
@@ -433,7 +433,7 @@
     },
     "pulse/api": {
       "name": "@pulse/api",
-      "version": "0.27.27",
+      "version": "0.27.28",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/eden": "^1.4.9",
@@ -483,7 +483,7 @@
     },
     "pulse/infra": {
       "name": "@pulse/infra",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@effect/platform-bun": "4.0.5",
         "@effect/platform-node": "4.0.5",
@@ -498,7 +498,7 @@
     },
     "pulse/landing": {
       "name": "@pulse/landing",
-      "version": "0.1.26",
+      "version": "0.1.27",
       "dependencies": {
         "@astrojs/solid-js": "^7.0.2",
         "@shared/legal": "workspace:*",
@@ -521,7 +521,7 @@
     },
     "pulse/web": {
       "name": "@pulse/web",
-      "version": "0.24.26",
+      "version": "0.24.27",
       "dependencies": {
         "@fontsource/geist-mono": "^5.3.0",
         "@fontsource/geist-sans": "^5.3.0",
@@ -568,7 +568,7 @@
     },
     "shared/crypto": {
       "name": "@shared/crypto",
-      "version": "0.14.7",
+      "version": "0.14.8",
       "dependencies": {
         "@osn/db": "workspace:*",
         "@shared/observability": "workspace:*",
@@ -644,7 +644,7 @@
     },
     "shared/infra": {
       "name": "@shared/infra",
-      "version": "0.1.1",
+      "version": "0.2.0",
       "dependencies": {
         "@effect/platform-bun": "4.0.5",
         "@effect/platform-node": "4.0.5",
@@ -698,7 +698,7 @@
     },
     "shared/osn-auth-client": {
       "name": "@shared/osn-auth-client",
-      "version": "0.4.45",
+      "version": "0.4.46",
       "dependencies": {
         "@shared/crypto": "workspace:*",
         "jose": "^6.2.12",
@@ -936,7 +936,7 @@
     },
     "zap/api": {
       "name": "@zap/api",
-      "version": "0.9.28",
+      "version": "0.9.29",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/eden": "^1.4.9",
@@ -963,7 +963,7 @@
     },
     "zap/db": {
       "name": "@zap/db",
-      "version": "0.6.9",
+      "version": "0.6.10",
       "dependencies": {
         "@shared/db-utils": "workspace:*",
         "drizzle-orm": "1.0.0-rc.4",
@@ -982,7 +982,7 @@
     },
     "zap/infra": {
       "name": "@zap/infra",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "dependencies": {
         "@effect/platform-bun": "4.0.5",
         "@effect/platform-node": "4.0.5",
