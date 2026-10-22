@@ -1404,6 +1404,19 @@ export function seedE2eOrganiser(db: TestDb): void {
     ])
     .run();
 
+  // Gus withdrew the address the flow's second sheet gives him
+  // (`CIRE_ORGANISER.emails.sheetAddresses.second`), so re-adding it warns.
+  db.insert(schema.emailSuppressions)
+    .values({
+      id: "sup_e2e_gus",
+      weddingId: "wed_e2e_emails",
+      emailHash: createHash("sha256").update("wed_e2e_emails:gus.second@e2e.test").digest("hex"),
+      guestId: "gst_e2e_gus",
+      reason: "guest_removed",
+      createdAt: now,
+    })
+    .run();
+
   const sampleton = db
     .select({ id: schema.families.id })
     .from(schema.families)

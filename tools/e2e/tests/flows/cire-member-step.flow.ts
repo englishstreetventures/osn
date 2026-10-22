@@ -21,6 +21,8 @@
 
 import { createHash } from "node:crypto";
 
+import type { Route } from "@playwright/test";
+
 import { CIRE_HOUSEHOLD, DB_FILES, ORIGINS } from "../../src/config";
 import { expect, onSuiteClock, queryOne, test } from "../support/fixtures";
 
@@ -293,6 +295,77 @@ test("cire-member-step", async ({ page, context, flow }) => {
     `${stored?.email ?? "none"} ${stored?.source ?? "none"} ${stored?.version?.replace(/\d{4}-\d{2}-\d{2}$/, "") ?? "none"}`,
   );
   flow.check("consent recorded on the suite clock", true, onSuiteClock(stored?.consentAt));
+
+  // A refused or failed request must show a message and leave the stored
+  // address alone. Each step routes one request, then unroutes.
+  const storedAddress = () =>
+    queryOne<{ email: string | null }>(
+      DB_FILES.cire,
+      `SELECT g.email FROM guests g JOIN families f ON f.id = g.family_id
+        WHERE f.public_id = ? AND g.first_name = ?`,
+      CIRE_HOUSEHOLD.code,
+      CIRE_HOUSEHOLD.member,
+    )?.email ?? "none";
+  const emailUrl = `${ORIGINS.cireApi}/api/claim/member/email`;
+
+  const outdated = await flow.step(
+    `${CIRE_HOUSEHOLD.member}'s save from a page with older wording is refused`,
+    async () => {
+      const handler = async (route: Route) => {
+        if (route.request().method() !== "PUT") return route.fallback();
+        const body = route.request().postDataJSON() as Record<string, unknown>;
+        return route.continue({
+          postData: JSON.stringify({ ...body, consentVersion: "guest-email-2020-01-01" }),
+        });
+      };
+      await page.route(emailUrl, handler);
+      try {
+        await emailBox.getByRole("button", { name: "Change email" }).click();
+        await emailBox
+          .getByLabel(`Your email, ${CIRE_HOUSEHOLD.member}`)
+          .fill(CIRE_HOUSEHOLD.correctedEmail);
+        await emailBox.getByRole("checkbox", { name: /emails about this wedding/ }).check();
+        const response = emailCall("PUT");
+        await emailBox.getByRole("button", { name: "Use this email" }).click();
+        const status = (await response).status();
+        await expect(
+          emailBox.getByText("This page is out of date", { exact: false }),
+        ).toBeVisible();
+        await emailBox.getByRole("button", { name: "Keep it as it is" }).click();
+        return status;
+      } finally {
+        await page.unroute(emailUrl, handler);
+      }
+    },
+  );
+  flow.check("the older wording is refused as out of date", 422, outdated);
+  flow.check(
+    "the refused save leaves the address as it was",
+    CIRE_HOUSEHOLD.email,
+    storedAddress(),
+  );
+
+  await flow.step(`${CIRE_HOUSEHOLD.member}'s removal fails and says so`, async () => {
+    const handler = async (route: Route) => {
+      if (route.request().method() !== "DELETE") return route.fallback();
+      return route.fulfill({ status: 500, contentType: "application/json", body: "{}" });
+    };
+    await page.route(emailUrl, handler);
+    try {
+      await emailBox.getByRole("button", { name: "Remove email" }).click();
+      await expect(
+        emailBox.getByText("Couldn’t remove your email", { exact: false }),
+      ).toBeVisible();
+      await expect(emailBox.getByText(CIRE_HOUSEHOLD.email)).toBeVisible();
+    } finally {
+      await page.unroute(emailUrl, handler);
+    }
+  });
+  flow.check(
+    "the failed removal leaves the address as it was",
+    CIRE_HOUSEHOLD.email,
+    storedAddress(),
+  );
 
   // "Change email" opens the field on the stored address, and "Keep it as it
   // is" closes it again; each view takes focus from the button it replaced.
