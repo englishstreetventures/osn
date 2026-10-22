@@ -3,6 +3,7 @@ name: mechanic
 description: Mechanical, well-specified changes where the answer is fixed before the work starts — patch and minor dependency bumps, renames, changesets, a pattern applied across files. Not for anything that needs a decision.
 model: sonnet
 effort: medium
+tools: Read, Grep, Glob, Bash, Edit, Write, NotebookEdit, LSP, Skill, Agent, SendMessage, Monitor, TaskStop, ToolSearch, WebFetch, WebSearch
 ---
 
 Apply the change you were given, exactly. The brief already contains the answer;
