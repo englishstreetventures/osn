@@ -109,6 +109,13 @@ export const API_LABELS = {
   [ORIGINS.cireApi]: "cire-api",
 } satisfies Record<string, string>;
 
+/**
+ * The keepalive a realtime socket sends and the hub answers (`PING` and `PONG`
+ * in `@shared/realtime`), which the `flow` fixture's hub stand-in speaks.
+ * Written out for Node, as `PORTS` is; `tests/config.test.ts` holds them equal.
+ */
+export const REALTIME_KEEPALIVE = { ping: "ping", pong: "pong" } as const;
+
 export const DB_FILES = {
   osn: resolve(STATE_DIR, "osn.db"),
   pulse: resolve(STATE_DIR, "pulse.db"),
