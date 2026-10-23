@@ -15,8 +15,9 @@
   // cire-api's logging posture. Invocation records are off: each stores the
   // request URL, and `/<slug>` carries the wedding slug (the couple's names).
   // Application logs stay on. Native traces cover existing path links as well
-  // as the fixed query routes generated for new guest links. Dev overrides this
-  // block to trace without query redaction.
+  // as the fixed query routes generated for new guest links. The cire stack
+  // gives the dev Worker this same block (`GUEST_OBSERVABILITY` in
+  // cire/infra/src/declaration.ts), and a test there holds the two equal.
   "observability": {
     "enabled": true,
     "redact_query_string": true,

@@ -218,15 +218,36 @@ function checkPlainBindings(input: ApiWorkerInput): void {
 }
 
 /**
+ * The guest site's Worker. It traces every production request: the owner
+ * accepted the wedding slug in a traced path. `checkGuestWorker` in
+ * `scripts/check-trace-redaction.ts` holds its Wrangler config to the same.
+ */
+export const GUEST_WORKER: WorkerKey = "cire-invites";
+
+/**
+ * The Workers whose request paths name weddings and couples, so an
+ * invocation record, which stores the request URL, stays off on production.
+ */
+export const WEDDING_PATH_WORKERS: readonly WorkerKey[] = ["cire-api", "cire-invites"];
+
+/**
  * Production request paths carry ids and slugs, so production keeps query
- * strings redacted and native traces off — the rule
- * `scripts/check-trace-redaction.ts` holds today's API Workers to.
+ * strings redacted everywhere and native traces off on every Worker but the
+ * guest site's — the rules `scripts/check-trace-redaction.ts` holds today's
+ * Wrangler configs to — and invocation logs off on the Workers whose paths
+ * name weddings.
  */
 function checkProductionObservability(input: ApiWorkerInput): void {
   if (tierOf(input.stage) !== "production") return;
+  const { observability } = input;
   const problems = [
-    input.observability.redactQueryString ? "" : "redactQueryString must be true",
-    input.observability.traces.enabled ? "native traces must be off" : "",
+    observability.redactQueryString ? "" : "redactQueryString must be true",
+    observability.traces.enabled && input.worker !== GUEST_WORKER
+      ? "native traces must be off"
+      : "",
+    observability.invocationLogs === true && WEDDING_PATH_WORKERS.includes(input.worker)
+      ? "invocation logs must be off: its request paths name weddings"
+      : "",
   ].filter((problem) => problem !== "");
   if (problems.length > 0) {
     throw new ProductionObservabilityError({

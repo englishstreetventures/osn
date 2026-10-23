@@ -169,6 +169,82 @@ describe("apiWorkerProps", () => {
     ).toThrow(/traces/);
   });
 
+  /** The guest Worker on production: prebuilt, no secrets, traced. */
+  const guestProduction: ApiWorkerInput = {
+    ...cireApiProduction,
+    worker: "cire-invites",
+    name: "cire-invites",
+    main: ".generated/invites-server/entry.mjs",
+    bundle: false,
+    domain: "invite.cireweddings.com",
+    crons: [],
+    vars: {},
+    secrets: {},
+    observability: {
+      headSamplingRate: 1,
+      redactQueryString: true,
+      traces: { enabled: true, headSamplingRate: 1 },
+      invocationLogs: false,
+      issues: true,
+    },
+  };
+
+  test("O1: the guest Worker traces every request on production, with query strings redacted and invocation logs off", () => {
+    expect(apiWorkerProps(guestProduction).observability).toEqual({
+      enabled: true,
+      headSamplingRate: 1,
+      redactQueryString: true,
+      logs: { enabled: true, invocationLogs: false },
+      traces: { enabled: true, headSamplingRate: 1 },
+      issues: { enabled: true },
+    });
+  });
+
+  test("O2: refuses invocation logs on the guest Worker on production", () => {
+    const error = thrown(() =>
+      apiWorkerProps({
+        ...guestProduction,
+        observability: { ...guestProduction.observability, invocationLogs: true },
+      }),
+    );
+    expect(error).toBeInstanceOf(ProductionObservabilityError);
+    expect((error as Error).message).toContain("invocation logs");
+  });
+
+  test("O3: refuses the guest Worker on production with query strings unredacted", () => {
+    expect(() =>
+      apiWorkerProps({
+        ...guestProduction,
+        observability: { ...guestProduction.observability, redactQueryString: false },
+      }),
+    ).toThrow(/redactQueryString/);
+  });
+
+  test("O4: every other Worker keeps native traces off on production", () => {
+    const osnApi: ApiWorkerInput = {
+      ...cireApiProduction,
+      worker: "osn-api",
+      name: "osn-api-production",
+      secrets: Object.fromEntries(
+        tierSecrets("osn-api", "production").secrets.map((name) => [
+          name,
+          Redacted.make("not-a-real-secret"),
+        ]),
+      ),
+      observability: { ...cireApiProduction.observability, traces: { enabled: true } },
+    };
+    expect(() => apiWorkerProps(osnApi)).toThrow(/native traces/);
+  });
+
+  test("O5: cire-api keeps invocation logs off on production, since its paths name weddings", () => {
+    expect(() =>
+      apiWorkerProps({
+        ...cireApiProduction,
+        observability: { ...cireApiProduction.observability, invocationLogs: true },
+      }),
+    ).toThrow(/invocation logs/);
+  });
+
   test("keeps invocation logs off unless the caller turns them on", () => {
     expect(apiWorkerProps(cireApiDev).observability).toEqual({
       enabled: true,

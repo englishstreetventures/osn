@@ -1,10 +1,12 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { tierSecrets } from "@shared/infra";
+import { apiWorkerProps, stageHosts, tierSecrets } from "@shared/infra";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
+import { cireDeclaration, GUEST_OBSERVABILITY } from "../src/declaration";
 import {
+  DEV_DOMAIN,
   evaluateCire,
   removeEvaluations,
   resourcesOf,
@@ -51,6 +53,13 @@ const wrangler = Bun.TOML.parse(readRepo("cire/api/wrangler.toml")) as WranglerC
 const invitesWrangler = Bun.JSONC.parse(readRepo("cire/invites/wrangler.jsonc")) as {
   readonly compatibility_date: string;
   readonly compatibility_flags: readonly string[];
+  readonly observability: {
+    readonly enabled: boolean;
+    readonly head_sampling_rate?: number;
+    readonly redact_query_string: boolean;
+    readonly logs: { readonly invocation_logs: boolean };
+    readonly traces: { readonly enabled: boolean; readonly head_sampling_rate: number };
+  };
 };
 
 /** Binding, var and secret names cire-api holds on dev and not on production, each with why. */
@@ -166,5 +175,35 @@ describe("cire on dev against Wrangler's production config", () => {
       flags: invitesWrangler.compatibility_flags,
     });
     expect(resources.CireInvites?.Props.crons).toEqual([]);
+  });
+});
+
+describe("cire-invites on production", () => {
+  test("PO1: the guest Worker's one observability value, used on every tier, is the block cire/invites/wrangler.jsonc deploys to production, and the builder accepts it there", () => {
+    const declared = cireDeclaration({
+      stage: "dev",
+      hosts: stageHosts(DEV_DOMAIN, "dev"),
+      generatedDir: ".generated",
+      ownerSeat: false,
+    });
+    expect(declared.cireInvites.observability).toBe(GUEST_OBSERVABILITY);
+    const production = apiWorkerProps({
+      ...declared.cireInvites,
+      name: "cire-invites",
+      stage: "production",
+      domain: "invite.cireweddings.com",
+      secrets: {},
+      observability: GUEST_OBSERVABILITY,
+    }).observability;
+    const live = invitesWrangler.observability;
+    // `head_sampling_rate` absent means Cloudflare's default, 1. Workers
+    // Issues (`issues`) is not in the file; P3 checks it against live.
+    expect(production).toMatchObject({
+      enabled: live.enabled,
+      headSamplingRate: live.head_sampling_rate ?? 1,
+      redactQueryString: live.redact_query_string,
+      logs: { enabled: true, invocationLogs: live.logs.invocation_logs },
+      traces: { enabled: live.traces.enabled, headSamplingRate: live.traces.head_sampling_rate },
+    });
   });
 });

@@ -98,12 +98,25 @@ const RATE_LIMITS: readonly {
 ];
 
 /**
- * Request paths on cire-api and cire-invites carry wedding slugs and names,
- * so invocation logs stay off. Dev traces every request with query strings
- * redacted: cire-api's OIDC callback takes its code in one, and the guest
- * site takes a claim code in one.
+ * cire-api on dev. Its request paths carry wedding slugs and names, so
+ * invocation logs stay off. Dev traces every request with query strings
+ * redacted: the OIDC callback takes its code in one.
  */
 const DEV_OBSERVABILITY: ApiWorkerObservability = {
+  headSamplingRate: 1,
+  redactQueryString: true,
+  traces: { enabled: true, headSamplingRate: 1 },
+  invocationLogs: false,
+  issues: true,
+};
+
+/**
+ * The guest site's observability on every tier: every request traced, query
+ * strings redacted (a claim code arrives in one) and invocation logs off
+ * (paths carry the wedding slug). It is the block `cire/invites/wrangler.jsonc`
+ * deploys to production, so dev runs the guest Worker as production does.
+ */
+export const GUEST_OBSERVABILITY: ApiWorkerObservability = {
   headSamplingRate: 1,
   redactQueryString: true,
   traces: { enabled: true, headSamplingRate: 1 },
@@ -298,7 +311,7 @@ export function cireDeclaration(input: {
       previewUrls: false,
       vars: {},
       bindings: {},
-      observability: DEV_OBSERVABILITY,
+      observability: GUEST_OBSERVABILITY,
     },
     cireHost: site(
       { base: "cire-host", dev: "cire-host-dev", production: "cire-host" },
