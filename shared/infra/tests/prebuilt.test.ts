@@ -170,6 +170,17 @@ describe("planPrebuiltStage and writePrebuiltStage", () => {
     expect(mapAt(target, "chunks/a.mjs.map").sources).toEqual(["src/a.ts", "./x.ts"]);
   });
 
+  test("ST-o: refuses a map comment that names a file outside the prebuilt directory, before anything is written", () => {
+    const { source } = fixture({
+      ...FILES,
+      "chunks/b.mjs": "1;\n//# sourceMappingURL=../../outside.map\n",
+    });
+    writeFileSync(join(source, "..", "outside.map"), map({ sources: ["secret.ts"] }));
+    const error = thrown(() => planPrebuiltStage({ source, main: "entry.mjs" }));
+    expect(error).toBeInstanceOf(PrebuiltSourceMapError);
+    expect(error).toMatchObject({ module: "chunks/b.mjs" });
+  });
+
   test("ST-l: refuses a prebuilt directory that does not exist", () => {
     expect(() =>
       planPrebuiltStage({ source: join(tmpdir(), "no-such-build", "server"), main: "entry.mjs" }),

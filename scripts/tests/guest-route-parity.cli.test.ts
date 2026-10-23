@@ -110,7 +110,8 @@ const server = Bun.serve({
     appendFileSync(logFile, JSON.stringify({ path, id: request.headers.get("cf-access-client-id") }) + "\\n");
     const answer = answers[path + "#" + seen] ?? answers[path];
     if (answer === undefined) return new Response("not found", { status: 404, headers: { "content-type": "text/plain" } });
-    const respond = () => new Response(answer.body ?? null, { status: answer.status ?? 200, headers: answer.headers ?? {} });
+    const extra = JSON.parse(process.env.EXTRA_HEADERS ?? "{}");
+    const respond = () => new Response(answer.body ?? null, { status: answer.status ?? 200, headers: { ...extra, ...(answer.headers ?? {}) } });
     return answer.delayMs === undefined ? respond() : Bun.sleep(answer.delayMs).then(respond);
   },
 });
@@ -162,6 +163,7 @@ function tree(
 state=${JSON.stringify(state)}
 { printf '%s\\n' "--- call" "$PWD" "$@" "--- env"; env | sort; } >> "$state/calls.log"
 echo $$ > "$state/reference.pid"
+prev=""; for arg in "$@"; do [ "$prev" = "--env-file" ] && cat "$arg" > "$state/env-file.txt"; prev="$arg"; done
 ${options.neverServe === true ? "exec sleep 30" : ""}
 ${options.exitAtOnce === true ? "echo 'stand-in refusing to start' >&2; exit 3" : ""}
 mkdir -p dist/server/.wrangler/tmp
@@ -174,10 +176,11 @@ STANDIN_PORT="$port" exec ${JSON.stringify(process.execPath)} "$state/server.ts"
   return { dir, state, script: join(dir, "scripts", "guest-route-parity.ts") };
 }
 
-/** Starts the stand-in dev host, answering `answers`. */
+/** Starts the stand-in dev host, answering `answers`, each answer with `extraHeaders` too. */
 async function devHost(
   t: Tree,
   answers: Answers,
+  extraHeaders: Readonly<Record<string, string>> = {},
 ): Promise<{ readonly origin: string; readonly stop: () => void }> {
   writeFileSync(join(t.state, "dev.json"), JSON.stringify(answers));
   const portFile = join(t.state, "dev.port");
@@ -189,7 +192,11 @@ async function devHost(
       portFile,
       join(t.state, "dev.log"),
     ],
-    { stdout: "ignore", stderr: "inherit" },
+    {
+      stdout: "ignore",
+      stderr: "inherit",
+      env: { ...Bun.env, EXTRA_HEADERS: JSON.stringify(extraHeaders) },
+    },
   );
   started.push(proc);
   for (let i = 0; i < 200 && !existsSync(portFile); i++) await Bun.sleep(25);
@@ -273,6 +280,13 @@ describe.concurrent("guest-route-parity.ts", () => {
     expect(args[args.indexOf("--config") + 1]).toBe("dist/server/wrangler.json");
     expect(args[args.indexOf("--local-upstream") + 1]).toBe(`127.0.0.1:${port}`);
     expect(args).toContain("--persist-to");
+    // An empty env file of the run's own: Wrangler loads no `.env` or `.dev.vars`.
+    const envFile = args[args.indexOf("--env-file") + 1] ?? "";
+    expect(envFile).toContain("guest-route-parity-");
+    expect(readFileSync(join(t.state, "env-file.txt"), "utf8")).toBe("");
+    // A home of the run's own, so no `wrangler login` token is found.
+    expect(env).toMatch(/^HOME=.*guest-route-parity-.*\/home$/m);
+    expect(env).toMatch(/^XDG_CONFIG_HOME=.*guest-route-parity-.*\/home$/m);
     expect(env).not.toMatch(/^CLOUDFLARE_/m);
     expect(env).not.toMatch(/^CF_ACCESS_/m);
     expect(env).toMatch(/^DO_NOT_TRACK=1$/m);
@@ -308,6 +322,28 @@ describe.concurrent("guest-route-parity.ts", () => {
     }
     expect(report(t).result).toBe("differ");
     expect(await referenceGone(t)).toBe(true);
+  });
+
+  test("Access's session cookie and assertion, and the service token, reach neither the report nor the log", async () => {
+    const t = tree();
+    writeFileSync(join(t.state, "reference.json"), JSON.stringify(ANSWERS));
+    const host = await devHost(t, ANSWERS, {
+      "set-cookie": "CF_Authorization=secret-session; Path=/; Secure; HttpOnly",
+      "cf-access-jwt-assertion": "secret-assertion",
+    });
+    let stdout = "";
+    try {
+      const result = await runParity(t, { PARITY_ORIGIN: host.origin, ...ACCESS });
+      stdout = result.stdout;
+      expect(result.exitCode).toBe(0);
+    } finally {
+      host.stop();
+    }
+    const written = readFileSync(join(t.state, "out", "report.json"), "utf8");
+    for (const secret of ["secret-session", "secret-assertion", "access-id", "access-secret"]) {
+      expect(written).not.toContain(secret);
+      expect(stdout).not.toContain(secret);
+    }
   });
 
   test("PF15: a difference that does not hold when asked again is not reported", async () => {

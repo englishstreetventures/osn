@@ -146,7 +146,8 @@ const cleanPathPrefix = (path: string): string =>
  * module, its `file` set to the module's path, its `sourceRoot` and
  * `sources` stripped of leading `./` and `../`. A map no module names is left
  * out. A comment naming a missing file, or a map inlined as a `data:` URL,
- * is refused, as Wrangler refuses both.
+ * is refused, as Wrangler refuses both; so is one naming a file outside
+ * `source`, which Wrangler would read and upload.
  */
 export function planPrebuiltStage(input: {
   readonly source: string;
@@ -177,7 +178,13 @@ export function planPrebuiltStage(input: {
     const content = readFileSync(join(source, module), "utf8");
     const url = sourceMappingUrl(module, content);
     if (url === undefined) continue;
-    const mapPath = join(dirname(join(source, module)), url);
+    const mapPath = resolve(dirname(join(source, module)), url);
+    if (!within(source, mapPath)) {
+      throw new PrebuiltSourceMapError({
+        module,
+        message: `${module} names the source map '${url}', outside the prebuilt directory; only a map the build wrote beside its modules is uploaded.`,
+      });
+    }
     if (!existsSync(mapPath)) {
       throw new PrebuiltSourceMapError({
         module,

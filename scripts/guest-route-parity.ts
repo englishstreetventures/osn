@@ -24,9 +24,10 @@
  * one-off blip in cire-api does not fail the run.
  *
  * Wrangler runs locally only: `wrangler dev` with `--local-upstream` so the
- * Worker sees its own origin, state in a temporary directory, no Cloudflare
- * credential and no Access token in its environment, and telemetry off. Its
- * one write under the build, `dist/server/.wrangler`, is removed on exit.
+ * Worker sees its own origin, state and home in a temporary directory, no
+ * `.env` file loaded, no Cloudflare credential and no Access token in its
+ * environment, and telemetry off. Its one write under the build,
+ * `dist/server/.wrangler`, is removed on exit.
  *
  * Usage, from the repository root, after building cire/invites for the host:
  *
@@ -528,22 +529,31 @@ export function renderReport(report: Report): string {
 /** The environment `wrangler dev` runs with. */
 export type ReferenceEnv = {
   readonly PATH?: string;
-  readonly HOME?: string;
   readonly TMPDIR?: string;
+  readonly HOME: string;
+  readonly XDG_CONFIG_HOME: string;
   readonly DO_NOT_TRACK: "1";
   readonly WRANGLER_SEND_METRICS: "false";
 };
 
-/** What `wrangler dev` needs to start, telemetry off, and nothing else from `env`. */
-export function referenceEnv(env: Readonly<Record<string, string | undefined>>): ReferenceEnv {
-  const kept = (name: "PATH" | "HOME" | "TMPDIR") => {
+/**
+ * What `wrangler dev` needs to start, telemetry off, and nothing else from
+ * `env`. Its home is `home`, an empty directory of the run's own, so it finds
+ * no `wrangler login` token or other configuration there either.
+ */
+export function referenceEnv(
+  env: Readonly<Record<string, string | undefined>>,
+  home: string,
+): ReferenceEnv {
+  const kept = (name: "PATH" | "TMPDIR") => {
     const value = env[name];
     return value === undefined || value === "" ? {} : { [name]: value };
   };
   return {
     ...kept("PATH"),
-    ...kept("HOME"),
     ...kept("TMPDIR"),
+    HOME: home,
+    XDG_CONFIG_HOME: home,
     DO_NOT_TRACK: "1",
     WRANGLER_SEND_METRICS: "false",
   };
@@ -726,7 +736,16 @@ async function startReference(
   const paths = pathsUnder(context.root);
   const port = await freePort();
   const origin = `http://127.0.0.1:${port}`;
-  const persist = mkdtempSync(join(tmpdir(), "guest-route-parity-"));
+  // The run's own directory: wrangler's state, its home, and the one env
+  // file it is pointed at, which is empty, so it loads no `.env`,
+  // `.env.local` or `.dev.vars` from the build or the package. (A path that
+  // does not exist stops wrangler before it starts.)
+  const scratch = mkdtempSync(join(tmpdir(), "guest-route-parity-"));
+  const persist = join(scratch, "state");
+  const home = join(scratch, "home");
+  const envFile = join(scratch, "empty.env");
+  mkdirSync(home);
+  writeFileSync(envFile, "");
   const leftover = join(paths.server, ".wrangler");
   const hadLeftover = existsSync(leftover);
   const log: string[] = [];
@@ -745,13 +764,15 @@ async function startReference(
       `127.0.0.1:${port}`,
       "--persist-to",
       persist,
+      "--env-file",
+      envFile,
       "--show-interactive-dev-session=false",
       "--log-level",
       "warn",
     ],
     {
       cwd: paths.invites,
-      env: referenceEnv(process.env),
+      env: referenceEnv(process.env, home),
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
     },
@@ -774,7 +795,7 @@ async function startReference(
         // Already gone.
       }
     }
-    rmSync(persist, { recursive: true, force: true });
+    rmSync(scratch, { recursive: true, force: true });
     if (!hadLeftover) rmSync(leftover, { recursive: true, force: true });
   };
   const readyBy = Math.min(deadline, Date.now() + context.readyMs);

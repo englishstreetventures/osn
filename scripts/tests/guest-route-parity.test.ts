@@ -296,22 +296,27 @@ describe("refusals", () => {
     expect(seedRendered(undefined)).toBe(false);
   });
 
-  test("PF13: wrangler dev runs with no Cloudflare credential, no Access token and telemetry off", () => {
+  test("PF13: wrangler dev runs with no Cloudflare credential, no Access token, a home of its own and telemetry off", () => {
     expect(
-      referenceEnv({
-        PATH: "/usr/bin",
-        HOME: "/home/runner",
-        TMPDIR: "/tmp",
-        CLOUDFLARE_API_TOKEN: "token",
-        CLOUDFLARE_ACCOUNT_ID: "account",
-        CF_ACCESS_CLIENT_ID: "id",
-        CF_ACCESS_CLIENT_SECRET: "secret",
-        GITHUB_TOKEN: "gh",
-      }),
+      referenceEnv(
+        {
+          PATH: "/usr/bin",
+          HOME: "/home/runner",
+          XDG_CONFIG_HOME: "/home/runner/.config",
+          TMPDIR: "/tmp",
+          CLOUDFLARE_API_TOKEN: "token",
+          CLOUDFLARE_ACCOUNT_ID: "account",
+          CF_ACCESS_CLIENT_ID: "id",
+          CF_ACCESS_CLIENT_SECRET: "secret",
+          GITHUB_TOKEN: "gh",
+        },
+        "/tmp/run/home",
+      ),
     ).toEqual({
       PATH: "/usr/bin",
-      HOME: "/home/runner",
       TMPDIR: "/tmp",
+      HOME: "/tmp/run/home",
+      XDG_CONFIG_HOME: "/tmp/run/home",
       DO_NOT_TRACK: "1",
       WRANGLER_SEND_METRICS: "false",
     });
