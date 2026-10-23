@@ -34,7 +34,7 @@ The bar for keeping any non-E2E test: **name the real bug it catches that no E2E
 
 ### What one run does
 
-1. Refuses to start if any of its ports is taken, and names the port. It never reuses a server it did not start. Stop your `bun run dev` first. A refused run leaves the previous run's artifacts where they are.
+1. Refuses to start if any of its ports is taken, and names the port. It never reuses a server it did not start. Stop your `bun run dev` first. A refused run leaves the previous run's artifacts where they are. The ports are fixed for the whole machine, so two worktrees cannot run the suite at once: when another worktree's run holds them, `lsof -nP -iTCP:4000 -sTCP:LISTEN` names its process, and `lsof -p <pid>` its directory. Wait for that run to finish rather than stopping it, and start once the ports have stayed free for a minute or so, since a repro frees them for a moment between its two runs.
 2. Clears `e2e-artifacts/`, so nothing from an earlier run survives.
 3. Checks that the shared clock reaches a Bun child and a Node child: `Date.now()`, `new Date()` and `Date()` each.
 4. Builds fresh SQLite files from each package's `applySchema` and seeds fixed rows: Pulse and the cire organiser portal are registered with osn-api as first-party OIDC clients. cire-api seeds its own file at boot (`CIRE_LOCAL_DB_PATH`).
