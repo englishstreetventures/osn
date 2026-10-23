@@ -2,8 +2,9 @@
 # Warn when the Bun on PATH is not the version `.bun-version` pins.
 #
 # CI installs the pinned Bun (`bun-version-file: .bun-version` in every
-# workflow), so a test that fails locally on Bun's own wording or behaviour is
-# green there, and the failure looks like a regression on main. The
+# workflow; the migration history check reads `main`'s pin), so a test that
+# fails locally on Bun's own wording or behaviour is green there, and the
+# failure looks like a regression on main. The
 # SessionStart hook in .claude/settings.json runs this script, and Claude Code
 # puts what it prints into the session's context, so the session hears about
 # the skew before it trusts such a failure.

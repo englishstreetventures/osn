@@ -12,6 +12,10 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+# Both jobs only read the repository: a checkout, a local `git diff` and a build.
+permissions:
+  contents: read
+
 jobs:
   # macOS runner minutes bill at a multiple of Linux, so the iOS build only
   # runs when a push/PR actually touches Swift/Xcode files. GitHub Actions
@@ -34,6 +38,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - id: filter
         env:
@@ -85,6 +90,8 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Toolchain / SDK info
         run: |

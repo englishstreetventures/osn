@@ -8,6 +8,10 @@
  * `git diff --name-status HEAD^1 HEAD`, which on that ref is exactly what the
  * pull request changes, and needs a checkout two commits deep.
  *
+ * It reads the repository from the working directory, never from its own
+ * path: the workflow runs `main`'s copy of this file from a checkout of its
+ * own, with the pull request's checkout as the working directory.
+ *
  * A deployed database records each migration it applied by file name, and
  * never looks at that file again. So, under the migration directories:
  *
