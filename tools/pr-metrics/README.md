@@ -29,6 +29,7 @@ questions.
 | `--sessions-dir`                                    | `~/.claude/projects`           |
 | `--out-dir`                                         | `.claude/metrics`              |
 | `--pr`, `--issue`, `--issue-type`, `--issue-labels` | Unset                          |
+| `--resolve-issue`                                   | Off — see below                |
 | `--complexity`, `--complexity-method`               | Unset                          |
 | `--phase`                                           | `at-open`                      |
 | `--review-reports`                                  | `TEST-` and `DOCS-REVIEW.md`   |
@@ -36,9 +37,15 @@ questions.
 
 ## Who writes a card
 
-The **`retro`** skill, once, after `prep-pr` has opened the pull request. It is
-the only writer that knows the pull request number, the issue and the issue's
-`complexity:` label, and it commits the JSON with the branch.
+The **`retro`** skill, once, after `prep-pr` has opened the pull request. It
+runs `card -- --resolve-issue`, which asks `gh` for the pull request, names the
+issue the branch was cut for — the branch's `NEW-FEAT.md` when it names one of
+the pull request's links, else the first `Closes` line of the body — and
+declares the sum of the `complexity:` ratings of every issue in this
+repository the pull request closes. It commits the JSON with the branch. The
+rules, and what they do to the comparison of spend against difficulty, are in
+`wiki/conventions/session-metrics.md` §Which issue a card names, and what it
+divides by.
 
 The `SessionEnd` hook in `.claude/settings.json` is a fallback for a branch
 whose retro never ran, and it passes **`--if-absent`**: it writes a card where

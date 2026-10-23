@@ -279,11 +279,11 @@ gh api graphql -F n=<number> -f query='query($n: Int!) { repository(owner: "engl
   --jq '.data.repository.pullRequest.closingIssuesReferences.nodes[] | "\(.repository.nameWithOwner)#\(.number)"'
 ```
 
-Every `Closes` line must come back, in body order. If one is missing, it is not of the form `Closes #N` or `Closes englishstreetventures/osn-tracker#N`, or it sits in a table or a code span: fix the file, `PATCH` it, check again. If one comes back that should not, a closing keyword in prose put it there.
+Every `Closes` line must come back; GitHub lists them by issue number, not in body order. If one is missing, it is not of the form `Closes #N` or `Closes englishstreetventures/osn-tracker#N`, or it sits in a table or a code span: fix the file, `PATCH` it, check again. If one comes back that should not, a closing keyword in prose put it there.
 
 - **A tracker line can only come back to a token that can read the tracker.** In an environment whose token cannot, say so in your report instead of editing again.
 - **A stacked pull request lists nothing**: GitHub reads closing keywords only on a pull request whose base is the default branch. Say so in your report; the check runs again once the parent merges and GitHub retargets this one to `main`, and an issue still open after the merge is closed by hand with a comment naming the pull request.
-- **The session-metrics card takes its issue from the first line this check lists.** When it lists nothing, tell `retro` the branch's issue number, which it passes as `--issue`.
+- **The session-metrics card does not take its issue from this list.** It names the issue in the branch's `NEW-FEAT.md` when the pull request links it, else the first `Closes` line of the body, and divides by the sum of the ratings of every issue in this repository the pull request closes (`wiki/conventions/session-metrics.md` §Which issue a card names, and what it divides by). So put the branch's own issue on the first `Closes` line. When the card still names the wrong one, tell `retro` the branch's issue number, which it passes as `--issue` — this repository's issue only, never a tracker number.
 
 ### When a tracker line is refused
 

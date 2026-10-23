@@ -48,7 +48,10 @@ import { posix } from "node:path";
 
 import { compactTokens, humanDuration } from "./format.ts";
 
-export const SCHEMA_VERSION = 2;
+/** 3: `complexity.declared` is the sum of the ratings of every issue in this
+ * repository the pull request closes, and `complexity.issues` counts them. A
+ * card before version 3 has one issue's rating in `declared`. */
+export const SCHEMA_VERSION = 3;
 
 /**
  * Gaps longer than this are somebody making lunch, not an agent working.
@@ -1082,11 +1085,24 @@ export function declaredFromLabels(labels: string[]): DeclaredComplexity {
 
 /** A linked issue as `gh pr list --json closingIssuesReferences` returns it.
  * The repository is the load-bearing part: it decides whether the labels may
- * be read at all. */
-interface IssueReference {
+ * be read at all. `id` is the GraphQL node id, which `backfill` fetches labels
+ * by. */
+export interface IssueReference {
+  id?: string;
   number: number;
   repository: { name: string; owner: { login: string } };
 }
+
+/** How `complexity.declared` was arrived at. `part-of` is a pull request that
+ * only advances its issue: that issue's rating describes more work than the
+ * branch did, so none is recorded. */
+export type ComplexityMethod =
+  | "confirmed"
+  | "unconfirmed"
+  | "none"
+  | "not-fetched"
+  | "lookup-failed"
+  | "part-of";
 
 /**
  * Whether the review findings on a branch led to a change, counted the way an
@@ -1232,7 +1248,9 @@ export interface Card {
     phase: "at-open" | "at-merge";
   };
   issue: { number: number | null; type: string | null; labels: string[] };
-  complexity: { declared: number | null; method: string };
+  /** `issues`: how many issues' ratings `declared` adds up. Absent before version 3
+   * cards, whose `declared` is one issue's rating. */
+  complexity: { declared: number | null; method: string; issues?: number };
   window: WindowSummary;
   spend: SpendSummary;
   diff: DiffSummary;
@@ -1249,6 +1267,9 @@ export interface CardContext {
   issueLabels: string[];
   declaredComplexity: number | null;
   complexityMethod: string;
+  /** How many issues' ratings `declaredComplexity` adds up. Defaults to one
+   * when a rating is given and none otherwise. */
+  complexityIssues?: number;
   baseSha: string | null;
   headSha: string | null;
   mergedAt: string | null;
@@ -1277,6 +1298,7 @@ export function buildCard(records: SessionRecord[], diff: DiffSummary, context: 
     complexity: {
       declared: context.declaredComplexity,
       method: context.complexityMethod,
+      issues: context.complexityIssues ?? (context.declaredComplexity === null ? 0 : 1),
     },
     window: aggregateWindow(records),
     spend: aggregateSpend(records),
@@ -1339,10 +1361,29 @@ export function renderDetails(card: Card, file = `${branchSlug(card.pr.branch)}.
     tokens.cache_write_1h +
     tokens.cache_read;
 
+  const notes = [
+    (complexity.issues ?? 1) > 1 ? `sum of ${complexity.issues} issues` : null,
+    complexity.method === "unconfirmed" ? "unconfirmed" : null,
+  ].filter((note) => note !== null);
   const declared =
     complexity.declared === null
       ? "unrated"
-      : `${complexity.declared}${complexity.method === "unconfirmed" ? " (unconfirmed)" : ""}`;
+      : `${complexity.declared}${notes.length > 0 ? ` (${notes.join("; ")})` : ""}`;
+
+  // `interaction.subagents` counts the `Agent` calls this card's own sessions
+  // made. A subagent dispatched from a session outside them still spent from
+  // this branch, so an empty count says nothing about whether delegation
+  // happened: only the spend does.
+  const delegated = spend.by_actor.subagent;
+  const subagentShare = share(delegated.usd_equivalent, spend.usd_equivalent);
+  const subagents =
+    Object.keys(interaction.subagents).length > 0
+      ? `${Object.entries(interaction.subagents)
+          .map(([kind, n]) => `${n}× ${kind}`)
+          .join(", ")} (${subagentShare} of spend)`
+      : delegated.messages > 0 || delegated.usd_equivalent > 0
+        ? `no dispatch seen; ${subagentShare} of spend is subagent work`
+        : "none";
 
   const source = `+${diff.loc.source.added}/-${diff.loc.source.deleted}`;
   const models = Object.entries(spend.by_model)
@@ -1375,16 +1416,7 @@ export function renderDetails(card: Card, file = `${branchSlug(card.pr.branch)}.
             total,
           )})`,
     ],
-    [
-      "Subagents",
-      Object.keys(interaction.subagents).length === 0
-        ? "none"
-        : `${Object.entries(interaction.subagents)
-            .map(([kind, n]) => `${n}× ${kind}`)
-            .join(
-              ", ",
-            )} (${share(spend.by_actor.subagent.usd_equivalent, spend.usd_equivalent)} of spend)`,
-    ],
+    ["Subagents", subagents],
   ];
 
   if (interaction.requests !== undefined) {
@@ -1836,11 +1868,39 @@ function plausibleCutBranch(candidate: string): boolean {
 }
 
 /** One transcript file's `tool_use` blocks, scanned once: every dispatch
- * prompt by `tool_use` id, and every branch name a `Bash` block's command
- * cut via {@link BRANCH_CUT_COMMAND}. */
+ * prompt by `tool_use` id, every branch name a `Bash` block's command cut via
+ * {@link BRANCH_CUT_COMMAND}, and the branch of every worktree the session
+ * made with the `EnterWorktree` tool. */
 interface FileScan {
   prompts: Map<string, string>;
   cutBranches: Set<string>;
+  enteredBranches: Set<string>;
+}
+
+/** The record Claude Code writes when a session enters a worktree. It is
+ * written only when the move succeeds, and it names the branch git gave the
+ * worktree. `enteredExisting` is `true` when the session stepped into a
+ * worktree that was already there; a worktree the session made has no such
+ * field and names the commit it was made from. */
+interface WorktreeStateRecord {
+  type?: string;
+  worktreeSession?: { worktreeBranch?: unknown; enteredExisting?: unknown } | null;
+}
+
+/**
+ * A branch name taken from a `worktree-state` record. Git wrote it, not an
+ * agent, so it is held to git's rules rather than {@link PLAUSIBLE_REF}'s
+ * narrower ones: `EnterWorktree` turns a worktree name `feat/x` into the branch
+ * `worktree-feat+x`, and `+` is legal in a ref.
+ */
+function plausibleEnteredBranch(candidate: unknown): candidate is string {
+  return (
+    typeof candidate === "string" &&
+    candidate !== "" &&
+    !/\s/.test(candidate) &&
+    !candidate.includes("..") &&
+    !isAmbiguousBranch(candidate)
+  );
 }
 
 /** Built once per file. A session file is the parent of many subagents — one
@@ -1855,7 +1915,7 @@ function scanFile(file: string): FileScan {
   const memo = fileScans.get(file);
   if (memo !== undefined) return memo;
 
-  const scan: FileScan = { prompts: new Map(), cutBranches: new Set() };
+  const scan: FileScan = { prompts: new Map(), cutBranches: new Set(), enteredBranches: new Set() };
   fileScans.set(file, scan);
 
   let text: string;
@@ -1866,14 +1926,25 @@ function scanFile(file: string): FileScan {
   }
 
   for (const line of text.split("\n")) {
-    // Most lines carry no dispatch and no shell command, and these files
-    // reach tens of megabytes, so reject before the parse.
-    if (!line.includes('"tool_use"')) continue;
+    // Most lines carry no dispatch, no shell command and no worktree move, and
+    // these files reach tens of megabytes, so reject before the parse.
+    const toolUse = line.includes('"tool_use"');
+    if (!toolUse && !line.includes('"worktree-state"')) continue;
 
-    let record: SessionRecord;
+    let record: SessionRecord & WorktreeStateRecord;
     try {
-      record = JSON.parse(line) as SessionRecord;
+      record = JSON.parse(line) as SessionRecord & WorktreeStateRecord;
     } catch {
+      continue;
+    }
+
+    if (record.type === "worktree-state") {
+      // Only a worktree this session made. One it stepped into was cut for
+      // other work, and what the session did before the move — a review, a
+      // triage, another task — has nothing to do with that branch.
+      if (record.worktreeSession?.enteredExisting === true) continue;
+      const entered = record.worktreeSession?.worktreeBranch;
+      if (plausibleEnteredBranch(entered)) scan.enteredBranches.add(entered);
       continue;
     }
 
@@ -1923,13 +1994,23 @@ const sessionBranches = new Map<string, string | null>();
  * task (including an `orchestrate` session driving only one) the session's
  * own overhead is attributed to it, which is correct: there is nothing to
  * split unfairly when there is only one task.
+ *
+ * A session that ran no such command but made a worktree with the
+ * `EnterWorktree` tool and moved into it resolves to that worktree's branch,
+ * by the same one-branch rule. Its records before the move — the request and
+ * the work that led to the branch — are stamped `HEAD` or `main` and otherwise
+ * land on no card. A worktree the session only entered, one that was already
+ * there, counts for nothing: it was cut for other work. A branch cut with git
+ * outranks one made by `EnterWorktree`: a session that makes a scratch
+ * worktree and then cuts the task branch keeps the task branch.
  */
 export function resolveSessionBranch(file: string): string | null {
   const memo = sessionBranches.get(file);
   if (memo !== undefined) return memo;
 
-  const cuts = scanFile(file).cutBranches;
-  const resolved = cuts.size === 1 ? [...cuts][0] : null;
+  const { cutBranches, enteredBranches } = scanFile(file);
+  const evidence = cutBranches.size > 0 ? cutBranches : enteredBranches;
+  const resolved = evidence.size === 1 ? ([...evidence][0] ?? null) : null;
   sessionBranches.set(file, resolved);
 
   return resolved;
@@ -2113,6 +2194,17 @@ function isAmbiguousBranch(branch: string | undefined): boolean {
 }
 
 /**
+ * Whether a file's session fallback may claim this record: its branch is too
+ * weak to trust, and it belongs to a session. Claude Code also writes
+ * bookkeeping into a session file — file-history records among them — with a
+ * timestamp but no session id; claimed, each would count as a session of its
+ * own on the card.
+ */
+function fallbackClaims(record: SessionRecord): boolean {
+  return isAmbiguousBranch(record.gitBranch) && typeof record.sessionId === "string";
+}
+
+/**
  * Subagent transcripts that carry no marker and whose own `gitBranch` is not a
  * task branch — so their spend lands on no card at all.
  *
@@ -2189,8 +2281,7 @@ export function recordsByBranch(
       }
 
       const branch =
-        resolved ??
-        (sessionBranch && isAmbiguousBranch(record.gitBranch) ? sessionBranch : record.gitBranch);
+        resolved ?? (sessionBranch && fallbackClaims(record) ? sessionBranch : record.gitBranch);
       // `main` and the bare-repo `HEAD` are not task branches, and `card`
       // refuses both.
       if (!branch || branch === "main" || branch === "HEAD") continue;
@@ -2269,8 +2360,7 @@ export function readRecordsForBranch(
 
       if (resolved === null) {
         const matches =
-          record.gitBranch === branch ||
-          (sessionFallbackApplies && isAmbiguousBranch(record.gitBranch));
+          record.gitBranch === branch || (sessionFallbackApplies && fallbackClaims(record));
         if (!matches) continue;
       }
 
@@ -2689,44 +2779,105 @@ function mergeState(number: number): Pick<BranchPull, "mergedAt" | "state"> {
   }
 }
 
-/** What `--resolve-issue` recovers: the pull request for a branch, its first
- * linked issue, and that issue's labels where reading them is allowed. */
+/** A repository's `nameWithOwner`, the only shape trusted from `gh` or a flag. */
+const NAME_WITH_OWNER = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/;
+
+/**
+ * This repository's canonical `owner/name`: what `gh repo view` answers for
+ * `typed`, or for the checkout when `typed` is null. `gh` follows a renamed
+ * owner and returns GitHub's own case, so a comparison against the answer
+ * holds under any rename or casing of the name a caller typed.
+ *
+ * Where `gh` cannot answer, or answers something that is not an `owner/name`
+ * pair, the typed name stands in (compared ignoring case by
+ * {@link sameRepository}), and with no typed name there is no repository and
+ * nothing is fetched. Silent on failure: callers decide what a missing answer
+ * means for them.
+ */
+export function resolveRepo(typed: string | null = null): string | null {
+  const answer = gh([
+    "repo",
+    "view",
+    ...(typed === null ? [] : [typed]),
+    "--json",
+    "nameWithOwner",
+    "--jq",
+    ".nameWithOwner",
+  ]);
+  if (answer !== null && NAME_WITH_OWNER.test(answer)) return answer;
+
+  return typed !== null && NAME_WITH_OWNER.test(typed) ? typed : null;
+}
+
+/** Whether a linked issue lives in `repo`. GitHub names are case-insensitive. */
+export function sameRepository(ref: IssueReference, repo: string): boolean {
+  return (
+    `${ref.repository.owner.login}/${ref.repository.name}`.toLowerCase() === repo.toLowerCase()
+  );
+}
+
+/** What `--resolve-issue` recovers: the pull request for a branch, the issue
+ * the branch was cut for, and the declared complexity of what it closes. */
 interface ResolvedIdentity {
   prNumber: number | null;
   issueNumber: number | null;
   labels: string[];
-  method: "none" | "not-fetched" | "lookup-failed" | "confirmed" | "unconfirmed";
+  method: ComplexityMethod;
   declared: number | null;
+  issues: number;
+}
+
+/** One issue's label names, or `null` when the call did not land. JSON rather
+ * than a joined string, so an issue with no labels reads as an empty list and
+ * not as a failed call. */
+function fetchIssueLabels(issue: number, repo: string): string[] | null {
+  const raw = gh(["issue", "view", String(issue), "--repo", repo, "--json", "labels"]);
+  if (raw === null) return null;
+
+  try {
+    const parsed = JSON.parse(raw) as { labels?: { name?: unknown }[] };
+    if (!Array.isArray(parsed.labels)) return null;
+
+    return parsed.labels.map((label) => label.name).filter((name) => typeof name === "string");
+  } catch {
+    return null;
+  }
 }
 
 /**
- * Recover a branch's pull request and rating from `gh`, for a run that was
- * given neither.
+ * Recover a branch's pull request, issue and rating from `gh`, for a run that
+ * was given none of them.
  *
- * The `SessionEnd` fallback in `.claude/settings.json` has no way to know
- * either: it fires as a session closes, often before a pull request exists at
- * all. Left unresolved its card carries a null `complexity.declared` for ever —
- * the denominator every session-metrics query divides spend by — because
- * nothing re-runs the collector for that branch once its transcripts are gone
- * with the container. So the fallback asks.
+ * The `SessionEnd` fallback in `.claude/settings.json` has no way to know them:
+ * it fires as a session closes, often before a pull request exists at all, and
+ * then records nothing. `retro` runs it once the pull request is open.
  *
- * **Labels are read only from an issue in this same repository.** Most of this
- * repository's pull requests close a finding in the private
- * `englishstreetventures/osn-tracker`, whose `severity:`/`area:` labels must never reach a
- * card committed to a public one. That case records `not-fetched`, which is not
- * `none`: a rating may well exist, and nobody looked. `backfill.ts` draws the
- * same four outcomes for the same reasons.
+ * The rules are `wiki/conventions/session-metrics.md` §Which issue a card
+ * names: {@link selectIssues} names the issue, {@link decideComplexity} sums
+ * the ratings. **Labels are read only from an issue in this same repository.**
+ * Most of this repository's pull requests close a finding in the private
+ * `englishstreetventures/osn-tracker`, whose `severity:`/`area:` labels must
+ * never reach a card committed to a public one, so such an issue is never asked
+ * about. `backfill.ts` draws the same outcomes from the same functions.
+ *
+ * `explicitIssue` is `--issue`: it names the issue and nothing else, so the
+ * rating is still the sum of what the pull request closes. The card is public,
+ * so it is refused when it is the number of another repository's issue the
+ * pull request links and no issue of this repository's with that number is
+ * linked too: the card then names no issue. With no pull request there is
+ * nothing to check it against, and it stands as given.
  */
-function resolveIdentity(branch: string): ResolvedIdentity {
+function resolveIdentity(branch: string, explicitIssue: number | null): ResolvedIdentity {
   const miss: ResolvedIdentity = {
     prNumber: null,
-    issueNumber: null,
+    issueNumber: explicitIssue,
     labels: [],
     method: "none",
     declared: null,
+    issues: 0,
   };
 
-  const repo = gh(["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"]);
+  const repo = resolveRepo();
   const listed = gh([
     "pr",
     "list",
@@ -2751,54 +2902,71 @@ function resolveIdentity(branch: string): ResolvedIdentity {
   const pull = pulls[0];
   if (pull === undefined) return miss;
 
-  // Only this repository's issues are candidates. A private tracker issue
-  // never reaches a public card, so it is not even a candidate.
-  const sameRepoClosing = pull.closingIssuesReferences
-    .filter(
-      (ref) => repo !== null && `${ref.repository.owner.login}/${ref.repository.name}` === repo,
-    )
-    .map((ref) => ref.number);
-  const links = bodyIssueLinks(pull.body ?? "");
+  // NEW-FEAT.md is this checkout's scratch file, so it speaks for the branch
+  // only when this checkout has that branch out.
+  const onBranch = git(["rev-parse", "--abbrev-ref", "HEAD"]) === branch;
+  const plan = onBranch ? readTextFile(`${repoRoot()}/NEW-FEAT.md`) : null;
 
-  // A closing link decides the rating. `Part of` is consulted only when the
-  // pull request closes nothing, so a child issue that closes one issue and
-  // advances its epic still rates the one it closes.
-  const closing = chooseLinkedIssue([...sameRepoClosing, ...links.closes]);
-  const { issue, candidates } =
-    closing.candidates.length > 0 ? closing : chooseLinkedIssue(links.partOf);
+  const selection = selectIssues({
+    body: pull.body ?? "",
+    refs: pull.closingIssuesReferences ?? [],
+    repo,
+    preferred: plan === null ? null : newFeatIssue(plan, branch, repo),
+    closedFromBody: true,
+  });
 
-  if (candidates.length === 0) return { ...miss, prNumber: pull.number };
-  if (issue === null) {
+  const refs = pull.closingIssuesReferences ?? [];
+  const body = bodyIssueLinks(pull.body ?? "", repo);
+  const elsewhere = new Set([
+    ...body.foreignCloses,
+    ...body.foreignPartOf,
+    ...refs.filter((ref) => repo === null || !sameRepository(ref, repo)).map((ref) => ref.number),
+  ]);
+  const here = new Set([...selection.closed, ...selection.partOf]);
+  const refused =
+    explicitIssue !== null && elsewhere.has(explicitIssue) && !here.has(explicitIssue);
+  if (refused) {
     process.stderr.write(
-      `⚠️  pr-metrics: pull request #${pull.number} links ${candidates.map((n) => `#${n}`).join(", ")}. The card cannot tell which one the branch was cut for, so it records no rating. Pass --issue to choose.\n`,
+      `⚠️  pr-metrics: --issue ${explicitIssue} is the number of another repository's issue that pull request #${pull.number} links, and a card is public, so the card names no issue.\n`,
     );
+  }
+  const issueNumber = refused ? null : (explicitIssue ?? selection.issue);
 
-    return { ...miss, prNumber: pull.number, method: "lookup-failed" };
+  if (issueNumber === null && selection.candidates.length > 1) {
+    process.stderr.write(
+      `⚠️  pr-metrics: pull request #${pull.number} closes ${selection.candidates.map((n) => `#${n}`).join(", ")} and nothing says which one the branch was cut for, so the card names none. Its rating is still their sum. Pass --issue to name one.\n`,
+    );
   }
 
-  const identity = { ...miss, prNumber: pull.number, issueNumber: issue };
+  const identity = { ...miss, prNumber: pull.number, issueNumber };
   if (repo === null) return { ...identity, method: "not-fetched" };
 
-  const raw = gh([
-    "issue",
-    "view",
-    String(issue),
-    "--repo",
-    repo,
-    "--json",
-    "labels",
-    "--jq",
-    '[.labels[].name] | join(",")',
-  ]);
-  // An empty answer is ambiguous — an issue with no labels prints nothing, and
-  // so does a failed call — so `gh` returning nothing is recorded as a lookup
-  // that did not land rather than as a checked, genuinely unrated issue.
-  if (raw === null) return { ...identity, method: "lookup-failed" };
+  const labels = new Map<number, string[] | null>();
+  for (const issue of selection.closed) labels.set(issue, fetchIssueLabels(issue, repo));
 
-  const labels = raw.split(",").filter(Boolean);
-  const rating = declaredFromLabels(labels);
+  const decision = decideComplexity(selection, labels);
+  if (decision.unrated.length > 0) {
+    process.stderr.write(
+      `⚠️  pr-metrics: ${decision.unrated.map((n) => `#${n}`).join(", ")} carries no complexity: rating, so the sum of what pull request #${pull.number} closes is unknown and the card records none.\n`,
+    );
+  }
 
-  return { ...identity, labels, method: rating.method, declared: rating.declared };
+  return {
+    ...identity,
+    labels: issueNumber === null ? [] : (labels.get(issueNumber) ?? []),
+    method: decision.method,
+    declared: decision.declared,
+    issues: decision.issues,
+  };
+}
+
+/** A file's text, or `null` when it cannot be read. */
+function readTextFile(path: string): string | null {
+  try {
+    return readFileSync(path, "utf8") as string;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -2819,52 +2987,324 @@ export function parentBranch(branch: string): string | null {
 }
 
 /**
- * Issue numbers a pull-request body links with a closing or `Part of` keyword,
- * in body order. Only the same-repository form (`#N`) matches: a reference such
- * as one that names another repository's owner and name belongs to that
- * repository.
+ * A pull-request body with the parts GitHub reads no closing keyword in taken
+ * out: fenced code blocks, inline code spans, HTML comments and table rows.
+ *
+ * Every step is a forward scan with `indexOf`, never a backtracking pattern, so
+ * a body of unclosed `<!--` or lone backticks costs time in proportion to its
+ * length. An unclosed comment runs to the end of the body, as it does in HTML.
  */
-export interface BodyIssueLinks {
-  /** Issues the pull request closes on merge. */
-  closes: number[];
-  /** Issues it only advances: a `Part of` line, for partial work. */
-  partOf: number[];
-}
-
-export function bodyIssueLinks(body: string): BodyIssueLinks {
-  // The alternatives have no overlapping quantifiers, so a long run of spaces
-  // after a keyword cannot backtrack quadratically on a crafted pull-request body.
-  const matches = body.matchAll(
-    /\b(close[sd]?|fix(?:e[sd])?|resolve[sd]?|part\s+of)(?::\s*|\s+)#(\d+)\b/gi,
-  );
-  const closes = new Set<number>();
-  const partOf = new Set<number>();
-
-  for (const [, keyword = "", digits = ""] of matches) {
-    const number = Number(digits);
-    if (/^part/i.test(keyword)) partOf.add(number);
-    else closes.add(number);
+function proseOnly(body: string): string {
+  let uncommented = "";
+  for (let at = 0; ;) {
+    const open = body.indexOf("<!--", at);
+    if (open === -1) {
+      uncommented += body.slice(at);
+      break;
+    }
+    uncommented += body.slice(at, open);
+    const close = body.indexOf("-->", open + 4);
+    if (close === -1) break;
+    at = close + 3;
   }
 
-  return { closes: [...closes], partOf: [...partOf] };
+  const kept: string[] = [];
+  let fence: string | null = null;
+
+  for (const line of uncommented.split("\n")) {
+    const trimmed = line.trimStart();
+    const marker = trimmed.startsWith("```") ? "```" : trimmed.startsWith("~~~") ? "~~~" : null;
+    if (fence !== null) {
+      if (marker === fence) fence = null;
+      continue;
+    }
+    if (marker !== null) {
+      fence = marker;
+      continue;
+    }
+    if (trimmed.startsWith("|")) continue;
+
+    kept.push(withoutCodeSpans(line));
+  }
+
+  return kept.join("\n");
+}
+
+/** One line with its inline code spans removed. A run of backticks opens a span
+ * that the next run of the same length closes; a run with no partner is
+ * literal text. A length searched for and not found is not searched for again,
+ * which keeps a line of lone backticks linear. */
+function withoutCodeSpans(line: string): string {
+  if (!line.includes("`")) return line;
+
+  let out = "";
+  let at = 0;
+  const unmatched = new Set<number>();
+
+  while (at < line.length) {
+    const open = line.indexOf("`", at);
+    if (open === -1) {
+      out += line.slice(at);
+      break;
+    }
+    let end = open;
+    while (line[end] === "`") end += 1;
+    const run = end - open;
+    out += line.slice(at, open);
+
+    const close = unmatched.has(run) ? -1 : findRun(line, run, end);
+    if (close === -1) {
+      unmatched.add(run);
+      out += line.slice(open, end);
+      at = end;
+    } else {
+      at = close + run;
+    }
+  }
+
+  return out;
+}
+
+/** Where the next run of exactly `length` backticks starts, from `from`. */
+function findRun(line: string, length: number, from: number): number {
+  const ticks = "`".repeat(length);
+  for (let at = line.indexOf(ticks, from); at !== -1; at = line.indexOf(ticks, at + 1)) {
+    const before = at > 0 && line[at - 1] === "`";
+    const after = line[at + length] === "`";
+    if (!before && !after) return at;
+    // Skip the whole longer run rather than every offset inside it.
+    let end = at;
+    while (line[end] === "`") end += 1;
+    at = end - 1;
+  }
+
+  return -1;
 }
 
 /**
- * The one issue a card rates, from the same-repository issues its pull request
- * links. One link is the answer. Several are not: GitHub lists them by number,
- * not by what the branch was cut for, so taking one would divide the spend by a
- * rating the branch never earned. The caller gets the candidates to name.
+ * The issues a pull-request body links with a closing or `Part of` keyword, in
+ * body order, from its prose only (see {@link proseOnly}).
+ *
+ * A bare `#N` is this repository's issue. A qualified `owner/name#N` is this
+ * repository's when it names `repo`, and otherwise another repository's: its
+ * number goes to `foreignCloses` or `foreignPartOf`, never to `closes` or
+ * `partOf`. With no `repo`, every qualified reference is foreign.
  */
-export interface LinkedIssueChoice {
+export interface BodyIssueLinks {
+  /** This repository's issues the pull request closes on merge. */
+  closes: number[];
+  /** Issues it only advances: a `Part of` line, for partial work. */
+  partOf: number[];
+  /** Another repository's issues it closes. */
+  foreignCloses: number[];
+  /** Another repository's issues it only advances. */
+  foreignPartOf: number[];
+}
+
+export function bodyIssueLinks(body: string, repo: string | null = null): BodyIssueLinks {
+  // The alternatives have no overlapping quantifiers, so a long run of spaces
+  // after a keyword cannot backtrack quadratically on a crafted pull-request body.
+  const matches = proseOnly(body).matchAll(
+    /\b(close[sd]?|fix(?:e[sd])?|resolve[sd]?|part\s+of)(?::\s*|\s+)([A-Za-z0-9-]+\/[A-Za-z0-9._-]+)?#(\d+)\b/gi,
+  );
+  const closes = new Set<number>();
+  const partOf = new Set<number>();
+  const foreignCloses = new Set<number>();
+  const foreignPartOf = new Set<number>();
+
+  for (const [, keyword = "", qualifier, digits = ""] of matches) {
+    const number = Number(digits);
+    const here =
+      qualifier === undefined || (repo !== null && qualifier.toLowerCase() === repo.toLowerCase());
+    const advances = /^part/i.test(keyword);
+
+    if (!here) {
+      (advances ? foreignPartOf : foreignCloses).add(number);
+      continue;
+    }
+    if (advances) partOf.add(number);
+    else closes.add(number);
+  }
+
+  return {
+    closes: [...closes],
+    partOf: [...partOf],
+    foreignCloses: [...foreignCloses],
+    foreignPartOf: [...foreignPartOf],
+  };
+}
+
+/** What a pull request links, and which of its issues is the branch's own. */
+export interface IssueSelection {
+  /** The issue the branch was cut for, or `null` when nothing says. */
   issue: number | null;
+  /** Issues in this repository the pull request closes, each once. */
+  closed: number[];
+  /** Issues in this repository it only advances. */
+  partOf: number[];
+  /** It also closes an issue in another repository. */
+  foreign: boolean;
+  /** When `issue` is null: the issues it could have been, for the warning. */
   candidates: number[];
 }
 
-export function chooseLinkedIssue(candidates: number[]): LinkedIssueChoice {
-  const unique = [...new Set(candidates)];
-  const only = unique.length === 1 ? (unique[0] ?? null) : null;
+/**
+ * Name the branch's own issue and the set it closes, from the pull request's
+ * body and GitHub's `closingIssuesReferences`.
+ *
+ * The issue, first that applies: `preferred` (the branch's `NEW-FEAT.md`)
+ * when the pull request links it; the first `Closes` line of the body; the
+ * first `Part of` line; the one reference GitHub lists. Never a position in
+ * GitHub's list: it is ordered by issue number, not by what the branch was cut
+ * for. `preferred` only chooses among the pull request's own links — a scratch
+ * file never introduces an issue the pull request does not name.
+ *
+ * The closed set: an open pull request (`closedFromBody`) is credited with its
+ * body's `Closes` lines as well as GitHub's references, since a stacked pull
+ * request has none of the latter until it is retargeted. A merged one is
+ * credited with GitHub's references alone — they are what the merge closed.
+ */
+export function selectIssues(input: {
+  body: string;
+  refs: IssueReference[];
+  repo: string | null;
+  preferred?: number | null;
+  closedFromBody: boolean;
+}): IssueSelection {
+  const { body, refs, repo, preferred = null, closedFromBody } = input;
+  const links = bodyIssueLinks(body, repo);
+  const here = repo === null ? [] : refs.filter((ref) => sameRepository(ref, repo));
+  const referenced = [...new Set(here.map((ref) => ref.number))];
 
-  return { issue: only, candidates: unique };
+  const closed = [...new Set([...(closedFromBody ? links.closes : []), ...referenced])];
+  const partOf = links.partOf.filter((number) => !closed.includes(number));
+  const foreign = links.foreignCloses.length > 0 || here.length < refs.length;
+  const linked = new Set([...closed, ...partOf, ...links.closes]);
+
+  const issue =
+    (preferred !== null && linked.has(preferred) ? preferred : null) ??
+    links.closes[0] ??
+    links.partOf[0] ??
+    (referenced.length === 1 ? (referenced[0] ?? null) : null);
+
+  return {
+    issue,
+    closed,
+    partOf,
+    foreign,
+    candidates: issue === null && referenced.length > 1 ? referenced : [],
+  };
+}
+
+/** The denominator a card records, and the closed issues that had no rating. */
+export interface ComplexityDecision {
+  declared: number | null;
+  method: ComplexityMethod;
+  issues: number;
+  unrated: number[];
+}
+
+/**
+ * The declared complexity of what a pull request does: the sum of the ratings
+ * of every issue in this repository it closes.
+ *
+ * Summed, because a branch that closes three issues did three issues' work,
+ * and dividing its spend by one of their ratings makes it read three times as
+ * expensive as it was. The sum is `confirmed` only when every part is. It is
+ * unknown — never partial — when one closed issue has no rating or its labels
+ * could not be read: a partial sum understates the work the same way one
+ * issue's rating does.
+ *
+ * A pull request that closes nothing here but advances an issue (`Part of`)
+ * records `part-of`: that issue's rating describes more than the branch did.
+ * One that closes only another repository's issue records `not-fetched`; that
+ * issue is never asked about.
+ */
+export function decideComplexity(
+  selection: IssueSelection,
+  labels: Map<number, string[] | null>,
+): ComplexityDecision {
+  const unknown = (method: ComplexityMethod, unrated: number[] = []): ComplexityDecision => ({
+    declared: null,
+    method,
+    issues: 0,
+    unrated,
+  });
+
+  if (selection.closed.length > 0) {
+    const found = selection.closed.map((issue) => labels.get(issue) ?? null);
+    if (found.some((names) => names === null)) return unknown("lookup-failed");
+
+    const ratings = found.map((names) => declaredFromLabels(names ?? []));
+    const unrated = selection.closed.filter((_, i) => ratings[i]?.declared === null);
+    if (unrated.length > 0) return unknown("none", unrated);
+
+    return {
+      declared: ratings.reduce((sum, rating) => sum + (rating.declared ?? 0), 0),
+      method: ratings.some((rating) => rating.method === "unconfirmed")
+        ? "unconfirmed"
+        : "confirmed",
+      issues: ratings.length,
+      unrated: [],
+    };
+  }
+
+  if (selection.partOf.length > 0) return unknown("part-of");
+  if (selection.foreign) return unknown("not-fetched");
+
+  return unknown("none");
+}
+
+/** The longest stretch of `NEW-FEAT.md` read for its header lines. */
+const NEW_FEAT_HEADER_LINES = 30;
+
+/**
+ * The issue a branch's `NEW-FEAT.md` names, or `null`.
+ *
+ * `new-feat` writes the file at the root of the checkout and opens it with the
+ * branch name and an `Issue:` line. It is untracked scratch, so it survives a
+ * branch switch in a reused checkout: the file speaks for `branch` only when
+ * its first lines name that branch as a whole word. The issue is the first
+ * reference on the first line labelled `Issue` or `Issues` (followed by `:` or,
+ * in a table, `|`). A bare `#N`, `<repo>#N` or an issues URL of `repo` is this
+ * repository's, and a Markdown link counts by its target, not its text; any
+ * other repository's reference — the private tracker's above all — ends the
+ * search with no number, so a tracker number is never read as a public issue.
+ */
+export function newFeatIssue(text: string, branch: string, repo: string | null): number | null {
+  const header = text.split("\n", NEW_FEAT_HEADER_LINES);
+  const namesBranch = header.some((line) => {
+    for (let at = line.indexOf(branch); at !== -1; at = line.indexOf(branch, at + 1)) {
+      const before = line[at - 1] ?? "";
+      const after = line[at + branch.length] ?? "";
+      if (!/[\w./-]/.test(before) && !/[\w./-]/.test(after)) return true;
+    }
+
+    return false;
+  });
+  if (!namesBranch) return null;
+
+  const labelled = header.find((line) => /^\s*(?:[-*]\s+|\|\s*)?\**Issues?\**\s*[:|]/i.test(line));
+  if (labelled === undefined) return null;
+
+  // A Markdown link's target decides which repository it names, whatever its
+  // text says: `[#712](…/osn-tracker/issues/712)` is the tracker's issue.
+  const value = labelled
+    .replace(/^\s*(?:[-*]\s+|\|\s*)?\**Issues?\**\s*[:|]/i, "")
+    .replaceAll(/\[[^\]\n]*\]\(([^)\s]*)\)/g, " $1 ");
+  const reference =
+    /(?:https?:\/\/github\.com\/([A-Za-z0-9-]+\/[A-Za-z0-9._-]+)\/issues\/(\d+))|(?:([A-Za-z0-9-]+\/[A-Za-z0-9._-]+)#(\d+))|(?:(?<![\w/.-])#(\d+))/.exec(
+      value,
+    );
+  if (reference === null) return null;
+
+  const [, urlRepo, urlNumber, refRepo, refNumber, bareNumber] = reference;
+  if (bareNumber !== undefined) return Number(bareNumber);
+
+  const named = urlRepo ?? refRepo ?? "";
+  const number = urlNumber ?? refNumber ?? "";
+
+  return repo !== null && named.toLowerCase() === repo.toLowerCase() ? Number(number) : null;
 }
 
 function flag(name: string): string | null {
@@ -2940,9 +3380,13 @@ if (import.meta.main) {
   // `--resolve-issue` is the unattended fallback's other half. Explicit flags
   // always win: a caller that named the pull request, the issue or the labels
   // knows more than `gh` does, and only the gaps it left are filled in.
+  // `--issue` names the issue and nothing else, so the lookup still runs for
+  // the pull request and the sum of what it closes; `--issue-labels` supplies
+  // the rating itself and turns the lookup off.
+  const explicitIssue = flag("issue") ? Number.parseInt(flag("issue") as string, 10) : null;
   const resolved =
-    Bun.argv.includes("--resolve-issue") && flag("issue") === null && issueLabels.length === 0
-      ? resolveIdentity(branch)
+    Bun.argv.includes("--resolve-issue") && issueLabels.length === 0
+      ? resolveIdentity(branch, explicitIssue)
       : null;
 
   const prNumber = flag("pr")
@@ -3082,9 +3526,7 @@ if (import.meta.main) {
   const card = buildCard(records, diff, {
     branch,
     prNumber,
-    issueNumber: flag("issue")
-      ? Number.parseInt(flag("issue") as string, 10)
-      : (resolved?.issueNumber ?? null),
+    issueNumber: resolved === null ? explicitIssue : resolved.issueNumber,
     issueType: flag("issue-type"),
     issueLabels: resolved === null ? issueLabels : resolved.labels,
     declaredComplexity: override
@@ -3092,6 +3534,7 @@ if (import.meta.main) {
       : (resolved?.declared ?? fromLabels.declared),
     complexityMethod:
       flag("complexity-method") ?? (override ? "manual" : (resolved?.method ?? fromLabels.method)),
+    complexityIssues: override ? 0 : (resolved?.issues ?? (fromLabels.declared === null ? 0 : 1)),
     baseSha: git(["rev-parse", base]) || null,
     headSha: git(["rev-parse", "HEAD"]) || null,
     mergedAt: selfMergedAt,
