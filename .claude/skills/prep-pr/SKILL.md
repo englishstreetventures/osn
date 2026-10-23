@@ -553,10 +553,12 @@ while any of these is open:
 
 - **A decision about this change**: a question its body puts to the owner; a
   choice its review found that only the owner can make and that this change
-  depends on; or an open `needs:decision` proposal on the issue it closes, when
+  depends on, unless it is a security, performance or compliance finding
+  (below); or an open `needs:decision` proposal on the issue it closes, when
   the answer changes what merges. Read the question, not the label: a label can
   outlive its answer, and an epic's open question rarely holds one of its
-  children.
+  children. Whether the owner has answered is
+  `wiki/conventions/review-findings.md` §What counts as the owner's answer.
 - **An approval only the owner can give**: the `production` Environment
   approval on a release it needs first, or an audit-ignore entry they have to
   accept.
@@ -569,8 +571,10 @@ merge does not wait on it; an `— owner's call` default the run took, which the
 owner can overrule in review; a file `.github/CODEOWNERS` names; a red check
 `main` caused (`review-pr` Step 4); the order a stack merges in. Unfinished
 work in scope is not a reason either. Step 6 fixes it before the pull request
-opens, and a draft is never a place to leave it. A `critical` or `high` finding
-whose fix is the owner's choice does not open at all until they answer (Step 6).
+opens, and a draft is never a place to leave it. A security, performance or
+compliance finding whose fix is the owner's choice and that this change waits
+on, at any severity, does not open at all until the owner answers on its
+tracker issue (Step 6 for a `critical` or `high`).
 
 A draft says why, still runs CI on every push, and must not be merged until the
 owner answers:
@@ -584,10 +588,12 @@ owner answers:
   no GraphQL, decides before it opens.
 - **The question**: put it where the owner reads it, as a `needs:decision`
   proposal on the issue the pull request closes (`write-issue`).
-- **Leaving draft**: the owner marks it ready, and nobody else. A session that
-  applies the owner's answer pushes it, removes the line from the body, and
-  tells the owner the pull request is theirs to mark ready. GitHub will not
-  merge a draft.
+- **Leaving draft**: the owner marks it ready, and nobody else; no session
+  marks ready a pull request whose body carries a `**Do not merge until**`
+  line. A session that applies the owner's answer pushes it, rewords the line
+  to say the answer is applied and the owner has only to mark it ready, and
+  tells the owner. The session that merges it, once the owner has, removes the
+  line. GitHub will not merge a draft.
 
 ```bash
 git push -u origin HEAD

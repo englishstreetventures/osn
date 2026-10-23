@@ -108,7 +108,7 @@ Use `**Do not merge until**`, `**At deploy**` or `**After merging**`, and name t
 **Do not merge until** the owner chooses whether a guest can change a reply after the RSVP deadline — the open decision below, also on #9101.
 ```
 
-The line never names, points at or describes a tracker issue; a `critical` or `high` whose fix is the owner's choice gets no line, because its pull request does not open yet (`prep-pr` Step 6).
+The line never names, points at or describes a tracker issue or a security, performance or compliance choice; a finding whose fix is the owner's choice gets no line, because its pull request does not open yet (`prep-pr` Step 9).
 
 ### Summary
 
@@ -233,9 +233,10 @@ Check before sending:
 
 - [ ] No count in the body comes from production data.
 - [ ] Owner actions, if any, at the end of `## Impact`.
-- [ ] If it waits on the owner (`prep-pr` Step 9), it opens as a draft and a `**Do not merge until**` line says what for. No such line names a tracker issue; this prints nothing:
+- [ ] If it waits on the owner (`prep-pr` Step 9), it opens as a draft and a `**Do not merge until**` line, starting its own line, says what for: the first command prints at least `1`. No such line names a tracker issue: the second prints nothing.
 
   ```bash
+  grep -cE '^\*\*Do not merge until\*\*' PR-BODY.md
   grep -niE 'do not merge until.*osn-tracker' PR-BODY.md
   ```
 

@@ -18,21 +18,32 @@ set -euo pipefail
   exit 1
 }
 
+# Refuse a linked worktree, or a checkout whose git directory sits outside it:
+# the steps below write git config and rewrite history, which there would land
+# in a repository other worktrees share. Run it by hand only in a scratch copy.
+if [ -e .git ] && [ ! -d .git ]; then
+  echo "setup.sh: .git is not a directory (a linked worktree?) — refusing" >&2
+  exit 1
+fi
+if [ -d .git ]; then
+  common=$(cd "$(git rev-parse --git-common-dir)" && pwd -P)
+  case "$common" in
+    "$(pwd -P)"/*) ;;
+    *) echo "setup.sh: git directory is outside this checkout — refusing" >&2; exit 1 ;;
+  esac
+fi
+
 # The fixture repo may carry `.claude/commands/*.md` copies of skills, and
 # ships its eval rubrics; `exclude` in scenario.json does not strip either.
 # The plugin variant supplies `.claude/skills/`, which nothing here touches.
 rm -rf .claude/commands .claude/projects .claude/evals .claude/tessl.json
-git config user.email "eval@example.invalid" 2>/dev/null || true
-git config user.name "Tessl Eval" 2>/dev/null || true
 
 # A commit fixture may install the tree without its `.git`. Normalise that, and
 # fold any install-time drift into history BEFORE branching, so it lands on the
 # base and never appears in the branch under review.
-if [ ! -d .git ]; then
-  git init -q
-  git config user.email "eval@example.invalid"
-  git config user.name "Tessl Eval"
-fi
+[ -d .git ] || git init -q
+git config user.email "eval@example.invalid"
+git config user.name "Tessl Eval"
 
 # Harness symlinks under `.claude/` and `.agents/` exist in one variant only,
 # and `.pr/` is fixture material. None of them is the agent's work, so none may
