@@ -1236,6 +1236,8 @@ export function controlLine(line: number, length: number): number | null {
   return null;
 }
 
+/** `queries.sql` declares this shape for DuckDB, field by field; a change here
+ * is a change there, and `tests/queries-schema.test.ts` fails until both agree. */
 export interface Card {
   schema_version: number;
   pr: {

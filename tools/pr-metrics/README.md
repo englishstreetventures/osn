@@ -121,6 +121,7 @@ right-skewed — median 3.6M tokens against a mean of 15.4M and a maximum of
 | `tests/dispatch-branch.test.ts` | `TASK-BRANCH:` marker resolution, the readers that consult it, and the dedupe                                                                                                                                                |
 | `tests/backfill.test.ts`        | `backfill.ts` as a subprocess, against a stubbed `gh` on `PATH`                                                                                                                                                              |
 | `tests/report.test.ts`          | The `report` subcommand's analyses                                                                                                                                                                                           |
+| `tests/queries-schema.test.ts`  | That `queries.sql` declares every field a card carries, with a type that holds its value. Needs no DuckDB                                                                                                                    |
 
 The CLI test earns its keep: subagent spend lives in a
 `<session-id>/subagents/*.jsonl` sibling of the main transcript, and a collector

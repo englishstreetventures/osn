@@ -847,11 +847,24 @@ median showed about 2×.
 came from an ad-hoc pass, not a committed query; the median re-derives over
 today's corpus with `bun run --cwd tools/pr-metrics report -- --context`.*
 
-The raw view, if you want to start from nothing:
+**The `cards` view declares the card's shape; it does not infer it.** Five
+objects on a card are keyed by data: `spend.by_model`, `spend.effort` and
+`interaction.tool_calls`, `.skills` and `.subagents`. One card can hold two keys
+there that differ only in case, `Bash` and `bash`. DuckDB's struct fields are
+case-insensitive, so `read_json_auto` stops on the duplicate name whenever it
+infers one of those objects as a struct, and whether it does depends on the
+DuckDB version and on which cards exist. The view declares the five as MAPs:
+read a key with `interaction.tool_calls['Bash']`, or with dot access, and either
+way the key's case counts.
+
+A field the collector adds reaches `cards` only once
+[`queries.sql`](../../tools/pr-metrics/queries.sql) declares it; a field it
+drops reads NULL. `tests/queries-schema.test.ts` in the package fails until the
+declaration and the card agree, and it needs no DuckDB, so CI runs it. To start
+from nothing, read the raw JSON:
 
 ```sql
-CREATE VIEW cards AS
-  SELECT * FROM read_json_auto('.claude/metrics/*.json', union_by_name := true);
+CREATE VIEW raw AS SELECT json FROM read_json_objects('.claude/metrics/*.json');
 ```
 
 **Where agents cost too much for the job** — the query this whole system exists
