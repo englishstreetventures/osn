@@ -108,7 +108,7 @@ Use `**Do not merge until**`, `**At deploy**` or `**After merging**`, and name t
 **Do not merge until** the owner chooses whether a guest can change a reply after the RSVP deadline — the open decision below, also on #9101.
 ```
 
-The line never names, points at or describes a tracker issue. A `critical` or `high` finding whose fix is the owner's choice gets no line at all: its pull request does not open until the owner has answered on the tracker issue.
+The line never names, points at or describes a tracker issue; a `critical` or `high` whose fix is the owner's choice gets no line, because its pull request does not open yet (`prep-pr` Step 6).
 
 ### Summary
 

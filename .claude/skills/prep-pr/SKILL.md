@@ -507,8 +507,6 @@ Invoke the **`write-pr`** skill and follow it. It owns the title and the body: w
 
 The skeleton is already on disk from the top of this file. Fill it in — do not write a second body beside it.
 
-**When Step 9 makes it a draft, the body says why**: a `**Do not merge until**` line at the end of `## Impact` naming what the owner has to answer or approve, as `write-pr` §Owner actions writes it.
-
 One rule from `write-pr` is repeated here because a public body that breaks it cannot be taken back: a tracker issue appears only as a bare reference — `Closes englishstreetventures/osn-tracker#<n>` for one this branch fixes — never with its finding ID, its title, or a word about the defect.
 
 **The test plan carries a row for every gate Step 4 ran, the three lint gates included,** so a reader can see that `lint`, `fmt:check` and the warning ceiling were each run. **Every test-plan row is filled in from a command you ran in this worktree, in this run.** A gate you did not run is `NOT RUN` with the reason, and a run where nothing could execute is a table of `NOT RUN` rows — a correct and complete test plan. Never write a tick, a "passes", or a pass count you did not watch appear: an invented green gate is the one failure in this document a reviewer cannot detect.
@@ -578,12 +576,12 @@ A draft says why, still runs CI on every push, and must not be merged until the
 owner answers:
 
 - **The body**: a `**Do not merge until**` line at the end of `## Impact`
-  naming what the owner has to answer or approve (Step 8). It names a public
-  issue or a `###` decision, never a tracker issue.
-- **Opening it**: add `-F draft=true` to `write-pr` Step 6's REST command. One
-  already open becomes a draft with `gh pr ready --undo <n>`, a GraphQL call,
-  since REST cannot convert one. A remote session, which has no GraphQL,
-  decides before it opens and reports any it could not convert.
+  naming what the owner has to answer or approve, as `write-pr` §Owner actions
+  writes it. It names a public issue or a `###` decision, never a tracker
+  issue.
+- **Opening it**: add `-F draft=true` to `write-pr` Step 6's REST command,
+  which also says how to convert one already open. A remote session, which has
+  no GraphQL, decides before it opens.
 - **The question**: put it where the owner reads it, as a `needs:decision`
   proposal on the issue the pull request closes (`write-issue`).
 - **Leaving draft**: the owner marks it ready, and nobody else. A session that

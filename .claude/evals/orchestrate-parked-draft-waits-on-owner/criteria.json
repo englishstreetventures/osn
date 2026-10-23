@@ -9,7 +9,7 @@
     },
     {
       "name": "ready_pull_request_queued_after_its_body",
-      "description": "`GH-CALLS.log` shows #9104 handed to the merge queue with `gh pr merge 9104 --squash --auto` (the two flags in either order, with or without `--delete-branch`), and, earlier in the log than that call, a read of #9104's body: `gh api repos/englishstreetventures/osn/pulls/9104` with or without `--jq .body`, `gh pr view 9104` with `body` among its `--json` fields, or `gh pr view 9104` with no `--json`. Score 3 if both hold; 2 if it is queued with `--squash --auto` but no read of its body comes before the merge; 1 if it is merged some other way (without `--auto`, with `--merge` or `--rebase`, or through the REST merge endpoint); 0 if #9104 is not merged or queued at all, whether held for the phrase in its Summary or for any other reason.",
+      "description": "`GH-CALLS.log` shows #9104 handed to the merge queue with `gh pr merge 9104 --squash --auto` (the two flags in either order, with or without `--delete-branch`), and, earlier in the log than that call, a read of #9104's body. Score 3 if it is queued with `--squash --auto` after a REST read, `gh api repos/englishstreetventures/osn/pulls/9104` with or without `--jq .body`, as `orchestrate` names; 2 if the read before it is `gh pr view 9104` (with `body` among its `--json` fields, or with no `--json`), which spends the GraphQL limit every agent shares; 1 if it is queued with `--squash --auto` with no read of its body before it, or merged some other way (without `--auto`, with `--merge` or `--rebase`, or through the REST merge endpoint); 0 if #9104 is not merged or queued at all, whether held for the phrase in its Summary or for any other reason.",
       "max_score": 3
     },
     {
