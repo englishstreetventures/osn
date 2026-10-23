@@ -384,11 +384,12 @@ export const guests = sqliteTable(
 /**
  * Addresses a wedding must not email: the suppression list guest comms read
  * before every send (migration 20261022145310_guest_emails). A row is
- * written when a guest removes the address on their seat
- * (`reason = 'guest_removed'`), and when a guest replaces an address the hosts
- * added with a different one (`reason = 'guest_corrected'`: the guest has said
- * the hosts' address is wrong). Sending code adds its own reasons (an
- * unsubscribe, a bounce) without DDL, since `reason` has no CHECK.
+ * written when a guest removes an address the hosts added to their seat
+ * (`reason = 'guest_removed'`), and when a guest replaces one with a different
+ * address (`reason = 'guest_corrected'`: the guest has said the hosts' address
+ * is wrong). Removing an address the guest gave themselves writes none. Sending
+ * code adds its own reasons (an unsubscribe, a bounce) without DDL, since
+ * `reason` has no CHECK.
  *
  * Holds no address: `email_hash` is the SHA-256 hex of
  * `wedding_id + ":" + address` (`hashGuestEmail` in

@@ -13,9 +13,10 @@ import { readEmail } from "./utils";
  * another member's, and never a plus-one's, who is never a chosen member.
  * Saving needs the consent box, whose words and version come from
  * `@cire/guest-email`; the API refuses a version that is not the one shown.
- * Removing stops wedding email to the address, whoever added it, until this
- * seat gives it again. It stays open after the RSVP deadline: an address is not
- * a reply.
+ * Removing deletes the address; removing one the hosts added also stops
+ * wedding email to it until this seat gives it again, and the note after the
+ * removal says which happened. It stays open after the RSVP deadline: an
+ * address is not a reply.
  *
  * Purely additive, like the account-link box: a failure says so in the box and
  * never touches the invite around it. Its buttons are named for the address
@@ -46,8 +47,11 @@ const INPUT =
   "border-text/55 bg-text/[0.045] font-body text-text focus:border-gold sm:text-ui-base mt-1.5 block w-full cursor-text rounded-sm border px-3 py-2.5 text-base transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)] disabled:cursor-not-allowed disabled:opacity-50";
 
 const INVALID_ADDRESS = "That doesn’t look like one email address. Please check it.";
-const REMOVED_NOTE =
+/** After removing an address the hosts added: the API records the opt-out. */
+const REMOVED_HOSTS_NOTE =
   "Removed. Your hosts won’t email that address about the wedding unless you add it again.";
+/** After removing the guest's own address, which leaves no opt-out to promise on. */
+const REMOVED_OWN_NOTE = "Removed. We’ve deleted that address from your invitation.";
 
 /** Why the save button is unavailable, naming what blocks it; null when nothing does. */
 function blockedReason(address: "empty" | "invalid" | "valid", consented: boolean): string | null {
@@ -158,6 +162,7 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
 
   async function remove() {
     if (busy()) return;
+    const hostsAdded = props.email?.source === "organiser_attested";
     setBusy(true);
     setError(null);
     try {
@@ -176,7 +181,7 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
         return;
       }
       props.onChange(null);
-      setNote(REMOVED_NOTE);
+      setNote(hostsAdded ? REMOVED_HOSTS_NOTE : REMOVED_OWN_NOTE);
       setDraft("");
       setConsent(false);
       setTouched(false);

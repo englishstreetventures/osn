@@ -1094,13 +1094,13 @@ describe("apply attests only the addresses the preview showed", () => {
   // addresses there are: the same count with a new withdrawal is a change.
   it("refuses an address another guest withdrew after the preview", async () => {
     const { db, app } = buildApp();
-    await seeded(app, "");
+    // The hosts added the address for Ada; the change clears hers, which needs
+    // no attestation, and adds it for Bo.
+    await seeded(app, "shared@example.test");
     const p = await preview(app, { guestsCsv: guestsCsv("", "shared@example.test") });
     expect(p.emailAttestations).toBe(1);
     expect(p.warnings.join(" ")).not.toContain("removed or replaced by the guest");
-    const ada = await guestSession(app, db, "Ada");
-    expect((await ada.give("shared@example.test")).status).toBe(200);
-    expect((await ada.remove()).status).toBe(200);
+    expect((await (await guestSession(app, db, "Ada")).remove()).status).toBe(200);
 
     const res = await apply(app, p.changeId, ATTESTED);
     expect(res.status).toBe(409);
@@ -1108,6 +1108,35 @@ describe("apply attests only the addresses the preview showed", () => {
     expect(record(db, "Bo")?.email).toBeNull();
     const [row] = db.select().from(imports).where(eq(imports.id, p.changeId)).all();
     expect(row?.beforeGuestsR2Key).toBeNull();
+  });
+
+  // Anyone holding a household code can type any address on their own seat
+  // and remove it. That says nothing about the mailbox, so it must not stand
+  // against the hosts adding the address, on their word, for another seat:
+  // no withdrawal warning, no refusal at apply, no opted-out marker.
+  it("lets the hosts add an address another seat typed and removed", async () => {
+    const { db, app } = buildApp();
+    await seeded(app, "");
+    const sheet = { guestsCsv: guestsCsv("", "bo@example.test") };
+    const p = await preview(app, sheet);
+    expect(p.emailAttestations).toBe(1);
+    const ada = await guestSession(app, db, "Ada");
+    expect((await ada.give("bo@example.test")).status).toBe(200);
+    expect((await ada.remove()).status).toBe(200);
+
+    const again = await preview(app, sheet);
+    expect(again.emailAttestations).toBe(1);
+    expect(again.warnings.join(" ")).not.toContain("removed or replaced by the guest");
+    expect((await apply(app, p.changeId, ATTESTED)).status).toBe(200);
+    expect(record(db, "Bo")).toMatchObject({
+      email: "bo@example.test",
+      source: "organiser_attested",
+      attestedBy: OWNER,
+    });
+    const res = await get(app, `${BASE}/guests`);
+    expect(res.status).toBe(200);
+    const rows = (await res.json()) as { firstName: string; emailOptedOut: boolean }[];
+    expect(rows.find((r) => r.firstName === "Bo")?.emailOptedOut).toBe(false);
   });
 
   // A summary with no digest is refused only when the change needs one.

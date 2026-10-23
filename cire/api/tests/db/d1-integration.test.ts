@@ -846,13 +846,15 @@ describe("cire/api over real D1 (Miniflare)", () => {
   it(
     "guest email removal is atomic — a failed address clear leaves no opt-out behind",
     async () => {
+      // An address the hosts added, the only kind whose removal writes an
+      // opt-out: with a guest's own the insert writes nothing to roll back.
       const address = "alice@example.test";
       await db
         .update(guests)
         .set({
           email: address,
           emailHash: await hashGuestEmail(BOOTSTRAP_WEDDING_ID, address),
-          emailSource: "guest",
+          emailSource: "organiser_attested",
         })
         .where(eq(guests.id, GUEST_1));
       const seat = {

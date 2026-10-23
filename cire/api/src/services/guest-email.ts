@@ -24,11 +24,11 @@ import {
 
 /**
  * The most opt-outs one seat may hold before it may give no new address.
- * Each removal of a different address adds a row, as does replacing an address
- * the hosts added, so without a cap one household session could grow the
- * wedding's suppression list without end. A guest reaches it only by
- * withdrawing this many different addresses, and at it may still give back one
- * they withdrew, which removes a row.
+ * Each removal or replacement of a different address the hosts added adds a
+ * row, so without a cap one household session could grow the wedding's
+ * suppression list as far as the hosts keep adding addresses. A guest reaches
+ * it only by withdrawing this many different addresses, and at it may still
+ * give back one they withdrew, which removes a row.
  */
 export const MAX_OPT_OUTS_PER_SEAT = 10;
 
@@ -230,12 +230,14 @@ export const guestEmailService = {
   },
 
   /**
-   * Remove the seat's address and record its opt-out, in one batch: whoever
-   * supplied the address, the guest's removal stops mail to it for the
-   * wedding. The opt-out takes the address the row holds when the batch runs,
-   * so an organiser's change that lands between the seat read and the batch is
-   * the one recorded and cleared. Removing a seat with no address changes
-   * nothing.
+   * Remove the seat's address, in one batch with its opt-out when the hosts
+   * added it: the guest's removal of an address the hosts attested stops mail
+   * to it for the wedding. An address the guest gave themselves is cleared and
+   * records nothing, so typing an address and removing it cannot block it for
+   * another seat. The opt-out is decided on, and takes, the address the row
+   * holds when the batch runs, so an organiser's change that lands between the
+   * seat read and the batch is the one recorded and cleared. Removing a seat
+   * with no address changes nothing.
    */
   removeOwn(seat: Seat): Effect.Effect<void, GuestEmailWriteError, DbService> {
     return Effect.gen(function* () {

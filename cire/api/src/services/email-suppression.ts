@@ -9,13 +9,16 @@ import { bound, type Db, DbService, dbQuery } from "../db";
 // The suppression list: addresses a wedding must not email
 // (`email_suppressions`, [[wiki/compliance/data-map]]).
 //
-// A row holds a hash, never an address, and names the seat that withdrew the
-// address: by removing it, or by replacing an address the hosts added with
-// another. An address is suppressed for the wedding when any row matches its
-// hash, so one seat's objection stops mail to every seat holding it; only the
-// seat that made a row clears it, by giving the address again. Every read here
-// is bounded by the addresses it asks about, never by how many rows the list
-// holds. Guest comms check an address with `suppressedAmong` before sending.
+// A row holds a hash, never an address, and names the seat that withdrew an
+// address the hosts added: by removing it, or by replacing it with another. An
+// address the guest gave themselves writes no row when it goes: anyone holding
+// the household code can type any address on a seat, so its removal says
+// nothing about whose mailbox it is. An address is suppressed for the wedding
+// when any row matches its hash, so one seat's objection stops mail to every
+// seat holding it; only the seat that made a row clears it, by giving the
+// address again. Every read here is bounded by the addresses it asks about,
+// never by how many rows the list holds. Guest comms check an address with
+// `suppressedAmong` before sending.
 
 const ENCODER = new TextEncoder();
 
@@ -73,13 +76,22 @@ function suppressHeldStatement(
 
 /**
  * Record that `guestId` withdrew the address its row holds now, in the batch
- * that clears it (`reason = 'guest_removed'`).
+ * that clears it (`reason = 'guest_removed'`), when the hosts added that
+ * address: the guest's word against the hosts' attestation stands for the
+ * wedding. Writes nothing for an address the guest gave themselves. Who added
+ * it is read from the row when the batch runs, by its source, which stays
+ * `organiser_attested` when the attesting organiser's id has gone.
  */
 export function suppressCurrentStatement(
   db: Db,
   row: { weddingId: string; guestId: string; now: Date },
 ): BatchItem<"sqlite"> {
-  return suppressHeldStatement(db, row, "guest_removed");
+  return suppressHeldStatement(
+    db,
+    row,
+    "guest_removed",
+    eq(guests.emailSource, "organiser_attested"),
+  );
 }
 
 /**
