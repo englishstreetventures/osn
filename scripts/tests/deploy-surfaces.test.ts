@@ -154,6 +154,17 @@ describe("which surfaces a change redeploys", () => {
     },
   );
 
+  test("scripts/guest-route-parity.ts redeploys the guest site on dev, whose stack job runs it after the deploy, and no production surface", () => {
+    const file = "scripts/guest-route-parity.ts";
+    expect(redeployed([file], "dev")).toEqual(["cire_invites"]);
+    expect(stacksDeployed([file])).toEqual(["cire"]);
+    expect(redeployed([file], "production")).toEqual([]);
+    expect(sharedPath(file, "dev")).toBe(false);
+    expect(deployReason(surface("cire_invites"), [file], "dev")).toBe(
+      `${file} changed, which checks this surface's dev deploy`,
+    );
+  });
+
   test("a change under cire/infra/ redeploys every cire dev surface and no production surface", () => {
     const file = "cire/infra/alchemy.run.ts";
     expect(redeployed([file], "dev")).toEqual([

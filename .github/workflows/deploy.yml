@@ -794,10 +794,36 @@ jobs:
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
 
+      # Every route of the guest site as this deploy's Alchemy upload serves
+      # it, against the same build served on the runner from the generated
+      # config production still deploys (scripts/guest-route-parity.ts): P3's
+      # evidence for moving production's upload to the stack. The script
+      # starts that local runtime with no Cloudflare credential, and this
+      # step holds none. A difference fails the job but holds back no
+      # release: the record job reads the smoke check alone.
+      - name: Compare the guest site's routes with the build served locally
+        id: parity_cire_invites
+        if: ${{ !cancelled() && steps.smoke_cire_invites.outcome == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 5
+        run: bun run scripts/guest-route-parity.ts --out "$RUNNER_TEMP/route-parity/cire-invites.json"
+        env:
+          PARITY_ORIGIN: ${{ steps.hosts.outputs.cire_invites_origin }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+
+      - name: Keep the guest route comparison
+        if: ${{ !cancelled() && steps.parity_cire_invites.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: cire-invites-route-parity
+          path: ${{ runner.temp }}/route-parity/
+          if-no-files-found: warn
+
       - name: Fail when any check failed
-        if: ${{ !cancelled() && (steps.deployments.outcome == 'failure' || steps.smoke_cire_api.outcome == 'failure' || steps.smoke_cire_invites.outcome == 'failure' || steps.smoke_cire_host.outcome == 'failure' || steps.smoke_cire_vendor.outcome == 'failure' || steps.smoke_cire_landing.outcome == 'failure') }}
+        if: ${{ !cancelled() && (steps.deployments.outcome == 'failure' || steps.smoke_cire_api.outcome == 'failure' || steps.smoke_cire_invites.outcome == 'failure' || steps.smoke_cire_host.outcome == 'failure' || steps.smoke_cire_vendor.outcome == 'failure' || steps.smoke_cire_landing.outcome == 'failure' || steps.parity_cire_invites.outcome == 'failure') }}
         run: |
-          echo "::error::A smoke check failed, or the deployments could not be read; see the steps above."
+          echo "::error::A smoke check or the guest route comparison failed, or the deployments could not be read; see the steps above."
           exit 1
 
   # ── cire stack's record jobs ───────────────────────────────────────────────
