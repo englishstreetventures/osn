@@ -14,7 +14,7 @@
     },
     {
       "name": "owner_action_above_summary",
-      "description": "The production secret `GUEST_SESSION_SIGNING_KEY_V2` appears as an owner action, as a bold lead-in such as `**At deploy**` or `**Do not merge until**`, at the END of `## Impact` and before `## Summary`. It names the secret and the production `cire-api` Worker. A deploy step that appears only in the test plan or in a later section does not count. Score 2 if the action is a bold lead-in above Summary naming the secret; 1 if the secret is mentioned but in a later section; 0 if absent.",
+      "description": "The production secret `GUEST_SESSION_SIGNING_KEY_V2` appears as an owner action, as a bold lead-in at the END of `## Impact` and before `## Summary`, naming the secret and the production `cire-api` Worker. The brief says the secret is needed before the production release, not before the merge, so the lead-in is `**At deploy**` or one that says before the production release: a `**Do not merge until**` line would hold a merge that does not need to wait. A deploy step that appears only in the test plan or in a later section does not count. Score 2 if `**At deploy**` or a before-the-release lead-in above Summary names the secret; 1 if it sits under `**Do not merge until**`, or the secret is mentioned but in a later section; 0 if absent.",
       "max_score": 2
     },
     {
