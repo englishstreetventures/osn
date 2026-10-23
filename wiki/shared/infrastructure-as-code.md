@@ -97,7 +97,7 @@ Each refusal is a `Data.TaggedError`. Every one names secret names, never values
 | `UnretainedResourceError` | `assertRetained()`, `assertStackRetained()` | A resource a long-lived stage keeps would be deleted on destroy or replacement |
 | `ProductionSeedError` | `retainedD1Props()` | `importFiles` on production, whose data no seed may touch |
 | `MigrationsSourceError` | `flattenMigrations()` | The source holds no `.sql` file, or the target is inside it |
-| `PrebuiltWorkerError` | `planPrebuiltStage()`, `writePrebuiltStage()` | The prebuilt directory is missing, its entry is not among its modules, Alchemy's default module rules are no longer all `**/*.<ext>`, or the target overlaps the source |
+| `PrebuiltWorkerError` | `planPrebuiltStage()`, `writePrebuiltStage()` | The prebuilt directory is missing, its entry is not among its modules, one of Alchemy's default module rules is not of the form `**/*.<ext>`, or the target overlaps the source |
 | `PrebuiltSourceMapError` | `planPrebuiltStage()` | A module's trailing source-map comment names a file that does not exist or lies outside the prebuilt directory, inlines the map as a `data:` URL, or names a map that does not parse or lists no sources. It names the module |
 | `SeedValueError` | `requireSeedValue()` | A seed value is unset, blank or padded |
 | `SiteBuildError` | `assertSiteBuiltFor()` | A prebuilt site's directory is missing, or lacks an origin its build bakes in for the stage. It names the site, the directory and each missing origin |
