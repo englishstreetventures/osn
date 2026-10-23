@@ -11,7 +11,7 @@ related:
   - "[[browser-tests]]"
   - "[[infrastructure-as-code]]"
   - "[[realtime]]"
-last-reviewed: 2026-10-23
+last-reviewed: 2026-10-24
 ---
 
 # Testing Patterns
@@ -941,6 +941,12 @@ code passes a suite that covers only the pure half.
 
 Nothing in the script points it at the stand-in — no flag, no environment
 variable — so the code under test is the code CI runs.
+
+A stand-in proves what reaches the program, never how the program takes it.
+After changing a flag or a variable the script passes, run the real program
+once. `scripts/guest-route-parity.ts` passed `wrangler dev` an `--env-file`
+path that did not exist; its stand-in logged the argument and every test
+passed, and the real Wrangler refused to start (`node: <path>: not found`).
 [cire-db-migrate.cli.test.ts](../../scripts/tests/cire-db-migrate.cli.test.ts)
 is the worked example. A run against the real program that needs a database
 belongs in the D1 integration lane above.
