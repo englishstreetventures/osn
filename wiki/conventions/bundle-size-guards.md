@@ -92,6 +92,13 @@ stops a deploy or release:
   symlink, since a link is served as what it points at, and one that cannot be
   read is refused;
 - a measured directory that is missing, empty or holds a symlink;
+- in `worker` mode, a Worker whose modules and source maps together gzip past
+  Workers Free's 3 MiB (3,145,728 bytes) limit on a Worker's compressed size.
+  Both uploads of cire-invites send the maps beside the modules (Wrangler's
+  `upload_source_maps` on production, the cire stack's staged upload on dev),
+  and no Cloudflare source says whether the limit counts them — Wrangler's own
+  size report leaves them out — so the guard counts them, as each stack's K10
+  test does for the bundled API Workers ([[free-tier-limits]]);
 - `bun` missing in `worker` mode;
 - a budgets file that is absent, empty or malformed, or has no row for the app.
 
@@ -138,7 +145,9 @@ touching a threshold. In short:
   when the chunk it is named after sits beside it and it parses as a source
   map (a JSON object with a numeric `version`, a `sources` array and a
   `mappings` string); any other file named `*.map` is measured, so a name
-  alone cannot hide bytes. That check runs through `bun`, which every caller
+  alone cannot hide bytes. The real source maps are summed apart and printed
+  on a line of their own (`<app> dist/server source maps: <n> bytes gzip
+  across <m> files`), for the 3 MiB check above. That check runs through `bun`, which every caller
   already has. Both modes refuse a symlink in the directory they measure,
   since wrangler and Pages ship the file a link points at and `find -type f`
   would skip it. It separately refuses a source map under the sibling

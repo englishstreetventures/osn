@@ -23,7 +23,7 @@ related:
   - "[[commands]]"
   - "[[bundle-size-guards]]"
   - "[[cire-registry]]"
-last-reviewed: 2026-10-21
+last-reviewed: 2026-10-23
 ---
 
 # Cire development guide
@@ -633,7 +633,9 @@ chunk as its own module. It leaves out only the adapter's top-level
 `wrangler.json` and real source maps — a `.map` beside the chunk it is named
 after that parses as a source map. Any other `.map`-named file is counted, so
 the total can run above what wrangler uploads but never below it. A total
-over the app's budget is a warning, not a failure ([[bundle-size-guards]]). It
+over the app's budget is a warning, not a failure ([[bundle-size-guards]]).
+It prints the source maps' own total beside it, and fails when modules and
+maps together pass Workers Free's 3 MiB, since both uploads send the maps. It
 fails if a source map turns up under `dist/client`, which is served publicly
 as Static Assets: a `.map` file, or a script or stylesheet carrying an inline
 `sourceMappingURL=data:` map. See the source-map warning below.
@@ -690,8 +692,8 @@ Three choices keep the bundle small; together they took it from 285 KB to
   config the generated `dist/server/wrangler.json` extends. Production's CI
   rewrite of that generated file (in `production-release.yml`) only deletes
   `legacy_env`, so the key survives into the deployed config untouched. The dev
-  tier does not read that file: the cire stack uploads `dist/server/entry.mjs`
-  as a prebuilt Worker, which leaves out `*.js.map`, so dev serves no source maps
+  tier does not read that file: the cire stack stages `dist/server` and uploads
+  each module's map as Wrangler's `upload_source_maps` sends it
   ([[infrastructure-as-code#Bundling and the module registry]]).
 
   > [!warning] Never set `sourcemap` as a plain `vite.build` value here.

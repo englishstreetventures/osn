@@ -42,7 +42,7 @@ export interface ApiWorkerInput {
   readonly stage: string;
   /** The entry module, relative to the stack's working directory. */
   readonly main: string;
-  /** false: `main` is a prebuilt Worker, uploaded byte for byte with the modules beside it. */
+  /** false: `main` is a prebuilt Worker, uploaded byte for byte with the modules and source maps beside it. */
   readonly bundle: boolean;
   /** The static assets the Worker serves, or null for none. */
   readonly assets: WorkerAssetsInput | null;
