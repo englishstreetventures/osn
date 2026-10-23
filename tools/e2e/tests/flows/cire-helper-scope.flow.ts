@@ -196,17 +196,18 @@ test("cire-helper-scope", async ({ page, flow }) => {
 
   // The wedding's push topic, as the portal names it (`weddingTopicUrl`).
   const topic = `cire:wedding:${weddingId}`;
-  const reachedStandIn = await flow.step("open the wedding's co-hosts", async () => {
+  const socket = await flow.step("open the wedding's co-hosts", async () => {
     await page.goto(`${ORIGINS.cireHost}/#/w/${weddingId}/settings/hosts`);
     await expect(scopeSelect(page)).toHaveValue("own");
     // The route reaches the fixture a moment after the page opens the socket.
-    return expect
+    const reached = await expect
       .poll(() => flow.realtimeTopics())
       .toContain(topic)
       .then(
         () => true,
         () => false,
       );
+    return { reached, opened: flow.realtimeTopics().filter((t) => t === topic).length };
   });
   flow.check("the helper starts on their own tasks", "helper/own", seatInDb());
   // A socket that missed the stand-in would meet cire-api's 404, retry, and
@@ -214,8 +215,9 @@ test("cire-helper-scope", async ({ page, flow }) => {
   flow.check(
     "portal: the co-hosts page's push socket reached the hub stand-in",
     true,
-    reachedStandIn,
+    socket.reached,
   );
+  flow.check("portal: the co-hosts page opened one push socket for its wedding", 1, socket.opened);
 
   flow.check("widened", 200, await widen(flow, page, "show the helper the whole run sheet"));
   flow.check("wedding_hosts row once widened", "helper/full", seatInDb());

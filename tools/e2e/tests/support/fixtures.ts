@@ -61,16 +61,30 @@ const CIRE_REALTIME_SOCKETS = `${ORIGINS.cireApi.replace(/^http/, "ws")}${CIRE_R
  * sending the fallback beacon (`POST /api/realtime/fallback`) into one run's
  * `results.json` and not the next. Here each socket opens, stays open and has
  * its ping answered, as `TopicHub` answers it; no subscription gives up, and no
- * signal is ever sent. Each socket's topic is pushed to `topics` as it arrives.
+ * signal is ever sent. `seen` collects each socket's topic as it arrives, and
+ * counts the pings the stand-in receives and the pongs it sends back.
  */
-async function standInForCireHub(ctx: BrowserContext, topics: string[]): Promise<void> {
+async function standInForCireHub(ctx: BrowserContext, seen: HubStandInLog): Promise<void> {
   await ctx.routeWebSocket(CIRE_REALTIME_SOCKETS, (ws) => {
     const { pathname } = new URL(ws.url());
-    topics.push(decodeURIComponent(pathname.slice(CIRE_REALTIME_PATH.length)));
+    seen.topics.push(decodeURIComponent(pathname.slice(CIRE_REALTIME_PATH.length)));
     ws.onMessage((message) => {
-      if (message === REALTIME_KEEPALIVE.ping) ws.send(REALTIME_KEEPALIVE.pong);
+      if (message !== REALTIME_KEEPALIVE.ping) return;
+      seen.pings += 1;
+      ws.send(REALTIME_KEEPALIVE.pong);
+      seen.pongs += 1;
     });
   });
+}
+
+/** What the hub stand-in has seen in one flow, across its contexts. */
+interface HubStandInLog {
+  /** Each socket's topic, in the order the sockets arrived. */
+  readonly topics: string[];
+  /** Pings received from the pages' sockets. */
+  pings: number;
+  /** Pongs sent back. */
+  pongs: number;
 }
 
 export interface Flow {
@@ -88,6 +102,8 @@ export interface Flow {
   recordRequest(method: string, url: string, status: number): void;
   /** The realtime topics the pages' sockets have reached the hub stand-in with, in order. */
   realtimeTopics(): readonly string[];
+  /** How many pings the hub stand-in has received so far, and how many pongs it sent back. */
+  realtimeKeepalives(): { readonly pings: number; readonly pongs: number };
   /** The page whose final state is the flow's screenshot. Defaults to `page`. */
   finalPage: Page;
 }
@@ -97,7 +113,7 @@ export const test = base.extend<{ flow: Flow }>({
     const steps: string[] = [];
     const lines: string[] = [];
     const assertions: Assertion[] = [];
-    const topics: string[] = [];
+    const hub: HubStandInLog = { topics: [], pings: 0, pongs: 0 };
     const watched = new WeakSet<BrowserContext>();
     const watch = async (ctx: BrowserContext): Promise<void> => {
       if (watched.has(ctx)) return;
@@ -107,7 +123,7 @@ export const test = base.extend<{ flow: Flow }>({
         const line = requestLine(request.method(), request.url(), response.status(), API_LABELS);
         if (line) lines.push(line);
       });
-      await standInForCireHub(ctx, topics);
+      await standInForCireHub(ctx, hub);
     };
 
     const flow: Flow = {
@@ -138,7 +154,10 @@ export const test = base.extend<{ flow: Flow }>({
         if (line) lines.push(line);
       },
       realtimeTopics() {
-        return [...topics];
+        return [...hub.topics];
+      },
+      realtimeKeepalives() {
+        return { pings: hub.pings, pongs: hub.pongs };
       },
     };
 

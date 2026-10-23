@@ -10,7 +10,7 @@
  * so a starter edit changes the count without breaking the flow.
  */
 
-import { CIRE_ORGANISER, DB_FILES, ORIGINS } from "../../src/config";
+import { CIRE_ORGANISER, DB_FILES, ORIGINS, REALTIME_KEEPALIVE } from "../../src/config";
 import { expect, onSuiteClock, queryOne, signInToCireHost, test } from "../support/fixtures";
 
 const { weddingId, firstItem } = CIRE_ORGANISER.checklist;
@@ -82,4 +82,19 @@ test("cire-checklist-starter", async ({ page, flow }) => {
   flow.check("first task's due date follows the wedding date", "template", first?.due_source ?? "");
   flow.check("first task is open", "open", first?.status ?? "missing");
   flow.check("tasks row written on the suite clock", true, onSuiteClock(first?.created_at));
+
+  // Last, so the page clock's jump moves nothing a step above reads. Over one
+  // ping interval the checklist page runs only toast and layout timers, the
+  // command palette's warm-up import and the socket's ping; none calls the API.
+  const keepalive = await flow.step("let one push keepalive interval pass", async () => {
+    await page.clock.runFor(REALTIME_KEEPALIVE.intervalMs);
+    // The ping reaches the fixture a moment after the page sends it.
+    await expect
+      .poll(() => flow.realtimeKeepalives().pings)
+      .toBeGreaterThanOrEqual(1)
+      .catch(() => undefined);
+    return flow.realtimeKeepalives();
+  });
+  flow.check("portal: the hub stand-in received the socket's ping", true, keepalive.pings >= 1);
+  flow.check("portal: the hub stand-in sent a pong back", true, keepalive.pongs >= 1);
 });

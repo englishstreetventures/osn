@@ -110,11 +110,12 @@ export const API_LABELS = {
 } satisfies Record<string, string>;
 
 /**
- * The keepalive a realtime socket sends and the hub answers (`PING` and `PONG`
- * in `@shared/realtime`), which the `flow` fixture's hub stand-in speaks.
- * Written out for Node, as `PORTS` is; `tests/config.test.ts` holds them equal.
+ * The keepalive a realtime socket sends and the hub answers, and how often the
+ * socket sends it (`PING`, `PONG` and `PING_INTERVAL_MS` in `@shared/realtime`),
+ * which the `flow` fixture's hub stand-in speaks. Written out for Node, as
+ * `PORTS` is; `tests/config.test.ts` holds them equal.
  */
-export const REALTIME_KEEPALIVE = { ping: "ping", pong: "pong" } as const;
+export const REALTIME_KEEPALIVE = { ping: "ping", pong: "pong", intervalMs: 25_000 } as const;
 
 export const DB_FILES = {
   osn: resolve(STATE_DIR, "osn.db"),
