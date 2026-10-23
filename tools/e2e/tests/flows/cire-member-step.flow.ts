@@ -10,12 +10,13 @@
  * them; this tab's address save, still as the first member, is refused and the
  * page asks "Who are you?" again. Answering again, the member gives an address
  * for wedding emails, ticking the consent box, corrects it, and removes it: the
- * row records the guest's own consent, and the removal clears it and records
- * the opt-out, a hash of the wedding and the address, on the suppression list.
- * Until the address is one and the box is ticked, the save button stays
- * focusable and says which is missing; the removal's note is announced from a
- * status region already on the page. Giving the address back clears the
- * seat's own opt-out.
+ * row records the guest's own consent, and the removal clears it and writes
+ * nothing to the suppression list, since anyone with the household code could
+ * have typed it. Until the address is one and the box is ticked, the save
+ * button stays focusable and says which is missing; the removal's note is
+ * announced from a status region already on the page. Last, the other member
+ * removes the address the hosts added, which records that seat's opt-out, a
+ * hash of the wedding and the address, on the suppression list.
  *
  * The stack runs with `cire.account-linking` off (no GrowthBook key) and no
  * musubi bridge, so this is the guest experience with the flag off: the member
@@ -472,7 +473,8 @@ test("cire-member-step", async ({ page, context, flow }) => {
     const response = emailCall("DELETE");
     await emailBox.getByRole("button", { name: "Remove email" }).click();
     const status = (await response).status();
-    await expect(note).toContainText("Removed.");
+    // The guest typed this address, so no opt-out backs a promise about it.
+    await expect(note).toHaveText("Removed. We’ve deleted that address from your invitation.");
     await expect(emailBox.getByText("Removed.", { exact: false })).toBeVisible();
     // The note stands where the form's opening line was.
     await expect(emailBox.getByText("Optional. Add your email", { exact: false })).toBeHidden();
@@ -494,38 +496,32 @@ test("cire-member-step", async ({ page, context, flow }) => {
     "none none none",
     `${after?.email ?? "none"} ${after?.source ?? "none"} ${after?.version ?? "none"}`,
   );
-  const optOuts = queryOne<{
-    n: number;
-    reason: string | null;
-    hash: string | null;
-    weddingId: string;
-  }>(
-    DB_FILES.cire,
-    `SELECT COUNT(*) AS n, MIN(s.reason) AS reason, MIN(s.email_hash) AS hash,
-            MIN(f.wedding_id) AS weddingId
-       FROM email_suppressions s
-       JOIN guests g ON g.id = s.guest_id
-       JOIN families f ON f.id = g.family_id
-      WHERE f.public_id = ? AND g.first_name = ?`,
-    CIRE_HOUSEHOLD.code,
-    CIRE_HOUSEHOLD.member,
-  );
+  /** The suppression rows `firstName`'s seat made, in the household's wedding. */
+  const optOutsOf = (firstName: string) =>
+    queryOne<{
+      n: number;
+      reason: string | null;
+      hash: string | null;
+      weddingId: string;
+    }>(
+      DB_FILES.cire,
+      `SELECT COUNT(*) AS n, MIN(s.reason) AS reason, MIN(s.email_hash) AS hash,
+              MIN(f.wedding_id) AS weddingId
+         FROM email_suppressions s
+         JOIN guests g ON g.id = s.guest_id
+         JOIN families f ON f.id = g.family_id
+        WHERE f.public_id = ? AND g.first_name = ?`,
+      CIRE_HOUSEHOLD.code,
+      firstName,
+    );
+  const ownOptOut = optOutsOf(CIRE_HOUSEHOLD.member);
   flow.check(
-    "one opt-out recorded for the seat",
-    "1 guest_removed",
-    `${optOuts?.n ?? 0} ${optOuts?.reason ?? "none"}`,
-  );
-  // Stored opt-outs outlive deploys, so the stored hash is checked against an
-  // independent computation of SHA-256(wedding id ":" address).
-  flow.check(
-    "the opt-out holds the hash of the wedding and the address, not the address",
-    createHash("sha256")
-      .update(`${optOuts?.weddingId ?? ""}:${CIRE_HOUSEHOLD.correctedEmail}`)
-      .digest("hex"),
-    optOuts?.hash ?? "none",
+    "no opt-out for an address the guest typed",
+    "0 none",
+    `${ownOptOut?.n ?? -1} ${ownOptOut?.reason ?? "none"}`,
   );
 
-  // Giving the address back clears the note, and the seat's own opt-out with it.
+  // Giving the address back clears the note.
   const givenBack = await flow.step(`${CIRE_HOUSEHOLD.member} gives the address back`, async () => {
     await emailBox
       .getByLabel(`Your email, ${CIRE_HOUSEHOLD.member}`)
@@ -539,18 +535,52 @@ test("cire-member-step", async ({ page, context, flow }) => {
     return status;
   });
   flow.check("the address given back is saved", 200, givenBack);
+
+  // The hosts attested to this address, so the guest's removal is their
+  // opt-out for the wedding, and the note says so.
+  const hostsRemoved = await flow.step(
+    `another tab says it is ${CIRE_HOUSEHOLD.otherMember}, and removes the address the hosts added`,
+    async () => {
+      const other = await flow.newPage(context);
+      await other.goto(`${ORIGINS.cireInvites}/${CIRE_HOUSEHOLD.slug}`);
+      await expect(other.getByText(`Answering as ${CIRE_HOUSEHOLD.member}`)).toBeVisible({
+        timeout: 60_000,
+      });
+      await other.getByRole("button", { name: "Not you?" }).click();
+      const group = other.getByRole("group", { name: "Who are you?" });
+      await group.getByRole("button", { name: CIRE_HOUSEHOLD.otherMember, exact: true }).click();
+      await expect(other.getByText(`Answering as ${CIRE_HOUSEHOLD.otherMember}`)).toBeVisible();
+      const box = other.getByRole("region", { name: "Wedding emails" });
+      await expect(box.getByText(CIRE_HOUSEHOLD.otherMemberEmail)).toBeVisible();
+      await expect(box.getByText("Your hosts added this.", { exact: false })).toBeVisible();
+      const response = other.waitForResponse(
+        (r) =>
+          r.url() === `${ORIGINS.cireApi}/api/claim/member/email` &&
+          r.request().method() === "DELETE",
+      );
+      await box.getByRole("button", { name: "Remove email" }).click();
+      const status = (await response).status();
+      await expect(box.getByRole("status")).toHaveText(
+        "Removed. Your hosts won’t email that address about the wedding unless you add it again.",
+      );
+      await other.close();
+      return status;
+    },
+  );
+  flow.check("the hosts' address is removed", 200, hostsRemoved);
+  const hostsOptOut = optOutsOf(CIRE_HOUSEHOLD.otherMember);
   flow.check(
-    "giving an address back clears the seat's own opt-out for it",
-    0,
-    queryOne<{ n: number }>(
-      DB_FILES.cire,
-      `SELECT COUNT(*) AS n
-         FROM email_suppressions s
-         JOIN guests g ON g.id = s.guest_id
-         JOIN families f ON f.id = g.family_id
-        WHERE f.public_id = ? AND g.first_name = ?`,
-      CIRE_HOUSEHOLD.code,
-      CIRE_HOUSEHOLD.member,
-    )?.n ?? -1,
+    "one opt-out recorded for the seat whose hosts' address was removed",
+    "1 guest_removed",
+    `${hostsOptOut?.n ?? 0} ${hostsOptOut?.reason ?? "none"}`,
+  );
+  // Stored opt-outs outlive deploys, so the stored hash is checked against an
+  // independent computation of SHA-256(wedding id ":" address).
+  flow.check(
+    "the opt-out holds the hash of the wedding and the address, not the address",
+    createHash("sha256")
+      .update(`${hostsOptOut?.weddingId ?? ""}:${CIRE_HOUSEHOLD.otherMemberEmail}`)
+      .digest("hex"),
+    hostsOptOut?.hash ?? "none",
   );
 });

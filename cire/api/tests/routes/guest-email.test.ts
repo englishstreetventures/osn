@@ -122,6 +122,42 @@ const NOTHING_STORED = {
   attestedBy: null,
 };
 
+/**
+ * Store `address` on the seat as the hosts would, with its hash. `attestedBy`
+ * null is a hosts' address whose attesting organiser is no longer named (their
+ * erasure, or a revert after they left the wedding).
+ */
+async function hostsAdded(
+  db: TestDb,
+  id: string,
+  address: string,
+  attestedBy: string | null = "usr_owner",
+) {
+  db.update(guests)
+    .set({
+      email: address,
+      emailHash: await hashGuestEmail(BOOTSTRAP_WEDDING_ID, address),
+      emailSource: "organiser_attested",
+      emailConsentAt: new Date(0),
+      emailConsentVersion: ORGANISER_EMAIL_ATTESTATION.version,
+      emailAttestedByOsnProfileId: attestedBy,
+    })
+    .where(eq(guests.id, id))
+    .run();
+}
+
+/** Every row of the wedding's suppression list. */
+function optOuts(db: TestDb) {
+  return db
+    .select({
+      hash: emailSuppressions.emailHash,
+      guestId: emailSuppressions.guestId,
+      reason: emailSuppressions.reason,
+    })
+    .from(emailSuppressions)
+    .all();
+}
+
 describe("guest email routes — refusals", () => {
   it("refuses a request with no household session", async () => {
     const { db, app } = buildApp();
@@ -315,11 +351,34 @@ describe("guest email routes — the stored record", () => {
     expect(row.consentAt?.getTime()).toBeGreaterThan(0);
   });
 
-  it("removes every part of the record and records the opt-out for the seat", async () => {
+  // Anyone holding the household code can type any address on a seat, so
+  // removing one the seat typed says nothing about whose mailbox it is: it
+  // leaves the wedding's suppression list alone.
+  it("removes every part of the record, and records no opt-out for an address the guest gave", async () => {
     const { db, app } = buildApp();
     const cookie = await answeringAs(app, db, "Cleo");
     const cleo = guestId(db, "Cleo");
     expect((await save(app, cookie, cleo)).status).toBe(200);
+
+    const res = await remove(app, cookie, cleo);
+    expect(res.status).toBe(200);
+    expect(await jsonBody(res)).toEqual({ email: null });
+    expect(emailRow(db, cleo)).toEqual(NOTHING_STORED);
+    expect(optOuts(db)).toEqual([]);
+
+    // Removing again changes nothing and still answers as removed.
+    const again = await remove(app, cookie, cleo);
+    expect(again.status).toBe(200);
+    expect(optOuts(db)).toEqual([]);
+  });
+
+  // The hosts attested that the guest agreed to this address; the guest's
+  // removal says they did not, and stands for the whole wedding.
+  it("records the seat's opt-out when it removes an address the hosts added", async () => {
+    const { db, app } = buildApp();
+    const cleo = guestId(db, "Cleo");
+    await hostsAdded(db, cleo, ADDRESS);
+    const cookie = await answeringAs(app, db, "Cleo");
 
     const res = await remove(app, cookie, cleo);
     expect(res.status).toBe(200);
@@ -338,19 +397,37 @@ describe("guest email routes — the stored record", () => {
         .all(),
     ).toEqual([{ weddingId: BOOTSTRAP_WEDDING_ID, hash, guestId: cleo, reason: "guest_removed" }]);
 
-    // Removing again changes nothing and still answers as removed.
     const again = await remove(app, cookie, cleo);
     expect(again.status).toBe(200);
-    expect(db.select().from(emailSuppressions).all()).toHaveLength(1);
+    expect(optOuts(db)).toHaveLength(1);
+  });
+
+  // What makes an address the hosts' is its source, not the attester's id,
+  // which an organiser's erasure or a revert can leave NULL.
+  it("records the opt-out for a hosts' address whose attesting organiser is no longer named", async () => {
+    const { db, app } = buildApp();
+    const cleo = guestId(db, "Cleo");
+    await hostsAdded(db, cleo, ADDRESS, null);
+    const cookie = await answeringAs(app, db, "Cleo");
+
+    expect((await remove(app, cookie, cleo)).status).toBe(200);
+    expect(emailRow(db, cleo)).toEqual(NOTHING_STORED);
+    expect(optOuts(db)).toEqual([
+      {
+        hash: await hashGuestEmail(BOOTSTRAP_WEDDING_ID, ADDRESS),
+        guestId: cleo,
+        reason: "guest_removed",
+      },
+    ]);
   });
 
   // One household cannot undo another seat's opt-out by saving the same
   // address on its own seat; only the seat that withdrew it can.
   it("clears an opt-out only when the seat that made it puts the address back", async () => {
     const { db, app } = buildApp();
-    const cleoCookie = await answeringAs(app, db, "Cleo");
     const cleo = guestId(db, "Cleo");
-    expect((await save(app, cleoCookie, cleo)).status).toBe(200);
+    await hostsAdded(db, cleo, ADDRESS);
+    const cleoCookie = await answeringAs(app, db, "Cleo");
     expect((await remove(app, cleoCookie, cleo)).status).toBe(200);
 
     const boCookie = await answeringAs(app, db, "Bo");
@@ -498,79 +575,84 @@ describe("guest email routes — the member step and opt-outs", () => {
   // removes it again, the second opt-out meets the first and must not fail.
   it("removes again after an organiser re-adds a withdrawn address", async () => {
     const { db, app } = buildApp();
-    const cookie = await answeringAs(app, db, "Cleo");
     const cleo = guestId(db, "Cleo");
-    expect((await save(app, cookie, cleo)).status).toBe(200);
+    await hostsAdded(db, cleo, ADDRESS);
+    const cookie = await answeringAs(app, db, "Cleo");
     expect((await remove(app, cookie, cleo)).status).toBe(200);
-    db.update(guests)
-      .set({
-        email: ADDRESS,
-        emailHash: await hashGuestEmail(BOOTSTRAP_WEDDING_ID, ADDRESS),
-        emailSource: "organiser_attested",
-        emailConsentAt: new Date(),
-        emailConsentVersion: ORGANISER_EMAIL_ATTESTATION.version,
-        emailAttestedByOsnProfileId: "usr_owner",
-      })
-      .where(eq(guests.id, cleo))
-      .run();
+    expect(optOuts(db)).toHaveLength(1);
+    await hostsAdded(db, cleo, ADDRESS);
 
     const res = await remove(app, cookie, cleo);
     expect(res.status).toBe(200);
     expect(emailRow(db, cleo)).toEqual(NOTHING_STORED);
-    expect(db.select().from(emailSuppressions).all()).toHaveLength(1);
+    expect(optOuts(db)).toHaveLength(1);
   });
 
-  // The opt-out names the address the row holds when the removal runs, not
-  // one read before it: an organiser's change landing in between is the one
-  // withdrawn.
+  // The opt-out is decided on, and names, the address the row holds when the
+  // removal runs, not one read before it: an organiser's address landing in
+  // between is the one withdrawn, and the guest's own in place of the hosts'
+  // records nothing.
   it("records the address the row holds when the removal runs", async () => {
     const { db, app } = buildApp();
     const cookie = await answeringAs(app, db, "Cleo");
     const cleo = guestId(db, "Cleo");
-    expect((await save(app, cookie, cleo)).status).toBe(200);
     const [family] = db
       .select({ familyId: guests.familyId })
       .from(guests)
       .where(eq(guests.id, cleo))
       .all();
-    const seat = await Effect.runPromise(
-      guestEmailService
-        .resolveSeat({
-          familyId: family!.familyId,
-          sessionMember: cleo,
-          bodyMember: cleo,
-          memberStepOff: Promise.resolve(new Set()),
-        })
-        .pipe(Effect.provideService(DbService, db)),
-    );
+    const readSeat = () =>
+      Effect.runPromise(
+        guestEmailService
+          .resolveSeat({
+            familyId: family!.familyId,
+            sessionMember: cleo,
+            bodyMember: cleo,
+            memberStepOff: Promise.resolve(new Set()),
+          })
+          .pipe(Effect.provideService(DbService, db)),
+      );
+    const removeOwn = (seat: Awaited<ReturnType<typeof readSeat>>) =>
+      Effect.runPromise(
+        guestEmailService.removeOwn(seat).pipe(Effect.provideService(DbService, db)),
+      );
+
+    // The guest's own address is read; the hosts' replaces it before the batch.
+    expect((await save(app, cookie, cleo)).status).toBe(200);
+    const ownRead = await readSeat();
+    await hostsAdded(db, cleo, "changed@example.test");
+    await removeOwn(ownRead);
+    expect(emailRow(db, cleo)).toEqual(NOTHING_STORED);
+    expect(optOuts(db).map((r) => r.hash)).toEqual([
+      await hashGuestEmail(BOOTSTRAP_WEDDING_ID, "changed@example.test"),
+    ]);
+
+    // The hosts' address is read; the guest's own replaces it before the batch.
+    await hostsAdded(db, cleo, "hosts@example.test");
+    const hostsRead = await readSeat();
     db.update(guests)
       .set({
-        email: "changed@example.test",
-        emailHash: await hashGuestEmail(BOOTSTRAP_WEDDING_ID, "changed@example.test"),
+        email: ADDRESS,
+        emailHash: await hashGuestEmail(BOOTSTRAP_WEDDING_ID, ADDRESS),
+        emailSource: "guest",
+        emailConsentVersion: GUEST_EMAIL_CONSENT.version,
+        emailAttestedByOsnProfileId: null,
       })
       .where(eq(guests.id, cleo))
       .run();
-    await Effect.runPromise(
-      guestEmailService.removeOwn(seat).pipe(Effect.provideService(DbService, db)),
-    );
+    await removeOwn(hostsRead);
     expect(emailRow(db, cleo)).toEqual(NOTHING_STORED);
-    expect(
-      db
-        .select({ hash: emailSuppressions.emailHash })
-        .from(emailSuppressions)
-        .all()
-        .map((r) => r.hash),
-    ).toEqual([await hashGuestEmail(BOOTSTRAP_WEDDING_ID, "changed@example.test")]);
+    expect(optOuts(db)).toHaveLength(1);
   });
 
-  // Each removal of a different address adds a row; one session must not grow
-  // the list without end.
+  // Each removal or replacement of a different address the hosts added adds
+  // a row; one session must not grow the list without end.
   it(`refuses a new address once the seat holds ${MAX_OPT_OUTS_PER_SEAT} opt-outs`, async () => {
     const { db, app } = buildApp();
     const cookie = await answeringAs(app, db, "Cleo");
     const cleo = guestId(db, "Cleo");
     for (let i = 0; i < MAX_OPT_OUTS_PER_SEAT; i += 1) {
-      expect((await save(app, cookie, cleo, `cleo${i}@example.test`)).status).toBe(200);
+      await hostsAdded(db, cleo, `cleo${i}@example.test`);
       expect((await remove(app, cookie, cleo)).status).toBe(200);
     }
     const refusedBefore = await counterValue(CIRE_METRICS.guestEmailBlocked, {
@@ -594,7 +676,7 @@ describe("guest email routes — the member step and opt-outs", () => {
     const cookie = await answeringAs(app, db, "Cleo");
     const cleo = guestId(db, "Cleo");
     for (let i = 0; i < MAX_OPT_OUTS_PER_SEAT; i += 1) {
-      expect((await save(app, cookie, cleo, `cleo${i}@example.test`)).status).toBe(200);
+      await hostsAdded(db, cleo, `cleo${i}@example.test`);
       expect((await remove(app, cookie, cleo)).status).toBe(200);
     }
     const res = await save(app, cookie, cleo, "cleo3@example.test");
@@ -611,32 +693,6 @@ describe("guest email routes — the member step and opt-outs", () => {
 });
 
 describe("guest email routes — a guest's correction of a hosts' address", () => {
-  /** Store `address` on the seat as the hosts would, with its hash. */
-  async function hostsAdded(db: TestDb, id: string, address: string) {
-    db.update(guests)
-      .set({
-        email: address,
-        emailHash: await hashGuestEmail(BOOTSTRAP_WEDDING_ID, address),
-        emailSource: "organiser_attested",
-        emailConsentAt: new Date(0),
-        emailConsentVersion: ORGANISER_EMAIL_ATTESTATION.version,
-        emailAttestedByOsnProfileId: "usr_owner",
-      })
-      .where(eq(guests.id, id))
-      .run();
-  }
-
-  function optOuts(db: TestDb) {
-    return db
-      .select({
-        hash: emailSuppressions.emailHash,
-        guestId: emailSuppressions.guestId,
-        reason: emailSuppressions.reason,
-      })
-      .from(emailSuppressions)
-      .all();
-  }
-
   // The guest has said the hosts' address is wrong. Kept as an opt-out for
   // the seat, so a later sheet or revert that puts it back is caught.
   it("records the hosts' address it replaces as the seat's opt-out", async () => {

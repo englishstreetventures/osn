@@ -658,8 +658,10 @@ export const createClaimMemberRoutes = (
      * address. `PUT { memberGuestId, email, consentVersion }` stores it under
      * the guest's consent, recording an address the hosts added that it
      * replaces as the member's opt-out; `DELETE { memberGuestId }` removes it
-     * and records the member's opt-out, so the wedding never mails it again
-     * until this seat gives it back. Refused, in this order: a host preview
+     * and, when the hosts added it, records the member's opt-out, so the
+     * wedding never mails it again until this seat gives it back; an address
+     * the guest gave themselves is removed and leaves no opt-out. Refused, in
+     * this order: a host preview
      * (403), a wedding without the member step (404), no member chosen or a
      * page showing another member (409), then for `PUT` an address that is not
      * one (400), consent to words the page did not show (422), and an address

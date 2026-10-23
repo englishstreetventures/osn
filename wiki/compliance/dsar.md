@@ -289,13 +289,14 @@ owners, each with an `owner` seat. Two consequences:
   the invite; an address the hosts added that it replaces is recorded as the
   seat's opt-out (`reason = 'guest_corrected'`), so a later sheet or revert
   does not put it back unseen. Erasure: the guest removes the address on the
-  invite at once, which also records their opt-out; an owner or editor removes
+  invite at once, which also records their opt-out when the hosts added it
+  (an address the guest gave themselves leaves no row); an owner or editor removes
   it in the guest editor; deleting the guest deletes the row. A guest asking never to be
   emailed again keeps their suppression row, which is the record of that
   objection (Art. 21(3)); deleting it as well is erasure of the objection, and
   an operator does it by hand on request. The same hand delete — by
   `(wedding_id, email_hash, guest_id)` — clears an opt-out another household
-  made against someone's address, when the person whose address it is asks. An erasure request from the
+  made against someone's address the hosts had put on its seat, when the person whose address it is asks. An erasure request from the
   attesting **organiser** nulls their id in the same pass that removes their
   seat: `UPDATE guests SET email_attested_by_osn_profile_id = NULL WHERE email_attested_by_osn_profile_id = ?`;
   the address and the rest of its record stay, as evidence an organiser

@@ -161,10 +161,11 @@ describe("guest privacy notice", () => {
 
   /**
    * Each sentence about the email address states something the code does:
-   * only the chosen member's own address reaches the invitation; a removal
-   * stops mail even if a host adds the address back; replacing an address the
-   * hosts added withdraws it as a removal does; the removed address is kept
-   * only as a hash and goes with the year's sweep.
+   * only the chosen member's own address reaches the invitation; removing an
+   * address the hosts added stops mail to it even if it is added back, and
+   * replacing one withdraws it as a removal does; that address is kept only as
+   * a hash and goes with the year's sweep; removing an address the guest added
+   * keeps nothing.
    */
   it("names the email address, its basis, who sees it, and how to withdraw it", () => {
     expect(body).toMatch(phrase("Your email address, if you or your hosts add one"));
@@ -173,8 +174,11 @@ describe("guest privacy notice", () => {
       phrase("never shows one member’s address to someone who says they are another"),
     );
     expect(body).toMatch(
+      phrase("Remove the address on your invitation to withdraw it at any time, and we delete it"),
+    );
+    expect(body).toMatch(
       phrase(
-        "we will not email it about this wedding, even if it is added again, unless you add it back yourself",
+        "If your hosts added it, we will not email it about this wedding after that, even if it is added again, unless you add it back yourself",
       ),
     );
     expect(body).toMatch(
@@ -183,8 +187,11 @@ describe("guest privacy notice", () => {
       ),
     );
     expect(body).toMatch(
-      phrase("We keep a fingerprint of the removed address, not the address itself"),
+      phrase(
+        "For an address your hosts added, we keep a fingerprint of it, not the address itself",
+      ),
     );
+    expect(body).toMatch(phrase("An address you added yourself leaves no fingerprint"));
     expect(body).toMatch(phrase("names, RSVPs, dietary needs, email addresses — is deleted"));
     expect(body).toMatch(phrase("or to your email address being used"));
   });

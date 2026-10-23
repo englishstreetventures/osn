@@ -187,8 +187,8 @@ const ph = (value: string) => (isPlaceholder(value) ? 'placeholder' : undefined)
       <strong>Your email address</strong> — so your hosts can send you news about the
       wedding. The basis is your consent: given when you add it on your invitation, or given
       to your hosts when they add it. Remove the address on your invitation to withdraw it at
-      any time; after that we will not email it about this wedding, even if it is added again,
-      unless you add it back yourself.
+      any time, and we delete it. If your hosts added it, we will not email it about this
+      wedding after that, even if it is added again, unless you add it back yourself.
     </li>
     <li>
       <strong>The first-opened timestamp</strong> — so your hosts can tell a delivered
@@ -355,9 +355,10 @@ const ph = (value: string) => (isPlaceholder(value) ? 'placeholder' : undefined)
   <p>
     When you remove your email address, or replace one your hosts added, it comes off your guest
     record at once, though copies can remain in your hosts’ saved guest-list history until that
-    is deleted on the schedule above. We keep a fingerprint of the removed address, not the
-    address itself, so that we can recognise it and not email it again, and delete that with the
-    rest of the wedding’s guest information.
+    is deleted on the schedule above. For an address your hosts added, we keep a fingerprint of
+    it, not the address itself, so that we can recognise it and not email it again, and delete
+    that with the rest of the wedding’s guest information. An address you added yourself leaves
+    no fingerprint.
   </p>
 
   <Section>Your rights</Section>
