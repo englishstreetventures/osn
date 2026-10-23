@@ -81,8 +81,8 @@ CIRE_OIDC_CLIENT_ID = "cid_cire"
 ZAP_API_URL = "http://localhost:3002"
 # Internal back-channel organiser-session revoke endpoint
 # (POST /internal/revoke-organiser-sessions). osn-api presents this shared
-# secret as `Authorization: Bearer` on connection-revoke / account-delete so a
-# revoked OSN connection kills the cire organiser session promptly instead of
+# secret as `Authorization: Bearer` when an account signs out everywhere else or
+# revokes cire's connection, so the cire organiser session ends then instead of
 # waiting out its 7-day TTL. NEVER a committed var — locally put
 # CIRE_INTERNAL_REVOKE_SECRET in `.dev.vars` (gitignored); in a deployed tier use
 # `wrangler secret put CIRE_INTERNAL_REVOKE_SECRET`. Absent ⇒ the endpoint is

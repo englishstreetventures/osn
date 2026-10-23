@@ -27,6 +27,7 @@ import {
   generateEphemeralTotpEncryptionKey,
   importTotpEncryptionKey,
 } from "./lib/totp-secret-crypto";
+import { cireOrganiserRevokeConfig } from "./services/cire-organiser-revoke";
 
 export const SERVICE_NAME = "osn-api";
 
@@ -68,6 +69,11 @@ export type EnvVars = {
   // Read by the dev sign-in gate below. Unset ⇒ the routes are never mounted.
   readonly DEV_LOGIN_SECRET?: string;
   readonly DEV_LOGIN_RETURN_ORIGINS?: string;
+  // The back-channel to cire-api's organiser sessions. URL or secret unset ⇒
+  // sign out everywhere else and cire's connection revoke skip it, with a warning.
+  readonly CIRE_INTERNAL_REVOKE_URL?: string;
+  readonly CIRE_INTERNAL_REVOKE_SECRET?: string;
+  readonly CIRE_OIDC_CLIENT_ID?: string;
 };
 
 const isNonLocal = (env: EnvVars): boolean => !!env.OSN_ENV && env.OSN_ENV !== "local";
@@ -527,6 +533,10 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
             allowedReturnOrigins: parseDevLoginReturnOrigins(env.DEV_LOGIN_RETURN_ORIGINS),
           }
         : null,
+    // KEY-OPTIONAL in every tier: cire-api holds the same secret, and until
+    // both sides hold it the revoke is skipped (osn-api unset) or refused (cire
+    // unset), each logged. Never a reason to refuse the boot.
+    cireOrganiserRevoke: cireOrganiserRevokeConfig(env),
     // AOT and the observability plugin co-vary by runtime: both ON for Bun,
     // both OFF for workerd (AOT's `new Function` is forbidden there). The
     // `includeObservabilityPlugin` flag is the single Bun-vs-Workers

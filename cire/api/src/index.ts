@@ -99,9 +99,9 @@ export interface Env {
   CIRE_API_ARC_KEY_ID?: string;
   // Shared secret for the internal back-channel organiser-session revoke
   // endpoint (POST /internal/revoke-organiser-sessions). osn-api presents it as
-  // `Authorization: Bearer` on connection-revoke / account-delete so a revoked
-  // OSN connection kills the cire organiser session promptly instead of waiting
-  // out its 7-day TTL. A wrangler secret (`wrangler secret put
+  // `Authorization: Bearer` when an account signs out everywhere else or revokes
+  // cire's connection, so the cire organiser session ends then instead of
+  // waiting out its 7-day TTL. A wrangler secret (`wrangler secret put
   // CIRE_INTERNAL_REVOKE_SECRET`). Absent ⇒ the endpoint is disabled (503).
   CIRE_INTERNAL_REVOKE_SECRET?: string;
   // Optional — base URL of zap-api for the vendor enquiry c2b chat bridge.

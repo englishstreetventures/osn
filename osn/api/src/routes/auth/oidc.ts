@@ -34,6 +34,7 @@ import {
 } from "../../lib/oidc-binding-cookie";
 import { metricOidcAuthorize, metricOidcConsentGranted, metricOidcToken } from "../../metrics";
 import type { AuthorizeSession, OidcErrorCode } from "../../services/auth";
+import { isCireClient } from "../../services/cire-organiser-revoke";
 import type { AuthRouteContext } from "./context";
 import {
   oidcConnectionSummary,
@@ -167,6 +168,7 @@ const parseBasicAuth = (header: string | undefined): { id: string; secret: strin
 
 export function createOidcRoutes(ctx: AuthRouteContext) {
   const { auth, run, handleError, rateLimit, socketIpOf, rl, cookieConfig, authConfig } = ctx;
+  const { cireOrganiserRevoke, forkCireOrganiserRevoke } = ctx;
 
   /**
    * Where the browser goes when a request needs the user. Resolved once: a
@@ -798,8 +800,19 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
               set.status = 401;
               return { error: "unauthorized" };
             }
+            // Revoking cire's connection also ends the account's cire organiser
+            // sessions, in the background. Any other client's revoke, and a
+            // revoke that found nothing live, leaves cire alone.
             const { revoked } = await run(
-              auth.revokeOidcConsent(profile.accountId, params.clientId),
+              auth
+                .revokeOidcConsent(profile.accountId, params.clientId)
+                .pipe(
+                  Effect.tap(({ revoked: live }) =>
+                    live && isCireClient(cireOrganiserRevoke, params.clientId)
+                      ? forkCireOrganiserRevoke(profile.accountId, "connection_revoked")
+                      : Effect.void,
+                  ),
+                ),
             );
             if (!revoked) {
               set.status = 404;

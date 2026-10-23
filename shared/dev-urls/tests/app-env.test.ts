@@ -14,7 +14,7 @@ describe("buildDevEnv", () => {
     expect(buildDevEnv("@cire/host", {})).toEqual({});
   });
 
-  it("gives @osn/api its issuer, RP ID and both origin lists", () => {
+  it("gives @osn/api its issuer, RP ID, both origin lists and the S2S URLs", () => {
     expect(buildDevEnv("@osn/api", urlFor("@osn/api"))).toEqual({
       OSN_ISSUER_URL: "https://id.musubi.localhost",
       OSN_RP_ID: "musubi.localhost",
@@ -26,6 +26,8 @@ describe("buildDevEnv", () => {
         "https://musubi.localhost,https://host.cire.localhost,https://vendor.cire.localhost,https://invite.cire.localhost",
       PULSE_API_URL: "https://api.pulse.localhost",
       ZAP_API_URL: "https://zap.cire.localhost",
+      // Must equal what @cire/api is told is its own origin, below.
+      CIRE_INTERNAL_REVOKE_URL: "https://api.cire.localhost",
     });
   });
 

@@ -42,8 +42,16 @@ function withDefaultXff<App extends { handle: (request: Request) => unknown }>(a
 
 /** `createAuthRoutes` with XFF-trusting client-IP config + default-XFF patch. */
 export function createAuthRoutes(...args: Parameters<typeof createAuthRoutesRaw>) {
-  const [authConfig, dbLayer, loggerLayer, rateLimiters, cookieConfig, clientIpConfig, runtime] =
-    args;
+  const [
+    authConfig,
+    dbLayer,
+    loggerLayer,
+    rateLimiters,
+    cookieConfig,
+    clientIpConfig,
+    runtime,
+    ...rest
+  ] = args;
   return withDefaultXff(
     createAuthRoutesRaw(
       authConfig,
@@ -53,6 +61,7 @@ export function createAuthRoutes(...args: Parameters<typeof createAuthRoutesRaw>
       cookieConfig,
       clientIpConfig ?? { trustedProxyCount: 1 },
       runtime,
+      ...rest,
     ),
   );
 }

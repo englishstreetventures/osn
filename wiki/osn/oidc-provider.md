@@ -73,7 +73,7 @@ sequenceDiagram
 | `POST /authorize/decision` | The consent screen | Approve or refuse. Returns `{redirectTo}` as JSON, not a 302, so `fetch` does not follow it. Requires the binding cookie; `400 login_required` means "re-authenticate, then retry the same request id" |
 | `POST /oidc/token` | The client's server | Code for tokens. Exempt from the origin guard — there is no browser here |
 | `GET /oidc/connections` | The account owner (Bearer access token) | The apps this account has authorised: client id/name/logo, linked profile, scope, granted-at |
-| `DELETE /oidc/connections/:clientId` | The account owner (Bearer access token) | Withdraws the grant (Art. 7(3)) and deletes any authorization code in flight for the pair — revocation is immediate, not "after the 60 s code window drains". 404 when nothing is live |
+| `DELETE /oidc/connections/:clientId` | The account owner (Bearer access token) | Withdraws the grant (Art. 7(3)) and deletes any authorization code in flight for the pair — revocation is immediate, not "after the 60 s code window drains". 404 when nothing is live. When the client is cire's (`CIRE_OIDC_CLIENT_ID`), a live revoke also ends the account's cire organiser sessions in the background, as sign out everywhere else does ([[sessions#Sign out everywhere else reaches cire]]); no other client's revoke reaches cire |
 | `GET /.well-known/openid-configuration` | Anyone | Discovery |
 | `GET /.well-known/jwks.json` | Anyone | The ES256 public key, shared with access tokens |
 
