@@ -7,6 +7,7 @@ import {
   assertSiteBuiltFor,
   assertStackRetained,
   flattenMigrations,
+  planPrebuiltStage,
   readDevDomain,
   refuseDotEnvFiles,
   requireSecrets,
@@ -15,6 +16,7 @@ import {
   siteWorker,
   stackOptions,
   stageHosts,
+  writePrebuiltStage,
 } from "@shared/infra";
 import * as Alchemy from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
@@ -84,9 +86,10 @@ function writeSeed(path: string, sql: string): void {
 
 /**
  * The cire stack: cire-api with its database, buckets and seeds,
- * cire-invites from its prebuilt Astro output, and the host, vendor and
- * landing sites. Every value is read and checked, and each prebuilt site is
- * checked to be built for the stage's hosts, before anything is written or
+ * cire-invites from its prebuilt Astro output, staged with its source maps,
+ * and the host, vendor and landing sites. Every value is read and checked,
+ * each prebuilt site is checked to be built for the stage's hosts, and the
+ * guest site's staging is worked out, before anything is written or
  * declared, so a refused run writes nothing. Paths are relative to the
  * working directory, `cire/infra`. `workingDir` names that directory to the
  * checks: the `.env` files Bun would load from it are refused, and the site
@@ -113,11 +116,17 @@ export const cireStack = (input: {
     for (const site of declared.prebuilt) {
       assertSiteBuiltFor({ ...site, directory: join(input.workingDir, site.directory) });
     }
+    // Read and checked here, written below with the other generated files.
+    const invitesServer = planPrebuiltStage({
+      source: join(input.workingDir, declared.invitesServer.source),
+      main: declared.invitesServer.main,
+    });
     const apiSecrets = requireSecrets({ worker: "cire-api", stage, env });
     const invitesSecrets = requireSecrets({ worker: "cire-invites", stage, env });
 
     flattenMigrations({ source: CIRE_MIGRATIONS, target: declared.cireDb.migrations });
     if (ownerSeat !== null) writeSeed(declared.seeds.ownerSeat, ownerSeat);
+    writePrebuiltStage(invitesServer, declared.invitesServer.target);
 
     // Logical ids key the state rows, so they never change: a renamed id is a new resource.
     const db = yield* retainedD1("CireDb", declared.cireDb);

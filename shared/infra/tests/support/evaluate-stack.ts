@@ -7,7 +7,7 @@
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import * as BunServices from "@effect/platform-bun/BunServices";
 import * as Alchemy from "alchemy";
@@ -116,20 +116,27 @@ const cliServices = Layer.mergeAll(
 ).pipe(Layer.provideMerge(BunServices.layer));
 
 /**
- * Evaluates `stack` at `stage` with the site output `sites` and, in its
- * working directory, an empty file for each name in `workingDirFiles`. `fetch`
- * is replaced for the duration by one that records the URL and throws.
+ * Evaluates `stack` at `stage` with the site output `sites`, any further
+ * build output `files` (a path under the product's folder to its content)
+ * and, in its working directory, an empty file for each name in
+ * `workingDirFiles`. `fetch` is replaced for the duration by one that records
+ * the URL and throws.
  */
 export async function evaluateStack(input: {
   readonly stage: string;
   readonly stack: (directories: StackDirectories) => CompiledStackEffect;
   readonly sites: SiteFixtures;
+  readonly files?: Readonly<Record<string, string>>;
   readonly workingDirFiles?: readonly string[];
 }): Promise<Evaluation> {
   const root = mkdtempSync(join(tmpdir(), "stack-evaluation-"));
   roots.push(root);
   const directories = { generatedDir: join(root, ".generated"), workingDir: join(root, "infra") };
   writeSites(root, input.sites);
+  for (const [path, content] of Object.entries(input.files ?? {})) {
+    mkdirSync(dirname(join(root, path)), { recursive: true });
+    writeFileSync(join(root, path), content);
+  }
   if (input.workingDirFiles !== undefined && input.workingDirFiles.length > 0) {
     mkdirSync(directories.workingDir, { recursive: true });
     for (const name of input.workingDirFiles) writeFileSync(join(directories.workingDir, name), "");

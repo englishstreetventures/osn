@@ -1,6 +1,7 @@
 import type * as Cloudflare from "alchemy/Cloudflare";
 import { Data, type Redacted } from "effect";
 
+import { PREBUILT_MODULE_RULES } from "./prebuilt";
 import { SECRET_INVENTORY, tierSecrets, type WorkerKey } from "./secrets/inventory";
 import { tierOf, type Tier } from "./stage";
 
@@ -302,10 +303,11 @@ export function apiWorkerProps(input: ApiWorkerInput): Cloudflare.WorkerProps {
     },
     env: { ...input.vars, ...input.bindings, ...input.secrets },
   };
-  // A prebuilt Worker is uploaded as it is, so it takes no bundler options.
+  // A prebuilt Worker takes no bundler options; its module rules add the
+  // source maps `writePrebuiltStage()` writes beside its modules.
   const built: Cloudflare.WorkerProps = input.bundle
     ? { ...props, build: { input: { external: [...WORKER_BUNDLE_EXTERNAL] } } }
-    : props;
+    : { ...props, rules: PREBUILT_MODULE_RULES.map((rule) => ({ globs: [...rule.globs] })) };
   if (input.assets === null) return built;
   return {
     ...built,

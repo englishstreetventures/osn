@@ -2,6 +2,7 @@ export * from "./accounts";
 export * from "./declare";
 export * from "./hosts";
 export * from "./migrations";
+export * from "./prebuilt";
 export * from "./removal";
 export * from "./secrets/inventory";
 export * from "./secrets/require";

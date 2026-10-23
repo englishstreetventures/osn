@@ -323,6 +323,19 @@ describe("apiWorkerProps", () => {
     expect(apiWorkerProps({ ...cireApiDev, bundle: false })).not.toHaveProperty("build");
   });
 
+  test("B9: a prebuilt Worker uploads every module kind Alchemy's defaults do, plus the source maps staged beside them; a bundled one keeps its bundler's own output", () => {
+    // Spelled out rather than imported, so an Alchemy upgrade that changes its
+    // defaults fails here instead of changing what the guest Worker uploads.
+    expect(apiWorkerProps({ ...cireApiDev, bundle: false }).rules).toEqual([
+      { globs: ["**/*.js", "**/*.mjs"] },
+      { globs: ["**/*.wasm"] },
+      { globs: ["**/*.txt", "**/*.html", "**/*.sql"] },
+      { globs: ["**/*.bin"] },
+      { globs: ["**/*.map"] },
+    ]);
+    expect(apiWorkerProps(cireApiDev)).not.toHaveProperty("rules");
+  });
+
   test("B2: maps the assets config field for field, copying the routing rules", () => {
     const runWorkerFirst = ["/_server-islands/*", "!/_astro/*"];
     const props = apiWorkerProps({
