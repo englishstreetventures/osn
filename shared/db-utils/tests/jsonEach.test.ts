@@ -191,6 +191,22 @@ describe("insertManyViaJsonEach", () => {
       ]),
     ).toThrow(/not a column/);
   });
+
+  // The column map is a plain object, so these names resolve to members of
+  // `Object.prototype` on it. Each must still be refused as a non-column.
+  // `JSON.parse` is how a row carries `__proto__` as an own key; an object
+  // literal would set the prototype instead.
+  for (const key of ["constructor", "toString", "hasOwnProperty", "valueOf", "__proto__"]) {
+    it(`throws on a "${key}" key holding null, rather than naming a prototype member as a column`, () => {
+      const row = JSON.parse(`{"id":"a","label":"A","${key}":null}`) as never;
+      expect(() => insertManyViaJsonEach(guardTable, [row])).toThrow(/not a column/);
+    });
+
+    it(`throws on a "${key}" key holding a value, with the column refusal`, () => {
+      const row = JSON.parse(`{"id":"a","label":"A","${key}":"x"}`) as never;
+      expect(() => insertManyViaJsonEach(guardTable, [row])).toThrow(/not a column/);
+    });
+  }
 });
 
 // Three guards added after the security review of PR #856. None is reachable

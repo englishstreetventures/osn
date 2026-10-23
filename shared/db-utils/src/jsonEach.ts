@@ -65,10 +65,11 @@ export function jsonEachIn(values: readonly (string | number)[]): SQL {
  * entirely. Both silently. So the key sets are compared up front and a
  * mismatch throws.
  *
- * A key that isn't one of the table's columns throws rather than silently
- * dropping data; an empty `rows` also throws, since an empty INSERT is a
- * caller bug to fix at the call site (every site here already guards
- * `rows.length === 0` before reaching this point).
+ * A key that isn't one of the table's own columns throws rather than silently
+ * dropping data — `constructor`, `toString` and `__proto__` included, which
+ * name members of `Object.prototype`, not columns. An empty `rows` also
+ * throws, since an empty INSERT is a caller bug to fix at the call site (every
+ * site here already guards `rows.length === 0` before reaching this point).
  *
  * Two value types this cannot carry, both of which would write wrong data
  * rather than fail, so both throw:
@@ -105,7 +106,9 @@ export function insertManyViaJsonEach<TTable extends Table>(
   // a dictionary of `unknown`.
   const keys = Object.keys(rows[0]!) as (keyof InferInsertModel<TTable> & string)[];
   const columns: Column[] = keys.map((key) => {
-    const column: Column | undefined = allColumns[key];
+    // An own-property read: the column map is a plain object, so a bare index
+    // would hand back `Object.prototype` members for keys such as `constructor`.
+    const column: Column | undefined = Object.hasOwn(allColumns, key) ? allColumns[key] : undefined;
     if (!column) {
       throw new Error(`insertManyViaJsonEach: "${key}" is not a column of this table`);
     }
@@ -153,6 +156,9 @@ export function insertManyViaJsonEach<TTable extends Table>(
     }),
   );
 
+  // The only text spliced in raw: each column's schema `name` and its integer
+  // position. Row keys reach only the error messages above, and row values only
+  // the one bound JSON parameter.
   const columnList = sql.raw(columns.map((c) => `"${c.name}"`).join(", "));
   const selectList = sql.raw(
     columns.map((c, i) => `json_extract(value, '$[${i}]') AS "${c.name}"`).join(", "),
