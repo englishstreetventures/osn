@@ -57,7 +57,7 @@ describe("commitEffectWrites", () => {
       Effect.gen(function* () {
         const db = yield* SqliteDb;
         yield* db.run(sql`create table users (id text primary key)`);
-        yield* commitEffectWrites([
+        yield* commitEffectWrites(db, [
           db.insert(users).values({ id: "a" }),
           db.insert(users).values({ id: "a" }),
         ]);
@@ -87,7 +87,7 @@ describe("commitEffectWrites", () => {
     const exit = await rt.runPromiseExit(
       Effect.gen(function* () {
         const db = yield* D1Db;
-        yield* commitEffectWrites([
+        yield* commitEffectWrites(db, [
           db.insert(users).values({ id: "a" }),
           db.insert(users).values({ id: "a" }),
         ]);
@@ -98,13 +98,33 @@ describe("commitEffectWrites", () => {
     await rt.dispose();
   });
 
+  it("commits every write on D1 when all succeed", async () => {
+    const memory = new Database(":memory:");
+    const rt = ManagedRuntime.make(makeEffectD1Layer(D1Db, fakeD1(memory)));
+    await rt.runPromise(
+      Effect.gen(function* () {
+        const db = yield* D1Db;
+        yield* db.run(sql`create table users (id text primary key)`);
+        yield* commitEffectWrites(db, [
+          db.insert(users).values({ id: "a" }),
+          db.insert(users).values({ id: "b" }),
+        ]);
+      }),
+    );
+    expect(memory.query("select id from users order by id").all()).toEqual([
+      { id: "a" },
+      { id: "b" },
+    ]);
+    await rt.dispose();
+  });
+
   it("commits every write when all succeed", async () => {
     const rt = ManagedRuntime.make(makeEffectSqliteLayer(SqliteDb, ":memory:"));
     await rt.runPromise(
       Effect.gen(function* () {
         const db = yield* SqliteDb;
         yield* db.run(sql`create table users (id text primary key)`);
-        yield* commitEffectWrites([
+        yield* commitEffectWrites(db, [
           db.insert(users).values({ id: "a" }),
           db.insert(users).values({ id: "b" }),
         ]);
