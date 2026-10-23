@@ -226,7 +226,8 @@ page, its error table and "Rollbacks cannot cross a lifecycle change".
 
 #### Push off, class kept
 
-- **Production**, through Wrangler until phase P3 moves production to Alchemy.
+- **Production**, through Wrangler until the Alchemy rollout's P3 moves
+  production to Alchemy ([[infrastructure-as-code]]).
   Delete the `[[env.production.durable_objects.bindings]]` block and release.
   Keep the export, the `v1` migration and the top-level block, which only
   `wrangler dev` and the `build` dry run read. The class and its namespace
@@ -256,13 +257,14 @@ One change, which deletes the class on both tiers:
    `[[migrations]]` entry with a new tag and `deleted_classes = ["TopicHub"]`.
    Never edit `v1`. Wrangler 4.149 can send the declarative `exports` form
    instead, but a script that has used `exports` cannot go back to migrations,
-   so production stays on migrations until P3.
+   so production stays on migrations until the Alchemy rollout's P3.
 3. Change the tests that pin the hub: K10 in `cire/infra/tests/bundle.test.ts`
-   to an exact empty list (it is the only check before merge that sees a hosted
-   class change), K2's `durable_objects` reads,
+   to an exact empty list (it is the only check that pins the classes the dev
+   Worker hosts, whatever production binds), K2's `durable_objects` reads,
    `cire/api/tests/wrangler-config.test.ts`,
-   `cire/api/tests/workerd/entry.test.ts`, and the missing-binding log test in
-   `cire/api/tests/index.test.ts`.
+   `cire/api/tests/workerd/entry.test.ts`, and every test in
+   `cire/api/tests/index.test.ts` that passes an `env.REALTIME_HUB` or checks
+   its missing-binding log.
 4. Change the pages that describe the hub: [[realtime]], [[free-tier-limits]],
    [[dev-environment]], [[infrastructure-as-code]], [[subprocessors]] and
    [[data-map]].
