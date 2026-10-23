@@ -30,22 +30,77 @@ describe("createOriginGuard", () => {
     expect(result).toBeUndefined();
   });
 
-  it("allows POST to S2S graph/internal endpoints", () => {
-    const ctx = makeContext("POST", "http://localhost:4000/graph/internal/connections");
-    const result = guard(ctx);
-    expect(result).toBeUndefined();
+  it("exempts a service-secret POST under /graph/internal (Authorization: Bearer)", () => {
+    // Service registration from pulse-api and zap-api. They send no Origin,
+    // and pulse-api swallows a failed registration at boot, so nothing else
+    // would notice this exemption going away.
+    const ctx = makeContext(
+      "POST",
+      "http://localhost:4000/graph/internal/register-service",
+      undefined,
+      "Bearer shared-service-secret",
+    );
+    expect(guard(ctx)).toBeUndefined();
   });
 
-  it("allows POST to S2S /organisations/internal endpoints", () => {
-    const ctx = makeContext("POST", "http://localhost:4000/organisations/internal/members");
-    const result = guard(ctx);
-    expect(result).toBeUndefined();
-  });
-
-  it("allows POST to S2S /internal endpoints (step-up verify, app-enrollment)", () => {
+  // The internal prefixes skip the Origin check only for a request that
+  // carries credentials. A browser can attach a cookie cross-site but not an
+  // Authorization header, so a credential-less request there is checked like
+  // any other route.
+  it("checks Origin on a POST under /internal that carries no Authorization", () => {
     const ctx = makeContext("POST", "http://localhost:4000/internal/step-up/verify");
-    const result = guard(ctx);
-    expect(result).toBeUndefined();
+    const result = guard(ctx) as { error: string };
+    expect(ctx.set.status).toBe(403);
+    expect(result.error).toBe("forbidden");
+  });
+
+  it("checks Origin on a POST under /graph/internal that carries no Authorization", () => {
+    const ctx = makeContext("POST", "http://localhost:4000/graph/internal/profile-displays");
+    const result = guard(ctx) as { error: string };
+    expect(ctx.set.status).toBe(403);
+    expect(result.error).toBe("forbidden");
+  });
+
+  it("rejects a foreign Origin under /organisations/internal with no Authorization", () => {
+    const ctx = makeContext(
+      "POST",
+      "http://localhost:4000/organisations/internal/members",
+      "http://evil.com",
+    );
+    const result = guard(ctx) as { error: string };
+    expect(ctx.set.status).toBe(403);
+    expect(result.error).toBe("forbidden");
+  });
+
+  it("checks Origin on a DELETE under /graph/internal that carries no Authorization", () => {
+    const ctx = makeContext("DELETE", "http://localhost:4000/graph/internal/service-keys/k1");
+    const result = guard(ctx) as { error: string };
+    expect(ctx.set.status).toBe(403);
+    expect(result.error).toBe("forbidden");
+  });
+
+  it("checks Origin under /internal when Authorization uses another scheme", () => {
+    const ctx = makeContext(
+      "POST",
+      "http://localhost:4000/internal/step-up/verify",
+      undefined,
+      "Basic dXNlcjpwYXNz",
+    );
+    const result = guard(ctx) as { error: string };
+    expect(ctx.set.status).toBe(403);
+    expect(result.error).toBe("forbidden");
+  });
+
+  it("checks Origin on a Bearer POST outside the internal prefixes", () => {
+    const ctx = makeContext(
+      "POST",
+      "http://localhost:4000/login/otp/begin",
+      undefined,
+      "Bearer eyJhbGciOiJFUzI1NiJ9.payload.sig",
+    );
+    const result = guard(ctx) as { error: string };
+    expect(ctx.set.status).toBe(403);
+    expect(result.error).toBe("forbidden");
   });
 
   it("exempts any POST carrying an Authorization: ARC header, regardless of path", () => {

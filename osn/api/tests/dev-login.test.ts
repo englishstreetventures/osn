@@ -18,9 +18,9 @@ import { createTestLayerWithSqlite } from "./helpers/db";
  * portal, vendor portal, `@musubi/social`) runs untouched.
  *
  * It is gated twice and both gates must hold:
- *  - tier — `local` or `dev` only, derived from the request-scoped env record
- *    the same way `includeOpenapiPlugin` is, and failing closed on a tier
- *    string neither parser recognises;
+ *  - tier — `local` or `dev` only, named in the request-scoped env record's
+ *    `OSN_ENV`, and failing closed on an unset `OSN_ENV` or a tier string
+ *    neither parser recognises;
  *  - secret — `DEV_LOGIN_SECRET`, key-optional: unset ⇒ the routes are never
  *    mounted, so the surface is a 404 rather than a 401 that admits it exists.
  */
@@ -36,6 +36,9 @@ beforeAll(async () => {
 });
 
 const SECRET = "d".repeat(32);
+
+/** The local tier, named, with the secret bound — what the Bun devloop hands `buildAppDeps`. */
+const LOCAL = { OSN_ENV: "local", DEV_LOGIN_SECRET: SECRET };
 
 /**
  * `return_to` targets. Its own var — NOT the CORS allowlist, which also feeds
@@ -91,21 +94,30 @@ const devLogin = (secret: string, returnTo?: string) =>
 
 describe("dev-login gate", () => {
   it("derives the config from the env record, not process.env", async () => {
-    const local = await build({ DEV_LOGIN_SECRET: SECRET });
+    const local = await build(LOCAL);
     const prod = await build({ ...deployedEnv("production"), DEV_LOGIN_SECRET: SECRET });
     expect(local.deps.devLogin).not.toBeNull();
     expect(prod.deps.devLogin).toBeNull();
   });
 
   it("is absent when DEV_LOGIN_SECRET is unset, even on local", async () => {
-    const { deps, app } = await build({});
+    const { deps, app } = await build({ OSN_ENV: "local" });
     expect(deps.devLogin).toBeNull();
     const res = await app.handle(get("/dev/login"));
     expect(res.status).toBe(404);
   });
 
-  it("mounts on local (an absent OSN_ENV reads as local)", async () => {
-    const { app } = await build({ DEV_LOGIN_SECRET: SECRET });
+  it("is absent when OSN_ENV is unset, even with the secret bound", async () => {
+    // Every other gate reads an unset OSN_ENV as local. This one does not: a
+    // Worker that lost its tier var must not gain a passkey-less sign-in.
+    const { deps, app } = await build({ DEV_LOGIN_SECRET: SECRET });
+    expect(deps.devLogin).toBeNull();
+    const res = await app.handle(get(`/dev/login?secret=${SECRET}`));
+    expect(res.status).toBe(404);
+  });
+
+  it("mounts on local", async () => {
+    const { app } = await build(LOCAL);
     const res = await app.handle(get(`/dev/login?secret=${SECRET}`));
     expect(res.status).toBe(200);
   });
@@ -137,19 +149,19 @@ describe("dev-login gate", () => {
 
 describe("dev-login", () => {
   it("rejects a wrong secret with 401 and sets no cookie", async () => {
-    const { app } = await build({ DEV_LOGIN_SECRET: SECRET });
+    const { app } = await build(LOCAL);
     const res = await app.handle(get("/dev/login?secret=nope"));
     expect(res.status).toBe(401);
     expect(res.headers.get("set-cookie")).toBeNull();
   });
 
   it("rejects a missing secret with 401", async () => {
-    const { app } = await build({ DEV_LOGIN_SECRET: SECRET });
+    const { app } = await build(LOCAL);
     expect((await app.handle(get("/dev/login"))).status).toBe(401);
   });
 
   it("issues a session for the seeded dev principal", async () => {
-    const { app } = await build({ DEV_LOGIN_SECRET: SECRET });
+    const { app } = await build(LOCAL);
     const res = await app.handle(get(`/dev/login?secret=${SECRET}`));
     expect(res.status).toBe(200);
 
@@ -174,7 +186,7 @@ describe("dev-login", () => {
   it("provisions the principal exactly once across repeated calls", async () => {
     // `osn-db-dev` is never reset, so provisioning has to survive being run on
     // every sign-in and every deploy without piling up rows.
-    const { app, db } = await build({ DEV_LOGIN_SECRET: SECRET });
+    const { app, db } = await build(LOCAL);
     await app.handle(get(`/dev/login?secret=${SECRET}`));
     await app.handle(get(`/dev/login?secret=${SECRET}`));
 
@@ -187,7 +199,7 @@ describe("dev-login", () => {
     // Deliberately not `DEV_PRINCIPAL.profileId`: this string is a contract with
     // `cire/db/seed/data/wedding.ts`, and a test that reads the constant would
     // stay green through a rename that silently orphans the seeded wedding.
-    const { app } = await build({ DEV_LOGIN_SECRET: SECRET });
+    const { app } = await build(LOCAL);
     const body = (await (await app.handle(devLogin(SECRET))).json()) as {
       profile: { id: string; handle: string };
     };
@@ -196,7 +208,7 @@ describe("dev-login", () => {
   });
 
   it("provisions the organisation membership the organiser portal reads", async () => {
-    const { app, db } = await build({ DEV_LOGIN_SECRET: SECRET });
+    const { app, db } = await build(LOCAL);
     await app.handle(devLogin(SECRET));
 
     const [membership] = await db.select().from(organisationMembers);
@@ -214,7 +226,7 @@ describe("dev-login", () => {
   });
 
   it("sets both session cookies, and keeps the secret out of the Referer", async () => {
-    const { app } = await build({ DEV_LOGIN_SECRET: SECRET });
+    const { app } = await build(LOCAL);
     const res = await app.handle(devLogin(SECRET));
     const cookies = res.headers.getSetCookie();
     expect(cookies.some((c) => c.startsWith("osn_session="))).toBe(true);
@@ -236,7 +248,7 @@ describe("dev-login", () => {
     // The whole point of the bypass is that everything downstream runs
     // untouched — so the cookie has to be a real rotating session, not a
     // lookalike this route alone understands.
-    const { app } = await build({ DEV_LOGIN_SECRET: SECRET });
+    const { app } = await build(LOCAL);
     const cookie = (await app.handle(devLogin(SECRET))).headers
       .getSetCookie()
       .find((c) => c.startsWith("osn_session="))!
@@ -262,7 +274,7 @@ describe("dev-login", () => {
     // A squatted handle makes the `users` insert a no-op conflict, so the
     // profile is still missing after provisioning. Better a loud 500 than a
     // session for whoever holds the handle.
-    const { app, db } = await build({ DEV_LOGIN_SECRET: SECRET });
+    const { app, db } = await build(LOCAL);
     const now = new Date();
     db.insert(accounts)
       .values({
@@ -292,7 +304,7 @@ describe("dev-login", () => {
   });
 
   it("issues the same session over POST, behind the origin guard", async () => {
-    const { app } = await build({ DEV_LOGIN_SECRET: SECRET });
+    const { app } = await build(LOCAL);
     const res = await app.handle(post("/dev/login", { secret: SECRET }));
     expect(res.status).toBe(200);
     expect(res.headers.get("referrer-policy")).toBe("no-referrer");
@@ -308,7 +320,7 @@ describe("dev-login", () => {
     // 422 from the TypeBox body schema, not one of the declared responses —
     // the secret is `t.String()` there rather than optional, so a bodyless
     // caller never reaches the constant-time compare.
-    const { app, db } = await build({ DEV_LOGIN_SECRET: SECRET });
+    const { app, db } = await build(LOCAL);
     const res = await app.handle(post("/dev/login", {}));
     expect(res.status).toBe(422);
     expect(await db.select().from(users)).toHaveLength(0);
@@ -316,7 +328,7 @@ describe("dev-login", () => {
 
   it("redirects to an allowlisted return_to, carrying the cookie", async () => {
     const { app } = await build({
-      DEV_LOGIN_SECRET: SECRET,
+      ...LOCAL,
       DEV_LOGIN_RETURN_ORIGINS: RETURN_ORIGINS,
     });
     const target = "http://localhost:4322/dashboard";
@@ -340,7 +352,7 @@ describe("dev-login", () => {
   });
 
   it("refuses every return_to when DEV_LOGIN_RETURN_ORIGINS is unset", async () => {
-    const { app } = await build({ DEV_LOGIN_SECRET: SECRET });
+    const { app } = await build(LOCAL);
     const res = await app.handle(devLogin(SECRET, "http://localhost:4322/dashboard"));
     expect(res.status).toBe(400);
     expect(res.headers.get("location")).toBeNull();
@@ -348,7 +360,7 @@ describe("dev-login", () => {
 
   it("refuses a return_to outside DEV_LOGIN_RETURN_ORIGINS", async () => {
     const { app } = await build({
-      DEV_LOGIN_SECRET: SECRET,
+      ...LOCAL,
       DEV_LOGIN_RETURN_ORIGINS: RETURN_ORIGINS,
     });
     const res = await app.handle(devLogin(SECRET, "https://evil.test/x"));
@@ -358,7 +370,7 @@ describe("dev-login", () => {
 
   it("refuses the open-redirect shapes that look allowlisted", async () => {
     const { app } = await build({
-      DEV_LOGIN_SECRET: SECRET,
+      ...LOCAL,
       DEV_LOGIN_RETURN_ORIGINS: RETURN_ORIGINS,
     });
     const targets = [
@@ -383,7 +395,7 @@ describe("dev-login", () => {
 
   it("refuses a return_to before it authenticates, so a wrong secret redirects nowhere", async () => {
     const { app } = await build({
-      DEV_LOGIN_SECRET: SECRET,
+      ...LOCAL,
       DEV_LOGIN_RETURN_ORIGINS: RETURN_ORIGINS,
     });
     const res = await app.handle(devLogin("nope", "http://localhost:4322/dashboard"));

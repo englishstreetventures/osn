@@ -43,7 +43,7 @@ flowchart TD
   start([Auth failing]) --> rl{HTTP 429?}
   rl -- yes --> ratelimited[See &#91;&#91;rate-limit-incident&#93;&#93;]
   rl -- no --> origin{Origin header rejected?<br/>origin guard}
-  origin -- yes --> originfix[Allowlist the calling origin<br/>or check the cookie path]
+  origin -- yes --> originfix[Allowlist the calling origin<br/>or check the cookie path.<br/>A service call to an internal route<br/>must send Authorization ARC or Bearer]
   origin -- no --> flow{Which flow?}
   flow -- "/login/passkey" --> passkey[Step 1: Passkey checks]
   flow -- "/login/recovery" --> recovery[Step 2: Recovery checks]

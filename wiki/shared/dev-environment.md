@@ -655,7 +655,11 @@ Two gates, both fail-closed, both in `buildAppDeps` (`osn/api/src/build-deps.ts`
 of the docs gate above, so a later change to how docs are gated cannot quietly
 widen a credential bypass):
 
-- tier is `local` or `dev` — a typo'd `OSN_ENV` leaves it **off**;
+- tier is `local` or `dev`, named in `OSN_ENV` — a typo'd **or unset** `OSN_ENV`
+  leaves it **off**, though every other gate reads unset as `local`. `bun run dev`
+  names `local` itself when `OSN_ENV` is unset (`osn/api/src/local.ts`, started
+  with `--devloop`); `bun run start` does not; `wrangler dev` and the E2E stack
+  set `local`, and the musubi stack sets `dev`;
 - `DEV_LOGIN_SECRET` is set.
 
 Fail either and the routes are **never mounted**, so the path answers 404 rather

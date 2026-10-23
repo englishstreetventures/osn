@@ -105,11 +105,15 @@ const servesOpenapiDocs = (env: EnvVars): boolean =>
  * gates happen to cover the same tiers today, and a later change to what the
  * docs gate allows must not quietly widen a credential bypass. Anything not on
  * this list — a typo, a new tier name, `staging`, `production` — is off.
- * `undefined` is the documented local default (see `isNonLocal`). See
+ *
+ * An unset `OSN_ENV` is off too, although `isNonLocal` reads it as local: a
+ * Worker that lost its tier var must not gain a passkey-less sign-in. The Bun
+ * devloop names `local` for itself (`src/local.ts`, `--devloop`). See
  * `routes/auth/dev-login.ts` for why the route exists at all.
  */
-const DEV_LOGIN_TIERS = new Set<string | undefined>([undefined, "local", "dev", "development"]);
-const servesDevLogin = (env: EnvVars): boolean => DEV_LOGIN_TIERS.has(env.OSN_ENV);
+const DEV_LOGIN_TIERS = new Set<string>(["local", "dev", "development"]);
+const servesDevLogin = (env: EnvVars): boolean =>
+  env.OSN_ENV !== undefined && DEV_LOGIN_TIERS.has(env.OSN_ENV);
 
 /**
  * `DEV_LOGIN_RETURN_ORIGINS` — comma-separated origins a dev-login `return_to`
@@ -139,7 +143,7 @@ export async function loadJwtKeyPair(env: EnvVars) {
   const rawPriv = env.OSN_JWT_PRIVATE_KEY;
   const rawPub = env.OSN_JWT_PUBLIC_KEY;
 
-  // S-H2: use OSN_ENV (the project's canonical env discriminator) rather than
+  // Use OSN_ENV (the project's canonical env discriminator) rather than
   // NODE_ENV. A staging deploy with NODE_ENV=development would silently fall
   // through to an ephemeral key pair and issue tokens that can't survive restarts.
   if (isNonLocal(env) && (!rawPriv || !rawPub)) {
@@ -153,7 +157,7 @@ export async function loadJwtKeyPair(env: EnvVars) {
     // as an ES256 JWK, so the base64 payload goes in unparsed — the shape check
     // belongs to the importer, not to this loader.
     const privateKey = await importKeyFromJwk(atob(rawPriv));
-    // S-M4: a JWK without the private scalar (e.g. the PUBLIC key pasted into
+    // A JWK without the private scalar (e.g. the PUBLIC key pasted into
     // the private slot) imports fine but with verify-only usages — every token
     // mint would then fail at request time. Catch the misconfiguration at boot.
     if (!privateKey.usages.includes("sign")) {
@@ -175,7 +179,7 @@ export async function loadJwtKeyPair(env: EnvVars) {
 }
 
 // ---------------------------------------------------------------------------
-// Client-IP trust policy (S-M34)
+// Client-IP trust policy
 //
 // Controls how the rate limiter (and session-IP persistence) derives the
 // caller's keying IP. `x-forwarded-for` is only trusted when this service
@@ -219,7 +223,7 @@ export interface BuiltDeps {
  * Bun and Workers entries) and hands to {@link buildAppDeps}:
  *
  * - `redisClient` — Bun: ioredis-or-memory via `initRedisClient`; Workers:
- *   Upstash-or-memory via `initRedisClientFromEnv` (env-gated by S-L1 there).
+ *   Upstash-or-memory via `initRedisClientFromEnv` (env-gated there).
  * - `dbAndEmailLayer` — Bun: `DbLive` (bun:sqlite) merged with the email layer;
  *   Workers: `makeDbD1Live(env.DB)` merged with the email layer.
  * - `observabilityLayer` — Bun: the full `initObservability()` layer (OTel SDK);
@@ -232,7 +236,7 @@ export interface BuildParts {
   observabilityLayer: Layer.Layer<never>;
   includeObservabilityPlugin: boolean;
   /**
-   * Client-IP trust policy selector (Part 1 / S-M34). When `true`, per-IP
+   * Client-IP trust policy selector. When `true`, per-IP
    * keying trusts Cloudflare's `cf-connecting-ip` header EXCLUSIVELY (never
    * falls back to the spoofable `x-forwarded-for`). The Workers entry sets this
    * for non-local tiers (osn-api runs behind Cloudflare on id.musubi.social);
@@ -283,7 +287,7 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
 
   const envNonLocal = isNonLocal(env);
 
-  // S-M2: Session IP pepper is the HMAC key used to turn issuing IPs into
+  // Session IP pepper is the HMAC key used to turn issuing IPs into
   // rainbow-table-resistant hashes on the `sessions.ip_hash` column. Fail
   // loudly if it's missing in a non-local deployment.
   const sessionIpPepper = env.OSN_SESSION_IP_PEPPER;
@@ -298,7 +302,7 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
   // only ever applies to local dev (Bun :4000 / `wrangler dev` :8787).
   const issuerUrl = env.OSN_ISSUER_URL || "http://localhost:4000";
 
-  // S-L5: mirror the CORS boot assertion (`assertCorsOriginsConfigured`) for
+  // Mirror the CORS boot assertion (`assertCorsOriginsConfigured`) for
   // the WebAuthn origin. A non-local deploy that forgets OSN_ORIGIN would
   // otherwise silently fall back to the localhost dev origin below and every
   // real passkey ceremony would fail closed — login broken, no boot-time
@@ -391,11 +395,11 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
     authorizeUiUrl: env.OSN_AUTHORIZE_UI_URL,
   };
 
-  // S-H1: cluster-safe single-use guard for step-up JWTs.
+  // Cluster-safe single-use guard for step-up JWTs.
   const stepUpJtiStore = createRedisJtiStore(redisClient);
 
-  // S-H1 (session): cluster-safe record of rotated-out session hashes so C2
-  // reuse detection works across isolates/pods. S-M1 — `sanitizeCause` strips
+  // Cluster-safe record of rotated-out session hashes so session-reuse
+  // detection works across isolates/pods. `sanitizeCause` strips
   // any credentialed URL the client may embed in connection-level errors.
   const rotatedSessionStore = createRedisRotatedSessionStore(redisClient, {
     onError: (action, cause) => {
@@ -444,7 +448,7 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
   const profileRateLimiters = createRedisProfileRateLimiters(redisClient);
   const recommendationRateLimiters = createRedisRecommendationRateLimiters(redisClient);
 
-  // Client-IP trust policy (Part 1 / S-M34). Behind Cloudflare (the non-local
+  // Client-IP trust policy. Behind Cloudflare (the non-local
   // Workers runtime — osn-api serves id.musubi.social), trust
   // `cf-connecting-ip` EXCLUSIVELY: `getClientIp({ trustCloudflare: true })`
   // never falls back to the spoofable `x-forwarded-for`, closing the per-IP
@@ -461,7 +465,7 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
     ? ({ trustCloudflare: true } as const)
     : ({ trustedProxyCount } as const);
 
-  // C3: Cookie session config — Secure flag + __Host- prefix in non-local envs.
+  // Cookie session config — Secure flag + __Host- prefix in non-local envs.
   // `OSN_COOKIE_DOMAIN` widens ONLY the JS-readable session marker (never the
   // session cookie itself) to the registrable domain, so an app on
   // `musubi.social` can see the marker set by `id.musubi.social`.
@@ -475,11 +479,11 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
   // restart the full observability layer (and, on Bun, reopen the bun:sqlite
   // connection) every call. A single shared runtime collapses that to a
   // one-time boot cost. On Workers this runtime is cached per isolate, not per
-  // request (P-I3).
+  // request.
   const appRuntime = ManagedRuntime.make(Layer.merge(dbAndEmailLayer, observabilityLayer));
 
-  // S-L1: Restrict CORS to the known app origin. The fail-closed invariant
-  // (S-L4) lives in `./lib/cors-config`. `cookieConfig.secure` is the single
+  // Restrict CORS to the known app origin. The fail-closed invariant
+  // lives in `./lib/cors-config`. `cookieConfig.secure` is the single
   // non-local predicate — a deploy that forgets both `OSN_ENV` and
   // `OSN_CORS_ORIGIN` still fails closed at `assertCorsOriginsConfigured`.
   const corsOrigins = resolveCorsOrigins(env, cookieConfig.secure);
