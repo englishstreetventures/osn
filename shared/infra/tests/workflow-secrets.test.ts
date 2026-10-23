@@ -144,10 +144,12 @@ describe("W3: no install or build step holds a secret", () => {
   });
 });
 
-describe("DV1: the musubi deploy step holds no cire secret; the cire_seed step alone does", () => {
+describe("DV1: the musubi deploy step holds none of cire's seed secrets; the cire_seed step alone does", () => {
   // osn-api's seed needs only a hash of cire's OIDC client secret and the
   // public half of cire-api's ARC key. The step that runs Alchemy, and every
-  // dependency it loads, never holds either secret.
+  // dependency it loads, never holds either secret. A value osn-api and
+  // cire-api share (SHARED_SECRET_VALUES) is osn-api's own secret as well, so
+  // W3 above gives it to this step.
   const CIRE_SEED_SECRETS = [
     "CIRE_API_ARC_KEY_ID",
     "CIRE_API_ARC_PRIVATE_KEY",

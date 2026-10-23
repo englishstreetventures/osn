@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { Elysia, t } from "elysia";
 
 import { resolveAccessTokenPrincipal } from "../../lib/auth-derive";
@@ -7,6 +8,7 @@ import { errorResponse, sessionSummary } from "./response-schemas";
 
 export function createSessionRoutes(ctx: AuthRouteContext) {
   const { auth, run, handleError, rateLimit, socketIpOf, rl, cookieConfig } = ctx;
+  const { forkCireOrganiserRevoke } = ctx;
   return (
     new Elysia()
       // -------------------------------------------------------------------------
@@ -147,7 +149,16 @@ export function createSessionRoutes(ctx: AuthRouteContext) {
               return { error: "invalid_request", message: "No current session" };
             }
             const currentHash = auth.hashSessionToken(cookieToken);
-            await run(auth.revokeAllOtherAccountSessions(profile.accountId, currentHash));
+            // Once the OSN sessions are gone, the account's cire organiser
+            // sessions go too, in the background: the response never waits for
+            // cire-api.
+            await run(
+              auth
+                .revokeAllOtherAccountSessions(profile.accountId, currentHash)
+                .pipe(
+                  Effect.andThen(forkCireOrganiserRevoke(profile.accountId, "sign_out_everywhere")),
+                ),
+            );
             return { success: true };
           } catch (e) {
             const { status, body: errBody } = handleError(e);

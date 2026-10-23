@@ -63,8 +63,11 @@ export const SECRET_INVENTORY: readonly WorkerSecrets[] = [
           "UPSTASH_REDIS_REST_TOKEN",
           "UPSTASH_REDIS_REST_URL",
         ],
-        // Set only while a TOTP key rotation drains (osn/api/wrangler.toml secrets block).
-        optional: ["OSN_TOTP_ENCRYPTION_KEY_PREVIOUS"],
+        // CIRE_INTERNAL_REVOKE_SECRET: the bearer for cire-api's organiser-session
+        // revoke, held by both Workers (SHARED_SECRET_VALUES); unset, the revoke is
+        // skipped. OSN_TOTP_ENCRYPTION_KEY_PREVIOUS: set only while a TOTP key
+        // rotation drains (osn/api/wrangler.toml secrets block).
+        optional: ["CIRE_INTERNAL_REVOKE_SECRET", "OSN_TOTP_ENCRYPTION_KEY_PREVIOUS"],
         forbidden: ["RESEND_API_URL"],
       },
       production: {
@@ -81,7 +84,7 @@ export const SECRET_INVENTORY: readonly WorkerSecrets[] = [
           "UPSTASH_REDIS_REST_TOKEN",
           "UPSTASH_REDIS_REST_URL",
         ],
-        optional: ["OSN_TOTP_ENCRYPTION_KEY_PREVIOUS"],
+        optional: ["CIRE_INTERNAL_REVOKE_SECRET", "OSN_TOTP_ENCRYPTION_KEY_PREVIOUS"],
         forbidden: ["DEV_LOGIN_SECRET", "RESEND_API_URL"],
       },
     },
@@ -100,9 +103,12 @@ export const SECRET_INVENTORY: readonly WorkerSecrets[] = [
           "STRIPE_SECRET_KEY",
           "STRIPE_WEBHOOK_SECRET",
         ],
-        // Weddings kept off the household member step; unset, every household
-        // gets it (cire/api/wrangler.toml, top-level vars note).
-        optional: ["CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS"],
+        // CIRE_INTERNAL_REVOKE_SECRET: what osn-api must present to end organiser
+        // sessions; unset, that route answers 503.
+        // CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS: weddings kept off the household
+        // member step; unset, every household gets the step (cire/api/wrangler.toml,
+        // top-level vars note).
+        optional: ["CIRE_INTERNAL_REVOKE_SECRET", "CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS"],
         forbidden: ["RESEND_API_URL"],
         // osn-api's dev origin, derived from the dev domain; a secret on production.
         plainVars: ["OSN_API_URL"],
@@ -116,7 +122,7 @@ export const SECRET_INVENTORY: readonly WorkerSecrets[] = [
           "GROWTHBOOK_CLIENT_KEY",
           "OSN_API_URL",
         ],
-        optional: ["CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS"],
+        optional: ["CIRE_INTERNAL_REVOKE_SECRET", "CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS"],
         forbidden: ["RESEND_API_URL"],
       },
     },
@@ -165,6 +171,10 @@ export const SHARED_SECRET_VALUES: readonly {
   // zap-api registers its ARC key at osn-api with this value, so both must hold the same one.
   { tier: "dev", name: "INTERNAL_SERVICE_SECRET", workers: ["osn-api", "zap-api"] },
   { tier: "production", name: "INTERNAL_SERVICE_SECRET", workers: ["osn-api", "zap-api"] },
+  // osn-api presents this value to cire-api's organiser-session revoke, which
+  // compares it with its own: one value on both, or every revoke is refused.
+  { tier: "dev", name: "CIRE_INTERNAL_REVOKE_SECRET", workers: ["cire-api", "osn-api"] },
+  { tier: "production", name: "CIRE_INTERNAL_REVOKE_SECRET", workers: ["cire-api", "osn-api"] },
 ];
 
 /**

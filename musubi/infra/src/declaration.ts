@@ -125,6 +125,11 @@ export function musubiDeclaration(input: {
         // verified before a deploy (englishstreetventures/osn#1548). Dev shares the address
         // production moves to, by the owner's choice on that issue.
         OSN_EMAIL_FROM: "Musubi <hello@musubi.social>", // not a host: the sender
+        // Sign out everywhere else, and revoking cire's connection, end the account's
+        // cire organiser sessions through cire-api. Both equal cire-api's own
+        // CIRE_API_ORIGIN and CIRE_OIDC_CLIENT_ID (cire/infra/tests/cross-stack.test.ts).
+        CIRE_INTERNAL_REVOKE_URL: origin(hosts.cireApi),
+        CIRE_OIDC_CLIENT_ID: "cid_cire",
       },
       bindings: {
         DB: { kind: "d1" },

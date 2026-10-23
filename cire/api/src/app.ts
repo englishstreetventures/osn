@@ -511,7 +511,8 @@ export interface AppOptions {
   /**
    * Shared secret for the internal back-channel organiser-session revoke
    * endpoint (`POST /internal/revoke-organiser-sessions`). osn-api presents it
-   * as `Authorization: Bearer` on connection-revoke / account-delete. Absent ⇒
+   * as `Authorization: Bearer` when an account signs out everywhere else or
+   * revokes cire's connection. Absent ⇒
    * the endpoint is DISABLED (503). Built from `CIRE_INTERNAL_REVOKE_SECRET` in
    * `index.ts`; tests inject a literal.
    */
@@ -986,8 +987,9 @@ export function createApp(db: Db, options: AppOptions = {}) {
           siteOrigins: { invites: webOrigin, host: organiserOrigin, vendor: vendorPortalOrigin },
         }),
       )
-      // Internal back-channel organiser-session revocation (osn-api → cire on
-      // connection-revoke / account-delete). Mounted BEFORE the origin guard for
+      // Internal back-channel organiser-session revocation (osn-api → cire when
+      // an account signs out everywhere else or revokes cire's connection).
+      // Mounted BEFORE the origin guard for
       // the same reason as the CSP collector: it is a server-to-server POST with
       // no browser `Origin`, so the CSRF guard would 403 it. It is authenticated
       // by a shared bearer secret (constant-time compared), not by Origin, and

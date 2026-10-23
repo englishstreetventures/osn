@@ -84,6 +84,7 @@ export const OSN_METRICS = {
   authCeremonyStoreOps: "osn.auth.ceremony_store.operations",
   authCeremonyStoreEntries: "osn.auth.ceremony_store.entries",
   authSessionSecurityInvalidation: "osn.auth.session.security_invalidation",
+  authCireSessionRevocations: "osn.auth.cire_session.revocations",
   authRecoveryLockout: "osn.auth.recovery.lockout",
   authRecoveryEmailBegin: "osn.auth.recovery.email_begin",
   authRecoveryCooldown: "osn.auth.recovery.cooldown",
@@ -576,6 +577,34 @@ export const metricSessionFamilyRevoked = (): void => authSessionFamilyRevoked.i
 
 export const metricSessionSecurityInvalidation = (trigger: SecurityInvalidationTrigger): void =>
   authSessionSecurityInvalidation.inc({ trigger });
+
+// ---------------------------------------------------------------------------
+// cire organiser-session revocation (back-channel to cire-api)
+// ---------------------------------------------------------------------------
+
+/** What made osn-api end the account's cire organiser sessions. */
+export type CireSessionRevokeTrigger = "sign_out_everywhere" | "connection_revoked";
+/**
+ * One request's outcome: `ok` (cire answered 2xx), `rejected` (any other
+ * status), `timeout`, `error` (unreachable, or the profile lookup failed), or
+ * `unconfigured` (URL or secret unset, so nothing was sent).
+ */
+export type CireSessionRevokeResult = "ok" | "rejected" | "timeout" | "error" | "unconfigured";
+type CireSessionRevokeAttrs = {
+  trigger: CireSessionRevokeTrigger;
+  result: CireSessionRevokeResult;
+};
+
+const authCireSessionRevocations = createCounter<CireSessionRevokeAttrs>({
+  name: OSN_METRICS.authCireSessionRevocations,
+  description: "Requests asking cire-api to end an OSN profile's organiser sessions",
+  unit: "{request}",
+});
+
+export const metricCireSessionRevocation = (
+  trigger: CireSessionRevokeTrigger,
+  result: CireSessionRevokeResult,
+): void => authCireSessionRevocations.inc({ trigger, result });
 
 // ---------------------------------------------------------------------------
 // Rotated-session store (S-H1: cluster-safe C2 reuse detection)

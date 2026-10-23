@@ -19,6 +19,10 @@ import { Elysia } from "elysia";
 import type { CookieSessionConfig } from "../../lib/cookie-session";
 import type { AppRuntime } from "../../lib/route-runtime";
 import type { AuthConfig } from "../../services/auth";
+import {
+  DISABLED_CIRE_ORGANISER_REVOKE,
+  type CireOrganiserRevokeConfig,
+} from "../../services/cire-organiser-revoke";
 import { createAuthRouteContext } from "./context";
 import { createCrossDeviceRoutes } from "./cross-device";
 import { createDevLoginRoutes, type DevLoginConfig } from "./dev-login";
@@ -118,6 +122,14 @@ export function createAuthRoutes(
    *    on a constant-time secret match. See `./dev-login`.
    */
   devLogin: DevLoginConfig | null = null,
+  /**
+   * The back-channel to cire-api's organiser sessions. Sign out everywhere
+   * else, and revoking the connection whose client id is `clientId`, ask
+   * cire-api to end every organiser session of the account's profiles.
+   * Omitted ⇒ nothing is cire's and every such request is skipped with a
+   * warning. See `services/cire-organiser-revoke`.
+   */
+  cireOrganiserRevoke: CireOrganiserRevokeConfig = DISABLED_CIRE_ORGANISER_REVOKE,
 ) {
   const ctx = createAuthRouteContext({
     authConfig,
@@ -128,6 +140,7 @@ export function createAuthRoutes(
     clientIpConfig,
     runtime,
     turnstileVerifier,
+    cireOrganiserRevoke,
   });
 
   // An empty plugin when `devLogin` is null: the group's paths are then never
