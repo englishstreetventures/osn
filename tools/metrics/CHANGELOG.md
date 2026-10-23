@@ -1,5 +1,11 @@
 # @tools/metrics
 
+## 0.2.30
+
+### Patch Changes
+
+- f7b62e4: The spend-against-complexity chart widens its axis to the largest declared value and labels every value plotted, since a card that closes several issues declares the sum of their ratings.
+
 ## 0.2.29
 
 ### Patch Changes
