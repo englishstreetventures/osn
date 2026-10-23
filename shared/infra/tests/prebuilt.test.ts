@@ -8,6 +8,7 @@ import { Effect } from "effect";
 import { describe, expect, test } from "vitest";
 
 import {
+  moduleExtensions,
   planPrebuiltStage,
   PREBUILT_MODULE_RULES,
   PrebuiltSourceMapError,
@@ -169,7 +170,27 @@ describe("planPrebuiltStage and writePrebuiltStage", () => {
     expect(mapAt(target, "chunks/a.mjs.map").sources).toEqual(["src/a.ts", "./x.ts"]);
   });
 
-  test("refuses a target that overlaps the source, which emptying it would delete", () => {
+  test("ST-l: refuses a prebuilt directory that does not exist", () => {
+    expect(() =>
+      planPrebuiltStage({ source: join(tmpdir(), "no-such-build", "server"), main: "entry.mjs" }),
+    ).toThrow(PrebuiltWorkerError);
+  });
+
+  test("ST-m: refuses, naming the module, a source map that does not parse or lists no sources", () => {
+    for (const text of ["{", JSON.stringify({ version: 3, mappings: "" })]) {
+      const { source } = fixture({ ...FILES, "chunks/a.mjs.map": text });
+      const error = thrown(() => planPrebuiltStage({ source, main: "entry.mjs" }));
+      expect(error).toBeInstanceOf(PrebuiltSourceMapError);
+      expect(error).toMatchObject({ module: "chunks/a.mjs" });
+    }
+  });
+
+  test("ST-n: refuses module rules it cannot read as file extensions", () => {
+    expect(moduleExtensions([{ globs: ["**/*.js", "**/*.mjs"] }], "dist")).toEqual([".js", ".mjs"]);
+    expect(() => moduleExtensions([{ globs: ["src/**"] }], "dist")).toThrow(PrebuiltWorkerError);
+  });
+
+  test("ST-k: refuses a target that overlaps the source, which emptying it would delete", () => {
     const { source } = fixture();
     const stage = planPrebuiltStage({ source, main: "entry.mjs" });
     expect(() => writePrebuiltStage(stage, join(source, "staged"))).toThrow(PrebuiltWorkerError);

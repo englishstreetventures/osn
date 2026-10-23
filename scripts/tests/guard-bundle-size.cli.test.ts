@@ -233,6 +233,44 @@ test("refuses an upload whose modules and source maps together gzip past Workers
   });
 });
 
+test("passes an upload of exactly Workers Free's 3 MiB and refuses one byte more", async () => {
+  await withFixture(["fixture-app/pkg worker 999999999"], async ({ pkgDir, root, budgetsFile }) => {
+    const server = join(pkgDir, "dist/server");
+    await mkdir(server, { recursive: true });
+    const entryPath = join(server, "entry.mjs");
+    const mapPath = join(server, "entry.mjs.map");
+    const fillerPath = join(server, "filler.bin");
+    await writeFile(entryPath, "export default 1;\n");
+    await writeFile(mapPath, sourceMapJson("entry.mjs", 3_900_000));
+    const fixed = (await gzipSize(entryPath)) + (await gzipSize(mapPath));
+    const noise = crypto.getRandomValues(new Uint8Array(400_000));
+    // Random bytes gzip to their own length plus a fixed overhead, so the
+    // filler's length is adjusted until the upload lands on the byte asked for.
+    const landOn = async (total: number): Promise<number> => {
+      let length = total - fixed - 40;
+      for (let tries = 0; tries < 20; tries++) {
+        // eslint-disable-next-line no-await-in-loop
+        await writeFile(fillerPath, noise.subarray(0, length));
+        // eslint-disable-next-line no-await-in-loop
+        const reached = fixed + (await gzipSize(fillerPath));
+        if (reached === total) return reached;
+        length += total - reached;
+      }
+      throw new Error(`no filler length gives an upload of ${total} bytes`);
+    };
+
+    expect(await landOn(3_145_728)).toBe(3_145_728);
+    const at = await runCli(budgetsFile, root, pkgDir);
+    expect(at.stdout).not.toContain("::error::");
+    expect(at.exitCode).toBe(0);
+
+    expect(await landOn(3_145_729)).toBe(3_145_729);
+    const past = await runCli(budgetsFile, root, pkgDir);
+    expect(past.stdout).toContain("Workers Free");
+    expect(past.exitCode).toBe(1);
+  });
+});
+
 test("exits non-zero when dist/client holds a source map", async () => {
   await withFixture(["fixture-app/pkg worker 999999999"], async ({ pkgDir, root, budgetsFile }) => {
     await mkdir(join(pkgDir, "dist/server"), { recursive: true });

@@ -64,14 +64,18 @@ import { dirname, join, relative, sep } from "node:path";
 
 import { judge } from "./smoke-check";
 
-const ROOT = join(import.meta.dir, "..");
-const INVITES = join(ROOT, "cire", "invites");
-const DIST = join(INVITES, "dist");
-const SERVER = join(DIST, "server");
-const CLIENT = join(DIST, "client");
-const PAGES = join(INVITES, "src", "pages");
-const PUBLIC = join(INVITES, "public");
-const WRANGLER = join(INVITES, "node_modules", ".bin", "wrangler");
+/** Where a run finds the guest site under a repository root. */
+const pathsUnder = (root: string) => {
+  const invites = join(root, "cire", "invites");
+  return {
+    invites,
+    server: join(invites, "dist", "server"),
+    client: join(invites, "dist", "client"),
+    pages: join(invites, "src", "pages"),
+    public: join(invites, "public"),
+    wrangler: join(invites, "node_modules", ".bin", "wrangler"),
+  };
+};
 
 /** The wedding `cire/db/seed/dev-seed.sql` seeds on every tier but production, and its invitation's hero title. */
 export const GUEST_SEED = { slug: "cire-wedding", heroTitle: "Ada & Kit" } as const;
@@ -547,14 +551,28 @@ export function referenceEnv(env: Readonly<Record<string, string | undefined>>):
 
 // ── the run ────────────────────────────────────────────────────────────────
 
-/** The run's whole budget, under the five minutes the workflow step allows. */
-const DEADLINE_MS = 240_000;
+/** What a run reads and how long it may take. */
+export interface RunContext {
+  /** The repository root: the build, its pages and wrangler are found under it. */
+  readonly root: string;
+  /** The run's whole budget. */
+  readonly deadlineMs: number;
+  /** How long `wrangler dev` has to serve the build. */
+  readonly readyMs: number;
+}
+
+/** This repository, and a budget under the five minutes the workflow step allows. */
+export const RUN_CONTEXT: RunContext = {
+  root: join(import.meta.dir, ".."),
+  deadlineMs: 240_000,
+  readyMs: 60_000,
+};
+
 const REQUEST_MS = 15_000;
-const READY_MS = 60_000;
 
 class UsageError extends Error {}
 
-interface Options {
+export interface Options {
   readonly origin: string;
   readonly access: Readonly<Record<string, string>>;
   readonly out: string;
@@ -565,6 +583,7 @@ const LOOPBACK = new Set(["127.0.0.1", "localhost", "[::1]"]);
 function parse(
   args: readonly string[],
   env: Readonly<Record<string, string | undefined>>,
+  root: string,
 ): Options {
   const at = args.indexOf("--out");
   const out = at === -1 ? undefined : args[at + 1];
@@ -592,7 +611,8 @@ function parse(
       "Set CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET together, or neither.",
     );
   }
-  if (!existsSync(join(SERVER, "wrangler.json")) || !existsSync(CLIENT)) {
+  const paths = pathsUnder(root);
+  if (!existsSync(join(paths.server, "wrangler.json")) || !existsSync(paths.client)) {
     throw new UsageError(
       "cire/invites/dist holds no build with its generated dist/server/wrangler.json; build cire/invites first.",
     );
@@ -699,16 +719,20 @@ async function settle(
 }
 
 /** `wrangler dev` of the build's generated config, started and answering, or a refusal. */
-async function startReference(deadline: number): Promise<Reference | { readonly failure: string }> {
+async function startReference(
+  context: RunContext,
+  deadline: number,
+): Promise<Reference | { readonly failure: string }> {
+  const paths = pathsUnder(context.root);
   const port = await freePort();
   const origin = `http://127.0.0.1:${port}`;
   const persist = mkdtempSync(join(tmpdir(), "guest-route-parity-"));
-  const leftover = join(SERVER, ".wrangler");
+  const leftover = join(paths.server, ".wrangler");
   const hadLeftover = existsSync(leftover);
   const log: string[] = [];
   let exited: number | null | undefined;
   const child: ChildProcess = spawn(
-    WRANGLER,
+    paths.wrangler,
     [
       "dev",
       "--config",
@@ -726,7 +750,7 @@ async function startReference(deadline: number): Promise<Reference | { readonly 
       "warn",
     ],
     {
-      cwd: INVITES,
+      cwd: paths.invites,
       env: referenceEnv(process.env),
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
@@ -753,7 +777,7 @@ async function startReference(deadline: number): Promise<Reference | { readonly 
     rmSync(persist, { recursive: true, force: true });
     if (!hadLeftover) rmSync(leftover, { recursive: true, force: true });
   };
-  const readyBy = Math.min(deadline, Date.now() + READY_MS);
+  const readyBy = Math.min(deadline, Date.now() + context.readyMs);
   while (Date.now() < readyBy) {
     if (exited !== undefined) {
       stop();
@@ -768,14 +792,16 @@ async function startReference(deadline: number): Promise<Reference | { readonly 
   }
   stop();
   return {
-    failure: `wrangler dev did not serve the build within ${READY_MS / 1000} s: ${log.slice(-5).join(" | ")}`,
+    failure: `wrangler dev did not serve the build within ${context.readyMs / 1000} s: ${log.slice(-5).join(" | ")}`,
   };
 }
 
-async function run(options: Options): Promise<Report> {
-  const deadline = Date.now() + DEADLINE_MS;
-  const routes = routesInBuild(SERVER);
-  const probes = probePaths(CLIENT, PUBLIC);
+/** Compares every probe on both sides of `options` and returns the report, whatever happens. */
+export async function run(options: Options, context: RunContext): Promise<Report> {
+  const paths = pathsUnder(context.root);
+  const deadline = Date.now() + context.deadlineMs;
+  const routes = routesInBuild(paths.server);
+  const probes = probePaths(paths.client, paths.public);
   const base = {
     alchemy: `${options.origin} (the Alchemy upload)`,
     reference: "wrangler dev --config cire/invites/dist/server/wrangler.json",
@@ -787,7 +813,7 @@ async function run(options: Options): Promise<Report> {
       "The build's server output lists no route; the route manifest could not be read.",
     );
   }
-  for (const route of routesFromPages(PAGES)) {
+  for (const route of routesFromPages(paths.pages)) {
     if (!routes.includes(route)) {
       refusals.push(`The page route ${route} is not in the build's route manifest.`);
     }
@@ -797,7 +823,7 @@ async function run(options: Options): Promise<Report> {
   }
   if (refusals.length > 0) return { ...base, probes: [], refusals, result: "refused" };
 
-  const reference = await startReference(deadline);
+  const reference = await startReference(context, deadline);
   if ("failure" in reference) {
     return { ...base, probes: [], refusals: [reference.failure], result: "refused" };
   }
@@ -813,7 +839,7 @@ async function run(options: Options): Promise<Report> {
     const results: ProbeResult[] = [];
     for (const path of probes) {
       if (remaining(deadline) === 0) {
-        refusals.push(`The run passed its ${DEADLINE_MS / 1000} s deadline before ${path}.`);
+        refusals.push(`The run passed its ${context.deadlineMs / 1000} s deadline before ${path}.`);
         break;
       }
       // One probe at a time: the dev host and cire-api see a trickle, not a
@@ -862,13 +888,13 @@ async function run(options: Options): Promise<Report> {
 if (import.meta.main) {
   let options: Options;
   try {
-    options = parse(process.argv.slice(2), process.env);
+    options = parse(process.argv.slice(2), process.env, RUN_CONTEXT.root);
   } catch (error) {
     if (!(error instanceof UsageError)) throw error;
     process.stdout.write(`::error::${error.message}\n`);
     process.exit(2);
   }
-  const report = await run(options);
+  const report = await run(options, RUN_CONTEXT);
   mkdirSync(dirname(options.out), { recursive: true });
   writeFileSync(options.out, renderReport(report));
   const lines = [

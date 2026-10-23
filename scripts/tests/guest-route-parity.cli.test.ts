@@ -27,11 +27,15 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
+import { run } from "../guest-route-parity";
+
 const SCRIPTS = join(import.meta.dir, "..");
 const INVITES = join(SCRIPTS, "..", "cire", "invites");
 
 interface Answer {
   readonly status?: number;
+  /** How long the server waits before it answers. */
+  readonly delayMs?: number;
   readonly headers?: Readonly<Record<string, string>>;
   readonly body?: string;
 }
@@ -106,7 +110,8 @@ const server = Bun.serve({
     appendFileSync(logFile, JSON.stringify({ path, id: request.headers.get("cf-access-client-id") }) + "\\n");
     const answer = answers[path + "#" + seen] ?? answers[path];
     if (answer === undefined) return new Response("not found", { status: 404, headers: { "content-type": "text/plain" } });
-    return new Response(answer.body ?? null, { status: answer.status ?? 200, headers: answer.headers ?? {} });
+    const respond = () => new Response(answer.body ?? null, { status: answer.status ?? 200, headers: answer.headers ?? {} });
+    return answer.delayMs === undefined ? respond() : Bun.sleep(answer.delayMs).then(respond);
   },
 });
 if (portFile) writeFileSync(portFile, String(server.port));
@@ -123,6 +128,8 @@ function tree(
     readonly manifest?: string;
     readonly build?: boolean;
     readonly exitAtOnce?: boolean;
+    /** The stand-in starts and never serves. */
+    readonly neverServe?: boolean;
   } = {},
 ): Tree {
   const dir = mkdtempSync(join(root, "tree-"));
@@ -154,6 +161,8 @@ function tree(
     `#!/usr/bin/env bash
 state=${JSON.stringify(state)}
 { printf '%s\\n' "--- call" "$PWD" "$@" "--- env"; env | sort; } >> "$state/calls.log"
+echo $$ > "$state/reference.pid"
+${options.neverServe === true ? "exec sleep 30" : ""}
 ${options.exitAtOnce === true ? "echo 'stand-in refusing to start' >&2; exit 3" : ""}
 mkdir -p dist/server/.wrangler/tmp
 port=""
@@ -217,6 +226,26 @@ const report = (t: Tree) =>
 
 const ACCESS = { CF_ACCESS_CLIENT_ID: "access-id", CF_ACCESS_CLIENT_SECRET: "access-secret" };
 
+/**
+ * Whether the stand-in wrangler the run started is gone, its process group
+ * killed: within two seconds, the time a killed child takes to be reaped. A
+ * stand-in left running serves for 30 s or more.
+ */
+async function referenceGone(t: Tree): Promise<boolean> {
+  const pid = Number(readFileSync(join(t.state, "reference.pid"), "utf8"));
+  for (let waited = 0; waited < 2_000; waited += 50) {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return true;
+    }
+    // Polled until the kill lands: each try waits out the one before.
+    // eslint-disable-next-line no-await-in-loop
+    await Bun.sleep(50);
+  }
+  return false;
+}
+
 describe.concurrent("guest-route-parity.ts", () => {
   test("a dev host answering as Wrangler does matches; wrangler dev gets the build's config, its own origin, no credential, no Access token and no telemetry, and leaves nothing in the build", async () => {
     const t = tree();
@@ -249,6 +278,7 @@ describe.concurrent("guest-route-parity.ts", () => {
     expect(env).toMatch(/^DO_NOT_TRACK=1$/m);
     expect(env).toMatch(/^WRANGLER_SEND_METRICS=false$/m);
     expect(existsSync(join(t.dir, "cire", "invites", "dist", "server", ".wrangler"))).toBe(false);
+    expect(await referenceGone(t)).toBe(true);
     // The Access token reaches the dev host and nothing else.
     const asked = readFileSync(join(t.state, "dev.log"), "utf8").trim().split("\n");
     expect(asked.every((line) => JSON.parse(line).id === "access-id")).toBe(true);
@@ -277,6 +307,7 @@ describe.concurrent("guest-route-parity.ts", () => {
       host.stop();
     }
     expect(report(t).result).toBe("differ");
+    expect(await referenceGone(t)).toBe(true);
   });
 
   test("PF15: a difference that does not hold when asked again is not reported", async () => {
@@ -328,6 +359,51 @@ describe.concurrent("guest-route-parity.ts", () => {
     } finally {
       host.stop();
     }
+  });
+
+  test("PF1: a page route missing from the build's manifest refuses the run before wrangler starts", async () => {
+    const t = tree({ manifest: MANIFEST.replace(',{"route":"/[slug]/registry"}', "") });
+    const { exitCode, stdout } = await runParity(t, {
+      PARITY_ORIGIN: "https://invite.cire.example.test",
+    });
+    expect(stdout).toContain(
+      "The page route /[slug]/registry is not in the build's route manifest",
+    );
+    expect(exitCode).toBe(1);
+    expect(existsSync(join(t.state, "calls.log"))).toBe(false);
+    expect(report(t).result).toBe("refused");
+  });
+
+  test("PF16: wrangler dev that never serves the build refuses the run once its time is up, and is stopped", async () => {
+    const t = tree({ neverServe: true });
+    const result = await run(
+      { origin: "https://invite.cire.example.test", access: {}, out: join(t.state, "unused.json") },
+      { root: t.dir, deadlineMs: 20_000, readyMs: 500 },
+    );
+    expect(result.result).toBe("refused");
+    expect(result.refusals[0]).toContain("wrangler dev did not serve the build within 0.5 s");
+    expect(await referenceGone(t)).toBe(true);
+  });
+
+  test("PF16: a run that passes its deadline stops probing and still returns a refused report", async () => {
+    const t = tree();
+    writeFileSync(join(t.state, "reference.json"), JSON.stringify(ANSWERS));
+    const host = await devHost(t, {
+      ...ANSWERS,
+      "/cire-wedding": { ...SEEDED_PAGE, delayMs: 5_000 },
+    });
+    try {
+      const result = await run(
+        { origin: host.origin, access: {}, out: join(t.state, "unused.json") },
+        { root: t.dir, deadlineMs: 1_500, readyMs: 10_000 },
+      );
+      expect(result.result).toBe("refused");
+      expect(result.refusals.some((line) => line.includes("passed its 1.5 s deadline"))).toBe(true);
+      expect(result.probes.length).toBeLessThan(5);
+    } finally {
+      host.stop();
+    }
+    expect(await referenceGone(t)).toBe(true);
   });
 
   test("PF16: wrangler dev failing to start still writes the report, refused, and exits 1", async () => {

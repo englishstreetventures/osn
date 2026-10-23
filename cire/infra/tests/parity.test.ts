@@ -196,8 +196,7 @@ describe("cire-invites on production", () => {
       observability: GUEST_OBSERVABILITY,
     }).observability;
     const live = invitesWrangler.observability;
-    // `head_sampling_rate` absent means Cloudflare's default, 1. Workers
-    // Issues (`issues`) is not in the file; P3 checks it against live.
+    // `head_sampling_rate` absent means Cloudflare's default, 1.
     expect(production).toMatchObject({
       enabled: live.enabled,
       headSamplingRate: live.head_sampling_rate ?? 1,
@@ -205,5 +204,7 @@ describe("cire-invites on production", () => {
       logs: { enabled: true, invocationLogs: live.logs.invocation_logs },
       traces: { enabled: live.traces.enabled, headSamplingRate: live.traces.head_sampling_rate },
     });
+    // Workers Issues is not in the file: declared on, as on dev; P3 checks it against live.
+    expect(production?.issues).toEqual({ enabled: true });
   });
 });

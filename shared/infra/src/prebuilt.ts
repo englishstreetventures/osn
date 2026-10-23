@@ -44,9 +44,13 @@ export interface PrebuiltStage {
   readonly maps: Readonly<Record<string, string>>;
 }
 
-/** The file extension each default rule selects; every default glob is `**\/*.<ext>`. */
-function moduleExtensions(source: string): readonly string[] {
-  return defaultModuleRules.flatMap((rule) =>
+/**
+ * The file extension each rule selects. Every glob must be `**\/*.<ext>`, as
+ * Alchemy's default rules are: anything else and staging could not tell which
+ * files Alchemy uploads, so it refuses.
+ */
+export function moduleExtensions(rules: readonly ModuleRule[], source: string): readonly string[] {
+  return rules.flatMap((rule) =>
     rule.globs.map((glob) => {
       const extension = /^\*\*\/\*\.([A-Za-z0-9]+)$/.exec(glob)?.[1];
       if (extension === undefined) {
@@ -99,6 +103,33 @@ function stripPrefix(prefix: string, input: string): string {
   return stripped;
 }
 
+interface SourceMap {
+  file?: string;
+  sourceRoot?: string;
+  sources: string[];
+}
+
+/** The map at `path` that `module` names, refused unless it parses with a `sources` list. */
+function readSourceMap(module: string, path: string): SourceMap {
+  let parsed: { sources?: unknown };
+  try {
+    parsed = JSON.parse(readFileSync(path, "utf8")) as { sources?: unknown };
+  } catch {
+    throw new PrebuiltSourceMapError({
+      module,
+      message: `${module} names a source map that does not parse as JSON.`,
+    });
+  }
+  const { sources } = parsed;
+  if (!Array.isArray(sources) || !sources.every((entry) => typeof entry === "string")) {
+    throw new PrebuiltSourceMapError({
+      module,
+      message: `${module} names a source map with no list of sources.`,
+    });
+  }
+  return { ...parsed, sources };
+}
+
 /** Wrangler's `cleanPathPrefix`, in its nesting order. */
 const cleanPathPrefix = (path: string): string =>
   stripPrefix("..\\", stripPrefix("../", stripPrefix(".\\", stripPrefix("./", path))));
@@ -128,7 +159,7 @@ export function planPrebuiltStage(input: {
       message: `The prebuilt Worker directory '${input.source}' does not exist; build it first.`,
     });
   }
-  const extensions = moduleExtensions(input.source);
+  const extensions = moduleExtensions(defaultModuleRules, input.source);
   const modules = readdirSync(source, { recursive: true, withFileTypes: true })
     .filter((entry) => entry.isFile())
     .map((entry) => relative(source, join(entry.parentPath, entry.name)).split(sep).join("/"))
@@ -153,11 +184,7 @@ export function planPrebuiltStage(input: {
         message: `${module} names the source map '${url}', which does not exist beside it.`,
       });
     }
-    const map = JSON.parse(readFileSync(mapPath, "utf8")) as {
-      file?: string;
-      sourceRoot?: string;
-      sources: string[];
-    };
+    const map = readSourceMap(module, mapPath);
     map.file = module;
     if (map.sourceRoot) map.sourceRoot = cleanPathPrefix(map.sourceRoot);
     map.sources = map.sources.map(cleanPathPrefix);

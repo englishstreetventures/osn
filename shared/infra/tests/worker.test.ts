@@ -245,6 +245,25 @@ describe("apiWorkerProps", () => {
     ).toThrow(/invocation logs/);
   });
 
+  test("O6: a Worker whose paths name no wedding may keep invocation logs on production", () => {
+    const osnApi: ApiWorkerInput = {
+      ...cireApiProduction,
+      worker: "osn-api",
+      name: "osn-api-production",
+      secrets: Object.fromEntries(
+        tierSecrets("osn-api", "production").secrets.map((name) => [
+          name,
+          Redacted.make("not-a-real-secret"),
+        ]),
+      ),
+      observability: { ...cireApiProduction.observability, invocationLogs: true },
+    };
+    expect(apiWorkerProps(osnApi).observability?.logs).toEqual({
+      enabled: true,
+      invocationLogs: true,
+    });
+  });
+
   test("keeps invocation logs off unless the caller turns them on", () => {
     expect(apiWorkerProps(cireApiDev).observability).toEqual({
       enabled: true,

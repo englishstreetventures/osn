@@ -203,6 +203,56 @@ describe("compare", () => {
     );
   });
 
+  test("PF8: reads every landmark, without the page's own origin, and reports each one that differs alone", async () => {
+    const full =
+      `<title>Ada &amp; Kit</title><meta name="robots" content="noindex, nofollow">` +
+      `<link rel="canonical" href="${OWN}/cire-wedding"><meta property="og:url" content="${OWN}/cire-wedding">` +
+      `<link rel="stylesheet" href="/_astro/b.css"><link rel="stylesheet" href="/_astro/a.css">` +
+      `<script src="${OWN}/_astro/b.js"></script><script src="/_astro/a.js"></script>` +
+      `</head><body><h1>Ada &amp; Kit</h1><h1>Details</h1>` +
+      `<astro-island component-url="/_astro/I.js"></astro-island><head>`;
+    const observed = await page(full);
+    expect(observed.body).toEqual({
+      kind: "html",
+      landmarks: {
+        title: "Ada & Kit",
+        lang: "en",
+        robots: "noindex, nofollow",
+        canonical: "/cire-wedding",
+        ogUrl: "/cire-wedding",
+        h1: ["Ada & Kit", "Details"],
+        scripts: ["/_astro/a.js", "/_astro/b.js"],
+        stylesheets: ["/_astro/a.css", "/_astro/b.css"],
+        islands: ["/_astro/I.js"],
+      },
+    });
+    const changes: Readonly<Record<string, [string, string]>> = {
+      title: ["<title>Ada &amp; Kit</title>", "<title>Bea</title>"],
+      robots: ['content="noindex, nofollow"', 'content="index"'],
+      canonical: ['rel="canonical" href="' + OWN + '/cire-wedding"', 'rel="canonical" href="/x"'],
+      ogUrl: ['content="' + OWN + '/cire-wedding"', 'content="/x"'],
+      h1: ["<h1>Details</h1>", ""],
+      scripts: ['<script src="/_astro/a.js"></script>', ""],
+      stylesheets: ['<link rel="stylesheet" href="/_astro/a.css">', ""],
+      islands: ['component-url="/_astro/I.js"', 'component-url="/_astro/J.js"'],
+    };
+    for (const [key, [from, to]] of Object.entries(changes)) {
+      const changed = await page(full.replace(from, to));
+      expect(compare("/x", observed, changed).map((line) => line.split(":")[0])).toEqual([
+        `page ${key}`,
+      ]);
+    }
+    const otherLang = await observe(
+      new Response(`<!doctype html><html lang="fr"><head>${full}</head></html>`, {
+        headers: { "content-type": "text/html; charset=utf-8" },
+      }),
+      OWN,
+    );
+    expect(compare("/x", observed, otherLang).map((line) => line.split(":")[0])).toEqual([
+      "page lang",
+    ]);
+  });
+
   test("PF9: reports a body difference in any answer that is not a page", async () => {
     const a = await observe(
       new Response("one", { headers: { "content-type": "text/plain" } }),
