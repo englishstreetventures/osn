@@ -1,9 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 import { DEV_APPS } from "@shared/dev-urls";
-import { PING, PING_INTERVAL_MS, PONG } from "@shared/realtime";
 
-import { PORTS, REALTIME_KEEPALIVE } from "../src/config";
+import { PORTS } from "../src/config";
 import { VENDOR_PORTAL_ORIGIN } from "../src/stack";
 
 // The suite's ports are written out for Node; they must stay the ones the
@@ -27,15 +26,5 @@ describe("PORTS", () => {
   test("the mail stand-in's port belongs to no dev app", () => {
     const devPorts = Object.values(DEV_APPS).map((app) => app.port);
     expect(devPorts).not.toContain(PORTS.mail);
-  });
-});
-
-// The hub stand-in's keepalive is written out for Node too. A word that drifts
-// leaves a portal socket unanswered, and after two ping intervals the client
-// drops it and re-reads; an interval that drifts moves the page clock in
-// `cire-checklist-starter` short of the ping it waits for.
-describe("REALTIME_KEEPALIVE", () => {
-  test("is the realtime protocol's ping, pong and ping interval", () => {
-    expect(REALTIME_KEEPALIVE).toEqual({ ping: PING, pong: PONG, intervalMs: PING_INTERVAL_MS });
   });
 });

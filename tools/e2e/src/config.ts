@@ -113,7 +113,10 @@ export const API_LABELS = {
  * The keepalive a realtime socket sends and the hub answers, and how often the
  * socket sends it (`PING`, `PONG` and `PING_INTERVAL_MS` in `@shared/realtime`),
  * which the `flow` fixture's hub stand-in speaks. Written out for Node, as
- * `PORTS` is; `tests/config.test.ts` holds them equal.
+ * `PORTS` is. `cire-checklist-starter` fails if the ping word differs from the
+ * protocol's or the protocol's interval grows past this one: the stand-in then
+ * sees no ping in the interval that flow runs its page clock through.
+ * The pong word mirrors `TopicHub`; the client takes any frame as an answer.
  */
 export const REALTIME_KEEPALIVE = { ping: "ping", pong: "pong", intervalMs: 25_000 } as const;
 

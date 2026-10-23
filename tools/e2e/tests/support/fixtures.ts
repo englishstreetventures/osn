@@ -62,7 +62,7 @@ const CIRE_REALTIME_SOCKETS = `${ORIGINS.cireApi.replace(/^http/, "ws")}${CIRE_R
  * `results.json` and not the next. Here each socket opens, stays open and has
  * its ping answered, as `TopicHub` answers it; no subscription gives up, and no
  * signal is ever sent. `seen` collects each socket's topic as it arrives, and
- * counts the pings the stand-in receives and the pongs it sends back.
+ * counts the pings the stand-in receives.
  */
 async function standInForCireHub(ctx: BrowserContext, seen: HubStandInLog): Promise<void> {
   await ctx.routeWebSocket(CIRE_REALTIME_SOCKETS, (ws) => {
@@ -72,7 +72,6 @@ async function standInForCireHub(ctx: BrowserContext, seen: HubStandInLog): Prom
       if (message !== REALTIME_KEEPALIVE.ping) return;
       seen.pings += 1;
       ws.send(REALTIME_KEEPALIVE.pong);
-      seen.pongs += 1;
     });
   });
 }
@@ -83,8 +82,6 @@ interface HubStandInLog {
   readonly topics: string[];
   /** Pings received from the pages' sockets. */
   pings: number;
-  /** Pongs sent back. */
-  pongs: number;
 }
 
 export interface Flow {
@@ -102,8 +99,8 @@ export interface Flow {
   recordRequest(method: string, url: string, status: number): void;
   /** The realtime topics the pages' sockets have reached the hub stand-in with, in order. */
   realtimeTopics(): readonly string[];
-  /** How many pings the hub stand-in has received so far, and how many pongs it sent back. */
-  realtimeKeepalives(): { readonly pings: number; readonly pongs: number };
+  /** How many pings the hub stand-in has received so far. */
+  realtimePings(): number;
   /** The page whose final state is the flow's screenshot. Defaults to `page`. */
   finalPage: Page;
 }
@@ -113,7 +110,7 @@ export const test = base.extend<{ flow: Flow }>({
     const steps: string[] = [];
     const lines: string[] = [];
     const assertions: Assertion[] = [];
-    const hub: HubStandInLog = { topics: [], pings: 0, pongs: 0 };
+    const hub: HubStandInLog = { topics: [], pings: 0 };
     const watched = new WeakSet<BrowserContext>();
     const watch = async (ctx: BrowserContext): Promise<void> => {
       if (watched.has(ctx)) return;
@@ -156,8 +153,8 @@ export const test = base.extend<{ flow: Flow }>({
       realtimeTopics() {
         return [...hub.topics];
       },
-      realtimeKeepalives() {
-        return { pings: hub.pings, pongs: hub.pongs };
+      realtimePings() {
+        return hub.pings;
       },
     };
 

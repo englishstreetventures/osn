@@ -23,7 +23,6 @@
   },
   "devDependencies": {
     "@playwright/test": "1.62.1",
-    "@shared/realtime": "workspace:*",
     "@shared/typescript-config": "workspace:*",
     "typescript": "^6.0.3"
   }
