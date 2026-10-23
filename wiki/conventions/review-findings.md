@@ -5,7 +5,7 @@ tags: [convention, review]
 related:
   - "[[contributing]]"
   - "[[stacked-prs]]"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-23
 ---
 
 # Review Finding IDs
@@ -130,7 +130,10 @@ falls in: it is fixed on the branch that found it, or in a pull request opened
 immediately after and linked before that branch merges. One that truly needs
 the owner — a design choice, a secret, production access — **blocks the merge**
 until the fix lands or the owner accepts the risk in writing on its tracker
-issue; adding `needs:decision` does not release it. A run with no owner to ask
+issue; adding `needs:decision` does not release it. Its pull request does not
+open while it waits on the owner: a public draft waiting on them would tell
+every reader the branch carries an unfixed `critical` or `high`.
+A run with no owner to ask
 fixes every `critical` and `high` itself, and one that cannot names each as
 blocking and does not call the branch ready.
 

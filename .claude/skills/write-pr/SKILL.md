@@ -65,6 +65,7 @@ Each line of the body comes from a command or a file, not from memory.
 | The gates | each command you ran, the commit it ran on (`git rev-parse --short HEAD` at the time), and what it printed |
 | The owner's decisions | the brief, the issue, and any answer the owner gave during the work |
 | What a person must do | a secret, a migration, a production approval, a merge order — anything the deploy does not do itself |
+| Draft or ready | `prep-pr` Step 9's list of what makes a pull request wait on the owner, read against the run's report, the brief and the issue it closes |
 
 A fact you cannot source goes in as unknown, never as a guess.
 
@@ -100,6 +101,14 @@ When a person has to do something, the owner reads it straight after the impact:
 ```
 
 Use `**Do not merge until**`, `**At deploy**` or `**After merging**`, and name the command, the workflow or the secret. A deploy step that appears only in the test plan or a closing paragraph is one the owner misses.
+
+**A pull request that waits on the owner is a draft, and its `**Do not merge until**` line says what for**: the decision or the approval, naming the public issue or the `###` decision that holds it. The first example above is one, since only the owner can approve that release. `prep-pr` Step 9 lists what makes a pull request wait on the owner, and says only the owner marks it ready:
+
+```markdown
+**Do not merge until** the owner chooses whether a guest can change a reply after the RSVP deadline — the open decision below, also on #9101.
+```
+
+The line never names, points at or describes a tracker issue. A `critical` or `high` finding whose fix is the owner's choice gets no line at all: its pull request does not open until the owner has answered on the tracker issue.
 
 ### Summary
 
@@ -157,7 +166,8 @@ One `###` per decision, a plain-English heading, and four fields in this order:
 - **Rationale** — why this is the right answer, and what was rejected.
 ```
 
-- **A choice that was the owner's to make is a decision to overrule.** Where you took a default because the owner was not there to ask — an unconfirmed changeset summary, a scope cut, a split you did not make — end the heading `— owner's call`, and say in **Rationale** what you chose, the option you did not take, and what changes if the owner picks it.
+- **A choice that was the owner's to make is a decision to overrule.** Where you took a default because the owner was not there to ask — an unconfirmed changeset summary, a scope cut, a split you did not make — end the heading `— owner's call`, and say in **Rationale** what you chose, the option you did not take, and what changes if the owner picks it. The branch is complete with the default, so it does not make the pull request a draft.
+- **A choice still open, that this change waits on**, ends its heading `— open, for the owner`: **Solution** gives the options, **Rationale** the one you recommend and what each costs. The pull request is a draft until the owner answers (`prep-pr` Step 9), and its `**Do not merge until**` line names this heading.
 - **A choice the owner already made is recorded as theirs**: `— decided by the owner`, saying where (the issue, the brief). A reviewer does not relitigate it, and a later reader knows it was not the agent's.
 - **No security, performance or compliance finding appears here**, fixed, deferred or dismissed. Each one is a tracker issue (`prep-pr` Step 7). The body carries a fixed one as its `Closes` line and a deferred one under **Raised against this branch**, both bare; a dismissed one, closed as not planned, not at all. Test-coverage gaps (`T-`) are not tracker findings and may appear.
 - Lint fixes, formatting and anything the diff already says do not belong.
@@ -223,6 +233,12 @@ Check before sending:
 
 - [ ] No count in the body comes from production data.
 - [ ] Owner actions, if any, at the end of `## Impact`.
+- [ ] If it waits on the owner (`prep-pr` Step 9), it opens as a draft and a `**Do not merge until**` line says what for. No such line names a tracker issue; this prints nothing:
+
+  ```bash
+  grep -niE 'do not merge until.*osn-tracker' PR-BODY.md
+  ```
+
 - [ ] One plain `Closes` line per fixed issue, in `## Issues`, tracker lines last and bare; `Part of` for a partial fix; no closing keyword in prose before an issue the branch does not close.
 - [ ] No issue is listed twice — a `Closes` issue is not also under **Raised against this branch** or under **Out of scope** at the end of `## Decisions`. This prints nothing:
 
@@ -254,7 +270,7 @@ gh api repos/englishstreetventures/osn/pulls \
 - **REST, not `gh pr create`**: `gh pr create` goes through GraphQL, whose hourly limit every agent on the account shares.
 - `base` is required and has no default: `main`, or the parent branch of a stacked pull request.
 - `-F body=@<file>` reads the file and `-f` keeps the title a string. Never pass the body inline: an inline body mangles backticks and `$` in the local shell.
-- It opens ready for review. Add `-F draft=true` only when the task asks for a draft.
+- It opens ready for review unless it waits on the owner (`prep-pr` Step 9) or the task asks for a draft: then add `-F draft=true`. A draft still runs CI, and GitHub will not merge it. One already open becomes a draft with `gh pr ready --undo <n>`, since REST cannot convert one.
 
 Edit it whenever the title or body stops being true. Before any push to its branch or any body edit, read its state:
 

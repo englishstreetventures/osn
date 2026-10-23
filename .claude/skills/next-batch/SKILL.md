@@ -41,7 +41,7 @@ jq '[add[] | {item: .id, repo: (.content.repository_url | split("/") | last), n:
   labels: [.content.labels[].name], title: .content.title, body: .content.body}]' \
   /tmp/board-raw.json > /tmp/board.json
 gh api 'repos/englishstreetventures/osn/pulls?state=open&per_page=100' \
-  --jq '[.[] | {number, ref: .head.ref, title, body}]' > /tmp/open-prs.json
+  --jq '[.[] | {number, ref: .head.ref, title, draft, body}]' > /tmp/open-prs.json
 ```
 
 - The owner is `englishstreetventures`.
@@ -60,7 +60,7 @@ gh api repos/englishstreetventures/osn/commits/<sha>/check-runs \
   --jq '.check_runs[] | select(.conclusion=="failure") | .name'
 ```
 
-Record CI red (the job and its decisive line), `dirty` or `behind` (a sibling PR that merged first changed the same lines), an owner question left in the comments, or no PR at all (the card is wrong: a question). `orchestrate` Step 5 does the fixing. A pull request this pipeline did not write — another tool's, or one that never went through `prep-pr` — is adopted with `review-pr` instead (`orchestrate` §Adopting an open pull request).
+Record CI red (the job and its decisive line), `dirty` or `behind` (a sibling PR that merged first changed the same lines), an owner question left in the comments, or no PR at all (the card is wrong: a question). `orchestrate` Step 5 does the fixing. A draft whose `**Do not merge until**` line waits on the owner (`prep-pr` Step 9) is not fix work while the owner has not answered: put it under Questions with that line, and count it among the pull requests waiting on the owner (Step 5). It is fix work when CI is red or it is `dirty`, and once the owner has answered, when `orchestrate` Step 5 applies the answer; only the owner marks it ready. A pull request this pipeline did not write — another tool's, or one that never went through `prep-pr` — is adopted with `review-pr` instead (`orchestrate` §Adopting an open pull request).
 
 ## Step 3 — In Progress: hands off
 
