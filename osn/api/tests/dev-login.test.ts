@@ -87,10 +87,16 @@ const post = (path: string, body: unknown, origin: string | null = ALLOWED_ORIGI
     body: JSON.stringify(body),
   });
 
+/** The form POST the dev sign-in page sends. No Origin: the guard exempts this exact path. */
+const formPost = (fields: Record<string, string>) =>
+  new Request("http://localhost/dev/login/form", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams(fields).toString(),
+  });
+
 const devLogin = (secret: string, returnTo?: string) =>
-  get(
-    `/dev/login?secret=${secret}` + (returnTo ? `&return_to=${encodeURIComponent(returnTo)}` : ""),
-  );
+  formPost(returnTo ? { secret, return_to: returnTo } : { secret });
 
 describe("dev-login gate", () => {
   it("derives the config from the env record, not process.env", async () => {
@@ -112,30 +118,30 @@ describe("dev-login gate", () => {
     // Worker that lost its tier var must not gain a passkey-less sign-in.
     const { deps, app } = await build({ DEV_LOGIN_SECRET: SECRET });
     expect(deps.devLogin).toBeNull();
-    const res = await app.handle(get(`/dev/login?secret=${SECRET}`));
+    const res = await app.handle(get("/dev/login"));
     expect(res.status).toBe(404);
   });
 
   it("mounts on local", async () => {
     const { app } = await build(LOCAL);
-    const res = await app.handle(get(`/dev/login?secret=${SECRET}`));
+    const res = await app.handle(get("/dev/login"));
     expect(res.status).toBe(200);
   });
 
   it("mounts on the dev tier", async () => {
     const { app } = await build({ ...deployedEnv("dev"), DEV_LOGIN_SECRET: SECRET });
-    const res = await app.handle(get(`/dev/login?secret=${SECRET}`));
+    const res = await app.handle(get("/dev/login"));
     expect(res.status).toBe(200);
   });
 
   it("is absent on staging", async () => {
     const { app } = await build({ ...deployedEnv("staging"), DEV_LOGIN_SECRET: SECRET });
-    expect((await app.handle(get(`/dev/login?secret=${SECRET}`))).status).toBe(404);
+    expect((await app.handle(get("/dev/login"))).status).toBe(404);
   });
 
   it("is absent on production", async () => {
     const { app } = await build({ ...deployedEnv("production"), DEV_LOGIN_SECRET: SECRET });
-    expect((await app.handle(get(`/dev/login?secret=${SECRET}`))).status).toBe(404);
+    expect((await app.handle(get("/dev/login"))).status).toBe(404);
   });
 
   // Fails closed the same way the OpenAPI gate does: `isNonLocal` counts
@@ -143,26 +149,106 @@ describe("dev-login gate", () => {
   // `parseDeploymentEnvironment` answers `dev` only for `dev`/`development`.
   it("is absent on an unrecognised tier string", async () => {
     const { app } = await build({ ...deployedEnv("developement"), DEV_LOGIN_SECRET: SECRET });
-    expect((await app.handle(get(`/dev/login?secret=${SECRET}`))).status).toBe(404);
+    expect((await app.handle(get("/dev/login"))).status).toBe(404);
+  });
+});
+
+describe("dev-login form", () => {
+  it("serves a form with no secret in the page", async () => {
+    const { app } = await build(LOCAL);
+    const res = await app.handle(get("/dev/login"));
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/html");
+    const html = await res.text();
+    expect(html).toContain('action="/dev/login/form"');
+    expect(html).toMatch(/<input[^>]*type="password"[^>]*name="secret"/);
+    expect(html).not.toContain(SECRET);
+  });
+
+  it("refuses a secret in the query string and signs in nothing", async () => {
+    const { app, db } = await build(LOCAL);
+    const res = await app.handle(get(`/dev/login?secret=${SECRET}`));
+    expect(res.status).toBe(422);
+    expect(res.headers.get("set-cookie")).toBeNull();
+    expect(await db.select().from(accounts)).toHaveLength(0);
+  });
+
+  it("refuses a return_to outside the allowlist on the form", async () => {
+    const { app } = await build({ ...LOCAL, DEV_LOGIN_RETURN_ORIGINS: RETURN_ORIGINS });
+    const res = await app.handle(get("/dev/login?return_to=https%3A%2F%2Fevil.example%2F"));
+    expect(res.status).toBe(400);
+  });
+
+  it("escapes the return_to it writes into the form", async () => {
+    const { app } = await build({ ...LOCAL, DEV_LOGIN_RETURN_ORIGINS: RETURN_ORIGINS });
+    const target = 'http://localhost:4322/a"onfocus="x';
+    const res = await app.handle(get(`/dev/login?return_to=${encodeURIComponent(target)}`));
+    const html = await res.text();
+    expect(html).not.toContain(`a"onfocus`);
+    expect(html).toContain("&quot;");
+  });
+
+  it("signs in on a form POST and redirects to the allowlisted return_to", async () => {
+    const { app } = await build({ ...LOCAL, DEV_LOGIN_RETURN_ORIGINS: RETURN_ORIGINS });
+    const target = "http://localhost:4322/dashboard";
+    const res = await app.handle(devLogin(SECRET, target));
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe(target);
+    expect(res.headers.get("set-cookie") ?? "").toContain("osn_session=");
+  });
+
+  it("refuses a wrong secret on the form with 401 and no cookie", async () => {
+    const { app } = await build(LOCAL);
+    const res = await app.handle(devLogin("nope"));
+    expect(res.status).toBe(401);
+    expect(res.headers.get("set-cookie")).toBeNull();
+  });
+
+  it("answers a form POST with no Origin, which the origin guard does not refuse", async () => {
+    const { app } = await build(LOCAL);
+    const res = await app.handle(devLogin(SECRET));
+    expect(res.status).toBe(200);
+  });
+
+  it("refuses a form POST to a non-allowlisted return_to before provisioning", async () => {
+    const { app, db } = await build({ ...LOCAL, DEV_LOGIN_RETURN_ORIGINS: RETURN_ORIGINS });
+    const res = await app.handle(devLogin(SECRET, "https://evil.example/"));
+    expect(res.status).toBe(400);
+    expect(res.headers.get("set-cookie")).toBeNull();
+    expect(await db.select().from(users)).toHaveLength(0);
+  });
+
+  it("keeps the JSON POST behind the origin guard", async () => {
+    const { app } = await build(LOCAL);
+    expect((await app.handle(post("/dev/login", { secret: SECRET }, null))).status).toBe(403);
+  });
+
+  it("shares the sign-in rate limit with the form", async () => {
+    const { app } = await build(LOCAL);
+    let last = 0;
+    for (let i = 0; i < 11; i++) last = (await app.handle(devLogin("nope"))).status;
+    expect(last).toBe(429);
   });
 });
 
 describe("dev-login", () => {
   it("rejects a wrong secret with 401 and sets no cookie", async () => {
     const { app } = await build(LOCAL);
-    const res = await app.handle(get("/dev/login?secret=nope"));
+    const res = await app.handle(devLogin("nope"));
     expect(res.status).toBe(401);
     expect(res.headers.get("set-cookie")).toBeNull();
   });
 
-  it("rejects a missing secret with 401", async () => {
-    const { app } = await build(LOCAL);
-    expect((await app.handle(get("/dev/login"))).status).toBe(401);
+  it("refuses a form POST with no secret field, before any compare", async () => {
+    const { app, db } = await build(LOCAL);
+    const res = await app.handle(formPost({}));
+    expect(res.status).toBe(422);
+    expect(await db.select().from(users)).toHaveLength(0);
   });
 
   it("issues a session for the seeded dev principal", async () => {
     const { app } = await build(LOCAL);
-    const res = await app.handle(get(`/dev/login?secret=${SECRET}`));
+    const res = await app.handle(devLogin(SECRET));
     expect(res.status).toBe(200);
 
     const body = (await res.json()) as {
@@ -187,8 +273,8 @@ describe("dev-login", () => {
     // `osn-db-dev` is never reset, so provisioning has to survive being run on
     // every sign-in and every deploy without piling up rows.
     const { app, db } = await build(LOCAL);
-    await app.handle(get(`/dev/login?secret=${SECRET}`));
-    await app.handle(get(`/dev/login?secret=${SECRET}`));
+    await app.handle(devLogin(SECRET));
+    await app.handle(devLogin(SECRET));
 
     expect(await db.select().from(accounts)).toHaveLength(1);
     expect(await db.select().from(users)).toHaveLength(1);

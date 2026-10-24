@@ -47,6 +47,14 @@ const S2S_PREFIXES = ["/graph/internal", "/organisations/internal", "/internal"]
  */
 const OAUTH_S2S_PREFIXES = ["/oidc/token"];
 
+/**
+ * The dev sign-in form's POST. Matched on the exact path, not a prefix, so
+ * `/dev/login/form-x` is still Origin-checked. The route is mounted only on the
+ * local and dev tiers, and it needs the dev secret in its body: a cross-site
+ * form has no ambient authority to borrow and no secret to send.
+ */
+const DEV_FORM_PATHS = ["/dev/login/form"];
+
 /** True when `path` equals a prefix or continues it at a segment boundary. */
 function matchesPrefix(path: string, prefixes: readonly string[]): boolean {
   return prefixes.some((prefix) => {
@@ -96,6 +104,7 @@ export function createOriginGuard(config: OriginGuardConfig) {
       return;
     }
     if (matchesPrefix(path, OAUTH_S2S_PREFIXES)) return;
+    if (DEV_FORM_PATHS.includes(path.split("?", 1)[0] ?? "")) return;
 
     // In dev mode (no allowlist configured), skip validation
     if (config.allowedOrigins.size === 0) return;

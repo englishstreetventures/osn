@@ -59,7 +59,7 @@
 # TRUSTED_PROXY_COUNT = "1"
 
 # --- Passkey-less dev sign-in (local + dev tiers only) ---
-# Set to mount `GET /dev/login?secret=…`, which mints a real session for the
+# Set to mount the sign-in form at `GET /dev/login`, which mints a real session for the
 # fixed dev principal so the seeded wedding is reachable without a passkey.
 # Unset ⇒ the route is never mounted (404). Ignored unless OSN_ENV is local/dev.
 # DEV_LOGIN_SECRET = "<random-32-bytes>"
