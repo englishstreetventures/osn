@@ -1,5 +1,15 @@
 # @osn/social
 
+## 0.18.14
+
+### Patch Changes
+
+- 18b1291: Dev dependency update: happy-dom 21.0.4, clearing a high advisory in its earlier release.
+- Updated dependencies [18b1291]
+  - @osn/auth-ui@3.0.19
+  - @shared/toast@0.3.8
+  - @shared/ui@0.6.1
+
 ## 0.18.13
 
 ### Patch Changes

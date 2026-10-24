@@ -1,0 +1,11 @@
+{
+  "description": "An orchestrator at the last step of a run with two open pull requests, both with green checks. One is a draft whose body ends its Impact with a merge-hold line waiting on an owner decision that nobody can answer here; the other is ready, and its Summary mentions the same phrase mid-sentence. Tests whether orchestrate leaves the draft a draft and unmerged, parks it with what it waits on, queues the ready one after reading its body, tears down both worktrees by the rules, and names the parked draft in the closing summary.",
+  "fixtures": {
+    "repo": {
+      "type": "commit",
+      "repoUrl": "https://github.com/englishstreetventures/osn.git",
+      "ref": "44cdfba00cd0844ca00b4d9a7268fa93259c958d",
+      "installPath": "."
+    }
+  }
+}
