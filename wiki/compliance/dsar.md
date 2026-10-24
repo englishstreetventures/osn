@@ -289,8 +289,9 @@ owners, each with an `owner` seat. Two consequences:
   the invite; an address the hosts added that it replaces is recorded as the
   seat's opt-out (`reason = 'guest_corrected'`), so a later sheet or revert
   does not put it back unseen. Erasure: the guest removes the address on the
-  invite at once, which also records their opt-out when the hosts added it
-  (an address the guest gave themselves leaves no row); an owner or editor removes
+  invite at once, which also records their opt-out — for the wedding when the
+  hosts added it, for their own seat alone when they gave it themselves
+  (`reason = 'guest_removed_own'`); an owner or editor removes
   it in the guest editor; deleting the guest deletes the row. A guest asking never to be
   emailed again keeps their suppression row, which is the record of that
   objection (Art. 21(3)); deleting it as well is erasure of the objection, and

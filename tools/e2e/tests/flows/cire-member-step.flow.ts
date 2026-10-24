@@ -10,13 +10,14 @@
  * them; this tab's address save, still as the first member, is refused and the
  * page asks "Who are you?" again. Answering again, the member gives an address
  * for wedding emails, ticking the consent box, corrects it, and removes it: the
- * row records the guest's own consent, and the removal clears it and writes
- * nothing to the suppression list, since anyone with the household code could
- * have typed it. Until the address is one and the box is ticked, the save
- * button stays focusable and says which is missing; the removal's note is
- * announced from a status region already on the page. Last, the other member
- * removes the address the hosts added, which records that seat's opt-out, a
- * hash of the wedding and the address, on the suppression list.
+ * row records the guest's own consent, and the removal clears it and records
+ * a withdrawal for that seat alone, since anyone with the household code could
+ * have typed it; giving the address back clears that withdrawal. Until the
+ * address is one and the box is ticked, the save button stays focusable and
+ * says which is missing; the removal's note is announced from a status region
+ * already on the page. Last, the other member removes the address the hosts
+ * added, which records that seat's opt-out for the wedding, a hash of the
+ * wedding and the address, on the suppression list.
  *
  * The stack runs with `cire.account-linking` off (no GrowthBook key) and no
  * musubi bridge, so this is the guest experience with the flag off: the member
@@ -516,12 +517,12 @@ test("cire-member-step", async ({ page, context, flow }) => {
     );
   const ownOptOut = optOutsOf(CIRE_HOUSEHOLD.member);
   flow.check(
-    "no opt-out for an address the guest typed",
-    "0 none",
-    `${ownOptOut?.n ?? -1} ${ownOptOut?.reason ?? "none"}`,
+    "a withdrawal for this seat only, for an address the guest typed",
+    "1 guest_removed_own",
+    `${ownOptOut?.n ?? 0} ${ownOptOut?.reason ?? "none"}`,
   );
 
-  // Giving the address back clears the note.
+  // Giving the address back clears the note, and the seat's own withdrawal.
   const givenBack = await flow.step(`${CIRE_HOUSEHOLD.member} gives the address back`, async () => {
     await emailBox
       .getByLabel(`Your email, ${CIRE_HOUSEHOLD.member}`)
@@ -535,6 +536,11 @@ test("cire-member-step", async ({ page, context, flow }) => {
     return status;
   });
   flow.check("the address given back is saved", 200, givenBack);
+  flow.check(
+    "giving an address back clears the seat's own withdrawal of it",
+    0,
+    optOutsOf(CIRE_HOUSEHOLD.member)?.n ?? -1,
+  );
 
   // The hosts attested to this address, so the guest's removal is their
   // opt-out for the wedding, and the note says so.

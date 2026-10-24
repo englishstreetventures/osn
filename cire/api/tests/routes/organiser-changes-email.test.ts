@@ -1111,9 +1111,10 @@ describe("apply attests only the addresses the preview showed", () => {
   });
 
   // Anyone holding a household code can type any address on their own seat
-  // and remove it. That says nothing about the mailbox, so it must not stand
-  // against the hosts adding the address, on their word, for another seat:
-  // no withdrawal warning, no refusal at apply, no opted-out marker.
+  // and remove it. That says nothing about the mailbox, so the withdrawal
+  // binds that seat alone and must not stand against the hosts adding the
+  // address, on their word, for another seat: no withdrawal warning, no
+  // refusal at apply, no opted-out marker.
   it("lets the hosts add an address another seat typed and removed", async () => {
     const { db, app } = buildApp();
     await seeded(app, "");
@@ -1191,6 +1192,88 @@ describe("an address a guest corrected away", () => {
     });
     const ada = await guestSession(app, db, "Ada");
     expect((await ada.give("ada.real@example.test")).status).toBe(200);
+    expect((await ada.remove()).status).toBe(200);
+
+    await revert(app, unrelated);
+    expect(record(db, "Ada")?.email).toBeNull();
+    expect(record(db, "Bo")?.email).toBeNull();
+  });
+});
+
+// A guest who removes an address they typed has withdrawn it for their own
+// seat. The hosts may put it back there, on their own word, but only once the
+// preview has told them; no other seat is touched by it.
+describe("an address the guest typed and removed", () => {
+  const OWN = "ada.own@example.test";
+
+  /** Ada types `OWN` on her invitation and removes it. */
+  async function adaTypesAndRemoves(app: App, db: TestDb) {
+    const ada = await guestSession(app, db, "Ada");
+    expect((await ada.give(OWN)).status).toBe(200);
+    expect((await ada.remove()).status).toBe(200);
+  }
+
+  async function optedOut(app: App, firstName: string) {
+    const res = await get(app, `${BASE}/guests`);
+    expect(res.status).toBe(200);
+    const rows = (await res.json()) as { firstName: string; emailOptedOut: boolean }[];
+    return rows.find((r) => r.firstName === firstName)?.emailOptedOut;
+  }
+
+  it("warns when the hosts add back, on the same seat, an address the guest typed and removed", async () => {
+    const { db, app } = buildApp();
+    await seeded(app, "");
+    await adaTypesAndRemoves(app, db);
+
+    const p = await preview(app, { guestsCsv: guestsCsv(OWN, "") });
+    expect(p.emailAttestations).toBe(1);
+    expect(p.warnings.join(" ")).toContain("removed or replaced by the guest");
+    expect(p.warnings.join(" ")).not.toContain(OWN);
+  });
+
+  it("applies the hosts' re-add on the same seat once the warning is shown, and marks it opted out", async () => {
+    const { db, app } = buildApp();
+    await seeded(app, "");
+    await adaTypesAndRemoves(app, db);
+
+    const p = await preview(app, { guestsCsv: guestsCsv(OWN, "") });
+    expect(p.warnings.join(" ")).toContain("removed or replaced by the guest");
+    expect((await apply(app, p.changeId, ATTESTED)).status).toBe(200);
+    expect(record(db, "Ada")).toMatchObject({
+      email: OWN,
+      source: "organiser_attested",
+      attestedBy: OWNER,
+    });
+    expect(await optedOut(app, "Ada")).toBe(true);
+  });
+
+  // The organiser attests with the seat's withdrawals in view: one landing
+  // after the preview sends them back for a fresh one, which warns.
+  it("refuses a re-add on the same seat when the guest withdrew it after the preview", async () => {
+    const { db, app } = buildApp();
+    await seeded(app, "");
+    const sheet = { guestsCsv: guestsCsv(OWN, "") };
+    const p = await preview(app, sheet);
+    expect(p.emailAttestations).toBe(1);
+    expect(p.warnings.join(" ")).not.toContain("removed or replaced by the guest");
+    await adaTypesAndRemoves(app, db);
+
+    const res = await apply(app, p.changeId, ATTESTED);
+    expect(res.status).toBe(409);
+    expect(await jsonBody(res)).toEqual({ error: "State changed — re-preview" });
+    expect(record(db, "Ada")?.email).toBeNull();
+    const again = await preview(app, sheet);
+    expect(again.warnings.join(" ")).toContain("removed or replaced by the guest");
+    expect((await apply(app, again.changeId, ATTESTED)).status).toBe(200);
+  });
+
+  it("does not restore by a revert an address the guest typed and removed", async () => {
+    const { db, app } = buildApp();
+    await seeded(app, "");
+    const ada = await guestSession(app, db, "Ada");
+    expect((await ada.give(OWN)).status).toBe(200);
+    // The change's before-image holds Ada's own address and its record.
+    const unrelated = await change(app, { guestsCsv: guestsCsv("", "bo@example.test") });
     expect((await ada.remove()).status).toBe(200);
 
     await revert(app, unrelated);

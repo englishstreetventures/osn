@@ -283,8 +283,9 @@ export const OrganiserGuestRow = Schema.Struct({
   // editor shows a guest's own address read-only, with Remove.
   email: Schema.NullOr(Schema.String),
   emailSource: Schema.NullOr(Schema.Literals(["guest", "organiser_attested"])),
-  // True when the wedding's suppression list holds this address: a guest
-  // withdrew it, so guest comms will not mail it whoever added it back.
+  // True when the suppression list holds this address for this guest — a
+  // guest withdrew one the hosts added, or this guest withdrew one they typed
+  // — so guest comms will not mail it here whoever added it back.
   emailOptedOut: Schema.Boolean,
 });
 export type OrganiserGuestRow = Schema.Schema.Type<typeof OrganiserGuestRow>;
