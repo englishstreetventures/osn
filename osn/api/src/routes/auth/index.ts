@@ -107,7 +107,7 @@ export function createAuthRoutes(
    */
   turnstileVerifier: TurnstileVerifier | null = null,
   /**
-   * Passkey-less dev sign-in (`GET|POST /dev/login`). KEY-OPTIONAL and
+   * Passkey-less dev sign-in: the form at `GET /dev/login`, `POST /dev/login/form` and the JSON `POST /dev/login`. KEY-OPTIONAL and
    * tier-gated in the composition root:
    *
    *  - `null` / omitted ⇒ the routes are NOT mounted, so the path answers 404

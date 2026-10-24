@@ -43,6 +43,18 @@ describe("createOriginGuard", () => {
     expect(guard(ctx)).toBeUndefined();
   });
 
+  it("exempts the dev sign-in form POST by its exact path", () => {
+    const ctx = makeContext("POST", "http://localhost:4000/dev/login/form");
+    expect(guard(ctx)).toBeUndefined();
+  });
+
+  it("checks Origin on dev sign-in path look-alikes", () => {
+    for (const path of ["/dev/login/form-x", "/dev/login/form/x", "/dev/login"]) {
+      const ctx = makeContext("POST", `http://localhost:4000${path}`);
+      expect(guard(ctx)).toEqual({ error: "forbidden", message: "Missing Origin header" });
+    }
+  });
+
   // The internal prefixes skip the Origin check only for a request that
   // carries credentials. A browser can attach a cookie cross-site but not an
   // Authorization header, so a credential-less request there is checked like
