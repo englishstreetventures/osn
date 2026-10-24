@@ -13,7 +13,7 @@ related:
   - "[[cire-auth]]"
   - "[[dev-environment]]"
   - "[[realtime]]"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-23
 ---
 
 # Free-Tier Limits & Unavailability Runbook
@@ -238,13 +238,13 @@ A visible tab's pings cost no requests. At the client's 25 s interval (`PING_INT
 
 Over about an hour of one organiser checklist tab on `host.dev.cireweddings.com`, in several sessions of about 30 minutes, with its socket open (`101 Switching Protocols`) and pinging every 25 s, the namespace's request chart showed only isolated spikes of 1 to 3 when a connection opened or closed, and nothing between them. Across the 24 hours of testing the namespace logged about 10 requests. If each ping counted, an open socket would add about 144 an hour. A connection's one request is recorded when it closes, not when it opens. Requests that end because the browser dropped the socket (tab closed, hidden-tab pause, reconnect) show as "Errors" in that chart; they are disconnect outcomes, not failures. The session start and end times were not recorded to the minute.
 
-*Measured 2026-10-22 on the dev tier — Cloudflare dashboard, Workers & Pages, Durable Objects, the `cire-api-dev` Worker's `TopicHub` namespace (binding `REALTIME_HUB`), Metrics, Requests, 24-hour view; one organiser checklist tab, about 1 hour.*
+*Measured 2026-10-22 on the dev tier as it then ran in the production account — Cloudflare dashboard, Workers & Pages, Durable Objects, the `cire-api-dev` Worker's `TopicHub` namespace (binding `REALTIME_HUB`), Metrics, Requests, 24-hour view; one organiser checklist tab, about 1 hour.*
 
 **What keeps an object awake.** A pending `setTimeout`/`setInterval`, pending I/O or a request in flight stops hibernation. An idle object that meets the hibernation conditions hibernates after 10 s and is not billed for duration, even in those 10 s. One that does not meet them stays in memory, billed, until it is evicted 70–140 s after its last request. `TopicHub` holds no timer, alarm or storage write, so it is billed only while a handler runs.
 
 **What happens at the cap.** "Further operations of that type will fail with an error" until the reset at **00:00 UTC**. A subscribe then answers 503 and the client falls back. A publish logs and counts an error, and the write that called it succeeds. The docs do not say which error a WebSocket upgrade sees.
 
-**How to detect:** CF dashboard → Workers & Pages → Durable Objects → the namespace's requests and duration against the daily lines. The allowance is account-wide, so a dev tier's hubs spend it as much as production's. Adding Durable Objects to `scripts/check-free-tier-ceilings.ts` is englishstreetventures/osn#1256. A spent allowance shows in the product's logs as `realtime subscribe failed` at step `hub` and `realtime publish failed`; the realtime counters record nothing on workerd until englishstreetventures/osn#501 lands.
+**How to detect:** in the Cloudflare dashboard, Workers & Pages, Durable Objects, compare the namespace's requests and duration with the daily lines. The allowance is per account, so dev's hubs spend the dev account's and production's hubs spend production's. Adding Durable Objects to `scripts/check-free-tier-ceilings.ts` is englishstreetventures/osn#1256. A spent allowance shows in the product's logs as `realtime subscribe failed` at step `hub` and `realtime publish failed`; the realtime counters record nothing on workerd until englishstreetventures/osn#501 lands.
 
 **Upgrade path:** Workers Paid ($5/mo) lifts these to paid allowances with no code change.
 
@@ -260,7 +260,7 @@ Over about an hour of one organiser checklist tab on `host.dev.cireweddings.com`
 | Rows written | **100,000 / day** |
 | Storage | **5 GB / account total** |
 | Max DB size | **500 MB** |
-| Databases | **10 / account** — production 5 (7 until the old dev tier's two databases are deleted, [[dev-environment#Retiring the old dev tier]], englishstreetventures/osn#1579), dev 3 (see below) |
+| Databases | **10 / account** — production 5, dev 3 (see below) |
 | Queries per Worker invocation | **50** |
 | Max row size | **2 MB** |
 

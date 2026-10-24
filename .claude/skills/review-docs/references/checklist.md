@@ -53,7 +53,7 @@ Every `wiki/**/*.md` except `wiki/README.md`:
 
 ## 6. Wikilinks and cross-references
 
-- **Broken wikilinks** — on a `--full` sweep, `mcp__obsidian-wiki__find_broken_links` uses Obsidian's own resolver and handles `[[page#Heading]]`, `[[page#^id]]`, `[[page|alias]]` and path-style targets. On a branch it is blind — use the `comm -23` recipe in `SKILL.md`. D-L for a low-traffic page, D-M for a page in the navigation table.
+- **Broken wikilinks** — on a `--full` sweep, `mcp__obsidian-wiki__find_broken_links` uses Obsidian's own resolver and handles `[[page#Heading]]`, `[[page#^id]]`, `[[page|alias]]` and path-style targets. On a branch it is blind — run `bun scripts/check-wikilinks.ts`, as `SKILL.md` Step 3 says. D-L for a low-traffic page, D-M for a page in the navigation table.
 - **Not findings** — a TOML array header in a code fence (`[[env.<name>.d1_databases]]`); a target ending in `\`, which is the escaped pipe of an alias inside a table cell (`[[page\|alias]]` — Obsidian needs it so the table does not split on the pipe). Check the name before the `\` resolves and move on.
 - **Heading or block anchors that moved** — `[[page#Heading]]` breaks silently on a heading rename. For any page the branch reorganised, find what links in (`get_backlinks`, or `git grep '\[\[<page>#'`). D-M.
 - **Out-of-vault wikilinks** — the vault root is `wiki/`; `[[AGENTS]]` for the repo-root `AGENTS.md` does not resolve in graph view. Use `` [`../AGENTS.md`](../AGENTS.md) ``. D-L.

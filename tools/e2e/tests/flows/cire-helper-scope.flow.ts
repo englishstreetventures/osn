@@ -194,11 +194,30 @@ async function widen(flow: Flow, page: Page, name: string): Promise<number> {
 test("cire-helper-scope", async ({ page, flow }) => {
   await signInToCireHost(flow, page);
 
-  await flow.step("open the wedding's co-hosts", async () => {
+  // The wedding's push topic, as the portal names it (`weddingTopicUrl`).
+  const topic = `cire:wedding:${weddingId}`;
+  const socket = await flow.step("open the wedding's co-hosts", async () => {
     await page.goto(`${ORIGINS.cireHost}/#/w/${weddingId}/settings/hosts`);
     await expect(scopeSelect(page)).toHaveValue("own");
+    // The route reaches the fixture a moment after the page opens the socket.
+    const reached = await expect
+      .poll(() => flow.realtimeTopics())
+      .toContain(topic)
+      .then(
+        () => true,
+        () => false,
+      );
+    return { reached, opened: flow.realtimeTopics().filter((t) => t === topic).length };
   });
   flow.check("the helper starts on their own tasks", "helper/own", seatInDb());
+  // A socket that missed the stand-in would meet cire-api's 404, retry, and
+  // post the fallback beacon at a moment no two runs share.
+  flow.check(
+    "portal: the co-hosts page's push socket reached the hub stand-in",
+    true,
+    socket.reached,
+  );
+  flow.check("portal: the co-hosts page opened one push socket for its wedding", 1, socket.opened);
 
   flow.check("widened", 200, await widen(flow, page, "show the helper the whole run sheet"));
   flow.check("wedding_hosts row once widened", "helper/full", seatInDb());
@@ -248,6 +267,13 @@ test("cire-helper-scope", async ({ page, flow }) => {
   });
   flow.check("made a helper again", 200, toHelper);
   flow.check("wedding_hosts row as a helper again: own tasks", "helper/own", seatInDb());
+  // The scope and role writes above must not reopen the socket: a reopen's
+  // re-read would land in some runs only.
+  flow.check(
+    "portal: the co-hosts page still holds one push socket after the role changes",
+    1,
+    flow.realtimeTopics().filter((t) => t === topic).length,
+  );
 
   // ── The run sheet ──────────────────────────────────────────────────────────
   // 10:05 in Sydney on the day, held: Greet the celebrant, at 10:20, is coming
@@ -377,6 +403,9 @@ test("cire-helper-scope", async ({ page, flow }) => {
   );
 
   const removed = await flow.step("remove the Brunch with its task", async () => {
+    // A fresh editor: the Reception save's toast would cover "Save changes"
+    // for its full four seconds.
+    await freshPortal(page, `#/w/${RS.weddingId}/events/edit`);
     await deleteEvent(page, RS.events.brunch.name);
     return saveSchedule(page, async (dialog) => {
       await dialog

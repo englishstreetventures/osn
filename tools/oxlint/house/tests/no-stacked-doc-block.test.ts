@@ -86,6 +86,19 @@ function runThing() {}
 /** The thing. */
 class Thing {}
 `,
+  // A file whose line 1 must hold a pragma cannot open with its module block.
+  // The block goes under the pragma and above the first import: the rule never
+  // reads the comments before an import, so the declaration after it has one
+  // block in front of it.
+  "pragma-then-import.ts": `// @vitest-environment happy-dom
+/** The module's own block, on line 2 behind the pragma. */
+import { x } from "./x";
+
+/** Describes the function. */
+function load() {
+  return x;
+}
+`,
 } as const;
 
 let fixtureDirectory: string;
@@ -174,6 +187,10 @@ describe("house/no-stacked-doc-block", () => {
     expect(
       diagnostics.filter((d) => d.filename.endsWith("module-block-plus-stack.ts")),
     ).toHaveLength(1);
+  });
+
+  it("passes a module block under a line-1 pragma when an import follows it", () => {
+    expect(forFixture(diagnostics, "pragma-then-import.ts")).toHaveLength(0);
   });
 
   it("reports under the plugin's rule id", () => {

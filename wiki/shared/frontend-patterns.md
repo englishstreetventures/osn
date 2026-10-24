@@ -23,7 +23,7 @@ packages:
   - "@cire/host"
   - "@pulse/web"
   - "@shared/ui"
-last-reviewed: 2026-10-21
+last-reviewed: 2026-10-23
 ---
 
 # Frontend Patterns
@@ -242,7 +242,7 @@ that fills the scrollport and `mt-auto` to reach its foot: the scrollport, the
 wrapper around the panel and the form are each a flex column that grows.
 
 For that to work the panel around the scrollport must not itself scroll, which is
-`Modal`'s `frame` — see [[wiki/shared/component-library]] §Overlays, which
+`Modal`'s `frame` — see [[component-library]] §Overlays, which
 also covers the `<dialog>` user-agent padding that put this exact bar 16px above
 the edge it seats on.
 
@@ -290,7 +290,7 @@ inert, so a popover or toast shown out there is *visible and dead*. Both halves
 matter the moment an app adopts `@shared/ui`'s `Modal`, and the second one is the
 half a `z-index` guard cannot see. The mechanism, the two doors into the top
 layer, and what it means for a menu opened from inside a sheet are in
-[[wiki/shared/component-library]] §What has to sit above a modal.
+[[component-library]] §What has to sit above a modal.
 
 ### A width-only reflow guard cannot see a drag that only changes height
 

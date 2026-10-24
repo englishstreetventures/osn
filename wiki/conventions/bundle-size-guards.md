@@ -9,7 +9,7 @@ related:
   - "[[review-findings]]"
   - "[[free-tier-limits]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-10-21
+last-reviewed: 2026-10-23
 ---
 
 # Guards with a threshold
@@ -374,6 +374,13 @@ called; a failing directory is reported once. A real page whose name holds
 the word — a sports `fixtures.astro`, say — has to be renamed, since a `_`
 prefix would take it off the site. Any un-prefixed symlink fails too, because
 Astro follows it and routes whatever it points at.
+
+A `_` prefix satisfies this check alone. The next step in the same job,
+[check-tests-outside-src.ts](../../scripts/check-tests-outside-src.ts), refuses
+any test or spec file and any symlink under a workspace's `src/`, prefixed or
+not ([[testing-patterns#Directory Layout]]). So this check's message sends a
+test or spec file to the package's `tests/` and asks for a symlink to be
+replaced; only a fixture or a matching directory is told it may take the prefix.
 
 It needs no build and no per-app baseline — a plain directory walk — so it runs
 in the fast `lint` job in `ci.yml`, not `build-test`.
