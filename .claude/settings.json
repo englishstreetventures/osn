@@ -9,6 +9,11 @@
             "type": "command",
             "command": "cat \"${CLAUDE_PROJECT_DIR:-.}/.claude/session-start.md\" 2>/dev/null || true",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-.}/scripts/check-bun-version.sh\" 2>/dev/null || true",
+            "timeout": 5
           }
         ]
       }

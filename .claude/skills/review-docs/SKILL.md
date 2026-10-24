@@ -82,16 +82,15 @@ A page in the diff that still carries the old value is a finding. A page outside
 
 ## Step 3 — Links and anchors
 
-**Wikilinks.** On a branch diff, check the changed pages locally — the MCP's `find_broken_links` cannot see them:
+**Wikilinks.** Check them locally, from the repository root — the MCP's `find_broken_links` cannot see this branch's pages:
 
 ```bash
-comm -23 \
-  <(git diff "$DIFF_BASE"...HEAD --name-only -- 'wiki/**/*.md' \
-      | xargs -r grep -oh '\[\[[^]|#]*' | sed 's/^\[\[//; s#.*/##' | sort -u) \
-  <(find wiki -name '*.md' | xargs -n1 basename | sed 's/\.md$//' | sort -u)
+bun scripts/check-wikilinks.ts
 ```
 
-Two shapes that come out of that pipe and are not findings: a TOML array header inside a code fence (`[[env.production.d1_databases]]`) has a wikilink's shape and is configuration, not a link; and a target ending in `\` is an alias inside a table cell — `[[oidc-provider\|OIDC]]` — where Obsidian requires the pipe escaped so the table does not split on it. Check that the name before the `\` resolves and move on; reporting `oidc-provider\` as a missing page is a false positive.
+It reads the whole vault, branch diff or `--full` alike, because a page this branch renamed or deleted breaks links in pages it never touched. It resolves targets the way Obsidian does, with the vault root at `wiki/`: a target with a `wiki/` prefix or a wrong folder fails; a bare page name, or one with its real folder, passes. Each line it prints is `path:line: [[target]]` for a link that resolves to nothing, and it exits 1 when there is one. On a checkout that has no `scripts/check-wikilinks.ts`, or no `bun`, record the check as not run rather than as passed.
+
+Two shapes that look broken and are not findings: a TOML array header inside a code fence (`[[env.production.d1_databases]]`) has a wikilink's shape and is configuration, not a link — the script skips fenced code, in a blockquote or callout too; and a target ending in `\` is an alias inside a table cell — `[[oidc-provider\|OIDC]]` — where Obsidian requires the pipe escaped so the table does not split on it. The script resolves it like any alias; checking by hand, check that the name before the `\` resolves and move on — reporting `oidc-provider\` as a missing page is a false positive. The script skips inline code spans too, so a wikilink written inside backticks is never checked: it renders as text, not a link.
 
 **Heading anchors.** `[[page#Heading]]` and a same-page `](#heading)` survive a rename of the page and break silently on a rename of the heading. For every page whose headings the branch renamed, added or removed:
 

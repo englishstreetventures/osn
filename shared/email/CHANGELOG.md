@@ -1,5 +1,12 @@
 # @shared/email
 
+## 0.16.6
+
+### Patch Changes
+
+- Updated dependencies [a3364fb]
+  - @shared/observability@0.18.11
+
 ## 0.16.5
 
 ### Patch Changes

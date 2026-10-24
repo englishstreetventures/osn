@@ -10,7 +10,7 @@ related:
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-23
 ---
 
 # Dev environment (cire + OSN identity)
@@ -32,13 +32,14 @@ The dev tier runs in **its own Cloudflare account**, built by four Alchemy stack
 ([[infrastructure-as-code]]): its own Workers, D1 databases, R2 buckets, zone,
 Upstash database and OSN identity origin. No dev request reads or writes a byte
 of live-wedding data, no dev credential the deploys read reaches the production
-account, and a dev account is not a production account. The `dev` Environment
-still holds two old credentials that do reach production, which no workflow
-reads. Tests, not the Environment, keep it so: W8 in
-`shared/infra/tests/workflow-secrets.test.ts` holds `deploy.yml` to the dev
-account's credentials, and `shared/infra/tests/accounts.test.ts` holds
-`alchemy-state.yml` and the free-tier alert to theirs. Deleting the two is
-englishstreetventures/osn#1579 ([[#Retiring the old dev tier]]).
+account, and a dev account is not a production account. Tests, not the
+Environment, keep it so: W8 in `shared/infra/tests/workflow-secrets.test.ts`
+holds `deploy.yml` to the dev account's credentials, and
+`shared/infra/tests/accounts.test.ts` holds `alchemy-state.yml` and the
+free-tier alert to theirs. The `dev` Environment holds neither
+`CLOUDFLARE_ACCOUNT_ID` nor `CLOUDFLARE_API_TOKEN_DEV`, the two names that
+point at the production account, and `secrets:check-github -- --tier dev`
+fails when it holds either ([[#The production account holds no dev tier]]).
 
 ---
 
@@ -216,7 +217,7 @@ done
 
 | Environment | Cloudflare account | Credential secrets | Reviewers |
 |---|---|---|---|
-| `dev` | the dev account | `CLOUDFLARE_DEV_ACCOUNT_ID`, `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN`, `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY` | none; branch policy `main` |
+| `dev` | the dev account | `CLOUDFLARE_DEV_ACCOUNT_ID`, `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN`, `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY` (not set yet, englishstreetventures/osn#1538) | none; branch policy `main` |
 | `production` | the production account | `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` | required; branch policy `main` |
 
 The separate account is the hard boundary: `Workers Scripts: Edit` and
@@ -247,7 +248,7 @@ account's read-only pair, for the free-tier alert's production job, which
 cannot take `environment: production` because that gate waits on a person and
 nobody approves a cron at 22:00 UTC.
 
-*Measured 2026-09-13 — `gh secret list --repo englishstreetventures/osn` returns
+*Measured 2026-10-23 — `gh secret list --repo englishstreetventures/osn` returns
 ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, CLOUDFLARE_ACCOUNT_ID,
 CLOUDFLARE_API_TOKEN_READONLY, RELEASE_TOKEN and TESSL_TOKEN — no deploy token
 among them.*
@@ -364,10 +365,11 @@ surface.
 ## 4. Bootstrapping the dev account
 
 Everything below needs the dashboard or a credential CI does not hold. Do it in
-this order, and set every value **before** the merge that first deploys the
-stacks: that merge changes `deploy.yml` and the surface map, so it deploys every
-dev stack at once. A stack whose value is missing fails before it uploads
-anything; set the value and dispatch **Deploy**.
+this order, and set every value **before** the first deploy into a new dev
+account: a dispatch of **Deploy** deploys every dev stack at once, and a merge
+to `main` deploys every stack whose files it changes. A stack whose value is
+missing fails before it uploads anything; set the value and dispatch
+**Deploy**.
 
 Set each secret with no trailing newline:
 
@@ -405,10 +407,7 @@ printf '%s' "$VALUE" | gh secret set NAME --env dev --repo englishstreetventures
    - The smoke check behind Access: `CF_ACCESS_CLIENT_ID`,
      `CF_ACCESS_CLIENT_SECRET` (§5), a service token of the **dev** account's
      Zero Trust organisation; another account's token passes the name check
-     and fails every browser host's smoke check. Until the merge that first
-     deploys the stacks, the old dev tier's smoke check reads the same two
-     names against the production account's Access, so replace them just
-     before that merge.
+     and fails every browser host's smoke check.
 
    The cire and musubi stacks refuse to deploy while a value breaks its dev
    rule: a `STRIPE_SECRET_KEY` that is not a test-mode key, or a
@@ -447,7 +446,7 @@ printf '%s' "$VALUE" | gh secret set NAME --env dev --repo englishstreetventures
 7. **The state store.** Run **Actions → Alchemy state store** with `tier: dev,
    action: bootstrap`, then `action: check`.
 8. **The first deploys**, on `main`:
-   1. The merge deploys every stack; the first deploy creates every resource.
+   1. Dispatch **Deploy**; the first deploy creates every resource.
       Each custom domain waits about two minutes for its certificate, longer
       than the smoke check tries, so this run may go red with "unreachable" or
       TLS failures and no rollback. That is provisioning: go on to step 2.
@@ -460,17 +459,48 @@ printf '%s' "$VALUE" | gh secret set NAME --env dev --repo englishstreetventures
    No step here proves the rollback or the self-heal against the new account:
    §2, *Proving the rollback path*, says what is unproven.
 
-### Retiring the old dev tier
+### The production account holds no dev tier
 
-Once step 8 is green, delete the old dev tier from the **production** account:
-Workers `osn-api-dev`, `cire-api-dev`, `cire-invites-dev`; D1 `osn-db-dev`,
-`cire-db-dev`; R2 `cire-assets-dev`, `cire-sheets-dev`; Pages projects
-`osn-social-dev`, `cire-host-dev`, `cire-vendor-dev`, `cire-landing-dev`; the
-dev DNS records on `cireweddings.com` and `musubi.social`; and the Access
-application `cire dev tier`. Then delete `CLOUDFLARE_ACCOUNT_ID` and
-`CLOUDFLARE_API_TOKEN_DEV` from the `dev` Environment: both reach the production
-account, and no workflow reads them. englishstreetventures/osn#1579 tracks this
-step.
+Every dev resource lives in the dev account. None of the dev names exists in
+the **production** account: Workers `osn-api-dev`, `cire-api-dev`,
+`cire-invites-dev`; D1 `osn-db-dev`, `cire-db-dev`; R2 `cire-assets-dev`,
+`cire-sheets-dev`; Pages projects `osn-social-dev`, `cire-host-dev`,
+`cire-vendor-dev`, `cire-landing-dev`. The production zones hold no dev DNS
+record, so `api.dev.cireweddings.com`, `invite.dev.cireweddings.com`,
+`host.dev.cireweddings.com`, `vendor.dev.cireweddings.com`,
+`dev.cireweddings.com`, `dev.musubi.social` and `id.dev.musubi.social` resolve
+to nothing. The production account's Zero Trust organisation has no dev Access
+application or service token, and Stripe test mode sends no webhook to those
+hosts.
+
+The `dev` Environment holds neither `CLOUDFLARE_ACCOUNT_ID` nor
+`CLOUDFLARE_API_TOKEN_DEV`. Both point at the production account, the first
+as its id and the second as a Wrangler token's name there, and the `dev`
+Environment has no reviewer, so
+`bun run --cwd shared/infra secrets:check-github -- --tier dev`
+exits 1 when it holds either (`RETIRED_DEV_CREDENTIALS`,
+[[infrastructure-as-code#Accounts]]). Nothing in CI runs that check: run it
+after any change to the `dev` Environment and read its output, since it also
+exits 1 for a missing name; a held production name prints as
+`forbidden but set`. It reads names alone, so a production token under any
+other name passes it, and it lists Environment secrets only, so a token set at
+repository scope passes it too; check that scope with
+`gh secret list --repo englishstreetventures/osn`
+([[#Two accounts, two Environments]]).
+
+Deleting a secret from GitHub leaves its Cloudflare token valid: revoke the
+token in its account's dashboard as well ([[access-control]]).
+
+*Measured 2026-10-23 — in the production account, `wrangler d1 list` (five
+databases, none a dev one), `wrangler pages project list` (none ending `-dev`)
+and `wrangler r2 bucket list` (`cire-assets`, `cire-sheets`);
+`gh secret list --env dev --repo englishstreetventures/osn` (21 names, neither
+of those two); `dig +short <host> @1.1.1.1` for `A`, `AAAA` and `CNAME`, empty
+for each host above.*
+
+*Checked 2026-10-22 and 2026-10-23 by the owner — no dev Worker in the
+production account (Cloudflare API); the Access application, its service token
+and the Stripe test webhooks deleted in their dashboards.*
 
 ---
 

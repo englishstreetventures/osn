@@ -271,8 +271,9 @@ same reason, and is not a candidate either.
 
 ### Test runner
 
-Three packages use `bun test` (`cire/theme`, `cire/db`, `cire/api`); 30 use
-vitest, and `shared/typescript-config` has no tests. So this is narrow:
+Bun's runner reaches only the packages whose `test` script is `bun test`; most
+packages test under vitest, and `shared/typescript-config` has no tests. So
+this is narrow:
 
 - **`jest.useFakeTimers()` / `setSystemTime()`** in `cire/api`, which is full of
   time-dependent behaviour — token expiry, the refresh-rotation grace window,

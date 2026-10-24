@@ -1,5 +1,21 @@
 # @osn/osn
 
+## 3.29.13
+
+### Patch Changes
+
+- Updated dependencies [a3364fb]
+  - @shared/observability@0.18.11
+  - @shared/crypto@0.14.9
+  - @shared/email@0.16.6
+  - @shared/turnstile@0.2.34
+
+## 3.29.12
+
+### Patch Changes
+
+- cfe1171: The consent page's context read allows 60 requests a minute per IP on every stage.
+
 ## 3.29.11
 
 ### Patch Changes

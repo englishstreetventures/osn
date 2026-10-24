@@ -22,7 +22,7 @@ packages:
   - "@cire/api"
   - "@shared/rate-limit"
   - "@shared/redis"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-23
 ---
 # Rate Limiting
 

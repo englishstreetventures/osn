@@ -3,10 +3,10 @@ import { metrics, type Attributes } from "@opentelemetry/api";
 /**
  * Typed metric factory.
  *
- * Every metric in OSN MUST be created via these helpers. Raw
- * `metrics.getMeter().createCounter()` calls are banned — code review /
- * CI will reject them — because they bypass the attribute-type enforcement
- * that keeps cardinality bounded.
+ * Every metric in OSN MUST be created via these helpers. A raw
+ * `metrics.getMeter().createCounter()` call bypasses the attribute-type
+ * enforcement that keeps cardinality bounded. No lint rule or CI step
+ * rejects one; code review has to.
  *
  * Usage:
  *

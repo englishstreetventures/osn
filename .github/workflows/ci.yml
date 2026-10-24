@@ -129,6 +129,13 @@ jobs:
       - name: Check for routable test files under src/pages
         run: bun run scripts/check-astro-test-routes.ts
 
+      # Tests live in tests/ at each package root. A test under a workspace's
+      # src/ either runs where nobody looks for it or, in a Vitest project that
+      # includes only tests/**, runs nowhere while reading as coverage. A
+      # directory walk over every workspace: no build, no baseline.
+      - name: Check for test files under any workspace's src/
+        run: bun run scripts/check-tests-outside-src.ts
+
   typecheck:
     name: Type Check
     runs-on: ubuntu-latest

@@ -13,7 +13,7 @@
 import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, unlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import type { Card } from "../index";
 
@@ -172,6 +172,8 @@ test(
       paired: 1,
       acted_on_paired: 1,
       control_changed: 0,
+      acted_on_by_test: 0,
+      acted_on_paired_by_test: 0,
     });
   }),
 );
@@ -423,7 +425,7 @@ test(
 
       expect(stdout).toContain("| Model calls | 2 · 50% of those using tools used one ·");
       expect(stdout).toContain(
-        "| Review (tests and docs lenses) | 1 of 1 paired findings changed · control 0 of 1 |",
+        "| Review (tests and docs lenses) | 1 of 1 paired findings acted on · control 0 of 1 |",
       );
     },
     [
@@ -573,6 +575,416 @@ test(
       ].join("\n"),
       REPORT_WRITTEN,
     );
+    await editLine(f, 10, FIXED);
+
+    const { card } = await f.card();
+
+    expect(card.review?.findings).toBe(2);
+    expect(card.review?.located).toBe(1);
+    expect(card.review?.acted_on).toBe(1);
+  }),
+);
+
+// A tests finding is fixed by a new test, not by changing the line it cites.
+// It counts as acted on when its window changed, or when a commit after the
+// review added lines to a file under the same package's `tests/` that imports
+// the cited file.
+
+/** Committed after the "work" commit and before the report, so part of what
+ * the review read. */
+const BEFORE_REPORT = "2026-09-01T11:15:00Z";
+
+const SOURCE = `${TARGET_LINES.join("\n")}\n`;
+
+/** Write each file and commit exactly those paths at `date`. */
+async function commitFiles(f: Fixture, files: Record<string, string>, date: string): Promise<void> {
+  for (const [path, text] of Object.entries(files)) {
+    await mkdir(dirname(join(f.dir, path)), { recursive: true });
+    await writeFile(join(f.dir, path), text);
+  }
+  await f.git(["add", "--", ...Object.keys(files)], date);
+  await f.git(["commit", "-qm", `files ${Object.keys(files).join(",")}`], date);
+}
+
+const finding = (kind: "T" | "D", path: string, line = 10): string =>
+  `**${kind}-U1** — untested\n**Issue:** \`${path}:${line}\` has no test.\n`;
+
+const importing = (specifier: string): string =>
+  `import { v1 } from "${specifier}";\n\ntest("v1", () => expect(v1).toBe(1));\n`;
+
+const SECOND_CASE = `\ntest("v2", () => expect(2).toBe(2));\n`;
+
+/** `osn/api` as a package with a test file that already imports the target
+ * when the review runs; after it, a commit appends a case and leaves the
+ * import alone. The cited line never changes. */
+async function caseAppended(f: Fixture): Promise<void> {
+  const existing = importing("../src/target.ts");
+  await commitFiles(
+    f,
+    { "osn/api/package.json": "{}\n", "osn/api/tests/target.test.ts": existing },
+    BEFORE_REPORT,
+  );
+  await f.report(finding("T", TARGET), REPORT_WRITTEN);
+  await commitFiles(f, { "osn/api/tests/target.test.ts": `${existing}${SECOND_CASE}` }, FIXED);
+}
+
+test(
+  "a tests finding counts as acted on when a later commit adds a test importing its file",
+  withFixture(async (f) => {
+    // No package.json anywhere, and no tests/ until the fix makes one.
+    await commitFiles(f, { "src/x.ts": SOURCE }, BEFORE_REPORT);
+    await f.report(finding("T", "src/x.ts"), REPORT_WRITTEN);
+    await commitFiles(f, { "tests/x.test.ts": importing("../src/x") }, FIXED);
+
+    const { card } = await f.card();
+
+    expect(card.review).toEqual({
+      reports: 1,
+      findings: 1,
+      located: 1,
+      acted_on: 1,
+      paired: 1,
+      acted_on_paired: 1,
+      control_changed: 0,
+      acted_on_by_test: 1,
+      acted_on_paired_by_test: 1,
+    });
+  }),
+);
+
+test(
+  "a later test for another file does not count",
+  withFixture(async (f) => {
+    await commitFiles(f, { "src/x.ts": SOURCE, "src/other.ts": SOURCE }, BEFORE_REPORT);
+    await f.report(finding("T", "src/x.ts"), REPORT_WRITTEN);
+    await commitFiles(f, { "tests/other.test.ts": importing("../src/other") }, FIXED);
+
+    const { card } = await f.card();
+
+    expect(card.review?.located).toBe(1);
+    expect(card.review?.acted_on).toBe(0);
+  }),
+);
+
+test(
+  "a case appended to a test file that already imports the cited file counts",
+  withFixture(async (f) => {
+    await caseAppended(f);
+
+    const { card } = await f.card();
+
+    expect(card.review).toEqual({
+      reports: 1,
+      findings: 1,
+      located: 1,
+      acted_on: 1,
+      paired: 1,
+      acted_on_paired: 1,
+      control_changed: 0,
+      acted_on_by_test: 1,
+      acted_on_paired_by_test: 1,
+    });
+  }),
+);
+
+test(
+  "a test that imports the cited file but did not change after the review does not count",
+  withFixture(async (f) => {
+    await commitFiles(
+      f,
+      { "osn/api/tests/target.test.ts": importing("../src/target") },
+      BEFORE_REPORT,
+    );
+    await f.report(finding("T", TARGET), REPORT_WRITTEN);
+    await editLine(f, 60, FIXED);
+
+    const { card } = await f.card();
+
+    expect(card.review?.acted_on).toBe(0);
+  }),
+);
+
+test(
+  "a test in another package's tests/ does not count, even when that package is cited too",
+  withFixture(async (f) => {
+    await commitFiles(
+      f,
+      {
+        "osn/api/package.json": "{}\n",
+        "osn/web/package.json": "{}\n",
+        "osn/web/src/view.ts": SOURCE,
+      },
+      BEFORE_REPORT,
+    );
+    await f.report(
+      `${finding("T", TARGET)}\n${finding("T", "osn/web/src/view.ts")}`,
+      REPORT_WRITTEN,
+    );
+    await commitFiles(
+      f,
+      { "osn/web/tests/view.test.ts": importing("../../api/src/target") },
+      FIXED,
+    );
+
+    const { card } = await f.card();
+
+    expect(card.review?.located).toBe(2);
+    expect(card.review?.acted_on).toBe(0);
+  }),
+);
+
+test(
+  "a docs finding does not count when a test importing its file lands",
+  withFixture(async (f) => {
+    // A tests finding on the same line of the same report, which the test does
+    // count.
+    await f.report(`${finding("T", TARGET)}\n${finding("D", TARGET)}`, REPORT_WRITTEN);
+    await commitFiles(f, { "osn/api/tests/target.test.ts": importing("../src/target") }, FIXED);
+
+    const { card } = await f.card();
+
+    expect(card.review?.located).toBe(2);
+    expect(card.review?.acted_on).toBe(1);
+    expect(card.review?.acted_on_by_test).toBe(1);
+  }),
+);
+
+test(
+  "a test that names the cited file only in a plain string does not count",
+  withFixture(async (f) => {
+    await f.report(finding("T", TARGET), REPORT_WRITTEN);
+    await commitFiles(
+      f,
+      {
+        "osn/api/tests/target.test.ts": `const path = "../src/target";\n\ntest("path", () => expect(path).toBeTruthy());\n`,
+      },
+      FIXED,
+    );
+
+    const { card } = await f.card();
+
+    expect(card.review?.acted_on).toBe(0);
+  }),
+);
+
+test(
+  "a test file that imports the cited file and only lost lines does not count",
+  withFixture(async (f) => {
+    const oneCase = importing("../src/target");
+    await commitFiles(
+      f,
+      { "osn/api/tests/target.test.ts": `${oneCase}${SECOND_CASE}` },
+      BEFORE_REPORT,
+    );
+    await f.report(finding("T", TARGET), REPORT_WRITTEN);
+    await commitFiles(f, { "osn/api/tests/target.test.ts": oneCase }, FIXED);
+
+    const { card } = await f.card();
+
+    expect(card.review?.acted_on).toBe(0);
+  }),
+);
+
+test(
+  "a directory with no package.json is a package once it holds a tests/ directory",
+  withFixture(async (f) => {
+    // scripts/ has no package.json, and its tests/ is made by the fix.
+    await commitFiles(f, { "scripts/x.ts": SOURCE }, BEFORE_REPORT);
+    await f.report(finding("T", "scripts/x.ts"), REPORT_WRITTEN);
+    await commitFiles(f, { "scripts/tests/x.test.ts": importing("../x") }, FIXED);
+
+    const { card } = await f.card();
+
+    expect(card.review?.acted_on).toBe(1);
+  }),
+);
+
+test(
+  "run from inside the package, as retro runs it, a landed test still counts",
+  withFixture(async (f) => {
+    await caseAppended(f);
+
+    const { card } = await f.card({ cwd: join(f.dir, "tools", "pr-metrics") });
+
+    expect(card.review?.acted_on).toBe(1);
+  }),
+);
+
+test(
+  "a finding whose window changed is not also counted as acted on by its test",
+  withFixture(async (f) => {
+    await caseAppended(f);
+    await editLine(f, 10, "2026-09-01T12:30:00Z");
+
+    const { card } = await f.card();
+
+    expect(card.review?.acted_on_paired).toBe(1);
+    expect(card.review?.acted_on_paired_by_test).toBe(0);
+    expect(card.review?.acted_on_by_test).toBe(0);
+  }),
+);
+
+test(
+  "the review row says how many paired findings a new test counted",
+  withFixture(async (f) => {
+    await caseAppended(f);
+
+    const { stdout } = await f.card({ extra: ["--format", "markdown"] });
+
+    expect(stdout).toContain(
+      "| Review (tests and docs lenses) | 1 of 1 paired findings acted on (1 by a new test) · control 0 of 1 |",
+    );
+  }),
+);
+
+test(
+  "a finding with no room for a control counts by its test, but not as paired",
+  withFixture(async (f) => {
+    await commitFiles(
+      f,
+      { "src/short.ts": "export const v1 = 1;\nexport const v2 = 2;\n" },
+      BEFORE_REPORT,
+    );
+    await f.report(finding("T", "src/short.ts", 2), REPORT_WRITTEN);
+    await commitFiles(f, { "tests/short.test.ts": importing("../src/short") }, FIXED);
+
+    const { card } = await f.card();
+
+    expect(card.review?.acted_on).toBe(1);
+    expect(card.review?.acted_on_by_test).toBe(1);
+    expect(card.review?.paired).toBe(0);
+    expect(card.review?.acted_on_paired_by_test).toBe(0);
+  }),
+);
+
+test(
+  "a test in a subdirectory of tests/ resolves its import from its own directory",
+  withFixture(async (f) => {
+    // tests/ mirrors src/, so the test sits one directory deeper than tests/.
+    await commitFiles(
+      f,
+      { "osn/api/package.json": "{}\n", "osn/api/src/services/x.ts": SOURCE },
+      BEFORE_REPORT,
+    );
+    await f.report(finding("T", "osn/api/src/services/x.ts"), REPORT_WRITTEN);
+    await commitFiles(
+      f,
+      { "osn/api/tests/services/x.test.ts": importing("../../src/services/x") },
+      FIXED,
+    );
+
+    const { card } = await f.card();
+
+    expect(card.review?.acted_on).toBe(1);
+    expect(card.review?.acted_on_by_test).toBe(1);
+  }),
+);
+
+test(
+  "a test file belongs to the deepest package whose tests/ holds it",
+  withFixture(async (f) => {
+    // A package kept inside another package's tests/, each with a cited file.
+    // Its own test counts only if it is filed under the inner package.
+    const inner = "tools/kit/tests/fixture";
+    await commitFiles(
+      f,
+      {
+        "tools/kit/package.json": "{}\n",
+        "tools/kit/src/y.ts": SOURCE,
+        "tools/kit/tests/y.test.ts": importing("../src/y"),
+        [`${inner}/package.json`]: "{}\n",
+        [`${inner}/src/x.ts`]: SOURCE,
+      },
+      BEFORE_REPORT,
+    );
+    await f.report(
+      `${finding("T", `${inner}/src/x.ts`)}\n${finding("T", "tools/kit/src/y.ts")}`,
+      REPORT_WRITTEN,
+    );
+    await commitFiles(f, { [`${inner}/tests/x.test.ts`]: importing("../src/x") }, FIXED);
+
+    const { card } = await f.card();
+
+    expect(card.review?.located).toBe(2);
+    expect(card.review?.acted_on).toBe(1);
+    expect(card.review?.acted_on_by_test).toBe(1);
+  }),
+);
+
+const IMPORT_FORMS: [string, string][] = [
+  ["a dynamic import", `const x = await import("../src/x");`],
+  ["a bare import", `import "../src/x";`],
+  ["require", `const x = require("../src/x");`],
+  ["vi.mock", `vi.mock("../src/x", () => ({}));`],
+  ["vi.doMock", `vi.doMock("../src/x", () => ({}));`],
+  ["mock.module", `mock.module("../src/x", () => ({}));`],
+  ["importActual", `const x = await vi.importActual("../src/x");`],
+  ["new URL", `const x = new URL("../src/x.ts", import.meta.url);`],
+];
+
+test.each(IMPORT_FORMS)("a test that loads the cited file through %s counts", (_, statement) =>
+  withFixture(async (f) => {
+    await commitFiles(f, { "src/x.ts": SOURCE }, BEFORE_REPORT);
+    await f.report(finding("T", "src/x.ts"), REPORT_WRITTEN);
+    await commitFiles(
+      f,
+      { "tests/x.test.ts": `${statement}\n\ntest("x", () => expect(x).toBeTruthy());\n` },
+      FIXED,
+    );
+
+    const { card } = await f.card();
+
+    expect(card.review?.acted_on_by_test).toBe(1);
+  })(),
+);
+
+test(
+  "an import of a directory counts for its index file",
+  withFixture(async (f) => {
+    await commitFiles(f, { "src/foo/index.ts": SOURCE }, BEFORE_REPORT);
+    await f.report(finding("T", "src/foo/index.ts"), REPORT_WRITTEN);
+    await commitFiles(f, { "tests/foo.test.ts": importing("../src/foo") }, FIXED);
+
+    const { card } = await f.card();
+
+    expect(card.review?.acted_on_by_test).toBe(1);
+  }),
+);
+
+test(
+  "an import that names another code extension counts for the cited file",
+  withFixture(async (f) => {
+    // TypeScript's ESM form: `./view.js` for `view.tsx`.
+    await commitFiles(f, { "src/view.tsx": SOURCE }, BEFORE_REPORT);
+    await f.report(finding("T", "src/view.tsx"), REPORT_WRITTEN);
+    await commitFiles(f, { "tests/view.test.ts": importing("../src/view.js") }, FIXED);
+
+    const { card } = await f.card();
+
+    expect(card.review?.acted_on_by_test).toBe(1);
+  }),
+);
+
+test(
+  "a long run of whitespace after an import keyword does not stall the card",
+  withFixture(async (f) => {
+    // Each keyword with no quote after it is tried once; the scan stays linear
+    // in the run's length, so the card finishes inside the test's time limit.
+    const stalled = `import${" ".repeat(200_000)}{ v1 } from "../src/x";\n`;
+    await commitFiles(f, { "src/x.ts": SOURCE }, BEFORE_REPORT);
+    await f.report(finding("T", "src/x.ts"), REPORT_WRITTEN);
+    await commitFiles(f, { "tests/x.test.ts": stalled }, FIXED);
+
+    const { card } = await f.card();
+
+    expect(card.review?.acted_on_by_test).toBe(1);
+  }),
+);
+
+test(
+  "a cited path outside the repository leaves the report's other findings located",
+  withFixture(async (f) => {
+    await f.report(`${finding("T", "../outside.ts")}\n${finding("D", TARGET)}`, REPORT_WRITTEN);
     await editLine(f, 10, FIXED);
 
     const { card } = await f.card();

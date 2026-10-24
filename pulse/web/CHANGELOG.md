@@ -1,5 +1,21 @@
 # @osn/pulse
 
+## 0.24.29
+
+### Patch Changes
+
+- 18b1291: Dev dependency update: happy-dom 21.0.4, clearing a high advisory in its earlier release.
+- Updated dependencies [18b1291]
+  - @shared/rp-auth@0.2.12
+  - @shared/toast@0.3.8
+  - @shared/ui@0.6.1
+
+## 0.24.28
+
+### Patch Changes
+
+- @pulse/api@0.27.29
+
 ## 0.24.27
 
 ### Patch Changes

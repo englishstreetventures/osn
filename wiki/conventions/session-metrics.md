@@ -14,7 +14,7 @@ related:
   - "[[shared/observability/metrics]]"
   - "[[conventions/review-findings]]"
   - "[[conventions/stacked-prs]]"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-23
 ---
 
 # Session Metrics
@@ -75,10 +75,91 @@ score the task it struggled with as hard.
 Fibonacci, so `usd_equivalent ÷ declared` is a real division. The rubric rates
 the **problem**, not the change: a one-line fix to a race condition is not a 1.
 Diff size is recorded separately, on purpose, and the two are never blended.
+A card whose pull request closes several issues declares the sum of their
+ratings, which can be any whole number — see [[#Which issue a card names, and what it divides by]].
 
 Exclude unconfirmed ratings from anything you intend to act on — they are an
 agent's guess standing alone, and mostly arrive from the backfill of issues that
 predate the label.
+
+## Which issue a card names, and what it divides by
+
+Two answers, kept apart. `issue.number` is the issue the branch was cut for.
+`complexity.declared` is the sum of the ratings of every issue in this
+repository the pull request closes. A branch that closes three issues did three
+issues' work, so dividing its spend by one of their ratings makes it read three
+times as dear as it was. `card -- --resolve-issue` and `backfill` share the
+functions that decide both (`selectIssues` and `decideComplexity` in
+`tools/pr-metrics/index.ts`).
+
+**The issue** — the first of these that applies:
+
+1. `--issue <n>`. With `--resolve-issue` it names the issue and nothing else:
+   the sum below still runs, and no label is read for a number the pull request
+   does not close. It takes this repository's issue only, never a tracker
+   number: with `--resolve-issue`, the number of another repository's issue the
+   pull request links is refused, and the card names none.
+2. `NEW-FEAT.md` at the root of the checkout, when it chooses among the pull
+   request's own links. The file is untracked scratch and survives a branch
+   switch, so it counts only when the checkout has the carded branch out and
+   the branch name appears, as a whole word, in its first 30 lines. The issue is
+   the first reference on its first `Issue:` or `Issues:` line (a `| Issue |`
+   table row counts too), and a Markdown link counts by its target, not its
+   text. A tracker reference there names nothing. It never
+   adds an issue the pull request does not link, and it is not read before a
+   pull request exists.
+3. The first `Closes`, `Fixes` or `Resolves #N` line of the body, in body order.
+4. The first `Part of #N` line.
+5. The one issue in this repository GitHub lists in `closingIssuesReferences`.
+
+Otherwise the card names no issue, and when GitHub lists several it warns and
+names them. It never takes a position in GitHub's list: GitHub orders it by
+issue number, not by what the branch was cut for, and taking the first put a
+$49.77 session against a complexity-1 follow-up the same pull request closed
+(#1566).
+
+The body is read as prose. A closing keyword in a code span, a fenced block, an
+HTML comment or a table row is not read, because GitHub does not act on it.
+
+**What the pull request closes** — for an open pull request, its body's
+`Closes` lines and GitHub's references together, each issue once: a stacked
+pull request has no references until GitHub retargets it to `main`. For a
+merged one (`backfill`), GitHub's references alone, since they are what the
+merge closed.
+
+**The denominator** — the first of these that applies:
+
+| Case | `declared` | `method` | `issues` |
+|---|---|---|---|
+| Closes issues here, every one rated | The sum | `confirmed`, or `unconfirmed` if any part is | How many were summed |
+| Closes issues here, one has no rating | null | `none`, with a warning naming it | 0 |
+| Closes issues here, a label lookup failed | null | `lookup-failed` | 0 |
+| Closes nothing here, has a `Part of` line | null | `part-of` | 0 |
+| Closes only another repository's issue | null | `not-fetched` | 0 |
+| Links nothing | null | `none` | 0 |
+
+`--issue-labels` and `--complexity` supply the rating themselves and turn the
+lookup off; a rating read from `--issue-labels` counts one issue, and a
+`--complexity` one counts none.
+
+Four things this does to the comparison of spend against declared difficulty:
+
+- **A sum is not a Fibonacci number.** Queries 5 and 6 group by `declared`, so a
+  batched branch's 6 or 11 forms a row of its own: points of declared work, not
+  a rating anyone gave.
+- **Overlapping issues inflate the sum.** Three issues that describe one defect
+  from three sides add up to three issues' worth. `complexity.issues` shows how
+  many were summed, so a reader can tell 6 from three issues from 6 from one.
+- **A tracker issue adds nothing.** A pull request that closes a finding in the
+  private `englishstreetventures/osn-tracker` and public issues besides is
+  divided by the public ratings alone; the tracker's labels are never read.
+- **A `Part of` pull request is unrated.** The issue's rating describes the
+  whole of it, and the branch did a part. A series of stacked pull requests
+  records `part-of` on each but the one that closes the issue, which carries the
+  whole rating against its own spend.
+
+Cards with a `schema_version` below 3 predate the sum: their `declared` is one issue's
+rating, taken from the first issue GitHub listed or from the body's one link.
 
 ## Who writes a card
 
@@ -86,8 +167,8 @@ Three writers, and only one of them is the owner.
 
 | Writer | When | Carries identity? |
 |---|---|---|
-| The **`retro`** skill | Once, straight after `prep-pr` opens the pull request | Yes — `--pr`, `--issue` and the issue's `complexity:` label. It commits the JSON and appends the `<details>` block to the pull-request body |
-| The `SessionEnd` hook | At the end of every session, in every environment | No. It runs `card -- --if-absent`, so it writes a card for a branch that has none and never touches one `retro` committed |
+| The **`retro`** skill | Once, straight after `prep-pr` opens the pull request | Yes — `--resolve-issue` finds the pull request, names its issue and sums the ratings of what it closes; `--pr`, `--issue` and `--issue-labels` override it. It commits the JSON and appends the `<details>` block to the pull-request body |
+| The `SessionEnd` hook | At the end of every session, in every environment | Only what `--resolve-issue` finds, which is nothing before the pull request exists. It runs `card -- --if-absent --resolve-issue`, so it writes a card for a branch that has none and never touches one `retro` committed |
 | `backfill` | Retrospectively, over merged pull requests | From the GitHub API — see [[#Backfilling]] |
 
 `retro` runs after the pull request is open, so the card covers the whole
@@ -341,6 +422,35 @@ Two things worth keeping in mind:
   unfairly. What stays deliberately uncarded is `orchestrate` at N>1 — there
   is no principled way to divide one session's overhead across several task
   branches, so it is not attributed to any of them.
+- **A session that made a worktree and moved into it is attributed to it.** A
+  session started in `main/` or the bare-repo root that makes a worktree with
+  the `EnterWorktree` tool runs no `git worktree add`, so the scan above finds
+  nothing — and its records before the move, the request and the work that led
+  to the branch, are stamped `HEAD` or `main`. Claude Code writes a
+  `worktree-state` record naming the branch, and only when the move succeeds;
+  `resolveSessionBranch` takes that branch when the session cut none with git,
+  by the same one-branch rule. A branch cut with git outranks one made this
+  way. Records after an `ExitWorktree` back on `HEAD` or `main` go to that
+  branch too, as does an unmarked subagent the session dispatched (through
+  `resolveDispatchBranch`'s fallback) — the same per-file granularity as above.
+- **A worktree the session only entered counts for nothing.** `EnterWorktree`
+  given the path of a worktree that already exists writes a `worktree-state`
+  record with `enteredExisting: true`. That worktree was cut for other work —
+  the session is reviewing it, or an orchestrator is checking on a task — and
+  what the session did before the move has nothing to do with it. Only the
+  records stamped with that branch go to its card.
+
+  *Measured 2026-10-23 over both transcript roots on the machine that did the
+  work: 11 session files hold a `worktree-state` record naming a branch, 3 for
+  worktrees the session made and 8 for worktrees it only entered. One of the 3
+  made six worktrees, so it resolves to none. Against the rule without either
+  bullet, 2 branches gained spend and none lost; counting entered worktrees as
+  well would have moved spend onto 6 more. One-off comparison of
+  `recordsByBranch` before and after; no script was kept.*
+- **Only records that belong to a session.** Claude Code also writes
+  bookkeeping into a session file — file-history records among them — with a
+  timestamp but no session id and no branch. The fallback leaves them out:
+  claimed, each counted as a session of its own on the card.
 - **Assumes `main/`'s own checkout stays on `main`** (the owner's global `~/.claude/CLAUDE.md`: never
   check out a feature branch inside an existing worktree). When violated, a
   session's records already carry that other branch's real name and fall
@@ -350,15 +460,18 @@ Two things worth keeping in mind:
 
 ## Schema
 
-`schema_version` is `1`. Bump it when a field changes meaning or leaves.
+`schema_version` is `3`. Bump it when a field changes meaning or leaves. Version
+3 made `complexity.declared` a sum over the issues a pull request closes and
+added `complexity.issues`; on an older card `declared` is one issue's rating.
 
 | Field | Meaning |
 |---|---|
 | `pr.number`, `pr.branch`, `pr.base_sha`, `pr.head_sha` | Identity |
 | `pr.phase` | `at-open` or `at-merge` — see [[#Two phases]] |
-| `issue.number`, `issue.type`, `issue.labels` | The issue this implements |
-| `complexity.declared` | 1, 2, 3, 5 or 8 — the only judgement in the file |
-| `complexity.method` | How that number was arrived at |
+| `issue.number`, `issue.type`, `issue.labels` | The issue the branch was cut for — see [[#Which issue a card names, and what it divides by]]. With `--resolve-issue`, `labels` are read only when that issue is one the pull request closes |
+| `complexity.declared` | The sum of the ratings of the issues in this repository the pull request closes — 1, 2, 3, 5 or 8 for one issue. The only judgement in the file |
+| `complexity.method` | How that number was arrived at: `confirmed`, `unconfirmed`, `none`, `not-fetched`, `lookup-failed`, `part-of`, or `manual` for `--complexity` |
+| `complexity.issues` | How many issues' ratings `declared` adds up. Absent before version 3 |
 | `window.sessions` | Distinct sessions on this branch |
 | `window.span_seconds` | First to last timestamp, idle included |
 | `window.active_seconds` | Per-message gaps, each capped at 300s, summed per session |
@@ -436,20 +549,40 @@ several in parallel.
 
 `card` reads the review reports at the checkout root (`TEST-REVIEW.md` and
 `DOCS-REVIEW.md`, or the files `--review-reports` names) and asks of each
-finding: did a commit after the review change the line it cites? The security
-and performance reports are not opened: they hold only tracker kinds.
+finding: did a commit after the review act on it? The security and performance
+reports are not opened: they hold only tracker kinds.
+
+A finding is acted on when a line within 3 of the one it cites changed after
+the review. A tests finding is also acted on when its fix is a new test rather
+than a change at the cited line: a commit after the review added lines to a
+file under the same package's `tests/`, and that file imports the cited file.
+
+- **The package** is the nearest directory above the cited file that holds a
+  `package.json` or a `tests/` directory at the branch's head, or the
+  repository root where none does. `scripts/` counts through its `tests/`.
+- **Imports** means a relative specifier that resolves to the cited file:
+  `from`, a bare or dynamic `import`, `require`, `importActual`, a mock
+  (`vi.mock`, `doMock`, `mock.module`) or `new URL(…, import.meta.url)`. A code
+  extension and a trailing `/index` are ignored on both sides. A path in a
+  plain string is not an import.
+- **Added lines** is the net diff from the reviewed commit to the head: lines
+  added and then removed again do not count, and a test file that only lost
+  lines does not count.
 
 | Field | Meaning |
 |---|---|
 | `reports` | Reports read |
 | `findings` | `T-` and `D-` findings in them |
 | `located` | Those whose **Issue** line names a `path:line` inside a file that existed when the review ran |
-| `acted_on` | Located findings where a line within 3 of the cited one changed afterwards |
+| `acted_on` | Located findings acted on, by either rule above |
 | `paired` | Located findings with room for a control line 35 lines away in the same file |
-| `acted_on_paired`, `control_changed` | Of the paired, how many cited lines changed, and how many control lines did |
+| `acted_on_paired`, `control_changed` | Of the paired, how many were acted on, and how many control lines changed |
+| `acted_on_by_test`, `acted_on_paired_by_test` | Of `acted_on` and `acted_on_paired`, the tests findings whose cited lines did not change and that count only because a test landed |
 
-`control_changed / paired` is the rate at which lines change anyway; read
-`acted_on_paired / paired` against it, never alone.
+The control has no test half: it asks only whether a line changed. Read
+`acted_on_paired - acted_on_paired_by_test` (the report's **by line**) against
+`control_changed`, never `acted_on_paired` alone. `control_changed / paired` is
+the rate at which lines change anyway.
 
 > [!important] Only tests and docs findings are counted.
 > The card is public. `S-`, `P-` and `C-` findings live in the private tracker,
@@ -474,14 +607,25 @@ What the figure cannot say:
 - **It measures what changed, not how good a finding was.** `prep-pr` fixes
   every in-scope finding, so a weak finding is changed as surely as a strong
   one. A finding moved to a follow-up pull request reads as not acted on.
-- **A tests finding is fixed somewhere else.** It cites the untested line, and
-  its fix is a new test under `tests/`, so the cited line rarely changes. On the
-  branch that added this field, every tests finding was fixed and the card read
-  5 of 12 acted on, against a control of 3 of 12. Read `acted_on` as a measure
-  of docs findings until englishstreetventures/osn#1689 decides how a tests finding
-  is matched to its fix.
+- **A `review` block without `acted_on_by_test` counts every finding by its
+  cited line alone.** The collector that wrote it did not count a landed test.
+  Which collector a branch runs depends on when the branch was cut, not when it
+  merged, and a later run keeps the block it finds, so neither the card's date
+  nor its `schema_version` says which rule a block used; the field does.
+- **The test rule reads high.** Any lines added to a test file that imports the
+  cited file count, whatever they test. A type-only import counts, and so does
+  an import written inside a string, as lint-rule tests hold. In a package
+  whose tests all import one module (`tools/pr-metrics` and its `index.ts`), a
+  tests finding on that module counts once any test there changes.
+- **The test rule misses some real fixes.** It never matches an import by
+  package name, a test that imports a barrel (`../src`) rather than the cited
+  file, a CLI test that names its script with `join(…)` or a plain path, or an
+  E2E flow under `tools/e2e`, which is another package and drives the running
+  stack rather than importing anything. A test file moved after the review
+  counts as added.
 - **Most findings are unlocated.** `review-tests` names a file and an export,
-  not a line, so `located` is mostly docs findings.
+  not a line, so `located` is mostly docs findings, and most tests findings are
+  counted by neither rule.
 
 ## Comparing before and after a change
 
@@ -522,28 +666,48 @@ Ratings are transcribed, never invented: a backfilled card carries whatever the
 issue's `complexity:` label says, and `rate-complexity`'s backfill mode marks
 anything it adds `complexity:unconfirmed`.
 
-The issue is the pull request's **first-listed** linked issue —
-`closingIssuesReferences[0]`, an ordering GitHub controls, not this tool. A
-pull request closing several issues is attributed to whichever one GitHub
-lists first.
+The issue and the rating follow [[#Which issue a card names, and what it divides by]],
+with two differences: there is no `NEW-FEAT.md` to read, and a merged pull
+request is credited with the issues GitHub registered as closed. Labels are
+fetched by GraphQL node id in one batched `nodes(ids:)` call, so an issue named
+only in the body is recorded with no labels.
 
-**Only when that issue lives in this same repository.** Most of this
-repository's pull requests close a finding in the private
-`englishstreetventures/osn-tracker` repo instead, and that issue's labels are never fetched
-at all — its `severity:`/`area:` pair must not reach a card committed here
-(see `AGENTS.md` §Issues on not linking a finding from a public file).
-Such a card writes `complexity.method: "not-fetched"`, not `"none"`: a rating
-may well exist on that issue, nobody checked. `englishstreetventures/osn#1012` tracks
-whether and how to surface it safely later.
+**Only issues in this same repository.** Most of this repository's pull
+requests close a finding in the private `englishstreetventures/osn-tracker` repo
+instead, and that issue's labels are never fetched at all — its
+`severity:`/`area:` pair must not reach a card committed here (see `AGENTS.md`
+§Issues on not linking a finding from a public file). A card that closes only
+such an issue writes `complexity.method: "not-fetched"`, not `"none"`: a rating
+may well exist on that issue, nobody checked. `englishstreetventures/osn#1012`
+tracks whether and how to surface it safely later.
 
-`complexity.method` can therefore read five ways: `"confirmed"` /
-`"unconfirmed"` (a rating was found, on an issue in this repository),
-`"none"` (no linked issue, or a linked issue here with no `complexity:`
-label), `"not-fetched"` (the linked issue is in another repository), or
-`"lookup-failed"` (a fetch was attempted and did not resolve — a transport
-error, or the issue vanished between merge and backfill). Only `"confirmed"`
-is a rating to act on; the rest are all a null `complexity.declared`, for
-different reasons.
+"Same repository" is decided against the canonical name: `backfill` asks
+`gh repo view <--repo>` once, and `gh` follows a renamed owner and answers in
+GitHub's own case. A `--repo xchromo/osn` or `EnglishStreetVentures/osn` still
+reads this repository's issues. Where `gh` cannot answer, the typed name stands
+in, compared ignoring case.
+
+**A backfill never lowers a rating on disk.** When the card already written for
+the same pull request holds a rating and this run's has none, or holds a
+`confirmed` one and this run's is not, it keeps the card's `complexity` and says
+so on stderr. A failed lookup, or an issue this run cannot read, must not erase
+the only record of the rating. The card's `issue` comes with it only when
+this run links that issue to this repository: a card is public, and an issue
+block written some other way may name a tracker issue or carry its labels.
+Two cases are not a lowered rating, or cannot carry one:
+
+- **This run records `part-of`.** That null is the rule's answer, not a failed
+  read. A rating looked up from the issue (`confirmed`, `unconfirmed`) is
+  dropped, since it describes the whole issue; one given by hand is kept.
+- **The card on disk rates fewer issues than the pull request closes.** A
+  card before version 3 rates one issue, and version 3's `declared` is the sum over
+  all of them: carried across, one issue's rating would count four issues of
+  work as one. A new sum is written instead. When this run has no sum either,
+  the card on disk is left as it is, on its old version, and the run names it.
+
+Only `"confirmed"` is a rating to act on; every other method is either an
+agent's guess (`"unconfirmed"`) or a null `complexity.declared`, for the reasons
+in the table above.
 
 ## The two fields that name a cause
 
@@ -618,6 +782,7 @@ point and points back here.
 | `--sessions-dir` | `~/.claude/projects` |
 | `--out-dir` | `.claude/metrics` |
 | `--pr`, `--issue`, `--issue-type`, `--issue-labels` | Unset |
+| `--resolve-issue` | Off. On, `gh` supplies the pull request, the issue and the summed rating — see [[#Which issue a card names, and what it divides by]] |
 | `--complexity`, `--complexity-method` | Unset |
 | `--phase` | `at-open` |
 | `--if-absent` | Off. On, it exits without writing where the card already exists — the `SessionEnd` fallback's flag |

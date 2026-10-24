@@ -34,7 +34,7 @@ The bar for keeping any non-E2E test: **name the real bug it catches that no E2E
 
 ### What one run does
 
-1. Refuses to start if any of its ports is taken, and names the port. It never reuses a server it did not start. Stop your `bun run dev` first. A refused run leaves the previous run's artifacts where they are.
+1. Refuses to start if any of its ports is taken, and names the port. It never reuses a server it did not start. Stop your `bun run dev` first. A refused run leaves the previous run's artifacts where they are. The ports are fixed for the whole machine, so two worktrees cannot run the suite at once: when another worktree's run holds them, `lsof -nP -iTCP:4000 -sTCP:LISTEN` names its process, and `lsof -p <pid>` its directory. Wait for that run to finish rather than stopping it, and start once the ports have stayed free for a minute or so, since a repro frees them for a moment between its two runs.
 2. Clears `e2e-artifacts/`, so nothing from an earlier run survives.
 3. Checks that the shared clock reaches a Bun child and a Node child: `Date.now()`, `new Date()` and `Date()` each.
 4. Builds fresh SQLite files from each package's `applySchema` and seeds fixed rows: Pulse and the cire organiser portal are registered with osn-api as first-party OIDC clients. cire-api seeds its own file at boot (`CIRE_LOCAL_DB_PATH`).
@@ -74,6 +74,8 @@ The ports are the `PORTLESS=0` ones from `DEV_APPS` in `@shared/dev-urls`, and `
 **Organiser flows on their own weddings.** The checklist and run-sheet flows sign in with `signInToCireHost(flow, page)` (`tools/e2e/tests/support/fixtures.ts`) instead. It takes the OSN session from `/dev/login` with the page's own request client, so the cookie lands in the browser's jar, then makes the sign-in a host makes from the portal's `/login`: "Continue with musubi", cire-api's `/api/auth/oidc/start`, osn-api's `/authorize` with no screen, and cire-api's callback, which sets `cire_org_session`. The portal then settles on `/#/weddings`. The fixture checks that Musubi's `/authorize` page never loads, that the cookie is HttpOnly, and that the dev profile, `usr_dev_bootstrap_owner`, holds one more `organiser_sessions` row. The stack starts cire-api with `CIRE_E2E_ORGANISER=1`, which adds five Gold weddings (`seedE2eOrganiser` in `cire/api/src/db/setup.ts`; the ids are written out again as `CIRE_ORGANISER` in `tools/e2e/src/config.ts`). That profile owns four: one dated 2099-06-20 with an empty checklist (`cire-checklist-starter`), one with an open task, an editor and a viewer (`cire-checklist-holders`), one with a helper (`cire-helper-scope`'s scope steps), and one whose day, 2026-10-01 in Sydney, has events with runs of show and tasks linked to them (`cire-helper-scope`'s run-sheet steps, which hold the page clock at `CLOCK_T0` plus five minutes so a task twenty minutes away reads "Coming up" on every run). On the fifth it is a helper who sees their own tasks, so the same sign-in reads the run sheet as such a helper. The local cire-api resolves no OSN names, so co-hosts show, and are found, by profile id. A sign-in, through the fixture or a flow's own `/dev/login?…` link, spends two of cire-api's OIDC redirect legs (15 a minute per address), one `/dev/login` (10 a minute) and one osn-api `/authorize` (20 a minute, which the Pulse flow's two sign-ins share), so `flows.test.ts` counts both kinds and fails above five sign-ins in the run (four today).
 
 **The organiser claims from its own address.** A flow that previews calls `claimFromOrganiserAddress(context)` (`tools/e2e/tests/support/fixtures.ts`), which sends that context's claims with `cf-connecting-ip: ORGANISER_ADDRESS` (TEST-NET-1, from `config.ts`), as an organiser on their own network would. The route stays for the rest of the flow: while any route is installed Playwright pauses every request in the context, and removing it while the page still loads strands the request paused at that moment, so a module import the claim's reveal waits on never settles. The stack starts cire-api with `CIRE_E2E_CLIENT_ADDRESS=1`, the one case where the local server keeps a client address the request sends (`localClientAddress` in `cire/api/src/lib/local-client-address.ts`); any other local cire-api replaces it with the socket peer. Those claims count in the organiser's window, also at most five (three today: one in `cire-registry-preview` and two in `cire-event-details`, the preview household and Eli's), and such a flow may claim only through a `code=` link: a press in a second, unrouted context would spend the guests' window while being counted in the organiser's. A second test in `flows.test.ts` checks the stack sets the flag and `local.ts` reads it.
+
+**A stand-in for cire's push hub.** For each wedding it shows, the portal opens a socket to cire-api's `/realtime/<topic>` ([[realtime]]), and the stack's cire-api has no hub: its Bun entry answers `/realtime/*` with 404. Left alone, every subscription would fail, retry on the client's jittered backoff (six attempts, up to 31 seconds of waiting, from `Math.random`) and then post `POST /api/realtime/fallback`, so a dashboard open long enough would put that beacon in one run's `results.json` and not the next. The `flow` fixture stands in for the hub in every context it records (`standInForCireHub` in `tools/e2e/tests/support/fixtures.ts`): Playwright's `routeWebSocket` takes each socket to cire-api's `/realtime/`, opens it, answers `ping` with `pong` as `TopicHub` does, and sends no signal, so no subscription gives up. Every other socket, Vite's included, opens on the network as before. The two words and the ping interval are written out for Node as `REALTIME_KEEPALIVE` in `tools/e2e/src/config.ts`. `cire-helper-scope` checks that its co-hosts page's socket reached the stand-in, and that the page holds one socket for its wedding both once it opens and after the scope and role changes, so a portal that moves or reopens its socket fails on every run, not the repro on some. `cire-checklist-starter` ends by moving its page clock on one ping interval (`page.clock.runFor`) and checks that the stand-in received the ping and that the page's socket received the pong (counted in the page by an init script), so a ping word or interval that drifts from `@shared/realtime`'s, or a stand-in that stops answering, fails there; nothing that page runs in that interval calls the API. No flow sees a push signal until englishstreetventures/osn#1653 boots cire-api with its real hub. Keep a portal flow to one page per context: a tab the browser reports hidden for two ping intervals (50 seconds) closes its socket and reopens it when shown, and the re-read that follows would land in some runs only.
 
 ### Reading the artifact
 
@@ -118,8 +120,12 @@ The Musubi flow reports conditional mediation as unavailable. The virtual authen
 
 Test files live in `tests/` at the package root and mirror the `src/` structure. **Every**
 package, without exception, `cire/*`, the three landing sites and `scripts/` included.
-Test-only support code (mocks, fixtures, request harnesses) lives under `tests/` too, never
-in `src/`:
+CI's `Lint & Format` job runs
+[check-tests-outside-src.ts](../../scripts/check-tests-outside-src.ts), which fails on any
+file under a workspace's `src/` whose name holds `.test.`, `.spec.`, `_test.` or `_spec.`,
+`_`-prefixed or not, and on any symlink there. It reads names only, so it cannot see a test
+helper. Keep test-only support code (mocks, fixtures, request harnesses) under `tests/`
+too, never in `src/`:
 
 ```
 pulse/api/
@@ -271,7 +277,7 @@ describe("events routes", () => {
 
 - **OSN auth routes use `createAuthRoutes(authConfig, dbLayer?)`.** The `authConfig` parameter is required (no global default). `dbLayer` defaults to `DbLive`.
 
-- **Use `bunx --bun vitest`** (not plain `vitest`) -- the flag is required for `bun:sqlite` module access. The `test:run` scripts in `package.json` already set it.
+- **Use `bunx --bun vitest`** (not plain `vitest`) when you call Vitest yourself -- the flag is required for `bun:sqlite` module access. A package's own `test` and `test:run` scripts already carry the flags its tests need: most of those that run Vitest say `bunx --bun vitest`, and the few whose tests never load `bun:sqlite` call plain `vitest`.
 
 - **Use future dates for test events.** For example, `2030-06-01T10:00:00.000Z`. The default `listEvents` implementation filters out past events, so tests with past dates will produce confusing empty results.
 
@@ -288,6 +294,8 @@ describe("events routes", () => {
 - **When tests need a wider type surface than the shipped source, give them `tests/tsconfig.json`.** It extends `../tsconfig.json`, widens what the tests need (`bun-types`, a later `lib`), and the package's `typecheck` script runs it, with `bun check`, after the main config. The package's own `tsconfig.json` then covers only shipped source, so the compiler rejects what the runtime lacks. Name it `tests/tsconfig.json`, not `tsconfig.test.json` beside the main one: the editor looks for a file named `tsconfig.json` in the nearest ancestor directory, so a sibling config leaves test files on the repo-root `tsconfig.json`, which has no JSX or DOM settings. `cire/api`, `cire/invites`, `cire/dietary`, `cire/theme`, `shared/color`, `shared/db-utils`, `shared/design-tokens` and `shared/ui` use it — [[cire-development#Type-check configs]].
 
 - **Import the matchers where you assert with them, and declare the dependency only there.** A test that uses `toHaveAttribute` or `toBeInTheDocument` writes `import "@testing-library/jest-dom/vitest";` at the top of the file, and its package lists `@testing-library/jest-dom` in `devDependencies`. Three packages do — `cire/host`, `cire/vendor` and `pulse/web`. Ten others declared it while importing no matcher and were pruned. Bun's install layout is not hoisted, so an undeclared dependency is unresolvable rather than quietly satisfied: the failure is a red `Cannot find module`, not a green suite. `tsconfig.json` already has the test files in `include`, so the matcher types resolve across a package from any one import. `tools/lab` is the deliberate exception — it leaves the plugin out entirely, so nothing injects and it needs no marker; the guard matches the import statement rather than the plugin's name so its comment about the plugin does not trip it.
+
+- **Check the Bun version before you believe a failure that names no code you touched.** CI installs the Bun that `.bun-version` pins, so a different local Bun can fail a test on its own wording or behaviour while CI stays green. Compare `bun --version` with `.bun-version` first; a `SessionStart` hook runs [check-bun-version.sh](../../scripts/check-bun-version.sh), which warns at the start of every session when they differ. To rerun under the pin without changing the installed Bun, put that version's binary first on `PATH`. Most CLI tests under `scripts/tests/` start their child `bun` by name, so a binary run by its path alone leaves those children on the installed one; the few that start `process.execPath` follow whichever Bun runs the suite.
 
 ## Assertions that cannot fail
 
@@ -858,9 +866,10 @@ The route tests for the upgrade checkout and the vendor directory's add use both
 
 ## Testing an oxlint rule
 
-`tools/oxlint/house` holds the repo's own oxlint rules, and its tests are the odd
-one out: they run under `bun test`, not vitest, and they lint fixtures instead of
-calling a function.
+`tools/oxlint/house` holds the repo's own oxlint rules. Its tests lint fixtures
+instead of calling a function, and its `test` script is `bun test`, not vitest:
+like every package whose `test` script is `bun test`, run them with
+`bun run --cwd tools/oxlint/house test`, not `test:run`.
 
 `@oxlint/plugins` ships no `RuleTester` — the package is four files and exports
 `definePlugin`, `defineRule` and `eslintCompatPlugin`, nothing else. So a rule

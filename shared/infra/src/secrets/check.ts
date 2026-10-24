@@ -92,9 +92,9 @@ export const githubSecretNamesArgs = (tier: Tier): readonly string[] => [
 
 /**
  * Compares the names `listNames` prints (one per line) with what `tier`'s
- * GitHub Environment must hold (`githubExpectations`). A missing name or the
- * other tier's credential exits 1; a name the inventory does not know is
- * printed and exits 0.
+ * GitHub Environment must hold (`githubExpectations`). A missing name or a
+ * forbidden credential (`forbiddenCredentials`) exits 1; a name the inventory
+ * does not know is printed and exits 0.
  */
 export async function checkGithub(
   tier: Tier,

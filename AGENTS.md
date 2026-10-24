@@ -14,6 +14,7 @@ OSN is a modular social platform: people own their identity and social graph, an
 | `zap/` | `@zap/*` | Messaging: API and DB, no client yet |
 | `cire/` | `@cire/*` | Wedding invites: guest site, organiser portal, vendor portal, marketing site, API, DB, `@cire/ui` |
 | `shared/` | `@shared/*` | Libraries every product uses: UI primitives, design tokens, crypto, email, observability, rate limiting, auth client |
+| `tools/` | `@tools/*` | Local-only developer tooling, never shipped: the E2E suite, house lint rules, session metrics, the mutation-test runner, the component lab |
 
 Which name a new package takes is in `wiki/shared/osn-and-musubi.md`; the full tree is in `wiki/shared/monorepo-structure.md`.
 
@@ -39,7 +40,7 @@ Work is tracked in GitHub Issues, never the wiki.
 - Write every issue with the `write-issue` skill (`.claude/skills/write-issue/SKILL.md`): the repository, title, type, labels and a body someone can act on months later with nothing checked out.
 - Write every PR body with the `write-pr` skill (`.claude/skills/write-pr/SKILL.md`): the title, the six sections with the change's impact first, a `Closes` line for every issue the branch fixes, a test plan that says what ran on which commit, and the REST command that opens it.
 - **Fix what you find; do not file it.** Everything in the feature's scope — the files the branch changes, their tests and docs, every finding in them — is fixed on the branch. An issue is left open only for work out of the feature's scope, something unrelated found mid-task, or a larger piece of work; the small ones of the first two go on one follow-up pull request instead. A critical or high finding is never left open. More than two left open by one pull request means something in scope was filed: `wiki/conventions/review-findings.md` §Fix findings; do not file them.
-- When the next step needs a choice only the owner can make, write the proposal, add `needs:decision`, and move to another issue.
+- When the next step needs a choice only the owner can make, write the proposal, add `needs:decision`, and move to another issue. A pull request that waits on that choice, or on an approval only the owner can give, opens as a draft, and only the owner marks it ready (`prep-pr` Step 9).
 - Never delete an issue; close it.
 
 ## Standing rules
@@ -71,8 +72,8 @@ bun run test:e2e             # end-to-end suite: boots the stack, writes e2e-art
 bun run test:e2e:repro       # it, twice, failing unless results.json matches byte for byte
 bun run test:scripts         # bun tests under scripts/
 bun run --cwd cire/<pkg> test:mutation --changed  # Stryker on changed lines, cire only
-bun run --cwd <pkg> test:run # one Vitest package, once
-bun run --cwd <pkg> test     # @cire/api, @cire/db, @tools/oxlint-house use bun test
+bun run --cwd <pkg> test:run # one package, once
+bun run --cwd <pkg> test     # instead, where its test script is `bun test` or it has no test:run
 ```
 
 Database commands differ between cire and the rest; see `wiki/conventions/commands.md` and `wiki/cire/cire-development.md`.
