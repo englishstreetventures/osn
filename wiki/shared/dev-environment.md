@@ -10,7 +10,7 @@ related:
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-10-23
+last-reviewed: 2026-10-24
 ---
 
 # Dev environment (cire + OSN identity)
@@ -400,6 +400,11 @@ printf '%s' "$VALUE" | gh secret set NAME --env dev --repo englishstreetventures
      reads the first three too, to derive the OIDC client's hash and the ARC
      public key for osn-api's seed; the step that deploys the musubi stack holds
      none of them ([[infrastructure-as-code#Seeds and the ARC registration]]).
+   - Optional, one value for both osn-api and cire-api:
+     `CIRE_INTERNAL_REVOKE_SECRET` (at least 32 characters, `openssl rand -base64 32`).
+     With it, sign out everywhere else ends the account's cire organiser
+     sessions ([[sessions#Sign out everywhere else reaches cire]]). After setting
+     or changing it, deploy both the musubi and cire stacks.
    - The guest site's build: `ASTRO_KEY`, from `bunx --bun astro create-key` in
      `cire/invites`, fixed so two builds of one commit match. Root `turbo.json`
      passes it to the build without hashing it, and that build runs with turbo's
@@ -411,7 +416,7 @@ printf '%s' "$VALUE" | gh secret set NAME --env dev --repo englishstreetventures
 
    The cire and musubi stacks refuse to deploy while a value breaks its dev
    rule: a `STRIPE_SECRET_KEY` that is not a test-mode key, or a
-   `DEV_LOGIN_SECRET` shorter than 32 characters
+   `DEV_LOGIN_SECRET` or `CIRE_INTERNAL_REVOKE_SECRET` shorter than 32 characters
    ([[infrastructure-as-code#GitHub Environment secrets]]).
 
    `secrets:check-github -- --tier dev` lists any missing Worker secret,

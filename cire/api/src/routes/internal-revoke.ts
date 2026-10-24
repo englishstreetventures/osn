@@ -17,10 +17,11 @@ const PREFIX = "/internal";
  *
  * An organiser's cire session is a 7-day opaque cookie minted from an OSN OIDC
  * sign-in; cire holds no other live credential for them. Left alone it lives out
- * its full TTL even after the OSN side has revoked the connection or deleted the
- * account. This endpoint lets osn-api kill those sessions PROMPTLY on such an
- * event without touching the normal 7-day sliding window (renewal is still a
- * silent OIDC round-trip). It maps 1:1 onto `revokeAllForProfile`.
+ * its full TTL whatever happens on the OSN side. osn-api calls this endpoint,
+ * once per profile of the account, when the account signs out everywhere else
+ * or revokes cire's connection (`osn/api/src/services/cire-organiser-revoke.ts`),
+ * without touching the normal 7-day sliding window. It maps 1:1 onto
+ * `revokeAllForProfile`.
  *
  * **Auth.** cire-api is otherwise only an ARC *client* (it signs tokens to call
  * osn-api) and has no inbound ARC verifier — standing up osn-api key
@@ -29,8 +30,8 @@ const PREFIX = "/internal";
  * (`Authorization: Bearer <shared secret>`, see `[[wiki/osn/arc-tokens]]`):
  * a single shared secret (`CIRE_INTERNAL_REVOKE_SECRET`, a wrangler secret),
  * compared in constant time. Absent secret ⇒ the route is DISABLED (503), never
- * open. osn-api must be provisioned with the same secret and send it as the
- * bearer token — that caller wiring lives on the osn-api side.
+ * open. osn-api holds the same secret and sends it as the bearer token; the
+ * inventory shares one value between the two Workers.
  *
  * Mounted BEFORE the app-wide CSRF origin guard (same as the CSP-report
  * collector): this is a server-to-server POST with no browser `Origin`, so the

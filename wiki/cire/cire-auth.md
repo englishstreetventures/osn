@@ -13,7 +13,7 @@ related:
   - "[[oidc-provider]]"
   - "[[musubi-identity-migration]]"
   - "[[cire-entitlements]]"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-24
 ---
 
 # Cire auth model
@@ -131,6 +131,8 @@ Four routes make up the surface, plus the middleware:
 | `GET /api/auth/oidc/callback`                         | Exchanges the code and sets the cookie. Every failure redirects back to `return_to` with `?auth_error=sign_in_declined` (the user said no) or `sign_in_failed` (everything else). The issuer's own error string is never echoed back to the browser.                                                                                                                                                       |
 | `GET /api/auth/session`                               | Who is signed in. Answers **200 `{signedIn: false}`** when nobody is — deliberately not 401, so the probe never trips `authFetch`'s session-expired path on a page a signed-out visitor may legitimately open.                                                                                                                                                                                             |
 | `POST /api/auth/signout[?all=1]`                      | Revokes this session, or every session for the profile. Always 200, idempotent.                                                                                                                                                                                                                                                                                                                            |
+
+**OSN ends these sessions too.** `POST /internal/revoke-organiser-sessions` ([internal-revoke.ts](../../cire/api/src/routes/internal-revoke.ts)) takes `{ "osnProfileId": … }` and `Authorization: Bearer <CIRE_INTERNAL_REVOKE_SECRET>`, compared in constant time, and runs `revokeAllForProfile`. It answers 503 while the secret is unset, 401 for a wrong one, and `{ ok: true }` whether or not the profile held a session. osn-api calls it once per live profile of the account when the account signs out everywhere else, or revokes cire's connection ([[sessions#Sign out everywhere else reaches cire]]). Mounted before the CSRF origin guard, behind its own per-IP limiter of 30 a minute. The secret is one value held by both Workers ([[infrastructure-as-code]]).
 
 **Why `osn_profile_id`, not `sub`.** OIDC hands out a **pairwise** `sub` (`pw_*`) — a different string per client sector, so no two relying parties can correlate a user. Every cire row keys on the real OSN profile id (`wedding_hosts.osn_profile_id`, all three ARC bridges), so a `pw_*` sub would have orphaned the entire existing dataset. Cire is registered **first-party**, and a first-party ID token carries an extra `osn_profile_id` claim holding the real `usr_*`. A token that arrives without it is refused (`token_invalid`) rather than falling back to `sub` — a fallback would silently mint sessions keyed on the wrong identity.
 
