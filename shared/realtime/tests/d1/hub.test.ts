@@ -89,6 +89,7 @@ async function open(topic: string, subject: string, query = "", pinged = true): 
   // after the close handshake until that socket has sent a frame, and Bun
   // 1.4.4 waits for the FIN before it reports `close`. One ping, answered by
   // the auto-response without waking the hub, gives this socket that frame.
+  // Revisit: englishstreetventures/osn#1745.
   if (pinged) {
     ws.send("ping");
     await until(() => frames.includes("pong"), "the pong to open()'s ping");
@@ -289,7 +290,8 @@ describe("TopicHub", () => {
       const first = await open("cire:wedding:wed_cap", "usr_1", "?hub=small");
       const second = await open("cire:wedding:wed_cap", "usr_2", "?hub=small");
       // The newcomer is closed before its 101 is usable and never sends a frame,
-      // so no ping can make its close visible (see open()). The cap is checked
+      // so no ping can make its close visible (see open(); revisit:
+      // englishstreetventures/osn#1745). The cap is checked
       // through the socket count instead; the close code is not asserted here.
       const third = await open("cire:wedding:wed_cap", "usr_3", "?hub=small", false);
       expect(first.capacity).toBeNull();
