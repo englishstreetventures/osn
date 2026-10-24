@@ -224,6 +224,11 @@ const BUNDLE_GUARDS: Readonly<Record<StackKey, readonly string[]>> = {
   pulse: ["pulse/landing"],
 };
 
+/** The checks a stack job runs besides its smoke checks, by step id. */
+const EXTRA_CHECKS: Partial<Record<StackKey, readonly string[]>> = {
+  cire: ["parity_cire_invites"],
+};
+
 const BUILD = /\bbun run build --filter=(\S+)/;
 const buildsOf = (job: Job) => stepsOf(job).filter((step) => BUILD.test(step.run ?? ""));
 
@@ -324,8 +329,20 @@ describe("deploy.yml deploys dev only", () => {
     }
   });
 
-  test("W5: nothing in it runs or names wrangler", () => {
+  test("W5: no step names wrangler; Wrangler runs only as the guest route comparison's local runtime, in a step holding no Cloudflare credential", () => {
     expect(readFileSync(join(root, WORKFLOW_FILE.dev), "utf8")).not.toMatch(/wrangler/i);
+    // scripts/guest-route-parity.ts starts `wrangler dev` with an environment
+    // of its own (referenceEnv); the step that runs it holds no credential to
+    // hand on in the first place.
+    const parity = Object.values(dev.jobs)
+      .flatMap((job) => stepsOf(job))
+      .filter((step) => (step.run ?? "").includes("guest-route-parity"));
+    expect(parity.map((step) => step.id)).toEqual(["parity_cire_invites"]);
+    for (const step of parity) {
+      expect(Object.keys(step.env ?? {}).filter((name) => name.startsWith("CLOUDFLARE_"))).toEqual(
+        [],
+      );
+    }
   });
 
   test("W4: no URL is written into it; every value that names a dev host comes from a step", () => {
@@ -608,6 +625,7 @@ describe("each stack job builds, deploys and checks its whole stack", () => {
       const failed = [
         "steps.deployments.outcome == 'failure'",
         ...surfacesOf(key).map((s) => `steps.smoke_${s.key}.outcome == 'failure'`),
+        ...(EXTRA_CHECKS[key] ?? []).map((id) => `steps.${id}.outcome == 'failure'`),
       ];
       expect(last?.if).toBe(`\${{ !cancelled() && (${failed.join(" || ")}) }}`);
       expect(last?.run).toContain("exit 1");
@@ -632,6 +650,45 @@ describe("each stack job builds, deploys and checks its whole stack", () => {
       expect(steps[healing]?.run).toContain("exit 1");
     },
   );
+});
+
+describe("PR1: the cire stack job compares the guest site's routes with Wrangler's runtime after every smoke check", () => {
+  const job = stackJobOf("cire");
+  const steps = stepsOf(job);
+  const parity = stepById(job, "parity_cire_invites");
+
+  test("runs after the last smoke check, only once the guest site's passed, and never fails the job by itself", () => {
+    const at = stepIndex(job, "parity_cire_invites");
+    const smokes = surfacesOf("cire").map((s) => stepIndex(job, `smoke_${s.key}`));
+    expect(at).toBeGreaterThan(Math.max(...smokes));
+    expect(parity?.if).toBe("${{ !cancelled() && steps.smoke_cire_invites.outcome == 'success' }}");
+    expect(parity?.["continue-on-error"]).toBe(true);
+    expect(parity?.["timeout-minutes"]).toBe(5);
+    expect(parity?.run).toBe(
+      'bun run scripts/guest-route-parity.ts --out "$RUNNER_TEMP/route-parity/cire-invites.json"',
+    );
+  });
+
+  test("holds the guest site's dev origin and the Access service token, and nothing else", () => {
+    expect(parity?.env).toEqual({
+      PARITY_ORIGIN: hostOutput("cire_invites_origin"),
+      CF_ACCESS_CLIENT_ID: "${{ secrets.CF_ACCESS_CLIENT_ID }}",
+      CF_ACCESS_CLIENT_SECRET: "${{ secrets.CF_ACCESS_CLIENT_SECRET }}",
+    });
+  });
+
+  test("keeps the report as an artifact whenever the comparison ran, failed or not", () => {
+    const upload = steps[stepIndex(job, "parity_cire_invites") + 1];
+    expect(upload?.uses).toBe("actions/upload-artifact@v4");
+    expect(upload?.if).toBe(
+      "${{ !cancelled() && steps.parity_cire_invites.outcome != 'skipped' }}",
+    );
+    expect(upload?.with).toEqual({
+      name: "cire-invites-route-parity",
+      path: "${{ runner.temp }}/route-parity/",
+      "if-no-files-found": "warn",
+    });
+  });
 });
 
 describe("W2: one record job per dev surface", () => {

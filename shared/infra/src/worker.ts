@@ -1,6 +1,7 @@
 import type * as Cloudflare from "alchemy/Cloudflare";
 import { Data, type Redacted } from "effect";
 
+import { PREBUILT_MODULE_RULES } from "./prebuilt";
 import { SECRET_INVENTORY, tierSecrets, type WorkerKey } from "./secrets/inventory";
 import { tierOf, type Tier } from "./stage";
 
@@ -41,7 +42,7 @@ export interface ApiWorkerInput {
   readonly stage: string;
   /** The entry module, relative to the stack's working directory. */
   readonly main: string;
-  /** false: `main` is a prebuilt Worker, uploaded byte for byte with the modules beside it. */
+  /** false: `main` is a prebuilt Worker, uploaded byte for byte with the modules and source maps beside it. */
   readonly bundle: boolean;
   /** The static assets the Worker serves, or null for none. */
   readonly assets: WorkerAssetsInput | null;
@@ -217,15 +218,36 @@ function checkPlainBindings(input: ApiWorkerInput): void {
 }
 
 /**
+ * The guest site's Worker. It traces every production request: the owner
+ * accepted the wedding slug in a traced path. `checkGuestWorker` in
+ * `scripts/check-trace-redaction.ts` holds its Wrangler config to the same.
+ */
+export const GUEST_WORKER: WorkerKey = "cire-invites";
+
+/**
+ * The Workers whose request paths name weddings and couples, so an
+ * invocation record, which stores the request URL, stays off on production.
+ */
+export const WEDDING_PATH_WORKERS: readonly WorkerKey[] = ["cire-api", "cire-invites"];
+
+/**
  * Production request paths carry ids and slugs, so production keeps query
- * strings redacted and native traces off — the rule
- * `scripts/check-trace-redaction.ts` holds today's API Workers to.
+ * strings redacted everywhere and native traces off on every Worker but the
+ * guest site's — the rules `scripts/check-trace-redaction.ts` holds today's
+ * Wrangler configs to — and invocation logs off on the Workers whose paths
+ * name weddings.
  */
 function checkProductionObservability(input: ApiWorkerInput): void {
   if (tierOf(input.stage) !== "production") return;
+  const { observability } = input;
   const problems = [
-    input.observability.redactQueryString ? "" : "redactQueryString must be true",
-    input.observability.traces.enabled ? "native traces must be off" : "",
+    observability.redactQueryString ? "" : "redactQueryString must be true",
+    observability.traces.enabled && input.worker !== GUEST_WORKER
+      ? "native traces must be off"
+      : "",
+    observability.invocationLogs === true && WEDDING_PATH_WORKERS.includes(input.worker)
+      ? "invocation logs must be off: its request paths name weddings"
+      : "",
   ].filter((problem) => problem !== "");
   if (problems.length > 0) {
     throw new ProductionObservabilityError({
@@ -302,10 +324,11 @@ export function apiWorkerProps(input: ApiWorkerInput): Cloudflare.WorkerProps {
     },
     env: { ...input.vars, ...input.bindings, ...input.secrets },
   };
-  // A prebuilt Worker is uploaded as it is, so it takes no bundler options.
+  // A prebuilt Worker takes no bundler options; its module rules add the
+  // source maps `writePrebuiltStage()` writes beside its modules.
   const built: Cloudflare.WorkerProps = input.bundle
     ? { ...props, build: { input: { external: [...WORKER_BUNDLE_EXTERNAL] } } }
-    : props;
+    : { ...props, rules: PREBUILT_MODULE_RULES.map((rule) => ({ globs: [...rule.globs] })) };
   if (input.assets === null) return built;
   return {
     ...built,

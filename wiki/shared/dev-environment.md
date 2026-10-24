@@ -135,7 +135,8 @@ unset, each with its reason.
    on the first new import. A change under `shared/infra/` runs every stack; one
    under a stack's own `infra/` directory runs that stack. A change to
    `scripts/smoke-check.ts` or `scripts/worker-deployments.ts` deploys every dev
-   surface, so the check runs on dev before a release runs it. Each cire
+   surface, so the check runs on dev before a release runs it; a change to
+   `scripts/guest-route-parity.ts` deploys the guest site. Each cire
    surface's paths list every `@cire/*` package it bundles (`cire/ui`,
    `cire/dietary`, `cire/theme`, …), and
    [`scripts/tests/deploy-surface-map.test.ts`](../../scripts/tests/deploy-surface-map.test.ts)
@@ -148,7 +149,11 @@ unset, each with its reason.
    It builds the stack's sites against the dev hosts, deploys the whole stack
    with Alchemy, then runs the smoke check for every surface in it. A surface
    that answers wrongly is rolled back, if this run uploaded it, and the job
-   fails once every surface has been checked.
+   fails once every surface has been checked. The cire job then compares every
+   route of the guest site against the same build served by Wrangler's local
+   runtime, and keeps the report as the run's `cire-invites-route-parity`
+   artifact ([[infrastructure-as-code#The guest route comparison]]); a
+   difference fails the job and rolls nothing back.
 4. **`deploy-<surface>-dev`** — one record job per surface, run only when its
    stack job deployed, read every Worker's new deployment, and its own check
    passed. It leaves the surface's dev

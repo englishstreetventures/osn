@@ -3,13 +3,19 @@ import { createRequire } from "node:module";
 import { dirname, join, posix } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { SiteBuildError } from "@shared/infra";
+import {
+  PREBUILT_MODULE_RULES,
+  PrebuiltSourceMapError,
+  SiteBuildError,
+  stageHosts,
+} from "@shared/infra";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { SURFACES, type SurfaceKey } from "../../../scripts/deploy-surfaces";
 import { listMigrations } from "../../../scripts/migration-files";
 import { devTarget } from "../../../scripts/smoke-check";
 import { refusedTargets } from "../../../shared/infra/tests/support/refused-targets";
+import { cireDeclaration } from "../src/declaration";
 import { ownerSeatSql, SeedInputError } from "../src/seeds";
 import {
   DEV_DOMAIN,
@@ -243,7 +249,7 @@ describe("the cire stack, evaluated offline", () => {
     );
   });
 
-  test("K14: each site uploads its build as it is: the guest site Astro's server entry, unbundled, with its client output as assets; the others their output alone", () => {
+  test("K14: each site uploads its build: the guest site Astro's server output, staged with its source maps and unbundled, with its client output as assets; the others their output alone", () => {
     const props = resourcesOf(dev).CireInvites?.Props;
     // cire/invites's Astro config sets no output directory or server entry,
     // so Astro's defaults name the files its build writes.
@@ -262,17 +268,36 @@ describe("the cire stack, evaluated offline", () => {
     const value = (text: string, key: string): string =>
       new RegExp(`\\b${key}: "([^"]+)"`).exec(text)?.[1] ?? `no ${key} in Astro's defaults`;
     const outDir = posix.join("../invites", value(defaults, "outDir"));
+    const staged = join(dev.generatedDir, "invites-server");
 
+    // The stack stages what the Astro build writes, and uploads the staged copy.
+    const declared = cireDeclaration({
+      stage: "dev",
+      hosts: stageHosts(DEV_DOMAIN, "dev"),
+      generatedDir: dev.generatedDir,
+      ownerSeat: false,
+    });
+    expect(declared.invitesServer).toEqual({
+      source: posix.join(outDir, value(build, "server")).replace(/\/$/, ""),
+      main: value(build, "serverEntry"),
+      target: staged,
+    });
+    expect(readFileSync(join(staged, value(build, "serverEntry")), "utf8")).toBe(
+      "export default {};\n",
+    );
     expect({
       main: props?.main,
       bundle: props?.bundle,
       build: props?.build,
+      rules: props?.rules,
       assets: props?.assets,
     }).toEqual({
-      main: posix.join(outDir, value(build, "server"), value(build, "serverEntry")),
-      // A prebuilt Worker is uploaded as it is, so it takes no bundler options.
+      main: join(staged, value(build, "serverEntry")),
+      // A prebuilt Worker takes no bundler options; its rules upload the
+      // staged source maps beside its modules.
       bundle: false,
       build: undefined,
+      rules: PREBUILT_MODULE_RULES,
       assets: {
         directory: posix.join(outDir, value(build, "client")).replace(/\/$/, ""),
         htmlHandling: "auto-trailing-slash",
@@ -407,6 +432,18 @@ describe("the cire stack, evaluated offline", () => {
     const seat = join(seeded.generatedDir, "seeds", "cire-owner-seat.sql");
     expect(resourcesOf(seeded).CireDb?.Props.importFiles).toEqual([DEV_SEED, seat]);
     expect(readFileSync(seat, "utf8")).toBe(ownerSeatSql(profileId));
+  });
+
+  test("ST-j: a guest-site module naming a missing source map refuses the run before it writes or calls anything", async () => {
+    const refused = await evaluateCire({
+      stage: "dev",
+      env: stackEnv(),
+      entry: "export default {};\n//# sourceMappingURL=gone.mjs.map\n",
+    });
+    expect(failureOf(refused)).toBeInstanceOf(PrebuiltSourceMapError);
+    expect(failureOf(refused)).toMatchObject({ module: "entry.mjs" });
+    expect(existsSync(refused.generatedDir)).toBe(false);
+    expect(refused.fetches).toEqual([]);
   });
 
   test.each(refusedTargets(["cire-api", "cire-invites"]))(

@@ -7,7 +7,7 @@ related:
   - "[[session-metrics]]"
   - "[[contributing]]"
   - "[[wiki-search]]"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-24
 ---
 
 # Agent tooling
@@ -19,6 +19,8 @@ last-reviewed: 2026-10-22
 Locally the repository is the bare `~/.work/osn.git`, and every worktree — `main/` among them — is a subdirectory of it. The parent is not a worktree: it has no `AGENTS.md`, no `.claude/settings.json` and no skills, so a session started there gets no hooks and no instructions, and nothing says so. Moving afterwards does not help, because Claude Code reads project settings from the directory the session started in. Git there has no working tree, so `status`, `add`, `checkout` and `stash` exit 128 with `fatal: this operation must be run in a work tree`.
 
 `bun run scripts/bootstrap-bare-root.ts` (part of `scripts/setup.sh`) writes a `SessionStart` hook into that directory saying so, and links its `.claude/skills` to `main`'s. It is idempotent and never overwrites a settings file it did not write.
+
+Every worktree on the machine runs the same commands — `bun src/local.ts` servers, `wrangler dev`, `astro dev`, the `sleep` in `scripts/wait-pr.sh` — often from other sessions at the same time. So a session stops a process it started by the PID it recorded when it started it (`cmd & echo $! > <file>`, then `kill $(cat <file>)`), never with `pkill -f <pattern>`, which matches another worktree's process just as well. One such `pkill -f "src/local.ts"` killed another worktree's cire-api dev server on port 8787.
 
 ## Settings
 
