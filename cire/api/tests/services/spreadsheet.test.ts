@@ -332,6 +332,49 @@ describe("parseEventsCsv", () => {
     });
   }
 
+  it("round-trips the guests starter template", async () => {
+    // Byte-for-byte copy of `buildGuestsTemplateCsv()` from
+    // cire/host/src/lib/import-templates.ts, pinned exactly there.
+    const template =
+      "Family ID,Family Name,Guest First Name,Guest Last Name,Guest Nickname,Guest Email,Ceremony,Reception\r\nfam-001,Nguyen,An,Nguyen,,,x,x\r\nfam-001,Nguyen,Binh,Nguyen,,,x,\r\nfam-002,Okafor,Chidi,Okafor,Chi,,,yes";
+    const families = await Effect.runPromise(
+      parseGuestsCsv(template, [{ name: "Ceremony" }, { name: "Reception" }]),
+    );
+    expect(families.map((f) => f.guests.map((g) => [g.firstName, g.nickname, g.email]))).toEqual([
+      [
+        ["An", null, null],
+        ["Binh", null, null],
+      ],
+      [["Chidi", "Chi", null]],
+    ]);
+  });
+
+  // A row holding only an address, its names blank, is a guest row missing
+  // its first name — never a household with no guests.
+  it("refuses a row whose only guest cell is an address", async () => {
+    const csv = [
+      "Family ID,Family Name,Guest First Name,Guest Last Name,Guest Email",
+      "3,Newfamily,,,ada@example.test",
+    ].join("\n");
+    const error = await Effect.runPromise(Effect.flip(parseGuestsCsv(csv, [])));
+    expect((error as MalformedSpreadsheet).reason).toBe("Guest First Name is required");
+  });
+
+  // A cell of spaces, or a row that stops before the Guest Email column, is a
+  // blank cell: it clears the address, as an empty one does.
+  it("reads a Guest Email cell of spaces, or one the row leaves out, as blank", async () => {
+    const csv = [
+      "Family ID,Family Name,Guest First Name,Guest Last Name,Guest Email",
+      "3,Newfamily,Ada,Newfamily,   ",
+      "3,Newfamily,Bo,Newfamily",
+    ].join("\n");
+    const families = await Effect.runPromise(parseGuestsCsv(csv, []));
+    expect(families[0]!.guests.map((g) => [g.firstName, g.email])).toEqual([
+      ["Ada", null],
+      ["Bo", null],
+    ]);
+  });
+
   it("round-trips the organiser starter template (header parity + blank-End example)", async () => {
     // Byte-for-byte copy of `buildEventsTemplateCsv()` output from
     // cire/host/src/lib/import-templates.ts (pinned exactly there by

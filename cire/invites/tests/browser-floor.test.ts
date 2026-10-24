@@ -44,6 +44,7 @@ const BUILD_ONLY: ReadonlyMap<string, string> = new Map([
 /** What the walk must find; a change to the graph is a change to this list. */
 const PACKAGES = [
   "@cire/dietary",
+  "@cire/guest-email",
   "@cire/invite-designs",
   "@cire/theme",
   "@cire/ui",

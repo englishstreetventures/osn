@@ -6,7 +6,16 @@ import { Input } from "@shared/ui/ui/input";
 import { heldWhileClosing, Modal } from "@shared/ui/ui/modal";
 import { Notice } from "@shared/ui/ui/notice";
 import { Table, Td, Th } from "@shared/ui/ui/table";
-import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  createUniqueId,
+  For,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
 import { Portal } from "solid-js/web";
 
 import { allAuthFirst, apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
@@ -22,7 +31,12 @@ import {
   eventsAccessor,
   invalidateEvents,
 } from "../lib/events-store";
-import { createGuestEventDraft, type DraftFamily, type DraftGuest } from "../lib/guest-event-draft";
+import {
+  createGuestEventDraft,
+  type DraftFamily,
+  type DraftGuest,
+  EMAIL_ERROR,
+} from "../lib/guest-event-draft";
 import {
   ensureGuestsLoaded,
   guestsAccessor,
@@ -37,7 +51,12 @@ import {
   type OrganiserHouseholdRow,
 } from "../lib/households-store";
 import { registerUnsavedGuard } from "../lib/unsaved-guard";
-import ChangePreview, { type ChangePlan, type ClearedHalves } from "./ChangePreview";
+import ChangePreview, {
+  type ApplyChangeBody,
+  type ChangeChoice,
+  type ChangePlan,
+  type ClearedHalves,
+} from "./ChangePreview";
 import SectionIntro from "./SectionIntro";
 interface PreviewResponse {
   changeId: string;
@@ -46,6 +65,9 @@ interface PreviewResponse {
   baseRevision: string;
   /** Set when the save removes every household; apply echoes it back. */
   clears: ClearedHalves | null;
+  /** How many guest addresses the save sets on the organiser's word. Absent
+   *  from an API older than addresses. */
+  emailAttestations?: number;
 }
 
 /**
@@ -248,7 +270,16 @@ export default function GuestsEditor(props: { weddingId: string }) {
     }
   }
 
-  async function handleApply() {
+  /** The apply body: the change, the counts a clear needs echoed back, and
+   *  the address attestation once ticked. */
+  function applyBody(p: PreviewResponse, choice: ChangeChoice): ApplyChangeBody {
+    const body: ApplyChangeBody = { changeId: p.changeId };
+    if (p.clears) body.confirmClears = p.clears;
+    if (choice.emailAttestation !== undefined) body.emailAttestation = choice.emailAttestation;
+    return body;
+  }
+
+  async function handleApply(choice: ChangeChoice) {
     const p = preview();
     if (!p) return;
     setSaveError(null);
@@ -259,9 +290,7 @@ export default function GuestsEditor(props: { weddingId: string }) {
         headers: { "Content-Type": "application/json" },
         // Removing every household is applied only with the count the preview
         // showed echoed back.
-        body: JSON.stringify(
-          p.clears ? { changeId: p.changeId, confirmClears: p.clears } : { changeId: p.changeId },
-        ),
+        body: JSON.stringify(applyBody(p, choice)),
       });
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) {
@@ -414,9 +443,10 @@ export default function GuestsEditor(props: { weddingId: string }) {
                 plan={p().plan}
                 warnings={p().warnings}
                 clears={p().clears}
+                emailAttestations={p().emailAttestations ?? 0}
                 busy={busy()}
                 confirmLabel="Confirm & save"
-                onConfirm={() => void handleApply()}
+                onConfirm={(choice) => void handleApply(choice)}
                 onCancel={() => setPreview(null)}
               />
               {/* An apply error has to render HERE as well as in the sticky
@@ -581,6 +611,7 @@ function FamilyCard(props: {
             <Th>First name</Th>
             <Th>Last name</Th>
             <Th>Nickname</Th>
+            <Th>Email</Th>
             <For each={props.events}>
               {(evt) => <Th align="center">{evt.name || "Untitled event"}</Th>}
             </For>
@@ -625,6 +656,81 @@ function FamilyCard(props: {
   );
 }
 
+/**
+ * A guest's address in the editor. The organiser types one for a guest who
+ * has none, or changes one an organiser added; saving asks them to confirm
+ * the guest agreed. An address the guest gave themselves on the invite is
+ * theirs: it shows as text with Remove, never as a field, and a removal can be
+ * undone until the save. With no `email` on the draft row (an API older than
+ * addresses) the cell is empty and the draft sends nothing.
+ */
+function GuestEmailCell(props: {
+  guest: DraftGuest;
+  store: ReturnType<typeof createGuestEventDraft>;
+  /** The row's address is not one address. */
+  invalid: boolean;
+  /** The id of the row's error list, when it has one. */
+  describedBy: string | undefined;
+}) {
+  const guestsOwn = () => props.guest.emailSource === "guest" && Boolean(props.guest.emailLoaded);
+  return (
+    <Show when={props.guest.email !== undefined}>
+      <Show
+        when={guestsOwn()}
+        fallback={
+          <Input
+            size="sm"
+            type="email"
+            autocomplete="off"
+            value={props.guest.email ?? ""}
+            aria-label="Email"
+            aria-invalid={props.invalid}
+            aria-describedby={props.describedBy}
+            placeholder="—"
+            onInput={(e) =>
+              props.store.updateGuest(props.guest.key, { email: e.currentTarget.value })
+            }
+          />
+        }
+      >
+        <Show
+          when={(props.guest.email ?? "").length > 0}
+          fallback={
+            <span class="text-text-muted text-ui-sm flex flex-wrap items-center gap-x-2">
+              Removed on save
+              <Button
+                variant="bare"
+                size="sm"
+                type="button"
+                onClick={() =>
+                  props.store.updateGuest(props.guest.key, { email: props.guest.emailLoaded ?? "" })
+                }
+                aria-label={`Keep ${props.guest.firstName || "the guest"}’s email address`}
+              >
+                Undo
+              </Button>
+            </span>
+          }
+        >
+          <span class="text-ui-sm flex flex-wrap items-center gap-x-2">
+            <span class="text-text break-all">{props.guest.email}</span>
+            <span class="text-text-muted">added by the guest</span>
+            <Button
+              variant="bareDanger"
+              size="sm"
+              type="button"
+              onClick={() => props.store.updateGuest(props.guest.key, { email: "" })}
+              aria-label={`Remove ${props.guest.firstName || "the guest"}’s email address`}
+            >
+              Remove email
+            </Button>
+          </span>
+        </Show>
+      </Show>
+    </Show>
+  );
+}
+
 /** One guest row: editable name/nickname fields + an attendance checkbox per
  *  event column + a delete action. */
 function GuestRow(props: {
@@ -633,6 +739,7 @@ function GuestRow(props: {
   errors: string[];
   store: ReturnType<typeof createGuestEventDraft>;
 }) {
+  const errorsId = createUniqueId();
   return (
     <>
       <tr class="hover:[&>td]:bg-surface/50">
@@ -677,6 +784,14 @@ function GuestRow(props: {
             }
           />
         </Td>
+        <Td>
+          <GuestEmailCell
+            guest={props.guest}
+            store={props.store}
+            invalid={props.errors.includes(EMAIL_ERROR)}
+            describedBy={props.errors.length > 0 ? errorsId : undefined}
+          />
+        </Td>
         <For each={props.events}>
           {(evt) => (
             <Td align="center">
@@ -704,7 +819,7 @@ function GuestRow(props: {
       </tr>
       <Show when={props.errors.length > 0}>
         <tr>
-          <td colspan={3 + props.events.length + 1} class="px-2 pb-2">
+          <td id={errorsId} colspan={4 + props.events.length + 1} class="px-2 pb-2">
             <For each={props.errors}>{(msg) => <p class="text-error text-ui-sm">{msg}</p>}</For>
           </td>
         </tr>

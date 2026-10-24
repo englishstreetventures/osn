@@ -680,7 +680,7 @@ describe("ImportPanel — download templates", () => {
     await waitFor(() => expect(createdBlobs.length).toBeGreaterThan(0));
     const text = await blobText(createdBlobs[0]!);
     expect(text.split("\r\n")[0]).toBe(
-      "Family ID,Family Name,Guest First Name,Guest Last Name,Guest Nickname,Ceremony,Reception",
+      "Family ID,Family Name,Guest First Name,Guest Last Name,Guest Nickname,Guest Email,Ceremony,Reception",
     );
   });
 

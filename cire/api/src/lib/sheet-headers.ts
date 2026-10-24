@@ -58,6 +58,14 @@ export const GUEST_SHEET_FIXED_HEADERS = [
 /** Optional informal name for the single-guest greeting. */
 export const GUEST_NICKNAME_HEADER = "Guest Nickname";
 
+/**
+ * Optional address for the guest's wedding email. A sheet without the column
+ * leaves every stored address as it is; a blank cell clears an address the
+ * hosts supplied. An address a guest gave themselves is never changed by a
+ * sheet.
+ */
+export const GUEST_EMAIL_HEADER = "Guest Email";
+
 // ── Fidelity columns ─────────────────────────────────────────────────────────
 // Appended by the full-fidelity export (`?fidelity=full`) and by the E3
 // checkpoint writer so a snapshot restores ids + claim codes exactly. The
@@ -83,3 +91,10 @@ export const FAMILY_CODE_HEADER = "Family Code";
 export const FAMILY_SOURCE_HEADER = "Family Source";
 /** The guest's `source` (`import` / `manual`); blank on a household-only row. */
 export const GUEST_SOURCE_HEADER = "Guest Source";
+/**
+ * The consent record behind the row's `Guest Email`, as JSON
+ * (`{source, consentAt, version, attestedBy}`), so a revert that restores an
+ * address restores who supplied it and the consent it stands on. Blank when
+ * the guest has no address.
+ */
+export const GUEST_EMAIL_RECORD_HEADER = "Guest Email Record";

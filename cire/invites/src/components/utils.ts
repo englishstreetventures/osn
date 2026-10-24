@@ -1,4 +1,10 @@
-import type { AccountLinkState, ClaimResult, RsvpSummary, SignedInAccount } from "./types";
+import type {
+  AccountLinkState,
+  ClaimResult,
+  MemberEmail,
+  RsvpSummary,
+  SignedInAccount,
+} from "./types";
 
 // These guards read an untrusted payload one field at a time. Each field is
 // proven with `key in value` before it is read, which is what lets the checks
@@ -88,6 +94,31 @@ export function readMember(value: ClaimResult): { guestId: string | null } | nul
   if (member === null) return { guestId: null };
   if (typeof member !== "object" || !("guestId" in member)) return null;
   return typeof member.guestId === "string" ? { guestId: member.guestId } : null;
+}
+
+/**
+ * A member's address, from anything shaped like `member.email`: the address
+ * and who gave it, or null for anything absent or malformed.
+ */
+export function readEmail(value: unknown): MemberEmail | null {
+  if (typeof value !== "object" || value === null) return null;
+  if (!("address" in value) || typeof value.address !== "string") return null;
+  if (!("source" in value)) return null;
+  const source = value.source;
+  if (source !== "guest" && source !== "organiser_attested") return null;
+  return { address: value.address, source };
+}
+
+/**
+ * The chosen member's own address, or null for none. Optional and unproven:
+ * neither the claim guard nor `readMember` looks at it, so a malformed value
+ * costs only the email box's saved state, never the member step or the invite.
+ */
+export function readMemberEmail(value: ClaimResult): MemberEmail | null {
+  if (!("member" in value)) return null;
+  const member = value.member;
+  if (typeof member !== "object" || member === null || !("email" in member)) return null;
+  return readEmail(member.email);
 }
 
 /**

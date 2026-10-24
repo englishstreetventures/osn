@@ -8,11 +8,13 @@ import {
   seatingTables,
   taskTemplateDismissals,
   tasks,
+  weddingHosts,
   weddings,
 } from "@cire/db";
 import { formatDietaryCell, parsePresets } from "@cire/dietary";
+import { isValidGuestEmail, normaliseGuestEmail } from "@cire/guest-email";
 import { jsonEachIn } from "@shared/db-utils";
-import { and, asc, eq, inArray, isNotNull, ne, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Effect, Data, type Types } from "effect";
 
@@ -27,7 +29,7 @@ import {
 } from "../db";
 import type { Db } from "../db";
 import { anchoredRunAt } from "../lib/run-time";
-import { metricImportApplied } from "../metrics";
+import { metricGuestEmailChanged, metricImportApplied } from "../metrics";
 import type {
   ChangeScope,
   EventCreate,
@@ -42,12 +44,15 @@ import type {
   GuestUpdate,
   ImportPlan,
   DesiredFamily,
+  DesiredGuest,
+  GuestEmailWrite,
   ImportSummary,
   LinkedTask,
   ParsedEvent,
   Provenance,
   RunOfShowItem,
 } from "../schemas/import";
+import { hashGuestEmail, sha256Hex, suppressedAmong } from "./email-suppression";
 import { generateFamilyCode } from "./family-code";
 import type { CodeStyle } from "./family-code";
 import { sameRunOfShow } from "./guest-event-validation";
@@ -247,6 +252,259 @@ export interface DiffOptions {
    * thrown away.
    */
   readonly warnings?: boolean;
+  /**
+   * How the desired rows' email addresses are reconciled — see
+   * {@link EmailMode}. Omitted, `"upload"`.
+   */
+  readonly emails?: EmailMode;
+}
+
+/**
+ * Which door a change's addresses come through, and so what it may do to them.
+ *
+ *  - `"editor"` — the guest editor. Sends an address only for a row the
+ *    organiser edited, with the address it loaded (`emailExpected`); a row
+ *    whose stored address has moved since is left as it is. It may remove an
+ *    address a guest gave themselves, never replace one.
+ *  - `"upload"` — a spreadsheet. Sets and clears the hosts' addresses; never
+ *    touches one a guest gave themselves.
+ *  - `"restore"` — a before-image revert. Restores an address with the consent
+ *    record the before-image holds, never one without a record, never one the
+ *    guest has withdrawn (on the suppression list for the wedding, or for that
+ *    seat), and never changes an address a guest gave themselves.
+ *  - `"ignore"` — the legacy replay of an earlier upload, which carries no
+ *    attestation: addresses are left as they are.
+ */
+export type EmailMode = "editor" | "upload" | "restore" | "ignore";
+
+/** One desired guest's address, beside what is stored for the row it lands on. */
+interface EmailCandidate {
+  readonly guestId: string;
+  /**
+   * The guest as the attestation digest names it: the row's id for an existing
+   * guest, and for a guest this plan creates (whose id is minted afresh by each
+   * diff) its place in the desired state, which the preview and the apply read
+   * from the same stored input.
+   */
+  readonly attestationKey: string;
+  readonly stored: string | null;
+  readonly storedSource: "guest" | "organiser_attested" | null;
+  readonly desired: DesiredGuest;
+}
+
+/** A desired or expected address in its stored form; null for none or blank. */
+function storedForm(value: string | null | undefined): string | null {
+  if (value === null || value === undefined) return null;
+  const normalised = normaliseGuestEmail(value);
+  return normalised.length === 0 ? null : normalised;
+}
+
+/** `n` with its noun, singular or plural. */
+const count = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
+
+/**
+ * The digest of the addresses a plan sets on the organiser's word: SHA-256 hex
+ * over the sorted entries, one per address, each the guest's
+ * {@link EmailCandidate.attestationKey}, the address's hash and whether it is
+ * suppressed for that guest. Undefined when there are none. Holds no address
+ * or hash in the clear, so it can sit in the change's stored summary.
+ */
+function attestationDigest(entries: readonly string[]): Effect.Effect<string | undefined> {
+  if (entries.length === 0) return Effect.succeed(undefined);
+  return Effect.promise(() => sha256Hex(entries.toSorted().join("\n")));
+}
+
+/** What {@link planEmailWrites} plans. */
+interface EmailPlan {
+  readonly writes: GuestEmailWrite[];
+  readonly warnings: string[];
+  /** {@link attestationDigest} of the writes that need the attestation. */
+  readonly attestationDigest: string | undefined;
+}
+
+/**
+ * The address writes a plan makes, and the preview warnings for the changes it
+ * declined, under the rules of {@link EmailMode}. No warning names an address.
+ *
+ * Every write that sets an address carries its suppression hash, so apply
+ * stores it beside the address. The suppression list is read only for the
+ * addresses the plan would set (one bounded read, none when it sets none), and
+ * each is checked for the seat it lands on — a wedding-wide withdrawal, or
+ * one that seat made of an address it typed: a restore must not bring back a
+ * withdrawn address, the preview tells the organiser before attesting that a
+ * guest withdrew one, and the
+ * {@link EmailPlan.attestationDigest} the preview stores and apply compares
+ * records which ones were withdrawn.
+ */
+function planEmailWrites(
+  candidates: readonly EmailCandidate[],
+  mode: EmailMode,
+  weddingId: string,
+): Effect.Effect<EmailPlan, never, DbService> {
+  return Effect.gen(function* () {
+    const warnings: string[] = [];
+    if (mode === "ignore") return { writes: [], warnings, attestationDigest: undefined };
+    let keptForGuests = 0;
+    let stale = 0;
+    let unrecorded = 0;
+    const planned: { candidate: EmailCandidate; email: string | null }[] = [];
+    for (const candidate of candidates) {
+      const { desired } = candidate;
+      if (desired.email === undefined) continue;
+      const email = storedForm(desired.email);
+      // Both doors refuse an invalid address before this point; a before-image
+      // is read leniently, so this is the restore's guard.
+      if (email !== null && !isValidGuestEmail(email)) continue;
+      if (email === candidate.stored) continue;
+      if (
+        mode === "editor" &&
+        desired.emailExpected !== undefined &&
+        storedForm(desired.emailExpected) !== candidate.stored
+      ) {
+        stale += 1;
+        continue;
+      }
+      if (candidate.storedSource === "guest" && !(mode === "editor" && email === null)) {
+        keptForGuests += 1;
+        continue;
+      }
+      if (mode === "restore" && email !== null && desired.emailRecord === undefined) {
+        unrecorded += 1;
+        continue;
+      }
+      planned.push({ candidate, email });
+    }
+
+    const hashes = yield* Effect.promise(() =>
+      Promise.all(
+        planned.map(({ email }) =>
+          email === null ? Promise.resolve(null) : hashGuestEmail(weddingId, email),
+        ),
+      ),
+    );
+    const setHashes = hashes.filter((h): h is string => h !== null);
+    // A restored record names the organiser who attested; an organiser who no
+    // longer holds a seat on the wedding (removed, or erased on request) is
+    // not written back. The two reads share nothing, so they run together.
+    const { suppressed, seated } = yield* Effect.all(
+      {
+        suppressed: suppressedAmong(weddingId, setHashes),
+        seated:
+          mode === "restore"
+            ? seatedAttesters(planned, weddingId)
+            : Effect.succeed(new Set<string>()),
+      },
+      { concurrency: "unbounded" },
+    );
+
+    const writes: GuestEmailWrite[] = [];
+    const attested: string[] = [];
+    let withdrawn = 0;
+    let readded = 0;
+    planned.forEach(({ candidate, email }, i) => {
+      const emailHash = hashes[i] ?? null;
+      const write: Types.Mutable<GuestEmailWrite> = {
+        guestId: candidate.guestId,
+        email,
+        emailHash,
+        emailWas: candidate.stored,
+        emailSourceWas: candidate.storedSource,
+      };
+      if (mode === "restore" && email !== null) {
+        if (emailHash !== null && suppressed.has(emailHash, candidate.guestId)) {
+          withdrawn += 1;
+          return;
+        }
+        const record = candidate.desired.emailRecord;
+        if (record !== undefined) {
+          write.record =
+            record.attestedBy !== null && !seated.has(record.attestedBy)
+              ? { ...record, attestedBy: null }
+              : record;
+        }
+      } else if (emailHash !== null) {
+        const isSuppressed = suppressed.has(emailHash, candidate.guestId);
+        if (isSuppressed) readded += 1;
+        attested.push(`${candidate.attestationKey}:${emailHash}:${isSuppressed ? 1 : 0}`);
+      }
+      writes.push(write);
+    });
+
+    if (keptForGuests > 0) {
+      warnings.push(
+        `${count(keptForGuests, "email address a guest gave themselves was", "email addresses guests gave themselves were")} left as they are: only the guest can change one.`,
+      );
+    }
+    if (stale > 0) {
+      warnings.push(
+        `${count(stale, "email address has", "email addresses have")} changed since you opened the editor and ${stale === 1 ? "was" : "were"} left as ${stale === 1 ? "it is" : "they are"}.`,
+      );
+    }
+    if (readded > 0) {
+      warnings.push(
+        `${count(readded, "email address you are adding was", "email addresses you are adding were")} removed or replaced by the guest, who asked not to be emailed there: ${readded === 1 ? "it is" : "they are"} stored, and no wedding email will be sent to ${readded === 1 ? "it" : "them"}.`,
+      );
+    }
+    // Only a revert restores, and a revert reports no warning to the
+    // organiser, so its skips are logged: counted, never named.
+    if (withdrawn > 0 || unrecorded > 0) {
+      yield* Effect.logInfo("revert left addresses unrestored", { withdrawn, unrecorded });
+    }
+    return { writes, warnings, attestationDigest: yield* attestationDigest(attested) };
+  });
+}
+
+/**
+ * Which organisers named as attesters in the records a restore would write
+ * still hold a seat on the wedding. One read, bounded by those organisers;
+ * none when no record names one.
+ */
+function seatedAttesters(
+  planned: readonly { candidate: EmailCandidate; email: string | null }[],
+  weddingId: string,
+): Effect.Effect<Set<string>, never, DbService> {
+  return Effect.gen(function* () {
+    const named = [
+      ...new Set(
+        planned.flatMap(({ candidate }) => {
+          const by = candidate.desired.emailRecord?.attestedBy;
+          return by === undefined || by === null ? [] : [by];
+        }),
+      ),
+    ];
+    if (named.length === 0) return new Set<string>();
+    const db = yield* DbService;
+    const rows = yield* dbQuery(() =>
+      db
+        .select({ profileId: weddingHosts.osnProfileId })
+        .from(weddingHosts)
+        .where(
+          and(
+            eq(weddingHosts.weddingId, weddingId),
+            inArray(weddingHosts.osnProfileId, jsonEachIn(named)),
+          ),
+        )
+        .all(),
+    );
+    return new Set(rows.map((r) => r.profileId));
+  });
+}
+
+/**
+ * How many addresses a plan sets on the organiser's word: every write that
+ * sets an address without carrying a consent record. Apply refuses such a
+ * plan without the organiser's attestation, and the preview reports this
+ * count so the portal shows the attestation box.
+ */
+export function emailsNeedingAttestation(plan: Pick<ImportPlan, "emailWrites">): number {
+  return (plan.emailWrites ?? []).filter((w) => w.email !== null && w.record === undefined).length;
+}
+
+/** The organiser whose attestation stands behind the addresses an apply sets. */
+export interface EmailStamp {
+  readonly osnProfileId: string;
+  /** `ORGANISER_EMAIL_ATTESTATION.version`. */
+  readonly version: string;
 }
 
 /**
@@ -627,6 +885,8 @@ export function diffAgainstDb(
               sortOrder: guests.sortOrder,
               source: guests.source,
               plusOneOf: guests.plusOneOfGuestId,
+              email: guests.email,
+              emailSource: guests.emailSource,
             })
             .from(guests)
             .innerJoin(families, eq(guests.familyId, families.id))
@@ -682,6 +942,8 @@ export function diffAgainstDb(
 
     const guestCreates: GuestCreate[] = [];
     const guestUpdates: GuestUpdate[] = [];
+    /** Every desired guest beside the row it lands on, for the address pass. */
+    const emailCandidates: EmailCandidate[] = [];
     const guestRemoves: GuestRemove[] = [];
     const eventLinkCreates: EventLink[] = [];
     const eventLinkRemoves: EventLink[] = [];
@@ -800,6 +1062,13 @@ export function diffAgainstDb(
             if (firstNameChanged) update.firstName = parsedGuest.firstName;
             guestUpdates.push(update);
           }
+          emailCandidates.push({
+            guestId: existing.id,
+            attestationKey: existing.id,
+            stored: existing.email,
+            storedSource: existing.emailSource,
+            desired: parsedGuest,
+          });
         } else {
           const id = crypto.randomUUID();
           guestCreates.push({
@@ -812,6 +1081,13 @@ export function diffAgainstDb(
             source: options.createSource ?? parsedGuest.source ?? "import",
           });
           resolvedIds[sortOrder] = id;
+          emailCandidates.push({
+            guestId: id,
+            attestationKey: `new:${familyIndex}:${sortOrder}`,
+            stored: null,
+            storedSource: null,
+            desired: parsedGuest,
+          });
         }
       });
 
@@ -950,7 +1226,12 @@ export function diffAgainstDb(
       }
     }
 
-    const warnings: string[] = [...clearWarnings, ...plusOneWarnings];
+    const {
+      writes: emailWrites,
+      warnings: emailWarnings,
+      attestationDigest: emailAttestationDigest,
+    } = yield* planEmailWrites(emailCandidates, options.emails ?? "upload", weddingId);
+    const warnings: string[] = [...clearWarnings, ...plusOneWarnings, ...emailWarnings];
 
     // ── Claim-code collisions on a CARRIED publicId ──────────────────────────
     // A create may carry its own code (the full-fidelity `Family Code` column, so
@@ -1088,6 +1369,8 @@ export function diffAgainstDb(
       guestRemoves,
       eventLinkCreates,
       eventLinkRemoves,
+      emailWrites,
+      emailAttestationDigest,
       warnings,
       linkedTasks: linkedTasks.length > 0 ? linkedTasks : undefined,
       derivedCap,
@@ -1137,6 +1420,13 @@ export interface ApplyImportOptions {
    * removed; absent keeps every linked task.
    */
   readonly removeLinkedTasks?: readonly string[];
+  /**
+   * The organiser's attestation for the addresses this plan sets on their
+   * word (`emailsNeedingAttestation`). A plan that sets one without it fails
+   * before any write: the route refuses such an apply first, so this is the
+   * service's own guard.
+   */
+  readonly emailStamp?: EmailStamp;
 }
 
 /**
@@ -1253,12 +1543,24 @@ function writeSet() {
  */
 const NO_ROOM_FOR_GUEST = "NOT NULL constraint failed: guests.family_id";
 
+/** A guest's address, its hash and its consent record, as one write sets them. */
+type GuestEmailColumns = Pick<
+  typeof guests.$inferInsert,
+  | "email"
+  | "emailHash"
+  | "emailSource"
+  | "emailConsentAt"
+  | "emailConsentVersion"
+  | "emailAttestedByOsnProfileId"
+>;
+
 /**
- * One planned guest's insert. When `checkCap` is set, the row names its
- * household only while the wedding has room for one more guest under the cap
- * its tier gives it now, counting every guest written before it, the earlier
- * rows of its own batch included. Without room the household is NULL: the NOT
- * NULL column fails the statement and, on D1, rolls back the batch it rides in.
+ * One planned guest's insert, with its address when the plan sets one. When
+ * `checkCap` is set, the row names its household only while the wedding has
+ * room for one more guest under the cap its tier gives it now, counting every
+ * guest written before it, the earlier rows of its own batch included. Without
+ * room the household is NULL: the NOT NULL column fails the statement and, on
+ * D1, rolls back the batch it rides in.
  */
 function insertGuest(
   db: Db,
@@ -1266,8 +1568,10 @@ function insertGuest(
   weddingId: string,
   now: Date,
   checkCap: boolean,
+  email?: GuestEmailColumns,
 ): BatchItem<"sqlite"> {
   return db.insert(guests).values({
+    ...email,
     id: gc.id,
     familyId: checkCap
       ? sql`CASE WHEN ${roomForOneMoreGuest(weddingId)} THEN ${gc.familyId} END`
@@ -1544,14 +1848,69 @@ export function applyImport(
       statements.push(db.delete(guests).where(eq(guests.id, gr.id)));
     }
 
+    // The organiser's attestation stands behind every address set without a
+    // carried consent record; refused before any statement is built, so
+    // nothing is written without it.
+    const emailWrites = plan.emailWrites ?? [];
+    const emailStamp = options.emailStamp;
+    if (emailsNeedingAttestation(plan) > 0 && emailStamp === undefined) {
+      return yield* Effect.fail(
+        new ImportError({ reason: "an address is set without the organiser's attestation" }),
+      );
+    }
+    /** The columns a write stores: the address, its hash and its record. */
+    const emailColumns = (w: GuestEmailWrite): GuestEmailColumns =>
+      w.email === null
+        ? {
+            email: null,
+            emailHash: null,
+            emailSource: null,
+            emailConsentAt: null,
+            emailConsentVersion: null,
+            emailAttestedByOsnProfileId: null,
+          }
+        : w.record !== undefined
+          ? {
+              email: w.email,
+              emailHash: w.emailHash,
+              emailSource: w.record.source,
+              emailConsentAt: new Date(w.record.consentAt),
+              emailConsentVersion: w.record.version,
+              emailAttestedByOsnProfileId: w.record.attestedBy,
+            }
+          : {
+              email: w.email,
+              emailHash: w.emailHash,
+              emailSource: "organiser_attested",
+              emailConsentAt: now,
+              emailConsentVersion: emailStamp?.version ?? null,
+              emailAttestedByOsnProfileId: emailStamp?.osnProfileId ?? null,
+            };
+    const createdIds = new Set(plan.guestCreates.map((gc) => gc.id));
+    const emailOfCreate = new Map(
+      emailWrites.filter((w) => createdIds.has(w.guestId)).map((w) => [w.guestId, w]),
+    );
+
     // 7. guest creates. The last guest insert of each D1 batch checks the cap,
     // counting the batch's earlier guests (see insertGuest): nothing else
     // writes inside a batch, so a batch commits only when it ends within the
     // cap, whatever another writer committed after the check above. Every
     // removal sits in steps 1-6, so the places it frees are already counted.
+    // A new guest's address rides in its INSERT: the id is fresh, so nothing
+    // else can have written an address to compare against.
     for (const [index, gc] of plan.guestCreates.entries()) {
       const checkCap = index === plan.guestCreates.length - 1 || statements.nextFillsBatch();
-      statements.push(insertGuest(db, gc, weddingId, now, checkCap));
+      const emailWrite = emailOfCreate.get(gc.id);
+      statements.push(
+        insertGuest(
+          db,
+          gc,
+          weddingId,
+          now,
+          checkCap,
+          emailWrite === undefined ? undefined : emailColumns(emailWrite),
+        ),
+      );
     }
 
     // 8. guest updates. `firstName` is set through only on an id-matched rename
@@ -1566,6 +1925,28 @@ export function applyImport(
       };
       if (gu.firstName !== undefined) set.firstName = gu.firstName;
       statements.push(db.update(guests).set(set).where(eq(guests.id, gu.id)));
+    }
+
+    // 8b. an existing guest's address. Each write applies only while the
+    // stored address and its source are still the ones the diff decided
+    // against (`emailWas`, `emailSourceWas`), so a guest's own save that
+    // landed after the diff — even of the same address — is never overwritten.
+    for (const w of emailWrites) {
+      if (createdIds.has(w.guestId)) continue;
+      statements.push(
+        db
+          .update(guests)
+          .set({ ...emailColumns(w), updatedAt: now })
+          .where(
+            and(
+              eq(guests.id, w.guestId),
+              w.emailWas === null ? isNull(guests.email) : eq(guests.email, w.emailWas),
+              w.emailSourceWas === null
+                ? isNull(guests.emailSource)
+                : eq(guests.emailSource, w.emailSourceWas),
+            ),
+          ),
+      );
     }
 
     // 9. guest_events: per-pair removes then creates. The diff already emitted
@@ -1619,6 +2000,10 @@ export function applyImport(
       `import applied: families=${plan.familyCreates.length} guests=${plan.guestCreates.length} events=${plan.eventCreates.length} linkedTasksKept=${linkedTasks.length - linkedRemoved} linkedTasksRemoved=${linkedRemoved}`,
       { importId },
     );
+    const emailsSet = emailWrites.filter((w) => w.email !== null).length;
+    const emailsCleared = emailWrites.length - emailsSet;
+    if (emailsSet > 0) metricGuestEmailChanged("organiser", "set", emailsSet);
+    if (emailsCleared > 0) metricGuestEmailChanged("organiser", "cleared", emailsCleared);
 
     return {
       changeId: importId,

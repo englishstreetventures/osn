@@ -6,6 +6,7 @@ import { join } from "node:path";
 import {
   directoryVendorCategories,
   directoryVendors,
+  emailSuppressions,
   events,
   families,
   guestAccountLinks,
@@ -76,8 +77,10 @@ import {
   createDirectoryService,
   OrgAlreadyHasListing,
 } from "../../src/services/directory";
+import { hashGuestEmail } from "../../src/services/email-suppression";
 import { createEnquiryService, listingEnquiriesQuery } from "../../src/services/enquiries";
 import { giftExportService } from "../../src/services/gift-export";
+import { guestEmailService } from "../../src/services/guest-email";
 import { hostsService, MAX_HOSTS_PER_WEDDING } from "../../src/services/hosts";
 import { applyImport, diffAgainstDb } from "../../src/services/import";
 import { inviteService } from "../../src/services/invite";
@@ -822,6 +825,105 @@ describe("cire/api over real D1 (Miniflare)", () => {
       await expect(run(applyImport("imp_dup", plan, BOOTSTRAP_WEDDING_ID))).rejects.toThrow();
       expect(await db.select().from(families).where(eq(families.id, "fam_x"))).toHaveLength(0);
       expect(await db.select().from(families).where(eq(families.id, "fam_y"))).toHaveLength(0);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "guest email removal is atomic — a failed address clear leaves no opt-out behind",
+    async () => {
+      // An address the hosts added, the only kind whose removal writes an
+      // opt-out: with a guest's own the insert writes nothing to roll back.
+      const address = "alice@example.test";
+      await db
+        .update(guests)
+        .set({
+          email: address,
+          emailHash: await hashGuestEmail(BOOTSTRAP_WEDDING_ID, address),
+          emailSource: "organiser_attested",
+        })
+        .where(eq(guests.id, GUEST_1));
+      const seat = {
+        guestId: GUEST_1,
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        email: address,
+        optOuts: 0,
+      };
+
+      // The opt-out insert runs first; failing the guests update must take it down too.
+      await d1
+        .prepare(
+          "CREATE TRIGGER fail_guest_email_clear BEFORE UPDATE OF email ON guests BEGIN SELECT RAISE(ABORT, 'boom'); END",
+        )
+        .run();
+      try {
+        const exit = await run(Effect.exit(guestEmailService.removeOwn(seat)));
+        expect(Exit.isFailure(exit)).toBe(true);
+        const [row] = await db
+          .select({ email: guests.email })
+          .from(guests)
+          .where(eq(guests.id, GUEST_1));
+        expect(row?.email).toBe(address);
+        expect(await db.select().from(emailSuppressions)).toEqual([]);
+      } finally {
+        // beforeEach clears rows, not triggers.
+        await d1.prepare("DROP TRIGGER IF EXISTS fail_guest_email_clear").run();
+      }
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "guest email save is atomic — a failed opt-out delete keeps the old address and records no correction",
+    async () => {
+      const oldAddress = "old@example.test";
+      const newAddress = "new@example.test";
+      const newHash = await hashGuestEmail(BOOTSTRAP_WEDDING_ID, newAddress);
+      // The hosts added the old address, so the batch first records it as
+      // corrected away; the failure must take that row down too.
+      await db
+        .update(guests)
+        .set({
+          email: oldAddress,
+          emailHash: await hashGuestEmail(BOOTSTRAP_WEDDING_ID, oldAddress),
+          emailSource: "organiser_attested",
+        })
+        .where(eq(guests.id, GUEST_1));
+      await db.insert(emailSuppressions).values({
+        id: "sup_own",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        emailHash: newHash,
+        guestId: GUEST_1,
+        reason: "guest_removed",
+        createdAt: new Date(),
+      });
+      const seat = {
+        guestId: GUEST_1,
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        email: oldAddress,
+        optOuts: 1,
+      };
+
+      // The correction and the address write run first; failing the opt-out
+      // delete must undo both.
+      await d1
+        .prepare(
+          "CREATE TRIGGER fail_suppression_delete BEFORE DELETE ON email_suppressions BEGIN SELECT RAISE(ABORT, 'boom'); END",
+        )
+        .run();
+      try {
+        const exit = await run(Effect.exit(guestEmailService.setOwn(seat, newAddress)));
+        expect(Exit.isFailure(exit)).toBe(true);
+        const [row] = await db
+          .select({ email: guests.email })
+          .from(guests)
+          .where(eq(guests.id, GUEST_1));
+        expect(row?.email).toBe(oldAddress);
+        const rows = await db.select().from(emailSuppressions);
+        expect(rows.map((r) => r.id)).toEqual(["sup_own"]);
+      } finally {
+        await d1.prepare("DROP TRIGGER IF EXISTS fail_suppression_delete").run();
+      }
     },
     MF_TIMEOUT_MS,
   );

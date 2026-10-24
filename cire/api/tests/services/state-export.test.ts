@@ -338,16 +338,18 @@ describe("stateExportService.guestsCsv — snapshot fidelity", () => {
         yield* seedGuestless;
         const snapshot = yield* stateExportService.guestsCsv(BOOTSTRAP_WEDDING_ID, "snapshot");
         const header = lines(snapshot)[0]!;
-        // The full-fidelity header, then the two provenance columns.
+        // The full-fidelity header, then the two provenance columns and the
+        // consent record behind each address.
         expect(header).toBe(
-          `${lines(yield* stateExportService.guestsCsv(BOOTSTRAP_WEDDING_ID, "full"))[0]},Family Source,Guest Source`,
+          `${lines(yield* stateExportService.guestsCsv(BOOTSTRAP_WEDDING_ID, "full"))[0]},Family Source,Guest Source,Guest Email Record`,
         );
         const row = lines(snapshot).find((l) => l.includes("Emptyhouse"))!;
         const cells = row.split(",");
-        const eventColumns = header.split(",").length - 9;
+        const eventColumns = header.split(",").length - 11;
         expect(cells).toEqual([
           "fam_guestless",
           "Emptyhouse",
+          "",
           "",
           "",
           "",
@@ -356,12 +358,35 @@ describe("stateExportService.guestsCsv — snapshot fidelity", () => {
           "",
           "import",
           "",
+          "",
         ]);
         expect(snapshot).not.toContain("HOST-AAAA");
 
         for (const fidelity of ["import", "full"] as const) {
           const csv = yield* stateExportService.guestsCsv(BOOTSTRAP_WEDDING_ID, fidelity);
           expect(csv).not.toContain("Emptyhouse");
+        }
+      }),
+    ),
+  );
+
+  // A row wider than its header would shift every column a reader looks up
+  // by position after it; a record cell for a guest with no address would be
+  // a record of nothing.
+  it(
+    "writes every guest row as wide as its header, with no consent record for a guest with no address",
+    withDb(
+      Effect.gen(function* () {
+        for (const fidelity of ["import", "full", "snapshot"] as const) {
+          const [header, ...rows] = parseCsv(
+            yield* stateExportService.guestsCsv(BOOTSTRAP_WEDDING_ID, fidelity),
+          ).filter((row) => row.some((cell) => cell !== ""));
+          expect(rows.length).toBeGreaterThan(0);
+          for (const row of rows) expect(row).toHaveLength(header!.length);
+          if (fidelity === "snapshot") {
+            const recordAt = header!.indexOf("Guest Email Record");
+            for (const row of rows) expect(row[recordAt]).toBe("");
+          }
         }
       }),
     ),
@@ -698,9 +723,9 @@ describe("empty wedding (T-S4)", () => {
         expect(lines(eventsCsv)).toHaveLength(1);
         expect(lines(guestsCsv)).toHaveLength(1);
         // With zero events there are no attendance columns — just the fixed
-        // guest columns + nickname.
+        // guest columns, the nickname and the address.
         expect(lines(guestsCsv)[0]).toBe(
-          "Family ID,Family Name,Guest First Name,Guest Last Name,Guest Nickname",
+          "Family ID,Family Name,Guest First Name,Guest Last Name,Guest Nickname,Guest Email",
         );
         // Both empty sheets still parse (the parser rejects zero ROWS, not
         // zero data rows).

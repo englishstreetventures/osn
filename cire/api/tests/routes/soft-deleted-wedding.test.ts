@@ -297,6 +297,26 @@ const REQUESTS: Record<string, Row> = {
     live: status(204),
     deleted: UNAUTHORIZED,
   },
+  // The guest's own address: past the session gate the write checks the
+  // member; the gate is what a deleted wedding meets.
+  "PUT /api/claim/member/email": {
+    request: (f) =>
+      send(f, "PUT", "/api/claim/member/email", {
+        cookie: true,
+        body: { memberGuestId: GUEST, email: "ada@example.test", consentVersion: "x" },
+      }),
+    live: pastTheGate(401),
+    deleted: UNAUTHORIZED,
+  },
+  "DELETE /api/claim/member/email": {
+    request: (f) =>
+      send(f, "DELETE", "/api/claim/member/email", {
+        cookie: true,
+        body: { memberGuestId: GUEST },
+      }),
+    live: pastTheGate(401),
+    deleted: UNAUTHORIZED,
+  },
   "PUT /api/plus-one/:guestId": {
     request: (f) =>
       send(f, "PUT", `/api/plus-one/${GUEST}`, { cookie: true, body: { firstName: "Bo" } }),

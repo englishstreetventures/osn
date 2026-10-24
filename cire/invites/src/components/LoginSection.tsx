@@ -19,6 +19,7 @@ import {
   hasMemberStep,
   notYou,
   withChosenMember,
+  withMemberEmail,
   withoutMember,
 } from "./household-member";
 import { inviteProgress } from "./invite-progress";
@@ -29,7 +30,7 @@ import type { RsvpDeadlineState } from "./rsvp-deadline";
 import { RsvpDeadlineNotice } from "./RsvpDeadlineNotice";
 import { TurnstileWidget, turnstileEnabled, type TurnstileControls } from "./TurnstileWidget";
 import type { AccountLinkState, ClaimResult } from "./types";
-import { readAccountLink } from "./utils";
+import { readAccountLink, readMemberEmail } from "./utils";
 
 // Account linking, split out of the invite's first download. Most households
 // never link an account, and nothing here renders before a claim, so a visitor
@@ -47,6 +48,12 @@ const PlusOnePrompt = lazy(() =>
   import("./PlusOnePrompt").then((m) => ({ default: m.PlusOnePrompt })),
 );
 
+// The member's email box, split out for the same reason: it draws only once
+// a member is chosen, which needs a claim first.
+const GuestEmailBox = lazy(() =>
+  import("./GuestEmailBox").then((m) => ({ default: m.GuestEmailBox })),
+);
+
 /**
  * Start downloading the household's controls — the account link and, when
  * asked, the plus-one prompt — without rendering either. Called as a claim or
@@ -58,6 +65,7 @@ const PlusOnePrompt = lazy(() =>
  */
 function warmHouseholdControls(plusOne: boolean): void {
   void PulseAccountLink.preload().catch(() => {});
+  void GuestEmailBox.preload().catch(() => {});
   if (plusOne) void PlusOnePrompt.preload().catch(() => {});
 }
 
@@ -295,7 +303,7 @@ export function LoginSection(props: LoginSectionProps) {
       setMemberError("Couldn't save that. Please try again.");
       return;
     }
-    updateResult((result) => withChosenMember(result, guestId, answer.accountLink));
+    updateResult((result) => withChosenMember(result, guestId, answer.accountLink, answer.email));
   }
 
   const [clearing, setClearing] = createSignal(false);
@@ -718,6 +726,22 @@ export function LoginSection(props: LoginSectionProps) {
               </p>
             )}
           </Show>
+        </Show>
+        {/* The chosen member's own address. Keyed on the member, so a new
+            "Who are you?" answer starts a fresh box. */}
+        <Show when={memberStep() && !props.result?.preview ? chosen() : null} keyed>
+          {(m) => (
+            <Suspense fallback={null}>
+              <GuestEmailBox
+                apiUrl={props.apiUrl}
+                member={m}
+                email={props.result ? readMemberEmail(props.result) : null}
+                onChange={(email) => updateResult((result) => withMemberEmail(result, email))}
+                onMemberRequired={() => updateResult((result) => ({ ...result, member: null }))}
+                class={`mb-8 ${layout().measure}`}
+              />
+            </Suspense>
+          )}
         </Show>
         <Show when={memberStep() && accountLink() ? accountLink() : null}>
           {(state) => (

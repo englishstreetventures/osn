@@ -219,6 +219,9 @@ describe("createGuestEventDraft — id-stable rows", () => {
       expect(fam.id).toBeUndefined();
       expect(fam.publicId).toBeUndefined(); // reconcile auto-mints the code
       expect(fam.guests[0]!.id).toBeUndefined();
+      // Blank but for the name typed: no address, no invitation.
+      expect(fam.guests[0]).toMatchObject({ lastName: "", nickname: null, eventNames: [] });
+      expect(fam.guests[0]).not.toHaveProperty("email");
       dispose();
     });
   });
@@ -1210,6 +1213,57 @@ describe("replayDraft — keeping unsaved edits across a reload", () => {
     };
   }
 
+  // The organiser's address edit was made against the address they saw. If a
+  // guest saved their own since, the replayed edit must still name what the
+  // organiser saw, so the server finds it stale and skips it rather than
+  // clearing the guest's new address.
+  it("replays an address edit against the address the organiser saw", () => {
+    const base = baseline();
+    Object.assign(base.families[0]!.guests[0]!, {
+      email: "a@example.test",
+      emailLoaded: "a@example.test",
+      emailSource: "organiser_attested",
+    });
+    const current = structuredClone(base);
+    current.families[0]!.guests[0]!.email = "";
+    const fresh = freshOf(base);
+    Object.assign(fresh.families[0]!.guests[0]!, {
+      email: "c@example.test",
+      emailLoaded: "c@example.test",
+      emailSource: "guest",
+    });
+
+    const { draft } = replayDraft(base, current, fresh);
+    expect(toDesiredState(draft).families[0]!.guests[0]).toMatchObject({
+      email: null,
+      emailExpected: "a@example.test",
+    });
+  });
+
+  // An address the organiser did not touch is not an edit after a reload
+  // either, even when the guest changed it meanwhile: the save sends none.
+  it("sends no address for a guest whose address the organiser left alone across a reload", () => {
+    const base = baseline();
+    Object.assign(base.families[0]!.guests[0]!, {
+      email: "a@example.test",
+      emailLoaded: "a@example.test",
+      emailSource: "organiser_attested",
+    });
+    const current = structuredClone(base);
+    current.families[0]!.guests[0]!.nickname = "Ads";
+    const fresh = freshOf(base);
+    Object.assign(fresh.families[0]!.guests[0]!, {
+      email: "c@example.test",
+      emailLoaded: "c@example.test",
+      emailSource: "guest",
+    });
+
+    const { draft } = replayDraft(base, current, fresh);
+    const wire = toDesiredState(draft).families[0]!.guests[0]!;
+    expect(wire).toMatchObject({ nickname: "Ads" });
+    expect(wire).not.toHaveProperty("email");
+  });
+
   it("keeps the organiser's field edits and the other change's edits to other fields", () => {
     const base = baseline();
     const current = structuredClone(base);
@@ -1484,5 +1538,104 @@ describe("replayDraft — edge branches", () => {
       ["A", 2],
       ["Theirs", 3],
     ]);
+  });
+});
+
+describe("guest addresses in the draft", () => {
+  // A save posts the whole draft, but an address only for a guest the
+  // organiser changed: an address the draft merely carries — a guest's own,
+  // saved on the invite while the editor was open — must never ride along, or
+  // an unrelated save would put the loaded value back over the guest's.
+  const WITH_EMAILS: OrganiserGuestRow[] = [
+    { ...GUESTS[0]!, email: "ada@example.test", emailSource: "guest", emailOptedOut: false },
+    { ...GUESTS[1]!, email: null, emailSource: null, emailOptedOut: false },
+  ];
+
+  function wireGuest(store: ReturnType<typeof createGuestEventDraft>, firstName: string) {
+    for (const family of toDesiredState(store.draft).families) {
+      const guest = family.guests.find((g) => g.firstName === firstName);
+      if (guest) return guest;
+    }
+    throw new Error(`no guest ${firstName}`);
+  }
+
+  function guestKey(store: ReturnType<typeof createGuestEventDraft>, firstName: string) {
+    for (const family of store.draft.families) {
+      const guest = family.guests.find((g) => g.firstName === firstName);
+      if (guest) return guest.key;
+    }
+    throw new Error(`no guest ${firstName}`);
+  }
+
+  it("sends no address for a guest whose address the organiser left alone", () => {
+    createRoot((dispose) => {
+      const store = createGuestEventDraft();
+      store.load(EVENTS, WITH_EMAILS, [], REVISION);
+      store.updateGuest(guestKey(store, "Ben"), { nickname: "B" });
+      expect(wireGuest(store, "Ada")).not.toHaveProperty("email");
+      expect(wireGuest(store, "Ben")).not.toHaveProperty("email");
+      // The same address retyped in another case is no change either.
+      store.updateGuest(guestKey(store, "Ada"), { email: " ADA@example.test " });
+      expect(wireGuest(store, "Ada")).not.toHaveProperty("email");
+      dispose();
+    });
+  });
+
+  it("sends a changed or removed address with the address it loaded", () => {
+    createRoot((dispose) => {
+      const store = createGuestEventDraft();
+      store.load(EVENTS, WITH_EMAILS, [], REVISION);
+      store.updateGuest(guestKey(store, "Ben"), { email: "ben@example.test" });
+      expect(wireGuest(store, "Ben")).toMatchObject({
+        email: "ben@example.test",
+        emailExpected: null,
+      });
+      store.updateGuest(guestKey(store, "Ada"), { email: "" });
+      expect(wireGuest(store, "Ada")).toMatchObject({
+        email: null,
+        emailExpected: "ada@example.test",
+      });
+      dispose();
+    });
+  });
+
+  // An API older than the column serves no `email`: the draft then knows
+  // nothing about addresses, and must not send one that would clear them.
+  it("sends no address at all when the rows carried none", () => {
+    createRoot((dispose) => {
+      const store = loaded();
+      store.updateGuest(guestKey(store, "Ada"), { nickname: "A" });
+      expect(wireGuest(store, "Ada")).not.toHaveProperty("email");
+      // Nor does the draft itself, so the editor draws no address field.
+      for (const family of store.draft.families) {
+        for (const guest of family.guests) expect(guest).not.toHaveProperty("email");
+      }
+      dispose();
+    });
+  });
+
+  // Every guest without an address carries `email: ""`: flagging a blank —
+  // empty, or only spaces — would block every save in a wedding with one.
+  it("lets a blank or a valid address save", () => {
+    createRoot((dispose) => {
+      const store = createGuestEventDraft();
+      store.load(EVENTS, WITH_EMAILS, [], REVISION);
+      store.updateGuest(guestKey(store, "Ben"), { email: "   " });
+      store.updateGuest(guestKey(store, "Ada"), { email: "Ada@Example.test " });
+      expect(validateDraft(store.draft)).toEqual([]);
+      dispose();
+    });
+  });
+
+  it("refuses to save a cell that is not one address", () => {
+    createRoot((dispose) => {
+      const store = createGuestEventDraft();
+      store.load(EVENTS, WITH_EMAILS, [], REVISION);
+      store.updateGuest(guestKey(store, "Ben"), { email: "Ben <ben@example.test>" });
+      expect(validateDraft(store.draft).map((e) => e.message)).toContain(
+        "Enter one email address, like name@example.com.",
+      );
+      dispose();
+    });
   });
 });

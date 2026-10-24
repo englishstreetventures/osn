@@ -232,6 +232,19 @@ export const CIRE_ORGANISER = {
     programmes: { id: "tsk_e2e_rsh_programmes", title: "Hand out programmes" },
     cue: { id: "tsk_e2e_rsh_cue", title: "Cue the speeches" },
   },
+  /**
+   * One household: Gus with no address, and Hana with one she gave herself
+   * on the invite. The organiser adds Gus's (`added`) in the guest editor.
+   */
+  emails: {
+    weddingId: "wed_e2e_emails",
+    household: "Tanaka",
+    noAddress: "Gus",
+    guestsOwn: { firstName: "Hana", address: "hana.own@e2e.test" },
+    added: "gus.tanaka@e2e.test",
+    /** Gus's address in the two sheets the flow previews; the second applies. */
+    sheetAddresses: { first: "gus.first@e2e.test", second: "gus.second@e2e.test" },
+  },
 } as const;
 
 /**
@@ -315,6 +328,12 @@ export const CIRE_HOUSEHOLD = {
   member: "Cleo",
   /** Who a second tab says is answering, after "Not you?". */
   otherMember: "Bo",
+  /** The address `member` gives on the invite, then corrects. */
+  email: "cleo.sampleton@e2e.test",
+  /** What `member` corrects it to, then removes. */
+  correctedEmail: "cleo.s@e2e.test",
+  /** The address the hosts added for `otherMember` (`seedE2eOrganiser`). */
+  otherMemberEmail: "bo.sampleton@e2e.test",
 } as const;
 
 /** Identities the flows create. Fixed, so every run registers the same people. */
