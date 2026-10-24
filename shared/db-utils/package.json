@@ -11,7 +11,10 @@
   },
   "exports": {
     ".": "./src/index.ts",
-    "./search": "./src/search.ts"
+    "./search": "./src/search.ts",
+    "./effect/d1": "./src/effect/d1.ts",
+    "./effect/sqlite": "./src/effect/sqlite.ts",
+    "./effect/batch": "./src/effect/batch.ts"
   },
   "scripts": {
     "typecheck": "bun check --no-script && bun check --no-script -p tests/tsconfig.json",
