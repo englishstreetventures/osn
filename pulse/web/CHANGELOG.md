@@ -1,5 +1,18 @@
 # @osn/pulse
 
+## 0.24.30
+
+### Patch Changes
+
+- 355b956: Type-check with Bun's built-in checker. Each package's `check` script is now `typecheck` and runs `bun check` in place of `tsc --noEmit`, with the test tsconfigs checked the same way. Packages that still need `astro check` keep it. No source changes.
+- Updated dependencies [355b956]
+  - @pulse/api@0.27.30
+  - @shared/design-tokens@0.3.7
+  - @shared/legal@0.0.8
+  - @shared/rp-auth@0.2.13
+  - @shared/toast@0.3.9
+  - @shared/ui@0.6.2
+
 ## 0.24.29
 
 ### Patch Changes
