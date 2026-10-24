@@ -311,7 +311,11 @@ gh api repos/englishstreetventures/osn/pulls/<n> --jq .body > PR-BODY.md
 
 Invoke `write-pr` and rewrite it into the six sections, impact first. Keep nothing from the
 old body that this run did not confirm; the test plan is this run's rows only,
-each with its commit. Fix the title too when it breaks `write-pr` Step 3.
+each with its commit. Fix the title too when it breaks `write-pr` Step 3. One
+exception: keep a `**Do not merge until**` line unless this run showed its
+condition has cleared, since it holds the merge rather than describing the work.
+A line that waits on the owner clears only as
+`wiki/conventions/review-findings.md` §What counts as the owner's answer says.
 
 ```bash
 git push --force-with-lease origin <branch>   # after a rebase; plain `git push origin <branch>` otherwise
@@ -321,6 +325,13 @@ gh api -X PATCH repos/englishstreetventures/osn/pulls/<n> -F body=@PR-BODY.md --
 The explicit `origin <branch>` makes the lease compare against the
 `origin/<branch>` Step 1 fetched, and works in a worktree with no upstream.
 Then run `write-pr` Step 6's check that the closes registered.
+
+Set the draft state by `prep-pr` Step 9. A pull request that waits on the owner
+becomes a draft (`gh pr ready --undo <n>`) if it is not one already, and a draft
+that waits on the owner stays one: only the owner marks it ready, and no session
+marks ready a pull request whose body carries a `**Do not merge until**` line.
+Any other draft you found is left for `orchestrate` Step 5, or for the owner
+outside it.
 
 Wait for CI with an end, using main's copy of the wait script so the branch's
 own copy never runs unread, in the background:

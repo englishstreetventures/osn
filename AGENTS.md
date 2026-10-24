@@ -40,7 +40,7 @@ Work is tracked in GitHub Issues, never the wiki.
 - Write every issue with the `write-issue` skill (`.claude/skills/write-issue/SKILL.md`): the repository, title, type, labels and a body someone can act on months later with nothing checked out.
 - Write every PR body with the `write-pr` skill (`.claude/skills/write-pr/SKILL.md`): the title, the six sections with the change's impact first, a `Closes` line for every issue the branch fixes, a test plan that says what ran on which commit, and the REST command that opens it.
 - **Fix what you find; do not file it.** Everything in the feature's scope — the files the branch changes, their tests and docs, every finding in them — is fixed on the branch. An issue is left open only for work out of the feature's scope, something unrelated found mid-task, or a larger piece of work; the small ones of the first two go on one follow-up pull request instead. A critical or high finding is never left open. More than two left open by one pull request means something in scope was filed: `wiki/conventions/review-findings.md` §Fix findings; do not file them.
-- When the next step needs a choice only the owner can make, write the proposal, add `needs:decision`, and move to another issue.
+- When the next step needs a choice only the owner can make, write the proposal, add `needs:decision`, and move to another issue. A pull request that waits on that choice, or on an approval only the owner can give, opens as a draft, and only the owner marks it ready (`prep-pr` Step 9).
 - Never delete an issue; close it.
 
 ## Standing rules

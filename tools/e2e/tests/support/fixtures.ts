@@ -4,8 +4,9 @@
  * It puts each browser page on the suite's clock, records the flow's steps,
  * API requests and assertions, and at the end takes the final-state screenshot
  * and attaches the record the results reporter writes into `results.json`.
- * Flows touch the stack only through the browser, the API request context and
- * the read-only helpers here.
+ * In each context it records, it stands in for cire's realtime hub, which the
+ * stack does not run (`standInForCireHub`). Flows touch the stack only through
+ * the browser, the API request context and the read-only helpers here.
  */
 
 import { mkdirSync } from "node:fs";
@@ -32,6 +33,7 @@ import {
   DEV_LOGIN_SECRET,
   ORGANISER_ADDRESS,
   ORIGINS,
+  REALTIME_KEEPALIVE,
   SCREENSHOT_DIR,
 } from "../../src/config";
 import type { CapturedMail } from "../../src/mail";
@@ -41,6 +43,46 @@ import { RECORD_ATTACHMENT } from "../../src/reporter";
 /** The launcher's real start; the suite's clock reads `CLOCK_T0` at that instant. */
 const REAL_START = Number(process.env["E2E_CLOCK_R0"] ?? Date.now());
 const suiteNow = (): number => CLOCK_T0 + (Date.now() - REAL_START);
+
+/**
+ * Every push socket the organiser portal opens: cire-api's origin over `ws:`,
+ * then `/realtime/<topic>`, as `weddingTopicUrl` in
+ * `cire/host/src/lib/realtime.ts` builds it. A glob, so Playwright matches it
+ * itself and opens every other socket (Vite's) on the network as before.
+ */
+const CIRE_REALTIME_PATH = "/realtime/";
+const CIRE_REALTIME_SOCKETS = `${ORIGINS.cireApi.replace(/^http/, "ws")}${CIRE_REALTIME_PATH}**`;
+
+/**
+ * Stands in for cire's realtime hub in `ctx` until englishstreetventures/osn#1653
+ * lands. The stack's cire-api has no hub and answers `/realtime/*` with 404, so
+ * without this every portal subscription fails, retries on the client's
+ * jittered backoff and gives up at a moment that differs from run to run,
+ * sending the fallback beacon (`POST /api/realtime/fallback`) into one run's
+ * `results.json` and not the next. Here each socket opens, stays open and has
+ * its ping answered, as `TopicHub` answers it; no subscription gives up, and no
+ * signal is ever sent. `seen` collects each socket's topic as it arrives, and
+ * counts the pings the stand-in receives.
+ */
+async function standInForCireHub(ctx: BrowserContext, seen: HubStandInLog): Promise<void> {
+  await ctx.routeWebSocket(CIRE_REALTIME_SOCKETS, (ws) => {
+    const { pathname } = new URL(ws.url());
+    seen.topics.push(decodeURIComponent(pathname.slice(CIRE_REALTIME_PATH.length)));
+    ws.onMessage((message) => {
+      if (message !== REALTIME_KEEPALIVE.ping) return;
+      seen.pings += 1;
+      ws.send(REALTIME_KEEPALIVE.pong);
+    });
+  });
+}
+
+/** What the hub stand-in has seen in one flow, across its contexts. */
+interface HubStandInLog {
+  /** Each socket's topic, in the order the sockets arrived. */
+  readonly topics: string[];
+  /** Pings received from the pages' sockets. */
+  pings: number;
+}
 
 export interface Flow {
   /** A named step: recorded in order and shown in the trace. */
@@ -55,6 +97,10 @@ export interface Flow {
   count(prefix: string): number;
   /** A request made outside the browser (the API request context), recorded like a browser one. */
   recordRequest(method: string, url: string, status: number): void;
+  /** The realtime topics the pages' sockets have reached the hub stand-in with, in order. */
+  realtimeTopics(): readonly string[];
+  /** How many pings the hub stand-in has received so far. */
+  realtimePings(): number;
   /** The page whose final state is the flow's screenshot. Defaults to `page`. */
   finalPage: Page;
 }
@@ -64,8 +110,9 @@ export const test = base.extend<{ flow: Flow }>({
     const steps: string[] = [];
     const lines: string[] = [];
     const assertions: Assertion[] = [];
+    const hub: HubStandInLog = { topics: [], pings: 0 };
     const watched = new WeakSet<BrowserContext>();
-    const watch = (ctx: BrowserContext): void => {
+    const watch = async (ctx: BrowserContext): Promise<void> => {
       if (watched.has(ctx)) return;
       watched.add(ctx);
       ctx.on("response", (response) => {
@@ -73,6 +120,7 @@ export const test = base.extend<{ flow: Flow }>({
         const line = requestLine(request.method(), request.url(), response.status(), API_LABELS);
         if (line) lines.push(line);
       });
+      await standInForCireHub(ctx, hub);
     };
 
     const flow: Flow = {
@@ -87,7 +135,7 @@ export const test = base.extend<{ flow: Flow }>({
         expect(actual, name).toBe(expected);
       },
       async newPage(ctx) {
-        watch(ctx);
+        await watch(ctx);
         const p = await ctx.newPage();
         await p.clock.install({ time: suiteNow() });
         return p;
@@ -102,9 +150,15 @@ export const test = base.extend<{ flow: Flow }>({
         const line = requestLine(method, url, status, API_LABELS);
         if (line) lines.push(line);
       },
+      realtimeTopics() {
+        return [...hub.topics];
+      },
+      realtimePings() {
+        return hub.pings;
+      },
     };
 
-    watch(context);
+    await watch(context);
     // Before the first navigation, so the page's scripts never see the real date.
     await page.clock.install({ time: suiteNow() });
     try {

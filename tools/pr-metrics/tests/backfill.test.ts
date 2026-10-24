@@ -10,13 +10,13 @@
 // spawns `sh -c ls`, so a replaced `PATH` loses them and every transcript
 // silently vanishes.
 
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { type ChangedFile, numstatFromApi } from "../backfill";
-import { parseNumstat } from "../index";
+import { type ChangedFile, keepRating, numstatFromApi } from "../backfill";
+import { branchSlug, type Card, parseNumstat } from "../index";
 
 test("numstatFromApi reshapes the GitHub API's file list into numstat lines", () => {
   const files: ChangedFile[] = [
@@ -511,8 +511,10 @@ test("one gh call per carded PR for files, plus one batched query, and no per-PR
 
     const calls = (await readFile(f.log, "utf8")).split("\n").filter(Boolean);
 
-    // `pr list`, one `api graphql`, one `/files` for the single carded PR.
-    expect(calls).toHaveLength(3);
+    // One `repo view` per run, `pr list`, one `api graphql`, one `/files` for
+    // the single carded PR.
+    expect(calls).toHaveLength(4);
+    expect(calls.filter((c) => c.includes("repo view"))).toHaveLength(1);
     expect(calls.filter((c) => c.includes("api graphql"))).toHaveLength(1);
     expect(calls.filter((c) => c.includes("/files"))).toHaveLength(1);
     expect(calls.filter((c) => c.includes("--jq .commits"))).toHaveLength(0);
@@ -1041,4 +1043,381 @@ esac
   } finally {
     await rm(f.dir, { recursive: true, force: true });
   }
+});
+
+// --- the repository a linked issue belongs to --------------------------------
+
+/** A stub `gh` answering the given `case` arms, logging every call. */
+async function stubGh(f: Awaited<ReturnType<typeof fixture>>, arms: string) {
+  await writeFile(
+    join(f.binDir, "gh"),
+    `#!/bin/sh
+printf '%s\\n' "$*" >> "$GH_CALL_LOG"
+case "$*" in
+${arms}
+  *"/files"*)
+    printf '%s\\n' '{"filename":"osn/api/src/svc.ts","additions":1,"deletions":0}' ;;
+  *)
+    exit 1 ;;
+esac
+`,
+  );
+  await chmod(join(f.binDir, "gh"), 0o755);
+}
+
+/** One main-thread session on `branch`, so the pull request has spend to card. */
+async function sessionOn(f: Awaited<ReturnType<typeof fixture>>, branch: string) {
+  const project = join(f.sessions, await projectDirFor(f.dir));
+  await mkdir(project, { recursive: true });
+  await writeFile(
+    join(project, `sess-${branchSlug(branch)}.jsonl`),
+    `${JSON.stringify({
+      type: "assistant",
+      sessionId: `sess-${branchSlug(branch)}`,
+      gitBranch: branch,
+      requestId: `req-${branchSlug(branch)}`,
+      timestamp: "2026-09-09T11:00:00.000Z",
+      message: { model: "claude-opus-5", usage: { output_tokens: 50 } },
+    })}\n`,
+  );
+}
+
+function prListing(
+  number: number,
+  branch: string,
+  refs: { id: string; number: number; repo?: string }[],
+  body = "",
+): string {
+  return JSON.stringify([
+    {
+      number,
+      headRefName: branch,
+      mergedAt: "2026-09-09T12:00:00Z",
+      baseRefOid: "aaa",
+      headRefOid: "bbb",
+      body,
+      closingIssuesReferences: refs.map(({ repo = "englishstreetventures/osn", ...ref }) => {
+        const [login = "", name = ""] = repo.split("/");
+
+        return { ...ref, repository: { name, owner: { login } } };
+      }),
+    },
+  ]);
+}
+
+const RATED = '{"data":{"nodes":[{"labels":{"nodes":[{"name":"complexity:3"}]}}]}}';
+
+// GitHub redirects a renamed owner, so every `gh` call succeeds with the old
+// name — and then a typed-string comparison read every issue in this repository
+// as foreign and wrote `not-fetched` on every card.
+test("backfill reads an in-repo issue's rating when --repo names the repository by an old name", async () => {
+  const f = await fixture({ withTranscript: false });
+  try {
+    const branch = "feat/renamed-owner";
+    await stubGh(
+      f,
+      `  *"repo view xchromo/osn"*) printf '%s' 'englishstreetventures/osn' ;;
+  *"pr list"*) printf '%s' '${prListing(8001, branch, [{ id: "I_r", number: 970 }])}' ;;
+  *"nodes(ids:"*) printf '%s' '${RATED}' ;;
+  *"api graphql"*) printf '%s' '{"data":{"repository":{"p8001":{"commits":{"totalCount":1}}}}}' ;;`,
+    );
+    await sessionOn(f, branch);
+
+    const run = await runBackfill(f, ["--repo", "xchromo/osn"]);
+    expect(run.exitCode).toBe(0);
+
+    const card = JSON.parse(
+      await readFile(join(f.dir, "cards", `${branchSlug(branch)}.json`), "utf8"),
+    ) as Card;
+    expect(card.issue.number).toBe(970);
+    expect(card.complexity).toEqual({ declared: 3, method: "confirmed", issues: 1 });
+
+    // Every later call uses the canonical name, not the redirected one.
+    const calls = await readFile(f.log, "utf8");
+    expect(calls).toContain("repos/englishstreetventures/osn/pulls/8001/files");
+    expect(calls).not.toContain("repos/xchromo/osn/");
+  } finally {
+    await rm(f.dir, { recursive: true, force: true });
+  }
+});
+
+test("backfill falls back to the typed repository, ignoring case, when gh cannot name it", async () => {
+  const f = await fixture({ withTranscript: false });
+  try {
+    const branch = "feat/case-variant";
+    await stubGh(
+      f,
+      `  *"pr list"*) printf '%s' '${prListing(8002, branch, [{ id: "I_c", number: 971 }])}' ;;
+  *"nodes(ids:"*) printf '%s' '${RATED}' ;;
+  *"api graphql"*) printf '%s' '{"data":{"repository":{"p8002":{"commits":{"totalCount":1}}}}}' ;;`,
+    );
+    await sessionOn(f, branch);
+
+    const run = await runBackfill(f, ["--repo", "EnglishStreetVentures/osn"]);
+    expect(run.exitCode).toBe(0);
+
+    const card = JSON.parse(
+      await readFile(join(f.dir, "cards", `${branchSlug(branch)}.json`), "utf8"),
+    ) as Card;
+    expect(card.complexity.declared).toBe(3);
+  } finally {
+    await rm(f.dir, { recursive: true, force: true });
+  }
+});
+
+test("backfill names the body's first Closes issue and sums every one the merge closed", async () => {
+  const f = await fixture({ withTranscript: false });
+  try {
+    const branch = "feat/batched";
+    await stubGh(
+      f,
+      `  *"pr list"*) printf '%s' '${prListing(
+        8003,
+        branch,
+        [
+          { id: "I_a", number: 1031 },
+          { id: "I_b", number: 1550 },
+        ],
+        "Closes #1550\nCloses #1031",
+      )}' ;;
+  *"nodes(ids:"*) printf '%s' '{"data":{"nodes":[{"labels":{"nodes":[{"name":"complexity:1"}]}},{"labels":{"nodes":[{"name":"complexity:3"}]}}]}}' ;;
+  *"api graphql"*) printf '%s' '{"data":{"repository":{"p8003":{"commits":{"totalCount":1}}}}}' ;;`,
+    );
+    await sessionOn(f, branch);
+
+    expect((await runBackfill(f)).exitCode).toBe(0);
+
+    const card = JSON.parse(
+      await readFile(join(f.dir, "cards", `${branchSlug(branch)}.json`), "utf8"),
+    ) as Card;
+    expect(card.issue.number).toBe(1550);
+    expect(card.issue.labels).toEqual(["complexity:3"]);
+    expect(card.complexity).toEqual({ declared: 4, method: "confirmed", issues: 2 });
+  } finally {
+    await rm(f.dir, { recursive: true, force: true });
+  }
+});
+
+// A backfill that cannot read a label must not erase the rating a card already
+// holds: the card on disk is the record, and the next run may have the network.
+test("backfill never replaces a rating on disk with a lookup that failed", async () => {
+  const f = await fixture({ withTranscript: false });
+  try {
+    const branch = "feat/keep-rating";
+    await stubGh(
+      f,
+      `  *"pr list"*) printf '%s' '${prListing(8004, branch, [{ id: "I_k", number: 972 }])}' ;;
+  *"nodes(ids:"*) printf '%s' '{"data":{"nodes":[null]}}'
+    exit 1 ;;
+  *"api graphql"*) printf '%s' '{"data":{"repository":{"p8004":{"commits":{"totalCount":1}}}}}' ;;`,
+    );
+    await sessionOn(f, branch);
+
+    const cardPath = join(f.dir, "cards", `${branchSlug(branch)}.json`);
+    await mkdir(join(f.dir, "cards"), { recursive: true });
+    await writeFile(
+      cardPath,
+      JSON.stringify({
+        schema_version: 1,
+        pr: { number: 8004, branch, merged_at: "2026-09-09T12:00:00Z", phase: "at-open" },
+        issue: { number: 972, type: "Bug", labels: ["complexity:3"] },
+        complexity: { declared: 3, method: "confirmed" },
+        spend: { usd_equivalent: 1 },
+        interaction: {},
+      }),
+    );
+
+    const run = await runBackfill(f);
+    expect(run.exitCode).toBe(0);
+    expect(run.stderr).toContain("#8004");
+
+    const card = JSON.parse(await readFile(cardPath, "utf8")) as Card;
+    expect(card.issue).toEqual({ number: 972, type: "Bug", labels: ["complexity:3"] });
+    expect(card.complexity).toEqual({ declared: 3, method: "confirmed", issues: 1 });
+  } finally {
+    await rm(f.dir, { recursive: true, force: true });
+  }
+});
+
+// A card before version 3 rates one issue. Under version 3 `declared` is the sum over
+// every issue the pull request closes, so one issue's rating cannot be carried
+// into a rebuilt card for a pull request that closes several: it would count
+// four issues of work at one issue's rating. When this run cannot read the sum
+// either, the card on disk stays exactly as it was, on its old version.
+test("backfill leaves a one-issue card alone rather than relabel it as a batched sum", async () => {
+  const f = await fixture({ withTranscript: false });
+  try {
+    const branch = "feat/keep-batched";
+    await stubGh(
+      f,
+      `  *"pr list"*) printf '%s' '${prListing(8005, branch, [
+        { id: "I_p", number: 1070 },
+        { id: "I_q", number: 1074 },
+      ])}' ;;
+  *"nodes(ids:"*) printf '%s' '{"data":{"nodes":[null]}}'
+    exit 1 ;;
+  *"api graphql"*) printf '%s' '{"data":{"repository":{"p8005":{"commits":{"totalCount":1}}}}}' ;;`,
+    );
+    await sessionOn(f, branch);
+
+    const cardPath = join(f.dir, "cards", `${branchSlug(branch)}.json`);
+    await mkdir(join(f.dir, "cards"), { recursive: true });
+    const planted = `${JSON.stringify({
+      schema_version: 1,
+      pr: { number: 8005, branch, merged_at: "2026-09-09T12:00:00Z", phase: "at-open" },
+      issue: { number: 1070, type: "Bug", labels: ["complexity:1"] },
+      complexity: { declared: 1, method: "confirmed" },
+      spend: { usd_equivalent: 1 },
+      interaction: {},
+    })}\n`;
+    await writeFile(cardPath, planted);
+
+    const run = await runBackfill(f);
+    expect(run.exitCode).toBe(0);
+    expect(run.stderr).toContain("#8005");
+    expect(await readFile(cardPath, "utf8")).toBe(planted);
+  } finally {
+    await rm(f.dir, { recursive: true, force: true });
+  }
+});
+
+// A card is public, and the rating on disk is kept only as a number. Its issue
+// block is kept only when this run links that issue to this repository: a
+// tracker number or tracker labels on a card written some other way never
+// survive a backfill.
+test("backfill keeps a rating on disk but not an issue this repository does not link", async () => {
+  const f = await fixture({ withTranscript: false });
+  try {
+    const branch = "feat/keep-tracker";
+    await stubGh(
+      f,
+      `  *"pr list"*) printf '%s' '${prListing(
+        8006,
+        branch,
+        [{ id: "I_t", number: 619, repo: "englishstreetventures/osn-tracker" }],
+        "Closes englishstreetventures/osn-tracker#619",
+      )}' ;;
+  *"api graphql"*) printf '%s' '{"data":{"repository":{"p8006":{"commits":{"totalCount":1}}}}}' ;;`,
+    );
+    await sessionOn(f, branch);
+
+    const cardPath = join(f.dir, "cards", `${branchSlug(branch)}.json`);
+    await mkdir(join(f.dir, "cards"), { recursive: true });
+    await writeFile(
+      cardPath,
+      JSON.stringify({
+        schema_version: 1,
+        pr: { number: 8006, branch, merged_at: "2026-09-09T12:00:00Z", phase: "at-open" },
+        issue: { number: 619, type: "Bug", labels: ["severity:high", "complexity:3"] },
+        complexity: { declared: 3, method: "confirmed" },
+        spend: { usd_equivalent: 1 },
+        interaction: {},
+      }),
+    );
+
+    expect((await runBackfill(f)).exitCode).toBe(0);
+
+    const card = JSON.parse(await readFile(cardPath, "utf8")) as Card;
+    expect(card.issue.number).toBeNull();
+    expect(card.issue.labels).toEqual([]);
+    expect(card.complexity).toEqual({ declared: 3, method: "confirmed", issues: 1 });
+  } finally {
+    await rm(f.dir, { recursive: true, force: true });
+  }
+});
+
+describe("keepRating", () => {
+  const next = (complexity: Card["complexity"], issue: number | null = 2): Card =>
+    ({
+      pr: { number: 1 },
+      issue: { number: issue, type: null, labels: [] },
+      complexity,
+    }) as unknown as Card;
+  const disk = (complexity: unknown, pr = 1, issue = 2) => ({
+    pr: { number: pr },
+    issue: { number: issue, type: null, labels: ["complexity:5", "complexity:unconfirmed"] },
+    complexity,
+  });
+  const links = (closed: number[], partOf: number[] = []) => ({ closed, partOf });
+
+  test("keeps an unconfirmed rating over a null", () => {
+    const kept = keepRating(
+      disk({ declared: 5, method: "unconfirmed" }),
+      next({ declared: null, method: "lookup-failed", issues: 0 }),
+      links([2]),
+    );
+
+    expect(kept?.complexity).toEqual({ declared: 5, method: "unconfirmed", issues: 1 });
+    expect(kept?.issue.labels).toEqual(["complexity:5", "complexity:unconfirmed"]);
+  });
+
+  test("keeps a confirmed rating over an unconfirmed one for the same issue", () => {
+    const kept = keepRating(
+      disk({ declared: 3, method: "confirmed" }),
+      next({ declared: 3, method: "unconfirmed", issues: 1 }),
+      links([2]),
+    );
+
+    expect(kept?.complexity).toEqual({ declared: 3, method: "confirmed", issues: 1 });
+  });
+
+  test("keeps a sum over a null when it covers every issue the pull request closes", () => {
+    const kept = keepRating(
+      disk({ declared: 4, method: "confirmed", issues: 2 }),
+      next({ declared: null, method: "lookup-failed", issues: 0 }),
+      links([2, 3]),
+    );
+
+    expect(kept?.complexity).toEqual({ declared: 4, method: "confirmed", issues: 2 });
+  });
+
+  test("never carries one issue's rating into a pull request that closes several", () => {
+    const sum = next({ declared: 5, method: "unconfirmed", issues: 4 });
+
+    expect(keepRating(disk({ declared: 1, method: "confirmed" }), sum, links([2, 3, 4, 5]))).toBe(
+      sum,
+    );
+    expect(
+      keepRating(
+        disk({ declared: 1, method: "confirmed" }),
+        next({ declared: null, method: "lookup-failed", issues: 0 }),
+        links([2, 3, 4, 5]),
+      ),
+    ).toBeNull();
+  });
+
+  test("a Part of null drops a looked-up rating and keeps one a caller gave", () => {
+    const partOf = next({ declared: null, method: "part-of", issues: 0 });
+
+    expect(keepRating(disk({ declared: 8, method: "confirmed" }), partOf, links([], [2]))).toBe(
+      partOf,
+    );
+    expect(
+      keepRating(disk({ declared: 3, method: "manual" }), partOf, links([], [2]))?.complexity,
+    ).toEqual({ declared: 3, method: "manual", issues: 1 });
+  });
+
+  test("keeps the rating but not an issue this run does not link to this repository", () => {
+    const fresh = next({ declared: null, method: "not-fetched", issues: 0 }, null);
+    const kept = keepRating(disk({ declared: 3, method: "confirmed" }, 1, 619), fresh, links([]));
+
+    expect(kept?.complexity).toEqual({ declared: 3, method: "confirmed", issues: 1 });
+    expect(kept?.issue).toEqual(fresh.issue);
+  });
+
+  test("takes a new confirmed rating over an old one", () => {
+    const fresh = next({ declared: 6, method: "confirmed", issues: 2 });
+
+    expect(keepRating(disk({ declared: 3, method: "confirmed" }), fresh, links([2, 3]))).toBe(
+      fresh,
+    );
+  });
+
+  test("ignores a card on disk with no rating or for another pull request", () => {
+    const fresh = next({ declared: null, method: "none", issues: 0 });
+
+    expect(keepRating({ pr: { number: 1 } }, fresh, links([]))).toBe(fresh);
+    expect(keepRating(disk({ declared: 3, method: "confirmed" }, 9), fresh, links([]))).toBe(fresh);
+    expect(keepRating(null, fresh, links([]))).toBe(fresh);
+  });
 });

@@ -1,5 +1,11 @@
 # @shared/sortable
 
+## 0.3.1
+
+### Patch Changes
+
+- 18b1291: Dev dependency update: happy-dom 21.0.4, clearing a high advisory in its earlier release.
+
 ## 0.3.0
 
 ### Minor Changes
