@@ -151,6 +151,128 @@ describe("isBlockedAddress", () => {
     expect(isBlockedAddress("64:ff9b::93.184.216.34")).toBe(false);
   });
 
+  it("blocks the reserved, documentation and benchmarking IPv4 ranges", () => {
+    for (const address of [
+      "192.0.0.1", // 192.0.0.0/24 IETF protocol assignments
+      "192.0.0.255",
+      "192.0.2.1", // 192.0.2.0/24 documentation
+      "192.88.99.1", // 192.88.99.0/24 former 6to4 relay anycast
+      "198.18.0.1", // 198.18.0.0/15 benchmarking
+      "198.19.255.255",
+      "198.51.100.1", // 198.51.100.0/24 documentation
+      "203.0.113.1", // 203.0.113.0/24 documentation
+      "::ffff:192.0.2.1", // mapped form, through the v4 rules
+    ]) {
+      expect(isBlockedAddress(address)).toBe(true);
+    }
+  });
+
+  it("allows the public addresses either side of each reserved IPv4 range", () => {
+    for (const address of [
+      "192.0.1.1",
+      "192.0.3.1",
+      "192.88.98.1",
+      "192.88.100.1",
+      "198.17.255.255",
+      "198.20.0.1",
+      "198.51.99.1",
+      "198.51.101.1",
+      "203.0.112.1",
+      "203.0.114.1",
+    ]) {
+      expect(isBlockedAddress(address)).toBe(false);
+    }
+  });
+
+  it("allows public IPv4 that shares all but one octet with a reserved range", () => {
+    // Each range is matched on every octet it names, not on a subset of them.
+    for (const address of [
+      "8.0.0.8", // first octet differs from 192.0.0/24
+      "192.1.0.1", // second octet differs
+      "8.0.2.8",
+      "192.1.2.1",
+      "8.88.99.8",
+      "192.1.99.1",
+      "8.18.0.1", // first octet differs from 198.18/15
+      "8.51.100.8",
+      "198.1.100.1",
+      "8.0.113.8",
+      "203.1.113.1",
+    ]) {
+      expect(isBlockedAddress(address)).toBe(false);
+    }
+  });
+
+  it("refuses the local-use NAT64 prefix (64:ff9b:1::/48) outright", () => {
+    // Its embedded v4 sits where the operator's prefix length puts it, not in
+    // the low 32 bits: under a /48 this second address is 127.0.0.1.
+    expect(isBlockedAddress("64:ff9b:1::8.8.8.8")).toBe(true);
+    expect(isBlockedAddress("64:ff9b:1:7f00:0:100:808:808")).toBe(true);
+    // Inside 64:ff9b::/32 but outside the well-known /96.
+    expect(isBlockedAddress("64:ff9b:0:0:1::8.8.8.8")).toBe(true);
+    expect(isBlockedAddress("64:ff9b::8.8.8.8")).toBe(false);
+  });
+
+  it("unwraps only the exact well-known NAT64 prefix", () => {
+    // One byte off 64:ff9b in each position: outside 2000::/3, so refused even
+    // though the low 32 bits are a public v4 address.
+    for (const address of [
+      "164:ff9b::8.8.8.8",
+      "65:ff9b::8.8.8.8",
+      "64:fe9b::8.8.8.8",
+      "64:ff9a::8.8.8.8",
+    ]) {
+      expect(isBlockedAddress(address)).toBe(true);
+    }
+  });
+
+  it("refuses 6to4 (2002::/16) whatever v4 address it embeds", () => {
+    expect(isBlockedAddress("2002:7f00:1::1")).toBe(true);
+    expect(isBlockedAddress("2002:808:808::1")).toBe(true);
+    expect(isBlockedAddress("2a02::1")).toBe(false);
+  });
+
+  it("refuses the IETF protocol block (2001::/23), Teredo included", () => {
+    // Teredo server 65.54.227.120, client 8.8.8.8 once un-XORed: both public.
+    expect(isBlockedAddress("2001:0:4136:e378:8000:63bf:f7f7:f7f7")).toBe(true);
+    expect(isBlockedAddress("2001:2::1")).toBe(true); // benchmarking
+    expect(isBlockedAddress("2001:1ff:ffff::1")).toBe(true); // top of the /23
+    expect(isBlockedAddress("2001:200::1")).toBe(false);
+    expect(isBlockedAddress("2001:4860:4860::8888")).toBe(false);
+    expect(isBlockedAddress("2a01:1::1")).toBe(false);
+  });
+
+  it("refuses the IPv6 documentation ranges", () => {
+    expect(isBlockedAddress("2001:db8::1")).toBe(true);
+    expect(isBlockedAddress("3fff:fff:ffff::1")).toBe(true); // 3fff::/20
+    // Each shares all but one part with a documentation range.
+    for (const address of [
+      "2001:db9::1",
+      "2001:4b8::1",
+      "2003:db8::1",
+      "2a01:db8::1",
+      "3fff:1000::1",
+      "3ffe::1",
+      "2aff::1",
+    ]) {
+      expect(isBlockedAddress(address)).toBe(false);
+    }
+  });
+
+  it("refuses IPv6 outside global unicast (2000::/3)", () => {
+    for (const address of [
+      "fec0::1", // site-local
+      "100::1", // discard-only
+      "::ffff:0:8.8.8.8", // IPv4-translated, public v4 inside
+      "4000::1",
+      "1fff:ffff::1",
+    ]) {
+      expect(isBlockedAddress(address)).toBe(true);
+    }
+    expect(isBlockedAddress("2000::1")).toBe(false);
+    expect(isBlockedAddress("3ffe:ffff::1")).toBe(false);
+  });
+
   it("blocks anything it cannot parse (fail closed)", () => {
     expect(isBlockedAddress("nonsense")).toBe(true);
     expect(isBlockedAddress("")).toBe(true);
