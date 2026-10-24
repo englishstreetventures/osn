@@ -222,7 +222,9 @@ export function cireDeclaration(input: {
         IMAGES: { kind: "images" },
         // `@shared/realtime`'s hub, one object per wedding topic. Alchemy
         // declares a class this Worker hosts SQLite-backed, the one storage
-        // backend Workers Free allows.
+        // backend Workers Free allows, and asks Cloudflare to delete it on the
+        // first deploy in which no binding names it. Removing this entry is
+        // not how push turns off: wiki/cire/cire.md §Turning realtime push off.
         REALTIME_HUB: { kind: "durable-object", className: "TopicHub" },
         ...Object.fromEntries(
           RATE_LIMITS.map((limit): [string, BindingDescription] => [

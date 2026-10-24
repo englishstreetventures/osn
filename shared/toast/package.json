@@ -1,6 +1,6 @@
 {
   "name": "@shared/toast",
-  "version": "0.3.7",
+  "version": "0.3.8",
   "private": true,
   "type": "module",
   "author": "English Street Ventures Pty Ltd",
@@ -22,7 +22,7 @@
   "devDependencies": {
     "@shared/typescript-config": "workspace:*",
     "@solidjs/testing-library": "^0.8.10",
-    "happy-dom": "^20.12.2",
+    "happy-dom": "^21.0.4",
     "solid-js": "^1.9.15",
     "vite": "^8.3.3",
     "vite-plugin-solid": "^2.11.14",

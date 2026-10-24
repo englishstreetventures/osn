@@ -10,12 +10,47 @@
  * so a starter edit changes the count without breaking the flow.
  */
 
-import { CIRE_ORGANISER, DB_FILES, ORIGINS } from "../../src/config";
+import type { Page } from "@playwright/test";
+
+import { CIRE_ORGANISER, DB_FILES, ORIGINS, REALTIME_KEEPALIVE } from "../../src/config";
 import { expect, onSuiteClock, queryOne, signInToCireHost, test } from "../support/fixtures";
 
 const { weddingId, firstItem } = CIRE_ORGANISER.checklist;
 
+/**
+ * Counts, in each document `page` loads, the frames its push sockets (path
+ * `/realtime/…`) receive that are the keepalive's answer, and exposes the
+ * count as `__e2ePushPongs`. The hub stand-in counts the pings it receives;
+ * this shows its answer reached the page.
+ */
+async function countPushPongs(page: Page): Promise<void> {
+  await page.addInitScript(
+    ({ pong, path }) => {
+      let received = 0;
+      const dispatch = EventTarget.prototype.dispatchEvent;
+      EventTarget.prototype.dispatchEvent = function (this: EventTarget, event: Event): boolean {
+        if (
+          event instanceof MessageEvent &&
+          event.data === pong &&
+          this instanceof WebSocket &&
+          new URL(this.url).pathname.startsWith(path)
+        ) {
+          received += 1;
+        }
+        return dispatch.call(this, event);
+      };
+      Object.defineProperty(globalThis, "__e2ePushPongs", { get: () => received });
+    },
+    { pong: REALTIME_KEEPALIVE.pong, path: "/realtime/" },
+  );
+}
+
+/** The current document's count from `countPushPongs`. */
+const pushPongs = (page: Page): Promise<number> =>
+  page.evaluate(() => Number(Reflect.get(globalThis, "__e2ePushPongs") ?? 0));
+
 test("cire-checklist-starter", async ({ page, flow }) => {
+  await countPushPongs(page);
   await signInToCireHost(flow, page);
 
   await flow.step("open the wedding's checklist", async () => {
@@ -82,4 +117,19 @@ test("cire-checklist-starter", async ({ page, flow }) => {
   flow.check("first task's due date follows the wedding date", "template", first?.due_source ?? "");
   flow.check("first task is open", "open", first?.status ?? "missing");
   flow.check("tasks row written on the suite clock", true, onSuiteClock(first?.created_at));
+
+  // Last, so the page clock's jump moves nothing a step above reads. Over one
+  // ping interval the checklist page runs only toast and layout timers, the
+  // command palette's warm-up import and the socket's ping; none calls the API.
+  const keepalive = await flow.step("let one push keepalive interval pass", async () => {
+    await page.clock.runFor(REALTIME_KEEPALIVE.intervalMs);
+    // The ping and its answer cross the test runner a moment after the tick.
+    await expect
+      .poll(() => pushPongs(page))
+      .toBeGreaterThanOrEqual(1)
+      .catch(() => undefined);
+    return { pings: flow.realtimePings(), pongs: await pushPongs(page) };
+  });
+  flow.check("portal: the hub stand-in received the socket's ping", true, keepalive.pings >= 1);
+  flow.check("portal: the socket received the stand-in's pong", true, keepalive.pongs >= 1);
 });

@@ -101,10 +101,11 @@
     "@cloudflare/workers-types": "5.20260903.1",
     "smol-toml": "^1.7.1",
     "source-map-js": "^1.2.2",
-    "undici": "^8.10.2",
+    "undici": "^8.12.2",
     "vite": "8.3.3",
     "ws": "^8.21.0",
-    "yaml": "^2.9.0"
+    "yaml": "^2.9.0",
+    "zod": "^4.6.6"
   },
   "patchedDependencies": {
     "@stryker-mutator/vitest-runner@10.0.0": "patches/@stryker-mutator%2Fvitest-runner@10.0.0.patch",

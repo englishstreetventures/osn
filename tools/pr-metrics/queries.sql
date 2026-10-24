@@ -132,7 +132,9 @@ ORDER BY month;
 --------------------------------------------------------------------------------
 -- The headline ratio. Read it as a trend, never as a target: driving it down
 -- by rating everything an 8 is trivial, and the rating is set before the work
--- precisely so that cannot happen quietly.
+-- precisely so that cannot happen quietly. A card that closes several issues
+-- declares the sum of their ratings, so a value off the 1-2-3-5-8 scale is a
+-- row of its own: that many points of declared work, not one issue's rating.
 
 SELECT declared,
        count(*)                     AS prs,
