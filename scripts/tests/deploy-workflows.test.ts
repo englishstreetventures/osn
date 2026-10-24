@@ -137,7 +137,8 @@ const DEV_HOST_OUTPUT: Readonly<Record<SurfaceKey, string>> = {
  * build sets. A host is always the dev-hosts step's output; Turnstile and Maps
  * keys are dev Environment variables; the guest site's footer prints the
  * commit (PUBLIC_BUILD_SHA); ASTRO_KEY fixes the guest site's server build so
- * two builds of one commit are byte-identical. Pulse landing gets no
+ * two builds of one commit are byte-identical; OSN_DEPLOY_TIER marks each
+ * build of a site that retargets its CSP as a deploy. Pulse landing gets no
  * PUBLIC_APP_URL: the Pulse app has no dev deploy.
  */
 const DEV_BUILDS: Readonly<
@@ -170,6 +171,7 @@ const DEV_BUILDS: Readonly<
         PUBLIC_GOOGLE_MAPS_EMBED_KEY: "${{ vars.PUBLIC_GOOGLE_MAPS_EMBED_KEY }}",
         PUBLIC_BUILD_SHA: "${{ github.sha }}",
         ASTRO_KEY: "${{ secrets.ASTRO_KEY }}",
+        OSN_DEPLOY_TIER: "dev",
       },
     },
     {
@@ -179,6 +181,7 @@ const DEV_BUILDS: Readonly<
         PUBLIC_OSN_ACCOUNT_URL: hostOutput("musubi_social_origin"),
         PUBLIC_CIRE_WEB_URL: hostOutput("cire_invites_origin"),
         PUBLIC_MARKETING_URL: hostOutput("cire_landing_origin"),
+        OSN_DEPLOY_TIER: "dev",
       },
     },
     {
@@ -186,6 +189,7 @@ const DEV_BUILDS: Readonly<
       env: {
         PUBLIC_CIRE_API_URL: hostOutput("cire_api_origin"),
         PUBLIC_OSN_ACCOUNT_URL: hostOutput("musubi_social_origin"),
+        OSN_DEPLOY_TIER: "dev",
       },
     },
     {
@@ -759,6 +763,53 @@ describe("production-release.yml", () => {
       });
     },
   );
+});
+
+interface Manifest {
+  readonly name: string;
+  readonly dependencies?: Record<string, string>;
+  readonly devDependencies?: Record<string, string>;
+}
+
+/**
+ * The workspaces whose build runs the cire CSP integration (`tierHeaders`):
+ * every one that depends on `@cire/build-tools`, by name, sorted.
+ */
+function tierHeadersPackages(): string[] {
+  const readJson = <T>(path: string) => JSON.parse(readFileSync(join(root, path), "utf8")) as T;
+  return readJson<{ workspaces: string[] }>("package.json")
+    .workspaces.flatMap((pattern) =>
+      Array.from(new Bun.Glob(`${pattern}/package.json`).scanSync({ cwd: root })),
+    )
+    .map((path) => readJson<Manifest>(path))
+    .filter((pkg) => "@cire/build-tools" in { ...pkg.dependencies, ...pkg.devDependencies })
+    .map((pkg) => pkg.name)
+    .toSorted();
+}
+
+describe("every deploy build of a cire site that retargets its CSP names its tier", () => {
+  // The CSP integration checks the cire-api origin of a build that sets
+  // OSN_DEPLOY_TIER: never on this machine, and on production the production
+  // API. Each deploy build of these sites sets the tier as a literal, so the
+  // workflow fixes its value. The CI test builds (`bun run build`, no filter)
+  // set none, and must not.
+  const packages = tierHeadersPackages();
+
+  test("some workspace runs the integration", () => {
+    expect(packages.length).toBeGreaterThan(0);
+  });
+
+  test.each([
+    [WORKFLOW_FILE.dev, dev, "dev"],
+    [WORKFLOW_FILE.production, production, "production"],
+  ] as const)("%s builds each of them once, as a deploy to its tier", (_, workflow, tier) => {
+    const builtPackage = (step: Step) => BUILD.exec(step.run ?? "")?.[1] ?? "";
+    const builds = Object.values(workflow.jobs)
+      .flatMap((job) => buildsOf(job))
+      .filter((step) => packages.includes(builtPackage(step)));
+    expect(builds.map(builtPackage).toSorted()).toEqual(packages);
+    for (const step of builds) expect(step.env?.OSN_DEPLOY_TIER).toBe(tier);
+  });
 });
 
 describe("every Worker deploy is smoke-checked, and rolls back the Worker it deployed", () => {
