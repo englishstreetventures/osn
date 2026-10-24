@@ -385,11 +385,11 @@ export const guests = sqliteTable(
  * Addresses a wedding must not email: the suppression list guest comms read
  * before every send (migration 20261022145310_guest_emails). A row is
  * written when a guest removes an address the hosts added to their seat
- * (`reason = 'guest_removed'`), and when a guest replaces one with a different
+ * (`reason = 'guest_removed'`), when a guest replaces one with a different
  * address (`reason = 'guest_corrected'`: the guest has said the hosts' address
- * is wrong). Removing an address the guest gave themselves writes none. Sending
- * code adds its own reasons (an unsubscribe, a bounce) without DDL, since
- * `reason` has no CHECK.
+ * is wrong), and when a guest removes an address they gave themselves
+ * (`reason = 'guest_removed_own'`). Sending code adds its own reasons (an
+ * unsubscribe, a bounce) without DDL, since `reason` has no CHECK.
  *
  * Holds no address: `email_hash` is the SHA-256 hex of
  * `wedding_id + ":" + address` (`hashGuestEmail` in
@@ -398,12 +398,15 @@ export const guests = sqliteTable(
  * cannot be joined across weddings. Anyone holding a candidate address can
  * test it, so it is pseudonymous personal data.
  *
- * An address is suppressed for the wedding when ANY row matches
- * `(wedding_id, email_hash)`: one seat's objection stops mail to that address
- * for every seat holding it. `guest_id` is the seat that made the row, and
- * only that seat putting the address back clears it, so one household cannot
- * undo another's opt-out. When the guest row goes the opt-out stays, with
- * `guest_id` NULL.
+ * An address is suppressed for a seat when a row matches
+ * `(wedding_id, email_hash)` and either binds the wedding — every reason but
+ * `guest_removed_own` — or is a `guest_removed_own` row that seat made: one
+ * seat's objection to an address the hosts added stops mail to every seat
+ * holding it, while removing an address the guest typed binds that seat alone.
+ * `guest_id` is the seat that made the row, and only that seat putting the
+ * address back clears it, so one household cannot undo another's opt-out.
+ * When the guest row goes the opt-out stays, with `guest_id` NULL; a
+ * `guest_removed_own` row left so binds nobody.
  */
 export const emailSuppressions = sqliteTable(
   "email_suppressions",
@@ -414,7 +417,9 @@ export const emailSuppressions = sqliteTable(
       .references(() => weddings.id, { onDelete: "cascade" }),
     emailHash: text("email_hash").notNull(),
     guestId: text("guest_id").references(() => guests.id, { onDelete: "set null" }),
-    reason: text("reason", { enum: ["guest_removed", "guest_corrected"] }).notNull(),
+    reason: text("reason", {
+      enum: ["guest_removed", "guest_corrected", "guest_removed_own"],
+    }).notNull(),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   },
   (t) => [

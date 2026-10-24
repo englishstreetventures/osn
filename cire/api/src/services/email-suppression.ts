@@ -9,16 +9,34 @@ import { bound, type Db, DbService, dbQuery } from "../db";
 // The suppression list: addresses a wedding must not email
 // (`email_suppressions`, [[wiki/compliance/data-map]]).
 //
-// A row holds a hash, never an address, and names the seat that withdrew an
-// address the hosts added: by removing it, or by replacing it with another. An
-// address the guest gave themselves writes no row when it goes: anyone holding
-// the household code can type any address on a seat, so its removal says
-// nothing about whose mailbox it is. An address is suppressed for the wedding
-// when any row matches its hash, so one seat's objection stops mail to every
-// seat holding it; only the seat that made a row clears it, by giving the
-// address again. Every read here is bounded by the addresses it asks about,
-// never by how many rows the list holds. Guest comms check an address with
-// `suppressedAmong` before sending.
+// A row holds a hash, never an address, and names the seat that withdrew it.
+// Withdrawing an address the hosts added — removing it, or replacing it with
+// another — is an opt-out for the whole wedding (`guest_removed`,
+// `guest_corrected`): one seat's objection stops mail to every seat holding
+// that address. Removing an address the guest gave themselves binds that seat
+// alone (`guest_removed_own`): anyone holding the household code can type any
+// address on a seat, so that removal says nothing about whose mailbox it is,
+// and no other seat is held to it. Only the seat that made a row clears it, by
+// giving the address again. Every read here is bounded by the addresses it
+// asks about, never by how many rows the list holds. Guest comms check an
+// address for the seat they would send to with `suppressedAmong` before
+// sending.
+
+/**
+ * The reason on a withdrawal that binds only the seat that made it: the guest
+ * removed an address they gave themselves. Every other reason binds the whole
+ * wedding.
+ */
+export const SEAT_ONLY_REASON = "guest_removed_own";
+
+/**
+ * True for an `email_suppressions` row that suppresses its address for
+ * `seat` (a guest id): any wedding-wide row, or a seat-only row `seat` made. A
+ * seat-only row whose guest is gone (`guest_id` NULL) binds nobody.
+ */
+export function bindsSeat(seat: SQL): SQL {
+  return sql`(${emailSuppressions.reason} <> ${SEAT_ONLY_REASON} or ${emailSuppressions.guestId} = ${seat})`;
+}
 
 const ENCODER = new TextEncoder();
 
@@ -45,14 +63,17 @@ export function hashGuestEmail(weddingId: string, address: string): Promise<stri
 /**
  * An opt-out for `guestId` taken from the address its row holds when the batch
  * runs: the hash is read from `guests.email_hash` by the statement itself, so
- * it names whatever address the row held then, never one read earlier. Writes
- * nothing for a row with no address or one `only` excludes, and a second
- * opt-out for the same seat and address is a no-op.
+ * it names whatever address the row held then, never one read earlier, and so
+ * does `reason` when it reads the row. Writes nothing for a row with no
+ * address or one `only` excludes. A second opt-out for the same seat and
+ * address keeps the first, except that a wedding-wide one replaces the seat's
+ * own seat-only row: the hosts put the address back and the guest withdrew it
+ * again, this time from the hosts.
  */
 function suppressHeldStatement(
   db: Db,
   row: { weddingId: string; guestId: string; now: Date },
-  reason: "guest_removed" | "guest_corrected",
+  reason: SQL,
   only?: SQL,
 ): BatchItem<"sqlite"> {
   return db
@@ -65,22 +86,27 @@ function suppressHeldStatement(
           weddingId: bound(row.weddingId, emailSuppressions.weddingId),
           emailHash: sql`${guests.emailHash}`.as("email_hash"),
           guestId: sql`${guests.id}`.as("guest_id"),
-          reason: bound(reason, emailSuppressions.reason),
+          reason: reason.as("reason"),
           createdAt: bound(row.now, emailSuppressions.createdAt),
         })
         .from(guests)
         .where(and(eq(guests.id, row.guestId), isNotNull(guests.emailHash), only)),
     )
-    .onConflictDoNothing();
+    .onConflictDoUpdate({
+      target: [emailSuppressions.weddingId, emailSuppressions.emailHash, emailSuppressions.guestId],
+      set: { reason: sql`excluded.reason`, createdAt: sql`excluded.created_at` },
+      setWhere: sql`${emailSuppressions.reason} = ${SEAT_ONLY_REASON} and excluded.reason <> ${SEAT_ONLY_REASON}`,
+    });
 }
 
 /**
  * Record that `guestId` withdrew the address its row holds now, in the batch
- * that clears it (`reason = 'guest_removed'`), when the hosts added that
- * address: the guest's word against the hosts' attestation stands for the
- * wedding. Writes nothing for an address the guest gave themselves. Who added
- * it is read from the row when the batch runs, by its source, which stays
- * `organiser_attested` when the attesting organiser's id has gone.
+ * that clears it. An address the hosts added becomes the wedding's opt-out
+ * (`reason = 'guest_removed'`): the guest's word against the hosts'
+ * attestation. An address the guest gave themselves binds this seat alone
+ * ({@link SEAT_ONLY_REASON}). Who added it is read from the row's source when
+ * the batch runs, which stays `organiser_attested` when the attesting
+ * organiser's id has gone.
  */
 export function suppressCurrentStatement(
   db: Db,
@@ -89,8 +115,7 @@ export function suppressCurrentStatement(
   return suppressHeldStatement(
     db,
     row,
-    "guest_removed",
-    eq(guests.emailSource, "organiser_attested"),
+    sql`case when ${guests.emailSource} = ${"organiser_attested"} then ${"guest_removed"} else ${SEAT_ONLY_REASON} end`,
   );
 }
 
@@ -108,7 +133,7 @@ export function suppressReplacedStatement(
   return suppressHeldStatement(
     db,
     row,
-    "guest_corrected",
+    sql`${"guest_corrected"}`,
     and(eq(guests.emailSource, "organiser_attested"), ne(guests.emailHash, row.replacementHash)),
   );
 }
@@ -158,21 +183,36 @@ export function holdsOwnOptOut(row: {
   }).pipe(Effect.withSpan("cire.suppression.read"));
 }
 
+/** The suppression list's answer for some addresses, seat by seat. */
+export interface Suppressions {
+  /**
+   * Whether the address hashed `hash` is suppressed for `guestId`'s seat: a
+   * wedding-wide row for it, or that seat's own seat-only row.
+   */
+  readonly has: (hash: string, guestId: string) => boolean;
+}
+
+const NOTHING_SUPPRESSED: Suppressions = { has: () => false };
+
 /**
- * Which of `hashes` the wedding has suppressed. One read, bounded by the
- * hashes asked about (they ride as one bound parameter), none for an empty
- * list.
+ * The suppression list for `hashes`. One read, bounded by the hashes asked
+ * about (they ride as one bound parameter) and the seats that withdrew each,
+ * none for an empty list.
  */
 export function suppressedAmong(
   weddingId: string,
   hashes: readonly string[],
-): Effect.Effect<Set<string>, never, DbService> {
+): Effect.Effect<Suppressions, never, DbService> {
   return Effect.gen(function* () {
-    if (hashes.length === 0) return new Set<string>();
+    if (hashes.length === 0) return NOTHING_SUPPRESSED;
     const db = yield* DbService;
     const rows = yield* dbQuery(() =>
       db
-        .selectDistinct({ hash: emailSuppressions.emailHash })
+        .select({
+          hash: emailSuppressions.emailHash,
+          guestId: emailSuppressions.guestId,
+          reason: emailSuppressions.reason,
+        })
         .from(emailSuppressions)
         .where(
           and(
@@ -182,6 +222,19 @@ export function suppressedAmong(
         )
         .all(),
     );
-    return new Set(rows.map((r) => r.hash));
+    const wedding = new Set<string>();
+    // A seat-only row whose guest is gone holds NULL here, which no seat asks for.
+    const seats = new Map<string, Set<string | null>>();
+    for (const r of rows) {
+      if (r.reason !== SEAT_ONLY_REASON) {
+        wedding.add(r.hash);
+      } else {
+        seats.set(r.hash, (seats.get(r.hash) ?? new Set()).add(r.guestId));
+      }
+    }
+    const answer: Suppressions = {
+      has: (hash, guestId) => wedding.has(hash) || (seats.get(hash)?.has(guestId) ?? false),
+    };
+    return answer;
   }).pipe(Effect.withSpan("cire.suppression.read"));
 }

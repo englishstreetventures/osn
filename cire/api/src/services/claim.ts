@@ -36,6 +36,7 @@ import type {
 import type { ChildrenPolicy, PlusOnePolicy, RunOfShowItem } from "../schemas/import";
 import { decodeCrop, type ImageCrop } from "../schemas/invite";
 import { type LinkFacts, linkStateFor, readLinkFacts } from "./account-link";
+import { bindsSeat } from "./email-suppression";
 import { eventImagePath, versionFromKey } from "./event-image";
 import { inviteFaqService } from "./invite-faq";
 import type { OsnAccountResolver } from "./osn-bridge";
@@ -857,11 +858,12 @@ export const claimService = {
             deactivatedAt: families.deactivatedAt,
             email: guests.email,
             emailSource: guests.emailSource,
-            // Whether the wedding has suppressed the stored address: one seek
-            // on the list's `(wedding_id, email_hash)` index per row, and none
-            // that finds a row for a guest with no address (NULL matches
-            // nothing).
-            emailOptedOut: sql<number>`exists (select 1 from ${emailSuppressions} where ${emailSuppressions.weddingId} = ${outerColumn(families.weddingId)} and ${emailSuppressions.emailHash} = ${outerColumn(guests.emailHash)})`,
+            // Whether the stored address is suppressed for this guest — a
+            // wedding-wide withdrawal, or one this seat made of an address it
+            // typed: one seek on the list's `(wedding_id, email_hash)` index
+            // per row, and none that finds a row for a guest with no address
+            // (NULL matches nothing).
+            emailOptedOut: sql<number>`exists (select 1 from ${emailSuppressions} where ${emailSuppressions.weddingId} = ${outerColumn(families.weddingId)} and ${emailSuppressions.emailHash} = ${outerColumn(guests.emailHash)} and ${bindsSeat(outerColumn(guests.id))})`,
             eventId: guestEvents.eventId,
           })
           .from(guests)

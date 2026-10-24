@@ -271,8 +271,8 @@ export interface DiffOptions {
  *    touches one a guest gave themselves.
  *  - `"restore"` — a before-image revert. Restores an address with the consent
  *    record the before-image holds, never one without a record, never one the
- *    guest has withdrawn (on the wedding's suppression list), and never changes
- *    an address a guest gave themselves.
+ *    guest has withdrawn (on the suppression list for the wedding, or for that
+ *    seat), and never changes an address a guest gave themselves.
  *  - `"ignore"` — the legacy replay of an earlier upload, which carries no
  *    attestation: addresses are left as they are.
  */
@@ -306,8 +306,8 @@ const count = (n: number, one: string, many: string): string => `${n} ${n === 1 
 /**
  * The digest of the addresses a plan sets on the organiser's word: SHA-256 hex
  * over the sorted entries, one per address, each the guest's
- * {@link EmailCandidate.attestationKey}, the address's hash and whether the
- * wedding has suppressed it. Undefined when there are none. Holds no address
+ * {@link EmailCandidate.attestationKey}, the address's hash and whether it is
+ * suppressed for that guest. Undefined when there are none. Holds no address
  * or hash in the clear, so it can sit in the change's stored summary.
  */
 function attestationDigest(entries: readonly string[]): Effect.Effect<string | undefined> {
@@ -329,9 +329,11 @@ interface EmailPlan {
  *
  * Every write that sets an address carries its suppression hash, so apply
  * stores it beside the address. The suppression list is read only for the
- * addresses the plan would set (one bounded read, none when it sets none): a
- * restore must not bring back a withdrawn address, the preview tells the
- * organiser before attesting that a guest withdrew one, and the
+ * addresses the plan would set (one bounded read, none when it sets none), and
+ * each is checked for the seat it lands on — a wedding-wide withdrawal, or
+ * one that seat made of an address it typed: a restore must not bring back a
+ * withdrawn address, the preview tells the organiser before attesting that a
+ * guest withdrew one, and the
  * {@link EmailPlan.attestationDigest} the preview stores and apply compares
  * records which ones were withdrawn.
  */
@@ -410,7 +412,7 @@ function planEmailWrites(
         emailSourceWas: candidate.storedSource,
       };
       if (mode === "restore" && email !== null) {
-        if (emailHash !== null && suppressed.has(emailHash)) {
+        if (emailHash !== null && suppressed.has(emailHash, candidate.guestId)) {
           withdrawn += 1;
           return;
         }
@@ -422,7 +424,7 @@ function planEmailWrites(
               : record;
         }
       } else if (emailHash !== null) {
-        const isSuppressed = suppressed.has(emailHash);
+        const isSuppressed = suppressed.has(emailHash, candidate.guestId);
         if (isSuppressed) readded += 1;
         attested.push(`${candidate.attestationKey}:${emailHash}:${isSuppressed ? 1 : 0}`);
       }
