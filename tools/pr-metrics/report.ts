@@ -258,7 +258,9 @@ export function context(rows: CardRow[]): Table {
   };
 }
 
-/** 5. Cost per unit of declared difficulty. */
+/** 5. Cost per unit of declared difficulty. A card that closes several issues
+ * declares the sum of their ratings, so a value off the 1-2-3-5-8 scale is a
+ * row of its own: that many points of declared work, not one issue's rating. */
 export function costByComplexity(rows: CardRow[]): Table {
   const rated = rows.filter((row) => row.declared !== null && row.ratingMethod === "confirmed");
   const byDeclared = groupBy(rated, (row) => row.declared as number);

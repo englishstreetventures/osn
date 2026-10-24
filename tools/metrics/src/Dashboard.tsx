@@ -7,6 +7,7 @@ import { cards } from "./cards.ts";
 import { Chart, type ChartTheme } from "./Chart.tsx";
 import {
   complexity,
+  complexityAxis,
   correctionRate,
   coverage,
   effortMix,
@@ -348,8 +349,7 @@ export function Dashboard() {
               <Empty>
                 <p class="font-medium">Nothing to chart: no card carries a confirmed rating.</p>
                 <p class="mt-1">
-                  {rated.unrated} of {rows.length} merged cards have no <code>complexity:</code>{" "}
-                  label on their issue
+                  {rated.unrated} of {rows.length} merged cards have no declared complexity
                   {rated.unconfirmed > 0
                     ? `, and ${rated.unconfirmed} carry an unconfirmed rating that is excluded on purpose`
                     : ""}
@@ -365,9 +365,8 @@ export function Dashboard() {
                 height: 320,
                 marginLeft: 64,
                 x: {
-                  label: "declared complexity (Fibonacci, set before work)",
-                  domain: [0.5, 8.5],
-                  ticks: [1, 2, 3, 5, 8],
+                  label: "declared complexity (set before work; summed over the issues closed)",
+                  ...complexityAxis(rated.points),
                   grid: theme.border,
                 },
                 y: {

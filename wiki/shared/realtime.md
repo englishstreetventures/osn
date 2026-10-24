@@ -12,7 +12,7 @@ related:
   - "[[cire-host-portal-layout]]"
   - "[[infrastructure-as-code]]"
 packages: ["@shared/realtime"]
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-23
 ---
 
 # Realtime push
@@ -167,7 +167,7 @@ What that count can and cannot show:
 
 ## Tests
 
-No E2E flow can reach the hub: `tools/e2e` runs each API's Bun entry, which never runs the Worker entry, so the stack has no Durable Object. These tiers are the package's coverage ([[testing-patterns]]), and each adopter adds its own route, Worker-entry and browser tests (cire's are listed in [[cire-host-portal-layout]] and `cire/api/tests/routes/realtime.test.ts`):
+No E2E flow can reach the hub: `tools/e2e` runs each API's Bun entry, which never runs the Worker entry, so the stack has no Durable Object. The suite's `flow` fixture stands in for it on cire's sockets: each opens, has its pings answered and receives no signal, so no flow falls back or sends the beacon ([[testing-patterns#The end-to-end suite]]). These tiers are the package's coverage ([[testing-patterns]]), and each adopter adds its own route, Worker-entry and browser tests (cire's are listed in [[cire-host-portal-layout]] and `cire/api/tests/routes/realtime.test.ts`):
 
 - **Vitest**, `bun run --cwd shared/realtime test:run`: the topic and signal parsers, `subscribe()`'s refusals and their order, `publish()` against a failing or silent hub, the close-code mapping, the client's reconnect, fallback (with its outcome), hidden-tab and fallback-memory behaviour, `useTopic()`, the fallback beacon, and `readFallbackOutcome`'s bounds.
 - **Miniflare**, `bun run --cwd shared/realtime test:d1` ([hub.test.ts](../../shared/realtime/tests/d1/hub.test.ts)): `TopicHub` on real workerd through `subscribe()` and `publish()` — the upgrade, the ping auto-response without a wake, fan-out by topic, eviction and revocation through the helper over a real binding, a publish that meets a socket closed in the same turn, the maximum age, both caps and the stale cull, the close reply, and the hub's own 426 and 400 refusals.
