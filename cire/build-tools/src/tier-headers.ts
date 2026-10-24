@@ -25,6 +25,13 @@
  * check that the two agree, the build fails unless some script in the bundle
  * that carries the API URL contains the origin the header now names.
  *
+ * Each app's chain falls back to the local cire-api when its env is unset. A
+ * deploy build says so through `OSN_DEPLOY_TIER` (`dev`, `production`), which
+ * every deploy job's cire build step sets and turbo hashes; on such a build a
+ * loopback origin fails the build, so a deploy step that lost its API URL
+ * cannot ship a site and a policy that call the machine it was built on. A
+ * local build and CI's test builds leave the tier unset.
+ *
  * Build-only: an app's `astro.config.mjs` is the one way in. Never import it
  * from app code — it reads the filesystem.
  */
@@ -54,10 +61,10 @@ const PLAIN_HOSTNAME = /^[a-z0-9-]+(\.[a-z0-9-]+)*$/;
 
 /**
  * Hosts that resolve to this machine, the only ones a policy may reach over
- * plain http: the local cire-api (`http://localhost:8787`) and the portless
- * devloop's `*.localhost` names. Anything else is a deployed API, and plain
- * http there would let the API and its violation reports, which carry the page
- * URL, travel in cleartext.
+ * plain http, and ones a deploy build may never name: the local cire-api
+ * (`http://localhost:8787`) and the portless devloop's `*.localhost` names.
+ * Anything else is a deployed API, and plain http there would let the API and
+ * its violation reports, which carry the page URL, travel in cleartext.
  */
 const isLoopback = (hostname: string) =>
   hostname === "localhost" || hostname.endsWith(".localhost") || hostname === "127.0.0.1";
@@ -84,6 +91,30 @@ function originOf(apiUrl: string): string {
     );
   }
   return url.origin;
+}
+
+/**
+ * The tier this build deploys to, from `OSN_DEPLOY_TIER` in the build's own
+ * environment, or `undefined` for a build that deploys nowhere. Read from
+ * `process.env` because Vite's resolved env carries only `PUBLIC_*` names. An
+ * empty value counts as unset.
+ */
+function deployTier(): string | undefined {
+  return process.env.OSN_DEPLOY_TIER || undefined;
+}
+
+/**
+ * `origin`, unless this is a deploy build and `origin` is on this machine,
+ * which is the app's local fallback or a devloop host and never a deployed API.
+ */
+function deployableOrigin(apiUrl: string, origin: string): string {
+  const tier = deployTier();
+  if (tier !== undefined && isLoopback(new URL(origin).hostname)) {
+    throw new Error(
+      `tier-headers: OSN_DEPLOY_TIER is ${JSON.stringify(tier)}, so this build deploys, but the cire-api URL ${JSON.stringify(apiUrl)} is on this machine; set the build step's cire-api URL`,
+    );
+  }
+  return origin;
 }
 
 /**
@@ -174,6 +205,7 @@ export function tierHeaders({
         if (apiUrl === undefined) {
           throw new Error("tier-headers: never received Vite's env, so cannot set the CSP origin");
         }
+        const origin = deployableOrigin(apiUrl, originOf(apiUrl));
         const bundleDir = bundle === "client" ? dir : serverDir;
         if (bundleDir === undefined) {
           throw new Error(
@@ -182,7 +214,6 @@ export function tierHeaders({
         }
         const file = new URL("_headers", dir);
         const headers = retargetHeaders(await readFile(file, "utf8"), apiUrl);
-        const origin = originOf(apiUrl);
         if (!(await bundleNamesOrigin(bundleDir, origin))) {
           throw new Error(
             `tier-headers: no ${bundle} script names ${origin}, so the CSP would not match the API this build calls`,

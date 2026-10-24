@@ -152,6 +152,9 @@ describe("tierHeaders", () => {
   let dist: string;
 
   beforeEach(async () => {
+    // A local or CI test build: no deploy tier, whatever the shell running the
+    // suite carries. The deploy cases set their own.
+    vi.stubEnv("OSN_DEPLOY_TIER", undefined);
     dist = await mkdtemp(join(tmpdir(), "cire-tier-headers-"));
     await mkdir(join(dist, "client", "_astro"), { recursive: true });
     await mkdir(join(dist, "server", "chunks"), { recursive: true });
@@ -159,6 +162,7 @@ describe("tierHeaders", () => {
   });
 
   afterEach(async () => {
+    vi.unstubAllEnvs();
     await rm(dist, { recursive: true, force: true });
   });
 
@@ -282,6 +286,49 @@ describe("tierHeaders", () => {
     await writeFile(join(dist, "server", "chunks", "invite.mjs"), `"${PRODUCTION_API_ORIGIN}"`);
     await expect(build(SERVER, { PUBLIC_API_URL: DEV_API })).rejects.toThrow(/no server script/);
     expect(await builtHeaders()).toBe(HEADERS);
+  });
+
+  describe("on a deploy build, which OSN_DEPLOY_TIER marks", () => {
+    // Every deploy job's cire build step sets the tier, and a deploy build
+    // never names an API on the machine it was built on.
+    it("fails the build when the app's chain falls back to the local API, and leaves the file alone", async () => {
+      vi.stubEnv("OSN_DEPLOY_TIER", "dev");
+      await writeFile(join(dist, "server", "chunks", "invite.mjs"), '"http://localhost:8787"');
+      await expect(build(SERVER, {})).rejects.toThrow(
+        'OSN_DEPLOY_TIER is "dev", so this build deploys, but the cire-api URL "http://localhost:8787" is on this machine',
+      );
+      expect(await builtHeaders()).toBe(HEADERS);
+    });
+
+    it("refuses every loopback host, over https as well as http", async () => {
+      vi.stubEnv("OSN_DEPLOY_TIER", "production");
+      for (const local of [
+        "http://localhost:8787",
+        "http://127.0.0.1:8787",
+        "http://api.cire.localhost",
+        "https://api.cire.localhost",
+      ]) {
+        await writeFile(join(dist, "client", "_astro", "osn.js"), `"${local}"`);
+        await expect(build(CLIENT, { PUBLIC_API_URL: local })).rejects.toThrow(
+          /OSN_DEPLOY_TIER is "production", so this build deploys/,
+        );
+        expect(await builtHeaders()).toBe(HEADERS);
+      }
+    });
+
+    it("rewrites _headers to a deployed API as any other build does", async () => {
+      vi.stubEnv("OSN_DEPLOY_TIER", "dev");
+      await writeFile(join(dist, "client", "_astro", "osn.js"), `"${DEV_API}"`);
+      const { headers } = await build(CLIENT, { PUBLIC_API_URL: DEV_API });
+      expect(headers).toContain(`connect-src 'self' ${DEV_API};`);
+    });
+
+    it("treats an empty tier as none, so a local build still names the local API", async () => {
+      vi.stubEnv("OSN_DEPLOY_TIER", "");
+      await writeFile(join(dist, "client", "_astro", "osn.js"), '"http://localhost:8787"');
+      const { headers } = await build(CLIENT, {});
+      expect(headers).toContain("connect-src 'self' http://localhost:8787;");
+    });
   });
 });
 

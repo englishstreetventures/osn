@@ -391,6 +391,12 @@ jobs:
           # which build it was. A `PUBLIC_*` var is in turbo's build hash, so
           # a new commit never replays an older `dist/`.
           PUBLIC_BUILD_SHA: ${{ github.sha }}
+          # Marks a deploy build: the CSP integration then fails the build
+          # rather than fall back to the local cire-api when PUBLIC_API_URL is
+          # missing. turbo hashes it, so this build never replays the `build`
+          # job's tier-less one. A literal: an unset variable would expand to
+          # "", which reads as no tier.
+          OSN_DEPLOY_TIER: production
 
       # Warns (the step stays green) when the SSR bundle is over its budget
       # in scripts/bundle-size-budgets.txt; `ci.yml` annotates the same on
@@ -508,6 +514,8 @@ jobs:
           PUBLIC_CIRE_WEB_URL: https://invite.cireweddings.com
           # The RSVP editor's privacy link: the marketing site's /privacy.
           PUBLIC_MARKETING_URL: https://cireweddings.com
+          # A deploy build (see the cire/invites build above).
+          OSN_DEPLOY_TIER: production
 
       # Warns when the bundle is over its budget, and fails, stopping the
       # release, on a source map anywhere in `dist`, which Pages serves whole.
@@ -583,6 +591,8 @@ jobs:
           PUBLIC_CIRE_API_URL: https://api.cireweddings.com
           # Account management deep link (see the cire/host build above).
           PUBLIC_OSN_ACCOUNT_URL: https://musubi.social
+          # A deploy build (see the cire/invites build above).
+          OSN_DEPLOY_TIER: production
 
       # See the cire/host job above for what this refuses and why it runs
       # even though `build` chains it.
