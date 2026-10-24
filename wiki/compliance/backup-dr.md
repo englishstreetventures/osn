@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[soc2]]"
   - "[[breach-response]]"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-24
 ---
 
 # Backup + Disaster Recovery
@@ -68,7 +68,7 @@ Quarterly. Documented under `wiki/compliance/dr-drills/<YYYY>-<Q>.md`.
 | Region outage | Multi-region replica (planned with Supabase config) |
 | Cloud provider outage | Document recovery into a second cloud (planned; long lead-time, accept 24+h RTO) |
 | Domain takeover | Registrar lock + WebAuthn + alert on DNS change |
-| Auth-key compromise (signing keys) | Rotate; revoke ARC kid; fail-closed cache eviction |
+| Auth-key compromise (signing keys) | Rotate; revoke ARC kid; downstream JWKS caches keep the old key up to 5 min, so redeploy each downstream Worker to clear them sooner (see `production-deploy.md` §1.2) |
 | Total OSN compromise | Backups are encrypted at rest; restore to clean infra; communicate per [[breach-response]] |
 
 ## Runbook: stop the R2 reconcilers around a `cire-db` restore
