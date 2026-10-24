@@ -206,8 +206,8 @@ Platform conventions are in [[testing-patterns]]; the real-Chromium tier is in
 ## Type-check configs
 
 Four cire packages check their shipped source under a narrower config than their
-tests, so the compiler rejects what the runtime lacks. Each package's `check`
-script runs both configs, and the test config sits at `tests/tsconfig.json` so
+tests, so the compiler rejects what the runtime lacks. Each package's `typecheck`
+script runs both configs with `bun check`, and the test config sits at `tests/tsconfig.json` so
 the editor finds it for test files (see [[testing-patterns#Rules]]).
 
 | Package | `tsconfig.json` (shipped source) | `tests/tsconfig.json` |
@@ -220,7 +220,7 @@ the editor finds it for test files (see [[testing-patterns#Rules]]).
 
 `astro check` reports only the files in its own project, so the source of a
 workspace package the guest site imports is checked by that package's own
-`check`, under that package's tsconfig. Each one states the site's `lib` in its
+`typecheck`, under that package's tsconfig. Each one states the site's `lib` in its
 own `tsconfig.json`, rather than inheriting it from a preset, and loads no
 ambient types: `bun-types` declares `Promise.withResolvers`, `Array.fromAsync`
 and other built-ins newer than the floor whatever `lib` says.
@@ -246,11 +246,12 @@ dependencies (its `dependencies` and `devDependencies`, then each package's
 - the site's own `lib` is not ES2022 + DOM, so raising the floor means editing
   that test and `cire/invites/tsconfig.json` together;
 - a package states no `lib` of its own;
-- the TypeScript program a package's `check` builds loads a library outside the
+- the TypeScript program a package's `typecheck` builds loads a library outside the
   site's `lib`, from `lib`, a `/// <reference lib>` or a type package, or loads
   any `bun-types` file;
-- a package's `check` script does not start with `tsc --noEmit` on that config,
-  or the config leaves out a module the package exports;
+- a package's `typecheck` script does not run `bun check`, or the package has a
+  `check` script, which would shadow `bun check`;
+- the config leaves out a module the package exports;
 - the site's source, `.astro` files included, or a package's `src` imports a
   `@cire/` or `@shared/` package the walk did not reach.
 
@@ -286,7 +287,7 @@ What this does and does not catch:
   Runners, gotchas and what to do with a survivor:
   [[testing-patterns#Mutation testing]].
 - In the editor, `cire/api/src/local.ts` and `src/db/setup.ts` belong to neither
-  package config and fall back to the repo-root `tsconfig.json`. `check` is still
+  package config and fall back to the repo-root `tsconfig.json`. `typecheck` is still
   right for them.
 
 ## Commands

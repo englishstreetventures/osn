@@ -19,7 +19,7 @@
     "deploy": "wrangler deploy --env production",
     "types": "wrangler types",
     "test:d1": "CIRE_D1_TIER=1 bun test tests/db/d1-integration.test.ts tests/db/migrate-wrapper.test.ts",
-    "check": "tsc --noEmit && tsc --noEmit -p tests/tsconfig.json",
+    "typecheck": "bun check --no-script && bun check --no-script -p tests/tsconfig.json",
     "mint-unlock-code": "bun run scripts/mint-unlock-code.ts"
   },
   "portless": {

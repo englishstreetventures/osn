@@ -20,7 +20,7 @@ echo "==> Guarding the directory that holds the worktrees"
 bun run scripts/bootstrap-bare-root.ts
 
 echo "==> Verifying: type-check, lint, format"
-bun run check
+bun run typecheck
 bun run lint
 bun run fmt:check
 

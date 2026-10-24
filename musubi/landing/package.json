@@ -16,7 +16,7 @@
     "preview": "astro preview --port 4324",
     "test": "vitest run",
     "test:run": "vitest run",
-    "check": "bunx --bun astro check"
+    "typecheck": "bunx --bun astro check"
   },
   "portless": {
     "name": "www.musubi",

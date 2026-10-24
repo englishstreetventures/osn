@@ -45,7 +45,7 @@ wrangler.toml        @chav-aniket
 wrangler.jsonc       @chav-aniket
 
 # Vendored upstream source (see tools/oxlint/anti-slop/README.md). An edit here
-# bypasses oxfmt and oxlint by design; the CI guard (verify-vendored-anti-slop.sh)
+# bypasses bun fmt and oxlint by design; the CI guard (verify-vendored-anti-slop.sh)
 # catches the shape of a change — `SHA256SUMS` that the tree no longer matches
 # its manifest, or a pin in `README.md` left unmoved by a change to the source —
 # but it can't say whether the new code is upstream's. That is what a human

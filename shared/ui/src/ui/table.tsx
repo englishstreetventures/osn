@@ -39,7 +39,7 @@ export function Table(props: TableProps) {
   // content, and this box scrolls. Focusing it is what gives the arrow keys
   // somewhere to go; the name above is what makes the stop explicable. A
   // block rather than the next-line form because the attribute is not on the
-  // line the element opens on, and oxfmt is what decides that.
+  // line the element opens on, and bun fmt is what decides that.
   return (
     <section
       aria-label={props.label}

@@ -247,7 +247,7 @@ So Pulse users can join event chats without installing Zap.
 | Monorepo | Turborepo |
 | Testing | Vitest + @effect/vitest |
 | Linting | oxlint |
-| Formatting | oxfmt |
+| Formatting | `bun fmt` (Bun's built-in formatter, config in `.oxfmtrc.json`) |
 | Validation | Elysia TypeBox at the HTTP boundary, Effect Schema in services |
 | Observability | OpenTelemetry → Grafana Cloud |
 | Feature flags | GrowthBook |
@@ -278,10 +278,10 @@ Packages that need configuration ship a `.env.example` — copy it to `.env` and
 Checks:
 
 ```bash
-bun run check            # type-check
+bun run typecheck        # type-check
 bun run test             # all tests
 bun run lint             # oxlint
-bun run fmt              # oxfmt
+bun run fmt              # bun fmt (scope listed in package.json)
 ```
 
 Database work runs from the owning package:

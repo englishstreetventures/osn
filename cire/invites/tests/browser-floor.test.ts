@@ -223,9 +223,11 @@ describe("browser floor of the packages the guest site imports", () => {
       expect(globals.bun).toBe(false);
     });
 
-    it("runs tsc on that tsconfig in its check script", () => {
-      const first = (manifest.scripts?.check ?? "").split("&&")[0]?.trim();
-      expect(first).toBe("tsc --noEmit");
+    it("runs bun check in its typecheck script, with no check script to shadow it", () => {
+      const typecheck = manifest.scripts?.typecheck ?? "";
+      expect(typecheck).toMatch(/\bbun check\b/);
+      expect(typecheck).not.toContain("tsc --noEmit");
+      expect(manifest.scripts?.check).toBeUndefined();
     });
 
     it("checks every module it exports", () => {

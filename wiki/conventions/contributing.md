@@ -39,7 +39,7 @@ Android is deferred. iOS is the primary native target (Swift). Web support follo
 
 Lefthook runs automatically on every commit:
 - **oxlint** -- lints staged files
-- **oxfmt** -- formats staged files
+- **bun fmt** -- formats staged files
 
 ### Pre-push (lefthook)
 
@@ -120,9 +120,9 @@ Before opening a PR, verify:
 - [ ] Tests pass (`bun run --cwd <package> test:run`, or `test` where the package's `test` script is `bun test` or it has no `test:run`)
 - [ ] Linting passes (`bun run lint`)
 - [ ] Formatting passes (`bun run fmt:check`)
-- [ ] Type check passes (`bun run check`)
+- [ ] Type check passes (`bun run typecheck`)
 - [ ] Opened as a draft if it waits on the owner -- a decision about the change still open, an approval only the owner can give, or a "not ready" only they can settle. Its `**Do not merge until**` line says which, it still runs CI, and only the owner marks it ready (the `prep-pr` skill, Step 9). A CODEOWNERS path or a default the session took does not make it one
-
+>
 ## Observability Checklist
 
 Every feature PR should also answer:

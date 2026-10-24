@@ -183,7 +183,7 @@ A table, one row per gate, every row from a command you ran in this worktree:
 |---|---|---|---|
 | Script tests | `bun run test:scripts` | `3f9c2a1` | 214 pass, 0 fail |
 | Lint | `bun run lint` | `3f9c2a1` | 0 errors |
-| Type check | `bun run check` | — | NOT RUN — docs-only diff; lefthook runs it on push |
+| Type check | `bun run typecheck` | — | NOT RUN — docs-only diff; lefthook runs it on push |
 ```
 
 - **Commit** is the short SHA the gate ran on. A later commit — a review fix, a rebase — leaves each row on an older SHA unproven for what it changed: run the gate again, or say which rows still stand and why.

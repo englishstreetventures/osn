@@ -17,7 +17,7 @@
     "test:mutation": "TZ=Australia/Sydney bun ../../tools/stryker/src/cli.ts",
     "test:run": "bunx --bun vitest run --project unit",
     "test:browser": "bunx --bun vitest run --project browser",
-    "check": "bunx --bun astro check"
+    "typecheck": "bunx --bun astro check"
   },
   "dependencies": {
     "@astrojs/solid-js": "^7.0.2",

@@ -22,7 +22,7 @@
     "deploy:staging": "wrangler deploy --env staging",
     "deploy:prod": "wrangler deploy --env production",
     "types": "wrangler types",
-    "check": "tsc --noEmit",
+    "typecheck": "bun check --no-script",
     "openapi:generate": "bun run scripts/generate-openapi.ts",
     "test": "bunx --bun vitest",
     "test:run": "bunx --bun vitest run",

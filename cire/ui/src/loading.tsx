@@ -20,7 +20,7 @@ export default function Loading(props: { label: string }) {
   // form-associated and means "the result of a calculation", which is what its
   // `form` and `for` attributes are for. This is a paragraph saying a fetch is
   // in flight. A block rather than the next-line form because the attribute is
-  // not on the line the element opens on, and oxfmt is what decides that.
+  // not on the line the element opens on, and bun fmt is what decides that.
   return (
     <p
       role="status"

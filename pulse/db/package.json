@@ -27,7 +27,7 @@
     "db:migrate:staging": "bunx wrangler --config ../api/wrangler.toml d1 migrations apply pulse-db-staging --env staging --remote",
     "db:migrate:prod": "bunx wrangler --config ../api/wrangler.toml d1 migrations apply pulse-db-prod --env production --remote",
     "db:reset:local": "rm -rf ../api/.wrangler/state/v3/d1 && bun run db:migrate:local",
-    "check": "tsc --noEmit",
+    "typecheck": "bun check --no-script",
     "test": "bunx --bun vitest",
     "test:run": "bunx --bun vitest run"
   },

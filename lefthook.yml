@@ -27,14 +27,14 @@ pre-commit:
       exclude:
         - "tools/oxlint/anti-slop/**"
         - ".agents/**"
-      run: bunx --bun oxfmt {staged_files}
+      run: bun fmt --no-script {staged_files}
       stage_fixed: true
 
 pre-push:
   parallel: true
   commands:
     typecheck:
-      # Guarded wrapper, not `bun run check` directly: a worktree made with
+      # Guarded wrapper, not `bun run typecheck` directly: a worktree made with
       # `git worktree add` has no `node_modules`, so `turbo` is absent and the
       # hook failed with exit 127 — which reads like a type error and pushes
       # people towards `LEFTHOOK=0`. The script installs first when it must.
@@ -73,7 +73,8 @@ pre-push:
       # and fast-glob, which only its Vite plugins call (the route scanner and
       # the server-function scan), at build and dev time, on patterns from
       # repository config; no deployed build contains braces code. Copies
-      # bundled in vite, tsx, prettier, oxfmt and playwright-core are build,
+      # bundled in vite, tsx, prettier, oxfmt (installed but no longer run, and
+      # removed in a follow-up) and playwright-core are build,
       # dev and test tooling. Drop when braces > 3.0.3 ships and bun.lock
       # resolves it, or when @solidjs/start stops depending on micromatch.
       # DROP AFTER GHSA-vfj7-8cjw-p6xm 2027-01-07

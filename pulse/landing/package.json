@@ -14,7 +14,7 @@
     "dev:app": "dev-env astro dev",
     "build": "astro build && ../../scripts/guard-bundle-size.sh .",
     "preview": "astro preview --port 4325",
-    "check": "bunx --bun astro check",
+    "typecheck": "bunx --bun astro check",
     "test": "vitest run",
     "test:run": "vitest run"
   },
