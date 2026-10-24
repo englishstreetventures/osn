@@ -9,7 +9,7 @@ related:
   - "[[rate-limiting]]"
   - "[[cire-auth]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-10-23
+last-reviewed: 2026-10-24
 ---
 
 # OIDC provider
