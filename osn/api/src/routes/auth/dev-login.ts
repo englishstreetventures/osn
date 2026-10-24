@@ -278,8 +278,11 @@ export function createDevLoginRoutes(ctx: AuthRouteContext, config: DevLoginConf
           return { error: "invalid_return_to" };
         }
         set.headers["content-type"] = "text/html; charset=utf-8";
+        // A form submit follows its redirect under `form-action`, so the return
+        // origin must be allowed here or the browser stops at the form.
+        const formActions = returnTo ? `'self' ${new URL(returnTo).origin}` : "'self'";
         set.headers["content-security-policy"] =
-          "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'";
+          `default-src 'none'; style-src 'unsafe-inline'; form-action ${formActions}`;
         return devLoginPage(returnTo);
       },
       {

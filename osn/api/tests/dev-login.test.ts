@@ -173,6 +173,14 @@ describe("dev-login form", () => {
     expect(await db.select().from(accounts)).toHaveLength(0);
   });
 
+  it("lets the form redirect only to its allowlisted return_to origin", async () => {
+    const { app } = await build({ ...LOCAL, DEV_LOGIN_RETURN_ORIGINS: RETURN_ORIGINS });
+    const res = await app.handle(get("/dev/login?return_to=http%3A%2F%2Flocalhost%3A4322%2Flogin"));
+    const csp = res.headers.get("content-security-policy") ?? "";
+    expect(csp).toContain("form-action 'self' http://localhost:4322");
+    expect(csp).not.toContain("4326");
+  });
+
   it("refuses a return_to outside the allowlist on the form", async () => {
     const { app } = await build({ ...LOCAL, DEV_LOGIN_RETURN_ORIGINS: RETURN_ORIGINS });
     const res = await app.handle(get("/dev/login?return_to=https%3A%2F%2Fevil.example%2F"));
