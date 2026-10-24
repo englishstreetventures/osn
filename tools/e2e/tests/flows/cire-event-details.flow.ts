@@ -122,11 +122,12 @@ test("cire-event-details", async ({ page, context, flow }) => {
     const probe = responseTo(page, "GET", `${ORIGINS.cireApi}/api/auth/session`);
     await page.goto(`${ORIGINS.osnApi}/dev/login?${new URLSearchParams({ return_to: login })}`);
     await page.getByLabel("Dev login secret").fill(DEV_LOGIN_SECRET);
-    await Promise.all([
-      page.waitForURL(/\/login\?/),
-      page.getByRole("button", { name: "Sign in", exact: true }).click(),
-    ]);
-    await expect(page).toHaveURL(/\/login\?/);
+    // The osn form page is also `/dev/login?…`, so match the portal's own login page.
+    const portalLogin = new URL(ORIGINS.cireHost);
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    await expect(page).toHaveURL(
+      (url) => url.origin === portalLogin.origin && url.pathname === "/login",
+    );
     // The page asks cire-api who is signed in as it mounts; let that answer
     // before navigating away, so its request is in the record on every run.
     await probe;
