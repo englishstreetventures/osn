@@ -12,7 +12,7 @@ related:
   - "[[cire-host-portal-layout]]"
   - "[[infrastructure-as-code]]"
 packages: ["@shared/realtime"]
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-23
 ---
 
 # Realtime push
@@ -68,7 +68,7 @@ When a cap closed a socket, the hub's 101 says which in the `x-realtime-capacity
 
 1. **Bind the hub** in the product's `wrangler.toml`. Add `[[durable_objects.bindings]]` (name of your choice, `class_name = "TopicHub"`) at the top level **and** under every `[env.*]`, because named environments inherit no bindings. Add one top-level `[[migrations]]` with `new_sqlite_classes = ["TopicHub"]`, which named environments do inherit. Check with `wrangler deploy --dry-run --env <tier>` that the binding table lists the Durable Object. A bound class the entry does not export fails the dry run.
 
-   On dev the Worker comes from the product's Alchemy stack, not from `wrangler.toml`. Bind the hub there too: `Cloudflare.DurableObject("TopicHub")` under the binding's name, with no script name, as `cire/infra` does for `REALTIME_HUB`. Alchemy declares a class the Worker hosts as SQLite-backed and reads no `[[migrations]]`. The stack runs no dry run, so the stack's K10 test bundles the Worker offline and fails when the entry does not export a class the Worker binds ([[infrastructure-as-code#The stacks]]).
+   On dev the Worker comes from the product's Alchemy stack, not from `wrangler.toml`. Bind the hub there too: `Cloudflare.DurableObject("TopicHub")` under the binding's name, with no script name, as `cire/infra` does for `REALTIME_HUB`. Alchemy declares a class the Worker hosts as SQLite-backed and reads no `[[migrations]]`. The stack runs no dry run, so the stack's K10 test bundles the Worker offline and fails when the entry does not export a class the Worker binds ([[infrastructure-as-code#The stacks]]). Alchemy keeps a hosted class only while a binding names it: the first deploy without one sends Cloudflare a delete for the class, so dropping the binding is not how a stack turns push off ([[cire#Turning realtime push off]]).
 2. **Export `TopicHub` from the Worker entry** (`export { TopicHub } from "@shared/realtime/hub"`). Keep that export out of any module Bun tests import, because `cloudflare:workers` exists only on workerd.
 3. **Add the subscribe route before the web framework**, behind the product's per-IP limiter. Run `runtime.runPromise(subscribe(request, rawTopic, options))` on the product's `ManagedRuntime`, so its logs pass through the redacting logger, and return the `Response` it resolves to as is. An Elysia route cannot do this. Elysia rebuilds a returned `Response` whenever a plugin such as CORS has set headers, and a rebuilt 101 either throws `RangeError` on workerd or loses its socket. Because the route runs before the framework, the framework's middleware does not cover it: put the path behind the product's per-IP limiter (or a Cloudflare rate-limiting rule) before `subscribe()` runs, since `subscribe()`'s own limiters are keyed on the subject and run after `authenticate`.
 
@@ -138,7 +138,7 @@ For one change, a member who keeps access and is evicted gets three signals: the
 
 ## Adopters
 
-- **cire** — hub bound as `REALTIME_HUB` in [wrangler.toml](../../cire/api/wrangler.toml) (entry `src/entry.ts`).
+- **cire** — hub bound as `REALTIME_HUB` in [wrangler.toml](../../cire/api/wrangler.toml) for production and in [`cire/infra/src/declaration.ts`](../../cire/infra/src/declaration.ts) for dev (entry `src/entry.ts`). Turning it off: [[cire#Turning realtime push off]].
   - **Route.** `GET /realtime/:topic` ([routes/realtime.ts](../../cire/api/src/routes/realtime.ts)) admits every seat that reads the run sheet — owner, editor, viewer and helper, a helper at either scope — by the same capability `weddingRunSheet()` checks (`LISTEN_CAPABILITY`). It checks a per-IP limit of 30 a minute, for requests from the portal's origin only, before it looks anything up; a page on another site cannot spend a visitor's limit, and `subscribe()` refuses that origin anyway. Its `allow` is 30 a minute per organiser and its `allowDaily` is 300 a day per organiser (`REALTIME_SUBSCRIBES_PER_DAY`), counted in D1 (`realtime_subscribe_budget`), so every isolate reads the same count. The per-IP and per-organiser limits count in memory, per isolate. A per-IP refusal answers 429 and logs `realtime subscribe refused` with `outcome: "ip_rate_limited"`, never the address. See [[cire-auth]].
   - **Publish.** On `cire:wedding:<id>`, in the request's `waitUntil` ([services/realtime.ts](../../cire/api/src/services/realtime.ts)), and only when the write changed something:
     - `members-changed` after a seat is added, re-roled (the role moved), removed or left (a seat went), after a helper's run-sheet scope moves, and after the wedding is deleted (revoking every seat holder). A removal and a leave **revoke** that member, so their sockets close with 1008 and their tab stops. A role change revokes only a role that may not listen, which none is, so a member narrowed to `helper` keeps listening. A scope change, narrowing or widening, closes nobody.
@@ -167,7 +167,7 @@ What that count can and cannot show:
 
 ## Tests
 
-No E2E flow can reach the hub: `tools/e2e` runs each API's Bun entry, which never runs the Worker entry, so the stack has no Durable Object. These tiers are the package's coverage ([[testing-patterns]]), and each adopter adds its own route, Worker-entry and browser tests (cire's are listed in [[cire-host-portal-layout]] and `cire/api/tests/routes/realtime.test.ts`):
+No E2E flow can reach the hub: `tools/e2e` runs each API's Bun entry, which never runs the Worker entry, so the stack has no Durable Object. The suite's `flow` fixture stands in for it on cire's sockets: each opens, has its pings answered and receives no signal, so no flow falls back or sends the beacon ([[testing-patterns#The end-to-end suite]]). These tiers are the package's coverage ([[testing-patterns]]), and each adopter adds its own route, Worker-entry and browser tests (cire's are listed in [[cire-host-portal-layout]] and `cire/api/tests/routes/realtime.test.ts`):
 
 - **Vitest**, `bun run --cwd shared/realtime test:run`: the topic and signal parsers, `subscribe()`'s refusals and their order, `publish()` against a failing or silent hub, the close-code mapping, the client's reconnect, fallback (with its outcome), hidden-tab and fallback-memory behaviour, `useTopic()`, the fallback beacon, and `readFallbackOutcome`'s bounds.
 - **Miniflare**, `bun run --cwd shared/realtime test:d1` ([hub.test.ts](../../shared/realtime/tests/d1/hub.test.ts)): `TopicHub` on real workerd through `subscribe()` and `publish()` — the upgrade, the ping auto-response without a wake, fan-out by topic, eviction and revocation through the helper over a real binding, a publish that meets a socket closed in the same turn, the maximum age, both caps and the stale cull, the close reply, and the hub's own 426 and 400 refusals.

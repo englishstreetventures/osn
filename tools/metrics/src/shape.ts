@@ -129,7 +129,8 @@ export interface ComplexityPoint {
 
 export interface ComplexityView {
   points: ComplexityPoint[];
-  /** No `complexity:` label on the issue at all. */
+  /** No declared complexity: no rating on the issue, a pull request that only
+   * advances its issue, or a lookup that did not land. */
   unrated: number;
   /** Rated by an agent, unconfirmed — excluded so the chart cannot be circular. */
   unconfirmed: number;
@@ -160,6 +161,32 @@ export function complexity(rows: CardRow[]): ComplexityView {
   }
 
   return { points, unrated, unconfirmed };
+}
+
+/** The ratings one issue can carry. */
+const FIBONACCI = [1, 2, 3, 5, 8];
+
+/** The x axis of the spend-against-complexity chart. */
+export interface ComplexityAxis {
+  domain: [number, number];
+  ticks: number[];
+}
+
+/**
+ * The x axis for spend against declared complexity. A card that closes several
+ * issues declares the sum of their ratings, so a value can be any whole number
+ * and can pass 8: the domain reaches the largest one, and every value plotted
+ * gets a tick beside the Fibonacci scale a single issue is rated on.
+ */
+export function complexityAxis(points: ComplexityPoint[]): ComplexityAxis {
+  const largest = Math.max(8, ...points.map((point) => point.declared));
+
+  return {
+    domain: [0.5, largest + 0.5],
+    ticks: [...new Set([...FIBONACCI, ...points.map((point) => point.declared)])].toSorted(
+      (a, b) => a - b,
+    ),
+  };
 }
 
 // ---------------------------------------------------------------------------

@@ -121,6 +121,7 @@ Before opening a PR, verify:
 - [ ] Linting passes (`bun run lint`)
 - [ ] Formatting passes (`bun run fmt:check`)
 - [ ] Type check passes (`bun run check`)
+- [ ] Opened as a draft if it waits on the owner -- a decision about the change still open, an approval only the owner can give, or a "not ready" only they can settle. Its `**Do not merge until**` line says which, it still runs CI, and only the owner marks it ready (the `prep-pr` skill, Step 9). A CODEOWNERS path or a default the session took does not make it one
 
 ## Observability Checklist
 

@@ -18,6 +18,16 @@ Report all four in the final message: issue number and its project status, branc
 
 **Write the plan to `NEW-FEAT.md` at the root of the checkout, always** — not only in a non-interactive run. It is this branch's blackboard as well as its plan: a long session gets compacted, and what survives a compaction is what was written down, not what was being held in context. Read it first after any compaction, before touching a file. Keep it current at every boundary — a step finished, a gate run, a commit made — and record a gate you have not run as `NOT RUN` rather than leaving it blank; that is a real value and usually the honest one. It is scratch, never committed.
 
+Open it with the branch name and the issue, on lines of their own:
+
+```markdown
+# NEW-FEAT — fix/example-branch
+
+Issue: #412
+```
+
+The session-metrics collector reads those two lines to name the card's issue when the pull request closes several: the branch line proves the file is this branch's, and the `Issue:` line names its issue. For a tracker finding write the repository-qualified form, `Issue: englishstreetventures/osn-tracker#601` — a bare `#601` names a public issue. For several issues, list the branch's own first: `Issues: #412, #415`.
+
 ## When a gate cannot run
 
 **Find out once, before Step 0**, rather than failing each step in turn:
