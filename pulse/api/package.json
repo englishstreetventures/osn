@@ -45,7 +45,7 @@
     "@shared/rate-limit": "workspace:*",
     "@shared/redis": "workspace:*",
     "@zap/db": "workspace:*",
-    "drizzle-orm": "1.0.0-rc.4",
+    "drizzle-orm": "1.0.0-rc.5",
     "effect": "4.0.5",
     "elysia": "^1.4.30",
     "jose": "^6.2.12"

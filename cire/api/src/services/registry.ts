@@ -42,7 +42,7 @@ import {
 import { unionAll } from "drizzle-orm/sqlite-core";
 import { Data, Effect } from "effect";
 
-import { commitGroupedBatches, DbService, dbQuery, outerColumn } from "../db";
+import { commitGroupedBatches, DbService, dbQuery, outerColumn, unionColumn } from "../db";
 import { weddingIsLive } from "../db/live-wedding";
 import { REGISTRY_IMAGE_NAME } from "./invite-assets";
 // Type only — `./retention` owns the shape, this module only reads it back.
@@ -1154,22 +1154,22 @@ export const registryService = {
       const claims = db
         .select({
           kind: sql<GiftKind>`'claim'`.as("kind"),
-          id: registryClaims.id,
-          itemId: sql<string | null>`${registryClaims.itemId}`,
-          itemTitle: sql<string | null>`${registryItems.title}`,
-          familyId: registryClaims.familyId,
-          familyName: families.familyName,
-          displayName: registryClaims.displayName,
-          quantity: sql<number | null>`${registryClaims.quantity}`,
-          status: sql<string>`${registryClaims.status}`,
-          note: registryClaims.note,
-          noteHiddenAt: registryClaims.noteHiddenAt,
+          id: unionColumn(registryClaims.id),
+          itemId: sql<string | null>`${registryClaims.itemId}`.as("item_id"),
+          itemTitle: sql<string | null>`${registryItems.title}`.as("item_title"),
+          familyId: unionColumn(registryClaims.familyId),
+          familyName: unionColumn(families.familyName),
+          displayName: unionColumn(registryClaims.displayName),
+          quantity: sql<number | null>`${registryClaims.quantity}`.as("quantity"),
+          status: sql<string>`${registryClaims.status}`.as("status"),
+          note: unionColumn(registryClaims.note),
+          noteHiddenAt: unionColumn(registryClaims.noteHiddenAt),
           amountMinor: sql<number | null>`NULL`.as("amount_minor"),
           currency: sql<string | null>`NULL`.as("currency"),
           primaryAmountMinor: sql<number | null>`NULL`.as("primary_amount_minor"),
           primaryCurrency: sql<string | null>`NULL`.as("primary_currency"),
           fxRate: sql<string | null>`NULL`.as("fx_rate"),
-          thankedAt: registryClaims.thankedAt,
+          thankedAt: unionColumn(registryClaims.thankedAt),
           createdAt: sql<Date>`${registryClaims.createdAt}`
             .mapWith(registryClaims.createdAt)
             .as("created_at"),
@@ -1182,25 +1182,25 @@ export const registryService = {
       const contributions = db
         .select({
           kind: sql<GiftKind>`'contribution'`.as("kind"),
-          id: registryContributions.id,
-          itemId: registryContributions.itemId,
+          id: unionColumn(registryContributions.id),
+          itemId: unionColumn(registryContributions.itemId),
           // The fund's name as the guest saw it when they gave, kept on the
           // gift itself: a fund renamed or deleted since does not rewrite
           // what the couple's record says the money was for.
-          itemTitle: registryContributions.itemTitle,
-          familyId: registryContributions.familyId,
-          familyName: families.familyName,
-          displayName: registryContributions.displayName,
+          itemTitle: unionColumn(registryContributions.itemTitle),
+          familyId: unionColumn(registryContributions.familyId),
+          familyName: unionColumn(families.familyName),
+          displayName: unionColumn(registryContributions.displayName),
           quantity: sql<number | null>`NULL`.as("quantity"),
-          status: registryContributions.status,
-          note: registryContributions.message,
-          noteHiddenAt: registryContributions.noteHiddenAt,
-          amountMinor: registryContributions.amountMinor,
-          currency: registryContributions.currency,
-          primaryAmountMinor: registryContributions.primaryAmountMinor,
-          primaryCurrency: registryContributions.primaryCurrency,
-          fxRate: registryContributions.fxRate,
-          thankedAt: registryContributions.thankedAt,
+          status: unionColumn(registryContributions.status),
+          note: unionColumn(registryContributions.message),
+          noteHiddenAt: unionColumn(registryContributions.noteHiddenAt),
+          amountMinor: unionColumn(registryContributions.amountMinor),
+          currency: unionColumn(registryContributions.currency),
+          primaryAmountMinor: unionColumn(registryContributions.primaryAmountMinor),
+          primaryCurrency: unionColumn(registryContributions.primaryCurrency),
+          fxRate: unionColumn(registryContributions.fxRate),
+          thankedAt: unionColumn(registryContributions.thankedAt),
           createdAt: sql<Date>`${registryContributions.createdAt}`
             .mapWith(registryContributions.createdAt)
             .as("created_at"),
@@ -1226,10 +1226,16 @@ export const registryService = {
       // already no and the extra row could not change it.
       const lastReachable = offset + limit > MAX_GIFT_LOG_OFFSET;
       const rows = yield* dbQuery(() =>
-        unionAll(claims, contributions)
+        db
+          .select()
+          .from(
+            unionAll(claims, contributions)
+              .orderBy(desc(sql`created_at`))
+              .limit(lastReachable ? limit : limit + 1)
+              .offset(offset)
+              .as("gift_page"),
+          )
           .orderBy(desc(sql`created_at`))
-          .limit(lastReachable ? limit : limit + 1)
-          .offset(offset)
           .all(),
       );
 

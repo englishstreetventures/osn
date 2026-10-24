@@ -39,7 +39,7 @@
     "@shared/osn-auth-client": "workspace:*",
     "@shared/rate-limit": "workspace:*",
     "@zap/db": "workspace:*",
-    "drizzle-orm": "1.0.0-rc.4",
+    "drizzle-orm": "1.0.0-rc.5",
     "effect": "4.0.5",
     "elysia": "^1.4.30"
   },

@@ -13,7 +13,7 @@ import { captureLogs } from "../test-helpers/capture-logs";
 // its message, `String(e)` (which forty-odd `reason: String(e)` log sites use),
 // its JSON form, its own enumerable fields (which the log redactor walks), or
 // the pretty cause a span's exception event is built from. The repository
-// patches `drizzle-orm` (patches/drizzle-orm@1.0.0-rc.4.patch) to keep the values
+// patches `drizzle-orm` (patches/drizzle-orm@1.0.0-rc.5.patch) to keep the values
 // out of the message and off the enumerable fields; this suite fails the day
 // that patch stops applying.
 
