@@ -11,7 +11,7 @@ related:
   - "[[browser-tests]]"
   - "[[infrastructure-as-code]]"
   - "[[realtime]]"
-last-reviewed: 2026-10-23
+last-reviewed: 2026-10-24
 ---
 
 # Testing Patterns

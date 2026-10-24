@@ -13,7 +13,7 @@ related:
   - "[[oidc-provider]]"
   - "[[musubi-identity-migration]]"
   - "[[cire-entitlements]]"
-last-reviewed: 2026-10-23
+last-reviewed: 2026-10-24
 ---
 
 # Cire auth model

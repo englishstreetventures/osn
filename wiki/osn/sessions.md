@@ -8,7 +8,7 @@ related:
   - "[[oidc-provider]]"
   - "[[account-recovery-factors]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-10-23
+last-reviewed: 2026-10-24
 ---
 
 # Session introspection + revocation
@@ -87,7 +87,7 @@ cire's organiser portal keeps its own 7-day session, minted from an OSN sign-in 
 
 - **In the background.** The route forks the calls with `forkBackground` ([source](../../osn/api/src/routes/auth/context.ts)), so the response never waits for cire-api; on workerd the request's `waitUntil` keeps the isolate alive for them.
 - **Best effort.** Each call has a 5-second timeout and nothing retries it. A refused, failed or timed-out call is an `Effect.logError` and a counted result; signing out everywhere else again sends every call again.
-- **Off until configured.** With `CIRE_INTERNAL_REVOKE_URL` or `CIRE_INTERNAL_REVOKE_SECRET` unset, each request logs a warning naming the missing setting and sends nothing. cire-api answers 503 until it holds the same secret. Setting it up: [[production-deploy]].
+- **Off until configured.** With `CIRE_INTERNAL_REVOKE_URL` or `CIRE_INTERNAL_REVOKE_SECRET` unset, each request logs a warning and sends nothing. cire-api answers 503 until it holds the same secret. Setting it up: [[production-deploy]].
 - **Not covered.** Account recovery, passkey changes, email change, account deletion, single-session revoke and profile deletion end OSN sessions without calling cire.
 
 The code is [`services/cire-organiser-revoke.ts`](../../osn/api/src/services/cire-organiser-revoke.ts); route tests are in [`tests/routes/cire-organiser-revoke.test.ts`](../../osn/api/tests/routes/cire-organiser-revoke.test.ts), and the E2E flow `cire-organiser-signout` drives it against the real cire-api ([[testing-patterns#The end-to-end suite]]).
