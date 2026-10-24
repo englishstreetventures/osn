@@ -10,7 +10,7 @@ related:
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-10-23
+last-reviewed: 2026-10-24
 ---
 
 # Dev environment (cire + OSN identity)
@@ -627,8 +627,8 @@ curl -s -o /dev/null -w '%{http_code}\n' https://id.musubi.social/openapi/json  
 
 A passkey is the only primary login factor, so a seeded account is unreachable:
 nobody can enrol a WebAuthn credential on behalf of a row a seed script wrote.
-`GET /dev/login` on `osn-api` mints a **real** OSN session for one fixed
-principal instead, so the OIDC chain, the organiser portal, the vendor portal and
+The sign-in form at `GET /dev/login` on `osn-api` posts to `/dev/login/form`, which mints
+a **real** OSN session for one fixed principal instead, so the OIDC chain, the organiser portal, the vendor portal and
 `@musubi/social` all run untouched — there is no bypass anywhere else in the stack.
 
 The principal is fixed and provisioned on first use (idempotent):
@@ -649,7 +649,11 @@ Two gates, both fail-closed, both in `buildAppDeps` (`osn/api/src/build-deps.ts`
 of the docs gate above, so a later change to how docs are gated cannot quietly
 widen a credential bypass):
 
-- tier is `local` or `dev` — a typo'd `OSN_ENV` leaves it **off**;
+- tier is `local` or `dev`, named in `OSN_ENV` — a typo'd **or unset** `OSN_ENV`
+  leaves it **off**, though every other gate reads unset as `local`. `bun run dev`
+  names `local` itself when `OSN_ENV` is unset (`osn/api/src/local.ts`, started
+  with `--devloop`); `bun run start` does not; `wrangler dev` and the E2E stack
+  set `local`, and the musubi stack sets `dev`;
 - `DEV_LOGIN_SECRET` is set.
 
 Fail either and the routes are **never mounted**, so the path answers 404 rather
@@ -657,18 +661,19 @@ than a 401 that would admit the surface exists.
 
 ```bash
 # local (bun run dev): put DEV_LOGIN_SECRET in osn/api/.env. DEV_LOGIN_RETURN_ORIGINS
-# is set for you by the dev-env launcher, to this worktree's own hosts — see [[devloop-urls]]
-open "https://id.musubi.localhost/dev/login?secret=$SECRET&return_to=https://host.cire.localhost/dashboard"
+# is set for you by the dev-env launcher, to this worktree's own hosts — see [[devloop-urls]].
+# Open the form, then type the secret into it. The secret is never in the URL.
+open "https://id.musubi.localhost/dev/login?return_to=https://host.cire.localhost/dashboard"
 
 # deployed dev: the value is the dev Environment's DEV_LOGIN_SECRET, which the
 # musubi stack uploads on every deploy and refuses under 32 characters. Set or
 # rotate it there, then dispatch Deploy.
 printf '%s' "$SECRET" | gh secret set DEV_LOGIN_SECRET --env dev --repo englishstreetventures/osn
-open "https://id.musubi.<D>/dev/login?secret=$SECRET&return_to=https://host.cire.<D>/dashboard"
+open "https://id.musubi.<D>/dev/login?return_to=https://host.cire.<D>/dashboard"  # then type the secret into the form
 ```
 
-`return_to` is optional; without it the response is the session JSON. With it the
-route 302s, after checking the target's origin against
+`return_to` is optional; without it the form answers the session JSON. With it the
+form 302s, after checking the target's origin against
 **`DEV_LOGIN_RETURN_ORIGINS`** — a comma-separated var of its own, which the
 musubi stack sets to the dev musubi social, organiser, vendor and guest origins.
 Locally the `dev-env` launcher sets it to this worktree's own portless hosts, so a
@@ -683,15 +688,15 @@ is a 400** — closed by default, so each origin is an explicit decision.
 > not be an origin that fetches this API with credentials. The two lists overlap
 > today; they are not the same list.
 
-The origin check runs **before** the secret is compared, so a wrong secret
-redirects nowhere, and both verbs answer `Referrer-Policy: no-referrer` so the
-secret-bearing URL never reaches the target as a `Referer`.
+The `return_to` check runs **before** the secret is compared, so a wrong secret
+redirects nowhere. The form page and its POST both answer `Referrer-Policy: no-referrer`,
+so the page the secret is typed on never reaches the target as a `Referer`.
 
-> [!warning] The URL is the credential
-> Anyone who can read a `/dev/login?secret=…` link can sign in as the dev
-> principal and hand a signed-in link to someone else. Treat it like a password:
-> never paste it into an issue, a PR, or a chat, and rotate `DEV_LOGIN_SECRET` if
-> it turns up in one. Production is unreachable this way — the tier gate keeps
+> [!warning] The secret is the credential
+> Anyone who knows `DEV_LOGIN_SECRET` can sign in as the dev principal and hand
+> a signed-in link to someone else. Treat it like a password: never paste it into
+> an issue, a PR, or a chat, and rotate `DEV_LOGIN_SECRET` if it turns up in one.
+> Production is unreachable this way — the tier gate keeps
 > the route unmounted, the inventory forbids the secret on production, and the
 > production deploy job **fails** while `DEV_LOGIN_SECRET` is set on
 > `osn-api-production`.

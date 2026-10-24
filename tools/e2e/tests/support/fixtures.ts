@@ -384,13 +384,12 @@ export async function signInToCireHost(flow: Flow, page: Page): Promise<void> {
   });
 
   await flow.step("organiser: get an OSN session from /dev/login", async () => {
-    const url = `${ORIGINS.osnApi}/dev/login`;
+    const url = `${ORIGINS.osnApi}/dev/login/form`;
     // The context's own request client: the session cookie lands in the jar
-    // the browser sends to osn-api's `/authorize`.
-    const response = await page
-      .context()
-      .request.get(`${url}?secret=${encodeURIComponent(DEV_LOGIN_SECRET)}`);
-    flow.recordRequest("GET", url, response.status());
+    // the browser sends to osn-api's `/authorize`. The form posts the secret
+    // in its body, so it never reaches a URL.
+    const response = await page.context().request.post(url, { form: { secret: DEV_LOGIN_SECRET } });
+    flow.recordRequest("POST", url, response.status());
     expect(response.status(), "dev login").toBe(200);
   });
 

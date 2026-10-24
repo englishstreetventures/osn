@@ -12,7 +12,7 @@ packages:
   - "@osn/client"
   - "@osn/auth-ui"
   - "@musubi/social"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-24
 ---
 
 # Passkey-Primary Login
@@ -347,8 +347,9 @@ paths behave differently in four ways, each forced by the restriction:
 
 ## The one bypass, and where it can exist
 
-`GET|POST /dev/login` mints a real session for a single fixed principal without
-any ceremony, so a **seeded** account is reachable at all — a seed script cannot
+The dev sign-in (the form at `GET /dev/login`, which posts to `/dev/login/form`,
+and the JSON `POST /dev/login`) mints a real session for a single fixed principal
+without any ceremony, so a **seeded** account is reachable at all — a seed script cannot
 enrol a WebAuthn credential, which otherwise leaves every seeded row permanently
 locked out. It is not a general relaxation: one hard-coded profile id, no
 identifier parameter, nothing to enumerate.
