@@ -15,7 +15,7 @@ related:
   - "[[cire-entitlements]]"
   - "[[stripe-webhooks]]"
   - "[[infrastructure-as-code]]"
-last-reviewed: 2026-10-23
+last-reviewed: 2026-10-24
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -1009,6 +1009,7 @@ equivalents:
 # guest site (Worker: cire-invites, custom domain invite.cireweddings.com)
 PUBLIC_API_URL=https://api.cireweddings.com \
 PUBLIC_SITE_URL=https://invite.cireweddings.com \
+OSN_DEPLOY_TIER=production \
   bun run --cwd cire/invites build
 # delete the adapter's `legacy_env` key first — see the §3.3 foot-gun note
 bunx wrangler deploy --config cire/invites/dist/server/wrangler.json
@@ -1019,9 +1020,14 @@ PUBLIC_CIRE_API_URL=https://api.cireweddings.com \
 PUBLIC_OSN_ACCOUNT_URL=https://musubi.social \
 PUBLIC_CIRE_WEB_URL=https://invite.cireweddings.com \
 PUBLIC_MARKETING_URL=https://cireweddings.com \
+OSN_DEPLOY_TIER=production \
   bun run --cwd cire/host build
 bunx wrangler pages deploy cire/host/dist --project-name cire-organiser
 ```
+
+`OSN_DEPLOY_TIER=production` marks each as a production deploy build, which fails
+unless its cire-api URL is `https://api.cireweddings.com`
+([[cire-development#Portal security headers]]).
 
 `cire/vendor` (→ `cire-vendor`, `vendor.cireweddings.com`) and `cire/landing`
 (→ `cire-landing`, the apex) follow the same Pages pattern; their build env lives in the

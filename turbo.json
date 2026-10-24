@@ -26,7 +26,10 @@
     "build": {
       "dependsOn": ["^build"],
       "outputs": ["dist/**", ".output/**", "build/**"],
-      "env": ["PUBLIC_*", "VITE_*", "SITE"],
+      // OSN_DEPLOY_TIER marks a deploy build of a cire site, whose CSP
+      // integration then refuses the local cire-api fallback. Hashed, so a
+      // deploy build never replays a cached test build made without it.
+      "env": ["PUBLIC_*", "VITE_*", "SITE", "OSN_DEPLOY_TIER"],
       // Strict env mode hides every variable not named here. cire/invites'
       // dev build sets ASTRO_KEY so two builds of one commit are
       // byte-identical; without it Astro makes a new key on every build.
