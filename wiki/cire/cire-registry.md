@@ -14,7 +14,7 @@ related:
   - "[[cire-auth]]"
   - "[[testing-patterns]]"
   - "[[toast]]"
-last-reviewed: 2026-10-23
+last-reviewed: 2026-10-24
 ---
 
 # Gift registry
