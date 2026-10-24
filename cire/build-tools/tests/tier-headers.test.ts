@@ -323,11 +323,40 @@ describe("tierHeaders", () => {
       expect(headers).toContain(`connect-src 'self' ${DEV_API};`);
     });
 
-    it("treats an empty tier as none, so a local build still names the local API", async () => {
+    it("counts an empty tier as a deploy, so it still refuses the local API", async () => {
+      // A step that expands a missing variable gets "", which must not switch
+      // the refusal off. Only an unset tier marks a build that deploys nowhere.
       vi.stubEnv("OSN_DEPLOY_TIER", "");
       await writeFile(join(dist, "client", "_astro", "osn.js"), '"http://localhost:8787"');
-      const { headers } = await build(CLIENT, {});
-      expect(headers).toContain("connect-src 'self' http://localhost:8787;");
+      await expect(build(CLIENT, {})).rejects.toThrow(
+        'OSN_DEPLOY_TIER is "", so this build deploys, but the cire-api URL "http://localhost:8787" is on this machine',
+      );
+      expect(await builtHeaders()).toBe(HEADERS);
+    });
+
+    it("lets a production build name the production API and no other", async () => {
+      vi.stubEnv("OSN_DEPLOY_TIER", "production");
+      await writeFile(
+        join(dist, "client", "_astro", "osn.js"),
+        `"${DEV_API}";"${PRODUCTION_API_ORIGIN}"`,
+      );
+      await expect(build(CLIENT, { PUBLIC_API_URL: DEV_API })).rejects.toThrow(
+        `OSN_DEPLOY_TIER is "production", but the cire-api URL "${DEV_API}" is not ${PRODUCTION_API_ORIGIN}`,
+      );
+      expect(await builtHeaders()).toBe(HEADERS);
+      const { headers } = await build(CLIENT, { PUBLIC_API_URL: PRODUCTION_API_ORIGIN });
+      expect(headers).toBe(HEADERS);
+    });
+
+    it("fails the build on a tier that is neither dev nor production", async () => {
+      for (const tier of ["staging", "prod", "Dev", ""]) {
+        vi.stubEnv("OSN_DEPLOY_TIER", tier);
+        await writeFile(join(dist, "client", "_astro", "osn.js"), `"${DEV_API}"`);
+        await expect(build(CLIENT, { PUBLIC_API_URL: DEV_API })).rejects.toThrow(
+          `OSN_DEPLOY_TIER is ${JSON.stringify(tier)}, which is neither "dev" nor "production"`,
+        );
+        expect(await builtHeaders()).toBe(HEADERS);
+      }
     });
   });
 });

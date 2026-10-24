@@ -1025,8 +1025,8 @@ OSN_DEPLOY_TIER=production \
 bunx wrangler pages deploy cire/host/dist --project-name cire-organiser
 ```
 
-`OSN_DEPLOY_TIER=production` marks each as a deploy build, so one whose cire-api
-URL is missing fails instead of shipping the local cire-api fallback
+`OSN_DEPLOY_TIER=production` marks each as a production deploy build, which fails
+unless its cire-api URL is `https://api.cireweddings.com`
 ([[cire-development#Portal security headers]]).
 
 `cire/vendor` (→ `cire-vendor`, `vendor.cireweddings.com`) and `cire/landing`

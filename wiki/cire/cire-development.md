@@ -447,8 +447,8 @@ The **guest site is a Worker, not Pages.** The adapter emits `dist/server` +
 
 ```bash
 # The values the deploy-cire-invites job's build step sets in
-# production-release.yml; OSN_DEPLOY_TIER makes a missing API URL fail the
-# build instead of shipping the local fallback.
+# production-release.yml; with OSN_DEPLOY_TIER=production the build fails
+# unless PUBLIC_API_URL is https://api.cireweddings.com.
 PUBLIC_API_URL=https://api.cireweddings.com \
 PUBLIC_SITE_URL=https://invite.cireweddings.com \
 PUBLIC_MARKETING_URL=https://cireweddings.com \
@@ -494,7 +494,7 @@ the copy in `dist/`: every production cire-api origin becomes the origin of the
 | Production (`production-release.yml` sets `https://api.cireweddings.com`) | The committed file, byte for byte |
 | Dev (`deploy.yml`'s cire stack job sets the dev cire-api origin its `dev-hosts` step derives) | The dev API and the dev API's CSP report collector |
 | Local, env unset | `http://localhost:8787`, for `wrangler pages dev dist` |
-| A deploy (`OSN_DEPLOY_TIER` set) whose API URL is unset or loopback | Nothing: the build fails |
+| A deploy (`OSN_DEPLOY_TIER` set) whose API URL is unset or loopback, or a production one naming any other API | Nothing: the build fails |
 
 All three cire Astro apps share that integration: `tierHeaders` in
 [`cire/build-tools/src/tier-headers.ts`](../../cire/build-tools/src/tier-headers.ts),
@@ -520,12 +520,14 @@ than as a blocked API on a deployed tier:
 - No `.js` or `.mjs` file in `dist/` contains the origin the header now names
 - The build deploys and the origin is on a loopback host, over https as well
   as http. A deploy build is one whose own environment sets `OSN_DEPLOY_TIER`
-  (`dev`, `production`), which the integration reads from `process.env`: each
-  deploy job's build step for the three apps sets it, and turbo hashes it, so a
-  deploy build never replays a cached test build made without it. A deploy
-  step that lost its API URL therefore fails here rather than ship the local
-  fallback. On dev the cire stack's site check refuses that output too, before
-  upload ([[infrastructure-as-code]]); production has only this check.
+  at all, an empty value included, which the integration reads from
+  `process.env`: each deploy job's build step for the three apps sets it to
+  `dev` or `production`, and turbo hashes it, so a deploy build never replays a
+  cached test build made without it. On dev the cire stack's site check also
+  refuses a build that does not name the dev API, before upload
+  ([[infrastructure-as-code]]); production has only this integration's checks.
+- The build deploys with a tier other than `dev` or `production`
+- The tier is `production` and the origin is not `https://api.cireweddings.com`
 
 So write only the production origin in `public/_headers`, never a dev or
 loopback one; `tests/lib/headers.test.ts` in each portal fails on either.
@@ -572,7 +574,7 @@ committed file names only the production API and no loopback origin:
 | Production build | The committed file, byte for byte |
 | Dev build | The dev API and its collector |
 | Local build, env unset | `http://localhost:8787` |
-| A deploy (`OSN_DEPLOY_TIER` set) whose `PUBLIC_API_URL` is unset or loopback | Nothing: the build fails |
+| A deploy (`OSN_DEPLOY_TIER` set) whose `PUBLIC_API_URL` is unset or loopback, or a production one naming any other API | Nothing: the build fails |
 | `astro dev` (portless or not) | The middleware's policy for the devloop's `PUBLIC_API_URL`; no `_headers` applies |
 
 ### Checking a policy change

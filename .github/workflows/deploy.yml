@@ -598,10 +598,9 @@ jobs:
           # still builds the same bytes.
           PUBLIC_BUILD_SHA: ${{ github.sha }}
           ASTRO_KEY: ${{ secrets.ASTRO_KEY }}
-          # Marks a deploy build: the CSP integration then fails the build
-          # rather than fall back to the local cire-api when the API URL above
-          # is missing. A literal: an unset variable would expand to "", which
-          # reads as no tier.
+          # Marks a deploy build: the CSP integration then fails the build if
+          # the cire-api URL above is on this machine. A literal, so the tier
+          # is always `dev` here.
           OSN_DEPLOY_TIER: dev
 
       - name: Build cire/host (dev)

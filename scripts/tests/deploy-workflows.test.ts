@@ -788,12 +788,11 @@ function tierHeadersPackages(): string[] {
 }
 
 describe("every deploy build of a cire site that retargets its CSP names its tier", () => {
-  // The integration refuses a loopback cire-api origin only when
-  // OSN_DEPLOY_TIER is set, so a deploy build that lost its API URL fails
-  // instead of shipping a site and a policy that call this machine. The value
-  // is a literal, never an expression: a missing variable expands to "", which
-  // the integration reads as no tier. The CI test builds (`bun run build`, no
-  // filter) set none, and must not.
+  // The CSP integration checks the cire-api origin of a build that sets
+  // OSN_DEPLOY_TIER: never on this machine, and on production the production
+  // API. Each deploy build of these sites sets the tier as a literal, so the
+  // workflow fixes its value. The CI test builds (`bun run build`, no filter)
+  // set none, and must not.
   const packages = tierHeadersPackages();
 
   test("some workspace runs the integration", () => {

@@ -391,11 +391,10 @@ jobs:
           # which build it was. A `PUBLIC_*` var is in turbo's build hash, so
           # a new commit never replays an older `dist/`.
           PUBLIC_BUILD_SHA: ${{ github.sha }}
-          # Marks a deploy build: the CSP integration then fails the build
-          # rather than fall back to the local cire-api when PUBLIC_API_URL is
-          # missing. turbo hashes it, so this build never replays the `build`
-          # job's tier-less one. A literal: an unset variable would expand to
-          # "", which reads as no tier.
+          # Marks a production deploy build: the CSP integration then fails
+          # the build unless the cire-api URL is https://api.cireweddings.com.
+          # turbo hashes it, so this build never replays the `build` job's
+          # tier-less one. A literal, so the tier is always `production` here.
           OSN_DEPLOY_TIER: production
 
       # Warns (the step stays green) when the SSR bundle is over its budget

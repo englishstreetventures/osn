@@ -27,10 +27,12 @@
  *
  * Each app's chain falls back to the local cire-api when its env is unset. A
  * deploy build says so through `OSN_DEPLOY_TIER` (`dev`, `production`), which
- * every deploy job's cire build step sets and turbo hashes; on such a build a
+ * every deploy job's cire build step sets and turbo hashes. On such a build a
  * loopback origin fails the build, so a deploy step that lost its API URL
- * cannot ship a site and a policy that call the machine it was built on. A
- * local build and CI's test builds leave the tier unset.
+ * cannot ship a site and a policy that call the machine it was built on; any
+ * other tier value fails it too, and a `production` build fails unless it
+ * names {@link PRODUCTION_API_ORIGIN}. A local build and CI's test builds
+ * leave the tier unset.
  *
  * Build-only: an app's `astro.config.mjs` is the one way in. Never import it
  * from app code — it reads the filesystem.
@@ -94,24 +96,29 @@ function originOf(apiUrl: string): string {
 }
 
 /**
- * The tier this build deploys to, from `OSN_DEPLOY_TIER` in the build's own
- * environment, or `undefined` for a build that deploys nowhere. Read from
- * `process.env` because Vite's resolved env carries only `PUBLIC_*` names. An
- * empty value counts as unset.
- */
-function deployTier(): string | undefined {
-  return process.env.OSN_DEPLOY_TIER || undefined;
-}
-
-/**
- * `origin`, unless this is a deploy build and `origin` is on this machine,
- * which is the app's local fallback or a devloop host and never a deployed API.
+ * `origin`, when the build may name it. The tier comes from `OSN_DEPLOY_TIER`
+ * in the build's own environment, read from `process.env` because Vite's
+ * resolved env carries only `PUBLIC_*` names. Unset, the build deploys nowhere
+ * and any origin goes. Set to anything, empty included, the build deploys:
+ * `origin` must not be on this machine (the app's local fallback or a devloop
+ * host), the tier must be `dev` or `production`, and a `production` build must
+ * name the production API.
  */
 function deployableOrigin(apiUrl: string, origin: string): string {
-  const tier = deployTier();
-  if (tier !== undefined && isLoopback(new URL(origin).hostname)) {
+  const tier = process.env.OSN_DEPLOY_TIER;
+  if (tier === undefined) return origin;
+  const named = `OSN_DEPLOY_TIER is ${JSON.stringify(tier)}`;
+  if (isLoopback(new URL(origin).hostname)) {
     throw new Error(
-      `tier-headers: OSN_DEPLOY_TIER is ${JSON.stringify(tier)}, so this build deploys, but the cire-api URL ${JSON.stringify(apiUrl)} is on this machine; set the build step's cire-api URL`,
+      `tier-headers: ${named}, so this build deploys, but the cire-api URL ${JSON.stringify(apiUrl)} is on this machine; set the build step's cire-api URL`,
+    );
+  }
+  if (tier !== "dev" && tier !== "production") {
+    throw new Error(`tier-headers: ${named}, which is neither "dev" nor "production"`);
+  }
+  if (tier === "production" && origin !== PRODUCTION_API_ORIGIN) {
+    throw new Error(
+      `tier-headers: ${named}, but the cire-api URL ${JSON.stringify(apiUrl)} is not ${PRODUCTION_API_ORIGIN}`,
     );
   }
   return origin;
