@@ -187,10 +187,10 @@ jobs:
       #
       # It lives here rather than in `script-tests` because that job does no
       # `bun install` on purpose, and `scripts/tsconfig.json` inherits
-      # `types: ["bun-types"]` from the root — without the install, `tsc` fails
+      # `types: ["bun-types"]` from the root — without the install, `bun check` fails
       # on the type package rather than on the code.
       - name: Type check the scripts
-        run: bunx --bun tsc -p scripts/tsconfig.json
+        run: bun check --no-script -p scripts/tsconfig.json
 
   build-test:
     name: Build & Test
