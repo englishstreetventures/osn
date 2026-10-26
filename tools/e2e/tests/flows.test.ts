@@ -81,6 +81,28 @@ describe("flow sources", () => {
     expect(signIns).toBeLessThanOrEqual(6);
   });
 
+  // osn-api allows 5 sign-up begins a minute per client address
+  // (`registerBegin` in osn/api/src/lib/redis-rate-limiters.ts, in-memory on
+  // this stack), one window shared by the whole run, so a sixth begin is a 429
+  // only on a machine fast enough to fit them in one minute. A flow begins a
+  // sign-up by pressing "Send verification code" or "Resend code" in Musubi's
+  // dialog, written exactly as the patterns below, or by `registerThroughApi`.
+  test("the flows begin no more sign-ups than osn-api allows in a minute", () => {
+    const dir = join(import.meta.dirname, "flows");
+    const begins = readdirSync(dir)
+      .map((file) => readFileSync(join(dir, file), "utf8"))
+      .reduce(
+        (sum, source) =>
+          sum +
+          (source.match(
+            /name: "(?:Send verification code|Resend code)" \}\)\.click\(|registerThroughApi\(/g,
+          )?.length ?? 0),
+        0,
+      );
+    expect(begins).toBeGreaterThan(0);
+    expect(begins).toBeLessThanOrEqual(5);
+  });
+
   // The organiser's window exists only because the stack's cire-api keeps a
   // client address the request sends. Without that, every claim would land in
   // one window again, and fail only on a fast machine. What keeping it does is

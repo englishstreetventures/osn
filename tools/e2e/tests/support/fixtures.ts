@@ -6,10 +6,12 @@
  * and attaches the record the results reporter writes into `results.json`.
  * In each context it records, it stands in for cire's realtime hub, which the
  * stack does not run (`standInForCireHub`). Flows touch the stack only through
- * the browser, the API request context and the read-only helpers here.
+ * the browser, the API request context and the read-only helpers here. The one
+ * helper that writes, `refuseNextMailTo`, writes to the mail stand-in, which is
+ * not part of the stack.
  */
 
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
@@ -31,6 +33,7 @@ import {
   CLOCK_T0,
   DB_FILES,
   DEV_LOGIN_SECRET,
+  LOG_DIR,
   ORGANISER_ADDRESS,
   ORIGINS,
   REALTIME_KEEPALIVE,
@@ -226,6 +229,50 @@ export async function otpFor(email: string, after = 0): Promise<string> {
     )
     .not.toBe("");
   return code;
+}
+
+/** Makes the mail stand-in refuse the next send to `email`, as Resend refuses an unverified sender. */
+export async function refuseNextMailTo(email: string): Promise<void> {
+  const response = await fetch(`${ORIGINS.mail}/__e2e/mail/refuse`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ to: email }),
+  });
+  expect(response.status, "arm the mail stand-in's refusal").toBe(204);
+}
+
+/** How many sends to `email` the mail stand-in has refused. */
+export async function refusedMailCount(email: string): Promise<number> {
+  const response = await fetch(
+    `${ORIGINS.mail}/__e2e/mail/refused?to=${encodeURIComponent(email)}`,
+  );
+  return ((await response.json()) as { count: number }).count;
+}
+
+/**
+ * The last `email.dispatch_failed` entry in osn-api's log, once it is whole:
+ * its first line through the line before the next entry (a line starting `[`)
+ * or the end of the file. The pretty logger writes the header and each
+ * annotation as separate lines, so this waits until the entry holds its
+ * `template:` line rather than returning a header written on its own.
+ */
+export async function osnDispatchFailureLog(): Promise<string> {
+  const path = resolve(LOG_DIR, "osnApi.log");
+  let entry = "";
+  await expect
+    .poll(
+      () => {
+        const lines = readFileSync(path, "utf8").split("\n");
+        const start = lines.findLastIndex((line) => line.includes("email.dispatch_failed"));
+        if (start === -1) return "";
+        const next = lines.findIndex((line, i) => i > start && line.startsWith("["));
+        entry = lines.slice(start, next === -1 ? lines.length : next).join("\n");
+        return entry;
+      },
+      { message: "no email.dispatch_failed entry reached osn-api's log", timeout: 15_000 },
+    )
+    .toMatch(/^template: /m);
+  return entry;
 }
 
 /**

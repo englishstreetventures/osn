@@ -15,7 +15,7 @@ related:
   - "[[cire-entitlements]]"
   - "[[stripe-webhooks]]"
   - "[[infrastructure-as-code]]"
-last-reviewed: 2026-10-24
+last-reviewed: 2026-10-26
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -85,7 +85,7 @@ marked **TBD** blocks the deploy.
 | `OSN_ORIGIN` (prod https origins, comma-sep) | osn-api WebAuthn | **DONE — `https://musubi.social`** (the identity app — the one surface that can legally run a ceremony under the new RP ID). The cire origins were **removed** on 2026-07-27: a different registrable domain cannot run a ceremony for RP ID `musubi.social`, so listing them would only have hidden the failure. Picked up by the next release — **osn-api deploys via CI** (`deploy-osn-api` in `production-release.yml`); no manual `wrangler deploy` needed. |
 | `OSN_ISSUER_URL` (public https base of osn-api) | osn-api + cire | **DONE — `https://id.musubi.social`** (custom-domain route in `osn/api/wrangler.toml` `[env.production]`; moved off `id.cireweddings.com` 2026-07-27) |
 | `OSN_CORS_ORIGIN` (prod app origins, comma-sep) | osn-api | **DONE — `https://musubi.social,https://host.cireweddings.com,https://vendor.cireweddings.com,https://invite.cireweddings.com`**. The cire origins stay here even though they left `OSN_ORIGIN` — these are two different lists: CORS governs browser calls, `OSN_ORIGIN` governs WebAuthn ceremonies. Since the 2026-07-27 OIDC swap the cire entries are **vestigial**: no cire browser calls osn-api any more (the exchange is server-side on cire-api, and the `/authorize` hop is a top-level navigation, not a CORS request). Pruning them is a tidy-up, not a fix — do it in its own change so a missed caller shows up alone. |
-| `OSN_EMAIL_FROM` (verified sender) | osn-api | **DONE — `hello@cireweddings.com`** (Resend sender domain `cireweddings.com` verified — §1.1). **Deliberately not moved to musubi.social**: no verified musubi.social sender exists, and Resend fails closed on an unauthenticated domain — which would take OTP step-up down, the exact path back in after a recovery-code login. See [[email]]. |
+| `OSN_EMAIL_FROM` (verified sender) | osn-api | **DONE — `hello@cireweddings.com`** (Resend sender domain `cireweddings.com` verified — §1.1). **Not moved to musubi.social yet**: dev sends from `Musubi <hello@musubi.social>` first, and production moves only once dev mail from it is seen to arrive (englishstreetventures/osn#1548). Resend fails closed on a domain it has not verified — which would take OTP step-up down, the exact path back in after a recovery-code login. See [[email]]. |
 | `RESEND_API_KEY` (live email transport) | osn-api | **DONE** — set on the production Worker; delivering since 2026-06-18 (§1.1) |
 | `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_EMAIL_API_TOKEN` | osn-api | optional / **legacy** (Cloudflare-email fallback transport; not used now Resend is the live path — §1.1) |
 | `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` | osn-api | **provision** (section 1) — region locked to **`ap-southeast-2` (Sydney)** |

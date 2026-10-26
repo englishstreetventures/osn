@@ -103,6 +103,9 @@ export const ORIGINS: Record<AppName, string> = Object.fromEntries(
   Object.entries(PORTS).map(([name, port]) => [name, `http://localhost:${port}`]),
 ) as Record<AppName, string>;
 
+/** The Resend key the stack's osn-api sends to the mail stand-in with; never real. */
+export const E2E_RESEND_KEY = "re_e2e_local";
+
 /** Names the request log uses for each API origin. Only these are recorded. */
 export const API_LABELS = {
   [ORIGINS.osnApi]: "osn-api",
@@ -344,6 +347,8 @@ export const CIRE_HOUSEHOLD = {
 /** Identities the flows create. Fixed, so every run registers the same people. */
 export const PEOPLE = {
   musubi: { email: "ada@e2e.test", handle: "e2e_ada", name: "Ada E2E" },
+  /** Signs up through a first send the mail stand-in refuses. */
+  musubiRetry: { email: "grace@e2e.test", handle: "e2e_grace", name: "Grace E2E" },
   pulseHost: { email: "host@e2e.test", handle: "e2e_host", name: "Host E2E" },
   pulseGuest: { email: "guest@e2e.test", handle: "e2e_guest", name: "Guest E2E" },
 } as const;
