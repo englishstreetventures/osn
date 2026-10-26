@@ -42,7 +42,7 @@ it stops rather than fetch another version.
 | `db:push`          | Check the ledger, then apply pending migrations to the **local** D1 (Miniflare-backed)            |
 | `db:migrate:local` | Same as `db:push`, named to match `:prod`                                                         |
 | `db:migrate:prod`  | Check the ledger, then apply pending migrations to the **production** D1 (`--env production`). Coordinate with deploys. |
-| `db:seed`          | Apply `seed/dev-seed.sql` to the local D1 (idempotent — uses `INSERT OR IGNORE`)                  |
+| `db:seed`          | Apply `seed/dev-seed.sql` to the local D1 (re-runnable — `INSERT OR IGNORE` skips rows already there) |
 | `db:reset`         | Wipe local D1 state, re-run migrations + seed. Destructive — local only.                          |
 | `db:studio`        | Launch Drizzle Studio for browsing the schema / writing one-off queries                           |
 | `seed:generate`    | Regenerate `seed/dev-seed.sql` from `seed/data/`                                                  |
