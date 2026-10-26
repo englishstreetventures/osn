@@ -1,6 +1,6 @@
 {
   "name": "@musubi/social",
-  "version": "0.18.13",
+  "version": "0.18.16",
   "private": true,
   "description": "Musubi — identity and social graph app, built on OSN",
   "type": "module",
@@ -15,7 +15,7 @@
     "dev:app": "dev-env vite",
     "build": "vite build",
     "preview": "vite preview",
-    "check": "tsc --noEmit",
+    "typecheck": "bun check --no-script",
     "test": "bunx --bun vitest --project unit",
     "test:run": "bunx --bun vitest run --project unit",
     "test:browser": "bunx --bun vitest run --project browser"
@@ -46,7 +46,7 @@
     "@vitest/coverage-istanbul": "5.0.3",
     "happy-dom": "^21.0.4",
     "playwright": "^1.62.1",
-    "typescript": "^6.0.3",
+    "typescript": "7.1.0-beta",
     "vite": "^8.3.3",
     "vite-plugin-solid": "^2.11.14",
     "vitest": "5.0.3"

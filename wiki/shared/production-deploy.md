@@ -15,7 +15,7 @@ related:
   - "[[cire-entitlements]]"
   - "[[stripe-webhooks]]"
   - "[[infrastructure-as-code]]"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-26
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -85,7 +85,7 @@ marked **TBD** blocks the deploy.
 | `OSN_ORIGIN` (prod https origins, comma-sep) | osn-api WebAuthn | **DONE — `https://musubi.social`** (the identity app — the one surface that can legally run a ceremony under the new RP ID). The cire origins were **removed** on 2026-07-27: a different registrable domain cannot run a ceremony for RP ID `musubi.social`, so listing them would only have hidden the failure. Picked up by the next release — **osn-api deploys via CI** (`deploy-osn-api` in `production-release.yml`); no manual `wrangler deploy` needed. |
 | `OSN_ISSUER_URL` (public https base of osn-api) | osn-api + cire | **DONE — `https://id.musubi.social`** (custom-domain route in `osn/api/wrangler.toml` `[env.production]`; moved off `id.cireweddings.com` 2026-07-27) |
 | `OSN_CORS_ORIGIN` (prod app origins, comma-sep) | osn-api | **DONE — `https://musubi.social,https://host.cireweddings.com,https://vendor.cireweddings.com,https://invite.cireweddings.com`**. The cire origins stay here even though they left `OSN_ORIGIN` — these are two different lists: CORS governs browser calls, `OSN_ORIGIN` governs WebAuthn ceremonies. Since the 2026-07-27 OIDC swap the cire entries are **vestigial**: no cire browser calls osn-api any more (the exchange is server-side on cire-api, and the `/authorize` hop is a top-level navigation, not a CORS request). Pruning them is a tidy-up, not a fix — do it in its own change so a missed caller shows up alone. |
-| `OSN_EMAIL_FROM` (verified sender) | osn-api | **DONE — `hello@cireweddings.com`** (Resend sender domain `cireweddings.com` verified — §1.1). **Deliberately not moved to musubi.social**: no verified musubi.social sender exists, and Resend fails closed on an unauthenticated domain — which would take OTP step-up down, the exact path back in after a recovery-code login. See [[email]]. |
+| `OSN_EMAIL_FROM` (verified sender) | osn-api | **DONE — `hello@cireweddings.com`** (Resend sender domain `cireweddings.com` verified — §1.1). **Not moved to musubi.social yet**: dev sends from `Musubi <hello@musubi.social>` first, and production moves only once dev mail from it is seen to arrive (englishstreetventures/osn#1548). Resend fails closed on a domain it has not verified — which would take OTP step-up down, the exact path back in after a recovery-code login. See [[email]]. |
 | `RESEND_API_KEY` (live email transport) | osn-api | **DONE** — set on the production Worker; delivering since 2026-06-18 (§1.1) |
 | `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_EMAIL_API_TOKEN` | osn-api | optional / **legacy** (Cloudflare-email fallback transport; not used now Resend is the live path — §1.1) |
 | `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` | osn-api | **provision** (section 1) — region locked to **`ap-southeast-2` (Sydney)** |
@@ -632,7 +632,7 @@ bunx wrangler secret put STRIPE_WEBHOOK_SECRET --env production  # THIS endpoint
 
 `STRIPE_ACCOUNT_COUNTRY` is an ordinary var (default `AU` in code), in `wrangler.toml` under each tier's own `[env.<env>.vars]`. Stripe fixes an account's country at creation, so it is a per-deployment default rather than something a couple can change later.
 
-**Fail-closed.** `STRIPE_SECRET_KEY` unset ⇒ neither the Connect routes nor the upgrade routes are mounted, so a deployment with no Stripe account has no payment surface rather than one that 500s. `STRIPE_WEBHOOK_SECRET` unset ⇒ `/api/stripe/webhook` does not exist, and a gift is written `pending` and never settles.
+**Fail-closed.** `STRIPE_SECRET_KEY` unset ⇒ neither the Connect routes nor the upgrade routes are mounted, so a deployment with no Stripe account has no payment surface rather than one that 500s. `STRIPE_WEBHOOK_SECRET` unset ⇒ `/api/stripe/webhook` does not exist and guests are offered no money gift at all, because nothing would record one; the Worker logs `money gifts disabled: STRIPE_SECRET_KEY is set without STRIPE_WEBHOOK_SECRET` when it builds the app. Set both, then deploy.
 
 ---
 
@@ -661,7 +661,7 @@ bunx wrangler secret put STRIPE_PLATFORM_WEBHOOK_SECRET --env production
 > [!warning]
 > Reusing the Connect endpoint's signing secret for the platform endpoint means **every** delivery to it is refused with a 400 and Stripe retries for days, while nothing grants. The two secrets come from two different dashboard endpoints.
 
-**Fail-closed, per move.** A tier with no configured Price for the wedding's current tier is not for sale: absent from the catalogue and a 404 from checkout. With `STRIPE_UPGRADE_PRICE_CRIMSON_FROM_GOLD` unset a Gold wedding is not offered Crimson at all. Absent configuration never means free. The three vars sit commented out in every environment of `cire/api/wrangler.toml` until the Prices exist. With `STRIPE_PLATFORM_WEBHOOK_SECRET` unset the endpoint does not exist at all, so a purchase could be paid and never granted — nothing else moves a purchase off `pending`.
+**Fail-closed, per move.** A tier with no configured Price for the wedding's current tier is not for sale: absent from the catalogue and a 404 from checkout. With `STRIPE_UPGRADE_PRICE_CRIMSON_FROM_GOLD` unset a Gold wedding is not offered Crimson at all. Absent configuration never means free. The three vars sit commented out in every environment of `cire/api/wrangler.toml` until the Prices exist. With `STRIPE_PLATFORM_WEBHOOK_SECRET` unset or blank the endpoint does not exist at all, so a purchase could be paid and never granted — nothing else moves a purchase off `pending` (englishstreetventures/osn#1656).
 
 **Smoke check after deploy:** as the owner of an Ivory wedding, open a locked module's nav row → **Upgrade to Gold** → pay with a Stripe test card → confirm you land back in the portal told the wedding is on Gold, with the Gold modules open, and that the wedding's row reads `tier = 'gold'`, `tier_source = 'purchase'`. The full version — the mounted-vs-404 curl, the `wrangler tail`, and the three D1 queries that prove the webhook granted it rather than the browser — is in [[stripe-webhooks]] §Verify a deployed tier.
 
@@ -1009,6 +1009,7 @@ equivalents:
 # guest site (Worker: cire-invites, custom domain invite.cireweddings.com)
 PUBLIC_API_URL=https://api.cireweddings.com \
 PUBLIC_SITE_URL=https://invite.cireweddings.com \
+OSN_DEPLOY_TIER=production \
   bun run --cwd cire/invites build
 # delete the adapter's `legacy_env` key first — see the §3.3 foot-gun note
 bunx wrangler deploy --config cire/invites/dist/server/wrangler.json
@@ -1019,9 +1020,14 @@ PUBLIC_CIRE_API_URL=https://api.cireweddings.com \
 PUBLIC_OSN_ACCOUNT_URL=https://musubi.social \
 PUBLIC_CIRE_WEB_URL=https://invite.cireweddings.com \
 PUBLIC_MARKETING_URL=https://cireweddings.com \
+OSN_DEPLOY_TIER=production \
   bun run --cwd cire/host build
 bunx wrangler pages deploy cire/host/dist --project-name cire-organiser
 ```
+
+`OSN_DEPLOY_TIER=production` marks each as a production deploy build, which fails
+unless its cire-api URL is `https://api.cireweddings.com`
+([[cire-development#Portal security headers]]).
 
 `cire/vendor` (→ `cire-vendor`, `vendor.cireweddings.com`) and `cire/landing`
 (→ `cire-landing`, the apex) follow the same Pages pattern; their build env lives in the
@@ -1260,12 +1266,22 @@ ships only once this one is live on both jobs.
 
 Two accounts back the two tiers: the dev account's credentials on the `dev`
 Environment, the existing `CLOUDFLARE_API_TOKEN` only on `production`. A
-push-triggered job reaches a production-scoped credential only through the
-`production` Environment, which admits only `main` and waits for its reviewer.
-`deploy.yml` reads the dev account's credentials alone (W8 in
-`shared/infra/tests/workflow-secrets.test.ts`). The `dev` Environment still holds two old credentials
-that reach the production account, which no workflow reads; deleting them is
-englishstreetventures/osn#1579 ([[dev-environment#Retiring the old dev tier]]).
+push-triggered job reaches a Cloudflare credential that can write to the
+production account only through the `production` Environment, which admits
+only `main` and waits for its reviewer, a wait a repository admin can bypass.
+Repository scope holds the production account's read-only pair,
+`CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN_READONLY`, which any job can
+read ([[dev-environment#Two accounts, two Environments]]). `deploy.yml` reads the dev
+account's credentials alone (W8 in `shared/infra/tests/workflow-secrets.test.ts`),
+and `secrets:check-github -- --tier dev` fails when the `dev` Environment holds
+`CLOUDFLARE_ACCOUNT_ID` or `CLOUDFLARE_API_TOKEN_DEV`, the two names that point
+at the production account ([[dev-environment#The production account holds no dev tier]]).
+
+*Measured 2026-10-23 — `gh api repos/englishstreetventures/osn/environments`
+lists `dev` (branch policy `main`) and `production` (one required reviewer,
+self-review allowed, admins may bypass, branch policy `main`); `gh secret list`
+on the repository and on each Environment shows Cloudflare names only as
+stated here.*
 
 ---
 

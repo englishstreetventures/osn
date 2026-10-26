@@ -1,6 +1,6 @@
 {
   "name": "@shared/ui",
-  "version": "0.6.0",
+  "version": "0.6.2",
   "private": true,
   "type": "module",
   "author": "English Street Ventures Pty Ltd",
@@ -43,7 +43,7 @@
     "./ui/username-input": "./src/ui/username-input.tsx"
   },
   "scripts": {
-    "check": "tsc --noEmit && tsc --noEmit -p tests/tsconfig.json",
+    "typecheck": "bun check --no-script && bun check --no-script -p tests/tsconfig.json",
     "test": "bunx --bun vitest --project unit",
     "test:run": "bunx --bun vitest run --project unit",
     "test:browser": "bunx --bun vitest run --project browser"

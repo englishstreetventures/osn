@@ -24,7 +24,7 @@ packages:
   - "@shared/email"
   - "@osn/api"
   - "@cire/api"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-26
 ---
 
 # Email Transport
@@ -172,9 +172,15 @@ Content-Type: application/json
 - `makeResendEmailLive(config)` — **preferred** real dispatch. POSTs to
   Resend's HTTP API (`https://api.resend.com/emails`) via
   `instrumentedFetch` so the call becomes a child span. Same render path,
-  timeout, metrics, and non-2xx → tagged-failure semantics as the
-  Cloudflare transport (429 → `rate_limited`, other non-2xx →
-  `dispatch_failed`, fetch reject → `api_unreachable`). The
+  metrics, and failure reasons as the Cloudflare transport: a 429 fails as
+  `rate_limited`, any other non-2xx as `dispatch_failed`, a rejected fetch as
+  `api_unreachable`. Unlike it, the Resend transport logs every failure
+  ([[#Observability]]). Neither sets a timeout; a caller that must not wait
+  wraps the send in one, and the Resend transport aborts its request when that
+  timeout fires. The abort ends the wait and frees the connection; a request
+  Resend has already received may still be delivered. To read a
+  refusal's error code it reads at most 4096 bytes of the body, for at most
+  2 seconds, and none of a body that declares more. The
   `RESEND_API_KEY` is placed only in the `Authorization` header — never in
   a URL, span/metric attribute, or `EmailError.cause`. `config.apiUrl`
   swaps `https://api.resend.com` for a local emulator's origin; anything but
@@ -384,8 +390,13 @@ through Resend itself whenever the key is set.
   mail never go to another host. A `*.localhost` name must use https: a
   resolver decides where that name goes, and only the certificate check stops
   a wrong answer from receiving the key. The deny-list in `@shared/observability`
-  carries `apiKey` and `apiToken`, so a logged transport config shows neither. SPF/DKIM/DMARC are configured on the
-  verified Resend sender domain.
+  carries `apiKey` and `apiToken`, so a logged transport config shows neither.
+  `cireweddings.com` carries Resend's SPF and DKIM records and a DMARC policy.
+  `musubi.social` carries Resend's DKIM record (`resend._domainkey`) and a
+  `send` record, and no `_dmarc` record; whether Resend counts it verified is
+  for the Resend dashboard to say (englishstreetventures/osn#1548).
+
+  *Checked 2026-10-26 — `dig +short TXT resend._domainkey.musubi.social`, `dig +short CNAME send.musubi.social`, `dig +short TXT _dmarc.musubi.social` against `lou.ns.cloudflare.com`*
 - **Cloudflare token (legacy)**: Cloudflare's own API token (scoped to
   Email Send only). SPF/DKIM/DMARC auto-configured by Cloudflare.
 - **OTP bodies**: the rendered `text` / `html` contains the OTP digit
@@ -407,10 +418,26 @@ through Resend itself whenever the key is set.
     (legacy fallback)
   - Outbound HTTP becomes a child `HTTP POST` span via
     `@shared/observability/fetch → instrumentedFetch`.
-- **Logs**: `Effect.logError("email.dispatch_failed", { template, outcome })`
-  on CF failures; `Effect.logWarning("email.rate_limited", { template })`
-  on 429. Dev log `[email:log] template=... subject="..." to=...` from
-  `LogEmailLive` only (guarded by log level).
+- **Logs** (Resend transport only; the Cloudflare transport logs nothing):
+  - `email.dispatch_failed` (error), once per failed send or batch call,
+    annotated `template`, `reason` (`render_failed`, `api_unreachable`,
+    `rate_limited` or `dispatch_failed`), `status` (when Resend answered),
+    `size` (batch only),
+    `resendError` (Resend's error `name`, lower-cased, kept only when it is
+    letters and underscores) and `resendDetail` (a fixed reading of Resend's
+    message: `domain_not_verified` or `testing_recipients_only`). Resend sends
+    `validation_error` and 403 both for an unverified sender domain and for a
+    testing-only account, so `resendDetail` is what tells them apart.
+  - `email.dispatch_interrupted` (warning) when a caller's timeout cuts a send
+    off, annotated `template` and `status` when Resend had already answered.
+  - Neither line holds a recipient, Resend's message text, the request body or
+    the key, so both are safe under a logger that redacts nothing — cire-api's
+    scheduled sweeps run the transport under Effect's default logger.
+  - On a deployed Worker these lines are the only record of a failed send: the
+    metrics below export nothing there, and most callers swallow the failure.
+    To find one, search the Worker's logs for `email.dispatch_failed`.
+  - Dev log `[email:log] template=... subject="..." to=...` from `LogEmailLive`
+    only (guarded by log level).
 - **Metrics** (in `shared/email/src/metrics.ts`):
   - `osn.email.send.attempts` — counter, `{ template: 18 values,
     outcome: sent|failed|rate_limited|skipped }`. Cardinality: 76 series.

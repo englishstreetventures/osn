@@ -471,10 +471,11 @@ export const createOrganiserExportRoutes = (
             ),
           );
         })
-        // The seating chart for the venue — every seated guest at every
-        // event, by event and table order. Ungated for the reason the budget
-        // and checklist files are: a wedding below the seating module's tier
-        // keeps its chart and takes it back from the locked card. Capped
+        // The seating chart for the venue — every guest seated in each
+        // event's selected plan, by event and table order. Ungated for the
+        // reason the budget and checklist files are: a wedding below the
+        // seating module's tier keeps its chart and takes it back from the
+        // locked card. Capped
         // (`MAX_SEATING_EXPORT_ROWS`) and rate-limited with the group.
         .get("/seating.csv", ({ weddingId, weddingSlug, set }) => {
           if (!weddingId) {

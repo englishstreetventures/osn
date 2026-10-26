@@ -4,11 +4,14 @@
  * It puts each browser page on the suite's clock, records the flow's steps,
  * API requests and assertions, and at the end takes the final-state screenshot
  * and attaches the record the results reporter writes into `results.json`.
- * Flows touch the stack only through the browser, the API request context and
- * the read-only helpers here.
+ * In each context it records, it stands in for cire's realtime hub, which the
+ * stack does not run (`standInForCireHub`). Flows touch the stack only through
+ * the browser, the API request context and the read-only helpers here. The one
+ * helper that writes, `refuseNextMailTo`, writes to the mail stand-in, which is
+ * not part of the stack.
  */
 
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
@@ -30,8 +33,10 @@ import {
   CLOCK_T0,
   DB_FILES,
   DEV_LOGIN_SECRET,
+  LOG_DIR,
   ORGANISER_ADDRESS,
   ORIGINS,
+  REALTIME_KEEPALIVE,
   SCREENSHOT_DIR,
 } from "../../src/config";
 import type { CapturedMail } from "../../src/mail";
@@ -42,6 +47,46 @@ import { RECORD_ATTACHMENT } from "../../src/reporter";
 const REAL_START = Number(process.env["E2E_CLOCK_R0"] ?? Date.now());
 const suiteNow = (): number => CLOCK_T0 + (Date.now() - REAL_START);
 
+/**
+ * Every push socket the organiser portal opens: cire-api's origin over `ws:`,
+ * then `/realtime/<topic>`, as `weddingTopicUrl` in
+ * `cire/host/src/lib/realtime.ts` builds it. A glob, so Playwright matches it
+ * itself and opens every other socket (Vite's) on the network as before.
+ */
+const CIRE_REALTIME_PATH = "/realtime/";
+const CIRE_REALTIME_SOCKETS = `${ORIGINS.cireApi.replace(/^http/, "ws")}${CIRE_REALTIME_PATH}**`;
+
+/**
+ * Stands in for cire's realtime hub in `ctx` until englishstreetventures/osn#1653
+ * lands. The stack's cire-api has no hub and answers `/realtime/*` with 404, so
+ * without this every portal subscription fails, retries on the client's
+ * jittered backoff and gives up at a moment that differs from run to run,
+ * sending the fallback beacon (`POST /api/realtime/fallback`) into one run's
+ * `results.json` and not the next. Here each socket opens, stays open and has
+ * its ping answered, as `TopicHub` answers it; no subscription gives up, and no
+ * signal is ever sent. `seen` collects each socket's topic as it arrives, and
+ * counts the pings the stand-in receives.
+ */
+async function standInForCireHub(ctx: BrowserContext, seen: HubStandInLog): Promise<void> {
+  await ctx.routeWebSocket(CIRE_REALTIME_SOCKETS, (ws) => {
+    const { pathname } = new URL(ws.url());
+    seen.topics.push(decodeURIComponent(pathname.slice(CIRE_REALTIME_PATH.length)));
+    ws.onMessage((message) => {
+      if (message !== REALTIME_KEEPALIVE.ping) return;
+      seen.pings += 1;
+      ws.send(REALTIME_KEEPALIVE.pong);
+    });
+  });
+}
+
+/** What the hub stand-in has seen in one flow, across its contexts. */
+interface HubStandInLog {
+  /** Each socket's topic, in the order the sockets arrived. */
+  readonly topics: string[];
+  /** Pings received from the pages' sockets. */
+  pings: number;
+}
+
 export interface Flow {
   /** A named step: recorded in order and shown in the trace. */
   step<T>(name: string, body: () => Promise<T>): Promise<T>;
@@ -51,8 +96,14 @@ export interface Flow {
   newPage(context: BrowserContext): Promise<Page>;
   /** True when an API request recorded so far normalises to `line` (`POST osn-api /token 200`). */
   saw(line: string): boolean;
+  /** How many recorded API request lines start with `prefix`, repeats and every status included. */
+  count(prefix: string): number;
   /** A request made outside the browser (the API request context), recorded like a browser one. */
   recordRequest(method: string, url: string, status: number): void;
+  /** The realtime topics the pages' sockets have reached the hub stand-in with, in order. */
+  realtimeTopics(): readonly string[];
+  /** How many pings the hub stand-in has received so far. */
+  realtimePings(): number;
   /** The page whose final state is the flow's screenshot. Defaults to `page`. */
   finalPage: Page;
 }
@@ -62,8 +113,9 @@ export const test = base.extend<{ flow: Flow }>({
     const steps: string[] = [];
     const lines: string[] = [];
     const assertions: Assertion[] = [];
+    const hub: HubStandInLog = { topics: [], pings: 0 };
     const watched = new WeakSet<BrowserContext>();
-    const watch = (ctx: BrowserContext): void => {
+    const watch = async (ctx: BrowserContext): Promise<void> => {
       if (watched.has(ctx)) return;
       watched.add(ctx);
       ctx.on("response", (response) => {
@@ -71,6 +123,7 @@ export const test = base.extend<{ flow: Flow }>({
         const line = requestLine(request.method(), request.url(), response.status(), API_LABELS);
         if (line) lines.push(line);
       });
+      await standInForCireHub(ctx, hub);
     };
 
     const flow: Flow = {
@@ -85,7 +138,7 @@ export const test = base.extend<{ flow: Flow }>({
         expect(actual, name).toBe(expected);
       },
       async newPage(ctx) {
-        watch(ctx);
+        await watch(ctx);
         const p = await ctx.newPage();
         await p.clock.install({ time: suiteNow() });
         return p;
@@ -93,13 +146,22 @@ export const test = base.extend<{ flow: Flow }>({
       saw(line) {
         return lines.includes(line);
       },
+      count(prefix) {
+        return lines.filter((recorded) => recorded.startsWith(prefix)).length;
+      },
       recordRequest(method, url, status) {
         const line = requestLine(method, url, status, API_LABELS);
         if (line) lines.push(line);
       },
+      realtimeTopics() {
+        return [...hub.topics];
+      },
+      realtimePings() {
+        return hub.pings;
+      },
     };
 
-    watch(context);
+    await watch(context);
     // Before the first navigation, so the page's scripts never see the real date.
     await page.clock.install({ time: suiteNow() });
     try {
@@ -167,6 +229,50 @@ export async function otpFor(email: string, after = 0): Promise<string> {
     )
     .not.toBe("");
   return code;
+}
+
+/** Makes the mail stand-in refuse the next send to `email`, as Resend refuses an unverified sender. */
+export async function refuseNextMailTo(email: string): Promise<void> {
+  const response = await fetch(`${ORIGINS.mail}/__e2e/mail/refuse`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ to: email }),
+  });
+  expect(response.status, "arm the mail stand-in's refusal").toBe(204);
+}
+
+/** How many sends to `email` the mail stand-in has refused. */
+export async function refusedMailCount(email: string): Promise<number> {
+  const response = await fetch(
+    `${ORIGINS.mail}/__e2e/mail/refused?to=${encodeURIComponent(email)}`,
+  );
+  return ((await response.json()) as { count: number }).count;
+}
+
+/**
+ * The last `email.dispatch_failed` entry in osn-api's log, once it is whole:
+ * its first line through the line before the next entry (a line starting `[`)
+ * or the end of the file. The pretty logger writes the header and each
+ * annotation as separate lines, so this waits until the entry holds its
+ * `template:` line rather than returning a header written on its own.
+ */
+export async function osnDispatchFailureLog(): Promise<string> {
+  const path = resolve(LOG_DIR, "osnApi.log");
+  let entry = "";
+  await expect
+    .poll(
+      () => {
+        const lines = readFileSync(path, "utf8").split("\n");
+        const start = lines.findLastIndex((line) => line.includes("email.dispatch_failed"));
+        if (start === -1) return "";
+        const next = lines.findIndex((line, i) => i > start && line.startsWith("["));
+        entry = lines.slice(start, next === -1 ? lines.length : next).join("\n");
+        return entry;
+      },
+      { message: "no email.dispatch_failed entry reached osn-api's log", timeout: 15_000 },
+    )
+    .toMatch(/^template: /m);
+  return entry;
 }
 
 /**
@@ -299,6 +405,35 @@ export function giftListTextIn(text: string): string {
     CIRE_GIFT_LIST.fund.description,
   ];
   return secret.filter((s) => text.includes(s)).join(", ") || "none";
+}
+
+/**
+ * Modules of the guest site's gift list, by the path the stack's `astro dev`
+ * serves each at: one request per source module.
+ *
+ * `band` and `display` are the invitation's gift band and the helpers it shows
+ * the list with. The band's island loads both only once the list read answers
+ * with a list, so a guest of a wedding without one requests neither. `client`
+ * holds the claim, release and money calls, which only the gift list's own
+ * page imports: no invitation requests it.
+ */
+export const GIFT_LIST_MODULES = {
+  band: "/src/components/gift-registry/GiftRegistryTeaser.tsx",
+  display: "/src/lib/gift-registry-display.ts",
+  client: "/src/lib/gift-registry.ts",
+} as const;
+
+/**
+ * Every path `page` requests from the guest site from now on, in order, with
+ * no query string (`astro dev` adds `?t=` to a module it has reloaded).
+ */
+export function guestSitePaths(page: Page): readonly string[] {
+  const paths: string[] = [];
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.origin === ORIGINS.cireInvites) paths.push(url.pathname);
+  });
+  return paths;
 }
 
 /**

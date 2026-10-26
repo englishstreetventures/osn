@@ -14,24 +14,28 @@ import {
 
 import {
   claimGiftRegistryItem,
-  fetchGiftRegistry,
   fetchGiftRegistryHousehold,
-  giftRegistryBody,
   giftRegistryClaimedCopy,
-  giftRegistryImageBase,
   groupGiftRegistryItems,
   hasGiftRegistryCategories,
   releaseGiftRegistryItem,
-  sortGiftRegistryItems,
-  type GiftRegistry,
   type GiftRegistryClaimBody,
-  type GiftRegistryFetch,
-  type GiftRegistryFund,
   type GiftRegistryHouseholdClaim,
   type GiftRegistryHouseholdFetch,
-  type GiftRegistryItem,
   type GiftRegistryWrite,
 } from "../../lib/gift-registry";
+import {
+  giftRegistryBody,
+  giftRegistryImageBase,
+  sortGiftRegistryItems,
+} from "../../lib/gift-registry-display";
+import {
+  fetchGiftRegistry,
+  type GiftRegistry,
+  type GiftRegistryFetch,
+  type GiftRegistryFund,
+  type GiftRegistryItem,
+} from "../../lib/gift-registry-read";
 import { Z_CLASS } from "../../lib/z-index";
 import { CLAIM_SESSION_EVENT, hasClaimedHint } from "../claim-session";
 import { GiftRegistryItemCard } from "./GiftRegistryItemCard";
@@ -470,14 +474,17 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
             </Show>
 
             {/* The organiser's preview. Same opening words as the invite's own
-                preview note, so the two read as one mode. */}
+                preview note, so the two read as one mode. It names money only
+                when the list offers it: where the couple, Stripe or this site
+                cannot take a money gift, guests are offered none. */}
             <Show when={preview()}>
               <p
                 data-gift-preview
                 class="border-gold/40 bg-gold/5 text-gold-ink font-body text-ui-sm leading-ui-normal max-w-ui-md mx-auto mb-8 rounded-sm border px-4 py-3 text-center"
               >
-                Preview mode. Guests reserve gifts and give money here; nothing can be reserved or
-                given from a preview.
+                {registry()?.cashGiftsEnabled
+                  ? "Preview mode. Guests reserve gifts and give money here; nothing can be reserved or given from a preview."
+                  : "Preview mode. Guests reserve gifts here; nothing can be reserved from a preview."}
               </p>
             </Show>
 

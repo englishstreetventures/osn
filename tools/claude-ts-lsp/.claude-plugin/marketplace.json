@@ -1,0 +1,11 @@
+{
+  "name": "osn-local",
+  "owner": { "name": "English Street Ventures" },
+  "plugins": [
+    {
+      "name": "ts-lsp",
+      "source": "./plugins/ts-lsp",
+      "description": "TypeScript 7 language server for the LSP tool: the project's own tsc --lsp --stdio"
+    }
+  ]
+}

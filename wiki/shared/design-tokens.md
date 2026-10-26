@@ -11,7 +11,7 @@ related:
   - "[[browser-tests]]"
   - "[[toast]]"
   - "[[osn-and-musubi]]"
-last-reviewed: 2026-09-18
+last-reviewed: 2026-10-23
 ---
 
 # Design tokens — `@shared/design-tokens` and the `ui-*` contract
@@ -221,7 +221,7 @@ The fallbacks are a neutral greyscale, never a brand. An unmapped app renders
 so a caller's plain utility beats them. A caller who writes `base:` too **ties**,
 and a tie resolves by Tailwind's stylesheet order — not by class-attribute
 order, and not by anything visible at the call site. See
-[[wiki/shared/component-library]] §Overriding a `Modal` default, which is
+[[component-library]] §Overriding a `Modal` default, which is
 where that cost nine call sites.
 
 ### What `@source` names, and what it leaves out
@@ -257,7 +257,7 @@ see removes the feature outright for a keyboard user.
 > The harness checks the **tokens**. It cannot see a component that hard-codes a
 > colour, an app utility used inside a library package, or a class Tailwind
 > never compiled. Those need the browser tier
-> ([[wiki/conventions/browser-tests]]), and in the case of raw palette colours,
+> ([[browser-tests]]), and in the case of raw palette colours,
 > `@shadcn/lint`'s `no-raw-colors`.
 
 The same pairs can be _looked at_: `design-system/contrast` in the lab lays them
@@ -273,7 +273,7 @@ take. See [[component-lab]].
 | `@shared/color`         | The OKLCH maths — parsing, conversion, contrast, `ensureContrast`. Lifted out of `@cire/theme` so no `@shared/*` package depends on a `@cire/*` one                                                                                                                   |
 | `@shared/ui`            | The primitives — `Button`, `Card`, `Modal`, `Field`, the rest — painted entirely in `ui-*` utilities                                                                                                                                                                  |
 | `@osn/auth-ui`          | The OSN auth views. Built out of `@shared/ui` primitives, so it inherits the contract through them — but its own class attributes still name the shadcn vocabulary, so it renders correctly only in an app that speaks it. `@musubi/social` is the one consumer today |
-| `@cire/ui`              | cire's house components — see [[wiki/shared/component-library]] for why two layers rather than one                                                                                                                                                              |
+| `@cire/ui`              | cire's house components — see [[component-library]] for why two layers rather than one                                                                                                                                                                                |
 | `@shared/toast`         | Its own `--toast-*` properties in plain CSS, mapped once per app — the arrangement this contract generalises. See [[toast]]                                                                                                                                           |
 
 `scripts/codemod-scale.ts` is the migration tool: it rewrites static arbitrary

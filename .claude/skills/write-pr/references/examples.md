@@ -117,7 +117,7 @@ Part of #9001
 |---|---|---|---|
 | cire-api tests | `bun run --cwd cire/api test` | `e4f5a6b` | 414 pass, 0 fail |
 | Lint | `bun run lint` | `b2c3d4e` | 0 errors, 3 warnings (existing, `tools/lab`); not re-run after `e4f5a6b`, which changes `cire/api/src/routes/invites.ts` |
-| Type check | `bun run check` | — | NOT RUN — lefthook runs it on push |
+| Type check | `bun run typecheck` | — | NOT RUN — lefthook runs it on push |
 | D1 tier | `bun run test:d1` | — | NOT RUN — no reason was recorded; run it before merging if the resend route writes to D1 |
 
 Unverified: nobody has sent a resend on the dev tier. Once this merges, resend an invite there and check the email arrives and its link opens.

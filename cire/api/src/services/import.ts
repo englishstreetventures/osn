@@ -5,6 +5,7 @@ import {
   guestEvents,
   rsvps,
   seatingAssignments,
+  seatingPlans,
   seatingTables,
   taskTemplateDismissals,
   tasks,
@@ -1337,7 +1338,8 @@ export function applyImport(
     // 1. event removes. The event_id FKs cascade since migration 0052, but the
     // child deletes stay explicit so this write set does not depend on cascade
     // being enabled on every driver (same stance as the retention sweep). The
-    // removed events' seats, then their tables, go first, once for all of them.
+    // removed events' seats, then their tables, then their seating plans, go
+    // first, once for all of them and across every plan.
     if (plan.eventRemoves.length > 0) {
       const removedEventIds = jsonEachIn(plan.eventRemoves.map((er) => er.id));
       statements.push(
@@ -1365,6 +1367,14 @@ export function applyImport(
           [],
           plan.eventRemoves.map((er) => er.id),
         ),
+        db
+          .delete(seatingPlans)
+          .where(
+            and(
+              inArray(seatingPlans.eventId, removedEventIds),
+              eq(seatingPlans.weddingId, weddingId),
+            ),
+          ),
       );
     }
     // Then the removed events themselves, as one group with the checklist

@@ -80,6 +80,7 @@ const snapshot = (over: Partial<RegistrySnapshot> = {}): RegistrySnapshot =>
     currency: "AUD",
     contributionsPrimaryMinor: 0,
     contributionsOtherCurrencyCount: 0,
+    takesPayments: over.takesPayments ?? true,
   }) as RegistrySnapshot;
 
 function json(body: unknown, status = 200): Response {
@@ -202,6 +203,32 @@ describe("publishing", () => {
       expect(halfOn.disabled).toBe(true);
       unmountHalf();
     }
+  });
+
+  it("counts no cash fund where this site cannot take a money gift", async () => {
+    // The couple's side is ready, but the deployment is not: guests are offered
+    // no money and no fund, so a list of funds alone is still an empty page.
+    const funds = [item({ kind: "cash_fund", title: "Honeymoon", targetMinor: 500_000 })];
+    setCachedRegistry(
+      "wed_1",
+      snapshot({
+        items: funds,
+        takesPayments: false,
+        settings: {
+          cashGiftsEnabled: true,
+          stripeConnected: true,
+          stripeChargesEnabled: true,
+        } as never,
+      }),
+    );
+    renderPanel();
+
+    const publish = (await screen.findByTestId("registry-publish")) as HTMLInputElement;
+    expect(publish.disabled).toBe(true);
+    const notice = document.getElementById("registry-publish-blocked")?.textContent ?? "";
+    expect(notice).toMatch(/money gifts aren’t available on this site yet/i);
+    // Turning money gifts on would change nothing, so the notice does not say to.
+    expect(notice).not.toMatch(/once money gifts are on/i);
   });
 
   it("never traps a couple whose published list lost its last gift", async () => {
@@ -423,6 +450,75 @@ describe("money gifts", () => {
 
     const toggle = (await screen.findByTestId("cash-gifts")) as HTMLInputElement;
     expect(toggle.disabled).toBe(false);
+  });
+
+  it("cannot be switched on where this site cannot take a money gift, and says so", async () => {
+    // Stripe is ready, so only the deployment stands in the way: no Connect
+    // webhook to record a gift, or no Stripe at all.
+    setCachedRegistry(
+      "wed_1",
+      snapshot({
+        items: [item()],
+        takesPayments: false,
+        settings: { stripeConnected: true, stripeChargesEnabled: true } as never,
+      }),
+    );
+    renderPanel();
+
+    const toggle = (await screen.findByTestId("cash-gifts")) as HTMLInputElement;
+    expect(toggle.disabled).toBe(true);
+    expect(screen.getByTestId("money-gifts-unavailable").textContent).toMatch(
+      /money gifts aren’t available on this site yet/i,
+    );
+    // Connecting the account still works: a site can hold the key before the
+    // webhook that records gifts.
+    expect(screen.getByRole("button", { name: "Continue on Stripe" })).toBeTruthy();
+  });
+
+  it("can still be switched off where this site cannot take a money gift", async () => {
+    // Saved on before the site lost the ability to take money. The wedding's
+    // currency stays locked while it is on, and the Settings tab tells the
+    // couple to turn it off here — so here it must turn off.
+    setCachedRegistry(
+      "wed_1",
+      snapshot({
+        items: [item()],
+        takesPayments: false,
+        settings: {
+          cashGiftsEnabled: true,
+          stripeConnected: true,
+          stripeChargesEnabled: true,
+        } as never,
+      }),
+    );
+    authFetch.mockResolvedValue(json({ settings: snapshot().settings }));
+    const { container } = renderPanel();
+
+    const toggle = (await screen.findByTestId("cash-gifts")) as HTMLInputElement;
+    expect(toggle.checked).toBe(true);
+    expect(toggle.disabled).toBe(false);
+    fireEvent.click(toggle);
+    fireEvent.submit(container.querySelector("form") as HTMLFormElement);
+
+    await waitFor(() => expect(authFetch).toHaveBeenCalled());
+    expect(lastBody()).toEqual({
+      cashGiftsEnabled: false,
+      expected: { cashGiftsEnabled: true },
+    });
+  });
+
+  it("says nothing about the site where it can take a money gift", async () => {
+    setCachedRegistry(
+      "wed_1",
+      snapshot({
+        items: [item()],
+        settings: { stripeConnected: true, stripeChargesEnabled: true } as never,
+      }),
+    );
+    renderPanel();
+
+    await screen.findByTestId("cash-gifts");
+    expect(screen.queryByTestId("money-gifts-unavailable")).toBeNull();
   });
 
   it("says the true thing when the account changed under the page", async () => {

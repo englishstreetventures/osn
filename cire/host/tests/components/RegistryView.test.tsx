@@ -103,6 +103,7 @@ const snapshot = (over: Partial<RegistrySnapshot> = {}): RegistrySnapshot => ({
   currency: "AUD",
   contributionsPrimaryMinor: 0,
   contributionsOtherCurrencyCount: 0,
+  takesPayments: true,
   ...over,
 });
 
@@ -1836,6 +1837,24 @@ describe("RegistryView — cash funds", () => {
     setCachedRegistry("wed_1", snapshot({ settings: takingMoney, items: [fund()] }));
     render(() => <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />);
     await screen.findByText("Honeymoon in Kyoto");
+    expect(screen.queryByText(/only while money gifts are on/i)).toBeNull();
+  });
+
+  it("says guests cannot see the funds where this site cannot take a money gift", async () => {
+    // The couple and Stripe are both ready; the deployment is not. The notice
+    // names the real reason, and does not send them to a switch that would
+    // change nothing.
+    setCachedRegistry(
+      "wed_1",
+      snapshot({ settings: takingMoney, items: [fund()], takesPayments: false }),
+    );
+    render(() => <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />);
+    await screen.findByText("Honeymoon in Kyoto");
+    expect(
+      screen.getByText(
+        /guests can’t see your cash funds: money gifts aren’t available on this site yet/i,
+      ),
+    ).toBeInTheDocument();
     expect(screen.queryByText(/only while money gifts are on/i)).toBeNull();
   });
 });

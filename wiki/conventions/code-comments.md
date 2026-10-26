@@ -6,7 +6,7 @@ related:
   - "[[review-findings]]"
   - "[[contributing]]"
   - "[[testing-patterns]]"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-23
 ---
 
 # Code Comments
@@ -124,11 +124,18 @@ export function arcMiddleware() { … }
 
 A blank line between them changes nothing, which is why
 `house/no-stacked-doc-block` asks the source code for the comments before a
-declaration rather than measuring the gap. It runs at `warn`: 64 sites today,
-four of them in auth code, so it goes to `error` once those are clear.
+declaration rather than measuring the gap. It runs at `error`.
 
 A block **opening the file** is exempt — that one documents the module, not
 whatever declaration happens to follow it. Put it above the first `import`.
+
+When line 1 must hold something else — a `// @vitest-environment` pragma, a
+`#!` shebang — put the module block directly under it, still above the first
+`import`. The rule never reads the comments in front of an import, so the block
+passes there and the first declaration keeps one block of its own
+(`cire/host/tests/lib/haptics.test.ts` has this shape). With no import between
+them, a module block on line 2 counts against the first declaration and the rule
+reports the pair.
 
 ## Length
 

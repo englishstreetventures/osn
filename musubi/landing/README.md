@@ -11,7 +11,7 @@ Pure brochure: no sign-in, no first-party API calls.
 ```bash
 bun run --cwd musubi/landing dev        # dev server on http://localhost:4324
 bun run --cwd musubi/landing build      # static build → dist/
-bun run --cwd musubi/landing check      # astro check (type-check)
+bun run --cwd musubi/landing typecheck  # tsc with the .astro content mapper
 bun run --cwd musubi/landing test:run   # vitest
 ```
 
