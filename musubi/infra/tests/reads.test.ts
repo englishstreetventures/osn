@@ -30,8 +30,6 @@ const UNSET_ON_DEV: Readonly<Record<string, string>> = {
   OSN_REFRESH_TOKEN_TTL: "defaults to 30 days (build-deps.ts); production sets none either",
   PORT: "read only by src/local.ts, the Bun dev server",
   PULSE_API_URL: "a deletion fan-out target; dev runs no pulse-api",
-  REDIS_REQUIRED: "read only by src/local.ts; the Worker reads Upstash's REST pair instead",
-  REDIS_URL: "read only by src/local.ts; the Worker reads Upstash's REST pair instead",
   RESEND_API_URL:
     "the local Resend emulator's origin; a deployed tier refuses to boot with it, and the inventory forbids it on dev",
   TRUSTED_PROXY_COUNT:

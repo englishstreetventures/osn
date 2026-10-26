@@ -377,8 +377,6 @@ jobs:
           OSN_TOTP_ENCRYPTION_KEY: ${{ secrets.OSN_TOTP_ENCRYPTION_KEY }}
           OSN_TOTP_ENCRYPTION_KEY_PREVIOUS: ${{ secrets.OSN_TOTP_ENCRYPTION_KEY_PREVIOUS }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-          UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
-          UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
           # Read by the stack for osn-api's seed, never uploaded, and none of
           # them secret: the cire_seed step's outputs.
           CIRE_API_ARC_KEY_ID: ${{ steps.cire_seed.outputs.key_id }}
