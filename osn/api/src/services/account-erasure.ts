@@ -474,10 +474,9 @@ export const runFanOut = (
  * has crossed `hard_delete_at` AND has both bridges done (or pre-marked
  * not-applicable). Returns the count of hard-deletes performed.
  *
- * Designed to be called on a `setInterval` (every 6 h in production) with
- * from the Worker cron. The function
- * itself is safe to run concurrently — each account is processed in its
- * own per-row transaction.
+ * Runs every 6 h: from the Worker's cron `scheduled` handler when deployed,
+ * and from a `setInterval` in the Bun dev server. Safe to run concurrently —
+ * each account is processed in its own per-row transaction.
  */
 export const runHardDeleteSweep = (
   opts: { batchSize?: number; nowMs?: number } = {},
