@@ -1,5 +1,11 @@
 # @utils/db
 
+## 0.9.0
+
+### Minor Changes
+
+- 5bf9d31: Add an Effect-native drizzle layer: `@shared/db-utils/effect/d1` for D1 (prepared-statement cache off, so every read picks its session). `@shared/db-utils/effect/batch` adds `commitEffectWrites`, an atomic write set on D1 that takes the database handle and goes out as one `D1Client.batch`. `driverErrorText` now also reads the errors inside an Effect `Cause`.
+
 ## 0.8.3
 
 ### Patch Changes

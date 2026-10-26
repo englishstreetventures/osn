@@ -1,5 +1,14 @@
 # @osn/osn
 
+## 3.29.17
+
+### Patch Changes
+
+- Updated dependencies [5bf9d31]
+  - @shared/db-utils@0.9.0
+  - @osn/db@0.24.14
+  - @shared/crypto@0.14.12
+
 ## 3.29.16
 
 ### Patch Changes
