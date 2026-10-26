@@ -18,6 +18,7 @@ import {
   CLOCK_T0,
   DB_FILES,
   DEV_LOGIN_SECRET,
+  E2E_RESEND_KEY,
   INTERNAL_SERVICE_SECRET,
   ORIGINS,
   PORTS,
@@ -127,7 +128,7 @@ export function appSpecs(): AppSpec[] {
         OSN_CORS_ORIGIN: [ORIGINS.musubi, ORIGINS.pulseWeb].join(","),
         INTERNAL_SERVICE_SECRET,
         PULSE_API_URL: ORIGINS.pulseApi,
-        RESEND_API_KEY: "re_e2e_local",
+        RESEND_API_KEY: E2E_RESEND_KEY,
         RESEND_API_URL: ORIGINS.mail,
         OSN_EMAIL_FROM: "Musubi <no-reply@e2e.test>",
         // The organiser signs in to cire's portal as the dev principal, which
