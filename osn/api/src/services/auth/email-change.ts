@@ -17,6 +17,7 @@ import {
   metricSessionSecurityInvalidation,
   withEmailChange,
 } from "../../metrics";
+import { countAttempt, restartAttempts } from "./attempts";
 import { MAX_OTP_ATTEMPTS } from "./constants";
 import type { AuthContext } from "./context";
 import { AuthError, type CoordinationError, DatabaseError, ValidationError } from "./errors";
@@ -32,10 +33,10 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
   const EMAIL_CHANGE_WINDOW_SECONDS = 7 * 24 * 60 * 60;
 
   /**
-   * Drop a pending change on a path that is already failing. The store is a
-   * network hop in production, and `Effect.promise` would turn a blip there
-   * into a defect — a 500 in place of the 4xx the caller has earned, and the
-   * outcome bucket the caller-facing failure was meant to record. The entry
+   * Drop a pending change on a path that is already failing, or one that has
+   * already committed. The store is a network hop in production, and a blip
+   * there must not replace the answer the caller has earned, nor the
+   * outcome bucket it was meant to record. The entry
    * carries a TTL, so losing the delete costs nothing but the wait.
    */
   const dropPending = (accountId: string) =>
@@ -138,12 +139,12 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
           {
             newEmail: normalised,
             codeHash: hashSessionToken(code),
-            attempts: 0,
             expiresAt: Date.now() + otpTtl * 1000,
           },
           otpTtl * 1000,
         ),
       );
+      yield* restartAttempts(stores.pendingEmailChanges, accountId);
 
       yield* logDevOtp("email-change", code);
 
@@ -198,20 +199,21 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
       if (!pending || Date.now() > pending.expiresAt) {
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
       }
+      // Counted before the code is read; see `attempts.ts`. The entry is
+      // deleted after the commit below, not claimed here, so a commit that
+      // fails leaves the code usable; the count and the commit's own checks
+      // keep two right codes from both landing.
+      const standing = yield* countAttempt(
+        stores.pendingEmailChanges,
+        accountId,
+        pending,
+        MAX_OTP_ATTEMPTS,
+      );
+      if (standing === "spent") {
+        return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
+      }
       if (!timingSafeEqualString(pending.codeHash, hashSessionToken(code))) {
-        // Persist the attempt bump + carry remaining TTL (store doesn't alias).
-        const attempts = pending.attempts + 1;
-        if (attempts >= MAX_OTP_ATTEMPTS) {
-          yield* dropPending(accountId);
-        } else {
-          yield* storeCall(stores.pendingEmailChanges, "set", () =>
-            stores.pendingEmailChanges.set(
-              accountId,
-              { ...pending, attempts },
-              Math.max(0, pending.expiresAt - Date.now()),
-            ),
-          );
-        }
+        if (standing === "last") yield* dropPending(accountId);
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
       }
 
@@ -324,9 +326,10 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
         );
       }
 
-      yield* storeCall(stores.pendingEmailChanges, "delete", () =>
-        stores.pendingEmailChanges.delete(accountId),
-      );
+      // The change has committed, so the answer is success whatever happens
+      // here; an entry the store cannot delete expires with its TTL.
+      yield* dropPending(accountId);
+      yield* restartAttempts(stores.pendingEmailChanges, accountId).pipe(Effect.ignore);
       metricSessionSecurityInvalidation("email_change");
       return { email: changed.email };
     }).pipe(withEmailChange("complete"));

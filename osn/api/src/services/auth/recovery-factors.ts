@@ -56,6 +56,7 @@ import {
   withAuthLogin,
   withAuthRecovery,
 } from "../../metrics";
+import { claimEntry, countAttempt, restartAttempts } from "./attempts";
 import {
   MAX_OTP_ATTEMPTS,
   RECOVERY_COOLDOWN_MS,
@@ -74,7 +75,7 @@ import {
   looksLikeEmail,
   normaliseIdentifier,
   parseDisownToken,
-  probeAccountId,
+  recoveryProbeKey,
 } from "./helpers";
 import type { ProfilesModule } from "./profiles";
 import type { SecurityEventsModule } from "./security-events";
@@ -153,39 +154,60 @@ export function createRecoveryFactorsModule(
     return `${origin}/recovery/disown#token=${encodeURIComponent(token)}`;
   };
 
-  /**
-   * Burn one ceremony-store read without creating anything.
+  /*
+   * Padding. The branches that must not be told apart pay for the store calls
+   * the costliest of them makes, with the SAME operation on the SAME store, at
+   * `recoveryProbeKey(identifier)` — the key derived from what the caller
+   * submitted, the same length as an account id, and the same object on every
+   * request that names that identifier. A Durable Object call's cost depends on
+   * whether it reads or writes and on whether the object was used a moment
+   * ago, so a read standing in for a write, or a fresh random key, would each
+   * leave a difference a stopwatch can find.
    *
-   * The unknown-identifier branches use this to pay for the store round trips a
-   * resolving caller makes, so response latency does not separate an address
-   * that names an account from one that does not. `probeAccountId` is a fresh
-   * random id per call (never a fixed sentinel an attacker could seed a row
-   * under — see its docstring), so the read is guaranteed to miss at the same
-   * indexed cost as a real one.
-   *
-   * A READ, deliberately. The obvious alternative — running the real cap check
-   * or the real lockout against a probe id — writes a counter key per probe
-   * request, each with a multi-hour TTL, which turns a latency-equalising
-   * measure into unbounded key growth driven by an unauthenticated endpoint.
+   * The writes leave small entries behind under probe keys; each expires with
+   * the TTL the real one would have, and the per-IP limits on these routes
+   * bound how many identifiers a caller can name.
    */
-  const burnProbeRead = (): Effect.Effect<void, CoordinationError> =>
-    storeCall(stores.pendingRecoveryOtp, "get", () =>
-      stores.pendingRecoveryOtp.get(probeAccountId()),
+
+  /** Read the pending-code entry at `key`; the value is not used. */
+  const padRead = (key: string): Effect.Effect<void, CoordinationError> =>
+    storeCall(stores.pendingRecoveryOtp, "get", () => stores.pendingRecoveryOtp.get(key)).pipe(
+      Effect.asVoid,
+    );
+
+  /** Count a guess at `key` without anything depending on the count. */
+  const padAttempt = (key: string): Effect.Effect<void, CoordinationError> =>
+    storeCall(stores.pendingRecoveryOtp, "recordAttempt", () =>
+      stores.pendingRecoveryOtp.recordAttempt(key, RECOVERY_OTP_TTL_MS),
     ).pipe(Effect.asVoid);
 
+  /** Read the lockout counter at `key`. Never fails: an unreadable one is "unknown". */
+  const padLockoutRead = (key: string): Effect.Effect<void> =>
+    Effect.promise(() => recoveryOtpLockoutStore.status(key)).pipe(Effect.asVoid);
+
+  /** Record a failure at `key`. Never fails, as above. */
+  const padFailure = (key: string): Effect.Effect<void> =>
+    Effect.promise(() => recoveryOtpLockoutStore.recordFailure(key)).pipe(Effect.asVoid);
+
   /**
-   * The same, one store along: burn a round trip on the lockout counter.
-   *
-   * `completeEmailRecovery` touches two stores, so equalising hops on one of
-   * them is not enough — the padding has to be able to reach both. `status`
-   * is a read; `recordFailure`, the hop it usually stands in for, is a write.
-   * That substitution is deliberate and is the same trade {@link burnProbeRead}
-   * documents: what a caller can time is the number of round trips, not what
-   * each one did, and a write against a probe id leaves a counter key with a
-   * fifteen-minute TTL behind for every probe.
+   * Park an entry, and restart its guess count, at `key` — what a sent
+   * `begin` does to the real key. The value has the real entry's shape and
+   * holds a random hash no code matches.
    */
-  const burnLockoutRead = (): Effect.Effect<void> =>
-    Effect.promise(() => recoveryOtpLockoutStore.status(probeAccountId())).pipe(Effect.asVoid);
+  const padPark = (key: string): Effect.Effect<void, CoordinationError> =>
+    Effect.gen(function* () {
+      yield* storeCall(stores.pendingRecoveryOtp, "set", () =>
+        stores.pendingRecoveryOtp.set(
+          key,
+          {
+            codeHash: hashSessionToken(genOtpCode() + genId("")),
+            expiresAt: Date.now() + RECOVERY_OTP_TTL_MS,
+          },
+          RECOVERY_OTP_TTL_MS,
+        ),
+      );
+      yield* restartAttempts(stores.pendingRecoveryOtp, key);
+    });
 
   /**
    * Send the recovery code, off the request's latency path.
@@ -232,8 +254,9 @@ export function createRecoveryFactorsModule(
    * from an unknown address from an account that has hit its cap, and the three
    * branches are told apart only on a dashboard.
    *
-   * **Two store round trips on all three**, which is what the sent branch costs
-   * (the cap check, then the entry write). The other two are padded up to it.
+   * **The same three store calls on all three**, which is what the sent branch
+   * makes: the cap check, the entry write, the guess-count restart. The other
+   * two make the same calls at the probe key (see "Padding" above).
    *
    * The identifier must be an **email address**: this endpoint puts mail in
    * somebody's inbox, and a handle is public, so accepting one would turn a
@@ -258,16 +281,16 @@ export function createRecoveryFactorsModule(
       }
 
       const profile = yield* resolveIdentifier(normalised);
+      const probe = recoveryProbeKey(normalised);
       if (!profile) {
-        // Match the resolving branch's two store round trips — one standing in
-        // for the cap check, one for the entry write — so the branches cost the
-        // same. Parity is APPROXIMATE, not exact, exactly as
-        // `consumeRecoveryCode` concedes for its own: the resolving branch also
-        // runs `genOtpCode` and a SHA-256, both sub-microsecond and both dwarfed
-        // by a single store hop. What the detached send removes is the term that
-        // actually mattered.
-        yield* burnProbeRead();
-        yield* burnProbeRead();
+        // The sent branch's calls, at the probe key: the cap check, the entry
+        // write, the count restart. Parity is APPROXIMATE, not exact, exactly
+        // as `consumeRecoveryCode` concedes for its own: the resolving branch
+        // also runs `genOtpCode` and a SHA-256, both sub-microsecond and both
+        // dwarfed by a single store hop. What the detached send removes is the
+        // term that actually mattered.
+        yield* Effect.promise(() => recoveryEmailBeginCap.check(probe));
+        yield* padPark(probe);
         metricRecoveryEmailBegin("unknown_identifier");
         return ACCEPTED;
       }
@@ -281,13 +304,13 @@ export function createRecoveryFactorsModule(
         // code the user is already holding from an earlier send — a denial of
         // service on the account holder, dressed as flood control.
         //
-        // The probe read stands in for the entry write skipped just above, so
-        // this branch still costs two round trips. Without it, a fourth request
+        // The write and the restart happen at the probe key instead, so this
+        // branch makes the sent branch's calls. Without them, a fourth request
         // for an address whose allowance is spent answers measurably sooner
         // than one for an address that names nobody — which confirms the
         // address is real, and the cap becomes the oracle the uniform 202 was
         // there to prevent.
-        yield* burnProbeRead();
+        yield* padPark(probe);
         metricRecoveryEmailBegin("capped");
         return ACCEPTED;
       }
@@ -296,14 +319,12 @@ export function createRecoveryFactorsModule(
       yield* storeCall(stores.pendingRecoveryOtp, "set", () =>
         stores.pendingRecoveryOtp.set(
           profile.accountId,
-          {
-            codeHash: hashSessionToken(code),
-            attempts: 0,
-            expiresAt: Date.now() + RECOVERY_OTP_TTL_MS,
-          },
+          { codeHash: hashSessionToken(code), expiresAt: Date.now() + RECOVERY_OTP_TTL_MS },
           RECOVERY_OTP_TTL_MS,
         ),
       );
+      // A new code starts a new guess count.
+      yield* restartAttempts(stores.pendingRecoveryOtp, profile.accountId);
 
       // Inert unless the runtime tier is `local` — the same helper the
       // registration, step-up and email-change ceremonies use, and the only way
@@ -465,11 +486,12 @@ export function createRecoveryFactorsModule(
    * `begin`, which sends mail; this route sends nothing, and answers the same
    * generic failure to anyone not holding the code.
    *
-   * **Four store round trips on every branch** — two on the pending-code store,
-   * two on the lockout counter — whether the identifier resolves, whether the
-   * account is locked, whether a code is pending and whether the code is right.
-   * That is what a wrong code against a live entry costs, and it is the most any
-   * branch costs, so every other branch is padded up to it.
+   * **The same four store calls on every refusal** — the lockout lookup, the
+   * entry read, the guess count, the failure record — whether the identifier
+   * resolves, whether the account is locked, whether a code is pending and
+   * whether the code is wrong. That is what a wrong code against a live entry
+   * makes, and it is the most any refusal makes, so every other refusal makes
+   * the same calls at the probe key (see "Padding" above).
    *
    * Uniform bodies are not the whole guard. `begin` answers 202 for an address
    * that names nobody and parks a code for one that does; call it, then call
@@ -490,20 +512,20 @@ export function createRecoveryFactorsModule(
     Effect.gen(function* () {
       const normalised = normaliseIdentifier(identifier);
       const profile = yield* resolveIdentifier(normalised);
+      const probe = recoveryProbeKey(normalised);
 
       // Hashed up front on every branch so both pay the same SHA-256, whether or
       // not there is anything to compare it against.
       const codeHash = hashSessionToken(code);
 
       if (!profile) {
-        // The four hops the wrong-code branch makes, in the order it makes
-        // them: the lockout lookup, the entry read, the attempt write, the
-        // failure record. Two of the four are reads standing in for writes —
-        // see `burnLockoutRead`.
-        yield* burnLockoutRead();
-        yield* burnProbeRead();
-        yield* burnProbeRead();
-        yield* burnLockoutRead();
+        // The wrong-code branch's four calls, at the probe key, in its order:
+        // the lockout lookup, the entry read, the guess count, the failure
+        // record.
+        yield* padLockoutRead(probe);
+        yield* padRead(probe);
+        yield* padAttempt(probe);
+        yield* padFailure(probe);
         return yield* Effect.fail(new AuthError({ message: GENERIC_FAILURE }));
       }
 
@@ -514,17 +536,16 @@ export function createRecoveryFactorsModule(
         recoveryOtpLockoutStore.status(profile.accountId),
       );
       if (lockout !== "open") {
-        // Read anyway, and pad to four, and answer the same generic failure: a
-        // locked account must be indistinguishable from a wrong code, or the
-        // lockout becomes its own oracle — and one an attacker can create at
-        // will, by spending the account's attempts first. A counter that
-        // cannot be read pays the same four, or a store fault would answer a
-        // real account sooner than an identifier that names nobody.
-        yield* storeCall(stores.pendingRecoveryOtp, "get", () =>
-          stores.pendingRecoveryOtp.get(profile.accountId),
-        );
-        yield* burnProbeRead();
-        yield* burnLockoutRead();
+        // Read anyway, pad to the four calls, and answer the same generic
+        // failure: a locked account must be indistinguishable from a wrong
+        // code, or the lockout becomes its own oracle — and one an attacker can
+        // create at will, by spending the account's attempts first. A counter
+        // that cannot be read pays the same, or a store fault would answer a
+        // real account sooner than an identifier that names nobody. The count
+        // and the failure go to the probe key: neither is a guess at a code.
+        yield* padRead(profile.accountId);
+        yield* padAttempt(probe);
+        yield* padFailure(probe);
         metricRecoveryLockout(lockout === "locked" ? "locked" : "unavailable");
         return yield* Effect.fail(new AuthError({ message: GENERIC_FAILURE }));
       }
@@ -541,31 +562,30 @@ export function createRecoveryFactorsModule(
         // It still has to COST what counting one costs. Otherwise "no code
         // pending" is timeable, and since `begin` parks a code only for an
         // address that resolves, that is the account-existence oracle again by
-        // another route.
-        yield* burnProbeRead();
-        yield* burnLockoutRead();
+        // another route. So the count and the failure happen at the probe key.
+        yield* padAttempt(probe);
+        yield* padFailure(probe);
         return yield* Effect.fail(new AuthError({ message: GENERIC_FAILURE }));
       }
 
-      if (!timingSafeEqualString(entry.codeHash, codeHash)) {
-        const attempts = entry.attempts + 1;
-        if (attempts >= MAX_OTP_ATTEMPTS) {
-          yield* storeCall(stores.pendingRecoveryOtp, "delete", () =>
-            stores.pendingRecoveryOtp.delete(profile.accountId),
-          );
-        } else {
-          yield* storeCall(stores.pendingRecoveryOtp, "set", () =>
-            stores.pendingRecoveryOtp.set(
-              profile.accountId,
-              { ...entry, attempts },
-              Math.max(0, entry.expiresAt - Date.now()),
-            ),
-          );
-        }
-        // The per-entry cap and this counter coincide on the first entry by
-        // construction (both are 5). What the counter adds is the SECOND and
-        // THIRD entries: without it the 3-per-24h send cap would still allow
-        // fifteen guesses inside the lockout window.
+      // Counted before the code is read; see `attempts.ts`. Unlike the other
+      // ceremonies, the guess that reaches the cap does not delete the entry:
+      // the count already refuses every guess after it, and a delete there
+      // would be a fifth call only that guess makes. A new `begin` replaces the
+      // entry and restarts the count.
+      const standing = yield* countAttempt(
+        stores.pendingRecoveryOtp,
+        profile.accountId,
+        entry,
+        MAX_OTP_ATTEMPTS,
+      );
+
+      if (standing === "spent" || !timingSafeEqualString(entry.codeHash, codeHash)) {
+        // The guess count caps guesses per code; this counter caps them per
+        // account. They coincide on the first code by construction (both are
+        // 5). What the counter adds is the SECOND and THIRD codes: without it
+        // the 3-per-24h send cap would still allow fifteen guesses inside the
+        // lockout window.
         const failures = yield* Effect.promise(() =>
           recoveryOtpLockoutStore.recordFailure(profile.accountId),
         );
@@ -581,9 +601,10 @@ export function createRecoveryFactorsModule(
         return yield* Effect.fail(new AuthError({ message: GENERIC_FAILURE }));
       }
 
-      yield* storeCall(stores.pendingRecoveryOtp, "delete", () =>
-        stores.pendingRecoveryOtp.delete(profile.accountId),
-      );
+      // Of two right codes sent at once, exactly one claims the entry.
+      if (!(yield* claimEntry(stores.pendingRecoveryOtp, profile.accountId))) {
+        return yield* Effect.fail(new AuthError({ message: GENERIC_FAILURE }));
+      }
       yield* Effect.promise(() => recoveryOtpLockoutStore.reset(profile.accountId));
       metricRecoveryLockout("reset");
 
@@ -669,7 +690,7 @@ export function createRecoveryFactorsModule(
         // drift. It runs the lockout lookup, the credential query and the
         // dummy-key verification against a probe id; no counter is written,
         // because a probe must not leave a lockout key behind.
-        yield* burnTotpCheckCost(code);
+        yield* burnTotpCheckCost(code, recoveryProbeKey(normalised));
         return yield* Effect.fail(new AuthError({ message: GENERIC_FAILURE }));
       }
 

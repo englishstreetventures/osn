@@ -584,7 +584,6 @@ describe("beginRegistration + completeRegistration", () => {
               handle: "racewinner",
               displayName: null,
               codeHash: hashSessionToken(winner),
-              attempts: 0,
               expiresAt: Date.now() + 600_000,
             },
             600_000,

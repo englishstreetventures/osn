@@ -9,6 +9,7 @@
  * |---|---|
  * | rate limiters, per-account caps | `increment` in a fixed window; a failed call denies |
  * | ceremony `set` / `get` / `delete` / `consume` | `write` (JSON) / `read` / `remove` / `remove` |
+ * | ceremony `recordAttempt` / `clearAttempts` | `increment` / `remove`, on `<store>-attempts` |
  * | step-up token guard | `claim` |
  * | lockout `status` / `recordFailure` / `reset` | `count` / `increment` / `remove` |
  *
@@ -98,11 +99,17 @@ export function createDurableCeremonyStore<V>(
   onError: CoordinationErrorReporter,
 ): CeremonyStore<V> {
   const store = client(ns, name, onError);
+  // Guesses are counted on their own objects, so a `set` never resets a count.
+  const guesses = client(ns, `${name}-attempts`, onError);
   const op = (kind: "set" | "get" | "delete") =>
     metricCeremonyStoreOp({ op: kind, namespace: name, backend: "durable_object" });
   return {
     backend: "durable_object",
     namespace: name,
+    recordAttempt: (key, windowMs) => guesses.increment(key, windowMs),
+    async clearAttempts(key) {
+      await guesses.remove(key);
+    },
     async set(key, value, ttlMs) {
       op("set");
       await store.write(key, JSON.stringify(value), ttlMs);

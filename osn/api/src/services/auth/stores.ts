@@ -109,7 +109,6 @@ export interface PendingRegistration {
   handle: string;
   displayName: string | null;
   codeHash: string;
-  attempts: number;
   expiresAt: number;
 }
 
@@ -143,7 +142,6 @@ export interface CrossDeviceRequest {
 // versa. Structure matches OtpEntry but without profileId (accountId is the key).
 export interface StepUpOtpEntry {
   codeHash: string;
-  attempts: number;
   expiresAt: number;
 }
 
@@ -162,7 +160,6 @@ export interface StepUpOtpEntry {
  */
 export interface PendingRecoveryOtp {
   codeHash: string;
-  attempts: number;
   expiresAt: number;
 }
 
@@ -186,7 +183,6 @@ export interface PendingTotpEnrollment {
   ciphertextB64: string;
   ivB64: string;
   keyVersion: number;
-  attempts: number;
   expiresAt: number;
 }
 
@@ -196,7 +192,6 @@ export interface PendingTotpEnrollment {
 export interface PendingEmailChange {
   newEmail: string;
   codeHash: string;
-  attempts: number;
   expiresAt: number;
 }
 

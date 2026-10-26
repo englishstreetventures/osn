@@ -48,10 +48,11 @@ import {
   withTotpOp,
   type TotpLockoutScope,
 } from "../../metrics";
+import { claimEntry, countAttempt, restartAttempts, spendEntry } from "./attempts";
 import { TOTP_ENROLL_TTL_MS, TOTP_LOCKOUT_THRESHOLD, TOTP_MAX_ENROLL_ATTEMPTS } from "./constants";
 import type { AuthContext } from "./context";
 import { AuthError, type CoordinationError, DatabaseError } from "./errors";
-import { genId, probeAccountId } from "./helpers";
+import { genId } from "./helpers";
 import type { SecurityEventsModule } from "./security-events";
 import type { StepUpModule } from "./step-up";
 import { storeCall } from "./store-call";
@@ -240,13 +241,13 @@ export function createTotpModule(
       const lockout = yield* Effect.promise(() => totpLockoutStore.status(key));
       if (lockout !== "open") {
         // Refused without checking the code, at what a wrong code costs: the
-        // credential query, a verification against the dummy key, and a
-        // lockout read standing in for the failure record. Otherwise a locked
-        // account, or a store fault, would answer a real account sooner than
-        // an identifier that names nobody (`burnTotpCheckCost`).
+        // credential query, a verification against the dummy key, and the
+        // failure record — a refused attempt is a failed one. Otherwise a
+        // locked account, or a store fault, would answer a real account sooner
+        // than an identifier that names nobody (`burnTotpCheckCost`).
         yield* confirmedCredential(accountId);
         yield* Effect.promise(() => verifyTotpCode({ secret: new Uint8Array(0), code }));
-        yield* Effect.promise(() => totpLockoutStore.status(key));
+        yield* Effect.promise(() => totpLockoutStore.recordFailure(key));
         if (lockout === "locked") {
           metricTotpLockout("locked", scope);
           metricTotpVerified("locked_out");
@@ -353,25 +354,23 @@ export function createTotpModule(
    *
    * It runs the same sequence the real check runs — the configuration check,
    * the lockout lookup, the credential query, a verification against the dummy
-   * key — against a fresh probe id that matches nothing. The two are next to
-   * each other on purpose: a round trip added to one belongs in the other.
-   *
-   * Reads only. `checkTotpCode`'s last hop on a failure is `recordFailure`, a
-   * WRITE, and standing in for it with a second read is deliberate. What a
-   * caller can time is the number of round trips, not what each one did, and a
-   * write against a probe id would leave a counter key with a lockout-length
-   * TTL behind for every probe — unbounded key growth driven by an
-   * unauthenticated route. Same reasoning as {@link probeAccountId}.
+   * key, the failure record — against `probe`, the caller's
+   * `recoveryProbeKey`, which matches no account. The same operations, not
+   * reads standing in for writes: a Durable Object write costs more than a
+   * read, and a stopwatch can tell. The two are next to each other on purpose:
+   * a round trip added to one belongs in the other.
    */
-  const burnTotpCheckCost = (code: string): Effect.Effect<void, AuthError | DatabaseError, Db> =>
+  const burnTotpCheckCost = (
+    code: string,
+    probe: string,
+  ): Effect.Effect<void, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
       yield* keyRing();
-      const probe = probeAccountId();
       const key = lockoutKey(probe, "recovery");
       yield* Effect.promise(() => totpLockoutStore.status(key));
       yield* confirmedCredential(probe);
       yield* Effect.promise(() => verifyTotpCode({ secret: new Uint8Array(0), code }));
-      yield* Effect.promise(() => totpLockoutStore.status(key));
+      yield* Effect.promise(() => totpLockoutStore.recordFailure(key));
     });
 
   /**
@@ -420,10 +419,11 @@ export function createTotpModule(
       yield* storeCall(stores.pendingTotpEnrollments, "set", () =>
         stores.pendingTotpEnrollments.set(
           accountId,
-          { ...toJsonSafe(encrypted), attempts: 0, expiresAt: Date.now() + TOTP_ENROLL_TTL_MS },
+          { ...toJsonSafe(encrypted), expiresAt: Date.now() + TOTP_ENROLL_TTL_MS },
           TOTP_ENROLL_TTL_MS,
         ),
       );
+      yield* restartAttempts(stores.pendingTotpEnrollments, accountId);
 
       // The only response in the service that carries secret material. The
       // field names match the logger deny-list entries (`totpSecret`,
@@ -462,6 +462,17 @@ export function createTotpModule(
       if (!pending || Date.now() > pending.expiresAt) {
         return yield* Effect.fail(new AuthError({ message: GENERIC_CODE_FAILURE }));
       }
+      // Counted before the code is read; see `attempts.ts`.
+      const standing = yield* countAttempt(
+        stores.pendingTotpEnrollments,
+        accountId,
+        pending,
+        TOTP_MAX_ENROLL_ATTEMPTS,
+      );
+      if (standing === "spent") {
+        metricTotpVerified("invalid");
+        return yield* Effect.fail(new AuthError({ message: GENERIC_CODE_FAILURE }));
+      }
 
       const existing = yield* confirmedCredential(accountId);
       if (existing) {
@@ -477,27 +488,16 @@ export function createTotpModule(
 
       const matched = yield* Effect.promise(() => verifyTotpCode({ secret: opened.secret, code }));
       if (!matched) {
-        const attempts = pending.attempts + 1;
-        if (attempts >= TOTP_MAX_ENROLL_ATTEMPTS) {
-          yield* storeCall(stores.pendingTotpEnrollments, "delete", () =>
-            stores.pendingTotpEnrollments.delete(accountId),
-          );
-        } else {
-          yield* storeCall(stores.pendingTotpEnrollments, "set", () =>
-            stores.pendingTotpEnrollments.set(
-              accountId,
-              { ...pending, attempts },
-              Math.max(0, pending.expiresAt - Date.now()),
-            ),
-          );
-        }
+        if (standing === "last") yield* spendEntry(stores.pendingTotpEnrollments, accountId);
         metricTotpVerified("invalid");
         return yield* Effect.fail(new AuthError({ message: GENERIC_CODE_FAILURE }));
       }
 
-      yield* storeCall(stores.pendingTotpEnrollments, "delete", () =>
-        stores.pendingTotpEnrollments.delete(accountId),
-      );
+      // Of two right codes sent at once, exactly one claims the pending secret.
+      if (!(yield* claimEntry(stores.pendingTotpEnrollments, accountId))) {
+        metricTotpVerified("invalid");
+        return yield* Effect.fail(new AuthError({ message: GENERIC_CODE_FAILURE }));
+      }
 
       const { db } = yield* Db;
       const nowSec = Math.floor(Date.now() / 1000);

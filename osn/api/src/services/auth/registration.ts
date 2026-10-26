@@ -14,6 +14,7 @@ import { Effect, Schema } from "effect";
 
 import { UNIQUE_CONSTRAINT_ERROR } from "../../lib/unique-constraint";
 import { metricAuthHandleCheck, metricAuthOtpSent, withAuthRegister } from "../../metrics";
+import { countAttempt, restartAttempts, spendEntry } from "./attempts";
 import { MAX_OTP_ATTEMPTS, MIN_AGE_YEARS, RESERVED_HANDLES } from "./constants";
 import type { AuthContext } from "./context";
 import {
@@ -327,12 +328,12 @@ export function createRegistrationModule(
             handle,
             displayName: displayName ?? null,
             codeHash,
-            attempts: 0,
             expiresAt: Date.now() + otpTtl * 1000,
           },
           otpTtl * 1000,
         ),
       );
+      yield* restartAttempts(stores.pendingRegistrations, normalisedEmail);
 
       yield* logDevOtp("registration", code);
 
@@ -413,24 +414,21 @@ export function createRegistrationModule(
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
       }
 
+      // Counted before the code is read; see `attempts.ts`. The entry is
+      // deleted after the insert below, not claimed here, so an insert that
+      // loses a race leaves the code usable; the count and the UNIQUE
+      // constraints keep two right codes from both registering.
+      const standing = yield* countAttempt(
+        stores.pendingRegistrations,
+        key,
+        pending,
+        MAX_OTP_ATTEMPTS,
+      );
+      if (standing === "spent") {
+        return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
+      }
       if (!timingSafeEqualString(pending.codeHash, hashSessionToken(code))) {
-        // Increment the attempt counter; wipe after too many guesses. The
-        // store does not alias the returned value, so persist the bump back
-        // (and carry the remaining TTL so the entry still expires on schedule).
-        const attempts = pending.attempts + 1;
-        if (attempts >= MAX_OTP_ATTEMPTS) {
-          yield* storeCall(stores.pendingRegistrations, "delete", () =>
-            stores.pendingRegistrations.delete(key),
-          );
-        } else {
-          yield* storeCall(stores.pendingRegistrations, "set", () =>
-            stores.pendingRegistrations.set(
-              key,
-              { ...pending, attempts },
-              Math.max(0, pending.expiresAt - Date.now()),
-            ),
-          );
-        }
+        if (standing === "last") yield* spendEntry(stores.pendingRegistrations, key);
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
       }
 
@@ -488,10 +486,11 @@ export function createRegistrationModule(
         return yield* Effect.fail(new AuthError({ message: "Email or handle already registered" }));
       }
 
-      // Success: only NOW delete the pending entry.
-      yield* storeCall(stores.pendingRegistrations, "delete", () =>
-        stores.pendingRegistrations.delete(key),
-      );
+      // Success: only NOW delete the pending entry, and its guess count. The
+      // account exists whatever happens here, so a store fault is not the
+      // caller's answer; an entry left behind expires with its TTL.
+      yield* spendEntry(stores.pendingRegistrations, key).pipe(Effect.ignore);
+      yield* restartAttempts(stores.pendingRegistrations, key).pipe(Effect.ignore);
 
       const issued = yield* issueTokens(
         id,

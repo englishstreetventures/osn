@@ -53,6 +53,17 @@ export interface CeremonyStore<V> {
    * rather than assuming it.
    */
   consume(key: string): Promise<boolean>;
+  /**
+   * Count one guess against the entry at `key`, in a counter kept apart from
+   * the entry, and return the count. Atomic: guesses sent at once each get
+   * their own number. The first guess opens a window of `windowMs` (a whole
+   * number of milliseconds, at least 1) — callers pass the entry's remaining
+   * life — and the count resets only when the window ends or
+   * {@link clearAttempts} runs.
+   */
+  recordAttempt(key: string, windowMs: number): Promise<number>;
+  /** Drop the guess counter for `key`. Idempotent. */
+  clearAttempts(key: string): Promise<void>;
 }
 
 /** Hard ceiling on in-memory entries per store — belt to the TTL-sweep braces. */
@@ -82,6 +93,8 @@ export function createInMemoryCeremonyStore<V>(
   observer: CeremonyStoreObserver = {},
 ): CeremonyStore<V> {
   const entries = new Map<string, MemoryEntry<V>>();
+  // Guess counters, kept apart from the entries so a `set` never resets one.
+  const attempts = new Map<string, { count: number; expiresAt: number }>();
   let lastSweepMs = 0;
 
   function sweepExpired(): void {
@@ -91,6 +104,9 @@ export function createInMemoryCeremonyStore<V>(
         entries.delete(k);
         observer.onEntryDelta?.(-1, namespace);
       }
+    }
+    for (const [k, counter] of attempts) {
+      if (counter.expiresAt <= nowMs) attempts.delete(k);
     }
   }
 
@@ -148,6 +164,26 @@ export function createInMemoryCeremonyStore<V>(
       observer.onEntryDelta?.(-1, namespace);
       // An entry past its TTL is not a live claim, so removing it wins nothing.
       return entry.expiresAt > Date.now();
+    },
+    // No `await` between the read and the write, so two guesses can never
+    // read the same count.
+    async recordAttempt(key, windowMs) {
+      const nowMs = Date.now();
+      const counter = attempts.get(key);
+      if (!counter || counter.expiresAt <= nowMs) {
+        if (attempts.size >= CEREMONY_STORE_MAX) {
+          sweepExpired();
+          const oldest = attempts.keys().next().value as string | undefined;
+          if (attempts.size >= CEREMONY_STORE_MAX && oldest !== undefined) attempts.delete(oldest);
+        }
+        attempts.set(key, { count: 1, expiresAt: nowMs + windowMs });
+        return 1;
+      }
+      counter.count += 1;
+      return counter.count;
+    },
+    async clearAttempts(key) {
+      attempts.delete(key);
     },
   };
 }

@@ -35,6 +35,7 @@ import {
   metricStepUpVerified,
   withStepUp,
 } from "../../metrics";
+import { claimEntry, countAttempt, restartAttempts, spendEntry } from "./attempts";
 import {
   CHALLENGE_TTL_MS,
   MAX_OTP_ATTEMPTS,
@@ -583,14 +584,11 @@ export function createStepUpModule(ctx: AuthContext) {
       yield* storeCall(stores.stepUpOtp, "set", () =>
         stores.stepUpOtp.set(
           accountId,
-          {
-            codeHash: hashSessionToken(code),
-            attempts: 0,
-            expiresAt: Date.now() + otpTtl * 1000,
-          },
+          { codeHash: hashSessionToken(code), expiresAt: Date.now() + otpTtl * 1000 },
           otpTtl * 1000,
         ),
       );
+      yield* restartAttempts(stores.stepUpOtp, accountId);
       yield* logDevOtp("step-up", code);
       const email = yield* EmailService;
       yield* email
@@ -626,24 +624,19 @@ export function createStepUpModule(ctx: AuthContext) {
       if (!entry || Date.now() > entry.expiresAt) {
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
       }
-      if (!timingSafeEqualString(entry.codeHash, hashSessionToken(code))) {
-        // O3: persist the attempt bump (store does not alias the value) and
-        // carry the remaining TTL so the entry expires on its original schedule.
-        const attempts = entry.attempts + 1;
-        if (attempts >= MAX_OTP_ATTEMPTS) {
-          yield* storeCall(stores.stepUpOtp, "delete", () => stores.stepUpOtp.delete(accountId));
-        } else {
-          yield* storeCall(stores.stepUpOtp, "set", () =>
-            stores.stepUpOtp.set(
-              accountId,
-              { ...entry, attempts },
-              Math.max(0, entry.expiresAt - Date.now()),
-            ),
-          );
-        }
+      // Counted before the code is read; see `attempts.ts`.
+      const standing = yield* countAttempt(stores.stepUpOtp, accountId, entry, MAX_OTP_ATTEMPTS);
+      if (standing === "spent") {
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
       }
-      yield* storeCall(stores.stepUpOtp, "delete", () => stores.stepUpOtp.delete(accountId));
+      if (!timingSafeEqualString(entry.codeHash, hashSessionToken(code))) {
+        if (standing === "last") yield* spendEntry(stores.stepUpOtp, accountId);
+        return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
+      }
+      // Of two right codes sent at once, exactly one claims the entry.
+      if (!(yield* claimEntry(stores.stepUpOtp, accountId))) {
+        return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
+      }
       const stepUpToken = yield* issueStepUpToken(accountId, "otp", purpose);
       return { stepUpToken, expiresIn: stepUpTokenTtl };
     }).pipe(withStepUp("complete"));

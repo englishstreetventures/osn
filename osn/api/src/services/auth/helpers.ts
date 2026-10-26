@@ -32,6 +32,24 @@ export function probeAccountId(): string {
 }
 
 /**
+ * The store key a recovery ceremony pads with for `normalisedIdentifier`: the
+ * same for every request naming that identifier, and the same length as an
+ * account id (`acc_` + 12 hex), so a padding call reaches an object of the
+ * same name shape and the same age as the one a real account's call reaches.
+ * A fresh random key per request would always reach a new object, and a new
+ * object answers measurably slower than one used a moment ago.
+ *
+ * The `prb_` prefix keeps it from ever naming a real account's entry. It is
+ * used only for store calls that pad, never as an account id.
+ */
+export function recoveryProbeKey(normalisedIdentifier: string): string {
+  const digest = createHash("sha256")
+    .update(`recovery-probe:${normalisedIdentifier}`)
+    .digest("hex");
+  return `prb_${digest.slice(0, 12)}`;
+}
+
+/**
  * The two halves of a disown token, plus the joined form that goes in the mail.
  * `lookupId` keys the store; `secret` is what is compared, in constant time,
  * against the stored hash.
