@@ -1,5 +1,14 @@
 # @osn/osn
 
+## 3.30.2
+
+### Patch Changes
+
+- Updated dependencies [e54a834]
+  - @shared/db-utils@0.9.1
+  - @osn/db@0.24.15
+  - @shared/crypto@0.14.13
+
 ## 3.30.1
 
 ### Patch Changes

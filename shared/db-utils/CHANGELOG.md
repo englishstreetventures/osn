@@ -1,5 +1,11 @@
 # @utils/db
 
+## 0.9.1
+
+### Patch Changes
+
+- e54a834: `insertManyViaJsonEach` accepts only the table's own columns as row keys. Any other key, `constructor`, `toString`, `__proto__` and the other `Object.prototype` names included, throws "is not a column of this table".
+
 ## 0.9.0
 
 ### Minor Changes
