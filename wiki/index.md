@@ -8,7 +8,7 @@ related:
   - "[[osn-and-musubi]]"
   - "[[monorepo-structure]]"
   - "[[compliance/index]]"
-last-reviewed: 2026-10-26
+last-reviewed: 2026-10-27
 ---
 
 # OSN Wiki
@@ -38,15 +38,15 @@ Applies to every product: architecture, platform systems, observability, deploys
 - [[d1-limits]] — D1's 100 bound parameters and 5 compound-select terms, and why `bun:sqlite` never sees either
 - [[d1-read-replication]] — the Sessions API, why every request opens one `first-primary` session, and how to turn replicas on
 - [[platform-limits]] — MAX_EVENT_GUESTS and other caps
-- [[redis]] — Redis-backed rate limiters + cluster-safe auth state stores
+- [[coordination-store]] — `@shared/coordination`: osn-api's short-lived shared state (long-window limiters, ceremonies, single-use claims, lockouts) on one Durable Object per key, its failure posture, cost and health probe
 - [[toast]] — `@shared/toast`, the `--toast-*` theming contract, and contrast on the surface a toast actually sits on
 - [[realtime]] — `@shared/realtime`: invalidation signals over WebSocket, the per-topic Durable Object hub, and how a product adopts it
 - [[database-environments]] — four DB environments (local bun:sqlite / dev·staging·prod D1), driver-agnostic Drizzle seam, D1 transaction caveat
 - [[dev-environment]] — the dev tier in its own Cloudflare account: tier map, how a merge deploys dev through the Alchemy stacks, how a change reaches production, bootstrapping the dev account, and working on dev by hand
 - [[production-deploy]] — production runbook for osn-api + the cire stack (secret/var checklist, migrations, the daily production release and its one approval, smoke checks)
 - [[infrastructure-as-code]] — Alchemy and `@shared/infra`: the dev and production accounts, the Worker and storage builders, stage rules, the secret inventory and its checks, the state store, and the four stacks that deploy the dev tier
-- [[free-tier-limits]] — provider free-tier ceilings (Upstash / Workers / D1 / Pages / Turnstile / WAF), what breaks at each cap, the unavailability playbook, and the Cloudflare security-hardening TODO
-- [[rate-limit-incident]] — false positives, tuning, Redis health
+- [[free-tier-limits]] — provider ceilings (Workers / Durable Objects / D1 / Pages / Turnstile / WAF) on dev's Free account and production's Paid one, what breaks at each cap, the unavailability playbook, and the Cloudflare security-hardening TODO
+- [[rate-limit-incident]] — false positives, tuning, which backend a limiter runs on
 - [[bun-1.4-migration]] — what Bun 1.4 is worth using here: adopted (`$` shell, `Bun.TOML` guard, bun-types), impossible (`Bun.Image` in the seed), and what is left
 
 ### Observability
@@ -168,6 +168,7 @@ decided it — see [[decisions/README]] for what belongs here and what does not.
 - [[top-layer-over-z-index-stack]] — nothing in cire's stacking scale ranks against a sheet: the top layer, entered later, over a bigger number
 - [[closing-band-width-bound-over-height-clip]] — the closing band takes the crop's aspect, and its height bound is applied to the width so nothing is clipped
 - [[d1-session-first-primary]] — one D1 session per request, `first-primary` Worker-wide, over a per-route constraint
+- [[durable-object-over-upstash]] — why osn-api's shared state lives on one Durable Object per key; rotated sessions in D1, per-user minute limiters on native bindings, production on Workers Paid
 
 ## Compliance
 
