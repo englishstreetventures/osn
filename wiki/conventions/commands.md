@@ -95,9 +95,11 @@ CI proves the result. The lockstep tests replay each chain against its schema;
 `scripts/check-migration-orders.ts` replays a pull request's new files in the
 two orders a database can meet them; `scripts/guard-migration-history.ts`
 (the `Migration history` check) refuses an edited, renamed, deleted or empty
-migration. The merge queue runs the first two on every group, so two
-migrations that each pass alone but clash together never both land. That
-holds only while the `main` ruleset has the merge queue on and requires `CI`,
+migration. That check runs `main`'s copy of the guard, so a pull request's own
+edits to it apply only once it merges. The merge queue runs the first two on
+every group, so two migrations that each pass alone but clash together never
+both land. That holds only while the `main` ruleset has the merge queue on
+and requires `CI`,
 `Require changeset` and `Migration history`; without the queue, each pull
 request is checked against `main` alone. A pull
 request ejected from the queue for a clash regenerates its migration on top of

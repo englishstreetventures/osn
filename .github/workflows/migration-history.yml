@@ -8,6 +8,17 @@ name: Migration history
 # statement. The `migrations:rewrite` label lifts the history rules for a
 # squash (cire/db/README.md); this workflow runs on label changes so adding
 # the label re-decides the check without a new push.
+#
+# The guard that decides is `main`'s copy, never the pull request's: a pull
+# request's edits to scripts/, bunfig.toml, a .env file or .bun-version do not
+# change its own check, and a stacked parent's edits to them do not change its
+# child's. So a change to the rules first applies to the pull requests after it
+# merges, and renaming the guard file takes two pull requests: one adds the new
+# name beside the old, the next points this workflow at it and removes the old.
+# When main's guard wrongly refuses a pull request, the label lifts every rule
+# but the one about statements; past that, an owner merges the fix to the guard
+# past this check.
+# (scripts/tests/guard-migration-history.test.ts runs this job's guard step.)
 
 on:
   pull_request:
@@ -33,27 +44,44 @@ jobs:
         if: github.event_name == 'merge_group'
         run: echo "Every pull request in this group passed the migration history guard on its own."
 
+      # main's guard and its Bun pin. Cone-mode sparse checkout: scripts/ and
+      # the files at the root, nothing else.
+      - uses: actions/checkout@v4
+        if: github.event_name == 'pull_request'
+        with:
+          ref: refs/heads/main
+          path: guard-base
+          sparse-checkout: scripts
+          persist-credentials: false
+
       # Two commits deep: on the pull request's merge commit, `HEAD^1` is the
       # base it merges into, so `git diff HEAD^1 HEAD` is exactly its change.
       - uses: actions/checkout@v4
         if: github.event_name == 'pull_request'
         with:
+          path: pr
           fetch-depth: 2
           persist-credentials: false
 
       - uses: oven-sh/setup-bun@v2
         if: github.event_name == 'pull_request'
         with:
-          bun-version-file: .bun-version
+          bun-version-file: guard-base/.bun-version
 
-      # No install: the guard imports Node built-ins and sibling scripts only.
+      # Runs in the pull request's checkout, so it diffs and reads the pull
+      # request's files. `--config=/dev/null` and `--no-env-file` keep that
+      # checkout's bunfig.toml and .env files out of the run, and `--no-install`
+      # refuses any package: the guard imports Node built-ins and sibling
+      # scripts only. DO_NOT_TRACK stands in for the root bunfig's
+      # `telemetry = false`.
       - name: Refuse rewritten migration history
         if: github.event_name == 'pull_request'
+        working-directory: pr
         env:
           ALLOW_REWRITE: ${{ contains(github.event.pull_request.labels.*.name, 'migrations:rewrite') }}
+          DO_NOT_TRACK: "1"
         run: |
-          if [ "$ALLOW_REWRITE" = "true" ]; then
-            bun run scripts/guard-migration-history.ts --allow-rewrite
-          else
-            bun run scripts/guard-migration-history.ts
-          fi
+          args=()
+          if [ "$ALLOW_REWRITE" = "true" ]; then args+=(--allow-rewrite); fi
+          bun --no-install --no-env-file --config=/dev/null \
+            "$GITHUB_WORKSPACE/guard-base/scripts/guard-migration-history.ts" "${args[@]}"
