@@ -17,7 +17,7 @@ packages:
   - "@osn/auth-ui"
   - "@musubi/social"
   - "@shared/crypto"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-24
 status: design — not yet implemented
 ---
 
@@ -322,8 +322,9 @@ designed yet:
   shared salts if the same VC is presented to two RPs. Mitigation:
   mint a fresh VC per audience (default), or move to BBS+ in v2.
 - **Compromise of the OSN signing key** — the same scope of damage as
-  ARC tokens; the existing key-rotation + JWKS invalidation path
-  mitigates it.
+  ARC tokens. Rotation replaces the one key (see `production-deploy.md`
+  §1.2); downstream verifiers keep the old key for up to 5 minutes, and
+  nothing evicts it sooner.
 - **Provider compromise** — a malicious KYC vendor could mint false
   verifications. Defence: stamp every `verification_run` with the
   provider id + timestamp + provider-side `runId` so OSN can revoke
