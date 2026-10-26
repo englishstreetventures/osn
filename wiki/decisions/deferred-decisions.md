@@ -80,7 +80,7 @@ A row graduates to an issue when its "Revisit When" lands.
 
 ### Decided 2026-10-26
 
-- **vite 7→8 + Astro 6→7 → done.** The repo runs `astro` 7.4 and `vite` 8.3.3 (the root `overrides` pin), and `@astrojs/check` is gone: the Astro sites type-check with TypeScript 7.1 and `@astrojs/ts-content-mapper` ([[frontend-patterns#Type-checking .astro files]]).
+- **The vite 8 and Astro 7 upgrade is done.** The repo runs `astro` 7.4 and `vite` 8.3.3 (the root `overrides` pin), and `@astrojs/check` is gone: the Astro sites type-check with TypeScript 7.1 and `@astrojs/ts-content-mapper` ([[frontend-patterns#Type-checking .astro files]]).
 
 ### Decided 2026-10-08
 
