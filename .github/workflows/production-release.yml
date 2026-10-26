@@ -1154,13 +1154,17 @@ jobs:
         env:
           WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-deploy.ndjson
 
-      # /health and /.well-known/jwks.json. A fail-closed secret the preflight
-      # above does not list answers 503 here, and the Worker is rolled back.
+      # /health, /.well-known/jwks.json and /health/coordination. A fail-closed
+      # secret the preflight above does not list answers 503 here, and the
+      # Worker is rolled back. The coordination probe answers only the
+      # INTERNAL_SERVICE_SECRET bearer; this Environment holds the value the
+      # Worker holds, and a mismatch fails the check without a rollback.
       - name: Smoke check, rolling back on failure
         run: bun run scripts/smoke-check.ts osn_api production
         timeout-minutes: 5
         env:
           WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-deploy.ndjson
+          INTERNAL_SERVICE_SECRET: ${{ secrets.INTERNAL_SERVICE_SECRET }}
 
   # ── musubi/social (Vite SPA → Cloudflare Pages) ──────────────────────────
   # The identity web app, including `/authorize`, the OIDC consent screen

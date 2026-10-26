@@ -158,6 +158,9 @@ function fakeApi(options: ApiOptions = {}) {
   return { answer, posts, reads: () => read };
 }
 
+/** What the osn-api Worker and its jobs hold as INTERNAL_SERVICE_SECRET, here. */
+const SMOKE_SECRET = "internal-service-secret-for-tests";
+
 const RUN_ENV = {
   GITHUB_SERVER_URL: "https://github.com",
   GITHUB_REPOSITORY: "englishstreetventures/osn",
@@ -165,6 +168,7 @@ const RUN_ENV = {
   GITHUB_RUN_ATTEMPT: "2",
   CLOUDFLARE_API_TOKEN: TOKEN,
   CLOUDFLARE_ACCOUNT_ID: ACCOUNT,
+  INTERNAL_SERVICE_SECRET: SMOKE_SECRET,
 };
 
 const workerOf = (args: readonly string[]) => {
@@ -675,7 +679,8 @@ describe("a broken deploy", () => {
       "https://id.musubi.social/health": MISCONFIGURED,
     });
     for (const call of result.calls) {
-      expect(new Headers(call.init?.headers).has("authorization")).toBe(false);
+      // The coordination probe's only authorization is its own bearer.
+      expect(new Headers(call.init?.headers).get("authorization") ?? "").not.toContain(TOKEN);
     }
     expect(result.output).not.toContain(TOKEN);
   });
@@ -1610,10 +1615,59 @@ describe("SMOKE_TARGETS", () => {
     expect(dev).toContainEqual({
       url: `${OSN_API_DEV}/health/coordination`,
       expects: { kind: "json", fields: { ok: true } },
+      bearer: "INTERNAL_SERVICE_SECRET",
     });
     expect(production).toContainEqual({
       url: "https://id.musubi.social/health/coordination",
       expects: { kind: "json", fields: { ok: true } },
+      bearer: "INTERNAL_SERVICE_SECRET",
     });
+  });
+});
+
+describe("the coordination probe's bearer", () => {
+  const COORDINATION = "https://id.musubi.social/health/coordination";
+  const authorizationOf = (init: RequestInit | undefined) =>
+    new Headers(init?.headers).get("authorization");
+
+  test("goes to the coordination probe alone, and never into the output", async () => {
+    const result = await smoke(["osn_api", "production"], OSN_PROD);
+    expect(result.code).toBe(0);
+    for (const call of result.calls) {
+      expect(authorizationOf(call.init)).toBe(
+        call.url === COORDINATION ? `Bearer ${SMOKE_SECRET}` : null,
+      );
+    }
+    expect(result.output).not.toContain(SMOKE_SECRET);
+  });
+
+  test("goes nowhere on a surface whose probes name none", async () => {
+    const result = await smoke(["cire_api", "production"], {
+      "https://api.cireweddings.com/api/auth/session": () => json({ signedIn: false }),
+    });
+    expect(result.code).toBe(0);
+    expect(result.calls.map((call) => authorizationOf(call.init))).toEqual([null, null]);
+  });
+
+  test("a 401 to it fails the check without rolling the Worker back", async () => {
+    const result = await smoke(["osn_api", "production"], {
+      ...OSN_PROD,
+      [COORDINATION]: () => json({ error: "unauthorized" }, 401),
+    });
+    expect(result.code).toBe(1);
+    expect(result.posts).toEqual([]);
+    expect(result.output).toContain("INTERNAL_SERVICE_SECRET");
+  });
+
+  test("without INTERNAL_SERVICE_SECRET, osn-api's check is a usage error before any request", async () => {
+    for (const value of [undefined, ""]) {
+      const result = await smoke(["osn_api", "production"], OSN_PROD, {
+        env: { INTERNAL_SERVICE_SECRET: value },
+      });
+      expect(result.code).toBe(2);
+      expect(result.calls).toEqual([]);
+      expect(result.apiCalls).toEqual([]);
+      expect(result.output).toContain("INTERNAL_SERVICE_SECRET is not set");
+    }
   });
 });

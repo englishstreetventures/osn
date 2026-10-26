@@ -20,6 +20,7 @@ import { createTestLayer } from "../helpers/db";
 
 let env: EnvVars;
 const b64 = (o: unknown): string => Buffer.from(JSON.stringify(o)).toString("base64");
+const SECRET = "internal-service-secret-0123456789";
 
 beforeAll(async () => {
   const { privateKey, publicKey } = await generateArcKeyPair();
@@ -28,6 +29,7 @@ beforeAll(async () => {
     OSN_JWT_PRIVATE_KEY: b64(await exportJWK(privateKey)),
     OSN_JWT_PUBLIC_KEY: b64(await exportJWK(publicKey)),
     TRUSTED_PROXY_COUNT: "1",
+    INTERNAL_SERVICE_SECRET: SECRET,
   };
 });
 
@@ -37,23 +39,36 @@ interface Harness {
   readonly onError: ReturnType<typeof vi.fn>;
 }
 
-async function harness(over: Partial<BuildParts> = {}): Promise<Harness> {
+async function harness(
+  over: Partial<BuildParts> = {},
+  vars: Partial<EnvVars> = {},
+): Promise<Harness> {
   const fake = createFakeNamespace();
   const onError = vi.fn();
-  const built = await buildAppDeps(env, {
-    coordination: () => createDurableCoordination(fake.ns, onError),
-    dbAndEmailLayer: createTestLayer(),
-    observabilityLayer: osnLoggerLayer,
-    includeObservabilityPlugin: false,
-    ...over,
-  });
+  const built = await buildAppDeps(
+    { ...env, ...vars },
+    {
+      coordination: () => createDurableCoordination(fake.ns, onError),
+      dbAndEmailLayer: createTestLayer(),
+      observabilityLayer: osnLoggerLayer,
+      includeObservabilityPlugin: false,
+      ...over,
+    },
+  );
   return { app: createApp(built.deps), fake, onError };
 }
 
-const probe = (h: Harness, ip: string | null = "203.0.113.7") =>
+const probe = (
+  h: Harness,
+  ip: string | null = "203.0.113.7",
+  authorization: string | null = `Bearer ${SECRET}`,
+) =>
   h.app.handle(
     new Request("http://localhost/health/coordination", {
-      headers: ip === null ? {} : { "x-forwarded-for": ip },
+      headers: {
+        ...(ip === null ? {} : { "x-forwarded-for": ip }),
+        ...(authorization === null ? {} : { authorization }),
+      },
     }),
   );
 
@@ -108,7 +123,7 @@ describe("GET /health/coordination", () => {
 
     const res = await app.handle(
       new Request("http://localhost/health/coordination", {
-        headers: { "x-forwarded-for": "203.0.113.7" },
+        headers: { "x-forwarded-for": "203.0.113.7", authorization: `Bearer ${SECRET}` },
       }),
     );
     expect(res.status).toBe(503);
@@ -142,6 +157,36 @@ describe("GET /health/coordination", () => {
     expect(probeCalls(h.fake).length).toBe(before);
     // Another IP has its own budget.
     expect((await probe(h, "203.0.113.8")).status).toBe(200);
+  });
+
+  it.each([
+    ["no bearer", null],
+    ["a wrong bearer", "Bearer not-the-secret"],
+    ["the secret without the scheme", SECRET],
+  ])(
+    "refuses %s with 401, before the limiter and without touching the store",
+    async (_what, authorization) => {
+      const keys: string[] = [];
+      const counting: WorkersRateLimitBinding = {
+        limit: async ({ key }) => {
+          keys.push(key);
+          return { success: true };
+        },
+      };
+      const h = await harness({ rateLimitBindings: { RL_AUTH_IP_10_60: counting } });
+      const res = await probe(h, "203.0.113.7", authorization);
+      expect(res.status).toBe(401);
+      expect(await res.json()).toEqual({ error: "unauthorized" });
+      expect(keys).toEqual([]);
+      expect(h.fake.calls).toEqual([]);
+    },
+  );
+
+  it("is disabled (501) where INTERNAL_SERVICE_SECRET is unset, without touching the store", async () => {
+    const h = await harness({}, { INTERNAL_SERVICE_SECRET: undefined });
+    const res = await probe(h);
+    expect(res.status).toBe(501);
+    expect(h.fake.calls).toEqual([]);
   });
 
   it("refuses a caller whose IP cannot be resolved, without touching the store", async () => {

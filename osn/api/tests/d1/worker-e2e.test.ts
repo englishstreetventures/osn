@@ -63,6 +63,8 @@ const API = wrangler.vars["OSN_ISSUER_URL"]!;
 /** A loopback Resend stand-in; the Worker's outbound fetches land in `capture`. */
 const RESEND_ORIGIN = "http://127.0.0.1:9";
 const DEV_LOGIN_SECRET = "workerd-e2e-dev-login-secret";
+// The bearer `/health/coordination` answers, as the smoke check sends it.
+const INTERNAL_SERVICE_SECRET = "workerd-e2e-internal-service-secret";
 
 // Documentation addresses (RFC 5737). The Worker reads them from
 // `x-forwarded-for` under TRUSTED_PROXY_COUNT=1.
@@ -118,6 +120,7 @@ async function boot(): Promise<Miniflare> {
       ...wrangler.vars,
       TRUSTED_PROXY_COUNT: "1",
       DEV_LOGIN_SECRET,
+      INTERNAL_SERVICE_SECRET,
       RESEND_API_KEY: "re_workerd_e2e",
       RESEND_API_URL: RESEND_ORIGIN,
     },
@@ -262,7 +265,10 @@ describe("osn-api on workerd, with the coordination store on its Durable Object"
   let recoveryCodes: string[] = [];
 
   it("evaluates the bundle and round-trips the coordination store", async () => {
-    const res = await call("store round trip", "GET", "/health/coordination", { ip: MAIN_IP });
+    const res = await call("store round trip", "GET", "/health/coordination", {
+      ip: MAIN_IP,
+      bearer: INTERNAL_SERVICE_SECRET,
+    });
     expect(res.status).toBe(200);
     expect(res.json).toEqual({ ok: true });
   });

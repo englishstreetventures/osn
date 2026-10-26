@@ -221,7 +221,14 @@ export function createApp(deps: AppDeps) {
 
   const withRoot = withObservability
     .use(healthRoutes({ serviceName }))
-    .use(createCoordinationHealthRoutes(healthProbe, healthProbeLimiter, clientIpConfig))
+    .use(
+      createCoordinationHealthRoutes(
+        healthProbe,
+        healthProbeLimiter,
+        internalServiceSecret,
+        clientIpConfig,
+      ),
+    )
     .get("/", () => ({ status: "ok", service: "osn-auth" }));
 
   // The docs are gated the same way, and mounted in the same position in the

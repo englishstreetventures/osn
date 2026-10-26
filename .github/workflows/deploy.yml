@@ -404,7 +404,8 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
 
-      # /health and /.well-known/jwks.json.
+      # /health, /.well-known/jwks.json and /health/coordination, which
+      # answers only the INTERNAL_SERVICE_SECRET bearer the stack uploaded.
       - name: Smoke check osn/api, rolling back on failure
         id: smoke_osn_api
         if: ${{ !cancelled() && steps.snapshot.outcome == 'success' }}
@@ -416,6 +417,7 @@ jobs:
           SMOKE_DEPLOYMENT: ${{ steps.deployments.outputs.osn_api_deployment }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_DEV_ACCOUNT_API_TOKEN }}
+          INTERNAL_SERVICE_SECRET: ${{ secrets.INTERNAL_SERVICE_SECRET }}
 
       # The browser hosts sit behind Cloudflare Access. The check sends the
       # service token when both values are set, and fails without rolling

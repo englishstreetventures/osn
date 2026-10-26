@@ -75,6 +75,12 @@
  *                       both are set, on every probe but the one that asks
  *                       without it. Without them the check probes anyway,
  *                       and Access answering fails it, rolling nothing back.
+ *   INTERNAL_SERVICE_SECRET
+ *                       osn-api only, each tier, required: the bearer its
+ *                       `/health/coordination` answers, sent to that probe
+ *                       alone. The Worker refusing it (401) fails the check
+ *                       without a rollback: the job's value and the Worker's
+ *                       differ, which new code cannot fix.
  *   GITHUB_SERVER_URL, GITHUB_REPOSITORY, GITHUB_RUN_ID, GITHUB_RUN_ATTEMPT
  *                       name the run in the rollback message.
  *   GITHUB_STEP_SUMMARY receives a line when the check fails.
@@ -135,6 +141,11 @@ export type Expectation =
 export interface Probe {
   readonly url: string;
   readonly expects: Expectation;
+  /**
+   * The environment variable whose value this probe, and only this probe,
+   * sends as `Authorization: Bearer`. The check refuses to start without it.
+   */
+  readonly bearer?: "INTERNAL_SERVICE_SECRET";
 }
 
 export interface SmokeTarget {
@@ -201,11 +212,13 @@ const jwks = (origin: string): Probe => ({
 // osn-api's `/health` answers without touching any store. This route writes a
 // key in the coordination store (the `COORDINATION` Durable Object), reads it
 // back and removes it, so a Worker that cannot reach the store fails here: it
-// answers 503 `{ ok: false }`. It allows ten calls a minute per IP, and a
-// check makes at most eight.
+// answers 503 `{ ok: false }`. It answers only the INTERNAL_SERVICE_SECRET
+// bearer, which the osn-api Worker holds on both tiers, and then allows ten
+// calls a minute per IP; a check makes at most eight.
 const coordination = (origin: string): Probe => ({
   url: `${origin}/health/coordination`,
   expects: { kind: "json", fields: { ok: true } },
+  bearer: "INTERNAL_SERVICE_SECRET",
 });
 
 // cire-api has no /health. GET /api/auth/session answers a caller with no
@@ -546,6 +559,12 @@ export function judge(probe: Probe, response: Response, body: string, access: bo
       kind: "blocked",
       reason:
         "answered 429: a rate limit or the account's daily request cap, not the Worker's code",
+    };
+  }
+  if (status === 401 && probe.bearer !== undefined) {
+    return {
+      kind: "blocked",
+      reason: `answered 401 to the ${probe.bearer} bearer: the value this job holds is not the Worker's, a secret to fix rather than code to roll back`,
     };
   }
   if (access && (status === 401 || status === 403)) {
@@ -1127,6 +1146,20 @@ export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
     };
   }
 
+  // A probe's bearer is the job's to pass, from the Environment that holds
+  // the Worker's own value; without it the probe could only be refused.
+  const bearers = new Map<string, string>();
+  for (const { bearer } of checked.probes) {
+    if (bearer === undefined) continue;
+    const value = env[bearer] ?? "";
+    if (value === "") {
+      return usage(
+        `${bearer} is not set: ${surface}'s probes send it as a bearer, so the job passes it from its Environment`,
+      );
+    }
+    bearers.set(bearer, value);
+  }
+
   const label = `${surface} (${tier})`;
   const summary = (line: string) => {
     if (env.GITHUB_STEP_SUMMARY) {
@@ -1218,8 +1251,14 @@ export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
       probes.map((probe) =>
         probeOnce(probe, {
           fetch: input.fetch,
-          // The Access probe asks without the token, as any visitor would.
-          headers: probe.expects.kind === "access" ? {} : headers,
+          // The Access probe asks without the token, as any visitor would. A
+          // bearer goes to its own probe alone.
+          headers:
+            probe.expects.kind === "access"
+              ? {}
+              : probe.bearer === undefined
+                ? headers
+                : { ...headers, authorization: `Bearer ${bearers.get(probe.bearer) ?? ""}` },
           access: checked.access,
           timeoutMs: TIMING.requestMs,
         }),
