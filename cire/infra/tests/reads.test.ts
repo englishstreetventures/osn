@@ -52,10 +52,16 @@ const UNSET_ON_DEV: Readonly<Record<string, string>> = {
     "dev does not call zap: unset, the enquiry chat bridge is off and no vendor mail is sent (index.ts)",
 };
 
+// The house lint rule's own test plants a `__house-*` file under cire/api/src for
+// the length of its run (tools/oxlint/house/tests/no-module-scope-process-env.test.ts).
+// It is not cire-api's source, and the two suites run in parallel, so it is skipped.
+const PLANTED_BY_LINT_TEST = /^__house-/;
+
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const path = join(dir, entry.name);
     if (entry.isDirectory()) return sourceFiles(path);
+    if (PLANTED_BY_LINT_TEST.test(entry.name)) return [];
     return /\.tsx?$/.test(entry.name) ? [path] : [];
   });
 }

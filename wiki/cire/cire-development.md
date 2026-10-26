@@ -390,6 +390,18 @@ seed:generate` writes that file from `cire/db/seed/data`, and
 `cire/db/tests/seed/seed-applies.test.ts` applies it to the migrated chain, so
 a seed column list the schema no longer matches fails there.
 
+**The dev seed lands on a database that already holds rows.** Nothing resets a
+dev database: a deploy applies new migrations, then imports the seed again
+whenever the file changes. `INSERT OR IGNORE` skips a row whose primary key or
+unique index is taken, and nothing else — a foreign-key failure or a trigger's
+`RAISE(ABORT)` still fails the import and the deploy with it. So a seed row that
+references a row the database may hold under another id (a migration backfilled
+it, a tester made it, a unique index skipped the seed's own) finds it by query,
+as the seating tables find their plan in `cire/db/seed/generate.ts`. When a
+migration backfills rows the seed also writes, add a case to
+`seed-applies.test.ts` that migrates up to it, inserts the old rows, runs the
+migration, then the seed.
+
 **Dropping a column is `ALTER TABLE … DROP COLUMN`, never a copy-and-swap.**
 `db:generate` refuses a `__new_<table>` rebuild, which drops the table, and D1
 enforces foreign keys, so the drop cascades into every child table. Write such a
