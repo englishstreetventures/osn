@@ -135,7 +135,7 @@ export const INTERNAL_SERVICE_SECRET = "e2e-internal-service-secret-not-a-real-s
 
 /**
  * Shared by osn-api and cire-api: what osn-api presents to end an account's
- * cire organiser sessions (`cire-organiser-signout`). Local only.
+ * cire organiser sessions (`cire-registry-money`). Local only.
  */
 export const CIRE_INTERNAL_REVOKE_SECRET = "e2e-cire-internal-revoke-secret-not-a-real-secret";
 

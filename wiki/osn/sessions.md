@@ -8,7 +8,7 @@ related:
   - "[[oidc-provider]]"
   - "[[account-recovery-factors]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-10-24
+last-reviewed: 2026-10-26
 ---
 
 # Session introspection + revocation
@@ -90,7 +90,7 @@ cire's organiser portal keeps its own 7-day session, minted from an OSN sign-in 
 - **Off until configured.** With `CIRE_INTERNAL_REVOKE_URL` or `CIRE_INTERNAL_REVOKE_SECRET` unset, each request logs a warning and sends nothing. cire-api answers 503 until it holds the same secret. Setting it up: [[production-deploy]].
 - **Not covered.** Account recovery, passkey changes, email change, account deletion, single-session revoke and profile deletion end OSN sessions without calling cire.
 
-The code is [`services/cire-organiser-revoke.ts`](../../osn/api/src/services/cire-organiser-revoke.ts); route tests are in [`tests/routes/cire-organiser-revoke.test.ts`](../../osn/api/tests/routes/cire-organiser-revoke.test.ts), and the E2E flow `cire-organiser-signout` drives it against the real cire-api ([[testing-patterns#The end-to-end suite]]).
+The code is [`services/cire-organiser-revoke.ts`](../../osn/api/src/services/cire-organiser-revoke.ts); route tests are in [`tests/routes/cire-organiser-revoke.test.ts`](../../osn/api/tests/routes/cire-organiser-revoke.test.ts), and the E2E flow `cire-registry-money` ends by driving it against the real cire-api ([[testing-patterns#The end-to-end suite]]).
 
 `GET /sessions` sets `Cache-Control: private, no-store` as the first statement of the handler, so even a rejection carries it (tracker#468). See `[[shared/backend-patterns]]` §Cache-Control on Authenticated Routes for the rule and why it sits above the guards.
 
