@@ -1,5 +1,5 @@
 /**
- * The repository patches drizzle-orm (patches/drizzle-orm@1.0.0-rc.4.patch) so
+ * The repository patches drizzle-orm (patches/drizzle-orm@1.0.0-rc.5.patch) so
  * that no error it builds and no query it logs carries a bound value: on a
  * failed write those are guest names, emails and answers. cire's
  * `query-error.test.ts` proves it for `DrizzleQueryError` against a real D1
@@ -14,19 +14,14 @@ import { describe, expect, it } from "vitest";
 
 const NAME = "Annabelle Quigley-Smythe";
 
-// drizzle-orm 1.0.0-rc.4 builds its Effect errors with `Schema.TaggedErrorClass`,
-// which Effect 4.0.0-beta had and the stable 4.0 this repository installs does
-// not, so the module does not load here and nothing can raise the error yet.
-// The first test pins that; the day the module loads, it fails and the
-// redaction tests below, which skip until then, start to run.
 const effectErrors = await import("drizzle-orm/effect-core/errors").then(
   (module) => ({ module, loadError: undefined }),
   (loadError: unknown) => ({ module: undefined, loadError }),
 );
 
 describe("drizzle's Effect query error", () => {
-  it("cannot load with this repository's Effect yet", () => {
-    expect(String(effectErrors.loadError)).toContain("TaggedErrorClass");
+  it("loads with this repository's Effect", () => {
+    expect(effectErrors.loadError).toBeUndefined();
   });
 
   it.skipIf(!effectErrors.module)(

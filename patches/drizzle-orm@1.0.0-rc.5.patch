@@ -1,13 +1,16 @@
 diff --git a/effect-core/errors.cjs b/effect-core/errors.cjs
-index 9ec5bab6a265fbdb694e4fffa639ebea7be3a6cc..36ed2cb87c1bca3349a371a972c66e5a68019f70 100644
+index 5aeed24ea94f1fb6158fd97ca269d1bc7d352e73..82310b9888396b71eb16e07b576854415e393627 100644
 --- a/effect-core/errors.cjs
 +++ b/effect-core/errors.cjs
-@@ -18,10 +18,11 @@ var EffectDrizzleQueryError = class EffectDrizzleQueryError extends effect_Schem
- }) {
- 	static [__entity_ts.entityKind] = "EffectDrizzleQueryError";
+@@ -23,10 +23,14 @@ var EffectDrizzleQueryError = class EffectDrizzleQueryError extends effect_Schem
+ 		return (0, __entity_ts.is)(value, this);
+ 	}
  	get message() {
--		return `Failed query: ${this.query}\nparams: ${this.params}`;
+-		return this.params ? `Failed query: ${this.query}\nparams: ${this.params}` : `Failed query: ${this.query}`;
 +		return `Failed query: ${this.query}`;
++	}
++	toJSON() {
++		return { _tag: this._tag, query: this.query, cause: this.cause };
  	}
  	constructor(params) {
  		super(params);
@@ -16,15 +19,18 @@ index 9ec5bab6a265fbdb694e4fffa639ebea7be3a6cc..36ed2cb87c1bca3349a371a972c66e5a
  	}
  };
 diff --git a/effect-core/errors.js b/effect-core/errors.js
-index 290da3a291c8919c16f1092c74e0a7f4a5feaf53..6092e38d17775553f2b579f0a5beb52424f16f2b 100644
+index e5153d3ea22da68a75460e59de2a2c503a548cbb..d7d5d9cc21db9291065d72253f597ae7f9a2f608 100644
 --- a/effect-core/errors.js
 +++ b/effect-core/errors.js
-@@ -15,10 +15,11 @@ var EffectDrizzleQueryError = class EffectDrizzleQueryError extends Schema$1.Tag
- }) {
- 	static [entityKind] = "EffectDrizzleQueryError";
+@@ -20,10 +20,14 @@ var EffectDrizzleQueryError = class EffectDrizzleQueryError extends Schema$1.Tag
+ 		return is(value, this);
+ 	}
  	get message() {
--		return `Failed query: ${this.query}\nparams: ${this.params}`;
+-		return this.params ? `Failed query: ${this.query}\nparams: ${this.params}` : `Failed query: ${this.query}`;
 +		return `Failed query: ${this.query}`;
++	}
++	toJSON() {
++		return { _tag: this._tag, query: this.query, cause: this.cause };
  	}
  	constructor(params) {
  		super(params);
@@ -33,14 +39,14 @@ index 290da3a291c8919c16f1092c74e0a7f4a5feaf53..6092e38d17775553f2b579f0a5beb524
  	}
  };
 diff --git a/errors.cjs b/errors.cjs
-index 46d7733d38c2d9a31b8a0c39d778634d2bf4b140..deb09bbbdce589ced21458c1ed0ed96933bfd3a8 100644
+index 429f01837771192939006c3cde8e713ce3c4c9dd..df5636e3662e4e5bdb3a1e628c85f0ed9c52edc1 100644
 --- a/errors.cjs
 +++ b/errors.cjs
-@@ -14,9 +14,9 @@ var DrizzleError = class extends Error {
- var DrizzleQueryError = class DrizzleQueryError extends Error {
- 	static [__entity_ts.entityKind] = "DrizzleQueryError";
+@@ -21,9 +21,9 @@ var DrizzleQueryError = class DrizzleQueryError extends Error {
+ 		return (0, __entity_ts.is)(value, this);
+ 	}
  	constructor(query, params, cause) {
--		super(`Failed query: ${query}\nparams: ${params}`);
+-		super(params ? `Failed query: ${query}\nparams: ${params}` : `Failed query: ${query}`);
 +		super(`Failed query: ${query}`);
  		this.query = query;
 -		this.params = params;
@@ -49,14 +55,14 @@ index 46d7733d38c2d9a31b8a0c39d778634d2bf4b140..deb09bbbdce589ced21458c1ed0ed969
  		this.name = "DrizzleQueryError";
  		Error.captureStackTrace(this, DrizzleQueryError);
 diff --git a/errors.js b/errors.js
-index d9eda4a86439ecfec167d5fd4f554e3a1dc39067..2b61cfe6b90ade8620a21b3be92ace954675c8a2 100644
+index 0b333d0676a19a60f57ac411b2148a938fa4e672..bd587299593e1ecb2f0960eb0b70400462637596 100644
 --- a/errors.js
 +++ b/errors.js
-@@ -12,9 +12,9 @@ var DrizzleError = class extends Error {
- var DrizzleQueryError = class DrizzleQueryError extends Error {
- 	static [entityKind] = "DrizzleQueryError";
+@@ -20,9 +20,9 @@ var DrizzleQueryError = class DrizzleQueryError extends Error {
+ 		return is(value, this);
+ 	}
  	constructor(query, params, cause) {
--		super(`Failed query: ${query}\nparams: ${params}`);
+-		super(params ? `Failed query: ${query}\nparams: ${params}` : `Failed query: ${query}`);
 +		super(`Failed query: ${query}`);
  		this.query = query;
 -		this.params = params;
@@ -65,10 +71,10 @@ index d9eda4a86439ecfec167d5fd4f554e3a1dc39067..2b61cfe6b90ade8620a21b3be92ace95
  		this.name = "DrizzleQueryError";
  		Error.captureStackTrace(this, DrizzleQueryError);
 diff --git a/logger.cjs b/logger.cjs
-index 3ae6933a1d1ae8bf745b073e693750a918bf47c6..3b45a6532302a829dc60d56a24820d3ddf4ac1e8 100644
+index 3c19a92c073ae27501f7c279a5e4071441ae8d42..38e50b19b7ad56d697651dc1780612260524d422 100644
 --- a/logger.cjs
 +++ b/logger.cjs
-@@ -15,16 +15,8 @@ var DefaultLogger = class {
+@@ -19,16 +19,8 @@ var DefaultLogger = class {
  	constructor(config) {
  		this.writer = config?.writer ?? new ConsoleLogWriter();
  	}
@@ -88,10 +94,10 @@ index 3ae6933a1d1ae8bf745b073e693750a918bf47c6..3b45a6532302a829dc60d56a24820d3d
  };
  var NoopLogger = class {
 diff --git a/logger.js b/logger.js
-index 841f6cfde3bd0c849a76ca104d32a0cdb3484be3..f05416afc8a6caefce11a51467eda8cac15b0653 100644
+index bf824c1f527b62c3a4ce28a7395f4c8252c3c7a8..9b40ea0d034495f6d140826b23acc42f53776042 100644
 --- a/logger.js
 +++ b/logger.js
-@@ -13,16 +13,8 @@ var DefaultLogger = class {
+@@ -18,16 +18,8 @@ var DefaultLogger = class {
  	constructor(config) {
  		this.writer = config?.writer ?? new ConsoleLogWriter();
  	}

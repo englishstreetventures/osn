@@ -19,7 +19,7 @@
     "@osn/db": "workspace:*",
     "@pulse/db": "workspace:*",
     "@shared/dev-urls": "workspace:*",
-    "drizzle-orm": "1.0.0-rc.4"
+    "drizzle-orm": "1.0.0-rc.5"
   },
   "devDependencies": {
     "@playwright/test": "1.62.1",
