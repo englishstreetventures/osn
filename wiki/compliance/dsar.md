@@ -9,7 +9,7 @@ related:
   - "[[retention]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-26
 ---
 
 # DSAR Runbook
@@ -128,7 +128,8 @@ owners, each with an `owner` seat. Two consequences:
 - **DSAR reachability (Art. 15 / 17 / 20).** A DSAR from the *organiser*
   reaches their cire data via their `wedding_hosts` seats: export/erasure can
   query cire's D1 for the weddings they own, the `families` / `guests` /
-  `rsvps` / `seating_assignments` / `imports` rows under them, and the R2
+  `rsvps` / `seating_plans` / `seating_tables` / `seating_assignments` /
+  `imports` rows under them, and the R2
   `cire-sheets` CSVs. On a
   wedding with another owner, erasing one owner removes their seat and leaves
   the wedding to the others; the last owner's seat cannot be removed through

@@ -13,7 +13,7 @@ related:
   - "[[cire-auth]]"
   - "[[dev-environment]]"
   - "[[realtime]]"
-last-reviewed: 2026-10-23
+last-reviewed: 2026-10-26
 ---
 
 # Free-Tier Limits & Unavailability Runbook
@@ -318,6 +318,17 @@ the schema-write count as exact. Method, calibration and how to re-baseline:
 [[bundle-size-guards]], which also sets out why the "89% / 11%" split above
 cannot be read as a share of one rebuild.
 *Measured 2026-10-02 — `bun run scripts/guard-d1-migration-cost.ts --all`.*
+
+**Seating plan copies have a daily ceiling.** One copy of a seating plan writes
+the plan, up to 100 tables and a seat for every guest seated in it, and D1
+bills a row written for each row and each index entry it enters (the D1
+pricing page above): four for a table or a seat. A copy of a full plan for a
+1,000-guest event is therefore about 4,400 rows written. Each wedding copies at
+most 3,000 tables and seats a UTC day (`MAX_COPIED_ROWS_PER_DAY` in
+`cire/api/src/schemas/seating.ts`), counted in D1 (`seating_copy_budget`) and
+checked in the copy's own INSERT, so one wedding's copies write at most about
+12,000 rows a day, whichever isolate serves them; deleting a plan removes only
+rows that were written first ([[cire-seating]]).
 
 **The daily cire cron shares one invocation.** Its eleven jobs (`cire/api/src/index.ts` `scheduled`) all count against the same 50-queries-per-invocation ceiling. Read from the code, a quiet day costs about 11 D1 calls and a busy one 21 or more, before the vendor claim hand-off adds 2 reads plus one write per enquiry, capped at `HANDOFFS_PER_RUN` = 10 (`cire/api/src/services/claim-review.ts`), and the purge of soft-deleted weddings adds 2 reads plus one 5-statement batch per wedding, capped at `MAX_PURGES_PER_RUN` = 3 (`cire/api/src/services/maintenance-sweeps.ts`). The purge's rows written are the cascade of each wedding it deletes — mostly rows the 1-year guest sweep would delete anyway. The two R2 orphan reconcilers each list at most 1,000 objects in at most 3 `list()` calls a run (`ASSET_LIST_LIMITS` in `cire/api/src/services/asset-reconcile.ts`, `SHEET_LIST_LIMITS` in `cire/api/src/services/sheet-reconcile.ts`), resuming where the last run stopped, and make no D1 call when nothing they listed is old enough to delete. Otherwise `cire-assets` makes one read, of every key its three tables hold, and `cire-sheets` two: one row of `imports`, then one lookup of the keys it listed, sent as one bound parameter of about 65 KB at most. D1 still scans `imports` for that lookup, since no index covers the key columns, and returns one row: the table's row count, for the hold on a halving of rows, and the matching rows' keys as one JSON value, both from that one scan.
 

@@ -14,6 +14,7 @@ import * as osnBridge from "../src/services/osn-bridge";
 import { RECONCILE_STOP_KEY } from "../src/services/r2-reconcile";
 import { jsonBody } from "./test-helpers";
 import { captureLogs } from "./test-helpers/capture-logs";
+import { ddlStatements } from "./test-helpers/ddl-statements";
 import { counterValue } from "./test-helpers/metrics-harness";
 import { seedOrganiserSession } from "./test-helpers/organiser-session";
 import { ownerSeat } from "./test-helpers/wedding";
@@ -126,9 +127,8 @@ beforeAll(async () => {
   // bootstrap wedding row, mirroring a deployed D1 after migration 0015. D1's
   // exec runs newline-separated statements in one round-trip; collapse internal
   // whitespace so each statement is on a single line as exec expects.
-  const ddl = DDL.split(";")
-    .map((s) => s.trim().replace(/\s+/g, " "))
-    .filter(Boolean)
+  const ddl = ddlStatements(DDL)
+    .map((s) => s.replace(/\s+/g, " "))
     .join(";\n");
   await DB.exec(ddl);
   DB_REALTIME = await mf.getD1Database("DB_REALTIME");

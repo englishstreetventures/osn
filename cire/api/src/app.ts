@@ -214,6 +214,18 @@ const defaultTaskWriteLimiter = createRateLimiter({ maxRequests: 120, windowMs: 
  */
 const defaultRunSheetReadLimiter = createRateLimiter({ maxRequests: 120, windowMs: 60_000 });
 /**
+ * Default per-USER limiter for making and deleting seating plans
+ * (`POST …/seating/events/:eventId/plans`, `DELETE …/seating/plans/:planId`).
+ * A copy writes a plan, up to 100 tables and a seat for every guest seated in
+ * the source, and a delete removes as many, so each call can cost thousands of
+ * rows written, index entries included; 10 a minute is more plans than anyone
+ * copies or deletes by hand. It counts in each isolate's memory, so it bounds
+ * a burst; the day's total is bounded by the D1-kept copy ceiling
+ * (`MAX_COPIED_ROWS_PER_DAY`), which every isolate reads. Mounted after
+ * osnAuth and before the editor gate.
+ */
+const defaultSeatingPlanLimiter = createRateLimiter({ maxRequests: 10, windowMs: 60_000 });
+/**
  * Default per-USER limiter shared by an owner's wedding delete and restore.
  * Owner-gated already, so this only caps a scripted toggle; 5/min is more than
  * anyone deletes or restores weddings by hand.
@@ -462,6 +474,8 @@ export interface AppOptions {
   taskWriteLimiter?: RateLimiterBackend;
   /** Override the run-sheet read rate limiter (useful for testing). */
   runSheetReadLimiter?: RateLimiterBackend;
+  /** Override the seating plan create + delete rate limiter (useful for testing). */
+  seatingPlanLimiter?: RateLimiterBackend;
   /** Override the co-host handle-search rate limiter (useful for testing). */
   handleSearchLimiter?: RateLimiterBackend;
   /** Override the public CSP-report collector rate limiter (useful for testing). */
@@ -769,6 +783,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
     organiserRsvpLimiter = defaultOrganiserRsvpLimiter,
     taskWriteLimiter = defaultTaskWriteLimiter,
     runSheetReadLimiter = defaultRunSheetReadLimiter,
+    seatingPlanLimiter = defaultSeatingPlanLimiter,
     handleSearchLimiter = defaultHandleSearchLimiter,
     cspReportLimiter = defaultCspReportLimiter,
     vendorPortalLimiter = defaultVendorPortalLimiter,
@@ -1351,7 +1366,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
   // (`.use()` only needs an Elysia instance) and scoped to this final mount.
   const rootApp: AnyElysia = app;
   // The seating chart. `.use()` registers on the instance itself, so this mounts it.
-  rootApp.use(createSeatingRoutes(db, osnAuthOptions));
+  rootApp.use(createSeatingRoutes(db, osnAuthOptions, seatingPlanLimiter));
   // The portal's read of the invite images. The organiser-facing customisation
   // links the closing image here, because the public route keeps it for claimed
   // households. A sibling of the invite builder's writes, with no limiter — see

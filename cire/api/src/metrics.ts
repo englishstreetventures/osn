@@ -181,7 +181,8 @@ export const CIRE_METRICS = {
   registryItemWrite: "cire.registry.item.write",
   registryGift: "cire.registry.gift",
   // Seating chart writes, by action, and the writes the chart refused, by
-  // reason. Never a wedding, event, table or guest id.
+  // reason. Never a wedding, event, plan, table or guest id.
+  seatingPlanWrite: "cire.seating.plan.write",
   seatingTableWrite: "cire.seating.table.write",
   seatingSeatWrite: "cire.seating.seat.write",
   seatingWriteRefused: "cire.seating.write.refused",
@@ -566,6 +567,10 @@ export type RegistryItemAction = "create" | "update" | "remove";
 /** Which kind of item it was: a gift to reserve, or a cash fund. Two values. */
 export type RegistryItemKindAttr = "product" | "cash_fund";
 type RegistryItemWriteAttrs = { action: RegistryItemAction; kind: RegistryItemKindAttr };
+/** Which seating-plan write ran: a blank plan, a copy of another, a rename,
+ *  a change of the selected plan, or a delete. */
+export type SeatingPlanAction = "create" | "duplicate" | "rename" | "select" | "remove";
+type SeatingPlanWriteAttrs = { action: SeatingPlanAction };
 /** Which seating-table write ran. One per route. */
 export type SeatingTableAction = "create" | "update" | "remove" | "reorder";
 type SeatingTableWriteAttrs = { action: SeatingTableAction };
@@ -578,7 +583,10 @@ export type SeatingRefusedReason =
   | "table_full"
   | "table_limit"
   | "capacity_below_seated"
-  | "household_withdrawn";
+  | "household_withdrawn"
+  | "plan_limit"
+  | "plan_selected"
+  | "copy_budget";
 type SeatingWriteRefusedAttrs = { reason: SeatingRefusedReason };
 /** What happened to a gift-log row. `thanked`/`unthanked` are the toggle's two
  *  directions — worth separating, since a couple un-thanking in bulk is a
@@ -900,6 +908,12 @@ const registryGift = createCounter<RegistryGiftAttrs>({
   name: CIRE_METRICS.registryGift,
   description: "Registry gift-log thank-you toggles and note hides, by action",
   unit: "{gift}",
+});
+
+const seatingPlanWrite = createCounter<SeatingPlanWriteAttrs>({
+  name: CIRE_METRICS.seatingPlanWrite,
+  description: "Seating-plan writes, by action",
+  unit: "{write}",
 });
 
 const seatingTableWrite = createCounter<SeatingTableWriteAttrs>({
@@ -1418,6 +1432,9 @@ export const metricRegistryItemWrite = (
 
 export const metricRegistryGift = (action: RegistryGiftAction): void =>
   registryGift.inc({ action });
+
+export const metricSeatingPlanWrite = (action: SeatingPlanAction): void =>
+  seatingPlanWrite.inc({ action });
 
 export const metricSeatingTableWrite = (action: SeatingTableAction): void =>
   seatingTableWrite.inc({ action });

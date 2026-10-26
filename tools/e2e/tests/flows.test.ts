@@ -67,7 +67,8 @@ describe("flow sources", () => {
   // (10 a minute, osn/api/src/routes/auth/dev-login.ts) and one osn-api
   // `/authorize` (20 a minute, shared with the Pulse flow's two sign-ins). All
   // of it from the suite's one address, in fixed windows, so a sign-in past the
-  // budget fails only on a fast machine. Five keeps every window with room.
+  // budget fails only on a fast machine. Six keeps every window with room:
+  // 12 of the 15 redirect legs, 6 of the 10 dev logins, 8 of the 20 authorizes.
   test("the flows sign an organiser in no more often than the sign-in limits allow", () => {
     const dir = join(import.meta.dirname, "flows");
     const signIns = readdirSync(dir)
@@ -77,7 +78,7 @@ describe("flow sources", () => {
         0,
       );
     expect(signIns).toBeGreaterThan(0);
-    expect(signIns).toBeLessThanOrEqual(5);
+    expect(signIns).toBeLessThanOrEqual(6);
   });
 
   // The organiser's window exists only because the stack's cire-api keeps a

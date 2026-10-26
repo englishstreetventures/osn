@@ -383,10 +383,12 @@ against. Miss it and `bun test cire/api/tests/` fails in the lockstep test with
 the column's own name, after every other gate has passed. Full contract for the
 mirror is in [[cire-platform-plan]] §Code map.
 
-**A new table also needs `bun run --cwd cire/db seed:generate`.** It rewrites
-`cire/db/seed/dev-reset.sql`, which drops every schema table before the dev
-tier is reseeded, and `cire/db/tests/seed/seed.test.ts` fails on a table the
-file does not drop.
+**A new table needs a seed change only when the dev seed should hold its
+rows.** Every tier but production imports `cire/db/seed/dev-seed.sql` after the
+migrations (`cire/infra/src/declaration.ts`). `bun run --cwd cire/db
+seed:generate` writes that file from `cire/db/seed/data`, and
+`cire/db/tests/seed/seed-applies.test.ts` applies it to the migrated chain, so
+a seed column list the schema no longer matches fails there.
 
 **Dropping a column is `ALTER TABLE … DROP COLUMN`, never a copy-and-swap.**
 `db:generate` refuses a `__new_<table>` rebuild, which drops the table, and D1
@@ -417,6 +419,27 @@ test fails on one. The drop comes once the first release is in production:
 `db:generate --custom`, then `DROP INDEX` and `DROP COLUMN` as above.
 `tasks.assigned_host_id` is the example: `0091_task_assignees.sql` keeps it, and
 englishstreetventures/osn#1636 drops it.
+
+**A column the serving Worker does not name is filled by a trigger.** A release
+that adds a column every new row needs, where the Worker before it inserts rows
+without it, adds the column nullable and an `AFTER INSERT … WHEN NEW.<column>
+IS NULL` trigger that fills it, so a rolled-back Worker still writes rows the
+new code reads. A foreign key with a NULL column is not checked, so the
+trigger's UPDATE is what the keys check. A later release, once no Worker before
+the migration can serve, drops the trigger and makes the column refuse NULL.
+`20261026040620_seating_plans.sql` is the example (`seating_tables_adopt_plan`,
+`seating_assignments_adopt_plan`), `migration-20261026040620.test.ts` replays
+the old Worker's statements against it, and englishstreetventures/osn#1658
+drops the triggers.
+
+**A table nothing cascades from may be rebuilt by hand.** The rule against a
+copy-and-swap guards the tables whose `DROP` would cascade. A leaf table, one
+no foreign key points at, can be rebuilt in a `--custom` migration: create
+`__new_<table>`, copy its rows, drop the old table, rename the new one and
+create its indexes, each a statement of its own. `guard-migration-history.ts`
+refuses the rebuild in CI unless the pull request carries the
+`migrations:rewrite` label, so add it. `20261026040620_seating_plans.sql`
+rebuilds `seating_assignments` this way.
 
 **A field the guest site reads is optional there.** `deploy-cire-invites` has no
 `needs:` edge on `deploy-cire-api` in `production-release.yml`, and a release can
