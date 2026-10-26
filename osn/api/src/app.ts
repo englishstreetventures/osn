@@ -98,8 +98,8 @@ export interface AppDeps {
   stepUpJtiStore: CoordinationStores["stepUpJtiStore"];
   /**
    * The ceremony / pending-state stores, the three lockout counters and the
-   * three per-account caps, from the coordination bundle. Spread into
-   * `authConfig` at the `createAuthRoutes` call alongside the step-up store.
+   * three per-account caps, from the coordination bundle. Spread into the
+   * auth config every route factory gets, alongside the step-up guard.
    */
   ceremonyStores: CoordinationStores["ceremonyStores"];
   recoveryLockoutStore: CoordinationStores["recoveryLockoutStore"];
@@ -254,21 +254,26 @@ export function createApp(deps: AppDeps) {
       )
     : withRoot;
 
+  // The coordination stores join the auth config, and every route factory
+  // gets this one. A factory given the bare `authConfig` builds an auth
+  // service on in-memory defaults, whose step-up guard is then single-use
+  // per isolate rather than across every isolate.
+  const sharedAuthConfig: AuthConfig = {
+    ...authConfig,
+    stepUpJtiStore,
+    ceremonyStores,
+    recoveryLockoutStore,
+    recoveryOtpLockoutStore,
+    totpLockoutStore,
+    profileSwitchCap,
+    emailChangeBeginCap,
+    recoveryEmailBeginCap,
+  };
+
   return withDocs
     .use(
       createAuthRoutes(
-        // The coordination stores join the auth config.
-        {
-          ...authConfig,
-          stepUpJtiStore,
-          ceremonyStores,
-          recoveryLockoutStore,
-          recoveryOtpLockoutStore,
-          totpLockoutStore,
-          profileSwitchCap,
-          emailChangeBeginCap,
-          recoveryEmailBeginCap,
-        },
+        sharedAuthConfig,
         dbAndEmailLayer,
         observabilityLayer,
         authRateLimiters,
@@ -280,15 +285,23 @@ export function createApp(deps: AppDeps) {
         cireOrganiserRevoke,
       ),
     )
-    .use(createGraphRoutes(authConfig, DbLive, observabilityLayer, graphRateLimiter, appRuntime))
+    .use(
+      createGraphRoutes(sharedAuthConfig, DbLive, observabilityLayer, graphRateLimiter, appRuntime),
+    )
     .use(createInternalGraphRoutes(DbLive, appRuntime, internalServiceSecret, observabilityLayer))
     .use(
-      createOrganisationRoutes(authConfig, DbLive, observabilityLayer, orgRateLimiter, appRuntime),
+      createOrganisationRoutes(
+        sharedAuthConfig,
+        DbLive,
+        observabilityLayer,
+        orgRateLimiter,
+        appRuntime,
+      ),
     )
     .use(createInternalOrganisationRoutes(DbLive, appRuntime))
     .use(
       createProfileRoutes(
-        authConfig,
+        sharedAuthConfig,
         DbLive,
         observabilityLayer,
         profileRateLimiters,
@@ -298,7 +311,7 @@ export function createApp(deps: AppDeps) {
     )
     .use(
       createRecommendationRoutes(
-        authConfig,
+        sharedAuthConfig,
         DbLive,
         observabilityLayer,
         recommendationRateLimiters,
@@ -307,7 +320,7 @@ export function createApp(deps: AppDeps) {
     )
     .use(
       createAccountErasureRoutes(
-        authConfig,
+        sharedAuthConfig,
         dbAndEmailLayer,
         observabilityLayer,
         accountErasureRateLimiters,
@@ -318,7 +331,7 @@ export function createApp(deps: AppDeps) {
     )
     .use(
       createAccountExportRoutes(
-        authConfig,
+        sharedAuthConfig,
         DbLive,
         observabilityLayer,
         accountExportLimiter,
@@ -327,7 +340,7 @@ export function createApp(deps: AppDeps) {
         appRuntime,
       ),
     )
-    .use(createInternalAccountRoutes(authConfig, DbLive, appRuntime));
+    .use(createInternalAccountRoutes(sharedAuthConfig, DbLive, appRuntime));
 }
 
 export type App = ReturnType<typeof createApp>;
