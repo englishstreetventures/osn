@@ -361,6 +361,35 @@ export function giftListTextIn(text: string): string {
 }
 
 /**
+ * Modules of the guest site's gift list, by the path the stack's `astro dev`
+ * serves each at: one request per source module.
+ *
+ * `band` and `display` are the invitation's gift band and the helpers it shows
+ * the list with. The band's island loads both only once the list read answers
+ * with a list, so a guest of a wedding without one requests neither. `client`
+ * holds the claim, release and money calls, which only the gift list's own
+ * page imports: no invitation requests it.
+ */
+export const GIFT_LIST_MODULES = {
+  band: "/src/components/gift-registry/GiftRegistryTeaser.tsx",
+  display: "/src/lib/gift-registry-display.ts",
+  client: "/src/lib/gift-registry.ts",
+} as const;
+
+/**
+ * Every path `page` requests from the guest site from now on, in order, with
+ * no query string (`astro dev` adds `?t=` to a module it has reloaded).
+ */
+export function guestSitePaths(page: Page): readonly string[] {
+  const paths: string[] = [];
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.origin === ORIGINS.cireInvites) paths.push(url.pathname);
+  });
+  return paths;
+}
+
+/**
  * Signs `page`'s context in to the cire organiser portal as the dev profile,
  * which owns every `CIRE_ORGANISER` wedding, and leaves the page on the
  * portal's wedding list.

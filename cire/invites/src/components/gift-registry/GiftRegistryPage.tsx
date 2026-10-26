@@ -14,24 +14,28 @@ import {
 
 import {
   claimGiftRegistryItem,
-  fetchGiftRegistry,
   fetchGiftRegistryHousehold,
-  giftRegistryBody,
   giftRegistryClaimedCopy,
-  giftRegistryImageBase,
   groupGiftRegistryItems,
   hasGiftRegistryCategories,
   releaseGiftRegistryItem,
-  sortGiftRegistryItems,
-  type GiftRegistry,
   type GiftRegistryClaimBody,
-  type GiftRegistryFetch,
-  type GiftRegistryFund,
   type GiftRegistryHouseholdClaim,
   type GiftRegistryHouseholdFetch,
-  type GiftRegistryItem,
   type GiftRegistryWrite,
 } from "../../lib/gift-registry";
+import {
+  giftRegistryBody,
+  giftRegistryImageBase,
+  sortGiftRegistryItems,
+} from "../../lib/gift-registry-display";
+import {
+  fetchGiftRegistry,
+  type GiftRegistry,
+  type GiftRegistryFetch,
+  type GiftRegistryFund,
+  type GiftRegistryItem,
+} from "../../lib/gift-registry-read";
 import { Z_CLASS } from "../../lib/z-index";
 import { CLAIM_SESSION_EVENT, hasClaimedHint } from "../claim-session";
 import { GiftRegistryItemCard } from "./GiftRegistryItemCard";

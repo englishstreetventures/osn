@@ -8,7 +8,8 @@ import {
   GiftMoneyPanel,
   giftMoneyMessage,
 } from "../../../src/components/gift-registry/GiftMoneyPanel";
-import { formatGiftPrice, type GiftRegistryFund } from "../../../src/lib/gift-registry";
+import { formatGiftPrice } from "../../../src/lib/gift-registry";
+import type { GiftRegistryFund } from "../../../src/lib/gift-registry-read";
 
 /**
  * The "give money" panel.

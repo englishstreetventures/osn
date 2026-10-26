@@ -1,0 +1,178 @@
+{
+  "schema_version": 3,
+  "pr": {
+    "number": 1767,
+    "branch": "perf/cire-gift-band-lazy",
+    "base_sha": "d0d343c9113a73ed08c42bb3245096fd92488969",
+    "head_sha": "9827f61b2b9f9ee1df640e123ad2d310368621a5",
+    "generated_at": "2026-10-26T05:30:00.383Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 1734,
+    "type": null,
+    "labels": []
+  },
+  "complexity": {
+    "declared": null,
+    "method": "part-of",
+    "issues": 0
+  },
+  "window": {
+    "sessions": 8,
+    "first_ts": "2026-10-26T04:15:13.292Z",
+    "last_ts": "2026-10-26T05:29:54.785Z",
+    "span_seconds": 4481,
+    "active_seconds": 4543,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 49.55411059999999,
+    "tokens": {
+      "input": 744,
+      "output": 319374,
+      "thinking": 157040,
+      "cache_write_5m": 1658127,
+      "cache_write_1h": 0,
+      "cache_read": 87182549
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 744,
+          "output": 319374,
+          "thinking": 157040,
+          "cache_write_5m": 1658127,
+          "cache_write_1h": 0,
+          "cache_read": 87182549
+        },
+        "usd_equivalent": 49.55411059999999,
+        "messages": 364
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 28,
+          "output": 4245,
+          "thinking": 2247,
+          "cache_write_5m": 112112,
+          "cache_write_1h": 0,
+          "cache_read": 178735
+        },
+        "usd_equivalent": 0.7170660000000001,
+        "messages": 13
+      },
+      "subagent": {
+        "tokens": {
+          "input": 716,
+          "output": 315129,
+          "thinking": 154793,
+          "cache_write_5m": 1546015,
+          "cache_write_1h": 0,
+          "cache_read": 87003814
+        },
+        "usd_equivalent": 48.837044599999984,
+        "messages": 351
+      }
+    },
+    "effort": {
+      "medium": 13,
+      "xhigh": 239,
+      "high": 112
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 11,
+      "docs": 3,
+      "config": 0,
+      "source": 11
+    },
+    "loc": {
+      "generated": {
+        "added": 7,
+        "deleted": 0
+      },
+      "test": {
+        "added": 411,
+        "deleted": 155
+      },
+      "docs": {
+        "added": 19,
+        "deleted": 13
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 464,
+        "deleted": 345
+      }
+    },
+    "packages": [
+      "cire/invites",
+      "tools/e2e"
+    ],
+    "touches_migration": false,
+    "commits": 6
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 322,
+      "Read": 11,
+      "Skill": 7,
+      "Write": 7,
+      "StructuredOutput": 7,
+      "Edit": 7,
+      "Agent": 3,
+      "SubagentHandback": 3,
+      "Grep": 3,
+      "ToolSearch": 2
+    },
+    "edit_churn": {
+      "files_edited_3plus": 1,
+      "max_edits_one_file": 4
+    },
+    "skills": {
+      "new-feat": 1,
+      "stress-plan": 1,
+      "write-wiki": 1,
+      "obsidian:obsidian-markdown": 1,
+      "review-performance": 1,
+      "review-tests": 1,
+      "rate-complexity": 1
+    },
+    "subagents": {
+      "attacker": 1,
+      "reviewer": 2
+    },
+    "requests": {
+      "main": 13,
+      "subagent": 351,
+      "with_tools": 356,
+      "with_one_tool": 341,
+      "context_median": 230943,
+      "context_p90": 468673
+    }
+  },
+  "review": {
+    "reports": 1,
+    "findings": 3,
+    "located": 3,
+    "acted_on": 3,
+    "paired": 3,
+    "acted_on_paired": 3,
+    "control_changed": 0,
+    "acted_on_by_test": 3,
+    "acted_on_paired_by_test": 3
+  }
+}

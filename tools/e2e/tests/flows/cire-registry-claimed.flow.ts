@@ -13,6 +13,11 @@
  * Stripe-ready settings from the database first, so the fund's absence is the
  * deployment's doing, not a seed that lacks one.
  *
+ * The wedding is on Gold, so the invitation downloads the band's own module
+ * and its display helpers once the list read answers, and never the client
+ * that claims and gives, which only the gift page needs; a guest of an Ivory
+ * wedding downloads none of them (`cire-rsvp-after-deadline`).
+ *
  * The wedding is the gift-list one cire-api seeds for the suite
  * (`CIRE_GIFT_LIST`); every string the locked flow checks is absent is checked
  * here to be present — on the page, or for the fund, in the database — so a
@@ -26,7 +31,15 @@ import { resolve } from "node:path";
 import type { Page } from "@playwright/test";
 
 import { CIRE_GIFT_LIST, DB_FILES, LOG_DIR, ORIGINS } from "../../src/config";
-import { expect, giftListTextIn, onSuiteClock, queryOne, test } from "../support/fixtures";
+import {
+  expect,
+  GIFT_LIST_MODULES,
+  giftListTextIn,
+  guestSitePaths,
+  onSuiteClock,
+  queryOne,
+  test,
+} from "../support/fixtures";
 
 const LIST_URL = `${ORIGINS.cireApi}/api/invite/${CIRE_GIFT_LIST.slug}/registry`;
 const MINE_URL = `${LIST_URL}/mine`;
@@ -38,6 +51,11 @@ function responseTo(page: Page, method: string, url: string) {
 }
 
 test("cire-registry-claimed", async ({ page, context, flow }) => {
+  const paths = guestSitePaths(page);
+  // Where the invitation's requests start: the gift page before it imports
+  // the gift-list client itself.
+  let atInvitation = 0;
+
   const before = await flow.step("open the gift list without a code", async () => {
     const read = responseTo(page, "GET", LIST_URL);
     await page.goto(`${ORIGINS.cireInvites}/cire/registry?slug=${CIRE_GIFT_LIST.slug}`);
@@ -56,6 +74,7 @@ test("cire-registry-claimed", async ({ page, context, flow }) => {
   });
 
   await flow.step("follow the page to the invitation", async () => {
+    atInvitation = paths.length;
     await page.getByRole("link", { name: "Open the invitation" }).click();
     await expect(page).toHaveURL(`${ORIGINS.cireInvites}/cire/invite?slug=${CIRE_GIFT_LIST.slug}`);
     await expect(page.getByLabel("Invitation code")).toBeVisible();
@@ -95,6 +114,32 @@ test("cire-registry-claimed", async ({ page, context, flow }) => {
     "band read the list",
     true,
     flow.saw(`GET cire-api /api/invite/${CIRE_GIFT_LIST.slug}/registry 200`),
+  );
+  // A Gold wedding with a published list: its guests download the band. These
+  // also hold the two paths, so a renamed module fails here rather than letting
+  // `cire-rsvp-after-deadline`, where an Ivory guest must request neither, pass
+  // on a path nothing serves.
+  const tier = queryOne<{ tier: string }>(
+    DB_FILES.cire,
+    `SELECT tier FROM weddings WHERE slug = ?`,
+    CIRE_GIFT_LIST.slug,
+  );
+  flow.check("the gift-list wedding's plan", "gold", tier?.tier ?? "missing");
+  const invitationPaths = new Set(paths.slice(atInvitation));
+  flow.check(
+    "the invitation downloaded the band",
+    true,
+    invitationPaths.has(GIFT_LIST_MODULES.band),
+  );
+  flow.check(
+    "the invitation downloaded the band's display helpers",
+    true,
+    invitationPaths.has(GIFT_LIST_MODULES.display),
+  );
+  flow.check(
+    "the invitation downloaded the gift list's write client",
+    false,
+    invitationPaths.has(GIFT_LIST_MODULES.client),
   );
 
   const after = await flow.step("open the gift list", async () => {

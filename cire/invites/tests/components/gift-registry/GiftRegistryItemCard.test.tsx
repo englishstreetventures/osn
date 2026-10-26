@@ -8,7 +8,8 @@ import {
   GIFT_CARD_IMAGE_CLASS,
   GiftRegistryItemCard,
 } from "../../../src/components/gift-registry/GiftRegistryItemCard";
-import type { GiftRegistryHouseholdClaim, GiftRegistryItem } from "../../../src/lib/gift-registry";
+import type { GiftRegistryHouseholdClaim } from "../../../src/lib/gift-registry";
+import type { GiftRegistryItem } from "../../../src/lib/gift-registry-read";
 
 /**
  * One gift card.
