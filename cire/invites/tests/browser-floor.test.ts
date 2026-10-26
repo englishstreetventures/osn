@@ -4,7 +4,7 @@ import { readdirSync, readFileSync, realpathSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { API } from "typescript/sync";
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 
 /**
  * Holds the guest site, and every workspace package it imports, to the browser
@@ -133,8 +133,10 @@ function libFiles(files: readonly string[]): string[] {
 }
 
 /** `compilerOptions` as a `tsconfig.json` writes it (JSONC, so TypeScript reads it). */
+const api = new API({ cwd: appRoot });
+afterAll(() => api.close());
+
 function writtenOptions(dir: string): { lib?: unknown; types?: unknown } {
-  using api = new API({ cwd: dir });
   const { config, error } = api.readConfigFile(join(dir, "tsconfig.json"));
   if (error) throw new Error(error.text);
   return (config as { compilerOptions?: { lib?: unknown; types?: unknown } }).compilerOptions ?? {};

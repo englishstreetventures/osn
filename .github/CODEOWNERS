@@ -68,3 +68,7 @@ wrangler.jsonc       @chav-aniket
 /.claude/**          @chav-aniket
 /.agents/**          @chav-aniket
 /skills-lock.json    @chav-aniket
+# The `ts-lsp` plugin installs at user scope from `main`'s copy of this
+# directory and starts its `.lsp.json` command in every session on the owner's
+# machine, so a change here is reviewed like a change to an agent's permissions.
+/tools/claude-ts-lsp/** @chav-aniket

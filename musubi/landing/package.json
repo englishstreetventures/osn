@@ -16,7 +16,7 @@
     "preview": "astro preview --port 4324",
     "test": "vitest run",
     "test:run": "vitest run",
-    "typecheck": "tsc -p . --runExternalCode"
+    "typecheck": "bun ../../scripts/astro-typecheck.ts"
   },
   "portless": {
     "name": "www.musubi",

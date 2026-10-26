@@ -59,8 +59,11 @@
       "dependsOn": ["^transit"],
       "inputs": ["$TURBO_DEFAULT$", "!**/*.md"]
     },
+    // The Astro sites' `typecheck` runs `scripts/astro-typecheck.ts`, outside
+    // their package, so it is named here or an edit to it replays a cached green.
     "typecheck": {
-      "dependsOn": ["transit"]
+      "dependsOn": ["transit"],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/scripts/astro-typecheck.ts"]
     },
     // `inputs` below is *subtractive*, not an allowlist. Turborepo's default is
     // "every non-gitignored file in the package", and naming any input replaces

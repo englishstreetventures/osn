@@ -144,11 +144,12 @@ names under `contentMappers`. So before any of those, read every change to a fil
 
 ```bash
 git diff origin/main...origin/<branch> -- package.json '*/package.json' '*/*/package.json' \
-  bunfig.toml lefthook.yml .github scripts .claude patches '*.sh' '*.config.*' '*tsconfig*.json'
+  bunfig.toml lefthook.yml .github scripts .claude tools/claude-ts-lsp patches '*.sh' '*.config.*' '*tsconfig*.json'
 ```
 
 Look for lifecycle scripts (`preinstall`, `postinstall`, `prepare`), new
-`trustedDependencies` or `patchedDependencies`, hook commands, workflow steps,
+`trustedDependencies` or `patchedDependencies`, hook commands, workflow steps, a changed `command` or a new hook or MCP server
+in the `tools/claude-ts-lsp` plugin, a `contentMappers` entry in a tsconfig,
 and scripts that fetch, write outside the checkout or read credentials. Say in
 the report what you read. Anything you cannot account for → stop and ask the
 owner before running it.

@@ -14,7 +14,7 @@
     "dev:app": "dev-env astro dev",
     "build": "astro build && ../../scripts/guard-bundle-size.sh .",
     "preview": "astro preview --port 4325",
-    "typecheck": "tsc -p . --runExternalCode",
+    "typecheck": "bun ../../scripts/astro-typecheck.ts",
     "test": "vitest run",
     "test:run": "vitest run"
   },

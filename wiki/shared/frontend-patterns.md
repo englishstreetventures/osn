@@ -120,19 +120,19 @@ The six Astro sites type-check with TypeScript 7.1's `tsc` and
 "contentMappers": [{ "package": "@astrojs/ts-content-mapper", "extensions": [".astro"] }]
 ```
 
-Each site's `typecheck` is `tsc -p . --runExternalCode`. The mapper turns every
+Each site's `typecheck` is `scripts/astro-typecheck.ts`, which runs `tsc -p .
+--runExternalCode --listFiles` once. The mapper turns every
 `.astro` file into TypeScript for the checker, frontmatter, template
 expressions and processed `<script>` blocks included, and errors point at the
 `.astro` line. `is:inline` scripts are not checked. The program also loads the
 source of every workspace package the site imports, so that source is checked at
 the site's `lib`. Without the `contentMappers` entry `tsc` still exits 0, having
-checked no `.astro` file, so `bun run check:astro-typecheck` (run in CI's Type
-Check job) lists each site's program and fails when an `.astro` file under `src/`
-is missing from it.
+checked no `.astro` file, so the script also fails when an `.astro` file under
+`src/` is missing from the files `tsc` loaded.
 
 | Rule | Why |
 |---|---|
-| Run plain `tsc`, never `bunx --bun tsc` | `--bun` puts Bun first on `PATH` as `node`. The mapper starts as `node dist/server.js`; it works under Bun, but CI pins Node 24 for it in the Type Check job |
+| Run plain `node_modules/.bin/tsc`, never `bunx --bun tsc` | `--bun` puts Bun first on `PATH` as `node`. The mapper starts as `node dist/server.js`; it works under Bun, but CI pins Node 24 for it in the Type Check job |
 | `contentMappers` is code execution | With `--runExternalCode`, `tsc` starts the named package's `typescript.contentMapper.exec`. Review a tsconfig change that adds or changes one like a script change |
 | A package that ships an `.astro` file declares `astro` | The mapper's output imports `astro` types from the `.astro` file's own location. The isolated linker resolves only declared dependencies, so `@cire/ui` lists `astro` in `devDependencies` |
 | An `astro` bump can fail all six checks | Astro's own shipped `.astro` components are checked too, and `skipLibCheck` covers only `.d.ts` files. An upstream type error in one fails every site's `typecheck` in CI before it merges |

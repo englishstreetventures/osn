@@ -13,7 +13,7 @@
     "dev:app": "dev-env astro dev",
     "build": "astro build && bun run ../../scripts/check-astro-fonts.ts dist && ../../scripts/guard-bundle-size.sh .",
     "preview": "astro preview",
-    "typecheck": "tsc -p . --runExternalCode",
+    "typecheck": "bun ../../scripts/astro-typecheck.ts",
     "test": "bunx --bun vitest",
     "test:mutation": "bun ../../tools/stryker/src/cli.ts",
     "test:run": "bunx --bun vitest run"
