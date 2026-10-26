@@ -209,8 +209,8 @@ const pkCacheKey = (issuer: string, kid: string): string => `${issuer}\n${kid}`;
  * revoking node is immediate (S-H100), but *other* nodes that already cached
  * the key keep serving it until their own entry expires — at most this TTL.
  * Overridable via `ARC_PUBLIC_KEY_CACHE_TTL_SECONDS`; defaults to 300 (5 min).
- * A finite, conservative default is the trade-off for not yet having a Redis
- * pub/sub fan-out eviction (an open issue in `englishstreetventures/osn`).
+ * A finite, conservative default is the trade-off for not yet having a
+ * cross-node eviction fan-out (an open issue in `englishstreetventures/osn`).
  */
 const PUBLIC_KEY_CACHE_TTL_SECONDS = (() => {
   const raw = Number(process.env.ARC_PUBLIC_KEY_CACHE_TTL_SECONDS);

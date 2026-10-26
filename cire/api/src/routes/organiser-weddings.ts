@@ -347,7 +347,7 @@ export const createOrganiserWeddingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
  * The per-user limiter keys on `osnProfileId` (not the client IP): the caller
  * is already authenticated and wedding-scoped, so keying on their identity
  * rather than their edge IP is both more accurate (one person per bucket) and
- * consistent with the Upstash per-user backend used by sibling services.
+ * consistent with the per-user limiters of sibling services.
  */
 export const createOrganiserExportRoutes = (
   db: Db,
