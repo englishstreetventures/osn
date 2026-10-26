@@ -494,10 +494,7 @@ export const createOrganiserExportRoutes = (
                     .seatingCsv(weddingId)
                     .pipe(Effect.provideService(EffectDbService, effectDb));
               return csvAttachment(csv, `cire-seating-${weddingSlug ?? weddingId}.csv`);
-            }).pipe(
-              Effect.provideService(DbService, db),
-              Effect.catchDefect(() => exportDefect(set, "seating.csv", weddingId)),
-            ),
+            }).pipe(Effect.catchDefect(() => exportDefect(set, "seating.csv", weddingId))),
           );
         })
         // How many rows `budget.csv`, `tasks.csv`, `gifts.csv` and

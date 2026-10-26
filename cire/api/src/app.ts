@@ -408,7 +408,7 @@ function digestStopKeyOnce(secret: string): () => Promise<CryptoKey> {
 }
 
 export interface AppOptions {
-  /** The D1 Effect handle the CSV exports (RSVPs, gifts) run on. Absent: those exports answer 500. */
+  /** The D1 Effect handle the RSVP, gift and seating CSV exports run on. Absent: those exports answer 500. */
   effectDb?: EffectD1Db;
   /** Primary origin (used for the session cookie's `secure` flag). */
   webOrigin?: string;
