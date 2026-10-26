@@ -5,6 +5,7 @@ import type { HTTPHeaders } from "elysia";
 
 import { DbService } from "../db";
 import type { Db } from "../db";
+import { EffectDbService, type EffectD1Db } from "../db/effect-handle";
 import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { rateLimitMiddleware, rateLimitMiddlewareByUser } from "../middleware/rate-limit";
@@ -336,6 +337,7 @@ export const createOrganiserExportRoutes = (
   db: Db,
   osnAuthOptions: OsnAuthOptions,
   limiter: RateLimiterBackend,
+  effectDb: EffectD1Db | undefined,
 ) =>
   new Elysia({ prefix: "/api/organiser" })
     .use(osnAuth(osnAuthOptions))
@@ -356,12 +358,13 @@ export const createOrganiserExportRoutes = (
           }
           return runCire(
             Effect.gen(function* () {
-              const data = yield* rsvpExportService.build(weddingId);
+              const data = yield* effectDb === undefined
+                ? Effect.die(new Error("organiser export: no EffectDbService was provided"))
+                : rsvpExportService
+                    .build(weddingId)
+                    .pipe(Effect.provideService(EffectDbService, effectDb));
               return csvAttachment(toCsv(data), `cire-rsvps-${weddingSlug ?? weddingId}.csv`);
-            }).pipe(
-              Effect.provideService(DbService, db),
-              Effect.catchDefect(() => exportDefect(set, "rsvps.csv", weddingId)),
-            ),
+            }).pipe(Effect.catchDefect(() => exportDefect(set, "rsvps.csv", weddingId))),
           );
         })
         // Guest-roster CSV export — one row per guest with household code,

@@ -5,6 +5,7 @@ import { alias } from "drizzle-orm/sqlite-core";
 import { Effect } from "effect";
 
 import { DbService, dbQuery } from "../db";
+import { EffectDbService } from "../db/effect-handle";
 import { sanitiseCsvCell, serialiseCsv } from "../lib/csv";
 import { compareEventsByStart } from "../lib/event-order";
 import { withPlusOnesAfterInviters } from "./claim";
@@ -447,9 +448,9 @@ export const rsvpExportService = {
    * (by guest `sort_order`), with each plus-one straight after the guest who
    * brought them.
    */
-  build(weddingId: string): Effect.Effect<RsvpExport, never, DbService> {
+  build(weddingId: string): Effect.Effect<RsvpExport, never, EffectDbService> {
     return Effect.gen(function* () {
-      const db = yield* DbService;
+      const db = yield* EffectDbService;
 
       // (a), (b), and (c) are all independently wedding-scoped — collapse them
       // to one D1 round-trip (matches the parallel shape in
@@ -460,59 +461,56 @@ export const rsvpExportService = {
           // ISO-8601 string with offset, so lexicographic order is NOT reliable
           // across timezones — sort in JS by parsed epoch, falling back to
           // sort_order then id for ties / unparseable timestamps.
-          dbQuery(() =>
-            db
-              .select({
-                id: events.id,
-                name: events.name,
-                startAt: events.startAt,
-                sortOrder: events.sortOrder,
-              })
-              .from(events)
-              .where(eq(events.weddingId, weddingId))
-              .all(),
-          ),
+          db
+            .select({
+              id: events.id,
+              name: events.name,
+              startAt: events.startAt,
+              sortOrder: events.sortOrder,
+            })
+            .from(events)
+            .where(eq(events.weddingId, weddingId))
+            .all()
+            .pipe(Effect.orDie),
           // (b) Guests + family + their event memberships (left join → a guest with
           // no invites still appears). Host families excluded.
-          dbQuery(() =>
-            db
-              .select({
-                guestId: guests.id,
-                firstName: guests.firstName,
-                lastName: guests.lastName,
-                sortOrder: guests.sortOrder,
-                plusOneOf: guests.plusOneOfGuestId,
-                publicId: families.publicId,
-                familyName: families.familyName,
-                eventId: guestEvents.eventId,
-              })
-              .from(guests)
-              .innerJoin(families, eq(guests.familyId, families.id))
-              .leftJoin(guestEvents, eq(guestEvents.guestId, guests.id))
-              .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
-              .orderBy(asc(guests.sortOrder))
-              .all(),
-          ),
+          db
+            .select({
+              guestId: guests.id,
+              firstName: guests.firstName,
+              lastName: guests.lastName,
+              sortOrder: guests.sortOrder,
+              plusOneOf: guests.plusOneOfGuestId,
+              publicId: families.publicId,
+              familyName: families.familyName,
+              eventId: guestEvents.eventId,
+            })
+            .from(guests)
+            .innerJoin(families, eq(guests.familyId, families.id))
+            .leftJoin(guestEvents, eq(guestEvents.guestId, guests.id))
+            .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
+            .orderBy(asc(guests.sortOrder))
+            .all()
+            .pipe(Effect.orDie),
           // (c) RSVPs for the wedding's guests (scoped via the guest→family join so
           // a host family's preview RSVPs, if any, never leak in).
-          dbQuery(() =>
-            db
-              .select({
-                guestId: rsvps.guestId,
-                eventId: rsvps.eventId,
-                status: rsvps.status,
-                dietary: rsvps.dietary,
-                dietaryPresets: rsvps.dietaryPresets,
-                consentSource: rsvps.consentSource,
-                // Whether an organiser wrote the reply last; never which one.
-                statusRecordedByHost: sql<number>`${rsvps.recordedByOsnProfileId} IS NOT NULL`,
-              })
-              .from(rsvps)
-              .innerJoin(guests, eq(rsvps.guestId, guests.id))
-              .innerJoin(families, eq(guests.familyId, families.id))
-              .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
-              .all(),
-          ),
+          db
+            .select({
+              guestId: rsvps.guestId,
+              eventId: rsvps.eventId,
+              status: rsvps.status,
+              dietary: rsvps.dietary,
+              dietaryPresets: rsvps.dietaryPresets,
+              consentSource: rsvps.consentSource,
+              // Whether an organiser wrote the reply last; never which one.
+              statusRecordedByHost: sql<number>`${rsvps.recordedByOsnProfileId} IS NOT NULL`,
+            })
+            .from(rsvps)
+            .innerJoin(guests, eq(rsvps.guestId, guests.id))
+            .innerJoin(families, eq(guests.familyId, families.id))
+            .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
+            .all()
+            .pipe(Effect.orDie),
         ],
         { concurrency: 3 },
       );

@@ -4,6 +4,8 @@ import { Context, Effect, Layer, Scope } from "effect";
 
 import { createSessionRoutedClient } from "./d1-session";
 
+export type { EffectD1Db } from "@shared/db-utils/effect/d1";
+
 /**
  * The D1 Effect handle, provided as a context service so the layer can be built
  * against the same tag the drizzle driver reads.

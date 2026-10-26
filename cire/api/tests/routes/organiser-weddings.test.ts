@@ -25,6 +25,8 @@ import { Effect } from "effect";
 import { createApp } from "../../src/app";
 import { DbService } from "../../src/db";
 import type { Db } from "../../src/db";
+import { effectDbFor } from "../../src/db/effect-handle";
+import { localD1Binding } from "../../src/db/local-d1";
 import { createDb, seedDb } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
 import { organiserSessionService } from "../../src/services/organiser-session";
@@ -47,7 +49,7 @@ beforeAll(async () => {
 });
 
 /** Seeds the bootstrap wedding + a second wedding owned by someone else. */
-function buildApp() {
+function buildApp(opts: { withoutEffect?: boolean } = {}) {
   const db = createDb(":memory:");
   seedDb(db);
   seedOtherWedding(db);
@@ -58,6 +60,7 @@ function buildApp() {
   // The dedicated rate-limit tests below build their own apps with a 1-req
   // limiter to assert 429.
   const app = createApp(db, {
+    effectDb: opts.withoutEffect ? undefined : effectDbFor(localD1Binding(db.$client), "fetch"),
     osnTestKey: auth.key,
     weddingCreateLimiter: createRateLimiter({ maxRequests: 1_000, windowMs: 60_000 }),
     exportLimiter: createRateLimiter({ maxRequests: 1_000, windowMs: 60_000 }),
@@ -2336,6 +2339,7 @@ describe("CSV export per-user rate limit (CSV-S-L1)", () => {
     seedDb(db);
     seedOtherWedding(db);
     const app = createApp(db, {
+      effectDb: effectDbFor(localD1Binding(db.$client), "fetch"),
       osnTestKey: auth.key,
       exportLimiter: createRateLimiter({ maxRequests: 1, windowMs: 60_000 }),
     });
@@ -2354,6 +2358,7 @@ describe("CSV export per-user rate limit (CSV-S-L1)", () => {
       const db = createDb(":memory:");
       seedDb(db);
       const app = createApp(db, {
+        effectDb: effectDbFor(localD1Binding(db.$client), "fetch"),
         osnTestKey: auth.key,
         exportLimiter: createRateLimiter({ maxRequests: 1, windowMs: 60_000 }),
       });
@@ -2367,6 +2372,7 @@ describe("CSV export per-user rate limit (CSV-S-L1)", () => {
     const db = createDb(":memory:");
     seedDb(db);
     const app = createApp(db, {
+      effectDb: effectDbFor(localD1Binding(db.$client), "fetch"),
       osnTestKey: auth.key,
       exportLimiter: createRateLimiter({ maxRequests: 1, windowMs: 60_000 }),
     });
@@ -2380,6 +2386,7 @@ describe("CSV export per-user rate limit (CSV-S-L1)", () => {
     seedDb(db);
     seedOtherWedding(db);
     const app = createApp(db, {
+      effectDb: effectDbFor(localD1Binding(db.$client), "fetch"),
       osnTestKey: auth.key,
       exportLimiter: createRateLimiter({ maxRequests: 1, windowMs: 60_000 }),
     });
@@ -2390,5 +2397,19 @@ describe("CSV export per-user rate limit (CSV-S-L1)", () => {
     expect((await get(app, ownerPath, BOOTSTRAP_OWNER)).status).toBe(429);
     // The other wedding's owner (different user) still has a full bucket.
     expect((await get(app, otherPath, OTHER_OWNER)).status).toBe(200);
+  });
+});
+
+describe("GET rsvps.csv when the app has no Effect handle", () => {
+  // The export's missing handle dies inside the route's pipe, so catchDefect answers a plain 500 with no attachment.
+  it("answers 500 with no attachment", async () => {
+    const { app } = buildApp({ withoutEffect: true });
+    const res = await get(
+      app,
+      `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/rsvps.csv`,
+      BOOTSTRAP_OWNER,
+    );
+    expect(res.status).toBe(500);
+    expect(res.headers.get("content-disposition")).toBeNull();
   });
 });
