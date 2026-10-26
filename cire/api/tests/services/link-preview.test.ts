@@ -208,8 +208,11 @@ describe("isBlockedAddress", () => {
     // the low 32 bits: under a /48 this second address is 127.0.0.1.
     expect(isBlockedAddress("64:ff9b:1::8.8.8.8")).toBe(true);
     expect(isBlockedAddress("64:ff9b:1:7f00:0:100:808:808")).toBe(true);
-    // Inside 64:ff9b::/32 but outside the well-known /96.
+    // Inside 64:ff9b::/32 but outside the well-known /96: one non-zero byte at
+    // each end of the run that must be zero (bytes 4 and 11), and one inside it.
+    expect(isBlockedAddress("64:ff9b:100::8.8.8.8")).toBe(true);
     expect(isBlockedAddress("64:ff9b:0:0:1::8.8.8.8")).toBe(true);
+    expect(isBlockedAddress("64:ff9b::1:8.8.8.8")).toBe(true);
     expect(isBlockedAddress("64:ff9b::8.8.8.8")).toBe(false);
   });
 
