@@ -3,7 +3,6 @@ import { describe, it, expect } from "bun:test";
 import { BOOTSTRAP_WEDDING_ID, events, families, guestEvents, guests, rsvps } from "@cire/db";
 import { events as eventsSeed } from "@cire/db/seed";
 import { serialisePresets, type DietaryPreset } from "@cire/dietary";
-import type { D1Database, D1PreparedStatement } from "@cloudflare/workers-types";
 import { and, eq, inArray } from "drizzle-orm";
 import { Cause, Effect, Exit } from "effect";
 
@@ -15,6 +14,7 @@ import { localD1Binding } from "../../src/db/local-d1";
 import { createDb, seedDb } from "../../src/db/setup";
 import { rsvpExportService, toCsv, sanitiseCsvCell } from "../../src/services/rsvp-export";
 import type { RsvpView } from "../../src/services/rsvp-export";
+import { failingReadOf, loggingBinding } from "../test-helpers/d1-bindings";
 import { allowPlusOne, guestNamed, seedPlusOne } from "../test-helpers/plus-one";
 import { insertWedding } from "../test-helpers/wedding";
 
@@ -1224,32 +1224,16 @@ describe("rsvpExportService.buildView — plus-ones in the tallies", () => {
   });
 });
 
-/**
- * A D1 binding whose statements against `table` reject, as a failed read would.
- * Statements against any other table run on the real adapter.
- */
-const failingReadOf = (base: D1Database, table: string): D1Database => {
-  // Prototype chains, not spreads: the D1 types are abstract classes, and a spread
-  // drops their methods. Each wrapper keeps every method and overrides only one.
-  const prepare = (query: string): D1PreparedStatement => {
-    const real = base.prepare(query);
-    if (!query.includes(`from "${table}"`)) return real;
-    const failing: D1PreparedStatement = Object.assign(Object.create(real.bind()), {
-      raw: () => Promise.reject(new Error("injected read failure")),
-    });
-    return Object.assign(Object.create(real), { bind: () => failing });
-  };
-  return Object.assign(Object.create(base), { prepare });
-};
-
 describe("rsvpExportService.build — the Effect path", () => {
   // a failed read of any of the three queries is a defect, so the route's catchDefect answers it.
   it.each(["events", "guests", "rsvps"])(
-    "F2: a failed read of %s dies rather than failing typed",
+    "a failed read of %s dies rather than failing typed",
     async (table) => {
       const db = createDb(":memory:");
       seedDb(db);
-      const binding = failingReadOf(localD1Binding(db.$client), table);
+      const binding = failingReadOf(localD1Binding(db.$client), (query) =>
+        query.includes(`from "${table}"`),
+      );
       const exit = await Effect.runPromiseExit(
         rsvpExportService
           .build(BOOTSTRAP_WEDDING_ID)
@@ -1264,27 +1248,22 @@ describe("rsvpExportService.build — the Effect path", () => {
   );
 
   // two requests in two sessions each prepare the export's three statements on their own session.
-  it("F3: each concurrent request prepares its own statements on its own session", async () => {
+  it("each concurrent request prepares its own statements on its own session", async () => {
     const db = createDb(":memory:");
     seedDb(db);
     const base = localD1Binding(db.$client);
     const handle = effectDbFor(base, "fetch");
     const logA: string[] = [];
     const logB: string[] = [];
-    const sessionLogging = (log: string[]) => ({
-      prepare: (query: string) => {
-        log.push(query);
-        return base.prepare(query);
-      },
-      batch: base.batch,
-    });
     const runIn = (log: string[]) =>
-      withD1Session(sessionLogging(log), () =>
-        Effect.runPromise(
-          rsvpExportService
-            .build(BOOTSTRAP_WEDDING_ID)
-            .pipe(Effect.provideService(EffectDbService, handle)),
-        ),
+      withD1Session(
+        loggingBinding(base, (query) => log.push(query)),
+        () =>
+          Effect.runPromise(
+            rsvpExportService
+              .build(BOOTSTRAP_WEDDING_ID)
+              .pipe(Effect.provideService(EffectDbService, handle)),
+          ),
       );
     await Promise.all([runIn(logA), runIn(logB)]);
     expect(logA).toHaveLength(3);
@@ -1295,7 +1274,9 @@ describe("rsvpExportService.build — the Effect path", () => {
   it("does not render the bound wedding id in the failure", async () => {
     const db = createDb(":memory:");
     seedDb(db);
-    const binding = failingReadOf(localD1Binding(db.$client), "events");
+    const binding = failingReadOf(localD1Binding(db.$client), (query) =>
+      query.includes('from "events"'),
+    );
     const exit = await Effect.runPromiseExit(
       rsvpExportService
         .build(BOOTSTRAP_WEDDING_ID)
