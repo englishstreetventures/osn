@@ -66,7 +66,7 @@ test("the day the ceiling was crossed fires, with the database named", () => {
     d1: [d1("bf0510eb", "2026-08-30", 104_091), d1("6e835474", "2026-08-30", 657)],
   };
 
-  const breaches = findBreaches(usage, NAMES);
+  const breaches = findBreaches(usage, NAMES, "dev");
 
   expect(breaches).toHaveLength(1);
   expect(breaches[0]!.counter).toBe("D1 rows written");
@@ -77,16 +77,16 @@ test("the day the ceiling was crossed fires, with the database named", () => {
 
 test("a day at 64% of the ceiling reads as normal", () => {
   const usage: Usage = { ...EMPTY, d1: [d1("bf0510eb", "2026-09-08", 64_056)] };
-  expect(findBreaches(usage, NAMES)).toHaveLength(0);
+  expect(findBreaches(usage, NAMES, "dev")).toHaveLength(0);
 });
 
 test("the warning line is inclusive, and one row below it is not", () => {
   const line = CEILINGS.d1RowsWritten * WARN_FRACTION;
-  expect(findBreaches({ ...EMPTY, d1: [d1("bf0510eb", "2026-09-08", line)] }, NAMES)).toHaveLength(
-    1,
-  );
   expect(
-    findBreaches({ ...EMPTY, d1: [d1("bf0510eb", "2026-09-08", line - 1)] }, NAMES),
+    findBreaches({ ...EMPTY, d1: [d1("bf0510eb", "2026-09-08", line)] }, NAMES, "dev"),
+  ).toHaveLength(1);
+  expect(
+    findBreaches({ ...EMPTY, d1: [d1("bf0510eb", "2026-09-08", line - 1)] }, NAMES, "dev"),
   ).toHaveLength(0);
 });
 
@@ -100,7 +100,7 @@ test("the total is account-wide, so databases under the line together cross it",
     ],
   };
 
-  const breaches = findBreaches(usage, NAMES);
+  const breaches = findBreaches(usage, NAMES, "dev");
 
   expect(breaches).toHaveLength(1);
   expect(breaches[0]!.used).toBe(100_000);
@@ -116,15 +116,15 @@ test("each day is judged on its own", () => {
     ...EMPTY,
     d1: [d1("bf0510eb", "2026-08-30", 104_091), d1("bf0510eb", "2026-09-09", 104_091)],
   };
-  expect(findBreaches(usage, NAMES).map((b) => b.day)).toEqual(["2026-09-09", "2026-08-30"]);
+  expect(findBreaches(usage, NAMES, "dev").map((b) => b.day)).toEqual(["2026-09-09", "2026-08-30"]);
 });
 
 test("rows read has its own, much higher ceiling", () => {
   const under: Usage = { ...EMPTY, d1: [d1("bf0510eb", "2026-09-09", 0, 294_202)] };
-  expect(findBreaches(under, NAMES)).toHaveLength(0);
+  expect(findBreaches(under, NAMES, "dev")).toHaveLength(0);
 
   const over: Usage = { ...EMPTY, d1: [d1("bf0510eb", "2026-09-09", 0, 4_500_000)] };
-  expect(findBreaches(over, NAMES)[0]!.counter).toBe("D1 rows read");
+  expect(findBreaches(over, NAMES, "dev")[0]!.counter).toBe("D1 rows read");
 });
 
 test("Workers requests are counted account-wide and broken down by script", () => {
@@ -133,7 +133,7 @@ test("Workers requests are counted account-wide and broken down by script", () =
     workers: [worker("cire-api", "2026-09-09", 70_000), worker("osn-api", "2026-09-09", 15_000)],
   };
 
-  const breaches = findBreaches(usage, NAMES);
+  const breaches = findBreaches(usage, NAMES, "dev");
 
   expect(breaches).toHaveLength(1);
   expect(breaches[0]!.counter).toBe("Workers requests");
@@ -150,7 +150,7 @@ test("storage reads the newest day only, so yesterday's size is not added to tod
     ],
   };
 
-  const account = findBreaches(usage, NAMES).find((b) => b.counter === "D1 storage");
+  const account = findBreaches(usage, NAMES, "dev").find((b) => b.counter === "D1 storage");
 
   expect(account).toBeDefined();
   expect(account!.day).toBe("2026-09-10");
@@ -161,7 +161,7 @@ test("storage reads the newest day only, so yesterday's size is not added to tod
 test("one database over its own 500 MB line fires while the account total is quiet", () => {
   const usage: Usage = { ...EMPTY, storage: [storage("6e835474", "2026-09-10", 480_000_000)] };
 
-  const breaches = findBreaches(usage, NAMES);
+  const breaches = findBreaches(usage, NAMES, "dev");
 
   // 480 MB is 9.6% of the account's 5 GB and 96% of one database's 500 MB.
   expect(breaches).toHaveLength(1);
@@ -172,7 +172,7 @@ test("one database over its own 500 MB line fires while the account total is qui
 
 test("a database at 79% of its own line is not reported", () => {
   const usage: Usage = { ...EMPTY, storage: [storage("6e835474", "2026-09-10", 399_000_000)] };
-  expect(findBreaches(usage, NAMES)).toHaveLength(0);
+  expect(findBreaches(usage, NAMES, "dev")).toHaveLength(0);
 });
 
 test("each database is weighed on its own, so only the full one is named", () => {
@@ -185,7 +185,7 @@ test("each database is weighed on its own, so only the full one is named", () =>
     ],
   };
 
-  const breaches = findBreaches(usage, NAMES);
+  const breaches = findBreaches(usage, NAMES, "dev");
 
   expect(breaches.map((b) => b.counter)).toEqual(["D1 database size: cire-db-dev"]);
 });
@@ -193,10 +193,10 @@ test("each database is weighed on its own, so only the full one is named", () =>
 test("the body names the database in the heading of a per-database breach", () => {
   const usage: Usage = { ...EMPTY, storage: [storage("bf0510eb", "2026-09-10", 480_000_000)] };
   const body = renderIssueBody(
-    findBreaches(usage, NAMES),
+    findBreaches(usage, NAMES, "dev"),
     { start: "2026-09-10", end: "2026-09-10" },
     "2026-09-10T08:00:00Z",
-    "production",
+    "dev",
   );
   expect(body).toContain("## D1 database size: cire-db-dev — 2026-09-10");
   expect(body).toContain("480.0 MB of 500.0 MB (96%)");
@@ -208,16 +208,16 @@ test("worst counter first", () => {
     d1: [d1("bf0510eb", "2026-09-09", 85_000)],
     workers: [worker("cire-api", "2026-09-09", 99_000)],
   };
-  expect(findBreaches(usage, NAMES).map((b) => b.counter)).toEqual([
+  expect(findBreaches(usage, NAMES, "dev").map((b) => b.counter)).toEqual([
     "Workers requests",
     "D1 rows written",
   ]);
-  expect(fraction(findBreaches(usage, NAMES)[0]!)).toBeCloseTo(0.99);
+  expect(fraction(findBreaches(usage, NAMES, "dev")[0]!)).toBeCloseTo(0.99);
 });
 
 test("a database the name lookup does not know is shown by its id", () => {
   const usage: Usage = { ...EMPTY, d1: [d1("00000000", "2026-09-09", 90_000)] };
-  expect(findBreaches(usage, NAMES)[0]!.contributors[0]!.name).toBe("00000000");
+  expect(findBreaches(usage, NAMES, "dev")[0]!.contributors[0]!.name).toBe("00000000");
 });
 
 test("the body names the counter, the day, the figure and the database", () => {
@@ -227,10 +227,10 @@ test("the body names the counter, the day, the figure and the database", () => {
   };
 
   const body = renderIssueBody(
-    findBreaches(usage, NAMES),
+    findBreaches(usage, NAMES, "dev"),
     { start: "2026-09-09", end: "2026-09-10" },
     "2026-09-10T08:00:00Z",
-    "production",
+    "dev",
   );
 
   expect(body).toContain("D1 rows written — 2026-09-09");
@@ -244,10 +244,10 @@ test("the body names the counter, the day, the figure and the database", () => {
 test("the body prints storage in megabytes, not raw bytes", () => {
   const usage: Usage = { ...EMPTY, storage: [storage("bf0510eb", "2026-09-10", 4_100_000_000)] };
   const body = renderIssueBody(
-    findBreaches(usage, NAMES),
+    findBreaches(usage, NAMES, "dev"),
     { start: "2026-09-10", end: "2026-09-10" },
     "2026-09-10T08:00:00Z",
-    "production",
+    "dev",
   );
   expect(body).toContain("4100.0 MB of 5000.0 MB (82%)");
 });
@@ -364,14 +364,79 @@ test("F2: the dev account files its own issue, and each run finds only its own",
 });
 
 test("F4: the body names the account the counters were read from", () => {
-  const breaches = findBreaches({ ...EMPTY, d1: [d1("bf0510eb", "2026-09-09", 90_000)] }, NAMES);
+  const usage: Usage = { ...EMPTY, d1: [d1("bf0510eb", "2026-09-09", 90_000)] };
   const window = { start: "2026-09-09", end: "2026-09-10" };
-  expect(renderIssueBody(breaches, window, "2026-09-10T08:00:00Z", "dev")).toContain(
-    "on the dev account",
+  for (const account of ["dev", "production"] as const) {
+    expect(
+      renderIssueBody(findBreaches(usage, NAMES, account), window, "2026-09-10T08:00:00Z", account),
+    ).toContain(`on the ${account} account`);
+  }
+});
+
+test("C-1: production runs Workers Paid, so its daily lines are growth signals, not caps", () => {
+  const usage: Usage = {
+    ...EMPTY,
+    d1: [d1("6e835474", "2026-09-09", 104_091, 4_500_000)],
+    workers: [worker("osn-api", "2026-09-09", 85_000)],
+    storage: [storage("6e835474", "2026-09-09", 4_100_000_000)],
+  };
+
+  const breaches = findBreaches(usage, NAMES, "production");
+
+  expect(breaches.map((b) => [b.counter, b.kind])).toEqual([
+    ["D1 rows written", "signal"],
+    ["D1 rows read", "signal"],
+    ["Workers requests", "signal"],
+    ["D1 storage", "signal"],
+  ]);
+  const body = renderIssueBody(
+    breaches,
+    { start: "2026-09-09", end: "2026-09-09" },
+    "2026-09-10T08:00:00Z",
+    "production",
   );
-  expect(renderIssueBody(breaches, window, "2026-09-10T08:00:00Z", "production")).toContain(
-    "on the production account",
+  expect(body).toContain("104,091 of 100,000 (104%). A growth signal: nothing stops");
+  expect(body).toContain("Workers Paid");
+  // Nothing on a Paid account stops at a daily line, so the body must not say it does.
+  expect(body).not.toContain("D1 queries error");
+  expect(body).not.toContain("move to Workers Paid");
+});
+
+test("C-2: production weighs a database against Paid's 10 GB, where writes stop", () => {
+  const quiet: Usage = { ...EMPTY, storage: [storage("6e835474", "2026-09-10", 480_000_000)] };
+  expect(findBreaches(quiet, NAMES, "production")).toEqual([]);
+
+  const full: Usage = { ...EMPTY, storage: [storage("6e835474", "2026-09-10", 8_500_000_000)] };
+  const breaches = findBreaches(full, NAMES, "production");
+  const database = breaches.find((b) => b.counter === "D1 database size: cire-db");
+  expect(database).toMatchObject({ kind: "cap", ceiling: 10_000_000_000 });
+  const body = renderIssueBody(
+    breaches,
+    { start: "2026-09-10", end: "2026-09-10" },
+    "2026-09-10T08:00:00Z",
+    "production",
   );
+  expect(body).toContain("8500.0 MB of 10000.0 MB (85%). A cap:");
+});
+
+test("C-3: dev runs Workers Free, so every line is a cap and the body says what stops", () => {
+  const usage: Usage = {
+    ...EMPTY,
+    d1: [d1("bf0510eb", "2026-09-09", 104_091)],
+    storage: [storage("bf0510eb", "2026-09-09", 480_000_000)],
+  };
+
+  const breaches = findBreaches(usage, NAMES, "dev");
+
+  expect(breaches.map((b) => b.kind)).toEqual(["cap", "cap"]);
+  const body = renderIssueBody(
+    breaches,
+    { start: "2026-09-09", end: "2026-09-09" },
+    "2026-09-10T08:00:00Z",
+    "dev",
+  );
+  expect(body).toContain("Past a daily ceiling, D1 queries error");
+  expect(body).not.toContain("growth signal");
 });
 
 const tempDir = mkdtempSync(join(tmpdir(), "free-tier-ceilings-"));

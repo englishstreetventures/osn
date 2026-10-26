@@ -306,8 +306,8 @@ bunx wrangler d1 insights <db> --time-period=7d --sort-by=reads  --limit=20 --js
 ```
 
 **Upgrade path:** **Workers Paid** unlocks the D1 paid tier — 25B rows
-read/mo + 50M rows written/mo included, 10 GB max DB size, 50K databases, 1 TB
-storage; overage is cheap ($0.001/M read, $1/M written, $0.75/GB-mo). Re-verify.
+read/mo, 50M rows written/mo and the first 5 GB stored included; 10 GB max DB
+size, 50K databases, 1 TB storage; overage is cheap ($0.001/M read, $1/M written, $0.75/GB-mo). Re-verify.
 
 ---
 
@@ -505,19 +505,30 @@ the database and the day.
 Each read-only token holds `Account Settings: Read`, `D1: Read` and
 `Account Analytics: Read` on its own account and nothing else.
 
-Five ceilings: rows written, rows read and Workers requests per day, plus both
-storage lines — 5 GB across the account and **500 MB for any one database**. The
-per-database line is checked per database, not summed, because it is the storage
-failure that arrives first: a 480 MB database has stopped taking writes while the
-account total is still a tenth of its 5 GB.
+Five lines: rows written, rows read and Workers requests per day, plus both
+storage lines — 5 GB across the account and **500 MB for any one database** on
+dev's Free account, **10 GB** on production's Paid one. The per-database line is
+checked per database, not summed, because it is the storage failure that arrives
+first: on Free, a 480 MB database has stopped taking writes while the account
+total is still a tenth of its 5 GB.
 
-Two things to know before trusting it. The ceilings are the `CEILINGS` constant
-at the top of that script, the same for both accounts, and they have to move
-whenever the tables above do. On production's Paid account those daily lines
-are no longer caps, so an issue there means traffic grew, not that anything is
-about to stop.
-And it fails loudly: a bad API response exits non-zero and fails the run, rather
-than reporting all-clear.
+What a line means depends on the account's plan (`PLANS` and `linesFor` in the
+script):
+
+| Account | Plan | Caps — something stops | Growth signals — nothing stops |
+|---|---|---|---|
+| dev | Workers Free | all five | none |
+| production | Workers Paid | one database's size, at 10 GB (`PAID_DATABASE_BYTES`) | the three daily lines and the 5 GB account storage line, at Free's figures |
+
+So an issue on production means usage grew, not that anything is about to stop,
+unless it names a database's size. Its body says which kind each counter is;
+the month's included amounts, past which Paid bills, are under each Upgrade path
+above.
+
+Two things to know before trusting it. The figures are the `CEILINGS` and
+`PAID_DATABASE_BYTES` constants at the top of that script, and they have to move
+whenever the tables above do. And it fails loudly: a bad API response exits
+non-zero and fails the run, rather than reporting all-clear.
 
 ---
 
