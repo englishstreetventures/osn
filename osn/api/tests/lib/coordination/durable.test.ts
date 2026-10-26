@@ -62,6 +62,16 @@ describe("durable ceremony store", () => {
     expect(await store.get(KEY)).toBeNull();
   });
 
+  it("reads a stored value that is not JSON as absent, without reporting a failure", async () => {
+    const fake = createFakeNamespace();
+    const onError = vi.fn();
+    const store = createDurableCeremonyStore<typeof VALUE>(fake.ns, "step_up_otp", onError);
+    await fake.ns.getByName(`step_up_otp:${KEY}`).write("{not json", 60_000);
+
+    await expect(store.get(KEY)).resolves.toBeNull();
+    expect(onError).not.toHaveBeenCalled();
+  });
+
   it("names one object per store and key", async () => {
     const fake = createFakeNamespace();
     const a = createDurableCeremonyStore(fake.ns, "step_up_otp", vi.fn());

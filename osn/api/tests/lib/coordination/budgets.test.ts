@@ -13,7 +13,8 @@ import { createFakeNamespace } from "../../helpers/coordination-namespace";
 
 /**
  * Both builders hold every limiter to the one budget table: `maxRequests`
- * hits pass, the next is refused, and two limiters never share a counter.
+ * hits pass, the next is refused, the refusal lasts the budget's whole window
+ * and no longer, and two limiters never share a counter.
  */
 
 interface Slot {
@@ -118,6 +119,37 @@ describe.each(Object.entries(builders))("%s bundle", (_name, build) => {
       // Another key has its own window.
       // eslint-disable-next-line no-await-in-loop -- one slot at a time
       expect(await slot.check("key-2"), `${slot.label} other key`).toBe(true);
+    }
+  });
+
+  it("refuses for the budget's whole window, then admits again", async () => {
+    vi.useFakeTimers();
+    try {
+      const count = slots(build()).length;
+      for (let i = 0; i < count; i++) {
+        // A fresh bundle for each limiter, so its window starts at `start`.
+        const slot = slots(build())[i]!;
+        const { maxRequests, windowMs } = slot.budget;
+        const start = Date.now();
+        for (let hit = 0; hit < maxRequests; hit++) {
+          // eslint-disable-next-line no-await-in-loop -- a window counts hits in order
+          expect(await slot.check("key-1"), `${slot.label} hit ${hit + 1}`).toBe(true);
+        }
+        // eslint-disable-next-line no-await-in-loop -- one slot at a time
+        expect(await slot.check("key-1"), `${slot.label} over budget`).toBe(false);
+
+        // Still refused a moment before the window ends — for an hour or a day
+        // budget, long after a one-minute window would have let it through —
+        // and admitted a moment after.
+        vi.setSystemTime(start + windowMs - 1);
+        // eslint-disable-next-line no-await-in-loop -- one slot at a time
+        expect(await slot.check("key-1"), `${slot.label} at the end of its window`).toBe(false);
+        vi.setSystemTime(start + windowMs + 1);
+        // eslint-disable-next-line no-await-in-loop -- one slot at a time
+        expect(await slot.check("key-1"), `${slot.label} after its window`).toBe(true);
+      }
+    } finally {
+      vi.useRealTimers();
     }
   });
 
