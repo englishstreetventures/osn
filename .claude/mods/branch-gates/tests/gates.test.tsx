@@ -1,6 +1,18 @@
 import { expect, test } from "claude-code/testing";
 
-import { GATES, HEAD, PANE, START, T0, clockText, commands, count, texts, world } from "./world";
+import {
+  GATES,
+  HEAD,
+  MERGE_BASE,
+  PANE,
+  ROOT,
+  START,
+  commands,
+  count,
+  gitTable,
+  texts,
+  world,
+} from "./world";
 import type { Answer, Spawn } from "./world";
 
 const SHORT = HEAD.slice(0, 7);
@@ -10,7 +22,7 @@ const checkOf = (spawn: Spawn) => {
   const line = spawn.argv.join(" ");
   if (line.endsWith("verify-vendored-anti-slop.sh && bun run lint")) return "lint";
   if (line === "bun run fmt:check") return "fmt";
-  if (/guard-lint-warnings\.sh --base/.test(line)) return "ceiling";
+  if (line.startsWith("bash scripts/guard-lint-warnings.sh")) return "ceiling";
   return null;
 };
 
@@ -40,12 +52,13 @@ test("/gates with all three passing shows three ✓, HEAD and the time", async (
   );
   const checks = fake.spawned.filter((spawn) => checkOf(spawn) !== null);
   expect(checks.map(checkOf)).toEqual(["lint", "fmt", "ceiling"]);
-  expect(checks.map((spawn) => spawn.cwd)).toEqual(["/repo", "/repo", "/repo"]);
+  expect(checks.map((spawn) => spawn.cwd)).toEqual([ROOT, ROOT, ROOT]);
+  expect(checks[2]?.argv).toEqual(["bash", "scripts/guard-lint-warnings.sh", "--base", MERGE_BASE]);
   expect(checks.map((spawn) => spawn.timeoutMs)).toEqual([120_000, 120_000, 300_000]);
 
   const ui = await $.ui.mount({ ...PANE, surface: "desktop" });
   const shown = await texts(ui);
-  expect(shown).toContain(`ran at ${SHORT} · ${clockText(T0)}`);
+  expect(shown).toContain(`ran at ${SHORT} · 12:00:00`);
   expect(await rowsOf(texts(ui))).toEqual(["✓ lint", "✓ fmt:check", "✓ lint-warning ceiling"]);
   await ui.unmount();
 });
@@ -113,7 +126,10 @@ test("a new HEAD or a changed git status makes the rows stale", async ($, on) =>
   await $.command.run(GATES);
 
   // A commit made outside the session, seen by the next measure.
-  fake.git.set("rev-parse --show-toplevel HEAD", "/repo\nffff000011112222333344445555666677778888");
+  fake.git.set(
+    "rev-parse HEAD --abbrev-ref HEAD",
+    "ffff000011112222333344445555666677778888\nfeat/example",
+  );
   await $.session.start(START);
   await fake.clock.settle();
   let ui = await $.ui.mount({ ...PANE, surface: "desktop" });
@@ -126,7 +142,7 @@ test("a new HEAD or a changed git status makes the rows stale", async ($, on) =>
 
   // The same for the working tree: run again, then change only git status.
   await $.command.run(GATES);
-  fake.git.set("status --porcelain", " M NEW-FEAT.md\n?? new.ts");
+  fake.git.set("--no-optional-locks status --porcelain", " M NEW-FEAT.md\n?? new.ts");
   await $.session.start(START);
   await fake.clock.settle();
   ui = await $.ui.mount({ ...PANE, surface: "desktop" });
@@ -197,4 +213,50 @@ test("a check that outlives its timeout reads timed out; one that cannot start s
   ]);
   await ui.unmount();
   expect(count(fake, /guard-lint-warnings/)).toBe(1);
+});
+
+test("with no merge base the warning ceiling is not run, and says why", async ($, on) => {
+  const git = gitTable();
+  git.delete("merge-base refs/remotes/origin/main HEAD");
+  const fake = world(on, { git });
+  await $.session.start(START);
+  await fake.clock.settle();
+  await $.command.run(GATES);
+
+  expect(count(fake, /guard-lint-warnings/)).toBe(0);
+  const ui = await $.ui.mount({ ...PANE, surface: "terminal" });
+  expect(await rowsOf(texts(ui))).toEqual([
+    "✓ lint",
+    "✓ fmt:check",
+    "○ lint-warning ceiling — not run: no merge base with refs/remotes/origin/main",
+  ]);
+  await ui.unmount();
+});
+
+test("an Edit that lands while /gates runs leaves the finished rows stale", async ($, on) => {
+  const fake = world(on, {
+    answer: async (spawn, clock): Promise<Answer> => {
+      if (checkOf(spawn) !== "fmt") return undefined;
+      await clock.sleep(1_000);
+      return undefined;
+    },
+  });
+  await $.session.start(START);
+  await fake.clock.settle();
+
+  const ran = $.command.run(GATES);
+  await fake.clock.settle();
+  await $.tool.call({ tool: "Edit", file_path: "/repo/a.ts", old_string: "a", new_string: "b" });
+  await fake.clock.settle();
+  await fake.clock.advance(1_000);
+  await ran;
+  await fake.clock.advance(5_000);
+
+  const ui = await $.ui.mount({ ...PANE, surface: "desktop" });
+  expect(await rowsOf(texts(ui))).toEqual([
+    "○ lint — stale",
+    "○ fmt:check — stale",
+    "○ lint-warning ceiling — stale",
+  ]);
+  await ui.unmount();
 });

@@ -1,6 +1,7 @@
-// Whether this checkout's origin is englishstreetventures/osn, worked out once
-// per session from `git config --get remote.origin.url`.
-export type RepoGate = "on" | "off";
+// Whether the session's repository is englishstreetventures/osn on
+// github.com, and its root: both worked out once, from the session's directory
+// at `session.start`, and kept for the session. Every spawn runs in that root.
+export type RepoGate = { verdict: "on" | "off"; root: string | null };
 
 export type GateStatus = "pass" | "fail" | "pending" | "info";
 

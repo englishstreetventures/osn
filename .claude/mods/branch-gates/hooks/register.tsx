@@ -14,16 +14,17 @@ import type {
   Snapshot,
 } from "../types";
 import { CHECKS, runCheck } from "./checks";
-import { measure } from "./measure";
+import { issueRefOf, lookupComplexity, measure } from "./measure";
+import type { ChangesetMemo, IssueRef } from "./measure";
 import { readPr } from "./pr";
-import { git } from "./spawn";
+import { git, printable } from "./spawn";
 
 // What the pane draws from, held by the host for the session so a hot reload
 // keeps it. A tag changes whenever its value's fields change: a value stored
 // under another tag reads as absent.
 // oxlint-disable anti-slop/no-shape-in-symbol-names -- `shape` is the engine's own name for an atom's tag
 const repo = atom({ plugin: "branch-gates", key: "repo" } as const, null, {
-  shape: "repo-1",
+  shape: "repo-2",
 });
 const snapshot = atom({ plugin: "branch-gates", key: "snapshot" } as const, null, {
   shape: "snapshot-3",
@@ -44,13 +45,18 @@ const TITLE = "Branch gates";
 const DESCRIPTION =
   "Run this checkout's own lint, format and lint-warning scripts (about 30 s) and refresh the branch-gates pane";
 
-// The one repository the mod works in: https or ssh, with or without `.git`.
-const OSN_REMOTE = /(^|[/:])englishstreetventures\/osn(\.git)?\/?$/i;
+// The one repository the mod works in, on github.com: https or ssh, with or
+// without `.git`.
+const OSN_REMOTE =
+  /^(https:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)englishstreetventures\/osn(\.git)?\/?$/i;
 
 // Tools whose run can change the branch, the plan or the working tree.
 const MUTATING = new Set(["Bash", "Edit", "Write", "NotebookEdit"]);
-// A Bash command that can change what `gh pr view` answers.
-const PR_TRIGGER = /(^|[\s;&|(])(git\b[^;&|]*\spush|gh)(\s|$)/;
+// The tools main's guard hook judges, whose refusal text the engine writes.
+const GUARDED = new Set(["Bash", "Write", "Edit", "Agent"]);
+// A Bash command that can change what `gh pr view` answers: a push, `git -C`
+// or `-c` options before it allowed, or any gh command.
+const PR_TRIGGER = /(^|[\s;&|(])(git(\s+-[Cc]\s+\S+)*\s+push|gh)(\s|$)/;
 
 const MEASURE_WINDOW_MS = 2_000;
 const PR_WINDOW_MS = 60_000;
@@ -112,10 +118,10 @@ const statusLine = (snap: Snapshot) =>
 // The reason the guard hook gave, when this call's result is its refusal: the
 // call's own tool named at the very start of an errored result's text.
 const guardReason = (tool: string, ran: ToolCallResult) => {
-  if (ran.isError !== true || ran.text === undefined) return null;
+  if (!GUARDED.has(tool) || ran.isError !== true || ran.text === undefined) return null;
   const prefix = `PreToolUse:${tool} hook error: agent-guard: `;
   if (!ran.text.startsWith(prefix)) return null;
-  return ran.text.slice(prefix.length).split("\n")[0]?.trim() || null;
+  return printable(ran.text.slice(prefix.length).split("\n")[0] ?? "").trim() || null;
 };
 
 const branchLines = (snap: Snapshot, failure: string | null): Line[] => {
@@ -212,7 +218,9 @@ const summaryOf = (run: Checks, root: string) => {
 // what is in `$.state`.
 type Live = {
   complexities: Map<string, string | null>;
-  deciding: Promise<boolean> | null;
+  asking: Set<string>;
+  changeset: ChangesetMemo;
+  deciding: Promise<RepoGate> | null;
   measuring: Promise<Snapshot | null>;
   measuredAt: number | null;
   measureTimer: Timer | null;
@@ -223,6 +231,8 @@ type Live = {
 
 const live: Live = {
   complexities: new Map(),
+  asking: new Set(),
+  changeset: { key: null, verdict: "unknown" },
   deciding: null,
   measuring: Promise.resolve(null),
   measuredAt: null,
@@ -232,86 +242,119 @@ const live: Live = {
   isTouchedDuringRun: false,
 };
 
-// Whether origin is this repository: worked out once, then kept in state.
-const decide = async ($: EngineInterface) => {
-  const url = await git($, "config", "--get", "remote.origin.url");
-  const verdict: RepoGate = url !== null && OSN_REMOTE.test(url) ? "on" : "off";
-  await update($, repo, () => verdict);
-  return verdict === "on";
+// The repository the session started in, and whether it is this one: its
+// root from `git rev-parse --show-toplevel` in `cwd`, then that root's origin.
+const decide = async ($: EngineInterface, cwd: string) => {
+  const root = await git($, cwd, "rev-parse", "--show-toplevel");
+  const url = root === null ? null : await git($, root, "config", "--get", "remote.origin.url");
+  const gate: RepoGate =
+    root !== null && url !== null && OSN_REMOTE.test(url)
+      ? { verdict: "on", root }
+      : { verdict: "off", root: null };
+  await update($, repo, () => gate);
+  return gate;
 };
 
-const isOn = async ($: EngineInterface) => {
+// The pinned root while the mod is on, null while it is off. Worked out once:
+// from the session's directory at `session.start`, or from the session's
+// project root when another call comes first, then kept in state.
+const rootOf = async ($: EngineInterface, cwd?: string) => {
   const held = await read($, repo);
-  if (held !== null) return held === "on";
-  live.deciding ??= decide($);
-  return live.deciding;
+  if (held !== null) return held.verdict === "on" ? held.root : null;
+  live.deciding ??= decide($, cwd ?? (await $.session.root()));
+  const gate = await live.deciding;
+  return gate.verdict === "on" ? gate.root : null;
 };
 
-const measureOnce = async ($: EngineInterface) => {
+// The issue's complexity label, asked of gh once per issue per load and
+// drawn into the snapshot already on screen.
+const fillComplexity = async (
+  $: EngineInterface,
+  root: string,
+  snap: Snapshot,
+  issue: IssueRef,
+) => {
+  live.asking.add(issue.ref);
+  const complexity = await lookupComplexity($, root, issue);
+  live.complexities.set(issue.ref, complexity);
+  live.asking.delete(issue.ref);
+  if (complexity === null) return;
+  await update($, snapshot, (held) =>
+    held !== null && held.issue === snap.issue && held.complexity === null
+      ? { ...held, complexity }
+      : held,
+  );
+  $.ui.status(statusLine({ ...snap, complexity }));
+};
+
+const measureOnce = async ($: EngineInterface, root: string) => {
   try {
-    const snap = await measure($, live.complexities);
+    const snap = await measure($, root, live.complexities, live.changeset);
     await update($, snapshot, () => snap);
     if ((await read($, fault)) !== null) await update($, fault, () => null);
     $.ui.status(statusLine(snap));
+    const issue = issueRefOf(snap.issue);
+    if (issue !== null && !live.complexities.has(issue.ref) && !live.asking.has(issue.ref)) {
+      void fillComplexity($, root, snap, issue);
+    }
     return snap;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    await update($, fault, () => message);
+    await update($, fault, () => printable(message));
     return null;
   }
 };
 
 // One measure at a time, each after the one before it.
-const measureNow = ($: EngineInterface) => {
-  live.measuring = live.measuring.then(() => measureOnce($));
+const measureNow = ($: EngineInterface, root: string) => {
+  live.measuring = live.measuring.then(() => measureOnce($, root));
   return live.measuring;
 };
 
-const forceMeasure = async ($: EngineInterface) => {
+const forceMeasure = async ($: EngineInterface, root: string) => {
   live.measureTimer?.cancel();
   live.measureTimer = null;
   live.measuredAt = await $.clock.now();
-  return measureNow($);
+  return measureNow($, root);
 };
 
 // At most one measure per window; a request inside it runs once at its end.
-const requestMeasure = async ($: EngineInterface) => {
+const requestMeasure = async ($: EngineInterface, root: string) => {
   const now = await $.clock.now();
   const { measuredAt } = live;
   if (measuredAt === null || now - measuredAt >= MEASURE_WINDOW_MS) {
     live.measuredAt = now;
-    await measureNow($);
+    await measureNow($, root);
     return;
   }
   if (live.measureTimer !== null) return;
   live.measureTimer = $.clock.after(measuredAt + MEASURE_WINDOW_MS - now, () => {
     live.measureTimer = null;
-    void requestMeasure($);
+    void requestMeasure($, root);
   });
 };
 
 // At most one pull-request read a minute, start and `/gates` excepted; a
 // request inside the window runs once at its end.
-const requestPr = async ($: EngineInterface, isForced: boolean) => {
+const requestPr = async ($: EngineInterface, root: string, isForced: boolean) => {
   const now = await $.clock.now();
   const { prAt } = live;
   if (isForced || prAt === null || now - prAt >= PR_WINDOW_MS) {
     live.prTimer?.cancel();
     live.prTimer = null;
     live.prAt = now;
-    const view = await readPr($);
+    const view = await readPr($, root);
     await update($, pr, () => view);
     return;
   }
   if (live.prTimer !== null) return;
   live.prTimer = $.clock.after(prAt + PR_WINDOW_MS - now, () => {
     live.prTimer = null;
-    void requestPr($, false);
+    void requestPr($, root, false);
   });
 };
 
-const markStale = async ($: EngineInterface) => {
-  const held = await read($, checks);
+const markStale = async ($: EngineInterface, held: Checks | null) => {
   if (held === null || held.isStale) return;
   if (held.isRunning) {
     live.isTouchedDuringRun = true;
@@ -320,8 +363,7 @@ const markStale = async ($: EngineInterface) => {
   await update($, checks, (prior) => (prior === null ? null : { ...prior, isStale: true }));
 };
 
-const runChecks = async ($: EngineInterface, snap: Snapshot | null) => {
-  const root = snap?.root ?? ".";
+const runChecks = async ($: EngineInterface, root: string, snap: Snapshot | null) => {
   const base = {
     head: snap?.head ?? null,
     statusMark: snap?.statusMark ?? null,
@@ -350,52 +392,58 @@ const runChecks = async ($: EngineInterface, snap: Snapshot | null) => {
 
 export const register: Register = (on) => {
   on("session.start", async ($, e, next) => {
-    if (await isOn($)) {
+    const root = await rootOf($, e.cwd);
+    if (root !== null) {
       await $.command.register({ name: "gates", description: DESCRIPTION });
       void $.ui.open({ id: PANE, title: TITLE });
-      void forceMeasure($);
-      void requestPr($, true);
+      void forceMeasure($, root);
+      void requestPr($, root, true);
     }
 
     return next(e);
   });
 
-  on("command.run", { command: "gates" }, async ($, e) => {
+  // Outside this repository a project's own `/gates` answers instead.
+  on("command.run", { command: "gates" }, async ($, e, next) => {
+    const root = await rootOf($);
+    if (root === null) return next(e);
     if (e.origin.kind !== "composer") {
       const from = e.origin.kind === "plugin" ? `plugin ${e.origin.name}` : e.origin.kind;
       return {
         text: `/gates runs this checkout's own scripts, so it runs only when typed at the prompt. This run came from ${from}.`,
       };
     }
-    if (!(await isOn($))) {
-      return { text: "branch-gates is off here: origin is not englishstreetventures/osn." };
-    }
 
     await $.ui.open({ id: PANE, title: TITLE });
-    const reading = requestPr($, true);
-    const summary = await runChecks($, await forceMeasure($));
+    const reading = requestPr($, root, true);
+    const summary = await runChecks($, root, await forceMeasure($, root));
     await reading;
 
     return { text: summary };
   });
 
-  on("tool.call", async ($, e, next) => {
-    const ran = await next(e);
-    const reason = guardReason(e.tool, ran);
-    if (!MUTATING.has(e.tool) && reason === null) return ran;
-    if (!(await isOn($))) return ran;
+  on(
+    "tool.call",
+    { tool: ["Bash", "Edit", "Write", "NotebookEdit", "Agent"] },
+    async ($, e, next) => {
+      const ran = await next(e);
+      const [root, held] = await Promise.all([rootOf($), read($, checks)]);
+      if (root === null) return ran;
 
-    if (reason !== null) {
-      $.ui.toast(`Guard: ${reason}`);
+      const reason = guardReason(e.tool, ran);
+      if (reason !== null) {
+        $.ui.toast(`Guard: ${reason}`);
+        return ran;
+      }
+      if (!MUTATING.has(e.tool)) return ran;
+      await markStale($, held);
+      void requestMeasure($, root);
+      if (e.tool === "Bash" && PR_TRIGGER.test(e.command)) void requestPr($, root, false);
+
       return ran;
-    }
-    await markStale($);
-    void requestMeasure($);
-    if (e.tool === "Bash" && PR_TRIGGER.test(e.command)) void requestPr($, false);
-
-    return ran;
+    },
     // oxlint-disable-next-line promise/no-callback-in-promise -- `on(...).catch` is the engine's handler for a failed hook, not a Promise's: `next(e)` replays the call's own result
-  }).catch(($, e, next) => next(e));
+  ).catch(($, e, next) => next(e));
 
   on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
     const snap = await read($, snapshot);
@@ -412,8 +460,12 @@ export const register: Register = (on) => {
 
   on("ui.render", { component: "Pane", requestId: PANE }, async ($, e) => {
     const { Box, Text } = $.ui.resolve(e);
-    const snap = await read($, snapshot);
-    const failure = await read($, fault);
+    const [snap, failure, view, run] = await Promise.all([
+      read($, snapshot),
+      read($, fault),
+      read($, pr),
+      read($, checks),
+    ]);
 
     const draw = (line: Line) => {
       if (line.tone === "plain") return <Text>{line.text}</Text>;
@@ -432,10 +484,10 @@ export const register: Register = (on) => {
       ...branchLines(snap, failure),
       SPACER,
       { text: "Pull request", tone: "heading" },
-      ...prLines(await read($, pr)),
+      ...prLines(view),
       SPACER,
       { text: "Checks", tone: "heading" },
-      ...checkLines(await read($, checks), snap),
+      ...checkLines(run, snap),
       SPACER,
       { text: "Gates", tone: "heading" },
       ...gateLines(snap),

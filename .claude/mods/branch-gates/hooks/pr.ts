@@ -77,9 +77,13 @@ const rollupVerdict = (items: readonly JsonValue[]): CiVerdict => {
   return "passing";
 };
 
+// A github.com pull-request URL, and nothing else.
+const PULL_URL = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\/\d+$/;
+
 // Unresolved review threads among the first page, `n+` when the page is full.
-async function readThreads($: EngineInterface, url: string, number: number) {
-  const repo = /github\.com\/([^/]+)\/([^/]+)\/pull\//.exec(url);
+// Owner and name go as raw strings (`-f`), the number alone typed (`-F`).
+async function readThreads($: EngineInterface, root: string, url: string, number: number) {
+  const repo = PULL_URL.exec(url);
   if (!repo) return null;
   const ran = await spawn(
     $,
@@ -89,14 +93,14 @@ async function readThreads($: EngineInterface, url: string, number: number) {
       "graphql",
       "-f",
       `query=${THREADS_QUERY}`,
-      "-F",
+      "-f",
       `owner=${repo[1] ?? ""}`,
-      "-F",
+      "-f",
       `name=${repo[2] ?? ""}`,
       "-F",
       `number=${number}`,
     ],
-    { timeoutMs: GH_TIMEOUT_MS },
+    { cwd: root, timeoutMs: GH_TIMEOUT_MS },
   );
   if (ran.kind !== "exited" || ran.exitCode !== 0) return null;
   const path = ["data", "repository", "pullRequest", "reviewThreads", "nodes"];
@@ -105,13 +109,13 @@ async function readThreads($: EngineInterface, url: string, number: number) {
   return nodes.length >= THREAD_PAGE ? `${unresolved}+` : String(unresolved);
 }
 
-// The branch's pull request as `gh pr view` sees it from the session's
-// directory, or why gh could not say.
-export async function readPr($: EngineInterface): Promise<PrView> {
+// The branch's pull request as `gh pr view` sees it from the pinned root, or
+// why gh could not say.
+export async function readPr($: EngineInterface, root: string): Promise<PrView> {
   const view = await spawn(
     $,
     ["gh", "pr", "view", "--json", "number,state,reviewDecision,statusCheckRollup,url"],
-    { timeoutMs: GH_TIMEOUT_MS },
+    { cwd: root, timeoutMs: GH_TIMEOUT_MS },
   );
   if (view.kind === "timed-out") return { kind: "gh-timed-out" };
   if (view.kind === "could-not-start") return { kind: "gh-missing" };
@@ -133,7 +137,7 @@ export async function readPr($: EngineInterface): Promise<PrView> {
     state,
     ci: rollupVerdict(itemsOf(fields.get("statusCheckRollup"))),
     review: REVIEWS.get(textOf(fields.get("reviewDecision"))) ?? null,
-    threads: state === "open" ? await readThreads($, url, number) : null,
+    threads: state === "open" ? await readThreads($, root, url, number) : null,
     url,
   };
 }

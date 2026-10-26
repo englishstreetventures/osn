@@ -1,4 +1,5 @@
 import type { Gate, GateStatus } from "../types";
+import { printable } from "./spawn";
 
 export type Plan = { issue: string | null; gates: Gate[] };
 
@@ -7,18 +8,22 @@ const SEPARATOR = /^\|?\s*:?-{3,}/;
 const BULLET = /^([-*+]|\d+\.)\s+/;
 const SECTION_END = /^#{1,2}\s/;
 
+// A zero count of failures or errors is a clean result, not a failure.
+const NO_FAILURES = /\b0\s+(fail(ed|s|ures?)?|errors?)\b/gi;
+const PENDING = /NOT RUN|pending|todo|to do|not yet|\[ \]/i;
+const FAILING = /\b(fail(ed|s|ing|ures?)?|red|broken)\b|✗|❌/i;
+const PASSING = /\b(pass(ed|es|ing)?|green|clean|ok|done|ran)\b|✓|✅|\[x\]/i;
+
 const classify = (text: string): GateStatus => {
-  if (/NOT RUN|pending|todo|to do|not yet|\[ \]/i.test(text)) return "pending";
-  if (/\bfail|\bred\b|broken|✗|❌/i.test(text)) return "fail";
-  if (/\bpass|green|clean|\bok\b|done|✓|✅|\[x\]|\bran\b/i.test(text)) return "pass";
+  const read = text.replaceAll(NO_FAILURES, "");
+  if (PENDING.test(read)) return "pending";
+  if (FAILING.test(read)) return "fail";
+  if (PASSING.test(read)) return "pass";
   return "info";
 };
 
 const tidy = (text: string) =>
-  text
-    .replaceAll(/\*\*|`|\[[ x]\]/gi, "")
-    .replaceAll(/\s+/g, " ")
-    .trim();
+  printable(text.replaceAll(/\*\*|`|\[[ x]\]/gi, "").replaceAll(/\s+/g, " ")).trim();
 
 // The `Issue:` line anywhere in NEW-FEAT.md, and every row of its `## Gates`
 // section up to the next heading of level 1 or 2: each data row of a table
@@ -26,7 +31,7 @@ const tidy = (text: string) =>
 export const parsePlan = (text: string): Plan => {
   const lines = text.split("\n").map((line) => line.trim());
   const issueLine = lines.find((line) => /^Issues?:/i.test(line));
-  const issue = issueLine ? issueLine.replace(/^Issues?:/i, "").trim() || null : null;
+  const issue = issueLine ? printable(issueLine.replace(/^Issues?:/i, "")).trim() || null : null;
 
   const start = lines.findIndex((line) => /^##\s+Gates\s*$/i.test(line));
   const gates: Gate[] = [];

@@ -56,3 +56,50 @@ test("an unknown model leaves the engine line alone", async ($, on) => {
   expect((await ui.find({ type: "Text", text: /engine/ }))?.text).toBe("engine");
   await ui.unmount();
 });
+
+test("the tag follows a model switch made with config.set", async ($, on) => {
+  let model = "claude-opus-5-5";
+  on("session.model", () => ({ value: model }));
+  on("config.set", (_, e) => ({ value: e.value }));
+  on("ui.render", (host, e) => {
+    const { Text } = host.ui.resolve(e);
+    return <Text>engine</Text>;
+  });
+
+  const ui = await $.ui.mount({ ...HINT, surface: "terminal" });
+  const tag = async () => {
+    const shown = await ui.find({ type: "Text", text: /●/ });
+    return [shown?.text.trim(), shown?.props.color];
+  };
+  expect(await tag()).toEqual(["● Opus", "#D9481C"]);
+
+  model = "claude-haiku-5-5";
+  await $.config.set({
+    key: "model",
+    value: model,
+    previous: "claude-opus-5-5",
+    provider: { plugin: "engine", tier: "core" },
+    origin: { kind: "composer" },
+  });
+  expect(await tag()).toEqual(["● Haiku", "#22A35A"]);
+  await ui.unmount();
+});
+
+test("the tag follows a model switch at the next prompt", async ($, on) => {
+  let model = "claude-opus-5-5";
+  on("session.model", () => ({ value: model }));
+  on("prompt.submit", (_, e) => ({ text: e.text }));
+  on("ui.render", (host, e) => {
+    const { Text } = host.ui.resolve(e);
+    return <Text>engine</Text>;
+  });
+
+  const ui = await $.ui.mount({ ...SPINNER, surface: "terminal" });
+  const dot = () => ui.find({ type: "Text", text: /●/ });
+  expect((await dot())?.props.color).toBe("#D9481C");
+
+  model = "sonnet";
+  await $.prompt.submit({ text: "next", wait: false, origin: { kind: "composer" } });
+  expect((await dot())?.props.color).toBe("#E5B700");
+  await ui.unmount();
+});

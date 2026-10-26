@@ -28,8 +28,7 @@ export const register: Register = (on) => {
   });
 
   on("ui.render", { component: "PromptHint" }, async ($, e, next) => {
-    const family = await currentFamily($);
-    const drawn = await next(e);
+    const [family, drawn] = await Promise.all([currentFamily($), next(e)]);
     if (!family) return drawn;
 
     const { Box, Text } = $.ui.resolve(e);
@@ -46,8 +45,7 @@ export const register: Register = (on) => {
   });
 
   on("ui.render", { component: "Spinner" }, async ($, e, next) => {
-    const family = await currentFamily($);
-    const drawn = await next(e);
+    const [family, drawn] = await Promise.all([currentFamily($), next(e)]);
     if (!family) return drawn;
 
     const { Box, Text } = $.ui.resolve(e);
