@@ -8,7 +8,7 @@ import { DbService } from "../../src/db";
 import type { Db } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
 import { organiserSessionService } from "../../src/services/organiser-session";
-import { appRequest } from "../test-helpers";
+import { appRequest, jsonBody } from "../test-helpers";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
 
 const SECRET = "test-internal-revoke-secret-0123456789abcdef";
@@ -114,6 +114,13 @@ describe("POST /internal/revoke-organiser-sessions", () => {
     expect(res.status).toBe(503);
   });
 
+  it("accepts a configured secret of exactly 32 characters", async () => {
+    const exact = SECRET.slice(0, 32);
+    const app = createApp(freshDb(), { internalRevokeSecret: exact });
+    const res = await post(app, exact, { osnProfileId: "usr_x" });
+    expect(res.status).toBe(200);
+  });
+
   it("never rate-limits a caller holding the secret", async () => {
     const db = freshDb();
     const session = await seedOrganiserSession(db, "usr_target");
@@ -141,6 +148,7 @@ describe("POST /internal/revoke-organiser-sessions", () => {
 
     expect(res.status).toBe(429);
     expect(res.headers.get("retry-after")).toBe("60");
+    expect(await jsonBody(res)).toEqual({ error: "Too many requests" });
     expect(limiter.checks).toHaveLength(1);
   });
 
@@ -159,6 +167,8 @@ describe("POST /internal/revoke-organiser-sessions", () => {
     ["not a usr_ id", { osnProfileId: "acc_x" }],
     ["an empty id", { osnProfileId: "" }],
     ["the bare prefix", { osnProfileId: "usr_" }],
+    ["text before the prefix", { osnProfileId: "xusr_abc" }],
+    ["a character past the id", { osnProfileId: "usr_abc;" }],
     ["an id over 64 characters", { osnProfileId: `usr_${"a".repeat(61)}` }],
     ["an id that is not a string", { osnProfileId: 42 }],
   ] as const)("answers 400 to a body with %s", async (_, body) => {
