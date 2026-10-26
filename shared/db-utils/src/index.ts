@@ -183,17 +183,24 @@ export async function commitBatch(db: Db, statements: BatchItem<"sqlite">[]): Pr
  * not bind. Log `String(error)`, which the repository's drizzle-orm patch keeps
  * free of bound values.
  */
-export function driverErrorText(error: unknown): string {
-  const lines: string[] = [];
-  let current: unknown = error;
+export function driverErrorText(error: unknown, depth = 0): string {
   // Read by shape, not `instanceof Error`: an error built in another realm
   // (Miniflare's workerd) is still an error. Bounded, so a cause chain that
   // loops back on itself still ends.
-  for (let depth = 0; depth < 8 && typeof current === "object" && current !== null; depth++) {
-    if ("message" in current && typeof current.message === "string") lines.push(current.message);
-    current = "cause" in current ? current.cause : undefined;
+  if (depth >= 8 || typeof error !== "object" || error === null) return "";
+  const parts: string[] = [];
+  if ("message" in error && typeof error.message === "string") parts.push(error.message);
+  if ("cause" in error) parts.push(driverErrorText(error.cause, depth + 1));
+  // An Effect `Cause` keeps its failures in `reasons`, each holding its error. The
+  // effect drivers fail with a Cause, so its errors must be read here too.
+  if ("reasons" in error && Array.isArray(error.reasons)) {
+    for (const reason of error.reasons) {
+      if (typeof reason === "object" && reason !== null && "error" in reason) {
+        parts.push(driverErrorText(reason.error, depth + 1));
+      }
+    }
   }
-  return lines.join("\n");
+  return parts.filter((part) => part !== "").join("\n");
 }
 
 /**
