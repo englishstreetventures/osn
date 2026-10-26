@@ -122,4 +122,4 @@ That CA can intercept TLS for every host the machine talks to, which is why `por
 
 ## Step 9 — Report
 
-The table, then one line: ready, or what is still blocked. One row is not about this machine's toolchain: **bare-root guard** — created, merged, unchanged, refused or nothing to do, in the words `bootstrap-bare-root` printed. Homebrew dependencies for reference: `bun` (everything), `gh` (`prep-pr`, `new-feat`), `node` (the `.astro` content mapper in the Astro sites' `typecheck`; Bun stands in when it is missing), Xcode CLT (Swift and iOS only).
+The table, then one line: ready, or what is still blocked. One row is not about this machine's toolchain: **bare-root guard** — created, merged, unchanged, refused or nothing to do, in the words `bootstrap-bare-root` printed. Homebrew dependencies for reference: `bun` (everything), `gh` (`prep-pr`, `new-feat`), `node` 22.23.4 or later (`astro build` refuses older; the `.astro` content mapper in the Astro sites' `typecheck` also runs on it, with Bun standing in when it is missing), Xcode CLT (Swift and iOS only).
