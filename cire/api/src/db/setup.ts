@@ -860,9 +860,10 @@ export function applyE2eRsvpDeadline(
  *
  * The couple are taking money as far as their own settings go: money gifts
  * on, a connected account that can charge and settles in the wedding's
- * currency. The stack runs cire-api with no Stripe key, so no gift can be paid
- * for there, and the guest list must offer neither the money form nor the
- * fund. That is the deployment check the claimed flow holds.
+ * currency. The stack runs cire-api with a placeholder Stripe key and no
+ * Connect webhook secret, so it could open a payment page but never record the
+ * gift, and the guest list must offer neither the money form nor the fund.
+ * That is the deployment check the claimed flow holds.
  *
  * Its own wedding rather than the sample one, so the gift band that a
  * published list puts on the invite never appears in the other cire flows.
@@ -1035,9 +1036,9 @@ function seatDevOwner(db: TestDb, weddingId: string, seatId: string, now: Date):
 }
 
 /**
- * Five weddings for the E2E suite's organiser flows, each on Gold. The dev
- * profile, which osn-api's `/dev/login` signs in as, owns the first four and is
- * a helper on the fifth:
+ * Six weddings for the E2E suite's organiser flows, each on Gold. The dev
+ * profile, which osn-api's `/dev/login` signs in as, owns all but
+ * `wed_e2e_rs_helper`, where it is a helper:
  *
  * - `wed_e2e_checklist`: a wedding date (2099-06-20) and an empty checklist,
  *   for the starter checklist.
@@ -1052,6 +1053,10 @@ function seatDevOwner(db: TestDb, weddingId: string, seatId: string, now: Date):
  * - `wed_e2e_rs_helper`: the same day, where the dev profile is a helper who
  *   sees their own tasks, and a co-host holds a task of another event; for
  *   reading what such a helper is given.
+ * - `wed_e2e_money`: money gifts on, a connected Stripe account that can charge
+ *   and settles in the wedding's currency, one cash fund and nothing to
+ *   reserve, unpublished. For the portal on a site that cannot take a money
+ *   gift: the stack's cire-api holds a Stripe key and no webhook secret.
  *
  * The co-hosts are bare profile ids with no OSN account behind them; the local
  * server resolves no names, so the portal shows the ids. Every id and value a
@@ -1334,6 +1339,35 @@ export function seedE2eOrganiser(db: TestDb): void {
       hold("tsk_e2e_rsh_programmes", "whost_e2e_rs_helper_me", "wed_e2e_rs_helper"),
       hold("tsk_e2e_rsh_cue", "whost_e2e_gus", "wed_e2e_rs_helper"),
     ])
+    .run();
+
+  wedding("wed_e2e_money", "money-wedding", "Money Wedding");
+  seatDevOwner(db, "wed_e2e_money", "whost_e2e_money_owner", now);
+  db.insert(schema.registrySettings)
+    .values({
+      weddingId: "wed_e2e_money",
+      published: false,
+      cashGiftsEnabled: true,
+      stripeAccountId: "acct_e2e_money",
+      stripeChargesEnabled: true,
+      stripePayoutsEnabled: true,
+      stripeDefaultCurrency: "AUD",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  db.insert(schema.registryItems)
+    .values({
+      id: "reg_e2e_money_fund",
+      weddingId: "wed_e2e_money",
+      kind: "cash_fund",
+      title: "Honeymoon fund",
+      description: "A week somewhere warm.",
+      targetMinor: 500_000,
+      sortOrder: 0,
+      createdAt: now,
+      updatedAt: now,
+    })
     .run();
 }
 

@@ -24,6 +24,27 @@ Locally the repository is the bare `~/.work/osn.git`, and every worktree — `ma
 
 `.claude/settings.json` is committed, so its hooks travel to remote sessions that never read a local config — that is what makes a standing rule hold everywhere. Personal hooks and permissions go in `.claude/settings.local.json`, which is gitignored. A personal untracked `settings.json` blocks the pull that brings the tracked one down.
 
+### The guard hook
+
+A `PreToolUse` hook runs [`scripts/agent-guard.ts`](../../scripts/agent-guard.ts) before every `Bash`, `Write`, `Edit` and `Agent` call and every GitHub MCP write. It refuses a call that breaks a standing rule, and names the fix in its reason:
+
+| Refused | Rule |
+|---|---|
+| `bun install` without `--frozen-lockfile` (or `-g`), `bun update`, `bun add --filter`, inside a tree with a `bun.lock` | Installs |
+| A heredoc inside `$(…)` or backticks | Commands |
+| `git commit` or `git push` on `main`, judged in the directory the command runs in (`cd`, `git -C`, a branch switch earlier in the line), and a push whose destination ref is `main` | Never commit to `main` |
+| A tracker finding ID in a commit message, in `gh pr` or `gh issue` text (`create`, `edit`, `comment`, `review`, `merge`, and a `close` or `reopen` comment) or `gh api` fields (inline, `--body-file`, `-F body=@file`, `--input`), or in a GitHub MCP write, unless it targets `englishstreetventures/osn-tracker` | Issues |
+| A Write or Edit of a test or spec file under a workspace's `src/`, in any worktree of this repository | Tests |
+| An `Agent` call with no `subagent_type`, which starts `general-purpose` | Choose subagents by definition |
+
+It catches slips; it is not enforcement, and `AGENTS.md` keeps every rule for agents that run no hooks. It reads only the call itself, never file contents already in the repository. Every failure lets the call through: unreadable input, an unreadable file, a `git` error, a directory it cannot resolve, a thrown check.
+
+The hook command, inline in `settings.json`, runs **main's copy** of the script: `git cat-file blob refs/remotes/origin/main:scripts/agent-guard.ts` into a fresh `mktemp -d`, then `bun --no-env-file --no-install --config=<empty file>` from that directory, so no checkout `bunfig.toml`, `.env` or edited guard runs. The ref is spelled in full because a tag or a branch named `origin/main` would otherwise take precedence. It protects only while the session's own `.claude/settings.json` is main's: review another branch in its own worktree, never checked out where the session runs. Two consequences of reading `origin/main`: the guard is absent until a fetch has brought the script down, and a fix to it takes effect only after the next fetch.
+
+`AGENT_GUARD_REF=<ref>` runs another ref's copy, which is how a branch tests a change to the guard in a fresh `claude -p` session. [`scripts/tests/agent-guard.test.ts`](../../scripts/tests/agent-guard.test.ts) covers the rules and [`agent-guard.cli.test.ts`](../../scripts/tests/agent-guard.cli.test.ts) runs the command as `settings.json` holds it. Both run in `bun run test:scripts`. A call costs a `mktemp`, one `git` call and a Bun start.
+
+*Measured 2026-10-26 — median of 15 runs of the hook command on a `Bash` input, in a cloud container: 16 ms.*
+
 ## Subagents
 
 `.claude/agents/*.md` defines one agent per role — `implementer`, `designer`, `mechanic`, `design-mechanic`, `reviewer`, `explorer`, `shepherd`, `attacker` — each with a `model` and an `effort`. `designer` and `design-mechanic` are the `implementer` and `mechanic` tiers for work that changes how a screen looks. Both load the `design-system` skill, which maps each frontend to the `DESIGN.md` or wiki page that governs its look, ranks that document above any design skill, and says which skill fits which task and which must never touch a surface with a design system. Skills and wiki pages name the agent and read its file, so a model change touches one line. That holds only while dispatches pass no `model` or `effort`: the Agent call takes both, and either overrides the definition. A `general-purpose` dispatch skips the definitions altogether and runs at its parent's settings, so review, plan-attack and whole-task work never go there, apart from the one plugin exception `pick-agent` names. The `pick-agent` skill maps a task and its `complexity:` label to one. Every agent lists its tools in `tools:`. The agents that change nothing — `explorer`, `reviewer`, `attacker` and `shepherd` — hold only what their instructions use. The four that write code share one list of built-in tools. Each agent that reaches the `design-system` skill also lists the Chrome browser tools (`mcp__claude-in-chrome__*`), which its step 4 uses; no other MCP server is listed. `scripts/check-agent-tools.ts`, which `bun run test:scripts` runs in CI, fails when a skill an agent can reach names an MCP tool that agent's line does not cover. Obsidian's server is exempt, because every skill that names it gives a shell fallback. An agent without the line inherits every tool the parent session has, and every call re-reads their schemas. Most of that weight is built-in tools the code-writing agents never call: the `Artifact` schema alone is 30,000 to 38,000 characters, about two thirds of an inheriting agent's tools array. MCP tools arrive as deferred names, under 1,000 tokens in all. An inheriting `implementer`'s first call carried a median of 42.5K tokens; the list is estimated to bring that to about 30K.

@@ -6,7 +6,7 @@ related:
   - "[[contributing]]"
   - "[[review-findings]]"
   - "[[commands]]"
-last-reviewed: 2026-10-23
+last-reviewed: 2026-10-26
 ---
 
 # Stacked PRs
@@ -135,7 +135,7 @@ Squash-merging a parent is fine. The child's commits are unaffected; only the ba
 When `main` moves under a stack, rebase from the bottom and force-push each branch in order:
 
 ```bash
-git rebase origin/main <bottom>          && git push --force-with-lease origin <bottom>
+git rebase refs/remotes/origin/main <bottom> && git push --force-with-lease origin <bottom>
 git rebase --onto <bottom> <old-base> <middle> && git push --force-with-lease origin <middle>
 ```
 

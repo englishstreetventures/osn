@@ -3,8 +3,7 @@
 Reference for `prep-pr` Step 7. The four fields are Issue / Why / Solution / Rationale, in that order.
 
 Write the body to a scratch file outside the repository first (with the Write
-tool), then pass the file. A heredoc inside `$(…)` is forbidden in this
-repository.
+tool), then pass the file.
 
 The body file:
 

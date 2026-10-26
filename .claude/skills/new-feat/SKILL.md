@@ -67,7 +67,7 @@ The probe above said `PERSONAL` or `REMOTE`. They differ in one thing: whether t
 
 ```bash
 git -C /Users/ac/.work/osn.git fetch origin "+refs/heads/main:refs/remotes/origin/main"
-git -C /Users/ac/.work/osn.git cat-file -e "origin/main:.claude/metrics/$(printf '%s' '<branch>' | tr -c 'A-Za-z0-9._-' '-' | sed 's/^-*//;s/-*$//').json" 2>/dev/null && echo "taken: card on main"
+git -C /Users/ac/.work/osn.git cat-file -e "refs/remotes/origin/main:.claude/metrics/$(printf '%s' '<branch>' | tr -c 'A-Za-z0-9._-' '-' | sed 's/^-*//;s/-*$//').json" 2>/dev/null && echo "taken: card on main"
 gh api "repos/englishstreetventures/osn/pulls?state=all&head=englishstreetventures:<branch>" --jq '.[] | "taken: #\(.number)"'
 ```
 
@@ -78,7 +78,7 @@ Any `taken` line means an earlier pull request used the name. Session-metrics ca
 **PERSONAL** — the bare repo at `/Users/ac/.work/osn.git`. Every piece of work gets its own worktree; never check the branch out inside an existing one (`main/` included) — that mutates its state.
 
 ```bash
-git -C /Users/ac/.work/osn.git worktree add /Users/ac/.work/osn.git/<dir> -b <branch> origin/main
+git -C /Users/ac/.work/osn.git worktree add /Users/ac/.work/osn.git/<dir> -b <branch> refs/remotes/origin/main
 (cd /Users/ac/.work/osn.git/<dir> && bun install --frozen-lockfile)      # a fresh worktree has no node_modules
 ```
 
@@ -94,7 +94,7 @@ Report the branch, its base and the worktree path. **All work happens in that wo
 **REMOTE** — the repository is already checked out in the working directory. No worktree.
 
 ```bash
-git checkout -B <branch> origin/main
+git checkout -B <branch> refs/remotes/origin/main
 [ -d node_modules ] || bun install --frozen-lockfile
 ```
 
@@ -112,6 +112,7 @@ The plan names:
 - the files to create or modify, and the steps in order
 - **the wiki pages this work makes stale, by repo path** — `prep-pr` has to update every one, and finding them now is cheaper than at PR time
 - **for every config value the plan says to set, the file and line that reads it.** No citation means the instruction is a guess, and a good implementer will implement the guess cleanly: a wrong config value produces a tidy diff, a green build and no behaviour change, which no gate can fail on. A value read in more than one place is two facts, not one
+- **for a change to agent tooling — hooks, settings, subagent definitions — each claim about how Claude Code behaves, cited to a probe you ran or to the binary's own text.** How a matcher is read, whether settings reload mid-session, what a hook's exit status does: a plan states these from memory as readily as a config value, and is as often wrong
 - **for a change to any build config, the directories that build writes** and which of them are served publicly. "The build passes" and "the output is what I expected" are different claims
 - **the issue's premise, and each wiki claim the design rests on, verified against the code.** An issue states what was true when it was written, and a recently reviewed page can still be wrong about the one thing the plan needs. Cite the file and line that confirms each claim. Only the claims the design depends on, not every page read
 - **for a change that moves, merges or deletes tested code, a table of each test case it deletes and the test that covers the same behaviour afterwards.** A case with no new home is lost coverage, found now by `stress-plan` rather than after the commit by `review-tests`

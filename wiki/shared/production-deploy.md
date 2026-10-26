@@ -632,7 +632,7 @@ bunx wrangler secret put STRIPE_WEBHOOK_SECRET --env production  # THIS endpoint
 
 `STRIPE_ACCOUNT_COUNTRY` is an ordinary var (default `AU` in code), in `wrangler.toml` under each tier's own `[env.<env>.vars]`. Stripe fixes an account's country at creation, so it is a per-deployment default rather than something a couple can change later.
 
-**Fail-closed.** `STRIPE_SECRET_KEY` unset ⇒ neither the Connect routes nor the upgrade routes are mounted, so a deployment with no Stripe account has no payment surface rather than one that 500s. `STRIPE_WEBHOOK_SECRET` unset ⇒ `/api/stripe/webhook` does not exist, and a gift is written `pending` and never settles.
+**Fail-closed.** `STRIPE_SECRET_KEY` unset ⇒ neither the Connect routes nor the upgrade routes are mounted, so a deployment with no Stripe account has no payment surface rather than one that 500s. `STRIPE_WEBHOOK_SECRET` unset ⇒ `/api/stripe/webhook` does not exist and guests are offered no money gift at all, because nothing would record one; the Worker logs `money gifts disabled: STRIPE_SECRET_KEY is set without STRIPE_WEBHOOK_SECRET` when it builds the app. Set both, then deploy.
 
 ---
 
@@ -661,7 +661,7 @@ bunx wrangler secret put STRIPE_PLATFORM_WEBHOOK_SECRET --env production
 > [!warning]
 > Reusing the Connect endpoint's signing secret for the platform endpoint means **every** delivery to it is refused with a 400 and Stripe retries for days, while nothing grants. The two secrets come from two different dashboard endpoints.
 
-**Fail-closed, per move.** A tier with no configured Price for the wedding's current tier is not for sale: absent from the catalogue and a 404 from checkout. With `STRIPE_UPGRADE_PRICE_CRIMSON_FROM_GOLD` unset a Gold wedding is not offered Crimson at all. Absent configuration never means free. The three vars sit commented out in every environment of `cire/api/wrangler.toml` until the Prices exist. With `STRIPE_PLATFORM_WEBHOOK_SECRET` unset the endpoint does not exist at all, so a purchase could be paid and never granted — nothing else moves a purchase off `pending`.
+**Fail-closed, per move.** A tier with no configured Price for the wedding's current tier is not for sale: absent from the catalogue and a 404 from checkout. With `STRIPE_UPGRADE_PRICE_CRIMSON_FROM_GOLD` unset a Gold wedding is not offered Crimson at all. Absent configuration never means free. The three vars sit commented out in every environment of `cire/api/wrangler.toml` until the Prices exist. With `STRIPE_PLATFORM_WEBHOOK_SECRET` unset or blank the endpoint does not exist at all, so a purchase could be paid and never granted — nothing else moves a purchase off `pending` (englishstreetventures/osn#1656).
 
 **Smoke check after deploy:** as the owner of an Ivory wedding, open a locked module's nav row → **Upgrade to Gold** → pay with a Stripe test card → confirm you land back in the portal told the wedding is on Gold, with the Gold modules open, and that the wedding's row reads `tier = 'gold'`, `tier_source = 'purchase'`. The full version — the mounted-vs-404 curl, the `wrangler tail`, and the three D1 queries that prove the webhook granted it rather than the browser — is in [[stripe-webhooks]] §Verify a deployed tier.
 
