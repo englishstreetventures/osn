@@ -16,7 +16,7 @@ related:
   - "[[monorepo-structure]]"
   - "[[database-environments]]"
   - "[[osn-and-musubi]]"
-last-reviewed: 2026-10-24
+last-reviewed: 2026-10-26
 ---
 
 # Infrastructure as code (Alchemy)
@@ -212,7 +212,7 @@ Seeds reach a dev database through the D1 resource's `importFiles`, which run af
 - **cire** imports `cire/db/seed/dev-seed.sql`, then, when the `dev` Environment variable `CIRE_DEV_OWNER_PROFILE_ID` is set, a generated file that gives the seeded wedding's owner seat to that profile. The value must match `^usr_[A-Za-z0-9_-]+$`; empty means no file. `cire/infra/tests/seeds.test.ts` holds the statements equal to the local seed's in `scripts/cire-db-seed.sh`.
 - **zap** imports nothing.
 
-Known risk, unverified: Alchemy's import fails when Cloudflare's import call returns no upload URL, which may happen when a file's content returns to one imported before — `CIRE_DEV_OWNER_PROFILE_ID` set back to an earlier value, say. Changing the content again recovers.
+A seed that fails to import fails the deploy with Cloudflare's error, through the alchemy patch in [[#Dependency review]]. When a file's content returns to one imported before — `CIRE_DEV_OWNER_PROFILE_ID` set back to an earlier value, say — Cloudflare already holds it, so the import's first call returns no upload URL and starts the import itself; the patch polls that import, as wrangler does. That path is unverified on a live deploy.
 
 The dev asset bucket is filled once by hand ([[dev-environment]]).
 
@@ -405,6 +405,8 @@ On dev every API Worker traces every request. osn-api, cire-api and cire-invites
 
 `alchemy` stays on an exact pin, and `shared/infra/tests/package.test.ts` fails on any other version. Repeat this review on every bump.
 
+`bun install` patches alchemy's D1 import ([`patches/alchemy@2.0.0-beta.83.patch`](../../patches/alchemy@2.0.0-beta.83.patch), listed in the root `package.json`'s `patchedDependencies`), in both `src/Cloudflare/D1/ImportDatabase.ts`, which Bun loads in a deploy, and `lib/Cloudflare/D1/ImportDatabase.js`. The patched import reads each reply of Cloudflare's import flow as wrangler's D1 client does: a failure dies with Cloudflare's error, or with the whole reply when it names none; completion ends the import; a reply still in progress is polled again with its bookmark a second later. A first reply with no upload URL means Cloudflare already holds the file and has started the import, which is then polled. No message carries the presigned upload URL, and a failed upload reports only R2's error code and message, because run logs are public. `shared/infra/tests/d1-import.test.ts` runs both copies against a scripted Cloudflare API and fails if the patch stops applying. Carry the patch forward on every alchemy bump, renamed to the new version.
+
 The CI lint, OpenAPI-freshness, E2E and migration-workflow jobs and every product deploy job in `production-release.yml` never load the Alchemy tree, so they install with `--filter '!@*/infra'`, which leaves out `@shared/infra` and every `@<product>/infra` stack: each stack depends on `alchemy` itself, so leaving out `@shared/infra` alone installs the whole tree anyway. The jobs that build, test or type-check those packages keep the full install, and so do `deploy.yml`'s stack jobs, which run Alchemy. `alchemy-state.yml` and the D1 latency probe (`cire-d1-latency-probe.yml`) install `--filter @shared/infra` alone; the probe then runs its script with `bun --no-install`. `scripts/tests/deploy-workflows.test.ts` accepts either install form in the two deploy workflows.
 
 A job that caches bun's store keys the cache on its install form: `<os>-bun-noinfra-<bun.lock hash>` for `--filter '!@*/infra'`, `<os>-bun-shared-infra-<bun.lock hash>` for `--filter @shared/infra`, and `<os>-bun-<bun.lock hash>` for a full install. GitHub saves a key once, from the first job that misses it, so a filtered install that saved the full install's key would leave every full install fetching the Alchemy tree. `scripts/tests/deploy-workflows.test.ts` holds every workflow's bun cache key to the install its job runs.
@@ -413,7 +415,7 @@ A job that caches bun's store keys the cache on its install form: `<os>-bun-noin
 
 ## Testing
 
-`@shared/infra`'s tests are two vitest projects ([`vitest.config.ts`](../../shared/infra/vitest.config.ts)). `repo` holds the five files that read outside the package (the Worker sources, `osn/api/wrangler.toml`, `bun.lock`, the root `turbo.json` and the workflows) and runs as the turbo task `test:repo`, whose inputs name those files. `package` holds the rest and runs as `test`, cached on the package's own files and run after `test:repo`. `bun run --cwd shared/infra test:run` runs both.
+`@shared/infra`'s tests are two vitest projects ([`vitest.config.ts`](../../shared/infra/vitest.config.ts)). `repo` holds the files that read outside the package (the Worker sources, `osn/api/wrangler.toml`, `bun.lock`, the root `turbo.json`, the cire packages' own `turbo.json` and the workflows) and runs as the turbo task `test:repo`, whose inputs name those files. `package` holds the rest and runs as `test`, cached on the package's own files and run after `test:repo`. `bun run --cwd shared/infra test:run` runs both.
 
 ## Merging an infra change
 
