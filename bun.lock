@@ -289,7 +289,7 @@
     },
     "musubi/landing": {
       "name": "@musubi/landing",
-      "version": "0.2.15",
+      "version": "0.2.16",
       "dependencies": {
         "@astrojs/solid-js": "^7.0.2",
         "@shared/legal": "workspace:*",
@@ -312,7 +312,7 @@
     },
     "musubi/social": {
       "name": "@musubi/social",
-      "version": "0.18.15",
+      "version": "0.18.16",
       "dependencies": {
         "@osn/auth-ui": "workspace:*",
         "@osn/client": "workspace:*",
@@ -499,7 +499,7 @@
     },
     "pulse/landing": {
       "name": "@pulse/landing",
-      "version": "0.1.28",
+      "version": "0.1.29",
       "dependencies": {
         "@astrojs/solid-js": "^7.0.2",
         "@shared/legal": "workspace:*",
@@ -522,7 +522,7 @@
     },
     "pulse/web": {
       "name": "@pulse/web",
-      "version": "0.24.30",
+      "version": "0.24.31",
       "dependencies": {
         "@fontsource/geist-mono": "^5.3.0",
         "@fontsource/geist-sans": "^5.3.0",
@@ -869,7 +869,7 @@
     },
     "tools/lab": {
       "name": "@tools/lab",
-      "version": "0.3.19",
+      "version": "0.3.20",
       "dependencies": {
         "@shared/color": "workspace:*",
         "@shared/design-tokens": "workspace:*",
@@ -892,7 +892,7 @@
     },
     "tools/metrics": {
       "name": "@tools/metrics",
-      "version": "0.2.32",
+      "version": "0.2.33",
       "dependencies": {
         "@observablehq/plot": "^0.6.17",
         "@shared/ui": "workspace:*",
