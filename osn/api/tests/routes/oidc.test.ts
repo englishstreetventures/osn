@@ -273,6 +273,30 @@ describe("GET /authorize", () => {
     expect(loc.searchParams.get("reason")).toBe("consent");
   });
 
+  it("sends a rotated-out cookie to sign-in even when its rotation record cannot be read", async () => {
+    // Reuse detection fails closed on a read error, but at the authorization
+    // endpoint a cookie that does not resolve is "not signed in", never a 5xx.
+    const h = setup();
+    h.seedClient();
+    const cookie = await signIn(h, "rotated@example.com", "rotated_user");
+    const rotated = await h.app.handle(
+      new Request("http://localhost/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", cookie },
+        body: JSON.stringify({ grant_type: "refresh_token" }),
+      }),
+    );
+    expect(rotated.status).toBe(200);
+    h.sqlite.run("DROP TABLE rotated_sessions");
+
+    const res = await h.app.handle(new Request(authorizeUrl(goodParams), { headers: { cookie } }));
+
+    expect(res.status).toBe(302);
+    const loc = new URL(res.headers.get("location")!);
+    expect(loc.pathname).toBe("/authorize");
+    expect(loc.searchParams.get("reason")).toBe("login");
+  });
+
   it("answers a signed-in prompt=none with consent_required when unlinked", async () => {
     const h = setup();
     h.seedClient();

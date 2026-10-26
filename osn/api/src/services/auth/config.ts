@@ -1,7 +1,6 @@
 import type { JWK } from "jose";
 
 import type { RecoveryLockoutStore } from "../../lib/recovery-lockout-store";
-import type { RotatedSessionStore } from "../../lib/rotated-session-store";
 import type { TotpKeyRing } from "../../lib/totp-secret-crypto";
 import type { AccountCapLimiter, CeremonyStores, StepUpJtiStore } from "./stores";
 
@@ -130,13 +129,6 @@ export interface AuthConfig {
    * in-memory map means a captured token replays successfully once per pod.
    */
   stepUpJtiStore?: StepUpJtiStore;
-  /**
-   * Cluster-safe record of rotated-out session hashes for C2 reuse detection
-   * (S-H1 session). Single-process deployments get the in-memory default;
-   * multi-pod deployments inject a Redis-backed store so a rotation recorded
-   * on one pod is visible to every other pod on subsequent /token calls.
-   */
-  rotatedSessionStore?: RotatedSessionStore;
   /**
    * O2: per-account recovery-code lockout counter. Defaults to in-memory;
    * inject the Redis-backed store in multi-pod deployments so the threshold

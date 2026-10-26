@@ -20,7 +20,6 @@ import {
   createRedisProfileRateLimiters,
   createRedisRecommendationRateLimiters,
 } from "./lib/redis-rate-limiters";
-import { createRedisRotatedSessionStore } from "./lib/rotated-session-store";
 import { createRedisJtiStore } from "./lib/step-up-jti-store";
 import {
   createTotpKeyRing,
@@ -398,20 +397,6 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
   // Cluster-safe single-use guard for step-up JWTs.
   const stepUpJtiStore = createRedisJtiStore(redisClient);
 
-  // Cluster-safe record of rotated-out session hashes so session-reuse
-  // detection works across isolates/pods. `sanitizeCause` strips
-  // any credentialed URL the client may embed in connection-level errors.
-  const rotatedSessionStore = createRedisRotatedSessionStore(redisClient, {
-    onError: (action, cause) => {
-      void Effect.runPromise(
-        Effect.logWarning("Rotated-session store Redis error").pipe(
-          Effect.annotateLogs({ action, error: sanitizeCause(cause) }),
-          Effect.provide(observabilityLayer),
-        ),
-      );
-    },
-  });
-
   const {
     ceremonyStores,
     recoveryLockoutStore,
@@ -507,7 +492,6 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
     profileRateLimiters,
     recommendationRateLimiters,
     stepUpJtiStore,
-    rotatedSessionStore,
     ceremonyStores,
     recoveryLockoutStore,
     recoveryOtpLockoutStore,

@@ -16,7 +16,6 @@ import type {
   createRedisProfileRateLimiters,
   createRedisRecommendationRateLimiters,
 } from "./lib/redis-rate-limiters";
-import type { createRedisRotatedSessionStore } from "./lib/rotated-session-store";
 import type { createRedisJtiStore } from "./lib/step-up-jti-store";
 import { createAccountErasureRoutes } from "./routes/account-erasure";
 import { createAccountExportRoutes } from "./routes/account-export";
@@ -96,8 +95,6 @@ export interface AppDeps {
   recommendationRateLimiters: ReturnType<typeof createRedisRecommendationRateLimiters>;
   /** Cluster-safe single-use guard for step-up JWTs. */
   stepUpJtiStore: ReturnType<typeof createRedisJtiStore>;
-  /** Cluster-safe rotated-session reuse-detection store. */
-  rotatedSessionStore: ReturnType<typeof createRedisRotatedSessionStore>;
   /**
    * O3/O2 (W6) — Redis-backed ceremony / pending-state stores, the recovery-code
    * lockout counter, and the two per-account caps. Spread into `authConfig` at
@@ -177,7 +174,6 @@ export function createApp(deps: AppDeps) {
     profileRateLimiters,
     recommendationRateLimiters,
     stepUpJtiStore,
-    rotatedSessionStore,
     ceremonyStores,
     recoveryLockoutStore,
     recoveryOtpLockoutStore,
@@ -248,11 +244,10 @@ export function createApp(deps: AppDeps) {
     .use(
       createAuthRoutes(
         // INTEGRATION: O3/O2 (W6) — ceremonyStores + recoveryLockoutStore + the
-        // two caps join stepUpJtiStore / rotatedSessionStore on the auth config.
+        // two caps join stepUpJtiStore on the auth config.
         {
           ...authConfig,
           stepUpJtiStore,
-          rotatedSessionStore,
           ceremonyStores,
           recoveryLockoutStore,
           recoveryOtpLockoutStore,

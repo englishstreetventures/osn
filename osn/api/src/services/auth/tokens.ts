@@ -3,17 +3,14 @@
  * C1), rotated-token reuse detection (C2), and access-token verification.
  */
 
-import { sessions } from "@osn/db/schema";
+import { rotatedSessions, sessions } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
-import { rowsChanged } from "@shared/db-utils";
-import { and, desc, eq, gt, inArray, isNotNull } from "drizzle-orm";
+import { commitBatch, rowsChanged } from "@shared/db-utils";
+import { and, desc, eq, gt, inArray, isNotNull, lte, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { ROTATION_RACE_MESSAGE } from "../../lib/grant-failure";
-import type { RotatedHashRecord } from "../../lib/rotated-session-store";
 import {
-  metricRotatedStoreDuration,
-  metricRotatedStoreOp,
   metricSessionFamilyRevoked,
   metricSessionReuseDetected,
   metricSessionRotationRace,
@@ -26,6 +23,8 @@ import {
   MAX_SESSIONS_PER_ACCOUNT,
   RECOVERY_SESSION_TTL_SEC,
   RECOVERY_TOKEN_AUDIENCE,
+  ROTATED_SESSION_SWEEP_CHUNK,
+  ROTATED_SESSION_SWEEP_MAX_CHUNKS,
   ROTATION_GRACE_MS,
 } from "./constants";
 import type { AuthContext } from "./context";
@@ -42,16 +41,50 @@ import type { AccessTokenClaims } from "./helpers";
 import type { ProfilesModule } from "./profiles";
 import type { RecoveryFactorAmr, SessionMeta, TokenSet } from "./types";
 
+/**
+ * Deletes expired `rotated_sessions` rows, in chunks of
+ * {@link ROTATED_SESSION_SWEEP_CHUNK} and at most
+ * {@link ROTATED_SESSION_SWEEP_MAX_CHUNKS} of them, so one run's writes and
+ * statements stay bounded however far behind the table is. A row is expired
+ * once `expires_at <= now`: past that, reuse detection ignores it.
+ *
+ * Each chunk is `DELETE … WHERE rowid IN (SELECT rowid … LIMIT n)`: the
+ * subquery binds the same few values whatever the chunk size, never one per
+ * row, and its `expires_at` range can use `rotated_sessions_expires_idx`.
+ * Standalone so the Workers `scheduled` handler and the Bun sweeper can run it
+ * beside the account-deletion sweeps.
+ */
+export const runRotatedSessionSweep = (
+  opts: { nowMs?: number } = {},
+): Effect.Effect<{ deleted: number }, DatabaseError, Db> =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+    const nowMs = opts.nowMs ?? Date.now();
+    let deleted = 0;
+    for (let chunk = 0; chunk < ROTATED_SESSION_SWEEP_MAX_CHUNKS; chunk++) {
+      const result = yield* Effect.tryPromise({
+        try: () =>
+          db.delete(rotatedSessions).where(
+            inArray(
+              sql`rowid`,
+              db
+                .select({ rowid: sql<number>`rowid` })
+                .from(rotatedSessions)
+                .where(lte(rotatedSessions.expiresAt, nowMs))
+                .limit(ROTATED_SESSION_SWEEP_CHUNK),
+            ),
+          ),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      const changed = rowsChanged(result);
+      deleted += changed;
+      if (changed < ROTATED_SESSION_SWEEP_CHUNK) break;
+    }
+    return { deleted };
+  }).pipe(Effect.withSpan("auth.session.rotated_sweep"));
+
 export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
-  const {
-    config,
-    accessTokenTtl,
-    refreshTokenTtl,
-    rotatedSessionStore,
-    rotatedSessionStoreBackend,
-    hashIp,
-    passkeyRegisterAllowedAmr,
-  } = ctx;
+  const { config, accessTokenTtl, refreshTokenTtl, hashIp, passkeyRegisterAllowedAmr } = ctx;
   const { findDefaultProfile } = profiles;
 
   // -------------------------------------------------------------------------
@@ -431,108 +464,39 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
   // Reuse detection (Copenhagen Book C2)
   //
   // When a session hash is not found in the DB, it may have been rotated
-  // out (deleted during a prior refresh). `rotatedSessionStore` tracks
-  // recently-rotated hashes (keyed by hash → familyId) so a replayed
-  // old token triggers full family revocation. S-H1 session: the store
-  // abstraction lets the memory default (single-process dev/test) swap for
-  // a Redis-backed cluster-safe implementation in production.
+  // out by a prior refresh. `refreshTokens` records every rotated-out hash
+  // in `rotated_sessions`, in the same batch as the session that replaces
+  // it, so a replayed old token finds its record and revokes the family.
   // -------------------------------------------------------------------------
 
-  const rotatedSessionStoreTtlMs = refreshTokenTtl * 1000;
-
-  /**
-   * Record a rotated-out hash. Wraps the async store call with the standard
-   * observability trio: span + duration histogram + bounded-attrs counter.
-   * Fail-open on store errors — rotation itself has already committed at
-   * the DB layer and aborting the refresh on a Redis blip is a worse UX
-   * than a temporary gap in reuse detection.
-   */
-  const trackRotatedSession = (
-    sessionHash: string,
-    familyId: string,
-  ): Effect.Effect<void, never, never> =>
-    Effect.suspend(() => {
-      const start = Date.now();
-      return Effect.tryPromise({
-        try: () => rotatedSessionStore.track(sessionHash, familyId, rotatedSessionStoreTtlMs),
-        catch: (cause) => cause,
-      }).pipe(
-        Effect.tap(() =>
-          Effect.sync(() => {
-            metricRotatedStoreOp({
-              action: "track",
-              result: "ok",
-              backend: rotatedSessionStoreBackend,
-            });
-            metricRotatedStoreDuration((Date.now() - start) / 1000, {
-              action: "track",
-              backend: rotatedSessionStoreBackend,
-            });
-          }),
-        ),
-        Effect.catch(() =>
-          Effect.gen(function* () {
-            metricRotatedStoreOp({
-              action: "track",
-              result: "error",
-              backend: rotatedSessionStoreBackend,
-            });
-            metricRotatedStoreDuration((Date.now() - start) / 1000, {
-              action: "track",
-              backend: rotatedSessionStoreBackend,
-            });
-            yield* Effect.logWarning("Rotated-session store unreachable — fail-open on track");
-          }),
-        ),
-        Effect.withSpan("auth.session.rotated_store.track"),
-      );
-    });
+  /** How long a rotation record proves reuse: the life of the token it records. */
+  const rotatedRecordTtlMs = refreshTokenTtl * 1000;
 
   /**
    * Checks if a missing session hash was recently rotated. If so, revokes
    * the entire family — both the legitimate holder and the attacker are
    * logged out, which is the correct security response per the Copenhagen
    * Book.
+   *
+   * Fails closed: a failed read is a `DatabaseError`, so the grant fails and
+   * nothing is revoked. A storage error never passes for "not rotated", and
+   * never manufactures a revocation either.
    */
   const detectReuse = (sessionHash: string): Effect.Effect<void, DatabaseError, Db> =>
     Effect.gen(function* () {
-      const start = Date.now();
-      const record = yield* Effect.tryPromise({
-        try: () => rotatedSessionStore.check(sessionHash),
-        catch: (cause) => cause,
-      }).pipe(
-        Effect.tap((result) =>
-          Effect.sync(() => {
-            metricRotatedStoreOp({
-              action: "check",
-              result: result ? "hit" : "miss",
-              backend: rotatedSessionStoreBackend,
-            });
-            metricRotatedStoreDuration((Date.now() - start) / 1000, {
-              action: "check",
-              backend: rotatedSessionStoreBackend,
-            });
-          }),
-        ),
-        Effect.catch(() =>
-          Effect.gen(function* () {
-            metricRotatedStoreOp({
-              action: "check",
-              result: "error",
-              backend: rotatedSessionStoreBackend,
-            });
-            metricRotatedStoreDuration((Date.now() - start) / 1000, {
-              action: "check",
-              backend: rotatedSessionStoreBackend,
-            });
-            yield* Effect.logWarning("Rotated-session store unreachable — fail-open on check");
-            // Fail-open: return null so a Redis outage cannot manufacture
-            // false-positive family revocations that log legitimate users out.
-            return null as RotatedHashRecord | null;
-          }),
-        ),
-        Effect.withSpan("auth.session.rotated_store.check"),
-      );
+      const { db } = yield* Db;
+      const nowMs = Date.now();
+      const [record] = yield* Effect.tryPromise({
+        try: () =>
+          db
+            .select({ familyId: rotatedSessions.familyId, rotatedAt: rotatedSessions.rotatedAt })
+            .from(rotatedSessions)
+            .where(
+              and(eq(rotatedSessions.tokenHash, sessionHash), gt(rotatedSessions.expiresAt, nowMs)),
+            )
+            .limit(1),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
       if (!record) return;
 
       // Grace window: a rotated-out hash replayed within ROTATION_GRACE_MS of
@@ -542,7 +506,7 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
       // winning grant already rotated the family forward; this replay just
       // loses. Treat it as a race, NOT reuse — preserve the family so the user
       // stays signed in. A replay OUTSIDE the window is genuine reuse below.
-      if (Date.now() - record.rotatedAtMs < ROTATION_GRACE_MS) {
+      if (nowMs - record.rotatedAt < ROTATION_GRACE_MS) {
         metricSessionRotationRace();
         yield* Effect.logInfo(
           "Rotated-token replay within grace window — benign concurrent refresh, family preserved",
@@ -550,64 +514,32 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
         return;
       }
 
-      // Replayed rotated-out token outside the grace window — revoke the family.
+      // Replayed rotated-out token outside the grace window — revoke the
+      // family's sessions and, with them, its rotation records: once the
+      // family is gone a further replay from the same chain has nothing left
+      // to revoke.
       const { familyId } = record;
       metricSessionReuseDetected();
       yield* Effect.logWarning("Session token reuse detected — revoking family");
-      const { db } = yield* Db;
       yield* Effect.tryPromise({
-        try: () => db.delete(sessions).where(eq(sessions.familyId, familyId)),
+        try: () =>
+          commitBatch(db, [
+            db.delete(sessions).where(eq(sessions.familyId, familyId)),
+            db.delete(rotatedSessions).where(eq(rotatedSessions.familyId, familyId)),
+          ]),
         catch: (cause) => new DatabaseError({ cause }),
       });
-      // S-M1: clear every tracking record for this family so observability
-      // stays consistent if an attacker replays multiple exfiltrated tokens
-      // from the same chain. Store-level fail-open — leaving stale keys
-      // behind is harmless (they expire with the refresh TTL).
-      const revokeStart = Date.now();
-      yield* Effect.tryPromise({
-        try: () => rotatedSessionStore.revokeFamily(familyId),
-        catch: (cause) => cause,
-      }).pipe(
-        Effect.tap(() =>
-          Effect.sync(() => {
-            metricRotatedStoreOp({
-              action: "revoke_family",
-              result: "ok",
-              backend: rotatedSessionStoreBackend,
-            });
-            metricRotatedStoreDuration((Date.now() - revokeStart) / 1000, {
-              action: "revoke_family",
-              backend: rotatedSessionStoreBackend,
-            });
-          }),
-        ),
-        Effect.catch(() =>
-          Effect.gen(function* () {
-            metricRotatedStoreOp({
-              action: "revoke_family",
-              result: "error",
-              backend: rotatedSessionStoreBackend,
-            });
-            metricRotatedStoreDuration((Date.now() - revokeStart) / 1000, {
-              action: "revoke_family",
-              backend: rotatedSessionStoreBackend,
-            });
-            yield* Effect.logWarning(
-              "Rotated-session store unreachable — fail-open on revoke_family",
-            );
-          }),
-        ),
-        Effect.withSpan("auth.session.rotated_store.revoke_family"),
-      );
       metricSessionFamilyRevoked();
     }).pipe(Effect.withSpan("auth.session.reuse_detect"));
 
   /**
    * Refreshes a session: verifies the session token, finds the default
    * profile, issues a new access token, and **rotates** the session token
-   * (Copenhagen Book C2). The old session row is deleted and a new one is
-   * inserted in the same family. The old hash is tracked in-memory so that
-   * a replayed old token triggers full family revocation (reuse detection).
+   * (Copenhagen Book C2). The old session row is deleted, then the new one
+   * and the old hash's `rotated_sessions` record are inserted in one batch,
+   * so a replayed old token triggers full family revocation (reuse
+   * detection). On D1 the batch commits both or neither; a failed batch is a
+   * `DatabaseError`, which `POST /token` reads as "session status unknown".
    */
   const refreshTokens = (
     sessionToken: string,
@@ -644,7 +576,8 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
 
       // One clock read, taken before the mint so the token's lifetime is
       // measured against the same instant as the row fields below.
-      const nowSec = Math.floor(Date.now() / 1000);
+      const nowMs = Date.now();
+      const nowSec = Math.floor(nowMs / 1000);
 
       // The restriction rides the SESSION ROW, not the token, so it survives
       // the silent refresh that would otherwise retire it five minutes in.
@@ -710,41 +643,50 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
         return yield* Effect.fail(new AuthError({ message: ROTATION_RACE_MESSAGE }));
       }
 
+      // The new session and the record of the rotated-out hash, together: on
+      // D1 a batch is a transaction, so a session never exists without the
+      // record that lets reuse detection see its predecessor replayed.
       yield* Effect.tryPromise({
         try: () =>
-          db.insert(sessions).values({
-            id: newSessionId,
-            accountId,
-            familyId,
-            // A restricted session keeps its ORIGINAL absolute deadline across
-            // every rotation. `nowSec + refreshTokenTtl` here would hand a
-            // 30-day life to the session that must die in fifteen minutes, and
-            // the client refreshes silently, so it would happen on its own.
-            expiresAt: restrictedUntil ?? nowSec + refreshTokenTtl,
-            createdAt: nowSec,
-            // Preserve the device's original authentication time across the
-            // rotation. `createdAt` is the new row's insert time (this grant),
-            // but `authenticatedAt` must reflect the real passkey/OTP ceremony
-            // so a background silent refresh can't reset `auth_time` to "now"
-            // and satisfy a relying party's `max_age` with zero user presence.
-            // Fall back to the old row's `createdAt` for sessions minted before
-            // the column existed — `verifyRefreshToken` already applied that
-            // fallback, so this value is never null.
-            authenticatedAt,
-            uaLabel,
-            ipHash,
-            lastUsedAt: nowSec,
-            restrictedUntil,
-            // Carried forward with the deadline: the enrolment bypass reads the
-            // factor off whichever row the caller currently holds, and a
-            // rotation that dropped it would silently retire the bypass.
-            restrictedAmr,
-          }),
+          commitBatch(db, [
+            db.insert(sessions).values({
+              id: newSessionId,
+              accountId,
+              familyId,
+              // A restricted session keeps its ORIGINAL absolute deadline across
+              // every rotation. `nowSec + refreshTokenTtl` here would hand a
+              // 30-day life to the session that must die in fifteen minutes, and
+              // the client refreshes silently, so it would happen on its own.
+              expiresAt: restrictedUntil ?? nowSec + refreshTokenTtl,
+              createdAt: nowSec,
+              // Preserve the device's original authentication time across the
+              // rotation. `createdAt` is the new row's insert time (this grant),
+              // but `authenticatedAt` must reflect the real passkey/OTP ceremony
+              // so a background silent refresh can't reset `auth_time` to "now"
+              // and satisfy a relying party's `max_age` with zero user presence.
+              // Fall back to the old row's `createdAt` for sessions minted before
+              // the column existed — `verifyRefreshToken` already applied that
+              // fallback, so this value is never null.
+              authenticatedAt,
+              uaLabel,
+              ipHash,
+              lastUsedAt: nowSec,
+              restrictedUntil,
+              // Carried forward with the deadline: the enrolment bypass reads the
+              // factor off whichever row the caller currently holds, and a
+              // rotation that dropped it would silently retire the bypass.
+              restrictedAmr,
+            }),
+            db.insert(rotatedSessions).values({
+              tokenHash: oldSessionId,
+              familyId,
+              accountId,
+              rotatedAt: nowMs,
+              expiresAt: nowMs + rotatedRecordTtlMs,
+            }),
+          ]),
         catch: (cause) => new DatabaseError({ cause }),
       });
-
-      // Track the rotated-out hash for reuse detection
-      yield* trackRotatedSession(oldSessionId, familyId);
 
       return {
         accessToken,

@@ -123,6 +123,14 @@ export const RECOVERY_SESSION_TTL_SEC = 900; // 15 min
  */
 export const ROTATION_GRACE_MS = 10_000;
 /**
+ * Bounds on one `runRotatedSessionSweep` pass: at most this many chunks of
+ * this many expired `rotated_sessions` rows. One cron run therefore writes at
+ * most 5 000 rows and issues at most 10 deletes; anything left over goes on
+ * the next run, six hours later.
+ */
+export const ROTATED_SESSION_SWEEP_CHUNK = 500;
+export const ROTATED_SESSION_SWEEP_MAX_CHUNKS = 10;
+/**
  * Hard cap on passkeys per account. An attacker with a stolen
  * access token (or a hijacked enrollment token) cannot add unlimited
  * credentials; 10 is comfortably above the real-world ceiling of one

@@ -8,6 +8,7 @@ import { selectEmailLayer } from "./lib/email-layer";
 import { startOutboundKeyRotation } from "./lib/outbound-arc";
 import { initRedisClient } from "./redis";
 import * as accountErasure from "./services/account-erasure";
+import { runRotatedSessionSweep } from "./services/auth/tokens";
 
 export { SERVICE_NAME };
 export const port = Number(process.env.PORT) || 4000;
@@ -133,10 +134,11 @@ export function startBunServer(
     osnEnv: process.env.OSN_ENV,
   }).catch(() => undefined);
 
-  // Hard-delete + fan-out retry sweeper. Single-instance — production should
-  // wrap with a Redis lock; for now the fixed 6-hour cadence + idempotent
-  // per-row writes keep multi-instance safe enough that a stray double-pass
-  // is a non-event. (The Workers entry runs the same two sweeps on a cron.)
+  // Hard-delete + fan-out retry + rotated-session sweeper. Single-instance —
+  // production should wrap with a Redis lock; for now the fixed 6-hour cadence
+  // + idempotent per-row writes keep multi-instance safe enough that a stray
+  // double-pass is a non-event. (The Workers entry runs the same sweeps on a
+  // cron.)
   const SWEEPER_INTERVAL_MS =
     Number(process.env.OSN_DELETION_SWEEPER_INTERVAL_MS) || 6 * 60 * 60 * 1_000;
   const fanoutUrls = {
@@ -148,6 +150,7 @@ export function startBunServer(
       Effect.gen(function* () {
         yield* accountErasure.runFanOutRetrySweep(fanoutUrls);
         yield* accountErasure.runHardDeleteSweep();
+        yield* runRotatedSessionSweep();
       }).pipe(Effect.provide(DbLive), Effect.provide(observabilityLayer)) as Effect.Effect<
         unknown,
         never,

@@ -38,7 +38,6 @@ import { Effect, Layer } from "effect";
 import { beforeAll, vi } from "vitest";
 
 import { ROTATION_RACE_MESSAGE } from "../../src/lib/grant-failure";
-import { createInMemoryRotatedSessionStore } from "../../src/lib/rotated-session-store";
 import * as metrics from "../../src/metrics";
 import { createAuthService } from "../../src/services/auth";
 import { makeTestAuthConfig } from "../helpers/auth-config";
@@ -153,9 +152,7 @@ describe("refresh rotation CAS 0-rows → benign race (family preserved)", () =>
   it.effect(
     "a lost CAS (delete reports 0 rows) is a benign concurrent grant — family preserved, no reuse metrics",
     () => {
-      // A dedicated rotated-session store + auth service.
-      const rotatedSessionStore = createInMemoryRotatedSessionStore();
-      const auth = createAuthService({ ...config, rotatedSessionStore });
+      const auth = createAuthService(config);
 
       const reuseSpy = vi.spyOn(metrics, "metricSessionReuseDetected");
       const familyRevokedSpy = vi.spyOn(metrics, "metricSessionFamilyRevoked");

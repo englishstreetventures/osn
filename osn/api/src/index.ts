@@ -14,6 +14,7 @@ import { initRedisClientFromEnv } from "./redis";
 import * as accountErasure from "./services/account-erasure";
 import { setRuntimeTier } from "./services/auth/helpers";
 import { runExpiredAuthCodeSweep } from "./services/auth/oidc";
+import { runRotatedSessionSweep } from "./services/auth/tokens";
 
 // ---------------------------------------------------------------------------
 // Cloudflare Workers entry for @osn/api.
@@ -400,6 +401,21 @@ export const handler: OsnWorkerHandler = {
         runExpiredAuthCodeSweep().pipe(
           Effect.catch((err) =>
             Effect.logError("scheduled OIDC code sweep failed", { reason: String(err) }),
+          ),
+          Effect.provide(dbLayer),
+          Effect.provide(osnLoggerLayer),
+        ),
+      ),
+    );
+
+    // Reap expired rotation records. Every refresh writes one, and nothing
+    // else removes a record whose token was never replayed; the sweep is
+    // bounded per run, so a backlog drains over several ticks.
+    ctx.waitUntil(
+      Effect.runPromise(
+        runRotatedSessionSweep().pipe(
+          Effect.catch((err) =>
+            Effect.logError("scheduled rotated-session sweep failed", { reason: String(err) }),
           ),
           Effect.provide(dbLayer),
           Effect.provide(osnLoggerLayer),

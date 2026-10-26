@@ -7,7 +7,6 @@
 import { createHmac } from "node:crypto";
 
 import { createInMemoryRecoveryLockoutStore } from "../../lib/recovery-lockout-store";
-import { createInMemoryRotatedSessionStore } from "../../lib/rotated-session-store";
 import type { AuthConfig } from "./config";
 import {
   EMAIL_CHANGE_BEGIN_PER_ACCOUNT_MAX,
@@ -53,8 +52,6 @@ export function createAuthContext(config: AuthConfig) {
   // premise — that the mailbox is the owner's — is the very thing in doubt.
   const emailChangeAllowedAmr = new Set<string>(["webauthn", "otp"]);
   const jtiStore = config.stepUpJtiStore ?? createInMemoryJtiStore();
-  const rotatedSessionStore = config.rotatedSessionStore ?? createInMemoryRotatedSessionStore();
-  const rotatedSessionStoreBackend = rotatedSessionStore.backend;
 
   // Ceremony / pending-state stores. Default to per-service in-memory;
   // index.ts injects Redis-backed equivalents in multi-pod deployments.
@@ -112,8 +109,6 @@ export function createAuthContext(config: AuthConfig) {
     passkeyRegisterAllowedAmr,
     emailChangeAllowedAmr,
     jtiStore,
-    rotatedSessionStore,
-    rotatedSessionStoreBackend,
     stores,
     profileSwitchCap,
     emailChangeBeginCap,

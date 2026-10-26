@@ -12,7 +12,7 @@
  * bypassed by spreading requests across pods.
  *
  * This module provides the same injectable triple-pattern used by
- * `StepUpJtiStore` and `RotatedSessionStore`:
+ * `StepUpJtiStore`:
  *
  *   - `CeremonyStore<V>` — the interface stored on `AuthConfig`.
  *   - `createInMemoryCeremonyStore()` — the single-process default, a TTL-swept

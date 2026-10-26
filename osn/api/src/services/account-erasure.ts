@@ -10,6 +10,7 @@ import {
   organisationMembers,
   passkeys,
   recoveryCodes,
+  rotatedSessions,
   securityEvents,
   sessions,
   totpCredentials,
@@ -19,7 +20,7 @@ import type { DeletionJob } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { commitBatch, jsonEachIn } from "@shared/db-utils";
 import type { AppEnrollmentApp, DeletionFanoutService } from "@shared/observability/metrics";
-import { and, eq, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, lte, ne, notInArray, or, sql } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
 import { arcPostJsonEffect } from "../lib/outbound-arc";
@@ -221,6 +222,29 @@ export const requestErasure = (
                 .delete(sessions)
                 .where(and(eq(sessions.accountId, accountId), ne(sessions.id, cancelSessionId)))
             : db.delete(sessions).where(eq(sessions.accountId, accountId)),
+
+          //    And the rotation records of every family just revoked. The
+          //    cancel handle's family keeps its own, so a replay of a token
+          //    rotated out of that chain still revokes the handle: that is
+          //    what reuse detection is for while the handle is the account's
+          //    only live session. Runs after the delete above, so the handle's
+          //    row is still there for the subquery to read its family from.
+          cancelSessionId
+            ? db
+                .delete(rotatedSessions)
+                .where(
+                  and(
+                    eq(rotatedSessions.accountId, accountId),
+                    notInArray(
+                      rotatedSessions.familyId,
+                      db
+                        .select({ familyId: sessions.familyId })
+                        .from(sessions)
+                        .where(eq(sessions.id, cancelSessionId)),
+                    ),
+                  ),
+                )
+            : db.delete(rotatedSessions).where(eq(rotatedSessions.accountId, accountId)),
 
           // 5. Audit event.
           db.insert(securityEvents).values({
@@ -572,6 +596,9 @@ const hardDeleteAccount = (accountId: string): Effect.Effect<void, AccountErasur
             : []),
 
           db.delete(sessions).where(eq(sessions.accountId, accountId)),
+          // Before the `accounts` delete below: each record references the
+          // account, so one left behind fails the whole batch on the foreign key.
+          db.delete(rotatedSessions).where(eq(rotatedSessions.accountId, accountId)),
           db.delete(passkeys).where(eq(passkeys.accountId, accountId)),
           db.delete(recoveryCodes).where(eq(recoveryCodes.accountId, accountId)),
           db.delete(totpCredentials).where(eq(totpCredentials.accountId, accountId)),

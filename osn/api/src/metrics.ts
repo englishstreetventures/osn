@@ -45,9 +45,6 @@ import type {
   RecoveryPasskeyReclaimResult,
   RegisterStep,
   Result,
-  RotatedStoreAction,
-  RotatedStoreBackend,
-  RotatedStoreResult,
   SecurityEventKind,
   SecurityEventNotifyResult,
   SecurityInvalidationTrigger,
@@ -79,8 +76,6 @@ export const OSN_METRICS = {
   authSessionReuseDetected: "osn.auth.session.reuse_detected",
   authSessionRotationRace: "osn.auth.session.rotation_race",
   authSessionFamilyRevoked: "osn.auth.session.family_revoked",
-  authSessionRotatedStoreOps: "osn.auth.session.rotated_store.operations",
-  authSessionRotatedStoreDuration: "osn.auth.session.rotated_store.duration",
   authCeremonyStoreOps: "osn.auth.ceremony_store.operations",
   authCeremonyStoreEntries: "osn.auth.ceremony_store.entries",
   authSessionSecurityInvalidation: "osn.auth.session.security_invalidation",
@@ -606,42 +601,6 @@ export const metricCireSessionRevocation = (
   trigger: CireSessionRevokeTrigger,
   result: CireSessionRevokeResult,
 ): void => authCireSessionRevocations.inc({ trigger, result });
-
-// ---------------------------------------------------------------------------
-// Rotated-session store (S-H1: cluster-safe C2 reuse detection)
-// ---------------------------------------------------------------------------
-
-type RotatedStoreOpAttrs = {
-  action: RotatedStoreAction;
-  result: RotatedStoreResult;
-  backend: RotatedStoreBackend;
-};
-type RotatedStoreDurationAttrs = {
-  action: RotatedStoreAction;
-  backend: RotatedStoreBackend;
-};
-
-const authSessionRotatedStoreOps = createCounter<RotatedStoreOpAttrs>({
-  name: OSN_METRICS.authSessionRotatedStoreOps,
-  description:
-    "Rotated-session store operations (C2 reuse detection) by action, outcome, and backend",
-  unit: "{operation}",
-});
-
-const authSessionRotatedStoreDuration = createHistogram<RotatedStoreDurationAttrs>({
-  name: OSN_METRICS.authSessionRotatedStoreDuration,
-  description: "Rotated-session store operation latency by action and backend",
-  unit: "s",
-  boundaries: LATENCY_BUCKETS_SECONDS,
-});
-
-export const metricRotatedStoreOp = (attrs: RotatedStoreOpAttrs): void =>
-  authSessionRotatedStoreOps.inc(attrs);
-
-export const metricRotatedStoreDuration = (
-  seconds: number,
-  attrs: RotatedStoreDurationAttrs,
-): void => authSessionRotatedStoreDuration.record(seconds, attrs);
 
 // ---------------------------------------------------------------------------
 // Ceremony / pending-state stores (O3: Redis-backed ceremony state)

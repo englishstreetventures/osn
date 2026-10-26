@@ -6,7 +6,6 @@ import { Deferred, Effect, Fiber, Layer, Logger, References } from "effect";
 import { TestClock } from "effect/testing";
 import { beforeAll } from "vitest";
 
-import { createInMemoryRotatedSessionStore } from "../../src/lib/rotated-session-store";
 import { createAuthService } from "../../src/services/auth";
 import { hashSessionToken } from "../../src/services/auth/helpers";
 import { createDefaultCeremonyStores } from "../../src/services/auth/stores";
@@ -1470,41 +1469,36 @@ describe("refresh token rotation (C2)", () => {
       }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("replaying a rotated-out token OUTSIDE the grace window revokes the family (C2)", () =>
-    Effect.gen(function* () {
-      // A genuine reuse: a stolen rotated token replayed long after rotation
-      // (outside ROTATION_GRACE_MS). Force "outside grace" deterministically
-      // with a store whose check reports the rotation happened at epoch 0.
-      const base = createInMemoryRotatedSessionStore();
-      const outsideGraceStore = {
-        ...base,
-        check: async (hash: string) => {
-          const rec = await base.check(hash);
-          return rec ? { familyId: rec.familyId, rotatedAtMs: 0 } : null;
-        },
-      };
-      const authReuse = createAuthService({ ...config, rotatedSessionStore: outsideGraceStore });
+  it.effect(
+    "replaying a rotated-out token OUTSIDE the grace window revokes the family (C2)",
+    () => {
+      const { layer, sqlite } = createTestLayerWithSqlite();
+      return Effect.gen(function* () {
+        // A genuine reuse: a stolen rotated token replayed long after rotation
+        // (outside ROTATION_GRACE_MS). Force "outside grace" deterministically
+        // by moving the rotation record's timestamp back to epoch 0.
+        const profile = yield* auth.registerProfile("reuse-old@example.com", "reuseold");
+        const tokens = yield* auth.issueTokens(
+          profile.id,
+          profile.accountId,
+          profile.email,
+          profile.handle,
+          profile.displayName,
+        );
 
-      const profile = yield* authReuse.registerProfile("reuse-old@example.com", "reuseold");
-      const tokens = yield* authReuse.issueTokens(
-        profile.id,
-        profile.accountId,
-        profile.email,
-        profile.handle,
-        profile.displayName,
-      );
+        // Rotate once — old token is now rotated out (recorded in rotated_sessions).
+        const r1 = yield* auth.refreshTokens(tokens.refreshToken);
+        sqlite.run("UPDATE rotated_sessions SET rotated_at = 0");
 
-      // Rotate once — old token is now rotated out (tracked in the store).
-      const r1 = yield* authReuse.refreshTokens(tokens.refreshToken);
+        // Replay the old token — outside grace ⇒ genuine reuse ⇒ family revocation.
+        const err1 = yield* Effect.flip(auth.refreshTokens(tokens.refreshToken));
+        expect(err1._tag).toBe("AuthError");
 
-      // Replay the old token — outside grace ⇒ genuine reuse ⇒ family revocation.
-      const err1 = yield* Effect.flip(authReuse.refreshTokens(tokens.refreshToken));
-      expect(err1._tag).toBe("AuthError");
-
-      // The new token (r1) is also revoked (whole family gone).
-      const err2 = yield* Effect.flip(authReuse.verifyRefreshToken(r1.refreshToken));
-      expect(err2._tag).toBe("AuthError");
-    }).pipe(Effect.provide(createTestLayer())),
+        // The new token (r1) is also revoked (whole family gone).
+        const err2 = yield* Effect.flip(auth.verifyRefreshToken(r1.refreshToken));
+        expect(err2._tag).toBe("AuthError");
+      }).pipe(Effect.provide(layer));
+    },
   );
 
   it.effect("verifyRefreshToken returns familyId and sessionId", () =>

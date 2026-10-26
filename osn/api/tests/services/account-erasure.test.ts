@@ -8,6 +8,7 @@ import {
   oauthConsents,
   passkeys,
   recoveryCodes,
+  rotatedSessions,
   securityEvents,
   sessions,
   users,
@@ -105,6 +106,25 @@ const seedCredentials = (accountId: string): Effect.Effect<{ aliveSessionId: str
     return { aliveSessionId };
   });
 
+/** Helper — one live rotation record for `accountId` in `familyId`, hash `<prefix>1`. */
+const seedRotated = (
+  accountId: string,
+  familyId: string,
+  prefix: string,
+): Effect.Effect<void, never, Db> =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+    yield* Effect.promise(() =>
+      db.insert(rotatedSessions).values({
+        tokenHash: `${prefix}1`,
+        familyId,
+        accountId,
+        rotatedAt: 0,
+        expiresAt: Date.now() + 86_400_000,
+      }),
+    );
+  });
+
 describe("account-erasure: requestErasure", () => {
   it.effect(
     "soft-deletes the account, redacts identity, nukes credentials, keeps cancel session",
@@ -176,6 +196,46 @@ describe("account-erasure: requestErasure", () => {
         // Zap was NOT enrolled — pre-marked done with sentinel.
         expect(jobs[0].zapDoneAt).toBe(-1);
       }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect(
+    "deletes the account's rotation records except the cancel handle's family, which keeps its reuse detection",
+    () =>
+      Effect.gen(function* () {
+        const { accountId } = yield* seedAccountAndProfile();
+        const { aliveSessionId } = yield* seedCredentials(accountId);
+        const { accountId: otherAccountId } = yield* seedAccountAndProfile(
+          "bob@example.com",
+          "bob",
+        );
+        const { db } = yield* Db;
+        const [alive] = yield* Effect.promise(() =>
+          db.select().from(sessions).where(eq(sessions.id, aliveSessionId)),
+        );
+        yield* seedRotated(accountId, alive!.familyId, "kept_");
+        yield* seedRotated(accountId, "sfam_revoked", "gone_");
+        yield* seedRotated(otherAccountId, "sfam_bob", "bob_");
+
+        yield* accountErasure.requestErasure({ accountId, cancelSessionId: aliveSessionId });
+
+        const left = yield* Effect.promise(() => db.select().from(rotatedSessions));
+        expect(left.map((r) => r.tokenHash).toSorted()).toEqual(["bob_1", "kept_1"]);
+      }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("deletes every rotation record of the account when there is no cancel handle", () =>
+    Effect.gen(function* () {
+      const { accountId } = yield* seedAccountAndProfile();
+      yield* seedCredentials(accountId);
+      yield* seedRotated(accountId, "sfam_a", "a_");
+      yield* seedRotated(accountId, "sfam_b", "b_");
+
+      yield* accountErasure.requestErasure({ accountId, cancelSessionId: null });
+
+      const { db } = yield* Db;
+      const left = yield* Effect.promise(() => db.select().from(rotatedSessions));
+      expect(left).toEqual([]);
+    }).pipe(Effect.provide(createTestLayer())),
   );
 
   it.effect("idempotent — second call returns the original scheduled timestamp", () =>
@@ -379,6 +439,40 @@ describe("account-erasure: hard-delete sweeper", () => {
         db.select().from(securityEvents).where(eq(securityEvents.accountId, accountId)),
       );
       expect(audit).toHaveLength(1);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("deletes the account's rotation records with the account, and no one else's", () =>
+    Effect.gen(function* () {
+      const { accountId } = yield* seedAccountAndProfile();
+      const { accountId: otherAccountId } = yield* seedAccountAndProfile("bob@example.com", "bob");
+      const { db } = yield* Db;
+      yield* seedRotated(accountId, "sfam_a", "a_");
+      yield* seedRotated(accountId, "sfam_b", "b_");
+      yield* seedRotated(otherAccountId, "sfam_bob", "bob_");
+      yield* Effect.promise(() =>
+        db.insert(deletionJobs).values({
+          accountId,
+          softDeletedAt: 1_000,
+          hardDeleteAt: 2_000,
+          pulseDoneAt: 1_500,
+          zapDoneAt: 1_500,
+          reason: "user_request",
+          cancelSessionId: null,
+        }),
+      );
+
+      // The account row goes in the same batch: a rotation record left behind
+      // would fail it on the foreign key.
+      const result = yield* accountErasure.runHardDeleteSweep({ nowMs: 5_000_000 });
+
+      expect(result.purged).toBe(1);
+      const acct = yield* Effect.promise(() =>
+        db.select().from(accounts).where(eq(accounts.id, accountId)),
+      );
+      expect(acct).toHaveLength(0);
+      const left = yield* Effect.promise(() => db.select().from(rotatedSessions));
+      expect(left.map((r) => r.tokenHash)).toEqual(["bob_1"]);
     }).pipe(Effect.provide(createTestLayer())),
   );
 
