@@ -9,8 +9,8 @@ import {
   GIFT_REGISTRY_MAX_QUANTITY,
   type GiftRegistryClaimBody,
   type GiftRegistryHouseholdClaim,
-  type GiftRegistryItem,
 } from "../../lib/gift-registry";
+import type { GiftRegistryItem } from "../../lib/gift-registry-read";
 import { buildSrcSet, variantSrc } from "../invite-images";
 
 /**

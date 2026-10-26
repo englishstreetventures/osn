@@ -1,13 +1,13 @@
 ---
 title: Agent tooling
-description: How this repository configures coding agents — where sessions start, code search with LSP and git grep, skills and their evals, third-party skills, subagent definitions, committed settings, and the vendored trees agents must not edit
+description: How this repository configures coding agents — where sessions start, code search with LSP and git grep, skills and their evals, third-party skills, subagent definitions, committed settings, the guard hook, the mods in .claude/mods, and the vendored trees agents must not edit
 tags: [convention, agents, tooling]
 related:
   - "[[house-lint-rules]]"
   - "[[session-metrics]]"
   - "[[contributing]]"
   - "[[wiki-search]]"
-last-reviewed: 2026-10-24
+last-reviewed: 2026-10-26
 ---
 
 # Agent tooling
@@ -20,11 +20,77 @@ Locally the repository is the bare `~/.work/osn.git`, and every worktree — `ma
 
 `bun run scripts/bootstrap-bare-root.ts` (part of `scripts/setup.sh`) writes a `SessionStart` hook into that directory saying so, and links its `.claude/skills` to `main`'s. It is idempotent and never overwrites a settings file it did not write.
 
-Every worktree on the machine runs the same commands — `bun src/local.ts` servers, `wrangler dev`, `astro dev`, the `sleep` in `scripts/wait-pr.sh` — often from other sessions at the same time. So a session stops a process it started by the PID it recorded when it started it (`cmd & echo $! > <file>`, then `kill $(cat <file>)`), never with `pkill -f <pattern>`, which matches another worktree's process just as well. One such `pkill -f "src/local.ts"` killed another worktree's cire-api dev server on port 8787.
+Every worktree on the machine runs the same commands — `bun src/local.ts` servers, `wrangler dev`, `astro dev`, the `sleep` in `scripts/wait-pr.sh` — often from other sessions at the same time. So a session stops a process it started by the PID it recorded when it started it (`cmd & echo $! > <file>`, then `kill $(cat <file>)`), never with `pkill -f <pattern>`, which matches another worktree's process just as well.
 
 ## Settings
 
 `.claude/settings.json` is committed, so its hooks travel to remote sessions that never read a local config — that is what makes a standing rule hold everywhere. Personal hooks and permissions go in `.claude/settings.local.json`, which is gitignored. A personal untracked `settings.json` blocks the pull that brings the tracked one down.
+
+### The guard hook
+
+A `PreToolUse` hook runs [`scripts/agent-guard.ts`](../../scripts/agent-guard.ts) before every `Bash`, `Write`, `Edit` and `Agent` call and every GitHub MCP write. It refuses a call that breaks a standing rule, and names the fix in its reason:
+
+| Refused | Rule |
+|---|---|
+| `bun install` without `--frozen-lockfile` (or `-g`), `bun update`, `bun add --filter`, inside a tree with a `bun.lock` | Installs |
+| A heredoc inside `$(…)` or backticks | Commands |
+| `git commit` or `git push` on `main`, judged in the directory the command runs in (`cd`, `git -C`, a branch switch earlier in the line), and a push whose destination ref is `main` | Never commit to `main` |
+| A tracker finding ID in a commit message, in `gh pr` or `gh issue` text (`create`, `edit`, `comment`, `review`, `merge`, and a `close` or `reopen` comment) or `gh api` fields (inline, `--body-file`, `-F body=@file`, `--input`), or in a GitHub MCP write, unless it targets `englishstreetventures/osn-tracker` | Issues |
+| A Write or Edit of a test or spec file under a workspace's `src/`, in any worktree of this repository | Tests |
+| An `Agent` call with no `subagent_type`, which starts `general-purpose` | Choose subagents by definition |
+
+It catches slips; it is not enforcement, and `AGENTS.md` keeps every rule for agents that run no hooks. It reads only the call itself, never file contents already in the repository. Every failure lets the call through: unreadable input, an unreadable file, a `git` error, a directory it cannot resolve, a thrown check.
+
+The hook command, inline in `settings.json`, runs **main's copy** of the script: `git cat-file blob refs/remotes/origin/main:scripts/agent-guard.ts` into a fresh `mktemp -d`, then `bun --no-env-file --no-install --config=<empty file>` from that directory, so no checkout `bunfig.toml`, `.env` or edited guard runs. The ref is spelled in full because a tag or a branch named `origin/main` would otherwise take precedence. It protects only while the session's own `.claude/settings.json` is main's: review another branch in its own worktree, never checked out where the session runs. Two consequences of reading `origin/main`: the guard is absent until a fetch has brought the script down, and a fix to it takes effect only after the next fetch.
+
+`AGENT_GUARD_REF=<ref>` runs another ref's copy, which is how a branch tests a change to the guard in a fresh `claude -p` session. [`scripts/tests/agent-guard.test.ts`](../../scripts/tests/agent-guard.test.ts) covers the rules and [`agent-guard.cli.test.ts`](../../scripts/tests/agent-guard.cli.test.ts) runs the command as `settings.json` holds it. Both run in `bun run test:scripts`. A call costs a `mktemp`, one `git` call and a Bun start.
+
+*Measured 2026-10-26 — median of 15 runs of the hook command on a `Bash` input, in a cloud container: 16 ms.*
+
+### Mods
+
+[`.claude/mods/`](../../.claude/mods) holds two Claude Code mods, plugins of function hooks that change what the interface shows:
+
+| Mod | Shows |
+|---|---|
+| `branch-gates` | A **Branch gates** pane beside the chat. It shows the branch; the `Issue:` line of `NEW-FEAT.md` with that issue's `complexity:` label, and "(unconfirmed)" when that label is on it too; commits ahead and files changed against `refs/remotes/origin/main`, or "base unknown" when git cannot say; uncommitted files; and whether the diff needs a changeset. Under **Pull request**: the branch's PR from `gh pr view`, its state (open, merged or closed), its CI rollup (passing, failing or pending), its unresolved review threads and its review decision, or `gh`'s own error. Under **Checks**: the last `/gates` run, with its HEAD and time, marked stale after any later Bash, Edit, Write or NotebookEdit call, or a new HEAD or `git status`. Under **Gates**: each row of the `## Gates` section of `NEW-FEAT.md`. It also shows a band above the prompt when a changeset is required and missing, a status line with the branch and issue, and a toast, "Guard: <reason>", when the guard hook above refuses a Bash, Write, Edit or Agent call. |
+| `model-colour` | The current model's family (Fable, Opus, Haiku, Sonnet) as a coloured tag before the prompt hint, and a dot in the same colour before the working spinner. |
+
+`branch-gates` works only in a repository whose `origin` is `englishstreetventures/osn` on github.com, as `https://github.com/…`, `git@github.com:…` or `ssh://git@github.com/…`. At session start it reads the repository's root (`git rev-parse --show-toplevel` in the session's directory) and that root's origin, keeps both for the session, and runs every later git, `gh` and `bash` call in that root, wherever the session's directory moves. Anywhere else it opens no pane, registers no command and makes no git call after those two, and a project's own `/gates` answers instead. Unprompted, it runs only git, `gh` and the copy of `scripts/changeset-required.sh` in the worktree the mods are loaded from, read from disk and run as `bash -c` with the file list on stdin; never a script from the session's checkout. It reads `NEW-FEAT.md` only when it is a regular file of at most 256 KB, and removes control characters from every text it draws from the checkout or from `gh`.
+
+**`/gates`** runs CI's lint commands from the worktree root, one after another: `bash scripts/verify-vendored-anti-slop.sh && bun run lint`, `bun run fmt:check`, and `bash scripts/guard-lint-warnings.sh --base <sha>`, where `<sha>` is `git merge-base refs/remotes/origin/main HEAD` (the row reads "not run" when there is none). They are the **checkout's own scripts**, so `/gates` runs only when you type it at the prompt; started by a plugin, the SDK or a relayed message, it runs nothing and says why. It takes about 30 s, and each row reads "not run: no node_modules" in a worktree that has none.
+
+*Measured 2026-10-26 — the three commands run in turn from the repository root in a cloud container: lint 7.0 s, `fmt:check` 0.5 s, the warning ceiling 18.6 s.*
+
+**Loading them.** Claude Code loads a folder of plugins named in `CLAUDE_CODE_PLUGIN_DIRS`, read from the process environment or the `env` block of `~/.claude/settings.json`, never from a project's settings. Give the mods a detached worktree of their own, used for nothing else, at `refs/remotes/origin/main`:
+
+```bash
+git -C ~/.work/osn.git fetch origin "+refs/heads/main:refs/remotes/origin/main"
+git -C ~/.work/osn.git worktree add --detach ~/.work/osn.git/claude-mods refs/remotes/origin/main
+```
+
+Then add its `.claude/mods` to `CLAUDE_CODE_PLUGIN_DIRS` in `~/.claude/settings.json`, in fish. The `jq` program keeps any folders the variable already names, appends this one after a `:`, and adds nothing when it is already there:
+
+```fish
+set f ~/.claude/settings.json
+set dir "$HOME/.work/osn.git/claude-mods/.claude/mods"
+test -e $f; or echo '{}' > $f
+jq --arg dir $dir '.env.CLAUDE_CODE_PLUGIN_DIRS |= (if . == null or . == "" then $dir elif (split(":") | index($dir)) != null then . else . + ":" + $dir end)' $f > $f.new; and mv $f.new $f
+```
+
+or by hand, as `"env": { "CLAUDE_CODE_PLUGIN_DIRS": "/Users/<you>/.work/osn.git/claude-mods/.claude/mods" }`, after a `:` when the value already names other folders. New sessions load both mods, in every repository: `model-colour` runs everywhere, and `branch-gates` turns itself off outside this one. To update them, move the worktree to main's latest commit:
+
+```bash
+git -C ~/.work/osn.git fetch origin "+refs/heads/main:refs/remotes/origin/main"
+git -C ~/.work/osn.git/claude-mods checkout --detach refs/remotes/origin/main
+```
+
+> [!warning]
+> Never point `CLAUDE_CODE_PLUGIN_DIRS` at a checkout where branches are switched. An interactive session watches the folder and reloads a mod's hooks when its files change, so `git checkout` of a branch you are reviewing would run that branch's `register.tsx` inside your session. The dedicated worktree changes only when you move it to main.
+
+**Costs.** No mod calls the model; `/gates` leaves one line of output in the conversation. `branch-gates` refreshes at session start and after a Bash, Edit, Write or NotebookEdit call, at most once every 2 s, with one more refresh at the end of the window when calls keep coming. A refresh is four git reads run together, its `git status` run with `--no-optional-locks` so it never takes the index lock; one `bash` for the changeset script only when the changed files or the script change; and one `gh issue view` per issue per load, made after the pane has drawn. The pull request is read at session start, on `/gates`, and after a Bash `git push` or `gh` command, at most once a minute with one trailing read; each read is one `gh pr view` and one GraphQL call.
+
+**Where they run.** A cloud session has only the checkout, and no checkout file sets the variable, so cloud sessions load neither mod. The tests sit in each mod's `tests/` folder and run with `claude plugin test .claude/mods/<mod>`, only locally: CI has no `claude` CLI. Verified on Claude Code 2.1.310, whose plugin API is early access and may change between releases.
 
 ## Subagents
 
@@ -60,9 +126,9 @@ So a plausible `LSP` list can still be half the answer. Two rules follow:
 1. **"Who uses X" across packages comes from `git grep -lw`.** Grep over-counts — `git grep -lw forkBackground -- '*.ts'` lists 13 files, 4 of them naming it only in comments or strings, and without the `*.ts` filter it adds changelogs and wiki pages — so it is the upper bound and a warm `LSP` answer the lower. Read the hits before reporting a count.
 2. **Before renaming, deleting or changing the signature of an export, `git grep -w` its name across the whole repository.** `LSP` alone is never enough there.
 
-`LSP` needs the worktree's `node_modules`: in a fresh worktree, run `bun install --frozen-lockfile` before trusting any answer. That also means an `LSP` call runs code from the branch: the server loads the worktree's installed `typescript` and any package a `tsconfig` names under `compilerOptions.plugins`. On a branch nobody has read yet, read what it would run (`review-pr` Step 2) before any agent calls `LSP` there. Its streamed diagnostics stay untrusted either way (`.claude/skills/orchestrate/references/gotchas.md`).
+`LSP` needs the worktree's `node_modules`: in a fresh worktree, run `bun install --frozen-lockfile` before trusting any answer. That also means an `LSP` call runs code from the branch: the server is the worktree's installed `typescript`, and a `tsconfig` can name a package under `contentMappers`, which `tsc --runExternalCode` runs and the language server may. On a branch nobody has read yet, read what it would run (`review-pr` Step 2) before any agent calls `LSP` there. Its streamed diagnostics stay untrusted either way (`.claude/skills/orchestrate/references/gotchas.md`).
 
-The tool comes from the `typescript-lsp@claude-plugins-official` plugin, which starts the `typescript-language-server` binary. The `setup-osn` skill installs both at user scope. `.claude/settings.json` does not enable the plugin: a project-scope `enabledPlugins` entry turns a plugin on without installing it. Cloud sessions and CI agents have no `LSP` at all — cloud sessions ignore project plugins and never start plugin language servers — so there grep is the only tool. Every agent except `shepherd` lists `LSP` in its `tools:`.
+The tool comes from the `ts-lsp@osn-local` plugin in `tools/claude-ts-lsp`, which starts the worktree's own `node_modules/.bin/tsc --lsp --stdio`, TypeScript 7's built-in language server. The `setup-osn` skill installs it at user scope. `.claude/settings.json` does not enable the plugin: a project-scope `enabledPlugins` entry turns a plugin on without installing it. Cloud sessions and CI agents have no `LSP` at all — cloud sessions ignore project plugins and never start plugin language servers — so there grep is the only tool. Every agent except `shepherd` lists `LSP` in its `tools:`.
 
 ## Skills and their evals
 
@@ -95,4 +161,4 @@ Nothing of ours writes into it. `oxlintrc.json` ignores both `.agents` and the s
 
 ## Vendored lint plugin
 
-`tools/oxlint/anti-slop` is a verbatim upstream copy, unlike `tools/oxlint/house` ([[house-lint-rules]]). It is excluded from oxfmt and oxlint, with its MIT licence beside it. Its `SHA256SUMS` covers every tracked file, and CI checks both the checksums and the file set, so a re-vendor must regenerate it with the recipe in that directory's `README.md`. `.github/CODEOWNERS` puts it under a human owner, along with `scripts/`, `.github/`, `bunfig.toml` and the files that decide whether a guard runs at all (`package.json`, `oxlintrc.json`, `lefthook.yml`).
+`tools/oxlint/anti-slop` is a verbatim upstream copy, unlike `tools/oxlint/house` ([[house-lint-rules]]). It is excluded from bun fmt and oxlint, with its MIT licence beside it. Its `SHA256SUMS` covers every tracked file, and CI checks both the checksums and the file set, so a re-vendor must regenerate it with the recipe in that directory's `README.md`. `.github/CODEOWNERS` puts it under a human owner, along with `scripts/`, `.github/`, `bunfig.toml` and the files that decide whether a guard runs at all (`package.json`, `oxlintrc.json`, `lefthook.yml`).

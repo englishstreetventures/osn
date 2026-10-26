@@ -25,10 +25,13 @@ import { Effect } from "effect";
 import { createApp } from "../../src/app";
 import { DbService } from "../../src/db";
 import type { Db } from "../../src/db";
+import { effectDbFor } from "../../src/db/effect-handle";
+import { localD1Binding } from "../../src/db/local-d1";
 import { createDb, seedDb } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
 import { organiserSessionService } from "../../src/services/organiser-session";
 import { appRequest, jsonBody, recordStatements, setTier } from "../test-helpers";
+import { captureLogs } from "../test-helpers/capture-logs";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 import { guestNamed, seedPlusOne } from "../test-helpers/plus-one";
@@ -47,7 +50,7 @@ beforeAll(async () => {
 });
 
 /** Seeds the bootstrap wedding + a second wedding owned by someone else. */
-function buildApp() {
+function buildApp(opts: { withoutEffect?: boolean } = {}) {
   const db = createDb(":memory:");
   seedDb(db);
   seedOtherWedding(db);
@@ -58,6 +61,7 @@ function buildApp() {
   // The dedicated rate-limit tests below build their own apps with a 1-req
   // limiter to assert 429.
   const app = createApp(db, {
+    effectDb: opts.withoutEffect ? undefined : effectDbFor(localD1Binding(db.$client), "fetch"),
     osnTestKey: auth.key,
     weddingCreateLimiter: createRateLimiter({ maxRequests: 1_000, windowMs: 60_000 }),
     exportLimiter: createRateLimiter({ maxRequests: 1_000, windowMs: 60_000 }),
@@ -2336,6 +2340,7 @@ describe("CSV export per-user rate limit (CSV-S-L1)", () => {
     seedDb(db);
     seedOtherWedding(db);
     const app = createApp(db, {
+      effectDb: effectDbFor(localD1Binding(db.$client), "fetch"),
       osnTestKey: auth.key,
       exportLimiter: createRateLimiter({ maxRequests: 1, windowMs: 60_000 }),
     });
@@ -2354,6 +2359,7 @@ describe("CSV export per-user rate limit (CSV-S-L1)", () => {
       const db = createDb(":memory:");
       seedDb(db);
       const app = createApp(db, {
+        effectDb: effectDbFor(localD1Binding(db.$client), "fetch"),
         osnTestKey: auth.key,
         exportLimiter: createRateLimiter({ maxRequests: 1, windowMs: 60_000 }),
       });
@@ -2367,6 +2373,7 @@ describe("CSV export per-user rate limit (CSV-S-L1)", () => {
     const db = createDb(":memory:");
     seedDb(db);
     const app = createApp(db, {
+      effectDb: effectDbFor(localD1Binding(db.$client), "fetch"),
       osnTestKey: auth.key,
       exportLimiter: createRateLimiter({ maxRequests: 1, windowMs: 60_000 }),
     });
@@ -2380,6 +2387,7 @@ describe("CSV export per-user rate limit (CSV-S-L1)", () => {
     seedDb(db);
     seedOtherWedding(db);
     const app = createApp(db, {
+      effectDb: effectDbFor(localD1Binding(db.$client), "fetch"),
       osnTestKey: auth.key,
       exportLimiter: createRateLimiter({ maxRequests: 1, windowMs: 60_000 }),
     });
@@ -2391,4 +2399,28 @@ describe("CSV export per-user rate limit (CSV-S-L1)", () => {
     // The other wedding's owner (different user) still has a full bucket.
     expect((await get(app, otherPath, OTHER_OWNER)).status).toBe(200);
   });
+});
+
+describe("the wedding exports when the app has no Effect handle", () => {
+  // Each export dies inside its route's pipe, so catchDefect logs the export by
+  // name and answers a plain 500 with no attachment.
+  it.each(["rsvps.csv", "guests.csv", "events.csv", "gifts.csv", "seating.csv", "rsvps"])(
+    "%s answers 500 and logs the failed export",
+    async (exportName) => {
+      const { app } = buildApp({ withoutEffect: true });
+      let res: Response | undefined;
+      const logs = await captureLogs(async () => {
+        res = await get(
+          app,
+          `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/${exportName}`,
+          BOOTSTRAP_OWNER,
+        );
+      });
+      expect(res!.status).toBe(500);
+      expect(res!.headers.get("content-disposition")).toBeNull();
+      expect(logs).toContain("csv export failed");
+      expect(logs).toContain(`"export":"${exportName}"`);
+      expect(logs).not.toContain("unhandled request error");
+    },
+  );
 });

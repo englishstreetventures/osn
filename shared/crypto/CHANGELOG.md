@@ -1,5 +1,31 @@
 # @osn/crypto
 
+## 0.14.12
+
+### Patch Changes
+
+- @osn/db@0.24.14
+
+## 0.14.11
+
+### Patch Changes
+
+- 75ebdfb: Move the monorepo's drizzle-orm from 1.0.0-rc.4 to 1.0.0-rc.5 and drizzle-kit to
+  1.0.0-rc.5 in the db packages. The repository patch that keeps bound values out
+  of drizzle's errors and logs is ported to rc.5 and now also drops `params` from
+  the Effect query error's JSON.
+- Updated dependencies [75ebdfb]
+  - @osn/db@0.24.13
+
+## 0.14.10
+
+### Patch Changes
+
+- 355b956: Type-check with Bun's built-in checker. Each package's `check` script is now `typecheck` and runs `bun check` in place of `tsc --noEmit`, with the test tsconfigs checked the same way. Packages that still need `astro check` keep it. No source changes.
+- Updated dependencies [355b956]
+  - @osn/db@0.24.12
+  - @shared/observability@0.18.12
+
 ## 0.14.9
 
 ### Patch Changes

@@ -523,7 +523,9 @@ describe("a refused request does no credential work", () => {
     const guestDb = createDb(":memory:");
     seedDb(guestDb);
     const options: AppOptions = {
+      // Both halves of Stripe, or the contribute route is not mounted.
       stripe: unreachedStripe,
+      stripeWebhookSecret: "whsec_test_connect",
       // Its own claim budget, so the cookie below never meets a limit another
       // suite spent.
       claimLimiter: createRateLimiter({ maxRequests: 1000, windowMs: 60_000 }),

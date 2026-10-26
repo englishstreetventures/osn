@@ -14,6 +14,7 @@ import { Elysia } from "elysia";
 import type { AnyElysia } from "elysia";
 
 import type { Db } from "./db";
+import type { EffectD1Db } from "./db/effect-handle";
 import type { AccountLinking } from "./lib/account-linking";
 import { deriveDigestStopKey } from "./lib/digest-stop";
 import { DEFAULT_ORGANISER_ORIGIN } from "./lib/organiser-origin";
@@ -214,6 +215,18 @@ const defaultTaskWriteLimiter = createRateLimiter({ maxRequests: 120, windowMs: 
  */
 const defaultRunSheetReadLimiter = createRateLimiter({ maxRequests: 120, windowMs: 60_000 });
 /**
+ * Default per-USER limiter for making and deleting seating plans
+ * (`POST …/seating/events/:eventId/plans`, `DELETE …/seating/plans/:planId`).
+ * A copy writes a plan, up to 100 tables and a seat for every guest seated in
+ * the source, and a delete removes as many, so each call can cost thousands of
+ * rows written, index entries included; 10 a minute is more plans than anyone
+ * copies or deletes by hand. It counts in each isolate's memory, so it bounds
+ * a burst; the day's total is bounded by the D1-kept copy ceiling
+ * (`MAX_COPIED_ROWS_PER_DAY`), which every isolate reads. Mounted after
+ * osnAuth and before the editor gate.
+ */
+const defaultSeatingPlanLimiter = createRateLimiter({ maxRequests: 10, windowMs: 60_000 });
+/**
  * Default per-USER limiter shared by an owner's wedding delete and restore.
  * Owner-gated already, so this only caps a scripted toggle; 5/min is more than
  * anyone deletes or restores weddings by hand.
@@ -395,6 +408,8 @@ function digestStopKeyOnce(secret: string): () => Promise<CryptoKey> {
 }
 
 export interface AppOptions {
+  /** The D1 Effect handle the RSVP, gift and seating CSV exports run on. Absent: those exports answer 500. */
+  effectDb?: EffectD1Db;
   /** Primary origin (used for the session cookie's `secure` flag). */
   webOrigin?: string;
   /**
@@ -462,6 +477,8 @@ export interface AppOptions {
   taskWriteLimiter?: RateLimiterBackend;
   /** Override the run-sheet read rate limiter (useful for testing). */
   runSheetReadLimiter?: RateLimiterBackend;
+  /** Override the seating plan create + delete rate limiter (useful for testing). */
+  seatingPlanLimiter?: RateLimiterBackend;
   /** Override the co-host handle-search rate limiter (useful for testing). */
   handleSearchLimiter?: RateLimiterBackend;
   /** Override the public CSP-report collector rate limiter (useful for testing). */
@@ -658,17 +675,23 @@ export interface AppOptions {
   /** Override the guest "give money" limiter (useful for testing). */
   registryContributeLimiter?: RateLimiterBackend;
   /**
-   * Stripe Connect. BOTH halves are key-optional and independent, because in
-   * practice they arrive at different moments: the client can be configured
-   * before an endpoint has a signing secret, and a signing secret is useless
-   * without the client.
+   * Stripe Connect. Both halves are key-optional, because in practice they
+   * arrive at different moments: the client can be configured before an
+   * endpoint has a signing secret, and a signing secret is useless without the
+   * client.
    *
    *  - `stripe` absent ⇒ the organiser onboarding routes are not mounted, so a
    *    deployment with no Stripe account has no payment surface at all rather
    *    than one that 500s.
-   *  - `stripeWebhookSecret` absent ⇒ the webhook route is not mounted, because
-   *    nothing could be verified and an endpoint that writes from unverified
-   *    bodies is an unauthenticated write API.
+   *  - `stripeWebhookSecret` absent or blank ⇒ the webhook route is not
+   *    mounted, because nothing could be verified and an endpoint that writes
+   *    from unverified bodies is an unauthenticated write API.
+   *  - Money gifts need BOTH: the client opens the payment page and the webhook
+   *    records the gift. With the client alone a guest would pay and the gift
+   *    would stay `pending` for good, so the guest money surface (the
+   *    contribute route, money and cash funds on the list, a fund's picture)
+   *    exists only with both, and building the app logs a warning when the
+   *    client comes without the secret.
    */
   stripe?: StripeClient | null;
   stripeWebhookSecret?: string | null;
@@ -763,6 +786,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
     organiserRsvpLimiter = defaultOrganiserRsvpLimiter,
     taskWriteLimiter = defaultTaskWriteLimiter,
     runSheetReadLimiter = defaultRunSheetReadLimiter,
+    seatingPlanLimiter = defaultSeatingPlanLimiter,
     handleSearchLimiter = defaultHandleSearchLimiter,
     cspReportLimiter = defaultCspReportLimiter,
     vendorPortalLimiter = defaultVendorPortalLimiter,
@@ -818,6 +842,33 @@ export function createApp(db: Db, options: AppOptions = {}) {
   } = options;
   const corsOrigins = allowedOrigins ?? [webOrigin];
   const corsOriginSet = new Set(corsOrigins);
+
+  // A signing secret of nothing but whitespace counts as unset: anyone could
+  // sign a delivery with it, so neither webhook route may mount on one. The
+  // Connect value also serves the money gate below, so the webhook mount and
+  // the gate can never disagree about whether gifts get recorded.
+  const connectWebhookSecret = stripeWebhookSecret?.trim() || null;
+  const platformWebhookSecret = stripePlatformWebhookSecret?.trim() || null;
+  // The Stripe client the guest money routes may use: only where the Connect
+  // webhook exists to record what they take.
+  const giftStripe = connectWebhookSecret ? stripe : null;
+  // Whether a guest can give money on this deployment at all. The guest list,
+  // a fund's picture and the organiser's registry read all take it, so the
+  // guest surface and the portal agree with the contribute route's mount.
+  const takesPayments = giftStripe !== null;
+  if (stripe && !connectWebhookSecret) {
+    // Once per app build: per isolate on the Worker, once at boot locally.
+    // Names the variables, never their values.
+    runCireSync(
+      Effect.logWarning(
+        "money gifts disabled: STRIPE_SECRET_KEY is set without STRIPE_WEBHOOK_SECRET",
+        {
+          detail:
+            "guests are offered no money gift until the Connect webhook secret is set and the Worker redeployed",
+        },
+      ),
+    );
+  }
 
   // Vendor CRM deps — use injected instances (tests) or module-level defaults
   // (production). The email layer defaults to LogEmailLive so tests that don't
@@ -1077,25 +1128,27 @@ export function createApp(db: Db, options: AppOptions = {}) {
       //
       // `takesPayments` is the contribute route's own mount condition below:
       // the list offers money and cash funds, and a fund's picture serves,
-      // only where a guest's press can reach a payment page.
-      .use(createRegistryGuestImageRoutes(db, { assets, images, takesPayments: stripe !== null }))
-      .use(createRegistryGuestListRoutes(db, { takesPayments: stripe !== null }))
+      // only where a guest's press can reach a payment page and the gift it
+      // pays for will be recorded.
+      .use(createRegistryGuestImageRoutes(db, { assets, images, takesPayments }))
+      .use(createRegistryGuestListRoutes(db, { takesPayments }))
       .use(createRegistryGuestMineRoutes(db))
       .use(createRegistryGuestClaimRoutes(db, { limiter: registryGuestLimiter }))
-      // Giving money. Mounted only with Stripe configured — a guest must never
-      // be offered a button that cannot lead anywhere. Its own limiter, apart
-      // from the claim one: every call is an outbound Stripe request.
+      // Giving money. Mounted only with the Stripe client AND the Connect
+      // webhook secret — a guest must never be offered a button that cannot
+      // lead anywhere, nor pay for a gift nothing will record. Its own limiter,
+      // apart from the claim one: every call is an outbound Stripe request.
       .use(
-        stripe
+        giftStripe
           ? createRegistryContributeRoutes(db, {
-              stripe,
+              stripe: giftStripe,
               limiter: registryContributeLimiter,
               guestOrigin: webOrigin,
             })
           : new Elysia(),
       )
       .use(createOrganiserWeddingsRoutes(db, osnAuthOptions))
-      .use(createOrganiserExportRoutes(db, osnAuthOptions, exportLimiter))
+      .use(createOrganiserExportRoutes(db, osnAuthOptions, exportLimiter, options.effectDb))
       .use(createOrganiserWeddingCreateRoute(db, osnAuthOptions, weddingCreateLimiter))
       .use(createOrganiserPreviewRoutes(db, osnAuthOptions, previewLimiter))
       .use(createOrganiserRemintRoutes(db, osnAuthOptions, remintLimiter))
@@ -1167,8 +1220,10 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // from every route here, and the portal fades that module's nav row and
       // offers the upgrade rather than opening it. Mounting it unconditionally
       // is deliberate — the lock is the tier, not the absence of a route, so
-      // moving one wedding to Gold opens it with no deploy.
-      .use(createRegistryReadRoutes(db, osnAuthOptions))
+      // moving one wedding to Gold opens it with no deploy. The read tells the
+      // portal `takesPayments`, so it never says guests can give money where
+      // the guest list offers none.
+      .use(createRegistryReadRoutes(db, osnAuthOptions, { takesPayments }))
       // `assets` goes to the write factory for ONE reason: deleting an item has to
       // reap the R2 object its `image_key` pointed at, and D1's cascade stops at
       // the row.
@@ -1314,7 +1369,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
   // (`.use()` only needs an Elysia instance) and scoped to this final mount.
   const rootApp: AnyElysia = app;
   // The seating chart. `.use()` registers on the instance itself, so this mounts it.
-  rootApp.use(createSeatingRoutes(db, osnAuthOptions));
+  rootApp.use(createSeatingRoutes(db, osnAuthOptions, seatingPlanLimiter));
   // The portal's read of the invite images. The organiser-facing customisation
   // links the closing image here, because the public route keeps it for claimed
   // households. A sibling of the invite builder's writes, with no limiter — see
@@ -1346,9 +1401,9 @@ export function createApp(db: Db, options: AppOptions = {}) {
   );
   // Stripe's own deliveries. Mounted only with a signing secret: nothing else
   // authenticates this endpoint, so without one it must not exist.
-  const withStripeWebhook: AnyElysia = stripeWebhookSecret
+  const withStripeWebhook: AnyElysia = connectWebhookSecret
     ? withRealtimeFallback.use(
-        createStripeWebhookRoutes(db, { webhookSecret: stripeWebhookSecret }),
+        createStripeWebhookRoutes(db, { webhookSecret: connectWebhookSecret }),
       )
     : withRealtimeFallback;
   // Self-serve upgrades. Mounted HERE, past the `AnyElysia` widening, rather
@@ -1373,10 +1428,10 @@ export function createApp(db: Db, options: AppOptions = {}) {
   // The platform endpoint, on its own secret. Without it a purchase can be
   // started and paid but never granted — nothing else in the system moves a
   // purchase off `pending`.
-  return stripePlatformWebhookSecret
+  return platformWebhookSecret
     ? withUpgradeRoutes.use(
         createStripePlatformWebhookRoutes(db, {
-          webhookSecret: stripePlatformWebhookSecret,
+          webhookSecret: platformWebhookSecret,
           upgrades,
         }),
       )

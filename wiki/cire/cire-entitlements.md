@@ -17,7 +17,7 @@ related:
   - "[[cire-invite-designs]]"
   - "[[cire-host-portal-layout]]"
   - "[[cire-seating]]"
-last-reviewed: 2026-10-21
+last-reviewed: 2026-10-26
 ---
 # Plan tiers — what a wedding has paid for
 
@@ -149,7 +149,7 @@ already validated it) degrades to the 402 rather than throwing.
 | Gold | `routes/registry.ts` | 6 | The organiser registry, its link preview and the preview's thumbnails ([[cire-registry]]) |
 | Gold | `routes/run-sheet.ts` | 1 | The day-of run sheet, behind `weddingRunSheet()`, so a helper below Gold is refused 402 too ([[cire-run-sheet]]) |
 | Gold | `routes/registry-stripe.ts` | 1 | Connect onboarding for gift payouts |
-| Gold | `routes/seating.ts` | 2 | The seating chart's read and write groups ([[cire-seating]]) |
+| Gold | `routes/seating.ts` | 3 | The seating chart's read, plan and write groups ([[cire-seating]]) |
 | Crimson | `routes/vendors.ts` | 2 | The vendor CRM ([[cire-vendors]]) |
 | Crimson | `routes/vendor-directory.ts` | 2 | Directory browse and add |
 | Crimson | `routes/organiser-enquiries.ts` | 2 | The couple's side of enquiries |

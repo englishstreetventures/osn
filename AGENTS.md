@@ -18,7 +18,7 @@ OSN is a modular social platform: people own their identity and social graph, an
 
 Which name a new package takes is in `wiki/shared/osn-and-musubi.md`; the full tree is in `wiki/shared/monorepo-structure.md`.
 
-**Stack:** Bun, TypeScript, Elysia, Effect v4 (backend only), Drizzle, `bun:sqlite` locally and Cloudflare D1 when deployed, SolidJS, Astro, Turborepo, oxlint, oxfmt, Vitest.
+**Stack:** Bun, TypeScript, Elysia, Effect v4 (backend only), Drizzle, `bun:sqlite` locally and Cloudflare D1 when deployed, SolidJS, Astro, Turborepo, oxlint, Bun's formatter (`bun fmt`), Vitest.
 
 **Deployed** on Cloudflare: identity on `musubi.social` (the `osn-api` Worker on `id.musubi.social`), cire on `cireweddings.com`. A merge to `main` deploys the dev tier at once, through the Alchemy stacks into its own Cloudflare account, on hosts under the `dev` Environment's `DEV_DOMAIN`; production ships in releases (`production-release.yml`, daily and by hand) that each wait for one approval of the `production` GitHub Environment. See `wiki/shared/dev-environment.md`.
 
@@ -40,7 +40,7 @@ Work is tracked in GitHub Issues, never the wiki.
 - Write every issue with the `write-issue` skill (`.claude/skills/write-issue/SKILL.md`): the repository, title, type, labels and a body someone can act on months later with nothing checked out.
 - Write every PR body with the `write-pr` skill (`.claude/skills/write-pr/SKILL.md`): the title, the six sections with the change's impact first, a `Closes` line for every issue the branch fixes, a test plan that says what ran on which commit, and the REST command that opens it.
 - **Fix what you find; do not file it.** Everything in the feature's scope — the files the branch changes, their tests and docs, every finding in them — is fixed on the branch. An issue is left open only for work out of the feature's scope, something unrelated found mid-task, or a larger piece of work; the small ones of the first two go on one follow-up pull request instead. A critical or high finding is never left open. More than two left open by one pull request means something in scope was filed: `wiki/conventions/review-findings.md` §Fix findings; do not file them.
-- When the next step needs a choice only the owner can make, write the proposal, add `needs:decision`, and move to another issue.
+- When the next step needs a choice only the owner can make, write the proposal, add `needs:decision`, and move to another issue. A pull request that waits on that choice, or on an approval only the owner can give, opens as a draft, and only the owner marks it ready (`prep-pr` Step 9).
 - Never delete an issue; close it.
 
 ## Standing rules
@@ -54,6 +54,7 @@ Work is tracked in GitHub Issues, never the wiki.
 - **Cross-origin cookies.** The identity API is on a different origin from every app, so any browser `fetch` that sets or reads the session cookie must pass `credentials: "include"`. Without it the browser drops `Set-Cookie` silently. Check this first when a sign-in "succeeds" but the user stays signed out.
 - **Code search.** `LSP` answers a definition, a type or the callers inside one package; it skips packages it has not loaded, with no sign. "Who uses X" across packages, and every rename, delete or signature change of an export, comes from `git grep -w` over the whole repository. Cloud sessions have no `LSP`. See `wiki/conventions/agent-tooling.md` §Code search.
 - **Comments** state what the code guarantees now — never a tracker ID, finding tag or history. See `wiki/conventions/code-comments.md`.
+- **Guard hook.** In Claude Code, a `PreToolUse` hook runs main's copy of `scripts/agent-guard.ts` and refuses the commonest slips against this file's rules — a bare `bun install`, a heredoc in `$(…)`, a commit or push on `main`, a tracker finding ID in public text, a test under `src/`, an `Agent` call with no `subagent_type` — naming the fix. It catches slips; it is not enforcement, and every rule here still holds without it. A refusal means change the command, never work around the guard. See `wiki/conventions/agent-tooling.md` §The guard hook.
 - **Deferrals** get an issue, and the code carries only the link: `// Bounded until englishstreetventures/osn#412 lands.` A settled choice with its reason can stay inline.
 - **Instruction files state the present.** This file, a `SKILL.md` or a wiki page says what to do now, never how it came to be; `git log` holds that. A reason that stops a mistake stays.
 - **House lint rules** (`house/*` in `tools/oxlint/house`) and why they exist: `wiki/conventions/house-lint-rules.md`. Agent skills, evals and vendored trees: `wiki/conventions/agent-tooling.md`.

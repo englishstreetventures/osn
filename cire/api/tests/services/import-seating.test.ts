@@ -1,6 +1,12 @@
 import { describe, expect, it } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, guests, seatingAssignments, seatingTables } from "@cire/db";
+import {
+  BOOTSTRAP_WEDDING_ID,
+  guests,
+  seatingAssignments,
+  seatingPlans,
+  seatingTables,
+} from "@cire/db";
 import { eq } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 
@@ -44,32 +50,57 @@ const SEEDED = [
 const guestId = (db: TestDb, firstName: string) =>
   db.select({ id: guests.id }).from(guests).where(eq(guests.firstName, firstName)).get()!.id;
 
-/** The seeded wedding with one Reception table seating Ada and Bo. */
-function seatedDb(): TestDb {
-  const db = createDb(":memory:");
-  seedDb(db);
+/** A seating plan of the bootstrap wedding's `eventId`. */
+function addPlan(db: TestDb, id: string, eventId: string, selected: boolean) {
+  const now = new Date();
+  db.insert(seatingPlans)
+    .values({
+      id,
+      weddingId: BOOTSTRAP_WEDDING_ID,
+      eventId,
+      name: id,
+      selected,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+}
+
+/** A table in `planId`, seating each of `seated` by first name. */
+function addTable(
+  db: TestDb,
+  id: string,
+  planId: string,
+  eventId: string,
+  seated: readonly string[] = [],
+) {
   const now = new Date();
   db.insert(seatingTables)
     .values({
-      id: "stb_rec",
+      id,
       weddingId: BOOTSTRAP_WEDDING_ID,
-      eventId: RECEPTION,
-      name: "Table 1",
+      eventId,
+      planId,
+      name: id,
       capacity: 8,
       createdAt: now,
       updatedAt: now,
     })
     .run();
-  for (const name of ["Ada", "Bo"]) {
+  for (const name of seated) {
     db.insert(seatingAssignments)
-      .values({
-        tableId: "stb_rec",
-        eventId: RECEPTION,
-        guestId: guestId(db, name),
-        createdAt: now,
-      })
+      .values({ tableId: id, planId, eventId, guestId: guestId(db, name), createdAt: now })
       .run();
   }
+}
+
+/** The seeded wedding with the Reception's selected plan: one table seating
+ *  Ada and Bo. */
+function seatedDb(): TestDb {
+  const db = createDb(":memory:");
+  seedDb(db);
+  addPlan(db, "spl_rec", RECEPTION, true);
+  addTable(db, "stb_rec", "spl_rec", RECEPTION, ["Ada", "Bo"]);
   return db;
 }
 
@@ -122,7 +153,34 @@ describe("import and editor saves — the seating chart", () => {
         links: [{ guestId: guestId(db, "Ada"), eventId: RECEPTION }],
       }).pipe(Effect.provide(Layer.succeed(DbService, db))),
     );
-    expect(loss).toEqual({ seats: 1, tables: 0 });
+    expect(loss).toEqual({ seats: 1, tables: 0, plans: 1 });
+  });
+
+  it("counts every plan's seats and tables, and names how many plans lose them", async () => {
+    const db = seatedDb();
+    // A second Reception plan seating Ada, and a Hindu Ceremony plan seating
+    // her too, which a change to the Reception does not touch.
+    addPlan(db, "spl_rec_alt", RECEPTION, false);
+    addTable(db, "stb_rec_alt", "spl_rec_alt", RECEPTION, ["Ada"]);
+    addPlan(db, "spl_hindu", HINDU, true);
+    addTable(db, "stb_hindu", "spl_hindu", HINDU, ["Ada"]);
+    const invitation = await planFor(
+      db,
+      SEEDED.map((row) =>
+        row.startsWith("1,") ? "1,Testfamily,Ada,Testfamily,yes,no,yes,no" : row,
+      ),
+    );
+    expect(seatingWarnings(invitation.warnings)).toEqual([]);
+    expect(invitation.warnings.filter((w) => w.includes("seating plans"))).toEqual([
+      "This change clears 2 seats from 2 seating plans. Reverting it does not bring them back.",
+    ]);
+    const layer = Layer.succeed(DbService, db);
+    const loss = await Effect.runPromise(
+      seatingLoss(BOOTSTRAP_WEDDING_ID, { guestIds: [], eventIds: [RECEPTION], links: [] }).pipe(
+        Effect.provide(layer),
+      ),
+    );
+    expect(loss).toEqual({ seats: 3, tables: 2, plans: 2 });
   });
 
   it("says nothing about seating when no seat or table goes", async () => {
@@ -155,37 +213,13 @@ describe("import and editor saves — the seating chart", () => {
     ]);
   });
 
-  it("counts an event's tables as well as its seats, and deletes both itself on apply", async () => {
+  it("counts an event's tables as well as its seats, and deletes them and its plans itself on apply", async () => {
     const db = seatedDb();
     // An empty second table at the Reception: an event removal takes it too.
-    const now = new Date();
-    db.insert(seatingTables)
-      .values({
-        id: "stb_empty",
-        weddingId: BOOTSTRAP_WEDDING_ID,
-        eventId: RECEPTION,
-        name: "Table 2",
-        capacity: 8,
-        sortOrder: 1,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run();
-    // A table and a seat at an event the change keeps.
-    db.insert(seatingTables)
-      .values({
-        id: "stb_hindu",
-        weddingId: BOOTSTRAP_WEDDING_ID,
-        eventId: HINDU,
-        name: "Front row",
-        capacity: 8,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run();
-    db.insert(seatingAssignments)
-      .values({ tableId: "stb_hindu", eventId: HINDU, guestId: guestId(db, "Bo"), createdAt: now })
-      .run();
+    addTable(db, "stb_empty", "spl_rec", RECEPTION);
+    // A plan, a table and a seat at an event the change keeps.
+    addPlan(db, "spl_hindu", HINDU, true);
+    addTable(db, "stb_hindu", "spl_hindu", HINDU, ["Bo"]);
     const layer = Layer.succeed(DbService, db);
     const current = await Effect.runPromise(
       currentEventsAsParsed(BOOTSTRAP_WEDDING_ID).pipe(Effect.provide(layer)),
@@ -203,9 +237,9 @@ describe("import and editor saves — the seating chart", () => {
       "This change clears 2 seats and removes 2 tables from the seating chart. Reverting it does not bring them back.",
     ]);
 
-    // The write set deletes the seats and tables itself, the way it already
-    // deletes an event's RSVPs and invitations: with foreign keys off, nothing
-    // cascades, and nothing is left behind.
+    // The write set deletes the seats, tables and plans itself, the way it
+    // already deletes an event's RSVPs and invitations: with foreign keys off,
+    // nothing cascades, and nothing is left behind.
     db.$client.exec("PRAGMA foreign_keys = OFF;");
     await Effect.runPromise(
       applyImport("imp-seating-event-remove", plan, BOOTSTRAP_WEDDING_ID).pipe(
@@ -218,6 +252,9 @@ describe("import and editor saves — the seating chart", () => {
     ).toEqual([{ tableId: "stb_hindu" }]);
     expect(db.select({ id: seatingTables.id }).from(seatingTables).all()).toEqual([
       { id: "stb_hindu" },
+    ]);
+    expect(db.select({ id: seatingPlans.id }).from(seatingPlans).all()).toEqual([
+      { id: "spl_hindu" },
     ]);
   });
 });

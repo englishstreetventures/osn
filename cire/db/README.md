@@ -10,19 +10,21 @@ cire/db/
 ├── drizzle.config.ts     # Drizzle Kit pointer to schema + migrations dir
 ├── migrations/           # Forward-only D1 migrations (committed)
 │   ├── 0001_initial.sql  # THE BASELINE — the whole schema in one file
-│   ├── 0082_… – 0090_…   # numbered migrations after it
+│   ├── 0082_… – 0091_…   # numbered migrations after it
 │   └── <YYYYMMDDHHMMSS>_<name>.sql  # every migration since, one file each (see below)
 ├── migrations-archive/   # 0001–0081, the chain the baseline stands for.
 │                         # Wrangler never reads this; the ledger check and tests do.
-└── seed/
-    ├── data/             # Canonical seed data (single source of truth)
-    │   ├── events.ts     # keyed-by-slug sample events
-    │   ├── guests.ts     # sample families + guests (stable UUIDs)
-    │   ├── wedding.ts    # bootstrap wedding row + DEV_OWNER_PROFILE_ID
-    │   └── index.ts      # re-export — `@cire/db/seed`
-    ├── generate.ts       # derives dev-seed.sql from ./data
+├── seed/
+│   ├── data/             # Canonical seed data (single source of truth)
+│   │   ├── events.ts     # keyed-by-slug sample events
+│   │   ├── guests.ts     # sample families + guests (stable UUIDs)
+│   │   ├── wedding.ts    # bootstrap wedding row + DEV_OWNER_PROFILE_ID
+│   │   └── index.ts      # re-export — `@cire/db/seed`
+│   ├── generate.ts       # derives dev-seed.sql from ./data
+│   └── dev-seed.sql      # GENERATED dev seed (events + families + guests)
+└── tests/seed/
     ├── seed.test.ts      # fails CI if the generated .sql drifts from its source
-    └── dev-seed.sql      # GENERATED dev seed (events + families + guests)
+    └── seed-applies.test.ts  # applies the seed to the migrated chain
 ```
 
 ## Scripts
@@ -40,7 +42,7 @@ it stops rather than fetch another version.
 | `db:push`          | Check the ledger, then apply pending migrations to the **local** D1 (Miniflare-backed)            |
 | `db:migrate:local` | Same as `db:push`, named to match `:prod`                                                         |
 | `db:migrate:prod`  | Check the ledger, then apply pending migrations to the **production** D1 (`--env production`). Coordinate with deploys. |
-| `db:seed`          | Apply `seed/dev-seed.sql` to the local D1 (idempotent — uses `INSERT OR IGNORE`)                  |
+| `db:seed`          | Apply `seed/dev-seed.sql` to the local D1 (re-runnable — `INSERT OR IGNORE` skips rows already there) |
 | `db:reset`         | Wipe local D1 state, re-run migrations + seed. Destructive — local only.                          |
 | `db:studio`        | Launch Drizzle Studio for browsing the schema / writing one-off queries                           |
 | `seed:generate`    | Regenerate `seed/dev-seed.sql` from `seed/data/`                                                  |
@@ -132,7 +134,7 @@ applies them and deploys the matching Worker — then dispatch a release
 The archive lives outside `migrations_dir`, so nothing applies it. The tests
 that replay it to prove what a migration did to existing rows are listed in
 `migrations-archive/README.md`. Live migrations are numbered from `0082` to
-`0090`, and timestamped after that; every name sorts after the archive's.
+`0091`, and timestamped after that; every name sorts after the archive's.
 
 ### Squashing the chain again
 
@@ -192,7 +194,9 @@ directory and diffs the working tree against that one snapshot. So:
   fill in. It must hold a statement before it merges.
 - **A copy-and-swap table rebuild is refused**: D1 enforces foreign keys, so
   dropping a parent table cascades into its children
-  (`wiki/cire/cire-development.md` §Adding a column). Write it by hand instead.
+  (`wiki/cire/cire-development.md` §Adding a column). A table nothing cascades
+  from may be rebuilt by hand with `--custom`, under the `migrations:rewrite`
+  label; `20261026040620_seating_plans.sql` rebuilds `seating_assignments` so.
 - It writes a text primary key `NOT NULL` and a boolean default as `1` or `0`,
   as the deployed chain does.
 
@@ -233,7 +237,8 @@ Seeded shape:
   - `TESTTRE-DEW-CC33` — Nori (Exampleton)
   - `TESTFOR-JOY-DD44` — Eli (Placeholder)
 - **6 guests** + **15 invitation links** (per-event-per-guest)
-- **A seating chart** on the Reception: 2 tables, Ada, Bo and Eli seated, Cleo not
+- **A seating chart** on the Reception, in one plan, "Plan 1": 2 tables, Ada,
+  Bo and Eli seated, Cleo not
 
 Use `TESTFOR-JOY-DD44` as the dev claim code (Eli is invited to every event).
 
@@ -242,6 +247,6 @@ Use `TESTFOR-JOY-DD44` as the dev claim code (Eli is invited to every event).
 - Every schema change touches **three surfaces together**: the migration SQL,
   `src/schema.ts`, and the `DDL` string in `cire/api/src/db/setup.ts` —
   `cire/api/tests/db/ddl-lockstep.test.ts` diffs all three and fails on drift.
-- D1 migrations are **forward-only**. No `DOWN` blocks. To retire a column, copy data into a new table and add a `DROP TABLE` / `ALTER` migration that performs the swap.
+- D1 migrations are **forward-only**. No `DOWN` blocks. To retire a column, stop using it in one release and `ALTER TABLE … DROP COLUMN` in a later one (`wiki/cire/cire-development.md` §Adding a column).
 - After editing `schema.ts` AND any wrangler binding, regenerate types: `bunx wrangler --config cire/api/wrangler.toml types`.
 - The dev seed reaches the local D1 and the dev tier's (through the cire stack), never production. Production data flows in via the organiser spreadsheet import (`/api/organiser/import/{preview,apply}`).

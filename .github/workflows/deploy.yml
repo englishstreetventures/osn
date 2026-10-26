@@ -230,6 +230,11 @@ jobs:
 
       - uses: actions/checkout@v4
 
+      # `astro build` runs on Node, and astro 7.4 requires Node >= 22.23.4.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
@@ -518,6 +523,11 @@ jobs:
 
       - uses: actions/checkout@v4
 
+      # `astro build` runs on Node, and astro 7.4 requires Node >= 22.23.4.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
@@ -530,11 +540,12 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bun-
 
-      # turbo hashes each dev build's PUBLIC_*, VITE_* and SITE values, so the
-      # `build` job's cache never holds a dev build. This stack's own cache
-      # does: a site whose files and dev values are unchanged replays its
-      # last build instead of building again. The guest site is the
-      # exception: its build holds ASTRO_KEY and runs with the cache off.
+      # turbo hashes each dev build's PUBLIC_*, VITE_*, SITE and OSN_DEPLOY_TIER
+      # values, so the `build` job's cache never holds a dev build. This
+      # stack's own cache does: a site whose files and dev values are
+      # unchanged replays its last build instead of building again. The guest
+      # site is the exception: its build holds ASTRO_KEY and runs with the
+      # cache off.
       # Keyed on the commit so each run saves, falling back to this stack's
       # newest only, so it never carries the `build` job's whole cache forward.
       - name: Cache turbo
@@ -597,6 +608,10 @@ jobs:
           # still builds the same bytes.
           PUBLIC_BUILD_SHA: ${{ github.sha }}
           ASTRO_KEY: ${{ secrets.ASTRO_KEY }}
+          # Marks a deploy build: the CSP integration then fails the build if
+          # the cire-api URL above is on this machine. A literal, so the tier
+          # is always `dev` here.
+          OSN_DEPLOY_TIER: dev
 
       - name: Build cire/host (dev)
         run: bun run build --filter=@cire/host
@@ -609,12 +624,16 @@ jobs:
           PUBLIC_CIRE_WEB_URL: ${{ steps.hosts.outputs.cire_invites_origin }}
           # The RSVP editor's privacy link: the dev marketing site's /privacy.
           PUBLIC_MARKETING_URL: ${{ steps.hosts.outputs.cire_landing_origin }}
+          # A deploy build (see the guest site's build above).
+          OSN_DEPLOY_TIER: dev
 
       - name: Build cire/vendor (dev)
         run: bun run build --filter=@cire/vendor
         env:
           PUBLIC_CIRE_API_URL: ${{ steps.hosts.outputs.cire_api_origin }}
           PUBLIC_OSN_ACCOUNT_URL: ${{ steps.hosts.outputs.musubi_social_origin }}
+          # A deploy build (see the guest site's build above).
+          OSN_DEPLOY_TIER: dev
 
       - name: Build cire/landing (dev)
         run: bun run build --filter=@cire/landing
@@ -1052,6 +1071,11 @@ jobs:
           exit 1
 
       - uses: actions/checkout@v4
+
+      # `astro build` runs on Node, and astro 7.4 requires Node >= 22.23.4.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
 
       - uses: oven-sh/setup-bun@v2
         with:

@@ -6,7 +6,7 @@ related:
   - "[[contributing]]"
   - "[[review-findings]]"
   - "[[commands]]"
-last-reviewed: 2026-10-21
+last-reviewed: 2026-10-26
 ---
 
 # Stacked PRs
@@ -91,7 +91,7 @@ gh api repos/englishstreetventures/osn/pulls \
   -f title="…" -f head="<branch>" -f base="<parent-branch>" -F body=@PR-BODY.md
 ```
 
-`base` is the branch the code merges **into**.
+`base` is the branch the code merges **into**. Add `-F draft=true` when the pull request waits on the owner (the `prep-pr` skill, Step 9).
 
 ### 3. Repair an already-open PR
 
@@ -135,7 +135,7 @@ Squash-merging a parent is fine. The child's commits are unaffected; only the ba
 When `main` moves under a stack, rebase from the bottom and force-push each branch in order:
 
 ```bash
-git rebase origin/main <bottom>          && git push --force-with-lease origin <bottom>
+git rebase refs/remotes/origin/main <bottom> && git push --force-with-lease origin <bottom>
 git rebase --onto <bottom> <old-base> <middle> && git push --force-with-lease origin <middle>
 ```
 

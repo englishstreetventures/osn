@@ -24,6 +24,7 @@ import {
   registryItems,
   registrySettings,
   rsvps,
+  seatingPlans,
   seatingTables,
   seats,
   syntheticFamilies,
@@ -63,10 +64,13 @@ const HEADER = `-- Local D1 dev seed for \`bun run db:seed\`.
 -- the first three, so the test fixtures and this SQL can no longer drift.
 -- seed.test.ts fails CI on drift.
 --
--- Idempotent — every INSERT uses \`OR IGNORE\` so re-running on top of an
--- existing seed is a no-op (PK / unique-index conflicts are skipped). To
--- pick up edits to existing rows, use \`bun run db:reset\` instead which
--- wipes local D1 state then re-pushes + re-seeds.`;
+-- Re-runnable — every INSERT uses \`OR IGNORE\`, so a row whose primary key or
+-- unique index is already taken is skipped. \`OR IGNORE\` does not cover a
+-- foreign-key failure or a trigger's RAISE: a row that references a row the
+-- database may hold under another id (a migration backfilled it, a tester made
+-- it, a unique index skipped the seed's own) finds it by query. To pick up
+-- edits to existing rows, use \`bun run db:reset\` instead which wipes local
+-- D1 state then re-pushes + re-seeds.`;
 
 const RULE = "-- ────────────────────────────────────────────────────────────────────────────";
 
@@ -316,26 +320,52 @@ ${body};`,
 }
 
 function seatingBlock(): string {
-  const tableRows = seatingTables.map(
-    (t) => `  (
-    ${sql(t.id)}, ${sql(bootstrapWedding.id)}, ${sql(t.eventId)}, ${sql(t.name)},
-    ${t.capacity}, ${t.sortOrder}, unixepoch(), unixepoch()
+  const planRows = seatingPlans.map(
+    (p) => `  (
+    ${sql(p.id)}, ${sql(bootstrapWedding.id)}, ${sql(p.eventId)}, ${sql(p.name)},
+    ${p.selected ? 1 : 0}, unixepoch(), unixepoch()
   )`,
   );
+  // The seed's plan when that row is there; otherwise the event's selected
+  // plan, which a database that held the chart before plans existed got from
+  // the plans migration under an id of its own.
+  const tablePlan = (t: (typeof seatingTables)[number]) =>
+    `COALESCE(
+      (SELECT id FROM seating_plans WHERE id = ${sql(t.planId)} AND event_id = ${sql(t.eventId)}),
+      (SELECT id FROM seating_plans WHERE event_id = ${sql(t.eventId)} AND selected = 1)
+    )`;
+  const tableRows = seatingTables.map(
+    (t) => `  (
+    ${sql(t.id)}, ${sql(bootstrapWedding.id)}, ${sql(t.eventId)},
+    ${tablePlan(t)},
+    ${sql(t.name)}, ${t.capacity}, ${t.sortOrder}, unixepoch(), unixepoch()
+  )`,
+  );
+  // A seat takes its table's plan, whichever that turned out to be.
   const seatRows = seats.map(
-    (s) => `  (${sql(s.tableId)}, ${sql(s.eventId)}, ${sql(s.guestId)}, unixepoch())`,
+    (s) =>
+      `  (${sql(s.tableId)}, (SELECT plan_id FROM seating_tables WHERE id = ${sql(s.tableId)}), ${sql(s.eventId)}, ${sql(s.guestId)}, unixepoch())`,
   );
   return section(
-    `Seating chart (${tableRows.length} tables, ${seatRows.length} seated) — the Reception`,
+    `Seating chart (${planRows.length} plans, ${tableRows.length} tables, ${seatRows.length} seats) — the Reception`,
     `-- After the invitations: a seat's foreign key names its guest's invitation
--- to the event, and its table's event.
-INSERT OR IGNORE INTO seating_tables (
+-- to the event, and its table's event and plan. Every row names its plan.
+-- Tables and seats find their plan by query, never by the seed's id alone:
+-- the plan a database holds may not be the seed's, and a table naming a plan
+-- of another event aborts the import, OR IGNORE or not.
+INSERT OR IGNORE INTO seating_plans (
   id, wedding_id, event_id, name,
+  selected, created_at, updated_at
+) VALUES
+${planRows.join(",\n")};
+
+INSERT OR IGNORE INTO seating_tables (
+  id, wedding_id, event_id, plan_id, name,
   capacity, sort_order, created_at, updated_at
 ) VALUES
 ${tableRows.join(",\n")};
 
-INSERT OR IGNORE INTO seating_assignments (table_id, event_id, guest_id, created_at) VALUES
+INSERT OR IGNORE INTO seating_assignments (table_id, plan_id, event_id, guest_id, created_at) VALUES
 ${seatRows.join(",\n")};`,
   );
 }

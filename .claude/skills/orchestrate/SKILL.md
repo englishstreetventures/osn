@@ -9,7 +9,7 @@ You are the orchestrator: you order the work and drive the loop, and you **do no
 
 ## What this run must produce
 
-Every task merged into `main` as its own squash-merged pull request, the worktree this run created for it removed, and a closing summary: each PR (number and one line), each follow-up pull request a task opened to fix what its review found, each issue left open and which of the three allowed it — out of scope for the feature, unrelated and found mid-task, or a larger piece of work (`wiki/conventions/review-findings.md` §Fix findings; do not file them), any deploy-time or human action a subagent surfaced, any issue a merge did not close that the owner must close by hand, and any worktree left in place because another tool or session made it.
+Every task merged into `main` as its own squash-merged pull request, or left as a draft that waits on the owner (`prep-pr` Step 9), the worktree this run created for it removed, and a closing summary: each PR (number and one line), each draft left waiting and what it waits on, each follow-up pull request a task opened to fix what its review found, each issue left open and which of the three allowed it — out of scope for the feature, unrelated and found mid-task, or a larger piece of work (`wiki/conventions/review-findings.md` §Fix findings; do not file them), any deploy-time or human action a subagent surfaced, any issue a merge did not close that the owner must close by hand, and any worktree left in place because another tool or session made it.
 
 ## Precondition — the local bare-repo setup, run from `main/`
 
@@ -79,9 +79,9 @@ claimed:     osn#812 item 264995573
 agent:       implementer — new field on a route response plus its test; rating unconfirmed, chosen from the text
 premises:    checked on origin/main 435c28f65
   - the route file is cire/api/src/routes/vendor-enquiries.ts
-    `git ls-tree --name-only origin/main cire/api/src/routes/ | grep enquir` → organiser-enquiries.ts, vendor-enquiries.ts
+    `git ls-tree --name-only refs/remotes/origin/main cire/api/src/routes/ | grep enquir` → organiser-enquiries.ts, vendor-enquiries.ts
   - the wedding's name column is display_name, not name
-    `git show origin/main:cire/db/src/schema.ts | grep -n display_name` → 27:    displayName: text("display_name").notNull(),
+    `git show refs/remotes/origin/main:cire/db/src/schema.ts | grep -n display_name` → 27:    displayName: text("display_name").notNull(),
 worktree:    /Users/ac/.work/osn.git/vendor-enquiry-name (made by this run)
 branch:      feat/vendor-enquiry-name (base origin/main)
 pr:          not opened
@@ -112,7 +112,7 @@ background shell — with its id and what ends it; the sweep in Step 5 reads it.
 
 Classify the input before ordering anything.
 
-- **A ready task list** — concrete changes, each with clear acceptance criteria ("add `weddingName` to the vendor enquiries response", "wire `astro check` into the two cire frontends"). Go to Step 0.
+- **A ready task list** — concrete changes, each with clear acceptance criteria ("add `weddingName` to the vendor enquiries response", "wire the `.astro` type check into the two cire frontends"). Go to Step 0.
 - **A feature** — open scope, needs product or design direction, spans subsystems, or is big enough to want phases. Run the design phase first. When unsure, treat it as a feature: a short design gate is cheaper than a subagent guessing at scope.
 - **An open pull request to review and fix** — "review and fix PR #N", usually one another tool or session wrote. The branch and the pull request already exist; follow [Adopting an open pull request](#adopting-an-open-pull-request), which changes Steps 2 to 5.
 
@@ -157,8 +157,8 @@ route said to lack a limiter it has. Three checks, all before dispatch:
    `premises:` line, so a check made against a stale ref shows as one. List
    every fact the brief will state — a file, a column, a script, a route's
    behaviour — and run the command that shows it:
-   `git show origin/main:<path>`, `git grep -n '<text>' origin/main -- <dir>`,
-   `git ls-tree --name-only origin/main <dir>/`. Quote the command and the
+   `git show refs/remotes/origin/main:<path>`, `git grep -n '<text>' refs/remotes/origin/main -- <dir>`,
+   `git ls-tree --name-only refs/remotes/origin/main <dir>/`. Quote the command and the
    output on the task's `premises:` line. A claim the output contradicts is
    corrected or dropped; it is never sent. **A brief states no code fact without
    the command that showed it.**
@@ -187,7 +187,7 @@ route said to lack a limiter it has. Three checks, all before dispatch:
 
 ```bash
 git -C /Users/ac/.work/osn.git fetch origin "+refs/heads/main:refs/remotes/origin/main"
-git -C /Users/ac/.work/osn.git cat-file -e "origin/main:.claude/metrics/$(printf '%s' '<prefix>/<dir>' | tr -c 'A-Za-z0-9._-' '-' | sed 's/^-*//;s/-*$//').json" 2>/dev/null && echo "taken: card on main"
+git -C /Users/ac/.work/osn.git cat-file -e "refs/remotes/origin/main:.claude/metrics/$(printf '%s' '<prefix>/<dir>' | tr -c 'A-Za-z0-9._-' '-' | sed 's/^-*//;s/-*$//').json" 2>/dev/null && echo "taken: card on main"
 gh api "repos/englishstreetventures/osn/pulls?state=all&head=englishstreetventures:<prefix>/<dir>" --jq '.[] | "taken: #\(.number)"'
 ```
 
@@ -196,9 +196,9 @@ A `taken` line means an earlier pull request used the name, and the session-metr
 **Claim the issue** immediately before `git worktree add`, with `next-batch` §Claim. If another session holds it, skip the task, write why into `ORCHESTRATE.md` and take the next one; if the check fails, wait and check again — a failed check is not a free issue. Write the `claimed:` line into the task's block.
 
 ```bash
-git -C /Users/ac/.work/osn.git worktree add /Users/ac/.work/osn.git/<dir> -b <prefix>/<dir> origin/main
+git -C /Users/ac/.work/osn.git worktree add /Users/ac/.work/osn.git/<dir> -b <prefix>/<dir> refs/remotes/origin/main
 (cd /Users/ac/.work/osn.git/<dir> && bun install --frozen-lockfile)      # a fresh worktree has no node_modules
-git -C /Users/ac/.work/osn.git/main merge --ff-only origin/main          # main/ holds the AGENTS.md and skills subagents load
+git -C /Users/ac/.work/osn.git/main merge --ff-only refs/remotes/origin/main          # main/ holds the AGENTS.md and skills subagents load
 ```
 
 Subagents start in `main/`, so Claude Code loads its `CLAUDE.md`, `AGENTS.md` and skills from there, not from the task worktree. The fast-forward above brings that copy to `origin/main` before the dispatch. If it refuses, `main/` has local commits or edits, which is someone else's work: do not reset or stash it. Write the refusal into `ORCHESTRATE.md` and stop, because a subagent would load the stale copy.
@@ -317,8 +317,12 @@ anywhere else: an orchestrated task's spend sits in subagent transcripts, and
 the card is the only place it is ever added up. Skip it and the task's own cost
 is unrecoverable once the worktree is torn down at the end of this step.
 
-**Then wait, with an end, and keep the polling out of your context.** If the
-pull request was opened as a draft, run `gh pr ready <n>` first and give it ten
+**Then wait, with an end, and keep the polling out of your context.** Read the
+body first, with the check in the first bullet below: no session marks ready a
+pull request whose body carries a `**Do not merge until**` line, and a draft
+with one waits on the owner (`prep-pr` Step 9) until they mark it ready. A draft
+with no such line — one adopted from another tool, or opened as a draft because
+its task asked — you mark ready with `gh pr ready <n>` first, and give it ten
 seconds. Then run the wait yourself in the background, as **Every wait ends**
 below says:
 
@@ -336,7 +340,9 @@ operations in this loop, and `shepherd` pins the cheapest model in the fleet
 precisely because it is not the thing making that call. Then you act on what the
 line and the shepherd report:
 
-- All checks green and `mergeStateStatus: CLEAN` → **you** hand it to the merge queue with `gh pr merge <n> --squash --auto` (in a remote session, which has no GraphQL, the GitHub MCP `enable_pr_auto_merge` tool with the squash method). With the `main` ruleset's merge queue on, that queues it, and the queue re-runs CI on the pull request together with the ones ahead of it; without the queue, `--auto` merges once the required checks pass. Then wait for the merge itself, in the background: `bash scripts/wait-pr.sh --until-merged <n> 60`. Exit 0 is `MERGED`; exit 1 with "left the merge queue" means the group failed. Read that group's failing check as for any red check: a migration that clashes with one that merged first is regenerated on the new `main` (`wiki/conventions/commands.md` §Migrations), then pushed and queued again.
+- **Before any `gh pr ready` or merge, read the body**: `gh api repos/englishstreetventures/osn/pulls/<n> --jq .body | grep -iE '^[[:space:]>*-]*\*\*do not merge until'`, which matches the bold lead-in at the start of a line, in a list or a quote too, and not prose that only mentions it. While a line it prints stands, the pull request is not marked ready and not queued. On a draft every such line waits on the owner: the draft is parked, below. On a pull request the owner has marked ready, the line has been answered, and the session that merges it removes it. On any other ready pull request, a line that waits on the owner holds until their own words answer it (`wiki/conventions/review-findings.md` §What counts as the owner's answer). A line whose condition this run can see end — a pull request ahead of it in this run's merge queue (`bash scripts/wait-pr.sh --until-merged <m> 60` in the background), or a release workflow run already in progress, until `status: completed` — you wait for, then edit out of the body (`write-pr` Step 6) and go on. Park anything else as a waiting draft is parked, its `next:` naming the condition.
+- A draft that waits on the owner, all checks green → park it. Write `next:` in `ORCHESTRATE.md` naming what it waits on, leave its card In Review, remove the worktree this run created once the branch is pushed and `git -C <dir> status --porcelain` prints nothing, and name the draft in the closing summary. Once the owner has answered (`wiki/conventions/review-findings.md` §What counts as the owner's answer), a later run applies the answer through an `implementer` in a worktree of its own, cut from the branch (`git worktree add <dir> <branch>`), which keeps the pull request a draft, rewords its line to say the answer is applied, and tells the owner it is theirs to mark ready. Once they have, it merges as below.
+- All checks green, `mergeStateStatus: CLEAN` and no line from the body check still holding → **you** hand it to the merge queue with `gh pr merge <n> --squash --auto` (in a remote session, which has no GraphQL, the GitHub MCP `enable_pr_auto_merge` tool with the squash method). With the `main` ruleset's merge queue on, that queues it, and the queue re-runs CI on the pull request together with the ones ahead of it; without the queue, `--auto` merges once the required checks pass. Then wait for the merge itself, in the background: `bash scripts/wait-pr.sh --until-merged <n> 60`. Exit 0 is `MERGED`; exit 1 with "left the merge queue" means the group failed. Read that group's failing check as for any red check: a migration that clashes with one that merged first is regenerated on the new `main` (`wiki/conventions/commands.md` §Migrations), then pushed and queued again.
 - `DIRTY` or `BEHIND` → dispatch an **`implementer`** to rebase onto the latest `origin/main`, resolve conflicts (sibling PRs that merged first are usually additive — keep both sides; for changeset or version churn from the release workflow, take the regenerated state), re-run the touched package's tests and `git push --force-with-lease`. Conflict resolution is a judgement call and a force-push is not recoverable, so neither belongs to the polling agent.
 - A check failure → first find out whose it is: a test or error line that also fails on `main`, or one the branch never touches that passes on a rerun, is not this branch's to fix (`review-pr` Step 4 has the commands). A real failure of the branch's → dispatch an `implementer` fix subagent, push, re-poll. Never merge red.
 - Once `MERGED`, **you** remove the worktree this run created and delete the local branch: `git -C <dir> status --porcelain` must print nothing first, since `--force` would take uncommitted work with it, then `git worktree remove --force <dir>`. Never leave one of those behind. A worktree another tool or session made — an adopted pull request's — stays where it is, and the closing summary names it.
@@ -447,8 +453,8 @@ Subagents cannot prompt the user; they surface `NEEDS INPUT` in their report. Th
 The full table, with the reason behind each, is `references/gotchas.md`. The ones that cost a run:
 
 - Feature input dispatched straight into the loop → the subagent guesses scope. Step 00 first.
-- `gh pr ready` does not propagate at once; a still-draft PR shows `BLOCKED` with green checks. Wait, then read.
-- Pre-push runs `bun audit --audit-level=high`. An advisory in an installed package is a real stop; do not push with `--no-verify` to get past one — fix or override it in `package.json` and say so in the PR. When no fixed version exists, an `--ignore` entry is possible only on the terms in the comment above `audit` in `lefthook.yml`, with its dated `DROP AFTER` marker (never for a malicious-package advisory), and it is the owner's call, not yours: write the evidence into the issue, label it `needs:decision`, and do not merge that pull request until the owner approves it.
+- `gh pr ready` — never on a pull request whose body carries a `**Do not merge until**` line — does not propagate at once; a still-draft PR shows `BLOCKED` with green checks. Wait, then read.
+- Pre-push runs `bun audit --audit-level=high`. An advisory in an installed package is a real stop; do not push with `--no-verify` to get past one — fix or override it in `package.json` and say so in the PR. When no fixed version exists, an `--ignore` entry is possible only on the terms in the comment above `audit` in `lefthook.yml`, with its dated `DROP AFTER` marker (never for a malicious-package advisory), and it is the owner's call, not yours: write the evidence into the issue, label it `needs:decision`, and open that pull request as a draft, which only the owner marks ready (`prep-pr` Step 9).
 - Merging several PRs in sequence: the release workflow versions on every merge, so sibling PRs touching `wrangler.toml` or an `index.ts` conflict. Merge in dependency order and rebase additively.
 - Wrangler named environments inherit no top-level bindings. Every `[[d1_databases]]`, `[[r2_buckets]]` and `[images]` is mirrored into each named environment the file declares — `[env.production]`, and the local-only `[env.dev]` in zap and pulse; verify with `wrangler deploy --dry-run`. The dev tier's bindings are declared in the Alchemy stacks (`*/infra/`), not in Wrangler.
 - A wait with no end — a loop that prints only on success, a reviewer nobody collected, a watcher left running after its PR merged — holds a slot against the usage limit until the owner notices. Step 5, **Every wait ends**.

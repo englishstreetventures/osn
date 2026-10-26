@@ -65,7 +65,7 @@ jobs:
       # tests or type-checks those packages loads it; every other job installs
       # without them.
       - name: Install dependencies except the infra packages
-        run: bun install --filter '!@*/infra'
+        run: bun install --frozen-lockfile --filter '!@*/infra'
 
       - name: Lint
         run: bun run lint
@@ -146,6 +146,13 @@ jobs:
         with:
           bun-version-file: .bun-version
 
+      # The Astro sites' `typecheck` runs `tsc --runExternalCode`, which starts
+      # `@astrojs/ts-content-mapper` as `node dist/server.js`. Pinned here so the
+      # mapper runs on a known Node rather than whatever the runner image ships.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
       - name: Cache bun dependencies
         uses: actions/cache@v4
         with:
@@ -175,22 +182,22 @@ jobs:
             ${{ runner.os }}-turbo-check-
 
       - name: Install dependencies
-        run: bun install
+        run: bun install --frozen-lockfile
 
       - name: Type check
-        run: bun run check
+        run: bun run typecheck
 
-      # `scripts/` is in no workspace, so `turbo check` never reaches it and a
+      # `scripts/` is in no workspace, so `turbo typecheck` never reaches it and a
       # type error there ships. One did: `skill-evals.ts` read an optional
       # `scenario.path` unguarded, which crashed `ready`, `compare` and `record`
       # on a payload the API really returns.
       #
       # It lives here rather than in `script-tests` because that job does no
       # `bun install` on purpose, and `scripts/tsconfig.json` inherits
-      # `types: ["bun-types"]` from the root — without the install, `tsc` fails
-      # on the type package rather than on the code.
+      # `types: ["bun-types"]` from the root — without the install, `bun check` fails
+      # on the missing type package rather than on the code.
       - name: Type check the scripts
-        run: bunx --bun tsc -p scripts/tsconfig.json
+        run: bun check --no-script -p scripts/tsconfig.json
 
   build-test:
     name: Build & Test
@@ -255,7 +262,7 @@ jobs:
             ${{ runner.os }}-astro-fonts-
 
       - name: Install dependencies
-        run: bun install
+        run: bun install --frozen-lockfile
 
       - name: Build
         run: bun run build
@@ -575,7 +582,7 @@ jobs:
             ${{ runner.os }}-bun-noinfra-
 
       - name: Install dependencies except the infra packages
-        run: bun install --filter '!@*/infra'
+        run: bun install --frozen-lockfile --filter '!@*/infra'
 
       - name: Regenerate OpenAPI documents
         run: |

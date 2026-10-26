@@ -1,6 +1,6 @@
 {
   "name": "@tools/metrics",
-  "version": "0.2.30",
+  "version": "0.2.33",
   "private": true,
   "description": "Session-metrics dashboard — charts over the pull-request cards in .claude/metrics, local only",
   "type": "module",
@@ -15,7 +15,7 @@
     "dev:app": "dev-env vite dev",
     "build": "vite build",
     "preview": "vite preview",
-    "check": "tsc --noEmit",
+    "typecheck": "bun check --no-script",
     "test": "bunx --bun vitest",
     "test:run": "bunx --bun vitest run"
   },
@@ -33,7 +33,7 @@
   "devDependencies": {
     "@shared/dev-urls": "workspace:*",
     "@shared/typescript-config": "workspace:*",
-    "typescript": "^6.0.3",
+    "typescript": "7.1.0-beta",
     "vite": "^8.3.3",
     "vite-plugin-solid": "^2.11.14",
     "vitest": "5.0.3"

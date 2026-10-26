@@ -167,6 +167,11 @@ export interface RegistrySnapshot {
   /** How many succeeded gifts the total above leaves out. Non-zero means it is
    *  not the whole of the money and the view has to say so. */
   contributionsOtherCurrencyCount: number;
+  /** Whether this site can take a money gift at all: the API holds a Stripe
+   *  key AND the webhook secret that records each gift. False means guests are
+   *  offered no money and no cash fund, whatever the settings say. The same for
+   *  every wedding, and never changed by a save. */
+  takesPayments: boolean;
 }
 
 /** A further page of the gift log, as `GET /registry/gifts?offset=` returns it —

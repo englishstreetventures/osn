@@ -11,16 +11,39 @@ import {
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 
+import type { Db } from "../../src/db";
 import { DbService, dbQuery } from "../../src/db";
+import { EffectDbService, effectDbFor } from "../../src/db/effect-handle";
+import { localD1Binding } from "../../src/db/local-d1";
 import { createDb, seedDb } from "../../src/db/setup";
 import { parseCsv } from "../../src/services/spreadsheet";
 import { tableExportService } from "../../src/services/table-export";
-import { TestDbLayer } from "../db/test-layer";
-import { effWith } from "../test-helpers";
+import { runWithFailingRead } from "../test-helpers/d1-bindings";
 import { allowPlusOne, guestNamed, seedPlusOne } from "../test-helpers/plus-one";
 import { insertWedding } from "../test-helpers/wedding";
 
-const withDb = effWith(TestDbLayer);
+/** Runs an effect on both handles over one seeded connection. */
+const runOn =
+  (db: ReturnType<typeof createDb>) =>
+  <A, E>(effect: Effect.Effect<A, E, DbService | EffectDbService>) =>
+    Effect.runPromise(
+      effect.pipe(
+        Effect.provideService(DbService, db),
+        Effect.provideService(EffectDbService, effectDbFor(localD1Binding(db.$client), "fetch")),
+      ),
+    );
+
+/**
+ * A seeded database with both handles on its one connection: the promise handle
+ * for setup and the Effect handle for the exports.
+ */
+const withDb =
+  <A, E>(effect: Effect.Effect<A, E, DbService | EffectDbService>) =>
+  () => {
+    const db = createDb(":memory:");
+    seedDb(db);
+    return runOn(db)(effect);
+  };
 
 /** Split a CSV document into lines (CRLF, per RFC 4180). */
 const lines = (csv: string) => csv.split("\r\n");
@@ -200,8 +223,7 @@ describe("tableExportService.guestsCsv — plus-ones", () => {
   const setUp = () => {
     const db = createDb(":memory:");
     seedDb(db);
-    const run = <A, E>(eff: Effect.Effect<A, E, DbService>) =>
-      Effect.runPromise(eff.pipe(Effect.provideService(DbService, db)));
+    const run = runOn(db);
     return { db, run };
   };
   const byName = (csv: string, first: string, last: string) =>
@@ -484,8 +506,7 @@ describe("tableExportService.eventsCsv — plus-ones", () => {
   it("counts a named plus-one as invited, and a permission alone not at all", async () => {
     const db = createDb(":memory:");
     seedDb(db);
-    const run = <A, E>(eff: Effect.Effect<A, E, DbService>) =>
-      Effect.runPromise(eff.pipe(Effect.provideService(DbService, db)));
+    const run = runOn(db);
     const bo = guestNamed(db, "Bo");
     const before = await run(tableExportService.eventsCsv(BOOTSTRAP_WEDDING_ID));
 
@@ -501,4 +522,94 @@ describe("tableExportService.eventsCsv — plus-ones", () => {
     // Bo is not invited to the Catholic ceremony, so neither is Sam.
     expect(invitedTo(named, "Catholic Ceremony")).toBe(invitedTo(before, "Catholic Ceremony"));
   });
+});
+
+/** A host family whose one guest is invited to `eventId`: a row every count must leave out. */
+function plantInvitedHost(db: Db, eventId: string) {
+  const now = new Date();
+  db.insert(families)
+    .values({
+      id: "fam_host_invited",
+      weddingId: BOOTSTRAP_WEDDING_ID,
+      publicId: "HOST-INVT",
+      familyName: "Invited Host",
+      kind: "host",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  db.insert(guests)
+    .values({
+      id: "gst_host_invited",
+      familyId: "fam_host_invited",
+      firstName: "Hosta",
+      lastName: "Invited",
+      sortOrder: 0,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  db.insert(guestEvents).values({ guestId: "gst_host_invited", eventId }).run();
+}
+
+describe("tableExportService.eventsCsv — host families", () => {
+  // A host family is invited like any guest, but the export counts guests only.
+  it(
+    "leaves an invited host-family guest out of Invited Guests",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        const [catholic] = yield* dbQuery(() =>
+          db.select().from(events).where(eq(events.slug, "catholic")).all(),
+        );
+        const invitedOf = (csv: string) => {
+          const row = lines(csv).find((r) => r.startsWith("Catholic Ceremony"))!;
+          return row.slice(row.lastIndexOf(",") + 1);
+        };
+        const before = invitedOf(yield* tableExportService.eventsCsv(BOOTSTRAP_WEDDING_ID));
+        plantInvitedHost(db, catholic!.id);
+        const after = invitedOf(yield* tableExportService.eventsCsv(BOOTSTRAP_WEDDING_ID));
+        expect(Number(before)).toBeGreaterThan(0);
+        expect(after).toBe(before);
+      }),
+    ),
+  );
+});
+
+describe("tableExportService — the Effect path", () => {
+  // Each read is a defect when it fails, so the route answers 500.
+  it.each([
+    [
+      "guestsCsv",
+      "events",
+      tableExportService.guestsCsv,
+      (q: string) => q.includes(`from "events"`),
+    ],
+    [
+      "guestsCsv",
+      "guests",
+      tableExportService.guestsCsv,
+      (q: string) => q.includes(`from "guests"`),
+    ],
+    [
+      "eventsCsv",
+      "events",
+      tableExportService.eventsCsv,
+      (q: string) => q.includes(`from "events"`),
+    ],
+    [
+      "eventsCsv",
+      "the invited counts",
+      tableExportService.eventsCsv,
+      (q: string) => q.includes("count("),
+    ],
+  ] as const)(
+    "%s: a failed read of %s dies rather than failing typed",
+    async (_fn, _read, read, matches) => {
+      const run = await runWithFailingRead(read, matches);
+      expect(run.matched).toBe(1);
+      expect(run.died).toBe(true);
+      expect(run.failedTyped).toBe(false);
+    },
+  );
 });

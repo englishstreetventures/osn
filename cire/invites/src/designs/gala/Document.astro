@@ -9,7 +9,7 @@ import { filterThemeVars, paletteRootVars, sectionVars, styleAttr } from '../../
 import { heroState } from '../../components/invite-emptiness'
 import { EDGE_BOOT_SCRIPT, EDGE_STRIP_CLASS, edgeStyle, serverEdgeColours } from '../../components/edge-boot'
 import { Z_CLASS } from '../../lib/z-index'
-import { GiftRegistryTeaser } from '../../components/gift-registry/GiftRegistryTeaser'
+import { GiftRegistryTeaserIsland } from '../../components/gift-registry/GiftRegistryTeaserIsland'
 import SiteFooter from '../../components/SiteFooter.astro'
 import { ConsentBanner } from '../../components/consent/ConsentBanner'
 import type { InviteDesignProps } from '../types'
@@ -107,9 +107,11 @@ const registryVars = filterThemeVars(sectionVars(initialInvite?.theme ?? null, '
         two islands share no Solid root, so the band learns of a claim or a
         sign-out only through `CLAIM_SESSION_EVENT` (`claim-session.ts`), and it
         keeps an always-present wrapper element so `client:visible` has
-        something to observe (`GiftRegistryTeaser.tsx`). Moving it inside
-        InvitePage, behind the claim, would drop both. */}
-    <GiftRegistryTeaser
+        something to observe (`GiftRegistryTeaserIsland.tsx`). Moving it inside
+        InvitePage, behind the claim, would drop both. The island holds only
+        the list read; the band's own code downloads once that read answers
+        with a list, so a guest of a wedding without one never downloads it. */}
+    <GiftRegistryTeaserIsland
       client:visible={{ rootMargin: "600px" }}
       apiUrl={apiUrl}
       slug={slug}

@@ -1,6 +1,6 @@
 {
   "name": "@shared/email",
-  "version": "0.16.6",
+  "version": "0.16.8",
   "private": true,
   "type": "module",
   "author": "English Street Ventures Pty Ltd",
@@ -15,7 +15,7 @@
     "./templates": "./src/templates/index.ts"
   },
   "scripts": {
-    "check": "tsc --noEmit",
+    "typecheck": "bun check --no-script",
     "test": "bunx --bun vitest",
     "test:run": "bunx --bun vitest run"
   },

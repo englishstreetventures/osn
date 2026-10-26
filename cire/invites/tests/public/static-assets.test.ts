@@ -2,7 +2,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-import ts from "typescript";
+import { API } from "typescript/sync";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -90,9 +90,12 @@ describe("public/favicon.ico", () => {
 describe("the asset layer answers before the Worker", () => {
   it("wrangler.jsonc does not run the Worker ahead of static assets", () => {
     const path = join(appRoot, "wrangler.jsonc");
-    const { config, error } = ts.parseConfigFileTextToJson(path, readFileSync(path, "utf8"));
+    // TypeScript's config reader, because the file is JSONC (comments allowed).
+    using api = new API({ cwd: appRoot });
+    const { config, error } = api.readConfigFile(path);
     expect(error).toBeUndefined();
-    expect(config.assets?.run_worker_first ?? false).toBe(false);
+    const { assets } = config as { assets?: { run_worker_first?: boolean } };
+    expect(assets?.run_worker_first ?? false).toBe(false);
   });
 
   // `@cloudflare/vite-plugin` copies `public/.assetsignore` into the one it

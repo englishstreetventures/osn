@@ -4,19 +4,37 @@ import { BOOTSTRAP_WEDDING_ID, events, families, guestEvents, guests, rsvps } fr
 import { events as eventsSeed } from "@cire/db/seed";
 import { serialisePresets, type DietaryPreset } from "@cire/dietary";
 import { and, eq, inArray } from "drizzle-orm";
-import { Effect } from "effect";
+import { Cause, Effect, Exit } from "effect";
 
 import type { Db } from "../../src/db";
-import { DbService } from "../../src/db";
+import { DbService, dbQuery } from "../../src/db";
+import { withD1Session } from "../../src/db/d1-session";
+import { EffectDbService, effectDbFor } from "../../src/db/effect-handle";
+import { localD1Binding } from "../../src/db/local-d1";
 import { createDb, seedDb } from "../../src/db/setup";
 import { rsvpExportService, toCsv, sanitiseCsvCell } from "../../src/services/rsvp-export";
 import type { RsvpView } from "../../src/services/rsvp-export";
-import { TestDbLayer } from "../db/test-layer";
-import { effWith } from "../test-helpers";
+import { failingReadOf, loggingBinding, runWithFailingRead } from "../test-helpers/d1-bindings";
 import { allowPlusOne, guestNamed, seedPlusOne } from "../test-helpers/plus-one";
 import { insertWedding } from "../test-helpers/wedding";
 
-const withDb = effWith(TestDbLayer);
+/**
+ * A seeded database with both handles on its one connection: the promise handle
+ * for setup and the Effect handle for the view and the CSV export.
+ */
+const withDb =
+  <A>(effect: Effect.Effect<A, unknown, DbService | EffectDbService>) =>
+  () => {
+    const testDb = createDb(":memory:");
+    seedDb(testDb);
+    const effectDb = effectDbFor(localD1Binding(testDb.$client), "fetch");
+    return Effect.runPromise(
+      effect.pipe(
+        Effect.provideService(DbService, testDb),
+        Effect.provideService(EffectDbService, effectDb),
+      ),
+    );
+  };
 
 /** The export's own name for an event — the CSV header is built from it. */
 function eventName(data: { events: { id: string; name: string }[] }, eventId: string): string {
@@ -815,8 +833,13 @@ describe("rsvpExportService.buildView — plus-ones in the tallies", () => {
   const setUp = () => {
     const db = createDb(":memory:");
     seedDb(db);
-    const run = <A, E>(eff: Effect.Effect<A, E, DbService>) =>
-      Effect.runPromise(eff.pipe(Effect.provideService(DbService, db)));
+    const run = <A, E>(eff: Effect.Effect<A, E, DbService | EffectDbService>) =>
+      Effect.runPromise(
+        eff.pipe(
+          Effect.provideService(DbService, db),
+          Effect.provideService(EffectDbService, effectDbFor(localD1Binding(db.$client), "fetch")),
+        ),
+      );
     const hindu = (view: RsvpView) => view.events.find((e) => e.id === HINDU)!;
     return { db, run, hindu };
   };
@@ -1199,4 +1222,128 @@ describe("rsvpExportService.buildView — plus-ones in the tallies", () => {
     const data = await run(rsvpExportService.build(BOOTSTRAP_WEDDING_ID));
     expect(data.rows.find((r) => r.firstName === "Sam")?.plusOneOfName).toBe("Bo");
   });
+});
+
+describe("rsvpExportService.buildView — the Effect path", () => {
+  // Each of the four reads is a defect when it fails, so the route answers 500.
+  it.each([
+    ["events", (q: string) => q.includes(`from "events"`)],
+    ["the invited counts", (q: string) => q.includes("count(")],
+    ["rsvps", (q: string) => q.includes(`from "rsvps"`)],
+    [
+      "the invited guests",
+      (q: string) => q.includes(`from "guest_events"`) && !q.includes("count("),
+    ],
+  ] as const)("a failed read of %s dies rather than failing typed", async (_read, matches) => {
+    const run = await runWithFailingRead(rsvpExportService.buildView, matches);
+    expect(run.matched).toBe(1);
+    expect(run.died).toBe(true);
+    expect(run.failedTyped).toBe(false);
+  });
+});
+
+describe("rsvpExportService.build — the Effect path", () => {
+  // a failed read of any of the three queries is a defect, so the route's catchDefect answers it.
+  it.each(["events", "guests", "rsvps"])(
+    "a failed read of %s dies rather than failing typed",
+    async (table) => {
+      const run = await runWithFailingRead(rsvpExportService.build, (query) =>
+        query.includes(`from "${table}"`),
+      );
+      expect(run.matched).toBe(1);
+      expect(run.died).toBe(true);
+      expect(run.failedTyped).toBe(false);
+    },
+  );
+
+  // two requests in two sessions each prepare the export's three statements on their own session.
+  it("each concurrent request prepares its own statements on its own session", async () => {
+    const db = createDb(":memory:");
+    seedDb(db);
+    const base = localD1Binding(db.$client);
+    const handle = effectDbFor(base, "fetch");
+    const logA: string[] = [];
+    const logB: string[] = [];
+    const runIn = (log: string[]) =>
+      withD1Session(
+        loggingBinding(base, (query) => log.push(query)),
+        () =>
+          Effect.runPromise(
+            rsvpExportService
+              .build(BOOTSTRAP_WEDDING_ID)
+              .pipe(Effect.provideService(EffectDbService, handle)),
+          ),
+      );
+    await Promise.all([runIn(logA), runIn(logB)]);
+    expect(logA).toHaveLength(3);
+    expect(logB).toHaveLength(3);
+  });
+
+  // The rejection message names the statement and never the bound wedding id.
+  it("does not render the bound wedding id in the failure", async () => {
+    const db = createDb(":memory:");
+    seedDb(db);
+    const binding = failingReadOf(localD1Binding(db.$client), (query) =>
+      query.includes('from "events"'),
+    );
+    const exit = await Effect.runPromiseExit(
+      rsvpExportService
+        .build(BOOTSTRAP_WEDDING_ID)
+        .pipe(Effect.provideService(EffectDbService, effectDbFor(binding, "fetch"))),
+    );
+    if (Exit.isFailure(exit)) {
+      expect(Cause.pretty(exit.cause)).not.toContain(BOOTSTRAP_WEDDING_ID);
+    }
+  });
+});
+
+/** A host family whose one guest is invited to `eventId`: a row every count must leave out. */
+function plantInvitedHost(db: Db, eventId: string) {
+  const now = new Date();
+  db.insert(families)
+    .values({
+      id: "fam_host_invited",
+      weddingId: BOOTSTRAP_WEDDING_ID,
+      publicId: "HOST-INVT",
+      familyName: "Invited Host",
+      kind: "host",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  db.insert(guests)
+    .values({
+      id: "gst_host_invited",
+      familyId: "fam_host_invited",
+      firstName: "Hosta",
+      lastName: "Invited",
+      sortOrder: 0,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  db.insert(guestEvents).values({ guestId: "gst_host_invited", eventId }).run();
+}
+
+describe("rsvpExportService.buildView — host families", () => {
+  // A host family is invited like any guest, but the view counts and lists guests only.
+  it(
+    "leaves an invited host-family guest out of invited and unresponded",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        const [catholic] = yield* dbQuery(() =>
+          db.select().from(events).where(eq(events.slug, "catholic")).all(),
+        );
+        const eventOf = (view: RsvpView) => view.events.find((e) => e.id === catholic!.id)!;
+        const before = eventOf(yield* rsvpExportService.buildView(BOOTSTRAP_WEDDING_ID));
+        plantInvitedHost(db, catholic!.id);
+        const after = eventOf(yield* rsvpExportService.buildView(BOOTSTRAP_WEDDING_ID));
+        expect(before.invited).toBeGreaterThan(0);
+        expect(after.invited).toBe(before.invited);
+        expect(after.unresponded.map((g) => g.guestId)).not.toContain("gst_host_invited");
+        expect(after.unresponded).toHaveLength(before.unresponded.length);
+      }),
+    ),
+  );
 });

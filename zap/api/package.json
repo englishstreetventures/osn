@@ -1,6 +1,6 @@
 {
   "name": "@zap/api",
-  "version": "0.9.30",
+  "version": "0.9.33",
   "private": true,
   "type": "module",
   "author": "English Street Ventures Pty Ltd",
@@ -21,7 +21,7 @@
     "deploy:staging": "wrangler deploy --env staging",
     "deploy:prod": "wrangler deploy --env production",
     "types": "wrangler types",
-    "check": "tsc --noEmit",
+    "typecheck": "bun check --no-script",
     "test": "bunx --bun vitest",
     "test:run": "bunx --bun vitest run",
     "test:d1": "bun test tests/d1/d1-integration.test.ts"
@@ -39,7 +39,7 @@
     "@shared/osn-auth-client": "workspace:*",
     "@shared/rate-limit": "workspace:*",
     "@zap/db": "workspace:*",
-    "drizzle-orm": "1.0.0-rc.4",
+    "drizzle-orm": "1.0.0-rc.5",
     "effect": "4.0.5",
     "elysia": "^1.4.30"
   },

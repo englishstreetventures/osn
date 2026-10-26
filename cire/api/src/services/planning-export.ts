@@ -1,5 +1,5 @@
-import { budgetItems, events, seatingAssignments, tasks, weddings } from "@cire/db";
-import { asc, eq, inArray } from "drizzle-orm";
+import { budgetItems, events, seatingAssignments, seatingPlans, tasks, weddings } from "@cire/db";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { DbService, dbQuery } from "../db";
@@ -223,8 +223,9 @@ export const planningExportService = {
    * would carry, in one statement. The portal asks before it offers a download
    * from a locked Budget, Checklist, Registry or Seating card, so it offers one
    * only when there is something in it. Budget payments are not counted: every
-   * payment belongs to a line. Seats are counted through the wedding's events,
-   * whose ids lead the seats' unique index.
+   * payment belongs to a line. Seats are those of each event's selected plan,
+   * the plan the file prints, found through the wedding's events and then by
+   * plan, whose id leads the seats' unique index.
    */
   moduleRows(
     weddingId: string,
@@ -244,8 +245,22 @@ export const planningExportService = {
             seats: db.$count(
               seatingAssignments,
               inArray(
-                seatingAssignments.eventId,
-                db.select({ id: events.id }).from(events).where(eq(events.weddingId, weddingId)),
+                seatingAssignments.planId,
+                db
+                  .select({ id: seatingPlans.id })
+                  .from(seatingPlans)
+                  .where(
+                    and(
+                      inArray(
+                        seatingPlans.eventId,
+                        db
+                          .select({ id: events.id })
+                          .from(events)
+                          .where(eq(events.weddingId, weddingId)),
+                      ),
+                      eq(seatingPlans.selected, true),
+                    ),
+                  ),
               ),
             ),
           })

@@ -1,6 +1,6 @@
 {
   "name": "@shared/realtime",
-  "version": "0.2.2",
+  "version": "0.2.4",
   "private": true,
   "type": "module",
   "author": "English Street Ventures Pty Ltd",
@@ -17,7 +17,7 @@
     "./solid": "./src/client/solid.ts"
   },
   "scripts": {
-    "check": "tsc --noEmit && tsc --noEmit -p src/client && tsc --noEmit -p tests && tsc --noEmit -p tests/client",
+    "typecheck": "bun check --no-script && bun check --no-script -p src/client && bun check --no-script -p tests && bun check --no-script -p tests/client",
     "test": "bunx --bun vitest",
     "test:run": "bunx --bun vitest run",
     "test:d1": "bun test tests/d1/"
@@ -29,7 +29,7 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260903.1",
     "@shared/typescript-config": "workspace:*",
-    "happy-dom": "^20.12.2",
+    "happy-dom": "^21.0.4",
     "miniflare": "^4.20260730.0",
     "solid-js": "^1.9.15",
     "vite": "^8.3.3",

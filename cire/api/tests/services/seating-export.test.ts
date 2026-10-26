@@ -7,21 +7,25 @@ import {
   guestEvents,
   guests,
   seatingAssignments,
+  seatingPlans,
   seatingTables,
 } from "@cire/db";
-import { Effect, Logger, References } from "effect";
+import { Cause, Effect, Exit, Logger, References } from "effect";
 
-import { DbService } from "../../src/db";
+import { EffectDbService, effectDbFor } from "../../src/db/effect-handle";
+import { localD1Binding } from "../../src/db/local-d1";
 import { createDb, seedBootstrapWedding } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
 import { MAX_SEATING_EXPORT_ROWS, seatingExportService } from "../../src/services/seating-export";
 import { recordStatements } from "../test-helpers";
+import { failingReadOf } from "../test-helpers/d1-bindings";
 
 // The venue file's ceiling: a file can hold every seated guest at every event,
 // so it is bounded by the Worker's CPU rather than by any one chart, and the
 // bound applies to the read, not only to what is printed.
 
 const EVENT = "evt_big";
+const PLAN = "spl_big";
 
 /** One event, one table and `count` seated guests, named in print order. */
 function seatedWedding(count: number): TestDb {
@@ -49,11 +53,23 @@ function seatedWedding(count: number): TestDb {
       updatedAt: now,
     })
     .run();
+  db.insert(seatingPlans)
+    .values({
+      id: PLAN,
+      weddingId: BOOTSTRAP_WEDDING_ID,
+      eventId: EVENT,
+      name: "Plan 1",
+      selected: true,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
   db.insert(seatingTables)
     .values({
       id: "stb_big",
       weddingId: BOOTSTRAP_WEDDING_ID,
       eventId: EVENT,
+      planId: PLAN,
       name: "Long table",
       capacity: count,
       createdAt: now,
@@ -80,7 +96,13 @@ function seatedWedding(count: number): TestDb {
       .run();
     db.insert(seatingAssignments)
       .values(
-        chunk.map((id) => ({ tableId: "stb_big", eventId: EVENT, guestId: id, createdAt: now })),
+        chunk.map((id) => ({
+          tableId: "stb_big",
+          planId: PLAN,
+          eventId: EVENT,
+          guestId: id,
+          createdAt: now,
+        })),
       )
       .run();
   }
@@ -110,7 +132,10 @@ describe("seatingExportService.seatingCsv — the ceiling", () => {
     const csv = await Effect.runPromise(
       seatingExportService
         .seatingCsv(BOOTSTRAP_WEDDING_ID)
-        .pipe(Effect.provideService(DbService, db), Effect.provide(layer)),
+        .pipe(
+          Effect.provideService(EffectDbService, effectDbFor(localD1Binding(db.$client), "fetch")),
+          Effect.provide(layer),
+        ),
     );
 
     const read = statements.find((s) => /from "events"/.test(s.sql))!;
@@ -132,9 +157,34 @@ describe("seatingExportService.seatingCsv — the ceiling", () => {
     const csv = await Effect.runPromise(
       seatingExportService
         .seatingCsv(BOOTSTRAP_WEDDING_ID)
-        .pipe(Effect.provideService(DbService, db), Effect.provide(layer)),
+        .pipe(
+          Effect.provideService(EffectDbService, effectDbFor(localD1Binding(db.$client), "fetch")),
+          Effect.provide(layer),
+        ),
     );
     expect(csv.split("\r\n").slice(1)).toHaveLength(MAX_SEATING_EXPORT_ROWS);
     expect(warnings).toEqual([]);
   }, 30_000);
+});
+
+describe("seatingExportService.seatingCsv — a failed read", () => {
+  // The read is one statement, so a rejection fails the export as a defect, which the route answers with 500.
+  it("dies with the injected error rather than failing typed", async () => {
+    const db = createDb(":memory:");
+    seedBootstrapWedding(db);
+    const failing = failingReadOf(localD1Binding(db.$client), (query) =>
+      query.includes('from "events"'),
+    );
+    const exit = await Effect.runPromiseExit(
+      seatingExportService
+        .seatingCsv(BOOTSTRAP_WEDDING_ID)
+        .pipe(Effect.provideService(EffectDbService, effectDbFor(failing, "fetch"))),
+    );
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(Cause.hasDies(exit.cause)).toBe(true);
+      expect(Cause.hasFails(exit.cause)).toBe(false);
+      expect(Cause.pretty(exit.cause)).toContain("injected read failure");
+    }
+  });
 });

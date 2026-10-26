@@ -11,7 +11,7 @@ packages:
   - "@musubi/social"
   - "@pulse/web"
   - "@shared/ui"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-26
 ---
 
 # Browser Tests
@@ -599,7 +599,7 @@ Five traps, each of which has cost an hour or more:
 | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `astro dev` backgrounds itself under an agent              | The URL 404s seconds after `bun run dev` reported success, while a stray daemon still holds the port                                     | Astro 7 detects the agent environment and portless deregisters the route when its child exits. Run `CLAUDECODE= bun run dev`; clear a stray with `bunx astro dev stop`                                                    |
 | `astro dev` never reaches `networkidle`                    | `page.goto` hangs until it times out                                                                                                     | The HMR socket stays open by design — use `waitUntil: "load"`                                                                                                                                                             |
-| Below-the-fold islands hydrate on visibility               | The component under test never mounts, and the page reads as broken rather than un-hydrated                                              | Both invite designs mount `InvitePage` and `GiftRegistryTeaser` as `client:visible={{ rootMargin: "600px" }}` (`ConsentBanner` is `client:idle`) — scroll them into view, or assert against the `client:load` header only |
+| Below-the-fold islands hydrate on visibility               | The component under test never mounts, and the page reads as broken rather than un-hydrated                                              | Both invite designs mount `InvitePage` and `GiftRegistryTeaserIsland` as `client:visible={{ rootMargin: "600px" }}` (`ConsentBanner` is `client:idle`) — scroll them into view, or assert against the `client:load` header only |
 | The claim endpoint allows **5 attempts per minute per IP** | Back-to-back runs 429, and the invite renders "Something went wrong" with no events — identical to the reveal regression you are chasing | `defaultClaimLimiter` in `cire/api/src/app.ts`. Space the runs out before believing a result                                                                                                                              |
 | A credentialed stub API echoing `*`                        | `…/registry/mine` silently reads as signed out                                                                                           | A CORS stub for a credentialed fetch must echo the exact origin                                                                                                                                                           |
 

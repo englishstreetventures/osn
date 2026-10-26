@@ -19,7 +19,7 @@
     "deploy": "wrangler deploy --env production",
     "types": "wrangler types",
     "test:d1": "CIRE_D1_TIER=1 bun test tests/db/d1-integration.test.ts tests/db/migrate-wrapper.test.ts",
-    "check": "tsc --noEmit && tsc --noEmit -p tests/tsconfig.json",
+    "typecheck": "bun check --no-script && bun check --no-script -p tests/tsconfig.json",
     "mint-unlock-code": "bun run scripts/mint-unlock-code.ts"
   },
   "portless": {
@@ -41,7 +41,7 @@
     "@shared/rate-limit": "workspace:*",
     "@shared/realtime": "workspace:*",
     "@shared/turnstile": "workspace:*",
-    "drizzle-orm": "1.0.0-rc.4",
+    "drizzle-orm": "1.0.0-rc.5",
     "effect": "4.0.5",
     "elysia": "^1.4.30"
   },
@@ -53,7 +53,7 @@
     "@shared/typescript-config": "workspace:*",
     "jose": "^6.2.12",
     "miniflare": "^4.20260730.0",
-    "typescript": "^6.0.3",
+    "typescript": "7.1.0-beta",
     "wrangler": "4.149.0"
   }
 }

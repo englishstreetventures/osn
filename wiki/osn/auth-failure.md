@@ -9,7 +9,8 @@ related:
   - "[[step-up]]"
   - "[[sessions]]"
   - "[[rate-limiting]]"
-last-reviewed: 2026-10-22
+  - "[[email]]"
+last-reviewed: 2026-10-26
 ---
 
 # Auth Flow Failure Runbook
@@ -75,7 +76,9 @@ Discoverable login (no `identifier`) returns identical-shape options for unknown
 |---|---|---|
 | `/register/complete` succeeds but UI refuses to dismiss | `/passkey/register/complete` did not run | This is by design — the account-level invariant is "≥1 passkey at all times". Send the user back into the registration flow |
 | `/passkey/register/begin` returns 401 with `step_up_required` | Account already has ≥1 passkey | Caller must present a fresh `X-Step-Up-Token` (passkey or otp amr) — bootstrap path is only for the very first passkey |
-| `409 handle_taken` on `/register/begin` | Handle namespace clash with users **or** organisations | Prompt for a new handle |
+| `/register/begin` answers `200 {sent:true}` for a taken email or handle, and no code arrives | By design: `begin` answers the same whether or not the email or handle is free, and sends nothing for a taken one. The dialog asks `GET /handle/:handle` before it offers to send | Pick a free handle; an email that already has an account signs in instead |
+| "Verification code sent", and no code arrives | The send failed: Resend refused it (unverified sender domain, testing-only account, used-up quota), was unreachable, or took over 10 s. `begin` answers `{sent:true}` either way. A refused send removes its pending entry; an unreachable or timed-out one, whose code may still arrive, holds it for one minute | Search osn-api's Worker logs for `email.dispatch_failed` (`email.dispatch_interrupted` for a timeout): `status`, `resendError` and `resendDetail` say why ([[email#Observability]]). Fix the cause, then press "Resend code": after a refusal it sends a new code once its 30-second wait ends; after a timeout, once the minute has passed |
+| A code Resend accepted never lands (spam, dropped), and "Resend code" sends nothing | The first code stays pending for 10 minutes, and a second `begin` inside that time sends nothing (englishstreetventures/osn#1769) | Check the spam folder; after 10 minutes "Resend code" sends a new code |
 
 ## 4. Refresh / `/token`
 

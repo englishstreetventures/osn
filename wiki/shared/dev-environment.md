@@ -10,7 +10,7 @@ related:
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-10-23
+last-reviewed: 2026-10-26
 ---
 
 # Dev environment (cire + OSN identity)
@@ -750,8 +750,15 @@ the checks already ask.
 2. `https://id.musubi.<D>/.well-known/jwks.json` serves keys, and
    `/.well-known/openid-configuration` reports `"issuer": "https://id.musubi.<D>"`
    — not the production issuer.
-3. Register a **new** passkey on `https://musubi.<D>`, sign out, sign back in.
-   Proves Upstash-backed ceremony state survives across requests.
+3. Create an account on `https://musubi.<D>` with an inbox you can read,
+   enrol a passkey, sign out, sign back in. Proves Upstash-backed ceremony state
+   survives across requests, and that sign-up mail is delivered. The dev
+   database starts empty, so an account, passkey or authenticator app from an
+   earlier dev tier is not there: sign up again. When "Verification code sent"
+   shows and no code arrives, search `osn-api-dev`'s Workers Logs for
+   `email.dispatch_failed`; its `status`, `resendError` and `resendDetail` say
+   why Resend refused ([[email#Observability]]). A refused send leaves nothing
+   pending, so "Resend code" sends a new one once the cause is fixed.
 4. Sign in on `https://host.cire.<D>` through the OIDC redirect. Proves the
    seeded `oauth_clients` row, the pairwise salt and the redirect URI agree. A
    consent row in `osn-db-dev` with no `organiser_sessions` row in `cire-db-dev`

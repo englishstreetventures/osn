@@ -1,6 +1,6 @@
 {
   "name": "@pulse/api",
-  "version": "0.27.29",
+  "version": "0.27.32",
   "private": true,
   "type": "module",
   "author": "English Street Ventures Pty Ltd",
@@ -22,7 +22,7 @@
     "deploy:staging": "wrangler deploy --env staging",
     "deploy:prod": "wrangler deploy --env production",
     "types": "wrangler types",
-    "check": "tsc --noEmit",
+    "typecheck": "bun check --no-script",
     "openapi:generate": "bun run scripts/generate-openapi.ts",
     "test": "bunx --bun vitest",
     "test:run": "bunx --bun vitest run",
@@ -45,7 +45,7 @@
     "@shared/rate-limit": "workspace:*",
     "@shared/redis": "workspace:*",
     "@zap/db": "workspace:*",
-    "drizzle-orm": "1.0.0-rc.4",
+    "drizzle-orm": "1.0.0-rc.5",
     "effect": "4.0.5",
     "elysia": "^1.4.30",
     "jose": "^6.2.12"

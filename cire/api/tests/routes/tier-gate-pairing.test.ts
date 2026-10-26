@@ -1,8 +1,16 @@
-import { describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import ts from "typescript";
+import { ScriptKind, type CallExpression, type Expression, type Node } from "typescript/ast";
+import {
+  isCallExpression,
+  isIdentifier,
+  isImportSpecifier,
+  isPropertyAccessExpression,
+  isStringLiteralLikeNode,
+} from "typescript/ast/is";
+import { API } from "typescript/async";
 
 /**
  * The wiring rule behind the tier gate, checked over the real source.
@@ -40,53 +48,55 @@ const GATE_NAMES: ReadonlySet<string> = new Set([TIER_GATE, ...ROLE_GATES]);
 
 type Scan = { problems: string[]; pairs: number };
 
+// TypeScript 7 parses in its native process; the async client is the one that
+// runs under Bun (the sync client needs Node child-process handles).
+const api = new API({ cwd: SRC_DIR });
+afterAll(() => api.close());
+
 /** The name a call goes through: `f(…)` and `ns.f(…)` are both `f`. */
-function calleeName(call: ts.CallExpression): string | undefined {
+function calleeName(call: CallExpression): string | undefined {
   const callee = call.expression;
-  if (ts.isIdentifier(callee)) return callee.text;
-  if (ts.isPropertyAccessExpression(callee)) return callee.name.text;
+  if (isIdentifier(callee)) return callee.text;
+  if (isPropertyAccessExpression(callee)) return callee.name.text;
   return undefined;
 }
 
 /** `x.use(…)`'s receiver `x`, or undefined when `call` is not a `.use()`. */
-function useReceiver(call: ts.Node): ts.Expression | undefined {
-  if (!ts.isCallExpression(call)) return undefined;
+function useReceiver(call: Node): Expression | undefined {
+  if (!isCallExpression(call)) return undefined;
   const callee = call.expression;
-  if (!ts.isPropertyAccessExpression(callee) || callee.name.text !== "use") return undefined;
+  if (!isPropertyAccessExpression(callee) || callee.name.text !== "use") return undefined;
   return callee.expression;
 }
 
 /** The gate a `.use(gate(…))` call mounts, or undefined for any other call. */
-function mountedGate(call: ts.Node): ts.CallExpression | undefined {
-  if (!useReceiver(call) || !ts.isCallExpression(call) || call.arguments.length !== 1) {
+function mountedGate(call: Node): CallExpression | undefined {
+  if (!useReceiver(call) || !isCallExpression(call) || call.arguments.length !== 1) {
     return undefined;
   }
   const [arg] = call.arguments;
-  return arg && ts.isCallExpression(arg) ? arg : undefined;
+  return arg && isCallExpression(arg) ? arg : undefined;
 }
 
 /** The `.use()` call whose only argument is `gate`, if it is mounted inline. */
-function enclosingUse(gate: ts.CallExpression): ts.CallExpression | undefined {
+function enclosingUse(gate: CallExpression): CallExpression | undefined {
   const parent = gate.parent;
-  return ts.isCallExpression(parent) && mountedGate(parent) === gate ? parent : undefined;
+  return isCallExpression(parent) && mountedGate(parent) === gate ? parent : undefined;
 }
 
-function checkSource(fileName: string, text: string): Scan {
-  const source = ts.createSourceFile(
-    fileName,
-    text,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TS,
-  );
+async function checkSource(fileName: string, text: string): Promise<Scan> {
+  await using retained = await api.createSourceFile(`/scan/${fileName}`, text, {
+    scriptKind: ScriptKind.TS,
+  });
+  const source = retained.sourceFile;
   const problems: string[] = [];
   let pairs = 0;
-  const at = (node: ts.Node) =>
+  const at = (node: Node) =>
     `${fileName}:${source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1}`;
 
-  function checkTierGate(gate: ts.CallExpression) {
+  function checkTierGate(gate: CallExpression) {
     const arg = gate.arguments[1];
-    if (!arg || !ts.isStringLiteralLike(arg) || !PAID_TIERS.has(arg.text)) {
+    if (!arg || !isStringLiteralLikeNode(arg) || !PAID_TIERS.has(arg.text)) {
       problems.push(`${at(gate)}: weddingTier needs a string-literal "gold" or "crimson"`);
       return;
     }
@@ -109,15 +119,15 @@ function checkSource(fileName: string, text: string): Scan {
     pairs++;
   }
 
-  function visit(node: ts.Node) {
-    if (ts.isImportSpecifier(node) && node.propertyName) {
+  function visit(node: Node) {
+    if (isImportSpecifier(node) && node.propertyName) {
       const imported = node.propertyName.text;
       if (GATE_NAMES.has(imported)) {
         problems.push(`${at(node)}: ${imported} is imported under another name`);
       }
     }
-    if (ts.isCallExpression(node) && calleeName(node) === TIER_GATE) checkTierGate(node);
-    ts.forEachChild(node, visit);
+    if (isCallExpression(node) && calleeName(node) === TIER_GATE) checkTierGate(node);
+    node.forEachChild(visit);
   }
   visit(source);
 
@@ -137,10 +147,10 @@ export const routes = (db: Db) =>
 }
 
 describe("the pairing checker", () => {
-  it("accepts a tier gate directly after each role gate", () => {
+  it("accepts a tier gate directly after each role gate", async () => {
     for (const gate of ROLE_GATES) {
       for (const tier of PAID_TIERS) {
-        const scan = checkSource(
+        const scan = await checkSource(
           "ok.ts",
           route(`.use(${gate}(db))
       .use(weddingTier(db, "${tier}"))
@@ -151,8 +161,8 @@ describe("the pairing checker", () => {
     }
   });
 
-  it("accepts a comment between the two gates", () => {
-    const scan = checkSource(
+  it("accepts a comment between the two gates", async () => {
+    const scan = await checkSource(
       "ok.ts",
       route(`.use(weddingEditor(db))
       // Gate order: role (403) then tier (402).
@@ -161,15 +171,15 @@ describe("the pairing checker", () => {
     expect(scan).toEqual({ problems: [], pairs: 1 });
   });
 
-  it("ignores a role gate with no tier gate", () => {
-    expect(checkSource("ok.ts", route(`.use(weddingMember(db))`))).toEqual({
+  it("ignores a role gate with no tier gate", async () => {
+    expect(await checkSource("ok.ts", route(`.use(weddingMember(db))`))).toEqual({
       problems: [],
       pairs: 0,
     });
   });
 
-  it("follows a namespace import like a named one", () => {
-    const scan = checkSource(
+  it("follows a namespace import like a named one", async () => {
+    const scan = await checkSource(
       "ok.ts",
       route(`.use(gates.weddingOwner(db))
       .use(gates.weddingTier(db, "gold"))`),
@@ -227,8 +237,8 @@ describe("the pairing checker", () => {
   };
 
   for (const [shape, { source, reports }] of Object.entries(failures)) {
-    it(`reports ${shape}`, () => {
-      const { problems } = checkSource("bad.ts", source);
+    it(`reports ${shape}`, async () => {
+      const { problems } = await checkSource("bad.ts", source);
       expect(problems).toHaveLength(reports.length);
       for (const fragment of reports) {
         expect(problems.some((problem) => problem.includes(fragment))).toBe(true);
@@ -241,9 +251,17 @@ describe("weddingTier mounts in cire/api/src", () => {
   const files = readdirSync(SRC_DIR, { recursive: true, encoding: "utf8" }).filter((path) =>
     path.endsWith(".ts"),
   );
-  const scans = files.map((path) => {
-    const { problems, pairs } = checkSource(path, readFileSync(join(SRC_DIR, path), "utf8"));
-    return { path, problems, pairs };
+  let scans: ({ path: string } & Scan)[] = [];
+  beforeAll(async () => {
+    scans = await Promise.all(
+      files.map(async (path) => {
+        const { problems, pairs } = await checkSource(
+          path,
+          readFileSync(join(SRC_DIR, path), "utf8"),
+        );
+        return { path, problems, pairs };
+      }),
+    );
   });
 
   it("each sits directly behind a role gate and names a paid tier", () => {
@@ -261,7 +279,7 @@ describe("weddingTier mounts in cire/api/src", () => {
       "routes/registry-stripe.ts": 1,
       "routes/registry.ts": 6,
       "routes/run-sheet.ts": 1,
-      "routes/seating.ts": 2,
+      "routes/seating.ts": 3,
       "routes/tasks.ts": 2,
       "routes/vendor-directory.ts": 2,
       "routes/vendors.ts": 2,

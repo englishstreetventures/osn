@@ -13,7 +13,7 @@ related:
   - "[[oidc-provider]]"
   - "[[musubi-identity-migration]]"
   - "[[cire-entitlements]]"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-26
 ---
 
 # Cire auth model
@@ -153,7 +153,7 @@ Four routes make up the surface, plus the middleware:
 Every organiser of a wedding — its owners included — holds exactly one **seat**, a `wedding_hosts(wedding_id, osn_profile_id, role, …)` row, and the seat's `role` is what every gate reads. `osn_profile_id` is an **opaque string** — no cross-DB FK (cire's D1 and OSN's DB are separate databases; the id is a foreign-system reference, not a relation). A wedding's owners are its seats with role `owner`; there is no owner column. `hostsService.authorize()` answers every gate in **one query**: the wedding row LEFT JOINed to the caller's seat. Four per-wedding gates enforce it, split by authorisation level:
 
 > [!important] No gate enumerates the roles it turns away
-> Each gate asks `decideCapability(role, capability)` and `policyFor()` answers (`cire/api/src/middleware/wedding-role.ts`). That switch is exhaustive over `WeddingRole` with no `default`, and `WeddingRole` is `Exclude<StoredHostRole, "host">` (`cire/api/src/services/hosts.ts`) — derived from the Drizzle column rather than written out beside it. So **adding a value to `wedding_hosts.role` fails `bun run check` until every gate has been given a decision about it.**
+> Each gate asks `decideCapability(role, capability)` and `policyFor()` answers (`cire/api/src/middleware/wedding-role.ts`). That switch is exhaustive over `WeddingRole` with no `default`, and `WeddingRole` is `Exclude<StoredHostRole, "host">` (`cire/api/src/services/hosts.ts`) — derived from the Drizzle column rather than written out beside it. So **adding a value to `wedding_hosts.role` fails `bun run typecheck` until every gate has been given a decision about it.**
 >
 > That is a guard, not a style preference. A gate that names the roles it excludes admits every role added after it: `weddingMember()` excluded nothing at all and `weddingEditor()` excluded `viewer` by name, so a new role would have inherited the whole read surface — guests, budget, registry, vendors, RSVPs — with no test failing. Add a role by adding it to the column and letting the compiler say where to decide.
 
@@ -197,8 +197,8 @@ Two routes the organiser portal calls sit outside these gates:
 | Set a helper's run-sheet scope (`PUT …/hosts/:osnProfileId/run-sheet-scope`, `own` or `full`; see [The run-sheet scope](#the-run-sheet-scope)) | ✅ | ❌ | ❌ | ❌ | `weddingOwner()` |
 | **Leave** — give up the caller's own seat (`DELETE /hosts/me`); the last owner gets **409 `last_owner`** | ✅ | ✅ | ✅ | ✅ | `weddingSeat()` |
 | The budget cap (`PUT /budget/total`)                                                              | ✅    | ❌     | ❌     | ❌        | `weddingOwner()`                |
-| Read an event's seating chart (`GET /seating/events/:eventId`) — Gold | ✅ | ✅ | ✅ | ❌ | `weddingMember()` + `weddingTier("gold")` |
-| Set out tables and seat guests (`POST`/`PATCH`/`DELETE …/seating/…`, `PUT …/seating/events/:eventId/guests/:guestId`) — Gold | ✅ | ✅ | ❌ | ❌ | `weddingEditor()` + `weddingTier("gold")` |
+| Read an event's seating plans and chart (`GET /seating/events/:eventId[?plan=]`) — Gold | ✅ | ✅ | ✅ | ❌ | `weddingMember()` + `weddingTier("gold")` |
+| Set out plans, tables and seats (`POST`/`PATCH`/`DELETE …/seating/…`, `PUT …/seating/events/:eventId/selected-plan`, `PUT …/seating/events/:eventId/guests/:guestId`, `PUT …/seating/plans/:planId/guests/:guestId`) — Gold | ✅ | ✅ | ❌ | ❌ | `weddingEditor()` + `weddingTier("gold")` |
 | Billing (`POST /upgrade/session`) and the registry's payout account (`POST /registry/stripe/session`) | ✅ | ❌     | ❌     | ❌        | `weddingOwner()`                |
 | Redeem an unlock code (`POST /unlock-code`)                                                       | ✅    | ❌     | ❌     | ❌        | `weddingOwner()`                |
 | Delete the wedding (`DELETE /api/organiser/weddings/:weddingId`, soft, typed slug)              | ✅    | ❌     | ❌     | ❌        | `weddingOwner()`                |
@@ -287,7 +287,7 @@ Seats live in the `wedding_hosts(wedding_id, osn_profile_id, role, …)` table (
 
 ### What the portal offers each role
 
-The organiser portal decides every role-driven affordance in one place, `cire/host/src/lib/wedding-roles.ts`, and the components ask it rather than comparing a role themselves. `surfacesFor()` is a switch over the whole vocabulary with no `default`, so a role added there fails `bun run check` until each decision has answered for it.
+The organiser portal decides every role-driven affordance in one place, `cire/host/src/lib/wedding-roles.ts`, and the components ask it rather than comparing a role themselves. `surfacesFor()` is a switch over the whole vocabulary with no `default`, so a role added there fails `bun run typecheck` until each decision has answered for it.
 
 | Portal surface                                                                              | Owner | Editor | Viewer | Helper | Mirrors           |
 | ------------------------------------------------------------------------------------------- | ----- | ------ | ------ | ------ | ----------------- |

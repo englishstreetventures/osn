@@ -1,6 +1,6 @@
 {
   "name": "@zap/db",
-  "version": "0.6.10",
+  "version": "0.6.13",
   "private": true,
   "license": "UNLICENSED",
   "author": "English Street Ventures Pty Ltd",
@@ -26,13 +26,13 @@
     "db:migrate:staging": "bunx wrangler --config ../api/wrangler.toml d1 migrations apply zap-db-staging --env staging --remote",
     "db:migrate:prod": "bunx wrangler --config ../api/wrangler.toml d1 migrations apply zap-db-prod --env production --remote",
     "db:reset:local": "rm -rf ../api/.wrangler/state/v3/d1 && bun run db:migrate:local",
-    "check": "tsc --noEmit",
+    "typecheck": "bun check --no-script",
     "test": "bunx --bun vitest",
     "test:run": "bunx --bun vitest run"
   },
   "dependencies": {
     "@shared/db-utils": "workspace:*",
-    "drizzle-orm": "1.0.0-rc.4",
+    "drizzle-orm": "1.0.0-rc.5",
     "effect": "4.0.5"
   },
   "devDependencies": {
@@ -41,7 +41,7 @@
     "@shared/typescript-config": "workspace:*",
     "@types/better-sqlite3": "^9.6.0",
     "better-sqlite3": "^13.0.3",
-    "drizzle-kit": "1.0.0-rc.4",
+    "drizzle-kit": "1.0.0-rc.5",
     "vitest": "5.0.3",
     "wrangler": "4.149.0"
   }

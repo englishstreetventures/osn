@@ -178,6 +178,10 @@ An earlier draft paired the TOML guard with a JSONC one for
 `database_id`: cire/invites has no D1 binding at all. There is no assertion to
 make. Dropped.
 
+### A package script named like a Bun command runs instead of it
+
+`bun fmt`, `bun check` and `bun test` run a package's script of the same name when one exists, instead of Bun's own command. A script named `fmt` makes `bun fmt` run that script, and a script named `check` makes `bun check` run it. Pass `--no-script` to reach Bun's command, as the repository's `fmt`, `fmt:check` and `typecheck` scripts and the lefthook format step do. A timing or a diff taken without it measures the other tool, so check the output names the command you meant before you trust the number.
+
 ---
 
 ## Still to do

@@ -45,8 +45,9 @@ export const CIRE_RSVP_CLOSED_ISO = "2099-01-02T00:00:00.000Z";
  * invite" opens the invitation with.
  *
  * `fund` is a cash fund on the same list. The couple's settings take money,
- * but the stack's cire-api has no Stripe key, so no guest may be offered the
- * fund or the money form. The locked flow checks the fund absent without a
+ * but the stack's cire-api has a Stripe key and no Connect webhook secret, so
+ * it could never record a gift and no guest may be offered the fund or the
+ * money form. The locked flow checks the fund absent without a
  * claim, and the claimed flow checks it absent with one; the claimed flow
  * reads the fund's row from the database, so a drifted value fails there.
  */
@@ -101,6 +102,9 @@ export type AppName = keyof typeof PORTS;
 export const ORIGINS: Record<AppName, string> = Object.fromEntries(
   Object.entries(PORTS).map(([name, port]) => [name, `http://localhost:${port}`]),
 ) as Record<AppName, string>;
+
+/** The Resend key the stack's osn-api sends to the mail stand-in with; never real. */
+export const E2E_RESEND_KEY = "re_e2e_local";
 
 /** Names the request log uses for each API origin. Only these are recorded. */
 export const API_LABELS = {
@@ -160,8 +164,8 @@ export const DEV_LOGIN_SECRET = "e2e-dev-login-secret-not-a-real-secret";
 /**
  * The organiser weddings cire-api adds when the stack sets
  * `CIRE_E2E_ORGANISER=1` (`seedE2eOrganiser` in `cire/api/src/db/setup.ts`,
- * which these values copy). All five are on Gold; `profileId`, the profile
- * osn-api's `/dev/login` signs in as, owns four and is a helper on
+ * which these values copy). All seven are on Gold; `profileId`, the profile
+ * osn-api's `/dev/login` signs in as, owns six and is a helper on
  * `runSheetHelper`. The co-hosts are bare
  * profile ids: the local cire-api resolves no names, so the portal shows the
  * ids, and a flow finds each person by theirs.
@@ -231,6 +235,29 @@ export const CIRE_ORGANISER = {
     speeches: { id: "evt_e2e_rsh_speeches", name: "Speeches", runOfShow: "Best man" },
     programmes: { id: "tsk_e2e_rsh_programmes", title: "Hand out programmes" },
     cue: { id: "tsk_e2e_rsh_cue", title: "Cue the speeches" },
+  },
+  /**
+   * Money gifts on and a Stripe account that can charge, one cash fund and
+   * nothing to reserve, unpublished — on a stack whose cire-api cannot take a
+   * money gift (a Stripe key and no webhook secret).
+   */
+  money: {
+    weddingId: "wed_e2e_money",
+    fundTitle: "Honeymoon fund",
+  },
+  /** A reception with one seating plan, in use: Ada and Bo Alpha at Table 1,
+   *  Cy Charlie at Table 2, all three having said yes. And an after party,
+   *  inviting Ada, with no plan yet. */
+  seating: {
+    weddingId: "wed_e2e_seating",
+    eventId: "evt_e2e_seating_rec",
+    planId: "spl_e2e_seating_1",
+    planName: "Plan 1",
+    tables: { one: "Table 1", two: "Table 2" },
+    party: { id: "evt_e2e_seating_party", name: "After party", table: "Front row" },
+    ada: { guestId: "gst_e2e_seating_ada", name: "Ada Alpha" },
+    bo: { guestId: "gst_e2e_seating_bo", name: "Bo Alpha" },
+    cy: { guestId: "gst_e2e_seating_cy", name: "Cy Charlie" },
   },
 } as const;
 
@@ -320,6 +347,8 @@ export const CIRE_HOUSEHOLD = {
 /** Identities the flows create. Fixed, so every run registers the same people. */
 export const PEOPLE = {
   musubi: { email: "ada@e2e.test", handle: "e2e_ada", name: "Ada E2E" },
+  /** Signs up through a first send the mail stand-in refuses. */
+  musubiRetry: { email: "grace@e2e.test", handle: "e2e_grace", name: "Grace E2E" },
   pulseHost: { email: "host@e2e.test", handle: "e2e_host", name: "Host E2E" },
   pulseGuest: { email: "guest@e2e.test", handle: "e2e_guest", name: "Guest E2E" },
 } as const;

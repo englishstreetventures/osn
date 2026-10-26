@@ -1,5 +1,26 @@
 # @utils/db
 
+## 0.9.0
+
+### Minor Changes
+
+- 5bf9d31: Add an Effect-native drizzle layer: `@shared/db-utils/effect/d1` for D1 (prepared-statement cache off, so every read picks its session). `@shared/db-utils/effect/batch` adds `commitEffectWrites`, an atomic write set on D1 that takes the database handle and goes out as one `D1Client.batch`. `driverErrorText` now also reads the errors inside an Effect `Cause`.
+
+## 0.8.3
+
+### Patch Changes
+
+- 75ebdfb: Move the monorepo's drizzle-orm from 1.0.0-rc.4 to 1.0.0-rc.5 and drizzle-kit to
+  1.0.0-rc.5 in the db packages. The repository patch that keeps bound values out
+  of drizzle's errors and logs is ported to rc.5 and now also drops `params` from
+  the Effect query error's JSON.
+
+## 0.8.2
+
+### Patch Changes
+
+- 355b956: Type-check with Bun's built-in checker. Each package's `check` script is now `typecheck` and runs `bun check` in place of `tsc --noEmit`, with the test tsconfigs checked the same way. Packages that still need `astro check` keep it. No source changes.
+
 ## 0.8.1
 
 ### Patch Changes

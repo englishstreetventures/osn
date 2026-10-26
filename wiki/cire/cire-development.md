@@ -23,7 +23,7 @@ related:
   - "[[commands]]"
   - "[[bundle-size-guards]]"
   - "[[cire-registry]]"
-last-reviewed: 2026-10-23
+last-reviewed: 2026-10-26
 ---
 
 # Cire development guide
@@ -206,8 +206,8 @@ Platform conventions are in [[testing-patterns]]; the real-Chromium tier is in
 ## Type-check configs
 
 Four cire packages check their shipped source under a narrower config than their
-tests, so the compiler rejects what the runtime lacks. Each package's `check`
-script runs both configs, and the test config sits at `tests/tsconfig.json` so
+tests, so the compiler rejects what the runtime lacks. Each package's `typecheck`
+script runs both configs with `bun check`, and the test config sits at `tests/tsconfig.json` so
 the editor finds it for test files (see [[testing-patterns#Rules]]).
 
 | Package | `tsconfig.json` (shipped source) | `tests/tsconfig.json` |
@@ -218,41 +218,53 @@ the editor finds it for test files (see [[testing-patterns#Rules]]).
 
 ### The guest site's packages
 
-`astro check` reports only the files in its own project, so the source of a
-workspace package the guest site imports is checked by that package's own
-`check`, under that package's tsconfig. Each one states the site's `lib` in its
-own `tsconfig.json`, rather than inheriting it from a preset, and loads no
-ambient types: `bun-types` declares `Promise.withResolvers`, `Array.fromAsync`
-and other built-ins newer than the floor whatever `lib` says.
+The guest site's `typecheck` is one `tsc` program ([[frontend-patterns#Type-checking .astro files]])
+that loads the source of every workspace package the site imports, `.astro`
+files included, and checks it at the site's `lib`. Each package also checks
+itself with `bun check` under its own tsconfig, which states the site's `lib`
+rather than inheriting it from a preset and loads no ambient types: `bun-types`
+declares `Promise.withResolvers`, `Array.fromAsync` and other built-ins newer
+than the floor whatever `lib` says.
 
 | Packages | Shipped-source `tsconfig.json` |
 |---|---|
 | `@cire/dietary`, `@cire/invite-designs`, `@cire/theme`, `@shared/color`, `@shared/design-tokens`, `@shared/legal` | Extends `base.json`; `lib` ES2022, `types: []` |
 | `@cire/ui`, `@shared/ui`, `@shared/rp-auth`, `@shared/toast` | Extends `solid.json`; `lib` ES2022 + DOM, restated |
 
-The Worker, the organiser and vendor portals, musubi and pulse compile the same
-source under their own, wider `lib`, so the narrower package config still
-type-checks for them.
+The Worker, the organiser and vendor portals, musubi and pulse load the same
+source into their own programs and check it under their own `lib` too.
 
 Where a package's tests reach `@types/node` (through Vitest's browser provider,
 or a `node:` import), they move to `tests/tsconfig.json`, so the shipped-source
 program stays at the floor: `@cire/dietary`, `@cire/theme`, `@shared/color`,
 `@shared/design-tokens` and `@shared/ui` do this.
 
-`cire/invites/tests/browser-floor.test.ts` walks the site's workspace
-dependencies (its `dependencies` and `devDependencies`, then each package's
-`dependencies`) and fails when:
+`cire/invites/tests/browser-floor.test.ts` lists the files of the site's
+program and of each package's own program with `tsc --listFilesOnly`, walks the
+site's workspace dependencies (its `dependencies` and `devDependencies`, then
+each package's `dependencies`), and fails when:
 
 - the site's own `lib` is not ES2022 + DOM, so raising the floor means editing
   that test and `cire/invites/tsconfig.json` together;
-- a package states no `lib` of its own;
-- the TypeScript program a package's `check` builds loads a library outside the
-  site's `lib`, from `lib`, a `/// <reference lib>` or a type package, or loads
-  any `bun-types` file;
-- a package's `check` script does not start with `tsc --noEmit` on that config,
-  or the config leaves out a module the package exports;
+- the site program loads a library above the floor, from `lib`, a
+  `/// <reference lib>` or a type package, or loads any `bun-types` file, or
+  leaves out an `.astro` file under `src/`;
+- a package states no `lib` of its own, or one wider than the site's;
+- a package's own program loads a library above the floor, or any `bun-types`
+  or `@types/node` file;
+- a package's `typecheck` script does not run `bun check`, or the package has a
+  `check` script, which would shadow `bun check`;
+- a package reaches the site program as anything but its `src` (a built `.d.ts`
+  would bring its types in without its code);
 - the site's source, `.astro` files included, or a package's `src` imports a
   `@cire/` or `@shared/` package the walk did not reach.
+
+The site program itself loads `@types/node`, because Astro's and Vite's types
+reference it, so `Float16Array`, `DisposableStack` and `Buffer` type-check in
+the site's own source though the floor browsers lack them; the test allows the
+two libraries that brings (`es2025.float16`, `esnext.disposable`) by name. Each
+package's own `bun check`, under a config that loads no type package, is what
+holds shared source to the floor.
 
 It lists the packages it expects, so a new dependency fails it until it meets
 the floor and joins the list. It exempts three build-only packages by name, and
@@ -286,7 +298,7 @@ What this does and does not catch:
   Runners, gotchas and what to do with a survivor:
   [[testing-patterns#Mutation testing]].
 - In the editor, `cire/api/src/local.ts` and `src/db/setup.ts` belong to neither
-  package config and fall back to the repo-root `tsconfig.json`. `check` is still
+  package config and fall back to the repo-root `tsconfig.json`. `typecheck` is still
   right for them.
 
 ## Commands
@@ -371,10 +383,24 @@ against. Miss it and `bun test cire/api/tests/` fails in the lockstep test with
 the column's own name, after every other gate has passed. Full contract for the
 mirror is in [[cire-platform-plan]] §Code map.
 
-**A new table also needs `bun run --cwd cire/db seed:generate`.** It rewrites
-`cire/db/seed/dev-reset.sql`, which drops every schema table before the dev
-tier is reseeded, and `cire/db/tests/seed/seed.test.ts` fails on a table the
-file does not drop.
+**A new table needs a seed change only when the dev seed should hold its
+rows.** Every tier but production imports `cire/db/seed/dev-seed.sql` after the
+migrations (`cire/infra/src/declaration.ts`). `bun run --cwd cire/db
+seed:generate` writes that file from `cire/db/seed/data`, and
+`cire/db/tests/seed/seed-applies.test.ts` applies it to the migrated chain, so
+a seed column list the schema no longer matches fails there.
+
+**The dev seed lands on a database that already holds rows.** Nothing resets a
+dev database: a deploy applies new migrations, then imports the seed again
+whenever the file changes. `INSERT OR IGNORE` skips a row whose primary key or
+unique index is taken, and nothing else — a foreign-key failure or a trigger's
+`RAISE(ABORT)` still fails the import and the deploy with it. So a seed row that
+references a row the database may hold under another id (a migration backfilled
+it, a tester made it, a unique index skipped the seed's own) finds it by query,
+as the seating tables find their plan in `cire/db/seed/generate.ts`. When a
+migration backfills rows the seed also writes, add a case to
+`seed-applies.test.ts` that migrates up to it, inserts the old rows, runs the
+migration, then the seed.
 
 **Dropping a column is `ALTER TABLE … DROP COLUMN`, never a copy-and-swap.**
 `db:generate` refuses a `__new_<table>` rebuild, which drops the table, and D1
@@ -405,6 +431,27 @@ test fails on one. The drop comes once the first release is in production:
 `db:generate --custom`, then `DROP INDEX` and `DROP COLUMN` as above.
 `tasks.assigned_host_id` is the example: `0091_task_assignees.sql` keeps it, and
 englishstreetventures/osn#1636 drops it.
+
+**A column the serving Worker does not name is filled by a trigger.** A release
+that adds a column every new row needs, where the Worker before it inserts rows
+without it, adds the column nullable and an `AFTER INSERT … WHEN NEW.<column>
+IS NULL` trigger that fills it, so a rolled-back Worker still writes rows the
+new code reads. A foreign key with a NULL column is not checked, so the
+trigger's UPDATE is what the keys check. A later release, once no Worker before
+the migration can serve, drops the trigger and makes the column refuse NULL.
+`20261026040620_seating_plans.sql` is the example (`seating_tables_adopt_plan`,
+`seating_assignments_adopt_plan`), `migration-20261026040620.test.ts` replays
+the old Worker's statements against it, and englishstreetventures/osn#1658
+drops the triggers.
+
+**A table nothing cascades from may be rebuilt by hand.** The rule against a
+copy-and-swap guards the tables whose `DROP` would cascade. A leaf table, one
+no foreign key points at, can be rebuilt in a `--custom` migration: create
+`__new_<table>`, copy its rows, drop the old table, rename the new one and
+create its indexes, each a statement of its own. `guard-migration-history.ts`
+refuses the rebuild in CI unless the pull request carries the
+`migrations:rewrite` label, so add it. `20261026040620_seating_plans.sql`
+rebuilds `seating_assignments` this way.
 
 **A field the guest site reads is optional there.** `deploy-cire-invites` has no
 `needs:` edge on `deploy-cire-api` in `production-release.yml`, and a release can
@@ -446,7 +493,14 @@ The **guest site is a Worker, not Pages.** The adapter emits `dist/server` +
 (see `production-release.yml`, and `deploy.yml` for dev).
 
 ```bash
-bun run --cwd cire/invites build
+# The values the deploy-cire-invites job's build step sets in
+# production-release.yml; with OSN_DEPLOY_TIER=production the build fails
+# unless PUBLIC_API_URL is https://api.cireweddings.com.
+PUBLIC_API_URL=https://api.cireweddings.com \
+PUBLIC_SITE_URL=https://invite.cireweddings.com \
+PUBLIC_MARKETING_URL=https://cireweddings.com \
+OSN_DEPLOY_TIER=production \
+  bun run --cwd cire/invites build
 cd cire/invites && bunx wrangler deploy --config dist/server/wrangler.json
 ```
 
@@ -487,6 +541,7 @@ the copy in `dist/`: every production cire-api origin becomes the origin of the
 | Production (`production-release.yml` sets `https://api.cireweddings.com`) | The committed file, byte for byte |
 | Dev (`deploy.yml`'s cire stack job sets the dev cire-api origin its `dev-hosts` step derives) | The dev API and the dev API's CSP report collector |
 | Local, env unset | `http://localhost:8787`, for `wrangler pages dev dist` |
+| A deploy (`OSN_DEPLOY_TIER` set) whose API URL is unset or loopback, or a production one naming any other API | Nothing: the build fails |
 
 All three cire Astro apps share that integration: `tierHeaders` in
 [`cire/build-tools/src/tier-headers.ts`](../../cire/build-tools/src/tier-headers.ts),
@@ -510,6 +565,16 @@ than as a blocked API on a deployed tier:
 - Its host is not a plain DNS name, so writing it would add a wildcard or a
   directive to the policy
 - No `.js` or `.mjs` file in `dist/` contains the origin the header now names
+- The build deploys and the origin is on a loopback host, over https as well
+  as http. A deploy build is one whose own environment sets `OSN_DEPLOY_TIER`
+  at all, an empty value included, which the integration reads from
+  `process.env`: each deploy job's build step for the three apps sets it to
+  `dev` or `production`, and turbo hashes it, so a deploy build never replays a
+  cached test build made without it. On dev the cire stack's site check also
+  refuses a build that does not name the dev API, before upload
+  ([[infrastructure-as-code]]); production has only this integration's checks.
+- The build deploys with a tier other than `dev` or `production`
+- The tier is `production` and the origin is not `https://api.cireweddings.com`
 
 So write only the production origin in `public/_headers`, never a dev or
 loopback one; `tests/lib/headers.test.ts` in each portal fails on either.
@@ -556,6 +621,7 @@ committed file names only the production API and no loopback origin:
 | Production build | The committed file, byte for byte |
 | Dev build | The dev API and its collector |
 | Local build, env unset | `http://localhost:8787` |
+| A deploy (`OSN_DEPLOY_TIER` set) whose `PUBLIC_API_URL` is unset or loopback, or a production one naming any other API | Nothing: the build fails |
 | `astro dev` (portless or not) | The middleware's policy for the devloop's `PUBLIC_API_URL`; no `_headers` applies |
 
 ### Checking a policy change

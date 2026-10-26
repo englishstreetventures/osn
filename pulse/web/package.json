@@ -1,6 +1,6 @@
 {
   "name": "@pulse/web",
-  "version": "0.24.28",
+  "version": "0.24.33",
   "private": true,
   "description": "Pulse - Events platform for OSN",
   "type": "module",
@@ -15,7 +15,7 @@
     "dev:app": "dev-env vite dev",
     "build": "vite build",
     "preview": "vite preview",
-    "check": "tsc --noEmit",
+    "typecheck": "bun check --no-script",
     "test": "bunx --bun vitest --project unit",
     "test:run": "bunx --bun vitest run --project unit",
     "test:browser": "bunx --bun vitest run --project browser"
@@ -48,9 +48,9 @@
     "@vitest/browser": "5.0.3",
     "@vitest/browser-playwright": "5.0.3",
     "@vitest/coverage-istanbul": "5.0.3",
-    "happy-dom": "^20.12.2",
+    "happy-dom": "^21.0.4",
     "playwright": "^1.62.1",
-    "typescript": "^6.0.3",
+    "typescript": "7.1.0-beta",
     "vite": "^8.3.3",
     "vite-plugin-solid": "^2.11.14",
     "vitest": "5.0.3"

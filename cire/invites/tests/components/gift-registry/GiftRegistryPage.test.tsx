@@ -13,7 +13,7 @@ import type {
   GiftRegistry,
   GiftRegistryFund,
   GiftRegistryItem,
-} from "../../../src/lib/gift-registry";
+} from "../../../src/lib/gift-registry-read";
 
 /**
  * The gift list's own page.
@@ -535,6 +535,9 @@ describe("the organiser's preview", () => {
         /^Preview mode\./,
       ),
     );
+    // The list offers money, so the note says guests give it here. Where it
+    // offers none, the note leaves money out (the E2E preview flow holds that).
+    expect(container.querySelector("[data-gift-preview]")?.textContent).toMatch(/give money/);
     // A preview is signed in: no session-ended note.
     expect(container.querySelector("[data-gift-signed-out]")).toBeNull();
     const reserve = screen.getByRole("button", { name: "Reserve" }) as HTMLButtonElement;

@@ -79,16 +79,16 @@ Report the issues opened and the issue numbers this branch closes — Step 8 nee
 
 ## Step 9 — Push and open the PR
 
-Run `git push -u origin HEAD`, then open the PR **against `$BASE` from Step 0**, not against `main`, with `write-pr` Step 6's REST command: `base` is `$BASE`, the title and the body file are `write-pr`'s. Then run that step's closes check.
+Run `git push -u origin HEAD`, then open the PR **against `$BASE` from Step 0**, not against `main`, with `write-pr` Step 6's REST command: `base` is `$BASE`, the title and the body file are `write-pr`'s, and `-F draft=true` is added when `SKILL.md` Step 9 says the pull request waits on the owner. Then run that step's closes check.
 
 With no network or no `gh`, record that the PR was not opened, name the base it should target, and leave the body file in place. That is a complete run.
 
 ### After opening
 
-Confirm the base actually took:
+Confirm the base and the draft state actually took:
 
 ```bash
-gh api repos/englishstreetventures/osn/pulls/<n> --jq '"\(.head.ref) -> \(.base.ref)"'
+gh api repos/englishstreetventures/osn/pulls/<n> --jq '"\(.head.ref) -> \(.base.ref), draft: \(.draft)"'
 ```
 
 A stacked PR showing `main` as its base is not stacked — fix it with `gh api -X PATCH repos/englishstreetventures/osn/pulls/<n> -f base=<parent-branch>` rather than in the web UI.
@@ -104,4 +104,4 @@ gh stack checkout <stack-number>                       # confirm
 
 Why `checkout` and not `view` confirms it, and what to do with no network: `references/registering-a-stack.md`.
 
-Report the PR number, its base branch, whether the stack is registered, the issues it closes, and any close it could not make.
+Report the PR number, its base branch, whether it is a draft and what it waits on, whether the stack is registered, the issues it closes, and any close it could not make.

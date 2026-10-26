@@ -16,7 +16,7 @@ related:
   - "[[monorepo-structure]]"
   - "[[database-environments]]"
   - "[[osn-and-musubi]]"
-last-reviewed: 2026-10-23
+last-reviewed: 2026-10-24
 ---
 
 # Infrastructure as code (Alchemy)
@@ -70,7 +70,7 @@ Every builder takes each setting where Alchemy's default differs from today's Wr
 | `requireSeedValue()` | Reads one value a stack builds its own seed from, which no Worker receives; throws `SeedValueError`, naming the variable and never its value, when it is unset, blank or padded. | — |
 | `assertSiteBuiltFor()`, `PrebuiltSite` | Refuses a prebuilt site directory that is missing, or whose text files, taken together, lack an origin the site's build bakes in for the stage ([[#Sites]]). | Alchemy uploads whatever the directory holds |
 | `stackOptions()` | The providers and state store every stack passes to `Alchemy.Stack`: `Cloudflare.providers()` and `Cloudflare.state()` ([[#State store]]). | — |
-| `removalFor()`, `assertRetained()`, `assertStackRetained()` | Storage is always retained; a Worker on `dev` or `production` is retained, because deleting it deletes its secrets; an investigation stage's Workers are destroyed with it. Every stack ends with `assertStackRetained({ stage, storage, workers })`, which asserts its storage always and its Workers where `removalFor()` retains them, so a lost `retain()` fails the plan rather than a destroy. | Workers, D1 databases and R2 buckets default to removal policy `destroy` |
+| `removalFor()`, `assertRetained()`, `assertStackRetained()` | Storage is always retained; a Worker on `dev` or `production` is retained, because deleting it deletes its secrets; an investigation stage's Workers are destroyed with it. Every stack ends with `assertStackRetained({ stage, storage, workers })`, which asserts its storage always and its Workers where `removalFor()` retains them, so a lost `retain()` fails the plan rather than a destroy. A Durable Object namespace is not a resource it sees: Alchemy asks Cloudflare to delete a class the Worker hosts, with its storage, on the first deploy in which no binding names it ([[cire#Turning realtime push off]]). | Workers, D1 databases and R2 buckets default to removal policy `destroy` |
 | `parseStage()`, `tierOf()`, `isLongLivedStage()`, `physicalName()` | The stage rules ([[#Stages]]). | Alchemy's generated `${app}-${stage}-${id}` names: a long-lived resource always passes its name |
 | `parseDevDomain()`, `readDevDomain()`, `stageHosts()`, `origin()`, `devHostOutputs()` | The dev host layout ([[#Dev hosts]]). | — |
 | `assertDevDeployTarget()`, `refuseDotEnvFiles()`, `refuseProductionTier()` | The checks a stack makes before it declares anything ([[#How a stack run starts]]). | Credentials from a stored profile when either variable is unset; `.env` files loaded into `process.env` |
@@ -168,7 +168,7 @@ Generated files go under `<product>/infra/.generated/` (git-ignored, `*/infra/.g
 **Running a stack by hand.** Export the dev credentials as `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`, and `DEV_DOMAIN`, then:
 
 1. `bun run --cwd shared/infra token:check -- --tier dev`. Go on only when it exits 0: nothing in the stack checks which account the token reaches.
-2. Build the stack's sites with that stage's hosts: `bun run --cwd shared/infra dev-hosts -- --stage <stage>` prints them, and each build takes the values its stack job in `deploy.yml` passes. A site built for other hosts, or not built, fails the site check before anything is written.
+2. Build the stack's sites with that stage's hosts: `bun run --cwd shared/infra dev-hosts -- --stage <stage>` prints them, and each build takes the values its stack job in `deploy.yml` passes, `OSN_DEPLOY_TIER=dev` among them for cire's guest site and two portals. A site built for other hosts, or not built, fails the site check before anything is written.
 3. For the musubi stack, set `CIRE_API_ARC_KEY_ID`, `CIRE_API_ARC_PUBLIC_JWK` and `CIRE_OIDC_CLIENT_SECRET_SHA256`: `GITHUB_OUTPUT=<file> bun --no-install musubi/infra/scripts/derive-cire-seed.ts`, with the three cire secrets set, writes them to `<file>` as `key_id`, `public_jwk` and `client_secret_sha256`.
 4. From the stack's directory, with `OSN_DEPLOY_TIER=dev` and the stack's secrets set: `bun run plan:dev` or `bun run deploy:dev` (each sets `DO_NOT_TRACK=1`).
 
@@ -265,7 +265,7 @@ build ────┘
 **One stack job per stack** (`stack-musubi-dev`, `stack-cire-dev`, `stack-zap-dev`, `stack-pulse-dev`, "Alchemy <stack> stack — dev") deploys the whole stack, in the `dev` Environment, in its own concurrency group `deploy-dev-<stack>` that never cancels. In order:
 
 1. Refuse `force` together with `expect_no_change`.
-2. Install with `--frozen-lockfile`, run `dev-hosts`, and build the stack's sites against those hosts. No install or build step holds a credential or a Worker secret; the invites build reads `ASTRO_KEY` alone. Each job then runs `scripts/guard-bundle-size.sh` on every guarded site it built: cire's four, musubi landing and pulse landing ([[bundle-size-guards]]).
+2. Install with `--frozen-lockfile`, run `dev-hosts`, and build the stack's sites against those hosts. No install or build step holds a credential or a Worker secret; the invites build reads `ASTRO_KEY` alone. The cire job's builds of the guest site and the two portals set `OSN_DEPLOY_TIER: dev`, so a cire-api URL on the build machine fails the build ([[cire-development#Portal security headers]]). Each job then runs `scripts/guard-bundle-size.sh` on every guarded site it built: cire's four, musubi landing and pulse landing ([[bundle-size-guards]]).
 3. **Token check**: `token:check -- --tier dev` stops the job unless the dev token reaches the dev account and no other, and acts on the `DEV_DOMAIN` zone and no production zone ([[#Accounts]]). No earlier step holds the token.
 4. **Snapshot**: `scripts/worker-deployments.ts snapshot` records each Worker's newest deployment, and writes `force=true` when any Worker's newest deployment carries the smoke check's rollback message.
 5. Refuse `expect_no_change` while the snapshot says `force`.
@@ -277,7 +277,7 @@ build ────┘
 11. **The guest route comparison** (cire only), once the guest site's smoke check has passed: [[#The guest route comparison]].
 12. Fail the job when any check, the comparison or the compare step failed.
 
-**Build caches.** The musubi, cire and pulse jobs each keep a turbo cache of their own, since turbo hashes each dev build's `PUBLIC_*`, `VITE_*` and `SITE` values and the `build` job's cache never holds a dev build. Each saves `.turbo` under `<os>-turbo-dev-<stack>-<bun.lock hash>-<commit>`. With no cache under that key, it restores the newest cache under the first of these prefixes that has one: `<os>-turbo-dev-<stack>-<bun.lock hash>-`, then `<os>-turbo-dev-<stack>-`. It never falls back to the `build` job's cache, so no stack carries that whole cache forward into an entry of its own. zap builds nothing and keeps none. The guest site always builds with the cache off ([[#Bundling and the module registry]]).
+**Build caches.** The musubi, cire and pulse jobs each keep a turbo cache of their own, since turbo hashes each dev build's `PUBLIC_*`, `VITE_*`, `SITE` and `OSN_DEPLOY_TIER` values and the `build` job's cache never holds a dev build. Each saves `.turbo` under `<os>-turbo-dev-<stack>-<bun.lock hash>-<commit>`. With no cache under that key, it restores the newest cache under the first of these prefixes that has one: `<os>-turbo-dev-<stack>-<bun.lock hash>-`, then `<os>-turbo-dev-<stack>-`. It never falls back to the `build` job's cache, so no stack carries that whole cache forward into an entry of its own. zap builds nothing and keeps none. The guest site always builds with the cache off ([[#Bundling and the module registry]]).
 
 **Rollback is judged by deployment id.** Alchemy reports no version id for a normal deploy, and it plans against its own state, not the live Worker. So the smoke check never rolls back an `unchanged` Worker, and after a rollback the stack's state still names the code the rollback removed: the next run's snapshot sees the rollback message, deploys with `--force`, and re-uploads what the commit declares. An `unchanged` Worker whose newest deployment is a rollback fails its check at once, so a failed heal never records success. Roll a dev Worker back only through the smoke check: a rollback made by hand carries no rollback message, so no run sees it and dev keeps serving it.
 

@@ -2,6 +2,9 @@ import { makeResendEmailLive } from "@shared/email";
 import { Effect } from "effect";
 
 import { createApp } from "./app";
+import { runInD1Session } from "./db/d1-session";
+import { effectDbFor } from "./db/effect-handle";
+import { localD1Binding } from "./db/local-d1";
 import {
   applyE2eGiftList,
   applyE2eOrganiser,
@@ -67,9 +70,10 @@ const assets = createAssetsStub();
 
 // Stripe, key-optional exactly as the Worker is (see index.ts): no
 // `STRIPE_SECRET_KEY` and the organiser Connect routes are not mounted, no
-// `STRIPE_WEBHOOK_SECRET` and `/api/stripe/webhook` does not exist. Both come
-// from the shell, never from a committed file — the webhook secret in
-// particular is whatever `stripe listen` prints for THIS session:
+// `STRIPE_WEBHOOK_SECRET` and `/api/stripe/webhook` does not exist — and guests
+// are offered no money gift, which needs both (the key alone logs a warning at
+// boot). Both come from the shell, never from a committed file — the webhook
+// secret in particular is whatever `stripe listen` prints for THIS session:
 //
 //   stripe listen --forward-connect-to localhost:8787/api/stripe/webhook \
 //                 --forward-to         localhost:8787/api/stripe/platform-webhook
@@ -143,6 +147,11 @@ const localResend = localResendConfig({
 });
 if (localResend) appOptions.emailLayer = makeResendEmailLive(localResend);
 
+// The local D1 binding runs over the same bun connection as `db`, so the Effect
+// handle and the promise handle see one database, as they do in the test suite.
+const localBinding = localD1Binding(db.$client);
+appOptions.effectDb = effectDbFor(localBinding, "fetch");
+
 const app = createApp(db, appOptions);
 
 // Only the E2E stack sets this: it keeps the client address a request sends,
@@ -160,7 +169,9 @@ const server = Bun.serve({
     // header at the edge. When a sent address is kept: `localClientAddress`.
     const ip = srv.requestIP(request)?.address ?? "127.0.0.1";
     const headers = localClientAddress(request.headers, ip, keepSentClientAddress);
-    return app.fetch(new Request(request, { headers }));
+    // Each request runs in its own D1 session, as a Worker request does, so
+    // the Effect handle's queries are routed and no lost-session warning fires.
+    return runInD1Session(localBinding, () => app.fetch(new Request(request, { headers })));
   },
 });
 runCireSync(Effect.logInfo("cire-api dev server listening", { port: server.port }));

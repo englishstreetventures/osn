@@ -1,0 +1,10 @@
+---
+"@cire/db": minor
+"@cire/api": minor
+---
+
+Seating plans in the database and the API: an event's seating chart can hold up to five plans, one of them in use, and the portal keeps working on each event's plan in use
+
+- **Schema** (`@cire/db`): migration `20261026040620_seating_plans.sql` adds `seating_plans`, with a partial unique index that refuses a second plan in use at one event; `plan_id` on `seating_tables` (by `ADD COLUMN`) and on `seating_assignments` (copied and swapped by hand), whose unique index becomes one seat per guest per plan, with a `(table_id, plan_id)` foreign key keeping a seat in its table's plan. Two triggers refuse a table whose plan belongs to another event or wedding. Every event that has tables gets one plan, "Plan 1", in use. Two more triggers put a table or seat written without a plan, as the Worker before this release writes them, into the event's plan in use; englishstreetventures/osn#1658 removes them once that Worker cannot serve again. `seating_copy_budget` counts the tables and seats each wedding copies into new plans per UTC day.
+- **API** (`@cire/api`): `GET …/seating/events/:eventId` takes `?plan=` and answers the event's plans and the plan read. New routes make, copy, rename, delete and select plans, and add tables, order them and seat guests in a named plan; making and deleting plans sit behind a per-user limiter of 10 a minute, and a wedding copies at most 3,000 tables and seats a day (409 `copy_budget`). The event's own table, reorder and seat addresses stay, and act on its plan in use, read inside the same batch. The venue file, `seating.csv`, and the locked card's count read each event's plan in use. The import preview counts the seats and tables a change removes across every plan. New counter `cire.seating.plan.write`, and refusal reasons `plan_limit`, `plan_selected` and `copy_budget`.
+- **E2E seed** (`@cire/api`): `CIRE_E2E_ORGANISER=1` adds `wed_e2e_seating`, a reception with one plan seating three guests and an after party with no plan.

@@ -7,7 +7,7 @@ related:
   - "[[review-findings]]"
   - "[[stacked-prs]]"
   - "[[testing-patterns]]"
-last-reviewed: 2026-10-23
+last-reviewed: 2026-10-26
 ---
 
 # Contributing
@@ -39,7 +39,7 @@ Android is deferred. iOS is the primary native target (Swift). Web support follo
 
 Lefthook runs automatically on every commit:
 - **oxlint** -- lints staged files
-- **oxfmt** -- formats staged files
+- **bun fmt** -- formats staged files
 
 ### Pre-push (lefthook)
 
@@ -95,7 +95,7 @@ A bare run at a terminal refuses, but a bare run from a non-interactive shell (a
 
 ### Dependencies
 
-- **Never a bare `bun install`.** Resolving on one machine drops every lockfile entry for a platform it is not running on — on a Mac, all the non-darwin binaries CI needs. Install with `bun install --frozen-lockfile`; when a dependency changes, splice its `bun.lock` entry by hand and prove it with `bun install --frozen-lockfile`. `bun run reset` still chains a bare install, so check `git diff bun.lock` after it and discard the pruning.
+- **Never a bare `bun install`.** Resolving on one machine drops every lockfile entry for a platform it is not running on — on a Mac, all the non-darwin binaries CI needs. Install with `bun install --frozen-lockfile`; when a dependency changes, splice its `bun.lock` entry by hand and prove it with `bun install --frozen-lockfile`.
 - **Add with `--cwd`, not `--filter`:** `bun add drizzle-orm --cwd pulse/db`.
 - **Vitest pins.** `vitest` and every `@vitest/*` package are pinned exactly, all to the same version, in every workspace that declares them: `@vitest/browser`, `@vitest/browser-playwright`, `@vitest/coverage-istanbul` and `@vitest/ui` each name that exact `vitest` version as a peer, so a caret range that resolves a newer `vitest` breaks them.
 - **Release-age soak.** `bunfig.toml` sets `minimumReleaseAge = 259200` (3 days), so a fresh publish cannot install at once. Each entry in `minimumReleaseAgeExcludes` must carry a `# DROP AFTER <name> <YYYY-MM-DD>` comment dated no more than 30 days out; `bun run check:release-age-excludes` (also in CI) fails on a missing, invalid, expired or over-long marker, and on the soak dropping below 259200.
@@ -120,8 +120,9 @@ Before opening a PR, verify:
 - [ ] Tests pass (`bun run --cwd <package> test:run`, or `test` where the package's `test` script is `bun test` or it has no `test:run`)
 - [ ] Linting passes (`bun run lint`)
 - [ ] Formatting passes (`bun run fmt:check`)
-- [ ] Type check passes (`bun run check`)
-
+- [ ] Type check passes (`bun run typecheck`)
+- [ ] Opened as a draft if it waits on the owner -- a decision about the change still open, an approval only the owner can give, or a "not ready" only they can settle. Its `**Do not merge until**` line says which, it still runs CI, and only the owner marks it ready (the `prep-pr` skill, Step 9). A CODEOWNERS path or a default the session took does not make it one
+>
 ## Observability Checklist
 
 Every feature PR should also answer:

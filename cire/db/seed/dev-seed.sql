@@ -8,10 +8,13 @@
 -- the first three, so the test fixtures and this SQL can no longer drift.
 -- seed.test.ts fails CI on drift.
 --
--- Idempotent — every INSERT uses `OR IGNORE` so re-running on top of an
--- existing seed is a no-op (PK / unique-index conflicts are skipped). To
--- pick up edits to existing rows, use `bun run db:reset` instead which
--- wipes local D1 state then re-pushes + re-seeds.
+-- Re-runnable — every INSERT uses `OR IGNORE`, so a row whose primary key or
+-- unique index is already taken is skipped. `OR IGNORE` does not cover a
+-- foreign-key failure or a trigger's RAISE: a row that references a row the
+-- database may hold under another id (a migration backfilled it, a tester made
+-- it, a unique index skipped the seed's own) finds it by query. To pick up
+-- edits to existing rows, use `bun run db:reset` instead which wipes local
+-- D1 state then re-pushes + re-seeds.
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- Sample wedding (local dev only)
@@ -627,28 +630,48 @@ INSERT OR IGNORE INTO guest_events (guest_id, event_id) VALUES
   ('b0000000-0000-4000-8000-000000000006', '9f7a2c14-1b3d-4e5f-8a01-000000000005');
 
 -- ────────────────────────────────────────────────────────────────────────────
--- Seating chart (2 tables, 3 seated) — the Reception
+-- Seating chart (1 plans, 2 tables, 3 seats) — the Reception
 -- ────────────────────────────────────────────────────────────────────────────
 
 -- After the invitations: a seat's foreign key names its guest's invitation
--- to the event, and its table's event.
-INSERT OR IGNORE INTO seating_tables (
+-- to the event, and its table's event and plan. Every row names its plan.
+-- Tables and seats find their plan by query, never by the seed's id alone:
+-- the plan a database holds may not be the seed's, and a table naming a plan
+-- of another event aborts the import, OR IGNORE or not.
+INSERT OR IGNORE INTO seating_plans (
   id, wedding_id, event_id, name,
+  selected, created_at, updated_at
+) VALUES
+  (
+    'spl_c1d2e3f4-0000-4000-8000-000000000001', 'wed_bootstrap', '9f7a2c14-1b3d-4e5f-8a01-000000000004', 'Plan 1',
+    1, unixepoch(), unixepoch()
+  );
+
+INSERT OR IGNORE INTO seating_tables (
+  id, wedding_id, event_id, plan_id, name,
   capacity, sort_order, created_at, updated_at
 ) VALUES
   (
-    'stb_c1d2e3f4-0000-4000-8000-000000000001', 'wed_bootstrap', '9f7a2c14-1b3d-4e5f-8a01-000000000004', 'Table 1',
-    8, 0, unixepoch(), unixepoch()
+    'stb_c1d2e3f4-0000-4000-8000-000000000001', 'wed_bootstrap', '9f7a2c14-1b3d-4e5f-8a01-000000000004',
+    COALESCE(
+      (SELECT id FROM seating_plans WHERE id = 'spl_c1d2e3f4-0000-4000-8000-000000000001' AND event_id = '9f7a2c14-1b3d-4e5f-8a01-000000000004'),
+      (SELECT id FROM seating_plans WHERE event_id = '9f7a2c14-1b3d-4e5f-8a01-000000000004' AND selected = 1)
+    ),
+    'Table 1', 8, 0, unixepoch(), unixepoch()
   ),
   (
-    'stb_c1d2e3f4-0000-4000-8000-000000000002', 'wed_bootstrap', '9f7a2c14-1b3d-4e5f-8a01-000000000004', 'Table 2',
-    10, 1, unixepoch(), unixepoch()
+    'stb_c1d2e3f4-0000-4000-8000-000000000002', 'wed_bootstrap', '9f7a2c14-1b3d-4e5f-8a01-000000000004',
+    COALESCE(
+      (SELECT id FROM seating_plans WHERE id = 'spl_c1d2e3f4-0000-4000-8000-000000000001' AND event_id = '9f7a2c14-1b3d-4e5f-8a01-000000000004'),
+      (SELECT id FROM seating_plans WHERE event_id = '9f7a2c14-1b3d-4e5f-8a01-000000000004' AND selected = 1)
+    ),
+    'Table 2', 10, 1, unixepoch(), unixepoch()
   );
 
-INSERT OR IGNORE INTO seating_assignments (table_id, event_id, guest_id, created_at) VALUES
-  ('stb_c1d2e3f4-0000-4000-8000-000000000001', '9f7a2c14-1b3d-4e5f-8a01-000000000004', 'b0000000-0000-4000-8000-000000000001', unixepoch()),
-  ('stb_c1d2e3f4-0000-4000-8000-000000000001', '9f7a2c14-1b3d-4e5f-8a01-000000000004', 'b0000000-0000-4000-8000-000000000002', unixepoch()),
-  ('stb_c1d2e3f4-0000-4000-8000-000000000002', '9f7a2c14-1b3d-4e5f-8a01-000000000004', 'b0000000-0000-4000-8000-000000000006', unixepoch());
+INSERT OR IGNORE INTO seating_assignments (table_id, plan_id, event_id, guest_id, created_at) VALUES
+  ('stb_c1d2e3f4-0000-4000-8000-000000000001', (SELECT plan_id FROM seating_tables WHERE id = 'stb_c1d2e3f4-0000-4000-8000-000000000001'), '9f7a2c14-1b3d-4e5f-8a01-000000000004', 'b0000000-0000-4000-8000-000000000001', unixepoch()),
+  ('stb_c1d2e3f4-0000-4000-8000-000000000001', (SELECT plan_id FROM seating_tables WHERE id = 'stb_c1d2e3f4-0000-4000-8000-000000000001'), '9f7a2c14-1b3d-4e5f-8a01-000000000004', 'b0000000-0000-4000-8000-000000000002', unixepoch()),
+  ('stb_c1d2e3f4-0000-4000-8000-000000000002', (SELECT plan_id FROM seating_tables WHERE id = 'stb_c1d2e3f4-0000-4000-8000-000000000002'), '9f7a2c14-1b3d-4e5f-8a01-000000000004', 'b0000000-0000-4000-8000-000000000006', unixepoch());
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- Replies (10) — the canonical families

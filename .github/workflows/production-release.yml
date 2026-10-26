@@ -335,6 +335,11 @@ jobs:
         with:
           persist-credentials: false
 
+      # `astro build` runs on Node, and astro 7.4 requires Node >= 22.23.4.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
@@ -391,6 +396,11 @@ jobs:
           # which build it was. A `PUBLIC_*` var is in turbo's build hash, so
           # a new commit never replays an older `dist/`.
           PUBLIC_BUILD_SHA: ${{ github.sha }}
+          # Marks a production deploy build: the CSP integration then fails
+          # the build unless the cire-api URL is https://api.cireweddings.com.
+          # turbo hashes it, so this build never replays the `build` job's
+          # tier-less one. A literal, so the tier is always `production` here.
+          OSN_DEPLOY_TIER: production
 
       # Warns (the step stays green) when the SSR bundle is over its budget
       # in scripts/bundle-size-budgets.txt; `ci.yml` annotates the same on
@@ -457,6 +467,11 @@ jobs:
         with:
           persist-credentials: false
 
+      # `astro build` runs on Node, and astro 7.4 requires Node >= 22.23.4.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
@@ -508,6 +523,8 @@ jobs:
           PUBLIC_CIRE_WEB_URL: https://invite.cireweddings.com
           # The RSVP editor's privacy link: the marketing site's /privacy.
           PUBLIC_MARKETING_URL: https://cireweddings.com
+          # A deploy build (see the cire/invites build above).
+          OSN_DEPLOY_TIER: production
 
       # Warns when the bundle is over its budget, and fails, stopping the
       # release, on a source map anywhere in `dist`, which Pages serves whole.
@@ -541,6 +558,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+
+      # `astro build` runs on Node, and astro 7.4 requires Node >= 22.23.4.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -583,6 +605,8 @@ jobs:
           PUBLIC_CIRE_API_URL: https://api.cireweddings.com
           # Account management deep link (see the cire/host build above).
           PUBLIC_OSN_ACCOUNT_URL: https://musubi.social
+          # A deploy build (see the cire/invites build above).
+          OSN_DEPLOY_TIER: production
 
       # See the cire/host job above for what this refuses and why it runs
       # even though `build` chains it.
@@ -614,6 +638,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+
+      # `astro build` runs on Node, and astro 7.4 requires Node >= 22.23.4.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
 
       - uses: oven-sh/setup-bun@v2
         with:

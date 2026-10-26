@@ -112,9 +112,11 @@ const logDefect = (cause: unknown) => Effect.logError("registry guest handler de
  * tier check must cover every registry route without ever leaking onto
  * the invite's own public routes.
  *
- * `takesPayments` is whether this deployment mounted the contribute route. The
- * list offers money, and the couple's cash funds, only when it is true: a
- * guest must never be offered a button that cannot lead anywhere.
+ * `takesPayments` is whether this deployment mounted the contribute route,
+ * which needs a Stripe key AND the Connect webhook secret that records each
+ * gift. The list offers money, and the couple's cash funds, only when it is
+ * true: a guest must never be offered a button that cannot lead anywhere, nor
+ * pay for a gift nothing will record.
  */
 export const createRegistryGuestListRoutes = (db: Db, deps: { readonly takesPayments: boolean }) =>
   new Elysia({ prefix: "/api/invite" })

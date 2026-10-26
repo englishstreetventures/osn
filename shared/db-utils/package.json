@@ -1,6 +1,6 @@
 {
   "name": "@shared/db-utils",
-  "version": "0.8.1",
+  "version": "0.9.0",
   "private": true,
   "type": "module",
   "author": "English Street Ventures Pty Ltd",
@@ -11,15 +11,18 @@
   },
   "exports": {
     ".": "./src/index.ts",
-    "./search": "./src/search.ts"
+    "./search": "./src/search.ts",
+    "./effect/d1": "./src/effect/d1.ts",
+    "./effect/batch": "./src/effect/batch.ts"
   },
   "scripts": {
-    "check": "tsc --noEmit && tsc --noEmit -p tests/tsconfig.json",
+    "typecheck": "bun check --no-script && bun check --no-script -p tests/tsconfig.json",
     "test": "bunx --bun vitest",
     "test:run": "bunx --bun vitest run"
   },
   "dependencies": {
-    "drizzle-orm": "1.0.0-rc.4",
+    "@effect/sql-d1": "4.0.5",
+    "drizzle-orm": "1.0.0-rc.5",
     "effect": "4.0.5"
   },
   "devDependencies": {

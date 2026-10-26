@@ -5,6 +5,7 @@ import type { HTTPHeaders } from "elysia";
 
 import { DbService } from "../db";
 import type { Db } from "../db";
+import { EffectDbService, type EffectD1Db } from "../db/effect-handle";
 import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { rateLimitMiddleware, rateLimitMiddlewareByUser } from "../middleware/rate-limit";
@@ -60,6 +61,18 @@ const exportDefect = (set: { status?: number | string }, exportName: string, wed
     set.status = 500;
     return { error: "Internal error" };
   });
+
+/**
+ * Runs an export read on the D1 Effect handle. An app built without one dies
+ * here, so the route answers through its own `catchDefect`.
+ */
+const onEffectDb = <A>(
+  effectDb: EffectD1Db | undefined,
+  read: Effect.Effect<A, never, EffectDbService>,
+): Effect.Effect<A> =>
+  effectDb === undefined
+    ? Effect.die(new Error("organiser export: no EffectDbService was provided"))
+    : read.pipe(Effect.provideService(EffectDbService, effectDb));
 
 /**
  * The same treatment for the JSON roster reads (`/guests`, `/households`), which
@@ -336,6 +349,7 @@ export const createOrganiserExportRoutes = (
   db: Db,
   osnAuthOptions: OsnAuthOptions,
   limiter: RateLimiterBackend,
+  effectDb: EffectD1Db | undefined,
 ) =>
   new Elysia({ prefix: "/api/organiser" })
     .use(osnAuth(osnAuthOptions))
@@ -356,12 +370,9 @@ export const createOrganiserExportRoutes = (
           }
           return runCire(
             Effect.gen(function* () {
-              const data = yield* rsvpExportService.build(weddingId);
+              const data = yield* onEffectDb(effectDb, rsvpExportService.build(weddingId));
               return csvAttachment(toCsv(data), `cire-rsvps-${weddingSlug ?? weddingId}.csv`);
-            }).pipe(
-              Effect.provideService(DbService, db),
-              Effect.catchDefect(() => exportDefect(set, "rsvps.csv", weddingId)),
-            ),
+            }).pipe(Effect.catchDefect(() => exportDefect(set, "rsvps.csv", weddingId))),
           );
         })
         // Guest-roster CSV export — one row per guest with household code,
@@ -374,12 +385,9 @@ export const createOrganiserExportRoutes = (
           }
           return runCire(
             Effect.gen(function* () {
-              const csv = yield* tableExportService.guestsCsv(weddingId);
+              const csv = yield* onEffectDb(effectDb, tableExportService.guestsCsv(weddingId));
               return csvAttachment(csv, `cire-guests-${weddingSlug ?? weddingId}.csv`);
-            }).pipe(
-              Effect.provideService(DbService, db),
-              Effect.catchDefect(() => exportDefect(set, "guests.csv", weddingId)),
-            ),
+            }).pipe(Effect.catchDefect(() => exportDefect(set, "guests.csv", weddingId))),
           );
         })
         // Event-list CSV export — one row per event (chronological) with the
@@ -392,12 +400,9 @@ export const createOrganiserExportRoutes = (
           }
           return runCire(
             Effect.gen(function* () {
-              const csv = yield* tableExportService.eventsCsv(weddingId);
+              const csv = yield* onEffectDb(effectDb, tableExportService.eventsCsv(weddingId));
               return csvAttachment(csv, `cire-events-${weddingSlug ?? weddingId}.csv`);
-            }).pipe(
-              Effect.provideService(DbService, db),
-              Effect.catchDefect(() => exportDefect(set, "events.csv", weddingId)),
-            ),
+            }).pipe(Effect.catchDefect(() => exportDefect(set, "events.csv", weddingId))),
           );
         })
         // Gift-log CSV export — one row per gift, claims and cash together,
@@ -423,12 +428,9 @@ export const createOrganiserExportRoutes = (
           }
           return runCire(
             Effect.gen(function* () {
-              const csv = yield* giftExportService.giftsCsv(weddingId);
+              const csv = yield* onEffectDb(effectDb, giftExportService.giftsCsv(weddingId));
               return csvAttachment(csv, `cire-gifts-${weddingSlug ?? weddingId}.csv`);
-            }).pipe(
-              Effect.provideService(DbService, db),
-              Effect.catchDefect(() => exportDefect(set, "gifts.csv", weddingId)),
-            ),
+            }).pipe(Effect.catchDefect(() => exportDefect(set, "gifts.csv", weddingId))),
           );
         })
         // The budget and checklist exports — the couple's budget lines (each
@@ -471,10 +473,11 @@ export const createOrganiserExportRoutes = (
             ),
           );
         })
-        // The seating chart for the venue — every seated guest at every
-        // event, by event and table order. Ungated for the reason the budget
-        // and checklist files are: a wedding below the seating module's tier
-        // keeps its chart and takes it back from the locked card. Capped
+        // The seating chart for the venue — every guest seated in each
+        // event's selected plan, by event and table order. Ungated for the
+        // reason the budget and checklist files are: a wedding below the
+        // seating module's tier keeps its chart and takes it back from the
+        // locked card. Capped
         // (`MAX_SEATING_EXPORT_ROWS`) and rate-limited with the group.
         .get("/seating.csv", ({ weddingId, weddingSlug, set }) => {
           if (!weddingId) {
@@ -483,12 +486,9 @@ export const createOrganiserExportRoutes = (
           }
           return runCire(
             Effect.gen(function* () {
-              const csv = yield* seatingExportService.seatingCsv(weddingId);
+              const csv = yield* onEffectDb(effectDb, seatingExportService.seatingCsv(weddingId));
               return csvAttachment(csv, `cire-seating-${weddingSlug ?? weddingId}.csv`);
-            }).pipe(
-              Effect.provideService(DbService, db),
-              Effect.catchDefect(() => exportDefect(set, "seating.csv", weddingId)),
-            ),
+            }).pipe(Effect.catchDefect(() => exportDefect(set, "seating.csv", weddingId))),
           );
         })
         // How many rows `budget.csv`, `tasks.csv`, `gifts.csv` and
@@ -572,20 +572,11 @@ export const createOrganiserExportRoutes = (
             return { error: "Internal error" };
           }
           return runCire(
-            rsvpExportService.buildView(weddingId).pipe(
-              Effect.provideService(DbService, db),
-              Effect.tap(() =>
-                Effect.sync(() => {
-                  set.headers["cache-control"] = "no-store";
-                }),
-              ),
-              Effect.catchDefect(() =>
-                Effect.sync(() => {
-                  set.status = 500;
-                  return { error: "Internal error" };
-                }),
-              ),
-            ),
+            Effect.gen(function* () {
+              const view = yield* onEffectDb(effectDb, rsvpExportService.buildView(weddingId));
+              set.headers["cache-control"] = "no-store";
+              return view;
+            }).pipe(Effect.catchDefect(() => exportDefect(set, "rsvps", weddingId))),
           );
         }),
     );

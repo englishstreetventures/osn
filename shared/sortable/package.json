@@ -1,6 +1,6 @@
 {
   "name": "@shared/sortable",
-  "version": "0.3.0",
+  "version": "0.3.2",
   "private": true,
   "type": "module",
   "author": "English Street Ventures Pty Ltd",
@@ -14,14 +14,14 @@
     "./list": "./src/list.tsx"
   },
   "scripts": {
-    "check": "tsc --noEmit",
+    "typecheck": "bun check --no-script",
     "test": "bunx --bun vitest",
     "test:run": "bunx --bun vitest run"
   },
   "devDependencies": {
     "@shared/typescript-config": "workspace:*",
     "@solidjs/testing-library": "^0.8.10",
-    "happy-dom": "^20.12.2",
+    "happy-dom": "^21.0.4",
     "solid-js": "^1.9.15",
     "vite": "^8.3.3",
     "vite-plugin-solid": "^2.11.14",
