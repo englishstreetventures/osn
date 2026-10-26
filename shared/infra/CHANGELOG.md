@@ -1,5 +1,21 @@
 # @shared/infra
 
+## 0.4.0
+
+### Minor Changes
+
+- 0a77bba: Signing out everywhere else, and revoking cire's connection, now also end the account's cire organiser sessions. After the OSN side succeeds, osn-api asks cire-api's `POST /internal/revoke-organiser-sessions` to end the sessions of every profile on the account, in the background, so the response never waits for cire. Only an account that has signed in to cire (it holds a consent row for cire's client) is sent; revoking any other app's connection leaves cire alone. A refused, redirected or failed call is an error log and an `osn.auth.cire_session.revocations` count; nothing retries it. Signing out everywhere else also deletes the account's OIDC authorization codes in flight.
+
+  osn-api reads three new settings: `CIRE_INTERNAL_REVOKE_URL` (cire-api's origin, HTTPS or HTTP to a loopback host), `CIRE_OIDC_CLIENT_ID` (`cid_cire`) and the optional secret `CIRE_INTERNAL_REVOKE_SECRET`, at least 32 characters, which cire-api must hold too. With any of them unset or unusable, each such request logs a warning and sends nothing. The secret inventory holds the secret as optional on osn-api and cire-api on both tiers, as one shared value, at least 32 characters on dev and production. The musubi dev stack sets the URL and client id, and `bun run dev` gives osn-api the local cire-api's URL.
+
+### Patch Changes
+
+- 7e414f3: Patch alchemy's D1 import so a failed seed import reports Cloudflare's error instead of `D1 import poll missing bookmark`.
+
+  `patches/alchemy@2.0.0-beta.83.patch` changes `Cloudflare/D1/ImportDatabase` in both `src/` (what Bun loads in a deploy) and `lib/`. Every reply — init when it has no upload URL, ingest, and each poll — is now read as wrangler reads it: a failure dies with Cloudflare's error, or with the reply when it carries none; completion ends the import, with or without a result; a reply still in progress is polled again with its bookmark one second later. An envelope with no result, or one that is not JSON, dies with its content. When Cloudflare already holds a file with the same content, init returns no upload URL and the import it starts is polled, where alchemy as shipped fails. No message carries the presigned upload URL: a failed upload reports only R2's error code and message, or the kind of error when it cannot connect.
+
+  `shared/infra/tests/d1-import.test.ts` runs both copies against a scripted Cloudflare API and fails if the patch stops applying.
+
 ## 0.3.2
 
 ### Patch Changes
