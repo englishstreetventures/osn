@@ -1,5 +1,6 @@
 import { generateArcKeyPair } from "@shared/crypto";
 import type { WorkersRateLimitBinding } from "@shared/rate-limit";
+import { Logger } from "effect";
 import { exportJWK } from "jose";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -12,8 +13,9 @@ import { createTestLayer } from "../helpers/db";
 
 /**
  * `GET /health/coordination` through the composed app: a round trip on the
- * Durable Object store answers 200, a failing store answers 503, and the
- * per-IP limiter in front refuses before any store call.
+ * Durable Object store answers 200, a failing store answers 503 and is logged
+ * by the reporter `buildAppDeps` builds, and the per-IP limiter in front
+ * refuses before any store call.
  */
 
 let env: EnvVars;
@@ -84,6 +86,47 @@ describe("GET /health/coordination", () => {
       expect([store, op]).not.toContain("203.0.113.7");
       expect(Object.keys(detail as object).toSorted()).toEqual(["durationMs", "retried"]);
     }
+  });
+
+  it("logs a failed store call once, by store and operation, and never the caller's IP", async () => {
+    const lines: { level: string; message: unknown; annotations: Record<string, unknown> }[] = [];
+    const capture = Logger.layer([
+      Logger.map(Logger.formatStructured, (line) => {
+        lines.push(line);
+      }),
+    ]);
+    const fake = createFakeNamespace();
+    const built = await buildAppDeps(env, {
+      // The reporter `buildAppDeps` hands the builder, not a stand-in.
+      coordination: (onError) => createDurableCoordination(fake.ns, onError),
+      dbAndEmailLayer: createTestLayer(),
+      observabilityLayer: capture,
+      includeObservabilityPlugin: false,
+    });
+    const app = createApp(built.deps);
+    fake.failWhen((call) => call.store === "health_probe");
+
+    const res = await app.handle(
+      new Request("http://localhost/health/coordination", {
+        headers: { "x-forwarded-for": "203.0.113.7" },
+      }),
+    );
+    expect(res.status).toBe(503);
+
+    const text = (message: unknown) =>
+      Array.isArray(message) ? message.join(" ") : String(message);
+    const failed = () =>
+      lines.filter((line) => text(line.message) === "coordination store call failed");
+    // The reporter logs in the background, so the line may land after the answer.
+    await vi.waitFor(() => expect(failed()).toHaveLength(1));
+    expect(failed()[0]!.level).toBe("ERROR");
+    expect(failed()[0]!.annotations).toEqual({
+      store: "health_probe",
+      op: "write",
+      durationMs: expect.any(Number),
+      retried: false,
+    });
+    expect(JSON.stringify(lines)).not.toContain("203.0.113.7");
   });
 
   it("refuses the eleventh call in a minute from one IP without touching the store", async () => {
