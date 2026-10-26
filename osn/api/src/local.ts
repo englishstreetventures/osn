@@ -59,7 +59,16 @@ export async function buildAppDeps_Bun(): Promise<
   // Both take the vars they read by name, and Bun types `process.env` as an
   // interface carrying only NODE_ENV/TZ — no name in common, which trips TS's
   // weak-type check. It is a plain string map underneath, so hand it over as one.
-  const env: Readonly<Record<string, string | undefined>> = process.env;
+  //
+  // `bun run dev` starts this file with `--devloop` (`dev:app` in
+  // package.json). The devloop is the local tier, so there an unset OSN_ENV is
+  // named `local`; a value from `osn/api/.env` or the shell still wins. Started
+  // any other way, an unset OSN_ENV stays unset, and dev sign-in, which mounts
+  // only on a named tier, stays off.
+  const env: Readonly<Record<string, string | undefined>> =
+    process.argv.includes("--devloop") && process.env.OSN_ENV === undefined
+      ? { ...process.env, OSN_ENV: "local" }
+      : process.env;
 
   const emailLayer = selectEmailLayer(env, observabilityLayer);
 
@@ -150,7 +159,7 @@ export function startBunServer(
 }
 
 // ---------------------------------------------------------------------------
-// Bun dev entry (the default `dev` script: `bun run --watch src/local.ts`).
+// Bun dev entry (the default `dev` script: `bun run --watch src/local.ts --devloop`).
 //
 // The fast, native devloop: stable :4000, real passkey/OTP ceremonies, full
 // OTel observability, ioredis-or-memory rate limiters, bun:sqlite. The

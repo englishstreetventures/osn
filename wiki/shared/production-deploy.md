@@ -173,12 +173,14 @@ plan and is **not** the live transport — prefer Resend.
 
 ### 1.2 Generate the ES256 JWT key pair
 
-osn-api signs user access/refresh/step-up JWTs with an **ES256 (ECDSA P-256)** key pair.
-In any non-local env both halves are **required** — missing either throws at startup
-(`osn/api/src/index.ts:60-65`). Without `OSN_ENV` set, the app silently generates an
-**ephemeral** pair (tokens die on every restart) — see section 7's log check.
+osn-api signs access tokens, OIDC ID tokens, relying-party access tokens, step-up tokens
+and recovery-audience tokens with one **ES256 (ECDSA P-256)** key pair. Refresh tokens are
+opaque session tokens and are not signed. In any non-local env both halves are **required**;
+missing either throws at startup (`osn/api/src/build-deps.ts:129-167`). Without `OSN_ENV`
+set, the app silently generates an **ephemeral** pair (tokens die on every restart) — see
+section 7's log check.
 
-Generate once (command lifted from `osn/api/src/index.ts:46`):
+Generate once (command in `osn/api/src/build-deps.ts:131`):
 
 ```bash
 node -e "const {subtle}=globalThis.crypto; subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']).then(async k=>{const {exportJWK}=await import('jose');console.log('private:',btoa(JSON.stringify(await exportJWK(k.privateKey))));console.log('public:',btoa(JSON.stringify(await exportJWK(k.publicKey))))})"
@@ -186,6 +188,48 @@ node -e "const {subtle}=globalThis.crypto; subtle.generateKey({name:'ECDSA',name
 
 Store the `private:` value as `OSN_JWT_PRIVATE_KEY` and `public:` as `OSN_JWT_PUBLIC_KEY`
 (both base64-encoded JWK JSON). Treat the private key like any other secret.
+
+#### Rotate the signing key (dev only)
+
+**Read first.** A rotation replaces the one key; the two keys never overlap.
+
+- A token signed with the old key fails at osn-api at once.
+- Downstream services that verify over JWKS keep accepting old-key tokens for up to 5 minutes
+  after the swap. That is their JWKS cache (`shared/osn-auth-client/src/jwks-cache.ts:30`). An
+  HTTP cache that honours the JWKS header (`osn/api/src/routes/auth/well-known.ts:114`) can hold
+  the old key for about 300 seconds, plus up to 60 more while it revalidates. There is no cache
+  eviction. Clearing a cache sooner means redeploying that downstream Worker.
+- A first-party client refreshes on its first 401; refresh tokens are unaffected. If the retry
+  also returns 401, the client signs the user out. One way this happens is a downstream cache
+  that holds the new key as unknown for 30 seconds.
+- Relying parties get no refresh token. A sign-in in flight fails at the ID-token check, and
+  step-up is repeated.
+- Do not roll osn-api back to a version from before the rotation. That restores the old key.
+- Boot does not check that the two halves match, and the smoke check accepts any ES256 key. A
+  mismatched pair is recovered by setting a correct pair, not by rolling back.
+
+Production has no rotation procedure here yet. A production rotation needs a route that sets
+both halves in one run, and this section gets that procedure when the route exists.
+
+Dev steps:
+
+1. Generate the pair as above into a file outside the repository. Store each half, then delete the file:
+
+   ```bash
+   f=$(mktemp)
+   node -e "<the command from §1.2>" > "$f"
+   grep '^private:' "$f" | cut -d' ' -f2 | tr -d '\n' | gh secret set OSN_JWT_PRIVATE_KEY --env dev
+   grep '^public:'  "$f" | cut -d' ' -f2 | tr -d '\n' | gh secret set OSN_JWT_PUBLIC_KEY  --env dev
+   rm "$f"
+   ```
+
+2. Dispatch the Deploy workflow (`gh workflow run deploy.yml`). It deploys every dev stack.
+
+3. Check, with the cache bypassed:
+   - `curl -s -H 'Cache-Control: no-cache' https://<osn-api dev host>/.well-known/jwks.json` lists one key. Its `kid` equals the RFC 7638 thumbprint of the new public key, computed with `calculateJwkThumbprint` from `jose`.
+   - Sign in on dev. The new access token is accepted by an authenticated osn-api route (200).
+   - A token minted before the swap gets 401 from that route.
+   - One downstream service that verifies over JWKS (cire-api or zap-api on dev) accepts the new token (200).
 
 ### 1.3 Generate the session IP pepper
 
@@ -333,29 +377,29 @@ osn-api is a Worker: non-secret config is `[vars]` / `[env.<env>.vars]` in
 ```bash
 cd osn/api
 # REQUIRED in non-local — Worker fails closed (503 / refuses boot) without these:
-bunx wrangler secret put OSN_JWT_PRIVATE_KEY        --env <dev|staging|production>
-bunx wrangler secret put OSN_JWT_PUBLIC_KEY         --env <dev|staging|production>
-bunx wrangler secret put OSN_SESSION_IP_PEPPER      --env <dev|staging|production>
-bunx wrangler secret put OSN_PAIRWISE_SALT          --env <dev|staging|production>
+bunx wrangler secret put OSN_JWT_PRIVATE_KEY        --env <staging|production>
+bunx wrangler secret put OSN_JWT_PUBLIC_KEY         --env <staging|production>
+bunx wrangler secret put OSN_SESSION_IP_PEPPER      --env <staging|production>
+bunx wrangler secret put OSN_PAIRWISE_SALT          --env <staging|production>
 # OSN_TOTP_ENCRYPTION_KEY too — but set it through the `set-osn-api-secret` workflow,
 # which checks the decoded length is exactly 32 bytes and refuses a blind overwrite:
-bunx wrangler secret put OSN_TOTP_ENCRYPTION_KEY    --env <dev|staging|production>
-bunx wrangler secret put UPSTASH_REDIS_REST_URL     --env <dev|staging|production>
-bunx wrangler secret put UPSTASH_REDIS_REST_TOKEN   --env <dev|staging|production>
+bunx wrangler secret put OSN_TOTP_ENCRYPTION_KEY    --env <staging|production>
+bunx wrangler secret put UPSTASH_REDIS_REST_URL     --env <staging|production>
+bunx wrangler secret put UPSTASH_REDIS_REST_TOKEN   --env <staging|production>
 # Email — REQUIRED non-local UNLESS OSN_EMAIL_OPTIONAL is set (§1.1). RESEND_API_KEY
 # is the live transport and is already set on production: verify cireweddings.com in
 # Resend, set the key, confirm a send arrives, THEN remove any OSN_EMAIL_OPTIONAL:
-bunx wrangler secret put RESEND_API_KEY             --env <dev|staging|production>
+bunx wrangler secret put RESEND_API_KEY             --env <staging|production>
 # Cloudflare email creds — OPTIONAL / LEGACY fallback (needs a paid Workers plan;
 # not used now Resend is live). Only set if falling back off Resend:
-bunx wrangler secret put CLOUDFLARE_ACCOUNT_ID      --env <dev|staging|production>
-bunx wrangler secret put CLOUDFLARE_EMAIL_API_TOKEN --env <dev|staging|production>
+bunx wrangler secret put CLOUDFLARE_ACCOUNT_ID      --env <staging|production>
+bunx wrangler secret put CLOUDFLARE_EMAIL_API_TOKEN --env <staging|production>
 # OPTIONAL — only for the cire→osn account-linking ARC bridge (§6.2):
-bunx wrangler secret put INTERNAL_SERVICE_SECRET    --env <dev|staging|production>
+bunx wrangler secret put INTERNAL_SERVICE_SECRET    --env <staging|production>
 # Turnstile bot protection (OPTIONAL — only after the widget exists, §3.4):
-bunx wrangler secret put TURNSTILE_SECRET_KEY        --env <dev|staging|production>
+bunx wrangler secret put TURNSTILE_SECRET_KEY        --env <staging|production>
 # Observability (deferred export on workerd; header is a secret):
-bunx wrangler secret put OTEL_EXPORTER_OTLP_HEADERS  --env <dev|staging|production>
+bunx wrangler secret put OTEL_EXPORTER_OTLP_HEADERS  --env <staging|production>
 ```
 
 | Name | How to set | Required? | Notes |

@@ -12,7 +12,7 @@ packages:
   - "@osn/client"
   - "@osn/auth-ui"
   - "@musubi/social"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-26
 ---
 
 # Passkey-Primary Login
@@ -347,8 +347,9 @@ paths behave differently in four ways, each forced by the restriction:
 
 ## The one bypass, and where it can exist
 
-`GET|POST /dev/login` mints a real session for a single fixed principal without
-any ceremony, so a **seeded** account is reachable at all — a seed script cannot
+The dev sign-in (the form at `GET /dev/login`, which posts to `/dev/login/form`,
+and the JSON `POST /dev/login`) mints a real session for a single fixed principal
+without any ceremony, so a **seeded** account is reachable at all — a seed script cannot
 enrol a WebAuthn credential, which otherwise leaves every seeded row permanently
 locked out. It is not a general relaxation: one hard-coded profile id, no
 identifier parameter, nothing to enumerate.
@@ -363,17 +364,18 @@ organisation's `dev_bootstrap_org` — are in `RESERVED_HANDLES`, which
 organisation creation now consults as well, so no real registration can occupy
 either row first. Full operator notes in [[dev-environment]] §5.
 
-### The residual: the URL is a bearer credential
+### The residual: the secret is a bearer credential
 
-The whole point of the route is that one URL signs you in, which means the URL
-**is** the credential. Anyone who reads it — a link pasted in chat, a shell
-history, a synced browser bar, a screen share — can sign in as the principal on
-the dev tier, and can hand a already-usable link to someone else: force-login and
-session fixation, by forwarding. Two things narrow it and neither closes it:
-`Referrer-Policy: no-referrer` on both verbs stops the secret leaving in a
-`Referer`, and `return_to` is restricted to `DEV_LOGIN_RETURN_ORIGINS` (checked
-*before* the secret compare, so a wrong secret redirects nowhere) so it cannot be
-turned into an open redirect. Nothing in code stops a human forwarding the link.
+The whole point of the route is that one secret signs you in, which means the
+secret **is** the credential. It travels only in a request body, never in a URL:
+the form page holds no secret, and a `secret` query parameter on `GET /dev/login`
+is refused with 422. Anyone who knows the secret can sign in as the principal on
+the dev tier, and can build a page whose form signs a visitor in as it, since the
+form POST is exempt from the origin guard by its exact path. Two things narrow
+it and neither closes it: every dev sign-in response sends
+`Referrer-Policy: no-referrer`, and `return_to` is restricted to
+`DEV_LOGIN_RETURN_ORIGINS` (checked *before* the secret compare, so a wrong
+secret redirects nowhere) so it cannot be turned into an open redirect.
 
 So treat it like a password — never in an issue, a PR, or a chat, and rotate
 `DEV_LOGIN_SECRET` if it appears in one. This is acceptable **because of where it

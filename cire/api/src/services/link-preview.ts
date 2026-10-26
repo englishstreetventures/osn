@@ -179,14 +179,20 @@ export function parseIpv6(value: string): readonly number[] | null {
 
 /** Is this IPv4 address one we refuse to send a request to? */
 function isBlockedIpv4(o: readonly number[]): boolean {
-  const [a = 0, b = 0] = o;
+  const [a = 0, b = 0, c = 0] = o;
   if (a === 0) return true; // 0.0.0.0/8 — "this network"
   if (a === 10) return true; // 10/8 private
   if (a === 127) return true; // 127/8 loopback
   if (a === 100 && b >= 64 && b <= 127) return true; // 100.64/10 CGNAT
   if (a === 169 && b === 254) return true; // 169.254/16 link-local (metadata)
   if (a === 172 && b >= 16 && b <= 31) return true; // 172.16/12 private
+  if (a === 192 && b === 0 && c === 0) return true; // 192.0.0/24 IETF protocol assignments
+  if (a === 192 && b === 0 && c === 2) return true; // 192.0.2/24 documentation
+  if (a === 192 && b === 88 && c === 99) return true; // 192.88.99/24 former 6to4 relay anycast
   if (a === 192 && b === 168) return true; // 192.168/16 private
+  if (a === 198 && (b === 18 || b === 19)) return true; // 198.18/15 benchmarking
+  if (a === 198 && b === 51 && c === 100) return true; // 198.51.100/24 documentation
+  if (a === 203 && b === 0 && c === 113) return true; // 203.0.113/24 documentation
   if (a >= 224) return true; // 224/4 multicast + 240/4 reserved + broadcast
   return false;
 }
@@ -220,17 +226,35 @@ export function isBlockedAddress(value: string): boolean {
     return isBlockedIpv4(low);
   }
 
-  // NAT64 (`64:ff9b::/96` and the local prefix `64:ff9b:1::/48`): the low 32 bits
-  // are the v4 destination the translator will dial. Same unwrap.
-  if (v6[0] === 0x00 && v6[1] === 0x64 && v6[2] === 0xff && v6[3] === 0x9b) {
+  // The well-known NAT64 prefix `64:ff9b::/96`: the low 32 bits are the v4
+  // destination the translator will dial. Same unwrap.
+  if (
+    v6[0] === 0x00 &&
+    v6[1] === 0x64 &&
+    v6[2] === 0xff &&
+    v6[3] === 0x9b &&
+    v6.slice(4, 12).every((byte) => byte === 0)
+  ) {
     return isBlockedIpv4(v6.slice(12));
   }
 
   const first = v6[0] ?? 0;
   const second = v6[1] ?? 0;
-  if ((first & 0xfe) === 0xfc) return true; // fc00::/7 unique-local
-  if (first === 0xfe && (second & 0xc0) === 0x80) return true; // fe80::/10 link-local
-  if (first === 0xff) return true; // ff00::/8 multicast
+  const third = v6[2] ?? 0;
+  // Global unicast is `2000::/3`, and no public host has an address outside it.
+  // This refuses unique-local `fc00::/7`, link-local `fe80::/10`, site-local
+  // `fec0::/10`, multicast `ff00::/8`, discard `100::/64`, IPv4-translated
+  // `::ffff:0:0:0/96`, and the rest of `64:ff9b::/32`. That includes the
+  // local-use NAT64 prefix `64:ff9b:1::/48`, whose v4 bits sit wherever the
+  // operator's prefix length puts them, so there is no fixed place to read one.
+  if ((first & 0xe0) !== 0x20) return true;
+  // 2001::/23 IETF protocol assignments: Teredo `2001::/32` (a v4 address
+  // inside, reached through a relay), benchmarking `2001:2::/48`, ORCHID.
+  if (first === 0x20 && second === 0x01 && (third & 0xfe) === 0x00) return true;
+  if (first === 0x20 && second === 0x01 && third === 0x0d && v6[3] === 0xb8) return true; // 2001:db8::/32 documentation
+  // 2002::/16 6to4: a relay dials the v4 address inside. Refused whatever it is.
+  if (first === 0x20 && second === 0x02) return true;
+  if (first === 0x3f && second === 0xff && (third & 0xf0) === 0x00) return true; // 3fff::/20 documentation
   return false;
 }
 
@@ -952,9 +976,7 @@ async function resolveCandidates(
   finalUrl: URL,
   guard: UrlGuard,
 ): Promise<ResolvedCandidates> {
-  const ranked = [...candidates];
-  // `toSorted` is ES2023 and this package's lib is ES2022. Copy, then sort.
-  ranked.sort((a, b) => a.rank - b.rank);
+  const ranked = candidates.toSorted((a, b) => a.rank - b.rank);
 
   await warmHosts(ranked, finalUrl, guard);
 
