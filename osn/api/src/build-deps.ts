@@ -502,6 +502,7 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
     accountExportIpLimiter: stores.accountExportIpLimiter,
     accountErasureRateLimiters: stores.accountErasureRateLimiters,
     stepUpJtiStore: stores.stepUpJtiStore,
+    passkeyChallengeClaims: stores.passkeyChallengeClaims,
     ceremonyStores: stores.ceremonyStores,
     recoveryLockoutStore: stores.recoveryLockoutStore,
     recoveryOtpLockoutStore: stores.recoveryOtpLockoutStore,

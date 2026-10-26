@@ -12,7 +12,7 @@
  */
 
 import { it, expect, describe } from "@effect/vitest";
-import { passkeys } from "@osn/db/schema";
+import { accounts, passkeys } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
@@ -46,6 +46,7 @@ vi.mock("@simplewebauthn/server", async (importOriginal) => {
 });
 
 const { createDurableCoordination } = await import("../../src/lib/coordination/durable");
+const { createServerMac } = await import("../../src/services/auth/server-mac");
 const { createAuthService } = await import("../../src/services/auth");
 const { makeTestAuthConfig } = await import("../helpers/auth-config");
 const { createFakeNamespace } = await import("../helpers/coordination-namespace");
@@ -82,10 +83,37 @@ function slowReads(stores: CeremonyStores): CeremonyStores {
   return out as CeremonyStores;
 }
 
+/** The server secret the discoverable challenges are minted under, here. */
+const PEPPER = "p".repeat(32);
+
 function harness() {
-  const bundle = createDurableCoordination(createFakeNamespace().ns, () => {});
-  return createAuthService({ ...base, ceremonyStores: slowReads(bundle.ceremonyStores) });
+  const fake = createFakeNamespace();
+  const bundle = createDurableCoordination(fake.ns, () => {});
+  const auth = createAuthService({
+    ...base,
+    sessionIpPepper: PEPPER,
+    ceremonyStores: slowReads(bundle.ceremonyStores),
+    passkeyChallengeClaims: bundle.passkeyChallengeClaims,
+  });
+  return { auth, fake };
 }
+
+const base64url = (text: string) => Buffer.from(text, "utf8").toString("base64url");
+
+/** An assertion whose `clientDataJSON` carries `challenge`, from the account `userId` names. */
+const discoverableAssertion = (credentialId: string, challenge: string, userId: string) =>
+  ({
+    id: credentialId,
+    rawId: credentialId,
+    response: {
+      clientDataJSON: base64url(
+        JSON.stringify({ type: "webauthn.get", challenge, origin: "http://localhost:5173" }),
+      ),
+      userHandle: base64url(userId),
+    },
+    type: "public-key",
+    clientExtensionResults: {},
+  }) as never;
 
 const fakeAttestation = () =>
   ({ id: "x", rawId: "x", response: {}, type: "public-key", clientExtensionResults: {} }) as never;
@@ -112,11 +140,12 @@ const accountWithPasskey = (auth: ReturnType<typeof createAuthService>, handle: 
     const { db } = yield* Db;
     const rows = yield* Effect.promise(() =>
       db
-        .select({ credentialId: passkeys.credentialId })
+        .select({ credentialId: passkeys.credentialId, userId: accounts.passkeyUserId })
         .from(passkeys)
+        .innerJoin(accounts, eq(accounts.id, passkeys.accountId))
         .where(eq(passkeys.id, passkeyId)),
     );
-    return { profile, credentialId: rows[0]!.credentialId };
+    return { profile, credentialId: rows[0]!.credentialId, userId: rows[0]!.userId };
   });
 
 const successes = (results: readonly { readonly _tag: string }[]): number =>
@@ -124,7 +153,7 @@ const successes = (results: readonly { readonly _tag: string }[]): number =>
 
 describe("one WebAuthn challenge, two presentations at once", () => {
   it.live("passkey sign-in: exactly one signs in", () => {
-    const auth = harness();
+    const { auth } = harness();
     return Effect.gen(function* () {
       const { profile, credentialId } = yield* accountWithPasskey(auth, "suclogin");
       yield* auth.beginPasskeyLogin(profile.handle);
@@ -144,7 +173,7 @@ describe("one WebAuthn challenge, two presentations at once", () => {
   });
 
   it.live("passkey registration: exactly one credential is added", () => {
-    const auth = harness();
+    const { auth } = harness();
     return Effect.gen(function* () {
       const profile = yield* auth.registerProfile("sucreg@example.com", "sucreg");
       yield* auth.beginPasskeyRegistration(profile.accountId);
@@ -166,7 +195,7 @@ describe("one WebAuthn challenge, two presentations at once", () => {
   });
 
   it.live("step-up passkey: exactly one step-up token is minted", () => {
-    const auth = harness();
+    const { auth } = harness();
     return Effect.gen(function* () {
       const { profile, credentialId } = yield* accountWithPasskey(auth, "sucstep");
       yield* auth.beginStepUpPasskey(profile.accountId);
@@ -177,6 +206,129 @@ describe("one WebAuthn challenge, two presentations at once", () => {
         { concurrency: "unbounded" },
       );
       expect(successes(results)).toBe(1);
+    }).pipe(Effect.provide(createTestLayer()));
+  });
+
+  it.live("discoverable passkey sign-in: exactly one signs in", () => {
+    const { auth } = harness();
+    return Effect.gen(function* () {
+      const { credentialId, userId } = yield* accountWithPasskey(auth, "sucdisc");
+      const { challengeId } = yield* auth.beginPasskeyLogin(null);
+      const assertion = discoverableAssertion(credentialId, challengeId!, userId);
+      const results = yield* Effect.all(
+        [0, 1].map(() =>
+          Effect.result(auth.completePasskeyLoginDirect({ challengeId: challengeId!, assertion })),
+        ),
+        { concurrency: "unbounded" },
+      );
+      expect(successes(results)).toBe(1);
+    }).pipe(Effect.provide(createTestLayer()));
+  });
+});
+
+/**
+ * The discoverable challenge carries its own proof, so `begin` stores nothing
+ * and `complete` must refuse anything the server did not mint, has changed,
+ * has expired, or is used a second time.
+ */
+describe("discoverable passkey challenge", () => {
+  const refusal = (
+    auth: ReturnType<typeof createAuthService>,
+    challengeId: string,
+    assertion: never,
+  ) =>
+    auth.completePasskeyLoginDirect({ challengeId, assertion }).pipe(
+      Effect.flip,
+      Effect.map((error) => error.message),
+    );
+
+  it.live("begin makes no store call and answers the challenge as its id", () => {
+    const { auth, fake } = harness();
+    return Effect.gen(function* () {
+      const { options, challengeId } = yield* auth.beginPasskeyLogin(null);
+      expect(fake.calls).toEqual([]);
+      expect(challengeId).toBe(options.challenge);
+      expect(createServerMac(PEPPER).openChallenge(options.challenge).ok).toBe(true);
+    }).pipe(Effect.provide(createTestLayer()));
+  });
+
+  it.live("signs in once with a fresh challenge, then refuses it", () => {
+    const { auth, fake } = harness();
+    return Effect.gen(function* () {
+      const { credentialId, userId, profile } = yield* accountWithPasskey(auth, "discok");
+      const { challengeId } = yield* auth.beginPasskeyLogin(null);
+      const assertion = discoverableAssertion(credentialId, challengeId!, userId);
+      const before = fake.calls.length;
+      const first = yield* auth.completePasskeyLoginDirect({
+        challengeId: challengeId!,
+        assertion,
+      });
+      expect(first.profile.handle).toBe(profile.handle);
+      expect(fake.calls.slice(before).map((c) => `${c.store}.${c.op}`)).toEqual([
+        "passkey_challenge_claim.claim",
+      ]);
+      expect(yield* refusal(auth, challengeId!, assertion)).toBe("Challenge expired or not found");
+    }).pipe(Effect.provide(createTestLayer()));
+  });
+
+  it.live("refuses a challenge with a changed byte", () => {
+    const { auth } = harness();
+    return Effect.gen(function* () {
+      const { credentialId, userId } = yield* accountWithPasskey(auth, "discforged");
+      const { challengeId } = yield* auth.beginPasskeyLogin(null);
+      const bytes = Buffer.from(challengeId!, "base64url");
+      bytes[30] = bytes[30]! ^ 0x01;
+      const forged = bytes.toString("base64url");
+      const assertion = discoverableAssertion(credentialId, forged, userId);
+      expect(yield* refusal(auth, forged, assertion)).toBe("Challenge expired or not found");
+    }).pipe(Effect.provide(createTestLayer()));
+  });
+
+  it.live("refuses an expired challenge", () => {
+    const { auth } = harness();
+    return Effect.gen(function* () {
+      const { credentialId, userId } = yield* accountWithPasskey(auth, "discexpired");
+      const expired = Buffer.from(createServerMac(PEPPER).mintChallenge(Date.now() - 1)).toString(
+        "base64url",
+      );
+      const assertion = discoverableAssertion(credentialId, expired, userId);
+      expect(yield* refusal(auth, expired, assertion)).toBe("Challenge expired or not found");
+    }).pipe(Effect.provide(createTestLayer()));
+  });
+
+  it.live("refuses a challenge minted under another secret", () => {
+    const { auth } = harness();
+    return Effect.gen(function* () {
+      const { credentialId, userId } = yield* accountWithPasskey(auth, "discother");
+      const foreign = Buffer.from(
+        createServerMac("q".repeat(32)).mintChallenge(Date.now() + 60_000),
+      ).toString("base64url");
+      const assertion = discoverableAssertion(credentialId, foreign, userId);
+      expect(yield* refusal(auth, foreign, assertion)).toBe("Challenge expired or not found");
+    }).pipe(Effect.provide(createTestLayer()));
+  });
+
+  it.live("refuses when the signed challenge is not the one the client names", () => {
+    const { auth } = harness();
+    return Effect.gen(function* () {
+      const { credentialId, userId } = yield* accountWithPasskey(auth, "discmismatch");
+      const first = yield* auth.beginPasskeyLogin(null);
+      const second = yield* auth.beginPasskeyLogin(null);
+      const assertion = discoverableAssertion(credentialId, first.challengeId!, userId);
+      expect(yield* refusal(auth, second.challengeId!, assertion)).toBe(
+        "Challenge expired or not found",
+      );
+    }).pipe(Effect.provide(createTestLayer()));
+  });
+
+  it.live("refuses an assertion whose client data cannot be read", () => {
+    const { auth } = harness();
+    return Effect.gen(function* () {
+      const { credentialId } = yield* accountWithPasskey(auth, "discunread");
+      const { challengeId } = yield* auth.beginPasskeyLogin(null);
+      expect(yield* refusal(auth, challengeId!, fakeAssertion(credentialId))).toBe(
+        "Challenge expired or not found",
+      );
     }).pipe(Effect.provide(createTestLayer()));
   });
 });

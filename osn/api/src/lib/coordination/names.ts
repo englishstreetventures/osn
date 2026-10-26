@@ -41,6 +41,8 @@ export type CoordinationStoreName =
   | LockoutStoreName
   // Consumed step-up token ids: a token verifies once.
   | "step_up_jti"
+  // Used discoverable passkey challenges, by nonce: a challenge signs in once.
+  | "passkey_challenge_claim"
   // `GET /health/coordination`'s round trip: one fresh server-made key per
   // probe, removed before it answers.
   | "health_probe"

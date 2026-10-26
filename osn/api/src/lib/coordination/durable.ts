@@ -10,7 +10,7 @@
  * | rate limiters, per-account caps | `increment` in a fixed window; a failed call denies |
  * | ceremony `set` / `get` / `delete` / `consume` | `write` (JSON) / `read` / `remove` / `remove` |
  * | ceremony `guess` / `take` | `guess` / `take`, on the entry's own object |
- * | step-up token guard | `claim` |
+ * | step-up token guard, discoverable passkey challenge claims | `claim` |
  * | lockout `status` / `recordFailure` / `reset` | `count` / `increment` / `remove` |
  * | health probe `roundTrip` | `write` / `read` / `remove`, on a fresh key |
  *
@@ -50,6 +50,7 @@ import {
 import { TOTP_LOCKOUT_MS, TOTP_LOCKOUT_THRESHOLD } from "../../services/auth/constants";
 import type {
   CeremonyStores,
+  ChallengeClaimStore,
   ChallengeEntry,
   CrossDeviceRequest,
   PendingAuthorizeRequest,
@@ -234,6 +235,18 @@ export function createDurableJtiStore(
   };
 }
 
+/** Discoverable passkey challenges: the first `claim` of a nonce wins. */
+export function createDurableChallengeClaimStore(
+  ns: CoordinationNamespace,
+  onError: CoordinationErrorReporter,
+): ChallengeClaimStore {
+  const store = client(ns, "passkey_challenge_claim", onError);
+  return {
+    namespace: "passkey_challenge_claim",
+    claim: (nonce, ttlMs) => store.claim(nonce, ttlMs),
+  };
+}
+
 /** Every store on the `COORDINATION` binding `ns`. */
 export function createDurableCoordination(
   ns: CoordinationNamespace,
@@ -289,6 +302,7 @@ export function createDurableCoordination(
     accountExportIpLimiter: named(OSN_RATE_LIMITS.accountExportIp),
     accountErasureRateLimiters,
     stepUpJtiStore: createDurableJtiStore(ns, onError),
+    passkeyChallengeClaims: createDurableChallengeClaimStore(ns, onError),
     ceremonyStores,
     recoveryLockoutStore: createDurableLockoutStore(
       ns,

@@ -5,6 +5,7 @@
  */
 
 import {
+  CEREMONY_STORE_MAX,
   createInMemoryCeremonyStore,
   type CeremonyStore,
   type CeremonyStoreOp,
@@ -276,6 +277,41 @@ export function createInMemoryJtiStore(): StepUpJtiStore {
       }
       if (consumedStepUpTokens.has(jti)) return false;
       consumedStepUpTokens.set(jti, Date.now());
+      return true;
+    },
+  };
+}
+
+/**
+ * Single-use claims on discoverable passkey challenges, by nonce. The
+ * challenge carries its own proof (see `server-mac.ts`), so nothing is stored
+ * at `begin`; the first claim of a nonce is the one sign-in it allows.
+ *
+ * A deployed Worker passes the coordination store's
+ * (`createDurableChallengeClaimStore`), so a challenge is used once across
+ * every isolate; the in-memory default holds in one process only.
+ */
+export interface ChallengeClaimStore {
+  readonly namespace: "passkey_challenge_claim";
+  /** True for the first claim of `nonce` within `ttlMs`; false for every later one. */
+  claim(nonce: string, ttlMs: number): Promise<boolean>;
+}
+
+/** In-memory challenge claims — single-process only, bounded like the ceremony stores. */
+export function createInMemoryChallengeClaimStore(): ChallengeClaimStore {
+  const claimed = new Map<string, number>();
+  return {
+    namespace: "passkey_challenge_claim",
+    async claim(nonce, ttlMs) {
+      const nowMs = Date.now();
+      if (claimed.size >= CEREMONY_STORE_MAX) {
+        for (const [key, expiresAt] of claimed) {
+          if (expiresAt <= nowMs) claimed.delete(key);
+        }
+      }
+      const held = claimed.get(nonce);
+      if (held !== undefined && held > nowMs) return false;
+      claimed.set(nonce, nowMs + ttlMs);
       return true;
     },
   };

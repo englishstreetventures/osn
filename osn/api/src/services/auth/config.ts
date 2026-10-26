@@ -2,7 +2,12 @@ import type { JWK } from "jose";
 
 import type { RecoveryLockoutStore } from "../../lib/recovery-lockout-store";
 import type { TotpKeyRing } from "../../lib/totp-secret-crypto";
-import type { AccountCapLimiter, CeremonyStores, StepUpJtiStore } from "./stores";
+import type {
+  AccountCapLimiter,
+  CeremonyStores,
+  ChallengeClaimStore,
+  StepUpJtiStore,
+} from "./stores";
 
 export interface AuthConfig {
   /** RP ID for WebAuthn (e.g. "localhost" or "example.com") */
@@ -124,11 +129,17 @@ export interface AuthConfig {
   // there produces a `webauthn` AMR this list also accepts — which is what the
   // credential-provenance rule in `step-up.ts` refuses, not this list.
   /**
-   * Single-use guard for step-up token jtis (S-H1). A deployed Worker passes
-   * the coordination store's, shared by every isolate; the in-memory default
+   * Single-use guard for step-up token jtis. A deployed Worker passes the
+   * coordination store's, shared by every isolate; the in-memory default
    * would let a captured token replay once per isolate.
    */
   stepUpJtiStore?: StepUpJtiStore;
+  /**
+   * Single-use claims on discoverable passkey challenges. A deployed Worker
+   * passes the coordination store's, shared by every isolate; the in-memory
+   * default would let one challenge sign in once per isolate.
+   */
+  passkeyChallengeClaims?: ChallengeClaimStore;
   /**
    * O2: per-account recovery-code lockout counter. Defaults to in-memory; a
    * deployed Worker passes the coordination store's, so the threshold holds

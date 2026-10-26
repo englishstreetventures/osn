@@ -27,6 +27,7 @@ import {
 } from "../../services/auth/constants";
 import {
   createDefaultCeremonyStores,
+  createInMemoryChallengeClaimStore,
   createInMemoryAccountCap,
   createInMemoryJtiStore,
 } from "../../services/auth/stores";
@@ -47,6 +48,7 @@ export function createInMemoryCoordination(): CoordinationStores {
     accountExportIpLimiter: memoryLimiter(OSN_RATE_LIMITS.accountExportIp),
     accountErasureRateLimiters: createDefaultAccountErasureRateLimiters(),
     stepUpJtiStore: createInMemoryJtiStore(),
+    passkeyChallengeClaims: createInMemoryChallengeClaimStore(),
     ceremonyStores: createDefaultCeremonyStores(),
     recoveryLockoutStore: createInMemoryRecoveryLockoutStore(),
     recoveryOtpLockoutStore: createInMemoryRecoveryLockoutStore(),

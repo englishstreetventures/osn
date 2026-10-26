@@ -96,6 +96,8 @@ export interface AppDeps {
   accountErasureRateLimiters: CoordinationStores["accountErasureRateLimiters"];
   /** Single-use guard for step-up JWTs. */
   stepUpJtiStore: CoordinationStores["stepUpJtiStore"];
+  /** Single-use claims on discoverable passkey challenges. */
+  passkeyChallengeClaims: CoordinationStores["passkeyChallengeClaims"];
   /**
    * The ceremony / pending-state stores, the three lockout counters and the
    * three per-account caps, from the coordination bundle. Spread into the
@@ -182,6 +184,7 @@ export function createApp(deps: AppDeps) {
     accountExportIpLimiter,
     accountErasureRateLimiters,
     stepUpJtiStore,
+    passkeyChallengeClaims,
     ceremonyStores,
     recoveryLockoutStore,
     recoveryOtpLockoutStore,
@@ -261,6 +264,7 @@ export function createApp(deps: AppDeps) {
   const sharedAuthConfig: AuthConfig = {
     ...authConfig,
     stepUpJtiStore,
+    passkeyChallengeClaims,
     ceremonyStores,
     recoveryLockoutStore,
     recoveryOtpLockoutStore,

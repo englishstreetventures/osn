@@ -833,15 +833,14 @@ describe("passkey login", () => {
   // Discoverable flow — beginPasskeyLogin(null) must return options plus a
   // server-minted challengeId. The identifier-less path is how
   // conditional-UI autofill drives sign-in.
-  it.effect("beginPasskeyLogin(null) returns options + a UUID challengeId", () =>
+  it.effect("beginPasskeyLogin(null) returns options and the challenge as its id", () =>
     Effect.gen(function* () {
       const result = yield* auth.beginPasskeyLogin(null);
       expect(result.options.challenge).toBeTruthy();
-      expect(result.challengeId).toBeTruthy();
-      // Server-minted random UUID — lowercase hex with dashes, 36 chars.
-      expect(result.challengeId).toMatch(
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
-      );
+      // The challenge proves itself (nonce, expiry, MAC: 56 bytes, base64url),
+      // so the id the client round-trips is the challenge.
+      expect(result.challengeId).toBe(result.options.challenge);
+      expect(result.challengeId).toMatch(/^[A-Za-z0-9_-]{75}$/);
     }).pipe(Effect.provide(createTestLayer())),
   );
 

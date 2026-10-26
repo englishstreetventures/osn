@@ -19,7 +19,12 @@ import type { AccountErasureRateLimiters } from "../../routes/account-erasure";
 import type { AuthRateLimiters } from "../../routes/auth/limiters";
 import type { ProfileRateLimiters } from "../../routes/profile";
 import type { RecommendationRateLimiters } from "../../routes/recommendations";
-import type { AccountCapLimiter, CeremonyStores, StepUpJtiStore } from "../../services/auth/stores";
+import type {
+  AccountCapLimiter,
+  CeremonyStores,
+  ChallengeClaimStore,
+  StepUpJtiStore,
+} from "../../services/auth/stores";
 import type { RecoveryLockoutStore } from "../recovery-lockout-store";
 import type { CoordinationBackend, CoordinationStoreName } from "./names";
 import type { CoordinationProbe } from "./probe";
@@ -51,6 +56,8 @@ export interface CoordinationStores {
   readonly accountErasureRateLimiters: AccountErasureRateLimiters;
   /** Single-use guard for step-up token ids. */
   readonly stepUpJtiStore: StepUpJtiStore;
+  /** Single-use claims on discoverable passkey challenges. */
+  readonly passkeyChallengeClaims: ChallengeClaimStore;
   readonly ceremonyStores: CeremonyStores;
   readonly recoveryLockoutStore: RecoveryLockoutStore;
   readonly recoveryOtpLockoutStore: RecoveryLockoutStore;

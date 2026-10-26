@@ -21,6 +21,7 @@ import {
 import { createServerMac } from "./server-mac";
 import {
   createDefaultCeremonyStores,
+  createInMemoryChallengeClaimStore,
   createInMemoryAccountCap,
   createInMemoryJtiStore,
 } from "./stores";
@@ -53,6 +54,7 @@ export function createAuthContext(config: AuthConfig) {
   // premise — that the mailbox is the owner's — is the very thing in doubt.
   const emailChangeAllowedAmr = new Set<string>(["webauthn", "otp"]);
   const jtiStore = config.stepUpJtiStore ?? createInMemoryJtiStore();
+  const challengeClaims = config.passkeyChallengeClaims ?? createInMemoryChallengeClaimStore();
 
   // Ceremony / pending-state stores. Default to per-service in-memory;
   // a deployed Worker passes the coordination store's.
@@ -112,6 +114,7 @@ export function createAuthContext(config: AuthConfig) {
     passkeyRegisterAllowedAmr,
     emailChangeAllowedAmr,
     jtiStore,
+    challengeClaims,
     stores,
     profileSwitchCap,
     emailChangeBeginCap,
