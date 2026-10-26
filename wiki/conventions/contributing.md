@@ -7,7 +7,7 @@ related:
   - "[[review-findings]]"
   - "[[stacked-prs]]"
   - "[[testing-patterns]]"
-last-reviewed: 2026-10-23
+last-reviewed: 2026-10-26
 ---
 
 # Contributing
@@ -95,7 +95,7 @@ A bare run at a terminal refuses, but a bare run from a non-interactive shell (a
 
 ### Dependencies
 
-- **Never a bare `bun install`.** Resolving on one machine drops every lockfile entry for a platform it is not running on — on a Mac, all the non-darwin binaries CI needs. Install with `bun install --frozen-lockfile`; when a dependency changes, splice its `bun.lock` entry by hand and prove it with `bun install --frozen-lockfile`. `bun run reset` still chains a bare install, so check `git diff bun.lock` after it and discard the pruning.
+- **Never a bare `bun install`.** Resolving on one machine drops every lockfile entry for a platform it is not running on — on a Mac, all the non-darwin binaries CI needs. Install with `bun install --frozen-lockfile`; when a dependency changes, splice its `bun.lock` entry by hand and prove it with `bun install --frozen-lockfile`.
 - **Add with `--cwd`, not `--filter`:** `bun add drizzle-orm --cwd pulse/db`.
 - **Vitest pins.** `vitest` and every `@vitest/*` package are pinned exactly, all to the same version, in every workspace that declares them: `@vitest/browser`, `@vitest/browser-playwright`, `@vitest/coverage-istanbul` and `@vitest/ui` each name that exact `vitest` version as a peer, so a caret range that resolves a newer `vitest` breaks them.
 - **Release-age soak.** `bunfig.toml` sets `minimumReleaseAge = 259200` (3 days), so a fresh publish cannot install at once. Each entry in `minimumReleaseAgeExcludes` must carry a `# DROP AFTER <name> <YYYY-MM-DD>` comment dated no more than 30 days out; `bun run check:release-age-excludes` (also in CI) fails on a missing, invalid, expired or over-long marker, and on the soak dropping below 259200.
