@@ -2,7 +2,7 @@ import { families, guests, events, guestEvents } from "@cire/db";
 import { and, asc, count, eq, ne } from "drizzle-orm";
 import { Effect } from "effect";
 
-import { DbService, dbQuery } from "../db";
+import { EffectDbService } from "../db/effect-handle";
 import { serialiseCsv } from "../lib/csv";
 import { compareEventsByStart } from "../lib/event-order";
 import { formatWallTime } from "../lib/event-time";
@@ -22,19 +22,18 @@ import { runOfShowColumn, runOfShowFrom } from "./run-of-show";
  */
 export function invitedCountsByEvent(
   weddingId: string,
-): Effect.Effect<Map<string, number>, never, DbService> {
+): Effect.Effect<Map<string, number>, never, EffectDbService> {
   return Effect.gen(function* () {
-    const db = yield* DbService;
-    const rows = yield* dbQuery(() =>
-      db
-        .select({ eventId: guestEvents.eventId, invited: count() })
-        .from(guestEvents)
-        .innerJoin(guests, eq(guestEvents.guestId, guests.id))
-        .innerJoin(families, eq(guests.familyId, families.id))
-        .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
-        .groupBy(guestEvents.eventId)
-        .all(),
-    );
+    const db = yield* EffectDbService;
+    const rows = yield* db
+      .select({ eventId: guestEvents.eventId, invited: count() })
+      .from(guestEvents)
+      .innerJoin(guests, eq(guestEvents.guestId, guests.id))
+      .innerJoin(families, eq(guests.familyId, families.id))
+      .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
+      .groupBy(guestEvents.eventId)
+      .all()
+      .pipe(Effect.orDie);
     return new Map(rows.map((r) => [r.eventId, r.invited]));
   });
 }
@@ -65,51 +64,49 @@ export const tableExportService = {
    * guest who brought a plus-one, appended last so an organiser's saved
    * formulas keep their column letters.
    */
-  guestsCsv(weddingId: string): Effect.Effect<string, never, DbService> {
+  guestsCsv(weddingId: string): Effect.Effect<string, never, EffectDbService> {
     return Effect.gen(function* () {
-      const db = yield* DbService;
+      const db = yield* EffectDbService;
 
       // The two reads are independently wedding-scoped — collapse them to one
       // D1 round-trip (matches the parallel shape in state-export.ts and
       // rsvp-export.ts).
       const [eventRows, guestRows] = yield* Effect.all(
         [
-          dbQuery(() =>
-            db
-              .select({
-                id: events.id,
-                name: events.name,
-                startAt: events.startAt,
-                sortOrder: events.sortOrder,
-              })
-              .from(events)
-              .where(eq(events.weddingId, weddingId))
-              .all(),
-          ),
+          db
+            .select({
+              id: events.id,
+              name: events.name,
+              startAt: events.startAt,
+              sortOrder: events.sortOrder,
+            })
+            .from(events)
+            .where(eq(events.weddingId, weddingId))
+            .all()
+            .pipe(Effect.orDie),
           // Guests + family + event memberships (left join → a guest with no
           // invites still appears). Host families excluded.
-          dbQuery(() =>
-            db
-              .select({
-                guestId: guests.id,
-                firstName: guests.firstName,
-                lastName: guests.lastName,
-                sortOrder: guests.sortOrder,
-                plusOneOf: guests.plusOneOfGuestId,
-                publicId: families.publicId,
-                familyName: families.familyName,
-                codeSharedAt: families.codeSharedAt,
-                firstOpenedAt: families.firstOpenedAt,
-                deactivatedAt: families.deactivatedAt,
-                eventId: guestEvents.eventId,
-              })
-              .from(guests)
-              .innerJoin(families, eq(guests.familyId, families.id))
-              .leftJoin(guestEvents, eq(guestEvents.guestId, guests.id))
-              .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
-              .orderBy(asc(guests.sortOrder))
-              .all(),
-          ),
+          db
+            .select({
+              guestId: guests.id,
+              firstName: guests.firstName,
+              lastName: guests.lastName,
+              sortOrder: guests.sortOrder,
+              plusOneOf: guests.plusOneOfGuestId,
+              publicId: families.publicId,
+              familyName: families.familyName,
+              codeSharedAt: families.codeSharedAt,
+              firstOpenedAt: families.firstOpenedAt,
+              deactivatedAt: families.deactivatedAt,
+              eventId: guestEvents.eventId,
+            })
+            .from(guests)
+            .innerJoin(families, eq(guests.familyId, families.id))
+            .leftJoin(guestEvents, eq(guestEvents.guestId, guests.id))
+            .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
+            .orderBy(asc(guests.sortOrder))
+            .all()
+            .pipe(Effect.orDie),
         ],
         { concurrency: 2 },
       );
@@ -199,42 +196,41 @@ export const tableExportService = {
    * RSVP view counts). URLs pass the same http(s)-only guard as the dashboard;
    * the dress-code palette is rendered as `Name (color)` pairs.
    */
-  eventsCsv(weddingId: string): Effect.Effect<string, never, DbService> {
+  eventsCsv(weddingId: string): Effect.Effect<string, never, EffectDbService> {
     return Effect.gen(function* () {
-      const db = yield* DbService;
+      const db = yield* EffectDbService;
 
       // The two reads are independently wedding-scoped — collapse them to one
       // D1 round-trip (matches the parallel shape in state-export.ts and
       // rsvp-export.ts).
       const [eventRows, invitedByEvent] = yield* Effect.all(
         [
-          dbQuery(() =>
-            db
-              .select({
-                id: events.id,
-                name: events.name,
-                slug: events.slug,
-                startAt: events.startAt,
-                endAt: events.endAt,
-                timezone: events.timezone,
-                venueName: events.venueName,
-                address: events.address,
-                gettingThere: events.gettingThere,
-                childrenPolicy: events.childrenPolicy,
-                plusOnePolicy: events.plusOnePolicy,
-                guestPolicyNote: events.guestPolicyNote,
-                description: events.description,
-                dressCodeDescription: events.dressCodeDescription,
-                dressCodePalette: events.dressCodePalette,
-                pinterestUrl: events.pinterestUrl,
-                mapsUrl: events.mapsUrl,
-                sortOrder: events.sortOrder,
-                runOfShow: runOfShowColumn,
-              })
-              .from(events)
-              .where(eq(events.weddingId, weddingId))
-              .all(),
-          ),
+          db
+            .select({
+              id: events.id,
+              name: events.name,
+              slug: events.slug,
+              startAt: events.startAt,
+              endAt: events.endAt,
+              timezone: events.timezone,
+              venueName: events.venueName,
+              address: events.address,
+              gettingThere: events.gettingThere,
+              childrenPolicy: events.childrenPolicy,
+              plusOnePolicy: events.plusOnePolicy,
+              guestPolicyNote: events.guestPolicyNote,
+              description: events.description,
+              dressCodeDescription: events.dressCodeDescription,
+              dressCodePalette: events.dressCodePalette,
+              pinterestUrl: events.pinterestUrl,
+              mapsUrl: events.mapsUrl,
+              sortOrder: events.sortOrder,
+              runOfShow: runOfShowColumn,
+            })
+            .from(events)
+            .where(eq(events.weddingId, weddingId))
+            .all()
+            .pipe(Effect.orDie),
           invitedCountsByEvent(weddingId),
         ],
         { concurrency: 2 },

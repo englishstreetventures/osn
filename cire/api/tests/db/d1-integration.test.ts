@@ -109,6 +109,7 @@ import {
 import { rsvpService } from "../../src/services/rsvp";
 import { rsvpChangeService } from "../../src/services/rsvp-changes";
 import { rsvpDigestService } from "../../src/services/rsvp-digest";
+import { rsvpExportService } from "../../src/services/rsvp-export";
 import { runSheetService } from "../../src/services/run-sheet";
 import {
   SeatingPlanLimit,
@@ -124,6 +125,7 @@ import {
   type SheetsBucket,
 } from "../../src/services/sheet-reconcile";
 import type { StripeClient } from "../../src/services/stripe";
+import { tableExportService } from "../../src/services/table-export";
 import { taskTemplatesService } from "../../src/services/task-templates";
 import { tasksService } from "../../src/services/tasks";
 import { BASE_GUEST_CAP, TIER_PEOPLE_LIMIT, tierService } from "../../src/services/tiers";
@@ -242,8 +244,8 @@ let db: Db;
 // default.
 const MF_TIMEOUT_MS = 30_000;
 
-// The gift export runs on the Effect handle over the same Miniflare binding the promise handle uses.
-const runGift = <A, E>(eff: Effect.Effect<A, E, EffectDbService>): Promise<A> =>
+// The exports run on the Effect handle over the same Miniflare binding the promise handle uses.
+const runEffect = <A, E>(eff: Effect.Effect<A, E, EffectDbService>): Promise<A> =>
   Effect.runPromise(eff.pipe(Effect.provideService(EffectDbService, effectDbFor(d1, "fetch"))));
 
 const run = <A, E>(eff: Effect.Effect<A, E, DbService>): Promise<A> =>
@@ -1512,7 +1514,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
         updatedAt: at(6),
       });
 
-      const csv = await runGift(giftExportService.giftsCsv(BOOTSTRAP_WEDDING_ID));
+      const csv = await runEffect(giftExportService.giftsCsv(BOOTSTRAP_WEDDING_ID));
       expect(csv.split("\r\n").slice(1)).toEqual([
         "Cash gift,Copper Pan,Test,Uncle Jo,,succeeded,Towards the pan,20000,JPY,204.00,AUD,0.0102,2026-08-20T10:06:00.000Z,2026-08-20T10:02:00.000Z",
         "Gift list,Copper Pan,Test,Auntie Ros,2,purchased,Bought the pair,,,,,,2026-08-20T10:05:00.000Z,2026-08-20T10:01:00.000Z",
@@ -1536,7 +1538,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
           ),
         ).toEqual({ note: null, noteHidden: true });
       }
-      const hiddenCsv = await runGift(giftExportService.giftsCsv(BOOTSTRAP_WEDDING_ID));
+      const hiddenCsv = await runEffect(giftExportService.giftsCsv(BOOTSTRAP_WEDDING_ID));
       expect(hiddenCsv.split("\r\n").slice(1)).toEqual([
         "Cash gift,Copper Pan,Test,Uncle Jo,,succeeded,Note hidden,20000,JPY,204.00,AUD,0.0102,2026-08-20T10:06:00.000Z,2026-08-20T10:02:00.000Z",
         "Gift list,Copper Pan,Test,Auntie Ros,2,purchased,Note hidden,,,,,,2026-08-20T10:05:00.000Z,2026-08-20T10:01:00.000Z",
@@ -6062,6 +6064,76 @@ describe("seating over real D1 (Miniflare)", () => {
       } finally {
         await chainMf.dispose();
       }
+    },
+    MF_TIMEOUT_MS,
+  );
+});
+
+describe("the RSVP view and events export over real D1 (Miniflare)", () => {
+  // Alice brings a plus-one to the reception and answers for them; an organiser
+  // records it. The view's aliased inviter and submitter joins, its
+  // `IS NOT NULL` flag and the grouped count all decode on the D1 driver.
+  const seedPlusOneReply = async () => {
+    const now = new Date();
+    await db.insert(guests).values({
+      id: "g_plus",
+      familyId: FAMILY_ID,
+      firstName: "Carol",
+      lastName: "Guest",
+      sortOrder: 2,
+      plusOneOfGuestId: GUEST_1,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await db.insert(guestEvents).values({ guestId: "g_plus", eventId: EVENT_B });
+    await db.insert(rsvps).values({
+      id: "r_plus",
+      guestId: "g_plus",
+      eventId: EVENT_B,
+      status: "attending",
+      consentSource: "inviter_attested",
+      submittedByGuestId: GUEST_1,
+      submittedViaLink: true,
+      recordedByOsnProfileId: "usr_test",
+      createdAt: now,
+    });
+  };
+
+  it(
+    "eventsCsv counts the invited guests per event",
+    async () => {
+      await seedPlusOneReply();
+      const csv = await runEffect(tableExportService.eventsCsv(BOOTSTRAP_WEDDING_ID));
+      const invited = csv
+        .split("\r\n")
+        .slice(1)
+        .map((row) => [row.split(",")[0], row.split(",").at(-1)]);
+      expect(invited).toEqual([
+        ["Ceremony", "2"],
+        ["Reception", "2"],
+      ]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "buildView names the inviter and the member who answered",
+    async () => {
+      await seedPlusOneReply();
+      const view = await runEffect(rsvpExportService.buildView(BOOTSTRAP_WEDDING_ID));
+      const reception = view.events.find((e) => e.id === EVENT_B)!;
+      expect(reception).toMatchObject({ invited: 2, attending: 1, responded: 1, noResponse: 1 });
+      expect(reception.guests).toHaveLength(1);
+      expect(reception.guests[0]).toMatchObject({
+        guestId: "g_plus",
+        plusOneOf: GUEST_1,
+        plusOneOfName: "Alice Test",
+        statusRecordedByHost: true,
+        submittedBy: { guestId: GUEST_1, firstName: "Alice", viaLink: true },
+      });
+      expect(reception.unresponded.map((g) => g.guestId)).toEqual([GUEST_1]);
+      const ceremony = view.events.find((e) => e.id === EVENT_A)!;
+      expect(ceremony.unresponded.map((g) => g.guestId)).toEqual([GUEST_1, GUEST_2]);
     },
     MF_TIMEOUT_MS,
   );

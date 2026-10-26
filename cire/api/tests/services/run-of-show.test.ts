@@ -5,6 +5,8 @@ import { asc, eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { DbService } from "../../src/db";
+import { EffectDbService, effectDbFor } from "../../src/db/effect-handle";
+import { localD1Binding } from "../../src/db/local-d1";
 import { createDb, seedDb } from "../../src/db/setup";
 import { claimService } from "../../src/services/claim";
 import {
@@ -71,8 +73,9 @@ describe("the events reads fold the run of show in", () => {
     const { db } = seeded();
     const recorded = recordStatements(db);
     await Effect.runPromise(
-      (read() as Effect.Effect<unknown, unknown, DbService>).pipe(
+      (read() as Effect.Effect<unknown, unknown, DbService | EffectDbService>).pipe(
         Effect.provideService(DbService, db),
+        Effect.provideService(EffectDbService, effectDbFor(localD1Binding(db.$client), "fetch")),
       ),
     );
     const touching = recorded.filter((s) => s.sql.includes("run_of_show_items"));
