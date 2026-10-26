@@ -13,7 +13,7 @@ related:
   - "[[oidc-provider]]"
   - "[[musubi-identity-migration]]"
   - "[[cire-entitlements]]"
-last-reviewed: 2026-10-23
+last-reviewed: 2026-10-26
 ---
 
 # Cire auth model
@@ -197,8 +197,8 @@ Two routes the organiser portal calls sit outside these gates:
 | Set a helper's run-sheet scope (`PUT …/hosts/:osnProfileId/run-sheet-scope`, `own` or `full`; see [The run-sheet scope](#the-run-sheet-scope)) | ✅ | ❌ | ❌ | ❌ | `weddingOwner()` |
 | **Leave** — give up the caller's own seat (`DELETE /hosts/me`); the last owner gets **409 `last_owner`** | ✅ | ✅ | ✅ | ✅ | `weddingSeat()` |
 | The budget cap (`PUT /budget/total`)                                                              | ✅    | ❌     | ❌     | ❌        | `weddingOwner()`                |
-| Read an event's seating chart (`GET /seating/events/:eventId`) — Gold | ✅ | ✅ | ✅ | ❌ | `weddingMember()` + `weddingTier("gold")` |
-| Set out tables and seat guests (`POST`/`PATCH`/`DELETE …/seating/…`, `PUT …/seating/events/:eventId/guests/:guestId`) — Gold | ✅ | ✅ | ❌ | ❌ | `weddingEditor()` + `weddingTier("gold")` |
+| Read an event's seating plans and chart (`GET /seating/events/:eventId[?plan=]`) — Gold | ✅ | ✅ | ✅ | ❌ | `weddingMember()` + `weddingTier("gold")` |
+| Set out plans, tables and seats (`POST`/`PATCH`/`DELETE …/seating/…`, `PUT …/seating/events/:eventId/selected-plan`, `PUT …/seating/events/:eventId/guests/:guestId`, `PUT …/seating/plans/:planId/guests/:guestId`) — Gold | ✅ | ✅ | ❌ | ❌ | `weddingEditor()` + `weddingTier("gold")` |
 | Billing (`POST /upgrade/session`) and the registry's payout account (`POST /registry/stripe/session`) | ✅ | ❌     | ❌     | ❌        | `weddingOwner()`                |
 | Redeem an unlock code (`POST /unlock-code`)                                                       | ✅    | ❌     | ❌     | ❌        | `weddingOwner()`                |
 | Delete the wedding (`DELETE /api/organiser/weddings/:weddingId`, soft, typed slug)              | ✅    | ❌     | ❌     | ❌        | `weddingOwner()`                |

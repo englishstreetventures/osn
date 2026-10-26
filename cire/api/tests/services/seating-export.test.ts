@@ -7,6 +7,7 @@ import {
   guestEvents,
   guests,
   seatingAssignments,
+  seatingPlans,
   seatingTables,
 } from "@cire/db";
 import { Effect, Logger, References } from "effect";
@@ -22,6 +23,7 @@ import { recordStatements } from "../test-helpers";
 // bound applies to the read, not only to what is printed.
 
 const EVENT = "evt_big";
+const PLAN = "spl_big";
 
 /** One event, one table and `count` seated guests, named in print order. */
 function seatedWedding(count: number): TestDb {
@@ -49,11 +51,23 @@ function seatedWedding(count: number): TestDb {
       updatedAt: now,
     })
     .run();
+  db.insert(seatingPlans)
+    .values({
+      id: PLAN,
+      weddingId: BOOTSTRAP_WEDDING_ID,
+      eventId: EVENT,
+      name: "Plan 1",
+      selected: true,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
   db.insert(seatingTables)
     .values({
       id: "stb_big",
       weddingId: BOOTSTRAP_WEDDING_ID,
       eventId: EVENT,
+      planId: PLAN,
       name: "Long table",
       capacity: count,
       createdAt: now,
@@ -80,7 +94,13 @@ function seatedWedding(count: number): TestDb {
       .run();
     db.insert(seatingAssignments)
       .values(
-        chunk.map((id) => ({ tableId: "stb_big", eventId: EVENT, guestId: id, createdAt: now })),
+        chunk.map((id) => ({
+          tableId: "stb_big",
+          planId: PLAN,
+          eventId: EVENT,
+          guestId: id,
+          createdAt: now,
+        })),
       )
       .run();
   }

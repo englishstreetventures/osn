@@ -627,28 +627,37 @@ INSERT OR IGNORE INTO guest_events (guest_id, event_id) VALUES
   ('b0000000-0000-4000-8000-000000000006', '9f7a2c14-1b3d-4e5f-8a01-000000000005');
 
 -- ────────────────────────────────────────────────────────────────────────────
--- Seating chart (2 tables, 3 seated) — the Reception
+-- Seating chart (1 plans, 2 tables, 3 seats) — the Reception
 -- ────────────────────────────────────────────────────────────────────────────
 
 -- After the invitations: a seat's foreign key names its guest's invitation
--- to the event, and its table's event.
-INSERT OR IGNORE INTO seating_tables (
+-- to the event, and its table's event and plan. Every row names its plan.
+INSERT OR IGNORE INTO seating_plans (
   id, wedding_id, event_id, name,
+  selected, created_at, updated_at
+) VALUES
+  (
+    'spl_c1d2e3f4-0000-4000-8000-000000000001', 'wed_bootstrap', '9f7a2c14-1b3d-4e5f-8a01-000000000004', 'Plan 1',
+    1, unixepoch(), unixepoch()
+  );
+
+INSERT OR IGNORE INTO seating_tables (
+  id, wedding_id, event_id, plan_id, name,
   capacity, sort_order, created_at, updated_at
 ) VALUES
   (
-    'stb_c1d2e3f4-0000-4000-8000-000000000001', 'wed_bootstrap', '9f7a2c14-1b3d-4e5f-8a01-000000000004', 'Table 1',
+    'stb_c1d2e3f4-0000-4000-8000-000000000001', 'wed_bootstrap', '9f7a2c14-1b3d-4e5f-8a01-000000000004', 'spl_c1d2e3f4-0000-4000-8000-000000000001', 'Table 1',
     8, 0, unixepoch(), unixepoch()
   ),
   (
-    'stb_c1d2e3f4-0000-4000-8000-000000000002', 'wed_bootstrap', '9f7a2c14-1b3d-4e5f-8a01-000000000004', 'Table 2',
+    'stb_c1d2e3f4-0000-4000-8000-000000000002', 'wed_bootstrap', '9f7a2c14-1b3d-4e5f-8a01-000000000004', 'spl_c1d2e3f4-0000-4000-8000-000000000001', 'Table 2',
     10, 1, unixepoch(), unixepoch()
   );
 
-INSERT OR IGNORE INTO seating_assignments (table_id, event_id, guest_id, created_at) VALUES
-  ('stb_c1d2e3f4-0000-4000-8000-000000000001', '9f7a2c14-1b3d-4e5f-8a01-000000000004', 'b0000000-0000-4000-8000-000000000001', unixepoch()),
-  ('stb_c1d2e3f4-0000-4000-8000-000000000001', '9f7a2c14-1b3d-4e5f-8a01-000000000004', 'b0000000-0000-4000-8000-000000000002', unixepoch()),
-  ('stb_c1d2e3f4-0000-4000-8000-000000000002', '9f7a2c14-1b3d-4e5f-8a01-000000000004', 'b0000000-0000-4000-8000-000000000006', unixepoch());
+INSERT OR IGNORE INTO seating_assignments (table_id, plan_id, event_id, guest_id, created_at) VALUES
+  ('stb_c1d2e3f4-0000-4000-8000-000000000001', 'spl_c1d2e3f4-0000-4000-8000-000000000001', '9f7a2c14-1b3d-4e5f-8a01-000000000004', 'b0000000-0000-4000-8000-000000000001', unixepoch()),
+  ('stb_c1d2e3f4-0000-4000-8000-000000000001', 'spl_c1d2e3f4-0000-4000-8000-000000000001', '9f7a2c14-1b3d-4e5f-8a01-000000000004', 'b0000000-0000-4000-8000-000000000002', unixepoch()),
+  ('stb_c1d2e3f4-0000-4000-8000-000000000002', 'spl_c1d2e3f4-0000-4000-8000-000000000001', '9f7a2c14-1b3d-4e5f-8a01-000000000004', 'b0000000-0000-4000-8000-000000000006', unixepoch());
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- Replies (10) — the canonical families

@@ -161,8 +161,8 @@ export const DEV_LOGIN_SECRET = "e2e-dev-login-secret-not-a-real-secret";
 /**
  * The organiser weddings cire-api adds when the stack sets
  * `CIRE_E2E_ORGANISER=1` (`seedE2eOrganiser` in `cire/api/src/db/setup.ts`,
- * which these values copy). All six are on Gold; `profileId`, the profile
- * osn-api's `/dev/login` signs in as, owns five and is a helper on
+ * which these values copy). All seven are on Gold; `profileId`, the profile
+ * osn-api's `/dev/login` signs in as, owns six and is a helper on
  * `runSheetHelper`. The co-hosts are bare
  * profile ids: the local cire-api resolves no names, so the portal shows the
  * ids, and a flow finds each person by theirs.
@@ -241,6 +241,20 @@ export const CIRE_ORGANISER = {
   money: {
     weddingId: "wed_e2e_money",
     fundTitle: "Honeymoon fund",
+  },
+  /** A reception with one seating plan, in use: Ada and Bo Alpha at Table 1,
+   *  Cy Charlie at Table 2, all three having said yes. And an after party,
+   *  inviting Ada, with no plan yet. */
+  seating: {
+    weddingId: "wed_e2e_seating",
+    eventId: "evt_e2e_seating_rec",
+    planId: "spl_e2e_seating_1",
+    planName: "Plan 1",
+    tables: { one: "Table 1", two: "Table 2" },
+    party: { id: "evt_e2e_seating_party", name: "After party", table: "Front row" },
+    ada: { guestId: "gst_e2e_seating_ada", name: "Ada Alpha" },
+    bo: { guestId: "gst_e2e_seating_bo", name: "Bo Alpha" },
+    cy: { guestId: "gst_e2e_seating_cy", name: "Cy Charlie" },
   },
 } as const;
 

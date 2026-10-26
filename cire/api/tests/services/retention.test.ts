@@ -14,6 +14,7 @@ import {
   registrySettings,
   registryItems,
   seatingAssignments,
+  seatingPlans,
   seatingTables,
   weddingHosts,
 } from "@cire/db";
@@ -355,38 +356,45 @@ describe("retentionService.sweepExpiredGuestData", () => {
       makeWedding({ eventDates: ["2025-04-01", "2025-05-10"] }),
     );
     const now = new Date();
-    const eventId = `${weddingId}-ev-0`;
-    db.insert(seatingTables)
-      .values({
-        id: "stb_kept",
-        weddingId,
-        eventId,
-        name: "Table 1",
-        capacity: 8,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run();
-    db.insert(seatingAssignments)
-      .values({ tableId: "stb_kept", eventId, guestId, createdAt: now })
-      .run();
+    /** A selected plan at the event, one table, and the guest seated there. */
+    const seatOne = (wedding: string, eventId: string, guest: string, key: string) => {
+      db.insert(seatingPlans)
+        .values({
+          id: `spl_${key}`,
+          weddingId: wedding,
+          eventId,
+          name: "Plan 1",
+          selected: true,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+      db.insert(seatingTables)
+        .values({
+          id: `stb_${key}`,
+          weddingId: wedding,
+          eventId,
+          planId: `spl_${key}`,
+          name: "Table 1",
+          capacity: 8,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+      db.insert(seatingAssignments)
+        .values({
+          tableId: `stb_${key}`,
+          planId: `spl_${key}`,
+          eventId,
+          guestId: guest,
+          createdAt: now,
+        })
+        .run();
+    };
+    seatOne(weddingId, `${weddingId}-ev-0`, guestId, "kept");
     // A wedding whose events are still ahead keeps its seats.
     const live = await runOn(db, makeWedding({ eventDates: ["2027-01-10"] }));
-    const liveEvent = `${live.weddingId}-ev-0`;
-    db.insert(seatingTables)
-      .values({
-        id: "stb_live",
-        weddingId: live.weddingId,
-        eventId: liveEvent,
-        name: "Table 1",
-        capacity: 8,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run();
-    db.insert(seatingAssignments)
-      .values({ tableId: "stb_live", eventId: liveEvent, guestId: live.guestId, createdAt: now })
-      .run();
+    seatOne(live.weddingId, `${live.weddingId}-ev-0`, live.guestId, "live");
     db.$client.exec("PRAGMA foreign_keys = OFF;");
 
     // Exactly one guest: the guests delete is still found among the batch's
@@ -403,6 +411,15 @@ describe("retentionService.sweepExpiredGuestData", () => {
         .map((t) => t.id)
         .toSorted(),
     ).toEqual(["stb_kept", "stb_live"]);
+    // The plans stay with the tables, as part of the wedding's shell.
+    expect(
+      db
+        .select({ id: seatingPlans.id })
+        .from(seatingPlans)
+        .all()
+        .map((p) => p.id)
+        .toSorted(),
+    ).toEqual(["spl_kept", "spl_live"]);
   });
 
   it(
