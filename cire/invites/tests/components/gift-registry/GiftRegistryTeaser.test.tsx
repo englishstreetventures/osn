@@ -321,8 +321,15 @@ describe("the peek", () => {
     expect(tiles[1]?.getAttribute("src")).toContain("registry-c");
     // The fourth is laid out only where a fourth fits, rather than wrapping
     // alone onto a second row.
-    const fourth = container.querySelectorAll("[data-gift-teaser-preview] li")[3];
-    expect(fourth?.getAttribute("class")).toContain("hidden md:block");
+    const rows = [...container.querySelectorAll("[data-gift-teaser-preview] li")];
+    expect(rows[3]?.getAttribute("class")).toContain("hidden md:block");
+    // The first three show on every screen, a phone's included.
+    for (const row of rows.slice(0, 3))
+      expect(row.getAttribute("class") ?? "").not.toContain("hidden");
+    // A tile is small, so it asks for the small picture, and the card-sized
+    // one only where the screen is dense enough to need it.
+    expect(tiles[0]?.getAttribute("src")).toMatch(/variant=thumb$/);
+    expect(tiles[0]?.getAttribute("srcset")).toMatch(/variant=thumb \d+w, .*variant=card \d+w$/);
   });
 
   it("takes a cash fund's picture too, in the couple's order", async () => {

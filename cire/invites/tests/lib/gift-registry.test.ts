@@ -203,6 +203,7 @@ describe("releaseGiftRegistryItem", () => {
   it("DELETEs the claim credentialed", async () => {
     fetchMock.mockResolvedValueOnce(json({ ok: true }));
     expect(await releaseGiftRegistryItem(API, SLUG, "gi-1")).toEqual({ kind: "ok" });
+    expect(lastUrl()).toBe(`${API}/api/invite/${SLUG}/registry/items/gi-1/claim`);
     expect(lastInit().method).toBe("DELETE");
     expect(lastInit().credentials).toBe("include");
   });
