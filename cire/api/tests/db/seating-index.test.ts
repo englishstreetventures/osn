@@ -5,6 +5,8 @@ import { eq } from "drizzle-orm";
 import { Effect, Exit } from "effect";
 
 import { DbService } from "../../src/db";
+import { EffectDbService, effectDbFor } from "../../src/db/effect-handle";
+import { localD1Binding } from "../../src/db/local-d1";
 import { createDb, seedDb } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
 import { currentEventsAsParsed } from "../../src/services/changes";
@@ -83,8 +85,13 @@ function seeded(): TestDb {
   return db;
 }
 
-const run = <A, E>(db: TestDb, effect: Effect.Effect<A, E, DbService>) =>
-  Effect.runPromiseExit(effect.pipe(Effect.provideService(DbService, db)));
+const run = <A, E>(db: TestDb, effect: Effect.Effect<A, E, DbService | EffectDbService>) =>
+  Effect.runPromiseExit(
+    effect.pipe(
+      Effect.provideService(DbService, db),
+      Effect.provideService(EffectDbService, effectDbFor(localD1Binding(db.$client), "fetch")),
+    ),
+  );
 
 describe("seating statements reach their rows by an index", () => {
   it("for every chart read and write", async () => {

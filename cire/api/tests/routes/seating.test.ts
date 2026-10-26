@@ -18,6 +18,8 @@ import { and, count as sqlCount, eq } from "drizzle-orm";
 import type { SQLiteTable } from "drizzle-orm/sqlite-core";
 
 import { createApp } from "../../src/app";
+import { effectDbFor } from "../../src/db/effect-handle";
+import { localD1Binding } from "../../src/db/local-d1";
 import { createDb, seedBootstrapWedding } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
 import { CIRE_METRICS } from "../../src/metrics";
@@ -213,7 +215,12 @@ function setup(
   const exportLimiter = createRateLimiter({ maxRequests: 1_000, windowMs: 60_000 });
   return {
     db,
-    app: createApp(db, { osnTestKey: auth.key, seatingPlanLimiter, exportLimiter }),
+    app: createApp(db, {
+      osnTestKey: auth.key,
+      seatingPlanLimiter,
+      exportLimiter,
+      effectDb: effectDbFor(localD1Binding(db.$client), "fetch"),
+    }),
   };
 }
 type App = ReturnType<typeof setup>["app"];

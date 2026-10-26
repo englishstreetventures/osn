@@ -2400,6 +2400,20 @@ describe("CSV export per-user rate limit (CSV-S-L1)", () => {
   });
 });
 
+describe("GET seating.csv when the app has no Effect handle", () => {
+  // The seating export dies inside the route's pipe, so catchDefect answers a plain 500 with no attachment.
+  it("answers 500 with no attachment", async () => {
+    const { app } = buildApp({ withoutEffect: true });
+    const res = await get(
+      app,
+      `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/seating.csv`,
+      BOOTSTRAP_OWNER,
+    );
+    expect(res.status).toBe(500);
+    expect(res.headers.get("content-disposition")).toBeNull();
+  });
+});
+
 describe("GET gifts.csv when the app has no Effect handle", () => {
   // The gifts export dies inside the route's pipe, so catchDefect answers a plain 500 with no attachment.
   it("answers 500 with no attachment", async () => {

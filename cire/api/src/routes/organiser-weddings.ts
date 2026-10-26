@@ -488,12 +488,13 @@ export const createOrganiserExportRoutes = (
           }
           return runCire(
             Effect.gen(function* () {
-              const csv = yield* seatingExportService.seatingCsv(weddingId);
+              const csv = yield* effectDb === undefined
+                ? Effect.die(new Error("organiser export: no EffectDbService was provided"))
+                : seatingExportService
+                    .seatingCsv(weddingId)
+                    .pipe(Effect.provideService(EffectDbService, effectDb));
               return csvAttachment(csv, `cire-seating-${weddingSlug ?? weddingId}.csv`);
-            }).pipe(
-              Effect.provideService(DbService, db),
-              Effect.catchDefect(() => exportDefect(set, "seating.csv", weddingId)),
-            ),
+            }).pipe(Effect.catchDefect(() => exportDefect(set, "seating.csv", weddingId))),
           );
         })
         // How many rows `budget.csv`, `tasks.csv`, `gifts.csv` and
