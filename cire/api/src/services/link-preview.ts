@@ -976,9 +976,7 @@ async function resolveCandidates(
   finalUrl: URL,
   guard: UrlGuard,
 ): Promise<ResolvedCandidates> {
-  const ranked = [...candidates];
-  // `toSorted` is ES2023 and this package's lib is ES2022. Copy, then sort.
-  ranked.sort((a, b) => a.rank - b.rank);
+  const ranked = candidates.toSorted((a, b) => a.rank - b.rank);
 
   await warmHosts(ranked, finalUrl, guard);
 
