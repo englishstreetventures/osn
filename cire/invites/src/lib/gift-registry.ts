@@ -7,9 +7,10 @@
  * word. Nothing here may be called `Registry*`, and no gift code belongs under
  * `src/designs/`.
  *
- * The list read itself, and the shape of the list, are in `gift-registry-read.ts`:
- * the invitation makes that read on every guest's visit, and loads this module
- * only once it answers with a list.
+ * The list read itself, and the shape of the list, are in `gift-registry-read.ts`;
+ * what the list looks like is in `gift-registry-display.ts`. The invitation
+ * needs only those two, so it never downloads this module: the claim, release
+ * and money calls here belong to the gift list's own page.
  *
  * Two properties this module exists to keep:
  *
@@ -376,18 +377,6 @@ export async function releaseGiftRegistryItem(
 }
 
 /**
- * Base URL for an item's image, with NO `?variant=` yet — feed it to the shared
- * `variantSrc` / `buildSrcSet` helpers, which own the bounded variant names and
- * their widths for every image on the guest site.
- *
- * `imageName` is the LAST SEGMENT of the R2 key; the route rebuilds the rest
- * server-side from the slug, so the guest never names a bucket path.
- */
-export function giftRegistryImageBase(apiUrl: string, slug: string, imageName: string): string {
-  return `${giftRegistryBase(apiUrl, slug)}/image/${encodeURIComponent(imageName)}`;
-}
-
-/**
  * Re-check an item's `external_url` before it can reach an `<a href>`.
  *
  * The API already parses and normalises this on write. This is the second half
@@ -440,21 +429,6 @@ export function giftRegistryQuantityHint(max: number, wanted: number): string | 
   if (!Number.isFinite(max) || max < 1) return null;
   if (!Number.isFinite(wanted) || max >= wanted) return null;
   return max === 1 ? "You can reserve 1." : `You can reserve up to ${max}.`;
-}
-
-/**
- * Sort as the API's own index does: `sort_order`, then `id` as the tie-break.
- * Re-sorted client-side rather than trusted, so a merged/refetched list is
- * stable no matter what order the rows arrived in. Copies — never sorts the
- * caller's array in place. Gifts and cash funds share one order on the list,
- * so it sorts either, or both together.
- */
-export function sortGiftRegistryItems<T extends Pick<GiftRegistryItem, "id" | "sortOrder">>(
-  items: readonly T[],
-): T[] {
-  return [...items].sort((a, b) =>
-    a.sortOrder === b.sortOrder ? a.id.localeCompare(b.id) : a.sortOrder - b.sortOrder,
-  );
 }
 
 /**
@@ -513,58 +487,10 @@ export function formatGiftPrice(priceMinor: number | null, currency: string): st
  * return to it to review and change reservations or open gifts in a shop.
  *
  * The helpers below are the parts of that page that must hold without a DOM:
- * where it lives, what it is called, and how the list is read out.
+ * what it is called, and how the list is read out. Where it lives, and the
+ * copy, order and pictures it shares with the invitation's band, are in
+ * `gift-registry-display.ts`.
  * ------------------------------------------------------------------------- */
-
-/** The wedding's gift-list page. Encoded like every other slug in a URL here. */
-export function giftRegistryPath(slug: string): string {
-  return `/cire/registry?slug=${encodeURIComponent(slug)}`;
-}
-
-/** Built-in copy when the organiser set none. */
-export const DEFAULT_GIFT_REGISTRY_EYEBROW = "With Love";
-export const DEFAULT_GIFT_REGISTRY_HEADING = "Gift Registry";
-
-/**
- * First usable line of copy, or `null`.
- *
- * Blank counts as unset, not as an answer. The old inline `??` chain took the
- * first NON-NULL value, so a heading saved as `""` won over both the registry
- * module's own headline and the built-in default — an empty `<h1>` on the
- * invite, and on this page an empty `<title>` in the browser tab and in every
- * link preview of it.
- */
-function firstCopy(...candidates: (string | null | undefined)[]): string | null {
-  for (const candidate of candidates) {
-    if (typeof candidate === "string" && candidate.trim() !== "") return candidate;
-  }
-  return null;
-}
-
-/** Section eyebrow — the invite's copy, else the built-in. */
-export function giftRegistryEyebrow(inviteCopy: string | null | undefined): string {
-  return firstCopy(inviteCopy) ?? DEFAULT_GIFT_REGISTRY_EYEBROW;
-}
-
-/**
- * Section heading. The invite's own copy wins when the organiser wrote it (it is
- * section furniture, themed with every other section header); the registry
- * module's `headline` fills in when they only wrote copy there.
- */
-export function giftRegistryHeading(
-  inviteCopy: string | null | undefined,
-  headline: string | null | undefined,
-): string {
-  return firstCopy(inviteCopy, headline) ?? DEFAULT_GIFT_REGISTRY_HEADING;
-}
-
-/** Intro body, same precedence as the heading. `null` ⇒ render no paragraph. */
-export function giftRegistryBody(
-  inviteCopy: string | null | undefined,
-  message: string | null | undefined,
-): string | null {
-  return firstCopy(inviteCopy, message);
-}
 
 /**
  * The gift page's `<title>`, shaped like the invite's own (`inviteTitle`):

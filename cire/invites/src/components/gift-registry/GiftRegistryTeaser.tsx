@@ -11,7 +11,7 @@
  * IT IS NOT THE ISLAND. `GiftRegistryTeaserIsland` makes the list read and
  * imports this module only once that read answers with a list, so a guest of a
  * wedding with no list for them (below Gold, unpublished, or none at all) never
- * downloads the band, nor the gift-list client it imports. `registry` is that
+ * downloads the band, nor the display helpers it imports. `registry` is that
  * answer.
  *
  * NO COUNTS AT ALL. Same rule as the page: the band says the couple have a list
@@ -27,7 +27,7 @@ import {
   giftRegistryImageBase,
   giftRegistryPath,
   sortGiftRegistryItems,
-} from "../../lib/gift-registry";
+} from "../../lib/gift-registry-display";
 import type { GiftRegistry } from "../../lib/gift-registry-read";
 import { buildSrcSet, variantSrc } from "../invite-images";
 

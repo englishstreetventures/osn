@@ -7,7 +7,7 @@ import { GiftRegistryTeaserIsland } from "../../../src/components/gift-registry/
 import {
   DEFAULT_GIFT_REGISTRY_EYEBROW,
   DEFAULT_GIFT_REGISTRY_HEADING,
-} from "../../../src/lib/gift-registry";
+} from "../../../src/lib/gift-registry-display";
 import type { GiftRegistry, GiftRegistryItem } from "../../../src/lib/gift-registry-read";
 
 /**

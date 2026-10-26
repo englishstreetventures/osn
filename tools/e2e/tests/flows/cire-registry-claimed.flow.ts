@@ -14,8 +14,9 @@
  * deployment's doing, not a seed that lacks one.
  *
  * The wedding is on Gold, so the invitation downloads the band's own module
- * and the gift-list client once the list read answers; a guest of an Ivory
- * wedding downloads neither (`cire-rsvp-after-deadline`).
+ * and its display helpers once the list read answers, and never the client
+ * that claims and gives, which only the gift page needs; a guest of an Ivory
+ * wedding downloads none of them (`cire-rsvp-after-deadline`).
  *
  * The wedding is the gift-list one cire-api seeds for the suite
  * (`CIRE_GIFT_LIST`); every string the locked flow checks is absent is checked
@@ -32,7 +33,7 @@ import type { Page } from "@playwright/test";
 import { CIRE_GIFT_LIST, DB_FILES, LOG_DIR, ORIGINS } from "../../src/config";
 import {
   expect,
-  GIFT_BAND_MODULES,
+  GIFT_LIST_MODULES,
   giftListTextIn,
   guestSitePaths,
   onSuiteClock,
@@ -128,12 +129,17 @@ test("cire-registry-claimed", async ({ page, context, flow }) => {
   flow.check(
     "the invitation downloaded the band",
     true,
-    invitationPaths.has(GIFT_BAND_MODULES.band),
+    invitationPaths.has(GIFT_LIST_MODULES.band),
   );
   flow.check(
-    "the invitation downloaded the gift-list client",
+    "the invitation downloaded the band's display helpers",
     true,
-    invitationPaths.has(GIFT_BAND_MODULES.client),
+    invitationPaths.has(GIFT_LIST_MODULES.display),
+  );
+  flow.check(
+    "the invitation downloaded the gift list's write client",
+    false,
+    invitationPaths.has(GIFT_LIST_MODULES.client),
   );
 
   const after = await flow.step("open the gift list", async () => {

@@ -11,8 +11,9 @@
  *
  * The wedding is on Ivory, which has no gift list. So once Nori is in, a second
  * tab opens the invitation on the same session: its gift band reads the list,
- * is told there is none (404), and never downloads the band or the gift-list
- * client. That tab is read only at the end, long after the 404 was handled.
+ * is told there is none (404), and never downloads the band, its display
+ * helpers or the client that claims and gives. That tab is read only at the
+ * end, long after the 404 was handled.
  * `cire-registry-claimed` checks the opposite on a Gold wedding with a list.
  */
 
@@ -25,7 +26,7 @@ import {
 } from "../../src/config";
 import {
   expect,
-  GIFT_BAND_MODULES,
+  GIFT_LIST_MODULES,
   guestSitePaths,
   onSuiteClock,
   queryOne,
@@ -165,16 +166,13 @@ test("cire-rsvp-after-deadline", async ({ page, context, flow }) => {
 
   // Read last, many steps after the second tab's list read was answered, so a
   // download that answer set off has long since been requested.
-  flow.check(
-    "the Ivory invitation downloaded the band",
-    false,
-    second.paths.includes(GIFT_BAND_MODULES.band),
-  );
-  flow.check(
-    "the Ivory invitation downloaded the gift-list client",
-    false,
-    second.paths.includes(GIFT_BAND_MODULES.client),
-  );
+  for (const [name, path] of Object.entries(GIFT_LIST_MODULES)) {
+    flow.check(
+      `the Ivory invitation downloaded the gift list's ${name} module`,
+      false,
+      second.paths.includes(path),
+    );
+  }
   flow.check(
     "gift band on the Ivory invitation",
     0,

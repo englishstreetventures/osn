@@ -361,13 +361,18 @@ export function giftListTextIn(text: string): string {
 }
 
 /**
- * The invitation's gift band and the gift-list client it imports, by the path
- * the stack's `astro dev` serves each at: one request per source module. The
- * band's island loads both only once the list read answers with a list, so a
- * guest of a wedding without one requests neither.
+ * Modules of the guest site's gift list, by the path the stack's `astro dev`
+ * serves each at: one request per source module.
+ *
+ * `band` and `display` are the invitation's gift band and the helpers it shows
+ * the list with. The band's island loads both only once the list read answers
+ * with a list, so a guest of a wedding without one requests neither. `client`
+ * holds the claim, release and money calls, which only the gift list's own
+ * page imports: no invitation requests it.
  */
-export const GIFT_BAND_MODULES = {
+export const GIFT_LIST_MODULES = {
   band: "/src/components/gift-registry/GiftRegistryTeaser.tsx",
+  display: "/src/lib/gift-registry-display.ts",
   client: "/src/lib/gift-registry.ts",
 } as const;
 

@@ -1,9 +1,10 @@
 /**
  * The gift list's one read, and the shape it answers with.
  *
- * Apart from the rest of the guest-side client (`gift-registry.ts`) so that the
- * invitation's gift band island can ask whether this wedding has a list for
- * this guest without downloading the band or the client: the API answers this
+ * Apart from the rest of the guest-side client (`gift-registry.ts`,
+ * `gift-registry-display.ts`) so that the invitation's gift band island can ask
+ * whether this wedding has a list for this guest without downloading the band
+ * or anything it shows the list with: the API answers this
  * read with one 404 for a wedding below Gold, an unpublished list and an
  * unknown slug, and only an `ok` loads the rest (`GiftRegistryTeaserIsland`).
  * Everything here must stay small enough to ship on every invitation.

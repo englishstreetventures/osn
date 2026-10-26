@@ -14,11 +14,13 @@
  * THE BAND IS DOWNLOADED ONLY FOR A LIST. The gift list is a Gold module, and the
  * public invite payload carries no plan on purpose, so this read is the only way
  * the invitation learns whether there is a band to show. Until it answers `ok`,
- * the band's markup and the gift-list client it imports (`lib/gift-registry.ts`)
- * stay out of the page: `lazy` asks for their chunk the first time the band
- * renders, and nothing preloads it, because a preload beside the read would
- * download it for every guest of a wedding without a list. A guest of a wedding
- * with one waits for a second round trip instead, below the fold.
+ * the band's markup and the display helpers it imports
+ * (`lib/gift-registry-display.ts`) stay out of the page: `lazy` asks for them
+ * the first time the band renders, and nothing preloads them, because a
+ * preload beside the read would download them for every guest of a wedding
+ * without a list. A guest of a wedding with one waits for a second round trip
+ * instead, below the fold. The rest of the client (`lib/gift-registry.ts`:
+ * claims, releases, money) is never part of the invitation.
  *
  * A band chunk that fails to download throws out of this island, as the
  * invitation's other lazy panels do, and `lazy` keeps that failed import, so

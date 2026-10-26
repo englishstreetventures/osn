@@ -15,18 +15,20 @@ import {
 import {
   claimGiftRegistryItem,
   fetchGiftRegistryHousehold,
-  giftRegistryBody,
   giftRegistryClaimedCopy,
-  giftRegistryImageBase,
   groupGiftRegistryItems,
   hasGiftRegistryCategories,
   releaseGiftRegistryItem,
-  sortGiftRegistryItems,
   type GiftRegistryClaimBody,
   type GiftRegistryHouseholdClaim,
   type GiftRegistryHouseholdFetch,
   type GiftRegistryWrite,
 } from "../../lib/gift-registry";
+import {
+  giftRegistryBody,
+  giftRegistryImageBase,
+  sortGiftRegistryItems,
+} from "../../lib/gift-registry-display";
 import {
   fetchGiftRegistry,
   type GiftRegistry,
