@@ -24,7 +24,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "r=\"${AGENT_GUARD_REF:-origin/main}\"; p=\"${CLAUDE_PROJECT_DIR:-.}\"; b=$(git -C \"$p\" rev-parse \"${r}:scripts/agent-guard.ts\" 2>/dev/null) || { cat >/dev/null; exit 0; }; d=$(mktemp -d) || { cat >/dev/null; exit 0; }; trap 'rm -rf \"$d\"' EXIT; git -C \"$p\" show \"$b\" > \"$d/g.ts\" && : > \"$d/empty.toml\" && cd \"$d\" && bun --no-env-file --no-install --config=\"$d/empty.toml\" \"$d/g.ts\" || { cat >/dev/null; true; }",
+            "command": "r=\"${AGENT_GUARD_REF:-refs/remotes/origin/main}\"; p=\"${CLAUDE_PROJECT_DIR:-.}\"; d=$(mktemp -d) || { cat >/dev/null; exit 0; }; trap 'rm -rf \"$d\"' EXIT; git -C \"$p\" cat-file blob \"${r}:scripts/agent-guard.ts\" > \"$d/g.ts\" 2>/dev/null && : > \"$d/empty.toml\" && cd \"$d\" && bun --no-env-file --no-install --config=\"$d/empty.toml\" \"$d/g.ts\" || { cat >/dev/null; true; }",
             "timeout": 10
           }
         ]
@@ -34,7 +34,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "r=\"${AGENT_GUARD_REF:-origin/main}\"; p=\"${CLAUDE_PROJECT_DIR:-.}\"; b=$(git -C \"$p\" rev-parse \"${r}:scripts/agent-guard.ts\" 2>/dev/null) || { cat >/dev/null; exit 0; }; d=$(mktemp -d) || { cat >/dev/null; exit 0; }; trap 'rm -rf \"$d\"' EXIT; git -C \"$p\" show \"$b\" > \"$d/g.ts\" && : > \"$d/empty.toml\" && cd \"$d\" && bun --no-env-file --no-install --config=\"$d/empty.toml\" \"$d/g.ts\" || { cat >/dev/null; true; }",
+            "command": "r=\"${AGENT_GUARD_REF:-refs/remotes/origin/main}\"; p=\"${CLAUDE_PROJECT_DIR:-.}\"; d=$(mktemp -d) || { cat >/dev/null; exit 0; }; trap 'rm -rf \"$d\"' EXIT; git -C \"$p\" cat-file blob \"${r}:scripts/agent-guard.ts\" > \"$d/g.ts\" 2>/dev/null && : > \"$d/empty.toml\" && cd \"$d\" && bun --no-env-file --no-install --config=\"$d/empty.toml\" \"$d/g.ts\" || { cat >/dev/null; true; }",
             "timeout": 10
           }
         ]
@@ -44,7 +44,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "r=\"${AGENT_GUARD_REF:-origin/main}\"; p=\"${CLAUDE_PROJECT_DIR:-.}\"; b=$(git -C \"$p\" rev-parse \"${r}:scripts/agent-guard.ts\" 2>/dev/null) || { cat >/dev/null; exit 0; }; d=$(mktemp -d) || { cat >/dev/null; exit 0; }; trap 'rm -rf \"$d\"' EXIT; git -C \"$p\" show \"$b\" > \"$d/g.ts\" && : > \"$d/empty.toml\" && cd \"$d\" && bun --no-env-file --no-install --config=\"$d/empty.toml\" \"$d/g.ts\" || { cat >/dev/null; true; }",
+            "command": "r=\"${AGENT_GUARD_REF:-refs/remotes/origin/main}\"; p=\"${CLAUDE_PROJECT_DIR:-.}\"; d=$(mktemp -d) || { cat >/dev/null; exit 0; }; trap 'rm -rf \"$d\"' EXIT; git -C \"$p\" cat-file blob \"${r}:scripts/agent-guard.ts\" > \"$d/g.ts\" 2>/dev/null && : > \"$d/empty.toml\" && cd \"$d\" && bun --no-env-file --no-install --config=\"$d/empty.toml\" \"$d/g.ts\" || { cat >/dev/null; true; }",
             "timeout": 10
           }
         ]
@@ -54,7 +54,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "r=\"${AGENT_GUARD_REF:-origin/main}\"; p=\"${CLAUDE_PROJECT_DIR:-.}\"; b=$(git -C \"$p\" rev-parse \"${r}:scripts/agent-guard.ts\" 2>/dev/null) || { cat >/dev/null; exit 0; }; d=$(mktemp -d) || { cat >/dev/null; exit 0; }; trap 'rm -rf \"$d\"' EXIT; git -C \"$p\" show \"$b\" > \"$d/g.ts\" && : > \"$d/empty.toml\" && cd \"$d\" && bun --no-env-file --no-install --config=\"$d/empty.toml\" \"$d/g.ts\" || { cat >/dev/null; true; }",
+            "command": "r=\"${AGENT_GUARD_REF:-refs/remotes/origin/main}\"; p=\"${CLAUDE_PROJECT_DIR:-.}\"; d=$(mktemp -d) || { cat >/dev/null; exit 0; }; trap 'rm -rf \"$d\"' EXIT; git -C \"$p\" cat-file blob \"${r}:scripts/agent-guard.ts\" > \"$d/g.ts\" 2>/dev/null && : > \"$d/empty.toml\" && cd \"$d\" && bun --no-env-file --no-install --config=\"$d/empty.toml\" \"$d/g.ts\" || { cat >/dev/null; true; }",
             "timeout": 10
           }
         ]

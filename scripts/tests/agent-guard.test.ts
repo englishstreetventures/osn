@@ -188,6 +188,8 @@ describe("6. tracker IDs in public text", () => {
     expect(refusedHere('gh pr create --title "fix S-Q9" --body body')).toBe(true);
     expect(refusedHere('gh pr comment 1 -b "S-Q9"')).toBe(true);
     expect(refusedHere('gh issue comment 1 --body "S-Q9"')).toBe(true);
+    expect(refusedHere('gh issue close 1 -c "S-Q9"')).toBe(true);
+    expect(refusedHere('gh pr reopen 1 --comment "S-Q9"')).toBe(true);
     expect(refusedHere("gh api repos/englishstreetventures/osn/issues --raw-field body=S-Q9")).toBe(
       true,
     );

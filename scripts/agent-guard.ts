@@ -3,11 +3,11 @@
  * PreToolUse guard: refuses a tool call that breaks one of the AGENTS.md
  * standing rules, and says which fix to make instead.
  *
- * `.claude/settings.json` runs main's copy of this file (`git show
- * origin/main:scripts/agent-guard.ts` into a fresh temp directory), never the
- * checkout's, so a branch under review cannot change what runs while the
- * checked-out settings are main's. That is also why this file imports nothing
- * but Node built-ins: it runs alone, from a directory holding only itself.
+ * `.claude/settings.json` runs main's copy of this file (`git cat-file blob
+ * refs/remotes/origin/main:scripts/agent-guard.ts` into a fresh temp
+ * directory), never the checkout's, so an edit on a branch changes nothing
+ * until it merges. That is also why this file imports nothing but Node
+ * built-ins: it runs alone, from a directory holding only itself.
  *
  * It catches slips; it is not enforcement. Every way it can fail lets the call
  * through: unreadable input, a thrown check, a file it cannot read, a git
@@ -20,8 +20,6 @@
  * scripts/tests/agent-guard.cli.test.ts (the command settings.json holds).
  */
 
-import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 
 /** The arguments of a tool call the rules read, parsed by `toolArgs`. */
@@ -511,9 +509,11 @@ function ghRule(words: string[], command: Command, state: State, ctx: Context): 
       texts.push(fileText(input, command, state, ctx));
   } else if (
     (area === "pr" || area === "issue") &&
-    ["create", "edit", "comment", "review", "merge"].includes(verb)
+    ["create", "edit", "comment", "review", "merge", "close", "reopen"].includes(verb)
   ) {
     texts.push(...flagValues(words, ["-t", "--title", "-b", "--body", "--subject"]));
+    if (verb === "close" || verb === "reopen")
+      texts.push(...flagValues(words, ["-c", "--comment"]));
     for (const file of flagValues(words, ["-F", "--body-file"]))
       texts.push(fileText(file, command, state, ctx));
   } else {
@@ -523,8 +523,9 @@ function ghRule(words: string[], command: Command, state: State, ctx: Context): 
 }
 
 function installRule(words: string[], state: State, ctx: Context): string | null {
-  if (words[0] !== "bun" || state.dir === null || !inBunWorkspace(state.dir, ctx.io)) return null;
   const verb = words[1] ?? "";
+  if (words[0] !== "bun" || !["install", "i", "update", "add"].includes(verb)) return null;
+  if (state.dir === null || !inBunWorkspace(state.dir, ctx.io)) return null;
   const flags = words.slice(2);
   if (verb === "install" || verb === "i") {
     if (flags.includes("--frozen-lockfile") || flags.includes("-g") || flags.includes("--global"))
@@ -665,8 +666,13 @@ export function decide(input: HookInput, io: GuardIo, projectDir: string): strin
 // ---------------------------------------------------------------------------
 // The hook
 
+// Loaded on first use: most calls never read a file or run git.
+const fs = () => process.getBuiltinModule("node:fs");
+
 function git(dir: string, args: readonly string[]): string | null {
-  const result = spawnSync("git", ["-C", dir, ...args], { encoding: "utf8", timeout: 5000 });
+  const result = process
+    .getBuiltinModule("node:child_process")
+    .spawnSync("git", ["-C", dir, ...args], { encoding: "utf8", timeout: 5000 });
   return result.status === 0 ? result.stdout.trim() : null;
 }
 
@@ -674,12 +680,12 @@ export const realIo: GuardIo = {
   branch: (dir) => git(dir, ["branch", "--show-current"]),
   read: (path) => {
     try {
-      return readFileSync(path, "utf8");
+      return fs().readFileSync(path, "utf8");
     } catch {
       return null;
     }
   },
-  exists: (path) => existsSync(path),
+  exists: (path) => fs().existsSync(path),
   commonDir: (dir) => {
     const common = git(dir, ["rev-parse", "--path-format=absolute", "--git-common-dir"]);
     return common === null ? null : resolve(common);

@@ -33,17 +33,17 @@ A `PreToolUse` hook runs [`scripts/agent-guard.ts`](../../scripts/agent-guard.ts
 | `bun install` without `--frozen-lockfile` (or `-g`), `bun update`, `bun add --filter`, inside a tree with a `bun.lock` | Installs |
 | A heredoc inside `$(…)` or backticks | Commands |
 | `git commit` or `git push` on `main`, judged in the directory the command runs in (`cd`, `git -C`, a branch switch earlier in the line), and a push whose destination ref is `main` | Never commit to `main` |
-| A tracker finding ID in a commit message, in `gh pr`, `gh issue` or `gh api` text (inline, `--body-file`, `-F body=@file`, `--input`), or in a GitHub MCP write, unless it targets `englishstreetventures/osn-tracker` | Issues |
+| A tracker finding ID in a commit message, in `gh pr` or `gh issue` text (`create`, `edit`, `comment`, `review`, `merge`, and a `close` or `reopen` comment) or `gh api` fields (inline, `--body-file`, `-F body=@file`, `--input`), or in a GitHub MCP write, unless it targets `englishstreetventures/osn-tracker` | Issues |
 | A Write or Edit of a test or spec file under a workspace's `src/`, in any worktree of this repository | Tests |
 | An `Agent` call with no `subagent_type`, which starts `general-purpose` | Choose subagents by definition |
 
 It catches slips; it is not enforcement, and `AGENTS.md` keeps every rule for agents that run no hooks. It reads only the call itself, never file contents already in the repository. Every failure lets the call through: unreadable input, an unreadable file, a `git` error, a directory it cannot resolve, a thrown check.
 
-The hook command, inline in `settings.json`, runs **main's copy** of the script: `git show origin/main:scripts/agent-guard.ts` into a fresh `mktemp -d`, then `bun --no-env-file --no-install --config=<empty file>` from that directory, so no checkout `bunfig.toml`, `.env` or edited guard runs. That holds while the checked-out `.claude/settings.json` is main's. Claude Code reloads a changed settings file mid-session, so a branch's own settings can still replace the hook. Two consequences of reading `origin/main`: the guard is absent until a fetch has brought the script down, and a fix to it takes effect only after the next fetch.
+The hook command, inline in `settings.json`, runs **main's copy** of the script: `git cat-file blob refs/remotes/origin/main:scripts/agent-guard.ts` into a fresh `mktemp -d`, then `bun --no-env-file --no-install --config=<empty file>` from that directory, so no checkout `bunfig.toml`, `.env` or edited guard runs. The ref is spelled in full because a tag or a branch named `origin/main` would otherwise take precedence. It protects only while the session's own `.claude/settings.json` is main's: review another branch in its own worktree, never checked out where the session runs. Two consequences of reading `origin/main`: the guard is absent until a fetch has brought the script down, and a fix to it takes effect only after the next fetch.
 
-`AGENT_GUARD_REF=<ref>` runs another ref's copy, which is how a branch tests a change to the guard in a fresh `claude -p` session. [`scripts/tests/agent-guard.test.ts`](../../scripts/tests/agent-guard.test.ts) covers the rules and [`agent-guard.cli.test.ts`](../../scripts/tests/agent-guard.cli.test.ts) runs the command as `settings.json` holds it. Both run in `bun run test:scripts`. A call costs a Bun start and two `git` calls.
+`AGENT_GUARD_REF=<ref>` runs another ref's copy, which is how a branch tests a change to the guard in a fresh `claude -p` session. [`scripts/tests/agent-guard.test.ts`](../../scripts/tests/agent-guard.test.ts) covers the rules and [`agent-guard.cli.test.ts`](../../scripts/tests/agent-guard.cli.test.ts) runs the command as `settings.json` holds it. Both run in `bun run test:scripts`. A call costs a `mktemp`, one `git` call and a Bun start.
 
-*Measured 2026-10-26 — median of 15 runs of the hook command on a `Bash` input, in a cloud container: 22 ms.*
+*Measured 2026-10-26 — median of 15 runs of the hook command on a `Bash` input, in a cloud container: 16 ms.*
 
 ## Subagents
 

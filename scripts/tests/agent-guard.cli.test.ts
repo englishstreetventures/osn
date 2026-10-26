@@ -297,12 +297,45 @@ describe("the hook command", () => {
     }
   });
 
+  test("a tag or a branch named origin/main does not replace main's copy", async () => {
+    const marker = join(base, "shadow-ran");
+    const git = (...args: string[]) =>
+      sh(repo, ["git", "-c", "user.name=t", "-c", "user.email=t@t", ...args]);
+    git("switch", "-q", "-c", "shadow");
+    await writeFile(
+      join(repo, "scripts/agent-guard.ts"),
+      `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "ran");\n`,
+    );
+    git("commit", "-q", "-am", "shadow");
+    git("switch", "-q", "main");
+    try {
+      for (const shadow of [
+        ["tag", "origin/main", "shadow"],
+        ["branch", "origin/main", "shadow"],
+      ]) {
+        git(...shadow);
+        try {
+          expect(denial(await run(bash("bun install")))).toContain("--frozen-lockfile");
+          expect(existsSync(marker)).toBe(false);
+        } finally {
+          git(
+            "update-ref",
+            "-d",
+            shadow[0] === "tag" ? "refs/tags/origin/main" : "refs/heads/origin/main",
+          );
+        }
+      }
+    } finally {
+      git("branch", "-q", "-D", "shadow");
+    }
+  });
+
   test("19. files planted where the hook starts, or in TMPDIR, never run", async () => {
     const planted = await mkdtemp(join(feature, ".planted-"));
     const tmp = await mkdtemp(join(base, "planted-"));
     const marker = join(base, "planted-ran");
     const writer = `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "ran");\n`;
-    const blob = sh(repo, ["git", "rev-parse", "origin/main:scripts/agent-guard.ts"]);
+    const blob = sh(repo, ["git", "rev-parse", "refs/remotes/origin/main:scripts/agent-guard.ts"]);
     for (const dir of [planted, tmp]) {
       await writeFile(join(dir, "evil.ts"), writer);
       await writeFile(join(dir, "bunfig.toml"), 'preload = ["./evil.ts"]\n');
