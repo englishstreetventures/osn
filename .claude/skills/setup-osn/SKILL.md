@@ -27,7 +27,7 @@ sed -n 1,20p scripts/setup.sh                     # the non-interactive tail thi
 - **Not macOS** — skip Homebrew and Xcode; install Bun with `curl -fsSL https://bun.sh/install | bash -s "bun-v$(cat .bun-version)"` and `gh` with the distribution's package manager. iOS work is macOS-only; say so in the table.
 - **No sudo** — the portless proxy cannot bind 443 or trust its CA; record it as not installed and give the command for later.
 - **No network** — nothing installs. Verify what is present, run the gates if `node_modules` exists, and report the rest as blocked.
-- **Non-interactive** — every step that changes global state (git config, SSH keys, the CA trust store, `/etc/hosts`) needs a yes. With no user, report what would change and do not change it. Installing into the repo (`bun install`, `lefthook install`) is fine.
+- **Non-interactive** — every step that changes global state (git config, SSH keys, the CA trust store, `/etc/hosts`) needs a yes. With no user, report what would change and do not change it. Installing into the repo (`bun install --frozen-lockfile`, `lefthook install`) is fine.
 
 Never claim a gate passed that did not run here.
 
@@ -90,7 +90,7 @@ Confirm with `git config --global --list | grep -E 'rerere|push.auto|pull.rebase
 bash scripts/setup.sh
 ```
 
-It runs `bun install`, `bunx --bun lefthook install`, `bun run scripts/bootstrap-bare-root.ts`, and then `bun run typecheck`, `bun run lint` and `bun run fmt:check`.
+It runs `bun install --frozen-lockfile`, `bunx --bun lefthook install`, `bun run scripts/bootstrap-bare-root.ts`, and then `bun run typecheck`, `bun run lint` and `bun run fmt:check`. A frozen install stops the script before the hooks are installed when `bun.lock` is behind the manifests: fetch main and rebase the branch, or take main's lockfile with `git checkout refs/remotes/origin/main -- bun.lock`, then run it again. Never fall back to a bare `bun install`.
 
 The bootstrap step is the one that changes something outside the checkout. Where the worktrees are subdirectories of the repository — `~/.work/osn.git`, with `main/` inside it — that parent is not a worktree and holds none of this repository's agent configuration, so a session started there runs with no hooks, no skills and no `AGENTS.md`, and nothing says so. The script writes a `SessionStart` hook there telling such a session to stop, and links that directory's `.claude/skills` to `main`'s. It never overwrites a `settings.json` or a `settings.local.json` already there — it reports instead — and in an ordinary clone it does nothing. Tell the user what it wrote, or why it wrote nothing. Read `lefthook.yml` for what the hooks do — as of this writing pre-commit runs oxlint and `bun fmt` in write mode with `stage_fixed`, and pre-push runs the type check, `bun audit --audit-level=high`, the audit-ignore expiry check and the release-age check — and tell the user, because a pre-push that refuses on an advisory reads like a broken hook to someone who was not told.
 
