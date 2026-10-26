@@ -176,11 +176,11 @@ plan and is **not** the live transport — prefer Resend.
 osn-api signs access tokens, OIDC ID tokens, relying-party access tokens, step-up tokens
 and recovery-audience tokens with one **ES256 (ECDSA P-256)** key pair. Refresh tokens are
 opaque session tokens and are not signed. In any non-local env both halves are **required**;
-missing either throws at startup (`osn/api/src/build-deps.ts:122-160`). Without `OSN_ENV`
+missing either throws at startup (`osn/api/src/build-deps.ts:129-167`). Without `OSN_ENV`
 set, the app silently generates an **ephemeral** pair (tokens die on every restart) — see
 section 7's log check.
 
-Generate once (command in `osn/api/src/build-deps.ts:124`):
+Generate once (command in `osn/api/src/build-deps.ts:131`):
 
 ```bash
 node -e "const {subtle}=globalThis.crypto; subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']).then(async k=>{const {exportJWK}=await import('jose');console.log('private:',btoa(JSON.stringify(await exportJWK(k.privateKey))));console.log('public:',btoa(JSON.stringify(await exportJWK(k.publicKey))))})"
