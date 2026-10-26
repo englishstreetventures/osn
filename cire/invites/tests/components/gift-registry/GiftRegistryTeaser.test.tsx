@@ -201,6 +201,24 @@ describe("what renders at all", () => {
     expect(container.querySelector("[data-gift-teaser]")).toBeTruthy();
   });
 
+  it.each([
+    ["the session has lapsed", 401, { error: "Unauthorized" }],
+    ["the list has closed", 404, { error: "registry_not_found" }],
+  ])("takes a band off the invitation when a later read says %s", async (_why, status, body) => {
+    // A failed read keeps the band; a refusal does not. A guest whose session
+    // ran out, or whose couple unpublished their list, must not go on seeing
+    // a band for a list they can no longer open.
+    const mock = stubFetch(json(registry()), json(body, status));
+    const { container } = renderTeaser();
+    await screen.findByRole("link", { name: "See the gift list" });
+
+    noteClaimed(); // forces the re-read
+    await waitFor(() => expect(mock).toHaveBeenCalledTimes(2));
+    await settle(mock);
+
+    expect(container.querySelector("[data-gift-teaser]")).toBeNull();
+  });
+
   it("renders nothing when the read fails outright", async () => {
     const mock = stubFetch(json({}, 500));
     const { container } = renderTeaser();
