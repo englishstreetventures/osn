@@ -1,7 +1,6 @@
 import { DbLive, type Db } from "@osn/db/service";
 import { EmailService, makeLogEmailLive } from "@shared/email";
 import {
-  createRateLimiter,
   getClientIp,
   isUnresolvedIp,
   type ClientIpOptions,
@@ -17,6 +16,7 @@ import { makeAppRunner, type AppRuntime } from "../lib/route-runtime";
 import { metricAccountDeletionRequested, metricAuthRateLimited } from "../metrics";
 import * as accountErasure from "../services/account-erasure";
 import { createAuthService, type AuthConfig } from "../services/auth";
+import { memoryLimiter, OSN_RATE_LIMITS } from "./auth/limiters";
 import {
   accountDeletionScheduledResponse,
   accountDeletionStatusResponse,
@@ -36,11 +36,12 @@ export interface AccountErasureRateLimiters {
   readonly accountDeletionStatus: RateLimiterBackend;
 }
 
+/** The in-memory bundle, single process only. Budgets are in `OSN_RATE_LIMITS`. */
 export function createDefaultAccountErasureRateLimiters(): AccountErasureRateLimiters {
   return {
-    accountDelete: createRateLimiter({ maxRequests: 5, windowMs: 3_600_000 }),
-    accountRestore: createRateLimiter({ maxRequests: 10, windowMs: 3_600_000 }),
-    accountDeletionStatus: createRateLimiter({ maxRequests: 30, windowMs: 60_000 }),
+    accountDelete: memoryLimiter(OSN_RATE_LIMITS.accountDelete),
+    accountRestore: memoryLimiter(OSN_RATE_LIMITS.accountRestore),
+    accountDeletionStatus: memoryLimiter(OSN_RATE_LIMITS.accountDeletionStatus),
   };
 }
 

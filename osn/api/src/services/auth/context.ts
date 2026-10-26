@@ -56,7 +56,8 @@ export function createAuthContext(config: AuthConfig) {
   // Ceremony / pending-state stores. Default to per-service in-memory;
   // index.ts injects Redis-backed equivalents in multi-pod deployments.
   const stores = config.ceremonyStores ?? createDefaultCeremonyStores();
-  // Per-account caps routed through the rate-limiter family.
+  // Per-account caps routed through the rate-limiter family. The same
+  // constants feed `OSN_RATE_LIMITS` in `routes/auth/limiters.ts`.
   const profileSwitchCap =
     config.profileSwitchCap ??
     createInMemoryAccountCap(PROFILE_SWITCH_MAX, PROFILE_SWITCH_WINDOW_MS);

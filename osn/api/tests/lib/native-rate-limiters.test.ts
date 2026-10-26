@@ -8,6 +8,7 @@ import {
   selectAuthRateLimiters,
 } from "../../src/lib/native-rate-limiters";
 import type { AuthRateLimiters } from "../../src/routes/auth";
+import { AUTH_RATE_LIMITS, MINUTE_MS } from "../../src/routes/auth/limiters";
 
 /**
  * Build a fresh in-memory Redis-fallback bundle (same shape the real Redis
@@ -102,6 +103,32 @@ describe("readOsnRateLimitBindings", () => {
   });
 });
 
+describe("the budget table decides where each auth limiter runs", () => {
+  it("gives every one-minute auth budget a native tier with that limit", () => {
+    const minute = (Object.keys(AUTH_RATE_LIMITS) as (keyof AuthRateLimiters)[]).filter(
+      (key) => AUTH_RATE_LIMITS[key].windowMs === MINUTE_MS,
+    );
+    const expected = Object.fromEntries(
+      minute.map((key) => [
+        key,
+        {
+          tier: `RL_AUTH_IP_${AUTH_RATE_LIMITS[key].maxRequests}_60`,
+          ns: AUTH_RATE_LIMITS[key].ns,
+        },
+      ]),
+    );
+    expect(NATIVE_BINDING_FOR_AUTH_LIMITER).toEqual(expected);
+    expect(
+      Object.keys(NATIVE_BINDING_FOR_AUTH_LIMITER).length + HOUR_WINDOW_IP_AUTH_LIMITERS.size,
+    ).toBe(Object.keys(AUTH_RATE_LIMITS).length);
+  });
+
+  it("gives every endpoint its own name, so no two share a counter", () => {
+    const names = Object.values(AUTH_RATE_LIMITS).map((budget) => budget.ns);
+    expect(new Set(names).size).toBe(names.length);
+  });
+});
+
 describe("selectAuthRateLimiters — limiter routing", () => {
   it("routes every 60s per-IP auth limiter onto a native binding", async () => {
     const tiers = {
@@ -177,10 +204,8 @@ describe("selectAuthRateLimiters — limiter routing", () => {
     const selected = selectAuthRateLimiters(bindings, fallbackBundle());
     await selected.registerComplete.check("9.9.9.9");
     await selected.passkeyRegisterBegin.check("9.9.9.9");
-    expect(rec.keys).toContain(`${NATIVE_BINDING_FOR_AUTH_LIMITER.registerComplete.ns}:9.9.9.9`);
-    expect(rec.keys).toContain(
-      `${NATIVE_BINDING_FOR_AUTH_LIMITER.passkeyRegisterBegin.ns}:9.9.9.9`,
-    );
+    expect(rec.keys).toContain(`${AUTH_RATE_LIMITS.registerComplete.ns}:9.9.9.9`);
+    expect(rec.keys).toContain(`${AUTH_RATE_LIMITS.passkeyRegisterBegin.ns}:9.9.9.9`);
     expect(rec.keys[0]).not.toBe(rec.keys[1]);
   });
 

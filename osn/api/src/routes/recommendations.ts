@@ -1,11 +1,12 @@
 import { DbLive, type Db } from "@osn/db/service";
-import { createRateLimiter, type RateLimiterBackend } from "@shared/rate-limit";
+import type { RateLimiterBackend } from "@shared/rate-limit";
 import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
 
 import { makeAppRunner, type AppRuntime } from "../lib/route-runtime";
 import { createAuthService, type AuthConfig } from "../services/auth";
 import { createRecommendationService } from "../services/recommendations";
+import { memoryLimiter, OSN_RATE_LIMITS } from "./auth/limiters";
 import {
   errorResponse,
   organisationSearchResult,
@@ -25,12 +26,10 @@ import {
 //   once per debounced keystroke. A 20/min budget would 429 a user mid-word,
 //   so it gets the graph-write budget instead. It is still per-user and still
 //   capped, which is what bounds handle enumeration.
+//
+// The numbers are `OSN_RATE_LIMITS.recommendationSuggest` and
+// `.recommendationSearch`.
 // ---------------------------------------------------------------------------
-
-const RECOMMENDATIONS_RATE_LIMIT_MAX = 20;
-const RECOMMENDATIONS_RATE_LIMIT_WINDOW_MS = 60_000;
-const SEARCH_RATE_LIMIT_MAX = 60;
-const SEARCH_RATE_LIMIT_WINDOW_MS = 60_000;
 
 export type RecommendationRateLimiters = Readonly<{
   /** Guards `GET /recommendations/connections` (the FOF fan-out). */
@@ -39,17 +38,11 @@ export type RecommendationRateLimiters = Readonly<{
   search: RateLimiterBackend;
 }>;
 
-/** Default in-memory recommendations rate limiters. Override for Redis. */
+/** Default in-memory recommendations rate limiters, single process only. */
 export function createDefaultRecommendationRateLimiters(): RecommendationRateLimiters {
   return {
-    suggest: createRateLimiter({
-      maxRequests: RECOMMENDATIONS_RATE_LIMIT_MAX,
-      windowMs: RECOMMENDATIONS_RATE_LIMIT_WINDOW_MS,
-    }),
-    search: createRateLimiter({
-      maxRequests: SEARCH_RATE_LIMIT_MAX,
-      windowMs: SEARCH_RATE_LIMIT_WINDOW_MS,
-    }),
+    suggest: memoryLimiter(OSN_RATE_LIMITS.recommendationSuggest),
+    search: memoryLimiter(OSN_RATE_LIMITS.recommendationSearch),
   };
 }
 
@@ -74,8 +67,7 @@ export function createRecommendationRoutes(
   loggerLayer: Layer.Layer<never> = Layer.empty,
   /**
    * Per-user rate limiters for the suggestion fan-out and the search
-   * typeahead. Supply Redis-backed backends in production via
-   * `createRedisRecommendationRateLimiters`.
+   * typeahead. A deployed Worker supplies ones every isolate shares.
    */
   rateLimiters: RecommendationRateLimiters = createDefaultRecommendationRateLimiters(),
   /** Shared application runtime (see `createAuthRoutes`). */
