@@ -7,7 +7,7 @@ related:
   - "[[data-map]]"
   - "[[dsar]]"
   - "[[cire]]"
-last-reviewed: 2026-10-26
+last-reviewed: 2026-10-27
 ---
 
 # Retention
@@ -27,17 +27,17 @@ already enforces some of them; the rest need a sweeper job.
 | Hosted events with `cancelled_at` set + `cancellation_reason = "host_left"` | 14 days from cancellation, then hard-deleted. | Sweeper (`accountErasure.runEventCancellationSweep`) | OK | Pulse |
 | `passkeys` | While account active; deleted on credential revoke or account delete. `provenance_amr` is a column on this row and dies with it — no separate sweep | App code | OK | Identity |
 | `sessions` | 30 d sliding window; family-revoked on rotation reuse (a **restricted recovery session** is the exception: 15 minutes absolute, never sliding, until enrolment clears `restricted_until` and it becomes an ordinary row — see [[data-map]]) | DB `expires_at` + nightly purge job (planned) | Sliding window OK; purge of expired rows missing | Identity |
-| `rotated_sessions` (Redis or in-memory) | `refreshTokenTtl` = 30 d; native Redis PX TTL OR FIFO eviction | Per-key TTL (Redis) / FIFO sweep (in-mem) | OK | Identity |
+| `rotated_sessions` (D1; `rotated_at` and `expires_at` in Unix milliseconds) | 30 d from rotation — the session lifetime, `refreshTokenTtl`. Deleted with its family when a replay revokes it. Security state: **not exported** | 6-hourly `scheduled` sweep of expired rows (`runRotatedSessionSweep`, at most 5,000 a run). Account erasure: soft delete removes the records of every family it revokes and keeps the cancel handle's family's through the grace period; hard delete removes them all | OK | Identity |
 | `security_events` | 12 months from `created_at` | Sweeper job (planned) | **TODO** — define + write. | Identity |
 | `email_changes` audit | 90 days | Sweeper job (planned) | **TODO** | Identity |
 | `recovery_codes` | While account active. Used codes retain `used_at` for security-event reasoning. | App code | OK | Identity |
 | `accounts.last_recovered_at` | Until the next recovery overwrites it, an accepted `POST /recovery/disown` of that same recovery clears it (a disown token carrying an older `recovered_at` leaves it alone), or the `accounts` row is hard-deleted. It goes stale rather than wrong — both windows it opens compare it against a 72-hour deadline, so a value older than that is inert — and it is deliberately NOT swept: clearing it early would reopen the email-change gate the recovery closed | App code | OK | Identity |
 | `totp_credentials` | While the credential exists. Deleted on `DELETE /totp`, and with passkeys and recovery codes on BOTH soft delete and hard delete — the FK cascade alone would leave a working second factor through the 7-day grace window. | App code | OK | Identity |
 | `cdl_requests` | 5 min TTL; in-memory expiry on poll | App code | OK; consider lazy eviction (cdl) | Identity |
-| `otpStore`, `magicStore`, `pendingRegistrations` | 5 min TTL; current Map has no sweeper | Migrate to Redis with native TTL (Redis Phase 4) | **TODO** — Redis Phase 4 in TODO | Identity |
+| Ceremony entries: WebAuthn challenges, pending registrations, step-up and recovery codes, pending email changes and TOTP enrolments, cross-device requests, recovery disown tokens | Each entry's TTL: 2 to 10 min, 72 h for a disown token | Coordination store: expiry exact on read, then an alarm deletes the entry ([[coordination-store]]); in memory on the Bun dev server | OK | Identity |
 | `oauth_authorization_codes` (OIDC) | 60 s TTL. Deleted on redemption (`DELETE … RETURNING`), on consent revoke (in-flight purge), and on account erasure; abandoned rows reaped by `runExpiredAuthCodeSweep` on the Worker `scheduled` cron. | App code + scheduled sweep | OK | Identity |
 | `oauth_consents` (OIDC) | Until account deletion or explicit withdrawal (`DELETE /oidc/connections/:clientId`). Revoked rows retain `revoked_at` as the withdrawal record until account deletion. | App code (erasure `commitBatch` + revoke route) | OK | Identity |
-| Parked `/authorize` requests + binding-cookie hashes (ceremony store) | 10 min TTL (`AUTHORIZE_REQUEST_TTL_MS`); consumed on decision | Store TTL (Redis PX / in-memory expiry) | OK | Identity |
+| Parked `/authorize` requests + binding-cookie hashes (ceremony store) | 10 min TTL (`AUTHORIZE_REQUEST_TTL_MS`); consumed on decision | Store TTL (coordination store expiry and alarm / in-memory expiry) | OK | Identity |
 | `oauth_clients.owner_account_id` (OIDC self-registration) | While owned. Owner erasure disables the client and NULLs the link in the hard-delete batch; the unlinked row persists (other users' consents reference it) holding no personal data. | App code (erasure `commitBatch`) | OK | Identity |
 | `events` (Pulse) | While host has not deleted; archived 90 d after `endTime` (read-only) | Sweeper job + host-controlled hard-delete | **TODO** — archival not built. | Pulse |
 | `event_rsvps` | Same as parent event | Cascade on event hard-delete | OK once archival lands | Pulse |
@@ -118,7 +118,7 @@ Every sweeper invocation **must** follow these rules. They exist because a naive
 
 1. **Batched delete** — `DELETE FROM <table> WHERE id IN (SELECT id FROM <table> WHERE <cutoff> LIMIT 500)` looped until 0 rows. Never an unbounded delete.
 2. **Inter-batch yield** — 50–100 ms `setTimeout` between batches to release the SQLite / Postgres write lock.
-3. **Single-instance lock** — Redis `SET sweeper:<table> $instance NX EX 600` before each cycle; abort if not acquired. Falls back to a DB advisory row when Redis is unavailable. Prevents two API nodes from running the same sweeper concurrently.
+3. **Single-instance lock** — take a lock row in the database (`sweeper:<table>`, held for 10 minutes) before each cycle; abort if another instance holds it. Prevents two API nodes from running the same sweeper concurrently.
 4. **Re-entrancy guard** — the `setInterval` callback checks an in-process `running` flag; a slow run that crosses the next tick skips the new tick rather than overlapping itself.
 5. **Observability** — emit `osn.retention.rows_deleted` counter (attrs: `table`) and `osn.retention.cycle_duration_ms` histogram per pass. Spike on the counter is the early signal for a runaway accumulation.
 6. **All sweeper deletes share this pattern** — including the deletion-tombstone purge, the Pulse event archival, and the three sweepers above. No per-table reinvention.

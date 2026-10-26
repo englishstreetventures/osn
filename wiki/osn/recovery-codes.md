@@ -13,7 +13,7 @@ packages:
   - "@osn/api"
   - "@osn/client"
   - "@osn/auth-ui"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-27
 ---
 # Recovery Codes
 
@@ -314,7 +314,7 @@ Redaction deny-list adds `recoveryCode`, `recovery_code`, `recoveryCodes`, `reco
 - **Both "wrong code" and "already-used code" count** as failures.
 - **On lockout** the consume still runs the same indexed SELECT for latency parity and returns the **same generic `Invalid request`** error — a locked account is indistinguishable from a wrong code (no enumeration oracle).
 - **Audit + reset:** crossing the threshold writes a `recovery_code_lockout` security-event row (surfaced in the in-app banner) and emits `osn.auth.recovery.lockout{result}`. A successful consume resets the counter.
-- **Store:** injectable triple-pattern (interface → in-memory default → `createRedisRecoveryLockoutStore` for multi-pod, atomic `INCR`+`PEXPIRE`). **Fail-open** on Redis outage — an unavailable counter must not lock every account out; the per-IP limit and the 2^64 search space remain in force. See `[[redis]]`.
+- **Store:** a `RecoveryLockoutStore` (`osn/api/src/lib/recovery-lockout-store.ts`) — in memory on the Bun dev server; on a deployed Worker a counter on the coordination store (`recovery_lockout`), one object per account, each failure one atomic `increment` in a 15-minute window ([[coordination-store]]). **Fails closed**: a counter that cannot be read or written answers `"unknown"`, and the consume refuses with the same generic `Invalid request` without touching the code and writes no security event; a failed count records `osn.auth.recovery.lockout{result="unavailable"}`.
 
 ## Threat model
 

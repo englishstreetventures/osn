@@ -92,7 +92,7 @@ Tests covering services and routes. Test areas include:
 
 ## Rate Limiting
 
-All graph write endpoints are rate-limited at 60 requests per user per minute. Graph routes accept injected rate-limiter instances -- part of the [[redis]] migration Phase 1 abstraction work.
+All graph write endpoints are rate-limited at 60 requests per user per minute, on the `RL_USER_60_60` native binding in a deployed tier ([[rate-limiting]]). Graph routes accept injected rate-limiter instances, so tests and the Bun dev server pass in-memory ones.
 
 ## Cross-Package Access
 
@@ -164,7 +164,7 @@ Current shape prioritises correctness + bounded cost over peak throughput. Two c
 
 Privacy: the endpoint returns `mutualCount` alongside each suggestion. This leaks graph-inference signal.
 
-Rate-limited at 20 req/user/min via `createRedisRecommendationRateLimiters().suggest` — see [[rate-limiting]].
+Rate-limited at 20 req/user/min (`OSN_RATE_LIMITS.recommendationSuggest`, on the `RL_USER_20_60` binding in a deployed tier) — see [[rate-limiting]].
 
 ### D1's bound-parameter cap (standing constraint)
 
@@ -244,7 +244,7 @@ Differences from people search, all deliberate:
 
 ### Budget
 
-Rate-limited at 60 req/user/min via `createRedisRecommendationRateLimiters().search` — looser than the suggestion budget because typeahead fires once per debounced keystroke, and a 20/min budget would 429 a user mid-word. The client debounces 250 ms and aborts superseded requests. `orgLimit` defaults to half `limit`: organisations are the secondary section in the UI.
+Rate-limited at 60 req/user/min (`OSN_RATE_LIMITS.recommendationSearch`, on the `RL_USER_60_60` binding in a deployed tier) — looser than the suggestion budget because typeahead fires once per debounced keystroke, and a 20/min budget would 429 a user mid-word. The client debounces 250 ms and aborts superseded requests. `orgLimit` defaults to half `limit`: organisations are the secondary section in the UI.
 
 Query count per people search is 3-6 (two edge-direction seeks, the handle range, optionally the infix scan, then blocks / connection state / shared organisations). The last three are one `Effect.all` rather than the two sequential steps this used before, so the request has **one fewer sequential database step** than the pre-proximity version despite carrying more signal — parallel on D1, sequential on bun:sqlite. Candidate ids reach 160 at the maximum page size (50 + 50 from the edge seeks, 60 from the handle range), and the probes name the list twice; each probe binds it as one JSON parameter (`jsonEachIn`), so its parameter count does not grow with the list.
 

@@ -7,7 +7,7 @@ related:
   - "[[step-up]]"
   - "[[sessions]]"
   - "[[identity-model]]"
-last-reviewed: 2026-10-21
+last-reviewed: 2026-10-27
 ---
 
 # Account recovery factors — TOTP and email-verified recovery
@@ -390,8 +390,8 @@ closed at boot** in non-local tiers when absent. It is carried as a version-to-k
 enrolled user re-enrolling; the optional `OSN_TOTP_ENCRYPTION_KEY_PREVIOUS`
 holds the outgoing key while a rotation drains. See [[totp#Rotating the encryption key]]. The
 Worker's secrets and its database are separate trust domains. The pending,
-not-yet-confirmed secret during enrolment lives in a `CeremonyStores` entry
-with a Redis variant, never in D1.
+not-yet-confirmed secret during enrolment lives in a `CeremonyStores` entry,
+on the coordination store in a deployed Worker, never in D1.
 
 ### Which step-up allow-lists admit `totp`
 
@@ -446,37 +446,40 @@ account's own address, so an unthrottled endpoint floods the victim's inbox.
 Closing it at `begin` and leaving `complete` alone does not close it. `begin`
 answers 202 for an address that names nobody and *parks a code* for one that
 does, so the attack is two calls: `begin` for a candidate address, then
-`complete` with a wrong code, timed. Every store these routes touch is an HTTP
-hop to Upstash in each tier but `local`, so the number of hops a branch makes is
-readable with a stopwatch — and left to cost what it happens to cost, each of
-these routes ends up with a branch table like this:
+`complete` with a wrong code, timed. Every store these routes touch is a
+Durable Object call in each tier but `local` ([[coordination-store]]), so the
+calls a branch makes are readable with a stopwatch — and left to cost what they
+happen to cost, `/login/recovery/email/complete` would have a branch table like
+this:
 
-| Branch | Hops, unequalised |
+| Branch | Store calls, unequalised |
 |---|---|
-| identifier resolves to nothing | 2 |
-| account locked out | 3 |
-| no code pending | 3 |
-| wrong code, live pending entry | 5 |
+| identifier resolves to nothing | 0 |
+| account locked out | 1 |
+| no code pending | 2 |
+| wrong code, live pending entry | 4 |
 
-Five hops means a real unlocked account; two means no such account. So each
-route pins a **fixed number of store round trips on every branch**, padded to
-the *costliest* real branch rather than the cheapest — padding down is the same
-oracle upside down. `begin` is two hops on all three branches;
-`/login/recovery/email/complete` is four on all five, split two on the
-pending-code store and two on the lockout counter;
-`/login/recovery/totp/complete` pays what `checkTotpCode` pays — the lockout
-lookup, the `totp_credentials` query and the dummy-key verification.
+Four calls means a real unlocked account; none means no such account. So each
+route makes the **same store calls on every refusal**, padded to the
+*costliest* real branch rather than the cheapest — padding down is the same
+oracle upside down. `begin` makes three on all three branches: the cap check,
+the entry write, the guess-count restart. `/login/recovery/email/complete`
+makes four on every refusal: the lockout lookup, the entry read, the guess
+count, the failure record. `/login/recovery/totp/complete` pays what
+`checkTotpCode` pays — the configuration check, the lockout lookup, the
+`totp_credentials` query, the dummy-key verification and the failure record.
 
 Two rules the padding follows:
 
-- **The padding is reads, never writes.** A probe write leaves a counter key
-  with a multi-hour TTL behind for every request, which turns a
-  latency-equalising measure into unbounded key growth driven by an
-  unauthenticated endpoint. What a caller can time is the *number* of round
-  trips, not what each one did, so a read standing in for a write is exact
-  enough and free of that hazard. `probeAccountId` mints a fresh random id per
-  call so the read is guaranteed to miss at the same indexed cost as a real one,
-  and can never be seeded under.
+- **The same operation, on the same store, at a key of the same shape.** A
+  Durable Object call's cost depends on whether it reads or writes and on
+  whether the object was used a moment ago, so a read standing in for a write,
+  or a fresh random key, would leave a difference a stopwatch can find. Each
+  padding call goes to `recoveryProbeKey(identifier)`: derived from what the
+  caller submitted, the same length as an account id, and the same object on
+  every request that names that identifier. The writes leave small entries under
+  probe keys; each expires with the TTL the real one would have, and the per-IP
+  limits on these routes bound how many identifiers a caller can name.
 - **The TOTP route's padding lives beside `checkTotpCode`**, as
   `burnTotpCheckCost`, not at the call site — a hop added to one belongs in the
   other, and they only stay in step if they are read together.
@@ -489,9 +492,11 @@ at all — with no per-account cap in front of it, and only a 10-per-minute per-
 limiter that a rotating fleet already defeats here.
 
 Wall-clock assertions would be flaky in CI and would pin nothing against an
-in-memory store, so the guard is a **call-count** test: the stores are wrapped in
-counters and every branch is asserted to invoke the same number of operations.
-See `osn/api/tests/routes/recovery-email.test.ts`.
+in-memory store, so the guard is a **call-sequence** test: a recording namespace
+logs each call as `<store>.<op>` with the name of the object it reached, and
+every refusal must make the same calls, in the same order, on objects whose
+names have the same length. See `osn/api/tests/services/recovery-op-sequence.test.ts`
+and `osn/api/tests/routes/recovery-email.test.ts`.
 
 ## Sequencing — six issues, strictly in order
 
@@ -500,13 +505,13 @@ reason nothing here runs concurrently:
 
 - `shared/observability/src/metrics/attrs.ts` — `StepUpFactor`,
   `AuthRateLimitedEndpoint`, `SecurityEventKind`, `AuthMethod`, `StepUpPurpose`.
-- **All three rate-limiter builders** — `routes/auth/limiters.ts`,
-  `lib/redis-rate-limiters.ts`, `lib/native-rate-limiters.ts`. A new slot
-  missing from any one makes `createAuthRouteContext` throw
-  `must have a check() method` **at boot**. This is the omission that ships a
-  Worker which fails on first request.
+- **The budget table** — `AUTH_RATE_LIMITS` in `routes/auth/limiters.ts`,
+  which both coordination bundles (`lib/coordination/`) and
+  `lib/native-rate-limiters.ts` read. A slot added to `AuthRateLimiters` with no
+  budget there fails the type check, and a one-minute budget with no native
+  tier of its limit fails `tests/lib/native-rate-limiters.test.ts`.
 - `osn/api/src/services/auth/{index,context,config,stores,step-up,helpers,tokens}.ts`,
-  `lib/redis-ceremony-stores.ts`, `lib/auth-derive.ts`,
+  `lib/coordination/{names,durable,memory}.ts`, `lib/auth-derive.ts`,
   `routes/auth/{index,step-up,context,response-schemas}.ts` (two hard-coded
   purpose unions in `step-up.ts`), `metrics.ts`, `build-deps.ts`, `index.ts`
   (`Env`), `wrangler.toml`.

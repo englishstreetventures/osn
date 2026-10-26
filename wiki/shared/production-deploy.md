@@ -7,7 +7,7 @@ related:
   - "[[observability-setup]]"
   - "[[cire-auth]]"
   - "[[database-environments]]"
-  - "[[redis]]"
+  - "[[coordination-store]]"
   - "[[email]]"
   - "[[cire-vendors]]"
   - "[[musubi-identity-migration]]"
@@ -22,7 +22,8 @@ last-reviewed: 2026-10-29
 
 > Scope: the first production cut-over of **osn-api** (identity/auth, **now a
 > Cloudflare Worker** — `export default { fetch, scheduled }` in
-> `osn/api/src/index.ts`, migration Phase 6) and the **cire** wedding-invite
+> `osn/api/src/index.ts`, served through `osn/api/src/entry.ts`, which also
+> exports the `CoordinationStore` Durable Object class) and the **cire** wedding-invite
 > stack (**cire-api** Worker + **cire/invites** guest **SSR Worker** + **cire/host**
 > Pages portal). _(cire/invites was a static Pages site; it is now an SSR Worker — see §3.3.)_
 >
@@ -88,7 +89,7 @@ marked **TBD** blocks the deploy.
 | `OSN_EMAIL_FROM` (verified sender) | osn-api | **DONE — `hello@cireweddings.com`** (Resend sender domain `cireweddings.com` verified — §1.1). **Not moved to musubi.social yet**: dev sends from `Musubi <hello@musubi.social>` first, and production moves only once dev mail from it is seen to arrive (englishstreetventures/osn#1548). Resend fails closed on a domain it has not verified — which would take OTP step-up down, the exact path back in after a recovery-code login. See [[email]]. |
 | `RESEND_API_KEY` (live email transport) | osn-api | **DONE** — set on the production Worker; delivering since 2026-06-18 (§1.1) |
 | `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_EMAIL_API_TOKEN` | osn-api | optional / **legacy** (Cloudflare-email fallback transport; not used now Resend is the live path — §1.1) |
-| `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` | osn-api | **provision** (section 1) — region locked to **`ap-southeast-2` (Sydney)** |
+| **The production account's plan: Workers Paid** | osn-api's coordination store (and every Worker, Durable Object and D1 database on the account) | **The owner switches it in the Cloudflare dashboard before the first release that ships the coordination store** — the deploy token has no billing scope. §1.4 |
 | `INTERNAL_SERVICE_SECRET` (S2S register-service) | osn-api | optional — only to register cire's ARC key (§6.2) |
 | `CIRE_INTERNAL_REVOKE_SECRET` (one value, ≥32 characters) | osn-api + cire-api | **optional, not set yet** — until both Workers hold it, sign out everywhere else and revoking cire's connection leave cire organiser sessions alone ([[sessions#Sign out everywhere else reaches cire]]). To turn it on: `openssl rand -base64 32`; store it as the `production` Environment secret of the same name; `wrangler secret put CIRE_INTERNAL_REVOKE_SECRET --env production` in `osn/api` and again in `cire/api`. On dev: set the `dev` Environment secret, then deploy both the musubi and cire stacks (each Worker gets it only from its own stack's deploy). Rotate the same way, both Workers together: with one side changed every revoke is refused with 401. |
 | `TRUSTED_PROXY_COUNT` (proxy hops in front of osn-api) | osn-api rate limits | optional — CF sets `cf-connecting-ip`, usually unneeded on Workers |
@@ -106,7 +107,7 @@ marked **TBD** blocks the deploy.
 | musubi/social `VITE_OSN_ISSUER_URL` (build-time) | musubi/social Pages (`osn-social`) | **DONE — `https://id.musubi.social`** (set in `production-release.yml`, job `deploy-osn-social`) |
 | musubi/social `VITE_TURNSTILE_SITEKEY` (build-time) | musubi/social Pages (`osn-social`) | **DONE — `${{ vars.PUBLIC_TURNSTILE_SITEKEY }}`** in `deploy-osn-social`. **Not optional**: osn-api holds `TURNSTILE_SECRET_KEY`, and musubi.social is now the only origin running the OSN ceremonies, so a blank sitekey means `400 turnstile_failed` on every sign-in and registration (this is exactly what broke on 2026-07-27). [[turnstile]] |
 | `OSN_AUTHORIZE_UI_URL` (OIDC consent screen) | osn-api wrangler.toml | **DONE — `https://musubi.social/authorize`**. Needs the apex attached to the `osn-social` Pages project (§5.4) to resolve |
-| **musubi.social zone: apex → `osn-social` Pages, `id.` → osn-api Worker** | Cloudflare dashboard | **Apex attached 2026-07-27.** The Worker side auto-provisions on first deploy (`custom_domain = true`, zone in-account) — the osn-api job's smoke check asks `https://id.musubi.social/health` after every release that deploys it (§7). §5.4. |
+| **musubi.social zone: apex → `osn-social` Pages, `id.` → osn-api Worker** | Cloudflare dashboard | **Apex attached 2026-07-27.** The Worker side auto-provisions on first deploy (`custom_domain = true`, zone in-account) — the osn-api job's smoke check asks `https://id.musubi.social/health`, its JWKS and `/health/coordination` after every release that deploys it (§7). §5.4. |
 | **musubi.social on the Turnstile widget** | Cloudflare dashboard | **DONE 2026-07-27.** `id.musubi.social` is not needed — only form-rendering hostnames are. [[turnstile]] |
 
 ---
@@ -242,29 +243,23 @@ non-local env it must be set and **≥32 bytes**, or the app throws
 openssl rand -base64 48   # ≥32 bytes after decode; store as OSN_SESSION_IP_PEPPER
 ```
 
-### 1.4 Provision Redis (Upstash REST)
+### 1.4 Workers Paid on the production account
 
-osn-api's rate limiters, rotated-session store, and step-up single-use JTI store are
-Redis-backed in production. On workerd there is no TCP socket, so osn-api talks to
-**Upstash Redis over the REST API** (matching the Worker's `Env`:
-`osn/api/src/index.ts:51-52`).
+osn-api keeps its limiters longer than a minute, its ceremonies, its single-use
+step-up claims and its lockout counters in a Durable Object, the coordination
+store ([[coordination-store]]), and every consumer fails closed. On Workers
+Free the account's Durable Objects share **100,000 requests a day**; once spent,
+every further call fails until 00:00 UTC, so sign-in stops, and anyone can spend
+it from the public hosts. On **Workers Paid** ($5 a month) there is no daily
+cap: the month includes 1 million requests and the rest is billed
+([[free-tier-limits#Cloudflare Durable Objects]]). Paid covers the account's
+Workers and D1 too.
 
-⚠️ In any non-local env (`OSN_ENV` set & `!= "local"`) **both secrets are required**. The
-Worker **refuses to boot** (fail-closed 503) without them. It does not downgrade to
-per-isolate in-memory limiters (`osn/api/src/index.ts:92-96`). Locally (`OSN_ENV`
-unset/`local`) both are absent and the Worker uses in-memory fallbacks — no Upstash, no
-external service needed.
-
-Set **both** secrets:
-
-- `UPSTASH_REDIS_REST_URL`
-- `UPSTASH_REDIS_REST_TOKEN`
-
-> ✅ **Upstash region = `ap-southeast-2` (Sydney).** Create the
-> Upstash database in **`ap-southeast-2`** — co-located with the D1 databases (all in
-> `oc` / Sydney) and the Australian edge traffic for low RSVP/auth-write latency (the
-> project is AU-centric). Provision the database in that region, mint a REST token, and
-> set the two secrets above. See `[[compliance/subprocessors]]`.
+The production account must be on Workers Paid before the first release that
+ships the coordination store, and stay on it. The deploy token has no billing
+scope, so the owner switches the plan in the Cloudflare dashboard. The dev
+account stays on Free: a spent allowance there stops only dev sign-in. Why:
+[[durable-object-over-upstash]].
 
 ### 1.5 OTel / Grafana endpoint
 
@@ -286,9 +281,8 @@ the cire Worker.
 | region | `oc` (Oceania / Sydney) |
 
 > **Region note:** all four D1 databases (this `cire-db` + the three osn-db
-> dev/staging/prod below) are in **`oc` (Sydney)**, and Upstash must be created in
-> **`ap-southeast-2` (Sydney)** — co-located for low AU latency (the project is
-> AU-centric). The WEUR databases were deleted and recreated in `oc`; the ids above
+> dev/staging/prod below) are in **`oc` (Sydney)** — co-located for low AU
+> latency (the project is AU-centric). The WEUR databases were deleted and recreated in `oc`; the ids above
 > and in §2.3 are the new Oceania ones.
 
 The id is already substituted into `cire/api/wrangler.toml` (top-level binding and
@@ -325,8 +319,9 @@ local dev server, which fakes R2 on disk.
 
 ### 2.3 osn-api D1 databases — ALREADY CREATED ✅
 
-osn-api **is** a Cloudflare Worker now (`main = "src/index.ts"`, `export default
-{ fetch, scheduled }`). The databases `osn/api/wrangler.toml` names already exist in
+osn-api **is** a Cloudflare Worker now (`main = "src/entry.ts"`, which exports the
+`export default { fetch, scheduled }` handler from `src/index.ts` and the
+`CoordinationStore` Durable Object class). The databases `osn/api/wrangler.toml` names already exist in
 the production account:
 
 | Env | `database_name` | `database_id` |
@@ -338,7 +333,7 @@ the production account:
 The dev tier's `osn-db-dev` is in the dev account, created and migrated by the
 musubi stack ([[dev-environment]]); `osn-db` is what plain `wrangler dev` uses.
 
-All are in **`oc` (Sydney)** (co-located with cire-db + Upstash `ap-southeast-2`).
+All are in **`oc` (Sydney)** (co-located with cire-db).
 They are **freshly created and unmigrated** — apply the migrations per §4.3
 before first use. (The `0002_add_user_handle` data-copy bug that blocked a clean
 apply was fixed in-place; all `0000`→latest migrations apply ✅ to a fresh local D1.)
@@ -384,8 +379,6 @@ bunx wrangler secret put OSN_PAIRWISE_SALT          --env <staging|production>
 # OSN_TOTP_ENCRYPTION_KEY too — but set it through the `set-osn-api-secret` workflow,
 # which checks the decoded length is exactly 32 bytes and refuses a blind overwrite:
 bunx wrangler secret put OSN_TOTP_ENCRYPTION_KEY    --env <staging|production>
-bunx wrangler secret put UPSTASH_REDIS_REST_URL     --env <staging|production>
-bunx wrangler secret put UPSTASH_REDIS_REST_TOKEN   --env <staging|production>
 # Email — REQUIRED non-local UNLESS OSN_EMAIL_OPTIONAL is set (§1.1). RESEND_API_KEY
 # is the live transport and is already set on production: verify cireweddings.com in
 # Resend, set the key, confirm a send arrives, THEN remove any OSN_EMAIL_OPTIONAL:
@@ -404,7 +397,7 @@ bunx wrangler secret put OTEL_EXPORTER_OTLP_HEADERS  --env <staging|production>
 
 | Name | How to set | Required? | Notes |
 |---|---|---|---|
-| `OSN_ENV` | `[env.<env>.vars]` (`dev`/`staging`/`production`) | **Yes (master switch)** | Per-env in `wrangler.toml`. Local `wrangler dev` (no `--env`) is `"local"`: ephemeral JWT keys, no `Secure`/`__Host-` cookies, JWT/pepper/email/Upstash throws skipped, OTPs go to the log recorder. Non-local flips all of that on. |
+| `OSN_ENV` | `[env.<env>.vars]` (`dev`/`staging`/`production`) | **Yes (master switch)** | Per-env in `wrangler.toml`. Local `wrangler dev` (no `--env`) is `"local"`: ephemeral JWT keys, no `Secure`/`__Host-` cookies, JWT/pepper/email throws skipped, OTPs go to the log recorder. Non-local flips all of that on. |
 | `OSN_JWT_PRIVATE_KEY` | `wrangler secret put` | **Yes** | base64 ES256 JWK. Throws if missing in non-local. §1.2 |
 | `OSN_JWT_PUBLIC_KEY` | `wrangler secret put` | **Yes** | base64 ES256 JWK; published at `/.well-known/jwks.json`. §1.2 |
 | `OSN_SESSION_IP_PEPPER` | `wrangler secret put` | **Yes** | ≥32 bytes or throws. §1.3 |
@@ -422,15 +415,13 @@ bunx wrangler secret put OTEL_EXPORTER_OTLP_HEADERS  --env <staging|production>
 | `OSN_EMAIL_OPTIONAL` | `[env.<env>.vars]` | No (default off) | **Explicit degraded-email opt-in.** Truthy (`true`/`1`/`yes`/`on`) → boot with a **no-op email transport** (transactional mail DISCARDED, loud startup warning) when **no real provider** (`RESEND_API_KEY` / `CLOUDFLARE_*`) is set in a non-local env, instead of failing closed. **Set in no env today** — removed from prod `[vars]` in #160 once Resend delivery was confirmed, so production fails closed again. A real provider wins — the opt-in is ignored when `RESEND_API_KEY` (or the Cloudflare creds) is present. §1.1 |
 | `OSN_EMAIL_FROM` | `[env.<env>.vars]` (or secret) | **Yes (prod)** | Verified sender address. Prod = **`hello@cireweddings.com`** (set in `wrangler.toml`). Resend-verified domain from §1.1. |
 | `RESEND_API_URL` | **Never set** | **Must be absent** | Local emulation only ([[email#Local emulation]]). osn-api refuses to boot with it in any non-local tier (503 on every route), and the production deploy job refuses to run while it exists as a secret. |
-| `UPSTASH_REDIS_REST_URL` | `wrangler secret put` | **Yes** | Upstash REST URL. Worker refuses to boot in non-local without it + the token (`index.ts:92-96`). §1.4 |
-| `UPSTASH_REDIS_REST_TOKEN` | `wrangler secret put` | **Yes** | Upstash REST token. §1.4 (region `ap-southeast-2` / Sydney) |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `[env.<env>.vars]` | Recommended | Grafana OTLP gateway. Metric/trace **export is deferred on workerd** — the redacting logger is active, recording call-sites are no-ops until an exporter is attached. [[observability-setup]] |
 | `OTEL_EXPORTER_OTLP_HEADERS` | `wrangler secret put` | Recommended | `Authorization=Basic <base64(instance:token)>`. [[observability-setup]] |
 | `INTERNAL_SERVICE_SECRET` | `wrangler secret put` | **Conditional** | Bearer secret guarding `POST /graph/internal/register-service` (`routes/graph-internal.ts`). Needed **only** to register cire-api's ARC public key (§6.2). Endpoint returns 501 when unset. |
 | `TURNSTILE_SECRET_KEY` | `wrangler secret put` | **Optional (key-optional)** | Cloudflare Turnstile secret. When set, `/register/begin` + `/login/passkey/begin` **require** a valid Turnstile token and **fail-closed** (reject on missing/invalid/duplicate; single-use enforced by Cloudflare). When unset, those gates are skipped and the flows behave as before — safe to leave unset until the widget exists. **Currently SET** on `osn-api-production` (#160), so the gates bite. Server half of the sitekey baked into the **musubi/social** build as `VITE_TURNSTILE_SITEKEY` (§3.3) — it was the organiser-portal build until the 2026-07-27 OIDC swap moved the ceremonies. Create the widget in §3.4. (`build-deps.ts` → `createTurnstileVerifier`). |
 | `TRUSTED_PROXY_COUNT` | `[env.<env>.vars]` | Optional | On Workers, Cloudflare sets `cf-connecting-ip`, so this is usually unneeded. Set only if a proxy sits in front and XFF must be trusted N hops. |
 | `OSN_RP_NAME` | `[env.<env>.vars]` | Optional | Display name in passkey prompts and the issuer label in authenticator apps (default: the instance name, `Musubi`). Display only: changing it leaves existing passkeys and authenticator codes working, since sign-in checks `OSN_RP_ID` and the TOTP secret, never the name. |
-| `OSN_ACCESS_TOKEN_TTL` / `OSN_REFRESH_TOKEN_TTL` | `[env.<env>.vars]` | Optional | Defaults 300s / 2592000s. |
+| `OSN_ACCESS_TOKEN_TTL` / `OSN_REFRESH_TOKEN_TTL` | `[env.<env>.vars]` | Optional | Defaults 300s / 2592000s. A set `OSN_REFRESH_TOKEN_TTL` that is not a whole number of seconds above 0 fails the boot: it sets every session's expiry and how long a rotation record proves reuse (`build-deps.ts`). |
 | `PULSE_API_URL` / `ZAP_API_URL` | `[env.<env>.vars]` | Optional | Outbound ARC key registration for account-erasure fan-out. |
 | `CIRE_INTERNAL_REVOKE_URL` / `CIRE_OIDC_CLIENT_ID` | `[env.production.vars]` | Set: `https://api.cireweddings.com` / `cid_cire` | cire-api's origin and cire's OIDC client id, for ending an account's cire organiser sessions. Each must equal cire-api's own `CIRE_API_ORIGIN` / `CIRE_OIDC_CLIENT_ID`; `cire/infra/tests/cross-stack.test.ts` holds them equal. Nothing is sent while `CIRE_INTERNAL_REVOKE_SECRET` is unset or shorter than 32 characters: each sign out everywhere else, and each revoke of cire's connection, logs `cire organiser sessions not revoked: back-channel unconfigured` instead. |
 | `CIRE_INTERNAL_REVOKE_SECRET` | `wrangler secret put` | Optional | The bearer cire-api's organiser-session revoke checks, at least 32 characters (osn-api treats a shorter one as unset). Same value on cire-api; how to set it is in the pre-deploy table at the top of this page. |
@@ -933,7 +924,10 @@ what holds it.
      hand: `bunx wrangler rollback <version>` with the version the annotation names and
      the Worker's selector, from its directory, or the Deployments tab. A hand rollback
      leaves no Deployment record (§5.1). A Worker's first deploy always lands here:
-     there is no earlier version to go back to.
+     there is no earlier version to go back to. So does a release that creates a
+     Durable Object class, as osn-api's first release with the coordination store
+     does: Cloudflare blocks a rollback across a class lifecycle change, by hand too,
+     so fix forward ([[#The coordination store's first release]]).
    - **Nothing answered, or Cloudflare answered in the Worker's place** (`Smoke check
      failed: … not rolling back`): DNS, TLS, a timeout, Cloudflare Access, a bot
      challenge or a 429 — the account's daily request cap among them. No rollback. The
@@ -1032,6 +1026,45 @@ to the served URL.)
 > token verification fails **and** the OIDC code exchange dials the wrong host. The cire
 > *frontends* no longer carry an issuer URL at all since the 2026-07-27 swap — sign-in is a
 > redirect to cire-api, which holds the client credential (§3.5).
+
+#### The coordination store's first release
+
+The first production release that ships `@shared/coordination` creates the
+`CoordinationStore` class (the `v1` migration in `osn/api/wrangler.toml`) and
+moves osn-api's shared state onto it ([[coordination-store]]). Nothing carries
+over: ceremonies in flight fail once, rate windows and lockouts start again, and
+tokens rotated before the release have no rotation record
+([[durable-object-over-upstash#What the cutover drops]]).
+
+Before approving it:
+
+1. Confirm the production account is on **Workers Paid** (§1.4).
+2. Check that the plan ships `osn_social` and `cire_landing` in the same release:
+   their privacy pages list the service providers osn-api now uses.
+3. Leave `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` on the
+   production Worker for now. No code reads them, and the secret inventory no
+   longer lists them, so until they are deleted
+   `bun run --cwd shared/infra secrets:check-live -- --tier production` prints
+   `DIFF … not in the inventory: UPSTASH_REDIS_REST_TOKEN, UPSTASH_REDIS_REST_URL`
+   and exits 1. That drift is expected.
+
+If the smoke check fails, the step reports `Rollback failed`: Cloudflare blocks
+a rollback to a version from before the class existed, and a hand rollback meets
+the same block. Fix forward — merge the fix, let dev deploy it, then dispatch a
+release with `force` for `osn_api` (§5.5). Later releases, which keep the class,
+roll back as before.
+
+Once the release is live and its smoke check has passed, `/health/coordination`
+included:
+
+1. From `osn/api`, delete the two secrets from the production Worker:
+   `bunx wrangler secret delete UPSTASH_REDIS_REST_URL --env production`, then the
+   same for `UPSTASH_REDIS_REST_TOKEN`. `secrets:check-live` then passes.
+2. Delete both names from every GitHub Environment that holds them
+   (`gh secret list --env dev`, `gh secret list --env production`;
+   `gh secret delete <NAME> --env <env>`). No workflow reads them, and the dev
+   Worker lost them at its first Alchemy deploy without them in the inventory.
+3. Cancel the Upstash plan and delete both of its databases.
 
 ### 5.2 cire-api (Worker)
 
@@ -1230,6 +1263,9 @@ To release:
    dev deployed the same content and that each surface's automatic smoke check passed
    there (§7), the sites included. What no machine checks is behaviour: walk
    [[dev-environment]] §6 for a passkey ceremony, an organiser sign-in and an RSVP.
+   Then confirm the production account is still on **Workers Paid** (§1.4):
+   osn-api's coordination store fails closed, and on Free its daily allowance is
+   a cap anyone can spend.
 3. When a stack ships, `alchemy-plan` waits first. Approve it, then read its summary:
    each stack's resources, their kinds and actions, and each site's custom domains added
    and removed. Expect site Workers only; the guard has already refused anything else,
@@ -1577,7 +1613,7 @@ yourself (§5.1). A person runs the rest.
 |---|---|
 | 1. Each Worker answers: health, JWKS, a first route | **Automatic** — the smoke-check step after every CI Worker deploy in production, and after every dev stack deploy for each of its surfaces |
 | 2. No ephemeral-key warning in osn-api's logs | A person |
-| 3. Upstash limits persist across isolates | A person |
+| 3. Coordination-store limits persist across isolates | A person |
 | 4. OTP email arrives | A person |
 | 5. Passkey sign-in on `musubi.social` | A person |
 | 6. Organiser sign-in redirects and lands | A person |
@@ -1605,7 +1641,7 @@ from its `dev-hosts` step on dev ([[infrastructure-as-code#Dev hosts]]) and its
 
 | Surface | Production | Dev probes (on the dev origin) | A working Worker answers |
 |---|---|---|---|
-| osn-api | `https://id.musubi.social/health` and `/.well-known/jwks.json` | the same paths | 200 `{"status":"ok"}`; 200 with an ES256 key on P-256 |
+| osn-api | `https://id.musubi.social/health`, `/.well-known/jwks.json` and `/health/coordination` | the same paths | 200 `{"status":"ok"}`; 200 with an ES256 key on P-256; 200 `{"ok":true}`, a write, read and remove through the coordination store ([[coordination-store#The health probe]]) |
 | cire-api | `https://api.cireweddings.com/api/auth/session` | the same path | 200 `{"signedIn":false}`. cire-api has no health route — its root and `/health` answer 404 |
 | cire-invites | `https://invite.cireweddings.com/` and `/smoke-check-no-such-wedding` | the same paths, the redirect judged against `SMOKE_MARKETING_ORIGIN` | a redirect to the marketing site; a rendered page, 404 or 200 — so a broken design import fails it, and cire-api being down does not |
 | zap-api | `https://zap.cireweddings.com/health` | the same path | 200 `{"status":"ok"}` |
@@ -1656,7 +1692,9 @@ How it decides:
 - **Nothing answered** (DNS, TLS, a timeout), **or Cloudflare answered** in the Worker's
   place (Access, a bot challenge, a 429): no rollback, since code is not what failed. A
   429 counts here because Cloudflare answers every Worker on the account with one once
-  the daily request cap is spent, and anyone can spend it from the public hosts.
+  the daily request cap is spent, and anyone can spend it from the public hosts. The
+  one probed route with a limit of its own, osn-api's `/health/coordination`, allows
+  10 calls a minute per IP, and a check asks it at most 8 times.
 - **On dev, Access did not guard a browser host**: its `/`, asked with no service
   token, got anything but Access's sign-in redirect. The annotation is titled
   `Cloudflare Access`, and nothing is rolled back: the host may be open to anyone,
@@ -1676,7 +1714,9 @@ How it decides:
 1. **Health / JWKS / a first route — automatic.** The smoke check above. Its 200s confirm the
    Worker booted: no startup throw fired and the edge returned no 503
    `Worker misconfigured`. For osn-api that is the **whole** fail-closed set in one
-   check — in a non-local tier the boot throws on a missing or malformed:
+   check, and `/health/coordination` adds that the Worker reaches its coordination
+   store — in a non-local tier the boot throws, or `fetch` answers 503, on a missing
+   or malformed:
 
    | Secret / var | Thrown from |
    |---|---|
@@ -1685,7 +1725,8 @@ How it decides:
    | `OSN_ORIGIN` | `osn/api/src/build-deps.ts` |
    | `OSN_PAIRWISE_SALT` (≥32 bytes) | `osn/api/src/build-deps.ts` |
    | `OSN_TOTP_ENCRYPTION_KEY` (exactly 32 bytes) | `osn/api/src/build-deps.ts` |
-   | `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` | `osn/api/src/index.ts` |
+   | the `COORDINATION` binding (every tier), `RL_USER_20_60` + `RL_USER_60_60` | `osn/api/src/index.ts` (`fetch`) |
+   | `OSN_REFRESH_TOKEN_TTL`, when set | `osn/api/src/build-deps.ts` |
    | `OSN_CORS_ORIGIN` | `osn/api/src/lib/cors-config.ts` |
    | an email provider | `osn/api/src/lib/email-layer.ts` — production carries `RESEND_API_KEY` and no `OSN_EMAIL_OPTIONAL`, so a missing provider fails the boot outright (§1.1) |
 
@@ -1705,11 +1746,11 @@ How it decides:
    `"Using ephemeral JWT key pair — tokens will be invalidated on restart"`
    (`osn/api/src/index.ts:272-275`). If you do, `OSN_ENV` and/or the JWT key vars are not
    set — stop and fix before letting users in.
-3. **Upstash reachable.** Confirm the Worker booted (no 503 `Worker misconfigured`
-   refusing to fall back to in-memory limiters) — in non-local both
-   `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` must be set, or the Worker
-   fails closed (`osn/api/src/index.ts:92-96`). Hit a rate-limited endpoint and confirm
-   limits persist across isolates.
+3. **Coordination store shared.** The smoke check's `/health/coordination` probe
+   proves the Worker reaches the store. By hand, prove the state is shared: spend an
+   hour-window budget from one IP (`POST /login/recovery/complete` allows 5 an
+   hour), then confirm the next call is still refused after the Worker's next
+   deploy — the count lives in the store, not in an isolate.
 4. **OTP email arrives.** Trigger an OTP flow (e.g. organiser sign-up/step-up): a real
    email must land at the test address — this exercises §1.1 end-to-end. If nothing
    arrives, check `RESEND_API_KEY` and the Resend sender-domain verification, and watch
@@ -1760,11 +1801,11 @@ How it decides:
 | WebAuthn rpId / origin / issuer | `osn/api/src/index.ts:103-113` |
 | CORS allowlist fail-closed | `osn/api/src/lib/cors-config.ts:41-62` |
 | Email transport selection (fail-closed default + `OSN_EMAIL_OPTIONAL` degraded opt-in + sender) | `osn/api/src/lib/email-layer.ts`; no-op transport `shared/email/src/noop.ts` |
-| Redis URL / required / TLS warning | `osn/api/src/redis.ts:38-88`, init `osn/api/src/index.ts:133-138` |
+| Coordination store: class, binding, `v1` migration, bundle | `shared/coordination/src/store.ts`; `osn/api/wrangler.toml`; `osn/api/src/lib/coordination/durable.ts` |
 | Client-IP extraction (proxy) | `shared/rate-limit/src/index.ts:82-89` |
 | `INTERNAL_SERVICE_SECRET` register-service | `osn/api/src/routes/graph-internal.ts:203-214` |
-| osn-api Worker entry (fetch + scheduled) | `osn/api/src/index.ts`; deploy `osn/api/package.json` (`dev:wrangler` / `deploy`) |
-| osn-api Upstash fail-closed (non-local) | `osn/api/src/index.ts:92-96` |
+| osn-api Worker entry (fetch + scheduled) | module `osn/api/src/entry.ts` (handler + `CoordinationStore`), handler `osn/api/src/index.ts`; deploy `osn/api/package.json` (`dev:wrangler` / `deploy`) |
+| osn-api missing-binding 503 (`COORDINATION`; `RL_USER_*` outside local) | `osn/api/src/index.ts` (`fetch`) |
 | osn D1 bindings + per-env vars | `osn/api/wrangler.toml` (`[[env.<env>.d1_databases]]`, `[env.<env>.vars]`) |
 | osn migrations | `osn/db/drizzle/`; scripts `osn/db/package.json` (`db:migrate:*`); prod applied by CI (`deploy-osn-api` in `production-release.yml`) |
 | Post-deploy smoke check + rollback (§7) | `scripts/smoke-check.ts` (`SMOKE_TARGETS` holds the hosts); hosts held to the route config by `scripts/tests/smoke-targets.test.ts` |
@@ -1783,7 +1824,7 @@ How it decides:
 - [[observability-setup]] — OTel/Grafana endpoint + header wiring
 - [[cire-auth]] — guest/organiser two-auth model + cire→osn ARC bridge
 - [[database-environments]] — local bun:sqlite vs dev/staging/prod D1
-- [[redis]] — Redis-backed rate limiters + session stores
+- [[coordination-store]] — osn-api's limiters, ceremonies and lockouts on a Durable Object, and its health probe
 - [[email]] — transactional email transport (Resend; Cloudflare Email Service is the legacy fallback)
 - [[cire-vendors]] — vendor portal screens, API surface, token-stripping, Referrer-Policy, ARC org:read scope
 
@@ -1864,7 +1905,7 @@ These steps are manual follow-ups to the c2b chats PR (Zap PR A). The `deploy-za
 
 ### 9.1 Create the zap-db-prod D1 database
 
-> **Region:** use `--location oc` (Oceania / Sydney) to co-locate with the other D1 databases (osn-db-prod and cire-db, all `oc`) and Upstash (`ap-southeast-2`). AU-centric traffic, low write latency.
+> **Region:** use `--location oc` (Oceania / Sydney) to co-locate with the other D1 databases (osn-db-prod and cire-db, all `oc`). AU-centric traffic, low write latency.
 
 ```bash
 # From repo root or zap/api/

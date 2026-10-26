@@ -8,6 +8,7 @@ related:
   - "[[oidc-provider]]"
   - "[[account-recovery-factors]]"
   - "[[cire-auth]]"
+  - "[[coordination-store]]"
 last-reviewed: 2026-10-27
 ---
 
@@ -21,26 +22,24 @@ Per-device session management, exposed to users in Settings. Builds on the serve
 sequenceDiagram
   participant Client
   participant API as @osn/api /token
-  participant DB as sessions table
-  participant Store as RotatedSessionStore<br/>(Redis or in-memory)
+  participant DB as D1: sessions + rotated_sessions
 
   Client->>API: POST /token (refresh cookie)
-  API->>DB: lookup hash(token)
-  alt token unknown / expired
-    API-->>Client: 401 (force re-auth)
-  else token rotated previously (Store hit)
-    alt replay within ROTATION_GRACE_MS (benign concurrency)
-      API-->>Client: 401 (family PRESERVED — rotation_race)
+  API->>DB: lookup hash(token) in sessions
+  alt token not in sessions, or expired
+    API->>DB: live rotated_sessions record for hash(token)?
+    alt no record
+      API-->>Client: 400 invalid_grant (force re-auth)
+    else replay within ROTATION_GRACE_MS (benign concurrency)
+      API-->>Client: 400 invalid_grant (family PRESERVED — rotation_race)
     else replay outside grace (genuine reuse)
-      API->>DB: DELETE WHERE family_id = ?
-      API->>Store: revokeFamily(familyId)
-      API-->>Client: 401 family_revoked
+      API->>DB: batch: DELETE sessions + rotated_sessions WHERE family_id = ?
+      API-->>Client: 400 invalid_grant (family revoked)
     end
   else token current
     API->>API: mint new session token (same family)
-    API->>DB: insert new row, copy ua_label + ip_hash
-    API->>Store: track(oldHash → familyId)
-    API->>DB: DELETE old row
+    API->>DB: DELETE old row (compare-and-swap)
+    API->>DB: batch: INSERT new row (copy ua_label + ip_hash) + INSERT rotated_sessions(old hash → family)
     API-->>Client: 200 + new HttpOnly cookie + access token
   end
 ```
@@ -108,7 +107,7 @@ QR-code mediated session transfer — authenticate on a new device by scanning a
 
 **Protocol:** Device B calls `begin`, renders a QR code encoding the `requestId` + `cdlSecret`, and polls `status` at ~2s intervals. Device A scans the QR, calls `approve` with its access token + the secret from the QR fragment. The server issues a session for device B and records a `cross_device_login` security event + email notification.
 
-**Security properties:** 256-bit CSPRNG secret, SHA-256 hashed at rest, constant-time comparison, one-time session consumption, 5-minute TTL, rate-limited on all endpoints. The secret never appears in URL query strings (all endpoints use POST bodies). In-memory store with FIFO eviction at 1000 entries — Redis migration deferred to Phase 4.
+**Security properties:** 256-bit CSPRNG secret, SHA-256 hashed at rest, constant-time comparison, one-time session consumption, 5-minute TTL, rate-limited on all endpoints. The secret never appears in URL query strings (all endpoints use POST bodies). Pending requests live in the `cross_device` ceremony store, which a deployed Worker keeps on the coordination store, one object per request, gone when its TTL ends ([[coordination-store]]); the Bun dev server keeps them in memory.
 
 ## Metadata captured at issue time
 
@@ -218,19 +217,47 @@ Rotation is single-use, but legitimate clients produce concurrent or retried gra
 
 The client complements this with a shared single-flight (`osn/client`): the bootstrap and refresh paths dedupe the `/token` grant against each other so a bootstrap racing a refresh in one tab fires `/token` once. Cross-*tab* coordination (a Web Locks guard) is a possible follow-up; the server grace already prevents cross-tab races from revoking the family.
 
-## Cluster-safe reuse detection
+## Reuse detection across isolates
 
-The C2 reuse detector needs to remember, for up to `refreshTokenTtl` (30 days), which session hashes have been rotated out. Originally this lived as an in-process `Map<hash, { familyId, rotatedAt }>` inside `createAuthService` — correct for single-process dev but silently partitioned in multi-pod deployments: a rotation recorded on pod A was invisible to pod B, so replays hitting B passed without triggering family revocation.
+The C2 reuse detector has to remember, for as long as a session can live
+(`refreshTokenTtl`, 30 days unless `OSN_REFRESH_TOKEN_TTL` says otherwise),
+which session tokens were rotated out, and every isolate has to see the same
+memory. It lives in D1, in `rotated_sessions` (`osn/db/src/schema/index.ts`):
 
-The `RotatedSessionStore` abstraction (`osn/api/src/lib/rotated-session-store.ts`) replaces that map. `createInMemoryRotatedSessionStore()` preserves the FIFO-swept, `ROTATED_SESSIONS_MAX = 100_000`-bounded in-process behaviour for tests and single-process dev. `createRedisRotatedSessionStore(client)` backs the state on Redis using one key family:
+| Column | Holds |
+|---|---|
+| `token_hash` (primary key) | SHA-256 of the rotated-out token: the `sessions.id` it had |
+| `family_id` | The family a replay revokes |
+| `account_id` | The account, for erasure (foreign key to `accounts`) |
+| `rotated_at` | Unix **milliseconds**, unlike the seconds the rest of the schema uses: whole seconds would shorten the 10-second grace window by up to one |
+| `expires_at` | Unix milliseconds, `rotated_at` + the session lifetime. Past it the row proves nothing |
 
-- `osn:rot-session:hash:{sessionHash}` → `{familyId}:{rotatedAtMs}`, PX = `refreshTokenTtl * 1000` — the authoritative lookup used by `check`. `check` returns `{ familyId, rotatedAtMs }` (a `RotatedHashRecord`); the rotation timestamp drives the grace-window classification below. A legacy value with no numeric suffix parses to `rotatedAtMs 0` (rotated "long ago" → treated as genuine reuse — the strict default).
+Indexes on `expires_at`, `account_id` and `family_id`.
 
-Redis's native per-key PX expiry handles cleanup, so `track` is a single round-trip (no family-set write, no JSON blob, no cross-command race). `revokeFamily` is a deliberate no-op on the Redis backend — the DB-level `DELETE FROM sessions WHERE family_id = ?` in `detectReuse` is the authoritative revocation. A stale `hash:*` key that lingers until TTL only means a later replay fires another idempotent DB delete plus another `reuse_detected` metric increment. That is a more useful observability signal than silently deduping the attempt.
-
-Failure modes fail **open**: `check` returns `null` on Redis error (so an outage cannot manufacture false-positive family revocations that log legitimate users out), and `track` logs a warning and continues (the DB-level rotation has already committed). The trade-off is a temporary weakening of reuse detection during a Redis outage, not a loss of session security — the DB row lookup in `verifyRefreshToken` is still authoritative for rejecting unknown tokens. The store wraps the `onError` callback from `index.ts` in its own try/swallow, so a misconfigured observability layer cannot cascade into a rejected store operation. `sanitizeCause` strips any embedded credentialed URLs from ioredis connection error strings before they are annotated.
-
-`AuthConfig.rotatedSessionStore` is the injection point. Non-local deploys pass the Redis-backed store from `osn/api/src/index.ts`; tests and the in-memory fallback path omit it.
+- **Write.** `refreshTokens` deletes the old session row with its
+  compare-and-swap, then inserts the new session and the old token's record in
+  one `commitBatch`. On D1 a batch commits both or neither, so a session never
+  exists without the record that lets reuse detection see its predecessor
+  replayed. A failed batch is a `DatabaseError`: the grant fails and the old row
+  is already gone, so the user signs in again, but `POST /token` reads it as
+  "session status unknown" and keeps the marker cookie.
+- **Read.** `detectReuse` runs only for a token not in `sessions`, and reads its
+  live record (`expires_at` later than now). No record: nothing more happens.
+  A record inside the grace window: a benign race, family kept. Outside it: one
+  batch deletes the family's sessions and its rotation records, so a further
+  replay from that chain has nothing left to revoke. A failed read is a
+  `DatabaseError` — the grant fails and nothing is revoked, so a storage error
+  never passes for "not rotated" and never makes a revocation up.
+- **Sweep.** `runRotatedSessionSweep` deletes expired records in chunks of 500,
+  at most 10 chunks a run, so a backlog drains over several runs. The Worker's
+  6-hourly `scheduled` cron runs it, and so does the Bun dev server's sweeper.
+  What it costs in D1 rows: [[free-tier-limits#Cloudflare D1]].
+- **Erasure.** Soft delete removes the records of every family it revokes, and
+  keeps those of the cancel handle's family, so reuse detection still guards the
+  account's one live session through the grace period. Hard delete removes them
+  all, before the `accounts` row they reference.
+- **Never exported.** The records are security state, not account data
+  ([[data-map]], [[retention]]).
 
 ## Observability
 
@@ -238,11 +265,10 @@ Failure modes fail **open**: `check` returns `null` on Redis error (so an outage
 - `osn.auth.cire_session.revocations{trigger, result}` — one per request to cire-api's organiser-session revoke, and one per sign-out or connection revoke that sent none because the back-channel is unconfigured (`unconfigured`) or the profile lookup failed (`error`). `trigger` ∈ `sign_out_everywhere` / `connection_revoked`; `result` ∈ `ok` / `rejected` / `timeout` / `error` / `unconfigured`. Span `auth.cire_session.revoke`. Metric export on workerd is deferred, so on deployed tiers the error and warning log lines are the signal; none carries the secret, an account id or a profile id
 - Spans: `auth.session.list`, `auth.session.revoke`, `auth.session.revoke_all`, `auth.session.resolve_binding` (the `osn_sid` lookup), `auth.session.resolve_caller` (cookie-or-binding "who is calling"), `auth.session.lift_restriction` (a recovery session becoming an ordinary one)
 - `SecurityInvalidationTrigger` union extended with `session_revoke`, `session_revoke_all`, and `passkey_delete` so the H1 dashboard picks up user-initiated revocations alongside passkey-register, passkey-delete, recovery-code, and email-change triggers
-- `osn.auth.session.rotated_store.operations{action, result, backend}` — counter for every rotated-session store call. `action` ∈ `track` / `check` / `revoke_family`; `result` ∈ `ok` / `hit` / `miss` / `error`; `backend` ∈ `memory` / `redis`. Error rate by backend is the primary Redis-health signal for the reuse detector.
 - `osn.auth.session.reuse_detected` / `osn.auth.session.family_revoked` — genuine C2 reuse caught (replay outside the grace window) and the resulting whole-family revocations. A spike is a real security signal (token theft) — distinct from the benign metric below.
 - `osn.auth.session.rotation_race` — benign concurrent/retried grants tolerated within `ROTATION_GRACE_MS` (CAS-0-rows or a rotated-token replay inside the window). The family is PRESERVED. Expected to be non-zero for normal multi-tab usage; it is NOT a security signal. Watch the ratio of `family_revoked` to `rotation_race` — a rise in the former relative to the latter is what matters.
-- `osn.auth.session.rotated_store.duration{action, backend}` — histogram of store operation latency
-- Spans: `auth.session.rotated_store.track`, `auth.session.rotated_store.check`, `auth.session.rotated_store.revoke_family`, wrapped by the outer `auth.session.reuse_detect` and `auth.session.rotate` spans
+- Spans: `auth.session.rotate` around a refresh, `auth.session.reuse_detect` around the record lookup and any revocation, `auth.session.rotated_sweep` around a sweep. A failed sweep logs `scheduled rotated-session sweep failed` on the Worker
+- A rotation record that cannot be written or read is a `DatabaseError` on the grant, in Workers Logs with the rest of osn-api's D1 errors
 - Redaction: `ipHash`, `uaLabel` (both spellings), `familyId` (already in the deny-list — correlates sessions across rotation events)
 
 ## UI

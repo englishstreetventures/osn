@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[soc2]]"
   - "[[breach-response]]"
-last-reviewed: 2026-10-24
+last-reviewed: 2026-10-27
 ---
 
 # Backup + Disaster Recovery
@@ -30,7 +30,7 @@ drill and it worked.
 |---|---|---|
 | Local-dev SQLite | Throwaway | Not in scope |
 | Production database (planned: Supabase Postgres) | Not deployed yet | Define backup config when migrating |
-| Redis (rate-limit, rotated-session store, future auth state) | Ephemeral by design (TTL'd state) | OK — no DR needed for ephemeral state; rate-limit fail-closed posture is the safety net |
+| osn-api's coordination store (a Cloudflare Durable Object: long-window rate limits, ceremonies, lockouts — [[coordination-store]]) | Ephemeral by design: every entry has a TTL of minutes to a day, 72 hours for a recovery disown token | OK — no DR needed. A lost store resets limits and drops ceremonies in flight, and every consumer fails closed while it is down. Rotated-session records are in D1, with the rest of osn-api's data |
 | Cire object storage — Cloudflare R2 `cire-sheets` (guest spreadsheets) and `cire-assets` (invite images) | Deployed, with no object versioning and no second copy. The daily cron's orphan reconcilers permanently delete any object no `cire-db` row names once R2 says it is 7 days old, unless an operator has stopped them (below) or a run is held because the rows naming keys fell by more than half | No backup. Restoring `cire-db` to an earlier point (below) puts objects at risk |
 | Other object storage (planned: R2 for avatars, event covers, message media) | Not deployed yet | Mirror across two regions |
 | Grafana Cloud (logs / traces / metrics) | Vendor-managed | Out of our scope; vendor SLA |
@@ -42,7 +42,7 @@ drill and it worked.
 Quarterly. Documented under `wiki/compliance/dr-drills/<YYYY>-<Q>.md`.
 
 1. Pick a backup from ≥7 days ago (this tests that we can restore a backup that old).
-2. Set up a parallel environment (DB instance, Redis, services).
+2. Set up a parallel environment (DB instance, services).
 3. Restore from backup.
 4. Smoke-test:
    - `/health` returns 200 on osn-api and zap-api, and cire-api's `GET /api/auth/session`
@@ -104,5 +104,5 @@ Tracked with `C-` IDs:
 1. **DR plan finalised** — this page is the outline; complete it once we choose the Supabase target.
 2. **First restore drill** — schedule for Q3 2026 (initial dry run before production traffic).
 3. **GitHub mirror** to a second host (Codeberg / Gitlab.com / private S3) for code-catastrophic-loss scenarios.
-4. **Encryption-at-rest documentation** — confirm Supabase / R2 / Redis-provider encryption-at-rest defaults; capture in [[soc2]] C1.
+4. **Encryption-at-rest documentation** — confirm Supabase / R2 / Durable Object storage encryption-at-rest defaults; capture in [[soc2]] C1.
 5. **Backup integrity verification** — checksum each snapshot; reject restores from corrupted snapshots automatically.

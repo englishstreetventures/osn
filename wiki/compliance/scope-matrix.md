@@ -11,7 +11,7 @@ related:
   - "[[eaa]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-10-23
+last-reviewed: 2026-10-27
 ---
 
 # Compliance Scope Matrix
@@ -84,11 +84,11 @@ Privacy because they are the criteria customers ask about.
 | CC4 — Monitoring | Grafana Cloud dashboards, OTel everywhere, security_events table | Alert routing doc, on-call rotation |
 | CC5 — Control Activities | This page, the open findings in `englishstreetventures/osn-tracker` | Quarterly access review record |
 | CC6 — Logical Access | Passkey-primary login, step-up tokens, ARC tokens for S2S, role-gated org admin (M3) | Prod access control matrix ([[access-control]]); least-privilege review record |
-| CC7 — System Operations | OTel, structured logs, Effect tracing, Redis health checks, /health + /ready endpoints | Capacity planning doc, vulnerability scan cadence |
+| CC7 — System Operations | OTel, structured logs, Effect tracing, /health + /ready endpoints, osn-api's `/health/coordination` round trip | Capacity planning doc, vulnerability scan cadence |
 | CC8 — Change Management | Changesets per PR, branch-protected main, CI required checks | Documented release procedure, rollback runbook |
 | CC9 — Risk Mitigation | Rate limiting, CORS, Origin guard, redaction deny-list, CSP | Vendor risk-assessment record per [[subprocessors]] |
 | C1 — Confidentiality | E2E (Signal/PQXDH), HMAC-peppered IPs, hashed tokens, redacted logs | Encryption-at-rest doc once Supabase migration lands |
-| A1 — Availability | Bun runtime, Turbo build, OTel SLOs (planned), Redis fallback, fail-closed rate limiter | Backup + DR plan ([[backup-dr]]); RTO/RPO declared |
+| A1 — Availability | Bun runtime, Turbo build, OTel SLOs (planned), post-deploy smoke check with automatic rollback, fail-closed rate limiter | Backup + DR plan ([[backup-dr]]); RTO/RPO declared |
 | P1–P8 — Privacy | This compliance directory, [[data-map]], [[dsar]] (planned) | Privacy notice published; consent records persisted |
 
 ### CCPA — first cut

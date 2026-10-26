@@ -11,7 +11,7 @@ related:
   - "[[subprocessors]]"
   - "[[identity-model]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-27
 ---
 
 # GDPR + UK GDPR
@@ -44,7 +44,7 @@ becomes the controller; we process on its instruction).
 | Art. 22 — Automated decision-making | No solely-automated decisions with legal / similarly significant effect | Recs / discovery rank but don't gatekeep access to a service. **Risk** — DSA-driven content demotion is a "restriction" with significant effect; needs human-review path. | [[dsa]] |
 | Art. 24 — Controller responsibility | Implement appropriate measures | Wiki + skills | This page |
 | Art. 25 — Privacy by design + by default | Bake in at design time | Strong — multi-account audit (P6) was a privacy-by-design exercise | [[identity-model]] |
-| Art. 28 — Processor obligations | Written contract with each processor | **Gap** — no DPAs on file with Cloudflare Email, Photon, Grafana Cloud, Redis provider | [[subprocessors]] |
+| Art. 28 — Processor obligations | Written contract with each processor | **Gap** — no DPAs on file with Cloudflare Email, Photon, Grafana Cloud | [[subprocessors]] |
 | Art. 30 — Records of processing activities | Maintain a register | **Gap** — [[data-map]] is the seed; needs flesh + maintenance discipline | [[data-map]] |
 | Art. 32 — Security of processing | Technical + organisational measures | Strong codified in skills | `.claude/skills/review-security/SKILL.md` |
 | Art. 33 — Notification of breach to DPA | 72 hours | **Gap** — no runbook | [[breach-response]] |
@@ -66,7 +66,7 @@ high-impact ones, in priority order:
 
 4. **Privacy notice + ToS** — public, plain-language, version-stamped, backlinked from every collection point. **RESOLVED for cire:** the guest site publishes `/privacy` + `/terms` with a site-wide footer — Australia/APP framing, the controller and DSAR contact both taken from `@shared/legal` rather than written into the page, 1-year retention basis, processors (Cloudflare), guest rights, and dietary/access free-text flagged as Art. 9 special-category collected under explicit consent. The parallel `@musubi/landing` notice now ships too, and so do Pulse's and the two app frontends' — thirteen pages across `<app>/src/pages/{privacy,terms}.astro`, `musubi/social/src/pages/` and `pulse/web/src/routes/`. There is no drafts directory: the operator's identity comes from `@shared/legal`, and every page gates a draft banner on `draftPending()` so it cannot publish an unfilled detail silently. What is left is filling the remaining fields (legal entity, postal address, merchant of record, retention sentence), not writing more copy.
 
-5. **DPA + SCC pack for processors** — sign the Cloudflare DPA template, the Grafana Labs DPA + SCCs, the chosen Redis provider's DPA, and Photon's DPA-equivalent (Komoot). File under `wiki/compliance/dpa/<vendor>.md` with execution date + scope.
+5. **DPA + SCC pack for processors** — sign the Cloudflare DPA template, the Grafana Labs DPA + SCCs, and Photon's DPA-equivalent (Komoot). File under `wiki/compliance/dpa/<vendor>.md` with execution date + scope.
 
 6. **DSAR runbook** — an operational doc that covers ID verification, the 30-day clock, the unverified-request response, the "manifestly unfounded" denial path, and where to log requests for audit. See [[dsar]].
 

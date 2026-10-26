@@ -61,7 +61,6 @@ The matrix that needs to exist, by environment + system + role.
 | Domain registrar | Owner | <named humans> | ✓ | Manual | Annual |
 | Stripe platform Dashboard (cire gift registry — first live use once the PR #760/#762 keys are set; Pulse ticketing later). Dashboard access reaches every couple's connected-account view and the API/webhook secrets below | Admin | <named humans> | ✓ | Manual | Quarterly |
 | Email provider (Resend today; Cloudflare Email Service is the legacy fallback) | Admin | <named humans> | ✓ | Manual | Quarterly |
-| Redis provider (Upstash, `ap-southeast-2`) | Admin | <named humans> | ✓ | Manual | Quarterly |
 
 This page is the template; the matrix with named humans lives in
 a private successor under `wiki/compliance/access-matrix/<YYYY>-<Q>.md`

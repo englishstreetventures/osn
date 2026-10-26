@@ -18,7 +18,7 @@ related:
   - "[[d1-read-replication]]"
   - "[[cire-development]]"
   - "[[infrastructure-as-code]]"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-27
 ---
 
 # Database Environments
@@ -135,15 +135,14 @@ Three rewrite shapes recur:
 | `@osn/api` | ✅ | ✅ (Miniflare-tested) · **deployed** on Workers | 17 → `commitBatch` |
 | `@cire/api` | ✅ (dev/tests) | ✅ (always was) | n/a (async from day 1) |
 
-**`@osn/api` on Workers — done.** The old caveat here (ioredis and module-top-level
-JWT key loading, neither of which runs on workerd) was resolved by the Upstash REST
-client and request-scoped key loading. osn-api has been a deployed Worker since
+**`@osn/api` on Workers — done.** Nothing in it needs what workerd lacks: JWT
+keys load in request scope rather than at module top level, and its shared state
+is on the `COORDINATION` Durable Object, not a socket ([[coordination-store]]). osn-api has been a deployed Worker since
 2026-07-27 — `id.musubi.social` in production, `id.musubi.<DEV_DOMAIN>` on dev — and
 CI deploys it. See [[musubi-identity-migration]] and [[dev-environment]].
 
-**Databases and region.** All D1 databases are in **`oc` (Oceania / Sydney)** and
-both Upstash Redis databases are in **`ap-southeast-2` (Sydney)** — co-located for
-low AU latency (the project is AU-centric). One region means one **primary**: a
+**Databases and region.** All D1 databases are in **`oc` (Oceania / Sydney)** —
+co-located for low AU latency (the project is AU-centric). One region means one **primary**: a
 request served from a colo outside Oceania pays a round trip to Sydney for every
 query it makes, which is what read replication and the D1 Sessions API address —
 see [[d1-read-replication]].
