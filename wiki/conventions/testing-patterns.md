@@ -275,6 +275,8 @@ describe("events routes", () => {
 
 - **Route tests: `createXxxRoutes(createTestLayer())` in `beforeEach`.** Full isolation per test. The route factory accepts an optional `dbLayer` param for injection; the default is `DbLive`.
 
+- **A cire route test that calls a rate-limited route passes its own limiter to `createApp`.** The limiters `createApp` defaults to (`defaultExportLimiter` and its siblings in `cire/api/src/app.ts`) are module-level, so every test file in one `bun test` process spends the same per-user buckets. A file that downloads `seating.csv` a few times once pushed `tests/routes/organiser-changes.test.ts` past the export limit, 429 instead of 200, only in the full run. Build the app with `createApp(db, { exportLimiter: createRateLimiter({ maxRequests: 1_000, windowMs: 60_000 }) })`, as `tests/routes/organiser-weddings.test.ts` does; a test of the limit itself passes a small one.
+
 - **OSN auth routes use `createAuthRoutes(authConfig, dbLayer?)`.** The `authConfig` parameter is required (no global default). `dbLayer` defaults to `DbLive`.
 
 - **Use `bunx --bun vitest`** (not plain `vitest`) when you call Vitest yourself -- the flag is required for `bun:sqlite` module access. A package's own `test` and `test:run` scripts already carry the flags its tests need: most of those that run Vitest say `bunx --bun vitest`, and the few whose tests never load `bun:sqlite` call plain `vitest`.
@@ -518,6 +520,18 @@ after `--` (`test:mutation --changed -- --logLevel debug`).
 After adding a test, `--incremental` re-tests only the mutants whose code or
 covering tests changed. Use it in the vitest packages only: the command-runner
 packages report no coverage, so Stryker would keep every earlier survivor.
+
+**`@cire/api` needs `--concurrency 3 -- --timeoutMS 60000`.** Each mutant runs
+every `STRYKER_TESTS` file, and nine at once starve each other past Stryker's
+default timeout. A timed-out mutant counts as killed, so such a run reports a
+high score that proves nothing: one seating run reported 368 of 461 mutants
+timed out and 92.6%, and the same run at three with a 60-second timeout had no
+timeouts, 123 survivors and 73.3%. Read the `# timeout` column before the score.
+Leave `tests/routes/tier-gate-pairing.test.ts` out of `STRYKER_TESTS`: it
+parses the source files, which Stryker has instrumented, and fails the dry run.
+
+*Measured 2026-10-26 — `bun run --cwd cire/api test:mutation --changed` on the
+seating plans branch, at the default concurrency and again with the flags above.*
 
 Run a long one in the background: the agent shell's foreground limit is ten
 minutes, and an interrupted run only wastes the time already spent. The report
