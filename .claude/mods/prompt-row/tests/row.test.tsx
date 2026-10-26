@@ -1,8 +1,10 @@
 import type { On, TurnStepChunk, TurnStepInput, TurnStepResult } from "claude-code";
 import { expect, test } from "claude-code/testing";
 
-// The engine's hint line as the owner's terminal drew it.
-const LIVE_HINT = "⏵⏵ auto mode on (shift+tab to cycle) · ← 6 agents";
+// The hint text in auto mode with six agents, as the owner's terminal showed
+// the mod receives it: the mode's own pill is drawn by the terminal, ahead of
+// the row, and its key hint arrives in the text.
+const LIVE_HINT = "(shift+tab to cycle) · ← 6 agents";
 
 const hint = (text: string) =>
   ({
@@ -146,7 +148,7 @@ for (const [model, name, color] of CASES) {
   });
 }
 
-test("the row runs agents, model and effort, mode, context, session, on one line, on both surfaces", async ($, on) => {
+test("the row runs agents, model and effort, context, session, on one line, on both surfaces", async ($, on) => {
   engine(on, { percent: 34 });
   await runStep($, step({ effort: "high" }));
   for (const surface of ["terminal", "desktop"] as const) {
@@ -154,32 +156,15 @@ test("the row runs agents, model and effort, mode, context, session, on one line
     expect(await row(ui)).toEqual([
       "← 6 agents",
       "● Opus · high",
-      "⏵⏵ auto mode on",
       "▰▰▰▱▱▱▱▱▱▱ 34%",
       `session ${SESSION}`,
     ]);
-    await ui.unmount();
-  }
-});
-
-test("the mode keeps its own colour and loses its key hint", async ($, on) => {
-  engine(on);
-  for (const [text, mode, color] of [
-    ["⏵⏵ auto mode on (shift+tab to cycle)", "⏵⏵ auto mode on", "warning"],
-    ["⏵⏵ accept edits on (shift+tab to cycle)", "⏵⏵ accept edits on", "autoAccept"],
-    ["⏸ plan mode on (shift+tab to cycle)", "⏸ plan mode on", "planMode"],
-    ["⏵⏵ bypass permissions on (shift+tab to cycle)", "⏵⏵ bypass permissions on", "error"],
-  ] as const) {
-    const ui = await $.ui.mount({ ...hint(text), surface: "terminal" });
-    const shown = await part(ui, /on$/);
-    expect(shown?.text.trim()).toBe(mode);
-    expect(shown?.props.color).toBe(color);
     expect(await part(ui, /shift\+tab/)).toBe(undefined);
     await ui.unmount();
   }
 });
 
-test("what the hint holds besides agents and mode comes last", async ($, on) => {
+test("what the hint holds besides agents comes last", async ($, on) => {
   engine(on);
   const ui = await $.ui.mount({ ...hint("esc to interrupt · ← 2 agents"), surface: "terminal" });
   expect(await row(ui)).toEqual(["← 2 agents", "● Opus", `session ${SESSION}`, "esc to interrupt"]);

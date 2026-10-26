@@ -46,37 +46,23 @@ const levelOf = (value: unknown): EffortLevel | null =>
 
 const redraw = ($: EngineInterface) => $.ui.invalidate("ui.render");
 
-// The parts of the engine's hint line, which arrives as one string read the
-// way a screen reader reads it: the agents count, the permission-mode pill
-// with the colour the prompt box gives that mode, and what is left. The
-// mode's key hint is dropped.
+// The parts of the engine's hint text, which arrives as one string read the
+// way a screen reader reads it: the agents count, and what is left once the
+// permission mode's key hint is dropped. The terminal draws the mode's pill
+// itself, ahead of the row.
 const AGENTS = /←\s*\d+\s+agents?/;
-const MODE = /(?:[^\w\s·]+\s*)?(auto mode|accept edits|plan mode|bypass permissions)(?:\s+on)?/i;
 const KEY_HINT = /\(shift\+tab to cycle\)/i;
-const MODE_COLOR = {
-  "auto mode": "warning",
-  "accept edits": "autoAccept",
-  "plan mode": "planMode",
-  "bypass permissions": "error",
-} as const;
 
 const hintParts = (hint: string) => {
   const agents = hint.match(AGENTS)?.[0] ?? null;
-  const mode = hint.match(MODE);
   let rest = hint.replace(KEY_HINT, "");
   if (agents !== null) rest = rest.replace(agents, "");
-  if (mode) rest = rest.replace(mode[0], "");
   const left = rest
     .split("·")
     .map((piece) => piece.trim())
     .filter(Boolean)
     .join(" · ");
-  const name = mode?.[1]?.toLowerCase() as keyof typeof MODE_COLOR | undefined;
-  return {
-    agents,
-    mode: mode && name ? { text: mode[0].trim(), color: MODE_COLOR[name] } : null,
-    rest: left === "" ? null : left,
-  };
+  return { agents, rest: left === "" ? null : left };
 };
 
 export const register: Register = (on) => {
@@ -136,11 +122,11 @@ export const register: Register = (on) => {
     return result;
   });
 
-  // One row, drawn by the mod in place of the engine's hint line: the agents
-  // count, the model's tag with its effort level, the permission mode, the
-  // context bar, the session id, then whatever else the hint held. The
-  // engine's own line is a block, so drawing beside it would put the mod's
-  // parts on a row of their own.
+  // One row, drawn by the mod in place of the engine's hint text: the agents
+  // count, the model's tag with its effort level, the context bar, the
+  // session id, then whatever else the hint held. The engine's own line is a
+  // block, so drawing beside it would put the mod's parts on a row of their
+  // own.
   on("ui.render", { component: "PromptHint" }, async ($, e) => {
     const [family, session, percent, held] = await Promise.all([
       currentFamily($),
@@ -148,7 +134,7 @@ export const register: Register = (on) => {
       percentOf($),
       read($, effort),
     ]);
-    const { agents, mode, rest } = hintParts(e.props.hint);
+    const { agents, rest } = hintParts(e.props.hint);
     const level =
       family && held?.level && familyOf(held.model)?.name === family.name ? held.level : null;
     const full = Math.floor((percent ?? 0) / 10);
@@ -163,7 +149,6 @@ export const register: Register = (on) => {
           {level === null ? "" : ` · ${level}`}
         </Text>
       ),
-      mode && <Text color={mode.color}>{mode.text}</Text>,
       percent !== null &&
         (percent >= 70 ? (
           <Text color={percent >= 85 ? "error" : "warning"}>
