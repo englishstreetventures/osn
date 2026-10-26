@@ -23,7 +23,7 @@ related:
   - "[[commands]]"
   - "[[bundle-size-guards]]"
   - "[[cire-registry]]"
-last-reviewed: 2026-10-24
+last-reviewed: 2026-10-26
 ---
 
 # Cire development guide
@@ -218,40 +218,40 @@ the editor finds it for test files (see [[testing-patterns#Rules]]).
 
 ### The guest site's packages
 
-`astro check` reports only the files in its own project, so the source of a
-workspace package the guest site imports is checked by that package's own
-`typecheck`, under that package's tsconfig. Each one states the site's `lib` in its
-own `tsconfig.json`, rather than inheriting it from a preset, and loads no
-ambient types: `bun-types` declares `Promise.withResolvers`, `Array.fromAsync`
-and other built-ins newer than the floor whatever `lib` says.
+The guest site's `typecheck` is one `tsc` program ([[frontend-patterns#Type-checking .astro files]])
+that loads the source of every workspace package the site imports, `.astro`
+files included, and checks it at the site's `lib`. Each package also checks
+itself with `bun check` under its own tsconfig, which states the site's `lib`
+rather than inheriting it from a preset and loads no ambient types: `bun-types`
+declares `Promise.withResolvers`, `Array.fromAsync` and other built-ins newer
+than the floor whatever `lib` says.
 
 | Packages | Shipped-source `tsconfig.json` |
 |---|---|
 | `@cire/dietary`, `@cire/invite-designs`, `@cire/theme`, `@shared/color`, `@shared/design-tokens`, `@shared/legal` | Extends `base.json`; `lib` ES2022, `types: []` |
 | `@cire/ui`, `@shared/ui`, `@shared/rp-auth`, `@shared/toast` | Extends `solid.json`; `lib` ES2022 + DOM, restated |
 
-The Worker, the organiser and vendor portals, musubi and pulse compile the same
-source under their own, wider `lib`, so the narrower package config still
-type-checks for them.
+The Worker, the organiser and vendor portals, musubi and pulse load the same
+source into their own programs and check it under their own `lib` too.
 
 Where a package's tests reach `@types/node` (through Vitest's browser provider,
 or a `node:` import), they move to `tests/tsconfig.json`, so the shipped-source
 program stays at the floor: `@cire/dietary`, `@cire/theme`, `@shared/color`,
 `@shared/design-tokens` and `@shared/ui` do this.
 
-`cire/invites/tests/browser-floor.test.ts` walks the site's workspace
-dependencies (its `dependencies` and `devDependencies`, then each package's
-`dependencies`) and fails when:
+`cire/invites/tests/browser-floor.test.ts` lists the site program's files with
+`tsc --listFilesOnly`, walks the site's workspace dependencies (its
+`dependencies` and `devDependencies`, then each package's `dependencies`), and
+fails when:
 
 - the site's own `lib` is not ES2022 + DOM, so raising the floor means editing
   that test and `cire/invites/tsconfig.json` together;
-- a package states no `lib` of its own;
-- the TypeScript program a package's `typecheck` builds loads a library outside the
-  site's `lib`, from `lib`, a `/// <reference lib>` or a type package, or loads
-  any `bun-types` file;
-- a package's `typecheck` script does not run `bun check`, or the package has a
-  `check` script, which would shadow `bun check`;
-- the config leaves out a module the package exports;
+- the site program loads a library above the floor, from `lib`, a
+  `/// <reference lib>` or a type package, or loads any `bun-types` file. Two
+  libraries are allowed by name: `@types/node` references `es2025.float16` and
+  `esnext.disposable`;
+- a package reaches the site program as anything but its `src` (a built `.d.ts`
+  would bring its types in without its code);
 - the site's source, `.astro` files included, or a package's `src` imports a
   `@cire/` or `@shared/` package the walk did not reach.
 

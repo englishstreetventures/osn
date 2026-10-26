@@ -23,7 +23,7 @@ packages:
   - "@cire/host"
   - "@pulse/web"
   - "@shared/ui"
-last-reviewed: 2026-10-23
+last-reviewed: 2026-10-26
 ---
 
 # Frontend Patterns
@@ -110,6 +110,34 @@ Solid transform, but no plugin in the build acts on them, so the file changes no
 build output. It is in `turbo.json`'s `globalDependencies` and in the deploy
 workflow's list of root build files, so an edit to it rebuilds and redeploys
 everything.
+
+## Type-checking .astro files
+
+The six Astro sites type-check with TypeScript 7.1's `tsc` and
+`@astrojs/ts-content-mapper`, registered in each site's `tsconfig.json`:
+
+```jsonc
+"contentMappers": [{ "package": "@astrojs/ts-content-mapper", "extensions": [".astro"] }]
+```
+
+Each site's `typecheck` is `tsc -p . --runExternalCode`. The mapper turns every
+`.astro` file into TypeScript for the checker, frontmatter, template
+expressions and processed `<script>` blocks included, and errors point at the
+`.astro` line. `is:inline` scripts are not checked. The program also loads the
+source of every workspace package the site imports, so that source is checked at
+the site's `lib`.
+
+| Rule | Why |
+|---|---|
+| Run plain `tsc`, never `bunx --bun tsc` | `--bun` puts Bun first on `PATH` as `node`. The mapper starts as `node dist/server.js`; it works under Bun, but CI pins Node 24 for it in the Type Check job |
+| `contentMappers` is code execution | With `--runExternalCode`, `tsc` starts the named package's `typescript.contentMapper.exec`. Review a tsconfig change that adds or changes one like a script change |
+| A package that ships an `.astro` file declares `astro` | The mapper's output imports `astro` types from the `.astro` file's own location. The isolated linker resolves only declared dependencies, so `@cire/ui` lists `astro` in `devDependencies` |
+| An `astro` bump can fail all six checks | Astro's own shipped `.astro` components are checked too, and `skipLibCheck` covers only `.d.ts` files. An upstream type error in one fails every site's `typecheck` in CI before it merges |
+| Other packages stay on `bun check` | `bun check` ignores `contentMappers` and rejects `--runExternalCode` |
+
+In VS Code, `.astro` checking through `tsc` needs the TypeScript 7 extension and
+a trusted workspace. TypeScript 7 ships no `tsserver`, so editors and the agents'
+`LSP` tool use `tsc --lsp --stdio` ([[agent-tooling#Code search]]).
 
 ## Rendering and animation gotchas
 

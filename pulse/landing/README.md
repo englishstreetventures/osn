@@ -13,7 +13,7 @@ Pure brochure: no Pulse API calls, no account.
 ```bash
 bun run --cwd pulse/landing dev        # dev server on http://localhost:4325
 bun run --cwd pulse/landing build      # static build → dist/
-bun run --cwd pulse/landing check      # astro check (type-check)
+bun run --cwd pulse/landing typecheck  # tsc with the .astro content mapper
 bun run --cwd pulse/landing test:run   # vitest
 # or, from the repo root:
 bun run dev:pulse-landing
