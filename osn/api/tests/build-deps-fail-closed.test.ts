@@ -3,7 +3,12 @@ import { createMemoryClient } from "@shared/redis";
 import { exportJWK } from "jose";
 import { describe, it, expect, beforeAll } from "vitest";
 
-import { buildAppDeps, loadJwtKeyPair, parseTrustedProxyCount } from "../src/build-deps";
+import {
+  buildAppDeps,
+  loadJwtKeyPair,
+  parseRefreshTokenTtl,
+  parseTrustedProxyCount,
+} from "../src/build-deps";
 import { handler, type Env } from "../src/index";
 import {
   createTotpKeyRing,
@@ -340,6 +345,28 @@ describe("buildAll email fail-closed + degraded opt-in (non-local)", () => {
       emailEnv({ CLOUDFLARE_ACCOUNT_ID: "acct", CLOUDFLARE_EMAIL_API_TOKEN: "tok" }),
     );
     expect(res.status).toBe(200);
+  });
+});
+
+describe("parseRefreshTokenTtl", () => {
+  it.each(["0", "-1", "1.5", "x", "Infinity"])("throws on %j", (raw) => {
+    expect(() => parseRefreshTokenTtl(raw)).toThrow(/OSN_REFRESH_TOKEN_TTL must be a whole number/);
+  });
+
+  it("defaults to 30 days when unset or blank", () => {
+    expect(parseRefreshTokenTtl(undefined)).toBe(2_592_000);
+    expect(parseRefreshTokenTtl("")).toBe(2_592_000);
+    expect(parseRefreshTokenTtl("  ")).toBe(2_592_000);
+  });
+
+  it("parses a positive whole number of seconds", () => {
+    expect(parseRefreshTokenTtl("3600")).toBe(3600);
+  });
+
+  it("refuses to boot with a malformed value", async () => {
+    await expect(buildAppDeps({ OSN_REFRESH_TOKEN_TTL: "30d" }, nonLocalParts())).rejects.toThrow(
+      /OSN_REFRESH_TOKEN_TTL must be a whole number/,
+    );
   });
 });
 

@@ -191,6 +191,25 @@ export async function loadJwtKeyPair(env: EnvVars) {
 //                        Default 0 → direct mode.
 // ---------------------------------------------------------------------------
 
+const DEFAULT_REFRESH_TOKEN_TTL_SEC = 2_592_000;
+
+/**
+ * `OSN_REFRESH_TOKEN_TTL`: the session lifetime in whole seconds, 30 days when
+ * unset or blank. Anything else throws at boot: the value sets every session's
+ * expiry and how long a rotation record proves reuse, so a typo must stop the
+ * deploy rather than fall back quietly.
+ */
+export function parseRefreshTokenTtl(raw: string | undefined): number {
+  if (raw === undefined || raw.trim() === "") return DEFAULT_REFRESH_TOKEN_TTL_SEC;
+  const n = Number(raw);
+  if (!Number.isSafeInteger(n) || n <= 0) {
+    throw new Error(
+      `OSN_REFRESH_TOKEN_TTL must be a whole number of seconds above 0 (got ${JSON.stringify(raw)})`,
+    );
+  }
+  return n;
+}
+
 export function parseTrustedProxyCount(raw: string | undefined): number {
   if (raw === undefined || raw.trim() === "") return 0;
   const n = Number(raw);
@@ -384,7 +403,7 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
     jwtKid,
     jwtPublicKeyJwk,
     accessTokenTtl: Number(env.OSN_ACCESS_TOKEN_TTL) || 300,
-    refreshTokenTtl: Number(env.OSN_REFRESH_TOKEN_TTL) || 2592000,
+    refreshTokenTtl: parseRefreshTokenTtl(env.OSN_REFRESH_TOKEN_TTL),
     sessionIpPepper,
     totpEncryptionKeys,
     pairwiseSalt,
