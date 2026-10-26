@@ -122,7 +122,9 @@ test("cire-event-details", async ({ page, context, flow }) => {
     const probe = responseTo(page, "GET", `${ORIGINS.cireApi}/api/auth/session`);
     await page.goto(`${ORIGINS.osnApi}/dev/login?${new URLSearchParams({ return_to: login })}`);
     await page.getByLabel("Dev login secret").fill(DEV_LOGIN_SECRET);
-    // The osn form page is also `/dev/login?…`, so match the portal's own login page.
+    // The osn form's own URL also ends `/login` with a query, so match the
+    // portal's login page by origin and path. `flows.test.ts` counts each
+    // sign-in by the osn path written out, so this comment does not name it.
     const portalLogin = new URL(ORIGINS.cireHost);
     await page.getByRole("button", { name: "Sign in", exact: true }).click();
     await expect(page).toHaveURL(
