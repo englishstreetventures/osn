@@ -432,10 +432,7 @@ export const createOrganiserExportRoutes = (
                     .giftsCsv(weddingId)
                     .pipe(Effect.provideService(EffectDbService, effectDb));
               return csvAttachment(csv, `cire-gifts-${weddingSlug ?? weddingId}.csv`);
-            }).pipe(
-              Effect.provideService(DbService, db),
-              Effect.catchDefect(() => exportDefect(set, "gifts.csv", weddingId)),
-            ),
+            }).pipe(Effect.catchDefect(() => exportDefect(set, "gifts.csv", weddingId))),
           );
         })
         // The budget and checklist exports — the couple's budget lines (each
