@@ -850,8 +850,18 @@ function countingLockout(bump: () => void, inner: RecoveryLockoutStore): Recover
  * credential SELECT is a database round trip and belongs in the same ledger as
  * the store hops.
  */
-function makeCountingApp() {
+function makeCountingApp(options: { readonly lockoutsUnreachable?: boolean } = {}) {
   const hops = zeroHops();
+  // A shared lockout store answers `"unknown"` while its backend fails; this
+  // stands in for one, so a branch's cost can be measured during a fault.
+  const unreachable: RecoveryLockoutStore = {
+    backend: "memory",
+    status: () => Promise.resolve("unknown"),
+    recordFailure: () => Promise.resolve("unknown"),
+    reset: () => Promise.resolve(),
+  };
+  const lockoutStore = (config?: Parameters<typeof createInMemoryRecoveryLockoutStore>[0]) =>
+    options.lockoutsUnreachable ? unreachable : createInMemoryRecoveryLockoutStore(config);
   const sqlite = new Database(":memory:");
   applySchema(sqlite);
   const db = drizzle({
@@ -899,12 +909,12 @@ function makeCountingApp() {
     },
     recoveryOtpLockoutStore: countingLockout(() => {
       hops.recoveryOtpLockout += 1;
-    }, createInMemoryRecoveryLockoutStore()),
+    }, lockoutStore()),
     totpLockoutStore: countingLockout(
       () => {
         hops.totpLockout += 1;
       },
-      createInMemoryRecoveryLockoutStore({
+      lockoutStore({
         threshold: TOTP_LOCKOUT_THRESHOLD,
         lockoutMs: TOTP_LOCKOUT_MS,
       }),
@@ -1131,8 +1141,85 @@ describe("recovery routes cost the same however a request ends", () => {
       credentials: h.totpCredentials,
       pendingRecoveryOtp: h.pendingRecoveryOtp,
     });
+    // (d) a locked account: five wrong codes get it there; the sixth is measured.
+    const lockedHarness = makeCountingApp();
+    await lockedHarness.seed("hp-tlock@example.com", "hptlock");
+    for (let i = 0; i < TOTP_LOCKOUT_THRESHOLD; i++) {
+      await post(lockedHarness.app, "/login/recovery/totp/complete", {
+        identifier: "hptlock",
+        code: "000000",
+      });
+    }
+    const locked = await lockedHarness.measure(() =>
+      post(lockedHarness.app, "/login/recovery/totp/complete", {
+        identifier: "hptlock",
+        code: "000000",
+      }),
+    );
+
     expect(shape(bare)).toEqual({ lockout: 2, credentials: 1, pendingRecoveryOtp: 0 });
     expect(shape(enrolled)).toEqual(shape(bare));
     expect(shape(unknown)).toEqual(shape(bare));
+    // Goes red on: refusing a locked account before the credential query.
+    expect(shape(locked)).toEqual(shape(bare));
+  });
+});
+
+describe("recovery routes cost the same when the lockout counter cannot be read", () => {
+  // A shared counter answers `"unknown"` while its store fails. Every caller
+  // refuses then — but a refusal that skipped the padding would answer a real
+  // account sooner than an identifier that names nobody, for as long as the
+  // fault lasted.
+
+  it("POST /login/recovery/email/complete — a real account with a code pending costs what nobody costs", async () => {
+    // Goes red on: returning from the `"unknown"` branch before the padding.
+    const realHarness = makeCountingApp({ lockoutsUnreachable: true });
+    await realHarness.seed("hu-real@example.com", "hureal");
+    await requestCode(realHarness.app, realHarness.recorded, "hu-real@example.com");
+    const real = await realHarness.measure(() =>
+      post(realHarness.app, "/login/recovery/email/complete", {
+        identifier: "hu-real@example.com",
+        code: "000000",
+      }),
+    );
+
+    const unknownHarness = makeCountingApp({ lockoutsUnreachable: true });
+    const unknown = await unknownHarness.measure(() =>
+      post(unknownHarness.app, "/login/recovery/email/complete", {
+        identifier: "hu-nobody@example.com",
+        code: "000000",
+      }),
+    );
+
+    expect(real.pendingRecoveryOtp).toBe(2);
+    expect(real.recoveryOtpLockout).toBe(2);
+    expect(unknown.pendingRecoveryOtp).toBe(real.pendingRecoveryOtp);
+    expect(unknown.recoveryOtpLockout).toBe(real.recoveryOtpLockout);
+  });
+
+  it("POST /login/recovery/totp/complete — a real account costs what nobody costs", async () => {
+    // Goes red on: returning from the `"unknown"` branch of `checkTotpCode`
+    // before the credential query and the second lockout read.
+    const realHarness = makeCountingApp({ lockoutsUnreachable: true });
+    await realHarness.seed("hu-treal@example.com", "hutreal");
+    const real = await realHarness.measure(() =>
+      post(realHarness.app, "/login/recovery/totp/complete", {
+        identifier: "hutreal",
+        code: "000000",
+      }),
+    );
+
+    const unknownHarness = makeCountingApp({ lockoutsUnreachable: true });
+    const unknown = await unknownHarness.measure(() =>
+      post(unknownHarness.app, "/login/recovery/totp/complete", {
+        identifier: "hu-tnobody@example.com",
+        code: "000000",
+      }),
+    );
+
+    expect(real.totpLockout).toBe(2);
+    expect(real.totpCredentials).toBe(1);
+    expect(unknown.totpLockout).toBe(real.totpLockout);
+    expect(unknown.totpCredentials).toBe(real.totpCredentials);
   });
 });

@@ -501,29 +501,22 @@ export function createRecoveryFactorsModule(
       }
 
       // Fail-closed: an unreachable counter behind a six-digit code is no
-      // throttle at all. The pending code lives in the same store, so an outage
-      // fails this ceremony at the next read regardless — closing here costs
-      // nothing that was still working.
+      // throttle at all, so `"unknown"` refuses like `"locked"`, and writes no
+      // security event — nothing is known to have crossed the threshold.
       const lockout = yield* Effect.promise(() =>
         recoveryOtpLockoutStore.status(profile.accountId),
       );
-      if (lockout === "unknown") {
-        // The counter cannot be read, so a guess here could not be counted.
-        // Refuse with the same answer and write no security event. Timing is
-        // not padded: this branch exists only while the store is failing,
-        // which says nothing about the identifier.
-        metricRecoveryLockout("unavailable");
-        return yield* Effect.fail(new AuthError({ message: GENERIC_FAILURE }));
-      }
-      if (lockout === "locked") {
+      if (lockout !== "open") {
         // Read anyway, and pad to four, and answer the same generic failure: a
         // locked account must be indistinguishable from a wrong code, or the
         // lockout becomes its own oracle — and one an attacker can create at
-        // will, by spending the account's attempts first.
+        // will, by spending the account's attempts first. A counter that
+        // cannot be read pays the same four, or a store fault would answer a
+        // real account sooner than an identifier that names nobody.
         yield* Effect.promise(() => stores.pendingRecoveryOtp.get(profile.accountId));
         yield* burnProbeRead();
         yield* burnLockoutRead();
-        metricRecoveryLockout("locked");
+        metricRecoveryLockout(lockout === "locked" ? "locked" : "unavailable");
         return yield* Effect.fail(new AuthError({ message: GENERIC_FAILURE }));
       }
 

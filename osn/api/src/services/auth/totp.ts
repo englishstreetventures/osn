@@ -235,16 +235,23 @@ export function createTotpModule(
       // Fail-closed: an unreachable lockout counter for TOTP means no throttle
       // at all behind a six-digit code, so an error here denies. See the
       // posture note in `lib/recovery-lockout-store.ts`.
-      const lockout = yield* Effect.promise(() =>
-        totpLockoutStore.status(lockoutKey(accountId, scope)),
-      );
-      if (lockout === "unknown") {
-        metricTotpLockout("unavailable", scope);
-        return yield* Effect.fail(new AuthError({ message: GENERIC_CODE_FAILURE }));
-      }
-      if (lockout === "locked") {
-        metricTotpLockout("locked", scope);
-        metricTotpVerified("locked_out");
+      const key = lockoutKey(accountId, scope);
+      const lockout = yield* Effect.promise(() => totpLockoutStore.status(key));
+      if (lockout !== "open") {
+        // Refused without checking the code, at what a wrong code costs: the
+        // credential query, a verification against the dummy key, and a
+        // lockout read standing in for the failure record. Otherwise a locked
+        // account, or a store fault, would answer a real account sooner than
+        // an identifier that names nobody (`burnTotpCheckCost`).
+        yield* confirmedCredential(accountId);
+        yield* Effect.promise(() => verifyTotpCode({ secret: new Uint8Array(0), code }));
+        yield* Effect.promise(() => totpLockoutStore.status(key));
+        if (lockout === "locked") {
+          metricTotpLockout("locked", scope);
+          metricTotpVerified("locked_out");
+        } else {
+          metricTotpLockout("unavailable", scope);
+        }
         return yield* Effect.fail(new AuthError({ message: GENERIC_CODE_FAILURE }));
       }
 

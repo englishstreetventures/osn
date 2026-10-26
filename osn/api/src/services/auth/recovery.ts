@@ -285,17 +285,15 @@ export function createRecoveryModule(
       // locked account must never consume a code), then return the SAME
       // generic error as any other failure (preserving the no-enumeration
       // oracle: a locked account is indistinguishable from a wrong code).
+      //
+      // A counter that cannot be read (`"unknown"`) takes the same read-only
+      // path: an attempt there could not be counted, so the code is never
+      // touched — the owner retries once the store answers again — and no
+      // security event is written, since nothing is known to have crossed the
+      // threshold. It pays the same lookup as the locked branch, so it costs
+      // what every other refusal on a real account costs.
       const lockout = yield* Effect.promise(() => recoveryLockoutStore.status(profile.accountId));
-      if (lockout === "unknown") {
-        // The counter cannot be read, so an attempt here could not be counted.
-        // Refuse before the code is touched — the owner retries once the store
-        // answers again — and write no security event: nothing is known to
-        // have crossed the threshold. The store has already logged the fault.
-        metricRecoveryLockout("unavailable");
-        metricRecoveryCodeConsumed("invalid");
-        return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
-      }
-      if (lockout === "locked") {
+      if (lockout !== "open") {
         yield* Effect.tryPromise({
           try: () =>
             db
@@ -310,7 +308,7 @@ export function createRecoveryModule(
               .limit(1),
           catch: (cause) => new DatabaseError({ cause }),
         });
-        metricRecoveryLockout("locked");
+        metricRecoveryLockout(lockout === "locked" ? "locked" : "unavailable");
         metricRecoveryCodeConsumed("invalid");
         return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
       }
