@@ -1,6 +1,6 @@
 {
   "name": "@tools/lab",
-  "version": "0.3.17",
+  "version": "0.3.20",
   "private": true,
   "description": "Component lab — a Storybook-shaped scratchpad for spiking UI, three.js and canvas work",
   "type": "module",
@@ -15,7 +15,7 @@
     "dev:app": "dev-env vite dev",
     "build": "vite build",
     "preview": "vite preview",
-    "check": "tsc --noEmit",
+    "typecheck": "bun check --no-script",
     "test": "bunx --bun vitest",
     "test:run": "bunx --bun vitest run"
   },
@@ -37,7 +37,7 @@
     "@shared/typescript-config": "workspace:*",
     "@types/three": "^0.186.0",
     "happy-dom": "^21.0.4",
-    "typescript": "^6.0.3",
+    "typescript": "7.1.0-beta",
     "vite": "^8.3.3",
     "vite-plugin-solid": "^2.11.14",
     "vitest": "5.0.3"

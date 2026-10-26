@@ -29,9 +29,10 @@
  */
 
 import { readdir, stat } from "node:fs/promises";
-import { isAbsolute, join, relative } from "node:path";
+import { basename, isAbsolute, join, relative } from "node:path";
 
 const TEST_ROUTE = /\.(?:test|spec)\.|fixture/i;
+const TEST_OR_SPEC = /\.(?:test|spec)\./i;
 
 export interface TestRoute {
   readonly path: string;
@@ -39,36 +40,33 @@ export interface TestRoute {
 }
 
 export async function findTestRoutes(pagesDir: string): Promise<readonly TestRoute[]> {
-  const violations: TestRoute[] = [];
-
-  async function walk(dir: string): Promise<void> {
+  async function walk(dir: string): Promise<TestRoute[]> {
     let entries;
     try {
       entries = await readdir(dir, { withFileTypes: true });
     } catch {
       // No src/pages at all (or unreadable) is not this guard's problem.
-      return;
+      return [];
     }
 
-    for (const entry of entries) {
-      // A `_`-prefixed name, file or directory, is exactly what Astro's own
-      // router excludes — walking past it would flag files Astro never routes.
-      if (entry.name.startsWith("_")) continue;
+    const nested = await Promise.all(
+      entries.map(async (entry): Promise<TestRoute[]> => {
+        // A `_`-prefixed name, file or directory, is exactly what Astro's own
+        // router excludes — walking past it would flag files Astro never routes.
+        if (entry.name.startsWith("_")) return [];
 
-      const path = join(dir, entry.name);
-      if (entry.isSymbolicLink()) {
-        violations.push({ path, kind: "symlink" });
-      } else if (entry.isDirectory()) {
-        if (TEST_ROUTE.test(entry.name)) violations.push({ path, kind: "directory" });
-        else await walk(path);
-      } else if (entry.isFile() && TEST_ROUTE.test(entry.name)) {
-        violations.push({ path, kind: "file" });
-      }
-    }
+        const path = join(dir, entry.name);
+        if (entry.isSymbolicLink()) return [{ path, kind: "symlink" }];
+        if (entry.isDirectory()) {
+          return TEST_ROUTE.test(entry.name) ? [{ path, kind: "directory" }] : walk(path);
+        }
+        return entry.isFile() && TEST_ROUTE.test(entry.name) ? [{ path, kind: "file" }] : [];
+      }),
+    );
+    return nested.flat();
   }
 
-  await walk(pagesDir);
-  return violations;
+  return (await walk(pagesDir)).toSorted((a, b) => a.path.localeCompare(b.path));
 }
 
 // The six Astro apps in the repo (grep -n 'output:' */*/astro.config.mjs).
@@ -126,40 +124,55 @@ if (import.meta.main) {
   // Production (ci.yml) never sets the env var, so DEFAULT_ASTRO_APPS (6
   // apps) always applies there; this only guards the test-only override.
   if (ASTRO_APPS.length === 0) {
-    console.error(
-      "::error::check-astro-test-routes: ASTRO_APPS resolved to an empty list — checking zero apps and printing success would be a vacuous pass, not a clean run.",
+    process.stderr.write(
+      "::error::check-astro-test-routes: ASTRO_APPS resolved to an empty list — checking zero apps and printing success would be a vacuous pass, not a clean run.\n",
     );
     process.exit(1);
   }
 
+  // Every app is walked at once; the report below keeps ASTRO_APPS' order.
+  const results = await Promise.all(
+    ASTRO_APPS.map(async (app) => {
+      const pagesDir = resolvePagesDir(app);
+      const violations = (await pagesDirIsMissing(pagesDir))
+        ? undefined
+        : await findTestRoutes(pagesDir);
+      return { app, pagesDir, violations };
+    }),
+  );
+
   let failed = false;
 
-  for (const app of ASTRO_APPS) {
-    const pagesDir = resolvePagesDir(app);
-
-    if (await pagesDirIsMissing(pagesDir)) {
+  for (const { app, pagesDir, violations } of results) {
+    if (violations === undefined) {
       failed = true;
-      console.error(
-        `::error::check-astro-test-routes: ${app}'s src/pages does not exist at ${pagesDir} — every configured Astro app must have one. If ${app} was renamed, removed, or scripts/ itself moved, fix ASTRO_APPS in scripts/check-astro-test-routes.ts rather than let this pass silently.`,
+      process.stderr.write(
+        `::error::check-astro-test-routes: ${app}'s src/pages does not exist at ${pagesDir} — every configured Astro app must have one. If ${app} was renamed, removed, or scripts/ itself moved, fix ASTRO_APPS in scripts/check-astro-test-routes.ts rather than let this pass silently.\n`,
       );
       continue;
     }
 
-    const violations = await findTestRoutes(pagesDir);
-
     for (const { path, kind } of violations) {
       failed = true;
       const rel = relative(pagesDir, path) + (kind === "directory" ? "/" : "");
+      // A `_` prefix satisfies this check, but check-tests-outside-src.ts,
+      // the next step in the same CI job, refuses any symlink and any test or
+      // spec file under src/ whatever its prefix. Those two get advice that
+      // passes both checks.
+      const routed =
+        "Astro routes page and endpoint files under src/pages as live routes and ships them in the deployed bundle (a routed test cost cire/invites' Worker 119 KB gzip).";
       const message =
         kind === "symlink"
-          ? "is a symlink with no `_` prefix. Astro follows it and routes whatever it points at, which this check cannot see. Replace it with the file or directory it points at, or prefix it with `_` to exclude it from routing."
-          : `is named like a test, spec or fixture ${kind} and has no \`_\` prefix. Astro routes page and endpoint files under src/pages as live routes and ships them in the deployed bundle (a routed test cost cire/invites' Worker 119 KB gzip). Rename it if it is a real page, prefix it (or an ancestor directory) with \`_\` to exclude it from routing, or move it out of src/pages.`;
-      console.error(`::error::${app}/src/pages/${rel} ${message}`);
+          ? "is a symlink with no `_` prefix. Astro follows it and routes whatever it points at, which this check cannot see. Replace it with the file or directory it points at. A `_` prefix does not help: check-tests-outside-src.ts refuses any symlink under src/."
+          : kind === "file" && TEST_OR_SPEC.test(basename(path))
+            ? `is named like a test or spec file and has no \`_\` prefix. ${routed} Rename it if it is a real page; otherwise move it to the package's tests/ directory, mirroring src/. A \`_\` prefix does not help: check-tests-outside-src.ts refuses a test file anywhere under src/.`
+            : `is named like a test, spec or fixture ${kind} and has no \`_\` prefix. ${routed} Rename it if it is a real page, prefix it (or an ancestor directory) with \`_\` to exclude it from routing, or move it out of src/pages.`;
+      process.stderr.write(`::error::${app}/src/pages/${rel} ${message}\n`);
     }
   }
 
   if (failed) process.exit(1);
-  console.log(
-    "✅ check-astro-test-routes: no test, spec or fixture files routed under any app's src/pages.",
+  process.stdout.write(
+    "✅ check-astro-test-routes: no test, spec or fixture files routed under any app's src/pages.\n",
   );
 }

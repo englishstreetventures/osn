@@ -11,13 +11,13 @@
   },
   "scripts": {
     "card": "bun run index.ts",
-    "check": "tsc --noEmit",
+    "typecheck": "bun check --no-script",
     "test": "bun test",
     "backfill": "bun run backfill.ts",
     "report": "bun run report.ts"
   },
   "devDependencies": {
     "@shared/typescript-config": "workspace:*",
-    "typescript": "^6.0.3"
+    "typescript": "7.1.0-beta"
   }
 }

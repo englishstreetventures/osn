@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import type { Card } from "../../pr-metrics/index.ts";
 import {
   complexity,
+  complexityAxis,
   correctionRate,
   coverage,
   effortMix,
@@ -200,6 +201,29 @@ describe("complexity", () => {
     expect(view.points).toEqual([
       { pr: 3, branch: "feat/pr-3", declared: 5, usd: 12, sourceLoc: 12 },
     ]);
+  });
+});
+
+// A card that closes several issues declares the sum of their ratings, which
+// can be any whole number. An axis fixed to the Fibonacci scale drops a sum
+// above 8 off the chart without a word.
+describe("complexityAxis", () => {
+  it("is the Fibonacci scale when nothing is larger", () => {
+    expect(complexityAxis([])).toEqual({ domain: [0.5, 8.5], ticks: [1, 2, 3, 5, 8] });
+  });
+
+  it("widens to the largest sum and labels every value plotted", () => {
+    const view = complexity(
+      [
+        card({ pr: 1, declared: 6, method: "confirmed" }),
+        card({ pr: 2, declared: 11, method: "confirmed" }),
+      ].map(toRow),
+    );
+
+    expect(complexityAxis(view.points)).toEqual({
+      domain: [0.5, 11.5],
+      ticks: [1, 2, 3, 5, 6, 8, 11],
+    });
   });
 });
 

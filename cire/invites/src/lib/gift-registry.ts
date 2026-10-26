@@ -7,6 +7,11 @@
  * word. Nothing here may be called `Registry*`, and no gift code belongs under
  * `src/designs/`.
  *
+ * The list read itself, and the shape of the list, are in `gift-registry-read.ts`;
+ * what the list looks like is in `gift-registry-display.ts`. The invitation
+ * needs only those two, so it never downloads this module: the claim, release
+ * and money calls here belong to the gift list's own page.
+ *
  * Two properties this module exists to keep:
  *
  *  1. **Every credentialed call passes `credentials: "include"`.** `cire_session`
@@ -23,57 +28,7 @@
  *     as a success.
  */
 
-/** Mirrors `RegistryItemKind` in `cire/api/src/services/registry.ts`. */
-export type GiftRegistryItemKind = "product" | "cash_fund";
-
-/** Mirrors `PublicRegistryItemDto`. Carries counts only — never a claimant. */
-export interface GiftRegistryItem {
-  id: string;
-  kind: GiftRegistryItemKind;
-  title: string;
-  description: string | null;
-  /** LAST SEGMENT of the R2 key (`registry-<uuid>`), not a URL. */
-  imageName: string | null;
-  /** Serialized crop as stored; not parsed here. */
-  imageCrop: string | null;
-  externalUrl: string | null;
-  priceMinor: number | null;
-  quantityWanted: number;
-  quantityClaimed: number;
-  category: string | null;
-  sortOrder: number;
-}
-
-/**
- * Mirrors `PublicRegistryFundDto` — one of the couple's cash funds. Its name,
- * picture and the couple's words about it, and nothing else: a fund's goal,
- * and how much has come in, are the couple's alone.
- */
-export interface GiftRegistryFund {
-  id: string;
-  title: string;
-  description: string | null;
-  /** LAST SEGMENT of the R2 key (`registry-<uuid>`), not a URL. */
-  imageName: string | null;
-  imageCrop: string | null;
-  sortOrder: number;
-}
-
-/** Mirrors `PublicRegistryDto`. One primary currency for the whole list. */
-export interface GiftRegistry {
-  headline: string | null;
-  message: string | null;
-  cashGiftsEnabled: boolean;
-  currency: string;
-  /** The gifts to reserve. Never a cash fund. */
-  items: GiftRegistryItem[];
-  /**
-   * The cash funds a guest may give to, present only while the couple take
-   * money. Optional because this site can reach production before the API
-   * that sends it; absent reads as none.
-   */
-  funds?: GiftRegistryFund[];
-}
+import { giftRegistryBase, type GiftRegistryItem } from "./gift-registry-read";
 
 /** Mirrors `HouseholdClaimDto`'s `status` (a released claim is never returned). */
 export type GiftRegistryClaimStatus = "reserved" | "purchased";
@@ -109,27 +64,6 @@ export interface GiftRegistryHousehold {
  * code, never its status: the origin guard answers 403 too.
  */
 const PREVIEW_READ_ONLY = "preview_read_only";
-
-/**
- * The list read. CREDENTIALED — the list is for the couple's guests.
- *
- * `signed-out` is the 401 a visitor with no `cire_session` gets: a gift list
- * names what a couple want and what it costs, and they only ever showed it to
- * the people they invited, so it sits behind the same claim the rest of the
- * invitation does.
- *
- * `hidden` is the API's single 404 `registry_not_found`, which covers unknown
- * slug, unentitled wedding, a registry that exists but is not published, and a
- * household of ANOTHER wedding — one code on purpose, so no caller can probe
- * which. The band on the invite renders NOTHING on either `hidden` or
- * `signed-out`; that is a different thing from a published registry with no
- * items, which renders its heading and an empty note.
- */
-export type GiftRegistryFetch =
-  | { kind: "ok"; registry: GiftRegistry }
-  | { kind: "signed-out" }
-  | { kind: "hidden" }
-  | { kind: "error" };
 
 /** The household read. `signed-out` is the 401 that a guest with no claim gets. */
 export type GiftRegistryHouseholdFetch =
@@ -175,10 +109,6 @@ export interface GiftRegistryClaimBody {
 
 /** The server's own bound (`ClaimItemBody`: 1..99). Mirrored for the input's `max`. */
 export const GIFT_REGISTRY_MAX_QUANTITY = 99;
-
-function registryBase(apiUrl: string, slug: string): string {
-  return `${apiUrl}/api/invite/${encodeURIComponent(slug)}/registry`;
-}
 
 /**
  * Read the `error` code out of a response body without letting a non-JSON body
@@ -228,27 +158,6 @@ async function writeFailure(res: Response): Promise<GiftRegistryWrite> {
 }
 
 /**
- * This wedding's gift list. Credentialed — see the module header for why the
- * cookie mode is load-bearing, and `GiftRegistryFetch` for why the list needs
- * one at all. `no-store` matches the route's own header: the counts here are
- * live, and a stale list shows a claimed gift as available.
- */
-export async function fetchGiftRegistry(apiUrl: string, slug: string): Promise<GiftRegistryFetch> {
-  try {
-    const res = await fetch(registryBase(apiUrl, slug), {
-      credentials: "include",
-      cache: "no-store",
-    });
-    if (res.status === 401) return { kind: "signed-out" };
-    if (res.status === 404) return { kind: "hidden" };
-    if (!res.ok) return { kind: "error" };
-    return { kind: "ok", registry: (await res.json()) as GiftRegistry };
-  } catch {
-    return { kind: "error" };
-  }
-}
-
-/**
  * This household's own claims (and the shipping address, when the couple has
  * released it). Credentialed — see the module header.
  */
@@ -257,7 +166,7 @@ export async function fetchGiftRegistryHousehold(
   slug: string,
 ): Promise<GiftRegistryHouseholdFetch> {
   try {
-    const res = await fetch(`${registryBase(apiUrl, slug)}/mine`, {
+    const res = await fetch(`${giftRegistryBase(apiUrl, slug)}/mine`, {
       credentials: "include",
       cache: "no-store",
     });
@@ -320,7 +229,7 @@ export async function contributeGift(
   body: GiftContributionBody,
 ): Promise<GiftContributionResult> {
   try {
-    const res = await fetch(`${registryBase(apiUrl, slug)}/contribute`, {
+    const res = await fetch(`${giftRegistryBase(apiUrl, slug)}/contribute`, {
       method: "POST",
       credentials: "include",
       headers: { "content-type": "application/json" },
@@ -429,7 +338,7 @@ export async function claimGiftRegistryItem(
 ): Promise<GiftRegistryWrite> {
   try {
     const res = await fetch(
-      `${registryBase(apiUrl, slug)}/items/${encodeURIComponent(itemId)}/claim`,
+      `${giftRegistryBase(apiUrl, slug)}/items/${encodeURIComponent(itemId)}/claim`,
       {
         method: "POST",
         credentials: "include",
@@ -457,7 +366,7 @@ export async function releaseGiftRegistryItem(
 ): Promise<GiftRegistryWrite> {
   try {
     const res = await fetch(
-      `${registryBase(apiUrl, slug)}/items/${encodeURIComponent(itemId)}/claim`,
+      `${giftRegistryBase(apiUrl, slug)}/items/${encodeURIComponent(itemId)}/claim`,
       { method: "DELETE", credentials: "include", cache: "no-store" },
     );
     if (!res.ok) return writeFailure(res);
@@ -465,18 +374,6 @@ export async function releaseGiftRegistryItem(
   } catch {
     return { kind: "error" };
   }
-}
-
-/**
- * Base URL for an item's image, with NO `?variant=` yet — feed it to the shared
- * `variantSrc` / `buildSrcSet` helpers, which own the bounded variant names and
- * their widths for every image on the guest site.
- *
- * `imageName` is the LAST SEGMENT of the R2 key; the route rebuilds the rest
- * server-side from the slug, so the guest never names a bucket path.
- */
-export function giftRegistryImageBase(apiUrl: string, slug: string, imageName: string): string {
-  return `${registryBase(apiUrl, slug)}/image/${encodeURIComponent(imageName)}`;
 }
 
 /**
@@ -535,21 +432,6 @@ export function giftRegistryQuantityHint(max: number, wanted: number): string | 
 }
 
 /**
- * Sort as the API's own index does: `sort_order`, then `id` as the tie-break.
- * Re-sorted client-side rather than trusted, so a merged/refetched list is
- * stable no matter what order the rows arrived in. Copies — never sorts the
- * caller's array in place. Gifts and cash funds share one order on the list,
- * so it sorts either, or both together.
- */
-export function sortGiftRegistryItems<T extends Pick<GiftRegistryItem, "id" | "sortOrder">>(
-  items: readonly T[],
-): T[] {
-  return [...items].sort((a, b) =>
-    a.sortOrder === b.sortOrder ? a.id.localeCompare(b.id) : a.sortOrder - b.sortOrder,
-  );
-}
-
-/**
  * `Intl.NumberFormat` instances, memoised by currency.
  *
  * Constructing one is the expensive part (locale + currency data resolution);
@@ -605,58 +487,10 @@ export function formatGiftPrice(priceMinor: number | null, currency: string): st
  * return to it to review and change reservations or open gifts in a shop.
  *
  * The helpers below are the parts of that page that must hold without a DOM:
- * where it lives, what it is called, and how the list is read out.
+ * what it is called, and how the list is read out. Where it lives, and the
+ * copy, order and pictures it shares with the invitation's band, are in
+ * `gift-registry-display.ts`.
  * ------------------------------------------------------------------------- */
-
-/** The wedding's gift-list page. Encoded like every other slug in a URL here. */
-export function giftRegistryPath(slug: string): string {
-  return `/cire/registry?slug=${encodeURIComponent(slug)}`;
-}
-
-/** Built-in copy when the organiser set none. */
-export const DEFAULT_GIFT_REGISTRY_EYEBROW = "With Love";
-export const DEFAULT_GIFT_REGISTRY_HEADING = "Gift Registry";
-
-/**
- * First usable line of copy, or `null`.
- *
- * Blank counts as unset, not as an answer. The old inline `??` chain took the
- * first NON-NULL value, so a heading saved as `""` won over both the registry
- * module's own headline and the built-in default — an empty `<h1>` on the
- * invite, and on this page an empty `<title>` in the browser tab and in every
- * link preview of it.
- */
-function firstCopy(...candidates: (string | null | undefined)[]): string | null {
-  for (const candidate of candidates) {
-    if (typeof candidate === "string" && candidate.trim() !== "") return candidate;
-  }
-  return null;
-}
-
-/** Section eyebrow — the invite's copy, else the built-in. */
-export function giftRegistryEyebrow(inviteCopy: string | null | undefined): string {
-  return firstCopy(inviteCopy) ?? DEFAULT_GIFT_REGISTRY_EYEBROW;
-}
-
-/**
- * Section heading. The invite's own copy wins when the organiser wrote it (it is
- * section furniture, themed with every other section header); the registry
- * module's `headline` fills in when they only wrote copy there.
- */
-export function giftRegistryHeading(
-  inviteCopy: string | null | undefined,
-  headline: string | null | undefined,
-): string {
-  return firstCopy(inviteCopy, headline) ?? DEFAULT_GIFT_REGISTRY_HEADING;
-}
-
-/** Intro body, same precedence as the heading. `null` ⇒ render no paragraph. */
-export function giftRegistryBody(
-  inviteCopy: string | null | undefined,
-  message: string | null | undefined,
-): string | null {
-  return firstCopy(inviteCopy, message);
-}
 
 /**
  * The gift page's `<title>`, shaped like the invite's own (`inviteTitle`):

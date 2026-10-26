@@ -1,5 +1,17 @@
 # @shared/ui
 
+## 0.6.2
+
+### Patch Changes
+
+- 355b956: Type-check with Bun's built-in checker. Each package's `check` script is now `typecheck` and runs `bun check` in place of `tsc --noEmit`, with the test tsconfigs checked the same way. Packages that still need `astro check` keep it. No source changes.
+
+## 0.6.1
+
+### Patch Changes
+
+- 18b1291: Dev dependency update: happy-dom 21.0.4, clearing a high advisory in its earlier release.
+
 ## 0.6.0
 
 ### Minor Changes

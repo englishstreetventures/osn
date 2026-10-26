@@ -21,6 +21,8 @@ import {
   rsvps,
   runOfShowItems,
   seatingAssignments,
+  seatingCopyBudget,
+  seatingPlans,
   seatingTables,
   taskAssignees,
   taskTemplateDismissals,
@@ -43,7 +45,7 @@ import {
 import { hashRecoveryCode } from "@shared/crypto/recovery";
 import { insertManyViaJsonEach, jsonEachIn } from "@shared/db-utils";
 import { EmailService, type SendEmailInput } from "@shared/email";
-import { asc, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, asc, count, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { Cause, Effect, Exit, Layer, Option } from "effect";
 import { Miniflare } from "miniflare";
 
@@ -63,6 +65,7 @@ import { isDirectoryDuplicate } from "../../src/routes/vendor-directory";
 import type { ImportPlan } from "../../src/schemas/import";
 import { FAQ_LIMITS } from "../../src/schemas/invite-faq";
 import { PLUS_ONE_NAME_MAX, PLUS_ONE_REMOVALS_MAX } from "../../src/schemas/plus-one";
+import { MAX_PLANS_PER_EVENT } from "../../src/schemas/seating";
 import { AccountLinkConflict, accountLinkService } from "../../src/services/account-link";
 import {
   ChangeConflict,
@@ -107,8 +110,10 @@ import { rsvpChangeService } from "../../src/services/rsvp-changes";
 import { rsvpDigestService } from "../../src/services/rsvp-digest";
 import { runSheetService } from "../../src/services/run-sheet";
 import {
-  SeatingEventNotFound,
+  SeatingPlanLimit,
+  SeatingPlanNotFound,
   SeatingTableFull,
+  SeatingTableNotFound,
   seatingLoss,
   seatingService,
 } from "../../src/services/seating";
@@ -130,6 +135,7 @@ import {
   CurrencyLockedByCashGifts,
   weddingSettingsService,
 } from "../../src/services/wedding-settings";
+import { ddlStatements } from "../test-helpers/ddl-statements";
 import {
   fullWeddingKeys,
   fullWeddingStatements,
@@ -157,6 +163,7 @@ const MIGRATION_0076 = "0076_wedding_owners.sql";
 // Live migrations, read from MIGRATIONS_DIR.
 const MIGRATION_0091 = "0091_task_assignees.sql";
 const MIGRATION_TASK_RUN_TIME = "20261021153838_task_run_time.sql";
+const MIGRATION_SEATING_PLANS = "20261026040620_seating_plans.sql";
 
 /**
  * A migration file as the statements wrangler would send: split on drizzle's
@@ -388,9 +395,7 @@ beforeAll(async () => {
   d1 = (await mf.getD1Database("DB")) as unknown as D1Database;
   // Apply the schema statement-by-statement — D1's `exec` splits on newlines,
   // which breaks multi-line CREATE TABLEs, so prepare/run each full statement.
-  for (const stmt of DDL.split(";")
-    .map((s) => s.trim())
-    .filter(Boolean)) {
+  for (const stmt of ddlStatements(DDL)) {
     await d1.prepare(stmt).run();
   }
   // Over the session-routing shim, exactly as `index.ts` builds it, so every
@@ -422,6 +427,8 @@ beforeEach(async () => {
     seatingAssignments,
     seatingTables,
     runOfShowItems,
+    seatingPlans,
+    seatingCopyBudget,
     guestEvents,
     guests,
     families,
@@ -2601,6 +2608,69 @@ describe("cire/api over real D1 (Miniflare)", () => {
     },
     MF_TIMEOUT_MS,
   );
+
+  it("the retention sweep counts a plus-one with their inviter's household, each row once", async () => {
+    // Real D1 applies the inviter's delete cascade to the plus-one and reports
+    // every row it removed. The plus-one is inserted after the inviter, so the
+    // guests delete meets the inviter first and the cascade takes the plus-one.
+    // The bootstrap wedding's events carry no date, which reads as long past,
+    // and its guests would join the count; a recent date keeps it out.
+    await db
+      .update(events)
+      .set({ startAt: "2026-06-01T10:00:00+00:00", endAt: "2026-06-01T11:00:00+00:00" })
+      .where(eq(events.weddingId, BOOTSTRAP_WEDDING_ID));
+    const stamp = new Date("2023-01-01T00:00:00.000Z");
+    await db.insert(weddings).values({
+      id: "wed_d1_plus",
+      slug: "slug-wed_d1_plus",
+      displayName: "Plus-one wedding",
+      createdAt: stamp,
+      updatedAt: stamp,
+    });
+    await db.insert(events).values({
+      id: "ev_d1_plus",
+      weddingId: "wed_d1_plus",
+      slug: "ceremony",
+      name: "Ceremony",
+      startAt: "2023-02-01T10:00:00+00:00",
+      endAt: "2023-02-01T11:00:00+00:00",
+      timezone: "UTC",
+    });
+    await db.insert(families).values({
+      id: "fam_d1_plus",
+      weddingId: "wed_d1_plus",
+      publicId: "PLUS0001",
+      familyName: "Plus",
+      createdAt: stamp,
+      updatedAt: stamp,
+    });
+    await db.insert(guests).values({
+      id: "gst_d1_plus",
+      familyId: "fam_d1_plus",
+      firstName: "Ana",
+      source: "manual",
+      createdAt: stamp,
+      updatedAt: stamp,
+    });
+    await db.insert(guests).values({
+      id: "gst_d1_plus_one",
+      familyId: "fam_d1_plus",
+      firstName: "Sam",
+      source: "manual",
+      plusOneOfGuestId: "gst_d1_plus",
+      createdAt: stamp,
+      updatedAt: stamp,
+    });
+
+    expect(
+      await run(retentionService.sweepExpiredGuestData(new Date("2026-06-17T04:00:00.000Z"))),
+    ).toBe(2);
+    const left = await db
+      .select({ id: guests.id })
+      .from(guests)
+      .where(eq(guests.familyId, "fam_d1_plus"));
+    expect(left).toEqual([]);
+  });
 
   it(
     "the retention sweep deletes a wedding past the 30-day hold-back without its summary, and holds back one inside it",
@@ -5461,38 +5531,64 @@ describe("cire/api over real D1 (Miniflare)", () => {
 });
 
 describe("seating over real D1 (Miniflare)", () => {
-  const table = async (id: string, eventId: string, capacity: number) => {
+  /** Each event's selected plan, written as the API writes it. */
+  const PLAN_A = "spl_a";
+  const PLAN_B = "spl_b";
+  const plan = async (id: string, eventId: string, selected: boolean) => {
+    const now = new Date();
+    await db.insert(seatingPlans).values({
+      id,
+      weddingId: BOOTSTRAP_WEDDING_ID,
+      eventId,
+      name: id,
+      selected,
+      createdAt: now,
+      updatedAt: now,
+    });
+  };
+  const table = async (id: string, eventId: string, capacity: number, planId?: string) => {
     const now = new Date();
     await db.insert(seatingTables).values({
       id,
       weddingId: BOOTSTRAP_WEDDING_ID,
       eventId,
+      planId: planId ?? (eventId === EVENT_A ? PLAN_A : PLAN_B),
       name: id,
       capacity,
       createdAt: now,
       updatedAt: now,
     });
   };
+  beforeEach(async () => {
+    await plan(PLAN_A, EVENT_A, true);
+    await plan(PLAN_B, EVENT_B, true);
+  }, MF_TIMEOUT_MS);
   const seatsAt = async (eventId: string) =>
     (
       await db
         .select({ tableId: seatingAssignments.tableId, guestId: seatingAssignments.guestId })
         .from(seatingAssignments)
         .where(eq(seatingAssignments.eventId, eventId))
-    ).toSorted((a, b) => a.guestId.localeCompare(b.guestId));
-  const seat = (eventId: string, guestId: string, tableId: string | null) =>
-    seatingService.seat({ weddingId: BOOTSTRAP_WEDDING_ID, eventId, guestId, tableId });
+    ).toSorted((a, b) => a.guestId.localeCompare(b.guestId) || a.tableId.localeCompare(b.tableId));
+  const seat = (planId: string, guestId: string, tableId: string | null) =>
+    seatingService.seat({ weddingId: BOOTSTRAP_WEDDING_ID, planId, guestId, tableId });
 
   it(
-    "refuses, in the database, a second seat for one guest at one event, a seat at another event's table, and an uninvited guest",
+    "refuses, in the database, a second seat for one guest in one plan, a seat outside its table's event or plan, and an uninvited guest",
     async () => {
       await table("stb_a1", EVENT_A, 8);
       await table("stb_a2", EVENT_A, 8);
       await table("stb_b1", EVENT_B, 8);
+      await plan("spl_a_alt", EVENT_A, false);
+      await table("stb_alt", EVENT_A, 8, "spl_a_alt");
       const now = new Date();
-      await db
-        .insert(seatingAssignments)
-        .values({ tableId: "stb_a1", eventId: EVENT_A, guestId: GUEST_1, createdAt: now });
+      await db.insert(seatingAssignments).values({
+        tableId: "stb_a1",
+        planId: PLAN_A,
+        eventId: EVENT_A,
+        guestId: GUEST_1,
+        createdAt: now,
+      });
       const refusal = async (values: typeof seatingAssignments.$inferInsert) => {
         try {
           await db.insert(seatingAssignments).values(values);
@@ -5501,19 +5597,32 @@ describe("seating over real D1 (Miniflare)", () => {
           return String((error as { cause?: unknown }).cause ?? error);
         }
       };
-      expect(
-        await refusal({ tableId: "stb_a2", eventId: EVENT_A, guestId: GUEST_1, createdAt: now }),
-      ).toContain(
-        "UNIQUE constraint failed: seating_assignments.event_id, seating_assignments.guest_id",
+      const seatRow = (tableId: string, planId: string, eventId: string, guestId: string) => ({
+        tableId,
+        planId,
+        eventId,
+        guestId,
+        createdAt: now,
+      });
+      expect(await refusal(seatRow("stb_a2", PLAN_A, EVENT_A, GUEST_1))).toContain(
+        "UNIQUE constraint failed: seating_assignments.plan_id, seating_assignments.guest_id",
       );
-      expect(
-        await refusal({ tableId: "stb_b1", eventId: EVENT_A, guestId: GUEST_2, createdAt: now }),
-      ).toContain("FOREIGN KEY constraint failed");
+      expect(await refusal(seatRow("stb_b1", PLAN_B, EVENT_A, GUEST_2))).toContain(
+        "FOREIGN KEY constraint failed",
+      );
+      expect(await refusal(seatRow("stb_alt", PLAN_A, EVENT_A, GUEST_2))).toContain(
+        "FOREIGN KEY constraint failed",
+      );
       // GUEST_2 is not invited to EVENT_B.
-      expect(
-        await refusal({ tableId: "stb_b1", eventId: EVENT_B, guestId: GUEST_2, createdAt: now }),
-      ).toContain("FOREIGN KEY constraint failed");
-      expect(await seatsAt(EVENT_A)).toEqual([{ tableId: "stb_a1", guestId: GUEST_1 }]);
+      expect(await refusal(seatRow("stb_b1", PLAN_B, EVENT_B, GUEST_2))).toContain(
+        "FOREIGN KEY constraint failed",
+      );
+      // The same guest in a second plan of the event is a seat of its own.
+      expect(await refusal(seatRow("stb_alt", "spl_a_alt", EVENT_A, GUEST_1))).toBe("accepted");
+      expect(await seatsAt(EVENT_A)).toEqual([
+        { tableId: "stb_a1", guestId: GUEST_1 },
+        { tableId: "stb_alt", guestId: GUEST_1 },
+      ]);
     },
     MF_TIMEOUT_MS,
   );
@@ -5524,16 +5633,16 @@ describe("seating over real D1 (Miniflare)", () => {
       await table("stb_small", EVENT_A, 1);
       await table("stb_big", EVENT_A, 8);
       // A success is read back from the batch's last element — the rows array.
-      expect(await run(seat(EVENT_A, GUEST_1, "stb_small"))).toEqual({
+      expect(await run(seat(PLAN_A, GUEST_1, "stb_small"))).toEqual({
         guestId: GUEST_1,
         tableId: "stb_small",
       });
-      expect(await run(seat(EVENT_A, GUEST_2, "stb_big"))).toEqual({
+      expect(await run(seat(PLAN_A, GUEST_2, "stb_big"))).toEqual({
         guestId: GUEST_2,
         tableId: "stb_big",
       });
       const refused = await Effect.runPromiseExit(
-        seat(EVENT_A, GUEST_2, "stb_small").pipe(Effect.provideService(DbService, db)),
+        seat(PLAN_A, GUEST_2, "stb_small").pipe(Effect.provideService(DbService, db)),
       );
       expect(Exit.isFailure(refused) && Cause.squash(refused.cause)).toBeInstanceOf(
         SeatingTableFull,
@@ -5543,7 +5652,7 @@ describe("seating over real D1 (Miniflare)", () => {
         { tableId: "stb_big", guestId: GUEST_2 },
       ]);
       // A move to a table with room lands, and leaves one seat.
-      await run(seat(EVENT_A, GUEST_1, "stb_big"));
+      await run(seat(PLAN_A, GUEST_1, "stb_big"));
       expect(await seatsAt(EVENT_A)).toEqual([
         { tableId: "stb_big", guestId: GUEST_1 },
         { tableId: "stb_big", guestId: GUEST_2 },
@@ -5559,7 +5668,7 @@ describe("seating over real D1 (Miniflare)", () => {
       const results = await Promise.all(
         [GUEST_1, GUEST_2].map((guestId) =>
           Effect.runPromiseExit(
-            seat(EVENT_A, guestId, "stb_one").pipe(Effect.provideService(DbService, db)),
+            seat(PLAN_A, guestId, "stb_one").pipe(Effect.provideService(DbService, db)),
           ),
         ),
       );
@@ -5570,10 +5679,10 @@ describe("seating over real D1 (Miniflare)", () => {
   );
 
   it(
-    "reads the chart's three batched reads apart, and unseats, on D1",
+    "reads the chart's four batched reads apart, and unseats, on D1",
     async () => {
       await table("stb_a1", EVENT_A, 8);
-      await run(seat(EVENT_A, GUEST_1, "stb_a1"));
+      await run(seat(PLAN_A, GUEST_1, "stb_a1"));
       await db.insert(rsvps).values({
         id: "rsvp_d1",
         guestId: GUEST_2,
@@ -5583,20 +5692,226 @@ describe("seating over real D1 (Miniflare)", () => {
       });
       const chart = await run(seatingService.chart(BOOTSTRAP_WEDDING_ID, EVENT_A));
       expect(chart.event).toEqual({ id: EVENT_A, name: "Ceremony" });
+      expect(chart.plans).toEqual([{ id: PLAN_A, name: PLAN_A, selected: true }]);
+      expect(chart.planId).toBe(PLAN_A);
       expect(chart.tables.map((t) => [t.id, t.capacity])).toEqual([["stb_a1", 8]]);
       expect(chart.guests.map((g) => [g.id, g.firstName, g.rsvp, g.tableId])).toEqual([
         [GUEST_1, "Alice", null, "stb_a1"],
         [GUEST_2, "Bob", "declined", null],
       ]);
 
-      expect(await run(seat(EVENT_A, GUEST_1, null))).toEqual({ guestId: GUEST_1, tableId: null });
+      expect(await run(seat(PLAN_A, GUEST_1, null))).toEqual({ guestId: GUEST_1, tableId: null });
       expect(await seatsAt(EVENT_A)).toEqual([]);
       const unknown = await Effect.runPromiseExit(
-        seat("evt_nope", GUEST_1, null).pipe(Effect.provideService(DbService, db)),
+        seat("spl_nope", GUEST_1, null).pipe(Effect.provideService(DbService, db)),
       );
       expect(Exit.isFailure(unknown) && Cause.squash(unknown.cause)).toBeInstanceOf(
-        SeatingEventNotFound,
+        SeatingPlanNotFound,
       );
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "copies a plan's tables and seats in one batch, and a refused copy writes nothing",
+    async () => {
+      await table("stb_a1", EVENT_A, 8);
+      await table("stb_a2", EVENT_A, 4);
+      await run(seat(PLAN_A, GUEST_1, "stb_a1"));
+      await run(seat(PLAN_A, GUEST_2, "stb_a2"));
+      const copy = await run(
+        seatingService.createPlan({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          eventId: EVENT_A,
+          name: "Copy",
+          copyFrom: PLAN_A,
+        }),
+      );
+      expect(copy).toMatchObject({ name: "Copy", selected: false });
+      // The day's count took the copy's two tables and two seats, in the same
+      // batch, through its upsert.
+      expect(
+        await db
+          .select({ weddingId: seatingCopyBudget.weddingId, copied: seatingCopyBudget.copied })
+          .from(seatingCopyBudget),
+      ).toEqual([{ weddingId: BOOTSTRAP_WEDDING_ID, copied: 4 }]);
+      await run(
+        seatingService.createPlan({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          eventId: EVENT_A,
+          name: "Copy 2",
+          copyFrom: PLAN_A,
+        }),
+      );
+      expect(await db.select({ copied: seatingCopyBudget.copied }).from(seatingCopyBudget)).toEqual(
+        [{ copied: 8 }],
+      );
+      await db.delete(seatingPlans).where(eq(seatingPlans.name, "Copy 2"));
+      const read = await run(seatingService.chart(BOOTSTRAP_WEDDING_ID, EVENT_A, copy.id));
+      expect(read.tables.map((t) => [t.name, t.capacity])).toEqual([
+        ["stb_a1", 8],
+        ["stb_a2", 4],
+      ]);
+      expect(read.tables.map((t) => t.id)).not.toContain("stb_a1");
+      const at = new Map(read.tables.map((t) => [t.id, t.name]));
+      expect(read.guests.map((g) => [g.id, at.get(g.tableId ?? "")])).toEqual([
+        [GUEST_1, "stb_a1"],
+        [GUEST_2, "stb_a2"],
+      ]);
+      // The source is as it was.
+      expect(
+        (await run(seatingService.chart(BOOTSTRAP_WEDDING_ID, EVENT_A))).guests.map((g) => [
+          g.id,
+          g.tableId,
+        ]),
+      ).toEqual([
+        [GUEST_1, "stb_a1"],
+        [GUEST_2, "stb_a2"],
+      ]);
+
+      // At the cap, the batch writes no plan, so it writes no table or seat.
+      const counts = async () =>
+        Promise.all(
+          [seatingPlans, seatingTables, seatingAssignments].map(
+            async (t) => (await db.select({ n: count() }).from(t))[0]?.n,
+          ),
+        );
+      for (let i = 2; i < MAX_PLANS_PER_EVENT; i++) {
+        await run(
+          seatingService.createPlan({
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            eventId: EVENT_A,
+            name: `Alt ${i}`,
+          }),
+        );
+      }
+      const before = await counts();
+      const refused = await Effect.runPromiseExit(
+        seatingService
+          .createPlan({
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            eventId: EVENT_A,
+            name: "One more",
+            copyFrom: PLAN_A,
+          })
+          .pipe(Effect.provideService(DbService, db)),
+      );
+      expect(Exit.isFailure(refused) && Cause.squash(refused.cause)).toBeInstanceOf(
+        SeatingPlanLimit,
+      );
+      expect(await counts()).toEqual(before);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "makes one plan in use when two first tables are added to an event at once",
+    async () => {
+      // EVENT_B's plan comes from the suite's setup; a third event has none.
+      await db.insert(events).values({
+        id: "evt_c",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        slug: "after-party",
+        name: "After party",
+        description: "",
+        startAt: "",
+        endAt: "",
+        timezone: "",
+        sortOrder: 2,
+      });
+      const results = await Promise.all(
+        ["T1", "T2"].map((name) =>
+          Effect.runPromiseExit(
+            seatingService
+              .createTableAtEvent({
+                weddingId: BOOTSTRAP_WEDDING_ID,
+                eventId: "evt_c",
+                name,
+                capacity: 8,
+              })
+              .pipe(Effect.provideService(DbService, db)),
+          ),
+        ),
+      );
+      expect(results.filter(Exit.isSuccess)).toHaveLength(2);
+      const plans = await db
+        .select({ id: seatingPlans.id, selected: seatingPlans.selected })
+        .from(seatingPlans)
+        .where(eq(seatingPlans.eventId, "evt_c"));
+      expect(plans).toHaveLength(1);
+      expect(plans[0]?.selected).toBe(true);
+      const tables = await db
+        .select({ planId: seatingTables.planId })
+        .from(seatingTables)
+        .where(eq(seatingTables.eventId, "evt_c"));
+      expect(tables.map((row) => row.planId)).toEqual([plans[0]!.id, plans[0]!.id]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "seats at the event's own address in its plan in use, read inside the seat's batch",
+    async () => {
+      await plan("spl_a_alt", EVENT_A, false);
+      await table("stb_a1", EVENT_A, 8);
+      await table("stb_alt", EVENT_A, 8, "spl_a_alt");
+      const atEvent = (tableId: string | null) =>
+        seatingService.seatAtEvent({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          eventId: EVENT_A,
+          guestId: GUEST_1,
+          tableId,
+        });
+      expect(await run(atEvent("stb_a1"))).toEqual({ guestId: GUEST_1, tableId: "stb_a1" });
+      expect(
+        (
+          await db
+            .select({ planId: seatingAssignments.planId })
+            .from(seatingAssignments)
+            .where(eq(seatingAssignments.guestId, GUEST_1))
+        ).map((row) => row.planId),
+      ).toEqual([PLAN_A]);
+      // Another plan's table is not the plan in use's.
+      const wrong = await Effect.runPromiseExit(
+        atEvent("stb_alt").pipe(Effect.provideService(DbService, db)),
+      );
+      expect(Exit.isFailure(wrong) && Cause.squash(wrong.cause)).toBeInstanceOf(
+        SeatingTableNotFound,
+      );
+      expect(await run(atEvent(null))).toEqual({ guestId: GUEST_1, tableId: null });
+      expect(await seatsAt(EVENT_A)).toEqual([]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "switches the selected plan in one batch, and keeps it where it was for an unknown plan",
+    async () => {
+      await plan("spl_a_alt", EVENT_A, false);
+      const selected = async () =>
+        (
+          await db
+            .select({ id: seatingPlans.id })
+            .from(seatingPlans)
+            .where(and(eq(seatingPlans.eventId, EVENT_A), eq(seatingPlans.selected, true)))
+        ).map((p) => p.id);
+      await run(
+        seatingService.selectPlan({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          eventId: EVENT_A,
+          planId: "spl_a_alt",
+        }),
+      );
+      expect(await selected()).toEqual(["spl_a_alt"]);
+      const unknown = await Effect.runPromiseExit(
+        seatingService
+          .selectPlan({ weddingId: BOOTSTRAP_WEDDING_ID, eventId: EVENT_A, planId: PLAN_B })
+          .pipe(Effect.provideService(DbService, db)),
+      );
+      expect(Exit.isFailure(unknown) && Cause.squash(unknown.cause)).toBeInstanceOf(
+        SeatingPlanNotFound,
+      );
+      expect(await selected()).toEqual(["spl_a_alt"]);
     },
     MF_TIMEOUT_MS,
   );
@@ -5605,7 +5920,7 @@ describe("seating over real D1 (Miniflare)", () => {
     "counts the seats a change removes with more than a hundred pairs in one statement",
     async () => {
       await table("stb_a1", EVENT_A, 8);
-      await run(seat(EVENT_A, GUEST_1, "stb_a1"));
+      await run(seat(PLAN_A, GUEST_1, "stb_a1"));
       // D1 allows 100 bound parameters; 150 pairs ride as one.
       const links = [
         { guestId: GUEST_1, eventId: EVENT_A },
@@ -5613,7 +5928,135 @@ describe("seating over real D1 (Miniflare)", () => {
       ];
       expect(
         await run(seatingLoss(BOOTSTRAP_WEDDING_ID, { guestIds: [], eventIds: [], links })),
-      ).toEqual({ seats: 1, tables: 0 });
+      ).toEqual({ seats: 1, tables: 0, plans: 1 });
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "runs migration 20261026040620_seating_plans on D1's own SQLite: one selected plan per event with tables, seats kept, and the Worker before it adopted",
+    async () => {
+      // Its own instance, holding the live chain up to 0091 with a chart that
+      // the chain's seating tables already hold.
+      const chainMf = new Miniflare({
+        modules: true,
+        script: "export default { fetch() { return new Response('ok'); } };",
+        d1Databases: { DB: ":memory:" },
+      });
+      try {
+        const chainD1 = (await chainMf.getD1Database("DB")) as unknown as D1Database;
+        const files = listMigrations(MIGRATIONS_DIR);
+        const cut = files.indexOf(MIGRATION_SEATING_PLANS);
+        expect(cut).toBeGreaterThan(0);
+        for (const file of files.slice(0, cut)) {
+          for (const stmt of fileStatements(file, MIGRATIONS_DIR)) {
+            await chainD1.prepare(stmt).run();
+          }
+        }
+        for (const stmt of [
+          "INSERT INTO weddings (id, slug, display_name, created_at, updated_at) VALUES ('wed_s', 's', 'S', 1, 1)",
+          "INSERT INTO events (id, wedding_id, slug, name, start_at, end_at, timezone, sort_order) VALUES ('evt_s1', 'wed_s', 'a', 'A', '', '', 'UTC', 0), ('evt_s2', 'wed_s', 'b', 'B', '', '', 'UTC', 1)",
+          "INSERT INTO families (id, wedding_id, public_id, family_name, created_at, updated_at) VALUES ('fam_s', 'wed_s', 'CODE-S', 'S', 1, 1)",
+          "INSERT INTO guests (id, family_id, first_name, last_name, sort_order, created_at, updated_at) VALUES ('g_s1', 'fam_s', 'A', '', 0, 1, 1), ('g_s2', 'fam_s', 'B', '', 1, 1, 1)",
+          "INSERT INTO guest_events (guest_id, event_id) VALUES ('g_s1', 'evt_s1'), ('g_s2', 'evt_s1'), ('g_s1', 'evt_s2')",
+          "INSERT INTO seating_tables (id, wedding_id, event_id, name, capacity, sort_order, created_at, updated_at) VALUES ('stb_s1', 'wed_s', 'evt_s1', 'T1', 8, 0, 1, 1)",
+          "INSERT INTO seating_assignments (table_id, event_id, guest_id, created_at) VALUES ('stb_s1', 'evt_s1', 'g_s1', 5), ('stb_s1', 'evt_s1', 'g_s2', 6)",
+          // A second wedding with its own chart.
+          "INSERT INTO weddings (id, slug, display_name, created_at, updated_at) VALUES ('wed_t', 't', 'T', 1, 1)",
+          "INSERT INTO events (id, wedding_id, slug, name, start_at, end_at, timezone, sort_order) VALUES ('evt_t1', 'wed_t', 'a', 'A', '', '', 'UTC', 0)",
+          "INSERT INTO families (id, wedding_id, public_id, family_name, created_at, updated_at) VALUES ('fam_t', 'wed_t', 'CODE-T', 'T', 1, 1)",
+          "INSERT INTO guests (id, family_id, first_name, last_name, sort_order, created_at, updated_at) VALUES ('g_t1', 'fam_t', 'C', '', 0, 1, 1)",
+          "INSERT INTO guest_events (guest_id, event_id) VALUES ('g_t1', 'evt_t1')",
+          "INSERT INTO seating_tables (id, wedding_id, event_id, name, capacity, sort_order, created_at, updated_at) VALUES ('stb_t1', 'wed_t', 'evt_t1', 'T1', 8, 0, 1, 1)",
+          "INSERT INTO seating_assignments (table_id, event_id, guest_id, created_at) VALUES ('stb_t1', 'evt_t1', 'g_t1', 7)",
+        ]) {
+          await chainD1.prepare(stmt).run();
+        }
+
+        const statements = fileStatements(MIGRATION_SEATING_PLANS, MIGRATIONS_DIR);
+        for (const stmt of statements) await chainD1.prepare(stmt).run();
+
+        const plans = (
+          await chainD1
+            .prepare(
+              "SELECT id, wedding_id, event_id, name, selected FROM seating_plans ORDER BY event_id",
+            )
+            .all<{
+              id: string;
+              wedding_id: string;
+              event_id: string;
+              name: string;
+              selected: number;
+            }>()
+        ).results;
+        expect(plans.map((p) => [p.wedding_id, p.event_id, p.name, p.selected])).toEqual([
+          ["wed_s", "evt_s1", "Plan 1", 1],
+          ["wed_t", "evt_t1", "Plan 1", 1],
+        ]);
+        const planId = plans[0]!.id;
+        const theirPlan = plans[1]!.id;
+        expect(
+          (
+            await chainD1
+              .prepare(
+                "SELECT table_id, plan_id, guest_id, created_at FROM seating_assignments ORDER BY guest_id",
+              )
+              .all()
+          ).results,
+        ).toEqual([
+          { table_id: "stb_s1", plan_id: planId, guest_id: "g_s1", created_at: 5 },
+          { table_id: "stb_s1", plan_id: planId, guest_id: "g_s2", created_at: 6 },
+          { table_id: "stb_t1", plan_id: theirPlan, guest_id: "g_t1", created_at: 7 },
+        ]);
+        // A table naming a plan of another event or wedding is refused.
+        for (const stmt of [
+          `INSERT INTO seating_tables (id, wedding_id, event_id, plan_id, name, capacity, sort_order, created_at, updated_at) VALUES ('stb_x', 'wed_s', 'evt_s2', '${planId}', 'X', 8, 0, 9, 9)`,
+          `UPDATE seating_tables SET plan_id = '${theirPlan}' WHERE id = 'stb_s1'`,
+        ]) {
+          let refused = "accepted";
+          try {
+            await chainD1.prepare(stmt).run();
+          } catch (error) {
+            refused = String(error);
+          }
+          expect(refused).toContain("seating table plan is not a plan of its event");
+        }
+
+        // The Worker before the plans migration names no plan: its table at the event with
+        // no plan gets a selected Plan 1, and its seat that table's plan.
+        await chainD1
+          .prepare(
+            "INSERT INTO seating_tables (id, wedding_id, event_id, name, capacity, sort_order, created_at, updated_at) VALUES ('stb_s2', 'wed_s', 'evt_s2', 'T1', 8, 0, 9, 9)",
+          )
+          .run();
+        await chainD1
+          .prepare(
+            "INSERT INTO seating_assignments (table_id, event_id, guest_id, created_at) VALUES ('stb_s2', 'evt_s2', 'g_s1', 9)",
+          )
+          .run();
+        const adopted = await chainD1
+          .prepare(
+            "SELECT p.name, p.selected, t.plan_id = p.id AS table_in_plan, a.plan_id = p.id AS seat_in_plan FROM seating_plans p JOIN seating_tables t ON t.event_id = p.event_id JOIN seating_assignments a ON a.table_id = t.id WHERE p.event_id = 'evt_s2'",
+          )
+          .all();
+        expect(adopted.results).toEqual([
+          { name: "Plan 1", selected: 1, table_in_plan: 1, seat_in_plan: 1 },
+        ]);
+        // And still cannot seat a guest twice in one plan.
+        let refusal = "accepted";
+        try {
+          await chainD1
+            .prepare(
+              "INSERT INTO seating_assignments (table_id, event_id, guest_id, created_at) VALUES ('stb_s1', 'evt_s1', 'g_s1', 9)",
+            )
+            .run();
+        } catch (error) {
+          refusal = String(error);
+        }
+        expect(refusal).toContain("UNIQUE constraint failed");
+      } finally {
+        await chainMf.dispose();
+      }
     },
     MF_TIMEOUT_MS,
   );

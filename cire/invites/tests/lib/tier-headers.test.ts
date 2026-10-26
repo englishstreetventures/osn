@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url";
 
 import { PRODUCTION_API_ORIGIN } from "@cire/build-tools/tier-headers";
 import type { AstroConfig, HookParameters } from "astro";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import tierHeaders from "../../src/lib/tier-headers";
 
@@ -23,12 +23,16 @@ describe("the guest site's tier-headers wiring", () => {
   let dist: string;
 
   beforeEach(async () => {
+    // A local or CI test build: no deploy tier, whatever the shell running
+    // the suite carries.
+    vi.stubEnv("OSN_DEPLOY_TIER", undefined);
     dist = await mkdtemp(join(tmpdir(), "invites-tier-headers-"));
     await mkdir(join(dist, "client", "_astro"), { recursive: true });
     await mkdir(join(dist, "server", "chunks"), { recursive: true });
   });
 
   afterEach(async () => {
+    vi.unstubAllEnvs();
     await rm(dist, { recursive: true, force: true });
   });
 

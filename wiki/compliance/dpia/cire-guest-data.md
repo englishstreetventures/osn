@@ -12,7 +12,7 @@ related:
   - "[[cire]]"
   - "[[cire-auth]]"
   - "[[cire-plus-ones]]"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-26
 ---
 
 # DPIA — Cire guest data (special-category dietary)
@@ -65,15 +65,18 @@ final sign-off now turns only on the residual retention gaps below.
   `rsvps.status`. The choice is the guest's word, backed by the household
   code: the household trust model the claim has always had. The guest privacy
   notice lists which member sent each reply.
-- **Seat assignments (migration 0089, a Gold module).** An organiser may set
-  out tables for an event and seat invited guests at them
-  (`seating_assignments`). A seat says who sits beside whom, so it can imply a
-  relationship; it holds ids only and no answer, is read by the wedding's
-  owners and co-hosts, and is never shown to other guests. An owner may
-  download it (`seating.csv`: names, household, table, reply, no dietary data)
-  and anyone who reads the chart may print it, for the venue. Basis
-  Art. 6(1)(f), wedding administration, as the guest list it is drawn from.
-  Seats go with the guest's invitation and with the 1-year guest-data sweep
+- **Seat assignments (migrations 0089 and 20261026040620, a Gold
+  module).** An organiser may set out tables for an event and seat invited
+  guests at them (`seating_assignments`), in up to five versions of the chart
+  per event (`seating_plans`), one of them in use. A seat says who sits beside
+  whom, so it can imply a relationship; it holds ids only and no answer, is
+  read by the wedding's owners and co-hosts, and is never shown to other
+  guests. A guest may have a seat in each plan, so a plan nobody uses still
+  holds that inference until it is deleted. An owner may download the plans in
+  use (`seating.csv`: names, household, table, reply, no dietary data) and
+  anyone who reads the chart may print the plan in use, for the venue. Basis Art. 6(1)(f),
+  wedding administration, as the guest list it is drawn from. Seats in every
+  plan go with the guest's invitation and with the 1-year guest-data sweep
   ([[retention]]); the guest privacy notice lists them.
 - **Relayed dietary consent.** A household member often answers for others,
   and the sheet asks for consent once per submission. The record now shows

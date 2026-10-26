@@ -1,6 +1,6 @@
 {
   "name": "@shared/osn-auth-client",
-  "version": "0.4.46",
+  "version": "0.4.48",
   "private": true,
   "type": "module",
   "author": "English Street Ventures Pty Ltd",
@@ -20,7 +20,7 @@
     "./testing/oidc-issuer": "./src/testing/oidc-issuer.ts"
   },
   "scripts": {
-    "check": "tsc --noEmit",
+    "typecheck": "bun check --no-script",
     "test": "bunx --bun vitest",
     "test:run": "bunx --bun vitest run"
   },

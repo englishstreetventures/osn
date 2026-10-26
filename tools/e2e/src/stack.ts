@@ -18,6 +18,7 @@ import {
   CLOCK_T0,
   DB_FILES,
   DEV_LOGIN_SECRET,
+  E2E_RESEND_KEY,
   INTERNAL_SERVICE_SECRET,
   ORIGINS,
   PORTS,
@@ -127,7 +128,7 @@ export function appSpecs(): AppSpec[] {
         OSN_CORS_ORIGIN: [ORIGINS.musubi, ORIGINS.pulseWeb].join(","),
         INTERNAL_SERVICE_SECRET,
         PULSE_API_URL: ORIGINS.pulseApi,
-        RESEND_API_KEY: "re_e2e_local",
+        RESEND_API_KEY: E2E_RESEND_KEY,
         RESEND_API_URL: ORIGINS.mail,
         OSN_EMAIL_FROM: "Musubi <no-reply@e2e.test>",
         // The organiser signs in to cire's portal as the dev principal, which
@@ -182,6 +183,12 @@ export function appSpecs(): AppSpec[] {
         CIRE_API_ORIGIN: ORIGINS.cireApi,
         CIRE_OIDC_CLIENT_ID: CIRE_OIDC.clientId,
         CIRE_OIDC_CLIENT_SECRET: CIRE_OIDC.secret,
+        // A Stripe key and no Connect webhook secret: a deployment that could
+        // open a payment page but never record the gift, so cire-api must offer
+        // guests no money at all. The gift-list flows check that it does not.
+        // Not a real key, and nothing in a flow sends it anywhere: no flow
+        // reaches a route that calls Stripe.
+        STRIPE_SECRET_KEY: "e2e-placeholder-no-stripe-account",
       },
     },
     {

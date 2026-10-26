@@ -1,6 +1,6 @@
 {
   "name": "@osn/auth-ui",
-  "version": "3.0.18",
+  "version": "3.0.20",
   "private": true,
   "type": "module",
   "author": "English Street Ventures Pty Ltd",
@@ -25,7 +25,7 @@
     "./TotpView": "./src/TotpView.tsx"
   },
   "scripts": {
-    "check": "tsc --noEmit",
+    "typecheck": "bun check --no-script",
     "test": "bunx --bun vitest",
     "test:run": "bunx --bun vitest run"
   },

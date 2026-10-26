@@ -24,6 +24,11 @@ export function cireStryker(configDir) {
         `!${pkg}/src/**/*.d.ts`,
         `!${pkg}/src/**/*.{test,spec}.{ts,tsx}`,
       ],
+      // Names no file on purpose. Stryker rewrites the tsconfig it finds here
+      // with TypeScript's classic compiler API, which TypeScript 7 no longer
+      // exports; with no such file it skips the rewrite. The sandbox is the
+      // whole repository, so no tsconfig path needs rewriting anyway.
+      tsconfigFile: "stryker-no-tsconfig.json",
       tempDirName: `.stryker-tmp-cire-${basename(pkgDir)}`,
       cleanTempDir: "always",
       ignorePatterns: [

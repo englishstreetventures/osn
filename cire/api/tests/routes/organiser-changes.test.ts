@@ -11,6 +11,7 @@ import {
   rsvps,
   runOfShowItems,
   seatingAssignments,
+  seatingPlans,
   seatingTables,
   tasks,
   weddingHosts,
@@ -1980,11 +1981,23 @@ describe("a change's warnings are read for its preview only", () => {
         createdAt: now,
       })
       .run();
+    db.insert(seatingPlans)
+      .values({
+        id: "spl_rec",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        eventId: reception.id,
+        name: "Plan 1",
+        selected: true,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
     db.insert(seatingTables)
       .values({
         id: "stb_rec",
         weddingId: BOOTSTRAP_WEDDING_ID,
         eventId: reception.id,
+        planId: "spl_rec",
         name: "Table 1",
         capacity: 8,
         createdAt: now,
@@ -1992,7 +2005,13 @@ describe("a change's warnings are read for its preview only", () => {
       })
       .run();
     db.insert(seatingAssignments)
-      .values({ tableId: "stb_rec", eventId: reception.id, guestId: bo.id, createdAt: now })
+      .values({
+        tableId: "stb_rec",
+        planId: "spl_rec",
+        eventId: reception.id,
+        guestId: bo.id,
+        createdAt: now,
+      })
       .run();
 
     const recorded = recordStatements(db);

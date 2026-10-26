@@ -9,7 +9,7 @@ related:
   - "[[dev-environment]]"
   - "[[devloop-urls]]"
   - "[[commands]]"
-last-reviewed: 2026-10-19
+last-reviewed: 2026-10-23
 ---
 
 # Bun 1.4 migration
@@ -178,6 +178,10 @@ An earlier draft paired the TOML guard with a JSONC one for
 `database_id`: cire/invites has no D1 binding at all. There is no assertion to
 make. Dropped.
 
+### A package script named like a Bun command runs instead of it
+
+`bun fmt`, `bun check` and `bun test` run a package's script of the same name when one exists, instead of Bun's own command. A script named `fmt` makes `bun fmt` run that script, and a script named `check` makes `bun check` run it. Pass `--no-script` to reach Bun's command, as the repository's `fmt`, `fmt:check` and `typecheck` scripts and the lefthook format step do. A timing or a diff taken without it measures the other tool, so check the output names the command you meant before you trust the number.
+
 ---
 
 ## Still to do
@@ -267,8 +271,9 @@ same reason, and is not a candidate either.
 
 ### Test runner
 
-Three packages use `bun test` (`cire/theme`, `cire/db`, `cire/api`); 30 use
-vitest, and `shared/typescript-config` has no tests. So this is narrow:
+Bun's runner reaches only the packages whose `test` script is `bun test`; most
+packages test under vitest, and `shared/typescript-config` has no tests. So
+this is narrow:
 
 - **`jest.useFakeTimers()` / `setSystemTime()`** in `cire/api`, which is full of
   time-dependent behaviour — token expiry, the refresh-rotation grace window,

@@ -155,14 +155,16 @@ export interface Env {
   // RSVP endpoints require a valid Turnstile token (fail-closed); unset ⇒ those
   // gates are skipped. `wrangler secret put TURNSTILE_SECRET_KEY`.
   TURNSTILE_SECRET_KEY?: string;
-  // Stripe Connect for gift contributions (KEY-OPTIONAL, and the two halves are
-  // independent). `STRIPE_SECRET_KEY` set ⇒ the organiser can connect a Stripe
-  // account from the portal; unset ⇒ those routes are not mounted at all, so a
-  // deployment with no Stripe account has no payment surface rather than a
-  // broken one. `STRIPE_WEBHOOK_SECRET` set ⇒ `/api/stripe/webhook` exists and
-  // verifies every delivery; unset ⇒ it does not exist, because nothing could
-  // be verified and an endpoint that writes from unverified bodies is an
-  // unauthenticated write API. Both: `wrangler secret put …`.
+  // Stripe Connect for gift contributions (KEY-OPTIONAL). `STRIPE_SECRET_KEY`
+  // set ⇒ the organiser can connect a Stripe account from the portal; unset ⇒
+  // those routes are not mounted at all, so a deployment with no Stripe account
+  // has no payment surface rather than a broken one. `STRIPE_WEBHOOK_SECRET`
+  // set ⇒ `/api/stripe/webhook` exists and verifies every delivery; unset or
+  // blank ⇒ it does not exist, because nothing could be verified and an
+  // endpoint that writes from unverified bodies is an unauthenticated write
+  // API. Guests are offered money gifts only with BOTH, since without the
+  // webhook a paid gift is never recorded; the key alone logs a warning when
+  // the app is built. Both: `wrangler secret put …`, then a deploy.
   STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;
   // Signing secret for the PLATFORM webhook (upgrade purchases). A DIFFERENT

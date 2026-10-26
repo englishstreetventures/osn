@@ -130,12 +130,8 @@ describe("GitHub Environments", () => {
     );
   });
 
-  test("today's Environments miss every Worker secret but the two already set, and dev misses its account", () => {
-    const dev = githubDiff("dev", [
-      "CLOUDFLARE_ACCOUNT_ID",
-      "CLOUDFLARE_API_TOKEN_DEV",
-      "DEV_LOGIN_SECRET",
-    ]);
+  test("an Environment with a few Worker secrets misses the rest, and dev misses its account", () => {
+    const dev = githubDiff("dev", ["DEV_LOGIN_SECRET"]);
     expect(dev.missing).toEqual(
       expect.arrayContaining(["CLOUDFLARE_DEV_ACCOUNT_API_TOKEN", "CLOUDFLARE_DEV_ACCOUNT_ID"]),
     );
