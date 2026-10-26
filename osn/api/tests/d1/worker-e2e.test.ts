@@ -405,38 +405,40 @@ describe("osn-api on workerd, with the coordination store on its Durable Object"
     expect(status.json["active"]).toBe(10);
   });
 
-  it(
-    "ends the session family when a rotated refresh token comes back after the grace window",
-    async () => {
-      const rotated = await call("refresh", "POST", "/token", {
-        ip: MAIN_IP,
-        cookie: session,
-        body: { grant_type: "refresh_token" },
-      });
-      expect(rotated.status).toBe(200);
-      const next = sessionCookie(rotated);
-      expect(next).not.toBe(session);
+  it("ends the session family when a rotated refresh token comes back after the grace window", async () => {
+    const rotated = await call("refresh", "POST", "/token", {
+      ip: MAIN_IP,
+      cookie: session,
+      body: { grant_type: "refresh_token" },
+    });
+    expect(rotated.status).toBe(200);
+    const next = sessionCookie(rotated);
+    expect(next).not.toBe(session);
 
-      await Bun.sleep(ROTATION_GRACE_MS + 1_000);
+    // Past the grace window by moving the rotation back in D1 rather than
+    // waiting it out: the replay below lands outside it by construction.
+    const db = await mf.getD1Database("DB");
+    await db
+      .prepare("UPDATE rotated_sessions SET rotated_at = rotated_at - ?")
+      .bind(ROTATION_GRACE_MS + 1_000)
+      .run();
 
-      const replay = await call("refresh with the rotated-out token", "POST", "/token", {
-        ip: MAIN_IP,
-        cookie: session,
-        body: { grant_type: "refresh_token" },
-      });
-      expect(replay.status).toBe(400);
-      expect(replay.json["error"]).toBe("invalid_grant");
+    const replay = await call("refresh with the rotated-out token", "POST", "/token", {
+      ip: MAIN_IP,
+      cookie: session,
+      body: { grant_type: "refresh_token" },
+    });
+    expect(replay.status).toBe(400);
+    expect(replay.json["error"]).toBe("invalid_grant");
 
-      const successor = await call("refresh with its successor", "POST", "/token", {
-        ip: MAIN_IP,
-        cookie: next,
-        body: { grant_type: "refresh_token" },
-      });
-      expect(successor.status).toBe(400);
-      expect(successor.json["error"]).toBe("invalid_grant");
-    },
-    ROTATION_GRACE_MS + 30_000,
-  );
+    const successor = await call("refresh with its successor", "POST", "/token", {
+      ip: MAIN_IP,
+      cookie: next,
+      body: { grant_type: "refresh_token" },
+    });
+    expect(successor.status).toBe(400);
+    expect(successor.json["error"]).toBe("invalid_grant");
+  });
 
   it("sent nothing anywhere but the Resend stand-in", () => {
     expect(strayOutbound).toEqual([]);
