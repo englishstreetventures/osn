@@ -9,7 +9,7 @@ related:
   - "[[review-findings]]"
   - "[[free-tier-limits]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-10-23
+last-reviewed: 2026-10-26
 ---
 
 # Guards with a threshold
@@ -146,6 +146,11 @@ touching a threshold. In short:
   inline `sourceMappingURL=data:` map. See [[cire-development]] for why
   cire/invites' bundle is shaped the way it is (sessions off, SSR-only
   minification, server-only source maps, why `zod` stays).
+  It never sizes `dist/client`, the scripts a guest's browser downloads.
+  Lazy-loading an island or splitting a client chunk leaves this number where
+  it was, except for what the change also takes out of the server build, so a
+  client-side saving is not room under this budget. Measure it from
+  `dist/client/_astro` and report it as that.
 - **`static`** — `cire/host`, `cire/landing`, `cire/vendor`, `musubi/landing`,
   `pulse/landing`. All five are `output: "static"`: no Worker, no `dist/server`,
   no `dist/client` split — they deploy `dist` wholesale to Cloudflare Pages.
