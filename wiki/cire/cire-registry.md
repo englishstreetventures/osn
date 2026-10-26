@@ -14,7 +14,7 @@ related:
   - "[[cire-auth]]"
   - "[[testing-patterns]]"
   - "[[toast]]"
-last-reviewed: 2026-10-21
+last-reviewed: 2026-10-26
 ---
 
 # Gift registry
@@ -624,16 +624,21 @@ A guest's note (a claim's `note`, a contribution's `message`) is the one text in
 
 **The list has its own page: `/cire/registry?slug=<slug>`** (`src/pages/cire/registry.astro`), the address every link the guest site builds and both Stripe return URLs use; links already sent as `/<slug>/registry` keep working (`src/pages/[slug]/registry.astro`). It is the one part of an invitation a guest comes _back_ to — to see what is left, to change what they reserved, to open it in a shop — and none of that should mean scrolling the invitation again. It is also a link a couple can send on its own.
 
-`src/lib/gift-registry.ts` is the client; `src/components/gift-registry/` is the UI:
+`src/lib/gift-registry-read.ts` is the list read and the list's shape; `src/lib/gift-registry.ts` is the rest of the client; `src/components/gift-registry/` is the UI:
 
-| File                         | What it is                                                    |
-| ---------------------------- | ------------------------------------------------------------- |
-| `GiftRegistryDocument.astro` | The page shell: masthead, sticky return rail, footer, consent |
-| `GiftRegistryPage.tsx`       | The page body — both reads, every write, the shelves          |
-| `GiftRegistryItemCard.tsx`   | One gift, with its own claim form                             |
-| `GiftRegistryTeaser.tsx`     | The band left behind on the invite, linking to the page       |
+| File                             | What it is                                                                 |
+| -------------------------------- | -------------------------------------------------------------------------- |
+| `GiftRegistryDocument.astro`     | The page shell: masthead, sticky return rail, footer, consent              |
+| `GiftRegistryPage.tsx`           | The page body — both reads, every write, the shelves                       |
+| `GiftRegistryItemCard.tsx`       | One gift, with its own claim form                                          |
+| `GiftRegistryTeaserIsland.tsx`   | The island on the invite: the list read, and the band once it finds a list |
+| `GiftRegistryTeaser.tsx`         | The band left behind on the invite, linking to the page                    |
 
-`src/pages/[slug]/registry.astro` is the route, and it makes **one** read: the invite, which is public, so the couple's copy, colours and hero photo are server-rendered and the page paints as theirs immediately. The LIST cannot be server-rendered at all — `cire_session` is host-scoped to the API origin, so the browser never sends it to the guest Worker and there is no household for the server to be. The island makes that read. Both design packs mount the _teaser_ from `Document.astro` as a `client:visible={{ rootMargin: "600px" }}` island between `<InvitePage>` and `<SiteFooter>`.
+`src/pages/[slug]/registry.astro` is the route, and it makes **one** read: the invite, which is public, so the couple's copy, colours and hero photo are server-rendered and the page paints as theirs immediately. The LIST cannot be server-rendered at all — `cire_session` is host-scoped to the API origin, so the browser never sends it to the guest Worker and there is no household for the server to be. The island makes that read. Both design packs mount `GiftRegistryTeaserIsland` from `Document.astro` as a `client:visible={{ rootMargin: "600px" }}` island between `<InvitePage>` and `<SiteFooter>`.
+
+**The band's code downloads only for a list.** The gift list is a Gold module ([[cire-entitlements]]), and the public invite payload carries no plan, so the list read is how the invitation learns whether there is a band to show. The island holds that read (`fetchGiftRegistry`, from `gift-registry-read.ts`) and nothing else of the gift list. The band and `gift-registry.ts` are one `lazy` import, asked for the first time the read answers `200`; nothing preloads them, because a preload beside the read would download them for every guest of a wedding without a list. So a guest of an Ivory wedding, or of one whose list is unpublished, downloads neither; a guest of a Gold wedding with a list waits one more round trip, below the fold. A band chunk that fails to download leaves no band until the page is reloaded. The server build leaves the band out (`import.meta.env.SSR`), since the server never renders it.
+
+*Measured 2026-10-26 — clean `bun run --cwd cire/invites build`, gzip of the static import closure of each pack's invitation islands: a guest of a wedding without a list downloads 2,334 B less than when the band shipped with the island; a guest of a Gold wedding with a list downloads 710 B more, the band's 3,044 B arriving as two chunks.*
 
 **One shell, not one per design pack.** The packs differ in the invite's own structure; the gift list does not — one component serves both, and its surface comes from the same derived palette, fonts and section tone every other section reads. If a pack ever forks the gift surfaces, the shell takes the pack as a prop rather than being duplicated.
 
@@ -692,8 +697,9 @@ The hint is wired with `aria-describedby`, conditional on there being a hint —
 | Flow | What it proves |
 | --- | --- |
 | `cire-registry-locked` | With no code, on both page addresses, and with a stale hint beside a session the browser sends and the API never issued: the list read answers 401, the page shows the locked panel, and none of the gifts, the cash fund's name and words, the headline or the message is in the page. The same strings are absent from the API's list answer, from the public invite payload and from the invitation, which shows no band |
-| `cire-registry-claimed` | The locked page sends the visitor to the invitation; the household's code opens the band and then the list, with every gift, the headline and the message. The couple's cash fund and their Stripe-ready settings are read from the database, and still the list answer offers no money and no fund and the page shows neither, because the stack's cire-api has a Stripe key and no Connect webhook secret — which the flow confirms from cire-api's log, where the warning appears once. Signing out on the invitation locks the list again and deletes the household's session |
+| `cire-registry-claimed` | The locked page sends the visitor to the invitation; the household's code opens the band and then the list, with every gift, the headline and the message. On this Gold wedding the invitation downloads the band's module and the gift-list client. The couple's cash fund and their Stripe-ready settings are read from the database, and still the list answer offers no money and no fund and the page shows neither, because the stack's cire-api has a Stripe key and no Connect webhook secret — which the flow confirms from cire-api's log, where the warning appears once. Signing out on the invitation locks the list again and deletes the household's session |
 | `cire-registry-preview` | The invitation opened at the host preview code, as **Preview invite** opens it, claims on load. The gift page reads the list and `/mine` (with `preview: true`), shows the "Preview mode" note — which leaves money out, since this stack offers none — and every Reserve disabled. A reservation sent from the page anyway answers `403 preview_read_only`, and no claim row exists for the host household |
+| `cire-rsvp-after-deadline` | Besides its own subject, a second tab opens the Ivory sample wedding's invitation on Nori's session: the list read answers 404, and the tab never requests the band's module or the gift-list client |
 
 The refusals in isolation (no cookie, a household of another wedding, the host preview household on each write, the image route) stay in `cire/api/tests/routes/registry-guest.test.ts` and `registry-contribute.test.ts`. A browser that already holds a session opens the list for its 30 days whoever is at the keyboard: one that claimed before, or the organiser's own after **Preview invite**, which claims the wedding's host household through `?code=` without anyone typing it ([[cire-auth#Host preview code (organiser "Preview invite")]]). That is the gate working, not a gap in it; what a preview may not do is write.
 
