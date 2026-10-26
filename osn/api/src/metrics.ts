@@ -586,8 +586,9 @@ export const metricSessionSecurityInvalidation = (trigger: SecurityInvalidationT
 export type CireSessionRevokeTrigger = "sign_out_everywhere" | "connection_revoked";
 /**
  * One request's outcome: `ok` (cire answered 2xx), `rejected` (any other
- * status), `timeout`, `error` (unreachable, or the profile lookup failed), or
- * `unconfigured` (URL or secret unset, so nothing was sent).
+ * status, a redirect included), `timeout`, `error` (unreachable, or the
+ * profile lookup failed and nothing was sent), or `unconfigured` (a setting
+ * unset or unusable, so nothing was sent).
  */
 export type CireSessionRevokeResult = "ok" | "rejected" | "timeout" | "error" | "unconfigured";
 type CireSessionRevokeAttrs = {

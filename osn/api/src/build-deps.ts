@@ -69,8 +69,9 @@ export type EnvVars = {
   // Read by the dev sign-in gate below. Unset ⇒ the routes are never mounted.
   readonly DEV_LOGIN_SECRET?: string;
   readonly DEV_LOGIN_RETURN_ORIGINS?: string;
-  // The back-channel to cire-api's organiser sessions. URL or secret unset ⇒
-  // sign out everywhere else and cire's connection revoke skip it, with a warning.
+  // The back-channel to cire-api's organiser sessions. Any of the three unset
+  // or unusable ⇒ sign out everywhere else and cire's connection revoke skip
+  // it, with a warning.
   readonly CIRE_INTERNAL_REVOKE_URL?: string;
   readonly CIRE_INTERNAL_REVOKE_SECRET?: string;
   readonly CIRE_OIDC_CLIENT_ID?: string;

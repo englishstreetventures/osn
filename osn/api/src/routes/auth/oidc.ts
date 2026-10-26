@@ -34,7 +34,7 @@ import {
 } from "../../lib/oidc-binding-cookie";
 import { metricOidcAuthorize, metricOidcConsentGranted, metricOidcToken } from "../../metrics";
 import type { AuthorizeSession, OidcErrorCode } from "../../services/auth";
-import { isCireClient } from "../../services/cire-organiser-revoke";
+import { revokeReachesCire } from "../../services/cire-organiser-revoke";
 import type { AuthRouteContext } from "./context";
 import {
   oidcConnectionSummary,
@@ -802,13 +802,15 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
             }
             // Revoking cire's connection also ends the account's cire organiser
             // sessions, in the background. Any other client's revoke, and a
-            // revoke that found nothing live, leaves cire alone.
+            // revoke that found nothing live, leaves cire alone; with cire's
+            // client id unset, a live revoke logs the back-channel as
+            // unconfigured instead.
             const { revoked } = await run(
               auth
                 .revokeOidcConsent(profile.accountId, params.clientId)
                 .pipe(
                   Effect.tap(({ revoked: live }) =>
-                    live && isCireClient(cireOrganiserRevoke, params.clientId)
+                    live && revokeReachesCire(cireOrganiserRevoke, params.clientId)
                       ? forkCireOrganiserRevoke(profile.accountId, "connection_revoked")
                       : Effect.void,
                   ),

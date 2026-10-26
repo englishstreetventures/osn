@@ -141,8 +141,8 @@ export interface AppDeps {
    * The back-channel that ends an account's cire organiser sessions on sign
    * out everywhere else and on revoking cire's connection. Built from
    * `CIRE_INTERNAL_REVOKE_URL`, `CIRE_INTERNAL_REVOKE_SECRET` and
-   * `CIRE_OIDC_CLIENT_ID`; with the URL or secret unset, each such request is
-   * skipped with a warning. See `services/cire-organiser-revoke`.
+   * `CIRE_OIDC_CLIENT_ID`; with any of them unset or unusable, each such
+   * request is skipped with a warning. See `services/cire-organiser-revoke`.
    */
   cireOrganiserRevoke: CireOrganiserRevokeConfig;
   /**

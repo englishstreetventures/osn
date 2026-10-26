@@ -261,8 +261,9 @@ OSN_AUTHORIZE_UI_URL = "https://musubi.social/authorize"
 # the account's organiser sessions at CIRE_INTERNAL_REVOKE_URL. Both values
 # equal cire-api's own (cire/api/wrangler.toml CIRE_API_ORIGIN and
 # CIRE_OIDC_CLIENT_ID; cire/infra/tests/cross-stack.test.ts holds them equal).
-# Nothing is sent until the CIRE_INTERNAL_REVOKE_SECRET secret is set here and
-# on cire-api; until then each such request logs a skip warning.
+# Nothing is sent until the CIRE_INTERNAL_REVOKE_SECRET secret, at least 32
+# characters, is set here and on cire-api; until then each such request logs a
+# skip warning.
 CIRE_INTERNAL_REVOKE_URL = "https://api.cireweddings.com"
 CIRE_OIDC_CLIENT_ID = "cid_cire"
 # Email is sent via Resend (RESEND_API_KEY secret, §1.1) — confirmed delivering
@@ -367,10 +368,11 @@ crons = ["0 */6 * * *"]
 #   OSN_EMAIL_FROM             verified sender (also settable as a [vars])
 #   INTERNAL_SERVICE_SECRET    S2S registration shared secret (optional)
 #   CIRE_INTERNAL_REVOKE_SECRET bearer for cire-api's organiser-session revoke
-#                              (optional). cire-api holds the SAME value; set
-#                              both, or the revoke is skipped (unset here) or
-#                              refused with 503 (unset on cire-api). Generate
-#                              with `openssl rand -base64 32`.
+#                              (optional, at least 32 characters). cire-api
+#                              holds the SAME value; set both, or the revoke is
+#                              skipped (unset here) or refused with 503 (unset
+#                              on cire-api). Generate with
+#                              `openssl rand -base64 32`.
 #   PULSE_API_URL / ZAP_API_URL deletion fan-out targets (optional; also [vars])
 #   TRUSTED_PROXY_COUNT        legacy XFF proxy-hop count. IGNORED in deployed
 #                              tiers: the Workers entry sets trustCloudflare for

@@ -126,8 +126,9 @@ export function createAuthRoutes(
    * The back-channel to cire-api's organiser sessions. Sign out everywhere
    * else, and revoking the connection whose client id is `clientId`, ask
    * cire-api to end every organiser session of the account's profiles.
-   * Omitted ⇒ nothing is cire's and every such request is skipped with a
-   * warning. See `services/cire-organiser-revoke`.
+   * Omitted ⇒ the back-channel is unconfigured: sign out everywhere else and
+   * every live connection revoke are skipped with a warning. See
+   * `services/cire-organiser-revoke`.
    */
   cireOrganiserRevoke: CireOrganiserRevokeConfig = DISABLED_CIRE_ORGANISER_REVOKE,
 ) {
