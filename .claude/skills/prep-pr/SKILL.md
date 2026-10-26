@@ -156,7 +156,7 @@ always `main`.
 BASE=$(git config --get branch.$(git branch --show-current).gh-merge-base || echo main)
 git fetch origin "+refs/heads/${BASE}:refs/remotes/origin/${BASE}"
 DIFF_BASE=$BASE
-git merge-base --is-ancestor "$BASE" "origin/$BASE" 2>/dev/null && DIFF_BASE="origin/$BASE"
+git merge-base --is-ancestor "$BASE" "refs/remotes/origin/$BASE" 2>/dev/null && DIFF_BASE="refs/remotes/origin/$BASE"
 echo "base: $BASE, diff against: $DIFF_BASE"
 ```
 

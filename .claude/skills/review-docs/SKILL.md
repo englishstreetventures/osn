@@ -46,7 +46,7 @@ This is a review. Do not edit a page unless the task says to, and then only a `D
 ```bash
 BASE=$(git config --get branch.$(git branch --show-current).gh-merge-base || echo main)
 DIFF_BASE=$BASE
-git merge-base --is-ancestor "$BASE" "origin/$BASE" 2>/dev/null && DIFF_BASE="origin/$BASE"
+git merge-base --is-ancestor "$BASE" "refs/remotes/origin/$BASE" 2>/dev/null && DIFF_BASE="refs/remotes/origin/$BASE"
 git diff --name-only "$DIFF_BASE"...HEAD -- '*.md' 'wiki/**'
 git diff --name-only "$DIFF_BASE"...HEAD          # the code the docs have to agree with
 ```

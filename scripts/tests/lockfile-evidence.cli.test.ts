@@ -165,7 +165,7 @@ test("the same name@version with a different integrity exits 1 and names it", as
   expect(r.stdout).toMatch(/same name@version, different entry:\n\s*b@1\.0\.0/);
 });
 
-test("the main ref defaults to origin/main", async () => {
+test("the main ref defaults to refs/remotes/origin/main", async () => {
   await git("update-ref", "refs/remotes/origin/main", main);
   await regenerated(
     entry("a", "2.0.0"),
@@ -175,5 +175,5 @@ test("the main ref defaults to origin/main", async () => {
   );
   const r = await run(mb, orig);
   expect(r.exitCode).toBe(0);
-  expect(r.stdout).toContain("main ref: origin/main");
+  expect(r.stdout).toContain("main ref: refs/remotes/origin/main");
 });
