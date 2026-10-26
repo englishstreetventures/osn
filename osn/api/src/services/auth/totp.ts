@@ -359,7 +359,7 @@ export function createTotpModule(
    * It runs the same sequence the real check runs — the configuration check,
    * the lockout lookup, the credential query, a verification against the dummy
    * key, the failure record — against `probe`, the caller's
-   * `recoveryProbeKey`, which matches no account. The same operations, not
+   * probe key (`serverMac.probeKey`), which matches no account. The same operations, not
    * reads standing in for writes: a Durable Object write costs more than a
    * read, and a stopwatch can tell. The two are next to each other on purpose:
    * a round trip added to one belongs in the other.

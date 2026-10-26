@@ -40,13 +40,14 @@ describe("background work dispatch", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("routes all ten known notification sites through forkBackground", () => {
+  it("routes all twelve known background sites through forkBackground", () => {
     // Counted rather than merely asserted absent, so deleting a send is as
     // loud as converting one back.
     const total = tsFilesUnder(SERVICES_DIR)
       .map((file) => readFileSync(file, "utf8").split("yield* forkBackground(").length - 1)
       .reduce((sum, n) => sum + n, 0);
 
-    expect(total).toBe(10);
+    // Ten notification sends and the two lockout audit rows.
+    expect(total).toBe(12);
   });
 });

@@ -75,7 +75,6 @@ import {
   looksLikeEmail,
   normaliseIdentifier,
   parseDisownToken,
-  recoveryProbeKey,
 } from "./helpers";
 import type { ProfilesModule } from "./profiles";
 import type { SecurityEventsModule } from "./security-events";
@@ -112,7 +111,7 @@ export function createRecoveryFactorsModule(
   totp: TotpModule,
   securityEventsModule: SecurityEventsModule,
 ) {
-  const { config, stores, hashIp, recoveryEmailBeginCap, recoveryOtpLockoutStore } = ctx;
+  const { config, stores, hashIp, serverMac, recoveryEmailBeginCap, recoveryOtpLockoutStore } = ctx;
   const { resolveIdentifier } = profiles;
   const { issueRecoverySession } = tokens;
   const { checkTotpCode, burnTotpCheckCost } = totp;
@@ -157,7 +156,7 @@ export function createRecoveryFactorsModule(
   /*
    * Padding. The branches that must not be told apart pay for the store calls
    * the costliest of them makes, with the SAME operation on the SAME store, at
-   * `recoveryProbeKey(identifier)` — the key derived from what the caller
+   * `serverMac.probeKey(identifier)` — the key derived from what the caller
    * submitted, the same length as an account id, and the same object on every
    * request that names that identifier. A Durable Object call's cost depends on
    * whether it reads or writes and on whether the object was used a moment
@@ -272,7 +271,7 @@ export function createRecoveryFactorsModule(
       }
 
       const profile = yield* resolveIdentifier(normalised);
-      const probe = recoveryProbeKey(normalised);
+      const probe = serverMac.probeKey(normalised);
       if (!profile) {
         // The sent branch's calls, at the probe key: the cap check and the
         // entry write. Parity is APPROXIMATE, not exact, exactly
@@ -502,7 +501,7 @@ export function createRecoveryFactorsModule(
     Effect.gen(function* () {
       const normalised = normaliseIdentifier(identifier);
       const profile = yield* resolveIdentifier(normalised);
-      const probe = recoveryProbeKey(normalised);
+      const probe = serverMac.probeKey(normalised);
 
       // Hashed up front on every branch so both pay the same SHA-256, whether or
       // not there is anything to compare it against.
@@ -582,7 +581,10 @@ export function createRecoveryFactorsModule(
           metricRecoveryLockout("unavailable");
         } else if (failures >= RECOVERY_LOCKOUT_THRESHOLD) {
           metricRecoveryLockout("locked");
-          yield* recordLockoutEvent(profile.accountId, sessionMeta);
+          // After the answer, not before it: only a real account can cross
+          // the threshold, so a refusal that waited on this insert would tell
+          // a stopwatch the address is real.
+          yield* forkBackground(recordLockoutEvent(profile.accountId, sessionMeta));
         } else {
           metricRecoveryLockout("recorded");
         }
@@ -613,9 +615,9 @@ export function createRecoveryFactorsModule(
    * attempts" in the security banner even though every attempt answered the
    * same generic error over the wire.
    *
-   * Best-effort: a write failure is logged and never turns the already-correct
-   * generic failure into a 500. Mirrors `recordRecoveryLockoutEvent` in
-   * `recovery.ts`.
+   * Best-effort and off the response path: the caller forks it, so the
+   * refusal never waits on it, and a write failure is logged, never answered.
+   * Mirrors `recordRecoveryLockoutEvent` in `recovery.ts`.
    */
   const recordLockoutEvent = (
     accountId: string,
@@ -686,7 +688,7 @@ export function createRecoveryFactorsModule(
         // drift. It runs the lockout lookup, the credential query and the
         // dummy-key verification against a probe id; no counter is written,
         // because a probe must not leave a lockout key behind.
-        yield* burnTotpCheckCost(code, recoveryProbeKey(normalised));
+        yield* burnTotpCheckCost(code, serverMac.probeKey(normalised));
         return yield* Effect.fail(new AuthError({ message: GENERIC_FAILURE }));
       }
 

@@ -44,7 +44,7 @@ export function createRecoveryModule(
   profiles: ProfilesModule,
   tokens: TokensModule,
 ) {
-  const { config, recoveryLockoutStore, hashIp } = ctx;
+  const { config, recoveryLockoutStore, hashIp, serverMac } = ctx;
   const { resolveIdentifier } = profiles;
   const { issueTokens } = tokens;
 
@@ -186,12 +186,12 @@ export function createRecoveryModule(
     }).pipe(Effect.withSpan("auth.security_event.notify", { attributes: { kind } }));
 
   /**
-   * O2: write the `recovery_code_lockout` audit row when an account crosses the
+   * Write the `recovery_code_lockout` audit row when an account crosses the
    * failed-attempt threshold. Surfaces in the security-events banner so the
    * legitimate owner sees "repeated failed recovery attempts on your account"
    * even though every attempt returned the same generic error over the wire.
-   * Best-effort: a write failure is logged but never converts the
-   * already-correct generic-error response into a 500.
+   * Best-effort and off the response path: the caller forks it, so the
+   * refusal never waits on it, and a write failure is logged, never answered.
    */
   const recordRecoveryLockoutEvent = (
     accountId: string,
@@ -231,14 +231,17 @@ export function createRecoveryModule(
    * unknown/used code, or expired lookups — does not distinguish between
    * "wrong identifier" and "wrong code" over the wire.
    *
-   * S-M2: both branches (unknown identifier vs known identifier + wrong code)
-   * execute a similar shape of work — identifier lookup, a `hashRecoveryCode`
-   * call, and an indexed statement against `recovery_codes` (a probe SELECT
-   * on the unknown branch, the atomic conditional UPDATE on the known branch).
-   * Parity is APPROXIMATE, not exact: the known branch additionally runs the
-   * lockout-store round-trips (`status`/`recordFailure`, pre-existing) and
-   * a failure-classification SELECT, so the timing oracle is narrowed by the
-   * per-IP rate limit and per-account lockout rather than eliminated.
+   * **Every refusal does the same work**, so it costs the same: the lockout
+   * lookup, the conditional consume (`UPDATE … RETURNING`), the
+   * classification read, and the failure record — two store round trips and
+   * two `recovery_codes` statements of the same shape, whether the identifier
+   * names nobody, names a locked account, or names an account and the code is
+   * wrong. That is what a wrong code costs, and the most any refusal costs.
+   * The branches that must not touch an account's codes or counter make the
+   * same statements against a sentinel account id that matches no row, and
+   * the same store calls at the caller's probe key, which reaches an object of
+   * the same name shape and age as an account's. The audit row the threshold
+   * guess writes is written after the answer.
    */
   const consumeRecoveryCode = (
     identifier: string,
@@ -249,114 +252,96 @@ export function createRecoveryModule(
       const normalised = normaliseIdentifier(identifier);
       const profile = yield* resolveIdentifier(normalised);
       const { db } = yield* Db;
-
-      // Compute the hash up front regardless of profile existence so both
-      // branches pay the same SHA-256 cost (S-M2).
-      const codeHash = hashRecoveryCode(code);
-
-      if (!profile) {
-        // Equalise DB work on the unknown-identifier branch with a same-shape
-        // no-op lookup (predicate can never match since the accountId is an
-        // impossible sentinel). Indexed by `recovery_codes_account_idx`.
-        yield* Effect.tryPromise({
-          try: () =>
-            db
-              .select()
-              .from(recoveryCodes)
-              .where(
-                and(
-                  // O5: random per-request sentinel — see probeAccountId.
-                  eq(recoveryCodes.accountId, probeAccountId()),
-                  eq(recoveryCodes.codeHash, codeHash),
-                ),
-              )
-              .limit(1),
-          catch: (cause) => new DatabaseError({ cause }),
-        });
-        metricRecoveryCodeConsumed("invalid");
-        return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
-      }
-
-      // O2: per-account lockout. Keyed on the RESOLVED accountId (never the
-      // caller-supplied identifier) so an attacker cannot lock a victim out by
-      // spamming their handle, and an unknown identifier — which never reaches
-      // this branch — can never trip a lockout. When locked we still run the
-      // same indexed recovery_codes lookup for latency parity (read-only — a
-      // locked account must never consume a code), then return the SAME
-      // generic error as any other failure (preserving the no-enumeration
-      // oracle: a locked account is indistinguishable from a wrong code).
-      //
-      // A counter that cannot be read (`"unknown"`) takes the same read-only
-      // path: an attempt there could not be counted, so the code is never
-      // touched — the owner retries once the store answers again — and no
-      // security event is written, since nothing is known to have crossed the
-      // threshold. It pays the same lookup as the locked branch, so it costs
-      // what every other refusal on a real account costs.
-      const lockout = yield* Effect.promise(() => recoveryLockoutStore.status(profile.accountId));
-      if (lockout !== "open") {
-        yield* Effect.tryPromise({
-          try: () =>
-            db
-              .select({ id: recoveryCodes.id })
-              .from(recoveryCodes)
-              .where(
-                and(
-                  eq(recoveryCodes.accountId, profile.accountId),
-                  eq(recoveryCodes.codeHash, codeHash),
-                ),
-              )
-              .limit(1),
-          catch: (cause) => new DatabaseError({ cause }),
-        });
-        metricRecoveryLockout(lockout === "locked" ? "locked" : "unavailable");
-        metricRecoveryCodeConsumed("invalid");
-        return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
-      }
-
+      const probe = serverMac.probeKey(normalised);
       const nowSec = Math.floor(Date.now() / 1000);
 
-      // P-I2 / S-M1: single atomic conditional consume — mark the code used
-      // ONLY while it is still unused, matched by (accountId, codeHash), in
-      // one round-trip. Replaces the previous SELECT-then-CAS pair: no window
-      // exists in which two concurrent requests can both observe the code as
-      // unused, on any backend. RETURNING keys the rest of the ceremony off
-      // whether a row was actually claimed.
-      const consumedRows = yield* Effect.tryPromise({
-        try: () =>
-          db
-            .update(recoveryCodes)
-            .set({ usedAt: nowSec })
-            .where(
-              and(
-                eq(recoveryCodes.accountId, profile.accountId),
-                eq(recoveryCodes.codeHash, codeHash),
-                isNull(recoveryCodes.usedAt),
-              ),
-            )
-            .returning({ id: recoveryCodes.id }),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
+      // Hashed up front on every branch, so each pays the same SHA-256.
+      const codeHash = hashRecoveryCode(code);
 
-      if (consumedRows.length === 0) {
-        // O2: a genuine failed attempt against a real account — record it and
-        // trip the lockout (+ audit row) on the attempt that crosses the
-        // threshold. Both "wrong code" and "already-used code" count; a
-        // read-only follow-up classifies which for the metric + replay log
-        // (a concurrent double-consume loser lands here as "used" too).
-        const replayRows = yield* Effect.tryPromise({
+      /**
+       * Mark the code used ONLY while it is still unused, matched by
+       * (accountId, codeHash), in one atomic statement: no window exists in
+       * which two concurrent requests can both see the code as unused, on any
+       * backend. RETURNING says whether a row was claimed.
+       */
+      const tryConsume = (accountId: string) =>
+        Effect.tryPromise({
+          try: () =>
+            db
+              .update(recoveryCodes)
+              .set({ usedAt: nowSec })
+              .where(
+                and(
+                  eq(recoveryCodes.accountId, accountId),
+                  eq(recoveryCodes.codeHash, codeHash),
+                  isNull(recoveryCodes.usedAt),
+                ),
+              )
+              .returning({ id: recoveryCodes.id }),
+          catch: (cause) => new DatabaseError({ cause }),
+        });
+
+      /** Whether the code exists and was used already — a replay — or never existed. */
+      const classify = (accountId: string) =>
+        Effect.tryPromise({
           try: () =>
             db
               .select({ usedAt: recoveryCodes.usedAt })
               .from(recoveryCodes)
               .where(
-                and(
-                  eq(recoveryCodes.accountId, profile.accountId),
-                  eq(recoveryCodes.codeHash, codeHash),
-                ),
+                and(eq(recoveryCodes.accountId, accountId), eq(recoveryCodes.codeHash, codeHash)),
               )
               .limit(1),
           catch: (cause) => new DatabaseError({ cause }),
         });
+
+      /**
+       * A wrong code's statements and failure record, touching nothing real:
+       * the statements against a fresh random account id no row has (see
+       * `probeAccountId`), the failure at the probe key.
+       */
+      const padRefusal = Effect.gen(function* () {
+        const sentinel = probeAccountId();
+        yield* tryConsume(sentinel);
+        yield* classify(sentinel);
+        yield* Effect.promise(() => recoveryLockoutStore.recordFailure(probe));
+      });
+
+      if (!profile) {
+        yield* Effect.promise(() => recoveryLockoutStore.status(probe));
+        yield* padRefusal;
+        metricRecoveryCodeConsumed("invalid");
+        return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
+      }
+
+      // Per-account lockout. Keyed on the RESOLVED accountId (never the
+      // caller-supplied identifier) so an attacker cannot lock a victim out by
+      // spamming their handle, and an unknown identifier can never trip one.
+      // A locked account must never consume a code, so it pays the padded
+      // refusal and answers the SAME generic error: a locked account is
+      // indistinguishable from a wrong code.
+      //
+      // A counter that cannot be read (`"unknown"`) takes the same path: an
+      // attempt there could not be counted, so the code is never touched — the
+      // owner retries once the store answers again — and no security event is
+      // written, since nothing is known to have crossed the threshold.
+      const lockout = yield* Effect.promise(() => recoveryLockoutStore.status(profile.accountId));
+      if (lockout !== "open") {
+        yield* padRefusal;
+        metricRecoveryLockout(lockout === "locked" ? "locked" : "unavailable");
+        metricRecoveryCodeConsumed("invalid");
+        return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
+      }
+
+      const consumedRows = yield* tryConsume(profile.accountId);
+
+      if (consumedRows.length === 0) {
+        // A genuine failed attempt against a real account — record it and trip
+        // the lockout (and its audit row) on the attempt that crosses the
+        // threshold. Both "wrong code" and "already-used code" count; the
+        // read-only follow-up classifies which for the metric and the replay
+        // log (a concurrent double-consume loser lands here as "used" too).
+        const replayRows = yield* classify(profile.accountId);
         if (replayRows[0] && replayRows[0].usedAt !== null) {
           yield* Effect.logWarning("Used recovery code replayed");
           metricRecoveryCodeConsumed("used");
@@ -370,7 +355,9 @@ export function createRecoveryModule(
           // Not counted, so not known to have crossed the threshold: no event.
           metricRecoveryLockout("unavailable");
         } else if (attempts === RECOVERY_LOCKOUT_THRESHOLD) {
-          yield* recordRecoveryLockoutEvent(profile.accountId, eventMeta);
+          // After the answer: only a real account crosses the threshold, so a
+          // refusal that waited on this insert would tell a stopwatch so.
+          yield* forkBackground(recordRecoveryLockoutEvent(profile.accountId, eventMeta));
         }
         return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
       }

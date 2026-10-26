@@ -48,7 +48,7 @@ export function createRegistrationModule(
   _profiles: ProfilesModule,
   tokens: TokensModule,
 ) {
-  const { config, stores, otpTtl } = ctx;
+  const { config, stores, otpTtl, serverMac } = ctx;
   const { issueTokens } = tokens;
 
   /**
@@ -307,19 +307,39 @@ export function createRegistrationModule(
         catch: (cause) => new DatabaseError({ cause }),
       });
 
+      // Every branch — the address or handle taken, a code already pending,
+      // a code sent — makes the same two store calls, a read then a write, so
+      // the branches cost the same in store round trips and fail together
+      // while the store is down. The ones that must not touch a real entry
+      // make them at the caller's probe key, which no `complete` reads; the
+      // value parked there holds a hash no code matches.
+      const probe = serverMac.probeKey(normalisedEmail);
+      const padWrite = storeCall(stores.pendingRegistrations, "set", () =>
+        stores.pendingRegistrations.set(
+          probe,
+          {
+            email: "",
+            handle: "",
+            displayName: null,
+            codeHash: hashSessionToken(genOtpCode() + genId("")),
+            expiresAt: Date.now() + otpTtl * 1000,
+          },
+          otpTtl * 1000,
+        ),
+      );
+
       // Silently no-op when the email or handle already exists. The user
       // can use the login flow if they already have an account; we don't
       // confirm or deny their existence over an unauthenticated channel.
-      if (collision.length > 0) {
-        return { sent: true };
-      }
+      const taken = collision.length > 0;
 
       // Don't let an attacker reset a victim's in-progress OTP by
       // re-posting begin with the same email.
       const existingPending = yield* storeCall(stores.pendingRegistrations, "get", () =>
-        stores.pendingRegistrations.get(normalisedEmail),
+        stores.pendingRegistrations.get(taken ? probe : normalisedEmail),
       );
-      if (existingPending && existingPending.expiresAt > Date.now()) {
+      if (taken || (existingPending && existingPending.expiresAt > Date.now())) {
+        yield* padWrite;
         return { sent: true };
       }
 

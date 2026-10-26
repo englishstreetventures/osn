@@ -18,6 +18,7 @@ import {
   TOTP_LOCKOUT_MS,
   TOTP_LOCKOUT_THRESHOLD,
 } from "./constants";
+import { createServerMac } from "./server-mac";
 import {
   createDefaultCeremonyStores,
   createInMemoryAccountCap,
@@ -97,6 +98,8 @@ export function createAuthContext(config: AuthConfig) {
     if (!pepper) return null;
     return createHmac("sha256", pepper).update(ip).digest("hex");
   };
+  // Probe keys and the discoverable passkey challenge, under the same pepper.
+  const serverMac = createServerMac(config.sessionIpPepper);
 
   return {
     config,
@@ -117,6 +120,7 @@ export function createAuthContext(config: AuthConfig) {
     recoveryOtpLockoutStore,
     totpLockoutStore,
     hashIp,
+    serverMac,
   };
 }
 

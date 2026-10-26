@@ -352,6 +352,8 @@ describe("O2 recovery-code lockout", () => {
       for (let i = 0; i < 5; i++) {
         yield* Effect.flip(svc.consumeRecoveryCode("lock-sev@example.com", "dead-beef-cafe-0000"));
       }
+      // The row is written after the refusal answers, in the background.
+      yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 20)));
       const { events } = yield* svc.listUnacknowledgedSecurityEvents(profile.accountId);
       expect(events.some((e) => e.kind === "recovery_code_lockout")).toBe(true);
     }).pipe(Effect.provide(createTestLayer())),
@@ -409,8 +411,11 @@ describe("recovery-code lockout store unavailable", () => {
       );
       const err = yield* Effect.flip(svc.consumeRecoveryCode("lock-do@example.com", codes[0]!));
       expect(err.message).toBe("Invalid request");
+      // The lookup, then a wrong code's failure record — padded, since the
+      // counter could not be read, so the refusal costs what any refusal does.
       expect(fake.calls.map((call) => `${call.store}.${call.op}`)).toEqual([
         "recovery_lockout.count",
+        "recovery_lockout.increment",
       ]);
     }).pipe(Effect.provide(createTestLayer())),
   );

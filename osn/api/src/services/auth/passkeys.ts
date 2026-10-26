@@ -77,7 +77,7 @@ export function createPasskeysModule(
   stepUp: StepUpModule,
   securityEventsModule: SecurityEventsModule,
 ) {
-  const { config, stores, hashIp, passkeyRegisterAllowedAmr } = ctx;
+  const { config, stores, hashIp, serverMac, passkeyRegisterAllowedAmr } = ctx;
   const { resolveIdentifier, findDefaultProfile } = profiles;
   const { issueTokens, liftSessionRestriction } = tokens;
   const { invalidateOtherAccountSessions } = sessions_;
@@ -728,8 +728,8 @@ export function createPasskeysModule(
           // Random bytes base64url-encoded — never corresponds to a real
           // credential. A subsequent `/login/passkey/complete` with an
           // assertion for this id will fail at the challenge lookup
-          // because we do NOT persist a challenge for the synthetic
-          // branch.
+          // because the synthetic branch parks its challenge where no
+          // complete reads (the probe key below).
           id: Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64url"),
         },
       ];
@@ -751,22 +751,21 @@ export function createPasskeysModule(
         catch: (cause) => new AuthError({ message: String(cause) }),
       });
 
-      // Key challenge by normalised identifier so completePasskeyLoginDirect
-      // can check the in-memory guard before touching the DB. Skip the
-      // write on the synthetic branch: a subsequent complete call hits the
-      // "challenge not found" guard, which is indistinguishable from a
-      // legitimate timeout — preserves the enumeration safety into
-      // the complete step too.
-      if (realCredentials) {
-        // Store self-bounds + self-sweeps (see discoverable branch above).
-        yield* storeCall(stores.loginChallenges, "set", () =>
-          stores.loginChallenges.set(
-            normalised,
-            { challenge: options.challenge, expiresAt: Date.now() + CHALLENGE_TTL_MS },
-            CHALLENGE_TTL_MS,
-          ),
-        );
-      }
+      // Every branch parks the challenge, with the same TTL, so every branch
+      // makes the same store call: it costs the same, and while the store is
+      // failing every branch answers the same 503. The real branch keys it by
+      // the normalised identifier, which `completePasskeyLoginDirect` reads
+      // before touching the DB. The synthetic branch keys it by the caller's
+      // probe key, which no `complete` reads: a complete for that identifier
+      // still hits "challenge not found", indistinguishable from a legitimate
+      // timeout, so the enumeration safety carries into the complete step.
+      yield* storeCall(stores.loginChallenges, "set", () =>
+        stores.loginChallenges.set(
+          realCredentials ? normalised : serverMac.probeKey(normalised),
+          { challenge: options.challenge, expiresAt: Date.now() + CHALLENGE_TTL_MS },
+          CHALLENGE_TTL_MS,
+        ),
+      );
 
       return { options };
     }).pipe(Effect.withSpan("auth.login.passkey.begin"));
