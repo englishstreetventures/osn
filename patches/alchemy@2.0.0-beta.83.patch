@@ -1,5 +1,5 @@
 diff --git a/lib/Cloudflare/D1/ImportDatabase.js b/lib/Cloudflare/D1/ImportDatabase.js
-index 0c393f7ac21dd128ae2422513ca85d8f6d575110..3d3ab9288850a26807272dfcb0f8cce8c3731277 100644
+index 0c393f7ac21dd128ae2422513ca85d8f6d575110..4b094be6038114a6342932acab4f483cd348229a 100644
 --- a/lib/Cloudflare/D1/ImportDatabase.js
 +++ b/lib/Cloudflare/D1/ImportDatabase.js
 @@ -4,12 +4,29 @@ import * as Effect from "effect/Effect";
@@ -57,7 +57,7 @@ index 0c393f7ac21dd128ae2422513ca85d8f6d575110..3d3ab9288850a26807272dfcb0f8cce8
      });
      const etag = yield* md5(options.sqlData);
      // Step 1: init via the typed d1 client
-@@ -37,10 +66,47 @@ export const importD1Database = (options) => Effect.gen(function* () {
+@@ -37,50 +66,68 @@ export const importD1Database = (options) => Effect.gen(function* () {
          action: "init",
          etag,
      });
@@ -107,8 +107,12 @@ index 0c393f7ac21dd128ae2422513ca85d8f6d575110..3d3ab9288850a26807272dfcb0f8cce8
      // Step 2: PUT to the presigned upload URL
      const bytes = typeof options.sqlData === "string"
          ? new TextEncoder().encode(options.sqlData)
-@@ -49,38 +115,17 @@ export const importD1Database = (options) => Effect.gen(function* () {
-     const putRes = yield* client.execute(putReq).pipe(Effect.orDie);
+         : options.sqlData;
+     const putReq = HttpClientRequest.put(init.uploadUrl).pipe(HttpClientRequest.bodyUint8Array(bytes, "application/sql"));
+-    const putRes = yield* client.execute(putReq).pipe(Effect.orDie);
++    // A failed connection dies with the error's kind alone: the error holds
++    // the request, whose URL carries the upload signature.
++    const putRes = yield* client.execute(putReq).pipe(Effect.catch((error) => Effect.die(`Failed to upload SQL file to D1: ${error.reason._tag}`)));
      if (putRes.status < 200 || putRes.status >= 300) {
          const text = yield* putRes.text.pipe(Effect.orElseSucceed(() => ""));
 -        return yield* Effect.die(`Failed to upload SQL file to D1 (${putRes.status}): ${text}`);
@@ -153,7 +157,7 @@ index 0c393f7ac21dd128ae2422513ca85d8f6d575110..3d3ab9288850a26807272dfcb0f8cce8
  //# sourceMappingURL=ImportDatabase.js.map
 \ No newline at end of file
 diff --git a/src/Cloudflare/D1/ImportDatabase.ts b/src/Cloudflare/D1/ImportDatabase.ts
-index d01958b4601a7cba01644b41d4c361d3f5dacc0f..986c251c019c32711284e362cbd8e2a22c9dbb32 100644
+index d01958b4601a7cba01644b41d4c361d3f5dacc0f..a24dc0299091d89db808574f3e74e9be91c88a13 100644
 --- a/src/Cloudflare/D1/ImportDatabase.ts
 +++ b/src/Cloudflare/D1/ImportDatabase.ts
 @@ -31,12 +31,40 @@ interface ImportPollingResponse {
@@ -226,7 +230,7 @@ index d01958b4601a7cba01644b41d4c361d3f5dacc0f..986c251c019c32711284e362cbd8e2a2
        etag,
      });
 +    const uploadFilename = options.filename ?? init.filename ?? "import.sql";
-+
+ 
 +    // Reads one reply: a failure dies with its error or the reply, completion
 +    // ends the import, and a reply still in progress is polled again with its
 +    // bookmark one second later, so a server that answers at once cannot drive
@@ -255,7 +259,7 @@ index d01958b4601a7cba01644b41d4c361d3f5dacc0f..986c251c019c32711284e362cbd8e2a2
 +        });
 +        return yield* settle(next, "D1 import poll reply missing bookmark");
 +      });
- 
++
 +    // No upload URL: Cloudflare already holds a file with this etag, init has
 +    // started its import, and init's reply is the first to read.
      if (!init.uploadUrl) {
@@ -280,8 +284,16 @@ index d01958b4601a7cba01644b41d4c361d3f5dacc0f..986c251c019c32711284e362cbd8e2a2
  
      // Step 2: PUT to the presigned upload URL
      const bytes =
-@@ -89,42 +173,20 @@ export const importD1Database = (options: ImportDatabaseOptions) =>
-     const putRes = yield* client.execute(putReq).pipe(Effect.orDie);
+@@ -86,45 +170,27 @@ export const importD1Database = (options: ImportDatabaseOptions) =>
+     const putReq = HttpClientRequest.put(init.uploadUrl).pipe(
+       HttpClientRequest.bodyUint8Array(bytes, "application/sql"),
+     );
+-    const putRes = yield* client.execute(putReq).pipe(Effect.orDie);
++    // A failed connection dies with the error's kind alone: the error holds
++    // the request, whose URL carries the upload signature.
++    const putRes = yield* client.execute(putReq).pipe(
++      Effect.catch((error) => Effect.die(`Failed to upload SQL file to D1: ${error.reason._tag}`)),
++    );
      if (putRes.status < 200 || putRes.status >= 300) {
        const text = yield* putRes.text.pipe(Effect.orElseSucceed(() => ""));
 -      return yield* Effect.die(`Failed to upload SQL file to D1 (${putRes.status}): ${text}`);

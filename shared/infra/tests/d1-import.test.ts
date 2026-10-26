@@ -57,12 +57,15 @@ const COPIES = [
   { copy: "lib", path: "lib/Cloudflare/D1/ImportDatabase.js" },
 ] as const;
 
+const ALCHEMY_DIR = alchemyDir();
+
 const load = (path: string): Promise<ImportModule> =>
-  import(/* @vite-ignore */ join(alchemyDir(), path)) as Promise<ImportModule>;
+  import(/* @vite-ignore */ join(ALCHEMY_DIR, path)) as Promise<ImportModule>;
 
 const API = "https://api.cloudflare.test/client/v4";
 const SIGNATURE = "c0ffee5ignature0123456789abcdef";
-const UPLOAD_URL = `https://upload.r2.test/import.sql?X-Amz-Expires=3600&X-Amz-Signature=${SIGNATURE}`;
+const CREDENTIAL = "AKIDEXAMPLE%2F20261026%2Fauto%2Fs3%2Faws4_request";
+const UPLOAD_URL = `https://upload.r2.test/import.sql?X-Amz-Credential=${CREDENTIAL}&X-Amz-Expires=3600&X-Amz-Signature=${SIGNATURE}`;
 const ERROR = "seating table plan is not a plan of its event: SQLITE_CONSTRAINT";
 
 interface Reply {
@@ -75,10 +78,10 @@ const json = (value: unknown, status = 200): Reply => ({ status, body: JSON.stri
 /** A successful Cloudflare v4 envelope around `result`. */
 const ok = (result: unknown): Reply => json({ success: true, errors: [], messages: [], result });
 
-/** The replies the scripted API gives; polls are answered in order. */
+/** The replies the scripted API gives; polls are answered in order. An unreachable upload throws. */
 interface Script {
   readonly init?: Reply;
-  readonly put?: Reply;
+  readonly put?: Reply | "unreachable";
   readonly ingest?: Reply;
   readonly polls?: readonly Reply[];
 }
@@ -115,7 +118,9 @@ async function run(module: ImportModule, script: Script): Promise<Run> {
   const polls = [...(script.polls ?? [])];
 
   const route = (method: string, body: string): Reply => {
-    if (method === "PUT") return script.put ?? { status: 200, body: "" };
+    if (method === "PUT") {
+      return typeof script.put === "object" ? script.put : { status: 200, body: "" };
+    }
     const { action } = JSON.parse(body) as { readonly action?: string };
     if (action === "init") {
       return script.init ?? ok({ upload_url: UPLOAD_URL, filename: "import-abc.sql" });
@@ -129,6 +134,9 @@ async function run(module: ImportModule, script: Script): Promise<Run> {
     const request = new globalThis.Request(input, init);
     const body = await request.text();
     requests.push({ method: request.method, body });
+    if (request.method === "PUT" && script.put === "unreachable") {
+      throw new TypeError(`Unable to connect to ${request.url}`);
+    }
     const reply = route(request.method, body);
     return new Response(reply.body, {
       status: reply.status,
@@ -351,6 +359,14 @@ describe.each(COPIES)("alchemy's D1 import, $copy copy", ({ path }) => {
     const message = failure(exit);
     expect(message).toContain(shows);
     expect(message).not.toContain(SIGNATURE);
+  });
+
+  test("f″: an upload that cannot connect reports the failure's kind, never the upload URL", async () => {
+    const { exit } = await run(await load(path), { put: "unreachable" });
+    const message = failure(exit);
+    expect(message).toContain("Failed to upload SQL file to D1: TransportError");
+    expect(message).not.toContain(SIGNATURE);
+    expect(message).not.toContain("AKIDEXAMPLE");
   });
 
   test("g: an in-progress reply is polled again with its bookmark, a second after it lands", async () => {
