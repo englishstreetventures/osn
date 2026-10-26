@@ -509,9 +509,9 @@ const handler: ExportedHandler<Env> = {
         osnAudience: env.OSN_AUDIENCE,
         oidc,
         // Back-channel revoke endpoint: enabled only when the shared secret is
-        // set (else it answers 503). No new rate limiter wired here — the
-        // in-memory default in createApp is generous enough for the
-        // infrequent revoke/delete calls.
+        // set, at least 32 characters (else it answers 503). The in-memory
+        // default limiter in createApp counts only refused callers, so osn-api,
+        // holding the secret, is never limited.
         internalRevokeSecret: env.CIRE_INTERNAL_REVOKE_SECRET ?? null,
         // The digest's stop links are signed with a key derived from the OIDC
         // client secret; the cron below signs them from the same value.

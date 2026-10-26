@@ -384,10 +384,9 @@ const defaultOidcStartLimiter = createRateLimiter({ maxRequests: 15, windowMs: 6
  */
 const defaultOidcSessionLimiter = createRateLimiter({ maxRequests: 60, windowMs: 60_000 });
 /**
- * Default per-IP limiter for the internal back-channel revoke endpoint.
- * Server-to-server (osn-api) + shared-secret gated, so this only caps abuse if
- * the URL is probed; 30/min is far more than the infrequent revoke/delete
- * events ever need.
+ * Default per-IP limiter for the internal back-channel revoke endpoint. Only a
+ * caller refused for a wrong or missing secret spends it, so it slows probing
+ * of the URL and never limits osn-api.
  */
 const defaultInternalRevokeLimiter = createRateLimiter({ maxRequests: 30, windowMs: 60_000 });
 /**
