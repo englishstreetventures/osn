@@ -79,6 +79,7 @@ describe("dev-seed.sql over a chart the seating-plans migration moved", () => {
     const title = lines.findIndex((line) => line.startsWith("-- Seating chart"));
     expect(title, "dev-seed.sql has no Seating chart section").toBeGreaterThan(0);
     const next = lines.findIndex((line, i) => i > title + 1 && isRule(line));
+    expect(next, "no section follows Seating chart in dev-seed.sql").toBeGreaterThan(title);
     return [...lines.slice(0, title - 1), ...lines.slice(next)].join("\n");
   }
 
@@ -129,6 +130,28 @@ describe("dev-seed.sql over a chart the seating-plans migration moved", () => {
       )
       .get();
     expect(strays?.n).toBe(0);
+  });
+
+  it("re-creates a deleted table on the migration's plan, and its seat on that table's plan", () => {
+    const db = movedDatabase();
+    const [backfilled] = db
+      .query<{ id: string }, []>("SELECT id FROM seating_plans WHERE selected = 1")
+      .all();
+    const gone = seatingTables[1].id;
+    db.query("DELETE FROM seating_tables WHERE id = ?").run(gone);
+    db.exec(readFileSync(SEED, "utf8"));
+    const table = db
+      .query<{ plan_id: string }, [string]>("SELECT plan_id FROM seating_tables WHERE id = ?")
+      .get(gone);
+    expect(table?.plan_id).toBe(backfilled?.id);
+    const restored = db
+      .query<{ plan_id: string }, [string]>(
+        "SELECT plan_id FROM seating_assignments WHERE table_id = ?",
+      )
+      .all(gone);
+    expect(restored).toEqual(
+      seats.filter((s) => s.tableId === gone).map(() => ({ plan_id: backfilled!.id })),
+    );
   });
 });
 
