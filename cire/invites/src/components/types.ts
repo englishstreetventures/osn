@@ -277,3 +277,13 @@ export interface ClaimResult {
    */
   member?: unknown;
 }
+
+/**
+ * The chosen member's own email address, as the claim payload carries it
+ * (`member.email`): the stored form, and who gave it — the guest on this
+ * invite, or the hosts. Read only through `readMemberEmail`.
+ */
+export interface MemberEmail {
+  address: string;
+  source: "guest" | "organiser_attested";
+}

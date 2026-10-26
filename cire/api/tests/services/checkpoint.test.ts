@@ -103,9 +103,11 @@ describe("captureBeforeImage", () => {
     const beforeGuests = r2._store.get("imports/imp-2/before/guests.csv")!;
     expect(beforeGuests).toBeDefined();
     // Full fidelity plus provenance: Family Code + Guest ID + the two source
-    // columns present, live code included.
+    // columns and the address's consent record present, live code included.
     expect(
-      beforeGuests.split("\r\n")[0]!.endsWith(",Family Code,Guest ID,Family Source,Guest Source"),
+      beforeGuests
+        .split("\r\n")[0]!
+        .endsWith(",Family Code,Guest ID,Family Source,Guest Source,Guest Email Record"),
     ).toBe(true);
     expect(beforeGuests).toContain(fam!.publicId);
   });

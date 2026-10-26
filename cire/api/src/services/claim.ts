@@ -1,4 +1,5 @@
 import {
+  emailSuppressions,
   families,
   guests,
   events,
@@ -10,11 +11,11 @@ import {
 import { parsePresets } from "@cire/dietary";
 import { isSafeCssColor } from "@cire/theme";
 import { jsonEachIn } from "@shared/db-utils";
-import { eq, and, asc, count, getTableColumns, inArray, ne, isNull } from "drizzle-orm";
+import { eq, and, asc, count, getTableColumns, inArray, ne, isNull, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import { Effect, Data } from "effect";
 
-import { DbService, dbQuery } from "../db";
+import { DbService, dbQuery, outerColumn } from "../db";
 import { memberStepOn } from "../lib/account-linking";
 import { resolveRsvpDeadline } from "../lib/rsvp-deadline";
 import {
@@ -27,6 +28,7 @@ import type { AccountLinkMatchResult } from "../metrics";
 import type {
   AccountLinkState,
   ClaimResponse,
+  MemberEmail,
   OrganiserGuestRow,
   OrganiserHouseholdRow,
   DressSwatch,
@@ -34,6 +36,7 @@ import type {
 import type { ChildrenPolicy, PlusOnePolicy, RunOfShowItem } from "../schemas/import";
 import { decodeCrop, type ImageCrop } from "../schemas/invite";
 import { type LinkFacts, linkStateFor, readLinkFacts } from "./account-link";
+import { bindsSeat } from "./email-suppression";
 import { eventImagePath, versionFromKey } from "./event-image";
 import { inviteFaqService } from "./invite-faq";
 import type { OsnAccountResolver } from "./osn-bridge";
@@ -273,7 +276,7 @@ function buildClaimResponse(
   return Effect.all([buildInvite(family), accountLinkState(family, gate)], {
     concurrency: "unbounded",
   }).pipe(
-    Effect.flatMap(([invite, { state: linkState, facts }]) =>
+    Effect.flatMap(([{ invite, emails }, { state: linkState, facts }]) =>
       Effect.gen(function* () {
         // No member step, and no "Answered by" on the replies shown: a host
         // preview is not a guest seat, and an excluded wedding's household
@@ -308,10 +311,13 @@ function buildClaimResponse(
         }
         if (state.match) metricAccountLinkMatch(state.match);
         const { match: _match, ...accountLink } = state;
+        // The chosen member's own address rides with them; another member's
+        // never does.
+        const email = member === null ? undefined : emails.get(member);
         return {
           ...invite,
           accountLink,
-          member: member === null ? null : { guestId: member },
+          member: member === null ? null : email ? { guestId: member, email } : { guestId: member },
         };
       }),
     ),
@@ -337,10 +343,19 @@ export function singleChoosableMember(
   return choosable.length === 1 ? (choosable[0]?.guestId ?? null) : null;
 }
 
-/** Everything in the claim payload except the account-link state. Pure read. */
-function buildInvite(
-  family: FamilyRow,
-): Effect.Effect<Omit<ClaimResponse, "accountLink">, never, DbService> {
+/**
+ * Everything in the claim payload except the account-link state, and beside
+ * it each member's stored address, which the payload carries only for the
+ * member the session chose. Pure read.
+ */
+function buildInvite(family: FamilyRow): Effect.Effect<
+  {
+    invite: Omit<ClaimResponse, "accountLink">;
+    emails: ReadonlyMap<string, MemberEmail>;
+  },
+  never,
+  DbService
+> {
   return Effect.gen(function* () {
     const db = yield* DbService;
 
@@ -412,6 +427,8 @@ function buildInvite(
               sortOrder: guests.sortOrder,
               plusOneAllowed: guests.plusOneAllowed,
               plusOneOf: guests.plusOneOfGuestId,
+              email: guests.email,
+              emailSource: guests.emailSource,
               eventId: guestEvents.eventId,
             })
             .from(guests)
@@ -458,9 +475,13 @@ function buildInvite(
       }
     >();
     const eventIds = new Set<string>();
+    const emails = new Map<string, MemberEmail>();
     for (const row of guestRows) {
       let member = memberMap.get(row.guestId);
       if (!member) {
+        if (row.email !== null && row.emailSource !== null) {
+          emails.set(row.guestId, { address: row.email, source: row.emailSource });
+        }
         member = {
           guestId: row.guestId,
           firstName: row.firstName,
@@ -548,7 +569,7 @@ function buildInvite(
     const closingImageUrl = closingContent?.imageKey
       ? `/api/invite/${encodeURIComponent(slug)}/image/footer?v=${versionFromKey(closingContent.imageKey)}`
       : null;
-    return {
+    const invite = {
       familyId: family.id,
       publicId: family.publicId,
       familyName: family.familyName,
@@ -612,6 +633,7 @@ function buildInvite(
         entries: faqEntries,
       },
     };
+    return { invite, emails };
   });
 }
 
@@ -834,6 +856,14 @@ export const claimService = {
             codeSharedAt: families.codeSharedAt,
             firstOpenedAt: families.firstOpenedAt,
             deactivatedAt: families.deactivatedAt,
+            email: guests.email,
+            emailSource: guests.emailSource,
+            // Whether the stored address is suppressed for this guest — a
+            // wedding-wide withdrawal, or one this seat made of an address it
+            // typed: one seek on the list's `(wedding_id, email_hash)` index
+            // per row, and none that finds a row for a guest with no address
+            // (NULL matches nothing).
+            emailOptedOut: sql<number>`exists (select 1 from ${emailSuppressions} where ${emailSuppressions.weddingId} = ${outerColumn(families.weddingId)} and ${emailSuppressions.emailHash} = ${outerColumn(guests.emailHash)} and ${bindsSeat(outerColumn(guests.id))})`,
             eventId: guestEvents.eventId,
           })
           .from(guests)
@@ -876,6 +906,9 @@ export const claimService = {
             // code is disabled (a withdrawn invite); drives the muted row + the
             // Reactivate toggle in the organiser guest table.
             deactivatedAt: row.deactivatedAt === null ? null : row.deactivatedAt.getTime(),
+            email: row.email,
+            emailSource: row.email === null ? null : row.emailSource,
+            emailOptedOut: Boolean(row.emailOptedOut),
           };
           byGuest.set(row.guestId, entry);
         }

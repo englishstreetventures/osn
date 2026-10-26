@@ -1,0 +1,10 @@
+{
+  // The tests run under Bun (`bun:test`, `node:fs`) and use ES2023 methods such
+  // as `toSorted`; the shipped source keeps the narrower `../tsconfig.json`.
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2023"],
+    "types": ["bun-types"]
+  },
+  "include": ["./**/*"]
+}

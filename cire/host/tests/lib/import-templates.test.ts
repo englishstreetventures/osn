@@ -72,9 +72,19 @@ describe("events template", () => {
 });
 
 describe("guests template", () => {
+  // Byte-for-byte, so a row that falls out of line with its header — a
+  // nickname landing under Guest Email — fails here. The API parses the same
+  // copy (`spreadsheet.test.ts`, "round-trips the guests starter template"),
+  // so the starter sheet can never fail its own import.
+  it("is exactly the sheet the API parses", () => {
+    expect(buildGuestsTemplateCsv()).toBe(
+      "Family ID,Family Name,Guest First Name,Guest Last Name,Guest Nickname,Guest Email,Ceremony,Reception\r\nfam-001,Nguyen,An,Nguyen,,,x,x\r\nfam-001,Nguyen,Binh,Nguyen,,,x,\r\nfam-002,Okafor,Chidi,Okafor,Chi,,,yes",
+    );
+  });
+
   it("emits the required + optional guest columns followed by the example event columns", () => {
     expect(firstLine(buildGuestsTemplateCsv())).toBe(
-      "Family ID,Family Name,Guest First Name,Guest Last Name,Guest Nickname,Ceremony,Reception",
+      "Family ID,Family Name,Guest First Name,Guest Last Name,Guest Nickname,Guest Email,Ceremony,Reception",
     );
   });
 

@@ -44,6 +44,14 @@ export interface OrganiserGuestRow {
   codeSharedAt: number | null;
   firstOpenedAt: number | null;
   deactivatedAt: number | null;
+  /** The guest's address in its stored form, or `null` for none. Absent from
+   *  an API older than the column: the editor then sends no address at all. */
+  email?: string | null;
+  /** Who gave the address: the guest on the invite, or an organiser. */
+  emailSource?: "guest" | "organiser_attested" | null;
+  /** The wedding's suppression list holds this address: guest comms will not
+   *  mail it. */
+  emailOptedOut?: boolean;
 }
 
 interface CacheEntry {

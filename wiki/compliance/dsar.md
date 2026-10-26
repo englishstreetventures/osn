@@ -275,6 +275,35 @@ owners, each with an `owner` seat. Two consequences:
   replies they last wrote or attested; guest, household and event ids or names
   go in only for a wedding where the requester still holds a seat, since
   outside it they are other people's data (Art. 15(4)).
+- **Guest email addresses (migration `20261026144244_guest_emails`).** A guest's `guests.email` and its
+  consent record (`email_source`, `email_consent_at`, `email_consent_version`,
+  `email_attested_by_osn_profile_id`) are the guest's data, and their requests
+  go to an owner like any guest's. Access: the six columns on their row
+  (`email_hash` included); any `email_suppressions` row whose `email_hash`
+  equals the SHA-256 of `wedding_id + ":" + address` (the list holds no
+  address, so it is found only by hashing the requester's); and the copies in
+  the wedding's change history — read the `Guest Email` column of each object
+  its `imports` rows name in `cire-sheets` (uploads, editor drafts, previews,
+  before-images). The attester's profile id identifies a co-host:
+  an access answer says the hosts added the address, not which host
+  (Art. 15(4)). Rectification (Art. 16): the guest replaces the address on
+  the invite; an address the hosts added that it replaces is recorded as the
+  seat's opt-out (`reason = 'guest_corrected'`), so a later sheet or revert
+  does not put it back unseen. Erasure: the guest removes the address on the
+  invite at once, which also records their opt-out — for the wedding when the
+  hosts added it, for their own seat alone when they gave it themselves
+  (`reason = 'guest_removed_own'`); an owner or editor removes
+  it in the guest editor; deleting the guest deletes the row. A guest asking never to be
+  emailed again keeps their suppression row, which is the record of that
+  objection (Art. 21(3)); deleting it as well is erasure of the objection, and
+  an operator does it by hand on request. The same hand delete — by
+  `(wedding_id, email_hash, guest_id)` — clears an opt-out another household
+  made against someone's address the hosts had put on its seat, when the person whose address it is asks. An erasure request from the
+  attesting **organiser** nulls their id in the same pass that removes their
+  seat: `UPDATE guests SET email_attested_by_osn_profile_id = NULL WHERE email_attested_by_osn_profile_id = ?`;
+  the address and the rest of its record stay, as evidence an organiser
+  attested. A revert never writes the id back: a restored record names its
+  attester only while they hold a seat on the wedding.
 - **Unlock-code redemptions.** `unlock_code_redemptions.redeemed_by_osn_profile_id`
   names the owner who redeemed a code for a wedding. It is the organiser's data
   in an organiser's access request. An erasure request from that organiser nulls
@@ -320,7 +349,8 @@ the orphan-tolerance framing is defensible on the merits:
   obligation to erase it survives the organiser's OSN-account deletion and is
   discharged through the organiser, not by cascading from OSN identity.
 - The **organiser attribution ids** (`rsvps.recorded_by_osn_profile_id`,
-  `rsvps.dietary_attested_by_osn_profile_id`, `rsvp_changes.actor_osn_profile_id`)
+  `rsvps.dietary_attested_by_osn_profile_id`, `rsvp_changes.actor_osn_profile_id`,
+  `guests.email_attested_by_osn_profile_id`)
   are a record of what one person did to replies the couple and guests share,
   kept for the Art. 5(2) and 7(1) evidence in [[dpia/cire-guest-data]]. Once OSN
   deletes the account, the id is opaque and resolves to no one; the change-log

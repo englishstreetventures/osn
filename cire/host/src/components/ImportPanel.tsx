@@ -1,9 +1,10 @@
+import { ORGANISER_EMAIL_ATTESTATION } from "@cire/guest-email";
 import Button from "@cire/ui/button";
 import { useAuth } from "@shared/rp-auth/solid";
 import { Field } from "@shared/ui/ui/field";
 import { Notice } from "@shared/ui/ui/notice";
 import type { JSX } from "solid-js";
-import { createSignal, Show, For, onMount } from "solid-js";
+import { createEffect, createSignal, Show, For, on, onMount } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { downloadBlob, downloadCsv } from "../lib/download";
@@ -31,6 +32,7 @@ import {
   LinkedTasksChoice,
   PlanCounts,
 } from "./ChangePreview";
+import EmailAttestationCheck from "./EmailAttestationCheck";
 import SectionIntro from "./SectionIntro";
 interface ImportPlan {
   eventCreates: unknown[];
@@ -62,8 +64,12 @@ interface PreviewResponse {
   plan: ImportPlan;
   warnings: string[];
   scope?: ImportKind | "both";
+  /** How many guest addresses the sheet sets on the organiser's word. Absent
+   *  from an API older than addresses. */
+  emailAttestations?: number;
 }
 
+/** The `changes/apply` body this panel sends. */
 interface ApplyResponse {
   summary: {
     changeId: string;
@@ -201,6 +207,11 @@ export default function ImportPanel(props: {
   // Whether the organiser chose to remove the checklist tasks linked to the
   // events the upload removes. Asked afresh for every preview.
   const [removeLinked, setRemoveLinked] = createSignal(false);
+  // The organiser's tick on the address attestation, for the preview on
+  // screen; a new preview starts unticked.
+  const [attested, setAttested] = createSignal(false);
+  createEffect(on(preview, () => setAttested(false)));
+  const needsAttestation = () => (preview()?.emailAttestations ?? 0) > 0;
 
   async function handlePreview(e: Event) {
     e.preventDefault();
@@ -256,20 +267,29 @@ export default function ImportPanel(props: {
     }
   }
 
+  /** The apply body: the change, the linked tasks the organiser chose to
+   *  remove, and the attestation once ticked. */
+  function applyBody(p: PreviewResponse): ApplyChangeBody {
+    const body: ApplyChangeBody = { changeId: p.changeId };
+    // Linked tasks are kept unless the organiser ticked the box.
+    const linked = p.plan.linkedTasks ?? [];
+    if (removeLinked() && linked.length > 0) body.removeLinkedTasks = linked.map((t) => t.id);
+    if (needsAttestation() && attested()) {
+      body.emailAttestation = ORGANISER_EMAIL_ATTESTATION.version;
+    }
+    return body;
+  }
+
   async function handleApply() {
     const p = preview();
     if (!p) return;
     setError(null);
     setBusy(true);
-    // Linked tasks are kept unless the organiser ticked the box.
-    const applyBody: ApplyChangeBody = { changeId: p.changeId };
-    const linked = p.plan.linkedTasks ?? [];
-    if (removeLinked() && linked.length > 0) applyBody.removeLinkedTasks = linked.map((t) => t.id);
     try {
       const res = await authFetch(importUrl("apply"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(applyBody),
+        body: JSON.stringify(applyBody(p)),
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as ImportErrorBody;
@@ -507,7 +527,20 @@ export default function ImportPanel(props: {
                 <For each={p().plan.warnings}>{(w) => <li>{w}</li>}</For>
               </ul>
             </Show>
-            <Button variant="primary" class="self-start" onClick={handleApply} disabled={busy()}>
+            <Show when={needsAttestation()}>
+              <EmailAttestationCheck
+                count={p().emailAttestations ?? 0}
+                checked={attested()}
+                onChange={setAttested}
+                disabled={busy()}
+              />
+            </Show>
+            <Button
+              variant="primary"
+              class="self-start"
+              onClick={handleApply}
+              disabled={busy() || (needsAttestation() && !attested())}
+            >
               {busy() ? "Applying…" : "Apply import"}
             </Button>
           </div>
@@ -858,6 +891,15 @@ function GuestsGuidance() {
               them by name (&ldquo;Dear Chi&rdquo;). Set a <Col>Guest Nickname</Col> to greet them
               by that instead of their first name. Ignored for multi-guest households (they're
               greeted as a family).
+            </dd>
+          </div>
+          <div class="flex flex-col gap-0.5">
+            <dt class="text-text">Guest Email (optional)</dt>
+            <dd class="text-text-muted">
+              The guest's own address, for wedding email. Add one only where the guest agreed:
+              applying the sheet asks you to confirm it. Leave the column out and every address
+              stays as it is; a blank cell removes one you added. An address a guest gave themselves
+              on their invite is theirs, and a sheet never changes it.
             </dd>
           </div>
         </dl>

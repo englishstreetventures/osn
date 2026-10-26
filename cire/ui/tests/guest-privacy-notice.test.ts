@@ -160,6 +160,49 @@ describe("guest privacy notice", () => {
   });
 
   /**
+   * Each sentence about the email address states something the code does:
+   * only the chosen member's own address reaches the invitation; a removal
+   * stops mail to the guest even if the address is added back, and removing
+   * or replacing an address the hosts added stops it for every seat; the
+   * removed address is kept only as a hash and goes with the year's sweep; the
+   * hash of an address the guest added binds that guest alone, and the hosts
+   * are warned when they add it back for them.
+   */
+  it("names the email address, its basis, who sees it, and how to withdraw it", () => {
+    expect(body).toMatch(phrase("Your email address, if you or your hosts add one"));
+    expect(body).toMatch(phrase("The basis is your consent"));
+    expect(body).toMatch(
+      phrase("never shows one member’s address to someone who says they are another"),
+    );
+    expect(body).toMatch(
+      phrase("Remove the address on your invitation to withdraw it at any time, and we delete it"),
+    );
+    expect(body).toMatch(
+      phrase(
+        "After that we will not email it to you about this wedding, even if it is added again, unless you add it back yourself",
+      ),
+    );
+    expect(body).toMatch(
+      phrase("if your hosts added it, we will not email it to anyone else at the wedding either"),
+    );
+    expect(body).toMatch(
+      phrase(
+        "When you remove your email address, or replace one your hosts added, it comes off your guest record at once",
+      ),
+    );
+    expect(body).toMatch(
+      phrase("We keep a fingerprint of the removed address, not the address itself"),
+    );
+    expect(body).toMatch(
+      phrase(
+        "For an address you added yourself, the fingerprint applies to you alone: your hosts are told if they add it back for you",
+      ),
+    );
+    expect(body).toMatch(phrase("names, RSVPs, dietary needs, email addresses — is deleted"));
+    expect(body).toMatch(phrase("or to your email address being used"));
+  });
+
+  /**
    * The notice is read on cireweddings.com as well as on the invitation, so
    * "the site" has to say which site it means before it is used.
    */

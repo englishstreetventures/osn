@@ -1,4 +1,5 @@
 import { Database } from "bun:sqlite";
+import { createHash } from "node:crypto";
 
 import * as schema from "@cire/db";
 import {
@@ -7,6 +8,7 @@ import {
   events as eventsData,
   guests as guestsData,
 } from "@cire/db/seed";
+import { GUEST_EMAIL_CONSENT, ORGANISER_EMAIL_ATTESTATION } from "@cire/guest-email";
 import { and, eq, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
@@ -107,10 +109,27 @@ CREATE TABLE IF NOT EXISTS guests (
   plus_one_allowed INTEGER NOT NULL DEFAULT 0,
   plus_one_of_guest_id TEXT REFERENCES guests(id) ON DELETE CASCADE,
   created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
+  updated_at INTEGER NOT NULL,
+  email TEXT,
+  email_source TEXT,
+  email_consent_at INTEGER,
+  email_consent_version TEXT,
+  email_attested_by_osn_profile_id TEXT,
+  email_hash TEXT
 );
 CREATE INDEX IF NOT EXISTS guests_family_id_sort_idx ON guests(family_id, sort_order);
 CREATE UNIQUE INDEX IF NOT EXISTS guests_plus_one_of_uniq ON guests(plus_one_of_guest_id) WHERE plus_one_of_guest_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS email_suppressions (
+  id TEXT PRIMARY KEY,
+  wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,
+  email_hash TEXT NOT NULL,
+  guest_id TEXT REFERENCES guests(id) ON DELETE SET NULL,
+  reason TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS email_suppressions_seat_uniq ON email_suppressions(wedding_id, email_hash, guest_id);
+CREATE INDEX IF NOT EXISTS email_suppressions_guest_idx ON email_suppressions(guest_id) WHERE guest_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS events (
   id TEXT PRIMARY KEY,
@@ -1097,7 +1116,7 @@ function seatDevOwner(db: TestDb, weddingId: string, seatId: string, now: Date):
 }
 
 /**
- * Seven weddings for the E2E suite's organiser flows, each on Gold. The dev
+ * Eight weddings for the E2E suite's organiser flows, each on Gold. The dev
  * profile, which osn-api's `/dev/login` signs in as, owns all but
  * `wed_e2e_rs_helper`, where it is a helper:
  *
@@ -1118,10 +1137,17 @@ function seatDevOwner(db: TestDb, weddingId: string, seatId: string, now: Date):
  *   and settles in the wedding's currency, one cash fund and nothing to
  *   reserve, unpublished. For the portal on a site that cannot take a money
  *   gift: the stack's cire-api holds a Stripe key and no webhook secret.
+ * - `wed_e2e_emails`: one household, Tanaka, of Gus with no address and Hana
+ *   with an address she gave herself on the invite, for adding an address in
+ *   the guest editor under the organiser's attestation.
  * - `wed_e2e_seating`: a reception whose one seating plan, "Plan 1", is in
  *   use — Ada and Bo Alpha at Table 1, Cy Charlie at Table 2, all three having
  *   said yes — and an after party, inviting Ada, with no plan yet; for setting
  *   out and seating an event's chart.
+ *
+ * It also gives Bo, of the sample wedding's Sampleton household, an address
+ * his hosts added, so the member-step flow can check the invitation shows it
+ * to him as theirs.
  *
  * The co-hosts are bare profile ids with no OSN account behind them; the local
  * server resolves no names, so the portal shows the ids. Every id and value a
@@ -1434,6 +1460,82 @@ export function seedE2eOrganiser(db: TestDb): void {
       updatedAt: now,
     })
     .run();
+
+  wedding("wed_e2e_emails", "emails-wedding", "Emails Wedding");
+  seatDevOwner(db, "wed_e2e_emails", "whost_e2e_emails_owner", now);
+  db.insert(schema.families)
+    .values({
+      id: "fam_e2e_tanaka",
+      weddingId: "wed_e2e_emails",
+      publicId: "TANAKA-E2E-EM01",
+      familyName: "Tanaka",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  db.insert(schema.guests)
+    .values([
+      {
+        id: "gst_e2e_gus",
+        familyId: "fam_e2e_tanaka",
+        firstName: "Gus",
+        lastName: "Tanaka",
+        sortOrder: 0,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: "gst_e2e_hana",
+        familyId: "fam_e2e_tanaka",
+        firstName: "Hana",
+        lastName: "Tanaka",
+        sortOrder: 1,
+        createdAt: now,
+        updatedAt: now,
+        email: "hana.own@e2e.test",
+        // The value `hashGuestEmail` (services/email-suppression.ts) gives,
+        // computed with node:crypto because the seed runs synchronously.
+        emailHash: createHash("sha256").update("wed_e2e_emails:hana.own@e2e.test").digest("hex"),
+        emailSource: "guest",
+        emailConsentAt: now,
+        emailConsentVersion: GUEST_EMAIL_CONSENT.version,
+      },
+    ])
+    .run();
+
+  // Gus withdrew the address the flow's second sheet gives him
+  // (`CIRE_ORGANISER.emails.sheetAddresses.second`), so re-adding it warns.
+  db.insert(schema.emailSuppressions)
+    .values({
+      id: "sup_e2e_gus",
+      weddingId: "wed_e2e_emails",
+      emailHash: createHash("sha256").update("wed_e2e_emails:gus.second@e2e.test").digest("hex"),
+      guestId: "gst_e2e_gus",
+      reason: "guest_removed",
+      createdAt: now,
+    })
+    .run();
+
+  const sampleton = db
+    .select({ id: schema.families.id })
+    .from(schema.families)
+    .where(eq(schema.families.publicId, "TESTTWO-OAK-BB22"))
+    .get();
+  if (sampleton) {
+    db.update(schema.guests)
+      .set({
+        email: "bo.sampleton@e2e.test",
+        emailHash: createHash("sha256")
+          .update(`${schema.BOOTSTRAP_WEDDING_ID}:bo.sampleton@e2e.test`)
+          .digest("hex"),
+        emailSource: "organiser_attested",
+        emailConsentAt: now,
+        emailConsentVersion: ORGANISER_EMAIL_ATTESTATION.version,
+        emailAttestedByOsnProfileId: DEV_OWNER_PROFILE_ID,
+      })
+      .where(and(eq(schema.guests.familyId, sampleton.id), eq(schema.guests.firstName, "Bo")))
+      .run();
+  }
 
   seedE2eSeating(db, now);
 }

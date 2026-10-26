@@ -336,6 +336,35 @@ export const guests = sqliteTable(
     }),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+    // ── Email address (migration 20261026144244_guest_emails) ──────────────
+    // The data-map row: [[wiki/compliance/data-map]].
+    // Per guest, never per household. Stored normalised (`normaliseGuestEmail`
+    // in `@cire/guest-email`): trimmed, lower-cased. NULL = no address, and
+    // then every column below is NULL too.
+    email: text("email"),
+    // Who supplied the address, and whose consent stands behind it, the pair
+    // `rsvps.consent_source` records for a reply: `'guest'` = the guest gave
+    // it on the invite for this seat and ticked the consent box (the household
+    // trust model: the seat is the household's word, and the address is not
+    // verified); `'organiser_attested'` = an owner or editor added it in the
+    // guest editor or a spreadsheet and attested the guest agreed. Plain text
+    // with no CHECK, so a new value needs no DDL.
+    emailSource: text("email_source", { enum: ["guest", "organiser_attested"] }),
+    // When the guest consented, or the organiser attested.
+    emailConsentAt: integer("email_consent_at", { mode: "timestamp" }),
+    // Which wording was on screen: `GUEST_EMAIL_CONSENT.version` or
+    // `ORGANISER_EMAIL_ATTESTATION.version`.
+    emailConsentVersion: text("email_consent_version"),
+    // The organiser whose attestation it is (an opaque OSN profile id, no
+    // cross-DB FK, like `rsvps.dietary_attested_by_osn_profile_id`); NULL for
+    // `'guest'`.
+    emailAttestedByOsnProfileId: text("email_attested_by_osn_profile_id"),
+    // The address's suppression hash (`hashGuestEmail` in
+    // `cire/api/src/services/email-suppression.ts`), written with the address,
+    // so the guest list matches it against `email_suppressions` without
+    // hashing on read, and a guest's removal records the address the row holds
+    // at that moment. NULL iff `email` is NULL.
+    emailHash: text("email_hash"),
   },
   (t) => [
     index("guests_family_id_sort_idx").on(t.familyId, t.sortOrder),
@@ -349,6 +378,59 @@ export const guests = sqliteTable(
     uniqueIndex("guests_plus_one_of_uniq")
       .on(t.plusOneOfGuestId)
       .where(sql`plus_one_of_guest_id IS NOT NULL`),
+  ],
+);
+
+/**
+ * Addresses a wedding must not email: the suppression list guest comms read
+ * before every send (migration 20261026144244_guest_emails). A row is
+ * written when a guest removes an address the hosts added to their seat
+ * (`reason = 'guest_removed'`), when a guest replaces one with a different
+ * address (`reason = 'guest_corrected'`: the guest has said the hosts' address
+ * is wrong), and when a guest removes an address they gave themselves
+ * (`reason = 'guest_removed_own'`). Sending code adds its own reasons (an
+ * unsubscribe, a bounce) without DDL, since `reason` has no CHECK.
+ *
+ * Holds no address: `email_hash` is the SHA-256 hex of
+ * `wedding_id + ":" + address` (`hashGuestEmail` in
+ * `cire/api/src/services/email-suppression.ts`), so a withdrawn address is not
+ * kept in plain text here, and without a candidate address one person's rows
+ * cannot be joined across weddings. Anyone holding a candidate address can
+ * test it, so it is pseudonymous personal data.
+ *
+ * An address is suppressed for a seat when a row matches
+ * `(wedding_id, email_hash)` and either binds the wedding — every reason but
+ * `guest_removed_own` — or is a `guest_removed_own` row that seat made: one
+ * seat's objection to an address the hosts added stops mail to every seat
+ * holding it, while removing an address the guest typed binds that seat alone.
+ * `guest_id` is the seat that made the row, and only that seat putting the
+ * address back clears it, so one household cannot undo another's opt-out.
+ * When the guest row goes the opt-out stays, with `guest_id` NULL; a
+ * `guest_removed_own` row left so binds nobody.
+ */
+export const emailSuppressions = sqliteTable(
+  "email_suppressions",
+  {
+    id: text("id").primaryKey(),
+    weddingId: text("wedding_id")
+      .notNull()
+      .references(() => weddings.id, { onDelete: "cascade" }),
+    emailHash: text("email_hash").notNull(),
+    guestId: text("guest_id").references(() => guests.id, { onDelete: "set null" }),
+    reason: text("reason", {
+      enum: ["guest_removed", "guest_corrected", "guest_removed_own"],
+    }).notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  (t) => [
+    // One opt-out per seat per address. Its leading columns are the send-time
+    // lookup, `(wedding_id, email_hash)`.
+    uniqueIndex("email_suppressions_seat_uniq").on(t.weddingId, t.emailHash, t.guestId),
+    // The probe SET NULL runs on every guest delete. PARTIAL, as the plus-one
+    // index above is: rows left by a removed guest are NULL here.
+    index("email_suppressions_guest_idx")
+      .on(t.guestId)
+      .where(sql`guest_id IS NOT NULL`),
   ],
 );
 

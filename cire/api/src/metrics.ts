@@ -98,6 +98,9 @@ export const CIRE_METRICS = {
   plusOneChanged: "cire.plus_one.changed",
   plusOneBlocked: "cire.plus_one.blocked",
   plusOnePermissionSet: "cire.plus_one.permission.set",
+  // Guest email addresses: set or cleared, by who supplied them; writes refused.
+  guestEmailChanged: "cire.guest_email.changed",
+  guestEmailBlocked: "cire.guest_email.blocked",
   // Checklist tasks seeded from a template, by template.
   checklistTemplateApplied: "cire.tasks.template.applied",
   // Seats put on or taken off a checklist task, by action and outcome.
@@ -517,6 +520,26 @@ export type PlusOneAction = "added" | "renamed" | "removed";
  *  revoking permission with the remove flag. */
 export type PlusOneActor = "guest" | "organiser";
 type PlusOneChangedAttrs = { action: PlusOneAction; actor: PlusOneActor };
+/** Who changed a guest's address: the guest on the invite, or an organiser
+ *  through the change pipeline (an editor save, an upload or a revert). */
+export type GuestEmailActor = "guest" | "organiser";
+/** `set` stores an address (new or replaced); `cleared` removes one. */
+export type GuestEmailAction = "set" | "cleared";
+type GuestEmailChangedAttrs = { by: GuestEmailActor; action: GuestEmailAction };
+/** Why a write was refused. Bounded, one per refusal. `attestation_stale`:
+ *  an apply would set addresses on the organiser's word other than the ones
+ *  its preview showed. */
+export type GuestEmailBlockReason =
+  | "not_a_guest"
+  | "member_step_off"
+  | "member_required"
+  | "member_changed"
+  | "invalid"
+  | "consent_outdated"
+  | "too_many_changes"
+  | "attestation_required"
+  | "attestation_stale";
+type GuestEmailBlockedAttrs = { reason: GuestEmailBlockReason };
 type ChecklistTemplateAppliedAttrs = { template: ChecklistTemplateId };
 /** `add` puts a seat on a task; `remove` takes one off. */
 export type TaskAssignmentAction = "add" | "remove";
@@ -1014,6 +1037,18 @@ const plusOneChanged = createCounter<PlusOneChangedAttrs>({
   unit: "{plus_one}",
 });
 
+const guestEmailChanged = createCounter<GuestEmailChangedAttrs>({
+  name: CIRE_METRICS.guestEmailChanged,
+  description: "Guest email addresses set or cleared, by who changed them",
+  unit: "{address}",
+});
+
+const guestEmailBlocked = createCounter<GuestEmailBlockedAttrs>({
+  name: CIRE_METRICS.guestEmailBlocked,
+  description: "Guest email writes refused, by reason",
+  unit: "{request}",
+});
+
 const checklistTemplateApplied = createCounter<ChecklistTemplateAppliedAttrs>({
   name: CIRE_METRICS.checklistTemplateApplied,
   description: "Checklist tasks added from a template, by template",
@@ -1397,6 +1432,17 @@ export const metricRsvpDigestEmails = (outcome: RsvpDigestOutcome, count = 1): v
 
 export const metricPlusOneChanged = (action: PlusOneAction, actor: PlusOneActor, count = 1): void =>
   plusOneChanged.add(count, { action, actor });
+
+/** `count` guest addresses `by` set or cleared in one write. */
+export const metricGuestEmailChanged = (
+  by: GuestEmailActor,
+  action: GuestEmailAction,
+  count = 1,
+): void => guestEmailChanged.add(count, { by, action });
+
+/** One guest email write refused, and why. */
+export const metricGuestEmailBlocked = (reason: GuestEmailBlockReason): void =>
+  guestEmailBlocked.inc({ reason });
 
 /** Tasks one apply of a checklist template added (none when every picked item
  *  was already on the list). */

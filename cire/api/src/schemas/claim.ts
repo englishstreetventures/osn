@@ -15,6 +15,41 @@ export const ChooseMemberBody = Schema.Struct({
 });
 export type ChooseMemberBody = Schema.Schema.Type<typeof ChooseMemberBody>;
 
+/**
+ * The longest `email` a guest may send. The address rule allows 254
+ * characters after trimming; this bounds the raw field before any work.
+ */
+const MAX_RAW_EMAIL_LENGTH = 1024;
+
+/**
+ * `PUT /api/claim/member/email`: the address the chosen member gives for
+ * themselves. `memberGuestId` is the member the page showed, so a reply from a
+ * tab another tab has since replaced is refused rather than filed under the
+ * wrong seat; `consentVersion` names the consent wording the page showed.
+ */
+export const GuestEmailBody = Schema.Struct({
+  memberGuestId: Schema.NonEmptyString,
+  email: Schema.String.check(Schema.isMaxLength(MAX_RAW_EMAIL_LENGTH)),
+  consentVersion: Schema.String,
+});
+export type GuestEmailBody = Schema.Schema.Type<typeof GuestEmailBody>;
+
+/** `DELETE /api/claim/member/email`: remove the chosen member's address. */
+export const GuestEmailRemoveBody = Schema.Struct({
+  memberGuestId: Schema.NonEmptyString,
+});
+export type GuestEmailRemoveBody = Schema.Schema.Type<typeof GuestEmailRemoveBody>;
+
+/**
+ * A member's address as the household sees it: the stored form, and who gave
+ * it — the guest on this invite, or the hosts.
+ */
+export const MemberEmail = Schema.Struct({
+  address: Schema.String,
+  source: Schema.Literals(["guest", "organiser_attested"]),
+});
+export type MemberEmail = Schema.Schema.Type<typeof MemberEmail>;
+
 // ── Response shapes ───────────────────────────────────────────────────────────
 
 export const DressSwatch = Schema.Struct({
@@ -194,8 +229,11 @@ export const ClaimResponse = Schema.Struct({
   // household, `null` until chosen. Absent on a host preview, which is not a
   // guest seat, and for a household of a wedding in
   // `CIRE_MEMBER_STEP_EXCLUDED_WEDDING_IDS` while account linking is off for it
-  // (`memberStepOn`).
-  member: Schema.optional(Schema.NullOr(Schema.Struct({ guestId: Schema.String }))),
+  // (`memberStepOn`). `email` is that member's own address, present only when
+  // one is stored; never another member's.
+  member: Schema.optional(
+    Schema.NullOr(Schema.Struct({ guestId: Schema.String, email: Schema.optional(MemberEmail) })),
+  ),
 });
 export type ClaimResponse = Schema.Schema.Type<typeof ClaimResponse>;
 
@@ -240,6 +278,15 @@ export const OrganiserGuestRow = Schema.Struct({
   // mutes the row + offers a Reactivate toggle. Family-level, so per-guest rows
   // in the same family carry the same value; the UI dedupes by family.
   deactivatedAt: Schema.NullOr(Schema.Number),
+  // The guest's address, in its stored form, or `null` for none, and who gave
+  // it: the guest on the invite, or an organiser under their attestation. The
+  // editor shows a guest's own address read-only, with Remove.
+  email: Schema.NullOr(Schema.String),
+  emailSource: Schema.NullOr(Schema.Literals(["guest", "organiser_attested"])),
+  // True when the suppression list holds this address for this guest — a
+  // guest withdrew one the hosts added, or this guest withdrew one they typed
+  // — so guest comms will not mail it here whoever added it back.
+  emailOptedOut: Schema.Boolean,
 });
 export type OrganiserGuestRow = Schema.Schema.Type<typeof OrganiserGuestRow>;
 

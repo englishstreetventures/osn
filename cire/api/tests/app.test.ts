@@ -497,6 +497,20 @@ describe("a refused request does no credential work", () => {
       limiter: "claimSessionLimiter",
     },
     {
+      name: "PUT /api/claim/member/email",
+      method: "PUT",
+      path: "/api/claim/member/email",
+      limiter: "claimSessionLimiter",
+      body: { memberGuestId: "gst_probe", email: "probe@example.test", consentVersion: "x" },
+    },
+    {
+      name: "DELETE /api/claim/member/email",
+      method: "DELETE",
+      path: "/api/claim/member/email",
+      limiter: "claimSessionLimiter",
+      body: { memberGuestId: "gst_probe" },
+    },
+    {
       name: "PUT /api/plus-one/:guestId",
       method: "PUT",
       path: "/api/plus-one/gst_probe",

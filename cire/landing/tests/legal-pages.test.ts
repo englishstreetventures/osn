@@ -74,6 +74,25 @@ describe("legal pages", () => {
    * (`GiftSummary` in `cire/api/src/services/retention.ts`) that outlives the
    * year, so the couples' notice says what it holds and how long it stays.
    */
+  // The hosts' attestation is evidence the couple rely on: the notice names
+  // what is recorded, the duty to pass on the guest notice, that a guest's
+  // removal or replacement of a host's address stops mail to it, and that a
+  // host cannot change a guest's own address.
+  it("the hosts' notice names the guest-email attestation and its limits", () => {
+    const text = hosts.replace(/\s+/g, " ");
+    expect(text).toMatch(/you confirm that the guest agreed to get emails about the wedding/);
+    expect(text).toMatch(
+      /you also agree to pass our <a href="\/privacy\/guests">guest privacy notice<\/a> on to them/,
+    );
+    expect(text).toMatch(
+      /once they remove or replace it, we do not email it about the wedding again, even if it is added back/,
+    );
+    expect(text).toMatch(/You cannot change an address a guest added themselves, only remove it/);
+    expect(text).toMatch(
+      /our legitimate interest, and the couple&rsquo;s, in being able to show the consent/,
+    );
+  });
+
   it("the hosts' notice names the gift record the couple keep after the guest data goes", () => {
     expect(hosts).toMatch(/the couple keep a record of their gifts with no guest names in it/);
     expect(hosts).toMatch(/the amount, currency and day of each money gift/);

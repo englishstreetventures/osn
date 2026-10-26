@@ -133,6 +133,13 @@ function malformedDetail(body: ImportErrorBody): string {
         `${body.reason.replace(" is required", "")} can't be blank. If this looks like a leftover empty row, delete the whole row — a row is only skipped when every single cell in it is empty.`,
       );
 
+    // The address itself is never echoed back: the body carries only where.
+    case "Guest Email is not a valid email address":
+      return at(
+        body,
+        "Guest Email must be one email address, like name@example.com, with no spaces or accented letters — not a name, a list of addresses, or a note. Leave the cell blank for a guest with no address.",
+      );
+
     case "Start must be an ISO-8601 timestamp":
     case "End must be an ISO-8601 timestamp":
       return at(

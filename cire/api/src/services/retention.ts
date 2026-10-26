@@ -1,4 +1,5 @@
 import {
+  emailSuppressions,
   events,
   families,
   guestEvents,
@@ -229,14 +230,16 @@ export const retentionService = {
       // a result-column alias.
       const finalEventAt = sql<string>`max(max(${events.endAt}, ${events.startAt}))`;
       // Only weddings that still hold something this sweep deletes: every
-      // guest-data table hangs off `families` (guests, rsvps, guest_events,
-      // claims, contributions, sessions, links), and the sheet keys live on
-      // `imports`. A swept wedding keeps its events, so without this the oldest
+      // guest-data table but one hangs off `families` (guests, rsvps,
+      // guest_events, claims, contributions, sessions, links), the sheet keys
+      // live on `imports`, and the email suppressions hang off the wedding
+      // itself, so a wedding whose households are all gone can still hold
+      // them. A swept wedding keeps its events, so without this the oldest
       // swept weddings would fill the cap on every run and no newer wedding
       // would ever be reached. In HAVING, after the cutoff test, so the probes
       // run once per expired wedding rather than once per event row; the
       // wedding id is `outerColumn` so each probe correlates to its group.
-      const holdsGuestData = sql`(exists (select 1 from ${families} where ${outerColumn(families.weddingId)} = ${outerColumn(events.weddingId)}) or exists (select 1 from ${imports} where ${outerColumn(imports.weddingId)} = ${outerColumn(events.weddingId)}))`;
+      const holdsGuestData = sql`(exists (select 1 from ${families} where ${outerColumn(families.weddingId)} = ${outerColumn(events.weddingId)}) or exists (select 1 from ${imports} where ${outerColumn(imports.weddingId)} = ${outerColumn(events.weddingId)}) or exists (select 1 from ${emailSuppressions} where ${outerColumn(emailSuppressions.weddingId)} = ${outerColumn(events.weddingId)}))`;
       const expired = yield* dbQuery(() =>
         db
           // Selected as well as filtered on: the gift summary email dates the
@@ -392,7 +395,15 @@ export const retentionService = {
           let guestsDeleteAt: number | null = null;
           const result = yield* Effect.tryPromise({
             try: () => {
-              const stmts: BatchItem<"sqlite">[] = [];
+              // The wedding's email opt-outs first: they are children of
+              // `guests` too (`guest_id` SET NULL), so deleting them before
+              // the guests leaves that action nothing to rewrite. Kept no
+              // longer than the addresses they stop mail to.
+              const stmts: BatchItem<"sqlite">[] = [
+                db
+                  .delete(emailSuppressions)
+                  .where(inArray(emailSuppressions.weddingId, jsonEachIn(ids))),
+              ];
               if (familyIds.length > 0) {
                 // seats + rsvps + guest_events → guests (children) before
                 // families (parent). guest_events and the seats included for

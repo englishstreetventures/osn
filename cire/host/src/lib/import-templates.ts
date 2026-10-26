@@ -64,9 +64,13 @@ export const GUEST_TEMPLATE_FIXED_HEADERS = [
 /**
  * Optional guest columns. `Guest Nickname` personalises the greeting for a
  * one-guest code ("Dear {nickname}" instead of their first name); it's ignored
- * for multi-guest households. Safe to omit entirely.
+ * for multi-guest households. `Guest Email` is the guest's address for wedding
+ * email: applying a sheet that adds or changes one asks the organiser to
+ * confirm the guest agreed, and a sheet never changes an address a guest gave
+ * themselves. Both are safe to omit entirely: a sheet without `Guest Email`
+ * leaves every address as it is.
  */
-export const GUEST_OPTIONAL_HEADERS = ["Guest Nickname"] as const;
+export const GUEST_OPTIONAL_HEADERS = ["Guest Nickname", "Guest Email"] as const;
 
 /**
  * Placeholder event columns in the guests template. The organiser MUST rename
@@ -159,10 +163,12 @@ export function buildGuestsTemplateCsv(): string {
     [...GUEST_TEMPLATE_FIXED_HEADERS, ...GUEST_OPTIONAL_HEADERS, ...GUEST_TEMPLATE_EXAMPLE_EVENTS],
     // Two guests, same Family ID → one household (nickname is ignored for a
     // multi-guest code, shown here only to illustrate the column).
-    ["fam-001", "Nguyen", "An", "Nguyen", "", "x", "x"],
-    ["fam-001", "Nguyen", "Binh", "Nguyen", "", "x", ""],
+    // The Guest Email cells are left blank: a starter sheet should hold no
+    // real address an organiser has not confirmed.
+    ["fam-001", "Nguyen", "An", "Nguyen", "", "", "x", "x"],
+    ["fam-001", "Nguyen", "Binh", "Nguyen", "", "", "x", ""],
     // A second household with a single guest → greeted "Dear Chi" via the nickname.
-    ["fam-002", "Okafor", "Chidi", "Okafor", "Chi", "", "yes"],
+    ["fam-002", "Okafor", "Chidi", "Okafor", "Chi", "", "", "yes"],
   ];
   return toCsv(rows);
 }

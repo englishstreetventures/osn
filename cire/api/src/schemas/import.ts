@@ -1,3 +1,4 @@
+import { isValidGuestEmail, normaliseGuestEmail } from "@cire/guest-email";
 import { isSafeCssColor } from "@cire/theme";
 import { Schema } from "effect";
 
@@ -159,6 +160,22 @@ export const ParsedEvent = Schema.Struct({
 });
 export type ParsedEvent = Schema.Schema.Type<typeof ParsedEvent>;
 
+/** The longest raw `email` / `emailExpected` the editor door accepts. */
+const MAX_RAW_EMAIL_LENGTH = 1024;
+
+/**
+ * A guest's address as the editor sends it: `""` (none) or a string that is
+ * one address once normalised. Validation only; the diff normalises.
+ */
+const DraftEmail = Schema.String.check(
+  Schema.makeFilter((s) =>
+    s.length <= MAX_RAW_EMAIL_LENGTH &&
+    (s.trim().length === 0 || isValidGuestEmail(normaliseGuestEmail(s)))
+      ? undefined
+      : "email must be blank or one email address",
+  ),
+);
+
 export const ParsedGuest = Schema.Struct({
   /** Optional stable id from the `Guest ID` fidelity column (E2). Absent ⇒
    *  match by `(family, firstName)` as today; present ⇒ match by id, so a
@@ -170,8 +187,37 @@ export const ParsedGuest = Schema.Struct({
   nickname: Schema.NullOr(BoundedText("nickname")),
   /** Names of events the guest is invited to. */
   eventNames: Schema.Array(Schema.String),
+  /**
+   * The guest's address. ABSENT leaves the stored address as it is (a sheet
+   * without the `Guest Email` column, an editor row the organiser did not
+   * touch); `null` or `""` clears it; a string sets it. Who supplied an
+   * address is never on the wire: an address set here is the organiser's,
+   * under their attestation at apply.
+   */
+  email: Schema.optional(Schema.NullOr(DraftEmail)),
+  /**
+   * The address the editor loaded for this guest, sent with `email`. The
+   * write happens only while the stored address still equals it, so an
+   * address a guest saved since the editor loaded is never overwritten.
+   */
+  emailExpected: Schema.optional(
+    Schema.NullOr(Schema.String.check(Schema.isMaxLength(MAX_RAW_EMAIL_LENGTH))),
+  ),
 });
 export type ParsedGuest = Schema.Schema.Type<typeof ParsedGuest>;
+
+/**
+ * The consent record behind a stored address, as a before-image carries it:
+ * who supplied it, when (epoch ms), under which wording, and the attesting
+ * organiser, if any.
+ */
+export const EmailRecord = Schema.Struct({
+  source: Schema.Literals(["guest", "organiser_attested"]),
+  consentAt: Schema.Number,
+  version: Schema.String,
+  attestedBy: Schema.NullOr(Schema.String),
+});
+export type EmailRecord = Schema.Schema.Type<typeof EmailRecord>;
 
 export const ParsedFamily = Schema.Struct({
   /** Optional stable id — the internal family id from the full-fidelity
@@ -213,6 +259,13 @@ export type Provenance = "import" | "manual";
  */
 export interface DesiredGuest extends ParsedGuest {
   readonly source?: Provenance;
+  /**
+   * The consent record behind `email`, set only by the revert's snapshot
+   * parser. Like `source` it is not on {@link ParsedGuest}, so an editor body
+   * cannot claim one: a client can never present an address as the guest's
+   * own, or skip the organiser's attestation.
+   */
+  readonly emailRecord?: EmailRecord;
 }
 
 /** A desired household as the diff reads it — see {@link DesiredGuest}. */
@@ -348,6 +401,26 @@ export const GuestRemove = Schema.Struct({
 });
 export type GuestRemove = Schema.Schema.Type<typeof GuestRemove>;
 
+/**
+ * One guest's address the plan sets or clears. `email` null clears it, and
+ * `emailHash` is its suppression hash (null with it). `emailWas` and
+ * `emailSourceWas` are the stored address and its source the diff decided
+ * against: the write applies only while both still are, so an address a guest
+ * saved between the diff and the commit — even the same address, now theirs —
+ * is never overwritten. `record` is the consent record a revert restores;
+ * without one the address is the applying organiser's, stamped from their
+ * attestation.
+ */
+export const GuestEmailWrite = Schema.Struct({
+  guestId: Schema.String,
+  email: Schema.NullOr(Schema.String),
+  emailHash: Schema.NullOr(Schema.String),
+  emailWas: Schema.NullOr(Schema.String),
+  emailSourceWas: Schema.NullOr(Schema.Literals(["guest", "organiser_attested"])),
+  record: Schema.optional(EmailRecord),
+});
+export type GuestEmailWrite = Schema.Schema.Type<typeof GuestEmailWrite>;
+
 export const EventLink = Schema.Struct({
   guestId: Schema.String,
   eventId: Schema.String,
@@ -383,6 +456,17 @@ export const ImportPlan = Schema.Struct({
   guestRemoves: Schema.Array(GuestRemove),
   eventLinkCreates: Schema.Array(EventLink),
   eventLinkRemoves: Schema.Array(EventLink),
+  /** Addresses set or cleared, after the guest creates and updates. Absent
+   *  on a plan from a caller that changes none. */
+  emailWrites: Schema.optional(Schema.Array(GuestEmailWrite)),
+  /**
+   * A digest of the addresses the plan sets on the organiser's word: for each,
+   * the guest, the address's hash and whether the wedding has suppressed it.
+   * The preview stores it and apply refuses a plan whose digest differs, so
+   * the attestation covers the set the preview showed. Absent when the plan
+   * sets no such address. Holds no address or hash in the clear.
+   */
+  emailAttestationDigest: Schema.optional(Schema.String),
   warnings: Schema.Array(Schema.String),
   /** The tasks linked to the events in `eventRemoves`; absent when it removes
    *  none, or none has a task linked to it. */
@@ -431,6 +515,12 @@ export type PreviewBody = Schema.Schema.Type<typeof PreviewBody>;
  */
 export const ApplyBody = Schema.Struct({
   changeId: Schema.String,
+  /**
+   * `ORGANISER_EMAIL_ATTESTATION.version`, sent when the preview set any
+   * address (`emailAttestations > 0`): the organiser ticked the attestation.
+   * Apply refuses such a change without it.
+   */
+  emailAttestation: Schema.optional(Schema.String),
   confirmClears: Schema.optional(
     Schema.Struct({
       events: Schema.Number,

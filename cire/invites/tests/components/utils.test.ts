@@ -6,6 +6,7 @@ import {
   isValidRsvpSaveResponse,
   readAccountLink,
   readMember,
+  readMemberEmail,
 } from "../../src/components/utils";
 
 describe("isValidClaimResponse", () => {
@@ -545,6 +546,39 @@ describe("readMember", () => {
   it("reads the chosen member, or none yet", () => {
     expect(readMember({ ...base, member: null })).toEqual({ guestId: null });
     expect(readMember({ ...base, member: { guestId: "g-1" } })).toEqual({ guestId: "g-1" });
+  });
+});
+
+describe("readMemberEmail", () => {
+  const base = { publicId: "X", familyName: "Y", members: [], events: [], rsvps: [] };
+  const email = { address: "cleo@example.test", source: "guest" };
+
+  // The address is optional and unproven. A malformed one costs only the
+  // email box's saved state, never the member step or the invite.
+  it("reads no address when it is absent or malformed, and keeps the member step", () => {
+    for (const bad of [
+      undefined,
+      null,
+      "cleo@example.test",
+      { address: 7, source: "guest" },
+      { address: "cleo@example.test", source: "someone" },
+    ]) {
+      const result = { ...base, member: { guestId: "g-1", email: bad } };
+      expect(readMemberEmail(result)).toBeNull();
+      expect(readMember(result)).toEqual({ guestId: "g-1" });
+      expect(isValidClaimResponse(result)).toBe(true);
+    }
+  });
+
+  it("reads the chosen member's address and who gave it", () => {
+    expect(readMemberEmail({ ...base, member: { guestId: "g-1", email } })).toEqual(email);
+    expect(
+      readMemberEmail({
+        ...base,
+        member: { guestId: "g-1", email: { ...email, source: "organiser_attested" } },
+      }),
+    ).toEqual({ ...email, source: "organiser_attested" });
+    expect(readMemberEmail({ ...base, member: null })).toBeNull();
   });
 });
 
