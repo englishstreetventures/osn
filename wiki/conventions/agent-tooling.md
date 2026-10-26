@@ -7,7 +7,7 @@ related:
   - "[[session-metrics]]"
   - "[[contributing]]"
   - "[[wiki-search]]"
-last-reviewed: 2026-10-23
+last-reviewed: 2026-10-26
 ---
 
 # Agent tooling
@@ -23,6 +23,27 @@ Locally the repository is the bare `~/.work/osn.git`, and every worktree — `ma
 ## Settings
 
 `.claude/settings.json` is committed, so its hooks travel to remote sessions that never read a local config — that is what makes a standing rule hold everywhere. Personal hooks and permissions go in `.claude/settings.local.json`, which is gitignored. A personal untracked `settings.json` blocks the pull that brings the tracked one down.
+
+### The guard hook
+
+A `PreToolUse` hook runs [`scripts/agent-guard.ts`](../../scripts/agent-guard.ts) before every `Bash`, `Write`, `Edit` and `Agent` call and every GitHub MCP write. It refuses a call that breaks a standing rule, and names the fix in its reason:
+
+| Refused | Rule |
+|---|---|
+| `bun install` without `--frozen-lockfile` (or `-g`), `bun update`, `bun add --filter`, inside a tree with a `bun.lock` | Installs |
+| A heredoc inside `$(…)` or backticks | Commands |
+| `git commit` or `git push` on `main`, judged in the directory the command runs in (`cd`, `git -C`, a branch switch earlier in the line), and a push whose destination ref is `main` | Never commit to `main` |
+| A tracker finding ID in a commit message, in `gh pr`, `gh issue` or `gh api` text (inline, `--body-file`, `-F body=@file`, `--input`), or in a GitHub MCP write, unless it targets `englishstreetventures/osn-tracker` | Issues |
+| A Write or Edit of a test or spec file under a workspace's `src/`, in any worktree of this repository | Tests |
+| An `Agent` call with no `subagent_type`, which starts `general-purpose` | Choose subagents by definition |
+
+It catches slips; it is not enforcement, and `AGENTS.md` keeps every rule for agents that run no hooks. It reads only the call itself, never file contents already in the repository. Every failure lets the call through: unreadable input, an unreadable file, a `git` error, a directory it cannot resolve, a thrown check.
+
+The hook command, inline in `settings.json`, runs **main's copy** of the script: `git show origin/main:scripts/agent-guard.ts` into a fresh `mktemp -d`, then `bun --no-env-file --no-install --config=<empty file>` from that directory, so no checkout `bunfig.toml`, `.env` or edited guard runs. That holds while the checked-out `.claude/settings.json` is main's. Claude Code reloads a changed settings file mid-session, so a branch's own settings can still replace the hook. Two consequences of reading `origin/main`: the guard is absent until a fetch has brought the script down, and a fix to it takes effect only after the next fetch.
+
+`AGENT_GUARD_REF=<ref>` runs another ref's copy, which is how a branch tests a change to the guard in a fresh `claude -p` session. [`scripts/tests/agent-guard.test.ts`](../../scripts/tests/agent-guard.test.ts) covers the rules and [`agent-guard.cli.test.ts`](../../scripts/tests/agent-guard.cli.test.ts) runs the command as `settings.json` holds it. Both run in `bun run test:scripts`. A call costs a Bun start and two `git` calls.
+
+*Measured 2026-10-26 — median of 15 runs of the hook command on a `Bash` input, in a cloud container: 22 ms.*
 
 ## Subagents
 

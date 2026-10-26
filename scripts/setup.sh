@@ -10,8 +10,8 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-echo "==> Installing dependencies (bun install)"
-bun install
+echo "==> Installing dependencies (bun install --frozen-lockfile)"
+bun install --frozen-lockfile
 
 echo "==> Registering git hooks (lefthook install)"
 bunx --bun lefthook install
