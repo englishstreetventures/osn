@@ -10,6 +10,7 @@ import { Effect, Layer } from "effect";
 import { type AppOptions, createApp } from "./app";
 import { createD1Db, DbService } from "./db";
 import { createSessionRoutedClient, runInD1Session } from "./db/d1-session";
+import { effectDbFor } from "./db/effect-handle";
 import { parseWeddingIdList } from "./lib/account-linking";
 import { claimReviewAlertTarget, sendClaimReviewAlert } from "./lib/claim-review-email";
 import { setExecutionCtx } from "./lib/execution-ctx";
@@ -492,6 +493,8 @@ const handler: ExportedHandler<Env> = {
         );
       }
       const appOptions: AppOptions = {
+        // The RSVP CSV export runs on the Effect handle over the same binding.
+        effectDb: effectDbFor(env.DB, "fetch"),
         allowedOrigins: origins,
         claimLimiter: edgeLimiter,
         accountLinkLimiter: edgeLimiter,

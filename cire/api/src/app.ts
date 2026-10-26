@@ -14,6 +14,7 @@ import { Elysia } from "elysia";
 import type { AnyElysia } from "elysia";
 
 import type { Db } from "./db";
+import type { EffectD1Db } from "./db/effect-handle";
 import type { AccountLinking } from "./lib/account-linking";
 import { deriveDigestStopKey } from "./lib/digest-stop";
 import { DEFAULT_ORGANISER_ORIGIN } from "./lib/organiser-origin";
@@ -395,6 +396,8 @@ function digestStopKeyOnce(secret: string): () => Promise<CryptoKey> {
 }
 
 export interface AppOptions {
+  /** The D1 Effect handle the RSVP CSV export runs on. Absent: the export answers 500. */
+  effectDb?: EffectD1Db;
   /** Primary origin (used for the session cookie's `secure` flag). */
   webOrigin?: string;
   /**
@@ -1095,7 +1098,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
           : new Elysia(),
       )
       .use(createOrganiserWeddingsRoutes(db, osnAuthOptions))
-      .use(createOrganiserExportRoutes(db, osnAuthOptions, exportLimiter))
+      .use(createOrganiserExportRoutes(db, osnAuthOptions, exportLimiter, options.effectDb))
       .use(createOrganiserWeddingCreateRoute(db, osnAuthOptions, weddingCreateLimiter))
       .use(createOrganiserPreviewRoutes(db, osnAuthOptions, previewLimiter))
       .use(createOrganiserRemintRoutes(db, osnAuthOptions, remintLimiter))

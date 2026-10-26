@@ -6,6 +6,7 @@ import { Miniflare } from "miniflare";
 
 import { probeRequests, type ProbeRequest } from "../scripts/d1-latency-probe";
 import { D1_SESSION_CONSTRAINT } from "../src/db/d1-session";
+import { effectDbFor } from "../src/db/effect-handle";
 import { createD1Db } from "../src/db/index";
 import { DDL } from "../src/db/setup";
 import handler from "../src/index";
@@ -1237,6 +1238,34 @@ describe("CSP report site labels from WEB_ORIGIN", () => {
 
     expect(res.status).toBe(204);
     expect(await counterValue(CIRE_METRICS.cspReport, attrs)).toBe(before + 1);
+  });
+});
+
+describe("RSVP CSV export at the Worker entry", () => {
+  it("serves the export through the Effect handle", async () => {
+    const db = createD1Db(DB_REALTIME);
+    const now = new Date();
+    await db
+      .insert(weddings)
+      .values({ id: "wed_csv", slug: "csv", displayName: "CSV", createdAt: now, updatedAt: now })
+      .onConflictDoNothing();
+    await db
+      .insert(weddingHosts)
+      .values(ownerSeat("wed_csv", "usr_csv_owner"))
+      .onConflictDoNothing();
+    const token = await seedOrganiserSession(db, "usr_csv_owner");
+    const res = await handler.fetch!(
+      new Request("https://api.example.com/api/organiser/weddings/wed_csv/rsvps.csv", {
+        headers: { "cf-connecting-ip": "203.0.113.20", cookie: `cire_org_session=${token}` },
+      }) as Parameters<NonNullable<typeof handler.fetch>>[0],
+      { ...BASE_ENV, DB: DB_REALTIME } as unknown as Parameters<
+        NonNullable<typeof handler.fetch>
+      >[1],
+      ctx,
+    );
+    // A 500 here means the wiring lost the Effect handle: the export dies without it.
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-disposition")).toContain("cire-rsvps-csv.csv");
   });
 });
 

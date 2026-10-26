@@ -1,12 +1,13 @@
 {
   // The deployed Worker: Workers types only, so a `Bun.*` call or a `bun:*`
   // import in Worker source fails `check`. The two Bun-only files are left out
-  // here and checked, with the tests, by `tests/tsconfig.json`.
+  // here and checked, with the tests, by `tests/tsconfig.json`. The local D1
+  // binding over bun:sqlite is the third such file.
   "extends": "@shared/typescript-config/base.json",
   "compilerOptions": {
     "lib": ["ES2023"],
     "types": ["@cloudflare/workers-types"]
   },
   "include": ["src/**/*", "worker-configuration.d.ts"],
-  "exclude": ["src/local.ts", "src/db/setup.ts"]
+  "exclude": ["src/local.ts", "src/db/setup.ts", "src/db/local-d1.ts"]
 }

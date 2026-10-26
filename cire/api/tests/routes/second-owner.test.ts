@@ -7,6 +7,8 @@ import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { createApp } from "../../src/app";
+import { effectDbFor } from "../../src/db/effect-handle";
+import { localD1Binding } from "../../src/db/local-d1";
 import { createDb, DEV_OWNER_PROFILE_ID, seedDb } from "../../src/db/setup";
 import type { StripeClient } from "../../src/services/stripe";
 import { appRequest, jsonBody, setTier } from "../test-helpers";
@@ -94,6 +96,7 @@ function buildApp() {
     .run();
   const limiter = () => createRateLimiter({ maxRequests: 1000, windowMs: 60_000 });
   const app = createApp(db, {
+    effectDb: effectDbFor(localD1Binding(db.$client), "fetch"),
     osnTestKey: auth.key,
     organiserOrigin: "https://host.test",
     stripe,
