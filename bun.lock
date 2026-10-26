@@ -1001,6 +1001,7 @@
   "patchedDependencies": {
     "@stryker-mutator/vitest-runner@10.0.0": "patches/@stryker-mutator%2Fvitest-runner@10.0.0.patch",
     "drizzle-orm@1.0.0-rc.5": "patches/drizzle-orm@1.0.0-rc.5.patch",
+    "alchemy@2.0.0-beta.83": "patches/alchemy@2.0.0-beta.83.patch",
   },
   "overrides": {
     "@cloudflare/vite-plugin": "^1.63.1",
