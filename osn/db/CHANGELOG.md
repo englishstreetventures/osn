@@ -1,5 +1,16 @@
 # @osn/db
 
+## 0.24.13
+
+### Patch Changes
+
+- 75ebdfb: Move the monorepo's drizzle-orm from 1.0.0-rc.4 to 1.0.0-rc.5 and drizzle-kit to
+  1.0.0-rc.5 in the db packages. The repository patch that keeps bound values out
+  of drizzle's errors and logs is ported to rc.5 and now also drops `params` from
+  the Effect query error's JSON.
+- Updated dependencies [75ebdfb]
+  - @shared/db-utils@0.8.3
+
 ## 0.24.12
 
 ### Patch Changes
