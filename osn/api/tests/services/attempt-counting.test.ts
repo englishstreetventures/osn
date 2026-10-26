@@ -12,7 +12,7 @@ import { MAX_OTP_ATTEMPTS, TOTP_MAX_ENROLL_ATTEMPTS } from "../../src/services/a
 import { createDefaultCeremonyStores, type CeremonyStores } from "../../src/services/auth/stores";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createFakeNamespace } from "../helpers/coordination-namespace";
-import { createTestLayer } from "../helpers/db";
+import { createTestLayerWithSqlite } from "../helpers/db";
 
 /**
  * Every code-checking ceremony counts its guesses in the store, one atomic
@@ -23,7 +23,9 @@ import { createTestLayer } from "../helpers/db";
  *
  * Each case sends the cap plus three wrong guesses at the same moment, then
  * the right code — which must be refused, because the entry is spent — then
- * begins again and shows the new code works at once.
+ * begins again and shows the new code works at once. Where a right code
+ * consumes the entry, a second case sends it twice at once: the slowed reads
+ * let both past the entry check, so only the claim can refuse the second.
  *
  * Run on both bundles: the in-memory one and the Durable Object one over a
  * stand-in namespace. Every `get` answers a few milliseconds late, as a
@@ -72,13 +74,15 @@ const bundles = {
   }),
 } as const;
 
-/** A mail recorder and the latest six-digit code it captured. */
+/** A database, a mail recorder and the latest six-digit code it captured. */
 function capture() {
   const email = makeLogEmailLive();
+  const db = createTestLayerWithSqlite();
   const codes = () =>
     email.recorded().flatMap((sent) => sent.text.match(/code is: (\d{6})/)?.[1] ?? []);
   return {
-    layer: Layer.merge(createTestLayer(), email.layer),
+    layer: Layer.merge(db.layer, email.layer),
+    sqlite: db.sqlite,
     latest: (): string => {
       const all = codes();
       if (all.length === 0) throw new Error("no code captured");
@@ -102,6 +106,10 @@ function capture() {
 
 /** A six-digit code that is not `right`. */
 const wrongFor = (right: string): string => (right === "000000" ? "111111" : "000000");
+
+/** The authenticator code for `secret` now. */
+const codeFor = (secret: string) =>
+  Effect.promise(() => deriveTotpCode(base32Decode(secret), Math.floor(Date.now() / 1000 / 30)));
 
 describe.each(Object.entries(bundles))("attempt counting on the %s bundle", (_name, bundle) => {
   it.live("step-up OTP: a burst of wrong guesses spends the code; a new one works", () => {
@@ -177,13 +185,28 @@ describe.each(Object.entries(bundles))("attempt counting on the %s bundle", (_na
     },
   );
 
+  it.live("emailed recovery code: of two right codes sent at once, exactly one signs in", () => {
+    const mail = capture();
+    const auth = createAuthService({ ...base, ...bundle() });
+    return Effect.gen(function* () {
+      yield* auth.registerProfile("att-rec2@example.com", "attrec2");
+      yield* auth.beginEmailRecovery("att-rec2@example.com");
+      const right = yield* mail.nth(0);
+      const results = yield* Effect.all(
+        [0, 1].map(() => Effect.result(auth.completeEmailRecovery("att-rec2@example.com", right))),
+        { concurrency: "unbounded" },
+      );
+      const signedIn = results.filter((r) => r._tag === "Success");
+      expect(signedIn).toHaveLength(1);
+      expect(signedIn[0]!.success.session.accessToken).toMatch(/^eyJ/);
+      const refused = results.filter((r) => r._tag === "Failure");
+      expect(refused.map((r) => r.failure._tag)).toEqual(["AuthError"]);
+    }).pipe(Effect.provide(mail.layer));
+  });
+
   it.live("TOTP enrolment: a burst of wrong codes spends the secret; a new one works", () => {
     const mail = capture();
     const auth = createAuthService({ ...base, ...bundle() });
-    const codeFor = (secret: string) =>
-      Effect.promise(() =>
-        deriveTotpCode(base32Decode(secret), Math.floor(Date.now() / 1000 / 30)),
-      );
     return Effect.gen(function* () {
       const profile = yield* auth.registerProfile("att-totp@example.com", "atttotp");
       const token = () => auth.issueStepUpToken(profile.accountId, "passkey", "totp_enroll");
@@ -207,6 +230,31 @@ describe.each(Object.entries(bundles))("attempt counting on the %s bundle", (_na
         null,
       );
       expect(done.enrolled).toBe(true);
+    }).pipe(Effect.provide(mail.layer));
+  });
+
+  it.live("TOTP enrolment: of two right codes sent at once, exactly one enrols", () => {
+    const mail = capture();
+    const auth = createAuthService({ ...base, ...bundle() });
+    return Effect.gen(function* () {
+      const profile = yield* auth.registerProfile("att-totp2@example.com", "atttotp2");
+      const token = yield* auth.issueStepUpToken(profile.accountId, "passkey", "totp_enroll");
+      const begun = yield* auth.beginTotpEnrollment(profile.accountId, token);
+      const right = yield* codeFor(begun.totpSecret);
+      const results = yield* Effect.all(
+        [0, 1].map(() =>
+          Effect.result(auth.completeTotpEnrollment(profile.accountId, right, null)),
+        ),
+        { concurrency: "unbounded" },
+      );
+      const enrolled = results.filter((r) => r._tag === "Success");
+      expect(enrolled.map((r) => r.success)).toEqual([{ enrolled: true }]);
+      const refused = results.filter((r) => r._tag === "Failure");
+      expect(refused.map((r) => r.failure._tag)).toEqual(["AuthError"]);
+      const rows = mail.sqlite
+        .query("SELECT COUNT(*) AS n FROM totp_credentials WHERE account_id = ?")
+        .get(profile.accountId) as { n: number };
+      expect(rows.n).toBe(1);
     }).pipe(Effect.provide(mail.layer));
   });
 
