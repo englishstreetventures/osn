@@ -17,6 +17,6 @@
     "@oxlint/plugins": "1.80.0",
     "@shared/typescript-config": "workspace:*",
     "oxlint": "1.80.0",
-    "typescript": "^6.0.3"
+    "typescript": "7.1.0-beta"
   }
 }

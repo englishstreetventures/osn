@@ -13,7 +13,7 @@
     "dev:app": "dev-env astro dev",
     "build": "astro build && ../../scripts/guard-bundle-size.sh .",
     "preview": "astro preview",
-    "typecheck": "bunx --bun astro check && bun check --no-script -p tests/tsconfig.json",
+    "typecheck": "tsc -p . --runExternalCode && bun check --no-script -p tests/tsconfig.json",
     "favicon": "bun scripts/favicon.ts",
     "test": "vitest run --project unit --project ssr",
     "test:mutation": "bun ../../tools/stryker/src/cli.ts",
@@ -34,13 +34,13 @@
     "@shared/toast": "workspace:*",
     "@shared/ui": "workspace:*",
     "@tailwindcss/vite": "^4.3.3",
-    "astro": "^7.2.10",
+    "astro": "^7.4.2",
     "motion": "^13.1.1",
     "solid-js": "^1.9.15",
     "tailwindcss": "^4.3.3"
   },
   "devDependencies": {
-    "@astrojs/check": "0.9.10",
+    "@astrojs/ts-content-mapper": "0.2.0",
     "@capsizecss/metrics": "^4.2.0",
     "@cire/build-tools": "workspace:*",
     "@shared/dev-urls": "workspace:*",
@@ -50,7 +50,7 @@
     "@vitest/browser-playwright": "5.0.3",
     "jsdom": "^30.0.1",
     "playwright": "^1.62.1",
-    "typescript": "^6.0.3",
+    "typescript": "7.1.0-beta",
     "vite-plugin-solid": "^2.11.14",
     "vitest": "5.0.3",
     "wrangler": "4.149.0"

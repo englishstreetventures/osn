@@ -1,25 +1,24 @@
 // @vitest-environment node
+import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync, realpathSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-import ts from "typescript";
+import { API } from "typescript/sync";
 import { describe, expect, it } from "vitest";
 
 /**
- * Holds every workspace package the guest site imports to the browser floor
- * this site checks its own source at (`lib` in `../tsconfig.json`, the floor in
- * the root `.browserslistrc`).
+ * Holds the guest site, and every workspace package it imports, to the browser
+ * floor (`lib` in `../tsconfig.json`, the floor in the root `.browserslistrc`).
  *
- * `astro check` reports only this package's files, so an imported package's
- * source is checked by that package's own `check`, under its own tsconfig. Each
- * one must therefore state its own `lib`, build a program whose libraries stay
- * within this site's `lib` and that loads no Bun globals (`bun-types` declares
- * newer built-ins whatever `lib` says), run `tsc` on that tsconfig, and cover
- * every module it exports. A new workspace dependency fails here until it does,
- * and until it joins `PACKAGES`.
+ * The site's `typecheck` is one `tsc` program that loads each imported
+ * workspace package's source, `.astro` files included, and checks it at the
+ * site's `lib`. That holds only while the program loads no library above the
+ * floor: `bun-types` declares newer built-ins whatever `lib` says, and so does a
+ * `/// <reference lib>` in any type package. A new workspace dependency also
+ * fails here until it joins `PACKAGES`.
  *
- * Static: reads manifests and source, and builds TypeScript programs without
- * emitting anything.
+ * Static: reads manifests and source, and lists the program's files with
+ * `tsc --listFilesOnly` without checking or emitting anything.
  */
 
 const appRoot = resolve(import.meta.dirname, "..");
@@ -29,7 +28,17 @@ const appRoot = resolve(import.meta.dirname, "..");
  * Firefox 114 and Safari 16.4, which lack ES2023's `toSorted`. Raising it means
  * editing `../tsconfig.json` and this line together.
  */
-const FLOOR_LIB = ["lib.es2022.d.ts", "lib.dom.d.ts", "lib.dom.iterable.d.ts"];
+const FLOOR_LIB = ["ES2022", "DOM", "DOM.Iterable"];
+
+/**
+ * Library files the site program may load. `ES2022` and `DOM` with everything
+ * they build on, plus two that `@types/node` references (`index.d.ts`) and that
+ * add no method the floor browsers lack: `Float16Array` and the
+ * `Symbol.dispose` declarations. Any other library, an ES2023 one above all,
+ * fails the test.
+ */
+const ALLOWED_LIB =
+  /^lib\.(es5|es20(1[5-9]|2[0-2])(\.[a-z.]+)?|dom(\.iterable)?|decorators(\.legacy)?|es2025\.float16|esnext\.disposable)\.d\.ts$/;
 
 /**
  * Workspace packages this site lists in `devDependencies` that never reach a
@@ -55,13 +64,9 @@ const PACKAGES = [
   "@shared/ui",
 ];
 
-type Exports = string | { readonly [entry: string]: Exports };
-
 interface Manifest {
   readonly dependencies?: Readonly<Record<string, string>>;
   readonly devDependencies?: Readonly<Record<string, string>>;
-  readonly exports?: Exports;
-  readonly scripts?: Readonly<Record<string, string>>;
 }
 
 function readManifest(dir: string): Manifest {
@@ -81,7 +86,7 @@ function workspaceNames(deps: Manifest["dependencies"]): string[] {
  * the import scan below holds to). Each resolves through its importer's
  * `node_modules` link, as the bundler does.
  */
-function walkPackages(): Map<string, { dir: string; manifest: Manifest }> {
+function walkPackages(): Map<string, { dir: string }> {
   const own = readManifest(appRoot);
   const queue: Array<readonly [from: string, name: string]> = [
     ...workspaceNames(own.dependencies),
@@ -89,58 +94,37 @@ function walkPackages(): Map<string, { dir: string; manifest: Manifest }> {
   ]
     .filter((name) => !BUILD_ONLY.has(name))
     .map((name) => [appRoot, name] as const);
-  const found = new Map<string, { dir: string; manifest: Manifest }>();
+  const found = new Map<string, { dir: string }>();
   for (let next = queue.shift(); next; next = queue.shift()) {
     const [from, name] = next;
     if (found.has(name)) continue;
     const dir = realpathSync(join(from, "node_modules", name));
     const manifest = readManifest(dir);
-    found.set(name, { dir, manifest });
+    found.set(name, { dir });
     for (const dep of workspaceNames(manifest.dependencies)) queue.push([dir, dep]);
   }
   return found;
 }
 
-/** The shared presets, parsed once for every config that extends them. */
-const extendedConfigs = new Map<string, ts.ExtendedConfigCacheEntry>();
-
-/** A package's `tsconfig.json` as written, and parsed with `extends` followed from its own directory. */
-function readTsconfig(dir: string) {
-  const file = join(dir, "tsconfig.json");
-  const { config, error } = ts.readConfigFile(file, ts.sys.readFile);
-  if (error) throw new Error(ts.flattenDiagnosticMessageText(error.messageText, "\n"));
-  const parsed = ts.parseJsonConfigFileContent(
-    config,
-    ts.sys,
-    dir,
-    undefined,
-    file,
-    undefined,
-    undefined,
-    extendedConfigs,
-  );
-  return { written: config as { compilerOptions?: { lib?: unknown } }, parsed };
+/**
+ * The files the site's own type check loads: `tsc -p . --listFilesOnly` with
+ * the `.astro` content mapper, the same program `typecheck` checks. Workspace
+ * packages the site imports are in it as source, checked at the site's `lib`.
+ */
+function siteProgramFiles(): string[] {
+  const tsc = join(appRoot, "node_modules", ".bin", "tsc");
+  const out = execFileSync(tsc, ["-p", appRoot, "--runExternalCode", "--listFilesOnly"], {
+    encoding: "utf8",
+  });
+  return out.split("\n").filter(Boolean);
 }
 
-/**
- * What a `tsc` run with these root files and options loads beyond the source:
- * the default libraries (from `lib`, a `/// <reference lib>`, or a type package
- * such as `@types/node` that references one), and whether any `bun-types` file
- * came in, by `types` or by a reference.
- */
-function programGlobals(
-  rootNames: readonly string[],
-  options: ts.CompilerOptions,
-  host?: ts.CompilerHost,
-) {
-  const program = ts.createProgram({ rootNames, options, host });
-  const files = program.getSourceFiles();
-  return {
-    libs: files
-      .filter((file) => program.isSourceFileDefaultLibrary(file))
-      .map((file) => file.fileName.slice(file.fileName.lastIndexOf("/") + 1)),
-    bun: files.some((file) => file.fileName.includes("/bun-types/")),
-  };
+/** The site's `lib` as `../tsconfig.json` writes it (JSONC, so TypeScript reads it). */
+function readSiteLib(): unknown {
+  using api = new API({ cwd: appRoot });
+  const { config, error } = api.readConfigFile(join(appRoot, "tsconfig.json"));
+  if (error) throw new Error(error.text);
+  return (config as { compilerOptions?: { lib?: unknown } }).compilerOptions?.lib;
 }
 
 /** The workspace packages a file imports, by bare `@cire/` or `@shared/` specifier. */
@@ -150,37 +134,22 @@ function workspaceImports(file: string): string[] {
   return [...text.matchAll(pattern)].map((match) => match[1]!);
 }
 
-function exportTargets(exports: Exports | undefined): string[] {
-  if (exports === undefined) return [];
-  if (typeof exports === "string") return [exports];
-  return Object.values(exports).flatMap(exportTargets);
-}
-
-/**
- * The libraries the site's `lib` alone loads, with every level it builds on: a
- * program of one empty in-memory file, so nothing but `lib` adds to it.
- */
-function floorLibraries(lib: readonly string[] | undefined): string[] {
-  const options: ts.CompilerOptions = { lib: lib ? [...lib] : undefined, types: [], noEmit: true };
-  const host = ts.createCompilerHost(options);
-  const empty = join(appRoot, "floor.virtual.ts");
-  const { fileExists, getSourceFile } = host;
-  host.fileExists = (name) => name === empty || fileExists(name);
-  host.getSourceFile = (name, version, ...rest) =>
-    name === empty
-      ? ts.createSourceFile(name, "export {};", version)
-      : getSourceFile(name, version, ...rest);
-  return programGlobals([empty], options, host).libs;
-}
-
-const site = readTsconfig(appRoot).parsed.options;
-const floorLibs = floorLibraries(site.lib);
+const siteLib = readSiteLib();
+const files = siteProgramFiles();
+const libs = files
+  .map((file) => file.slice(file.lastIndexOf("/") + 1))
+  .filter((name) => /^lib\..*\.d\.ts$/.test(name));
 const packages = walkPackages();
 
-describe("browser floor of the packages the guest site imports", () => {
+describe("browser floor of the guest site and the packages it imports", () => {
   it("checks the site itself at the floor", () => {
-    expect(site.lib).toEqual(FLOOR_LIB);
-    expect(floorLibs).toContain("lib.es2022.array.d.ts");
+    expect(siteLib).toEqual(FLOOR_LIB);
+    expect(libs).toContain("lib.es2022.array.d.ts");
+  });
+
+  it("loads no library above the floor and no Bun globals", () => {
+    expect(libs.filter((lib) => !ALLOWED_LIB.test(lib))).toEqual([]);
+    expect(files.filter((file) => file.includes("/bun-types/"))).toEqual([]);
   });
 
   it("walks to every workspace package the site ships", () => {
@@ -204,42 +173,20 @@ describe("browser floor of the packages the guest site imports", () => {
     ).toEqual([]);
   });
 
-  describe.each([...packages])("%s", (_name, { dir, manifest }) => {
-    const { written, parsed } = readTsconfig(dir);
+  describe.each([...packages])("%s", (_name, { dir }) => {
+    const src = join(dir, "src") + "/";
 
-    it("parses its tsconfig, extends included, without errors", () => {
-      expect(
-        parsed.errors.map((d) => ts.flattenDiagnosticMessageText(d.messageText, "\n")),
-      ).toEqual([]);
-    });
-
-    it("states its own lib", () => {
-      expect(written.compilerOptions?.lib).toBeDefined();
-    });
-
-    it("builds a program within the site's lib, with no Bun globals", () => {
-      const globals = programGlobals(parsed.fileNames, parsed.options);
-      expect(globals.libs.filter((lib) => !floorLibs.includes(lib))).toEqual([]);
-      expect(globals.bun).toBe(false);
-    });
-
-    it("runs bun check in its typecheck script, with no check script to shadow it", () => {
-      const typecheck = manifest.scripts?.typecheck ?? "";
-      expect(typecheck).toMatch(/\bbun check\b/);
-      expect(typecheck).not.toContain("tsc --noEmit");
-      expect(manifest.scripts?.check).toBeUndefined();
-    });
-
-    it("checks every module it exports", () => {
-      const modules = exportTargets(manifest.exports)
-        .filter((target) => /\.tsx?$/.test(target))
-        .map((target) => resolve(dir, target));
-      expect(modules.length).toBeGreaterThan(0);
-      expect(modules.filter((file) => !parsed.fileNames.includes(file))).toEqual([]);
+    // Source, never built declarations: a `.d.ts` from `dist/` would carry the
+    // package's types into the program without its code, unchecked at the floor.
+    it("reaches the site program only as source", () => {
+      const own = files.filter((file) => file.startsWith(dir + "/"));
+      expect(own.filter((file) => !file.startsWith(src))).toEqual([]);
     });
 
     it("imports from its source only workspace packages the walk reaches", () => {
-      const sources = parsed.fileNames.filter((file) => file.startsWith(join(dir, "src") + "/"));
+      const sources = readdirSync(src, { recursive: true, encoding: "utf8" })
+        .filter((path) => /\.(astro|tsx?|mjs)$/.test(path))
+        .map((path) => join(src, path));
       const imported = new Set(sources.flatMap(workspaceImports));
       expect([...imported].filter((name) => !PACKAGES.includes(name))).toEqual([]);
     });

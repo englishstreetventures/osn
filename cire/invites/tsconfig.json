@@ -14,5 +14,6 @@
     "jsx": "preserve",
     "jsxImportSource": "solid-js"
   },
-  "include": ["src/**/*", "env.d.ts"]
+  "include": ["src/**/*", "env.d.ts"],
+  "contentMappers": [{ "package": "@astrojs/ts-content-mapper", "extensions": [".astro"] }]
 }
