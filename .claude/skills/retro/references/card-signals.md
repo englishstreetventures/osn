@@ -12,7 +12,7 @@ file is only about what a **single** card licenses you to say.
 | Field | Answers | A finding it supports | The trap |
 |---|---|---|---|
 | `spend.usd_equivalent` | What the session cost, as a unit of effort comparable across models | Nothing on its own | It is not money. This work runs on a subscription; the figure is a normalised effort unit, and quoting it as a bill is wrong in both directions |
-| `spend.usd_equivalent ÷ complexity.declared` | Whether cost and declared difficulty agree | "A `complexity:1` issue cost $40 — the brief or the map was missing something" | A `null` here means this card did not fetch a rating, not that none exists. Read the issue's `complexity:` label and use that. Only an issue carrying no such label is genuinely unrated, and only then does the ratio not exist |
+| `spend.usd_equivalent ÷ complexity.declared` | Whether cost and declared difficulty agree | "A `complexity:1` issue cost $40 — the brief or the map was missing something" | `declared` is the sum over every issue the pull request closes: 6 with `complexity.issues: 3` is three issues' work, not one rating of 6. A `null` has a reason in `complexity.method`. `lookup-failed`, or `none` on a card with no pull request, is a card that did not read a rating: sum the `complexity:` labels of the issues the pull request closes and use that. `part-of` is a branch that only advances its issue, whose rating describes the whole of it — never divide by that label. Only then, or for a closed issue with no such label, does the ratio not exist |
 | `spend.by_model` | Which model did the work | "A mechanical rename ran entirely on the expensive model" → `pick-agent` | Model choice is set by the agent definition's frontmatter, so the fix is a `.claude/agents/*.md` file, not an instruction in prose. A dispatch that passed `model`, or went to `general-purpose`, bypassed that file; check the dispatch before the definition |
 | `spend.by_actor` | Whether delegation happened and what it cost | "A cross-package task delegated nothing and hit a compaction" | `subagent: 0` also reads that way when the `TASK-BRANCH:` marker was missing from a dispatch — check `orchestrate`'s Step 3 before concluding no delegation happened |
 | `spend.tokens.cache_read` as a share | How wide the loaded context was | Nothing from one card | A share rising *across* cards is the real signal, and that is `analyse-sessions` |
@@ -39,7 +39,7 @@ file is only about what a **single** card licenses you to say.
 | Field | Answers | A finding it supports | The trap |
 |---|---|---|---|
 | `review: null` | No review report was read | Nothing | Not "no findings". The reports had gone, or none could be placed on this branch |
-| `review.acted_on_paired` vs `.control_changed` | Whether the cited lines changed more than lines nearby did | Nothing from one card | `prep-pr` fixes every in-scope finding, so a high rate says the rule was followed, not that the findings were good. Only tests and docs findings are counted, and most tests findings carry no line |
+| `review.acted_on_paired` vs `.control_changed` | Whether the findings were acted on more often than lines nearby changed | Nothing from one card | `prep-pr` fixes every in-scope finding, so a high rate says the rule was followed, not that the findings were good. Only tests and docs findings are counted, and most tests findings carry no line. A tests finding also counts when a test importing its file landed, which the control cannot do: compare `acted_on_paired - acted_on_paired_by_test` with the control |
 
 ## Window
 

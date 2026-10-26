@@ -73,7 +73,8 @@ packages:
   - "@tools/metrics"
   - "@tools/oxlint-house"
   - "@tools/pr-metrics"
-last-reviewed: 2026-10-20
+  - "@tools/stryker"
+last-reviewed: 2026-10-23
 ---
 
 # Monorepo Structure
@@ -162,6 +163,7 @@ tools/                 # local-only developer tooling, never shipped
   metrics/             # @tools/metrics — session-metrics dashboard over .claude/metrics
   pr-metrics/          # @tools/pr-metrics — the session-performance cards themselves
   oxlint/house/        # @tools/oxlint-house — this repo's own lint rules (oxlint/anti-slop beside it is a vendored upstream copy)
+  stryker/             # @tools/stryker — runs Stryker mutation testing for a cire package (`test:mutation`)
 ```
 
 ## Where to find things
@@ -199,7 +201,7 @@ Platform priority is iOS, then web, then Android (deferred). The iOS apps are Sw
 
 ## Tech Stack
 
-Bun, TypeScript, Elysia, Effect v4 (backend only), Drizzle, SQLite locally and Cloudflare D1 in the deployed tiers (a Supabase Postgres migration is deferred — an open decision issue in `englishstreetventures/osn`), Eden+REST, WebSockets, Signal Protocol (planned), SolidJS, Astro, Turborepo, oxlint, oxfmt, Vitest + @effect/vitest.
+Bun, TypeScript, Elysia, Effect v4 (backend only), Drizzle, SQLite locally and Cloudflare D1 in the deployed tiers (a Supabase Postgres migration is deferred — an open decision issue in `englishstreetventures/osn`), Eden+REST, WebSockets, Signal Protocol (planned), SolidJS, Astro, Turborepo, oxlint, Bun's formatter (`bun fmt`), Vitest + @effect/vitest.
 
 ## Source Files
 

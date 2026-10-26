@@ -1,0 +1,5 @@
+{
+  "name": "ts-lsp",
+  "version": "0.1.0",
+  "description": "TypeScript 7 language server for the LSP tool: the project's own tsc --lsp --stdio"
+}

@@ -1,6 +1,6 @@
 {
   "name": "@osn/db",
-  "version": "0.24.11",
+  "version": "0.24.12",
   "private": true,
   "license": "UNLICENSED",
   "author": "English Street Ventures Pty Ltd",
@@ -26,7 +26,7 @@
     "db:migrate:staging": "bunx wrangler --config ../api/wrangler.toml d1 migrations apply osn-db-staging --env staging --remote",
     "db:migrate:prod": "bunx wrangler --config ../api/wrangler.toml d1 migrations apply osn-db-prod --env production --remote",
     "db:reset:local": "rm -rf ../api/.wrangler/state/v3/d1 && bun run db:migrate:local",
-    "check": "tsc --noEmit",
+    "typecheck": "bun check --no-script",
     "test": "bunx --bun vitest",
     "test:run": "bunx --bun vitest run"
   },

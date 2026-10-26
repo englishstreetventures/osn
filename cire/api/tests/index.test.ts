@@ -14,6 +14,7 @@ import * as osnBridge from "../src/services/osn-bridge";
 import { RECONCILE_STOP_KEY } from "../src/services/r2-reconcile";
 import { jsonBody } from "./test-helpers";
 import { captureLogs } from "./test-helpers/capture-logs";
+import { ddlStatements } from "./test-helpers/ddl-statements";
 import { counterValue } from "./test-helpers/metrics-harness";
 import { seedOrganiserSession } from "./test-helpers/organiser-session";
 import { ownerSeat } from "./test-helpers/wedding";
@@ -126,9 +127,8 @@ beforeAll(async () => {
   // bootstrap wedding row, mirroring a deployed D1 after migration 0015. D1's
   // exec runs newline-separated statements in one round-trip; collapse internal
   // whitespace so each statement is on a single line as exec expects.
-  const ddl = DDL.split(";")
-    .map((s) => s.trim().replace(/\s+/g, " "))
-    .filter(Boolean)
+  const ddl = ddlStatements(DDL)
+    .map((s) => s.replace(/\s+/g, " "))
     .join(";\n");
   await DB.exec(ddl);
   DB_REALTIME = await mf.getD1Database("DB_REALTIME");
@@ -449,6 +449,85 @@ describe("organiser sign-in config on the Worker", () => {
     const elsewhere = await startSignIn(OIDC, "https://attacker.example/");
     expect(elsewhere.res.status).toBe(400);
     expect(await jsonBody(elsewhere.res)).toEqual({ error: "invalid_return_to" });
+  });
+});
+
+describe("money gifts need both Stripe values on the Worker", () => {
+  // Distinctive values, so a log line that carried either would be found.
+  const KEY = "stripe-key-under-test-7f3a";
+  const WEBHOOK_SECRET = "connect-webhook-secret-under-test-9c1d";
+  const WARNING = "money gifts disabled: STRIPE_SECRET_KEY is set without STRIPE_WEBHOOK_SECRET";
+
+  /**
+   * Two guest "give money" requests, with no household cookie, to a Worker
+   * built for `extra` on a binding it has not seen (the app is cached per D1
+   * binding, and the warning is logged when it is built). A mounted route
+   * answers 401 for the missing cookie; an unmounted one answers 404.
+   */
+  async function giveThroughWorker(
+    extra: Record<string, unknown>,
+  ): Promise<{ statuses: number[]; logs: string }> {
+    const freshBinding = {
+      prepare: (query: string) => DB.prepare(query),
+      batch: (statements: D1PreparedStatement[]) => DB.batch(statements),
+      withSession: (constraint: string) => DB.withSession(constraint),
+    };
+    const env = { ...BASE_ENV, ...extra, DB: freshBinding } as unknown as Parameters<
+      NonNullable<typeof handler.fetch>
+    >[1];
+    const give = () =>
+      new Request("https://api.example.com/api/invite/no-such-slug/registry/contribute", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          origin: BASE_ENV.WEB_ORIGIN,
+          "cf-connecting-ip": "203.0.113.64",
+        },
+        body: JSON.stringify({ amountMinor: 5000 }),
+      }) as unknown as Parameters<NonNullable<typeof handler.fetch>>[0];
+    const statuses: number[] = [];
+    const logs = await captureLogs(async () => {
+      statuses.push((await handler.fetch!(give(), env, ctx)).status);
+      statuses.push((await handler.fetch!(give(), env, ctx)).status);
+    });
+    return { statuses, logs };
+  }
+
+  it("offers no money gift with a key and no webhook secret, and says why once, never with the key", async () => {
+    const { statuses, logs } = await giveThroughWorker({ STRIPE_SECRET_KEY: KEY });
+    expect(statuses).toEqual([404, 404]);
+    expect(logs.split(WARNING).length - 1).toBe(1);
+    // What the operator does about it: a warm isolate keeps the app it built.
+    expect(logs).toContain("the Connect webhook secret is set and the Worker redeployed");
+    expect(logs).not.toContain(KEY);
+  });
+
+  it("reads a blank webhook secret as none", async () => {
+    const { statuses, logs } = await giveThroughWorker({
+      STRIPE_SECRET_KEY: KEY,
+      STRIPE_WEBHOOK_SECRET: "   ",
+    });
+    expect(statuses).toEqual([404, 404]);
+    expect(logs.split(WARNING).length - 1).toBe(1);
+  });
+
+  it("mounts the route, and says nothing, with both values set", async () => {
+    const { statuses, logs } = await giveThroughWorker({
+      STRIPE_SECRET_KEY: KEY,
+      STRIPE_WEBHOOK_SECRET: WEBHOOK_SECRET,
+    });
+    expect(statuses).toEqual([401, 401]);
+    expect(logs).not.toContain(WARNING);
+    expect(logs).not.toContain(KEY);
+    expect(logs).not.toContain(WEBHOOK_SECRET);
+  });
+
+  it("says nothing without a key, where there is no payment surface to explain", async () => {
+    for (const extra of [{}, { STRIPE_WEBHOOK_SECRET: WEBHOOK_SECRET }]) {
+      const { statuses, logs } = await giveThroughWorker(extra);
+      expect(statuses).toEqual([404, 404]);
+      expect(logs).not.toContain(WARNING);
+    }
   });
 });
 

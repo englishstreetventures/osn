@@ -125,7 +125,7 @@ Multi-format social content: text posts, image posts, long-form writing, short-f
 
 ### Monorepo structure
 
-Organised by domain. Six top-level directories, one workspace prefix each.
+Organised by domain. Six top-level directories, one workspace prefix each. A seventh, `tools/`, holds the local-only developer tooling under `@tools/*`.
 
 ```
 osn/              # @osn/* — identity stack, the headless system
@@ -174,9 +174,17 @@ shared/           # @shared/* — cross-cutting utilities
   turnstile/         # Key-optional, fail-closed Turnstile verifier
   typescript-config/ # base / node / solid tsconfigs
   ui/                # The shared SolidJS primitives (Button, Card, Modal, Field, Table…)
+
+tools/            # @tools/* — local-only developer tooling, never shipped
+  e2e/              # The end-to-end suite (`bun run test:e2e`)
+  lab/              # Component and three.js scratchpad (`bun run dev:lab`)
+  metrics/          # Session-metrics dashboard over .claude/metrics
+  oxlint/house/     # This repo's own lint rules (@tools/oxlint-house)
+  pr-metrics/       # The session-performance cards
+  stryker/          # Stryker mutation testing for a cire package (`test:mutation`)
 ```
 
-**Prefix rule:** every workspace sits under exactly one of `osn/`, `musubi/`, `pulse/`, `zap/`, `cire/` or `shared/`, and its `package.json` `name` uses the matching prefix.
+**Prefix rule:** every workspace sits under exactly one of `osn/`, `musubi/`, `pulse/`, `zap/`, `cire/`, `shared/` or `tools/`, and its `package.json` `name` uses the matching prefix.
 
 Dependencies flow one way: `shared/*` depends on nothing internal; `osn/*` depends on `shared/*`; `musubi/*`, `pulse/*`, `zap/*` and `cire/*` may depend on `osn/*` and `shared/*` but never on each other. Cross-domain reads go through a bridge module — Pulse reaches the social graph through `graphBridge`, Cire through ARC-gated internal endpoints.
 
@@ -239,7 +247,7 @@ So Pulse users can join event chats without installing Zap.
 | Monorepo | Turborepo |
 | Testing | Vitest + @effect/vitest |
 | Linting | oxlint |
-| Formatting | oxfmt |
+| Formatting | `bun fmt` (Bun's built-in formatter, config in `.oxfmtrc.json`) |
 | Validation | Elysia TypeBox at the HTTP boundary, Effect Schema in services |
 | Observability | OpenTelemetry → Grafana Cloud |
 | Feature flags | GrowthBook |
@@ -270,10 +278,10 @@ Packages that need configuration ship a `.env.example` — copy it to `.env` and
 Checks:
 
 ```bash
-bun run check            # type-check
+bun run typecheck        # type-check
 bun run test             # all tests
 bun run lint             # oxlint
-bun run fmt              # oxfmt
+bun run fmt              # bun fmt (scope listed in package.json)
 ```
 
 Database work runs from the owning package:

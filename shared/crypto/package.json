@@ -1,6 +1,6 @@
 {
   "name": "@shared/crypto",
-  "version": "0.14.8",
+  "version": "0.14.10",
   "private": true,
   "type": "module",
   "author": "English Street Ventures Pty Ltd",
@@ -19,7 +19,7 @@
     "./totp": "./src/totp.ts"
   },
   "scripts": {
-    "check": "tsc --noEmit",
+    "typecheck": "bun check --no-script",
     "test": "bunx --bun vitest",
     "test:run": "bunx --bun vitest run"
   },

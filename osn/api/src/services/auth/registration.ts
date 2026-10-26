@@ -7,7 +7,7 @@ import { accounts, users } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { timingSafeEqualString } from "@shared/crypto/timing-safe";
 import { commitBatch, driverErrorText } from "@shared/db-utils";
-import { type EmailError, EmailService } from "@shared/email";
+import { EmailError, EmailService } from "@shared/email";
 import { eq, sql } from "drizzle-orm";
 import { unionAll } from "drizzle-orm/sqlite-core";
 import { Effect, Schema } from "effect";
@@ -34,9 +34,9 @@ import type { ProfileWithEmail, SessionMeta } from "./types";
 
 export function createRegistrationModule(
   ctx: AuthContext,
-  // P-W11: uniqueness probes now run as a single inline UNION ALL query, so the
-  // profiles module is no longer consulted. Parameter kept (underscore-
-  // prefixed) so the module factory wiring in index.ts stays uniform.
+  // Uniqueness probes run as a single inline UNION ALL query, so the profiles
+  // module is not consulted. The parameter stays (underscore-prefixed) so the
+  // module factory wiring in index.ts stays uniform.
   _profiles: ProfilesModule,
   tokens: TokensModule,
 ) {
@@ -65,7 +65,7 @@ export function createRegistrationModule(
       }
 
       const { db } = yield* Db;
-      // P-W11: single round-trip uniqueness probe. UNION ALL of two
+      // A single round-trip uniqueness probe: UNION ALL of two
       // single-table arms rather than `WHERE email = ? OR handle = ?` across
       // the users⋈accounts join — an OR spanning two joined tables defeats
       // SQLite's OR-optimization and plans as a full `users` scan, while each
@@ -142,23 +142,90 @@ export function createRegistrationModule(
     });
 
   /**
+   * How long a sign-up whose code may still arrive keeps its pending entry
+   * after the send failed: a retry inside it sends nothing, one after it sends
+   * a new code.
+   */
+  const UNKNOWN_DELIVERY_HOLD_MS = 60_000;
+
+  /**
+   * Whether a failed send might still have delivered its code. A refusal, a
+   * rate limit or a failed render sent nothing. A request that timed out or
+   * never got an answer may have reached Resend, which can still deliver it.
+   */
+  const deliveryOf = (error: unknown): "none" | "unknown" =>
+    error instanceof EmailError && error.reason !== "api_unreachable" ? "none" : "unknown";
+
+  /**
+   * Settle the pending registration at `key` after its code's send failed, if
+   * it is still the one holding `codeHash`. Between storing it and the failure,
+   * another begin for the same address can have replaced it — both passed the
+   * pending check before either stored — and that one's code may have
+   * arrived, so it stays.
+   *
+   * - Nothing was sent: the entry goes, so a retry sends a new code. A read
+   *   that comes back empty deletes too: the Redis store answers a read it
+   *   could not make with `null`, and keeping the entry then would leave every
+   *   retry meeting the pending check for the code's whole life.
+   * - The code may still arrive: the entry stays, for at most
+   *   {@link UNKNOWN_DELIVERY_HOLD_MS}, so the address gets no second code at
+   *   once and the person can retry a minute later. Deleting it instead would
+   *   let each begin mail the address again while sends are slow.
+   *
+   * A store write that fails leaves the entry as it was.
+   */
+  const settleFailedSend = (
+    key: string,
+    codeHash: string,
+    delivery: "none" | "unknown",
+  ): Effect.Effect<void> =>
+    Effect.promise(async () => {
+      const stored = await stores.pendingRegistrations.get(key);
+      if (stored !== null && stored.codeHash !== codeHash) return;
+      if (delivery === "none") {
+        await stores.pendingRegistrations.delete(key);
+        return;
+      }
+      if (stored === null) return;
+      const expiresAt = Math.min(stored.expiresAt, Date.now() + UNKNOWN_DELIVERY_HOLD_MS);
+      await stores.pendingRegistrations.set(
+        key,
+        { ...stored, expiresAt },
+        Math.max(0, expiresAt - Date.now()),
+      );
+    });
+
+  /**
    * Step 1 of email-verified registration. Validates input, normalises the
    * email to lowercase, generates an unbiased 6-digit OTP, stores a pending
    * registration entry, and emails the code. No DB row is created yet.
    *
    * Security properties:
    *  - Always returns `{ sent: true }` regardless of whether the email or
-   *    handle is already taken (S-M1: removes the user-enumeration oracle).
+   *    handle is already taken, and whether or not the code's email went out,
+   *    so neither the status nor the body says whether an address has an
+   *    account.
    *    The "is this handle free?" question is answered separately by the
    *    public `/handle/:handle` endpoint, which is the appropriate channel
    *    and can be rate-limited independently.
+   *  - A send that failed and sent nothing removes its own pending entry, so a
+   *    retry sends a new code rather than meeting the pending check for the
+   *    code's whole life. A send whose code may still arrive (timed out,
+   *    unreachable) holds its entry for a minute instead. The cost: a person
+   *    whose send failed is told a code was sent. The transport logs why
+   *    (`email.dispatch_failed`, or `email.dispatch_interrupted` on the
+   *    timeout), and `osn.email.send.attempts{outcome="failed"}` counts it;
+   *    this function's own attempt counter records the begin as `ok`.
    *  - The pending-registrations store is self-bounding (CEREMONY_STORE_MAX
    *    in-memory, native PX expiry on Redis) and sweeps expired entries on
-   *    insert, so unauthenticated abuse can't grow it without bound (S-M2 / P-W1).
-   *  - Refuses to overwrite a non-expired pending entry, preventing an
-   *    attacker from resetting a victim's in-progress OTP (S-M2).
+   *    insert, so unauthenticated abuse can't grow it without bound.
+   *  - Refuses to overwrite a non-expired pending entry, so a second begin
+   *    for someone's address cannot reset the code they hold. The check and
+   *    the write are two store calls, so this holds for begins that do not
+   *    overlap: two that do can both pass the check, and the later one's code
+   *    replaces the earlier one's.
    *  - The local-only `Effect.logDebug` of the OTP is gated on
-   *    `OSN_ENV` being unset or `"local"` (S-M3 / S-L2).
+   *    `OSN_ENV` being unset or `"local"`.
    *
    * Validation errors (bad email format, bad handle format, reserved handle)
    * are still surfaced as ValidationError / AuthError because they're not
@@ -185,7 +252,7 @@ export function createRegistrationModule(
         Effect.mapError((cause) => new ValidationError({ cause })),
       );
 
-      // C-H8 (COPPA): hard-reject under-13 BEFORE any personal information is
+      // COPPA: hard-reject under-13 BEFORE any personal information is
       // collected — before the OTP is sent and before we even probe for
       // email/handle collisions. The birthdate is used transiently here and is
       // never written to any store or table, so a rejected (or accepted)
@@ -198,16 +265,16 @@ export function createRegistrationModule(
         return yield* Effect.fail(new AuthError({ message: "Handle is reserved" }));
       }
 
-      // Normalise email to lowercase (S-H3) — the canonical form is what we
+      // Normalise email to lowercase — the canonical form is what we
       // persist and what we key the pending-registrations map by.
       const normalisedEmail = email.toLowerCase();
 
-      // O3: the store sweeps expired entries and self-bounds (CEREMONY_STORE_MAX
+      // The store sweeps expired entries and self-bounds (CEREMONY_STORE_MAX
       // on the in-memory backend, native PX expiry on Redis), so no explicit
       // sweep / size cap is needed here any more.
-      // P-W11: single round-trip existence probe — UNION ALL of two indexed
+      // A single round-trip existence probe — UNION ALL of two indexed
       // single-table arms (see registerProfile for why not an OR across the
-      // join). S-M1 below responds identically for either collision, so no
+      // join). The collision branch below responds identically for either, so no
       // per-field distinction is needed.
       const { db } = yield* Db;
       const collision = yield* Effect.tryPromise({
@@ -226,14 +293,14 @@ export function createRegistrationModule(
         catch: (cause) => new DatabaseError({ cause }),
       });
 
-      // S-M1: silently no-op when the email/handle already exists. The user
+      // Silently no-op when the email or handle already exists. The user
       // can use the login flow if they already have an account; we don't
       // confirm or deny their existence over an unauthenticated channel.
       if (collision.length > 0) {
         return { sent: true };
       }
 
-      // S-M2: don't let an attacker reset a victim's in-progress OTP by
+      // Don't let an attacker reset a victim's in-progress OTP by
       // re-posting begin with the same email.
       const existingPending = yield* Effect.promise(() =>
         stores.pendingRegistrations.get(normalisedEmail),
@@ -243,6 +310,7 @@ export function createRegistrationModule(
       }
 
       const code = genOtpCode();
+      const codeHash = hashSessionToken(code);
       yield* Effect.promise(() =>
         stores.pendingRegistrations.set(
           normalisedEmail,
@@ -250,7 +318,7 @@ export function createRegistrationModule(
             email: normalisedEmail,
             handle,
             displayName: displayName ?? null,
-            codeHash: hashSessionToken(code),
+            codeHash,
             attempts: 0,
             expiresAt: Date.now() + otpTtl * 1000,
           },
@@ -260,26 +328,31 @@ export function createRegistrationModule(
 
       yield* logDevOtp("registration", code);
 
-      // S-M3: the EmailService layer decides whether to actually dispatch
-      // or just log. `LogEmailLive` (local dev + tests) captures the
-      // rendered body in-memory for operator inspection without opening
-      // a network connection; `CloudflareEmailLive` (staging / prod)
-      // POSTs directly to the Cloudflare Email Service REST API.
+      // The EmailService layer decides where the code goes: the in-memory
+      // recorder locally and in tests, Resend in every deployed tier.
+      //
+      // A send that fails — refused, unreachable, or slower than ten seconds —
+      // answers as a sent one does, so neither the status nor the body depends
+      // on whether the address is free. It first settles this request's pending
+      // entry (`settleFailedSend`): gone when nothing was sent, so "Resend code"
+      // sends a new code; held for a minute when the code may still arrive. The
+      // transport has already logged why the send failed.
       const emailSvc = yield* EmailService;
-      yield* emailSvc
+      const sent = yield* emailSvc
         .send({
           template: "otp-registration",
           to: normalisedEmail,
           data: { code, ttlMinutes: otpTtl / 60, instanceName: config.instanceName },
         })
         .pipe(
-          Effect.mapError(
-            (cause: EmailError) =>
-              new AuthError({ message: `Failed to send email: ${cause.reason}` }),
+          Effect.timeout("10 seconds"),
+          Effect.as(true),
+          Effect.catch((error) =>
+            settleFailedSend(normalisedEmail, codeHash, deliveryOf(error)).pipe(Effect.as(false)),
           ),
         );
 
-      metricAuthOtpSent("registration");
+      if (sent) metricAuthOtpSent("registration");
       return { sent: true };
     }).pipe(withAuthRegister("begin"));
 
@@ -295,15 +368,15 @@ export function createRegistrationModule(
    * refuses to drop below 1 — so every live account always has ≥1 passkey.
    *
    * Security properties:
-   *  - Constant-time OTP comparison (S-M4 / `timingSafeEqualString`).
+   *  - Constant-time OTP comparison (`timingSafeEqualString`).
    *  - Per-entry attempt counter; after MAX_OTP_ATTEMPTS the entry is wiped,
    *    capping brute-force probability at ~5/1_000_000 per registration.
    *  - The pending entry is only deleted AFTER a successful insert. A losing
    *    race against another insert (TOCTOU) leaves the pending entry intact
-   *    so the user can retry without burning their OTP (S-H4).
+   *    so the user can retry without burning their OTP.
    *  - Insert relies on the DB-level UNIQUE constraint on email/handle as
    *    the source of truth, mapping *uniqueness* violations to a clean
-   *    AuthError instead of leaking driver text (S-H4 / S-H5). Any other
+   *    AuthError instead of leaking driver text. Any other
    *    constraint failure surfaces as DatabaseError.
    */
   const completeRegistration = (
@@ -331,7 +404,7 @@ export function createRegistrationModule(
       }
 
       if (!timingSafeEqualString(pending.codeHash, hashSessionToken(code))) {
-        // Increment the attempt counter; wipe after too many guesses. O3: the
+        // Increment the attempt counter; wipe after too many guesses. The
         // store does not alias the returned value, so persist the bump back
         // (and carry the remaining TTL so the entry still expires on schedule).
         const attempts = pending.attempts + 1;

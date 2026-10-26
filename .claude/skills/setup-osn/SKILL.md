@@ -7,7 +7,7 @@ Set up the development environment for this repository: check each requirement i
 
 ## What this run must produce
 
-A working tree in which `bun run check`, `bun run lint` and `bun run fmt:check` all pass, and a final table — requirement, state found, action taken — so the user sees what changed on their machine. A requirement that could not be met stays in the table with the reason, never silently dropped.
+A working tree in which `bun run typecheck`, `bun run lint` and `bun run fmt:check` all pass, and a final table — requirement, state found, action taken — so the user sees what changed on their machine. A requirement that could not be met stays in the table with the reason, never silently dropped.
 
 ## Read the tree first — versions live there, not here
 
@@ -27,7 +27,7 @@ sed -n 1,20p scripts/setup.sh                     # the non-interactive tail thi
 - **Not macOS** — skip Homebrew and Xcode; install Bun with `curl -fsSL https://bun.sh/install | bash -s "bun-v$(cat .bun-version)"` and `gh` with the distribution's package manager. iOS work is macOS-only; say so in the table.
 - **No sudo** — the portless proxy cannot bind 443 or trust its CA; record it as not installed and give the command for later.
 - **No network** — nothing installs. Verify what is present, run the gates if `node_modules` exists, and report the rest as blocked.
-- **Non-interactive** — every step that changes global state (git config, SSH keys, the CA trust store, `/etc/hosts`) needs a yes. With no user, report what would change and do not change it. Installing into the repo (`bun install`, `lefthook install`) is fine.
+- **Non-interactive** — every step that changes global state (git config, SSH keys, the CA trust store, `/etc/hosts`) needs a yes. With no user, report what would change and do not change it. Installing into the repo (`bun install --frozen-lockfile`, `lefthook install`) is fine.
 
 Never claim a gate passed that did not run here.
 
@@ -41,7 +41,7 @@ Never claim a gate passed that did not run here.
 bun --version
 ```
 
-If absent: `brew install bun`. If it does not print the version in `.bun-version`, install that exact version: `curl -fsSL https://bun.sh/install | bash -s "bun-v$(cat .bun-version)"`. Verify again; Turborepo, oxlint, oxfmt, lefthook and changesets all run through `bunx --bun`, so this one gate decides all of them.
+If absent: `brew install bun`. If it does not print the version in `.bun-version`, install that exact version: `curl -fsSL https://bun.sh/install | bash -s "bun-v$(cat .bun-version)"`. Verify again; Turborepo, oxlint, lefthook and changesets all run through `bunx --bun`, so this one gate decides all of them.
 
 ## Step 3 — Xcode Command Line Tools (macOS; Swift work only)
 
@@ -90,25 +90,22 @@ Confirm with `git config --global --list | grep -E 'rerere|push.auto|pull.rebase
 bash scripts/setup.sh
 ```
 
-It runs `bun install`, `bunx --bun lefthook install`, `bun run scripts/bootstrap-bare-root.ts`, and then `bun run check`, `bun run lint` and `bun run fmt:check`.
+It runs `bun install --frozen-lockfile`, `bunx --bun lefthook install`, `bun run scripts/bootstrap-bare-root.ts`, and then `bun run typecheck`, `bun run lint` and `bun run fmt:check`. A frozen install stops the script before the hooks are installed when `bun.lock` is behind the manifests: fetch main and rebase the branch, or take main's lockfile with `git checkout refs/remotes/origin/main -- bun.lock`, then run it again. Never fall back to a bare `bun install`.
 
-The bootstrap step is the one that changes something outside the checkout. Where the worktrees are subdirectories of the repository — `~/.work/osn.git`, with `main/` inside it — that parent is not a worktree and holds none of this repository's agent configuration, so a session started there runs with no hooks, no skills and no `AGENTS.md`, and nothing says so. The script writes a `SessionStart` hook there telling such a session to stop, and links that directory's `.claude/skills` to `main`'s. It never overwrites a `settings.json` or a `settings.local.json` already there — it reports instead — and in an ordinary clone it does nothing. Tell the user what it wrote, or why it wrote nothing. Read `lefthook.yml` for what the hooks do — as of this writing pre-commit runs oxlint and oxfmt in write mode with `stage_fixed`, and pre-push runs the type check, `bun audit --audit-level=high`, the audit-ignore expiry check and the release-age check — and tell the user, because a pre-push that refuses on an advisory reads like a broken hook to someone who was not told.
+The bootstrap step is the one that changes something outside the checkout. Where the worktrees are subdirectories of the repository — `~/.work/osn.git`, with `main/` inside it — that parent is not a worktree and holds none of this repository's agent configuration, so a session started there runs with no hooks, no skills and no `AGENTS.md`, and nothing says so. The script writes a `SessionStart` hook there telling such a session to stop, and links that directory's `.claude/skills` to `main`'s. It never overwrites a `settings.json` or a `settings.local.json` already there — it reports instead — and in an ordinary clone it does nothing. Tell the user what it wrote, or why it wrote nothing. Read `lefthook.yml` for what the hooks do — as of this writing pre-commit runs oxlint and `bun fmt` in write mode with `stage_fixed`, and pre-push runs the type check, `bun audit --audit-level=high`, the audit-ignore expiry check and the release-age check — and tell the user, because a pre-push that refuses on an advisory reads like a broken hook to someone who was not told.
 
 `bunfig.toml` sets a three-day `minimumReleaseAge`, so a package published yesterday will not install; that is the gate working, not a network fault.
 
-**The TypeScript language server for agents.** Claude Code's `LSP` tool comes from the `typescript-lsp` plugin, which starts the `typescript-language-server` binary from `PATH` and uses the workspace's own `typescript`, so it works only after `bun install`. Both install at user scope and so need a yes:
+**The TypeScript language server for agents.** Claude Code's `LSP` tool comes from the `ts-lsp` plugin in `tools/claude-ts-lsp`, which starts the session's own `node_modules/.bin/tsc --lsp --stdio` (TypeScript 7's built-in server; TypeScript 7 ships no `tsserver`, so `typescript-language-server` no longer works here). It runs from the worktree the session starts in, so it works only after `bun install` there. It installs at user scope, from the `main` worktree, and so needs a yes:
 
 ```bash
-node --version                                              # macOS without node: brew install node
-npm install -g --before="$(node -p 'new Date(Date.now() - 3 * 864e5).toISOString()')" typescript-language-server
-typescript-language-server --version
-claude plugin install typescript-lsp@claude-plugins-official
-claude plugin list                                          # must show typescript-lsp@claude-plugins-official enabled
+claude plugin uninstall typescript-lsp@claude-plugins-official --scope user   # if present: two servers would claim .ts
+claude plugin marketplace add ~/.work/osn.git/main/tools/claude-ts-lsp
+claude plugin install ts-lsp@osn-local --scope user
+claude plugin list                                          # must show ts-lsp@osn-local enabled
 ```
 
-The row is done only when both checks pass: with the binary and no enabled plugin, every agent runs without `LSP` and nothing says so.
-
-`--before` gives the install the same three-day soak `bunfig.toml` gives the workspace, since a global install is outside it. Use this line on every platform: `brew install typescript-language-server` and `brew upgrade` take whatever version Homebrew last bumped to, with no soak, and so does a later `npm update -g`. The date comes from `node` because `date -d` exists only in GNU `date`; where it fails, npm gets an empty `--before`, drops it with a warning and installs the newest release. Do not add the plugin to `.claude/settings.json`: a project-scope `enabledPlugins` entry turns a plugin on without installing it. Cloud sessions never start plugin language servers, so on the remote environment record this row as not applicable. When and when not to trust what `LSP` returns: `wiki/conventions/agent-tooling.md` §Code search.
+The row is done only when the plugin shows enabled: with no enabled plugin, every agent runs without `LSP` and nothing says so. If Claude Code later offers to install the official `typescript-lsp` plugin, decline it ("Never for this plugin") for the same reason. The plugin is loaded in place from `main`, so a change to it there applies at the next session start. Do not add it to `.claude/settings.json`: a project-scope `enabledPlugins` entry turns a plugin on without installing it. Cloud sessions never start plugin language servers, so on the remote environment record this row as not applicable. When and when not to trust what `LSP` returns: `wiki/conventions/agent-tooling.md` §Code search.
 
 If a gate fails, paste the shortest decisive lines into the table and keep going — a failing type check on a clean checkout of `main` is a finding for the user, not a reason to stop the setup.
 
@@ -125,4 +122,4 @@ That CA can intercept TLS for every host the machine talks to, which is why `por
 
 ## Step 9 — Report
 
-The table, then one line: ready, or what is still blocked. One row is not about this machine's toolchain: **bare-root guard** — created, merged, unchanged, refused or nothing to do, in the words `bootstrap-bare-root` printed. Homebrew dependencies for reference: `bun` (everything), `gh` (`prep-pr`, `new-feat`), `node` (npm for `typescript-language-server`, the agents' `LSP` tool), Xcode CLT (Swift and iOS only).
+The table, then one line: ready, or what is still blocked. One row is not about this machine's toolchain: **bare-root guard** — created, merged, unchanged, refused or nothing to do, in the words `bootstrap-bare-root` printed. Homebrew dependencies for reference: `bun` (everything), `gh` (`prep-pr`, `new-feat`), `node` 22.23.4 or later (`astro build` refuses older; the `.astro` content mapper in the Astro sites' `typecheck` also runs on it, with Bun standing in when it is missing), Xcode CLT (Swift and iOS only).

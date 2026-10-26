@@ -8,6 +8,13 @@
  * where RSVPs are still open, so what changes is only what the invite shows.
  * Whether the closed sheet can send anything is proven in
  * `cire/invites/tests/components/RsvpPanel.test.tsx`, not here.
+ *
+ * The wedding is on Ivory, which has no gift list. So once Nori is in, a second
+ * tab opens the invitation on the same session: its gift band reads the list,
+ * is told there is none (404), and never downloads the band, its display
+ * helpers or the client that claims and gives. That tab is read only at the
+ * end, long after the 404 was handled.
+ * `cire-registry-claimed` checks the opposite on a Gold wedding with a list.
  */
 
 import {
@@ -17,12 +24,22 @@ import {
   DB_FILES,
   ORIGINS,
 } from "../../src/config";
-import { expect, onSuiteClock, queryOne, test } from "../support/fixtures";
+import {
+  expect,
+  GIFT_LIST_MODULES,
+  guestSitePaths,
+  onSuiteClock,
+  queryOne,
+  test,
+} from "../support/fixtures";
 
 /** The seeded Catholic ceremony (`cire/db/seed/data/events.ts`). */
 const CATHOLIC_ID = "9f7a2c14-1b3d-4e5f-8a01-000000000001";
 
-test("cire-rsvp-after-deadline", async ({ page, flow }) => {
+/** The sample wedding's gift-list read, which its invitation's band makes. */
+const LIST_URL = `${ORIGINS.cireApi}/api/invite/${CIRE_GUEST.slug}/registry`;
+
+test("cire-rsvp-after-deadline", async ({ page, context, flow }) => {
   const card = (name: string) =>
     page.getByRole("article").filter({ has: page.getByRole("heading", { name }) });
   const catholic = card("Catholic Ceremony");
@@ -48,6 +65,29 @@ test("cire-rsvp-after-deadline", async ({ page, flow }) => {
     await page.getByRole("button", { name: "Open Invitation" }).click();
     await expect(page.getByText(CIRE_LATE_GUEST.guestName).first()).toBeVisible();
   });
+
+  const tier = queryOne<{ tier: string }>(
+    DB_FILES.cire,
+    `SELECT tier FROM weddings WHERE slug = ?`,
+    CIRE_GUEST.slug,
+  );
+  flow.check("the sample wedding's plan", "ivory", tier?.tier ?? "missing");
+
+  const second = await flow.step("open the invitation in a second tab, to its foot", async () => {
+    const tab = await flow.newPage(context);
+    const paths = guestSitePaths(tab);
+    // Armed before the page loads: the band reads as soon as it hydrates,
+    // which can be before the scroll below brings it into range.
+    const read = tab.waitForResponse((r) => r.url() === LIST_URL && r.request().method() === "GET");
+    await tab.goto(`${ORIGINS.cireInvites}/${CIRE_GUEST.slug}`);
+    // The session restores from the cookie: no code is entered here.
+    await expect(tab.getByText(CIRE_LATE_GUEST.guestName).first()).toBeVisible({
+      timeout: 60_000,
+    });
+    await tab.keyboard.press("End");
+    return { tab, paths, list: (await read).status() };
+  });
+  flow.check("list read on an Ivory wedding", 404, second.list);
 
   await flow.step("answer the Catholic ceremony while RSVPs are open", async () => {
     await catholic.getByRole("button", { name: "Respond" }).click();
@@ -122,6 +162,21 @@ test("cire-rsvp-after-deadline", async ({ page, flow }) => {
     "closed sheet has no answer buttons",
     0,
     await sheet.getByRole("button", { name: /^(Attending|Not attending)$/ }).count(),
+  );
+
+  // Read last, many steps after the second tab's list read was answered, so a
+  // download that answer set off has long since been requested.
+  for (const [name, path] of Object.entries(GIFT_LIST_MODULES)) {
+    flow.check(
+      `the Ivory invitation downloaded the gift list's ${name} module`,
+      false,
+      second.paths.includes(path),
+    );
+  }
+  flow.check(
+    "gift band on the Ivory invitation",
+    0,
+    await second.tab.locator("[data-gift-teaser]").count(),
   );
   // The sheet stays open: it is the flow's final screenshot.
 });

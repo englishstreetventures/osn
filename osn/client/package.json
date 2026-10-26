@@ -1,6 +1,6 @@
 {
   "name": "@osn/client",
-  "version": "2.18.8",
+  "version": "2.18.9",
   "private": true,
   "type": "module",
   "author": "English Street Ventures Pty Ltd",
@@ -15,7 +15,7 @@
     "./solid": "./src/solid/index.ts"
   },
   "scripts": {
-    "check": "tsc --noEmit",
+    "typecheck": "bun check --no-script",
     "test": "bunx --bun vitest",
     "test:run": "bunx --bun vitest run"
   },

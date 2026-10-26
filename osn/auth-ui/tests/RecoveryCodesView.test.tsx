@@ -224,11 +224,11 @@ describe("RecoveryCodesView", () => {
     vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:codes");
     vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
     const saved: string[] = [];
-    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(
-      function (this: HTMLAnchorElement) {
-        saved.push(this.download);
-      },
-    );
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      saved.push(this.download);
+    });
     renderView({ productName: "Acme" });
 
     await clickGenerate();

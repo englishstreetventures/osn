@@ -8,8 +8,8 @@ import {
   GIFT_AMOUNT_PRESETS_MINOR,
   parseGiftAmountMinor,
   type GiftContributionResult,
-  type GiftRegistryFund,
 } from "../../lib/gift-registry";
+import type { GiftRegistryFund } from "../../lib/gift-registry-read";
 import { variantSrc } from "../invite-images";
 
 /**

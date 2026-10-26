@@ -9,6 +9,53 @@
             "type": "command",
             "command": "cat \"${CLAUDE_PROJECT_DIR:-.}/.claude/session-start.md\" 2>/dev/null || true",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-.}/scripts/check-bun-version.sh\" 2>/dev/null || true",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "r=\"${AGENT_GUARD_REF:-refs/remotes/origin/main}\"; p=\"${CLAUDE_PROJECT_DIR:-.}\"; d=$(mktemp -d) || { cat >/dev/null; exit 0; }; trap 'rm -rf \"$d\"' EXIT; git -C \"$p\" cat-file blob \"${r}:scripts/agent-guard.ts\" > \"$d/g.ts\" 2>/dev/null && : > \"$d/empty.toml\" && cd \"$d\" && bun --no-env-file --no-install --config=\"$d/empty.toml\" \"$d/g.ts\" || { cat >/dev/null; true; }",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "r=\"${AGENT_GUARD_REF:-refs/remotes/origin/main}\"; p=\"${CLAUDE_PROJECT_DIR:-.}\"; d=$(mktemp -d) || { cat >/dev/null; exit 0; }; trap 'rm -rf \"$d\"' EXIT; git -C \"$p\" cat-file blob \"${r}:scripts/agent-guard.ts\" > \"$d/g.ts\" 2>/dev/null && : > \"$d/empty.toml\" && cd \"$d\" && bun --no-env-file --no-install --config=\"$d/empty.toml\" \"$d/g.ts\" || { cat >/dev/null; true; }",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "r=\"${AGENT_GUARD_REF:-refs/remotes/origin/main}\"; p=\"${CLAUDE_PROJECT_DIR:-.}\"; d=$(mktemp -d) || { cat >/dev/null; exit 0; }; trap 'rm -rf \"$d\"' EXIT; git -C \"$p\" cat-file blob \"${r}:scripts/agent-guard.ts\" > \"$d/g.ts\" 2>/dev/null && : > \"$d/empty.toml\" && cd \"$d\" && bun --no-env-file --no-install --config=\"$d/empty.toml\" \"$d/g.ts\" || { cat >/dev/null; true; }",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "^mcp__github__(create_|update_|add_|issue_write|push_files|pull_request_review_write|sub_issue_write|delete_file|merge_pull_request)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "r=\"${AGENT_GUARD_REF:-refs/remotes/origin/main}\"; p=\"${CLAUDE_PROJECT_DIR:-.}\"; d=$(mktemp -d) || { cat >/dev/null; exit 0; }; trap 'rm -rf \"$d\"' EXIT; git -C \"$p\" cat-file blob \"${r}:scripts/agent-guard.ts\" > \"$d/g.ts\" 2>/dev/null && : > \"$d/empty.toml\" && cd \"$d\" && bun --no-env-file --no-install --config=\"$d/empty.toml\" \"$d/g.ts\" || { cat >/dev/null; true; }",
+            "timeout": 10
           }
         ]
       }

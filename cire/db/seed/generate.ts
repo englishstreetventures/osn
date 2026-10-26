@@ -24,6 +24,7 @@ import {
   registryItems,
   registrySettings,
   rsvps,
+  seatingPlans,
   seatingTables,
   seats,
   syntheticFamilies,
@@ -316,26 +317,39 @@ ${body};`,
 }
 
 function seatingBlock(): string {
+  const planRows = seatingPlans.map(
+    (p) => `  (
+    ${sql(p.id)}, ${sql(bootstrapWedding.id)}, ${sql(p.eventId)}, ${sql(p.name)},
+    ${p.selected ? 1 : 0}, unixepoch(), unixepoch()
+  )`,
+  );
   const tableRows = seatingTables.map(
     (t) => `  (
-    ${sql(t.id)}, ${sql(bootstrapWedding.id)}, ${sql(t.eventId)}, ${sql(t.name)},
+    ${sql(t.id)}, ${sql(bootstrapWedding.id)}, ${sql(t.eventId)}, ${sql(t.planId)}, ${sql(t.name)},
     ${t.capacity}, ${t.sortOrder}, unixepoch(), unixepoch()
   )`,
   );
   const seatRows = seats.map(
-    (s) => `  (${sql(s.tableId)}, ${sql(s.eventId)}, ${sql(s.guestId)}, unixepoch())`,
+    (s) =>
+      `  (${sql(s.tableId)}, ${sql(s.planId)}, ${sql(s.eventId)}, ${sql(s.guestId)}, unixepoch())`,
   );
   return section(
-    `Seating chart (${tableRows.length} tables, ${seatRows.length} seated) — the Reception`,
+    `Seating chart (${planRows.length} plans, ${tableRows.length} tables, ${seatRows.length} seats) — the Reception`,
     `-- After the invitations: a seat's foreign key names its guest's invitation
--- to the event, and its table's event.
-INSERT OR IGNORE INTO seating_tables (
+-- to the event, and its table's event and plan. Every row names its plan.
+INSERT OR IGNORE INTO seating_plans (
   id, wedding_id, event_id, name,
+  selected, created_at, updated_at
+) VALUES
+${planRows.join(",\n")};
+
+INSERT OR IGNORE INTO seating_tables (
+  id, wedding_id, event_id, plan_id, name,
   capacity, sort_order, created_at, updated_at
 ) VALUES
 ${tableRows.join(",\n")};
 
-INSERT OR IGNORE INTO seating_assignments (table_id, event_id, guest_id, created_at) VALUES
+INSERT OR IGNORE INTO seating_assignments (table_id, plan_id, event_id, guest_id, created_at) VALUES
 ${seatRows.join(",\n")};`,
   );
 }

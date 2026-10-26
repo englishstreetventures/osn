@@ -6,7 +6,7 @@ related:
   - "[[cire-budget]]"
   - "[[cire-checklist-tasks]]"
   - "[[access-control]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-26
 ---
 # Vendors — directory, CRM, and email-verification claim
 
@@ -265,12 +265,9 @@ the contrast contract.
 
 Two consequences worth knowing about outside the portal:
 
-- **The redesign is type-checked.** `astro check` reaching this package is
-  *not* this branch's doing — `cire-vendor-type-check` landed it independently
-  on main, along with fixes for the six errors it had been hiding. This branch
-  arrived at the same script and (bar one) the same fixes in parallel, which is
-  its own small argument that the gate was overdue. What the branch adds is a
-  much larger surface for it to check: 53 files, 0 errors.
+- **The portal is type-checked.** Its `typecheck` runs `tsc` with the
+  `.astro` content mapper over every page and component
+  ([[frontend-patterns#Type-checking .astro files]]).
 - **The CSP lost both Google Fonts origins.** `style-src` and `font-src` are
   `'self'` now that the faces are self-hosted, which the `_headers` comment had
   been anticipating. It matters most on `/claim`, opened straight from an

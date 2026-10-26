@@ -12,7 +12,8 @@ Two files, always, whatever else fails:
 1. A **PR body** with exactly six `##` sections, filled in at Step 8 with the
    `write-pr` skill.
 2. A **report** of what was checked, what would fail in CI (named exactly, with
-   its fix), whether the branch is ready, and the **finding tally**: how many
+   its fix), whether the branch is ready, whether its pull request opens as a
+   draft and why (Step 9), and the **finding tally**: how many
    findings the reviews raised, how many were fixed on this branch, which
    follow-up pull requests fixed (by number), and each issue left open with
    which of the three allowed it — out of scope, unrelated and found mid-task,
@@ -155,7 +156,7 @@ always `main`.
 BASE=$(git config --get branch.$(git branch --show-current).gh-merge-base || echo main)
 git fetch origin "+refs/heads/${BASE}:refs/remotes/origin/${BASE}"
 DIFF_BASE=$BASE
-git merge-base --is-ancestor "$BASE" "origin/$BASE" 2>/dev/null && DIFF_BASE="origin/$BASE"
+git merge-base --is-ancestor "$BASE" "refs/remotes/origin/$BASE" 2>/dev/null && DIFF_BASE="refs/remotes/origin/$BASE"
 echo "base: $BASE, diff against: $DIFF_BASE"
 ```
 
@@ -398,7 +399,10 @@ it falls in: fix it here, or on the follow-up pull request opened now and
 linked before this one merges. Filing it and continuing is not an option, and
 `needs:decision` does not release it: one whose fix is the owner's choice
 blocks the merge until the owner accepts the risk in writing on its tracker
-issue. With no user, fix every `critical` and `high` yourself. A filed-and-open
+issue. Put that choice to the owner before the pull request opens, and open it
+only once they have answered there: a public draft waiting on the answer would
+tell every reader the branch carries an unfixed `critical` or `high`. With no
+user, fix every `critical` and `high` yourself. A filed-and-open
 `high` is a live unpatched defect whose location is now written down; the issue
 is an attack map with a timer on it. Severity comes from the tier letter in the
 finding ID, assigned by the review before anyone knows what fixing it costs.
@@ -541,21 +545,72 @@ It prints every line that matches. **The push waits until it prints nothing.** R
 
 ## Step 9 — Push and open the PR
 
+### Draft or ready
+
+**A pull request that is not ready and waits on the owner opens as a draft.**
+Decide before it opens, from what this run already knows. It waits on the owner
+while any of these is open:
+
+- **A decision about this change**: a question its body puts to the owner; a
+  choice its review found that only the owner can make and that this change
+  depends on, unless it is a security, performance or compliance finding
+  (below); or an open `needs:decision` proposal on the issue it closes, when
+  the answer changes what merges. Read the question, not the label: a label can
+  outlive its answer, and an epic's open question rarely holds one of its
+  children. Whether the owner has answered is
+  `wiki/conventions/review-findings.md` §What counts as the owner's answer.
+- **An approval only the owner can give**: the `production` Environment
+  approval on a release it needs first, or an audit-ignore entry they have to
+  accept.
+- **A "not ready" only the owner can settle**, named in this run's report or in
+  the report of the session that built the branch.
+
+Otherwise it opens ready for review. None of these makes it a draft: an issue
+raised against the branch and left open as one of Step 6's three, since the
+merge does not wait on it; an `— owner's call` default the run took, which the
+owner can overrule in review; a file `.github/CODEOWNERS` names; a red check
+`main` caused (`review-pr` Step 4); the order a stack merges in. Unfinished
+work in scope is not a reason either. Step 6 fixes it before the pull request
+opens, and a draft is never a place to leave it. A security, performance or
+compliance finding whose fix is the owner's choice and that this change waits
+on, at any severity, does not open at all until the owner answers on its
+tracker issue (Step 6 for a `critical` or `high`).
+
+A draft says why, still runs CI on every push, and must not be merged until the
+owner answers:
+
+- **The body**: a `**Do not merge until**` line at the end of `## Impact`
+  naming what the owner has to answer or approve, as `write-pr` §Owner actions
+  writes it. It names a public issue or a `###` decision, never a tracker
+  issue.
+- **Opening it**: add `-F draft=true` to `write-pr` Step 6's REST command,
+  which also says how to convert one already open. A remote session, which has
+  no GraphQL, decides before it opens.
+- **The question**: put it where the owner reads it, as a `needs:decision`
+  proposal on the issue the pull request closes (`write-issue`).
+- **Leaving draft**: the owner marks it ready, and nobody else; no session
+  marks ready a pull request whose body carries a `**Do not merge until**`
+  line. A session that applies the owner's answer pushes it, rewords the line
+  to say the answer is applied and the owner has only to mark it ready, and
+  tells the owner. The session that merges it, once the owner has, removes the
+  line. GitHub will not merge a draft.
+
 ```bash
 git push -u origin HEAD
 ```
 
 Then open it with `write-pr` Step 6's REST command, passing `$BASE` as `base` —
 the REST call has no default and reads no git config, so a stacked branch that
-omits it is refused rather than opened — and run that step's check that GitHub
-registered every `Closes` line.
+omits it is refused rather than opened — with `-F draft=true` when it waits on
+the owner, and run that step's check that GitHub registered every `Closes` line.
 
 With no network or no `gh`, record that the PR was not opened, name the base it
 should target, and leave the body file in place. That is a complete run.
 
 Confirming the base took, and registering a stack when `$BASE` is not `main`,
 are in `references/workflow-steps.md`. Report the PR number, its base branch,
-whether the stack is registered, the issues it closes, and any close it could
+whether it opened as a draft and what it waits on, whether the stack is
+registered, the issues it closes, and any close it could
 not make — a tracker line the classifier refused, or a stacked PR's closes —
 so the owner can make it by hand.
 

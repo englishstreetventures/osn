@@ -11,7 +11,7 @@ related:
   - "[[eaa]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-23
 ---
 
 # Compliance Scope Matrix
@@ -78,7 +78,7 @@ Privacy because they are the criteria customers ask about.
 
 | TSC | What we evidence today | What is missing |
 |---|---|---|
-| CC1 — Control Environment | GitHub branch protection, codeowners, lefthook pre-commit/pre-push, oxlint, oxfmt, type check, mandatory PR review | Formal security policy doc; HR onboarding/offboarding checklist |
+| CC1 — Control Environment | GitHub branch protection, codeowners, lefthook pre-commit/pre-push, oxlint, bun fmt, type check, mandatory PR review | Formal security policy doc; HR onboarding/offboarding checklist |
 | CC2 — Communication | This wiki, AGENTS.md, README.md, weekly review cadence | Public security.txt, vuln-disclosure policy |
 | CC3 — Risk Assessment | Per-PR `/review-security` + `/review-performance` skills | Annual risk-assessment doc |
 | CC4 — Monitoring | Grafana Cloud dashboards, OTel everywhere, security_events table | Alert routing doc, on-call rotation |

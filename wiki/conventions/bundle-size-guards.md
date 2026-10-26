@@ -9,7 +9,7 @@ related:
   - "[[review-findings]]"
   - "[[free-tier-limits]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-10-21
+last-reviewed: 2026-10-26
 ---
 
 # Guards with a threshold
@@ -146,6 +146,11 @@ touching a threshold. In short:
   inline `sourceMappingURL=data:` map. See [[cire-development]] for why
   cire/invites' bundle is shaped the way it is (sessions off, SSR-only
   minification, server-only source maps, why `zod` stays).
+  It never sizes `dist/client`, the scripts a guest's browser downloads.
+  Lazy-loading an island or splitting a client chunk leaves this number where
+  it was, except for what the change also takes out of the server build, so a
+  client-side saving is not room under this budget. Measure it from
+  `dist/client/_astro` and report it as that.
 - **`static`** — `cire/host`, `cire/landing`, `cire/vendor`, `musubi/landing`,
   `pulse/landing`. All five are `output: "static"`: no Worker, no `dist/server`,
   no `dist/client` split — they deploy `dist` wholesale to Cloudflare Pages.
@@ -211,7 +216,7 @@ the guard's warning regardless of how large or small the app's own baseline is:
 
 | App | Mode | Measured | Threshold |
 |---|---|---:|---:|
-| cire/invites | worker | 176733 B | 188433 B *(re-baselined, englishstreetventures/osn#1325 — see below)* |
+| cire/invites | worker | 190660 B | 200900 B *(re-baselined, englishstreetventures/osn#1765 — see below)* |
 | cire/host | static | 319202 B | 330902 B *(re-baselined, englishstreetventures/osn#1396 — see below)* |
 | cire/vendor | static | 77305 B | 81644 B |
 | cire/landing | static | 164847 B | 176547 B |
@@ -330,6 +335,18 @@ fonts.google.com was refused in that session, so every build, `main`'s
 included, carried no font files; the guard reads only `dist/_astro/*.js` and
 `*.css`.*
 
+### `cire/invites` re-baselined after the zod override
+
+The zod security override (englishstreetventures/osn#1744) grew the guest Worker
+from **176733 B** to **190660 B**, past the 188433 B threshold. The threshold
+moved to measured + 10240 B, **200900 B**, about 10 KB of headroom, by owner
+decision on englishstreetventures/osn#1765. That headroom is below the 21261 B
+cost of a motion-class library, so one such mistake still trips the warning.
+
+*Measured 2026-10-26 — `rm -rf cire/invites/dist && bun run --cwd cire/invites
+build` on `origin/main` at `9eeced131`, then
+`scripts/guard-bundle-size.sh cire/invites`.*
+
 ### `cire/invites` went up for the household member step
 
 The household member step (englishstreetventures/osn#1325) — "Who are you?" in the
@@ -374,6 +391,13 @@ called; a failing directory is reported once. A real page whose name holds
 the word — a sports `fixtures.astro`, say — has to be renamed, since a `_`
 prefix would take it off the site. Any un-prefixed symlink fails too, because
 Astro follows it and routes whatever it points at.
+
+A `_` prefix satisfies this check alone. The next step in the same job,
+[check-tests-outside-src.ts](../../scripts/check-tests-outside-src.ts), refuses
+any test or spec file and any symlink under a workspace's `src/`, prefixed or
+not ([[testing-patterns#Directory Layout]]). So this check's message sends a
+test or spec file to the package's `tests/` and asks for a symlink to be
+replaced; only a fixture or a matching directory is told it may take the prefix.
 
 It needs no build and no per-app baseline — a plain directory walk — so it runs
 in the fast `lint` job in `ci.yml`, not `build-test`.

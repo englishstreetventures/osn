@@ -13,7 +13,7 @@ related:
   - "[[cire-auth]]"
   - "[[dev-environment]]"
   - "[[realtime]]"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-26
 ---
 
 # Free-Tier Limits & Unavailability Runbook
@@ -238,13 +238,13 @@ A visible tab's pings cost no requests. At the client's 25 s interval (`PING_INT
 
 Over about an hour of one organiser checklist tab on `host.dev.cireweddings.com`, in several sessions of about 30 minutes, with its socket open (`101 Switching Protocols`) and pinging every 25 s, the namespace's request chart showed only isolated spikes of 1 to 3 when a connection opened or closed, and nothing between them. Across the 24 hours of testing the namespace logged about 10 requests. If each ping counted, an open socket would add about 144 an hour. A connection's one request is recorded when it closes, not when it opens. Requests that end because the browser dropped the socket (tab closed, hidden-tab pause, reconnect) show as "Errors" in that chart; they are disconnect outcomes, not failures. The session start and end times were not recorded to the minute.
 
-*Measured 2026-10-22 on the dev tier — Cloudflare dashboard, Workers & Pages, Durable Objects, the `cire-api-dev` Worker's `TopicHub` namespace (binding `REALTIME_HUB`), Metrics, Requests, 24-hour view; one organiser checklist tab, about 1 hour.*
+*Measured 2026-10-22 on the dev tier as it then ran in the production account — Cloudflare dashboard, Workers & Pages, Durable Objects, the `cire-api-dev` Worker's `TopicHub` namespace (binding `REALTIME_HUB`), Metrics, Requests, 24-hour view; one organiser checklist tab, about 1 hour.*
 
 **What keeps an object awake.** A pending `setTimeout`/`setInterval`, pending I/O or a request in flight stops hibernation. An idle object that meets the hibernation conditions hibernates after 10 s and is not billed for duration, even in those 10 s. One that does not meet them stays in memory, billed, until it is evicted 70–140 s after its last request. `TopicHub` holds no timer, alarm or storage write, so it is billed only while a handler runs.
 
 **What happens at the cap.** "Further operations of that type will fail with an error" until the reset at **00:00 UTC**. A subscribe then answers 503 and the client falls back. A publish logs and counts an error, and the write that called it succeeds. The docs do not say which error a WebSocket upgrade sees.
 
-**How to detect:** CF dashboard → Workers & Pages → Durable Objects → the namespace's requests and duration against the daily lines. The allowance is account-wide, so a dev tier's hubs spend it as much as production's. Adding Durable Objects to `scripts/check-free-tier-ceilings.ts` is englishstreetventures/osn#1256. A spent allowance shows in the product's logs as `realtime subscribe failed` at step `hub` and `realtime publish failed`; the realtime counters record nothing on workerd until englishstreetventures/osn#501 lands.
+**How to detect:** in the Cloudflare dashboard, Workers & Pages, Durable Objects, compare the namespace's requests and duration with the daily lines. The allowance is per account, so dev's hubs spend the dev account's and production's hubs spend production's. Adding Durable Objects to `scripts/check-free-tier-ceilings.ts` is englishstreetventures/osn#1256. A spent allowance shows in the product's logs as `realtime subscribe failed` at step `hub` and `realtime publish failed`; the realtime counters record nothing on workerd until englishstreetventures/osn#501 lands.
 
 **Upgrade path:** Workers Paid ($5/mo) lifts these to paid allowances with no code change.
 
@@ -260,7 +260,7 @@ Over about an hour of one organiser checklist tab on `host.dev.cireweddings.com`
 | Rows written | **100,000 / day** |
 | Storage | **5 GB / account total** |
 | Max DB size | **500 MB** |
-| Databases | **10 / account** — production 5 (7 until the old dev tier's two databases are deleted, [[dev-environment#Retiring the old dev tier]], englishstreetventures/osn#1579), dev 3 (see below) |
+| Databases | **10 / account** — production 5, dev 3 (see below) |
 | Queries per Worker invocation | **50** |
 | Max row size | **2 MB** |
 
@@ -318,6 +318,17 @@ the schema-write count as exact. Method, calibration and how to re-baseline:
 [[bundle-size-guards]], which also sets out why the "89% / 11%" split above
 cannot be read as a share of one rebuild.
 *Measured 2026-10-02 — `bun run scripts/guard-d1-migration-cost.ts --all`.*
+
+**Seating plan copies have a daily ceiling.** One copy of a seating plan writes
+the plan, up to 100 tables and a seat for every guest seated in it, and D1
+bills a row written for each row and each index entry it enters (the D1
+pricing page above): four for a table or a seat. A copy of a full plan for a
+1,000-guest event is therefore about 4,400 rows written. Each wedding copies at
+most 3,000 tables and seats a UTC day (`MAX_COPIED_ROWS_PER_DAY` in
+`cire/api/src/schemas/seating.ts`), counted in D1 (`seating_copy_budget`) and
+checked in the copy's own INSERT, so one wedding's copies write at most about
+12,000 rows a day, whichever isolate serves them; deleting a plan removes only
+rows that were written first ([[cire-seating]]).
 
 **The daily cire cron shares one invocation.** Its eleven jobs (`cire/api/src/index.ts` `scheduled`) all count against the same 50-queries-per-invocation ceiling. Read from the code, a quiet day costs about 11 D1 calls and a busy one 21 or more, before the vendor claim hand-off adds 2 reads plus one write per enquiry, capped at `HANDOFFS_PER_RUN` = 10 (`cire/api/src/services/claim-review.ts`), and the purge of soft-deleted weddings adds 2 reads plus one 5-statement batch per wedding, capped at `MAX_PURGES_PER_RUN` = 3 (`cire/api/src/services/maintenance-sweeps.ts`). The purge's rows written are the cascade of each wedding it deletes — mostly rows the 1-year guest sweep would delete anyway. The two R2 orphan reconcilers each list at most 1,000 objects in at most 3 `list()` calls a run (`ASSET_LIST_LIMITS` in `cire/api/src/services/asset-reconcile.ts`, `SHEET_LIST_LIMITS` in `cire/api/src/services/sheet-reconcile.ts`), resuming where the last run stopped, and make no D1 call when nothing they listed is old enough to delete. Otherwise `cire-assets` makes one read, of every key its three tables hold, and `cire-sheets` two: one row of `imports`, then one lookup of the keys it listed, sent as one bound parameter of about 65 KB at most. D1 still scans `imports` for that lookup, since no index covers the key columns, and returns one row: the table's row count, for the hold on a halving of rows, and the matching rows' keys as one JSON value, both from that one scan.
 

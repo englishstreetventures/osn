@@ -1,5 +1,27 @@
 # @zap/infra
 
+## 0.1.3
+
+### Patch Changes
+
+- 355b956: Type-check with Bun's built-in checker. Each package's `check` script is now `typecheck` and runs `bun check` in place of `tsc --noEmit`, with the test tsconfigs checked the same way. Packages that still need `astro check` keep it. No source changes.
+- Updated dependencies [355b956]
+  - @shared/infra@0.3.2
+
+## 0.1.2
+
+### Patch Changes
+
+- Updated dependencies [1222f6c]
+  - @shared/infra@0.3.1
+
+## 0.1.1
+
+### Patch Changes
+
+- Updated dependencies [e2eea11]
+  - @shared/infra@0.3.0
+
 ## 0.1.0
 
 ### Minor Changes

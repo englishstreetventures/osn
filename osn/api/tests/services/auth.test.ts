@@ -2,11 +2,14 @@ import { it, expect, describe } from "@effect/vitest";
 import { passkeys } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { EmailError, EmailService, makeLogEmailLive } from "@shared/email";
-import { Effect, Layer, Logger, References } from "effect";
+import { Deferred, Effect, Fiber, Layer, Logger, References } from "effect";
+import { TestClock } from "effect/testing";
 import { beforeAll } from "vitest";
 
 import { createInMemoryRotatedSessionStore } from "../../src/lib/rotated-session-store";
 import { createAuthService } from "../../src/services/auth";
+import { hashSessionToken } from "../../src/services/auth/helpers";
+import { createDefaultCeremonyStores } from "../../src/services/auth/stores";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayer, createTestLayerWithSqlite } from "../helpers/db";
 
@@ -213,7 +216,7 @@ describe("beginRegistration + completeRegistration", () => {
     }).pipe(Effect.provide(layer));
   });
 
-  it.effect("S-H3: email is normalised to lowercase across the pipeline", () => {
+  it.effect("email is normalised to lowercase across the pipeline", () => {
     const { svc, captured, layer } = makeAuth();
     return Effect.gen(function* () {
       yield* svc.beginRegistration("MixedCase@Example.com", "mixedcase", "1990-01-01");
@@ -273,7 +276,7 @@ describe("beginRegistration + completeRegistration", () => {
     }).pipe(Effect.provide(layer));
   });
 
-  it.effect("C-H8: begin rejects an under-13 birthdate with AgeRestrictionError", () => {
+  it.effect("COPPA: begin rejects an under-13 birthdate with AgeRestrictionError", () => {
     const { svc, captured, layer } = makeAuth();
     return Effect.gen(function* () {
       // Ten years ago today — comfortably under 13.
@@ -291,7 +294,7 @@ describe("beginRegistration + completeRegistration", () => {
     }).pipe(Effect.provide(layer));
   });
 
-  it.effect("C-H8: begin accepts a birthdate exactly on the 13th birthday", () => {
+  it.effect("COPPA: begin accepts a birthdate exactly on the 13th birthday", () => {
     const { svc, captured, layer } = makeAuth();
     return Effect.gen(function* () {
       const thirteenToday = new Date();
@@ -303,7 +306,7 @@ describe("beginRegistration + completeRegistration", () => {
     }).pipe(Effect.provide(layer));
   });
 
-  it.effect("C-H8: rejects when the 13th birthday has not yet occurred this year", () => {
+  it.effect("COPPA: rejects when the 13th birthday has not yet occurred this year", () => {
     const { svc, captured, layer } = makeAuth();
     return Effect.gen(function* () {
       // Born ~13 years ago but the birthday is still ~2 days away ⇒ age 12.
@@ -320,7 +323,7 @@ describe("beginRegistration + completeRegistration", () => {
     }).pipe(Effect.provide(layer));
   });
 
-  it.effect("C-H8: begin rejects a malformed birthdate with ValidationError", () => {
+  it.effect("COPPA: begin rejects a malformed birthdate with ValidationError", () => {
     const { svc, layer } = makeAuth();
     return Effect.gen(function* () {
       const error = yield* Effect.flip(
@@ -330,7 +333,7 @@ describe("beginRegistration + completeRegistration", () => {
     }).pipe(Effect.provide(layer));
   });
 
-  it.effect("S-M1: begin returns sent:true silently when email is already taken", () => {
+  it.effect("begin returns sent:true silently when email is already taken", () => {
     const { svc, captured, layer } = makeAuth();
     return Effect.gen(function* () {
       yield* svc.registerProfile("taken@example.com", "takenuser");
@@ -342,7 +345,7 @@ describe("beginRegistration + completeRegistration", () => {
     }).pipe(Effect.provide(layer));
   });
 
-  it.effect("S-M1: begin returns sent:true silently when handle is already taken", () => {
+  it.effect("begin returns sent:true silently when handle is already taken", () => {
     const { svc, captured, layer } = makeAuth();
     return Effect.gen(function* () {
       yield* svc.registerProfile("first@example.com", "duphandle");
@@ -352,7 +355,7 @@ describe("beginRegistration + completeRegistration", () => {
     }).pipe(Effect.provide(layer));
   });
 
-  it.effect("S-M2: begin refuses to overwrite a non-expired pending entry", () => {
+  it.effect("begin refuses to overwrite a non-expired pending entry", () => {
     const { svc, captured, layer } = makeAuth();
     return Effect.gen(function* () {
       yield* svc.beginRegistration("dup@example.com", "dupuser", "1990-01-01");
@@ -403,7 +406,7 @@ describe("beginRegistration + completeRegistration", () => {
     }).pipe(Effect.provide(layer));
   });
 
-  it.effect("S-H1: brute-force is capped — pending entry is wiped after 5 wrong guesses", () => {
+  it.effect("brute-force is capped — pending entry is wiped after 5 wrong guesses", () => {
     const { svc, captured, layer } = makeAuth();
     return Effect.gen(function* () {
       yield* svc.beginRegistration("brute@example.com", "bruteuser", "1990-01-01");
@@ -419,7 +422,7 @@ describe("beginRegistration + completeRegistration", () => {
     }).pipe(Effect.provide(layer));
   });
 
-  it.effect("S-H4: a TOCTOU loss against the legacy /register doesn't burn the OTP", () => {
+  it.effect("a TOCTOU loss against the legacy /register doesn't burn the OTP", () => {
     const { svc, captured, layer } = makeAuth();
     return Effect.gen(function* () {
       yield* svc.beginRegistration("toctou@example.com", "toctouuser", "1990-01-01");
@@ -499,23 +502,133 @@ describe("beginRegistration + completeRegistration", () => {
     },
   );
 
+  // A send that never answers is cut off at ten seconds. Resend may still
+  // deliver it, so the begin keeps its entry, for a minute at most: a retry
+  // cannot mail the address again at once, and can a minute later.
   it.effect(
-    "T-M2: begin fails with AuthError (not EmailError) when email transport rejects",
+    "a send that never answers is cut off at ten seconds and holds its entry for a minute",
     () => {
-      const failingEmailLayer = Layer.succeed(EmailService, {
-        send: () =>
-          Effect.fail(new EmailError({ reason: "dispatch_failed", cause: "simulated failure" })),
-      });
-      const layer = Layer.merge(createTestLayer(), failingEmailLayer);
+      const stores = createDefaultCeremonyStores();
+      const svc = createAuthService({ ...config, ceremonyStores: stores });
       return Effect.gen(function* () {
-        const err = yield* Effect.flip(
-          auth.beginRegistration("fail@example.com", "failmail", "1990-01-01"),
+        const sending = yield* Deferred.make<void>();
+        const hangingEmailLayer = Layer.succeed(EmailService, {
+          send: () => Deferred.succeed(sending, undefined).pipe(Effect.andThen(Effect.never)),
+        });
+        const begin = yield* Effect.forkChild(
+          svc
+            .beginRegistration("slow@example.com", "slowmail", "1990-01-01")
+            .pipe(Effect.provide(Layer.merge(createTestLayer(), hangingEmailLayer))),
         );
-        expect(err._tag).toBe("AuthError");
-        expect(err.message).toContain("dispatch_failed");
-      }).pipe(Effect.provide(layer));
+        yield* Deferred.await(sending);
+        // Let the timeout's timer reach the test clock before moving it.
+        yield* Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 20)));
+
+        yield* TestClock.adjust("9 seconds");
+        expect(begin.pollUnsafe()).toBeUndefined();
+
+        yield* TestClock.adjust("1 second");
+        expect(yield* Fiber.join(begin)).toEqual({ sent: true });
+        const held = yield* Effect.promise(() =>
+          stores.pendingRegistrations.get("slow@example.com"),
+        );
+        expect(held?.handle).toBe("slowmail");
+        expect(held!.expiresAt - Date.now()).toBeLessThanOrEqual(60_000);
+      });
     },
   );
+
+  // A send the API never reached may still have gone, as above.
+  it.effect(
+    "an unreachable send holds its entry for a minute, so a retry at once sends nothing",
+    () => {
+      const stores = createDefaultCeremonyStores();
+      const svc = createAuthService({ ...config, ceremonyStores: stores });
+      let sends = 0;
+      const unreachableEmailLayer = Layer.succeed(EmailService, {
+        send: () =>
+          Effect.sync(() => (sends += 1)).pipe(
+            Effect.andThen(Effect.fail(new EmailError({ reason: "api_unreachable" }))),
+          ),
+      });
+      return Effect.gen(function* () {
+        expect(yield* svc.beginRegistration("gone@example.com", "gonemail", "1990-01-01")).toEqual({
+          sent: true,
+        });
+        const held = yield* Effect.promise(() =>
+          stores.pendingRegistrations.get("gone@example.com"),
+        );
+        expect(held!.expiresAt - Date.now()).toBeGreaterThan(0);
+        expect(held!.expiresAt - Date.now()).toBeLessThanOrEqual(60_000);
+
+        yield* svc.beginRegistration("gone@example.com", "gonemail", "1990-01-01");
+        expect(sends).toBe(1);
+      }).pipe(Effect.provide(Layer.merge(createTestLayer(), unreachableEmailLayer)));
+    },
+  );
+
+  // A refused send removes its own pending entry so a retry sends a new code.
+  // Between storing it and the refusal, another begin for the same address can
+  // have replaced it (both passed the pending check before either stored), and
+  // that one's code may have been delivered: the refusal must leave it alone.
+  it.effect("a refused send leaves in place an entry another begin wrote meanwhile", () => {
+    const stores = createDefaultCeremonyStores();
+    const svc = createAuthService({ ...config, ceremonyStores: stores });
+    const winner = "111111";
+    const refusingEmailLayer = Layer.succeed(EmailService, {
+      send: () =>
+        Effect.promise(() =>
+          stores.pendingRegistrations.set(
+            "race@example.com",
+            {
+              email: "race@example.com",
+              handle: "racewinner",
+              displayName: null,
+              codeHash: hashSessionToken(winner),
+              attempts: 0,
+              expiresAt: Date.now() + 600_000,
+            },
+            600_000,
+          ),
+        ).pipe(
+          Effect.andThen(Effect.fail(new EmailError({ reason: "dispatch_failed", cause: 403 }))),
+        ),
+    });
+    return Effect.gen(function* () {
+      const begun = yield* svc.beginRegistration("race@example.com", "raceloser", "1990-01-01");
+      expect(begun).toEqual({ sent: true });
+      const created = yield* svc.completeRegistration("race@example.com", winner);
+      expect(created.handle).toBe("racewinner");
+    }).pipe(Effect.provide(Layer.merge(createTestLayer(), refusingEmailLayer)));
+  });
+
+  // The Redis-backed store answers a read it could not make with `null`. A
+  // refusal whose read of the entry fails that way still deletes it, or every
+  // retry inside the code's life would meet the pending check and send nothing.
+  it.effect("a refused send deletes its entry when the store cannot read it back", () => {
+    const real = createDefaultCeremonyStores();
+    let reads = 0;
+    const stores = {
+      ...real,
+      pendingRegistrations: {
+        ...real.pendingRegistrations,
+        get: (key: string) =>
+          ++reads === 1 ? real.pendingRegistrations.get(key) : Promise.resolve(null),
+        set: real.pendingRegistrations.set.bind(real.pendingRegistrations),
+        delete: real.pendingRegistrations.delete.bind(real.pendingRegistrations),
+      },
+    };
+    const svc = createAuthService({ ...config, ceremonyStores: stores });
+    const refusingEmailLayer = Layer.succeed(EmailService, {
+      send: () => Effect.fail(new EmailError({ reason: "dispatch_failed", cause: 403 })),
+    });
+    return Effect.gen(function* () {
+      yield* svc.beginRegistration("unread@example.com", "unread", "1990-01-01");
+      expect(
+        yield* Effect.promise(() => real.pendingRegistrations.get("unread@example.com")),
+      ).toBeNull();
+    }).pipe(Effect.provide(Layer.merge(createTestLayer(), refusingEmailLayer)));
+  });
 });
 
 describe("findProfileByEmail + findProfileByHandle", () => {
@@ -867,7 +980,7 @@ describe("verifyAccessToken", () => {
   // Regression pin: a JWT signed with the same key but lacking the
   // `aud: "osn-access"` claim (e.g. a step-up token or any future token
   // type) must not authenticate access-token routes.
-  it.effect("rejects a token without aud: 'osn-access' (S-M2)", () =>
+  it.effect("rejects a token without aud: 'osn-access'", () =>
     Effect.gen(function* () {
       const { SignJWT } = yield* Effect.tryPromise(() => import("jose"));
       // Carry the correct `iss` so the token passes the issuer check and

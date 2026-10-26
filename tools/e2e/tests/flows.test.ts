@@ -67,7 +67,8 @@ describe("flow sources", () => {
   // (10 a minute, osn/api/src/routes/auth/dev-login.ts) and one osn-api
   // `/authorize` (20 a minute, shared with the Pulse flow's two sign-ins). All
   // of it from the suite's one address, in fixed windows, so a sign-in past the
-  // budget fails only on a fast machine. Five keeps every window with room.
+  // budget fails only on a fast machine. Six keeps every window with room:
+  // 12 of the 15 redirect legs, 6 of the 10 dev logins, 8 of the 20 authorizes.
   test("the flows sign an organiser in no more often than the sign-in limits allow", () => {
     const dir = join(import.meta.dirname, "flows");
     const signIns = readdirSync(dir)
@@ -77,7 +78,29 @@ describe("flow sources", () => {
         0,
       );
     expect(signIns).toBeGreaterThan(0);
-    expect(signIns).toBeLessThanOrEqual(5);
+    expect(signIns).toBeLessThanOrEqual(6);
+  });
+
+  // osn-api allows 5 sign-up begins a minute per client address
+  // (`registerBegin` in osn/api/src/lib/redis-rate-limiters.ts, in-memory on
+  // this stack), one window shared by the whole run, so a sixth begin is a 429
+  // only on a machine fast enough to fit them in one minute. A flow begins a
+  // sign-up by pressing "Send verification code" or "Resend code" in Musubi's
+  // dialog, written exactly as the patterns below, or by `registerThroughApi`.
+  test("the flows begin no more sign-ups than osn-api allows in a minute", () => {
+    const dir = join(import.meta.dirname, "flows");
+    const begins = readdirSync(dir)
+      .map((file) => readFileSync(join(dir, file), "utf8"))
+      .reduce(
+        (sum, source) =>
+          sum +
+          (source.match(
+            /name: "(?:Send verification code|Resend code)" \}\)\.click\(|registerThroughApi\(/g,
+          )?.length ?? 0),
+        0,
+      );
+    expect(begins).toBeGreaterThan(0);
+    expect(begins).toBeLessThanOrEqual(5);
   });
 
   // The organiser's window exists only because the stack's cire-api keeps a
