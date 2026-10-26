@@ -208,6 +208,10 @@ wiki/.obsidian/
 # Claude Code agent worktrees (transient, per-session)
 .claude/worktrees/
 
+# The tsconfig.json Claude Code writes beside a mod it loads, extending the
+# types it lays in the mod's .claude-plugin/types/ (which ignores itself)
+.claude/mods/*/tsconfig.json
+
 # Private business/legal planning notes — never committed
 wiki/business/
 
