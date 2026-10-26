@@ -588,7 +588,6 @@
       "version": "0.8.2",
       "dependencies": {
         "@effect/sql-d1": "4.0.5",
-        "@effect/sql-sqlite-bun": "4.0.5",
         "drizzle-orm": "1.0.0-rc.5",
         "effect": "4.0.5",
       },
@@ -1341,8 +1340,6 @@
     "@effect/platform-node-shared": ["@effect/platform-node-shared@4.0.5", "", { "dependencies": { "@types/ws": "^8.18.2", "ws": "^8.22.0" }, "peerDependencies": { "effect": "^4.0.5" } }, "sha512-a8rCdEkfZBGe9C6bsIjxVZuRp73svIyK5IHwHdDAVsvZXjrbkxusfI+rZ8WlX31RP1mKizwI/E72GQTNfdMWHw=="],
 
     "@effect/sql-d1": ["@effect/sql-d1@4.0.5", "", { "dependencies": { "@cloudflare/workers-types": "^5.20261010.1" }, "peerDependencies": { "effect": "^4.0.5" } }, "sha512-ERArvCS/qOHx52yKFePc8v5qs0y18Ld+Ha6Xkkm/I1R+zTf+flfWpsuxlxkPKlwQCqB9K+yfU6Kw1gshKGRCPQ=="],
-
-    "@effect/sql-sqlite-bun": ["@effect/sql-sqlite-bun@4.0.5", "", { "peerDependencies": { "effect": "^4.0.5" } }, "sha512-gL6mOT/BPM/AOWzcHhFphv6092zpgbJC79j29vfORakJ2ZLE/p+Eah9DeahokI6WBOk7AqFcaXsKVnjJBTUNXw=="],
 
     "@effect/sql-sqlite-do": ["@effect/sql-sqlite-do@4.0.5", "", { "peerDependencies": { "effect": "^4.0.5" } }, "sha512-TGlU65ZJJMa81I7EoicQXxhRsJDxDPz6A/PNOPzMYRgmCdLs6EsTTXIkKZ+8apb7pl2o0OKVcrT6i6mGlluyLg=="],
 
