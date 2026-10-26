@@ -1,7 +1,8 @@
 import { it, expect, describe } from "@effect/vitest";
 import { rotatedSessions, sessions } from "@osn/db/schema";
 import { and, eq, lte } from "drizzle-orm";
-import { Effect } from "effect";
+import { Effect, Fiber } from "effect";
+import { TestClock } from "effect/testing";
 import { afterEach, beforeAll, vi } from "vitest";
 
 import { sessionStatusUnknown } from "../../../src/lib/grant-failure";
@@ -10,6 +11,7 @@ import { createAuthService } from "../../../src/services/auth";
 import {
   ROTATED_SESSION_SWEEP_CHUNK,
   ROTATED_SESSION_SWEEP_MAX_CHUNKS,
+  ROTATED_SESSION_SWEEP_PAUSE_MS,
   ROTATION_GRACE_MS,
 } from "../../../src/services/auth/constants";
 import { hashSessionToken } from "../../../src/services/auth/helpers";
@@ -20,7 +22,8 @@ import { createTestLayerWithSqlite } from "../../helpers/db";
 /**
  * Rotated-session reuse detection on the `rotated_sessions` table: the record
  * a rotation writes, what a replay of a rotated-out token does with it, how a
- * failure to write or read it surfaces, and the sweep that clears it.
+ * failure to write or read it surfaces, and the sweep that clears it — in
+ * chunks, pausing between them, counted on the `osn.retention.*` metrics.
  *
  * bun:sqlite runs `commitBatch` statement by statement, so whether the two
  * inserts of a rotation commit together is proven on real D1 in
@@ -228,6 +231,68 @@ describe("runRotatedSessionSweep", () => {
     }).pipe(Effect.provide(layer));
   });
 
+  /** Rows left in `rotated_sessions`, or -1 once the table is gone. */
+  const rowsLeft = (sqlite: ReturnType<typeof createTestLayerWithSqlite>["sqlite"]): number => {
+    try {
+      return (sqlite.query("SELECT COUNT(*) AS n FROM rotated_sessions").get() as { n: number }).n;
+    } catch {
+      return -1;
+    }
+  };
+
+  /** Waits on the real clock until `done` holds, for at most two seconds. */
+  const until = (done: () => boolean) =>
+    Effect.promise(async () => {
+      for (let i = 0; i < 200 && !done(); i++) {
+        // eslint-disable-next-line no-await-in-loop -- polling, one wait at a time
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+    });
+
+  /** Long enough on the real clock for the sweep to reach its next pause. */
+  const settle = Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 30)));
+
+  /**
+   * Runs one sweep on the test clock. Each time the sweep stops deleting and
+   * waits, the clock moves on by one pause, and the pause is counted; a sweep
+   * that waited without needing to (after its last chunk) is counted too.
+   * `atPauseEnd` runs just before each pause ends.
+   */
+  const sweepCountingPauses = (
+    sqlite: ReturnType<typeof createTestLayerWithSqlite>["sqlite"],
+    nowMs: number,
+    atPauseEnd: () => void = () => {},
+  ) =>
+    Effect.gen(function* () {
+      let finished = false;
+      const fiber = yield* Effect.forkChild(
+        runRotatedSessionSweep({ nowMs }).pipe(
+          Effect.ensuring(
+            Effect.sync(() => {
+              finished = true;
+            }),
+          ),
+        ),
+      );
+      let pauses = 0;
+      let seen = rowsLeft(sqlite);
+      for (;;) {
+        yield* until(() => finished || rowsLeft(sqlite) !== seen);
+        yield* settle;
+        if (finished) break;
+        seen = rowsLeft(sqlite);
+        // Nothing more is deleted until the pause has passed.
+        yield* TestClock.adjust(ROTATED_SESSION_SWEEP_PAUSE_MS - 1);
+        yield* settle;
+        expect(rowsLeft(sqlite)).toBe(seen);
+        expect(finished).toBe(false);
+        atPauseEnd();
+        yield* TestClock.adjust(1);
+        pauses++;
+      }
+      return { exit: yield* Fiber.await(fiber), pauses };
+    });
+
   it.effect("deletes at most its chunk limit per run, and the rest on the next", () => {
     const { layer, db, sqlite } = createTestLayerWithSqlite();
     const cap = ROTATED_SESSION_SWEEP_CHUNK * ROTATED_SESSION_SWEEP_MAX_CHUNKS;
@@ -237,13 +302,19 @@ describe("runRotatedSessionSweep", () => {
       seed(sqlite, profile.accountId, "dead_", cap + 200, nowMs - 1);
       seed(sqlite, profile.accountId, "live_", 1, nowMs + 1);
 
-      expect((yield* runRotatedSessionSweep({ nowMs })).deleted).toBe(cap);
+      const first = yield* sweepCountingPauses(sqlite, nowMs);
+      expect(first.exit).toMatchObject({ _tag: "Success", value: { deleted: cap } });
+      // One pause between each two chunks, none after the tenth.
+      expect(first.pauses).toBe(ROTATED_SESSION_SWEEP_MAX_CHUNKS - 1);
       const expiredLeft = yield* Effect.promise(() =>
         db.select().from(rotatedSessions).where(lte(rotatedSessions.expiresAt, nowMs)),
       );
       expect(expiredLeft).toHaveLength(200);
 
-      expect((yield* runRotatedSessionSweep({ nowMs })).deleted).toBe(200);
+      // A short chunk is the last: no pause after it.
+      const second = yield* sweepCountingPauses(sqlite, nowMs);
+      expect(second.exit).toMatchObject({ _tag: "Success", value: { deleted: 200 } });
+      expect(second.pauses).toBe(0);
       const left = yield* Effect.promise(() =>
         db
           .select()
@@ -251,6 +322,49 @@ describe("runRotatedSessionSweep", () => {
           .where(and(eq(rotatedSessions.accountId, profile.accountId))),
       );
       expect(left.map((r) => r.tokenHash)).toEqual(["live_1"]);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("counts each pass's deleted rows and its time, pauses included, by table", () => {
+    const { layer, sqlite } = createTestLayerWithSqlite();
+    const recorded = vi.spyOn(metrics, "metricRetentionSweep");
+    return Effect.gen(function* () {
+      const { profile } = yield* signIn("sweep-metric@example.com", "sweepmetric");
+      const nowMs = 1_000_000;
+      seed(sqlite, profile.accountId, "dead_", 2 * ROTATED_SESSION_SWEEP_CHUNK + 1, nowMs - 1);
+
+      const { exit, pauses } = yield* sweepCountingPauses(sqlite, nowMs);
+
+      expect(exit._tag).toBe("Success");
+      expect(pauses).toBe(2);
+      expect(recorded.mock.calls).toEqual([
+        [
+          "rotated_sessions",
+          2 * ROTATED_SESSION_SWEEP_CHUNK + 1,
+          (2 * ROTATED_SESSION_SWEEP_PAUSE_MS) / 1000,
+        ],
+      ]);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("still counts the rows earlier chunks deleted when a later chunk fails", () => {
+    const { layer, sqlite } = createTestLayerWithSqlite();
+    const recorded = vi.spyOn(metrics, "metricRetentionSweep");
+    return Effect.gen(function* () {
+      const { profile } = yield* signIn("sweep-fail@example.com", "sweepfail");
+      const nowMs = 1_000_000;
+      seed(sqlite, profile.accountId, "dead_", 2 * ROTATED_SESSION_SWEEP_CHUNK, nowMs - 1);
+
+      // The table goes away during the first pause, so the second chunk fails.
+      const { exit } = yield* sweepCountingPauses(sqlite, nowMs, () =>
+        sqlite.run("DROP TABLE rotated_sessions"),
+      );
+
+      expect(exit).toMatchObject({ _tag: "Failure" });
+      expect(JSON.stringify(exit)).toContain("DatabaseError");
+      expect(recorded.mock.calls).toEqual([
+        ["rotated_sessions", ROTATED_SESSION_SWEEP_CHUNK, ROTATED_SESSION_SWEEP_PAUSE_MS / 1000],
+      ]);
     }).pipe(Effect.provide(layer));
   });
 });

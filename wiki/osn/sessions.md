@@ -249,8 +249,11 @@ Indexes on `expires_at`, `account_id` and `family_id`.
   `DatabaseError` — the grant fails and nothing is revoked, so a storage error
   never passes for "not rotated" and never makes a revocation up.
 - **Sweep.** `runRotatedSessionSweep` deletes expired records in chunks of 500,
-  at most 10 chunks a run, so a backlog drains over several runs. The Worker's
-  6-hourly `scheduled` cron runs it, and so does the Bun dev server's sweeper.
+  at most 10 chunks a run, so a backlog drains over several runs. It waits 75 ms
+  between two chunks (`ROTATED_SESSION_SWEEP_PAUSE_MS`), never after the last,
+  so requests waiting to write run in between ([[retention#Sweeper design contract]]).
+  The Worker's 6-hourly `scheduled` cron runs it, and so does the Bun dev
+  server's sweeper.
   What it costs in D1 rows: [[free-tier-limits#Cloudflare D1]].
 - **Erasure.** Soft delete removes the records of every family it revokes, and
   keeps those of the cancel handle's family, so reuse detection still guards the
@@ -268,6 +271,7 @@ Indexes on `expires_at`, `account_id` and `family_id`.
 - `osn.auth.session.reuse_detected` / `osn.auth.session.family_revoked` — genuine C2 reuse caught (replay outside the grace window) and the resulting whole-family revocations. A spike is a real security signal (token theft) — distinct from the benign metric below.
 - `osn.auth.session.rotation_race` — benign concurrent/retried grants tolerated within `ROTATION_GRACE_MS` (CAS-0-rows or a rotated-token replay inside the window). The family is PRESERVED. Expected to be non-zero for normal multi-tab usage; it is NOT a security signal. Watch the ratio of `family_revoked` to `rotation_race` — a rise in the former relative to the latter is what matters.
 - Spans: `auth.session.rotate` around a refresh, `auth.session.reuse_detect` around the record lookup and any revocation, `auth.session.rotated_sweep` around a sweep. A failed sweep logs `scheduled rotated-session sweep failed` on the Worker
+- `osn.retention.rows_deleted{table}` and `osn.retention.cycle.duration{table}` (seconds) — one of each per sweep pass, `table` = `rotated_sessions`, a failed pass included with the rows its earlier chunks deleted
 - A rotation record that cannot be written or read is a `DatabaseError` on the grant, in Workers Logs with the rest of osn-api's D1 errors
 - Redaction: `ipHash`, `uaLabel` (both spellings), `familyId` (already in the deny-list — correlates sessions across rotation events)
 

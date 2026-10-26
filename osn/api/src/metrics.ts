@@ -79,6 +79,8 @@ export const OSN_METRICS = {
   authSessionFamilyRevoked: "osn.auth.session.family_revoked",
   authCeremonyStoreOps: "osn.auth.ceremony_store.operations",
   coordinationStoreOps: "osn.coordination.store.operations",
+  retentionRowsDeleted: "osn.retention.rows_deleted",
+  retentionCycleDuration: "osn.retention.cycle.duration",
   authSessionSecurityInvalidation: "osn.auth.session.security_invalidation",
   authCireSessionRevocations: "osn.auth.cire_session.revocations",
   authRecoveryLockout: "osn.auth.recovery.lockout",
@@ -651,6 +653,38 @@ const coordinationStoreOps = createCounter<CoordinationStoreOpAttrs>({
 
 export const metricCoordinationStoreOp = (attrs: CoordinationStoreOpAttrs): void =>
   coordinationStoreOps.inc(attrs);
+
+// ---------------------------------------------------------------------------
+// Retention sweeps
+// ---------------------------------------------------------------------------
+
+/** A table a retention sweep deletes expired rows from. */
+export type RetentionTable = "rotated_sessions";
+
+type RetentionAttrs = { table: RetentionTable };
+
+const retentionRowsDeleted = createCounter<RetentionAttrs>({
+  name: OSN_METRICS.retentionRowsDeleted,
+  description: "Rows a retention sweep deleted, by table",
+  unit: "{row}",
+});
+
+const retentionCycleDuration = createHistogram<RetentionAttrs>({
+  name: OSN_METRICS.retentionCycleDuration,
+  description: "Time one retention sweep pass took, its pauses included, by table",
+  unit: "s",
+  boundaries: LATENCY_BUCKETS_SECONDS,
+});
+
+/** One sweep pass over `table`: the rows it deleted and the seconds it took. */
+export function metricRetentionSweep(
+  table: RetentionTable,
+  deleted: number,
+  durationSeconds: number,
+): void {
+  retentionRowsDeleted.add(deleted, { table });
+  retentionCycleDuration.record(durationSeconds, { table });
+}
 
 // ---------------------------------------------------------------------------
 // Recovery-code per-account lockout (O2)

@@ -7,10 +7,11 @@ import { rotatedSessions, sessions } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { commitBatch, rowsChanged } from "@shared/db-utils";
 import { and, desc, eq, gt, inArray, isNotNull, lte, sql } from "drizzle-orm";
-import { Effect } from "effect";
+import { Clock, Effect } from "effect";
 
 import { ROTATION_RACE_MESSAGE } from "../../lib/grant-failure";
 import {
+  metricRetentionSweep,
   metricSessionFamilyRevoked,
   metricSessionReuseDetected,
   metricSessionRotationRace,
@@ -25,6 +26,7 @@ import {
   RECOVERY_TOKEN_AUDIENCE,
   ROTATED_SESSION_SWEEP_CHUNK,
   ROTATED_SESSION_SWEEP_MAX_CHUNKS,
+  ROTATED_SESSION_SWEEP_PAUSE_MS,
   ROTATION_GRACE_MS,
 } from "./constants";
 import type { AuthContext } from "./context";
@@ -51,6 +53,13 @@ import type { RecoveryFactorAmr, SessionMeta, TokenSet } from "./types";
  * Each chunk is `DELETE … WHERE rowid IN (SELECT rowid … LIMIT n)`: the
  * subquery binds the same few values whatever the chunk size, never one per
  * row, and its `expires_at` range can use `rotated_sessions_expires_idx`.
+ * Between two chunks it waits {@link ROTATED_SESSION_SWEEP_PAUSE_MS}, so
+ * requests waiting to write run in between; it never waits after the last.
+ * Each pass, failed or not, adds the rows it deleted to
+ * `osn.retention.rows_deleted` and its time to `osn.retention.cycle.duration`,
+ * both under `table: "rotated_sessions"` (the sweeper design contract in
+ * `wiki/compliance/retention.md`).
+ *
  * Standalone so the Workers `scheduled` handler and the Bun sweeper can run it
  * beside the account-deletion sweeps.
  */
@@ -60,26 +69,37 @@ export const runRotatedSessionSweep = (
   Effect.gen(function* () {
     const { db } = yield* Db;
     const nowMs = opts.nowMs ?? Date.now();
+    const startedAt = yield* Clock.currentTimeMillis;
     let deleted = 0;
-    for (let chunk = 0; chunk < ROTATED_SESSION_SWEEP_MAX_CHUNKS; chunk++) {
-      const result = yield* Effect.tryPromise({
-        try: () =>
-          db.delete(rotatedSessions).where(
-            inArray(
-              sql`rowid`,
-              db
-                .select({ rowid: sql<number>`rowid` })
-                .from(rotatedSessions)
-                .where(lte(rotatedSessions.expiresAt, nowMs))
-                .limit(ROTATED_SESSION_SWEEP_CHUNK),
-            ),
+    const deleteChunk = Effect.tryPromise({
+      try: () =>
+        db.delete(rotatedSessions).where(
+          inArray(
+            sql`rowid`,
+            db
+              .select({ rowid: sql<number>`rowid` })
+              .from(rotatedSessions)
+              .where(lte(rotatedSessions.expiresAt, nowMs))
+              .limit(ROTATED_SESSION_SWEEP_CHUNK),
           ),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
-      const changed = rowsChanged(result);
-      deleted += changed;
-      if (changed < ROTATED_SESSION_SWEEP_CHUNK) break;
-    }
+        ),
+      catch: (cause) => new DatabaseError({ cause }),
+    });
+    yield* Effect.gen(function* () {
+      for (let chunk = 0; chunk < ROTATED_SESSION_SWEEP_MAX_CHUNKS; chunk++) {
+        if (chunk > 0) yield* Effect.sleep(ROTATED_SESSION_SWEEP_PAUSE_MS);
+        const changed = rowsChanged(yield* deleteChunk);
+        deleted += changed;
+        if (changed < ROTATED_SESSION_SWEEP_CHUNK) break;
+      }
+    }).pipe(
+      Effect.ensuring(
+        Effect.gen(function* () {
+          const endedAt = yield* Clock.currentTimeMillis;
+          metricRetentionSweep("rotated_sessions", deleted, (endedAt - startedAt) / 1000);
+        }),
+      ),
+    );
     return { deleted };
   }).pipe(Effect.withSpan("auth.session.rotated_sweep"));
 

@@ -131,6 +131,13 @@ export const ROTATION_GRACE_MS = 10_000;
 export const ROTATED_SESSION_SWEEP_CHUNK = 500;
 export const ROTATED_SESSION_SWEEP_MAX_CHUNKS = 10;
 /**
+ * Pause between two chunks of one `runRotatedSessionSweep` pass, so the
+ * requests waiting to write to the database run between the sweep's deletes
+ * (the sweeper design contract in `wiki/compliance/retention.md`). At most
+ * nine a pass.
+ */
+export const ROTATED_SESSION_SWEEP_PAUSE_MS = 75;
+/**
  * Hard cap on passkeys per account. An attacker with a stolen
  * access token (or a hijacked enrollment token) cannot add unlimited
  * credentials; 10 is comfortably above the real-world ceiling of one
