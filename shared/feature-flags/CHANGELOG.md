@@ -1,5 +1,20 @@
 # @shared/feature-flags
 
+## 0.3.9
+
+### Patch Changes
+
+- 355b956: Type-check with Bun's built-in checker. Each package's `check` script is now `typecheck` and runs `bun check` in place of `tsc --noEmit`, with the test tsconfigs checked the same way. Packages that still need `astro check` keep it. No source changes.
+- Updated dependencies [355b956]
+  - @shared/observability@0.18.12
+
+## 0.3.8
+
+### Patch Changes
+
+- Updated dependencies [a3364fb]
+  - @shared/observability@0.18.11
+
 ## 0.3.7
 
 ### Patch Changes

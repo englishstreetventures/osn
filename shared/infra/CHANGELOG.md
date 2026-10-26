@@ -1,5 +1,23 @@
 # @shared/infra
 
+## 0.3.2
+
+### Patch Changes
+
+- 355b956: Type-check with Bun's built-in checker. Each package's `check` script is now `typecheck` and runs `bun check` in place of `tsc --noEmit`, with the test tsconfigs checked the same way. Packages that still need `astro check` keep it. No source changes.
+
+## 0.3.1
+
+### Patch Changes
+
+- 1222f6c: The workflow tests check, through `turbo run build --dry=json`, that turbo hashes `OSN_DEPLOY_TIER` into the build of the guest site, the organiser portal and the vendor portal. The `test:repo` task also reruns when a cire package's own `turbo.json` changes.
+
+## 0.3.0
+
+### Minor Changes
+
+- e2eea11: `secrets:check-github -- --tier dev` now exits 1 when the `dev` Environment holds `CLOUDFLARE_ACCOUNT_ID` or `CLOUDFLARE_API_TOKEN_DEV`, the two names that point at the production account. `RETIRED_DEV_CREDENTIALS` replaces `RETIRING_DEV_CREDENTIALS`, `forbiddenCredentials()` forbids those names on every tier whose own account does not use them, and `allowedCredentials()` is gone. `knownCredentials()` leaves out `CLOUDFLARE_API_TOKEN_DEV`, so a workflow that reads it fails the package's tests.
+
 ## 0.2.0
 
 ### Minor Changes

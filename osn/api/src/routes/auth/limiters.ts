@@ -200,7 +200,7 @@ export function createDefaultAuthRateLimiters(): AuthRateLimiters {
     crossDeviceApprove: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
     crossDeviceReject: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
     oidcAuthorize: createRateLimiter({ maxRequests: 20, windowMs: 60_000 }),
-    oidcAuthorizeContext: createRateLimiter({ maxRequests: 30, windowMs: 60_000 }),
+    oidcAuthorizeContext: createRateLimiter({ maxRequests: 60, windowMs: 60_000 }),
     oidcAuthorizeDecision: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
     oidcToken: createRateLimiter({ maxRequests: 60, windowMs: 60_000 }),
     oidcConnectionsList: createRateLimiter({ maxRequests: 30, windowMs: 60_000 }),

@@ -21,9 +21,9 @@ The folders mirror the monorepo. Choose by who the page is about, not what kind 
 | `decisions/` | One record per choice made between named alternatives, plus `deferred-decisions.md` |
 | `compliance/` | The legal programme, across products |
 
-Product folders stay flat; the page's tags say whether it is a system or a runbook. Filenames stay unique across the whole vault, so a product page that could collide takes the product prefix (`cire-auth`, `pulse-onboarding`). A page that starts in one product and later applies to two moves to `shared/`.
+Product folders stay flat; the page's tags say whether it is a system or a runbook. Filenames stay unique across the whole vault, so a product page that could collide takes the product prefix (`cire-auth`, `pulse-onboarding`). The one exception is a folder's `index` or `README`: both names exist twice, and a bare `[[index]]` or `[[README]]` resolves to the page at the vault root. A page that starts in one product and later applies to two moves to `shared/`.
 
-Moving a page keeps its `[[wikilinks]]` working, because they resolve by filename, but it breaks every repo path that cites it — code comments, skills, `AGENTS.md` and issue bodies. Find them with `grep -rn "wiki/<old-folder>/<name>" .` and rewrite them in the same pull request.
+Moving a page keeps a bare `[[page-name]]` link working, because it resolves by filename. A link written with a folder, such as `[[dpia/cire-guest-data]]`, breaks, and so does every repo path that cites the page — code comments, skills, `AGENTS.md` and issue bodies. `bun scripts/check-wikilinks.ts` finds the broken wikilinks; find the repo paths with `grep -rn "wiki/<old-folder>/<name>" .`. Fix both in the same pull request.
 
 ## 3. Load the syntax skill
 

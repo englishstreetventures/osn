@@ -650,10 +650,23 @@ CREATE TABLE IF NOT EXISTS unlock_code_redemptions (
 CREATE UNIQUE INDEX IF NOT EXISTS unlock_code_redemptions_code_wedding_uniq ON unlock_code_redemptions(code_id, wedding_id);
 CREATE INDEX IF NOT EXISTS unlock_code_redemptions_wedding_idx ON unlock_code_redemptions(wedding_id);
 
+CREATE TABLE IF NOT EXISTS seating_plans (
+  id TEXT PRIMARY KEY,
+  wedding_id TEXT NOT NULL,
+  event_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  selected INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY (event_id, wedding_id) REFERENCES events(id, wedding_id) ON DELETE CASCADE
+);
+CREATE UNIQUE INDEX IF NOT EXISTS seating_plans_event_id_uniq ON seating_plans(event_id, id);
+CREATE UNIQUE INDEX IF NOT EXISTS seating_plans_one_selected_per_event ON seating_plans(event_id) WHERE selected = 1;
 CREATE TABLE IF NOT EXISTS seating_tables (
   id TEXT PRIMARY KEY,
   wedding_id TEXT NOT NULL,
   event_id TEXT NOT NULL,
+  plan_id TEXT REFERENCES seating_plans(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   capacity INTEGER NOT NULL,
   sort_order INTEGER NOT NULL DEFAULT 0,
@@ -662,16 +675,64 @@ CREATE TABLE IF NOT EXISTS seating_tables (
   FOREIGN KEY (event_id, wedding_id) REFERENCES events(id, wedding_id) ON DELETE CASCADE
 );
 CREATE UNIQUE INDEX IF NOT EXISTS seating_tables_event_id_uniq ON seating_tables(event_id, id);
+CREATE UNIQUE INDEX IF NOT EXISTS seating_tables_plan_id_uniq ON seating_tables(plan_id, id);
 CREATE TABLE IF NOT EXISTS seating_assignments (
   table_id TEXT NOT NULL,
+  plan_id TEXT,
   event_id TEXT NOT NULL,
   guest_id TEXT NOT NULL,
   created_at INTEGER NOT NULL,
   PRIMARY KEY (table_id, guest_id),
   FOREIGN KEY (table_id, event_id) REFERENCES seating_tables(id, event_id) ON DELETE CASCADE,
+  FOREIGN KEY (table_id, plan_id) REFERENCES seating_tables(id, plan_id) ON DELETE CASCADE,
   FOREIGN KEY (guest_id, event_id) REFERENCES guest_events(guest_id, event_id) ON DELETE CASCADE
 );
-CREATE UNIQUE INDEX IF NOT EXISTS seating_assignments_event_guest_uniq ON seating_assignments(event_id, guest_id);
+CREATE UNIQUE INDEX IF NOT EXISTS seating_assignments_plan_guest_uniq ON seating_assignments(plan_id, guest_id);
+CREATE INDEX IF NOT EXISTS seating_assignments_event_guest_idx ON seating_assignments(event_id, guest_id);
+CREATE TABLE IF NOT EXISTS seating_copy_budget (
+  wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,
+  day TEXT NOT NULL,
+  copied INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (day, wedding_id)
+);
+CREATE INDEX IF NOT EXISTS seating_copy_budget_wedding_idx ON seating_copy_budget(wedding_id);
+CREATE TRIGGER IF NOT EXISTS seating_tables_adopt_plan AFTER INSERT ON seating_tables
+WHEN NEW.plan_id IS NULL
+BEGIN
+  INSERT INTO seating_plans (id, wedding_id, event_id, name, selected, created_at, updated_at)
+  SELECT 'spl_' || lower(hex(randomblob(16))), NEW.wedding_id, NEW.event_id, 'Plan 1', 1, NEW.created_at, NEW.created_at
+  WHERE NOT EXISTS (
+    SELECT 1 FROM seating_plans WHERE event_id = NEW.event_id AND selected = 1
+  );
+  UPDATE seating_tables SET plan_id = (
+    SELECT id FROM seating_plans WHERE event_id = NEW.event_id AND selected = 1
+  )
+  WHERE id = NEW.id;
+END;
+CREATE TRIGGER IF NOT EXISTS seating_assignments_adopt_plan AFTER INSERT ON seating_assignments
+WHEN NEW.plan_id IS NULL
+BEGIN
+  UPDATE seating_assignments SET plan_id = (
+    SELECT plan_id FROM seating_tables WHERE id = NEW.table_id
+  )
+  WHERE table_id = NEW.table_id AND guest_id = NEW.guest_id;
+END;
+CREATE TRIGGER IF NOT EXISTS seating_tables_plan_at_event BEFORE INSERT ON seating_tables
+WHEN NEW.plan_id IS NOT NULL AND NOT EXISTS (
+  SELECT 1 FROM seating_plans
+  WHERE id = NEW.plan_id AND event_id = NEW.event_id AND wedding_id = NEW.wedding_id
+)
+BEGIN
+  SELECT RAISE(ABORT, 'seating table plan is not a plan of its event');
+END;
+CREATE TRIGGER IF NOT EXISTS seating_tables_plan_at_event_update BEFORE UPDATE OF plan_id, event_id, wedding_id ON seating_tables
+WHEN NEW.plan_id IS NOT NULL AND NOT EXISTS (
+  SELECT 1 FROM seating_plans
+  WHERE id = NEW.plan_id AND event_id = NEW.event_id AND wedding_id = NEW.wedding_id
+)
+BEGIN
+  SELECT RAISE(ABORT, 'seating table plan is not a plan of its event');
+END;
 `;
 
 export function createDb(path: string = ":memory:") {
@@ -860,9 +921,10 @@ export function applyE2eRsvpDeadline(
  *
  * The couple are taking money as far as their own settings go: money gifts
  * on, a connected account that can charge and settles in the wedding's
- * currency. The stack runs cire-api with no Stripe key, so no gift can be paid
- * for there, and the guest list must offer neither the money form nor the
- * fund. That is the deployment check the claimed flow holds.
+ * currency. The stack runs cire-api with a placeholder Stripe key and no
+ * Connect webhook secret, so it could open a payment page but never record the
+ * gift, and the guest list must offer neither the money form nor the fund.
+ * That is the deployment check the claimed flow holds.
  *
  * Its own wedding rather than the sample one, so the gift band that a
  * published list puts on the invite never appears in the other cire flows.
@@ -1035,9 +1097,9 @@ function seatDevOwner(db: TestDb, weddingId: string, seatId: string, now: Date):
 }
 
 /**
- * Five weddings for the E2E suite's organiser flows, each on Gold. The dev
- * profile, which osn-api's `/dev/login` signs in as, owns the first four and is
- * a helper on the fifth:
+ * Seven weddings for the E2E suite's organiser flows, each on Gold. The dev
+ * profile, which osn-api's `/dev/login` signs in as, owns all but
+ * `wed_e2e_rs_helper`, where it is a helper:
  *
  * - `wed_e2e_checklist`: a wedding date (2099-06-20) and an empty checklist,
  *   for the starter checklist.
@@ -1052,6 +1114,14 @@ function seatDevOwner(db: TestDb, weddingId: string, seatId: string, now: Date):
  * - `wed_e2e_rs_helper`: the same day, where the dev profile is a helper who
  *   sees their own tasks, and a co-host holds a task of another event; for
  *   reading what such a helper is given.
+ * - `wed_e2e_money`: money gifts on, a connected Stripe account that can charge
+ *   and settles in the wedding's currency, one cash fund and nothing to
+ *   reserve, unpublished. For the portal on a site that cannot take a money
+ *   gift: the stack's cire-api holds a Stripe key and no webhook secret.
+ * - `wed_e2e_seating`: a reception whose one seating plan, "Plan 1", is in
+ *   use — Ada and Bo Alpha at Table 1, Cy Charlie at Table 2, all three having
+ *   said yes — and an after party, inviting Ada, with no plan yet; for setting
+ *   out and seating an event's chart.
  *
  * The co-hosts are bare profile ids with no OSN account behind them; the local
  * server resolves no names, so the portal shows the ids. Every id and value a
@@ -1335,6 +1405,166 @@ export function seedE2eOrganiser(db: TestDb): void {
       hold("tsk_e2e_rsh_cue", "whost_e2e_gus", "wed_e2e_rs_helper"),
     ])
     .run();
+
+  wedding("wed_e2e_money", "money-wedding", "Money Wedding");
+  seatDevOwner(db, "wed_e2e_money", "whost_e2e_money_owner", now);
+  db.insert(schema.registrySettings)
+    .values({
+      weddingId: "wed_e2e_money",
+      published: false,
+      cashGiftsEnabled: true,
+      stripeAccountId: "acct_e2e_money",
+      stripeChargesEnabled: true,
+      stripePayoutsEnabled: true,
+      stripeDefaultCurrency: "AUD",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  db.insert(schema.registryItems)
+    .values({
+      id: "reg_e2e_money_fund",
+      weddingId: "wed_e2e_money",
+      kind: "cash_fund",
+      title: "Honeymoon fund",
+      description: "A week somewhere warm.",
+      targetMinor: 500_000,
+      sortOrder: 0,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+
+  seedE2eSeating(db, now);
+}
+
+/** `wed_e2e_seating`, for {@link seedE2eOrganiser}. Every seating row names
+ *  its plan. */
+function seedE2eSeating(db: TestDb, now: Date): void {
+  const weddingId = "wed_e2e_seating";
+  const reception = "evt_e2e_seating_rec";
+  const party = "evt_e2e_seating_party";
+  const planId = "spl_e2e_seating_1";
+  db.insert(schema.weddings)
+    .values({
+      id: weddingId,
+      slug: "seating-wedding",
+      displayName: "Seating Wedding",
+      tier: "gold",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  seatDevOwner(db, weddingId, "whost_e2e_seating_owner", now);
+  db.insert(schema.events)
+    .values([
+      {
+        id: reception,
+        weddingId,
+        slug: "reception",
+        name: "Reception",
+        startAt: "2099-06-20T18:00:00+00:00",
+        endAt: "2099-06-20T23:00:00+00:00",
+        timezone: "UTC",
+        sortOrder: 0,
+      },
+      {
+        id: party,
+        weddingId,
+        slug: "after-party",
+        name: "After party",
+        startAt: "2099-06-20T23:00:00+00:00",
+        endAt: "2099-06-21T02:00:00+00:00",
+        timezone: "UTC",
+        sortOrder: 1,
+      },
+    ])
+    .run();
+  const households = [
+    { id: "fam_e2e_seating_alpha", code: "TESTSEAT-ALP-0001", name: "Alpha" },
+    { id: "fam_e2e_seating_charlie", code: "TESTSEAT-CHA-0002", name: "Charlie" },
+  ];
+  for (const household of households) {
+    db.insert(schema.families)
+      .values({
+        id: household.id,
+        weddingId,
+        publicId: household.code,
+        familyName: household.name,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  }
+  const people = [
+    { id: "gst_e2e_seating_ada", family: "fam_e2e_seating_alpha", first: "Ada", last: "Alpha" },
+    { id: "gst_e2e_seating_bo", family: "fam_e2e_seating_alpha", first: "Bo", last: "Alpha" },
+    { id: "gst_e2e_seating_cy", family: "fam_e2e_seating_charlie", first: "Cy", last: "Charlie" },
+  ];
+  people.forEach((person, sortOrder) => {
+    db.insert(schema.guests)
+      .values({
+        id: person.id,
+        familyId: person.family,
+        firstName: person.first,
+        lastName: person.last,
+        sortOrder,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    db.insert(schema.guestEvents).values({ guestId: person.id, eventId: reception }).run();
+    db.insert(schema.rsvps)
+      .values({
+        id: `rsvp_${person.id}`,
+        guestId: person.id,
+        eventId: reception,
+        status: "attending",
+        createdAt: now,
+      })
+      .run();
+  });
+  // The after party invites Ada alone, and has no seating plan yet.
+  db.insert(schema.guestEvents).values({ guestId: "gst_e2e_seating_ada", eventId: party }).run();
+  db.insert(schema.seatingPlans)
+    .values({
+      id: planId,
+      weddingId,
+      eventId: reception,
+      name: "Plan 1",
+      selected: true,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  const tables = [
+    {
+      id: "stb_e2e_seating_1",
+      name: "Table 1",
+      seated: ["gst_e2e_seating_ada", "gst_e2e_seating_bo"],
+    },
+    { id: "stb_e2e_seating_2", name: "Table 2", seated: ["gst_e2e_seating_cy"] },
+  ];
+  tables.forEach((table, sortOrder) => {
+    db.insert(schema.seatingTables)
+      .values({
+        id: table.id,
+        weddingId,
+        eventId: reception,
+        planId,
+        name: table.name,
+        capacity: 4,
+        sortOrder,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    for (const guestId of table.seated) {
+      db.insert(schema.seatingAssignments)
+        .values({ tableId: table.id, planId, eventId: reception, guestId, createdAt: now })
+        .run();
+    }
+  });
 }
 
 /**

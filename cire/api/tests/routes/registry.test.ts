@@ -29,6 +29,7 @@ import type {
   RegistryItemDto,
   RegistrySnapshot,
 } from "../../src/services/registry";
+import { StripeError, type StripeClient } from "../../src/services/stripe";
 import type { Tier } from "../../src/services/tiers";
 import { appRequest, jsonBody, recordStatements, setTier } from "../test-helpers";
 import type { RecordedStatement } from "../test-helpers";
@@ -48,6 +49,20 @@ beforeAll(async () => {
   auth = await makeOsnTestAuth();
 });
 
+/** A configured Stripe client that is never called: reading the registry asks Stripe nothing. */
+const unreached = () => Effect.fail(new StripeError({ reason: "not used here" }));
+const configuredStripe: StripeClient = {
+  createAccount: unreached,
+  createAccountLink: unreached,
+  retrieveAccount: unreached,
+  createCheckoutSession: unreached,
+  retrieveCheckoutSession: unreached,
+  createPlatformCheckoutSession: unreached,
+  retrievePlatformCheckoutSession: unreached,
+  expirePlatformCheckoutSession: unreached,
+  retrievePrice: unreached,
+};
+
 /**
  * `tier` defaults to IVORY — the opposite of the other module tests, and
  * deliberately so. Every new wedding starts there, so the default fixture is
@@ -60,12 +75,18 @@ function buildApp({
   images,
   thumbRequireTransform,
   seed,
+  stripe = null,
+  stripeWebhookSecret = null,
 }: {
   tier?: Tier;
   linkPreview?: LinkPreviewOptions;
   assets?: ReturnType<typeof createAssetsStub>;
   images?: ImagesBindingLike;
   thumbRequireTransform?: boolean;
+  /** The deployment's Stripe client. `null` (the default) is no Stripe key. */
+  stripe?: StripeClient | null;
+  /** The Connect webhook's signing secret. `null` (the default) is unset. */
+  stripeWebhookSecret?: string | null;
   /** Rows the route then has to read back. This fixture owns its database and
    *  never hands the handle out, so anything a test needs on disk goes here. */
   seed?: (db: ReturnType<typeof createDb>) => void;
@@ -118,6 +139,8 @@ function buildApp({
     registryLinkPreviewOptions: linkPreview,
     assets,
     images,
+    stripe,
+    stripeWebhookSecret,
   });
 }
 type App = ReturnType<typeof buildApp>;
@@ -247,6 +270,36 @@ describe("registry routes (Gold)", () => {
     // No sweep has run, so there is nothing kept in place of the detail.
     expect(body.giftSummary).toBeNull();
   });
+
+  // The portal reads this to say whether guests can give money at all, so it
+  // must say yes exactly where the guest list can: a Stripe key AND the Connect
+  // webhook secret that records each gift. Anything less and the portal would
+  // tell a couple their guests can give money while the guest list offers none.
+  for (const [label, deployment, takesPayments] of [
+    [
+      "a Stripe key and a webhook secret",
+      { stripe: configuredStripe, stripeWebhookSecret: "whsec_test_connect" },
+      true,
+    ],
+    [
+      "a Stripe key and no webhook secret",
+      { stripe: configuredStripe, stripeWebhookSecret: null },
+      false,
+    ],
+    [
+      "a Stripe key and a blank webhook secret",
+      { stripe: configuredStripe, stripeWebhookSecret: "  " },
+      false,
+    ],
+    ["no Stripe key", { stripe: null, stripeWebhookSecret: "whsec_test_connect" }, false],
+  ] as const) {
+    it(`says money ${takesPayments ? "can" : "cannot"} be taken on a deployment with ${label}`, async () => {
+      const res = await req(buildApp({ tier: "gold", ...deployment }), "GET", base, OWNER);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as RegistrySnapshot & { takesPayments: unknown };
+      expect(body.takesPayments).toBe(takesPayments);
+    });
+  }
 
   it("hands the parting gift summary out on the same GET as the gift log", async () => {
     // Same route on purpose: it is read off the settings row this response

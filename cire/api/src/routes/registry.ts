@@ -162,7 +162,12 @@ function parseOffset(raw: unknown): number {
  *   GET /api/organiser/weddings/:weddingId/registry         (weddingMember + Gold)
  *   GET /api/organiser/weddings/:weddingId/registry/gifts   (weddingMember + Gold)
  *
- * `/registry` is the whole snapshot with page one of the gift log.
+ * `/registry` is the whole snapshot with page one of the gift log, plus
+ * `takesPayments`: whether this deployment can take a money gift at all (a
+ * Stripe key AND the Connect webhook secret). It sits beside the settings, not
+ * in them, because it is the deployment's and the same for every wedding; the
+ * portal reads it so it never tells a couple their guests can give money, or
+ * see a cash fund, where the guest list offers neither.
  * `/registry/gifts?offset=` is every further page, and nothing else: the portal
  * already holds the settings, items and totals, so a further page reads the gift
  * log's own tables and no others.
@@ -179,7 +184,11 @@ function parseOffset(raw: unknown): number {
  * the roster reads follow — rather than depending on a header another route
  * factory happens to leave set.
  */
-export const createRegistryReadRoutes = (db: Db, osnAuthOptions: OsnAuthOptions) =>
+export const createRegistryReadRoutes = (
+  db: Db,
+  osnAuthOptions: OsnAuthOptions,
+  deps: { readonly takesPayments: boolean },
+) =>
   new Elysia({ prefix: "/api/organiser" })
     .use(osnAuth(osnAuthOptions))
     .group("/weddings/:weddingId", (group) =>
@@ -191,6 +200,7 @@ export const createRegistryReadRoutes = (db: Db, osnAuthOptions: OsnAuthOptions)
           set.headers["cache-control"] = "no-store";
           return runCire(
             registryService.get(weddingId).pipe(
+              Effect.map((snapshot) => ({ ...snapshot, takesPayments: deps.takesPayments })),
               Effect.provideService(DbService, db),
               Effect.tapDefect(logDefect(weddingId)),
               Effect.catchDefect(() => internal(set)),

@@ -398,8 +398,9 @@ export const retentionService = {
                 // families (parent). guest_events and the seats included for
                 // the same reason as rsvps: the sweep's stated contract is to
                 // not depend on FK cascade. Every household of these weddings
-                // goes, so every seat at their events goes; reached through
-                // the events, whose ids lead the seats' unique index.
+                // goes, so every seat, in every plan, at their events goes;
+                // reached through the events, whose ids lead the seats'
+                // `(event_id, guest_id)` index.
                 stmts.push(
                   db.delete(seatingAssignments).where(
                     inArray(

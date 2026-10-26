@@ -46,6 +46,9 @@ async function signInToPulse(flow: Flow, page: Page, who: string): Promise<void>
   });
 
   flow.check(`${who}: Musubi /authorize page not shown`, 0, authorizePages.length);
+  // The consent screen is the only thing that reads the context, so a
+  // first-party sign-in that never shows it makes no such read.
+  flow.check(`${who}: /authorize/context reads`, 0, flow.count("GET osn-api /authorize/context "));
   const cookie = await cookieNamed(page.context(), ORIGINS.pulseApi, "pulse_web_session");
   flow.check(`${who}: pulse_web_session set by pulse-api`, true, cookie !== undefined);
   flow.check(`${who}: pulse_web_session is HttpOnly`, true, cookie?.httpOnly ?? false);

@@ -109,13 +109,13 @@ function rows() {
  *  Rects are derived from the row's CURRENT DOM position, so they stay correct
  *  after a reorder moves the nodes. */
 function stubRowGeometry() {
-  vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(
-    function (this: Element): DOMRect {
-      const index = rows().indexOf(this as HTMLLIElement);
-      if (index === -1) return new DOMRect(0, 0, 0, 0);
-      return new DOMRect(0, index * ROW_HEIGHT, 500, ROW_HEIGHT);
-    },
-  );
+  vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (
+    this: Element,
+  ): DOMRect {
+    const index = rows().indexOf(this as HTMLLIElement);
+    if (index === -1) return new DOMRect(0, 0, 0, 0);
+    return new DOMRect(0, index * ROW_HEIGHT, 500, ROW_HEIGHT);
+  });
 }
 
 /** The visible event names, in rendered order. */

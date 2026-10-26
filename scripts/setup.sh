@@ -10,8 +10,8 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-echo "==> Installing dependencies (bun install)"
-bun install
+echo "==> Installing dependencies (bun install --frozen-lockfile)"
+bun install --frozen-lockfile
 
 echo "==> Registering git hooks (lefthook install)"
 bunx --bun lefthook install
@@ -20,7 +20,7 @@ echo "==> Guarding the directory that holds the worktrees"
 bun run scripts/bootstrap-bare-root.ts
 
 echo "==> Verifying: type-check, lint, format"
-bun run check
+bun run typecheck
 bun run lint
 bun run fmt:check
 

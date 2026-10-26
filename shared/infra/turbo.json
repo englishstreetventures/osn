@@ -4,8 +4,8 @@
   "tasks": {
     // The `package` project reads only this package's files; the `repo`
     // project (vitest.config.ts) also reads the Worker sources, the lockfile,
-    // the root turbo.json and the workflows, so only it reruns when one of
-    // those changes.
+    // the root turbo.json, the cire packages' own turbo.json and the
+    // workflows, so only it reruns when one of those changes.
     "test": {
       "dependsOn": ["^build", "test:repo"]
     },
@@ -20,6 +20,7 @@
         "$TURBO_ROOT$/osn/api/wrangler.toml",
         "$TURBO_ROOT$/bun.lock",
         "$TURBO_ROOT$/turbo.json",
+        "$TURBO_ROOT$/cire/*/turbo.json",
         "$TURBO_ROOT$/.github/workflows/**"
       ]
     }

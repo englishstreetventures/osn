@@ -6,13 +6,14 @@
   "extends": "@shared/typescript-config/solid.json",
   "compilerOptions": {
     // Stated here rather than inherited from `solid.json`, so a change to the
-    // shared config cannot quietly raise it. `astro check` reports only this
-    // package's files, so every workspace package this site imports states it
-    // too, in its own tsconfig; `tests/browser-floor.test.ts` fails when one is
-    // wider than this.
+    // shared config cannot quietly raise it. `typecheck` checks the source of
+    // every workspace package this site imports at this `lib`;
+    // `tests/browser-floor.test.ts` fails when the program loads a library
+    // above it.
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "jsx": "preserve",
     "jsxImportSource": "solid-js"
   },
-  "include": ["src/**/*", "env.d.ts"]
+  "include": ["src/**/*", "env.d.ts"],
+  "contentMappers": [{ "package": "@astrojs/ts-content-mapper", "extensions": [".astro"] }]
 }

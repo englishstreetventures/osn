@@ -1,5 +1,26 @@
 # @shared/email
 
+## 0.16.8
+
+### Patch Changes
+
+- acc966b: The Resend transport logs every failed send as `email.dispatch_failed` (template, reason, HTTP status, Resend's error code and a fixed reading of its message, never the recipient, message text or key) and every send a caller's timeout cuts off as `email.dispatch_interrupted`. A send a caller's timeout cuts off aborts its request, and a refusal's error body is read only up to 4096 bytes. When a sign-up code's send fails or takes over ten seconds, osn-api answers the sign-up as it answers every other one. A refused send removes that request's pending entry, so the next "Resend code" sends a new code; a send that timed out or never got an answer, whose code may still arrive, holds the entry for one minute.
+
+## 0.16.7
+
+### Patch Changes
+
+- 355b956: Type-check with Bun's built-in checker. Each package's `check` script is now `typecheck` and runs `bun check` in place of `tsc --noEmit`, with the test tsconfigs checked the same way. Packages that still need `astro check` keep it. No source changes.
+- Updated dependencies [355b956]
+  - @shared/observability@0.18.12
+
+## 0.16.6
+
+### Patch Changes
+
+- Updated dependencies [a3364fb]
+  - @shared/observability@0.18.11
+
 ## 0.16.5
 
 ### Patch Changes

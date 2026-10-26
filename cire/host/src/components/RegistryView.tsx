@@ -270,10 +270,14 @@ export default function RegistryView(props: RegistryViewProps) {
   /** Its own memo so a row's move controls re-run when the length changes, not
    *  on every write to the list. */
   const itemCount = createMemo(() => items().length);
+  /** Whether this site can take a money gift at all, whatever the settings say. */
+  const siteTakesPayments = () => snapshot()?.takesPayments === true;
   /** Guests can give money, so they see the couple's funds. */
   const takingMoney = createMemo(() => {
     const settings = snapshot()?.settings;
-    return settings?.cashGiftsEnabled === true && settings.stripeChargesEnabled;
+    return (
+      siteTakesPayments() && settings?.cashGiftsEnabled === true && settings.stripeChargesEnabled
+    );
   });
   /** Its own memo, so a write that leaves the items alone does not walk them. */
   const hasFund = createMemo(() => items().some((it) => it.kind === "cash_fund"));
@@ -989,8 +993,9 @@ export default function RegistryView(props: RegistryViewProps) {
             Settings says when it matters. */}
         <Show when={fundsHidden()}>
           <Notice tone="info">
-            Guests see your cash funds only while money gifts are on. Turn them on in the Settings
-            tab.
+            {siteTakesPayments()
+              ? "Guests see your cash funds only while money gifts are on. Turn them on in the Settings tab."
+              : "Guests can’t see your cash funds: money gifts aren’t available on this site yet."}
           </Notice>
         </Show>
 

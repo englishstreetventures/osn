@@ -8,9 +8,11 @@
  * token belongs to. Needs a `gh` login that can list Environment secrets, run
  * inside the repository (or with GH_REPO set) so `gh` fills in
  * `{owner}/{repo}`. Exits 0 when nothing required is missing and the
- * Environment holds none of the other tier's credentials, 1 otherwise, 2 when
- * the arguments or `gh` fail. A name it does not know is printed but does not
- * fail the check. The rules are in `src/secrets/check.ts` (`checkGithub`).
+ * Environment holds no forbidden credential (the other tier's, or a retired
+ * dev one), 1 otherwise, 2 when the arguments or `gh` fail. A name it does
+ * not know is printed but does not fail the check. It lists Environment
+ * secrets only, never repository-level ones. The rules are in
+ * `src/secrets/check.ts` (`checkGithub`).
  */
 import { spawnSync } from "node:child_process";
 

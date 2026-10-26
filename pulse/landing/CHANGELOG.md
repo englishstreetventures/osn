@@ -1,5 +1,19 @@
 # @pulse/landing
 
+## 0.1.29
+
+### Patch Changes
+
+- 9e9801c: Move to TypeScript 7.1 (`typescript@7.1.0-beta`). The Astro landing sites drop `astro check` and `@astrojs/check` and type-check with `tsc -p . --runExternalCode` and `@astrojs/ts-content-mapper`, which checks every `.astro` page and component; `astro` moves to 7.4.2.
+
+## 0.1.28
+
+### Patch Changes
+
+- 355b956: Type-check with Bun's built-in checker. Each package's `check` script is now `typecheck` and runs `bun check` in place of `tsc --noEmit`, with the test tsconfigs checked the same way. Packages that still need `astro check` keep it. No source changes.
+- Updated dependencies [355b956]
+  - @shared/legal@0.0.8
+
 ## 0.1.27
 
 ### Patch Changes

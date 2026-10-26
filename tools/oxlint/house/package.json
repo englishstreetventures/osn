@@ -10,13 +10,13 @@
     "url": "git+https://github.com/englishstreetventures/osn.git"
   },
   "scripts": {
-    "check": "tsc --noEmit",
+    "typecheck": "bun check --no-script",
     "test": "bun test"
   },
   "devDependencies": {
     "@oxlint/plugins": "1.80.0",
     "@shared/typescript-config": "workspace:*",
     "oxlint": "1.80.0",
-    "typescript": "^6.0.3"
+    "typescript": "7.1.0-beta"
   }
 }

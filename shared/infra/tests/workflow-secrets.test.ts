@@ -3,7 +3,8 @@
 // and no step that installs or builds holds a secret or a Cloudflare
 // credential. A secret the deploy step lacks fails the first deploy in
 // requireSecrets(); one that reaches a build step reaches every dependency's
-// install and build scripts.
+// install and build scripts. It also holds turbo to handing a build the
+// values the build must see: ASTRO_KEY unhashed, OSN_DEPLOY_TIER hashed.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
@@ -273,5 +274,59 @@ describe("W11: the guest site's build sees ASTRO_KEY", () => {
       (list ?? []).map((entry) => entry.split("=")[0]);
     expect(names(task?.environmentVariables.passthrough ?? null)).toContain("ASTRO_KEY");
     expect(names(task?.environmentVariables.configured ?? null)).not.toContain("ASTRO_KEY");
+  });
+});
+
+describe("each cire site that retargets its CSP builds with the deploy tier hashed", () => {
+  // OSN_DEPLOY_TIER tells the shared CSP integration that a build deploys, so
+  // it refuses the local cire-api fallback. Strict env mode hides a variable
+  // turbo.json does not name from `astro build`, and one it passes through
+  // unhashed would let a deploy build replay a cached test build made without
+  // it, where the integration never runs. The sites are every workspace that
+  // depends on `@cire/build-tools`, the same set scripts/tests/
+  // deploy-workflows.test.ts requires each deploy build to set the tier for.
+  interface Manifest {
+    readonly name: string;
+    readonly dependencies?: Readonly<Record<string, string>>;
+    readonly devDependencies?: Readonly<Record<string, string>>;
+  }
+  const readJson = <T>(path: string) => JSON.parse(readFileSync(`${ROOT}${path}`, "utf8")) as T;
+  const SITES = readJson<{ workspaces: string[] }>("package.json")
+    .workspaces.flatMap((pattern) =>
+      Array.from(new Bun.Glob(`${pattern}/package.json`).scanSync({ cwd: ROOT })),
+    )
+    .map((path) => readJson<Manifest>(path))
+    .filter((pkg) => "@cire/build-tools" in { ...pkg.dependencies, ...pkg.devDependencies })
+    .map((pkg) => pkg.name);
+
+  test("turbo hashes OSN_DEPLOY_TIER into each site's build", () => {
+    expect(SITES.length).toBeGreaterThan(0);
+    const run = Bun.spawnSync(
+      [
+        `${ROOT}node_modules/.bin/turbo`,
+        "run",
+        "build",
+        ...SITES.map((site) => `--filter=${site}`),
+        "--dry=json",
+      ],
+      {
+        cwd: ROOT,
+        env: {
+          PATH: process.env.PATH ?? "",
+          HOME: process.env.HOME ?? "",
+          OSN_DEPLOY_TIER: "dev",
+          DO_NOT_TRACK: "1",
+          TURBO_TELEMETRY_DISABLED: "1",
+        },
+      },
+    );
+    expect(run.exitCode).toBe(0);
+    const dry = JSON.parse(run.stdout.toString()) as { readonly tasks: readonly DryRunTask[] };
+    const names = (list: readonly string[] | null) =>
+      (list ?? []).map((entry) => entry.split("=")[0]);
+    for (const site of SITES) {
+      const task = dry.tasks.find((candidate) => candidate.taskId === `${site}#build`);
+      expect(names(task?.environmentVariables.configured ?? null)).toContain("OSN_DEPLOY_TIER");
+    }
   });
 });

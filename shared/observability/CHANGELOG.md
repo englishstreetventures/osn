@@ -1,5 +1,17 @@
 # @shared/observability
 
+## 0.18.12
+
+### Patch Changes
+
+- 355b956: Type-check with Bun's built-in checker. Each package's `check` script is now `typecheck` and runs `bun check` in place of `tsc --noEmit`, with the test tsconfigs checked the same way. Packages that still need `astro check` keep it. No source changes.
+
+## 0.18.11
+
+### Patch Changes
+
+- a3364fb: The metric factory's doc comment no longer claims CI rejects a raw `metrics.getMeter()` call; it says code review has to catch one.
+
 ## 0.18.10
 
 ### Patch Changes

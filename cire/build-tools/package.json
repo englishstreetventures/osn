@@ -12,14 +12,14 @@
     "./tier-headers": "./src/tier-headers.ts"
   },
   "scripts": {
-    "check": "tsc --noEmit",
+    "typecheck": "bun check --no-script",
     "test": "bunx --bun vitest",
     "test:mutation": "bun ../../tools/stryker/src/cli.ts",
     "test:run": "bunx --bun vitest run"
   },
   "devDependencies": {
     "@shared/typescript-config": "workspace:*",
-    "astro": "^7.2.10",
+    "astro": "^7.4.2",
     "vitest": "5.0.3"
   }
 }

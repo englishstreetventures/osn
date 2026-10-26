@@ -51,9 +51,9 @@ const FUND_IMAGE = "registry-fund";
 const FUND_TARGET = 987_654;
 
 /**
- * A Stripe client that is configured and never called. Its presence is what a
- * deployment with a Stripe key looks like to `createApp`: the contribute route
- * is mounted, so the guest list may offer money.
+ * A Stripe client that is configured and never called. With a Connect webhook
+ * secret beside it, this is what a deployment that takes money looks like to
+ * `createApp`: the contribute route is mounted, so the guest list may offer it.
  */
 const configuredStripe: StripeClient = {
   createAccount: () => Effect.fail(new StripeError({ reason: "not used here" })),
@@ -163,6 +163,11 @@ function buildApp(
      * key, where the contribute route is not mounted at all.
      */
     stripe?: StripeClient | null;
+    /**
+     * The Connect webhook's signing secret. `null` is a deployment that could
+     * open a payment page but never record the gift, so it offers no money.
+     */
+    webhookSecret?: string | null;
   } = {},
 ) {
   const {
@@ -176,6 +181,7 @@ function buildApp(
     stripeDefaultCurrency = "AUD",
     images,
     stripe = configuredStripe,
+    webhookSecret = "whsec_test_connect",
   } = opts;
   const db = createDb(":memory:");
   seedDb(db);
@@ -311,6 +317,7 @@ function buildApp(
     assets,
     images,
     stripe,
+    stripeWebhookSecret: webhookSecret,
     // Fresh limiters per app: the module-level defaults are process-wide, so
     // without these the 21st guest write in this file would 429 whichever test
     // happened to run last (and `/api/claim`'s budget is only 5/min).
@@ -608,6 +615,12 @@ describe("cash funds, as a guest sees them", () => {
     ["Stripe cannot take a charge", { cashGiftsEnabled: true }],
     ["the account settles in another currency", { ...TAKING_MONEY, stripeDefaultCurrency: "USD" }],
     ["the deployment has no Stripe key", { ...TAKING_MONEY, stripe: null }],
+    // The key could open a payment page, but with no Connect webhook secret
+    // nothing would ever record the gift.
+    [
+      "the deployment has a Stripe key and no webhook secret",
+      { ...TAKING_MONEY, webhookSecret: null },
+    ],
   ] as const;
 
   for (const [label, opts] of notTakingMoney) {
@@ -652,7 +665,11 @@ describe("cash funds, as a guest sees them", () => {
 
     // Turning money off withdraws the fund, and its picture with it, as
     // deleting it would.
-    for (const opts of [{ stripeChargesEnabled: true }, { ...TAKING_MONEY, stripe: null }]) {
+    for (const opts of [
+      { stripeChargesEnabled: true },
+      { ...TAKING_MONEY, stripe: null },
+      { ...TAKING_MONEY, webhookSecret: null },
+    ]) {
       const closed = buildApp(opts);
       store(closed.assets);
       const res = await appRequest(closed.app, path);
