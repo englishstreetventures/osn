@@ -16,7 +16,7 @@ related:
   - "[[monorepo-structure]]"
   - "[[database-environments]]"
   - "[[osn-and-musubi]]"
-last-reviewed: 2026-10-24
+last-reviewed: 2026-10-26
 ---
 
 # Infrastructure as code (Alchemy)
@@ -91,7 +91,7 @@ Each refusal is a `Data.TaggedError`. Every one names secret names, never values
 | `ProductionPreviewUrlsError` | `apiWorkerProps()`, `siteWorkerProps()` | `previewUrls` is true on production. Each version's preview URL is a public `workers.dev` host outside any Access gate |
 | `ProductionObservabilityError` | `apiWorkerProps()` | On production, query strings are not redacted or native traces are on ([[#Production observability]]) |
 | `AdoptedLocationHintError` | `retainedD1Props()`, `retainedBucketProps()` | A location hint is declared on production, where the storage is adopted |
-| `MissingSecretsError` | `requireSecrets()` | A required secret is unset, empty or only whitespace (`missing`), any value has leading or trailing whitespace (`malformed`), or a value breaks a rule its tier sets (`breaksRule`): on dev, `STRIPE_SECRET_KEY` must start `sk_test_` or `rk_test_`, and `DEV_LOGIN_SECRET` and `CIRE_INTERNAL_REVOKE_SECRET` must each be at least 32 characters |
+| `MissingSecretsError` | `requireSecrets()` | A required secret is unset, empty or only whitespace (`missing`), any value has leading or trailing whitespace (`malformed`), or a value breaks a rule its tier sets (`breaksRule`): on dev, `STRIPE_SECRET_KEY` must start `sk_test_` or `rk_test_`, and `DEV_LOGIN_SECRET` and `CIRE_INTERNAL_REVOKE_SECRET` must each be at least 32 characters; on production, `CIRE_INTERNAL_REVOKE_SECRET` must be at least 32 characters |
 | `NoWorkerOnTierError` | `tierSecrets()` | The Worker has no deployed script on that tier |
 | `UnretainedResourceError` | `assertRetained()`, `assertStackRetained()` | A resource a long-lived stage keeps would be deleted on destroy or replacement |
 | `ProductionSeedError` | `retainedD1Props()` | `importFiles` on production, whose data no seed may touch |
@@ -333,7 +333,7 @@ A tier can also set a rule for a value, which `requireSecrets()` checks after th
 | `DEV_LOGIN_SECRET` | at least 32 characters | It alone stands between a public route and the seeded owner's session ([[dev-environment#Passkey-less sign-in on local and dev]]) |
 | `CIRE_INTERNAL_REVOKE_SECRET` | at least 32 characters | It alone stands between a public route and ending any organiser's cire sessions ([[cire-auth]]) |
 
-Production sets no rule. A value that breaks one fails the run, naming the secret and its rule, never the value.
+Production sets one: `CIRE_INTERNAL_REVOKE_SECRET`, at least 32 characters, for the same reason as on dev; osn-api and cire-api each treat a shorter value as unset, which covers a value set by hand with `wrangler secret put`. A value that breaks a rule fails the run, naming the secret and its rule, never the value.
 
 `requireSecrets()` runs in the stack body, which Alchemy evaluates for `plan` and `destroy` as well as `deploy`. Every Alchemy run for a stage therefore needs that stage's secrets, and its sites built for that stage's hosts ([[#Sites]]): a production plan job runs in the `production` Environment, and tearing down an investigation stage needs the `dev` Environment's.
 

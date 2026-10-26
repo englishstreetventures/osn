@@ -402,9 +402,10 @@ printf '%s' "$VALUE" | gh secret set NAME --env dev --repo englishstreetventures
      none of them ([[infrastructure-as-code#Seeds and the ARC registration]]).
    - Optional, one value for both osn-api and cire-api:
      `CIRE_INTERNAL_REVOKE_SECRET` (at least 32 characters, `openssl rand -base64 32`).
-     With it, sign out everywhere else ends the account's cire organiser
-     sessions ([[sessions#Sign out everywhere else reaches cire]]). After setting
-     or changing it, deploy both the musubi and cire stacks.
+     With it, sign out everywhere else and revoking cire's connection end the
+     account's cire organiser sessions
+     ([[sessions#Sign out everywhere else reaches cire]]). After setting or
+     changing it, deploy both the musubi and cire stacks.
    - The guest site's build: `ASTRO_KEY`, from `bunx --bun astro create-key` in
      `cire/invites`, fixed so two builds of one commit match. Root `turbo.json`
      passes it to the build without hashing it, and that build runs with turbo's
