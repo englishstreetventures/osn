@@ -744,7 +744,7 @@ describe("scanHtml", () => {
     const scanned = scanHtml(
       `${imgs}<meta property="og:image" content="https://cdn.example/card.jpg">`,
     );
-    const ranked = [...scanned.candidates].sort((a, b) => a.rank - b.rank);
+    const ranked = scanned.candidates.toSorted((a, b) => a.rank - b.rank);
     expect(ranked[0]?.url).toBe("https://cdn.example/card.jpg");
   });
 });
