@@ -1,6 +1,6 @@
 {
   "name": "model-colour",
   "version": "0.1.0",
-  "description": "Tags the prompt hint line and the working spinner with the current model, in that model's colour",
+  "description": "Tags the prompt hint line with the current model, in that model's colour, and the session id; tags the working spinner with the model's colour",
   "author": { "name": "englishstreetventures" }
 }
