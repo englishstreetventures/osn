@@ -20,12 +20,12 @@ const isD1Client = (client: SqlClient.SqlClient): client is D1Client.D1Client =>
   D1Client.TypeId in client;
 
 /**
- * Commit a write set atomically, on whichever driver the handle was built over.
+ * Commit a write set atomically on D1.
  *
- * D1 has no interactive transactions, so on D1 the writes go out as one
- * `D1Client.batch`, which is a transaction. On bun:sqlite the same writes run
- * inside `withTransaction`. The driver is read from `db.$client`, so a caller
- * that holds only the handle gets the right path.
+ * D1 has no interactive transactions, so the writes go out as one
+ * `D1Client.batch`, which is a transaction. The client is read from
+ * `db.$client`, so a caller that holds only the handle needs no service in
+ * context. Any other client is a defect: nothing in the repository builds one.
  *
  * The writes run in the order given; list a parent before its children.
  */
@@ -37,11 +37,8 @@ export const commitEffectWrites = (db: EffectWriteDb, writes: ReadonlyArray<Writ
       const { sql, params } = write.toSQL();
       return client.unsafe(sql, params);
     });
-    if (isD1Client(client)) {
-      yield* client.batch(statements);
-      return;
+    if (!isD1Client(client)) {
+      return yield* Effect.die(new Error("commitEffectWrites needs a D1 client"));
     }
-    yield* client.withTransaction(
-      Effect.forEach(statements, (statement) => statement, { discard: true }),
-    );
+    yield* client.batch(statements);
   });
