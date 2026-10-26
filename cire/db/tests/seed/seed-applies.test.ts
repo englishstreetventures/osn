@@ -4,7 +4,14 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { listMigrations, migrationStatements } from "../../../../scripts/migration-files";
-import { DEV_OWNER_SEAT_ID, faqs, hosts, seatingTables, seats } from "../../seed/data";
+import {
+  DEV_OWNER_SEAT_ID,
+  faqs,
+  hosts,
+  seatingPlans,
+  seatingTables,
+  seats,
+} from "../../seed/data";
 import { BOOTSTRAP_WEDDING_ID } from "../../src/schema";
 
 // seed.test.ts proves dev-seed.sql is what the generator emits; this proves
@@ -65,12 +72,16 @@ describe("dev-seed.sql against the migrated schema", () => {
   });
 });
 
-// The dev database held the seed's seating chart before seating plans existed.
+// The dev database held the seed's seating chart before seating plans existed:
+// the tables and seats of the plan in use, since a chart then held one of each.
 // The plans migration gave the Reception a plan of its own, with a random id,
-// so the seed's plan is skipped there, and the seed's tables and seats must
-// still import on top.
+// so the seed's plan in use is skipped there, and the seed's tables and seats
+// must still import on top; the seed's other plans import as they are.
 describe("dev-seed.sql over a chart the seating-plans migration moved", () => {
   const PLANS_MIGRATION = "20261026040620_seating_plans.sql";
+  const inUse = seatingPlans.find((plan) => plan.selected)!.id;
+  const chartTables = seatingTables.filter((t) => t.planId === inUse);
+  const chartSeats = seats.filter((s) => s.planId === inUse);
 
   /** The seed without its "Seating chart" section: rule, title, rule, body. */
   function seedWithoutSeating(): string {
@@ -90,13 +101,13 @@ describe("dev-seed.sql over a chart the seating-plans migration moved", () => {
     migrate(db, files.slice(0, files.indexOf(PLANS_MIGRATION)));
     db.exec(seedWithoutSeating());
     const now = Math.floor(Date.now() / 1000);
-    for (const t of seatingTables) {
+    for (const t of chartTables) {
       db.query(
         `INSERT INTO seating_tables (id, wedding_id, event_id, name, capacity, sort_order, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(t.id, BOOTSTRAP_WEDDING_ID, t.eventId, t.name, t.capacity, t.sortOrder, now, now);
     }
-    for (const s of seats) {
+    for (const s of chartSeats) {
       db.query(
         "INSERT INTO seating_assignments (table_id, event_id, guest_id, created_at) VALUES (?, ?, ?, ?)",
       ).run(s.tableId, s.eventId, s.guestId, now);
@@ -117,11 +128,16 @@ describe("dev-seed.sql over a chart the seating-plans migration moved", () => {
       .all()
       .map((p) => p.id);
     db.exec(readFileSync(SEED, "utf8"));
-    const tablePlans = db
-      .query<{ plan_id: string }, []>("SELECT DISTINCT plan_id FROM seating_tables")
-      .all()
-      .map((t) => t.plan_id);
-    expect(tablePlans).toEqual(backfilled);
+    const planOf = (id: string) =>
+      db
+        .query<{ plan_id: string }, [string]>("SELECT plan_id FROM seating_tables WHERE id = ?")
+        .get(id)?.plan_id;
+    // The chart's tables stay on the migration's plan; the seed's other
+    // plans bring their own tables.
+    expect([...new Set(chartTables.map((t) => planOf(t.id)))]).toEqual(backfilled);
+    for (const t of seatingTables.filter((table) => table.planId !== inUse)) {
+      expect(planOf(t.id)).toBe(t.planId);
+    }
     const strays = db
       .query<{ n: number }, []>(
         `SELECT count(*) AS n FROM seating_assignments a
@@ -137,7 +153,7 @@ describe("dev-seed.sql over a chart the seating-plans migration moved", () => {
     const [backfilled] = db
       .query<{ id: string }, []>("SELECT id FROM seating_plans WHERE selected = 1")
       .all();
-    const gone = seatingTables[1].id;
+    const gone = chartTables[1]!.id;
     db.query("DELETE FROM seating_tables WHERE id = ?").run(gone);
     db.exec(readFileSync(SEED, "utf8"));
     const table = db
