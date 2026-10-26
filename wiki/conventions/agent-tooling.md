@@ -1,6 +1,6 @@
 ---
 title: Agent tooling
-description: How this repository configures coding agents — where sessions start, code search with LSP and git grep, skills and their evals, third-party skills, subagent definitions, committed settings, and the vendored trees agents must not edit
+description: How this repository configures coding agents — where sessions start, code search with LSP and git grep, skills and their evals, third-party skills, subagent definitions, committed settings, the guard hook, the mods in .claude/mods, and the vendored trees agents must not edit
 tags: [convention, agents, tooling]
 related:
   - "[[house-lint-rules]]"
@@ -44,6 +44,51 @@ The hook command, inline in `settings.json`, runs **main's copy** of the script:
 `AGENT_GUARD_REF=<ref>` runs another ref's copy, which is how a branch tests a change to the guard in a fresh `claude -p` session. [`scripts/tests/agent-guard.test.ts`](../../scripts/tests/agent-guard.test.ts) covers the rules and [`agent-guard.cli.test.ts`](../../scripts/tests/agent-guard.cli.test.ts) runs the command as `settings.json` holds it. Both run in `bun run test:scripts`. A call costs a `mktemp`, one `git` call and a Bun start.
 
 *Measured 2026-10-26 — median of 15 runs of the hook command on a `Bash` input, in a cloud container: 16 ms.*
+
+### Mods
+
+[`.claude/mods/`](../../.claude/mods) holds two Claude Code mods, plugins of function hooks that change what the interface shows:
+
+| Mod | Shows |
+|---|---|
+| `branch-gates` | A **Branch gates** pane beside the chat. It shows the branch; the `Issue:` line of `NEW-FEAT.md` with that issue's `complexity:` label, and "(unconfirmed)" when that label is on it too; commits ahead and files changed against `refs/remotes/origin/main`, or "base unknown" when git cannot say; uncommitted files; and whether the diff needs a changeset. Under **Pull request**: the branch's PR from `gh pr view`, its state (open, merged or closed), its CI rollup (passing, failing or pending), its unresolved review threads and its review decision, or `gh`'s own error. Under **Checks**: the last `/gates` run, with its HEAD and time, marked stale after any later Bash, Edit, Write or NotebookEdit call, or a new HEAD or `git status`. Under **Gates**: each row of the `## Gates` section of `NEW-FEAT.md`. It also shows a band above the prompt when a changeset is required and missing, a status line with the branch and issue, and a toast, "Guard: <reason>", when the guard hook above refuses a Bash, Write, Edit or Agent call. |
+| `model-colour` | The current model's family (Fable, Opus, Haiku, Sonnet) as a coloured tag before the prompt hint, and a dot in the same colour before the working spinner. |
+
+`branch-gates` works only in a repository whose `origin` is `englishstreetventures/osn` on github.com, as `https://github.com/…`, `git@github.com:…` or `ssh://git@github.com/…`. At session start it reads the repository's root (`git rev-parse --show-toplevel` in the session's directory) and that root's origin, keeps both for the session, and runs every later git, `gh` and `bash` call in that root, wherever the session's directory moves. Anywhere else it opens no pane, registers no command and makes no git call after those two, and a project's own `/gates` answers instead. Unprompted, it runs only git, `gh` and the copy of `scripts/changeset-required.sh` in the worktree the mods are loaded from, read from disk and run as `bash -c` with the file list on stdin; never a script from the session's checkout. It reads `NEW-FEAT.md` only when it is a regular file of at most 256 KB, and removes control characters from every text it draws from the checkout or from `gh`.
+
+**`/gates`** runs CI's lint commands from the worktree root, one after another: `bash scripts/verify-vendored-anti-slop.sh && bun run lint`, `bun run fmt:check`, and `bash scripts/guard-lint-warnings.sh --base <sha>`, where `<sha>` is `git merge-base refs/remotes/origin/main HEAD` (the row reads "not run" when there is none). They are the **checkout's own scripts**, so `/gates` runs only when you type it at the prompt; started by a plugin, the SDK or a relayed message, it runs nothing and says why. It takes about 30 s, and each row reads "not run: no node_modules" in a worktree that has none.
+
+*Measured 2026-10-26 — the three commands run in turn from the repository root in a cloud container: lint 7.0 s, `fmt:check` 0.5 s, the warning ceiling 18.6 s.*
+
+**Loading them.** Claude Code loads a folder of plugins named in `CLAUDE_CODE_PLUGIN_DIRS`, read from the process environment or the `env` block of `~/.claude/settings.json`, never from a project's settings. Give the mods a detached worktree of their own, used for nothing else, at `refs/remotes/origin/main`:
+
+```bash
+git -C ~/.work/osn.git fetch origin "+refs/heads/main:refs/remotes/origin/main"
+git -C ~/.work/osn.git worktree add --detach ~/.work/osn.git/claude-mods refs/remotes/origin/main
+```
+
+Then add its `.claude/mods` to `CLAUDE_CODE_PLUGIN_DIRS` in `~/.claude/settings.json`, in fish. The `jq` program keeps any folders the variable already names, appends this one after a `:`, and adds nothing when it is already there:
+
+```fish
+set f ~/.claude/settings.json
+set dir "$HOME/.work/osn.git/claude-mods/.claude/mods"
+test -e $f; or echo '{}' > $f
+jq --arg dir $dir '.env.CLAUDE_CODE_PLUGIN_DIRS |= (if . == null or . == "" then $dir elif (split(":") | index($dir)) != null then . else . + ":" + $dir end)' $f > $f.new; and mv $f.new $f
+```
+
+or by hand, as `"env": { "CLAUDE_CODE_PLUGIN_DIRS": "/Users/<you>/.work/osn.git/claude-mods/.claude/mods" }`, after a `:` when the value already names other folders. New sessions load both mods, in every repository: `model-colour` runs everywhere, and `branch-gates` turns itself off outside this one. To update them, move the worktree to main's latest commit:
+
+```bash
+git -C ~/.work/osn.git fetch origin "+refs/heads/main:refs/remotes/origin/main"
+git -C ~/.work/osn.git/claude-mods checkout --detach refs/remotes/origin/main
+```
+
+> [!warning]
+> Never point `CLAUDE_CODE_PLUGIN_DIRS` at a checkout where branches are switched. An interactive session watches the folder and reloads a mod's hooks when its files change, so `git checkout` of a branch you are reviewing would run that branch's `register.tsx` inside your session. The dedicated worktree changes only when you move it to main.
+
+**Costs.** No mod calls the model; `/gates` leaves one line of output in the conversation. `branch-gates` refreshes at session start and after a Bash, Edit, Write or NotebookEdit call, at most once every 2 s, with one more refresh at the end of the window when calls keep coming. A refresh is four git reads run together, its `git status` run with `--no-optional-locks` so it never takes the index lock; one `bash` for the changeset script only when the changed files or the script change; and one `gh issue view` per issue per load, made after the pane has drawn. The pull request is read at session start, on `/gates`, and after a Bash `git push` or `gh` command, at most once a minute with one trailing read; each read is one `gh pr view` and one GraphQL call.
+
+**Where they run.** A cloud session has only the checkout, and no checkout file sets the variable, so cloud sessions load neither mod. The tests sit in each mod's `tests/` folder and run with `claude plugin test .claude/mods/<mod>`, only locally: CI has no `claude` CLI. Verified on Claude Code 2.1.310, whose plugin API is early access and may change between releases.
 
 ## Subagents
 
