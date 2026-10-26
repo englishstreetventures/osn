@@ -12,7 +12,7 @@ related:
   - "[[toast]]"
   - "[[component-lab]]"
   - "[[cire-seating]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-26
 ---
 
 # Drag and drop — `@shared/sortable`, and the keyboard path it owns
@@ -325,8 +325,10 @@ size), and three tests pin it. A bench would have caught it in a second.
 Current adopters, all in `@cire/host`:
 
 - **Seating** (`SeatingView`) — guests dragged onto tables (drop zones), and the
-  event's tables re-ordered in a uniform "Arrange tables" list, via
-  `seating/events/:eventId/tables/reorder`. See [[cire-seating]].
+  plan's tables re-ordered in a uniform "Arrange tables" list, via
+  `seating/plans/:planId/tables/reorder` (the event's own
+  `seating/events/:eventId/tables/reorder` for a chart that names no plan).
+  See [[cire-seating]].
 - **Schedule → Edit** (`EventsEditor`) — see `[[cire-guest-event-editor]]` E7.
 - **Gift list** (`RegistryView`) — one flat list of up to 500 rows, via `registry/items/reorder`.
 - **Checklist** (`ChecklistView`) — one list per lead-time bucket, via `tasks/reorder`.

@@ -3,8 +3,8 @@
 // The budget, the checklist, the registry and the seating chart are Gold
 // modules, reads included, so a wedding below Gold cannot open them. It keeps
 // the rows it entered before, and the API hands them back as CSV whatever the
-// tier (`GET …/budget.csv`, `…/tasks.csv`, `…/gifts.csv`, `…/seating.csv`,
-// owner only). The locked nav row's card offers the file when
+// tier (`GET …/budget.csv`, `…/tasks.csv`, `…/gifts.csv`, and
+// `…/seating.csv?plans=all`, every seating plan; owner only). The locked nav row's card offers the file when
 // `GET …/module-rows` says there is something in it.
 //
 // `authFetch` is a PARAMETER, never an import, as in `upgrade-api.ts`: it lives
@@ -26,10 +26,10 @@ export interface ModuleRows {
 /** One locked module's download. */
 export interface LockedExport {
   /** The file's path under the wedding, as `weddingPath` takes it. */
-  path: "/budget.csv" | "/tasks.csv" | "/gifts.csv" | "/seating.csv";
+  path: "/budget.csv" | "/tasks.csv" | "/gifts.csv" | "/seating.csv" | "/seating.csv?plans=all";
   /** The saved file is `cire-<stem>-<wedding slug>.csv`, the name the API's
    *  Content-Disposition gives it. */
-  stem: "budget" | "tasks" | "gifts" | "seating";
+  stem: "budget" | "tasks" | "gifts" | "seating" | "seating-plans";
   /** Which count says the file has rows. */
   count: keyof ModuleRows;
   /** What the file is, for the toast that says it saved. */
@@ -38,6 +38,9 @@ export interface LockedExport {
   place: string;
   /** The rows, named for the card's sentence. */
   noun: { one: string; many: string };
+  /** The most rows the file prints, when the API cuts it short, and which
+   *  come first; the card says so when the count is past it. */
+  cap?: { rows: number; first: string };
 }
 
 /** The modules whose card offers a download while locked. A wedding can hold
@@ -69,15 +72,31 @@ export const LOCKED_EXPORTS = {
     place: "your gift log",
     noun: { one: "gift", many: "gifts" },
   },
+  // Every plan, not only the one in use: below Gold the card is how a wedding
+  // takes back all its seating holds. A guest seated in two plans is two seats.
+  // The API prints at most `MAX_SEATING_EXPORT_ROWS` rows
+  // (`cire/api/src/services/seating-export.ts`), the plans in use first.
   seating: {
-    path: "/seating.csv",
-    stem: "seating",
+    path: "/seating.csv?plans=all",
+    stem: "seating-plans",
     count: "seats",
-    label: "Seating chart",
-    place: "your seating chart",
-    noun: { one: "seated guest", many: "seated guests" },
+    label: "Seating plans",
+    place: "your seating plans",
+    noun: { one: "seat", many: "seats" },
+    cap: { rows: 4000, first: "each event's plan in use first" },
   },
 } as const satisfies Partial<Record<Module, LockedExport>>;
+
+/** The venue file the Seating module offers an owner: each event's plan in
+ *  use, and no other. */
+export const SEATING_VENUE_FILE = {
+  path: "/seating.csv",
+  stem: "seating",
+  count: "seats",
+  label: "Seating chart",
+  place: "your seating chart",
+  noun: { one: "seated guest", many: "seated guests" },
+} as const satisfies LockedExport;
 
 /** The download a locked module's card offers, or `undefined` for a module
  *  with none. */

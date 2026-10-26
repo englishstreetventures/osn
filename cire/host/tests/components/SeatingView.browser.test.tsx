@@ -54,6 +54,13 @@ function chart(): SeatingChart {
   });
   return {
     event: { id: "e_rec", name: "Reception" },
+    // Two plans, the one in use on screen, so the plan row and the review
+    // notice are in every screenshot.
+    plans: [
+      { id: "p1", name: "Plan 1", selected: true },
+      { id: "p2", name: "Garden layout", selected: false },
+    ],
+    planId: "p1",
     tables: [
       { id: "t1", name: "Table 1", capacity: 8, sortOrder: 0 },
       { id: "t2", name: "Table 2", capacity: 8, sortOrder: 1 },
@@ -96,7 +103,11 @@ beforeEach(() => {
   authFetch.mockReset();
   authFetch.mockImplementation(async (url: string, init: RequestInit = {}) => {
     const method = init.method ?? "GET";
-    if (method === "GET") return new Response(JSON.stringify(state), { status: 200 });
+    if (method === "GET") {
+      // The alternative plan reads as the same chart under its own id.
+      const planId = url.endsWith("?plan=p2") ? "p2" : "p1";
+      return new Response(JSON.stringify({ ...state, planId }), { status: 200 });
+    }
     const body = init.body ? JSON.parse(String(init.body)) : undefined;
     writes.push({ method, url, body });
     const guestId = /\/guests\/([^/]+)$/.exec(url)?.[1];
@@ -176,7 +187,7 @@ describe("SeatingView in Chromium", () => {
     expect(writes).toEqual([
       {
         method: "PUT",
-        url: "https://api.test/api/organiser/weddings/wed_1/seating/events/e_rec/guests/g_ada",
+        url: "https://api.test/api/organiser/weddings/wed_1/seating/plans/p1/guests/g_ada",
         body: { tableId: "t2" },
       },
     ]);
@@ -223,7 +234,7 @@ describe("SeatingView in Chromium", () => {
       ).toBeTruthy(),
     );
     await drag("Bo Alpha", "Table 2");
-    const base = "https://api.test/api/organiser/weddings/wed_1/seating/events/e_rec/guests";
+    const base = "https://api.test/api/organiser/weddings/wed_1/seating/plans/p1/guests";
     expect(writes).toEqual([
       { method: "PUT", url: `${base}/g_eve`, body: { tableId: "t1" } },
       { method: "PUT", url: `${base}/g_eve`, body: { tableId: "t2" } },
@@ -242,6 +253,20 @@ describe("SeatingView in Chromium", () => {
     expect(first.top).toBeGreaterThanOrEqual(pool.bottom);
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
     await page.screenshot({ path: `${ARTIFACTS}/chart-phone-light.png` });
+  });
+
+  it("offers a plan not in use for use or deletion, on a phone, without a horizontal scroll", async () => {
+    await page.viewport(390, 844);
+    await commands.emulateMedia({ colorScheme: "dark" });
+    await renderChart();
+    const picker = screen.getByLabelText("Plan") as HTMLSelectElement;
+    picker.value = "p2";
+    picker.dispatchEvent(new Event("change", { bubbles: true }));
+    await screen.findByRole("button", { name: "Use this plan" });
+    screen.getByRole("button", { name: "Delete plan" });
+    screen.getByText("This plan is not in use. The venue file prints Plan 1.");
+    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
+    await page.screenshot({ path: `${ARTIFACTS}/plan-not-in-use-phone-dark.png` });
   });
 
   it("seats a guest from the keyboard, and Escape hands focus back to the row", async () => {
@@ -272,7 +297,7 @@ describe("SeatingView in Chromium", () => {
     expect(writes).toEqual([
       {
         method: "PUT",
-        url: "https://api.test/api/organiser/weddings/wed_1/seating/events/e_rec/guests/g_ada",
+        url: "https://api.test/api/organiser/weddings/wed_1/seating/plans/p1/guests/g_ada",
         body: { tableId: "t2" },
       },
     ]);

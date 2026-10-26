@@ -1116,9 +1116,10 @@ function seatDevOwner(db: TestDb, weddingId: string, seatId: string, now: Date):
 }
 
 /**
- * Eight weddings for the E2E suite's organiser flows, each on Gold. The dev
- * profile, which osn-api's `/dev/login` signs in as, owns all but
- * `wed_e2e_rs_helper`, where it is a helper:
+ * Nine weddings for the E2E suite's organiser flows, each on Gold but
+ * `wed_e2e_seating_locked`, which is on Ivory. The dev profile, which
+ * osn-api's `/dev/login` signs in as, owns all but `wed_e2e_rs_helper`, where
+ * it is a helper:
  *
  * - `wed_e2e_checklist`: a wedding date (2099-06-20) and an empty checklist,
  *   for the starter checklist.
@@ -1144,6 +1145,9 @@ function seatDevOwner(db: TestDb, weddingId: string, seatId: string, now: Date):
  *   use — Ada and Bo Alpha at Table 1, Cy Charlie at Table 2, all three having
  *   said yes — and an after party, inviting Ada, with no plan yet; for setting
  *   out and seating an event's chart.
+ * - `wed_e2e_seating_locked`, on Ivory: a reception with two seating plans,
+ *   "Plan 1" in use with Ada Alpha at Table 1, and "Garden" with Ada and Bo
+ *   Alpha at Lawn; for taking every plan back from a wedding below Gold.
  *
  * It also gives Bo, of the sample wedding's Sampleton household, an address
  * his hosts added, so the member-step flow can check the invitation shows it
@@ -1538,6 +1542,121 @@ export function seedE2eOrganiser(db: TestDb): void {
   }
 
   seedE2eSeating(db, now);
+  seedE2eSeatingLocked(db, now);
+}
+
+/** `wed_e2e_seating_locked`, for {@link seedE2eOrganiser}: a wedding on Ivory
+ *  that kept two seating plans from its time on Gold. */
+function seedE2eSeatingLocked(db: TestDb, now: Date): void {
+  const weddingId = "wed_e2e_seating_locked";
+  const eventId = "evt_e2e_locked_rec";
+  const familyId = "fam_e2e_locked_alpha";
+  db.insert(schema.weddings)
+    .values({
+      id: weddingId,
+      slug: "seating-locked",
+      displayName: "Seating Locked Wedding",
+      tier: "ivory",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  seatDevOwner(db, weddingId, "whost_e2e_locked_owner", now);
+  db.insert(schema.events)
+    .values({
+      id: eventId,
+      weddingId,
+      slug: "reception",
+      name: "Reception",
+      startAt: "2099-06-20T18:00:00+00:00",
+      endAt: "2099-06-20T23:00:00+00:00",
+      timezone: "UTC",
+    })
+    .run();
+  db.insert(schema.families)
+    .values({
+      id: familyId,
+      weddingId,
+      publicId: "TESTLOCK-ALP-0001",
+      familyName: "Alpha",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  const people = [
+    { id: "gst_e2e_locked_ada", first: "Ada" },
+    { id: "gst_e2e_locked_bo", first: "Bo" },
+  ];
+  people.forEach((person, sortOrder) => {
+    db.insert(schema.guests)
+      .values({
+        id: person.id,
+        familyId,
+        firstName: person.first,
+        lastName: "Alpha",
+        sortOrder,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    db.insert(schema.guestEvents).values({ guestId: person.id, eventId }).run();
+    db.insert(schema.rsvps)
+      .values({
+        id: `rsvp_${person.id}`,
+        guestId: person.id,
+        eventId,
+        status: "attending",
+        createdAt: now,
+      })
+      .run();
+  });
+  const plans = [
+    {
+      id: "spl_e2e_locked_1",
+      name: "Plan 1",
+      selected: true,
+      table: { id: "stb_e2e_locked_1", name: "Table 1", capacity: 4 },
+      seated: ["gst_e2e_locked_ada"],
+    },
+    {
+      id: "spl_e2e_locked_2",
+      name: "Garden",
+      selected: false,
+      table: { id: "stb_e2e_locked_2", name: "Lawn", capacity: 6 },
+      seated: ["gst_e2e_locked_ada", "gst_e2e_locked_bo"],
+    },
+  ];
+  for (const plan of plans) {
+    db.insert(schema.seatingPlans)
+      .values({
+        id: plan.id,
+        weddingId,
+        eventId,
+        name: plan.name,
+        selected: plan.selected,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    db.insert(schema.seatingTables)
+      .values({
+        id: plan.table.id,
+        weddingId,
+        eventId,
+        planId: plan.id,
+        name: plan.table.name,
+        capacity: plan.table.capacity,
+        sortOrder: 0,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    for (const guestId of plan.seated) {
+      db.insert(schema.seatingAssignments)
+        .values({ tableId: plan.table.id, planId: plan.id, eventId, guestId, createdAt: now })
+        .run();
+    }
+  }
 }
 
 /** `wed_e2e_seating`, for {@link seedE2eOrganiser}. Every seating row names

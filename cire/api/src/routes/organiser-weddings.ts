@@ -474,25 +474,31 @@ export const createOrganiserExportRoutes = (
           );
         })
         // The seating chart for the venue — every guest seated in each
-        // event's selected plan, by event and table order. Ungated for the
-        // reason the budget and checklist files are: a wedding below the
-        // seating module's tier keeps its chart and takes it back from the
-        // locked card. Capped
-        // (`MAX_SEATING_EXPORT_ROWS`) and rate-limited with the group.
-        .get("/seating.csv", ({ weddingId, weddingSlug, set }) => {
+        // event's selected plan, by event and table order — or, with
+        // `?plans=all`, every plan, the file the locked card offers. Ungated
+        // for the reason the budget and checklist files are: a wedding below
+        // the seating module's tier keeps its seating and takes all of it
+        // back from the locked card. Capped (`MAX_SEATING_EXPORT_ROWS`) and
+        // rate-limited with the group.
+        .get("/seating.csv", ({ weddingId, weddingSlug, query, set }) => {
           if (!weddingId) {
             set.status = 500;
             return { error: "Internal error" };
           }
           return runCire(
             Effect.gen(function* () {
-              const csv = yield* onEffectDb(effectDb, seatingExportService.seatingCsv(weddingId));
-              return csvAttachment(csv, `cire-seating-${weddingSlug ?? weddingId}.csv`);
+              const allPlans = query["plans"] === "all";
+              const csv = yield* onEffectDb(
+                effectDb,
+                seatingExportService.seatingCsv(weddingId, { allPlans }),
+              );
+              const stem = allPlans ? "seating-plans" : "seating";
+              return csvAttachment(csv, `cire-${stem}-${weddingSlug ?? weddingId}.csv`);
             }).pipe(Effect.catchDefect(() => exportDefect(set, "seating.csv", weddingId))),
           );
         })
         // How many rows `budget.csv`, `tasks.csv`, `gifts.csv` and
-        // `seating.csv` would carry. The portal asks when an owner opens a
+        // `seating.csv?plans=all` would carry. The portal asks when an owner opens a
         // locked Budget, Checklist, Registry or Seating card, and offers that
         // module's file only when there is something in it. Owner only, like
         // the files it describes, and ungated for the same reason.

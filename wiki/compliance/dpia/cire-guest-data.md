@@ -73,8 +73,10 @@ final sign-off now turns only on the residual retention gaps below.
   read by the wedding's owners and co-hosts, and is never shown to other
   guests. A guest may have a seat in each plan, so a plan nobody uses still
   holds that inference until it is deleted. An owner may download the plans in
-  use (`seating.csv`: names, household, table, reply, no dietary data) and
-  anyone who reads the chart may print the plan in use, for the venue. Basis Art. 6(1)(f),
+  use (`seating.csv`: names, household, table, reply, no dietary data), and
+  every plan (`seating.csv?plans=all`: the same fields and each plan's name;
+  any tier, and the file the locked card offers below Gold), and anyone who
+  reads a plan may print it, for the venue. Basis Art. 6(1)(f),
   wedding administration, as the guest list it is drawn from. Seats in every
   plan go with the guest's invitation and with the 1-year guest-data sweep
   ([[retention]]); the guest privacy notice lists them.

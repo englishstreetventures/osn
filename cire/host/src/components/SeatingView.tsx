@@ -15,6 +15,7 @@ import {
 import { EmptyState } from "@shared/ui/ui/empty-state";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
+import { Notice } from "@shared/ui/ui/notice";
 import { Select } from "@shared/ui/ui/select";
 import {
   createEffect,
@@ -33,14 +34,19 @@ import { Portal } from "solid-js/web";
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { ensureEventsLoaded, type EventRow, eventsAccessor } from "../lib/events-store";
 import { haptic } from "../lib/haptics";
-import { downloadLockedExport, LOCKED_EXPORTS } from "../lib/locked-exports";
+import { downloadLockedExport, SEATING_VENUE_FILE } from "../lib/locked-exports";
 import {
+  copyName,
   guestName,
+  nextPlanName,
+  planReview,
   refusalMessage,
   type RsvpBadge,
   rsvpBadge,
   type SeatingChart,
   type SeatingGuest,
+  type PlanScope,
+  type SeatingPlan,
   SeatingRequestError,
   type SeatingTable,
   seatAnnouncement,
@@ -70,7 +76,13 @@ interface SeatingViewProps {
 }
 
 /**
- * The seating chart for one event at a time ([[wiki/cire/cire-seating]]).
+ * The seating chart for one event at a time ([[wiki/cire/cire-seating]]), one
+ * of its plans at a time. An event can hold several plans — a copy to try an
+ * idea in, a blank one to start again — and one is in use: the one the venue
+ * file prints. The plan in use opens first; any other is chosen from the plan
+ * picker, and editing it changes no other plan. Each plan lists what needs a
+ * host's eye — guests seated who declined or whose invitation was withdrawn,
+ * and guests who said yes with no seat — and never moves a seat by itself.
  *
  * Two ways to seat, move or unseat a guest, each complete on its own: drag
  * their row onto a table (or back onto "Not seated"), or choose a table from
@@ -120,14 +132,16 @@ export default function SeatingView(props: SeatingViewProps) {
     if (eventId() === null && first) setEventId(first.id);
   });
 
-  /** Bumped on each load, so a slow answer for an event no longer on screen
-   *  is dropped rather than painted over the current one. */
+  /** Bumped on each load, so a slow answer for an event or plan no longer on
+   *  screen is dropped rather than painted over the current one. */
   let loadGeneration = 0;
-  const load = async (id: string) => {
+  /** The event's chart in `planId`, or in its plan in use when `planId` is
+   *  `null`. */
+  const load = async (id: string, planId: string | null = null) => {
     const generation = ++loadGeneration;
     setLoadFailed(false);
     try {
-      const next = await seatingApi.chart(authFetch, props.weddingId, id);
+      const next = await seatingApi.chart(authFetch, props.weddingId, id, planId);
       if (generation === loadGeneration) setChart(next);
     } catch {
       if (generation === loadGeneration) setLoadFailed(true);
@@ -139,6 +153,13 @@ export default function SeatingView(props: SeatingViewProps) {
       if (id) void load(id);
     }),
   );
+
+  /** The plan on screen, and the event's plan in use. */
+  const shownPlan = createMemo(() => {
+    const now = chart();
+    return now?.plans.find((plan) => plan.id === now.planId) ?? null;
+  });
+  const planInUse = createMemo(() => chart()?.plans.find((plan) => plan.selected) ?? null);
 
   const tables = createMemo(() =>
     (chart()?.tables ?? []).toSorted((a, b) => a.sortOrder - b.sortOrder),
@@ -180,8 +201,8 @@ export default function SeatingView(props: SeatingViewProps) {
         : now,
     );
 
-  /** Seat, move or unseat a guest: shown at once, then saved; a refusal puts
-   *  them back and says why. */
+  /** Seat, move or unseat a guest in the plan on screen: shown at once, then
+   *  saved; a refusal puts them back and says why. */
   async function seat(guest: SeatingGuest, tableId: string | null) {
     const id = eventId();
     if (!id || guest.tableId === tableId) return;
@@ -197,7 +218,7 @@ export default function SeatingView(props: SeatingViewProps) {
     }
     patchGuest(guest.id, tableId);
     try {
-      await seatingApi.seat(authFetch, props.weddingId, id, guest.id, tableId);
+      await seatingApi.seat(authFetch, props.weddingId, scope(id), guest.id, tableId);
       haptic("commit");
       say(seatAnnouncement(name, to, from));
     } catch (err) {
@@ -218,6 +239,9 @@ export default function SeatingView(props: SeatingViewProps) {
   const [newName, setNewName] = createSignal("");
   const [newCapacity, setNewCapacity] = createSignal("10");
 
+  /** Where the view's table, order and seat writes go: see `PlanScope`. */
+  const scope = (id: string): PlanScope => ({ eventId: id, planId: chart()?.planId ?? null });
+
   async function addTable(e: Event) {
     e.preventDefault();
     const id = eventId();
@@ -225,23 +249,212 @@ export default function SeatingView(props: SeatingViewProps) {
     if (!id || !Number.isInteger(capacity) || capacity < 1) return;
     const name = newName().trim() || `Table ${tables().length + 1}`;
     try {
-      const { table } = await seatingApi.createTable(authFetch, props.weddingId, id, {
+      const where = scope(id);
+      const { table } = await seatingApi.createTable(authFetch, props.weddingId, where, {
         name,
         capacity,
       });
       setChart((now) => (now ? { ...now, tables: [...now.tables, table] } : now));
       setNewName("");
+      // The event's first table made its plan in use: read the chart again
+      // to show that plan.
+      if (where.planId === null) await load(id);
       haptic("commit");
       say(`${table.name} added.`);
     } catch (err) {
       haptic("reject");
       say(
         err instanceof SeatingRequestError && err.code === "table_limit"
-          ? "This event already has as many tables as it can hold."
+          ? "This plan already has as many tables as it can hold."
           : "Could not add that table.",
       );
     }
   }
+
+  // ── Plans ────────────────────────────────────────────────────────────────
+
+  /** A plan write is in flight: every plan control is disabled until it
+   *  answers, so a double press makes one plan, not two. */
+  const [planBusy, setPlanBusy] = createSignal(false);
+  const [renaming, setRenaming] = createSignal(false);
+  const [planName, setPlanName] = createSignal("");
+
+  /** Runs one plan write with the controls held, and says a refusal. */
+  async function planWrite(write: () => Promise<void>, failed: string) {
+    setPlanBusy(true);
+    try {
+      await write();
+      haptic("commit");
+    } catch (err) {
+      haptic("reject");
+      say(
+        err instanceof SeatingRequestError && err.code === "plan_limit"
+          ? "This event already has as many plans as it can hold. Delete one first."
+          : err instanceof SeatingRequestError && err.code === "plan_selected"
+            ? "That plan is in use. Choose another plan to use first."
+            : err instanceof SeatingRequestError && err.code === "copy_budget"
+              ? "This wedding has copied as many tables and seats as it can today. Try again tomorrow, or start a new plan."
+              : failed,
+      );
+    } finally {
+      setPlanBusy(false);
+      flushFocus();
+    }
+  }
+
+  /** The control that takes the focus next; see `focusNext`. */
+  let pendingFocus: (() => HTMLElement | undefined) | null = null;
+  function flushFocus() {
+    const target = pendingFocus;
+    pendingFocus = null;
+    if (target) queueMicrotask(() => target()?.focus());
+  }
+
+  /** Opens another plan from the picker. The picker is hidden while a rename
+   *  form is open, so none is left open here. */
+  function openPlan(planId: string) {
+    const id = eventId();
+    if (!id || planId === chart()?.planId) return;
+    void load(id, planId);
+  }
+
+  /** A blank plan, opened. */
+  const newPlan = () =>
+    planWrite(async () => {
+      const id = eventId();
+      const now = chart();
+      if (!id || !now) return;
+      const { plan } = await seatingApi.createPlan(authFetch, props.weddingId, id, {
+        name: nextPlanName(now.plans),
+      });
+      if (eventId() !== id) return;
+      // A blank plan needs no read: no tables, and every guest the chart holds
+      // unseated, less the withdrawn, whom a plan shows only while seated. A
+      // load still in flight is dropped rather than painted over it.
+      ++loadGeneration;
+      setChart({
+        ...now,
+        plans: [...now.plans, plan],
+        planId: plan.id,
+        tables: [],
+        guests: now.guests
+          .filter((guest) => !guest.withdrawn)
+          .map((guest) => Object.assign({}, guest, { tableId: null })),
+      });
+      say(`${plan.name} added, with no tables.`);
+    }, "Could not add a plan.");
+
+  /** A copy of the plan on screen, opened. */
+  const duplicatePlan = () =>
+    planWrite(async () => {
+      const id = eventId();
+      const source = shownPlan();
+      if (!id || !source) return;
+      const { plan } = await seatingApi.createPlan(authFetch, props.weddingId, id, {
+        name: copyName(source.name),
+        copyFrom: source.id,
+      });
+      await load(id, plan.id);
+      say(`${plan.name} made from ${source.name}. Changes to it leave ${source.name} as it is.`);
+    }, "Could not copy that plan.");
+
+  // A plan control that goes away hands the focus to the control that takes
+  // its place, so a keyboard user keeps their place: the name field when the
+  // rename form opens, Rename when it closes, the plan picker when Use this
+  // plan or Delete plan has done its work.
+  let planPicker: HTMLSelectElement | undefined;
+  let planNameField: HTMLInputElement | undefined;
+  let renameButton: HTMLButtonElement | undefined;
+  /** Focuses what `target` names once the controls are drawn and no plan write
+   *  holds them disabled; a write in flight hands it on as it finishes. */
+  const focusNext = (target: () => HTMLElement | undefined) => {
+    pendingFocus = target;
+    if (!planBusy()) flushFocus();
+  };
+
+  const startRename = () => {
+    setPlanName(shownPlan()?.name ?? "");
+    setRenaming(true);
+    focusNext(() => planNameField);
+  };
+
+  const closeRename = () => {
+    setRenaming(false);
+    focusNext(() => renameButton);
+  };
+
+  const renamePlan = (e: Event) => {
+    e.preventDefault();
+    const plan = shownPlan();
+    const name = planName().trim();
+    if (!plan || !name) return;
+    void planWrite(async () => {
+      const { plan: saved } = await seatingApi.renamePlan(
+        authFetch,
+        props.weddingId,
+        plan.id,
+        name,
+      );
+      setChart((now) =>
+        now ? { ...now, plans: now.plans.map((p) => (p.id === saved.id ? saved : p)) } : now,
+      );
+      closeRename();
+      say(`${plan.name} renamed ${saved.name}.`);
+    }, `Could not rename ${plan.name}.`);
+  };
+
+  /** Make the plan on screen the one in use, after the host says so. */
+  const usePlan = () => {
+    const id = eventId();
+    const plan = shownPlan();
+    const before = planInUse();
+    if (!id || !plan || plan.selected) return;
+    const ok = window.confirm(
+      `Use ${plan.name} for this event? The venue file will print ${plan.name}` +
+        (before ? ` instead of ${before.name}, which stays saved.` : "."),
+    );
+    if (!ok) return;
+    void planWrite(async () => {
+      await seatingApi.selectPlan(authFetch, props.weddingId, id, plan.id);
+      setChart((now) =>
+        now
+          ? {
+              ...now,
+              plans: now.plans
+                .map((p): SeatingPlan => ({ ...p, selected: p.id === plan.id }))
+                .toSorted((a, b) => Number(b.selected) - Number(a.selected)),
+            }
+          : now,
+      );
+      focusNext(() => planPicker);
+      say(`${plan.name} is now in use. The venue file prints it.`);
+    }, `Could not start using ${plan.name}.`);
+  };
+
+  /** Delete the plan on screen, which is not the one in use, after the host
+   *  says so; the plan in use opens. */
+  const deletePlan = () => {
+    const id = eventId();
+    const plan = shownPlan();
+    if (!id || !plan || plan.selected) return;
+    const ok = window.confirm(
+      `Delete ${plan.name}? Its tables and seats go with it. ${planInUse()?.name ?? "The plan in use"} stays in use.`,
+    );
+    if (!ok) return;
+    void planWrite(async () => {
+      await seatingApi.deletePlan(authFetch, props.weddingId, plan.id);
+      await load(id);
+      focusNext(() => planPicker);
+      say(`${plan.name} deleted.`);
+    }, `Could not delete ${plan.name}.`);
+  };
+
+  /** What the plan on screen asks a host to look at. */
+  const review = createMemo(() => planReview(chart()?.guests ?? []));
+  const reviewCount = () =>
+    review().declinedSeated.length +
+    review().withdrawnSeated.length +
+    review().attendingUnseated.length;
 
   async function saveTable(table: SeatingTable, patch: { name: string; capacity: number }) {
     try {
@@ -303,6 +516,7 @@ export default function SeatingView(props: SeatingViewProps) {
     onMove: (from, to) => {
       const id = eventId();
       if (!id) return;
+      const where = scope(id);
       const order = tables().map((t) => t.id);
       const [moved] = order.splice(from, 1);
       order.splice(to, 0, moved!);
@@ -319,11 +533,11 @@ export default function SeatingView(props: SeatingViewProps) {
             }
           : now,
       );
-      seatingApi.reorderTables(authFetch, props.weddingId, id, order).catch(() => {
+      seatingApi.reorderTables(authFetch, props.weddingId, where, order).catch(() => {
         arrange.clearAnnouncement();
         haptic("reject");
         say("Could not save the order of the tables.");
-        void load(id);
+        void load(id, where.planId);
       });
     },
   });
@@ -359,12 +573,7 @@ export default function SeatingView(props: SeatingViewProps) {
 
   async function downloadCsv() {
     try {
-      await downloadLockedExport(
-        authFetch,
-        props.weddingId,
-        props.weddingSlug,
-        LOCKED_EXPORTS.seating,
-      );
+      await downloadLockedExport(authFetch, props.weddingId, props.weddingSlug, SEATING_VENUE_FILE);
     } catch {
       say("Could not download the seating chart. Try again.");
     }
@@ -423,6 +632,113 @@ export default function SeatingView(props: SeatingViewProps) {
           </div>
         </div>
 
+        <Show when={chart()?.plans.length ? chart() : null}>
+          {(current) => (
+            <section aria-label="Seating plans" class="flex flex-col gap-2">
+              <Show
+                when={renaming()}
+                fallback={
+                  <div class="flex flex-wrap items-end gap-3">
+                    <Field label="Plan">
+                      {(field) => (
+                        <Select
+                          {...field}
+                          ref={planPicker}
+                          onChange={(e) => openPlan(e.currentTarget.value)}
+                          class="min-w-56"
+                        >
+                          <For each={current().plans}>
+                            {(plan) => (
+                              <option value={plan.id} selected={plan.id === current().planId}>
+                                {plan.selected ? `${plan.name} (in use)` : plan.name}
+                              </option>
+                            )}
+                          </For>
+                        </Select>
+                      )}
+                    </Field>
+                    <Show when={props.canEdit}>
+                      <div class="flex flex-wrap gap-2">
+                        <Show when={shownPlan() && !shownPlan()?.selected}>
+                          <Button
+                            variant="primary"
+                            size="sm"
+                            disabled={planBusy()}
+                            onClick={usePlan}
+                          >
+                            Use this plan
+                          </Button>
+                        </Show>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={planBusy()}
+                          onClick={() => void duplicatePlan()}
+                        >
+                          Duplicate
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={planBusy()}
+                          onClick={() => void newPlan()}
+                        >
+                          New plan
+                        </Button>
+                        <Button
+                          ref={renameButton}
+                          variant="quiet"
+                          size="sm"
+                          disabled={planBusy()}
+                          onClick={startRename}
+                        >
+                          Rename
+                        </Button>
+                        <Show when={shownPlan() && !shownPlan()?.selected}>
+                          <Button
+                            variant="quietDanger"
+                            size="sm"
+                            disabled={planBusy()}
+                            onClick={deletePlan}
+                          >
+                            Delete plan
+                          </Button>
+                        </Show>
+                      </div>
+                    </Show>
+                  </div>
+                }
+              >
+                <form class="flex flex-wrap items-end gap-2" onSubmit={renamePlan}>
+                  <Field label="Plan name">
+                    {(field) => (
+                      <Input
+                        {...field}
+                        ref={planNameField}
+                        value={planName()}
+                        maxLength={80}
+                        onInput={(e) => setPlanName(e.currentTarget.value)}
+                        class="w-56"
+                      />
+                    )}
+                  </Field>
+                  <Button type="submit" variant="primary" size="sm" disabled={planBusy()}>
+                    Save
+                  </Button>
+                  <Button type="button" variant="quiet" size="sm" onClick={closeRename}>
+                    Cancel
+                  </Button>
+                </form>
+              </Show>
+              <p class="font-body text-text-muted text-ui-sm">
+                {shownPlan()?.selected
+                  ? "This plan is in use: the venue file prints it."
+                  : `This plan is not in use. The venue file prints ${planInUse()?.name ?? "the plan in use"}.`}
+              </p>
+            </section>
+          )}
+        </Show>
+
         <div class="flex flex-col gap-1">
           <Show
             when={chart()}
@@ -444,6 +760,27 @@ export default function SeatingView(props: SeatingViewProps) {
             {status()}
           </output>
         </div>
+
+        {/* What changed among the guests since the plan was arranged. A
+            standing note, not an alert: it was there before the host looked,
+            and nothing here moves a seat. */}
+        <Show when={chart() && reviewCount() > 0}>
+          <Notice tone="warn">
+            <section aria-labelledby="seating-review-heading" class="flex flex-col gap-1">
+              <h3 id="seating-review-heading" class="font-medium">
+                {`Needs review: ${reviewCount()} ${reviewCount() === 1 ? "guest" : "guests"} in this plan`}
+              </h3>
+              <ul class="flex flex-col gap-0.5">
+                <ReviewLine label="Seated, but declined" guests={review().declinedSeated} />
+                <ReviewLine
+                  label="Seated, but their invitation was withdrawn"
+                  guests={review().withdrawnSeated}
+                />
+                <ReviewLine label="Said yes, but not seated" guests={review().attendingUnseated} />
+              </ul>
+            </section>
+          </Notice>
+        </Show>
 
         <Show when={chart()}>
           {(current) => (
@@ -572,7 +909,12 @@ export default function SeatingView(props: SeatingViewProps) {
 
               <Show when={printing()}>
                 <Portal ref={markPrintSheet}>
-                  <PrintSheet chart={current()} tables={tables()} guestsAt={guestsAt()} />
+                  <PrintSheet
+                    chart={current()}
+                    planName={shownPlan()?.name ?? null}
+                    tables={tables()}
+                    guestsAt={guestsAt()}
+                  />
                 </Portal>
               </Show>
             </>
@@ -580,6 +922,19 @@ export default function SeatingView(props: SeatingViewProps) {
         </Show>
       </Show>
     </div>
+  );
+}
+
+/** One kind of thing a plan asks a host to look at, with the guests it names;
+ *  nothing when it names nobody. */
+function ReviewLine(props: { label: string; guests: SeatingGuest[] }) {
+  return (
+    <Show when={props.guests.length > 0}>
+      <li>
+        <span class="font-medium">{`${props.label} (${props.guests.length})`}</span>
+        {`: ${props.guests.map(guestName).join(", ")}`}
+      </li>
+    </Show>
   );
 }
 
@@ -937,13 +1292,14 @@ function markPrintSheet(el: HTMLDivElement) {
  *  event with the guests at it, for the venue. Seated guests only. */
 function PrintSheet(props: {
   chart: SeatingChart;
+  planName: string | null;
   tables: SeatingTable[];
   guestsAt: Map<string, SeatingGuest[]>;
 }) {
   return (
     <article class="seating-print-sheet">
       <h1>{props.chart.event.name}</h1>
-      <p>Seating chart</p>
+      <p>{props.planName ? `Seating chart: ${props.planName}` : "Seating chart"}</p>
       <For each={props.tables}>
         {(table) => (
           <section>
