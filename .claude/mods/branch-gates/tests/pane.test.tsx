@@ -43,8 +43,8 @@ test("the pane shows branch, issue, diff and changeset from full refs, on every 
     expect(shown).toContain("updated 12:00:00");
     await ui.unmount();
   }
-  // No status row: the one call clears any row an earlier load pinned.
-  expect(fake.statuses).toEqual([""]);
+  // No status row, not even an empty one.
+  expect(fake.statuses).toEqual([]);
 
   // No argument names main by a short ref: each is `refs/remotes/origin/…`.
   for (const arg of fake.spawned.flatMap((spawn) => spawn.argv)) {
@@ -212,7 +212,7 @@ test("the pane draws before gh answers for the complexity, and fills it in after
   shown = await texts(ui);
   expect(shown).toContain("Issue #412 · complexity 3");
   await ui.unmount();
-  expect(fake.statuses).toEqual([""]);
+  expect(fake.statuses).toEqual([]);
 });
 
 test("without NEW-FEAT.md the pane points at /new-feat", async ($, on) => {

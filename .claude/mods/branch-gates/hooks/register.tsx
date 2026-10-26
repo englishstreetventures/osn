@@ -385,9 +385,6 @@ const runChecks = async ($: EngineInterface, root: string, snap: Snapshot | null
 
 export const register: Register = (on) => {
   on("session.start", async ($, e, next) => {
-    // The mod draws no status row; this drops one an earlier load pinned,
-    // which a hot reload would otherwise leave on screen.
-    $.ui.status(undefined);
     const root = await rootOf($, e.cwd);
     if (root !== null) {
       await $.command.register({ name: "gates", description: DESCRIPTION });

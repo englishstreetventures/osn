@@ -46,6 +46,39 @@ const levelOf = (value: unknown): EffortLevel | null =>
 
 const redraw = ($: EngineInterface) => $.ui.invalidate("ui.render");
 
+// The parts of the engine's hint line, which arrives as one string read the
+// way a screen reader reads it: the agents count, the permission-mode pill
+// with the colour the prompt box gives that mode, and what is left. The
+// mode's key hint is dropped.
+const AGENTS = /←\s*\d+\s+agents?/;
+const MODE = /(?:[^\w\s·]+\s*)?(auto mode|accept edits|plan mode|bypass permissions)(?:\s+on)?/i;
+const KEY_HINT = /\(shift\+tab to cycle\)/i;
+const MODE_COLOR = {
+  "auto mode": "warning",
+  "accept edits": "autoAccept",
+  "plan mode": "planMode",
+  "bypass permissions": "error",
+} as const;
+
+const hintParts = (hint: string) => {
+  const agents = hint.match(AGENTS)?.[0] ?? null;
+  const mode = hint.match(MODE);
+  let rest = hint.replace(KEY_HINT, "");
+  if (agents !== null) rest = rest.replace(agents, "");
+  if (mode) rest = rest.replace(mode[0], "");
+  const left = rest
+    .split("·")
+    .map((piece) => piece.trim())
+    .filter(Boolean)
+    .join(" · ");
+  const name = mode?.[1]?.toLowerCase() as keyof typeof MODE_COLOR | undefined;
+  return {
+    agents,
+    mode: mode && name ? { text: mode[0].trim(), color: MODE_COLOR[name] } : null,
+    rest: left === "" ? null : left,
+  };
+};
+
 export const register: Register = (on) => {
   // A model switch redraws the tags; a new prompt catches any switch made
   // some other way.
@@ -103,55 +136,51 @@ export const register: Register = (on) => {
     return result;
   });
 
-  // One row: the model's tag with its effort level, the context bar, the
-  // engine's own hint line with its mode pills, and the session id. The
-  // terminal draws the id as the line's `tail`, cut at the row's edge before
-  // any pill is; desktop draws no `tail`, so the id comes before the engine's
-  // line there.
-  on("ui.render", { component: "PromptHint" }, async ($, e, next) => {
+  // One row, drawn by the mod in place of the engine's hint line: the agents
+  // count, the model's tag with its effort level, the permission mode, the
+  // context bar, the session id, then whatever else the hint held. The
+  // engine's own line is a block, so drawing beside it would put the mod's
+  // parts on a row of their own.
+  on("ui.render", { component: "PromptHint" }, async ($, e) => {
     const [family, session, percent, held] = await Promise.all([
       currentFamily($),
       sessionIdOf($),
       percentOf($),
       read($, effort),
     ]);
-    const label = session === null ? null : `session ${session}`;
-    const isTail = e.surface === "terminal" && label !== null;
-    const drawn = await next(isTail ? { ...e, props: { ...e.props, tail: label } } : e);
-    if (!family && percent === null && (label === null || isTail)) return drawn;
-
-    const { Box, Text } = $.ui.resolve(e);
+    const { agents, mode, rest } = hintParts(e.props.hint);
     const level =
       family && held?.level && familyOf(held.model)?.name === family.name ? held.level : null;
     const full = Math.floor((percent ?? 0) / 10);
     const cells = "▰".repeat(full) + "▱".repeat(BAR_CELLS - full);
 
+    const { Box, Text } = $.ui.resolve(e);
+    const parts = [
+      agents !== null && <Text dimColor>{agents}</Text>,
+      family && (
+        <Text color={family.color} weight="semibold">
+          ● {family.name}
+          {level === null ? "" : ` · ${level}`}
+        </Text>
+      ),
+      mode && <Text color={mode.color}>{mode.text}</Text>,
+      percent !== null &&
+        (percent >= 70 ? (
+          <Text color={percent >= 85 ? "error" : "warning"}>
+            {cells} {percent}%
+          </Text>
+        ) : (
+          <Text dimColor>
+            {cells} {percent}%
+          </Text>
+        )),
+      session !== null && <Text dimColor>session {session}</Text>,
+      rest !== null && <Text dimColor>{rest}</Text>,
+    ].filter(Boolean);
+
     return (
       <Box flexDirection="row">
-        {family && (
-          <Text color={family.color} weight="semibold">
-            ● {family.name}
-            {level === null ? "" : ` · ${level}`}
-            {"  "}
-          </Text>
-        )}
-        {percent !== null &&
-          (percent >= 70 ? (
-            <Text color={percent >= 85 ? "error" : "warning"}>
-              {cells} {percent}%{"  "}
-            </Text>
-          ) : (
-            <Text dimColor>
-              {cells} {percent}%{"  "}
-            </Text>
-          ))}
-        {label !== null && !isTail && (
-          <Text dimColor>
-            {label}
-            {"  "}
-          </Text>
-        )}
-        {drawn}
+        {parts.flatMap((shown, at) => (at === 0 ? [shown] : [<Text dimColor> | </Text>, shown]))}
       </Box>
     );
   });

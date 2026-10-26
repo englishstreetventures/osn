@@ -1,11 +1,17 @@
 import type { On, TurnStepChunk, TurnStepInput, TurnStepResult } from "claude-code";
 import { expect, test } from "claude-code/testing";
 
-const HINT = {
-  plugin: "prompt-row",
-  component: "PromptHint",
-  props: { isDraft: false, isWorking: false, hint: "? for shortcuts" },
-} as const;
+// The engine's hint line as the owner's terminal drew it.
+const LIVE_HINT = "⏵⏵ auto mode on (shift+tab to cycle) · ← 6 agents";
+
+const hint = (text: string) =>
+  ({
+    plugin: "prompt-row",
+    component: "PromptHint",
+    props: { isDraft: false, isWorking: false, hint: text },
+  }) as const;
+
+const HINT = hint("? for shortcuts");
 
 const SPINNER = {
   plugin: "prompt-row",
@@ -37,8 +43,8 @@ type Engine = {
 };
 
 // The engine beneath the mod: the model, the session id, the context window,
-// a bottom for each event the mod passes on, and its own hint line, drawn
-// with any `tail` a hook handed it after the word `tail:`.
+// a bottom for each event the mod passes on, and a drawing of its own that
+// reads `engine`, so a test can see whether the mod drew it.
 const engine = (on: On, init: Partial<Engine> = {}): Engine => {
   const state: Engine = {
     model: "claude-opus-5-5",
@@ -78,18 +84,24 @@ const engine = (on: On, init: Partial<Engine> = {}): Engine => {
   });
   on("ui.render", ($, e) => {
     const { Text } = $.ui.resolve(e);
-    const tail = "tail" in e.props ? e.props.tail : undefined;
-    return <Text>{tail === undefined ? "engine" : `engine tail:${tail}`}</Text>;
+    return <Text>engine</Text>;
   });
   return state;
 };
 
 type Found = { text: string; props: Record<string, unknown> };
-type Drawing = { find: (q: { type: string; text: RegExp }) => Promise<Found | undefined> };
+type Drawing = {
+  find: (q: { type: string; text: RegExp }) => Promise<Found | undefined>;
+  findAll: (q: { type: string }) => Promise<readonly Found[]>;
+};
 
-const engineLine = async (ui: Drawing) => (await ui.find({ type: "Text", text: /engine/ }))?.text;
-const tagText = async (ui: Drawing) => (await ui.find({ type: "Text", text: /●/ }))?.text.trim();
-const bar = (ui: Drawing) => ui.find({ type: "Text", text: /[▰▱]/ });
+// The row's parts in order, separators left out.
+const row = async (ui: Drawing) =>
+  (await ui.findAll({ type: "Text" })).map((t) => t.text.trim()).filter((t) => t !== "|");
+const part = (ui: Drawing, text: RegExp) => ui.find({ type: "Text", text });
+const tagText = async (ui: Drawing) => (await part(ui, /●/))?.text.trim();
+const bar = (ui: Drawing) => part(ui, /[▰▱]/);
+const sessionText = async (ui: Drawing) => (await part(ui, /session/))?.text.trim();
 
 const step = (overrides: Partial<TurnStepInput> = {}): TurnStepInput => ({
   turnId: "t1",
@@ -122,89 +134,103 @@ const CASES = [
 ] as const;
 
 for (const [model, name, color] of CASES) {
-  test(`the hint line carries ${name} in its colour`, async ($, on) => {
+  test(`the row carries ${name} in its colour`, async ($, on) => {
     engine(on, { model });
     for (const surface of ["terminal", "desktop"] as const) {
       const ui = await $.ui.mount({ ...HINT, surface });
-      const tag = await ui.find({ type: "Text", text: /●/ });
+      const tag = await part(ui, /●/);
       expect(tag?.text.trim()).toBe(`● ${name}`);
       expect(tag?.props.color).toBe(color);
-      expect(await engineLine(ui)).toMatch(/^engine/);
       await ui.unmount();
     }
   });
 }
 
-test("on the terminal the session id rides at the end of the engine's line", async ($, on) => {
+test("the row runs agents, model and effort, mode, context, session, on one line, on both surfaces", async ($, on) => {
+  engine(on, { percent: 34 });
+  await runStep($, step({ effort: "high" }));
+  for (const surface of ["terminal", "desktop"] as const) {
+    const ui = await $.ui.mount({ ...hint(LIVE_HINT), surface });
+    expect(await row(ui)).toEqual([
+      "← 6 agents",
+      "● Opus · high",
+      "⏵⏵ auto mode on",
+      "▰▰▰▱▱▱▱▱▱▱ 34%",
+      `session ${SESSION}`,
+    ]);
+    await ui.unmount();
+  }
+});
+
+test("the mode keeps its own colour and loses its key hint", async ($, on) => {
   engine(on);
-  const ui = await $.ui.mount({ ...HINT, surface: "terminal" });
-  expect(await tagText(ui)).toBe("● Opus");
-  expect(await engineLine(ui)).toBe(`engine tail:session ${SESSION}`);
+  for (const [text, mode, color] of [
+    ["⏵⏵ auto mode on (shift+tab to cycle)", "⏵⏵ auto mode on", "warning"],
+    ["⏵⏵ accept edits on (shift+tab to cycle)", "⏵⏵ accept edits on", "autoAccept"],
+    ["⏸ plan mode on (shift+tab to cycle)", "⏸ plan mode on", "planMode"],
+    ["⏵⏵ bypass permissions on (shift+tab to cycle)", "⏵⏵ bypass permissions on", "error"],
+  ] as const) {
+    const ui = await $.ui.mount({ ...hint(text), surface: "terminal" });
+    const shown = await part(ui, /on$/);
+    expect(shown?.text.trim()).toBe(mode);
+    expect(shown?.props.color).toBe(color);
+    expect(await part(ui, /shift\+tab/)).toBe(undefined);
+    await ui.unmount();
+  }
+});
+
+test("what the hint holds besides agents and mode comes last", async ($, on) => {
+  engine(on);
+  const ui = await $.ui.mount({ ...hint("esc to interrupt · ← 2 agents"), surface: "terminal" });
+  expect(await row(ui)).toEqual(["← 2 agents", "● Opus", `session ${SESSION}`, "esc to interrupt"]);
   await ui.unmount();
 });
 
-test("on desktop the session id follows the tag", async ($, on) => {
+test("the mod draws the row itself, never the engine's line under it", async ($, on) => {
   engine(on);
-  const ui = await $.ui.mount({ ...HINT, surface: "desktop" });
-  expect((await ui.find({ type: "Text", text: /session/ }))?.text.trim()).toBe(
-    `session ${SESSION}`,
-  );
-  expect(await engineLine(ui)).toBe("engine");
+  const ui = await $.ui.mount({ ...hint(LIVE_HINT), surface: "terminal" });
+  expect(await part(ui, /engine/)).toBe(undefined);
   await ui.unmount();
 });
 
 test("a /clear redraws the row with the new session id", async ($, on) => {
   const world = engine(on);
   const ui = await $.ui.mount({ ...HINT, surface: "terminal" });
-  expect(await engineLine(ui)).toBe(`engine tail:session ${SESSION}`);
+  expect(await sessionText(ui)).toBe(`session ${SESSION}`);
 
   world.session = NEXT_SESSION;
-  expect(await engineLine(ui)).toBe(`engine tail:session ${SESSION}`);
+  expect(await sessionText(ui)).toBe(`session ${SESSION}`);
   await $.session.end({ reason: "clear", sessionId: SESSION, resume: { id: SESSION } });
-  expect(await engineLine(ui)).toBe(`engine tail:session ${NEXT_SESSION}`);
+  expect(await sessionText(ui)).toBe(`session ${NEXT_SESSION}`);
   await ui.unmount();
 });
 
 test("an unknown model still shows the session id, with no dot", async ($, on) => {
   engine(on, { model: "some-other-model" });
-  for (const surface of ["terminal", "desktop"] as const) {
-    const ui = await $.ui.mount({ ...HINT, surface });
-    expect(await ui.find({ type: "Text", text: /●/ })).toBe(undefined);
-    if (surface === "terminal") {
-      expect(await engineLine(ui)).toBe(`engine tail:session ${SESSION}`);
-    } else {
-      expect((await ui.find({ type: "Text", text: /session/ }))?.text.trim()).toBe(
-        `session ${SESSION}`,
-      );
-    }
-    await ui.unmount();
-  }
+  const ui = await $.ui.mount({ ...HINT, surface: "terminal" });
+  expect(await part(ui, /●/)).toBe(undefined);
+  expect(await sessionText(ui)).toBe(`session ${SESSION}`);
+  await ui.unmount();
 });
 
-test("a refused session id leaves the tag and the engine line", async ($, on) => {
+test("a refused session id leaves the rest of the row", async ($, on) => {
   engine(on, { session: null });
-  for (const surface of ["terminal", "desktop"] as const) {
-    const ui = await $.ui.mount({ ...HINT, surface });
-    expect(await tagText(ui)).toBe("● Opus");
-    expect(await ui.find({ type: "Text", text: /session/ })).toBe(undefined);
-    expect(await engineLine(ui)).toBe("engine");
-    await ui.unmount();
-  }
+  const ui = await $.ui.mount({ ...HINT, surface: "terminal" });
+  expect(await row(ui)).toEqual(["● Opus", "? for shortcuts"]);
+  await ui.unmount();
 });
 
-test("an unknown model, a refused session id and no usage leave the engine line alone", async ($, on) => {
+test("with nothing of its own to show, the row is the hint alone", async ($, on) => {
   engine(on, { model: "some-other-model", session: null, percent: null });
   const ui = await $.ui.mount({ ...HINT, surface: "terminal" });
-  expect(await ui.find({ type: "Text", text: /●/ })).toBe(undefined);
-  expect(await bar(ui)).toBe(undefined);
-  expect(await engineLine(ui)).toBe("engine");
+  expect(await row(ui)).toEqual(["? for shortcuts"]);
   await ui.unmount();
 });
 
 test("control characters in the session id never reach the screen", async ($, on) => {
   engine(on, { session: "abc\u001b[31mdef" });
   const ui = await $.ui.mount({ ...HINT, surface: "terminal" });
-  expect(await engineLine(ui)).toBe("engine tail:session abc[31mdef");
+  expect(await sessionText(ui)).toBe("session abc[31mdef");
   await ui.unmount();
 });
 
@@ -334,12 +360,10 @@ test("the bar is dim below 70%, a warning from 70% and an error from 85%", async
   }
 });
 
-test("a refused usage read leaves the tag and the engine line", async ($, on) => {
+test("a refused usage read leaves the rest of the row", async ($, on) => {
   engine(on, { percent: null });
   const ui = await $.ui.mount({ ...HINT, surface: "terminal" });
-  expect(await bar(ui)).toBe(undefined);
-  expect(await tagText(ui)).toBe("● Opus");
-  expect(await engineLine(ui)).toBe(`engine tail:session ${SESSION}`);
+  expect(await row(ui)).toEqual(["● Opus", `session ${SESSION}`, "? for shortcuts"]);
   await ui.unmount();
 });
 
@@ -361,7 +385,7 @@ test("a compaction clears the bar", async ($, on) => {
 test("the spinner carries the model colour", async ($, on) => {
   engine(on);
   const ui = await $.ui.mount({ ...SPINNER, surface: "terminal" });
-  expect((await ui.find({ type: "Text", text: /●/ }))?.props.color).toBe("#D9481C");
+  expect((await part(ui, /●/))?.props.color).toBe("#D9481C");
   await ui.unmount();
 });
 
@@ -369,7 +393,7 @@ test("the tag follows a model switch made with config.set", async ($, on) => {
   const world = engine(on);
   const ui = await $.ui.mount({ ...HINT, surface: "terminal" });
   const tag = async () => {
-    const shown = await ui.find({ type: "Text", text: /●/ });
+    const shown = await part(ui, /●/);
     return [shown?.text.trim(), shown?.props.color];
   };
   expect(await tag()).toEqual(["● Opus", "#D9481C"]);
@@ -389,7 +413,7 @@ test("the tag follows a model switch made with config.set", async ($, on) => {
 test("the tag follows a model switch at the next prompt", async ($, on) => {
   const world = engine(on);
   const ui = await $.ui.mount({ ...SPINNER, surface: "terminal" });
-  const dot = () => ui.find({ type: "Text", text: /●/ });
+  const dot = () => part(ui, /●/);
   expect((await dot())?.props.color).toBe("#D9481C");
 
   world.model = "sonnet";
