@@ -25,7 +25,7 @@ const draft = draftPending(LEGAL_ENTITY.merchantOfRecord, LEGAL_ENTITY.accountDa
 
   <h1>Privacy Notice for Hosts</h1>
   <PrivacyNav current="hosts" />
-  <p class="meta">Last updated: 2026-10-23</p>
+  <p class="meta">Last updated: 2026-10-26</p>
 
   <p>
     This notice explains how <span class={ph(LEGAL_ENTITY.name)}>{LEGAL_ENTITY.name}</span>, trading as Cire
@@ -101,14 +101,14 @@ const draft = draftPending(LEGAL_ENTITY.merchantOfRecord, LEGAL_ENTITY.accountDa
   <h2>Who we share it with</h2>
   <p>We use a small set of service providers to run Cire:</p>
   <ul>
-    <li><strong>Cloudflare</strong> — hosting, content delivery and databases (global network).</li>
+    <li><strong>Cloudflare</strong> — hosting, content delivery, databases, and infrastructure
+      supporting security features such as rate limiting (global network).</li>
     <li><span class={ph(LEGAL_ENTITY.merchantOfRecord)}>{LEGAL_ENTITY.merchantOfRecord}</span> — payment processing, as
       merchant of record for purchases.</li>
     <li><strong>Resend</strong> — transactional email delivery, including vendor claim
       invitations.</li>
     <li><strong>The vendor you enquire with</strong> — an enquiry is sent to that supplier,
       who then holds it under their own responsibility.</li>
-    <li><strong>Upstash</strong> — infrastructure supporting security features such as rate limiting.</li>
     <li><strong>Grafana Cloud</strong> — service telemetry (metrics and traces; pseudonymised
       identifiers only, never guest content).</li>
     <li><strong>Google Fonts</strong> — our pages currently load fonts from Google&rsquo;s CDN,
