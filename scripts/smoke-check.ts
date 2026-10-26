@@ -198,6 +198,16 @@ const jwks = (origin: string): Probe => ({
   expects: { kind: "jwks" },
 });
 
+// osn-api's `/health` answers without touching any store. This route writes a
+// key in the coordination store (the `COORDINATION` Durable Object), reads it
+// back and removes it, so a Worker that cannot reach the store fails here: it
+// answers 503 `{ ok: false }`. It allows ten calls a minute per IP, and a
+// check makes at most eight.
+const coordination = (origin: string): Probe => ({
+  url: `${origin}/health/coordination`,
+  expects: { kind: "json", fields: { ok: true } },
+});
+
 // cire-api has no /health. GET /api/auth/session answers a caller with no
 // cookie `{signedIn: false}` without touching D1, and only after the Worker's
 // fail-closed guard and the app build (cire/api/src/index.ts, `fetch`).
@@ -287,12 +297,16 @@ export const SMOKE_TARGETS = {
       worker: "osn-api-production",
       cwd: "osn/api",
       wrangler: ["--env", "production"],
-      probes: [health("https://id.musubi.social"), jwks("https://id.musubi.social")],
+      probes: [
+        health("https://id.musubi.social"),
+        jwks("https://id.musubi.social"),
+        coordination("https://id.musubi.social"),
+      ],
     },
     dev: {
       worker: "osn-api-dev",
       access: false,
-      probes: ({ origin }) => [health(origin), jwks(origin)],
+      probes: ({ origin }) => [health(origin), jwks(origin), coordination(origin)],
       needsMarketing: false,
     },
   },
@@ -495,10 +509,12 @@ const isEs256 = (key: Jwk) => key.kty === "EC" && key.crv === "P-256" && key.alg
  * What one answer says about the Worker. `access` marks a host behind
  * Cloudflare Access, where a 401 or 403 comes from Access, not the Worker.
  *
- * A 429 is never the Worker's verdict on itself: no probed route rate-limits,
- * and Cloudflare answers 429 for every Worker on the account once its daily
- * request cap is spent — which anyone can bring about from the public hosts.
- * Counting it as wrong would let them turn a release into a rollback.
+ * A 429 is never the Worker's verdict on itself. The one probed route that
+ * rate-limits, osn-api's `/health/coordination`, allows more calls than a
+ * check makes, and Cloudflare answers 429 for every Worker on the account once
+ * its daily request cap is spent — which anyone can bring about from the
+ * public hosts. Counting it as wrong would let them turn a release into a
+ * rollback.
  */
 export function judge(probe: Probe, response: Response, body: string, access: boolean): Outcome {
   const { status } = response;

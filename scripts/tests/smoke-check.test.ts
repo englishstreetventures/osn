@@ -75,10 +75,13 @@ const JWKS = () =>
     keys: [{ kty: "EC", crv: "P-256", alg: "ES256", use: "sig", kid: "k1", x: "x", y: "y" }],
   });
 const UNREACHABLE = () => new TypeError("fetch failed");
+const STORE_OK = () => json({ ok: true });
+const STORE_DOWN = () => json({ ok: false }, 503);
 
 const OSN_PROD = {
   "https://id.musubi.social/health": HEALTHY,
   "https://id.musubi.social/.well-known/jwks.json": JWKS,
+  "https://id.musubi.social/health/coordination": STORE_OK,
 };
 
 /** A clock that only moves when the script sleeps. */
@@ -279,6 +282,19 @@ describe("judge", () => {
     expect((await verdict(HEALTH, json({ status: "degraded" }))).kind).toBe("wrong");
     expect((await verdict(HEALTH, html(200))).kind).toBe("wrong");
     expect((await verdict(HEALTH, json([{ status: "ok" }]))).kind).toBe("wrong");
+  });
+
+  test("the coordination probe wants ok true, the boolean, on a 200", async () => {
+    const store = probe("https://id.musubi.social/health/coordination", {
+      kind: "json",
+      fields: { ok: true },
+    });
+    expect(await verdict(store, STORE_OK())).toEqual({ kind: "pass" });
+    expect((await verdict(store, STORE_DOWN())).kind).toBe("wrong");
+    expect((await verdict(store, json({ ok: "true" }))).kind).toBe("wrong");
+    expect((await verdict(store, json({ ok: true }, 503))).kind).toBe("wrong");
+    // Its own limiter refusing is not the Worker's code failing.
+    expect((await verdict(store, json({ error: "rate_limited" }, 429))).kind).toBe("blocked");
   });
 
   test("the session probe wants signedIn false, the boolean", async () => {
@@ -639,6 +655,20 @@ describe("a broken deploy", () => {
     expect(result.output).toContain("missing OSN_TOTP_ENCRYPTION_KEY");
   });
 
+  test("a store the Worker cannot reach fails the check and rolls back, with /health still ok", async () => {
+    const result = await smoke(["osn_api", "production"], {
+      ...OSN_PROD,
+      "https://id.musubi.social/health/coordination": STORE_DOWN,
+    });
+    expect(result.code).toBe(1);
+    expect(result.posts).toHaveLength(1);
+    // Eight asks in the minute and the round after the rollback: under the
+    // route's ten a minute, so its own limiter never answers the check.
+    expect(fetchesOf(result, "https://id.musubi.social/health/coordination")).toBe(8);
+    expect(result.output).toContain("https://id.musubi.social/health/coordination");
+    expect(result.output).toContain('{"ok":false}');
+  });
+
   test("the Cloudflare token goes to the Cloudflare API only, never to a probed host", async () => {
     const result = await smoke(["osn_api", "production"], {
       ...OSN_PROD,
@@ -679,6 +709,7 @@ describe("a broken deploy", () => {
       {
         [health]: (call) => (call <= rounds ? MISCONFIGURED() : HEALTHY()),
         [`${OSN_API_DEV}/.well-known/jwks.json`]: JWKS,
+        [`${OSN_API_DEV}/health/coordination`]: STORE_OK,
       },
       { env: devEnv(OSN_API_DEV) },
     );
@@ -1200,7 +1231,11 @@ describe("a dev site behind Cloudflare Access", () => {
       [
         "osn_api",
         OSN_API_DEV,
-        { [`${OSN_API_DEV}/health`]: HEALTHY, [`${OSN_API_DEV}/.well-known/jwks.json`]: JWKS },
+        {
+          [`${OSN_API_DEV}/health`]: HEALTHY,
+          [`${OSN_API_DEV}/.well-known/jwks.json`]: JWKS,
+          [`${OSN_API_DEV}/health/coordination`]: STORE_OK,
+        },
       ],
       [
         "zap_api",
@@ -1240,6 +1275,7 @@ describe("a dev site behind Cloudflare Access", () => {
       {
         [`${OSN_API_DEV}/health`]: HEALTHY,
         [`${OSN_API_DEV}/.well-known/jwks.json`]: JWKS,
+        [`${OSN_API_DEV}/health/coordination`]: STORE_OK,
       },
       { env: devEnv(OSN_API_DEV, TOKEN_ENV) },
     );
@@ -1566,5 +1602,18 @@ describe("SMOKE_TARGETS", () => {
     for (const probes of [dev, production]) {
       expect(probes?.map((p) => p.expects.kind)).toContain("jwks");
     }
+  });
+
+  test("checks osn-api's coordination store round trip on both tiers", () => {
+    const dev = devTarget("osn_api")?.probes({ origin: OSN_API_DEV });
+    const production = productionTarget("osn_api")?.probes;
+    expect(dev).toContainEqual({
+      url: `${OSN_API_DEV}/health/coordination`,
+      expects: { kind: "json", fields: { ok: true } },
+    });
+    expect(production).toContainEqual({
+      url: "https://id.musubi.social/health/coordination",
+      expects: { kind: "json", fields: { ok: true } },
+    });
   });
 });
