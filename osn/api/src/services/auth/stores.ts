@@ -6,7 +6,7 @@
 
 import { createInMemoryCeremonyStore, type CeremonyStore } from "../../lib/ceremony-store";
 import type { CeremonyStoreName } from "../../lib/coordination/names";
-import { metricCeremonyStoreEntryDelta, metricCeremonyStoreOp } from "../../metrics";
+import { metricCeremonyStoreOp } from "../../metrics";
 import type { PasskeyProvenance, PublicProfile } from "./types";
 
 /**
@@ -278,16 +278,14 @@ export function createInMemoryJtiStore(): StepUpJtiStore {
 }
 
 /**
- * Build the default in-memory ceremony stores. Each carries the metric
- * observer so per-namespace op/entry telemetry works identically to the
- * Durable Object path. Used when `AuthConfig.ceremonyStores` is omitted.
+ * Build the default in-memory ceremony stores. Each counts its operations on
+ * the same metric as the Durable Object path, under `backend: "memory"`. Used
+ * when `AuthConfig.ceremonyStores` is omitted.
  */
 export function createDefaultCeremonyStores(): CeremonyStores {
   const observer = {
     onOp: (op: "set" | "get" | "delete", namespace: CeremonyStoreName) =>
       metricCeremonyStoreOp({ op, namespace, backend: "memory" }),
-    onEntryDelta: (delta: number, namespace: CeremonyStoreName) =>
-      metricCeremonyStoreEntryDelta(delta, { namespace, backend: "memory" }),
   };
   return {
     registrationChallenges: createInMemoryCeremonyStore<RegistrationChallengeEntry>(

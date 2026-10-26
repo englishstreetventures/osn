@@ -8,10 +8,10 @@
  * See `CLAUDE.md` "Observability" section for the full rules.
  */
 
+import type { CoordinationOp } from "@shared/coordination";
 import {
   createCounter,
   createHistogram,
-  createUpDownCounter,
   LATENCY_BUCKETS_SECONDS,
   RESULT_VALUES,
 } from "@shared/observability/metrics";
@@ -58,7 +58,7 @@ import type {
 } from "@shared/observability/metrics";
 import { Effect } from "effect";
 
-import type { CeremonyStoreName } from "./lib/coordination/names";
+import type { CeremonyStoreName, CoordinationStoreName } from "./lib/coordination/names";
 
 /** Canonical metric name consts — grep-able, refactor-safe. */
 export const OSN_METRICS = {
@@ -78,7 +78,7 @@ export const OSN_METRICS = {
   authSessionRotationRace: "osn.auth.session.rotation_race",
   authSessionFamilyRevoked: "osn.auth.session.family_revoked",
   authCeremonyStoreOps: "osn.auth.ceremony_store.operations",
-  authCeremonyStoreEntries: "osn.auth.ceremony_store.entries",
+  coordinationStoreOps: "osn.coordination.store.operations",
   authSessionSecurityInvalidation: "osn.auth.session.security_invalidation",
   authCireSessionRevocations: "osn.auth.cire_session.revocations",
   authRecoveryLockout: "osn.auth.recovery.lockout",
@@ -604,14 +604,12 @@ export const metricCireSessionRevocation = (
 ): void => authCireSessionRevocations.inc({ trigger, result });
 
 // ---------------------------------------------------------------------------
-// Ceremony / pending-state stores (O3: Redis-backed ceremony state)
+// Ceremony / pending-state stores
 //
 // Every challenge / pending-registration / OTP / email-change / cross-device
-// store shares one bounded metric surface, dimensioned by the `RedisNamespace`
-// it occupies and its backend. `entries` is an UpDownCounter (set → +1,
-// delete/expiry-consume → -1) giving a live per-namespace key-count gauge
-// without polling Redis (the `redis.store.keys` coverage the migration plan
-// calls for). `ops` counts set / get / delete by namespace + backend.
+// store shares one bounded metric surface: set / get / delete by the store's
+// name and its backend — `memory` in one process, `durable_object` on the
+// coordination store.
 // ---------------------------------------------------------------------------
 
 type CeremonyStoreBackend = "memory" | "durable_object";
@@ -621,7 +619,6 @@ type CeremonyStoreOpAttrs = {
   op: CeremonyStoreOp;
   backend: CeremonyStoreBackend;
 };
-type CeremonyStoreEntriesAttrs = { namespace: CeremonyStoreName; backend: CeremonyStoreBackend };
 
 const authCeremonyStoreOps = createCounter<CeremonyStoreOpAttrs>({
   name: OSN_METRICS.authCeremonyStoreOps,
@@ -629,20 +626,31 @@ const authCeremonyStoreOps = createCounter<CeremonyStoreOpAttrs>({
   unit: "{operation}",
 });
 
-const authCeremonyStoreEntries = createUpDownCounter<CeremonyStoreEntriesAttrs>({
-  name: OSN_METRICS.authCeremonyStoreEntries,
-  description: "Live ceremony/pending-state store entry count by namespace and backend",
-  unit: "{entry}",
-});
-
 export const metricCeremonyStoreOp = (attrs: CeremonyStoreOpAttrs): void =>
   authCeremonyStoreOps.inc(attrs);
 
-/** +1 on insert, -1 on delete — net is the live entry count per namespace. */
-export const metricCeremonyStoreEntryDelta = (
-  delta: number,
-  attrs: CeremonyStoreEntriesAttrs,
-): void => authCeremonyStoreEntries.add(delta, attrs);
+// ---------------------------------------------------------------------------
+// Coordination store (the `COORDINATION` Durable Object)
+//
+// One count per call an object answers or fails, retries included, by the
+// store's name, the operation and the outcome. Every attribute comes from a
+// closed union: a key, an IP, an account or a stored value is never one.
+// ---------------------------------------------------------------------------
+
+type CoordinationStoreOpAttrs = {
+  store: CoordinationStoreName;
+  op: CoordinationOp;
+  result: "ok" | "error";
+};
+
+const coordinationStoreOps = createCounter<CoordinationStoreOpAttrs>({
+  name: OSN_METRICS.coordinationStoreOps,
+  description: "Coordination store calls by store, operation and outcome",
+  unit: "{operation}",
+});
+
+export const metricCoordinationStoreOp = (attrs: CoordinationStoreOpAttrs): void =>
+  coordinationStoreOps.inc(attrs);
 
 // ---------------------------------------------------------------------------
 // Recovery-code per-account lockout (O2)

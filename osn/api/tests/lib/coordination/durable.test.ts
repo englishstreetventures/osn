@@ -6,6 +6,7 @@ import {
   createDurableJtiStore,
   createDurableLockoutStore,
 } from "../../../src/lib/coordination/durable";
+import * as metrics from "../../../src/metrics";
 import { createFakeNamespace } from "../../helpers/coordination-namespace";
 
 const KEY = "acc_secretkey1";
@@ -171,6 +172,30 @@ describe("what a failed call reports", () => {
       expect(typeof store).toBe("string");
       expect(typeof op).toBe("string");
       expect(Object.keys(detail).toSorted()).toEqual(["durationMs", "retried"]);
+    }
+  });
+
+  it("counts every call by store, operation and outcome, and nothing else", async () => {
+    const counted = vi.spyOn(metrics, "metricCoordinationStoreOp");
+    try {
+      const fake = createFakeNamespace();
+      const bundle = createDurableCoordination(fake.ns, vi.fn());
+      await bundle.ceremonyStores.stepUpOtp.set(KEY, VALUE, 60_000);
+      await bundle.ceremonyStores.stepUpOtp.get(KEY);
+      fake.failWhen(() => true);
+      await bundle.authRateLimiters.recoveryGenerate.check("203.0.113.77");
+
+      expect(counted.mock.calls.map(([attrs]) => attrs)).toEqual([
+        { store: "step_up_otp", op: "write", result: "ok" },
+        { store: "step_up_otp", op: "read", result: "ok" },
+        { store: "auth.recovery_generate", op: "increment", result: "error" },
+      ]);
+      const reported = JSON.stringify(counted.mock.calls);
+      for (const secret of ["203.0.113.77", KEY, VALUE.codeHash]) {
+        expect(reported).not.toContain(secret);
+      }
+    } finally {
+      counted.mockRestore();
     }
   });
 });

@@ -24,7 +24,8 @@
  *   own.
  *
  * Every failed call reaches `onError` once, with the store's name and the
- * operation, never a key or a value. Nothing here logs on its own.
+ * operation, never a key or a value. Nothing here logs on its own; every call
+ * is counted on `osn.coordination.store.operations` ({@link measured}).
  */
 
 import {
@@ -32,11 +33,12 @@ import {
   createCoordinationRateLimiter,
   type CoordinationClient,
   type CoordinationNamespace,
+  type CoordinationOp,
   type CoordinationRateLimiter,
 } from "@shared/coordination";
 import type { RateLimiterBackend } from "@shared/rate-limit";
 
-import { metricCeremonyStoreOp } from "../../metrics";
+import { metricCeremonyStoreOp, metricCoordinationStoreOp } from "../../metrics";
 import type { AccountErasureRateLimiters } from "../../routes/account-erasure";
 import {
   AUTH_RATE_LIMITS,
@@ -65,6 +67,49 @@ import type { RecoveryLockoutStore } from "../recovery-lockout-store";
 import type { CoordinationErrorReporter, CoordinationStores } from "./index";
 import type { CeremonyStoreName, CoordinationStoreName, LockoutStoreName } from "./names";
 
+/**
+ * `ns` as one store sees it: every call an object answers or fails is counted
+ * on `osn.coordination.store.operations` under `store`, retries included. The
+ * count carries the store's name, the operation and the outcome only.
+ */
+export function measured(
+  ns: CoordinationNamespace,
+  store: CoordinationStoreName,
+): CoordinationNamespace {
+  return {
+    getByName(name) {
+      const stub = ns.getByName(name);
+      const count = <A>(op: CoordinationOp, run: () => Promise<A>): Promise<A> => {
+        let pending: Promise<A>;
+        try {
+          pending = run();
+        } catch (error) {
+          metricCoordinationStoreOp({ store, op, result: "error" });
+          throw error;
+        }
+        return pending.then(
+          (value) => {
+            metricCoordinationStoreOp({ store, op, result: "ok" });
+            return value;
+          },
+          (error: unknown) => {
+            metricCoordinationStoreOp({ store, op, result: "error" });
+            throw error;
+          },
+        );
+      };
+      return {
+        increment: (windowMs) => count("increment", () => stub.increment(windowMs)),
+        count: () => count("count", () => stub.count()),
+        read: () => count("read", () => stub.read()),
+        write: (value, ttlMs) => count("write", () => stub.write(value, ttlMs)),
+        remove: () => count("remove", () => stub.remove()),
+        claim: (ttlMs) => count("claim", () => stub.claim(ttlMs)),
+      };
+    },
+  };
+}
+
 /** A fixed-window limiter on its own store. Fails closed. */
 function limiter(
   ns: CoordinationNamespace,
@@ -72,7 +117,7 @@ function limiter(
   budget: RateLimitBudget,
   onError: CoordinationErrorReporter,
 ): CoordinationRateLimiter {
-  return createCoordinationRateLimiter(ns, {
+  return createCoordinationRateLimiter(measured(ns, store), {
     namespace: store,
     maxRequests: budget.maxRequests,
     windowMs: budget.windowMs,
@@ -85,7 +130,7 @@ function client(
   store: CoordinationStoreName,
   onError: CoordinationErrorReporter,
 ): CoordinationClient {
-  return createCoordinationClient(ns, { namespace: store, onError });
+  return createCoordinationClient(measured(ns, store), { namespace: store, onError });
 }
 
 /**

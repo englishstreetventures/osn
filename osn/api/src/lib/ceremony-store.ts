@@ -25,10 +25,15 @@ import type { CeremonyStoreName } from "./coordination/names";
 
 export type CeremonyStoreBackend = "memory" | "durable_object";
 
-/** Outcome hook for observability — wired to the metric layer in `stores.ts`. */
+/** Hooks an in-memory store calls as it works. */
 export interface CeremonyStoreObserver {
+  /** Every operation; `stores.ts` counts these on the ceremony-store metric. */
   onOp?: (op: "set" | "get" | "delete", namespace: CeremonyStoreName) => void;
-  /** +1 on insert of a new key, -1 on delete of an existing key. */
+  /**
+   * +1 when a new key is stored, -1 when one leaves — by delete, by expiry or
+   * by the size cap. Nothing in the service listens; it is how a caller can
+   * watch the sweep and the cap keep the map bounded.
+   */
   onEntryDelta?: (delta: number, namespace: CeremonyStoreName) => void;
 }
 
