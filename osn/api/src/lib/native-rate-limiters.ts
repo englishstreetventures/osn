@@ -27,13 +27,20 @@ import {
 } from "@shared/rate-limit";
 
 import type { AuthRateLimiters } from "../routes/auth";
-import { AUTH_RATE_LIMITS, MINUTE_MS } from "../routes/auth/limiters";
+import { AUTH_RATE_LIMITS, MINUTE_MS, OSN_RATE_LIMITS } from "../routes/auth/limiters";
+import type { ProfileRateLimiters } from "../routes/profile";
+import type { RecommendationRateLimiters } from "../routes/recommendations";
 
 /**
- * The five native binding tiers, named `RL_AUTH_IP_<limit>_<periodSeconds>`.
- * Each is declared as a `[[ratelimits]]` block in `osn/api/wrangler.toml` with
+ * The native binding tiers, named `RL_<kind>_<limit>_<periodSeconds>`. Each is
+ * declared as a `[[ratelimits]]` block in `osn/api/wrangler.toml` with
  * `simple = { limit = <limit>, period = 60 }`, mirrored into every named env.
- * Optional in the type: absent (local / Bun / non-Workers) ⇒ the fallback.
+ *
+ * - `RL_AUTH_IP_*`: per-IP, for the auth routes and profile create, delete
+ *   and set-default. Optional: absent ⇒ those limiters stay on the fallback.
+ * - `RL_USER_*`: per-user, for graph and organisation writes and the two
+ *   recommendation endpoints. A deployed Worker without them answers 503
+ *   ({@link USER_TIERS}); only local tiers fall back.
  */
 export interface OsnRateLimitBindings {
   RL_AUTH_IP_5_60: WorkersRateLimitBinding;
@@ -41,6 +48,8 @@ export interface OsnRateLimitBindings {
   RL_AUTH_IP_20_60: WorkersRateLimitBinding;
   RL_AUTH_IP_30_60: WorkersRateLimitBinding;
   RL_AUTH_IP_60_60: WorkersRateLimitBinding;
+  RL_USER_20_60: WorkersRateLimitBinding;
+  RL_USER_60_60: WorkersRateLimitBinding;
 }
 
 type TierName = keyof OsnRateLimitBindings;
@@ -52,6 +61,12 @@ const AUTH_IP_TIERS: readonly TierName[] = [
   "RL_AUTH_IP_30_60",
   "RL_AUTH_IP_60_60",
 ];
+
+/** The per-user tiers. Required outside local: `fetch` answers 503 without them. */
+export const USER_TIERS = ["RL_USER_20_60", "RL_USER_60_60"] as const satisfies readonly TierName[];
+
+/** Every tier, in the order `wrangler.toml` declares them. */
+export const ALL_TIERS: readonly TierName[] = [...AUTH_IP_TIERS, ...USER_TIERS];
 
 /**
  * The tier binding a one-minute budget of `maxRequests` runs on, or
@@ -109,7 +124,7 @@ export function readOsnRateLimitBindings(
 ): Partial<OsnRateLimitBindings> | undefined {
   const present: Partial<OsnRateLimitBindings> = {};
   let any = false;
-  for (const tier of AUTH_IP_TIERS) {
+  for (const tier of ALL_TIERS) {
     const binding = env[tier];
     if (binding && typeof binding.limit === "function") {
       present[tier] = binding;
@@ -167,4 +182,78 @@ export function selectAuthRateLimiters(
     };
   }
   return out;
+}
+
+/** The non-auth limiters a native binding can carry: every one-minute one. */
+export interface OsnMinuteLimiters {
+  readonly graphRateLimiter: RateLimiterBackend;
+  readonly orgRateLimiter: RateLimiterBackend;
+  readonly profileRateLimiters: ProfileRateLimiters;
+  readonly recommendationRateLimiters: RecommendationRateLimiters;
+}
+
+type OsnMinuteBudget =
+  | "graphWrite"
+  | "orgWrite"
+  | "recommendationSuggest"
+  | "recommendationSearch"
+  | "profileCreate"
+  | "profileDelete"
+  | "profileSetDefault";
+
+/**
+ * Which tier each one-minute non-auth limiter runs on. Per-user keys (graph,
+ * organisation, recommendations) take an `RL_USER_*` tier; profile create,
+ * delete and set-default are keyed per IP, so they share the `RL_AUTH_IP_*`
+ * tiers under their own key prefix. The limit in each tier's name is the
+ * budget's `maxRequests`; a test holds the two together.
+ */
+export const NATIVE_BINDING_FOR_OSN_LIMITER = {
+  graphWrite: "RL_USER_60_60",
+  orgWrite: "RL_USER_60_60",
+  recommendationSuggest: "RL_USER_20_60",
+  recommendationSearch: "RL_USER_60_60",
+  profileCreate: "RL_AUTH_IP_5_60",
+  profileDelete: "RL_AUTH_IP_5_60",
+  profileSetDefault: "RL_AUTH_IP_10_60",
+} as const satisfies Readonly<Record<OsnMinuteBudget, TierName>>;
+
+/**
+ * Return `fallback` with each one-minute non-auth limiter moved onto its tier
+ * binding, keyed `"<store>:" + key` (the budget's coordination store name, so
+ * two limiters sharing a tier never share a bucket). A limiter whose tier is
+ * absent stays on the fallback; `fetch` refuses to serve a deployed tier
+ * without the per-user ones.
+ */
+export function selectOsnLimiters(
+  bindings: Partial<OsnRateLimitBindings>,
+  fallback: OsnMinuteLimiters,
+): OsnMinuteLimiters {
+  const wrapped = new Map<TierName, RateLimiterBackend>();
+  const pick = (budget: OsnMinuteBudget, slot: RateLimiterBackend): RateLimiterBackend => {
+    const tier = NATIVE_BINDING_FOR_OSN_LIMITER[budget];
+    const binding = bindings[tier];
+    if (!binding) return slot;
+    let backend = wrapped.get(tier);
+    if (!backend) {
+      backend = createWorkersRateLimiter(binding);
+      wrapped.set(tier, backend);
+    }
+    const prefix = OSN_RATE_LIMITS[budget].store;
+    const native = backend;
+    return { check: (key: string) => native.check(`${prefix}:${key}`) };
+  };
+  return {
+    graphRateLimiter: pick("graphWrite", fallback.graphRateLimiter),
+    orgRateLimiter: pick("orgWrite", fallback.orgRateLimiter),
+    profileRateLimiters: {
+      profileCreate: pick("profileCreate", fallback.profileRateLimiters.profileCreate),
+      profileDelete: pick("profileDelete", fallback.profileRateLimiters.profileDelete),
+      profileSetDefault: pick("profileSetDefault", fallback.profileRateLimiters.profileSetDefault),
+    },
+    recommendationRateLimiters: {
+      suggest: pick("recommendationSuggest", fallback.recommendationRateLimiters.suggest),
+      search: pick("recommendationSearch", fallback.recommendationRateLimiters.search),
+    },
+  };
 }

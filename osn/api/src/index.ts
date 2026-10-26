@@ -9,7 +9,7 @@ import { buildAppDeps } from "./build-deps";
 import { withBackgroundSink } from "./lib/background";
 import { createDurableCoordination } from "./lib/coordination/durable";
 import { selectEmailLayer } from "./lib/email-layer";
-import { readOsnRateLimitBindings } from "./lib/native-rate-limiters";
+import { readOsnRateLimitBindings, USER_TIERS } from "./lib/native-rate-limiters";
 import { registerOutboundKeysOnce } from "./lib/outbound-arc";
 import { flushOsnTelemetry, osnLoggerLayer } from "./observability";
 import * as accountErasure from "./services/account-erasure";
@@ -55,6 +55,11 @@ export interface Env {
   RL_AUTH_IP_20_60?: WorkersRateLimitBinding;
   RL_AUTH_IP_30_60?: WorkersRateLimitBinding;
   RL_AUTH_IP_60_60?: WorkersRateLimitBinding;
+  // Per-user native bindings for graph and organisation writes and the two
+  // recommendation endpoints. Required outside local: absent ⇒ 503, rather
+  // than spending a store call per keystroke.
+  RL_USER_20_60?: WorkersRateLimitBinding;
+  RL_USER_60_60?: WorkersRateLimitBinding;
   // Non-secret vars (wrangler `[vars]`)
   OSN_ENV?: string;
   OSN_RP_ID?: string;
@@ -259,6 +264,8 @@ export const handler: OsnWorkerHandler = {
       // Every tier: without it there is no shared limiter, ceremony store or
       // single-use guard, and no per-isolate stand-in is safe to run instead.
       !env.COORDINATION && "COORDINATION",
+      // The per-user limiters run only on these in a deployed tier.
+      ...USER_TIERS.map((tier) => isNonLocal(env) && !env[tier] && tier),
       // In a deployed tier the issuer/CORS/RP must be set explicitly — the
       // localhost defaults are local-dev only. `buildAppDeps` itself throws on
       // the security-critical missing secrets (JWT keys, IP pepper, CF email);

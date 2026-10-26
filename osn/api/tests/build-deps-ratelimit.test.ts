@@ -135,7 +135,7 @@ describe("Part 2 — buildAppDeps native rate-limit binding selection", () => {
     expect(seen).toEqual([]);
   });
 
-  it("the per-account caps + per-user limiters are never affected by the bindings", async () => {
+  it("per-user limiters move onto the RL_USER tiers; the per-account caps never move", async () => {
     const seen: string[] = [];
     const binding = allowBinding(seen);
     const built = await buildAppDeps(
@@ -147,17 +147,31 @@ describe("Part 2 — buildAppDeps native rate-limit binding selection", () => {
           RL_AUTH_IP_20_60: binding,
           RL_AUTH_IP_30_60: binding,
           RL_AUTH_IP_60_60: binding,
+          RL_USER_20_60: binding,
+          RL_USER_60_60: binding,
         },
       }),
     );
-    // graph/org/recommendation per-user limiters + the two account caps stay on
-    // the coordination store — exercising them must not hit the native binding.
     await built.deps.graphRateLimiter.check("usr_1");
     await built.deps.orgRateLimiter.check("usr_1");
     await built.deps.recommendationRateLimiters.suggest.check("usr_1");
     await built.deps.recommendationRateLimiters.search.check("usr_1");
+    await built.deps.profileRateLimiters.profileCreate.check("9.9.9.9");
+    expect(seen).toEqual([
+      "graph.write:usr_1",
+      "org.write:usr_1",
+      "recs.read:usr_1",
+      "recs.search:usr_1",
+      "profile.create:9.9.9.9",
+    ]);
+    // The caps and the export / erasure limiters are hour- or day-windowed and
+    // stay on the coordination store.
+    seen.length = 0;
     await built.deps.profileSwitchCap.check("acc_1");
     await built.deps.emailChangeBeginCap.check("acc_1");
+    await built.deps.recoveryEmailBeginCap.check("acc_1");
+    await built.deps.accountExportLimiter.check("acc_1");
+    await built.deps.accountErasureRateLimiters.accountDelete.check("acc_1");
     expect(seen).toEqual([]);
   });
 });

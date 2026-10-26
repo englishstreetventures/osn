@@ -135,6 +135,20 @@ name = "RL_AUTH_IP_60_60"
 namespace_id = "2005"
 simple = { limit = 60, period = 60 }
 
+# Per-user tiers for graph and organisation writes and the two recommendation
+# endpoints, keyed `<store>:<userId>`. A deployed Worker without them answers
+# 503 (`USER_TIERS` in src/lib/native-rate-limiters.ts). Profile create, delete
+# and set-default are keyed per IP and share the RL_AUTH_IP tiers above.
+[[ratelimits]]
+name = "RL_USER_20_60"
+namespace_id = "2006"
+simple = { limit = 20, period = 60 }
+
+[[ratelimits]]
+name = "RL_USER_60_60"
+namespace_id = "2007"
+simple = { limit = 60, period = 60 }
+
 # ── Workers observability (Part 3) ───────────────────────────────────────────
 # Free Workers Logs + invocation capture in the Cloudflare dashboard. This is the
 # interim observability while OTel export stays deferred on workerd (the
@@ -185,12 +199,12 @@ migrations_dir = "../db/drizzle"
 
 # Native rate-limit bindings mirrored into staging (named envs don't inherit).
 #
-# 2201–2205, not the 2001–2005 production uses. `namespace_id` is ACCOUNT-scoped,
+# 2201–2207, not the 2001–2007 production uses. `namespace_id` is ACCOUNT-scoped,
 # not worker-scoped: two Workers naming the same id share one set of counters. On
 # the shared ids, a staging load test against /login would have spent production's
 # per-IP budget and locked real users out of sign-in — and any staging IP that
 # collided with a real one would have done it quietly. The dev tier, in its own
-# account, uses 2101–2105 (musubi/infra).
+# account, uses the 21xx range (musubi/infra).
 [[env.staging.ratelimits]]
 name = "RL_AUTH_IP_5_60"
 namespace_id = "2201"
@@ -214,6 +228,16 @@ simple = { limit = 30, period = 60 }
 [[env.staging.ratelimits]]
 name = "RL_AUTH_IP_60_60"
 namespace_id = "2205"
+simple = { limit = 60, period = 60 }
+
+[[env.staging.ratelimits]]
+name = "RL_USER_20_60"
+namespace_id = "2206"
+simple = { limit = 20, period = 60 }
+
+[[env.staging.ratelimits]]
+name = "RL_USER_60_60"
+namespace_id = "2207"
 simple = { limit = 60, period = 60 }
 
 [env.staging.observability]
@@ -338,6 +362,16 @@ simple = { limit = 30, period = 60 }
 [[env.production.ratelimits]]
 name = "RL_AUTH_IP_60_60"
 namespace_id = "2005"
+simple = { limit = 60, period = 60 }
+
+[[env.production.ratelimits]]
+name = "RL_USER_20_60"
+namespace_id = "2006"
+simple = { limit = 20, period = 60 }
+
+[[env.production.ratelimits]]
+name = "RL_USER_60_60"
+namespace_id = "2007"
 simple = { limit = 60, period = 60 }
 
 [env.production.observability]

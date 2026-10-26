@@ -21,6 +21,7 @@ import {
 import { osnLoggerLayer } from "../src/observability";
 import { createFakeNamespace } from "./helpers/coordination-namespace";
 import { createTestLayer } from "./helpers/db";
+import { userTierBindings } from "./helpers/rate-limit-bindings";
 
 /**
  * T-S1 — non-local fail-closed guardrails (the deploy-time guards). Each unit
@@ -282,6 +283,7 @@ describe("handler.fetch without the COORDINATION binding", () => {
     OSN_TOTP_ENCRYPTION_KEY: Buffer.from("t".repeat(32)).toString("base64"),
     CLOUDFLARE_ACCOUNT_ID: "acct",
     CLOUDFLARE_EMAIL_API_TOKEN: "tok",
+    ...userTierBindings(),
     // COORDINATION deliberately absent.
   });
 
@@ -300,6 +302,7 @@ describe("handler.fetch without the COORDINATION binding", () => {
     const res = await handler.fetch(new Request("https://api.osn.test/"), {
       ...deployedEnv("production"),
       COORDINATION: createFakeNamespace().ns,
+      ...userTierBindings(),
     });
     expect(res.status).toBe(200);
   });
@@ -322,6 +325,7 @@ describe("buildAll email fail-closed + degraded opt-in (non-local)", () => {
       OSN_PAIRWISE_SALT: "p".repeat(32),
       OSN_TOTP_ENCRYPTION_KEY: Buffer.from("t".repeat(32)).toString("base64"),
       COORDINATION: createFakeNamespace().ns,
+      ...userTierBindings(),
       ...over,
     } as Env;
   }

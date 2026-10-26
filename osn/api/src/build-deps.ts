@@ -9,7 +9,11 @@ import type { AppDeps } from "./app";
 import type { CookieSessionConfig } from "./lib/cookie-session";
 import type { CoordinationBuilder, CoordinationErrorReporter } from "./lib/coordination";
 import { assertCorsOriginsConfigured, resolveCorsOrigins } from "./lib/cors-config";
-import { type OsnRateLimitBindings, selectAuthRateLimiters } from "./lib/native-rate-limiters";
+import {
+  type OsnRateLimitBindings,
+  selectAuthRateLimiters,
+  selectOsnLimiters,
+} from "./lib/native-rate-limiters";
 import { createOriginGuard } from "./lib/origin-guard";
 import {
   createTotpKeyRing,
@@ -440,6 +444,9 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
   const authRateLimiters = rateLimitBindings
     ? selectAuthRateLimiters(rateLimitBindings, stores.authRateLimiters)
     : stores.authRateLimiters;
+  // The same for the one-minute graph, organisation, recommendation and
+  // profile limiters, so a keystroke-rate endpoint never costs a store call.
+  const minuteLimiters = rateLimitBindings ? selectOsnLimiters(rateLimitBindings, stores) : stores;
 
   // Client-IP trust policy. Behind Cloudflare (the non-local
   // Workers runtime — osn-api serves id.musubi.social), trust
@@ -487,10 +494,10 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
     observabilityLayer,
     appRuntime,
     authRateLimiters,
-    graphRateLimiter: stores.graphRateLimiter,
-    orgRateLimiter: stores.orgRateLimiter,
-    profileRateLimiters: stores.profileRateLimiters,
-    recommendationRateLimiters: stores.recommendationRateLimiters,
+    graphRateLimiter: minuteLimiters.graphRateLimiter,
+    orgRateLimiter: minuteLimiters.orgRateLimiter,
+    profileRateLimiters: minuteLimiters.profileRateLimiters,
+    recommendationRateLimiters: minuteLimiters.recommendationRateLimiters,
     accountExportLimiter: stores.accountExportLimiter,
     accountExportIpLimiter: stores.accountExportIpLimiter,
     accountErasureRateLimiters: stores.accountErasureRateLimiters,
