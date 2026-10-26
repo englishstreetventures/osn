@@ -338,7 +338,7 @@ test("a resolved subagent file is not counted as unattributed", async () => {
   }
 });
 
-// T-E1. The exclusion is the only thing keeping one branch's delegated spend
+// The exclusion is the only thing keeping one branch's delegated spend
 // off another branch's card, and a positive-only suite cannot see it: with the
 // guard deleted every test above still passed, while every marked transcript
 // would land on every card.
@@ -387,7 +387,7 @@ test("readRecordsForBranch excludes a subagent marked for a different branch", a
   }
 });
 
-// T-E3. The third arm of the warning's condition: an unmarked subagent whose
+// The third arm of the warning's condition: an unmarked subagent whose
 // own gitBranch is already a real task branch is fine, and counting it would
 // make the warning cry wolf on a healthy run.
 test("unattributedSubagentFiles ignores an unmarked subagent already on a task branch", async () => {
@@ -411,7 +411,7 @@ test("unattributedSubagentFiles ignores an unmarked subagent already on a task b
   }
 });
 
-// T-E4. Both readers call the resolver on every subagent file they see, so one
+// Both readers call the resolver on every subagent file they see, so one
 // bad sidecar escaping the catch would abort the whole card rather than
 // degrade it.
 test("resolveDispatchBranch survives a missing, empty or unparseable sidecar", async () => {
@@ -436,7 +436,7 @@ test("resolveDispatchBranch survives a missing, empty or unparseable sidecar", a
   }
 });
 
-// T-E4, the cycle. `parentCandidates` returns every sibling, so two files each
+// `parentCandidates` returns every sibling, so two files each
 // naming the other's tool_use id recurse until the guard stops them. This test
 // fails by hanging or overflowing the stack, not by asserting.
 test("resolveDispatchBranch terminates when two siblings dispatch each other", async () => {
@@ -456,7 +456,7 @@ test("resolveDispatchBranch terminates when two siblings dispatch each other", a
   }
 });
 
-// T-U1. `uuid` is what a cross-file duplicate repeats, on the assistant side
+// `uuid` is what a cross-file duplicate repeats, on the assistant side
 // and on the `user` records `user_turns` and `corrective_turns` are counted
 // from alike. If the dedupe never fires those numbers double on a duplicated
 // conversation.
@@ -515,7 +515,7 @@ test("the blocks of one split response all survive the dedupe", async () => {
   }
 });
 
-// T-S1. `backfill` reads through `recordsByBranch`, so an un-deduped pass here
+// `backfill` reads through `recordsByBranch`, so an un-deduped pass here
 // is the live-card/backfilled-card disagreement the shared reader exists to end.
 test("recordsByBranch dedupes a record present in two session files", async () => {
   const dir = await tree();
@@ -536,7 +536,7 @@ test("recordsByBranch dedupes a record present in two session files", async () =
   }
 });
 
-// T-S2. The producer is `.claude/skills/orchestrate/SKILL.md` and the consumer
+// The producer is `.claude/skills/orchestrate/SKILL.md` and the consumer
 // is this parser; nothing else couples them. The last case reads the marker out
 // of the skill file itself, so the two fail together the day either changes.
 test("the marker is matched on its own line and nowhere else", async () => {
@@ -575,7 +575,7 @@ test("the marker is matched on its own line and nowhere else", async () => {
   }
 });
 
-// S-M1. `~/.claude/projects` holds every project on this machine, and the cards
+// `~/.claude/projects` holds every project on this machine, and the cards
 // this tool writes are committed to a public repository. A marker is an
 // attribution hint an agent wrote, not a provenance claim, so it must not on
 // its own admit a transcript from another checkout — two projects using
@@ -615,7 +615,7 @@ test("a marked transcript from another project is not admitted to this repo's ca
   }
 });
 
-// S-L2. A dispatch prompt routinely quotes text this repository did not author —
+// A dispatch prompt routinely quotes text this repository did not author —
 // issue bodies, review comments, fetched pages. A planted marker further down
 // must not re-point a subagent's whole spend onto another branch's public card.
 test("a marker planted below the window, or naming an implausible ref, is ignored", async () => {
@@ -977,6 +977,197 @@ test("resolveDispatchBranch does not fall back to an ambiguous (multi-branch) se
     );
 
     expect(resolveDispatchBranch(subagent)).toBeNull();
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// A session that starts in `main/` or the bare-repo root and then enters a
+// worktree with the `EnterWorktree` tool runs no `git worktree add`, so the
+// Bash scan above finds nothing and every record before the move — the
+// opening request and the work that led to the branch — lands on no card.
+// Claude Code writes a `worktree-state` record naming the branch it entered;
+// that record is the signal. `+` is in the fixture on purpose: a worktree
+// name `feat/x` becomes the branch `worktree-feat+x`. The two shapes are the
+// ones Claude Code writes: a worktree the session made names the commit it
+// was made from; one it only entered says `enteredExisting: true`.
+function worktreeState(branch: string, { existing = false } = {}): string {
+  return JSON.stringify({
+    type: "worktree-state",
+    sessionId: "sess-1",
+    worktreeSession: existing
+      ? {
+          originalCwd: "/Users/ac/.work/osn.git/main",
+          worktreeName: "feat-x",
+          worktreeBranch: branch,
+          enteredExisting: true,
+        }
+      : {
+          originalCwd: "/Users/ac/.work/osn.git/main",
+          worktreeName: "feat/x",
+          worktreeBranch: branch,
+          originalBranch: "HEAD",
+          originalHeadCommit: "8c0104690cf7a2cb5578285cc939ac63a1337dd1",
+        },
+  });
+}
+
+function stampedRecord(gitBranch: string, requestId: string, timestamp: string): string {
+  return JSON.stringify({
+    type: "assistant",
+    sessionId: "sess-1",
+    gitBranch,
+    isSidechain: false,
+    requestId,
+    timestamp,
+    message: { model: "claude-opus-5", usage: { output_tokens: 5 } },
+  });
+}
+
+test("a session that entered one worktree carries its earlier records onto that branch", async () => {
+  const dir = await tree();
+  try {
+    await writeFile(
+      join(dir, "proj/sess-1.jsonl"),
+      [
+        stampedRecord("HEAD", "req-before", "2026-10-21T14:24:42.000Z"),
+        worktreeState("worktree-feat+x"),
+        stampedRecord("worktree-feat+x", "req-after", "2026-10-21T15:03:05.000Z"),
+      ].join("\n"),
+    );
+
+    expect(resolveSessionBranch(join(dir, "proj/sess-1.jsonl"))).toBe("worktree-feat+x");
+
+    const records = readRecordsForBranch(dir, "worktree-feat+x");
+    expect(records.map((r) => r.requestId).toSorted()).toEqual(["req-after", "req-before"]);
+    expect(
+      recordsByBranch(dir)
+        .get("worktree-feat+x")
+        ?.map((r) => r.requestId)
+        .toSorted(),
+    ).toEqual(["req-after", "req-before"]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// A session that steps into a worktree another session made — a review, or
+// an orchestrator checking on a task — did its earlier work for something
+// else. Only the records stamped with that branch are its.
+test("a session that entered a worktree it did not make keeps its earlier records off that branch", async () => {
+  const dir = await tree();
+  try {
+    const file = join(dir, "proj/sess-1.jsonl");
+    await writeFile(
+      file,
+      [
+        stampedRecord("main", "req-before", "2026-10-21T14:24:42.000Z"),
+        worktreeState("feat/x", { existing: true }),
+        stampedRecord("feat/x", "req-after", "2026-10-21T15:03:05.000Z"),
+      ].join("\n"),
+    );
+
+    expect(resolveSessionBranch(file)).toBeNull();
+    expect(readRecordsForBranch(dir, "feat/x").map((r) => r.requestId)).toEqual(["req-after"]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("a session that entered two different worktrees is attributed to neither", async () => {
+  const dir = await tree();
+  try {
+    const file = join(dir, "proj/sess-1.jsonl");
+    await writeFile(
+      file,
+      [
+        stampedRecord("HEAD", "req-before", "2026-10-21T14:24:42.000Z"),
+        worktreeState("worktree-feat+x"),
+        worktreeState("worktree-feat+y"),
+      ].join("\n"),
+    );
+
+    expect(resolveSessionBranch(file)).toBeNull();
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("a branch the session cut with git outranks a worktree it entered", async () => {
+  const dir = await tree();
+  try {
+    const file = join(dir, "proj/sess-1.jsonl");
+    await writeFile(
+      file,
+      [
+        worktreeState("worktree-scratch"),
+        bashRecord("git worktree add /Users/ac/.work/osn.git/feat-x -b feat/x origin/main"),
+      ].join("\n"),
+    );
+
+    expect(resolveSessionBranch(file)).toBe("feat/x");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("an EnterWorktree call that failed attributes nothing", async () => {
+  const dir = await tree();
+  try {
+    const file = join(dir, "proj/sess-1.jsonl");
+    await writeFile(
+      file,
+      [
+        JSON.stringify({
+          type: "assistant",
+          sessionId: "sess-1",
+          gitBranch: "HEAD",
+          message: {
+            model: "claude-opus-5",
+            content: [
+              { type: "tool_use", id: "toolu_enter", name: "EnterWorktree", input: { name: "x" } },
+            ],
+          },
+        }),
+        stampedRecord("HEAD", "req-after", "2026-10-21T15:03:05.000Z"),
+      ].join("\n"),
+    );
+
+    expect(resolveSessionBranch(file)).toBeNull();
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// Claude Code also writes bookkeeping records into a session file — file
+// history among them — with a timestamp but no session id and no branch. The
+// session fallback must not admit them: each one would count as a session of
+// its own, named "unknown", on the card.
+test("the session fallback admits no record that belongs to no session", async () => {
+  const dir = await tree();
+  try {
+    await writeFile(
+      join(dir, "proj/sess-1.jsonl"),
+      [
+        stampedRecord("HEAD", "req-before", "2026-10-21T14:24:42.000Z"),
+        worktreeState("worktree-feat+x"),
+        JSON.stringify({ type: "file-history-delta", timestamp: "2026-10-21T15:04:27.000Z" }),
+        stampedRecord("worktree-feat+x", "req-after", "2026-10-21T15:03:05.000Z"),
+      ].join("\n"),
+    );
+
+    const sessionRecords = ["req-after", "req-before"];
+    expect(
+      readRecordsForBranch(dir, "worktree-feat+x")
+        .map((record) => record.requestId)
+        .toSorted(),
+    ).toEqual(sessionRecords);
+    expect(
+      recordsByBranch(dir)
+        .get("worktree-feat+x")
+        ?.map((record) => record.requestId)
+        .toSorted(),
+    ).toEqual(sessionRecords);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

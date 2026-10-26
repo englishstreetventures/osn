@@ -2030,22 +2030,68 @@ export const unlockCodeRedemptions = sqliteTable(
   ],
 );
 
-// ── Seating (migration 0089, [[wiki/cire/cire-seating]]) ────────────────────
-// A table at one event. `wedding_id` is the event's wedding, held by the
-// composite foreign key to `events (id, wedding_id)`, so a table can never be
-// filed under one wedding while sitting at another's event. A wedding's tables
-// go with its events: `weddings` cascades to `events`, `events` to here. A
-// rebuild of `events` (a copy-and-swap's DROP TABLE) cascades into this table
-// and its seats, so one needs the `__keep_*` idiom for both.
+// ── Seating (migrations 0089 and the plans migration, [[wiki/cire/cire-seating]]) ──
+// A seating plan: one version of an event's chart. An event holds any number
+// of plans up to the API's cap, and at most one is selected — the database
+// refuses a second through the partial unique index below. The selected plan
+// is the one the venue file reads. A plan goes with its event (`weddings`
+// cascades to `events`, `events` to here), and takes its tables, and so their
+// seats, with it.
+//
+// No index leads with `wedding_id`: every statement reaches a plan by its `id`
+// or by `event_id`, and scopes to a wedding through `events`.
+export const seatingPlans = sqliteTable(
+  "seating_plans",
+  {
+    id: text("id").primaryKey(), // spl_<uuid>, or spl_<hex> when SQL mints it
+    weddingId: text("wedding_id").notNull(),
+    eventId: text("event_id").notNull(),
+    name: text("name").notNull(),
+    selected: integer("selected", { mode: "boolean" }).notNull().default(false),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.eventId, t.weddingId],
+      foreignColumns: [events.id, events.weddingId],
+    }).onDelete("cascade"),
+    // Unique already, since `id` is: the probe an event delete cascades
+    // through, and the index an event's plans are listed by.
+    uniqueIndex("seating_plans_event_id_uniq").on(t.eventId, t.id),
+    // At most one selected plan per event.
+    uniqueIndex("seating_plans_one_selected_per_event")
+      .on(t.eventId)
+      .where(sql`selected = 1`),
+  ],
+);
+
+// A table in one plan of one event. `wedding_id` is the event's wedding, held
+// by the composite foreign key to `events (id, wedding_id)`, so a table can
+// never be filed under one wedding while sitting at another's event. A
+// wedding's tables go with its events: `weddings` cascades to `events`,
+// `events` to here. A rebuild of `events` (a copy-and-swap's DROP TABLE)
+// cascades into this table and its seats, so one needs the `__keep_*` idiom
+// for both.
+//
+// `plan_id` is the plan the table belongs to, a plan of the table's own event
+// and wedding: the triggers `seating_tables_plan_at_event` and
+// `…_plan_at_event_update` refuse any other, since a column added by ADD COLUMN
+// cannot carry the composite foreign key that would. It is nullable only because SQLite
+// adds a column with a foreign key no other way, and a table cannot be rebuilt
+// while its seats cascade from it. A row written without one is put into its
+// event's selected plan by the trigger `seating_tables_adopt_plan`, which the
+// plans migration and `cire/api/src/db/setup.ts` create.
 //
 // No index leads with `wedding_id`: every statement reaches a table by its
-// `id` or by `event_id`, and scopes to a wedding through `events`.
+// `id`, its plan or its event, and scopes to a wedding through `events`.
 export const seatingTables = sqliteTable(
   "seating_tables",
   {
     id: text("id").primaryKey(), // stb_<uuid>
     weddingId: text("wedding_id").notNull(),
     eventId: text("event_id").notNull(),
+    planId: text("plan_id").references(() => seatingPlans.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     // How many guests the table seats. The API refuses a seat past it and a
     // capacity below the guests already seated.
@@ -2060,23 +2106,33 @@ export const seatingTables = sqliteTable(
       foreignColumns: [events.id, events.weddingId],
     }).onDelete("cascade"),
     // Unique already, since `id` is. It is the parent key of the seats'
-    // `(table_id, event_id)` foreign key, the probe an event delete cascades
-    // through, and the index an event's tables are listed by.
+    // `(table_id, event_id)` foreign key, and the probe an event delete
+    // cascades through.
     uniqueIndex("seating_tables_event_id_uniq").on(t.eventId, t.id),
+    // Unique already, since `id` is. It is the parent key of the seats'
+    // `(table_id, plan_id)` foreign key, the probe a plan delete cascades
+    // through, and the index a plan's tables are listed by.
+    uniqueIndex("seating_tables_plan_id_uniq").on(t.planId, t.id),
   ],
 );
 
-// One guest's seat at one event. `event_id` repeats the table's event so that
-// "one seat per guest per event" is a plain unique index the database enforces;
-// the `(table_id, event_id)` foreign key makes it impossible for the copy to
-// disagree with the table. The `(guest_id, event_id)` foreign key admits only
-// a guest invited to that event, and takes the seat away when the invitation
-// goes — an editor save, an import, a guest or event delete, the retention
-// sweep.
+// One guest's seat in one plan of one event. `event_id` and `plan_id` repeat
+// the table's, so that "one seat per guest per plan" is a plain unique index
+// the database enforces; the `(table_id, event_id)` and `(table_id, plan_id)`
+// foreign keys make it impossible for either copy to disagree with the table.
+// The `(guest_id, event_id)` foreign key admits only a guest invited to that
+// event, and takes the seat away, in every plan, when the invitation goes — an
+// editor save, an import, a guest or event delete, the retention sweep.
+//
+// `plan_id` is nullable only for a writer that does not name it; the trigger
+// `seating_assignments_adopt_plan` then copies the table's plan into the row.
+// A foreign key with a NULL column is not checked, so the trigger's write is
+// what the composite key and the unique index check.
 export const seatingAssignments = sqliteTable(
   "seating_assignments",
   {
     tableId: text("table_id").notNull(),
+    planId: text("plan_id"),
     eventId: text("event_id").notNull(),
     guestId: text("guest_id").notNull(),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
@@ -2088,11 +2144,42 @@ export const seatingAssignments = sqliteTable(
       foreignColumns: [seatingTables.id, seatingTables.eventId],
     }).onDelete("cascade"),
     foreignKey({
+      columns: [t.tableId, t.planId],
+      foreignColumns: [seatingTables.id, seatingTables.planId],
+    }).onDelete("cascade"),
+    foreignKey({
       columns: [t.guestId, t.eventId],
       foreignColumns: [guestEvents.guestId, guestEvents.eventId],
     }).onDelete("cascade"),
-    // A guest sits at no more than one table per event. Also the probe the
-    // invitation's cascade reads, and how a guest's seat at an event is found.
-    uniqueIndex("seating_assignments_event_guest_uniq").on(t.eventId, t.guestId),
+    // A guest sits at no more than one table per plan, and so per event within
+    // a plan. Also how a guest's seat in a plan is found.
+    uniqueIndex("seating_assignments_plan_guest_uniq").on(t.planId, t.guestId),
+    // The probe the invitation's cascade reads, and how a guest's seats at an
+    // event are found across its plans.
+    index("seating_assignments_event_guest_idx").on(t.eventId, t.guestId),
+  ],
+);
+
+// How many seating rows (tables and seats) one wedding copied into new seating
+// plans on one UTC day. A copy writes a plan's every table and seat, each a row
+// and its index entries against the account-wide D1 allowance of rows written a
+// day, so the API refuses a copy past the wedding's daily ceiling, checked in
+// the same transaction that writes it. Rows of earlier days are deleted by the
+// next copy, by any wedding; a wedding's rows go with it. `day` leads the
+// primary key, so that delete reads only the rows it removes; the wedding index
+// is the probe the wedding purge cascades through.
+export const seatingCopyBudget = sqliteTable(
+  "seating_copy_budget",
+  {
+    weddingId: text("wedding_id")
+      .notNull()
+      .references(() => weddings.id, { onDelete: "cascade" }),
+    // `YYYY-MM-DD`, UTC.
+    day: text("day").notNull(),
+    copied: integer("copied").notNull().default(0),
+  },
+  (t) => [
+    primaryKey({ columns: [t.day, t.weddingId] }),
+    index("seating_copy_budget_wedding_idx").on(t.weddingId),
   ],
 );

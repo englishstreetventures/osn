@@ -1,5 +1,13 @@
-import { events, families, guests, rsvps, seatingAssignments, seatingTables } from "@cire/db";
-import { and, asc, eq } from "drizzle-orm";
+import {
+  events,
+  families,
+  guests,
+  rsvps,
+  seatingAssignments,
+  seatingPlans,
+  seatingTables,
+} from "@cire/db";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { EffectDbService } from "../db/effect-handle";
@@ -44,9 +52,11 @@ interface SeatRow {
 
 export const seatingExportService = {
   /**
-   * The wedding's seating chart as one CSV for the venue: every seated guest,
-   * in event order, then table order, then household and guest order. Seated
-   * guests only — the file is who sits where. A guest whose household was
+   * The wedding's seating chart as one CSV for the venue: every guest seated
+   * in each event's selected plan, in event order, then table order, then
+   * household and guest order. Seated guests only — the file is who sits
+   * where — and no other plan: the venue gets the plan the couple chose. A
+   * guest whose household was
    * withdrawn after being seated prints with the reply `Invite withdrawn`, so
    * the file says what the chart shows. The host-preview household can never
    * be seated, and is filtered here as well. No dietary column: dietary
@@ -67,7 +77,21 @@ export const seatingExportService = {
           deactivatedAt: families.deactivatedAt,
         })
         .from(events)
-        .innerJoin(seatingTables, eq(seatingTables.eventId, events.id))
+        .innerJoin(
+          seatingPlans,
+          and(eq(seatingPlans.eventId, events.id), eq(seatingPlans.selected, true)),
+        )
+        // A table's event, as well as its plan: the event's composite key to
+        // `events (id, wedding_id)` is what ties the table to this wedding.
+        // The unary `+` keeps the event term out of index choice, so the
+        // tables are found by their plan.
+        .innerJoin(
+          seatingTables,
+          and(
+            eq(seatingTables.planId, seatingPlans.id),
+            sql`+${seatingTables.eventId} = ${events.id}`,
+          ),
+        )
         .innerJoin(seatingAssignments, eq(seatingAssignments.tableId, seatingTables.id))
         .innerJoin(guests, eq(guests.id, seatingAssignments.guestId))
         .innerJoin(families, and(eq(families.id, guests.familyId), eq(families.kind, "guest")))

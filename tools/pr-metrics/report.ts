@@ -258,7 +258,9 @@ export function context(rows: CardRow[]): Table {
   };
 }
 
-/** 5. Cost per unit of declared difficulty. */
+/** 5. Cost per unit of declared difficulty. A card that closes several issues
+ * declares the sum of their ratings, so a value off the 1-2-3-5-8 scale is a
+ * row of its own: that many points of declared work, not one issue's rating. */
 export function costByComplexity(rows: CardRow[]): Table {
   const rated = rows.filter((row) => row.declared !== null && row.ratingMethod === "confirmed");
   const byDeclared = groupBy(rated, (row) => row.declared as number);
@@ -359,17 +361,25 @@ export function requests(rows: CardRow[]): Table {
   };
 }
 
-/** Pooled over the given rows: located findings, paired, and the two rates. */
+/**
+ * Pooled over the given rows: located findings, paired, and three rates —
+ * acted on, by line, and the control. By line leaves out the tests findings a
+ * landed test counted, so it is counted the way the control is, and the same
+ * way on every card: a block from a collector that never counted a test has
+ * no such findings to leave out.
+ */
 function reviewCells(rows: CardRow[]): string[] {
   const reviewed = rows.map((row) => row.review).filter((r): r is ReviewSummary => r !== null);
   const sum = (pick: (r: ReviewSummary) => number) => reviewed.reduce((n, r) => n + pick(r), 0);
   const paired = sum((r) => r.paired);
+  const rate = (count: number) => (paired > 0 ? pct(count / paired) : "—");
 
   return [
     String(sum((r) => r.located)),
     String(paired),
-    paired > 0 ? pct(sum((r) => r.acted_on_paired) / paired) : "—",
-    paired > 0 ? pct(sum((r) => r.control_changed) / paired) : "—",
+    rate(sum((r) => r.acted_on_paired)),
+    rate(sum((r) => r.acted_on_paired - (r.acted_on_paired_by_test ?? 0))),
+    rate(sum((r) => r.control_changed)),
   ];
 }
 
@@ -380,10 +390,10 @@ export function review(rows: CardRow[]): Table {
   return {
     title: "9. Review findings that led to a change",
     note:
-      "Tests and docs findings only; the tracker kinds are never counted on a public card. Acted on is the share of paired findings whose line changed after the review; control is the share of lines 35 away that changed. prep-pr fixes every in-scope finding, so this measures what got changed, not how good the findings were." +
+      "Tests and docs findings only; the tracker kinds are never counted on a public card. Acted on is the share of paired findings acted on after the review: the cited line changed, or, for a tests finding, a test importing its file landed. By line counts the cited line alone, as the control does, so compare by line with the control; control is the share of lines 35 away that changed. prep-pr fixes every in-scope finding, so this measures what got changed, not how good the findings were." +
       excluded(rows.length - reviewed.length, "no review report was read") +
       atOpen(reviewed),
-    headers: ["PRs", "located", "paired", "acted on", "control"],
+    headers: ["PRs", "located", "paired", "acted on", "by line", "control"],
     rows: reviewed.length > 0 ? [[String(reviewed.length), ...reviewCells(reviewed)]] : [],
   };
 }
@@ -428,7 +438,7 @@ export function splitAt(rows: CardRow[], landedAt: number, label: string): Table
   return {
     title: `Split at ${label}`,
     note:
-      "Cards whose sessions all ran before the commit against those all after. Cost per point uses confirmed ratings only. At-open cards are included." +
+      "Cards whose sessions all ran before the commit against those all after. Cost per point uses confirmed ratings only. At-open cards are included. Acted on counts a landed test only on cards whose collector counts one, which follows the collector a branch ran rather than when; by line is counted the same way on every card." +
       excluded(straddling, "sessions on both sides of the commit, or none recorded"),
     headers: [
       "group",
@@ -438,6 +448,7 @@ export function splitAt(rows: CardRow[], landedAt: number, label: string): Table
       "median calls",
       "cache-write tokens",
       "acted on",
+      "by line",
       "control",
     ],
     rows: [cells("before", before), cells("after", after)],

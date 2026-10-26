@@ -762,24 +762,24 @@ describe("SeatingView — drag", () => {
   it("seats a guest dropped on a table, lighting the table while over it", async () => {
     const api = fakeApi();
     await renderView();
-    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(
-      function (this: Element) {
-        const id = this.getAttribute("data-table-id");
-        const left = id === "t2" ? 400 : id === "t1" ? 200 : 0;
-        const width = id ? 150 : 40;
-        return {
-          left,
-          right: left + width,
-          top: 0,
-          bottom: 150,
-          width,
-          height: 150,
-          x: left,
-          y: 0,
-          toJSON: () => ({}),
-        } as DOMRect;
-      },
-    );
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (
+      this: Element,
+    ) {
+      const id = this.getAttribute("data-table-id");
+      const left = id === "t2" ? 400 : id === "t1" ? 200 : 0;
+      const width = id ? 150 : 40;
+      return {
+        left,
+        right: left + width,
+        top: 0,
+        bottom: 150,
+        width,
+        height: 150,
+        x: left,
+        y: 0,
+        toJSON: () => ({}),
+      } as DOMRect;
+    });
     const handle = screen
       .getByText("Ada Alpha")
       .closest("li")!
@@ -806,24 +806,24 @@ describe("SeatingView — drag", () => {
   it("does nothing for a drop between tables, or on the table a guest already sits at", async () => {
     const api = fakeApi();
     await renderView();
-    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(
-      function (this: Element) {
-        const id = this.getAttribute("data-table-id");
-        const left = id === "t1" ? 200 : 0;
-        const width = id === "t1" ? 150 : 40;
-        return {
-          left,
-          right: left + width,
-          top: 0,
-          bottom: 150,
-          width,
-          height: 150,
-          x: left,
-          y: 0,
-          toJSON: () => ({}),
-        } as DOMRect;
-      },
-    );
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (
+      this: Element,
+    ) {
+      const id = this.getAttribute("data-table-id");
+      const left = id === "t1" ? 200 : 0;
+      const width = id === "t1" ? 150 : 40;
+      return {
+        left,
+        right: left + width,
+        top: 0,
+        bottom: 150,
+        width,
+        height: 150,
+        x: left,
+        y: 0,
+        toJSON: () => ({}),
+      } as DOMRect;
+    });
     const drop = (name: string, x: number) => {
       const handle = screen.getByText(name).closest("li")!.querySelector("[data-drag-handle]")!;
       fireEvent.pointerDown(handle, { pointerId: 1, button: 0, clientX: 10, clientY: 10 });
@@ -845,24 +845,24 @@ describe("SeatingView — drag", () => {
   it("unseats a guest dropped on the unseated list, and sends nothing for a drop where they sit", async () => {
     const api = fakeApi();
     await renderView();
-    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(
-      function (this: Element) {
-        const id = this.getAttribute("data-table-id");
-        const left = id === "t9" ? 400 : id === "t1" ? 200 : 0;
-        const width = id ? 150 : 40;
-        return {
-          left,
-          right: left + width,
-          top: 0,
-          bottom: 150,
-          width,
-          height: 150,
-          x: left,
-          y: 0,
-          toJSON: () => ({}),
-        } as DOMRect;
-      },
-    );
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (
+      this: Element,
+    ) {
+      const id = this.getAttribute("data-table-id");
+      const left = id === "t9" ? 400 : id === "t1" ? 200 : 0;
+      const width = id ? 150 : 40;
+      return {
+        left,
+        right: left + width,
+        top: 0,
+        bottom: 150,
+        width,
+        height: 150,
+        x: left,
+        y: 0,
+        toJSON: () => ({}),
+      } as DOMRect;
+    });
     const drag = (name: HTMLElement, x: number) => {
       const handle = name.closest("li")!.querySelector("[data-drag-handle]")!;
       fireEvent.pointerDown(handle, { pointerId: 1, button: 0, clientX: 10, clientY: 10 });
@@ -972,11 +972,11 @@ describe("SeatingView — print", () => {
 describe("SeatingView — the venue file", () => {
   it("saves the file under the wedding's name, and says when it cannot", async () => {
     const saved: string[] = [];
-    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(
-      function (this: HTMLAnchorElement) {
-        saved.push(this.download);
-      },
-    );
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      saved.push(this.download);
+    });
     const api = fakeApi();
     await renderView({ canManage: true });
     fireEvent.click(screen.getByRole("button", { name: "Download seating CSV" }));
@@ -1157,24 +1157,24 @@ describe("SeatingView — refusals and failures are said", () => {
   it("refuses a drop on a full table without asking the server", async () => {
     const api = fakeApi();
     await renderView();
-    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(
-      function (this: Element) {
-        const id = this.getAttribute("data-table-id");
-        const left = id === "t1" ? 200 : 0;
-        const width = id === "t1" ? 150 : 40;
-        return {
-          left,
-          right: left + width,
-          top: 0,
-          bottom: 150,
-          width,
-          height: 150,
-          x: left,
-          y: 0,
-          toJSON: () => ({}),
-        } as DOMRect;
-      },
-    );
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (
+      this: Element,
+    ) {
+      const id = this.getAttribute("data-table-id");
+      const left = id === "t1" ? 200 : 0;
+      const width = id === "t1" ? 150 : 40;
+      return {
+        left,
+        right: left + width,
+        top: 0,
+        bottom: 150,
+        width,
+        height: 150,
+        x: left,
+        y: 0,
+        toJSON: () => ({}),
+      } as DOMRect;
+    });
     const handle = screen
       .getByText("Ada Alpha")
       .closest("li")!

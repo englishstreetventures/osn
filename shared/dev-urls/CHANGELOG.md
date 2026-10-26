@@ -1,5 +1,11 @@
 # @shared/dev-urls
 
+## 0.1.12
+
+### Patch Changes
+
+- 355b956: Type-check with Bun's built-in checker. Each package's `check` script is now `typecheck` and runs `bun check` in place of `tsc --noEmit`, with the test tsconfigs checked the same way. Packages that still need `astro check` keep it. No source changes.
+
 ## 0.1.11
 
 ### Patch Changes

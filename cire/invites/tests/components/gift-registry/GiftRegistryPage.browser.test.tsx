@@ -5,7 +5,7 @@ import { page } from "vitest/browser";
 
 import "../../../src/styles/global.css";
 import { GiftRegistryPage } from "../../../src/components/gift-registry/GiftRegistryPage";
-import type { GiftRegistry } from "../../../src/lib/gift-registry";
+import type { GiftRegistry } from "../../../src/lib/gift-registry-read";
 import { Z_LAYER } from "../../../src/lib/z-index";
 
 /**

@@ -1,18 +1,19 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen, waitFor } from "@solidjs/testing-library";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { noteClaimed, signOut } from "../../../src/components/claim-session";
-import { GiftRegistryTeaser } from "../../../src/components/gift-registry/GiftRegistryTeaser";
+import { GiftRegistryTeaserIsland } from "../../../src/components/gift-registry/GiftRegistryTeaserIsland";
 import {
   DEFAULT_GIFT_REGISTRY_EYEBROW,
   DEFAULT_GIFT_REGISTRY_HEADING,
-  type GiftRegistry,
-  type GiftRegistryItem,
-} from "../../../src/lib/gift-registry";
+} from "../../../src/lib/gift-registry-display";
+import type { GiftRegistry, GiftRegistryItem } from "../../../src/lib/gift-registry-read";
 
 /**
- * The band the gift list leaves behind on the invite.
+ * The band the gift list leaves behind on the invite, rendered as the invite
+ * mounts it: through `GiftRegistryTeaserIsland`, which makes the list read and
+ * loads the band's own module only when the read answers with a list.
  *
  * What is load-bearing here:
  *   - it renders NOTHING for a visitor who has not entered their code, and
@@ -77,8 +78,19 @@ function stubFetch(...responses: Response[]) {
   return Object.assign(mock, { calls });
 }
 
-function renderTeaser(props: Partial<Parameters<typeof GiftRegistryTeaser>[0]> = {}) {
-  return render(() => <GiftRegistryTeaser apiUrl={API} slug={SLUG} {...props} />);
+function renderTeaser(props: Partial<Parameters<typeof GiftRegistryTeaserIsland>[0]> = {}) {
+  return render(() => <GiftRegistryTeaserIsland apiUrl={API} slug={SLUG} {...props} />);
+}
+
+/**
+ * Lets every read sent so far be answered and handled, and anything that answer
+ * would render land, before a test checks that something is ABSENT. Checking
+ * right after `fetch` is called looks before the answer is handled, so an
+ * absence check there passes whatever the band does with the answer.
+ */
+async function settle(mock: ReturnType<typeof vi.fn>): Promise<void> {
+  await Promise.all(mock.mock.results.map((result) => result.value));
+  for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 /** This browser has claimed here before — the band's ordinary state. */
@@ -87,6 +99,12 @@ function setClaimedHint() {
 }
 
 const realFetch = globalThis.fetch;
+
+// The band's module, loaded once up front, so a band the island wrongly renders
+// arrives within `settle()` rather than after the absence check has passed.
+beforeAll(async () => {
+  await import("../../../src/components/gift-registry/GiftRegistryTeaser");
+});
 
 beforeEach(() => {
   setClaimedHint();
@@ -113,7 +131,7 @@ describe("what renders at all", () => {
     const mock = stubFetch(json(registry()));
     const { container } = renderTeaser();
 
-    await Promise.resolve();
+    await settle(mock);
     expect(mock).not.toHaveBeenCalled();
     expect(container.querySelector("[data-gift-teaser]")).toBeNull();
   });
@@ -122,6 +140,7 @@ describe("what renders at all", () => {
     const mock = stubFetch(json({ error: "Unauthorized" }, 401));
     const { container } = renderTeaser();
     await waitFor(() => expect(mock).toHaveBeenCalled());
+    await settle(mock);
     expect(container.querySelector("[data-gift-teaser]")).toBeNull();
     // And the read carried the cookie, or it could only ever be a 401.
     expect(mock.calls[0]?.credentials).toBe("include");
@@ -159,9 +178,10 @@ describe("what renders at all", () => {
   });
 
   it("renders nothing for a wedding whose list is unpublished, unentitled or absent", async () => {
-    stubFetch(json({ error: "registry_not_found" }, 404));
+    const mock = stubFetch(json({ error: "registry_not_found" }, 404));
     const { container } = renderTeaser();
-    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
+    await waitFor(() => expect(mock).toHaveBeenCalled());
+    await settle(mock);
     expect(container.querySelector("[data-gift-teaser]")).toBeNull();
   });
 
@@ -170,20 +190,40 @@ describe("what renders at all", () => {
     // shop who loses signal must not watch the couple's gift band vanish from
     // an invitation that is otherwise intact — indistinguishable, to them, from
     // a wedding that never had a list.
-    stubFetch(json(registry()), json({}, 500));
+    const mock = stubFetch(json(registry()), json({}, 500));
     const { container } = renderTeaser();
     await screen.findByRole("link", { name: "See the gift list" });
 
     noteClaimed(); // forces the re-read
-    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mock).toHaveBeenCalledTimes(2));
+    await settle(mock);
 
     expect(container.querySelector("[data-gift-teaser]")).toBeTruthy();
   });
 
-  it("renders nothing when the read fails outright", async () => {
-    stubFetch(json({}, 500));
+  it.each([
+    ["the session has lapsed", 401, { error: "Unauthorized" }],
+    ["the list has closed", 404, { error: "registry_not_found" }],
+  ])("takes a band off the invitation when a later read says %s", async (_why, status, body) => {
+    // A failed read keeps the band; a refusal does not. A guest whose session
+    // ran out, or whose couple unpublished their list, must not go on seeing
+    // a band for a list they can no longer open.
+    const mock = stubFetch(json(registry()), json(body, status));
     const { container } = renderTeaser();
-    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
+    await screen.findByRole("link", { name: "See the gift list" });
+
+    noteClaimed(); // forces the re-read
+    await waitFor(() => expect(mock).toHaveBeenCalledTimes(2));
+    await settle(mock);
+
+    expect(container.querySelector("[data-gift-teaser]")).toBeNull();
+  });
+
+  it("renders nothing when the read fails outright", async () => {
+    const mock = stubFetch(json({}, 500));
+    const { container } = renderTeaser();
+    await waitFor(() => expect(mock).toHaveBeenCalled());
+    await settle(mock);
     expect(container.querySelector("[data-gift-teaser]")).toBeNull();
   });
 
@@ -197,12 +237,13 @@ describe("what renders at all", () => {
    * production, with every unit test still green.
    */
   it("always renders an element child, whatever the read says", async () => {
-    stubFetch(json({ error: "registry_not_found" }, 404));
+    const mock = stubFetch(json({ error: "registry_not_found" }, 404));
     const { container } = renderTeaser();
     // Before the read answers — which is the state the server renders.
     expect(container.firstElementChild).not.toBeNull();
 
-    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
+    await waitFor(() => expect(mock).toHaveBeenCalled());
+    await settle(mock);
     expect(container.querySelector("[data-gift-teaser]")).toBeNull();
     expect(container.firstElementChild).not.toBeNull();
   });
@@ -280,8 +321,15 @@ describe("the peek", () => {
     expect(tiles[1]?.getAttribute("src")).toContain("registry-c");
     // The fourth is laid out only where a fourth fits, rather than wrapping
     // alone onto a second row.
-    const fourth = container.querySelectorAll("[data-gift-teaser-preview] li")[3];
-    expect(fourth?.getAttribute("class")).toContain("hidden md:block");
+    const rows = [...container.querySelectorAll("[data-gift-teaser-preview] li")];
+    expect(rows[3]?.getAttribute("class")).toContain("hidden md:block");
+    // The first three show on every screen, a phone's included.
+    for (const row of rows.slice(0, 3))
+      expect(row.getAttribute("class") ?? "").not.toContain("hidden");
+    // A tile is small, so it asks for the small picture, and the card-sized
+    // one only where the screen is dense enough to need it.
+    expect(tiles[0]?.getAttribute("src")).toMatch(/variant=thumb$/);
+    expect(tiles[0]?.getAttribute("srcset")).toMatch(/variant=thumb \d+w, .*variant=card \d+w$/);
   });
 
   it("takes a cash fund's picture too, in the couple's order", async () => {

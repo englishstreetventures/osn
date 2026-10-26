@@ -1,6 +1,6 @@
 {
   "name": "@shared/rate-limit",
-  "version": "0.3.7",
+  "version": "0.3.8",
   "private": true,
   "type": "module",
   "author": "English Street Ventures Pty Ltd",
@@ -13,7 +13,7 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "check": "tsc --noEmit",
+    "typecheck": "bun check --no-script",
     "test": "bunx --bun vitest",
     "test:run": "bunx --bun vitest run"
   },

@@ -6,8 +6,10 @@
 #
 #   bash scripts/lockfile-evidence.sh <merge-base> <branch-head-before-rebase> [main-ref]
 #
-# main-ref defaults to origin/main. Both commits are the ones recorded before the
-# rebase: shell variables do not outlive one Bash call, so they are passed in,
+# main-ref defaults to refs/remotes/origin/main, spelled in full because a tag
+# or a branch named origin/main would otherwise take precedence. Both commits
+# are the ones recorded before the rebase: shell variables do not outlive one
+# Bash call, so they are passed in,
 # and each is verified as a commit before anything is read — an empty or wrong
 # argument would otherwise make every comparison below answer about the wrong
 # tree and look clean.
@@ -35,7 +37,7 @@ die() { echo "lockfile-evidence.sh: $*" >&2; exit 3; }
 [ $# -ge 2 ] || die "usage: lockfile-evidence.sh <merge-base> <branch-head-before-rebase> [main-ref]"
 mb_arg=$1
 orig_arg=$2
-main_ref=${3:-origin/main}
+main_ref=${3:-refs/remotes/origin/main}
 for ref in "$mb_arg" "$orig_arg" "$main_ref"; do
   [ -n "$ref" ] || die "an argument is empty"
   git rev-parse -q --verify "$ref^{commit}" >/dev/null || die "$ref is not a commit"

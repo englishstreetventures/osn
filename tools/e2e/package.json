@@ -12,7 +12,7 @@
   "scripts": {
     "e2e": "bun run src/launcher.ts",
     "e2e:repro": "bun run src/repro.ts",
-    "check": "tsc --noEmit",
+    "typecheck": "bun check --no-script",
     "test": "bun test"
   },
   "dependencies": {
@@ -24,6 +24,6 @@
   "devDependencies": {
     "@playwright/test": "1.62.1",
     "@shared/typescript-config": "workspace:*",
-    "typescript": "^6.0.3"
+    "typescript": "7.1.0-beta"
   }
 }

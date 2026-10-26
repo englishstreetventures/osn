@@ -6,6 +6,7 @@ import {
   families,
   guestEvents,
   guests,
+  seatingPlans,
   seatingTables,
 } from "@cire/db";
 import { Effect, Logger, References } from "effect";
@@ -21,6 +22,7 @@ import { recordStatements } from "../test-helpers";
 // to the read, and a cut is said in a log line rather than made silently.
 
 const EVENT = "evt_big";
+const PLAN = "spl_big";
 
 /** One event with `count` invited guests in one household. */
 function invitedWedding(count: number): TestDb {
@@ -121,17 +123,29 @@ describe("seatingService.chart — the guest ceiling", () => {
 
 describe("seatingService.reorderTables", () => {
   // A keyboard step swaps two neighbours; the statement writes those two and
-  // leaves every other table's row alone, however many the event holds.
+  // leaves every other table's row alone, however many the plan holds.
   it("writes only the tables whose place changed", async () => {
     const db = invitedWedding(0);
     const longAgo = new Date("2026-01-01T00:00:00Z");
     const ids = Array.from({ length: 6 }, (_, i) => `stb_${i}`);
+    db.insert(seatingPlans)
+      .values({
+        id: PLAN,
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        eventId: EVENT,
+        name: "Plan 1",
+        selected: true,
+        createdAt: longAgo,
+        updatedAt: longAgo,
+      })
+      .run();
     db.insert(seatingTables)
       .values(
         ids.map((id, i) => ({
           id,
           weddingId: BOOTSTRAP_WEDDING_ID,
           eventId: EVENT,
+          planId: PLAN,
           name: `T${i}`,
           capacity: 8,
           sortOrder: i,
@@ -144,7 +158,7 @@ describe("seatingService.reorderTables", () => {
     [swapped[2], swapped[3]] = [swapped[3]!, swapped[2]!];
     await Effect.runPromise(
       seatingService
-        .reorderTables(BOOTSTRAP_WEDDING_ID, EVENT, swapped)
+        .reorderTables(BOOTSTRAP_WEDDING_ID, PLAN, swapped)
         .pipe(Effect.provideService(DbService, db)),
     );
     const rows = db

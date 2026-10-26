@@ -1,6 +1,6 @@
 {
   "name": "@shared/redis",
-  "version": "0.8.6",
+  "version": "0.8.7",
   "private": true,
   "type": "module",
   "author": "English Street Ventures Pty Ltd",
@@ -18,7 +18,7 @@
     "./health": "./src/health.ts"
   },
   "scripts": {
-    "check": "tsc --noEmit",
+    "typecheck": "bun check --no-script",
     "test": "bunx --bun vitest",
     "test:run": "bunx --bun vitest run"
   },
