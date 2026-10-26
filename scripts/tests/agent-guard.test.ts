@@ -9,7 +9,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { decide, toolArgs, type GuardIo, type HookInput } from "../agent-guard";
+import { decide, GITHUB_WRITE, toolArgs, type GuardIo, type HookInput } from "../agent-guard";
 
 const ROOT = "/r/osn";
 const FEATURE = `${ROOT}`;
@@ -73,12 +73,14 @@ describe("1-2. installs", () => {
 
   test("bun add --filter is refused", () => {
     expect(refused(bash("bun add zod --filter @osn/api"))).toBe(true);
+    expect(refused(bash("bun add zod --filter=@osn/api"))).toBe(true);
   });
 
   test("11. frozen, global, add --cwd and bunx pass", () => {
     expect(refused(bash("bun install --frozen-lockfile"))).toBe(false);
     expect(refused(bash("(cd osn/api && bun install --frozen-lockfile)"))).toBe(false);
     expect(refused(bash("bun install -g lefthook"))).toBe(false);
+    expect(refused(bash("bun install --global lefthook"))).toBe(false);
     expect(refused(bash("bun add zod --cwd osn/api"))).toBe(false);
     expect(refused(bash("bunx --bun tsc -p scripts/tsconfig.json"))).toBe(false);
   });
@@ -92,6 +94,11 @@ describe("3. heredoc inside $(…)", () => {
   test("a heredoc in a command substitution is refused", () => {
     expect(refused(bash("git commit -m \"$(cat <<'EOF'\nfeat: x\nEOF\n)\""))).toBe(true);
     expect(refused(bash('git commit -m "`cat <<EOF\nfeat: x\nEOF\n`"'))).toBe(true);
+    expect(refused(bash("x=$( (cat <<EOF\nhi\nEOF\n) )"))).toBe(true);
+  });
+
+  test("a <<- heredoc ends at its tab-indented delimiter", () => {
+    expect(refused(bash("cat <<-EOF\n\tbody\n\tEOF\ngit push origin main"))).toBe(true);
   });
 
   test("12. a plain heredoc, arithmetic, a here-string and a quoted pattern pass", () => {
@@ -111,6 +118,8 @@ describe("4-5. main", () => {
     expect(refused(bash(`git -C ${MAIN_WT} commit -m x`))).toBe(true);
     expect(refused(bash("git -c user.name=x commit -m x", MAIN_WT))).toBe(true);
     expect(refused(bash("git checkout main && git push"))).toBe(true);
+    expect(refused(bash("git rebase origin/main main && git push"))).toBe(true);
+    expect(refused(bash("git -C ../osn-main commit -m x"))).toBe(true);
   });
 
   test("a push naming main is refused from a feature branch", () => {
@@ -174,6 +183,22 @@ describe("6. tracker IDs in public text", () => {
     expect(refusedHere("gh pr edit 1 --body-file closes.md")).toBe(true);
   });
 
+  test("every text flag is read", () => {
+    expect(refusedHere('gh pr create -t "fix S-Q9" -b body')).toBe(true);
+    expect(refusedHere('gh pr create --title "fix S-Q9" --body body')).toBe(true);
+    expect(refusedHere('gh pr comment 1 -b "S-Q9"')).toBe(true);
+    expect(refusedHere('gh issue comment 1 --body "S-Q9"')).toBe(true);
+    expect(refusedHere("gh api repos/englishstreetventures/osn/issues --raw-field body=S-Q9")).toBe(
+      true,
+    );
+    expect(refusedHere("gh api repos/englishstreetventures/osn/issues --field body=S-Q9")).toBe(
+      true,
+    );
+    expect(refusedHere("gh api repos/englishstreetventures/osn/issues -F body=S-Q9")).toBe(true);
+    expect(refusedHere('git commit --message "fix S-Q9"')).toBe(true);
+    expect(refusedHere("cd sub && git commit --file=rel.txt")).toBe(true);
+  });
+
   test("14. tracker targets, bare references and placeholders pass", () => {
     expect(
       refusedHere('gh issue create -R englishstreetventures/osn-tracker --title t --body "C-Q1"'),
@@ -202,6 +227,18 @@ describe("7. GitHub MCP writes", () => {
     expect(
       refused(mcp("push_files", { files: [{ path: "a.md", content: "S-Q9" }], message: "m" })),
     ).toBe(true);
+  });
+
+  test("each write tool the guard matches is read", () => {
+    for (const tool of [
+      "merge_pull_request",
+      "pull_request_review_write",
+      "sub_issue_write",
+      "delete_file",
+    ]) {
+      expect(GITHUB_WRITE.test(`mcp__github__${tool}`)).toBe(true);
+      expect(refused(mcp(tool, { commit_message: "S-Q9" }))).toBe(true);
+    }
   });
 
   test("14. the tracker and reads pass", () => {
@@ -238,6 +275,7 @@ describe("9. Agent", () => {
 
   test("an Agent call with no subagent_type is refused", () => {
     expect(refused(agent())).toBe(true);
+    expect(refused(call("Agent", { description: "d", prompt: "p", subagent_type: "" }))).toBe(true);
   });
 
   test("16. a named type passes, general-purpose included", () => {

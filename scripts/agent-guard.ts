@@ -55,7 +55,8 @@ export interface GuardIo {
 const TRACKER_ID = /(^|[^A-Za-z0-9])[SPC]-[A-Z][0-9]+/;
 const TRACKER_REPO = "englishstreetventures/osn-tracker";
 const TEST_FILE = /[._](?:test|spec)\./i;
-const GITHUB_WRITE =
+/** The GitHub MCP writes the guard reads; `.claude/settings.json` matches the same pattern. */
+export const GITHUB_WRITE =
   /^mcp__github__(create_|update_|add_|issue_write|push_files|pull_request_review_write|sub_issue_write|delete_file|merge_pull_request)/;
 
 // ---------------------------------------------------------------------------
@@ -539,6 +540,13 @@ function installRule(words: string[], state: State, ctx: Context): string | null
   return null;
 }
 
+/** Whether any command in the group, at any depth, carries a heredoc. */
+function hasHeredoc(group: Group): boolean {
+  return group.items.some((item) =>
+    item.kind === "group" ? hasHeredoc(item) : item.heredoc || item.subs.some(hasHeredoc),
+  );
+}
+
 function evaluate(group: Group, state: State, ctx: Context): string | null {
   for (const item of group.items) {
     if (item.kind === "group") {
@@ -547,7 +555,7 @@ function evaluate(group: Group, state: State, ctx: Context): string | null {
       continue;
     }
     for (const sub of item.subs) {
-      if (sub.items.some((inner) => inner.kind === "command" && inner.heredoc)) {
+      if (hasHeredoc(sub)) {
         return "a heredoc inside `$(…)`. Write the text to a file and pass the file (`git commit -F <file>`, `--body-file <file>`) (AGENTS.md §Commands).";
       }
       const reason = evaluate(sub, { ...state, written: new Set(state.written) }, ctx);

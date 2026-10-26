@@ -9,10 +9,12 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, symlinkSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+import { GITHUB_WRITE } from "../agent-guard";
 
 const REPO_ROOT = new URL("../..", import.meta.url).pathname;
 const GUARD = join(REPO_ROOT, "scripts/agent-guard.ts");
@@ -85,24 +87,72 @@ interface Run {
   readonly tmp: string;
 }
 
-async function run(
-  input: unknown,
-  options: { env?: Record<string, string>; tmp?: string } = {},
-): Promise<Run> {
+interface RunOptions {
+  /** Extra environment; a value of `null` leaves that variable out. */
+  readonly env?: Readonly<Record<string, string | null>>;
+  readonly tmp?: string;
+  /** The directory Claude Code starts the hook in. */
+  readonly cwd?: string;
+}
+
+async function environment(options: RunOptions, tmp: string): Promise<Record<string, string>> {
+  const env: Record<string, string | null> = {
+    PATH: Bun.env.PATH ?? "",
+    HOME: Bun.env.HOME ?? "",
+    TMPDIR: tmp,
+    CLAUDE_PROJECT_DIR: repo,
+    ...options.env,
+  };
+  return Object.fromEntries(
+    Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== null),
+  );
+}
+
+async function run(input: unknown, options: RunOptions = {}): Promise<Run> {
   const tmp = options.tmp ?? (await mkdtemp(join(base, "tmp-")));
   const result = spawnSync("/bin/sh", ["-c", await hookCommand()], {
     input: typeof input === "string" ? input : JSON.stringify(input),
     encoding: "utf8",
-    env: {
-      PATH: Bun.env.PATH ?? "",
-      HOME: Bun.env.HOME ?? "",
-      TMPDIR: tmp,
-      CLAUDE_PROJECT_DIR: repo,
-      ...options.env,
-    },
+    cwd: options.cwd ?? repo,
+    env: await environment(options, tmp),
     maxBuffer: 1 << 24,
   });
   return { status: result.status, stdout: result.stdout, stderr: result.stderr, tmp };
+}
+
+/**
+ * Runs the hook with its input piped in by `cat`, as Claude Code writes it, and
+ * reports whether the writer was cut off. A hook that exits without reading a
+ * payload larger than the pipe buffer leaves `cat` to die of SIGPIPE (141):
+ * Claude Code's writer meets the same EPIPE and shows a hook error.
+ */
+async function runPiped(
+  input: unknown,
+  options: RunOptions = {},
+): Promise<{ readonly status: number | null; readonly stdout: string; readonly cutOff: boolean }> {
+  const tmp = options.tmp ?? (await mkdtemp(join(base, "tmp-")));
+  const payload = join(tmp, "payload.json");
+  await writeFile(payload, JSON.stringify(input));
+  const env = await environment(options, tmp);
+  const result = spawnSync(
+    "/bin/bash",
+    [
+      "-c",
+      'cat "$1" | /bin/sh -c "$2"; s=("${PIPESTATUS[@]}"); echo; echo "${s[0]} ${s[1]}"',
+      "piped",
+      payload,
+      await hookCommand(),
+    ],
+    {
+      encoding: "utf8",
+      cwd: options.cwd ?? repo,
+      env: { ...env, PATH: `${env.PATH}:/usr/bin:/bin` },
+      maxBuffer: 1 << 24,
+    },
+  );
+  const lines = result.stdout.trimEnd().split("\n");
+  const [writer, hook] = (lines.pop() ?? "").split(" ").map(Number);
+  return { status: hook ?? null, stdout: lines.join("\n").trim(), cutOff: writer !== 0 };
 }
 
 const bash = (command: string, cwd = feature) => ({
@@ -145,6 +195,9 @@ describe("the hook command", () => {
     expect(denial(await run(bash("git commit -m x", repo)))).toContain("main");
     expect(denial(await run(bash(`cd ${feature} && git commit -m x`, repo)))).toBeNull();
     expect(denial(await run(bash("git switch -c chore/y && git commit -m x", repo)))).toBeNull();
+    expect(denial(await run(bash("git push", repo)))).toContain("main");
+    expect(denial(await run(bash("git -c user.name=x commit -m x", repo)))).toContain("main");
+    expect(denial(await run(bash("git checkout main && git push")))).toContain("main");
   });
 
   test("6. a body file is read from the directory the command runs in", async () => {
@@ -178,6 +231,17 @@ describe("the hook command", () => {
     expect(denial(await run(write(join(other, "pkg/src/a.test.ts"))))).toBeNull();
   });
 
+  test("the project is CLAUDE_PROJECT_DIR, not the call's cwd", async () => {
+    const elsewhere = await mkdtemp(join(base, "elsewhere-"));
+    sh(elsewhere, ["git", "init", "-q"]);
+    const write = {
+      tool_name: "Write",
+      tool_input: { file_path: join(feature, "pkg/src/b.test.ts"), content: "x" },
+      cwd: elsewhere,
+    };
+    expect(denial(await run(write))).toContain("tests/");
+  });
+
   test("17. bad input and unreadable files fail open", async () => {
     expect(denial(await run("not json"))).toBeNull();
     expect(denial(await run({ tool_name: "Bash", cwd: feature }))).toBeNull();
@@ -185,19 +249,38 @@ describe("the hook command", () => {
     expect(denial(await run(bash("git commit -m x", base)))).toBeNull();
   });
 
-  test("17. before main carries the guard it lets everything through, large payloads too", async () => {
-    const big = {
-      tool_name: "Write",
-      tool_input: {
-        file_path: join(feature, "pkg/src/a.test.ts"),
-        content: "x".repeat(200 * 1024),
-      },
-      cwd: feature,
-    };
-    const result = await run(big, { env: { AGENT_GUARD_REF: firstCommit } });
+  const big = () => ({
+    tool_name: "Write",
+    tool_input: {
+      file_path: join(feature, "pkg/src/a.test.ts"),
+      content: "x".repeat(200 * 1024),
+    },
+    cwd: feature,
+  });
+
+  test("17. before main carries the guard it lets everything through, and reads a large payload", async () => {
+    const result = await runPiped(big(), { env: { AGENT_GUARD_REF: firstCommit } });
     expect(result.status).toBe(0);
     expect(result.stdout).toBe("");
-    expect(result.stderr).toBe("");
+    expect(result.cutOff).toBe(false);
+  });
+
+  test("17. with no Bun on PATH it lets everything through, and reads a large payload", async () => {
+    const bin = await mkdtemp(join(base, "bin-"));
+    for (const tool of ["git", "mktemp", "cat", "rm"]) {
+      symlinkSync(sh(base, ["sh", "-c", `command -v ${tool}`]), join(bin, tool));
+    }
+    const result = await runPiped(big(), { env: { PATH: bin } });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe("");
+    expect(result.cutOff).toBe(false);
+  });
+
+  test("the temp directory is removed after each call", async () => {
+    const tmp = await mkdtemp(join(base, "clean-"));
+    expect(denial(await run(bash("bun install"), { tmp }))).toContain("--frozen-lockfile");
+    expect(denial(await run(bash("ls"), { tmp }))).toBeNull();
+    expect(readdirSync(tmp)).toEqual([]);
   });
 
   test("18. main's copy runs, never the checkout's", async () => {
@@ -214,19 +297,31 @@ describe("the hook command", () => {
     }
   });
 
-  test("19. files planted in TMPDIR never run", async () => {
+  test("19. files planted where the hook starts, or in TMPDIR, never run", async () => {
+    const planted = await mkdtemp(join(feature, ".planted-"));
     const tmp = await mkdtemp(join(base, "planted-"));
     const marker = join(base, "planted-ran");
     const writer = `require("node:fs").writeFileSync(${JSON.stringify(marker)}, "ran");\n`;
     const blob = sh(repo, ["git", "rev-parse", "origin/main:scripts/agent-guard.ts"]);
-    await writeFile(join(tmp, "evil.ts"), writer);
-    await writeFile(
-      join(tmp, "bunfig.toml"),
-      'preload = ["./evil.ts"]\n[run]\npreload = ["./evil.ts"]\n',
-    );
-    await writeFile(join(tmp, ".env"), `NODE_OPTIONS=--require=${join(tmp, "evil.ts")}\n`);
+    for (const dir of [planted, tmp]) {
+      await writeFile(join(dir, "evil.ts"), writer);
+      await writeFile(join(dir, "bunfig.toml"), 'preload = ["./evil.ts"]\n');
+      // Read by Bun when it loads `.env`: the guard would then judge against
+      // a project that does not exist and let the test file through.
+      await writeFile(join(dir, ".env"), "CLAUDE_PROJECT_DIR=/nonexistent\n");
+    }
     await writeFile(join(tmp, `agent-guard-${blob}.ts`), writer);
-    expect(denial(await run(bash("bun install"), { tmp }))).toContain("--frozen-lockfile");
+    const write = {
+      tool_name: "Write",
+      tool_input: { file_path: join(feature, "pkg/src/c.test.ts"), content: "x" },
+      cwd: planted,
+    };
+    const result = await run(write, {
+      tmp,
+      cwd: planted,
+      env: { CLAUDE_PROJECT_DIR: null },
+    });
+    expect(denial(result)).toContain("tests/");
     expect(existsSync(marker)).toBe(false);
   });
 });
@@ -241,6 +336,10 @@ describe("the matchers", () => {
           .map((name) => name.trim())
           .includes(tool)
       : new RegExp(matcher).test(tool);
+
+  test("settings.json matches GitHub writes with the guard's own pattern", async () => {
+    expect((await groups()).map((g) => g.matcher)).toContain(GITHUB_WRITE.source);
+  });
 
   test("each tool the guard reads is matched, and nothing else is", async () => {
     const all = (await groups()).map((g) => g.matcher);
