@@ -699,8 +699,8 @@ redirects nowhere. The form page and its POST both answer `Referrer-Policy: no-r
 so the page the secret is typed on never reaches the target as a `Referer`.
 
 > [!warning] The secret is the credential
-> Anyone who knows `DEV_LOGIN_SECRET` can sign in as the dev principal and hand
-> a signed-in link to someone else. Treat it like a password: never paste it into
+> Anyone who knows `DEV_LOGIN_SECRET` can sign in as the dev principal, and can
+> build a page whose form signs a visitor in as it. Treat it like a password: never paste it into
 > an issue, a PR, or a chat, and rotate `DEV_LOGIN_SECRET` if it turns up in one.
 > Production is unreachable this way — the tier gate keeps
 > the route unmounted, the inventory forbids the secret on production, and the
