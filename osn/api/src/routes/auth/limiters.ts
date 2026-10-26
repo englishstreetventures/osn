@@ -281,6 +281,10 @@ export const OSN_RATE_LIMITS = {
   profileCreate: { store: "profile.create", maxRequests: 5, windowMs: MINUTE_MS },
   profileDelete: { store: "profile.delete", maxRequests: 5, windowMs: MINUTE_MS },
   profileSetDefault: { store: "profile.set_default", maxRequests: 10, windowMs: MINUTE_MS },
+  // Per IP. `GET /health/coordination` costs three store calls. The
+  // post-deploy smoke check asks it at most eight times in its minute
+  // (`scripts/smoke-check.ts`), so ten leaves it room.
+  healthCoordination: { store: "health.coordination", maxRequests: 10, windowMs: MINUTE_MS },
   // Per account: one export a day, keyed on the server-derived account so
   // rotating IPs cannot get round it. The per-IP guard before it keeps an
   // unauthenticated flood from spending token-verification time.

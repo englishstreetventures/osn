@@ -1,7 +1,7 @@
 /**
  * Every piece of short-lived shared state osn-api keeps outside D1, as one
  * bundle: the rate limiters and per-account caps, the ceremony stores, the
- * step-up token guard and the three lockout counters.
+ * step-up token guard, the three lockout counters and the health probe.
  *
  * Two builders produce it. `createInMemoryCoordination()` (`./memory`) keeps
  * everything in this process — the Bun dev server, the OpenAPI generator and
@@ -22,6 +22,7 @@ import type { RecommendationRateLimiters } from "../../routes/recommendations";
 import type { AccountCapLimiter, CeremonyStores, StepUpJtiStore } from "../../services/auth/stores";
 import type { RecoveryLockoutStore } from "../recovery-lockout-store";
 import type { CoordinationBackend, CoordinationStoreName } from "./names";
+import type { CoordinationProbe } from "./probe";
 
 export type {
   CeremonyStoreName,
@@ -57,6 +58,10 @@ export interface CoordinationStores {
   readonly profileSwitchCap: AccountCapLimiter;
   readonly emailChangeBeginCap: AccountCapLimiter;
   readonly recoveryEmailBeginCap: AccountCapLimiter;
+  /** `GET /health/coordination`'s write, read and remove on its own store. */
+  readonly healthProbe: CoordinationProbe;
+  /** Per-IP guard in front of the health probe. */
+  readonly healthProbeLimiter: RateLimiterBackend;
 }
 
 /**

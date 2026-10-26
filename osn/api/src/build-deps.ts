@@ -509,6 +509,8 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
     profileSwitchCap: stores.profileSwitchCap,
     emailChangeBeginCap: stores.emailChangeBeginCap,
     recoveryEmailBeginCap: stores.recoveryEmailBeginCap,
+    healthProbe: stores.healthProbe,
+    healthProbeLimiter: minuteLimiters.healthProbeLimiter,
     clientIpConfig,
     // Gates the S2S service-registration endpoints. On workerd this is a
     // wrangler secret, surfaced via the `env` binding; on Bun it's process.env.

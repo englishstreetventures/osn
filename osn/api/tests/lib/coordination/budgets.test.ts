@@ -57,6 +57,11 @@ function slots(bundle: CoordinationStores): Slot[] {
     (k) => bundle.profileRateLimiters.profileSetDefault.check(k),
     OSN_RATE_LIMITS.profileSetDefault,
   );
+  add(
+    "healthCoordination",
+    (k) => bundle.healthProbeLimiter.check(k),
+    OSN_RATE_LIMITS.healthCoordination,
+  );
   add("accountExport", (k) => bundle.accountExportLimiter.check(k), OSN_RATE_LIMITS.accountExport);
   add(
     "accountExportIp",

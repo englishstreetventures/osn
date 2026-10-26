@@ -45,6 +45,9 @@ export type CoordinationStoreName =
   | LockoutStoreName
   // Consumed step-up token ids: a token verifies once.
   | "step_up_jti"
+  // `GET /health/coordination`'s round trip: one fresh server-made key per
+  // probe, removed before it answers.
+  | "health_probe"
   | AuthLimiterStoreName
   | OsnLimiterStoreName;
 

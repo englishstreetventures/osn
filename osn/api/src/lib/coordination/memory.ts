@@ -32,6 +32,7 @@ import {
 } from "../../services/auth/stores";
 import { createInMemoryRecoveryLockoutStore } from "../recovery-lockout-store";
 import type { CoordinationStores } from "./index";
+import { createCoordinationProbe, createMemoryProbeTarget } from "./probe";
 
 /** A fresh in-memory bundle. It cannot fail, so it reports nothing. */
 export function createInMemoryCoordination(): CoordinationStores {
@@ -62,5 +63,7 @@ export function createInMemoryCoordination(): CoordinationStores {
       RECOVERY_EMAIL_BEGIN_PER_ACCOUNT_MAX,
       RECOVERY_EMAIL_BEGIN_PER_ACCOUNT_WINDOW_MS,
     ),
+    healthProbe: createCoordinationProbe(createMemoryProbeTarget()),
+    healthProbeLimiter: memoryLimiter(OSN_RATE_LIMITS.healthCoordination),
   };
 }

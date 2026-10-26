@@ -12,6 +12,7 @@
  * | ceremony `recordAttempt` / `clearAttempts` | `increment` / `remove`, on `<store>-attempts` |
  * | step-up token guard | `claim` |
  * | lockout `status` / `recordFailure` / `reset` | `count` / `increment` / `remove` |
+ * | health probe `roundTrip` | `write` / `read` / `remove`, on a fresh key |
  *
  * Failure posture, per store:
  *
@@ -66,6 +67,7 @@ import { RECOVERY_LOCKOUT_MS, RECOVERY_LOCKOUT_THRESHOLD } from "../recovery-loc
 import type { RecoveryLockoutStore } from "../recovery-lockout-store";
 import type { CoordinationErrorReporter, CoordinationStores } from "./index";
 import type { CeremonyStoreName, CoordinationStoreName, LockoutStoreName } from "./names";
+import { createCoordinationProbe } from "./probe";
 
 /**
  * `ns` as one store sees it: every call an object answers or fails is counted
@@ -304,5 +306,7 @@ export function createDurableCoordination(
     profileSwitchCap: named(OSN_RATE_LIMITS.profileSwitchCap),
     emailChangeBeginCap: named(OSN_RATE_LIMITS.emailChangeBeginCap),
     recoveryEmailBeginCap: named(OSN_RATE_LIMITS.recoveryEmailBeginCap),
+    healthProbe: createCoordinationProbe(client(ns, "health_probe", onError)),
+    healthProbeLimiter: named(OSN_RATE_LIMITS.healthCoordination),
   };
 }

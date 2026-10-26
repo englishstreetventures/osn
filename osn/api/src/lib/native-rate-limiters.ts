@@ -190,6 +190,7 @@ export interface OsnMinuteLimiters {
   readonly orgRateLimiter: RateLimiterBackend;
   readonly profileRateLimiters: ProfileRateLimiters;
   readonly recommendationRateLimiters: RecommendationRateLimiters;
+  readonly healthProbeLimiter: RateLimiterBackend;
 }
 
 type OsnMinuteBudget =
@@ -199,13 +200,14 @@ type OsnMinuteBudget =
   | "recommendationSearch"
   | "profileCreate"
   | "profileDelete"
-  | "profileSetDefault";
+  | "profileSetDefault"
+  | "healthCoordination";
 
 /**
  * Which tier each one-minute non-auth limiter runs on. Per-user keys (graph,
  * organisation, recommendations) take an `RL_USER_*` tier; profile create,
- * delete and set-default are keyed per IP, so they share the `RL_AUTH_IP_*`
- * tiers under their own key prefix. The limit in each tier's name is the
+ * delete and set-default and `GET /health/coordination` are keyed per IP, so
+ * they share the `RL_AUTH_IP_*` tiers under their own key prefix. The limit in each tier's name is the
  * budget's `maxRequests`; a test holds the two together.
  */
 export const NATIVE_BINDING_FOR_OSN_LIMITER = {
@@ -216,6 +218,7 @@ export const NATIVE_BINDING_FOR_OSN_LIMITER = {
   profileCreate: "RL_AUTH_IP_5_60",
   profileDelete: "RL_AUTH_IP_5_60",
   profileSetDefault: "RL_AUTH_IP_10_60",
+  healthCoordination: "RL_AUTH_IP_10_60",
 } as const satisfies Readonly<Record<OsnMinuteBudget, TierName>>;
 
 /**
@@ -255,5 +258,6 @@ export function selectOsnLimiters(
       suggest: pick("recommendationSuggest", fallback.recommendationRateLimiters.suggest),
       search: pick("recommendationSearch", fallback.recommendationRateLimiters.search),
     },
+    healthProbeLimiter: pick("healthCoordination", fallback.healthProbeLimiter),
   };
 }

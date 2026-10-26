@@ -15,6 +15,7 @@ import { createAuthRoutes } from "./routes/auth";
 import type { DevLoginConfig } from "./routes/auth/dev-login";
 import { createGraphRoutes } from "./routes/graph";
 import { createInternalGraphRoutes } from "./routes/graph-internal";
+import { createCoordinationHealthRoutes } from "./routes/health-coordination";
 import { createInternalAccountRoutes } from "./routes/internal-account";
 import { createOrganisationRoutes } from "./routes/organisation";
 import { createInternalOrganisationRoutes } from "./routes/organisation-internal";
@@ -107,6 +108,10 @@ export interface AppDeps {
   profileSwitchCap: CoordinationStores["profileSwitchCap"];
   emailChangeBeginCap: CoordinationStores["emailChangeBeginCap"];
   recoveryEmailBeginCap: CoordinationStores["recoveryEmailBeginCap"];
+  /** The coordination round trip `GET /health/coordination` runs. */
+  healthProbe: CoordinationStores["healthProbe"];
+  /** Per-IP limiter in front of it: native where the Worker has the binding. */
+  healthProbeLimiter: CoordinationStores["healthProbeLimiter"];
   /**
    * Client-IP trust policy. Derived from `TRUSTED_PROXY_COUNT`. Threaded
    * into the auth + profile route factories so per-IP rate-limit keying + the
@@ -184,6 +189,8 @@ export function createApp(deps: AppDeps) {
     profileSwitchCap,
     emailChangeBeginCap,
     recoveryEmailBeginCap,
+    healthProbe,
+    healthProbeLimiter,
     clientIpConfig,
     internalServiceSecret,
     turnstileVerifier,
@@ -211,6 +218,7 @@ export function createApp(deps: AppDeps) {
 
   const withRoot = withObservability
     .use(healthRoutes({ serviceName }))
+    .use(createCoordinationHealthRoutes(healthProbe, healthProbeLimiter, clientIpConfig))
     .get("/", () => ({ status: "ok", service: "osn-auth" }));
 
   // The docs are gated the same way, and mounted in the same position in the
@@ -238,7 +246,10 @@ export function createApp(deps: AppDeps) {
           // `/.well-known/openid-configuration` and `/.well-known/jwks.json` —
           // the two endpoints every relying party reads first. No route here
           // serves a file, so nothing else changes.
-          exclude: { paths: ["/", "/health", "/ready"], staticFile: false },
+          exclude: {
+            paths: ["/", "/health", "/health/coordination", "/ready"],
+            staticFile: false,
+          },
         }),
       )
     : withRoot;

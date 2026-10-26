@@ -242,6 +242,7 @@ describe("selectOsnLimiters — graph, organisation, recommendation and profile 
       orgRateLimiter: bundle.orgRateLimiter,
       profileRateLimiters: bundle.profileRateLimiters,
       recommendationRateLimiters: bundle.recommendationRateLimiters,
+      healthProbeLimiter: bundle.healthProbeLimiter,
     };
   };
 
@@ -257,6 +258,7 @@ describe("selectOsnLimiters — graph, organisation, recommendation and profile 
     await selected.profileRateLimiters.profileCreate.check("9.9.9.9");
     await selected.profileRateLimiters.profileDelete.check("9.9.9.9");
     await selected.profileRateLimiters.profileSetDefault.check("9.9.9.9");
+    await selected.healthProbeLimiter.check("9.9.9.9");
 
     expect(tiers.RL_USER_60_60!.keys).toEqual([
       "graph.write:usr_1",
@@ -268,7 +270,10 @@ describe("selectOsnLimiters — graph, organisation, recommendation and profile 
       "profile.create:9.9.9.9",
       "profile.delete:9.9.9.9",
     ]);
-    expect(tiers.RL_AUTH_IP_10_60!.keys).toEqual(["profile.set_default:9.9.9.9"]);
+    expect(tiers.RL_AUTH_IP_10_60!.keys).toEqual([
+      "profile.set_default:9.9.9.9",
+      "health.coordination:9.9.9.9",
+    ]);
   });
 
   it("runs each limiter on the tier whose limit is its budget", () => {
