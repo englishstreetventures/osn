@@ -14,6 +14,8 @@ import {
 import { and, eq } from "drizzle-orm";
 
 import { createApp } from "../../src/app";
+import { effectDbFor } from "../../src/db/effect-handle";
+import { localD1Binding } from "../../src/db/local-d1";
 import { createDb, seedBootstrapWedding } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
 import { CIRE_METRICS } from "../../src/metrics";
@@ -158,7 +160,13 @@ function buildDb(tier: "ivory" | "gold" | "crimson" = "gold"): TestDb {
 
 function setup(tier: "ivory" | "gold" | "crimson" = "gold") {
   const db = buildDb(tier);
-  return { db, app: createApp(db, { osnTestKey: auth.key }) };
+  return {
+    db,
+    app: createApp(db, {
+      osnTestKey: auth.key,
+      effectDb: effectDbFor(localD1Binding(db.$client), "fetch"),
+    }),
+  };
 }
 type App = ReturnType<typeof setup>["app"];
 

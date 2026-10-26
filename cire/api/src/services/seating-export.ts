@@ -2,7 +2,7 @@ import { events, families, guests, rsvps, seatingAssignments, seatingTables } fr
 import { and, asc, eq } from "drizzle-orm";
 import { Effect } from "effect";
 
-import { DbService, dbQuery } from "../db";
+import { EffectDbService } from "../db/effect-handle";
 import { serialiseCsv } from "../lib/csv";
 
 /**
@@ -52,48 +52,47 @@ export const seatingExportService = {
    * be seated, and is filtered here as well. No dietary column: dietary
    * answers are special-category data and stay in the RSVP export.
    */
-  seatingCsv(weddingId: string): Effect.Effect<string, never, DbService> {
+  seatingCsv(weddingId: string): Effect.Effect<string, never, EffectDbService> {
     return Effect.gen(function* () {
-      const db = yield* DbService;
-      const rows = (yield* dbQuery(() =>
-        db
-          .select({
-            eventName: events.name,
-            tableName: seatingTables.name,
-            capacity: seatingTables.capacity,
-            firstName: guests.firstName,
-            lastName: guests.lastName,
-            familyName: families.familyName,
-            status: rsvps.status,
-            deactivatedAt: families.deactivatedAt,
-          })
-          .from(events)
-          .innerJoin(seatingTables, eq(seatingTables.eventId, events.id))
-          .innerJoin(seatingAssignments, eq(seatingAssignments.tableId, seatingTables.id))
-          .innerJoin(guests, eq(guests.id, seatingAssignments.guestId))
-          .innerJoin(families, and(eq(families.id, guests.familyId), eq(families.kind, "guest")))
-          .leftJoin(
-            rsvps,
-            and(
-              eq(rsvps.guestId, seatingAssignments.guestId),
-              eq(rsvps.eventId, seatingAssignments.eventId),
-            ),
-          )
-          .where(eq(events.weddingId, weddingId))
-          .orderBy(
-            asc(events.sortOrder),
-            asc(events.id),
-            asc(seatingTables.sortOrder),
-            asc(seatingTables.createdAt),
-            asc(seatingTables.id),
-            asc(families.familyName),
-            asc(guests.familyId),
-            asc(guests.sortOrder),
-            asc(guests.id),
-          )
-          .limit(MAX_SEATING_EXPORT_ROWS + 1)
-          .all(),
-      )) as SeatRow[];
+      const db = yield* EffectDbService;
+      const rows = (yield* db
+        .select({
+          eventName: events.name,
+          tableName: seatingTables.name,
+          capacity: seatingTables.capacity,
+          firstName: guests.firstName,
+          lastName: guests.lastName,
+          familyName: families.familyName,
+          status: rsvps.status,
+          deactivatedAt: families.deactivatedAt,
+        })
+        .from(events)
+        .innerJoin(seatingTables, eq(seatingTables.eventId, events.id))
+        .innerJoin(seatingAssignments, eq(seatingAssignments.tableId, seatingTables.id))
+        .innerJoin(guests, eq(guests.id, seatingAssignments.guestId))
+        .innerJoin(families, and(eq(families.id, guests.familyId), eq(families.kind, "guest")))
+        .leftJoin(
+          rsvps,
+          and(
+            eq(rsvps.guestId, seatingAssignments.guestId),
+            eq(rsvps.eventId, seatingAssignments.eventId),
+          ),
+        )
+        .where(eq(events.weddingId, weddingId))
+        .orderBy(
+          asc(events.sortOrder),
+          asc(events.id),
+          asc(seatingTables.sortOrder),
+          asc(seatingTables.createdAt),
+          asc(seatingTables.id),
+          asc(families.familyName),
+          asc(guests.familyId),
+          asc(guests.sortOrder),
+          asc(guests.id),
+        )
+        .limit(MAX_SEATING_EXPORT_ROWS + 1)
+        .all()
+        .pipe(Effect.orDie)) as SeatRow[];
       if (rows.length > MAX_SEATING_EXPORT_ROWS) {
         yield* Effect.logWarning("seating.csv exceeds the export ceiling; cut").pipe(
           Effect.annotateLogs({ weddingId, exportCap: MAX_SEATING_EXPORT_ROWS }),
