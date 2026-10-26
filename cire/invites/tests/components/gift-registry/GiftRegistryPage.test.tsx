@@ -13,7 +13,7 @@ import type {
   GiftRegistry,
   GiftRegistryFund,
   GiftRegistryItem,
-} from "../../../src/lib/gift-registry";
+} from "../../../src/lib/gift-registry-read";
 
 /**
  * The gift list's own page.

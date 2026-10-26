@@ -8,36 +8,27 @@
  * story again. What is left behind has to earn its band: a peek at the actual
  * gifts, not a bare "we have a registry" line.
  *
- * IT RENDERS NOTHING unless the read answers `ok`, and the read is CREDENTIALED:
- * the list is for the couple's guests, so a visitor who has not entered their
- * code gets a 401 and no band at all — the same silence every other section of
- * the invitation keeps behind the claim gate, rather than a band advertising a
- * list they cannot open. A 404 covers a wedding with no registry, one that is
- * not entitled, and one whose list is unpublished: one code, on purpose, so
- * nothing here can be used to tell them apart.
- *
- * THE CLAIM HAPPENS IN THE OTHER ISLAND, and it navigates nowhere — `InvitePage`
- * reveals the invitation in place. So this listens for `CLAIM_SESSION_EVENT` and
- * re-reads: without it, a guest who enters their code would have to reload
- * before the band the couple wrote appeared.
+ * IT IS NOT THE ISLAND. `GiftRegistryTeaserIsland` makes the list read and
+ * imports this module only once that read answers with a list, so a guest of a
+ * wedding with no list for them (below Gold, unpublished, or none at all) never
+ * downloads the band, nor the gift-list client it imports. `registry` is that
+ * answer.
  *
  * NO COUNTS AT ALL. Same rule as the page: the band says the couple have a list
  * and shows a few of the gifts on it. How many are left, and who took them, are
  * the couple's.
  */
-import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createMemo, For, Show } from "solid-js";
 
 import {
-  fetchGiftRegistry,
   giftRegistryBody,
   giftRegistryEyebrow,
   giftRegistryHeading,
   giftRegistryImageBase,
   giftRegistryPath,
   sortGiftRegistryItems,
-  type GiftRegistry,
 } from "../../lib/gift-registry";
-import { CLAIM_SESSION_EVENT, hasClaimedHint } from "../claim-session";
+import type { GiftRegistry } from "../../lib/gift-registry-read";
 import { buildSrcSet, variantSrc } from "../invite-images";
 
 /** How many gifts the peek row shows. The fourth is desktop-only — see below. */
@@ -48,6 +39,8 @@ export interface GiftRegistryTeaserProps {
   apiUrl: string;
   /** The wedding this invite renders. */
   slug: string;
+  /** The list read's answer, when it was a list. */
+  registry: GiftRegistry;
   /** Section copy from the invite payload; `null` ⇒ the built-in default. */
   eyebrow?: string | null;
   heading?: string | null;
@@ -57,44 +50,6 @@ export interface GiftRegistryTeaserProps {
 }
 
 export function GiftRegistryTeaser(props: GiftRegistryTeaserProps) {
-  // `null` means "no band". Until the read answers `ok` this component renders
-  // NOTHING — the state for a visitor who has not claimed (401), and the
-  // permanent one for a registry that is unpublished, unentitled or absent
-  // (404, one code for all three).
-  const [registry, setRegistry] = createSignal<GiftRegistry | null>(null);
-
-  async function load(): Promise<void> {
-    // NO HINT, NO CALL. The read is credentialed now, so for a browser that has
-    // never claimed here it can only ever answer 401 — and this band sits on a
-    // PUBLIC invite that every visitor scrolls past: first-timers, link
-    // previews, every share of the couple's link. Without this guard the wasted
-    // request scales with page views rather than with guests, against an
-    // account-wide Workers Free budget of 100k/day.
-    //
-    // Safe against the one case that matters: `noteClaimed()` sets the hint
-    // BEFORE it dispatches `CLAIM_SESSION_EVENT`, so a guest entering their
-    // code still gets the band in place with no reload. Hint and session are
-    // minted by the same claim, last the same 30 days, and are cleared
-    // together; forging the hint buys only the 401 it would have got anyway.
-    if (!hasClaimedHint()) {
-      setRegistry(null);
-      return;
-    }
-    const result = await fetchGiftRegistry(props.apiUrl, props.slug);
-    // Only an `ok` changes what is on screen. A 401 before a claim and a 401
-    // after a session lapses are the same answer — no band — and a transport
-    // failure must not take away a band that is already reading.
-    if (result.kind === "ok") setRegistry(result.registry);
-    else if (result.kind === "signed-out" || result.kind === "hidden") setRegistry(null);
-  }
-
-  onMount(() => {
-    void load();
-    const onSessionChange = () => void load();
-    window.addEventListener(CLAIM_SESSION_EVENT, onSessionChange);
-    onCleanup(() => window.removeEventListener(CLAIM_SESSION_EVENT, onSessionChange));
-  });
-
   /**
    * The peek row: the first few gifts and cash funds that HAVE a picture, in
    * the couple's order (`sortOrder`, then `id`, as the API's own index sorts).
@@ -105,14 +60,14 @@ export function GiftRegistryTeaser(props: GiftRegistryTeaserProps) {
    * money, so a fund's picture here is one a guest can give to.
    */
   const previewItems = createMemo(() =>
-    sortGiftRegistryItems([...(registry()?.items ?? []), ...(registry()?.funds ?? [])])
+    sortGiftRegistryItems([...props.registry.items, ...(props.registry.funds ?? [])])
       .filter((entry) => entry.imageName !== null)
       .slice(0, GIFT_TEASER_PREVIEW_COUNT),
   );
 
   const eyebrow = createMemo(() => giftRegistryEyebrow(props.eyebrow));
-  const heading = createMemo(() => giftRegistryHeading(props.heading, registry()?.headline));
-  const body = createMemo(() => giftRegistryBody(props.body, registry()?.message));
+  const heading = createMemo(() => giftRegistryHeading(props.heading, props.registry.headline));
+  const body = createMemo(() => giftRegistryBody(props.body, props.registry.message));
 
   function imageBase(item: { imageName: string | null }): string {
     // Only ever called for the filtered preview items, which all have a name.
@@ -120,99 +75,76 @@ export function GiftRegistryTeaser(props: GiftRegistryTeaserProps) {
   }
 
   return (
-    /**
-     * AN ALWAYS-PRESENT ELEMENT ROOT, and it must stay one.
-     *
-     * `client:visible` does not observe the island; it observes the island's
-     * element CHILDREN (`for (const child of el.children) io.observe(child)` in
-     * astro's `runtime/client/visible.js`), because `<astro-island>` is
-     * `display: contents` and has no box of its own to intersect with.
-     *
-     * Everything below is inside `<Show when={registry()}>`, and the registry is
-     * `null` until a credentialed fetch that only runs after hydration — so on the server this
-     * component renders nothing, the island ships zero element children, the
-     * observer is handed nothing to watch and hydration NEVER fires. The whole
-     * band is then absent from both design packs, in production only: a unit
-     * test renders the component directly and never sees it.
-     *
-     * This wrapper is that box. It has no class and no style: an empty `<div>`
-     * adds no layout, while a bare `<section>` here would paint a visible empty
-     * bordered, padded band on every wedding without a gift list.
-     */
-    <div data-gift-teaser-island>
-      <Show when={registry()}>
-        <section
-          data-gift-teaser
-          class="border-border border-t px-6 py-16 md:px-8 md:py-20"
-          style={{
-            ...props.themeVars,
-            "background-color": "var(--invite-section-bg)",
-          }}
-        >
-          <div class="md:max-w-ui-xl max-w-column-lg mx-auto text-center">
-            <p class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-3 uppercase">
-              {eyebrow()}
+    <section
+      data-gift-teaser
+      class="border-border border-t px-6 py-16 md:px-8 md:py-20"
+      style={{
+        ...props.themeVars,
+        "background-color": "var(--invite-section-bg)",
+      }}
+    >
+      <div class="md:max-w-ui-xl max-w-column-lg mx-auto text-center">
+        <p class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-3 uppercase">
+          {eyebrow()}
+        </p>
+        <h2 class="font-display text-text leading-ui-none mb-5 text-[calc(clamp(2rem,5vw,3rem)*var(--invite-heading-scale,1))] [font-weight:var(--invite-heading-weight,300)] [font-style:var(--invite-heading-style,normal)]">
+          {heading()}
+        </h2>
+
+        <Show when={body()}>
+          {(text) => (
+            <p class="font-body text-text-muted text-ui-base leading-ui-normal max-w-ui-md mx-auto mb-8 break-words whitespace-pre-line">
+              {text()}
             </p>
-            <h2 class="font-display text-text leading-ui-none mb-5 text-[calc(clamp(2rem,5vw,3rem)*var(--invite-heading-scale,1))] [font-weight:var(--invite-heading-weight,300)] [font-style:var(--invite-heading-style,normal)]">
-              {heading()}
-            </h2>
+          )}
+        </Show>
 
-            <Show when={body()}>
-              {(text) => (
-                <p class="font-body text-text-muted text-ui-base leading-ui-normal max-w-ui-md mx-auto mb-8 break-words whitespace-pre-line">
-                  {text()}
-                </p>
-              )}
-            </Show>
-
-            {/* The peek. Three across on a phone, four from `md` — the fourth
+        {/* The peek. Three across on a phone, four from `md` — the fourth
                 tile is laid out only where a fourth fits, rather than wrapping
                 alone onto a second row and turning a glance into a grid. */}
-            <Show when={previewItems().length > 0}>
-              {/* `aria-hidden`, because this row IS decoration: the images
+        <Show when={previewItems().length > 0}>
+          {/* `aria-hidden`, because this row IS decoration: the images
                   carry `alt=""` (the gift titles are not shown beside them, and
                   the link below carries the action), so without it assistive
                   tech announces "list, 4 items" and then four empty ones on the
                   way to the only thing here worth reaching. */}
-              <ul
-                data-gift-teaser-preview
-                aria-hidden="true"
-                class="max-w-ui-md mx-auto mb-8 grid list-none grid-cols-3 gap-3 md:grid-cols-4"
-              >
-                <For each={previewItems()}>
-                  {(item, index) => (
-                    <li class={index() === 3 ? "hidden md:block" : ""}>
-                      <img
-                        src={variantSrc(imageBase(item), "thumb")}
-                        srcset={buildSrcSet(imageBase(item), ["thumb", "card"])}
-                        // A tile is a quarter of a 34rem row at most. `thumb`
-                        // (320w) covers it up to 2×; a 3× phone crosses that
-                        // and takes `card` (800w). Left alone deliberately: the
-                        // variant allowlist is kept small to cap transform-URL
-                        // cardinality, and a 480w entry would widen it for a
-                        // few lazy below-fold thumbnails.
-                        sizes="(min-width: 768px) 8rem, 30vw"
-                        alt=""
-                        loading="lazy"
-                        decoding="async"
-                        class="border-border aspect-4/3 w-full rounded-sm border object-cover"
-                      />
-                    </li>
-                  )}
-                </For>
-              </ul>
-            </Show>
+          <ul
+            data-gift-teaser-preview
+            aria-hidden="true"
+            class="max-w-ui-md mx-auto mb-8 grid list-none grid-cols-3 gap-3 md:grid-cols-4"
+          >
+            <For each={previewItems()}>
+              {(item, index) => (
+                <li class={index() === 3 ? "hidden md:block" : ""}>
+                  <img
+                    src={variantSrc(imageBase(item), "thumb")}
+                    srcset={buildSrcSet(imageBase(item), ["thumb", "card"])}
+                    // A tile is a quarter of a 34rem row at most. `thumb`
+                    // (320w) covers it up to 2×; a 3× phone crosses that
+                    // and takes `card` (800w). Left alone deliberately: the
+                    // variant allowlist is kept small to cap transform-URL
+                    // cardinality, and a 480w entry would widen it for a
+                    // few lazy below-fold thumbnails.
+                    sizes="(min-width: 768px) 8rem, 30vw"
+                    alt=""
+                    loading="lazy"
+                    decoding="async"
+                    class="border-border aspect-4/3 w-full rounded-sm border object-cover"
+                  />
+                </li>
+              )}
+            </For>
+          </ul>
+        </Show>
 
-            <a
-              data-gift-teaser-link
-              href={giftRegistryPath(props.slug)}
-              class="border-gold font-body text-gold-ink hover:bg-gold hover:text-on-gold text-ui-base tracking-ui-wider inline-block rounded-sm border bg-transparent px-6 py-3.5 uppercase transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)]"
-            >
-              See the gift list
-            </a>
-          </div>
-        </section>
-      </Show>
-    </div>
+        <a
+          data-gift-teaser-link
+          href={giftRegistryPath(props.slug)}
+          class="border-gold font-body text-gold-ink hover:bg-gold hover:text-on-gold text-ui-base tracking-ui-wider inline-block rounded-sm border bg-transparent px-6 py-3.5 uppercase transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)]"
+        >
+          See the gift list
+        </a>
+      </div>
+    </section>
   );
 }
