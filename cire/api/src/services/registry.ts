@@ -3234,8 +3234,8 @@ function resolveVisibleRegistry(
 /**
  * Whether guests may give money here today, and so whether funds are offered:
  * the deployment can take a payment at all (`takesPayments`, true exactly when
- * the contribute route is mounted), and the couple and their account can
- * (`takesMoney`).
+ * the contribute route is mounted: a Stripe key and the Connect webhook secret
+ * both set), and the couple and their account can (`takesMoney`).
  */
 const moneyIsOpen = (
   takesPayments: boolean,
@@ -3361,8 +3361,9 @@ export const registryGuestService = {
     familyId: string;
     /**
      * Whether this deployment can take a payment at all: true exactly when the
-     * contribute route is mounted. Required, with no default, so no caller can
-     * offer money by leaving it out.
+     * contribute route is mounted, which needs a Stripe key and the Connect
+     * webhook secret. Required, with no default, so no caller can offer money
+     * by leaving it out.
      */
     takesPayments: boolean;
   }): Effect.Effect<PublicRegistryDto, RegistryNotVisible, DbService> {
