@@ -945,6 +945,17 @@ variable — so the code under test is the code CI runs.
 is the worked example. A run against the real program that needs a database
 belongs in the D1 integration lane above.
 
+## Reading TypeScript from a test
+
+TypeScript 7 exports no in-process compiler API: `import ts from "typescript"` gives only `{ version }`. A test that parses source or reads a tsconfig uses the client API, which talks to the native compiler in a child process, and which client works depends on the runtime the test runs under:
+
+| Client | Under `bun test` | Under Vitest (Node) |
+|---|---|---|
+| `typescript/async` (`await api.createSourceFile(…)`) | Works | Works |
+| `typescript/sync` (`api.readConfigFile(…)`) | Throws at `new API()`: it needs Node's child-process stream handles | Works |
+
+Create one `API` per file and close it in `afterAll`: each instance is a process. AST guards come from `typescript/ast/is` (`isCallExpression`, `isStringLiteralLikeNode`), and a node walks with `node.forEachChild(visit)`. To ask which files a program loads, run `node_modules/.bin/tsc -p <dir> --listFilesOnly` (add `--runExternalCode` for an Astro site). `cire/api/tests/routes/tier-gate-pairing.test.ts` (async, under Bun) and `cire/invites/tests/browser-floor.test.ts` (sync, under Vitest) are the two shapes.
+
 ## Running Tests
 
 ```bash

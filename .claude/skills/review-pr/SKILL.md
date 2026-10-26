@@ -142,16 +142,17 @@ Until a review has read it, the branch is someone else's code, and this machine
 holds the GitHub token, the commit-signing key and the deploy credentials that
 CI does not. `bun install` runs lifecycle scripts, every commit runs the
 branch's `lefthook.yml`, every test and build runs its code, and an `LSP` call
-loads its installed `typescript` and any `compilerOptions.plugins` a tsconfig
-names. So before any of those, read every change to a file that runs something:
+runs its installed `typescript`, and a type check runs any package a tsconfig
+names under `contentMappers`. So before any of those, read every change to a file that runs something:
 
 ```bash
 git diff refs/remotes/origin/main...refs/remotes/origin/<branch> -- package.json '*/package.json' '*/*/package.json' \
-  bunfig.toml lefthook.yml .github scripts .claude patches '*.sh' '*.config.*' '*tsconfig*.json'
+  bunfig.toml lefthook.yml .github scripts .claude tools/claude-ts-lsp patches '*.sh' '*.config.*' '*tsconfig*.json'
 ```
 
 Look for lifecycle scripts (`preinstall`, `postinstall`, `prepare`), new
-`trustedDependencies` or `patchedDependencies`, hook commands, workflow steps,
+`trustedDependencies` or `patchedDependencies`, hook commands, workflow steps, a changed `command` or a new hook or MCP server
+in the `tools/claude-ts-lsp` plugin, a `contentMappers` entry in a tsconfig,
 and scripts that fetch, write outside the checkout or read credentials. Say in
 the report what you read. Anything you cannot account for → stop and ask the
 owner before running it.

@@ -1,0 +1,231 @@
+{
+  "schema_version": 3,
+  "pr": {
+    "number": 1762,
+    "branch": "chore/astro-sites-ts71-content-mapper-typecheck",
+    "base_sha": "67865705eb8f3271b4b1312d60fa74591f5b7a97",
+    "head_sha": "9f15bdb6fdb99b8b56c57de6577cfed4b605d96d",
+    "generated_at": "2026-10-26T04:19:47.074Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 1751,
+    "type": "Task",
+    "labels": [
+      "product:shared",
+      "area:ops",
+      "complexity:5"
+    ]
+  },
+  "complexity": {
+    "declared": 5,
+    "method": "confirmed",
+    "issues": 1
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-10-25T16:44:14.111Z",
+    "last_ts": "2026-10-26T04:19:46.012Z",
+    "span_seconds": 41732,
+    "active_seconds": 7161,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 74.62514766999995,
+    "tokens": {
+      "input": 1297,
+      "output": 471339,
+      "thinking": 206650,
+      "cache_write_5m": 987807,
+      "cache_write_1h": 845618,
+      "cache_read": 135432554
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 1283,
+          "output": 462833,
+          "thinking": 202297,
+          "cache_write_5m": 908407,
+          "cache_write_1h": 845618,
+          "cache_read": 135097107
+        },
+        "usd_equivalent": 74.60761379999995,
+        "messages": 635
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 1
+      },
+      "claude-haiku-5-5": {
+        "tokens": {
+          "input": 14,
+          "output": 8506,
+          "thinking": 4353,
+          "cache_write_5m": 79400,
+          "cache_write_1h": 0,
+          "cache_read": 335447
+        },
+        "usd_equivalent": 0.01753387,
+        "messages": 7
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 515,
+          "output": 175954,
+          "thinking": 40987,
+          "cache_write_5m": 0,
+          "cache_write_1h": 845618,
+          "cache_read": 94242439
+        },
+        "usd_equivalent": 47.98305960000002,
+        "messages": 252
+      },
+      "subagent": {
+        "tokens": {
+          "input": 782,
+          "output": 295385,
+          "thinking": 165663,
+          "cache_write_5m": 987807,
+          "cache_write_1h": 0,
+          "cache_read": 41190115
+        },
+        "usd_equivalent": 26.64208807000002,
+        "messages": 391
+      }
+    },
+    "effort": {
+      "medium": 258,
+      "high": 302,
+      "xhigh": 82
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 3,
+      "test": 3,
+      "docs": 11,
+      "config": 35,
+      "source": 2
+    },
+    "loc": {
+      "generated": {
+        "added": 203,
+        "deleted": 211
+      },
+      "test": {
+        "added": 160,
+        "deleted": 150
+      },
+      "docs": {
+        "added": 90,
+        "deleted": 50
+      },
+      "config": {
+        "added": 152,
+        "deleted": 77
+      },
+      "source": {
+        "added": 75,
+        "deleted": 0
+      }
+    },
+    "packages": [
+      "cire/api",
+      "cire/build-tools",
+      "cire/host",
+      "cire/invites",
+      "cire/landing",
+      "cire/ui",
+      "cire/vendor",
+      "musubi/landing",
+      "musubi/social",
+      "pulse/landing",
+      "pulse/web",
+      "tools/claude-ts-lsp",
+      "tools/e2e",
+      "tools/lab",
+      "tools/metrics",
+      "tools/oxlint",
+      "tools/pr-metrics",
+      "tools/stryker"
+    ],
+    "touches_migration": false,
+    "commits": 8
+  },
+  "interaction": {
+    "user_turns": 5,
+    "corrective_turns": 5,
+    "tokens_before_first_edit": 891545,
+    "sessions_with_observed_edit": 1,
+    "tool_calls": {
+      "Bash": 582,
+      "Read": 17,
+      "mcp__github__issue_write": 11,
+      "Edit": 9,
+      "Write": 8,
+      "Skill": 7,
+      "Agent": 7,
+      "SubagentHandback": 7,
+      "WebFetch": 7,
+      "WebSearch": 3,
+      "AskUserQuestion": 3,
+      "ToolSearch": 2,
+      "Grep": 2,
+      "mcp__github__issue_read": 2,
+      "SendMessage": 1,
+      "mcp__claude-code-remote__add_repo": 1,
+      "mcp__github__create_pull_request": 1,
+      "mcp__claude-code-remote__subscribe_pr_activity": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 2,
+      "max_edits_one_file": 5
+    },
+    "skills": {
+      "stress-plan": 1,
+      "write-wiki": 1,
+      "prep-pr": 1,
+      "review-tests": 1,
+      "review-security": 1,
+      "review-performance": 1,
+      "retro": 1
+    },
+    "subagents": {
+      "attacker": 3,
+      "claude-code-guide": 1,
+      "reviewer": 3
+    },
+    "requests": {
+      "main": 251,
+      "subagent": 391,
+      "with_tools": 629,
+      "with_one_tool": 592,
+      "context_median": 163510,
+      "context_p90": 462915
+    }
+  },
+  "review": {
+    "reports": 1,
+    "findings": 3,
+    "located": 2,
+    "acted_on": 1,
+    "paired": 1,
+    "acted_on_paired": 1,
+    "control_changed": 0,
+    "acted_on_by_test": 0,
+    "acted_on_paired_by_test": 0
+  }
+}

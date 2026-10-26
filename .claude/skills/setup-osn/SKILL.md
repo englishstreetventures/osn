@@ -96,19 +96,16 @@ The bootstrap step is the one that changes something outside the checkout. Where
 
 `bunfig.toml` sets a three-day `minimumReleaseAge`, so a package published yesterday will not install; that is the gate working, not a network fault.
 
-**The TypeScript language server for agents.** Claude Code's `LSP` tool comes from the `typescript-lsp` plugin, which starts the `typescript-language-server` binary from `PATH` and uses the workspace's own `typescript`, so it works only after `bun install`. Both install at user scope and so need a yes:
+**The TypeScript language server for agents.** Claude Code's `LSP` tool comes from the `ts-lsp` plugin in `tools/claude-ts-lsp`, which starts the session's own `node_modules/.bin/tsc --lsp --stdio` (TypeScript 7's built-in server; TypeScript 7 ships no `tsserver`, so `typescript-language-server` no longer works here). It runs from the worktree the session starts in, so it works only after `bun install` there. It installs at user scope, from the `main` worktree, and so needs a yes:
 
 ```bash
-node --version                                              # macOS without node: brew install node
-npm install -g --before="$(node -p 'new Date(Date.now() - 3 * 864e5).toISOString()')" typescript-language-server
-typescript-language-server --version
-claude plugin install typescript-lsp@claude-plugins-official
-claude plugin list                                          # must show typescript-lsp@claude-plugins-official enabled
+claude plugin uninstall typescript-lsp@claude-plugins-official --scope user   # if present: two servers would claim .ts
+claude plugin marketplace add ~/.work/osn.git/main/tools/claude-ts-lsp
+claude plugin install ts-lsp@osn-local --scope user
+claude plugin list                                          # must show ts-lsp@osn-local enabled
 ```
 
-The row is done only when both checks pass: with the binary and no enabled plugin, every agent runs without `LSP` and nothing says so.
-
-`--before` gives the install the same three-day soak `bunfig.toml` gives the workspace, since a global install is outside it. Use this line on every platform: `brew install typescript-language-server` and `brew upgrade` take whatever version Homebrew last bumped to, with no soak, and so does a later `npm update -g`. The date comes from `node` because `date -d` exists only in GNU `date`; where it fails, npm gets an empty `--before`, drops it with a warning and installs the newest release. Do not add the plugin to `.claude/settings.json`: a project-scope `enabledPlugins` entry turns a plugin on without installing it. Cloud sessions never start plugin language servers, so on the remote environment record this row as not applicable. When and when not to trust what `LSP` returns: `wiki/conventions/agent-tooling.md` §Code search.
+The row is done only when the plugin shows enabled: with no enabled plugin, every agent runs without `LSP` and nothing says so. If Claude Code later offers to install the official `typescript-lsp` plugin, decline it ("Never for this plugin") for the same reason. The plugin is loaded in place from `main`, so a change to it there applies at the next session start. Do not add it to `.claude/settings.json`: a project-scope `enabledPlugins` entry turns a plugin on without installing it. Cloud sessions never start plugin language servers, so on the remote environment record this row as not applicable. When and when not to trust what `LSP` returns: `wiki/conventions/agent-tooling.md` §Code search.
 
 If a gate fails, paste the shortest decisive lines into the table and keep going — a failing type check on a clean checkout of `main` is a finding for the user, not a reason to stop the setup.
 
@@ -125,4 +122,4 @@ That CA can intercept TLS for every host the machine talks to, which is why `por
 
 ## Step 9 — Report
 
-The table, then one line: ready, or what is still blocked. One row is not about this machine's toolchain: **bare-root guard** — created, merged, unchanged, refused or nothing to do, in the words `bootstrap-bare-root` printed. Homebrew dependencies for reference: `bun` (everything), `gh` (`prep-pr`, `new-feat`), `node` (npm for `typescript-language-server`, the agents' `LSP` tool), Xcode CLT (Swift and iOS only).
+The table, then one line: ready, or what is still blocked. One row is not about this machine's toolchain: **bare-root guard** — created, merged, unchanged, refused or nothing to do, in the words `bootstrap-bare-root` printed. Homebrew dependencies for reference: `bun` (everything), `gh` (`prep-pr`, `new-feat`), `node` 22.23.4 or later (`astro build` refuses older; the `.astro` content mapper in the Astro sites' `typecheck` also runs on it, with Bun standing in when it is missing), Xcode CLT (Swift and iOS only).

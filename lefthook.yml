@@ -73,30 +73,18 @@ pre-push:
       # and fast-glob, which only its Vite plugins call (the route scanner and
       # the server-function scan), at build and dev time, on patterns from
       # repository config; no deployed build contains braces code. Copies
-      # bundled in vite, tsx, prettier, oxfmt (installed but no longer run, and
-      # removed in a follow-up) and playwright-core are build,
+      # bundled in vite, tsx, oxfmt (installed but no longer run, and removed in
+      # a follow-up) and playwright-core are build,
       # dev and test tooling. Drop when braces > 3.0.3 ships and bun.lock
       # resolves it, or when @solidjs/start stops depending on micromatch.
       # DROP AFTER GHSA-vfj7-8cjw-p6xm 2027-01-07
       #
-      # GHSA-ch52-4w7c-c8xp — http-cache-semantics 4.2.0, max-stale handling
-      # in a shared cache. Installed via astro 7.2.10, which uses it only in
-      # its build-time remote-image cache (`dist/assets/build/remote.js`) on
-      # requests it builds itself, and never calls `evaluateRequest` or
-      # `satisfiesWithoutRevalidation`, the flawed path; no deployed build
-      # contains it. Miniflare's bundled copy runs only in `wrangler dev` and
-      # the D1 test tier, for one developer's own Worker. Drop when
-      # http-cache-semantics > 4.2.0 ships and bun.lock resolves it, or when
-      # astro stops depending on it.
-      # DROP AFTER GHSA-ch52-4w7c-c8xp 2027-01-07
-      #
       # Comments stay above `run:`. Inside the folded block a `#` line is part
       # of the command, and the shell would drop every flag after it.
-      # Both drops are tracked in englishstreetventures/osn#1381.
+      # The drop is tracked in englishstreetventures/osn#1381.
       run: >
         bun audit --audit-level=high
         --ignore=GHSA-vfj7-8cjw-p6xm
-        --ignore=GHSA-ch52-4w7c-c8xp
     audit-ignores:
       # Fails when an `--ignore` above has no `DROP AFTER` marker, or one whose
       # date has passed or is more than 90 days out. Also fails unless the

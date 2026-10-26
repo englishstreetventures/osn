@@ -6,7 +6,7 @@ related:
   - "[[contributing]]"
   - "[[testing-patterns]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-10-23
+last-reviewed: 2026-10-26
 ---
 
 # CLI Commands Reference
@@ -16,7 +16,7 @@ last-reviewed: 2026-10-23
 ```bash
 bun run dev              # Start all dev servers (turbo)
 bun run build            # Build all packages (turbo)
-bun run typecheck        # Type-check all packages (turbo, bun check per package)
+bun run typecheck        # Type-check all packages (turbo: bun check, or tsc with the .astro mapper in Astro sites)
 ```
 
 Dev servers answer on named HTTPS hosts, not ports — `https://id.musubi.localhost`, `https://host.cire.localhost` — and each worktree gets its own stack. The names, the one-time `portless proxy start`, and the `PORTLESS=0` fallback are in [[devloop-urls]].

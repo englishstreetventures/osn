@@ -230,6 +230,11 @@ jobs:
 
       - uses: actions/checkout@v4
 
+      # `astro build` runs on Node, and astro 7.4 requires Node >= 22.23.4.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
@@ -517,6 +522,11 @@ jobs:
           exit 1
 
       - uses: actions/checkout@v4
+
+      # `astro build` runs on Node, and astro 7.4 requires Node >= 22.23.4.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -1035,6 +1045,11 @@ jobs:
           exit 1
 
       - uses: actions/checkout@v4
+
+      # `astro build` runs on Node, and astro 7.4 requires Node >= 22.23.4.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
 
       - uses: oven-sh/setup-bun@v2
         with:

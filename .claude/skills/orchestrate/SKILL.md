@@ -112,7 +112,7 @@ background shell — with its id and what ends it; the sweep in Step 5 reads it.
 
 Classify the input before ordering anything.
 
-- **A ready task list** — concrete changes, each with clear acceptance criteria ("add `weddingName` to the vendor enquiries response", "wire `astro check` into the two cire frontends"). Go to Step 0.
+- **A ready task list** — concrete changes, each with clear acceptance criteria ("add `weddingName` to the vendor enquiries response", "wire the `.astro` type check into the two cire frontends"). Go to Step 0.
 - **A feature** — open scope, needs product or design direction, spans subsystems, or is big enough to want phases. Run the design phase first. When unsure, treat it as a feature: a short design gate is cheaper than a subagent guessing at scope.
 - **An open pull request to review and fix** — "review and fix PR #N", usually one another tool or session wrote. The branch and the pull request already exist; follow [Adopting an open pull request](#adopting-an-open-pull-request), which changes Steps 2 to 5.
 
