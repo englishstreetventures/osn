@@ -184,7 +184,7 @@ export function createTotpModule(
    * `passkey_register`, `recovery_generate`, `totp_enroll`, `totp_disable`,
    * `account_delete` and `account_export` with it for any user whose only
    * non-passkey factor is TOTP. Fail-closed makes that worse, not better: one
-   * Redis error would lock both surfaces at once.
+   * store error would lock both surfaces at once.
    *
    * Splitting costs five extra guesses per window against a space of three
    * accepted codes in a million — nothing — and each surface keeps its own
@@ -200,7 +200,14 @@ export function createTotpModule(
       );
       // "locked" on the attempt that crosses the threshold, so the dashboard
       // separates a fat-fingered code from an account under a grinding attack.
-      metricTotpLockout(failures >= TOTP_LOCKOUT_THRESHOLD ? "locked" : "recorded", scope);
+      metricTotpLockout(
+        failures === "unknown"
+          ? "unavailable"
+          : failures >= TOTP_LOCKOUT_THRESHOLD
+            ? "locked"
+            : "recorded",
+        scope,
+      );
       metricTotpVerified(result);
       return yield* Effect.fail(new AuthError({ message: GENERIC_CODE_FAILURE }));
     });
@@ -228,10 +235,14 @@ export function createTotpModule(
       // Fail-closed: an unreachable lockout counter for TOTP means no throttle
       // at all behind a six-digit code, so an error here denies. See the
       // posture note in `lib/recovery-lockout-store.ts`.
-      const locked = yield* Effect.promise(() =>
-        totpLockoutStore.isLocked(lockoutKey(accountId, scope)),
+      const lockout = yield* Effect.promise(() =>
+        totpLockoutStore.status(lockoutKey(accountId, scope)),
       );
-      if (locked) {
+      if (lockout === "unknown") {
+        metricTotpLockout("unavailable", scope);
+        return yield* Effect.fail(new AuthError({ message: GENERIC_CODE_FAILURE }));
+      }
+      if (lockout === "locked") {
         metricTotpLockout("locked", scope);
         metricTotpVerified("locked_out");
         return yield* Effect.fail(new AuthError({ message: GENERIC_CODE_FAILURE }));
@@ -349,10 +360,10 @@ export function createTotpModule(
       yield* keyRing();
       const probe = probeAccountId();
       const key = lockoutKey(probe, "recovery");
-      yield* Effect.promise(() => totpLockoutStore.isLocked(key));
+      yield* Effect.promise(() => totpLockoutStore.status(key));
       yield* confirmedCredential(probe);
       yield* Effect.promise(() => verifyTotpCode({ secret: new Uint8Array(0), code }));
-      yield* Effect.promise(() => totpLockoutStore.isLocked(key));
+      yield* Effect.promise(() => totpLockoutStore.status(key));
     });
 
   /**
@@ -480,7 +491,7 @@ export function createTotpModule(
               // The version that actually OPENED the parked secret, not the one
               // parked alongside it. An enrolment begun before a rotation and
               // finished after it — the store's TTL is ten minutes, and it is
-              // Redis-backed, so it survives a secret write — was encrypted
+              // shared across isolates, so it survives a secret write — was encrypted
               // under a key the ring may now number differently. Writing the
               // parked number would mint a row mis-stamped on the day it is
               // born.

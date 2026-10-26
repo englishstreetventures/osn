@@ -107,7 +107,6 @@ export function createRedisCeremonyStores(
   // codes cannot deny the owner the email path, nor the reverse.
   const recoveryOtpLockoutStore = createRedisRecoveryLockoutStore(client, {
     keyPrefix: "osn:recovery-otp-lockout",
-    failClosed: true,
     onError: (op, cause) => onError?.("recovery_otp_lockout", op, cause),
   });
 
@@ -118,7 +117,6 @@ export function createRedisCeremonyStores(
     keyPrefix: "osn:totp-lockout",
     threshold: TOTP_LOCKOUT_THRESHOLD,
     lockoutMs: TOTP_LOCKOUT_MS,
-    failClosed: true,
     onError: (op, cause) => onError?.("totp_lockout", op, cause),
   });
 

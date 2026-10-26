@@ -236,7 +236,7 @@ export function createRecoveryModule(
    * call, and an indexed statement against `recovery_codes` (a probe SELECT
    * on the unknown branch, the atomic conditional UPDATE on the known branch).
    * Parity is APPROXIMATE, not exact: the known branch additionally runs the
-   * lockout-store round-trips (`isLocked`/`recordFailure`, pre-existing) and
+   * lockout-store round-trips (`status`/`recordFailure`, pre-existing) and
    * a failure-classification SELECT, so the timing oracle is narrowed by the
    * per-IP rate limit and per-account lockout rather than eliminated.
    */
@@ -285,8 +285,17 @@ export function createRecoveryModule(
       // locked account must never consume a code), then return the SAME
       // generic error as any other failure (preserving the no-enumeration
       // oracle: a locked account is indistinguishable from a wrong code).
-      const locked = yield* Effect.promise(() => recoveryLockoutStore.isLocked(profile.accountId));
-      if (locked) {
+      const lockout = yield* Effect.promise(() => recoveryLockoutStore.status(profile.accountId));
+      if (lockout === "unknown") {
+        // The counter cannot be read, so an attempt here could not be counted.
+        // Refuse before the code is touched — the owner retries once the store
+        // answers again — and write no security event: nothing is known to
+        // have crossed the threshold. The store has already logged the fault.
+        metricRecoveryLockout("unavailable");
+        metricRecoveryCodeConsumed("invalid");
+        return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
+      }
+      if (lockout === "locked") {
         yield* Effect.tryPromise({
           try: () =>
             db
@@ -359,7 +368,10 @@ export function createRecoveryModule(
         const attempts = yield* Effect.promise(() =>
           recoveryLockoutStore.recordFailure(profile.accountId),
         );
-        if (attempts === RECOVERY_LOCKOUT_THRESHOLD) {
+        if (attempts === "unknown") {
+          // Not counted, so not known to have crossed the threshold: no event.
+          metricRecoveryLockout("unavailable");
+        } else if (attempts === RECOVERY_LOCKOUT_THRESHOLD) {
           yield* recordRecoveryLockoutEvent(profile.accountId, eventMeta);
         }
         return yield* Effect.fail(new AuthError({ message: "Invalid request" }));

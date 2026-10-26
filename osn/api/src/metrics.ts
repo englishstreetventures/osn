@@ -647,7 +647,11 @@ export const metricCeremonyStoreEntryDelta = (
 // Recovery-code per-account lockout (O2)
 // ---------------------------------------------------------------------------
 
-type RecoveryLockoutAttrs = { result: "recorded" | "locked" | "reset" };
+/**
+ * `unavailable`: the counter could not be read or written, so the attempt was
+ * refused without being counted.
+ */
+type RecoveryLockoutAttrs = { result: "recorded" | "locked" | "reset" | "unavailable" };
 
 const authRecoveryLockout = createCounter<RecoveryLockoutAttrs>({
   name: OSN_METRICS.authRecoveryLockout,
@@ -1050,10 +1054,12 @@ type TotpRekeyedAttrs = { result: TotpRekeyResult };
  * `scope` separates the two surfaces that check TOTP codes. They keep separate
  * counters (see `checkTotpCode`), and without this attribute a dashboard cannot
  * tell a grinding attack on the UNAUTHENTICATED recovery route from one on the
- * authenticated step-up. Two values, three results — six series.
+ * authenticated step-up. Two values, four results — eight series.
+ * `unavailable`: the counter could not be read or written, so the code was
+ * refused without being counted.
  */
 type TotpLockoutAttrs = {
-  result: "recorded" | "locked" | "reset";
+  result: "recorded" | "locked" | "reset" | "unavailable";
   scope: TotpLockoutScope;
 };
 

@@ -174,7 +174,7 @@ export function createRecoveryFactorsModule(
    * The same, one store along: burn a round trip on the lockout counter.
    *
    * `completeEmailRecovery` touches two stores, so equalising hops on one of
-   * them is not enough — the padding has to be able to reach both. `isLocked`
+   * them is not enough — the padding has to be able to reach both. `status`
    * is a read; `recordFailure`, the hop it usually stands in for, is a write.
    * That substitution is deliberate and is the same trade {@link burnProbeRead}
    * documents: what a caller can time is the number of round trips, not what
@@ -182,7 +182,7 @@ export function createRecoveryFactorsModule(
    * fifteen-minute TTL behind for every probe.
    */
   const burnLockoutRead = (): Effect.Effect<void> =>
-    Effect.promise(() => recoveryOtpLockoutStore.isLocked(probeAccountId())).pipe(Effect.asVoid);
+    Effect.promise(() => recoveryOtpLockoutStore.status(probeAccountId())).pipe(Effect.asVoid);
 
   /**
    * Send the recovery code, off the request's latency path.
@@ -504,10 +504,18 @@ export function createRecoveryFactorsModule(
       // throttle at all. The pending code lives in the same store, so an outage
       // fails this ceremony at the next read regardless — closing here costs
       // nothing that was still working.
-      const locked = yield* Effect.promise(() =>
-        recoveryOtpLockoutStore.isLocked(profile.accountId),
+      const lockout = yield* Effect.promise(() =>
+        recoveryOtpLockoutStore.status(profile.accountId),
       );
-      if (locked) {
+      if (lockout === "unknown") {
+        // The counter cannot be read, so a guess here could not be counted.
+        // Refuse with the same answer and write no security event. Timing is
+        // not padded: this branch exists only while the store is failing,
+        // which says nothing about the identifier.
+        metricRecoveryLockout("unavailable");
+        return yield* Effect.fail(new AuthError({ message: GENERIC_FAILURE }));
+      }
+      if (lockout === "locked") {
         // Read anyway, and pad to four, and answer the same generic failure: a
         // locked account must be indistinguishable from a wrong code, or the
         // lockout becomes its own oracle — and one an attacker can create at
@@ -555,7 +563,10 @@ export function createRecoveryFactorsModule(
         const failures = yield* Effect.promise(() =>
           recoveryOtpLockoutStore.recordFailure(profile.accountId),
         );
-        if (failures >= RECOVERY_LOCKOUT_THRESHOLD) {
+        if (failures === "unknown") {
+          // Not counted, so not known to have crossed the threshold: no event.
+          metricRecoveryLockout("unavailable");
+        } else if (failures >= RECOVERY_LOCKOUT_THRESHOLD) {
           metricRecoveryLockout("locked");
           yield* recordLockoutEvent(profile.accountId, sessionMeta);
         } else {

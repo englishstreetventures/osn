@@ -137,8 +137,8 @@ export interface AuthConfig {
    */
   recoveryLockoutStore?: RecoveryLockoutStore;
   /**
-   * Per-account TOTP failed-code lockout. Same shape as the recovery counter
-   * and the OPPOSITE outage posture — it fails closed. See
+   * Per-account TOTP failed-code lockout. Same shape and outage posture as the
+   * recovery counter — a counter that cannot be reached refuses. See
    * `lib/recovery-lockout-store.ts`.
    *
    * Its keys are scoped by ceremony: `checkTotpCode` takes a `scope` and keys
@@ -151,7 +151,7 @@ export interface AuthConfig {
    * rather than a share of {@link recoveryLockoutStore}: an attacker grinding
    * 64-bit recovery codes must not deny the owner the email path, nor the
    * reverse — the whole point of a second recovery factor is that it is
-   * independent of the first. Fails CLOSED, like {@link totpLockoutStore}.
+   * independent of the first.
    */
   recoveryOtpLockoutStore?: RecoveryLockoutStore;
   /**

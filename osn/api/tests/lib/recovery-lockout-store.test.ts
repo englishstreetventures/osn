@@ -11,14 +11,14 @@ import {
 describe("createInMemoryRecoveryLockoutStore", () => {
   it("locks after THRESHOLD failures and resets on success", async () => {
     const store = createInMemoryRecoveryLockoutStore();
-    expect(await store.isLocked("acc_a")).toBe(false);
+    expect(await store.status("acc_a")).toBe("open");
     for (let i = 0; i < RECOVERY_LOCKOUT_THRESHOLD; i++) {
       // eslint-disable-next-line no-await-in-loop -- sequential
       await store.recordFailure("acc_a");
     }
-    expect(await store.isLocked("acc_a")).toBe(true);
+    expect(await store.status("acc_a")).toBe("locked");
     await store.reset("acc_a");
-    expect(await store.isLocked("acc_a")).toBe(false);
+    expect(await store.status("acc_a")).toBe("open");
   });
 
   it("recordFailure returns the running count", async () => {
@@ -33,8 +33,8 @@ describe("createInMemoryRecoveryLockoutStore", () => {
       // eslint-disable-next-line no-await-in-loop -- sequential
       await store.recordFailure("acc_a");
     }
-    expect(await store.isLocked("acc_a")).toBe(true);
-    expect(await store.isLocked("acc_b")).toBe(false);
+    expect(await store.status("acc_a")).toBe("locked");
+    expect(await store.status("acc_b")).toBe("open");
   });
 
   it("expires the lockout window (TTL expiry)", async () => {
@@ -46,9 +46,9 @@ describe("createInMemoryRecoveryLockoutStore", () => {
         // eslint-disable-next-line no-await-in-loop -- sequential
         await store.recordFailure("acc_a");
       }
-      expect(await store.isLocked("acc_a")).toBe(true);
+      expect(await store.status("acc_a")).toBe("locked");
       vi.setSystemTime(new Date(1_000_000 + 2_000));
-      expect(await store.isLocked("acc_a")).toBe(false);
+      expect(await store.status("acc_a")).toBe("open");
     } finally {
       vi.useRealTimers();
     }
@@ -69,9 +69,9 @@ describe("createRedisRecoveryLockoutStore (memory-backed RedisClient)", () => {
       await (i % 2 === 0 ? podA : podB).recordFailure("acc_a");
     }
     // A failure recorded on either pod is visible to the other.
-    expect(await podB.isLocked("acc_a")).toBe(true);
+    expect(await podB.status("acc_a")).toBe("locked");
     await podA.reset("acc_a");
-    expect(await podB.isLocked("acc_a")).toBe(false);
+    expect(await podB.status("acc_a")).toBe("open");
   });
 
   it("per-account isolation through the client", async () => {
@@ -80,8 +80,8 @@ describe("createRedisRecoveryLockoutStore (memory-backed RedisClient)", () => {
       // eslint-disable-next-line no-await-in-loop -- sequential
       await store.recordFailure("acc_a");
     }
-    expect(await store.isLocked("acc_a")).toBe(true);
-    expect(await store.isLocked("acc_b")).toBe(false);
+    expect(await store.status("acc_a")).toBe("locked");
+    expect(await store.status("acc_b")).toBe("open");
   });
 });
 
@@ -102,55 +102,13 @@ const failingClient = (): RedisClient => ({
   quit: async () => {},
 });
 
-describe("createRedisRecoveryLockoutStore fail-open behaviour", () => {
-  it("isLocked returns false (fail-open) on Redis error", async () => {
+describe("createRedisRecoveryLockoutStore on a failing client", () => {
+  it("answers unknown for status and recordFailure, and reset swallows", async () => {
     const onError = vi.fn();
     const store = createRedisRecoveryLockoutStore(failingClient(), { onError });
-    expect(await store.isLocked("acc_a")).toBe(false);
-    expect(onError).toHaveBeenCalledWith("is_locked", expect.any(Error));
-  });
-
-  it("recordFailure returns 0 and reset swallows on Redis error", async () => {
-    const onError = vi.fn();
-    const store = createRedisRecoveryLockoutStore(failingClient(), { onError });
-    expect(await store.recordFailure("acc_a")).toBe(0);
+    expect(await store.status("acc_a")).toBe("unknown");
+    expect(await store.recordFailure("acc_a")).toBe("unknown");
     await expect(store.reset("acc_a")).resolves.toBeUndefined();
-  });
-});
-
-/**
- * The mirror of the block above, and the posture TOTP is built on. Recovery
- * codes keep a 64-bit search space during a Redis outage, so failing open loses
- * a redundant defence; a six-digit code has nothing behind the counter, so
- * failing open removes the only one. These two branches are the whole
- * difference between the two consumers, and without them a future edit that
- * dropped `failClosed` from the TOTP store's construction would leave every
- * test in this repository green.
- */
-describe("createRedisRecoveryLockoutStore fail-CLOSED behaviour (the TOTP consumer)", () => {
-  it("isLocked returns true on Redis error", async () => {
-    const onError = vi.fn();
-    const store = createRedisRecoveryLockoutStore(failingClient(), { failClosed: true, onError });
-    expect(await store.isLocked("acc_a")).toBe(true);
-    expect(onError).toHaveBeenCalledWith("is_locked", expect.any(Error));
-  });
-
-  it("recordFailure reports the threshold, so the caller's locked branch fires", async () => {
-    // Not 0: a fail-closed consumer must not read an unrecordable failure as
-    // "no failures yet", or the metric that separates a fat-fingered code from
-    // an account under attack never fires during the outage.
-    const onError = vi.fn();
-    const store = createRedisRecoveryLockoutStore(failingClient(), {
-      failClosed: true,
-      threshold: 7,
-      onError,
-    });
-    expect(await store.recordFailure("acc_a")).toBe(7);
-    expect(onError).toHaveBeenCalledWith("record", expect.any(Error));
-  });
-
-  it("reset still swallows — failing closed must not turn an outage into a defect", async () => {
-    const store = createRedisRecoveryLockoutStore(failingClient(), { failClosed: true });
-    await expect(store.reset("acc_a")).resolves.toBeUndefined();
+    expect(onError.mock.calls.map((c) => c[0])).toEqual(["is_locked", "record", "reset"]);
   });
 });

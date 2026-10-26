@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { beforeAll } from "vitest";
 
+import type { RecoveryLockoutStore } from "../../src/lib/recovery-lockout-store";
 import { createAuthService } from "../../src/services/auth";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayer } from "../helpers/db";
@@ -351,6 +352,65 @@ describe("O2 recovery-code lockout", () => {
       }
       const { events } = yield* svc.listUnacknowledgedSecurityEvents(profile.accountId);
       expect(events.some((e) => e.kind === "recovery_code_lockout")).toBe(true);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+});
+
+// F-SV4: a lockout counter that cannot be reached. The shared store answers
+// `"unknown"` when its backend fails; these pin what the ceremony does then.
+describe("recovery-code lockout store unavailable", () => {
+  const unreachable: RecoveryLockoutStore = {
+    backend: "memory",
+    status: () => Promise.resolve("unknown"),
+    recordFailure: () => Promise.resolve("unknown"),
+    reset: () => Promise.resolve(),
+  };
+
+  it.effect("refuses a CORRECT code with the generic error and consumes nothing", () =>
+    Effect.gen(function* () {
+      const svc = createAuthService({ ...config, recoveryLockoutStore: unreachable });
+      const profile = yield* svc.registerProfile("lock-down@example.com", "lockdown");
+      const { recoveryCodes: codes } = yield* svc.generateRecoveryCodesForAccount(
+        profile.accountId,
+      );
+
+      const err = yield* Effect.flip(svc.consumeRecoveryCode("lock-down@example.com", codes[0]!));
+      expect(err._tag).toBe("AuthError");
+      expect(err.message).toBe("Invalid request");
+
+      const { db } = yield* Db;
+      const rows = yield* Effect.promise(() =>
+        db
+          .select({ usedAt: recoveryCodes.usedAt })
+          .from(recoveryCodes)
+          .where(eq(recoveryCodes.accountId, profile.accountId)),
+      );
+      expect(rows.every((row) => row.usedAt === null)).toBe(true);
+      // Nothing crossed a threshold anyone can see, so the owner is not told
+      // that one did.
+      const { events } = yield* svc.listUnacknowledgedSecurityEvents(profile.accountId);
+      expect(events.some((e) => e.kind === "recovery_code_lockout")).toBe(false);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("writes no lockout event when a failure cannot be recorded", () =>
+    Effect.gen(function* () {
+      // The counter reads as open but every write fails: each wrong guess is
+      // refused, and none is known to have crossed the threshold.
+      const svc = createAuthService({
+        ...config,
+        recoveryLockoutStore: { ...unreachable, status: () => Promise.resolve("open") },
+      });
+      const profile = yield* svc.registerProfile("lock-nowrite@example.com", "locknowrite");
+      yield* svc.generateRecoveryCodesForAccount(profile.accountId);
+      for (let i = 0; i < 6; i++) {
+        const err = yield* Effect.flip(
+          svc.consumeRecoveryCode("lock-nowrite@example.com", "dead-beef-cafe-0000"),
+        );
+        expect(err.message).toBe("Invalid request");
+      }
+      const { events } = yield* svc.listUnacknowledgedSecurityEvents(profile.accountId);
+      expect(events.some((e) => e.kind === "recovery_code_lockout")).toBe(false);
     }).pipe(Effect.provide(createTestLayer())),
   );
 });

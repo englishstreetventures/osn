@@ -475,6 +475,36 @@ describe("POST /login/recovery/email/complete", () => {
     expect(res.status).toBe(400);
   });
 
+  it("refuses a CORRECT code when the lockout counter cannot be read, and records nothing", async () => {
+    // A six-digit code with an uncounted guess behind it is no throttle at all,
+    // so a counter the store cannot answer for refuses. Nothing is known to
+    // have crossed a threshold, so no security event is written either.
+    // Goes red on: reading `"unknown"` as open.
+    const { app, db, seed, recorded } = makeApp(undefined, {
+      recoveryOtpLockoutStore: {
+        backend: "memory",
+        status: () => Promise.resolve("unknown"),
+        recordFailure: () => Promise.resolve("unknown"),
+        reset: () => Promise.resolve(),
+      },
+    });
+    const profile = await seed("rc-unk@example.com", "rcunk");
+    const code = await requestCode(app, recorded, "rc-unk@example.com");
+
+    const res = await app.handle(
+      json("/login/recovery/email/complete", {
+        method: "POST",
+        body: JSON.stringify({ identifier: "rc-unk@example.com", code }),
+      }),
+    );
+    expect(res.status).toBe(400);
+    const events = await db
+      .select()
+      .from(securityEvents)
+      .where(eq(securityEvents.accountId, profile.accountId));
+    expect(events).toEqual([]);
+  });
+
   it("does not count an attempt when no code is pending", async () => {
     // Counting it would hand anyone who knows the identifier a lever to lock the
     // owner out of their own recovery without ever guessing a digit.
@@ -507,7 +537,7 @@ describe("POST /login/recovery/email/complete", () => {
     // What the lockout adds over the per-entry cap: they coincide on the FIRST
     // entry (both are 5), so the counter's real job is the second and third.
     // Without it the 3-per-24h send cap would still allow fifteen guesses.
-    // Goes red on: dropping `recordFailure` or the `isLocked` gate.
+    // Goes red on: dropping `recordFailure` or the `status` gate.
     const { app, db, seed, recorded } = makeApp();
     const profile = await seed("rc-lock@example.com", "rclock");
 
@@ -773,7 +803,7 @@ describe("POST /login/recovery/totp/complete", () => {
 interface Hops {
   /** `stores.pendingRecoveryOtp` — get, set and delete alike. */
   pendingRecoveryOtp: number;
-  /** `recoveryOtpLockoutStore` — isLocked, recordFailure and reset alike. */
+  /** `recoveryOtpLockoutStore` — status, recordFailure and reset alike. */
   recoveryOtpLockout: number;
   /** `totpLockoutStore`, same. */
   totpLockout: number;
@@ -795,9 +825,9 @@ const zeroHops = (): Hops => ({
 function countingLockout(bump: () => void, inner: RecoveryLockoutStore): RecoveryLockoutStore {
   return {
     backend: inner.backend,
-    isLocked: (id) => {
+    status: (id) => {
       bump();
-      return inner.isLocked(id);
+      return inner.status(id);
     },
     recordFailure: (id) => {
       bump();

@@ -75,13 +75,12 @@ export function createAuthContext(config: AuthConfig) {
     );
   // Per-account recovery-code lockout counter.
   const recoveryLockoutStore = config.recoveryLockoutStore ?? createInMemoryRecoveryLockoutStore();
-  // Per-account lockout for the email-OTP recovery path. Its own counter, and
-  // fail-closed like the TOTP one: both guard a 6-digit code, where failing
-  // open removes the only effective brake rather than a redundant one.
+  // Per-account lockout for the email-OTP recovery path. Its own counter, so
+  // grinding one recovery factor never locks the owner out of the other.
   const recoveryOtpLockoutStore =
     config.recoveryOtpLockoutStore ?? createInMemoryRecoveryLockoutStore();
-  // Per-account TOTP lockout. The in-memory default cannot fail, so the
-  // fail-closed posture only bites on the injected Redis-backed store.
+  // Per-account TOTP lockout. The in-memory default cannot fail; only a shared
+  // store answers `"unknown"`, which every caller refuses.
   const totpLockoutStore =
     config.totpLockoutStore ??
     createInMemoryRecoveryLockoutStore({
