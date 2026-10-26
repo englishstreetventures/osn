@@ -1,0 +1,163 @@
+{
+  "schema_version": 3,
+  "pr": {
+    "number": 1772,
+    "branch": "feat/cire-seating-plan-controls",
+    "base_sha": "7098cad965a1a948a069b42c41c0f01577944677",
+    "head_sha": "cd7fc3f47a68847a6526a693d6aedde0e9ddb584",
+    "generated_at": "2026-10-26T06:08:10.667Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 1391,
+    "type": null,
+    "labels": [
+      "product:cire",
+      "complexity:5"
+    ]
+  },
+  "complexity": {
+    "declared": 5,
+    "method": "confirmed",
+    "issues": 1
+  },
+  "window": {
+    "sessions": 8,
+    "first_ts": "2026-10-26T04:19:59.065Z",
+    "last_ts": "2026-10-26T06:04:55.704Z",
+    "span_seconds": 6297,
+    "active_seconds": 2831,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 13.071263599999996,
+    "tokens": {
+      "input": 346,
+      "output": 114883,
+      "thinking": 57161,
+      "cache_write_5m": 913434,
+      "cache_write_1h": 0,
+      "cache_read": 15512624
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 346,
+          "output": 114883,
+          "thinking": 57161,
+          "cache_write_5m": 913434,
+          "cache_write_1h": 0,
+          "cache_read": 15512624
+        },
+        "usd_equivalent": 13.071263599999996,
+        "messages": 172
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 46,
+          "output": 8459,
+          "thinking": 4805,
+          "cache_write_5m": 390873,
+          "cache_write_1h": 0,
+          "cache_read": 897207
+        },
+        "usd_equivalent": 2.4826118000000004,
+        "messages": 22
+      },
+      "subagent": {
+        "tokens": {
+          "input": 300,
+          "output": 106424,
+          "thinking": 52356,
+          "cache_write_5m": 522561,
+          "cache_write_1h": 0,
+          "cache_read": 14615417
+        },
+        "usd_equivalent": 10.588651799999997,
+        "messages": 150
+      }
+    },
+    "effort": {
+      "medium": 22,
+      "high": 110,
+      "xhigh": 40
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 2,
+      "test": 7,
+      "docs": 11,
+      "config": 0,
+      "source": 12
+    },
+    "loc": {
+      "generated": {
+        "added": 17,
+        "deleted": 0
+      },
+      "test": {
+        "added": 1018,
+        "deleted": 45
+      },
+      "docs": {
+        "added": 89,
+        "deleted": 50
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 809,
+        "deleted": 115
+      }
+    },
+    "packages": [
+      "cire/api",
+      "cire/db",
+      "cire/host",
+      "tools/e2e"
+    ],
+    "touches_migration": false,
+    "commits": 1
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 137,
+      "Read": 17,
+      "Grep": 9,
+      "StructuredOutput": 7,
+      "Skill": 4,
+      "SubagentHandback": 4
+    },
+    "edit_churn": {
+      "files_edited_3plus": 0,
+      "max_edits_one_file": 0
+    },
+    "skills": {
+      "review-tests": 1,
+      "review-docs": 1,
+      "review-security": 1,
+      "review-performance": 1
+    },
+    "subagents": {},
+    "requests": {
+      "main": 22,
+      "subagent": 150,
+      "with_tools": 171,
+      "with_one_tool": 164,
+      "context_median": 105150,
+      "context_p90": 135499
+    }
+  },
+  "review": null
+}
