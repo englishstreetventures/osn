@@ -245,6 +245,28 @@ test("control characters in the session id never reach the screen", async ($, on
   await ui.unmount();
 });
 
+test("control characters in the hint never reach the screen", async ($, on) => {
+  engine(on, { session: null });
+  const ui = await $.ui.mount({
+    ...hint("\u001b]52;c;eA==\u0007esc to interrupt · ← 2\u001b[2J agents"),
+    surface: "terminal",
+  });
+  const shown = await row(ui);
+  // oxlint-disable-next-line no-control-regex -- the point is to find them
+  for (const text of shown) expect(/[\u0000-\u001f\u007f-\u009f]/.test(text)).toBe(false);
+  expect(shown).toEqual(["● Opus", "|", "]52;c;eA==esc to interrupt · ← 2[2J agents"]);
+  await ui.unmount();
+});
+
+test("a state read that never settles holds no request", async ($, on) => {
+  const world = engine(on);
+  on("state.get", () => new Promise(() => {}));
+  const { chunks, result } = await runStep($, step({ effort: "high" }));
+  expect(chunks).toEqual([CHUNK]);
+  expect(result).toEqual(RESULT);
+  expect(world.steps).toBe(1);
+});
+
 test("a main-thread request's effort joins the tag, on both surfaces", async ($, on) => {
   engine(on);
   const terminal = await $.ui.mount({ ...HINT, surface: "terminal" });

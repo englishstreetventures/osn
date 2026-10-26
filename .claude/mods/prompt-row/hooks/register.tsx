@@ -1,7 +1,7 @@
 import { atom, read, update } from "claude-code";
 import type { EngineInterface, Register } from "claude-code";
 
-import type { EffortLevel } from "../types";
+import type { Effort, EffortLevel } from "../types";
 
 // One colour per model family, matched against the model id or alias that
 // `/model` shows.
@@ -26,12 +26,17 @@ const BAR_CELLS = 10;
 
 const currentFamily = async ($: EngineInterface) => familyOf(await $.session.model());
 
-// The session's id, which `claude --resume` takes, with control characters
-// removed; null when the read is refused.
+// A text with its control characters removed. Another plugin can rewrite
+// every text the row draws, and the engine refuses a tree holding one, which
+// would lose the whole row.
+// oxlint-disable-next-line no-control-regex -- the point is to remove them
+const printable = (text: string) => text.replace(/[\u0000-\u001f\u007f-\u009f]/g, "");
+
+// The session's id, which `claude --resume` takes; null when the read is
+// refused.
 const sessionIdOf = async ($: EngineInterface) => {
   const id = await $.session.id().catch(() => null);
-  // oxlint-disable-next-line no-control-regex -- the point is to remove them
-  return id === null ? null : id.replace(/[\u0000-\u001f\u007f-\u009f]/g, "") || null;
+  return id === null ? null : printable(id) || null;
 };
 
 // The context window's fill as a whole percentage, null before the first
@@ -46,6 +51,19 @@ const levelOf = (value: unknown): EffortLevel | null =>
 
 const redraw = ($: EngineInterface) => $.ui.invalidate("ui.render");
 
+// Keeps the main thread's model and level, writing only when either changed;
+// a failed read or write leaves the row without the level.
+const record = async ($: EngineInterface, seen: Effort) => {
+  try {
+    const held = await read($, effort);
+    if (held?.model !== seen.model || held.level !== seen.level) {
+      await update($, effort, () => seen);
+    }
+  } catch {
+    // The level goes undrawn until the next request records it.
+  }
+};
+
 // The parts of the engine's hint text, which arrives as one string read the
 // way a screen reader reads it: the agents count, and what is left once the
 // permission mode's key hint is dropped. The terminal draws the mode's pill
@@ -53,7 +71,8 @@ const redraw = ($: EngineInterface) => $.ui.invalidate("ui.render");
 const AGENTS = /←\s*\d+\s+agents?/;
 const KEY_HINT = /\(shift\+tab to cycle\)/i;
 
-const hintParts = (hint: string) => {
+const hintParts = (raw: string) => {
+  const hint = printable(raw);
   const agents = hint.match(AGENTS)?.[0] ?? null;
   let rest = hint.replace(KEY_HINT, "");
   if (agents !== null) rest = rest.replace(agents, "");
@@ -100,23 +119,14 @@ export const register: Register = (on) => {
     return measured;
   });
 
-  // Every model request, main and subagent, passes through untouched. A
-  // main-thread request's model and level are kept before it is sent, inside
-  // a catch so the request goes out whatever the write does; after its
+  // Every model request, main and subagent, passes through untouched, and the
+  // hook waits on nothing of its own: a main-thread request's model and level
+  // are recorded beside it, never ahead of it, so a slow or failing state
+  // call costs the row its level and never holds the request. After the
   // response, the row is drawn again for the new reading.
   on("turn.step", async function* ($, e, next) {
     const isMain = e.agentId === undefined;
-    if (isMain) {
-      const seen = { model: e.model, level: levelOf(e.effort) };
-      try {
-        const held = await read($, effort);
-        if (held?.model !== seen.model || held.level !== seen.level) {
-          await update($, effort, () => seen);
-        }
-      } catch {
-        // The row goes without the level; the request is unaffected.
-      }
-    }
+    if (isMain) void record($, { model: e.model, level: levelOf(e.effort) });
     const result = yield* next(e);
     if (isMain) redraw($);
     return result;
@@ -136,7 +146,7 @@ export const register: Register = (on) => {
     ]);
     const { agents, rest } = hintParts(e.props.hint);
     const level =
-      family && held?.level && familyOf(held.model)?.name === family.name ? held.level : null;
+      family && held && familyOf(held.model)?.name === family.name ? levelOf(held.level) : null;
     // A reading outside 0..100 fills the bar to an end rather than throwing,
     // which would lose the whole row.
     const full = Math.min(BAR_CELLS, Math.max(0, Math.floor((percent ?? 0) / 10)));
