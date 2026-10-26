@@ -15,8 +15,6 @@ import { localD1Binding } from "../../src/db/local-d1";
 import { createDb, seedDb } from "../../src/db/setup";
 import { rsvpExportService, toCsv, sanitiseCsvCell } from "../../src/services/rsvp-export";
 import type { RsvpView } from "../../src/services/rsvp-export";
-import { TestDbLayer } from "../db/test-layer";
-import { effWith } from "../test-helpers";
 import { allowPlusOne, guestNamed, seedPlusOne } from "../test-helpers/plus-one";
 import { insertWedding } from "../test-helpers/wedding";
 
@@ -1245,7 +1243,7 @@ const failingReadOf = (base: D1Database, table: string): D1Database => {
 };
 
 describe("rsvpExportService.build — the Effect path", () => {
-  // F2: a failed read of any of the three queries is a defect, so the route's catchDefect answers it.
+  // a failed read of any of the three queries is a defect, so the route's catchDefect answers it.
   it.each(["events", "guests", "rsvps"])(
     "F2: a failed read of %s dies rather than failing typed",
     async (table) => {
@@ -1265,7 +1263,7 @@ describe("rsvpExportService.build — the Effect path", () => {
     },
   );
 
-  // F3: two requests in two sessions each prepare the export's three statements on their own session.
+  // two requests in two sessions each prepare the export's three statements on their own session.
   it("F3: each concurrent request prepares its own statements on its own session", async () => {
     const db = createDb(":memory:");
     seedDb(db);

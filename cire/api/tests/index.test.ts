@@ -6,7 +6,6 @@ import { Miniflare } from "miniflare";
 
 import { probeRequests, type ProbeRequest } from "../scripts/d1-latency-probe";
 import { D1_SESSION_CONSTRAINT } from "../src/db/d1-session";
-import { effectDbFor } from "../src/db/effect-handle";
 import { createD1Db } from "../src/db/index";
 import { DDL } from "../src/db/setup";
 import handler from "../src/index";
