@@ -45,10 +45,11 @@ import {
   RESERVED_OIDC_CLIENT_NAMES,
 } from "./constants";
 import type { AuthContext } from "./context";
-import { DatabaseError, OidcError, type OidcErrorCode } from "./errors";
+import { type CoordinationError, DatabaseError, OidcError, type OidcErrorCode } from "./errors";
 import { genId, signJwt } from "./helpers";
 import type { IdTokenClaims } from "./helpers";
 import type { ProfilesModule } from "./profiles";
+import { storeCall } from "./store-call";
 import type { PendingAuthorizeRequest } from "./stores";
 
 /** A relying party as the rest of the service sees it. */
@@ -1362,25 +1363,27 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
   const parkRequest = (
     request: ValidatedAuthorizeRequest,
     requireAuthAfter: number | null,
-  ): Effect.Effect<{ requestId: string; bindingSecret: string }, never, never> =>
-    Effect.promise(async () => {
+  ): Effect.Effect<{ requestId: string; bindingSecret: string }, CoordinationError, never> =>
+    Effect.gen(function* () {
       const requestId = genId("oar_");
       const bindingSecret = generateBindingSecret();
-      await ctx.stores.authorizeRequests.set(
-        requestId,
-        {
-          clientId: request.client.clientId,
-          redirectUri: request.redirectUri,
-          scope: request.scope,
-          state: request.state,
-          nonce: request.nonce,
-          codeChallenge: request.codeChallenge,
-          maxAge: request.maxAge,
-          requireAuthAfter,
-          bindingHash: sha256Hex(bindingSecret),
-          expiresAt: Date.now() + AUTHORIZE_REQUEST_TTL_MS,
-        },
-        AUTHORIZE_REQUEST_TTL_MS,
+      yield* storeCall(ctx.stores.authorizeRequests, "set", () =>
+        ctx.stores.authorizeRequests.set(
+          requestId,
+          {
+            clientId: request.client.clientId,
+            redirectUri: request.redirectUri,
+            scope: request.scope,
+            state: request.state,
+            nonce: request.nonce,
+            codeChallenge: request.codeChallenge,
+            maxAge: request.maxAge,
+            requireAuthAfter,
+            bindingHash: sha256Hex(bindingSecret),
+            expiresAt: Date.now() + AUTHORIZE_REQUEST_TTL_MS,
+          },
+          AUTHORIZE_REQUEST_TTL_MS,
+        ),
       );
       return { requestId, bindingSecret };
     });
@@ -1396,7 +1399,7 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
     request: ValidatedAuthorizeRequest,
     prompts: Set<string>,
     session: AuthorizeSession | null,
-  ): Effect.Effect<AuthorizeOutcome, DatabaseError, Db> =>
+  ): Effect.Effect<AuthorizeOutcome, DatabaseError | CoordinationError, Db> =>
     Effect.gen(function* () {
       const silent = prompts.has("none");
       const nowSec = Math.floor(Date.now() / 1000);
@@ -1512,12 +1515,17 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
   /** Reads a parked request back for the consent UI. Expired ids read as null. */
   const loadAuthorizeRequest = (
     requestId: string,
-  ): Effect.Effect<PendingAuthorizeRequest | null, never, never> =>
-    Effect.promise(async () => {
-      const parked = await ctx.stores.authorizeRequests.get(requestId);
+  ): Effect.Effect<PendingAuthorizeRequest | null, CoordinationError, never> =>
+    Effect.gen(function* () {
+      const parked = yield* storeCall(ctx.stores.authorizeRequests, "get", () =>
+        ctx.stores.authorizeRequests.get(requestId),
+      );
       if (!parked) return null;
       if (Date.now() >= parked.expiresAt) {
-        await ctx.stores.authorizeRequests.delete(requestId);
+        // Tidying only: the entry expires with its TTL either way.
+        yield* storeCall(ctx.stores.authorizeRequests, "delete", () =>
+          ctx.stores.authorizeRequests.delete(requestId),
+        ).pipe(Effect.ignore);
         return null;
       }
       return parked;
@@ -1532,7 +1540,7 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
    */
   const completeAuthorization = (
     input: DecisionInput,
-  ): Effect.Effect<DecisionResult, OidcError | DatabaseError, Db> =>
+  ): Effect.Effect<DecisionResult, OidcError | DatabaseError | CoordinationError, Db> =>
     Effect.gen(function* () {
       const parked = yield* loadAuthorizeRequest(input.requestId);
       if (!parked) {
@@ -1575,7 +1583,16 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
         );
       }
 
-      yield* Effect.promise(() => ctx.stores.authorizeRequests.delete(input.requestId));
+      // Claimed, not just deleted: of two decisions racing on one request id,
+      // exactly one gets past here, so one parked request yields one answer.
+      const claimed = yield* storeCall(ctx.stores.authorizeRequests, "consume", () =>
+        ctx.stores.authorizeRequests.consume(input.requestId),
+      );
+      if (!claimed) {
+        return yield* Effect.fail(
+          new OidcError({ code: "invalid_request", description: "Unknown or expired request" }),
+        );
+      }
 
       if (!input.approved) {
         return {

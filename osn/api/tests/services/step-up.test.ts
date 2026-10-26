@@ -1,10 +1,13 @@
 import { it, expect, describe } from "@effect/vitest";
 import { EmailError, EmailService, makeLogEmailLive } from "@shared/email";
 import { Effect, Layer } from "effect";
-import { beforeAll } from "vitest";
+import { beforeAll, vi } from "vitest";
 
+import { createDurableJtiStore } from "../../src/lib/coordination/durable";
+import * as metrics from "../../src/metrics";
 import { createAuthService } from "../../src/services/auth";
 import { makeTestAuthConfig } from "../helpers/auth-config";
+import { createFakeNamespace } from "../helpers/coordination-namespace";
 import { createTestLayer } from "../helpers/db";
 
 /**
@@ -108,6 +111,41 @@ describe("step-up OTP ceremony", () => {
       expect(err._tag).toBe("AuthError");
     }).pipe(Effect.provide(cap.layer));
   });
+
+  // F-SV5
+  it.effect(
+    "a token guard that cannot answer refuses the token, and is not counted as a replay",
+    () => {
+      const cap = makeEmailCapture();
+      const fake = createFakeNamespace();
+      fake.failWhen((call) => call.store === "step_up_jti");
+      const guarded = createAuthService({
+        ...config,
+        stepUpJtiStore: createDurableJtiStore(fake.ns, () => {}),
+      });
+      const verified = vi.spyOn(metrics, "metricStepUpVerified");
+      return Effect.gen(function* () {
+        const profile = yield* guarded.registerProfile("su-jti-down@example.com", "sujtidown");
+        yield* guarded.beginStepUpOtp(profile.accountId);
+        const { stepUpToken } = yield* guarded.completeStepUpOtp(
+          profile.accountId,
+          cap.latest()!,
+          "recovery_generate",
+        );
+
+        const err = yield* Effect.flip(
+          guarded.verifyStepUpForRecoveryGenerate(profile.accountId, stepUpToken),
+        );
+        expect(err._tag).toBe("AuthError");
+        expect(err.message).toBe("Step-up token could not be verified");
+        expect(verified.mock.calls.map(([result]) => result)).not.toContain("jti_replay");
+        expect(fake.calls).toEqual([{ store: "step_up_jti", op: "claim" }]);
+      }).pipe(
+        Effect.provide(cap.layer),
+        Effect.ensuring(Effect.sync(() => verified.mockRestore())),
+      );
+    },
+  );
 
   it.effect("expired / wrong code is rejected with a generic error", () =>
     Effect.gen(function* () {

@@ -42,7 +42,7 @@ import {
   RECOVERY_COOLDOWN_MS,
 } from "./constants";
 import type { AuthContext } from "./context";
-import { AuthError, DatabaseError } from "./errors";
+import { AuthError, type CoordinationError, DatabaseError } from "./errors";
 import {
   genOtpCode,
   hashSessionToken,
@@ -51,6 +51,7 @@ import {
   type StepUpTokenClaims,
   verifyJwt,
 } from "./helpers";
+import { storeCall } from "./store-call";
 import type { AssertingCredential, PasskeyProvenance } from "./types";
 
 /**
@@ -422,7 +423,7 @@ export function createStepUpModule(ctx: AuthContext) {
     accountId: string,
   ): Effect.Effect<
     { options: PublicKeyCredentialRequestOptionsJSON },
-    AuthError | DatabaseError,
+    AuthError | DatabaseError | CoordinationError,
     Db
   > =>
     Effect.gen(function* () {
@@ -451,7 +452,7 @@ export function createStepUpModule(ctx: AuthContext) {
         catch: (cause) => new AuthError({ message: String(cause) }),
       });
       // P-I3: bound growth under ceremony-begin spam — handled inside the store (O3).
-      yield* Effect.promise(() =>
+      yield* storeCall(stores.stepUpPasskeyChallenges, "set", () =>
         stores.stepUpPasskeyChallenges.set(
           accountId,
           { challenge: options.challenge, expiresAt: Date.now() + CHALLENGE_TTL_MS },
@@ -476,13 +477,21 @@ export function createStepUpModule(ctx: AuthContext) {
     accountId: string,
     assertion: AuthenticationResponseJSON,
     purpose?: StepUpPurpose,
-  ): Effect.Effect<{ stepUpToken: string; expiresIn: number }, AuthError | DatabaseError, Db> =>
+  ): Effect.Effect<
+    { stepUpToken: string; expiresIn: number },
+    AuthError | DatabaseError | CoordinationError,
+    Db
+  > =>
     Effect.gen(function* () {
-      const entry = yield* Effect.promise(() => stores.stepUpPasskeyChallenges.get(accountId));
+      const entry = yield* storeCall(stores.stepUpPasskeyChallenges, "get", () =>
+        stores.stepUpPasskeyChallenges.get(accountId),
+      );
       if (!entry || Date.now() > entry.expiresAt) {
         return yield* Effect.fail(new AuthError({ message: "Challenge expired or not found" }));
       }
-      yield* Effect.promise(() => stores.stepUpPasskeyChallenges.delete(accountId));
+      yield* storeCall(stores.stepUpPasskeyChallenges, "delete", () =>
+        stores.stepUpPasskeyChallenges.delete(accountId),
+      );
 
       const { db } = yield* Db;
       const pkResult = yield* Effect.tryPromise({
@@ -554,7 +563,11 @@ export function createStepUpModule(ctx: AuthContext) {
    */
   const beginStepUpOtp = (
     accountId: string,
-  ): Effect.Effect<{ sent: boolean }, AuthError | DatabaseError, Db | EmailService> =>
+  ): Effect.Effect<
+    { sent: boolean },
+    AuthError | DatabaseError | CoordinationError,
+    Db | EmailService
+  > =>
     Effect.gen(function* () {
       const { db } = yield* Db;
       const accountRow = yield* Effect.tryPromise({
@@ -567,7 +580,7 @@ export function createStepUpModule(ctx: AuthContext) {
       }
       const code = genOtpCode();
       // P-I3: bound growth under ceremony-begin spam — handled inside the store (O3).
-      yield* Effect.promise(() =>
+      yield* storeCall(stores.stepUpOtp, "set", () =>
         stores.stepUpOtp.set(
           accountId,
           {
@@ -601,9 +614,15 @@ export function createStepUpModule(ctx: AuthContext) {
     accountId: string,
     code: string,
     purpose?: StepUpPurpose,
-  ): Effect.Effect<{ stepUpToken: string; expiresIn: number }, AuthError | DatabaseError, Db> =>
+  ): Effect.Effect<
+    { stepUpToken: string; expiresIn: number },
+    AuthError | DatabaseError | CoordinationError,
+    Db
+  > =>
     Effect.gen(function* () {
-      const entry = yield* Effect.promise(() => stores.stepUpOtp.get(accountId));
+      const entry = yield* storeCall(stores.stepUpOtp, "get", () =>
+        stores.stepUpOtp.get(accountId),
+      );
       if (!entry || Date.now() > entry.expiresAt) {
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
       }
@@ -612,9 +631,9 @@ export function createStepUpModule(ctx: AuthContext) {
         // carry the remaining TTL so the entry expires on its original schedule.
         const attempts = entry.attempts + 1;
         if (attempts >= MAX_OTP_ATTEMPTS) {
-          yield* Effect.promise(() => stores.stepUpOtp.delete(accountId));
+          yield* storeCall(stores.stepUpOtp, "delete", () => stores.stepUpOtp.delete(accountId));
         } else {
-          yield* Effect.promise(() =>
+          yield* storeCall(stores.stepUpOtp, "set", () =>
             stores.stepUpOtp.set(
               accountId,
               { ...entry, attempts },
@@ -624,7 +643,7 @@ export function createStepUpModule(ctx: AuthContext) {
         }
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
       }
-      yield* Effect.promise(() => stores.stepUpOtp.delete(accountId));
+      yield* storeCall(stores.stepUpOtp, "delete", () => stores.stepUpOtp.delete(accountId));
       const stepUpToken = yield* issueStepUpToken(accountId, "otp", purpose);
       return { stepUpToken, expiresIn: stepUpTokenTtl };
     }).pipe(withStepUp("complete"));

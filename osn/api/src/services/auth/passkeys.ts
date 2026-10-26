@@ -48,12 +48,13 @@ import {
   RECOVERY_ENROLMENT_PASSKEY_CEILING,
 } from "./constants";
 import type { AuthContext } from "./context";
-import { AuthError, DatabaseError } from "./errors";
+import { AuthError, type CoordinationError, DatabaseError } from "./errors";
 import { genId, normaliseIdentifier, now, probeAccountId } from "./helpers";
 import type { ProfilesModule } from "./profiles";
 import type { SecurityEventsModule } from "./security-events";
 import type { SessionsModule } from "./sessions";
 import type { StepUpModule } from "./step-up";
+import { storeCall } from "./store-call";
 import type { TokensModule } from "./tokens";
 import type {
   PasskeyProvenance,
@@ -163,7 +164,7 @@ export function createPasskeysModule(
     caller?: { readonly recoverySessionHash: string },
   ): Effect.Effect<
     { options: PublicKeyCredentialCreationOptionsJSON },
-    AuthError | DatabaseError,
+    AuthError | DatabaseError | CoordinationError,
     Db
   > =>
     Effect.gen(function* () {
@@ -281,7 +282,7 @@ export function createPasskeysModule(
         catch: (cause) => new AuthError({ message: String(cause) }),
       });
 
-      yield* Effect.promise(() =>
+      yield* storeCall(stores.registrationChallenges, "set", () =>
         stores.registrationChallenges.set(
           accountId,
           {
@@ -323,13 +324,21 @@ export function createPasskeysModule(
     callerSessionHash: string | null,
     /** IP + UA for the security_events row. Best-effort; omitted in tests. */
     eventMeta?: SessionMeta,
-  ): Effect.Effect<{ passkeyId: string }, AuthError | DatabaseError, Db | EmailService> =>
+  ): Effect.Effect<
+    { passkeyId: string },
+    AuthError | DatabaseError | CoordinationError,
+    Db | EmailService
+  > =>
     Effect.gen(function* () {
-      const entry = yield* Effect.promise(() => stores.registrationChallenges.get(accountId));
+      const entry = yield* storeCall(stores.registrationChallenges, "get", () =>
+        stores.registrationChallenges.get(accountId),
+      );
       if (!entry || Date.now() > entry.expiresAt) {
         return yield* Effect.fail(new AuthError({ message: "Challenge expired or not found" }));
       }
-      yield* Effect.promise(() => stores.registrationChallenges.delete(accountId));
+      yield* storeCall(stores.registrationChallenges, "delete", () =>
+        stores.registrationChallenges.delete(accountId),
+      );
 
       const verification = yield* Effect.tryPromise({
         try: () =>
@@ -647,7 +656,7 @@ export function createPasskeysModule(
       options: PublicKeyCredentialRequestOptionsJSON;
       challengeId?: string;
     },
-    AuthError | DatabaseError,
+    AuthError | DatabaseError | CoordinationError,
     Db
   > =>
     Effect.gen(function* () {
@@ -667,7 +676,7 @@ export function createPasskeysModule(
         // TTL on the Durable Object store) and sweeps expired entries on insert, so no
         // separate size-cap check is needed.
         const challengeId = crypto.randomUUID();
-        yield* Effect.promise(() =>
+        yield* storeCall(stores.loginChallenges, "set", () =>
           stores.loginChallenges.set(
             `__disc__:${challengeId}`,
             { challenge: options.challenge, expiresAt: Date.now() + CHALLENGE_TTL_MS },
@@ -751,7 +760,7 @@ export function createPasskeysModule(
       // the complete step too.
       if (realCredentials) {
         // Store self-bounds + self-sweeps (see discoverable branch above).
-        yield* Effect.promise(() =>
+        yield* storeCall(stores.loginChallenges, "set", () =>
           stores.loginChallenges.set(
             normalised,
             { challenge: options.challenge, expiresAt: Date.now() + CHALLENGE_TTL_MS },
@@ -781,18 +790,22 @@ export function createPasskeysModule(
   const verifyPasskeyAssertion = (
     context: PasskeyLoginContext,
     assertion: AuthenticationResponseJSON,
-  ): Effect.Effect<ProfileWithEmail, AuthError | DatabaseError, Db> =>
+  ): Effect.Effect<ProfileWithEmail, AuthError | DatabaseError | CoordinationError, Db> =>
     Effect.gen(function* () {
       // Resolve challenge key before any DB lookup.
       const challengeKey =
         context.kind === "identified"
           ? normaliseIdentifier(context.identifier)
           : `__disc__:${context.challengeId}`;
-      const entry = yield* Effect.promise(() => stores.loginChallenges.get(challengeKey));
+      const entry = yield* storeCall(stores.loginChallenges, "get", () =>
+        stores.loginChallenges.get(challengeKey),
+      );
       if (!entry || Date.now() > entry.expiresAt) {
         return yield* Effect.fail(new AuthError({ message: "Challenge expired or not found" }));
       }
-      yield* Effect.promise(() => stores.loginChallenges.delete(challengeKey));
+      yield* storeCall(stores.loginChallenges, "delete", () =>
+        stores.loginChallenges.delete(challengeKey),
+      );
 
       const { db } = yield* Db;
       // Look up the credential row by `credentialId` — stable across both
@@ -922,7 +935,11 @@ export function createPasskeysModule(
       | { identifier: string; assertion: AuthenticationResponseJSON }
       | { challengeId: string; assertion: AuthenticationResponseJSON },
     sessionMeta?: SessionMeta,
-  ): Effect.Effect<{ session: TokenSet; profile: PublicProfile }, AuthError | DatabaseError, Db> =>
+  ): Effect.Effect<
+    { session: TokenSet; profile: PublicProfile },
+    AuthError | DatabaseError | CoordinationError,
+    Db
+  > =>
     Effect.gen(function* () {
       const isDiscoverable = "challengeId" in input;
       const context: PasskeyLoginContext = isDiscoverable

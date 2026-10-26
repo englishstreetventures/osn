@@ -17,10 +17,11 @@ import { forkBackground } from "../../lib/background";
 import { metricSecurityEventRecorded, withCrossDeviceOp } from "../../metrics";
 import { CDL_TTL_SECONDS } from "./constants";
 import type { AuthContext } from "./context";
-import { AuthError, DatabaseError } from "./errors";
+import { AuthError, type CoordinationError, DatabaseError } from "./errors";
 import { genId } from "./helpers";
 import type { ProfilesModule } from "./profiles";
 import type { SecurityEventsModule } from "./security-events";
+import { storeCall } from "./store-call";
 import type { CrossDeviceRequest } from "./stores";
 import type { TokensModule } from "./tokens";
 import type { PublicProfile, SessionMeta, TokenSet } from "./types";
@@ -52,7 +53,11 @@ export function createCrossDeviceModule(
    */
   const beginCrossDeviceLogin = (
     sessionMeta?: SessionMeta,
-  ): Effect.Effect<{ requestId: string; cdlSecret: string; expiresAt: number }, AuthError, never> =>
+  ): Effect.Effect<
+    { requestId: string; cdlSecret: string; expiresAt: number },
+    AuthError | CoordinationError,
+    never
+  > =>
     Effect.gen(function* () {
       // The store self-bounds (CEREMONY_STORE_MAX in-memory FIFO drop,
       // per-entry TTL on the Durable Object store).
@@ -64,7 +69,7 @@ export function createCrossDeviceModule(
       const nowMs = Date.now();
       const expiresAtMs = nowMs + CDL_TTL_SECONDS * 1000;
 
-      yield* Effect.promise(() =>
+      yield* storeCall(stores.crossDeviceRequests, "set", () =>
         stores.crossDeviceRequests.set(
           requestId,
           {
@@ -98,11 +103,13 @@ export function createCrossDeviceModule(
     | { status: "approved"; session: TokenSet; profile: PublicProfile }
     | { status: "rejected" }
     | { status: "expired" },
-    AuthError,
+    AuthError | CoordinationError,
     never
   > =>
     Effect.gen(function* () {
-      const entry = yield* Effect.promise(() => stores.crossDeviceRequests.get(requestId));
+      const entry = yield* storeCall(stores.crossDeviceRequests, "get", () =>
+        stores.crossDeviceRequests.get(requestId),
+      );
       if (!entry) {
         return { status: "expired" as const };
       }
@@ -115,18 +122,24 @@ export function createCrossDeviceModule(
 
       // Check expiry
       if (Date.now() > entry.expiresAt) {
-        yield* Effect.promise(() => stores.crossDeviceRequests.delete(requestId));
+        yield* storeCall(stores.crossDeviceRequests, "delete", () =>
+          stores.crossDeviceRequests.delete(requestId),
+        );
         return { status: "expired" as const };
       }
 
       if (entry.status === "rejected") {
-        yield* Effect.promise(() => stores.crossDeviceRequests.delete(requestId));
+        yield* storeCall(stores.crossDeviceRequests, "delete", () =>
+          stores.crossDeviceRequests.delete(requestId),
+        );
         return { status: "rejected" as const };
       }
 
       if (entry.status === "approved" && entry.session && entry.profile) {
         // One-time consumption — prevent replay.
-        yield* Effect.promise(() => stores.crossDeviceRequests.delete(requestId));
+        yield* storeCall(stores.crossDeviceRequests, "delete", () =>
+          stores.crossDeviceRequests.delete(requestId),
+        );
         return {
           status: "approved" as const,
           session: entry.session,
@@ -146,9 +159,11 @@ export function createCrossDeviceModule(
     secret: string,
     accountId: string,
     sessionMeta?: SessionMeta,
-  ): Effect.Effect<void, AuthError | DatabaseError, Db | EmailService> =>
+  ): Effect.Effect<void, AuthError | DatabaseError | CoordinationError, Db | EmailService> =>
     Effect.gen(function* () {
-      const entry = yield* Effect.promise(() => stores.crossDeviceRequests.get(requestId));
+      const entry = yield* storeCall(stores.crossDeviceRequests, "get", () =>
+        stores.crossDeviceRequests.get(requestId),
+      );
       if (!entry) {
         return yield* Effect.fail(new AuthError({ message: "Request not found or expired" }));
       }
@@ -165,7 +180,9 @@ export function createCrossDeviceModule(
 
       // Check expiry
       if (Date.now() > entry.expiresAt) {
-        yield* Effect.promise(() => stores.crossDeviceRequests.delete(requestId));
+        yield* storeCall(stores.crossDeviceRequests, "delete", () =>
+          stores.crossDeviceRequests.delete(requestId),
+        );
         return yield* Effect.fail(new AuthError({ message: "Request expired" }));
       }
 
@@ -196,7 +213,7 @@ export function createCrossDeviceModule(
         session,
         profile: toPublicProfile(profile, profile.email),
       };
-      yield* Effect.promise(() =>
+      yield* storeCall(stores.crossDeviceRequests, "set", () =>
         stores.crossDeviceRequests.set(
           requestId,
           approvedEntry,
@@ -237,9 +254,11 @@ export function createCrossDeviceModule(
   const rejectCrossDeviceLogin = (
     requestId: string,
     secret: string,
-  ): Effect.Effect<void, AuthError, never> =>
+  ): Effect.Effect<void, AuthError | CoordinationError, never> =>
     Effect.gen(function* () {
-      const entry = yield* Effect.promise(() => stores.crossDeviceRequests.get(requestId));
+      const entry = yield* storeCall(stores.crossDeviceRequests, "get", () =>
+        stores.crossDeviceRequests.get(requestId),
+      );
       if (!entry) {
         return yield* Effect.fail(new AuthError({ message: "Request not found or expired" }));
       }
@@ -255,7 +274,7 @@ export function createCrossDeviceModule(
 
       // Re-persist the rejected status (store returns a copy) with the
       // remaining TTL so a subsequent poll observes "rejected" then cleans up.
-      yield* Effect.promise(() =>
+      yield* storeCall(stores.crossDeviceRequests, "set", () =>
         stores.crossDeviceRequests.set(
           requestId,
           { ...entry, status: "rejected" },

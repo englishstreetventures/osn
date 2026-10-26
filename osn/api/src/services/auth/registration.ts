@@ -16,7 +16,13 @@ import { UNIQUE_CONSTRAINT_ERROR } from "../../lib/unique-constraint";
 import { metricAuthHandleCheck, metricAuthOtpSent, withAuthRegister } from "../../metrics";
 import { MAX_OTP_ATTEMPTS, MIN_AGE_YEARS, RESERVED_HANDLES } from "./constants";
 import type { AuthContext } from "./context";
-import { AgeRestrictionError, AuthError, DatabaseError, ValidationError } from "./errors";
+import {
+  AgeRestrictionError,
+  AuthError,
+  type CoordinationError,
+  DatabaseError,
+  ValidationError,
+} from "./errors";
 import {
   ageInYears,
   BirthdateSchema,
@@ -29,6 +35,7 @@ import {
   now,
 } from "./helpers";
 import type { ProfilesModule } from "./profiles";
+import { storeCall } from "./store-call";
 import type { TokensModule } from "./tokens";
 import type { ProfileWithEmail, SessionMeta } from "./types";
 
@@ -179,20 +186,21 @@ export function createRegistrationModule(
     codeHash: string,
     delivery: "none" | "unknown",
   ): Effect.Effect<void> =>
+    // Best effort throughout: the send has already failed, and the caller's
+    // answer does not depend on this tidying. A read the store could not make
+    // counts as empty, for the reason above.
     Effect.promise(async () => {
-      const stored = await stores.pendingRegistrations.get(key);
+      const stored = await stores.pendingRegistrations.get(key).catch(() => null);
       if (stored !== null && stored.codeHash !== codeHash) return;
       if (delivery === "none") {
-        await stores.pendingRegistrations.delete(key);
+        await stores.pendingRegistrations.delete(key).catch(() => undefined);
         return;
       }
       if (stored === null) return;
       const expiresAt = Math.min(stored.expiresAt, Date.now() + UNKNOWN_DELIVERY_HOLD_MS);
-      await stores.pendingRegistrations.set(
-        key,
-        { ...stored, expiresAt },
-        Math.max(0, expiresAt - Date.now()),
-      );
+      await stores.pendingRegistrations
+        .set(key, { ...stored, expiresAt }, Math.max(0, expiresAt - Date.now()))
+        .catch(() => undefined);
     });
 
   /**
@@ -238,7 +246,7 @@ export function createRegistrationModule(
     displayName?: string,
   ): Effect.Effect<
     { sent: boolean },
-    AgeRestrictionError | AuthError | ValidationError | DatabaseError,
+    AgeRestrictionError | AuthError | ValidationError | DatabaseError | CoordinationError,
     Db | EmailService
   > =>
     Effect.gen(function* () {
@@ -302,7 +310,7 @@ export function createRegistrationModule(
 
       // Don't let an attacker reset a victim's in-progress OTP by
       // re-posting begin with the same email.
-      const existingPending = yield* Effect.promise(() =>
+      const existingPending = yield* storeCall(stores.pendingRegistrations, "get", () =>
         stores.pendingRegistrations.get(normalisedEmail),
       );
       if (existingPending && existingPending.expiresAt > Date.now()) {
@@ -311,7 +319,7 @@ export function createRegistrationModule(
 
       const code = genOtpCode();
       const codeHash = hashSessionToken(code);
-      yield* Effect.promise(() =>
+      yield* storeCall(stores.pendingRegistrations, "set", () =>
         stores.pendingRegistrations.set(
           normalisedEmail,
           {
@@ -393,12 +401,14 @@ export function createRegistrationModule(
       refreshToken: string;
       expiresIn: number;
     },
-    AuthError | DatabaseError,
+    AuthError | DatabaseError | CoordinationError,
     Db
   > =>
     Effect.gen(function* () {
       const key = email.toLowerCase();
-      const pending = yield* Effect.promise(() => stores.pendingRegistrations.get(key));
+      const pending = yield* storeCall(stores.pendingRegistrations, "get", () =>
+        stores.pendingRegistrations.get(key),
+      );
       if (!pending || Date.now() > pending.expiresAt) {
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
       }
@@ -409,9 +419,11 @@ export function createRegistrationModule(
         // (and carry the remaining TTL so the entry still expires on schedule).
         const attempts = pending.attempts + 1;
         if (attempts >= MAX_OTP_ATTEMPTS) {
-          yield* Effect.promise(() => stores.pendingRegistrations.delete(key));
+          yield* storeCall(stores.pendingRegistrations, "delete", () =>
+            stores.pendingRegistrations.delete(key),
+          );
         } else {
-          yield* Effect.promise(() =>
+          yield* storeCall(stores.pendingRegistrations, "set", () =>
             stores.pendingRegistrations.set(
               key,
               { ...pending, attempts },
@@ -477,7 +489,9 @@ export function createRegistrationModule(
       }
 
       // Success: only NOW delete the pending entry.
-      yield* Effect.promise(() => stores.pendingRegistrations.delete(key));
+      yield* storeCall(stores.pendingRegistrations, "delete", () =>
+        stores.pendingRegistrations.delete(key),
+      );
 
       const issued = yield* issueTokens(
         id,

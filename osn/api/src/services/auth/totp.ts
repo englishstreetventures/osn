@@ -50,10 +50,11 @@ import {
 } from "../../metrics";
 import { TOTP_ENROLL_TTL_MS, TOTP_LOCKOUT_THRESHOLD, TOTP_MAX_ENROLL_ATTEMPTS } from "./constants";
 import type { AuthContext } from "./context";
-import { AuthError, DatabaseError } from "./errors";
+import { AuthError, type CoordinationError, DatabaseError } from "./errors";
 import { genId, probeAccountId } from "./helpers";
 import type { SecurityEventsModule } from "./security-events";
 import type { StepUpModule } from "./step-up";
+import { storeCall } from "./store-call";
 import type { SessionMeta } from "./types";
 
 /**
@@ -384,7 +385,11 @@ export function createTotpModule(
   const beginTotpEnrollment = (
     accountId: string,
     stepUpToken: string,
-  ): Effect.Effect<{ otpauthUri: string; totpSecret: string }, AuthError | DatabaseError, Db> =>
+  ): Effect.Effect<
+    { otpauthUri: string; totpSecret: string },
+    AuthError | DatabaseError | CoordinationError,
+    Db
+  > =>
     Effect.gen(function* () {
       yield* verifyStepUpForTotpEnroll(accountId, stepUpToken);
       const ring = yield* keyRing();
@@ -412,7 +417,7 @@ export function createTotpModule(
         catch: (cause) => new DatabaseError({ cause }),
       });
 
-      yield* Effect.promise(() =>
+      yield* storeCall(stores.pendingTotpEnrollments, "set", () =>
         stores.pendingTotpEnrollments.set(
           accountId,
           { ...toJsonSafe(encrypted), attempts: 0, expiresAt: Date.now() + TOTP_ENROLL_TTL_MS },
@@ -443,11 +448,17 @@ export function createTotpModule(
     code: string,
     label: string | null,
     eventMeta?: SessionMeta,
-  ): Effect.Effect<{ enrolled: true }, AuthError | DatabaseError, Db | EmailService> =>
+  ): Effect.Effect<
+    { enrolled: true },
+    AuthError | DatabaseError | CoordinationError,
+    Db | EmailService
+  > =>
     Effect.gen(function* () {
       const ring = yield* keyRing();
 
-      const pending = yield* Effect.promise(() => stores.pendingTotpEnrollments.get(accountId));
+      const pending = yield* storeCall(stores.pendingTotpEnrollments, "get", () =>
+        stores.pendingTotpEnrollments.get(accountId),
+      );
       if (!pending || Date.now() > pending.expiresAt) {
         return yield* Effect.fail(new AuthError({ message: GENERIC_CODE_FAILURE }));
       }
@@ -468,9 +479,11 @@ export function createTotpModule(
       if (!matched) {
         const attempts = pending.attempts + 1;
         if (attempts >= TOTP_MAX_ENROLL_ATTEMPTS) {
-          yield* Effect.promise(() => stores.pendingTotpEnrollments.delete(accountId));
+          yield* storeCall(stores.pendingTotpEnrollments, "delete", () =>
+            stores.pendingTotpEnrollments.delete(accountId),
+          );
         } else {
-          yield* Effect.promise(() =>
+          yield* storeCall(stores.pendingTotpEnrollments, "set", () =>
             stores.pendingTotpEnrollments.set(
               accountId,
               { ...pending, attempts },
@@ -482,7 +495,9 @@ export function createTotpModule(
         return yield* Effect.fail(new AuthError({ message: GENERIC_CODE_FAILURE }));
       }
 
-      yield* Effect.promise(() => stores.pendingTotpEnrollments.delete(accountId));
+      yield* storeCall(stores.pendingTotpEnrollments, "delete", () =>
+        stores.pendingTotpEnrollments.delete(accountId),
+      );
 
       const { db } = yield* Db;
       const nowSec = Math.floor(Date.now() / 1000);
@@ -543,7 +558,11 @@ export function createTotpModule(
     accountId: string,
     stepUpToken: string,
     eventMeta?: SessionMeta,
-  ): Effect.Effect<{ disabled: boolean }, AuthError | DatabaseError, Db | EmailService> =>
+  ): Effect.Effect<
+    { disabled: boolean },
+    AuthError | DatabaseError | CoordinationError,
+    Db | EmailService
+  > =>
     Effect.gen(function* () {
       yield* verifyStepUpForTotpDisable(accountId, stepUpToken);
 
@@ -577,7 +596,9 @@ export function createTotpModule(
 
       // The pending entry too: an in-flight enrolment must not survive a
       // disable and let a half-finished ceremony re-create the credential.
-      yield* Effect.promise(() => stores.pendingTotpEnrollments.delete(accountId));
+      yield* storeCall(stores.pendingTotpEnrollments, "delete", () =>
+        stores.pendingTotpEnrollments.delete(accountId),
+      );
 
       yield* forkBackground(
         securityEventsModule

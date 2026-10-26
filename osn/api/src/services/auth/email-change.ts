@@ -19,9 +19,10 @@ import {
 } from "../../metrics";
 import { MAX_OTP_ATTEMPTS } from "./constants";
 import type { AuthContext } from "./context";
-import { AuthError, DatabaseError, ValidationError } from "./errors";
+import { AuthError, type CoordinationError, DatabaseError, ValidationError } from "./errors";
 import { EmailSchema, genId, genOtpCode, hashSessionToken, logDevOtp } from "./helpers";
 import type { StepUpModule } from "./step-up";
+import { storeCall } from "./store-call";
 
 export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) {
   const { config, stores, otpTtl, emailChangeBeginCap } = ctx;
@@ -45,7 +46,7 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
     newEmail: string,
   ): Effect.Effect<
     { sent: boolean },
-    AuthError | ValidationError | DatabaseError,
+    AuthError | ValidationError | DatabaseError | CoordinationError,
     Db | EmailService
   > =>
     Effect.gen(function* () {
@@ -131,7 +132,7 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
       }
 
       const code = genOtpCode();
-      yield* Effect.promise(() =>
+      yield* storeCall(stores.pendingEmailChanges, "set", () =>
         stores.pendingEmailChanges.set(
           accountId,
           {
@@ -182,7 +183,7 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
     code: string,
     stepUpToken: string,
     currentSessionHash: string | null,
-  ): Effect.Effect<{ email: string }, AuthError | DatabaseError, Db> =>
+  ): Effect.Effect<{ email: string }, AuthError | DatabaseError | CoordinationError, Db> =>
     Effect.gen(function* () {
       // Purpose-bound: a token minted for another ceremony (recovery generate,
       // passkey delete) cannot be replayed to complete an email swap. The
@@ -191,7 +192,9 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
       // the whole rule exists to hold.
       yield* verifyStepUpForEmailChange(accountId, stepUpToken);
 
-      const pending = yield* Effect.promise(() => stores.pendingEmailChanges.get(accountId));
+      const pending = yield* storeCall(stores.pendingEmailChanges, "get", () =>
+        stores.pendingEmailChanges.get(accountId),
+      );
       if (!pending || Date.now() > pending.expiresAt) {
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
       }
@@ -201,7 +204,7 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
         if (attempts >= MAX_OTP_ATTEMPTS) {
           yield* dropPending(accountId);
         } else {
-          yield* Effect.promise(() =>
+          yield* storeCall(stores.pendingEmailChanges, "set", () =>
             stores.pendingEmailChanges.set(
               accountId,
               { ...pending, attempts },
@@ -321,7 +324,9 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
         );
       }
 
-      yield* Effect.promise(() => stores.pendingEmailChanges.delete(accountId));
+      yield* storeCall(stores.pendingEmailChanges, "delete", () =>
+        stores.pendingEmailChanges.delete(accountId),
+      );
       metricSessionSecurityInvalidation("email_change");
       return { email: changed.email };
     }).pipe(withEmailChange("complete"));

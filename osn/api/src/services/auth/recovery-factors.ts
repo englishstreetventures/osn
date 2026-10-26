@@ -39,7 +39,7 @@ import { Db } from "@osn/db/service";
 import { timingSafeEqualString } from "@shared/crypto/timing-safe";
 import { commitBatch, jsonEachIn } from "@shared/db-utils";
 import { type EmailError, EmailService } from "@shared/email";
-import { and, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Effect } from "effect";
 
@@ -64,7 +64,7 @@ import {
   RECOVERY_OTP_TTL_MS,
 } from "./constants";
 import type { AuthContext } from "./context";
-import { AuthError, DatabaseError } from "./errors";
+import { AuthError, type CoordinationError, DatabaseError } from "./errors";
 import {
   genDisownToken,
   genId,
@@ -78,6 +78,7 @@ import {
 } from "./helpers";
 import type { ProfilesModule } from "./profiles";
 import type { SecurityEventsModule } from "./security-events";
+import { storeCall } from "./store-call";
 import type { TokensModule } from "./tokens";
 import type { TotpModule } from "./totp";
 import type {
@@ -167,8 +168,10 @@ export function createRecoveryFactorsModule(
    * request, each with a multi-hour TTL, which turns a latency-equalising
    * measure into unbounded key growth driven by an unauthenticated endpoint.
    */
-  const burnProbeRead = (): Effect.Effect<void> =>
-    Effect.promise(() => stores.pendingRecoveryOtp.get(probeAccountId())).pipe(Effect.asVoid);
+  const burnProbeRead = (): Effect.Effect<void, CoordinationError> =>
+    storeCall(stores.pendingRecoveryOtp, "get", () =>
+      stores.pendingRecoveryOtp.get(probeAccountId()),
+    ).pipe(Effect.asVoid);
 
   /**
    * The same, one store along: burn a round trip on the lockout counter.
@@ -241,7 +244,11 @@ export function createRecoveryFactorsModule(
    */
   const beginEmailRecovery = (
     identifier: string,
-  ): Effect.Effect<RecoveryEmailBeginResult, AuthError | DatabaseError, Db | EmailService> =>
+  ): Effect.Effect<
+    RecoveryEmailBeginResult,
+    AuthError | DatabaseError | CoordinationError,
+    Db | EmailService
+  > =>
     Effect.gen(function* () {
       const normalised = normaliseIdentifier(identifier).trim().toLowerCase();
       if (!looksLikeEmail(normalised)) {
@@ -286,7 +293,7 @@ export function createRecoveryFactorsModule(
       }
 
       const code = genOtpCode();
-      yield* Effect.promise(() =>
+      yield* storeCall(stores.pendingRecoveryOtp, "set", () =>
         stores.pendingRecoveryOtp.set(
           profile.accountId,
           {
@@ -335,7 +342,7 @@ export function createRecoveryFactorsModule(
     sessionMeta?: SessionMeta,
   ): Effect.Effect<
     { session: TokenSet; profile: PublicProfile },
-    AuthError | DatabaseError,
+    AuthError | DatabaseError | CoordinationError,
     Db | EmailService
   > =>
     Effect.gen(function* () {
@@ -406,7 +413,7 @@ export function createRecoveryFactorsModule(
       // defence against someone who owns the inbox. What protects that owner is
       // the asymmetry itself: their pre-recovery passkey acts immediately.
       const disown = genDisownToken(RECOVERY_DISOWN_SECRET_BYTES);
-      yield* Effect.promise(() =>
+      yield* storeCall(stores.recoveryDisownTokens, "set", () =>
         stores.recoveryDisownTokens.set(
           disown.lookupId,
           {
@@ -477,7 +484,7 @@ export function createRecoveryFactorsModule(
     sessionMeta?: SessionMeta,
   ): Effect.Effect<
     { session: TokenSet; profile: PublicProfile },
-    AuthError | DatabaseError,
+    AuthError | DatabaseError | CoordinationError,
     Db | EmailService
   > =>
     Effect.gen(function* () {
@@ -513,14 +520,18 @@ export function createRecoveryFactorsModule(
         // will, by spending the account's attempts first. A counter that
         // cannot be read pays the same four, or a store fault would answer a
         // real account sooner than an identifier that names nobody.
-        yield* Effect.promise(() => stores.pendingRecoveryOtp.get(profile.accountId));
+        yield* storeCall(stores.pendingRecoveryOtp, "get", () =>
+          stores.pendingRecoveryOtp.get(profile.accountId),
+        );
         yield* burnProbeRead();
         yield* burnLockoutRead();
         metricRecoveryLockout(lockout === "locked" ? "locked" : "unavailable");
         return yield* Effect.fail(new AuthError({ message: GENERIC_FAILURE }));
       }
 
-      const entry = yield* Effect.promise(() => stores.pendingRecoveryOtp.get(profile.accountId));
+      const entry = yield* storeCall(stores.pendingRecoveryOtp, "get", () =>
+        stores.pendingRecoveryOtp.get(profile.accountId),
+      );
       if (!entry || Date.now() > entry.expiresAt) {
         // Deliberately NOT counted as a failed attempt. There is no pending code
         // here, so this is not a guess against anything — and counting it would
@@ -539,9 +550,11 @@ export function createRecoveryFactorsModule(
       if (!timingSafeEqualString(entry.codeHash, codeHash)) {
         const attempts = entry.attempts + 1;
         if (attempts >= MAX_OTP_ATTEMPTS) {
-          yield* Effect.promise(() => stores.pendingRecoveryOtp.delete(profile.accountId));
+          yield* storeCall(stores.pendingRecoveryOtp, "delete", () =>
+            stores.pendingRecoveryOtp.delete(profile.accountId),
+          );
         } else {
-          yield* Effect.promise(() =>
+          yield* storeCall(stores.pendingRecoveryOtp, "set", () =>
             stores.pendingRecoveryOtp.set(
               profile.accountId,
               { ...entry, attempts },
@@ -568,7 +581,9 @@ export function createRecoveryFactorsModule(
         return yield* Effect.fail(new AuthError({ message: GENERIC_FAILURE }));
       }
 
-      yield* Effect.promise(() => stores.pendingRecoveryOtp.delete(profile.accountId));
+      yield* storeCall(stores.pendingRecoveryOtp, "delete", () =>
+        stores.pendingRecoveryOtp.delete(profile.accountId),
+      );
       yield* Effect.promise(() => recoveryOtpLockoutStore.reset(profile.accountId));
       metricRecoveryLockout("reset");
 
@@ -641,7 +656,7 @@ export function createRecoveryFactorsModule(
     sessionMeta?: SessionMeta,
   ): Effect.Effect<
     { session: TokenSet; profile: PublicProfile },
-    AuthError | DatabaseError,
+    AuthError | DatabaseError | CoordinationError,
     Db | EmailService
   > =>
     Effect.gen(function* () {
@@ -721,17 +736,10 @@ export function createRecoveryFactorsModule(
       // right shape" is not measurably cheaper than "that was wrong".
       const lookupId = parsed?.lookupId ?? genId("rdt_");
 
-      const entry = yield* Effect.tryPromise({
-        try: () => stores.recoveryDisownTokens.get(lookupId),
-        catch: (cause) => cause,
-      }).pipe(
-        Effect.catch((cause) =>
-          Effect.logWarning("auth.recovery.disown: token store unreadable").pipe(
-            Effect.annotateLogs({ error: String(cause) }),
-            Effect.as(undefined),
-          ),
-        ),
-      );
+      // An unreadable store reads as `undefined`. The store has logged it.
+      const entry = yield* storeCall(stores.recoveryDisownTokens, "get", () =>
+        stores.recoveryDisownTokens.get(lookupId),
+      ).pipe(Effect.catch(() => Effect.succeed(undefined)));
 
       const usable =
         parsed !== null &&
@@ -755,17 +763,10 @@ export function createRecoveryFactorsModule(
       // pass the check and both revoke; the claim makes the first consumer the
       // only one. Claimed BEFORE the revocation, so the token cannot be spent
       // twice even if the writes below fail.
-      const claimed = yield* Effect.tryPromise({
-        try: () => stores.recoveryDisownTokens.consume(lookupId),
-        catch: (cause) => cause,
-      }).pipe(
-        Effect.catch((cause) =>
-          Effect.logWarning("auth.recovery.disown: token claim failed").pipe(
-            Effect.annotateLogs({ error: String(cause) }),
-            Effect.as(null),
-          ),
-        ),
-      );
+      // A claim the store could not make reads as `null`. The store has logged it.
+      const claimed = yield* storeCall(stores.recoveryDisownTokens, "consume", () =>
+        stores.recoveryDisownTokens.consume(lookupId),
+      ).pipe(Effect.catch(() => Effect.succeed(null)));
       if (claimed !== true) {
         // `false` is a lost race: another presentation of this token got there
         // first and is doing the work, so this one is a replay. `null` is a
@@ -782,7 +783,7 @@ export function createRecoveryFactorsModule(
             // Put the token back so the owner's second click works. The writes
             // are idempotent, so re-parking cannot do harm even where the batch
             // had in fact landed and only the acknowledgement was lost.
-            yield* Effect.promise(() =>
+            yield* storeCall(stores.recoveryDisownTokens, "set", () =>
               stores.recoveryDisownTokens.set(
                 lookupId,
                 entry,
@@ -798,7 +799,9 @@ export function createRecoveryFactorsModule(
 
   /** Burn one disown-store read, so a refusal costs what an acceptance costs. */
   const burnDisownProbeRead = (): Effect.Effect<void> =>
-    Effect.promise(() => stores.recoveryDisownTokens.get(genId("rdt_"))).pipe(
+    storeCall(stores.recoveryDisownTokens, "get", () =>
+      stores.recoveryDisownTokens.get(genId("rdt_")),
+    ).pipe(
       Effect.catch(() => Effect.void),
       Effect.asVoid,
     );
