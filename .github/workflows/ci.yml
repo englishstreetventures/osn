@@ -146,6 +146,13 @@ jobs:
         with:
           bun-version-file: .bun-version
 
+      # The Astro sites' `typecheck` runs `tsc --runExternalCode`, which starts
+      # `@astrojs/ts-content-mapper` as `node dist/server.js`. Pinned here so the
+      # mapper runs on a known Node rather than whatever the runner image ships.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
       - name: Cache bun dependencies
         uses: actions/cache@v4
         with:
@@ -188,7 +195,7 @@ jobs:
       # It lives here rather than in `script-tests` because that job does no
       # `bun install` on purpose, and `scripts/tsconfig.json` inherits
       # `types: ["bun-types"]` from the root — without the install, `bun check` fails
-      # on the type package rather than on the code.
+      # on the missing type package rather than on the code.
       - name: Type check the scripts
         run: bun check --no-script -p scripts/tsconfig.json
 
