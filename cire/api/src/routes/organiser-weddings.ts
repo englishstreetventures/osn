@@ -364,10 +364,7 @@ export const createOrganiserExportRoutes = (
                     .build(weddingId)
                     .pipe(Effect.provideService(EffectDbService, effectDb));
               return csvAttachment(toCsv(data), `cire-rsvps-${weddingSlug ?? weddingId}.csv`);
-            }).pipe(
-              Effect.provideService(DbService, db),
-              Effect.catchDefect(() => exportDefect(set, "rsvps.csv", weddingId)),
-            ),
+            }).pipe(Effect.catchDefect(() => exportDefect(set, "rsvps.csv", weddingId))),
           );
         })
         // Guest-roster CSV export — one row per guest with household code,
