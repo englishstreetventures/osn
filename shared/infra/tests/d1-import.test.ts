@@ -202,18 +202,28 @@ describe.each(COPIES)("alchemy's D1 import, $copy copy", ({ path }) => {
     expect(failure(exit)).toContain(ERROR);
   });
 
-  test("a′: a poll reply with status error dies with its error", async () => {
-    const { exit } = await run(await load(path), {
-      polls: [ok({ success: true, status: "error", error: ERROR })],
+  test("a′: a poll reply with status error and a bookmark dies with its error, polling no more", async () => {
+    const { exit, requests } = await run(await load(path), {
+      polls: [ok({ success: true, status: "error", error: ERROR, at_bookmark: "bm-ingest" })],
     });
     expect(failure(exit)).toContain(ERROR);
+    expect(pollBookmarks(requests)).toEqual(["bm-ingest"]);
   });
 
-  test("a″: a poll reply with status error and an errors list carries the list", async () => {
-    const { exit } = await run(await load(path), {
-      polls: [ok({ success: true, status: "error", errors: [ERROR], messages: ["Import failed"] })],
+  test("a″: a poll reply with status error and an errors list carries the list, polling no more", async () => {
+    const { exit, requests } = await run(await load(path), {
+      polls: [
+        ok({
+          success: true,
+          status: "error",
+          errors: [ERROR],
+          messages: ["Import failed"],
+          at_bookmark: "bm-ingest",
+        }),
+      ],
     });
     expect(failure(exit)).toContain(ERROR);
+    expect(pollBookmarks(requests)).toEqual(["bm-ingest"]);
   });
 
   test("b: a poll reply with no status, error or bookmark carries the reply", async () => {
@@ -306,6 +316,14 @@ describe.each(COPIES)("alchemy's D1 import, $copy copy", ({ path }) => {
         ],
       },
     },
+    {
+      name: "a poll envelope with a null result",
+      script: {
+        polls: [
+          json({ success: true, errors: [], messages: [], upload_url: UPLOAD_URL, result: null }),
+        ],
+      },
+    },
   ])("f: $name names no upload URL", async ({ script }) => {
     const { exit } = await run(await load(path), script);
     const message = failure(exit);
@@ -313,20 +331,25 @@ describe.each(COPIES)("alchemy's D1 import, $copy copy", ({ path }) => {
     expect(message).not.toContain(SIGNATURE);
   });
 
-  test("f′: a failed upload reports R2's error code, never the signature it echoes", async () => {
-    const { exit } = await run(await load(path), {
-      put: {
-        status: 403,
-        body:
-          '<?xml version="1.0" encoding="UTF-8"?><Error><Code>SignatureDoesNotMatch</Code>' +
-          "<Message>The request signature we calculated does not match the signature you provided.</Message>" +
-          `<SignatureProvided>${SIGNATURE}</SignatureProvided>` +
-          `<CanonicalRequest>PUT /import.sql X-Amz-Signature=${SIGNATURE}</CanonicalRequest></Error>`,
-      },
-    });
+  test.each([
+    {
+      name: "an S3 error echoing the signature",
+      body:
+        '<?xml version="1.0" encoding="UTF-8"?><Error><Code>SignatureDoesNotMatch</Code>' +
+        "<Message>The request signature we calculated does not match the signature you provided.</Message>" +
+        `<SignatureProvided>${SIGNATURE}</SignatureProvided>` +
+        `<CanonicalRequest>PUT /import.sql X-Amz-Signature=${SIGNATURE}</CanonicalRequest></Error>`,
+      shows: "(403): SignatureDoesNotMatch",
+    },
+    {
+      name: "a plain-text error echoing the upload URL",
+      body: `403 Forbidden: PUT ${UPLOAD_URL} refused`,
+      shows: "(403)",
+    },
+  ])("f′: a failed upload answered with $name reports no signature", async ({ body, shows }) => {
+    const { exit } = await run(await load(path), { put: { status: 403, body } });
     const message = failure(exit);
-    expect(message).toContain("(403)");
-    expect(message).toContain("SignatureDoesNotMatch");
+    expect(message).toContain(shows);
     expect(message).not.toContain(SIGNATURE);
   });
 
@@ -337,7 +360,7 @@ describe.each(COPIES)("alchemy's D1 import, $copy copy", ({ path }) => {
         ok({ success: true, status: "complete", at_bookmark: "bm-2", result: { num_queries: 7 } }),
       ],
     });
-    expect(success(exit).numQueries).toBe(7);
+    expect(success(exit)).toEqual({ filename: "import-abc.sql", numQueries: 7 });
     expect(pollBookmarks(requests)).toEqual(["bm-ingest", "bm-2"]);
     expect(sleeps).toEqual([1000, 1000]);
   });
@@ -361,7 +384,7 @@ describe.each(COPIES)("alchemy's D1 import, $copy copy", ({ path }) => {
         }),
       ],
     });
-    expect(success(exit).numQueries).toBe(4);
+    expect(success(exit)).toEqual({ filename: "import-abc.sql", numQueries: 4 });
     expect(actions(requests)).toEqual(["init", "poll"]);
     expect(pollBookmarks(requests)).toEqual(["bm-init"]);
   });
@@ -372,4 +395,29 @@ describe.each(COPIES)("alchemy's D1 import, $copy copy", ({ path }) => {
     });
     expect(failure(exit)).toContain("init gave no upload slot");
   });
+
+  test("i″: an init reply with no upload URL that reports completion succeeds with its count", async () => {
+    const { exit, requests } = await run(await load(path), {
+      init: ok({
+        success: true,
+        status: "complete",
+        filename: "import-abc.sql",
+        result: { num_queries: 5 },
+      }),
+    });
+    expect(success(exit)).toEqual({ filename: "import-abc.sql", numQueries: 5 });
+    expect(actions(requests)).toEqual(["init"]);
+  });
+
+  test.each([
+    { name: "status error", reply: { success: true, status: "error", error: ERROR } },
+    { name: "success false", reply: { success: false, error: ERROR, at_bookmark: "bm-init" } },
+  ])(
+    "i‴: an init reply with no upload URL and $name dies with its error, sending nothing more",
+    async ({ reply }) => {
+      const { exit, requests } = await run(await load(path), { init: ok(reply) });
+      expect(failure(exit)).toContain(ERROR);
+      expect(actions(requests)).toEqual(["init"]);
+    },
+  );
 });
