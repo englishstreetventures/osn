@@ -28,8 +28,14 @@ interface ValueRule {
  * takes only a test-mode key, so no dev deploy can move real money; and the
  * dev sign-in secret and the organiser-session revoke secret, each of which
  * alone stands between a public route and someone else's session, are long
- * enough that guessing them is hopeless.
+ * enough that guessing them is hopeless. The revoke secret holds that rule on
+ * production too; osn-api and cire-api each treat a shorter one as unset.
  */
+const AT_LEAST_32: ValueRule = {
+  rule: "at least 32 characters",
+  fits: (value) => value.length >= 32,
+};
+
 const TIER_VALUE_RULES = {
   dev: new Map<string, ValueRule>([
     [
@@ -39,13 +45,10 @@ const TIER_VALUE_RULES = {
         fits: (value) => /^(sk|rk)_test_/.test(value),
       },
     ],
-    ["DEV_LOGIN_SECRET", { rule: "at least 32 characters", fits: (value) => value.length >= 32 }],
-    [
-      "CIRE_INTERNAL_REVOKE_SECRET",
-      { rule: "at least 32 characters", fits: (value) => value.length >= 32 },
-    ],
+    ["DEV_LOGIN_SECRET", AT_LEAST_32],
+    ["CIRE_INTERNAL_REVOKE_SECRET", AT_LEAST_32],
   ]),
-  production: new Map<string, ValueRule>(),
+  production: new Map<string, ValueRule>([["CIRE_INTERNAL_REVOKE_SECRET", AT_LEAST_32]]),
 } satisfies Record<Tier, ReadonlyMap<string, ValueRule>>;
 
 /**
