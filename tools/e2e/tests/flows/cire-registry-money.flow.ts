@@ -20,8 +20,8 @@
  * (`POST /internal/revoke-organiser-sessions`, with the secret the stack gives
  * both). The flow waits for cire-api's session probe to answer signed out for
  * the cookie the browser still holds, finds no `organiser_sessions` row left
- * for the dev profile, and sees the portal, opened again, send the owner to
- * sign in. These steps share this flow's sign-in rather than spend one of
+ * for the dev profile, sees the gift list read with that cookie answer 401,
+ * and sees the portal, opened again, send the owner to sign in. These steps share this flow's sign-in rather than spend one of
  * their own (`tests/flows.test.ts` caps them), and come last because they end
  * it. A flow after this one signs in afresh.
  */
@@ -144,6 +144,16 @@ test("cire-registry-money", async ({ page, flow }) => {
   );
   flow.check("cire-api session probe after sign out everywhere", false, stillSignedIn);
   flow.check("organiser_sessions rows left for the dev profile", 0, organiserSessions());
+
+  const organiserRead = await flow.step(
+    "cire-api: the old cookie opens no organiser route",
+    async () => {
+      const response = await request.get(REGISTRY_URL);
+      flow.recordRequest("GET", REGISTRY_URL, response.status());
+      return response.status();
+    },
+  );
+  flow.check("cire-api gift list read with the old cookie", 401, organiserRead);
 
   // A second page, so the flow's screenshot stays the gift list above.
   const portal = await flow.step("organiser: the portal asks them to sign in again", async () => {
