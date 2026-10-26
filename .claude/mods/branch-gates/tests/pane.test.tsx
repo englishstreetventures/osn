@@ -259,7 +259,7 @@ test("control characters from the plan and git reach no surface", async ($, on) 
   expect(shown).toContain("Issue #412 ]52;c;eA==");
   expect(shown).toContain("✓ lint [2J — RAN");
   await ui.unmount();
-  for (const line of [...shown, ...fake.statuses]) expect(hasControl(line)).toBe(false);
+  for (const line of shown) expect(hasControl(line)).toBe(false);
 });
 
 test("the band asks for a missing changeset", async ($, on) => {

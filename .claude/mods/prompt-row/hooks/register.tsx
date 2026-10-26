@@ -137,7 +137,9 @@ export const register: Register = (on) => {
     const { agents, rest } = hintParts(e.props.hint);
     const level =
       family && held?.level && familyOf(held.model)?.name === family.name ? held.level : null;
-    const full = Math.floor((percent ?? 0) / 10);
+    // A reading outside 0..100 fills the bar to an end rather than throwing,
+    // which would lose the whole row.
+    const full = Math.min(BAR_CELLS, Math.max(0, Math.floor((percent ?? 0) / 10)));
     const cells = "▰".repeat(full) + "▱".repeat(BAR_CELLS - full);
 
     const { Box, Text } = $.ui.resolve(e);

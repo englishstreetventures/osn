@@ -97,9 +97,8 @@ type Drawing = {
   findAll: (q: { type: string }) => Promise<readonly Found[]>;
 };
 
-// The row's parts in order, separators left out.
-const row = async (ui: Drawing) =>
-  (await ui.findAll({ type: "Text" })).map((t) => t.text.trim()).filter((t) => t !== "|");
+// The row's texts in order, separators included.
+const row = async (ui: Drawing) => (await ui.findAll({ type: "Text" })).map((t) => t.text.trim());
 const part = (ui: Drawing, text: RegExp) => ui.find({ type: "Text", text });
 const tagText = async (ui: Drawing) => (await part(ui, /●/))?.text.trim();
 const bar = (ui: Drawing) => part(ui, /[▰▱]/);
@@ -155,8 +154,11 @@ test("the row runs agents, model and effort, context, session, on one line, on b
     const ui = await $.ui.mount({ ...hint(LIVE_HINT), surface });
     expect(await row(ui)).toEqual([
       "← 6 agents",
+      "|",
       "● Opus · high",
+      "|",
       "▰▰▰▱▱▱▱▱▱▱ 34%",
+      "|",
       `session ${SESSION}`,
     ]);
     expect(await part(ui, /shift\+tab/)).toBe(undefined);
@@ -167,7 +169,31 @@ test("the row runs agents, model and effort, context, session, on one line, on b
 test("what the hint holds besides agents comes last", async ($, on) => {
   engine(on);
   const ui = await $.ui.mount({ ...hint("esc to interrupt · ← 2 agents"), surface: "terminal" });
-  expect(await row(ui)).toEqual(["← 2 agents", "● Opus", `session ${SESSION}`, "esc to interrupt"]);
+  expect(await row(ui)).toEqual([
+    "← 2 agents",
+    "|",
+    "● Opus",
+    "|",
+    `session ${SESSION}`,
+    "|",
+    "esc to interrupt",
+  ]);
+  await ui.unmount();
+});
+
+test("one agent is counted, and several leftover pieces keep their order", async ($, on) => {
+  engine(on, { session: null });
+  const ui = await $.ui.mount({
+    ...hint("esc to interrupt · ← 1 agent · ctrl+t to show todos"),
+    surface: "terminal",
+  });
+  expect(await row(ui)).toEqual([
+    "← 1 agent",
+    "|",
+    "● Opus",
+    "|",
+    "esc to interrupt · ctrl+t to show todos",
+  ]);
   await ui.unmount();
 });
 
@@ -201,7 +227,7 @@ test("an unknown model still shows the session id, with no dot", async ($, on) =
 test("a refused session id leaves the rest of the row", async ($, on) => {
   engine(on, { session: null });
   const ui = await $.ui.mount({ ...HINT, surface: "terminal" });
-  expect(await row(ui)).toEqual(["● Opus", "? for shortcuts"]);
+  expect(await row(ui)).toEqual(["● Opus", "|", "? for shortcuts"]);
   await ui.unmount();
 });
 
@@ -307,13 +333,30 @@ test("the bar follows a new measure of the context", async ($, on) => {
   await ui.unmount();
 });
 
-test("the bar follows the window after each main-thread request", async ($, on) => {
+test("the bar follows the window after each main-thread request, the level unchanged", async ($, on) => {
   const world = engine(on, { percent: 10 });
   const ui = await $.ui.mount({ ...HINT, surface: "terminal" });
+  await runStep($, step({ effort: "high" }));
+  expect((await bar(ui))?.text.trim()).toBe("▰▱▱▱▱▱▱▱▱▱ 10%");
+
   world.percent = 20;
+  expect((await bar(ui))?.text.trim()).toBe("▰▱▱▱▱▱▱▱▱▱ 10%");
   await runStep($, step({ effort: "high" }));
   expect((await bar(ui))?.text.trim()).toBe("▰▰▱▱▱▱▱▱▱▱ 20%");
   await ui.unmount();
+});
+
+test("a reading outside 0 to 100 fills the bar to its ends and keeps the row", async ($, on) => {
+  const world = engine(on, { percent: 120 });
+  const ui = await $.ui.mount({ ...HINT, surface: "terminal" });
+  expect((await bar(ui))?.text.trim()).toBe("▰▰▰▰▰▰▰▰▰▰ 120%");
+  expect(await sessionText(ui)).toBe(`session ${SESSION}`);
+  await ui.unmount();
+
+  world.percent = -5;
+  const again = await $.ui.mount({ ...HINT, surface: "terminal" });
+  expect((await bar(again))?.text.trim()).toBe("▱▱▱▱▱▱▱▱▱▱ -5%");
+  await again.unmount();
 });
 
 test("no reading yet draws no bar", async ($, on) => {
@@ -348,7 +391,7 @@ test("the bar is dim below 70%, a warning from 70% and an error from 85%", async
 test("a refused usage read leaves the rest of the row", async ($, on) => {
   engine(on, { percent: null });
   const ui = await $.ui.mount({ ...HINT, surface: "terminal" });
-  expect(await row(ui)).toEqual(["● Opus", `session ${SESSION}`, "? for shortcuts"]);
+  expect(await row(ui)).toEqual(["● Opus", "|", `session ${SESSION}`, "|", "? for shortcuts"]);
   await ui.unmount();
 });
 
