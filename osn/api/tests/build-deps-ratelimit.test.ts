@@ -1,10 +1,10 @@
 import { generateArcKeyPair } from "@shared/crypto";
 import type { WorkersRateLimitBinding } from "@shared/rate-limit";
-import { createMemoryClient } from "@shared/redis";
 import { exportJWK } from "jose";
 import { describe, it, expect, beforeAll } from "vitest";
 
 import { buildAppDeps, type BuildParts, type EnvVars } from "../src/build-deps";
+import { createInMemoryCoordination } from "../src/lib/coordination/memory";
 import { osnLoggerLayer } from "../src/observability";
 import { createTestLayer } from "./helpers/db";
 
@@ -43,7 +43,7 @@ function nonLocalEnv(over: Partial<Record<string, string>> = {}): EnvVars {
 
 function parts(over: Partial<BuildParts> = {}): BuildParts {
   return {
-    redisClient: createMemoryClient(),
+    coordination: () => createInMemoryCoordination(),
     dbAndEmailLayer: createTestLayer(),
     observabilityLayer: osnLoggerLayer,
     includeObservabilityPlugin: false,
@@ -85,9 +85,9 @@ describe("Part 1 — buildAppDeps client-IP trust", () => {
 });
 
 describe("Part 2 — buildAppDeps native rate-limit binding selection", () => {
-  it("no bindings → all auth limiters stay on Redis (60s slot keyed by raw IP)", async () => {
+  it("no bindings → all auth limiters stay on the coordination store (keyed by raw IP)", async () => {
     const built = await buildAppDeps(nonLocalEnv(), parts());
-    // The Redis-backed registerBegin keys by the raw IP; no native-binding
+    // The store-backed registerBegin keys by the raw IP; no native-binding
     // namespace prefix is involved.
     expect(typeof built.deps.authRateLimiters.registerBegin.check).toBe("function");
     expect(await built.deps.authRateLimiters.registerBegin.check("1.2.3.4")).toBe(true);
@@ -113,7 +113,7 @@ describe("Part 2 — buildAppDeps native rate-limit binding selection", () => {
     expect(seen).toEqual(["register_begin:9.9.9.9"]);
   });
 
-  it("bindings present → 1-hour per-IP limiters stay on Redis (never the native binding)", async () => {
+  it("bindings present → 1-hour per-IP limiters stay on the coordination store", async () => {
     const seen: string[] = [];
     const binding = allowBinding(seen);
     const built = await buildAppDeps(
@@ -151,7 +151,7 @@ describe("Part 2 — buildAppDeps native rate-limit binding selection", () => {
       }),
     );
     // graph/org/recommendation per-user limiters + the two account caps stay on
-    // Redis — exercising them must not hit the native binding.
+    // the coordination store — exercising them must not hit the native binding.
     await built.deps.graphRateLimiter.check("usr_1");
     await built.deps.orgRateLimiter.check("usr_1");
     await built.deps.recommendationRateLimiters.suggest.check("usr_1");

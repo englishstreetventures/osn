@@ -1,11 +1,11 @@
 import { accounts, organisationMembers, organisations, users } from "@osn/db/schema";
 import { generateArcKeyPair } from "@shared/crypto";
-import { createMemoryClient } from "@shared/redis";
 import { exportJWK } from "jose";
 import { beforeAll, describe, expect, it } from "vitest";
 
 import { createApp } from "../src/app";
 import { buildAppDeps } from "../src/build-deps";
+import { createInMemoryCoordination } from "../src/lib/coordination/memory";
 import { osnLoggerLayer } from "../src/observability";
 import { DEV_PRINCIPAL } from "../src/routes/auth/dev-login";
 import { createTestLayerWithSqlite } from "./helpers/db";
@@ -67,7 +67,7 @@ const deployedEnv = (osnEnv: string): Record<string, string> => ({
 async function build(env: Record<string, string | undefined>) {
   const { layer, db } = createTestLayerWithSqlite();
   const built = await buildAppDeps(env, {
-    redisClient: createMemoryClient(),
+    coordination: () => createInMemoryCoordination(),
     dbAndEmailLayer: layer,
     observabilityLayer: osnLoggerLayer,
     includeObservabilityPlugin: false,

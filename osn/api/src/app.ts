@@ -7,16 +7,8 @@ import type { TurnstileVerifier } from "@shared/turnstile";
 import { Elysia } from "elysia";
 
 import type { CookieSessionConfig } from "./lib/cookie-session";
+import type { CoordinationStores } from "./lib/coordination";
 import { createOriginGuard } from "./lib/origin-guard";
-import type { RedisCeremonyWiring } from "./lib/redis-ceremony-stores";
-import type {
-  createRedisAuthRateLimiters,
-  createRedisGraphRateLimiter,
-  createRedisOrgRateLimiter,
-  createRedisProfileRateLimiters,
-  createRedisRecommendationRateLimiters,
-} from "./lib/redis-rate-limiters";
-import type { createRedisJtiStore } from "./lib/step-up-jti-store";
 import { createAccountErasureRoutes } from "./routes/account-erasure";
 import { createAccountExportRoutes } from "./routes/account-export";
 import { createAuthRoutes } from "./routes/auth";
@@ -83,30 +75,38 @@ export interface AppDeps {
   observabilityLayer: Parameters<typeof createAuthRoutes>[2];
   /** Shared `ManagedRuntime` — the layer graph, built once. */
   appRuntime: Parameters<typeof createAuthRoutes>[6];
-  /** Per-IP auth rate limiters. */
-  authRateLimiters: ReturnType<typeof createRedisAuthRateLimiters>;
-  /** Per-user graph write rate limiter. */
-  graphRateLimiter: ReturnType<typeof createRedisGraphRateLimiter>;
-  /** Per-user org write rate limiter. */
-  orgRateLimiter: ReturnType<typeof createRedisOrgRateLimiter>;
-  /** Per-user profile rate limiters. */
-  profileRateLimiters: ReturnType<typeof createRedisProfileRateLimiters>;
-  /** Per-user recommendation rate limiter. */
-  recommendationRateLimiters: ReturnType<typeof createRedisRecommendationRateLimiters>;
-  /** Cluster-safe single-use guard for step-up JWTs. */
-  stepUpJtiStore: ReturnType<typeof createRedisJtiStore>;
   /**
-   * O3/O2 (W6) — Redis-backed ceremony / pending-state stores, the recovery-code
-   * lockout counter, and the two per-account caps. Spread into `authConfig` at
-   * the `createAuthRoutes` call alongside the step-up / rotated-session stores.
+   * Per-IP auth rate limiters: the coordination bundle's, with the one-minute
+   * ones on native bindings where the Worker has them.
    */
-  ceremonyStores: RedisCeremonyWiring["ceremonyStores"];
-  recoveryLockoutStore: RedisCeremonyWiring["recoveryLockoutStore"];
-  recoveryOtpLockoutStore: RedisCeremonyWiring["recoveryOtpLockoutStore"];
-  totpLockoutStore: RedisCeremonyWiring["totpLockoutStore"];
-  profileSwitchCap: RedisCeremonyWiring["profileSwitchCap"];
-  emailChangeBeginCap: RedisCeremonyWiring["emailChangeBeginCap"];
-  recoveryEmailBeginCap: RedisCeremonyWiring["recoveryEmailBeginCap"];
+  authRateLimiters: CoordinationStores["authRateLimiters"];
+  /** Per-user graph write rate limiter. */
+  graphRateLimiter: CoordinationStores["graphRateLimiter"];
+  /** Per-user org write rate limiter. */
+  orgRateLimiter: CoordinationStores["orgRateLimiter"];
+  /** Per-IP profile rate limiters. */
+  profileRateLimiters: CoordinationStores["profileRateLimiters"];
+  /** Per-user recommendation rate limiters. */
+  recommendationRateLimiters: CoordinationStores["recommendationRateLimiters"];
+  /** Per-account account-export limiter, and the per-IP guard in front of it. */
+  accountExportLimiter: CoordinationStores["accountExportLimiter"];
+  accountExportIpLimiter: CoordinationStores["accountExportIpLimiter"];
+  /** Per-account deletion, restore and status limiters. */
+  accountErasureRateLimiters: CoordinationStores["accountErasureRateLimiters"];
+  /** Single-use guard for step-up JWTs. */
+  stepUpJtiStore: CoordinationStores["stepUpJtiStore"];
+  /**
+   * The ceremony / pending-state stores, the three lockout counters and the
+   * three per-account caps, from the coordination bundle. Spread into
+   * `authConfig` at the `createAuthRoutes` call alongside the step-up store.
+   */
+  ceremonyStores: CoordinationStores["ceremonyStores"];
+  recoveryLockoutStore: CoordinationStores["recoveryLockoutStore"];
+  recoveryOtpLockoutStore: CoordinationStores["recoveryOtpLockoutStore"];
+  totpLockoutStore: CoordinationStores["totpLockoutStore"];
+  profileSwitchCap: CoordinationStores["profileSwitchCap"];
+  emailChangeBeginCap: CoordinationStores["emailChangeBeginCap"];
+  recoveryEmailBeginCap: CoordinationStores["recoveryEmailBeginCap"];
   /**
    * Client-IP trust policy. Derived from `TRUSTED_PROXY_COUNT`. Threaded
    * into the auth + profile route factories so per-IP rate-limit keying + the
@@ -173,6 +173,9 @@ export function createApp(deps: AppDeps) {
     orgRateLimiter,
     profileRateLimiters,
     recommendationRateLimiters,
+    accountExportLimiter,
+    accountExportIpLimiter,
+    accountErasureRateLimiters,
     stepUpJtiStore,
     ceremonyStores,
     recoveryLockoutStore,
@@ -243,8 +246,7 @@ export function createApp(deps: AppDeps) {
   return withDocs
     .use(
       createAuthRoutes(
-        // INTEGRATION: O3/O2 (W6) — ceremonyStores + recoveryLockoutStore + the
-        // two caps join stepUpJtiStore on the auth config.
+        // The coordination stores join the auth config.
         {
           ...authConfig,
           stepUpJtiStore,
@@ -297,7 +299,7 @@ export function createApp(deps: AppDeps) {
         authConfig,
         dbAndEmailLayer,
         observabilityLayer,
-        undefined,
+        accountErasureRateLimiters,
         cookieConfig,
         clientIpConfig,
         appRuntime,
@@ -308,8 +310,8 @@ export function createApp(deps: AppDeps) {
         authConfig,
         DbLive,
         observabilityLayer,
-        undefined,
-        undefined,
+        accountExportLimiter,
+        accountExportIpLimiter,
         clientIpConfig,
         appRuntime,
       ),

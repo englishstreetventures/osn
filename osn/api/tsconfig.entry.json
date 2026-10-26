@@ -1,0 +1,14 @@
+{
+  // The Worker's module, `src/entry.ts`: the one file that loads
+  // `cloudflare:workers`, which only the Workers types declare. It imports the
+  // handler and with it all of `src/`, which uses Node's `Buffer` and typed
+  // arrays as Bun's types describe them, so Bun's types load too. The rest of
+  // `src/` is checked by `tsconfig.json` against Bun's types alone.
+  "extends": "@shared/typescript-config/base.json",
+  "compilerOptions": {
+    "lib": ["ES2023"],
+    "types": ["@cloudflare/workers-types", "bun-types"],
+    "skipLibCheck": true
+  },
+  "include": ["src/entry.ts"]
+}

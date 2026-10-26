@@ -1,5 +1,4 @@
 import { generateArcKeyPair } from "@shared/crypto";
-import { createMemoryClient } from "@shared/redis";
 import { exportJWK } from "jose";
 import { describe, it, expect, beforeAll } from "vitest";
 
@@ -10,6 +9,7 @@ import {
   parseTrustedProxyCount,
 } from "../src/build-deps";
 import { handler, type Env } from "../src/index";
+import { createInMemoryCoordination } from "../src/lib/coordination/memory";
 import {
   createTotpKeyRing,
   decryptTotpSecret,
@@ -19,6 +19,7 @@ import {
   TOTP_KEY_VERSION,
 } from "../src/lib/totp-secret-crypto";
 import { osnLoggerLayer } from "../src/observability";
+import { createFakeNamespace } from "./helpers/coordination-namespace";
 import { createTestLayer } from "./helpers/db";
 
 /**
@@ -28,13 +29,12 @@ import { createTestLayer } from "./helpers/db";
  *
  *   S-H2  loadJwtKeyPair        — missing JWT keys in non-local ⇒ throw.
  *   S-M2  buildAppDeps          — short/absent OSN_SESSION_IP_PEPPER ⇒ throw.
- *   S-L1  buildAll (via index)  — missing Upstash bindings in non-local ⇒ throw
- *                                 (surfaced as a 503 from handler.fetch).
+ *   handler.fetch               — no COORDINATION binding in any tier ⇒ 503.
  *   S-M34 parseTrustedProxyCount — malformed counts ⇒ throw.
  */
 
 // A REAL ES256 JWK pair (base64-encoded JWK JSON, exactly the wrangler-secret
-// shape) generated once so the pepper / Upstash guards are what fire — not a
+// shape) generated once so the pepper / email guards are what fire — not a
 // JWK-import failure. `loadJwtKeyPair` runs BEFORE those guards and calls
 // `importKeyFromJwk`, which rejects a malformed JWK, so the fixture must be a
 // genuine key.
@@ -50,7 +50,7 @@ beforeAll(async () => {
 
 function nonLocalParts() {
   return {
-    redisClient: createMemoryClient(),
+    coordination: () => createInMemoryCoordination(),
     dbAndEmailLayer: createTestLayer(),
     observabilityLayer: osnLoggerLayer,
     includeObservabilityPlugin: false,
@@ -266,34 +266,42 @@ describe("buildAppDeps session-IP-pepper non-local guard (S-M2)", () => {
   });
 });
 
-describe("buildAll Upstash gate non-local (S-L1)", () => {
-  // The S-L1 gate lives in `buildAll` inside index.ts; we drive it through the
-  // real `handler.fetch`, which fails LOUD as a 503 when the build throws.
-  it("returns 503 in non-local when the Upstash bindings are missing", async () => {
-    const env = {
-      OSN_ENV: "production",
-      DB: {} as Env["DB"],
-      OSN_ISSUER_URL: "https://api.osn.test",
-      OSN_CORS_ORIGIN: "https://app.osn.test",
-      OSN_RP_ID: "osn.test",
-      OSN_JWT_PRIVATE_KEY: privB64,
-      OSN_JWT_PUBLIC_KEY: pubB64,
-      OSN_SESSION_IP_PEPPER: "x".repeat(32),
-      OSN_PAIRWISE_SALT: "p".repeat(32),
-      OSN_TOTP_ENCRYPTION_KEY: Buffer.from("t".repeat(32)).toString("base64"),
-      // CF email present so the Upstash gate (which runs first) is the guard
-      // that fires.
-      CLOUDFLARE_ACCOUNT_ID: "acct",
-      CLOUDFLARE_EMAIL_API_TOKEN: "tok",
-      // UPSTASH_* deliberately absent.
-    } as Env;
+// F-SV6: no per-isolate stand-in is safe for the shared stores, in any tier.
+describe("handler.fetch without the COORDINATION binding", () => {
+  const deployedEnv = (tier: string): Env => ({
+    OSN_ENV: tier,
+    DB: {} as Env["DB"],
+    OSN_ISSUER_URL: "https://api.osn.test",
+    OSN_CORS_ORIGIN: "https://app.osn.test",
+    OSN_ORIGIN: "https://app.osn.test",
+    OSN_RP_ID: "osn.test",
+    OSN_JWT_PRIVATE_KEY: privB64,
+    OSN_JWT_PUBLIC_KEY: pubB64,
+    OSN_SESSION_IP_PEPPER: "x".repeat(32),
+    OSN_PAIRWISE_SALT: "p".repeat(32),
+    OSN_TOTP_ENCRYPTION_KEY: Buffer.from("t".repeat(32)).toString("base64"),
+    CLOUDFLARE_ACCOUNT_ID: "acct",
+    CLOUDFLARE_EMAIL_API_TOKEN: "tok",
+    // COORDINATION deliberately absent.
+  });
 
+  it.each([
+    ["local", { DB: {} as Env["DB"] } as Env],
+    ["dev", deployedEnv("dev")],
+    ["production", deployedEnv("production")],
+  ])("answers 503 naming it on %s", async (_tier, env) => {
     const res = await handler.fetch(new Request("https://api.osn.test/"), env);
     expect(res.status).toBe(503);
     const json = (await res.json()) as { error: string };
-    expect(json.error).toContain("Worker misconfigured");
-    expect(json.error).toContain("UPSTASH_REDIS_REST_URL");
-    expect(json.error).toContain("UPSTASH_REDIS_REST_TOKEN");
+    expect(json.error).toBe("Worker misconfigured: missing COORDINATION");
+  });
+
+  it("boots once the binding is there", async () => {
+    const res = await handler.fetch(new Request("https://api.osn.test/"), {
+      ...deployedEnv("production"),
+      COORDINATION: createFakeNamespace().ns,
+    });
+    expect(res.status).toBe(200);
   });
 });
 
@@ -313,8 +321,7 @@ describe("buildAll email fail-closed + degraded opt-in (non-local)", () => {
       OSN_SESSION_IP_PEPPER: "x".repeat(32),
       OSN_PAIRWISE_SALT: "p".repeat(32),
       OSN_TOTP_ENCRYPTION_KEY: Buffer.from("t".repeat(32)).toString("base64"),
-      UPSTASH_REDIS_REST_URL: "https://upstash.test",
-      UPSTASH_REDIS_REST_TOKEN: "tok",
+      COORDINATION: createFakeNamespace().ns,
       ...over,
     } as Env;
   }

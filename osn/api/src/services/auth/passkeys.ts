@@ -253,7 +253,9 @@ export function createPasskeysModule(
           generateRegistrationOptions({
             rpName: config.rpName,
             rpID: config.rpId,
-            userID: textEncoder.encode(account.passkeyUserId),
+            // A copy, so the bytes sit on a plain ArrayBuffer whichever runtime
+            // typed the encoder.
+            userID: new Uint8Array(textEncoder.encode(account.passkeyUserId)),
             userName: `@${profile.handle}`,
             userDisplayName: profile.displayName ?? `@${profile.handle}`,
             attestationType: "none",

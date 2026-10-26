@@ -268,8 +268,7 @@ export function mergeScope(a: string, b: string): string {
 
 const sha256Hex = (input: string): string => createHash("sha256").update(input).digest("hex");
 
-const base64Url = (buf: Buffer): string =>
-  buf.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+const base64Url = (buf: Uint8Array): string => Buffer.from(buf).toString("base64url");
 
 /**
  * Constant-time comparison of two hex digests. Both sides are already hashes,

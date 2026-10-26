@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 
 import { handler, type Env } from "../src/index";
 import { _resetOutboundKeyForTests } from "../src/lib/outbound-arc";
+import { createFakeNamespace } from "./helpers/coordination-namespace";
 
 /**
  * Workers `fetch` handler fail-closed paths.
@@ -61,7 +62,7 @@ describe("handler.fetch — fail-closed (T-R1)", () => {
   });
 
   it("returns 503 naming RESEND_API_URL when a deployed tier carries the emulator override", async () => {
-    // Every edge check and the Upstash gate pass, so the build reaches email
+    // Every edge check passes, so the build reaches email
     // selection, which refuses the override in any non-local tier.
     const env = {
       OSN_ENV: "production",
@@ -69,8 +70,7 @@ describe("handler.fetch — fail-closed (T-R1)", () => {
       OSN_ISSUER_URL: "https://id.osn.test",
       OSN_CORS_ORIGIN: "https://osn.test",
       OSN_RP_ID: "osn.test",
-      UPSTASH_REDIS_REST_URL: "https://redis.osn.test",
-      UPSTASH_REDIS_REST_TOKEN: "token",
+      COORDINATION: createFakeNamespace().ns,
       RESEND_API_KEY: "re_live",
       RESEND_API_URL: "http://localhost:4008",
     } as Env;

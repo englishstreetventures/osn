@@ -1,5 +1,7 @@
 name = "osn-api"
-main = "src/index.ts"
+# `entry.ts` exports the fetch/scheduled handler (from `index.ts`) and the
+# `CoordinationStore` Durable Object class the `COORDINATION` binding names.
+main = "src/entry.ts"
 compatibility_date = "2025-03-01"
 # `nodejs_compat_populate_process_env` is what makes `process.env` reflect the
 # [vars] below plus the Worker's secrets. It is only a DEFAULT for
@@ -39,9 +41,8 @@ workers_dev = false
 
 # ── Top-level (local `wrangler dev`) ─────────────────────────────────────────
 # These apply to `wrangler dev` with no `--env`. OSN_ENV is unset/"local" here,
-# so: in-memory rate limiters (no Upstash needed), miniflare local D1, no Secure
-# cookies, localhost issuer/CORS/RP defaults baked into the factory. Needs NO
-# external services.
+# so: miniflare local D1 and Durable Objects, no Secure cookies, localhost
+# issuer/CORS/RP defaults baked into the factory. Needs NO external services.
 [vars]
 OSN_ENV = "local"
 OSN_RP_ID = "localhost"
@@ -75,20 +76,35 @@ database_name = "osn-db"
 database_id = "a1dfceb8-2e7a-48eb-a161-ad428f3ddff5"
 migrations_dir = "../db/drizzle"
 
+# ── Coordination store (Durable Object) ──────────────────────────────────────
+# Every ceremony, single-use claim, lockout counter and limiter longer than a
+# minute lives in `CoordinationStore` objects, one per key, so every isolate
+# sees the same state. Named envs do NOT inherit `durable_objects`, so the
+# binding is mirrored into [env.staging|production] below; the migration that
+# creates the SQLite-backed class is top-level and applies to every env.
+[[durable_objects.bindings]]
+name = "COORDINATION"
+class_name = "CoordinationStore"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["CoordinationStore"]
+
 # ── Native Workers Rate Limiting bindings (GA `[[ratelimits]]`) ───────────────
-# Part 2: the 60s-window per-IP auth limiters run on Cloudflare's native Rate
-# Limiting binding (global + atomic at the edge) instead of Upstash. One binding
-# per request-budget tier (5/10/20/30/60 per 60s) so every endpoint keeps its
-# existing budget; `selectAuthRateLimiters` (src/lib/native-rate-limiters.ts)
+# The 60s-window per-IP auth limiters run on Cloudflare's native Rate Limiting
+# binding (global + atomic at the edge). One binding per request-budget tier
+# (5/10/20/30/60 per 60s) so every endpoint keeps its budget from
+# `AUTH_RATE_LIMITS`; `selectAuthRateLimiters` (src/lib/native-rate-limiters.ts)
 # namespaces the key per endpoint so endpoints sharing a tier never share a
-# bucket. The native binding only supports period 10 or 60s, so the three
-# 1-hour-window per-IP limiters (recovery generate/complete, email-change-begin)
-# and every per-user/per-account limiter + stateful store STAY on Upstash.
+# bucket. The native binding only supports period 10 or 60s, so the hour-window
+# per-IP limiters, the per-account caps and every stateful store stay on the
+# coordination store. A test holds every `limit` here to the budget table.
 #
 # TRADE-OFF: native rate limiting is counted PER-COLO, not globally — a caller
 # spread across Cloudflare locations sees a slightly looser effective cap. This
 # was explicitly approved; a single attacker is pinned to one colo, and the
-# stateful brute-force guards (recovery lockout) remain on Upstash.
+# stateful brute-force guards (the lockout counters) are on the coordination
+# store, which is global.
 #
 # `namespace_id` is an account-scoped positive integer that uniquely identifies
 # the namespace. The values below are NEW and per-tier; bump/replace them if they
@@ -156,6 +172,10 @@ OSN_ISSUER_URL = "https://api.staging.osn.example"
 OSN_CORS_ORIGIN = "https://staging.osn.example"
 # Marker-cookie domain only — see the production block. Placeholder like the rest.
 OSN_COOKIE_DOMAIN = "staging.osn.example"
+
+[[env.staging.durable_objects.bindings]]
+name = "COORDINATION"
+class_name = "CoordinationStore"
 
 [[env.staging.d1_databases]]
 binding = "DB"
@@ -282,6 +302,10 @@ CIRE_OIDC_CLIENT_ID = "cid_cire"
 pattern = "id.musubi.social"
 custom_domain = true
 
+[[env.production.durable_objects.bindings]]
+name = "COORDINATION"
+class_name = "CoordinationStore"
+
 [[env.production.d1_databases]]
 binding = "DB"
 database_name = "osn-db-prod"
@@ -353,8 +377,6 @@ crons = ["0 */6 * * *"]
 #                              and delete it once the drain is done. Present but
 #                              malformed fails the boot, like the current key.
 #                              Procedure: wiki/shared/production-deploy.md.
-#   UPSTASH_REDIS_REST_URL     Upstash REST URL            — REQUIRED non-local (S-L1; region TBD C-M18)
-#   UPSTASH_REDIS_REST_TOKEN   Upstash REST token          — REQUIRED non-local (S-L1; region TBD C-M18)
 #   RESEND_API_KEY             Resend bearer key — REQUIRED non-local (preferred
 #                              email transport; selected over CLOUDFLARE_* creds)
 #   RESEND_API_URL             NEVER set here, as a var or a secret. Local
