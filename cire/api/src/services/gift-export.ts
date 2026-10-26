@@ -4,8 +4,9 @@ import type { SQL } from "drizzle-orm";
 import { unionAll } from "drizzle-orm/sqlite-core";
 import { Effect } from "effect";
 
-import { DbService, dbQuery, unionColumn } from "../db";
+import { unionColumn } from "../db";
 import type { Db } from "../db";
+import { EffectDbService } from "../db/effect-handle";
 import { serialiseCsv } from "../lib/csv";
 import { minorToDecimal } from "../lib/money";
 import { giftNoteView } from "./registry";
@@ -97,9 +98,9 @@ const noteCell = (note: string | null, hiddenAt: Date | null): string => {
  * gift that already arrived in the wedding's own currency.
  */
 export const giftExportService = {
-  giftsCsv(weddingId: string): Effect.Effect<string, never, DbService> {
+  giftsCsv(weddingId: string): Effect.Effect<string, never, EffectDbService> {
     return Effect.gen(function* () {
-      const db = yield* DbService;
+      const db = yield* EffectDbService;
       // One over the ceiling, so the truncation warning below fires on the row
       // that would have been dropped rather than on the last one kept.
       const readAhead = MAX_GIFT_EXPORT_ROWS + 1;
@@ -175,18 +176,17 @@ export const giftExportService = {
         );
 
       // Newest first, the order the portal's log is read in.
-      const gifts = yield* dbQuery(() =>
-        db
-          .select()
-          .from(
-            unionAll(claims, cashGifts)
-              .orderBy(desc(sql`created_at`))
-              .limit(readAhead)
-              .as("gift_export"),
-          )
-          .orderBy(desc(sql`created_at`))
-          .all(),
-      );
+      const gifts = yield* db
+        .select()
+        .from(
+          unionAll(claims, cashGifts)
+            .orderBy(desc(sql`created_at`))
+            .limit(readAhead)
+            .as("gift_export"),
+        )
+        .orderBy(desc(sql`created_at`))
+        .all()
+        .pipe(Effect.orDie);
 
       if (gifts.length > MAX_GIFT_EXPORT_ROWS) {
         // No row count: the read stops one past the ceiling, so it could only

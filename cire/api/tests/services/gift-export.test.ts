@@ -8,21 +8,39 @@ import {
   registryItems,
 } from "@cire/db";
 import { eq } from "drizzle-orm";
-import { Effect, Logger, References } from "effect";
+import { Cause, Effect, Exit, Logger, References } from "effect";
 
 import type { Db } from "../../src/db";
 import { DbService } from "../../src/db";
+import { EffectDbService, effectDbFor } from "../../src/db/effect-handle";
+import { localD1Binding } from "../../src/db/local-d1";
 import { createDb, seedDb } from "../../src/db/setup";
 import { minorToDecimal } from "../../src/lib/money";
 import { MAX_GIFT_EXPORT_ROWS, giftExportService } from "../../src/services/gift-export";
 import { planningExportService } from "../../src/services/planning-export";
 import { registryService } from "../../src/services/registry";
 import type { GiftLogEntryDto } from "../../src/services/registry";
-import { TestDbLayer } from "../db/test-layer";
-import { effWith, recordStatements } from "../test-helpers";
+import { recordStatements } from "../test-helpers";
+import { failingReadOf } from "../test-helpers/d1-bindings";
 import { insertWedding } from "../test-helpers/wedding";
 
-const withDb = effWith(TestDbLayer);
+/**
+ * A seeded database with both handles on its one connection: the promise handle
+ * for the seeding helpers and the Effect handle for the export.
+ */
+const withDb =
+  <A>(effect: Effect.Effect<A, unknown, DbService | EffectDbService>) =>
+  () => {
+    const testDb = createDb(":memory:");
+    seedDb(testDb);
+    const effectDb = effectDbFor(localD1Binding(testDb.$client), "fetch");
+    return Effect.runPromise(
+      effect.pipe(
+        Effect.provideService(DbService, testDb),
+        Effect.provideService(EffectDbService, effectDb),
+      ),
+    );
+  };
 
 /** Split a CSV document into lines (CRLF, per RFC 4180). */
 const lines = (csv: string) => csv.split("\r\n");
@@ -64,6 +82,8 @@ const silent = Logger.layer([]);
 
 /** Rows per insert statement, to stay well under SQLite's bound-variable cap. */
 const CHUNK = 100;
+// The kinds of the two tied gifts, in the order the promise path returns them today.
+const TIE_ORDER = ["Gift list", "Cash gift"];
 
 /**
  * `total` gifts for the `seedHousehold` family, alternating by age: index 0 is
@@ -318,6 +338,47 @@ function asExportLine(e: GiftLogEntryDto): string {
 }
 
 describe("giftExportService.giftsCsv", () => {
+  // Tie order, pinned against the promise path before any change: a claim and a
+  // cash gift with the same created_at keep this order on every read.
+  it(
+    "orders a claim and a cash gift with the same created_at in a fixed order",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        seedHousehold(db);
+        db.insert(registryClaims)
+          .values({
+            id: "rclaim_tie",
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            itemId: "ritem_pan",
+            familyId: "fam_gifts",
+            quantity: 1,
+            status: "purchased",
+            note: "Tie claim",
+            displayName: "Auntie Ros",
+            createdAt: at(5),
+            updatedAt: at(5),
+          })
+          .run();
+        db.insert(registryContributions)
+          .values({
+            id: "rcon_tie",
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            familyId: "fam_gifts",
+            status: "succeeded",
+            amountMinor: 1_000,
+            currency: "AUD",
+            message: "Tie cash",
+            createdAt: at(5),
+            updatedAt: at(5),
+          })
+          .run();
+        const rows = lines(yield* giftExportService.giftsCsv(BOOTSTRAP_WEDDING_ID));
+        expect(rows.slice(1).map((row) => row.split(",")[0])).toEqual(TIE_ORDER);
+      }),
+    ),
+  );
+
   it(
     "writes the header alone when the wedding has no gifts",
     withDb(
@@ -699,7 +760,10 @@ describe("giftExportService.giftsCsv", () => {
     const csv = await Effect.runPromise(
       giftExportService
         .giftsCsv(BOOTSTRAP_WEDDING_ID)
-        .pipe(Effect.provideService(DbService, db), Effect.provide(capture)),
+        .pipe(
+          Effect.provideService(EffectDbService, effectDbFor(localD1Binding(db.$client), "fetch")),
+          Effect.provide(capture),
+        ),
     );
 
     const data = lines(csv).slice(1);
@@ -741,7 +805,10 @@ describe("giftExportService.giftsCsv", () => {
     const csv = await Effect.runPromise(
       giftExportService
         .giftsCsv(BOOTSTRAP_WEDDING_ID)
-        .pipe(Effect.provideService(DbService, db), Effect.provide(capture)),
+        .pipe(
+          Effect.provideService(EffectDbService, effectDbFor(localD1Binding(db.$client), "fetch")),
+          Effect.provide(capture),
+        ),
     );
 
     // The other side of the boundary: a file that was not cut keeps its oldest
@@ -765,7 +832,10 @@ describe("giftExportService.giftsCsv", () => {
     await Effect.runPromise(
       giftExportService
         .giftsCsv(BOOTSTRAP_WEDDING_ID)
-        .pipe(Effect.provideService(DbService, db), Effect.provide(silent)),
+        .pipe(
+          Effect.provideService(EffectDbService, effectDbFor(localD1Binding(db.$client), "fetch")),
+          Effect.provide(silent),
+        ),
     );
 
     // Each table alone holds more rows than the ceiling (2,001 of each), so
@@ -780,8 +850,13 @@ describe("giftExportService.giftsCsv", () => {
     const db = createDb(":memory:");
     seedDb(db);
     seedParity(db);
-    const provide = <A>(eff: Effect.Effect<A, never, DbService>) =>
-      Effect.runPromise(eff.pipe(Effect.provideService(DbService, db)));
+    const provide = <A>(eff: Effect.Effect<A, never, DbService | EffectDbService>) =>
+      Effect.runPromise(
+        eff.pipe(
+          Effect.provideService(DbService, db),
+          Effect.provideService(EffectDbService, effectDbFor(localD1Binding(db.$client), "fetch")),
+        ),
+      );
 
     const portal: GiftLogEntryDto[] = [];
     for (let offset = 0; ;) {
@@ -823,8 +898,13 @@ describe("giftCountSql", () => {
     const db = createDb(":memory:");
     seedDb(db);
     seedParity(db);
-    const provide = <A>(eff: Effect.Effect<A, never, DbService>) =>
-      Effect.runPromise(eff.pipe(Effect.provideService(DbService, db)));
+    const provide = <A>(eff: Effect.Effect<A, never, DbService | EffectDbService>) =>
+      Effect.runPromise(
+        eff.pipe(
+          Effect.provideService(DbService, db),
+          Effect.provideService(EffectDbService, effectDbFor(localD1Binding(db.$client), "fetch")),
+        ),
+      );
 
     const printed = lines(await provide(giftExportService.giftsCsv(BOOTSTRAP_WEDDING_ID))).slice(1);
     const counts = await provide(planningExportService.moduleRows(BOOTSTRAP_WEDDING_ID));
@@ -841,5 +921,29 @@ describe("giftCountSql", () => {
         .pipe(Effect.provideService(DbService, db)),
     );
     expect(counts.gifts).toBe(0);
+  });
+});
+
+describe("giftExportService.giftsCsv — a failed read", () => {
+  // the union is one statement, so a rejection of either branch fails the whole read as a defect.
+  it("dies with the injected error rather than failing typed", async () => {
+    const db = createDb(":memory:");
+    seedDb(db);
+    const failing = failingReadOf(
+      localD1Binding(db.$client),
+      (query) =>
+        query.includes('from "registry_contributions"') || query.includes('from "registry_claims"'),
+    );
+    const exit = await Effect.runPromiseExit(
+      giftExportService
+        .giftsCsv(BOOTSTRAP_WEDDING_ID)
+        .pipe(Effect.provideService(EffectDbService, effectDbFor(failing, "fetch"))),
+    );
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(Cause.hasDies(exit.cause)).toBe(true);
+      expect(Cause.hasFails(exit.cause)).toBe(false);
+      expect(Cause.pretty(exit.cause)).toContain("injected read failure");
+    }
   });
 });

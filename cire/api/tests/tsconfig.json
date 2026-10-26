@@ -7,6 +7,6 @@
     "types": ["@cloudflare/workers-types", "bun-types"]
   },
   "include": ["./**/*", "../src/local.ts", "../src/db/setup.ts"],
-  // Clears the parent's `exclude`, which names exactly the two files above.
+  // Clears the parent's `exclude`, which names exactly the three files above.
   "exclude": []
 }
