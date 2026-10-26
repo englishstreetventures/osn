@@ -191,14 +191,14 @@ a conflict. At each rebase stop where `bun.lock` conflicts, resolve the other
 files, then take main's lockfile and go on:
 
 ```bash
-git checkout origin/main -- bun.lock && git add bun.lock && git rebase --continue
+git checkout refs/remotes/origin/main -- bun.lock && git add bun.lock && git rebase --continue
 ```
 
 When the rebase has finished, regenerate once, in a commit of its own:
 
 1. **List the branch's own dependency changes.** The evidence script in step 4
    prints them as its second section; run it first if you want the list.
-2. **Start from main's lockfile**: `git checkout origin/main -- bun.lock`.
+2. **Start from main's lockfile**: `git checkout refs/remotes/origin/main -- bun.lock`.
 3. **Re-apply each change exactly as the branch declared it.** A package name
    must match `^(@[a-z0-9][a-z0-9._~-]*/)?[a-z0-9][a-z0-9._~-]*$` and a version
    `^[\^~]?[0-9A-Za-z.+-]+$` before either goes into a command; quote both.
@@ -217,7 +217,7 @@ When the rebase has finished, regenerate once, in a commit of its own:
    script and the two commits you recorded:
 
    ```bash
-   d=$(mktemp -d) && git show origin/main:scripts/lockfile-evidence.sh > "$d/lockfile-evidence.sh" \
+   d=$(mktemp -d) && git show refs/remotes/origin/main:scripts/lockfile-evidence.sh > "$d/lockfile-evidence.sh" \
      && bash "$d/lockfile-evidence.sh" <merge-base> <head-before-rebase>
    ```
 
@@ -337,7 +337,7 @@ Wait for CI with an end, using main's copy of the wait script so the branch's
 own copy never runs unread, in the background:
 
 ```bash
-d=$(mktemp -d) && git show origin/main:scripts/wait-pr.sh > "$d/wait-pr.sh" && bash "$d/wait-pr.sh" <n> 30
+d=$(mktemp -d) && git show refs/remotes/origin/main:scripts/wait-pr.sh > "$d/wait-pr.sh" && bash "$d/wait-pr.sh" <n> 30
 ```
 
 It stops on merged, closed, conflicting, a failed check, every check finished,
