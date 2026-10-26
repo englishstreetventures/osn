@@ -3,7 +3,7 @@
  * introspection surface (list / revoke-one / revoke-all-other).
  */
 
-import { sessions } from "@osn/db/schema";
+import { oauthAuthorizationCodes, sessions } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { timingSafeEqualString } from "@shared/crypto/timing-safe";
 import type { SecurityInvalidationTrigger } from "@shared/observability/metrics";
@@ -290,7 +290,12 @@ export function createSessionsModule() {
 
   /**
    * Revokes all sessions for the account except the caller's, for the
-   * "Sign out everywhere else" button in Settings.
+   * "Sign out everywhere else" button in Settings, then deletes the account's
+   * OIDC authorization codes in flight. A code is bound to the account, not to
+   * the session that minted it, so one held from a revoked session would
+   * otherwise still open a session at its relying party for the minute it
+   * lives. Sessions go first: once they are gone, no new code can be minted
+   * from them.
    */
   const revokeAllOtherAccountSessions = (
     accountId: string,
@@ -303,6 +308,13 @@ export function createSessionsModule() {
           db
             .delete(sessions)
             .where(and(eq(sessions.accountId, accountId), ne(sessions.id, currentSessionHash))),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      yield* Effect.tryPromise({
+        try: () =>
+          db
+            .delete(oauthAuthorizationCodes)
+            .where(eq(oauthAuthorizationCodes.accountId, accountId)),
         catch: (cause) => new DatabaseError({ cause }),
       });
       metricSessionSecurityInvalidation("session_revoke_all");

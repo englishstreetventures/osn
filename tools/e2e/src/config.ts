@@ -133,6 +133,12 @@ export const DB_FILES = {
 /** Shared by osn-api and pulse-api so pulse can register its ARC key. Local only. */
 export const INTERNAL_SERVICE_SECRET = "e2e-internal-service-secret-not-a-real-secret";
 
+/**
+ * Shared by osn-api and cire-api: what osn-api presents to end an account's
+ * cire organiser sessions (`cire-registry-money`). Local only.
+ */
+export const CIRE_INTERNAL_REVOKE_SECRET = "e2e-cire-internal-revoke-secret-not-a-real-secret";
+
 /** The Pulse relying party the seed registers with osn-api. */
 export const PULSE_OIDC = {
   rowId: "oc_pulse_e2e",

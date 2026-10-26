@@ -15,15 +15,24 @@ import {
   type RateLimiterBackend,
 } from "@shared/rate-limit";
 import type { TurnstileVerifier } from "@shared/turnstile";
-import { Layer } from "effect";
+import { type Effect, Layer } from "effect";
 
 import { resolveAccessTokenPrincipal, resolveRecoveryTokenPrincipal } from "../../lib/auth-derive";
+import { forkBackground } from "../../lib/background";
 import type { CookieSessionConfig } from "../../lib/cookie-session";
 import { publicError } from "../../lib/public-error";
 import { makeAppRunner, type AppRuntime } from "../../lib/route-runtime";
 import { deriveUaLabel } from "../../lib/ua-label";
-import { metricAuthRateLimited, metricAuthTurnstileRejected } from "../../metrics";
+import {
+  metricAuthRateLimited,
+  metricAuthTurnstileRejected,
+  type CireSessionRevokeTrigger,
+} from "../../metrics";
 import { createAuthService, type AuthConfig } from "../../services/auth";
+import {
+  revokeCireOrganiserSessions,
+  type CireOrganiserRevokeConfig,
+} from "../../services/cire-organiser-revoke";
 import type { AuthRateLimiters } from "./limiters";
 
 /**
@@ -50,6 +59,7 @@ export interface AuthRouteDeps {
   clientIpConfig: Omit<ClientIpOptions, "socketIp">;
   runtime?: AppRuntime | undefined;
   turnstileVerifier: TurnstileVerifier | null;
+  cireOrganiserRevoke: CireOrganiserRevokeConfig;
 }
 
 export function createAuthRouteContext(deps: AuthRouteDeps) {
@@ -62,6 +72,7 @@ export function createAuthRouteContext(deps: AuthRouteDeps) {
     clientIpConfig,
     runtime,
     turnstileVerifier,
+    cireOrganiserRevoke,
   } = deps;
 
   // Fail-fast: validate every limiter slot at construction time so a
@@ -206,6 +217,18 @@ export function createAuthRouteContext(deps: AuthRouteDeps) {
   }
 
   /**
+   * Starts ending the account's cire organiser sessions, in the background:
+   * the request answers without waiting for cire-api, and on workerd the
+   * request's `waitUntil` keeps the isolate alive for it. Run it only after
+   * the OSN-side revoke it follows has succeeded.
+   */
+  const forkCireOrganiserRevoke = (
+    accountId: string,
+    trigger: CireSessionRevokeTrigger,
+  ): Effect.Effect<void, never, Db> =>
+    forkBackground(revokeCireOrganiserSessions(cireOrganiserRevoke, accountId, trigger));
+
+  /**
    * Resolves the authenticated principal for /passkey/register/* calls.
    *
    * Authorization is bound to the ACCESS TOKEN'S OWN `sub` — we verify the
@@ -280,6 +303,8 @@ export function createAuthRouteContext(deps: AuthRouteDeps) {
     rateLimit,
     turnstileGate,
     resolvePasskeyEnrollPrincipal,
+    cireOrganiserRevoke,
+    forkCireOrganiserRevoke,
   };
 }
 

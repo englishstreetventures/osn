@@ -156,6 +156,26 @@ describe("SH1: requireSecrets refuses a dev secret that breaks its tier's rule b
     ).toBe("s3cr3t".padEnd(32, "x"));
   });
 
+  test("CIRE_INTERNAL_REVOKE_SECRET under 32 characters is refused on dev and production for both Workers that hold it; 32 is taken", () => {
+    const short = "s3cr3t".padEnd(31, "x");
+    for (const stage of ["dev", "production"] as const) {
+      for (const worker of ["osn-api", "cire-api"] as const) {
+        const env = { ...envFor(worker, stage), CIRE_INTERNAL_REVOKE_SECRET: short };
+        const error = thrown(() => requireSecrets({ worker, stage, env }));
+        expect(error).toMatchObject({ breaksRule: ["CIRE_INTERNAL_REVOKE_SECRET"] });
+        expect((error as Error).message).toContain("at least 32 characters");
+        expect((error as Error).message).not.toContain(short);
+        const long = {
+          ...envFor(worker, stage),
+          CIRE_INTERNAL_REVOKE_SECRET: "s3cr3t".padEnd(32, "x"),
+        };
+        expect(
+          Redacted.value(requireSecrets({ worker, stage, env: long }).CIRE_INTERNAL_REVOKE_SECRET),
+        ).toBe("s3cr3t".padEnd(32, "x"));
+      }
+    }
+  });
+
   test("one error names every unset, padded and rule-breaking secret together", () => {
     const env: Record<string, string | undefined> = {
       ...envFor("cire-api", "dev"),

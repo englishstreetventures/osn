@@ -7,7 +7,8 @@ related:
   - "[[passkey-primary]]"
   - "[[oidc-provider]]"
   - "[[account-recovery-factors]]"
-last-reviewed: 2026-10-22
+  - "[[cire-auth]]"
+last-reviewed: 2026-10-26
 ---
 
 # Session introspection + revocation
@@ -76,9 +77,21 @@ Per-account hard cap: `MAX_SESSIONS_PER_ACCOUNT = 50`. `issueTokens` LRU-evicts 
 |---|---|
 | `GET /sessions` | List the caller's active sessions with coarse UA labels + timestamps, flagging the current one |
 | `DELETE /sessions/:id` | Revoke a session by its 16-hex public handle (first 16 chars of SHA-256 hash) |
-| `POST /sessions/revoke-all-other` | Revoke every session EXCEPT the caller's current one |
+| `POST /sessions/revoke-all-other` | Revoke every session EXCEPT the caller's current one, delete the account's OIDC authorization codes in flight, then end the account's cire organiser sessions |
 
 All endpoints authenticate via `Authorization: Bearer <access_token>` and resolve `accountId` server-side. A session handle from account A's log cannot be replayed to revoke a session in account B — the DELETE is scoped to the caller's own account.
+
+### Sign out everywhere else reaches cire
+
+cire's organiser portal keeps its own 7-day session, minted from an OSN sign-in and keyed on the OSN profile id ([[cire-auth]]). Once `POST /sessions/revoke-all-other` has deleted the OSN sessions, it deletes every OIDC authorization code in flight for the account: a code is bound to the account, not to the session that minted it, so one held from a revoked session would otherwise still open a cire session in the minute it lives. Then osn-api asks cire-api to end the organiser sessions of every live profile on the account: one `POST <CIRE_INTERNAL_REVOKE_URL>/internal/revoke-organiser-sessions` per profile, body `{ "osnProfileId": … }`, `Authorization: Bearer <CIRE_INTERNAL_REVOKE_SECRET>`. That includes the session on the device that asked, since cire cannot tell devices apart; the portal then sends the organiser to its sign-in page. Revoking cire's connection does the same ([[oidc-provider]]).
+
+- **Only accounts that have signed in to cire.** cire's sign-in always records a consent row for cire's client before it issues the code that opens a cire session, and only account erasure deletes that row, so the profile lookup sends nothing for an account with none. A revoked consent still counts: a session can outlive it.
+- **In the background.** The route forks the calls with `forkBackground` ([source](../../osn/api/src/routes/auth/context.ts)), so the response never waits for cire-api; on workerd the request's `waitUntil` keeps the isolate alive for them.
+- **Best effort.** Each call has a 5-second timeout and does not follow a redirect; nothing retries it. A refused, redirected, failed or timed-out call is an `Effect.logError` and a counted result; signing out everywhere else again sends every call again.
+- **Off until configured.** All three settings must be usable: `CIRE_INTERNAL_REVOKE_URL` an `https:` origin (plain `http:` only to a loopback host, for the local and E2E stacks), `CIRE_INTERNAL_REVOKE_SECRET` at least 32 characters, and `CIRE_OIDC_CLIENT_ID` set. Otherwise each request that would reach cire logs `cire organiser sessions not revoked: back-channel unconfigured` with the unusable names under `missing`, and sends nothing. cire-api answers 503 until it holds the same secret. A client id that is set but differs from cire-api's own sends nothing and logs nothing; `cire/infra/tests/cross-stack.test.ts` holds the committed values equal. Setting it up: [[production-deploy]].
+- **Only these two requests reach cire.** Every other path that ends OSN sessions leaves cire's organiser sessions to their 7-day lifetime.
+
+The code is [`services/cire-organiser-revoke.ts`](../../osn/api/src/services/cire-organiser-revoke.ts); route tests are in [`tests/routes/cire-organiser-revoke.test.ts`](../../osn/api/tests/routes/cire-organiser-revoke.test.ts), and the E2E flow `cire-registry-money` ends by driving it against the real cire-api ([[testing-patterns#The end-to-end suite]]).
 
 `GET /sessions` sets `Cache-Control: private, no-store` as the first statement of the handler, so even a rejection carries it (tracker#468). See `[[shared/backend-patterns]]` §Cache-Control on Authenticated Routes for the rule and why it sits above the guards.
 
@@ -222,6 +235,7 @@ Failure modes fail **open**: `check` returns `null` on Redis error (so an outage
 ## Observability
 
 - `osn.auth.session.operations{action, result}` — one per `list` / `revoke` / `revoke_all` call
+- `osn.auth.cire_session.revocations{trigger, result}` — one per request to cire-api's organiser-session revoke, and one per sign-out or connection revoke that sent none because the back-channel is unconfigured (`unconfigured`) or the profile lookup failed (`error`). `trigger` ∈ `sign_out_everywhere` / `connection_revoked`; `result` ∈ `ok` / `rejected` / `timeout` / `error` / `unconfigured`. Span `auth.cire_session.revoke`. Metric export on workerd is deferred, so on deployed tiers the error and warning log lines are the signal; none carries the secret, an account id or a profile id
 - Spans: `auth.session.list`, `auth.session.revoke`, `auth.session.revoke_all`, `auth.session.resolve_binding` (the `osn_sid` lookup), `auth.session.resolve_caller` (cookie-or-binding "who is calling"), `auth.session.lift_restriction` (a recovery session becoming an ordinary one)
 - `SecurityInvalidationTrigger` union extended with `session_revoke`, `session_revoke_all`, and `passkey_delete` so the H1 dashboard picks up user-initiated revocations alongside passkey-register, passkey-delete, recovery-code, and email-change triggers
 - `osn.auth.session.rotated_store.operations{action, result, backend}` — counter for every rotated-session store call. `action` ∈ `track` / `check` / `revoke_family`; `result` ∈ `ok` / `hit` / `miss` / `error`; `backend` ∈ `memory` / `redis`. Error rate by backend is the primary Redis-health signal for the reuse detector.

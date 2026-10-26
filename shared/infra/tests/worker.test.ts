@@ -217,8 +217,9 @@ describe("apiWorkerProps", () => {
 
   test("passes an optional secret held during a rotation, still redacted", () => {
     const row = tierSecrets("osn-api", "production");
-    const [optional] = row.optional;
-    if (optional === undefined) throw new Error("osn-api production declares no optional secret");
+    // The previous TOTP key, which osn-api holds only while a key rotation drains.
+    const optional = "OSN_TOTP_ENCRYPTION_KEY_PREVIOUS";
+    expect(row.optional).toContain(optional);
     const env = Object.fromEntries(
       [...row.secrets, optional].map((name) => [name, "not-a-real-secret"]),
     );

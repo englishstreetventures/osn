@@ -385,10 +385,9 @@ const defaultOidcStartLimiter = createRateLimiter({ maxRequests: 15, windowMs: 6
  */
 const defaultOidcSessionLimiter = createRateLimiter({ maxRequests: 60, windowMs: 60_000 });
 /**
- * Default per-IP limiter for the internal back-channel revoke endpoint.
- * Server-to-server (osn-api) + shared-secret gated, so this only caps abuse if
- * the URL is probed; 30/min is far more than the infrequent revoke/delete
- * events ever need.
+ * Default per-IP limiter for the internal back-channel revoke endpoint. Only a
+ * caller refused for a wrong or missing secret spends it, so it slows probing
+ * of the URL and never limits osn-api.
  */
 const defaultInternalRevokeLimiter = createRateLimiter({ maxRequests: 30, windowMs: 60_000 });
 /**
@@ -528,7 +527,8 @@ export interface AppOptions {
   /**
    * Shared secret for the internal back-channel organiser-session revoke
    * endpoint (`POST /internal/revoke-organiser-sessions`). osn-api presents it
-   * as `Authorization: Bearer` on connection-revoke / account-delete. Absent ⇒
+   * as `Authorization: Bearer` when an account signs out everywhere else or
+   * revokes cire's connection. Absent ⇒
    * the endpoint is DISABLED (503). Built from `CIRE_INTERNAL_REVOKE_SECRET` in
    * `index.ts`; tests inject a literal.
    */
@@ -1037,8 +1037,9 @@ export function createApp(db: Db, options: AppOptions = {}) {
           siteOrigins: { invites: webOrigin, host: organiserOrigin, vendor: vendorPortalOrigin },
         }),
       )
-      // Internal back-channel organiser-session revocation (osn-api → cire on
-      // connection-revoke / account-delete). Mounted BEFORE the origin guard for
+      // Internal back-channel organiser-session revocation (osn-api → cire when
+      // an account signs out everywhere else or revokes cire's connection).
+      // Mounted BEFORE the origin guard for
       // the same reason as the CSP collector: it is a server-to-server POST with
       // no browser `Origin`, so the CSRF guard would 403 it. It is authenticated
       // by a shared bearer secret (constant-time compared), not by Origin, and

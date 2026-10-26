@@ -30,6 +30,7 @@ import { createInternalOrganisationRoutes } from "./routes/organisation-internal
 import { createProfileRoutes } from "./routes/profile";
 import { createRecommendationRoutes } from "./routes/recommendations";
 import type { AuthConfig } from "./services/auth";
+import type { CireOrganiserRevokeConfig } from "./services/cire-organiser-revoke";
 
 /**
  * Everything the Elysia composition below references. Built once at boot (Bun
@@ -137,6 +138,14 @@ export interface AppDeps {
    */
   devLogin: DevLoginConfig | null;
   /**
+   * The back-channel that ends an account's cire organiser sessions on sign
+   * out everywhere else and on revoking cire's connection. Built from
+   * `CIRE_INTERNAL_REVOKE_URL`, `CIRE_INTERNAL_REVOKE_SECRET` and
+   * `CIRE_OIDC_CLIENT_ID`; with any of them unset or unusable, each such
+   * request is skipped with a warning. See `services/cire-organiser-revoke`.
+   */
+  cireOrganiserRevoke: CireOrganiserRevokeConfig;
+  /**
    * Elysia ahead-of-time handler compilation. AOT uses `new Function(...)`,
    * which workerd forbids ("Code generation from strings disallowed"). The Bun
    * path leaves this `true` (default, faster); the Workers entry passes `false`.
@@ -180,6 +189,7 @@ export function createApp(deps: AppDeps) {
     internalServiceSecret,
     turnstileVerifier,
     devLogin,
+    cireOrganiserRevoke,
     aot,
   } = deps;
 
@@ -259,6 +269,7 @@ export function createApp(deps: AppDeps) {
         appRuntime,
         turnstileVerifier,
         devLogin,
+        cireOrganiserRevoke,
       ),
     )
     .use(createGraphRoutes(authConfig, DbLive, observabilityLayer, graphRateLimiter, appRuntime))

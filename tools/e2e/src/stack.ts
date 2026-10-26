@@ -13,6 +13,7 @@
 import { resolve } from "node:path";
 
 import {
+  CIRE_INTERNAL_REVOKE_SECRET,
   CIRE_OIDC,
   CIRE_RSVP_DEADLINE,
   CLOCK_T0,
@@ -135,6 +136,11 @@ export function appSpecs(): AppSpec[] {
         // owns cire's sample wedding, and is sent back to the portal after.
         DEV_LOGIN_SECRET,
         DEV_LOGIN_RETURN_ORIGINS: ORIGINS.cireHost,
+        // Sign out everywhere else, and revoking cire's connection, end the
+        // account's cire organiser sessions through this cire-api.
+        CIRE_INTERNAL_REVOKE_URL: ORIGINS.cireApi,
+        CIRE_INTERNAL_REVOKE_SECRET,
+        CIRE_OIDC_CLIENT_ID: CIRE_OIDC.clientId,
       },
     },
     {
@@ -189,6 +195,8 @@ export function appSpecs(): AppSpec[] {
         // Not a real key, and nothing in a flow sends it anywhere: no flow
         // reaches a route that calls Stripe.
         STRIPE_SECRET_KEY: "e2e-placeholder-no-stripe-account",
+        // What osn-api presents to end organiser sessions; the same value as its own.
+        CIRE_INTERNAL_REVOKE_SECRET,
       },
     },
     {

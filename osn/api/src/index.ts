@@ -73,8 +73,15 @@ export interface Env {
   OSN_AUTHORIZE_UI_URL?: string;
   PULSE_API_URL?: string;
   ZAP_API_URL?: string;
+  // cire-api's origin and cire's OIDC client id, for ending an account's cire
+  // organiser sessions on sign out everywhere else and on cire's connection
+  // revoke. The bearer secret is CIRE_INTERNAL_REVOKE_SECRET below.
+  CIRE_INTERNAL_REVOKE_URL?: string;
+  CIRE_OIDC_CLIENT_ID?: string;
   TRUSTED_PROXY_COUNT?: string;
   // Secrets (`wrangler secret put`) — present ONLY on `env`, never process.env.
+  // Shared with cire-api, which must hold the same value. KEY-OPTIONAL.
+  CIRE_INTERNAL_REVOKE_SECRET?: string;
   OSN_JWT_PRIVATE_KEY?: string;
   OSN_JWT_PUBLIC_KEY?: string;
   OSN_SESSION_IP_PEPPER?: string;

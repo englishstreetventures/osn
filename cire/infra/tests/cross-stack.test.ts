@@ -13,6 +13,18 @@ const cireApiOidc = readFileSync(
   "utf8",
 );
 
+interface WranglerVars {
+  readonly env: { readonly production: { readonly vars: Readonly<Record<string, string>> } };
+}
+
+/** `[env.production.vars]` of a Worker's `wrangler.toml`, by path from the repository root. */
+const productionVars = (path: string): Readonly<Record<string, string>> =>
+  (
+    Bun.TOML.parse(
+      readFileSync(fileURLToPath(new URL(`../../../${path}`, import.meta.url)), "utf8"),
+    ) as WranglerVars
+  ).env.production.vars;
+
 describe("the cire and musubi stacks together", () => {
   test("S2: osn-api's seeded redirect URI, dev-login origins and issuer are the ones cire-api's vars name", async () => {
     for (const stage of ["dev", "probe"]) {
@@ -57,5 +69,34 @@ describe("the cire and musubi stacks together", () => {
       expect(cire.OSN_JWKS_URL).toBe(`${osnApi.OSN_ISSUER_URL}/.well-known/jwks.json`);
       expect(cire.OSN_API_URL).toBe(osnApi.OSN_ISSUER_URL);
     }
+  });
+
+  // osn-api matches a revoked connection to cire by client id, and sends the
+  // organiser-session revoke to cire-api's origin. A mismatch sends nothing and
+  // logs nothing, so both are held to cire-api's own values here.
+  test("S3: osn-api's cire client id and revoke URL are cire-api's own, on dev and in an investigation stage", () => {
+    for (const stage of ["dev", "probe"]) {
+      const hosts = stageHosts("example.test", stage);
+      const cire = cireDeclaration({ stage, hosts, generatedDir: ".generated", ownerSeat: false })
+        .cireApi.vars;
+      const osnApi = musubiDeclaration({ stage, hosts, generatedDir: ".generated" }).osnApi.vars;
+
+      expect({ stage, clientId: osnApi.CIRE_OIDC_CLIENT_ID }).toEqual({
+        stage,
+        clientId: cire.CIRE_OIDC_CLIENT_ID,
+      });
+      expect({ stage, url: osnApi.CIRE_INTERNAL_REVOKE_URL }).toEqual({
+        stage,
+        url: cire.CIRE_API_ORIGIN,
+      });
+    }
+  });
+
+  test("P1: the same two values agree in the production Wrangler configs", () => {
+    const osnApi = productionVars("osn/api/wrangler.toml");
+    const cire = productionVars("cire/api/wrangler.toml");
+
+    expect(osnApi.CIRE_OIDC_CLIENT_ID).toBe(cire.CIRE_OIDC_CLIENT_ID);
+    expect(osnApi.CIRE_INTERNAL_REVOKE_URL).toBe(cire.CIRE_API_ORIGIN);
   });
 });

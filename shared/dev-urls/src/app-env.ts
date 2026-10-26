@@ -45,6 +45,9 @@ export const DEV_ENV = {
       // Server-to-server, for account export and erasure fan-out.
       PULSE_API_URL: urls["@pulse/api"],
       ZAP_API_URL: urls["@zap/api"],
+      // Server-to-server, for ending cire organiser sessions. Sends nothing
+      // until CIRE_INTERNAL_REVOKE_SECRET is set, to one value, in both apps.
+      CIRE_INTERNAL_REVOKE_URL: urls["@cire/api"],
     };
   },
   "@cire/api": (urls: Urls, self: DevAppId, env: DevEnv) => ({

@@ -27,8 +27,6 @@ const UNSET_ON_DEV: Readonly<Record<string, string>> = {
     "read only through src/local.ts, the Bun dev server, to seed the E2E suite's gift-list wedding",
   CIRE_E2E_RSVP_DEADLINE:
     "read only through src/local.ts, the Bun dev server, to give the E2E suite's sample wedding its RSVP deadline",
-  CIRE_INTERNAL_REVOKE_SECRET:
-    "unset, the back-channel revoke route answers 503 (index.ts); the inventory declares it on neither tier",
   CIRE_LOCAL_DB_PATH: "read only by src/local.ts, the Bun dev server",
   CIRE_OPS_EMAIL:
     "unset, no vendor-claim reminder is sent (lib/claim-review-email.ts); the inventory declares it on neither tier",
