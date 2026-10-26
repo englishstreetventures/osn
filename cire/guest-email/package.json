@@ -12,7 +12,7 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "check": "tsc --noEmit && tsc --noEmit -p tests/tsconfig.json",
+    "typecheck": "bun check --no-script && bun check --no-script -p tests/tsconfig.json",
     "test": "bun test",
     "test:mutation": "bun ../../tools/stryker/src/cli.ts",
     "test:run": "bun test"
