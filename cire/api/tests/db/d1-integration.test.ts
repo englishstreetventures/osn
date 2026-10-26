@@ -54,6 +54,7 @@ import {
   runInD1Session,
   withD1Session,
 } from "../../src/db/d1-session";
+import { EffectDbService, effectDbFor } from "../../src/db/effect-handle";
 import { commitBatch, createD1Db, DbService, driverErrorText } from "../../src/db/index";
 import type { Db } from "../../src/db/index";
 import { DDL } from "../../src/db/setup";
@@ -233,6 +234,10 @@ let db: Db;
 // budget covers hooks and tests alike: nothing Miniflare-backed races the
 // default.
 const MF_TIMEOUT_MS = 30_000;
+
+// The gift export runs on the Effect handle over the same Miniflare binding the promise handle uses.
+const runGift = <A, E>(eff: Effect.Effect<A, E, EffectDbService>): Promise<A> =>
+  Effect.runPromise(eff.pipe(Effect.provideService(EffectDbService, effectDbFor(d1, "fetch"))));
 
 const run = <A, E>(eff: Effect.Effect<A, E, DbService>): Promise<A> =>
   Effect.runPromise(eff.pipe(Effect.provideService(DbService, db)));
@@ -1500,7 +1505,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
         updatedAt: at(6),
       });
 
-      const csv = await run(giftExportService.giftsCsv(BOOTSTRAP_WEDDING_ID));
+      const csv = await runGift(giftExportService.giftsCsv(BOOTSTRAP_WEDDING_ID));
       expect(csv.split("\r\n").slice(1)).toEqual([
         "Cash gift,Copper Pan,Test,Uncle Jo,,succeeded,Towards the pan,20000,JPY,204.00,AUD,0.0102,2026-08-20T10:06:00.000Z,2026-08-20T10:02:00.000Z",
         "Gift list,Copper Pan,Test,Auntie Ros,2,purchased,Bought the pair,,,,,,2026-08-20T10:05:00.000Z,2026-08-20T10:01:00.000Z",
@@ -1524,7 +1529,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
           ),
         ).toEqual({ note: null, noteHidden: true });
       }
-      const hiddenCsv = await run(giftExportService.giftsCsv(BOOTSTRAP_WEDDING_ID));
+      const hiddenCsv = await runGift(giftExportService.giftsCsv(BOOTSTRAP_WEDDING_ID));
       expect(hiddenCsv.split("\r\n").slice(1)).toEqual([
         "Cash gift,Copper Pan,Test,Uncle Jo,,succeeded,Note hidden,20000,JPY,204.00,AUD,0.0102,2026-08-20T10:06:00.000Z,2026-08-20T10:02:00.000Z",
         "Gift list,Copper Pan,Test,Auntie Ros,2,purchased,Note hidden,,,,,,2026-08-20T10:05:00.000Z,2026-08-20T10:01:00.000Z",

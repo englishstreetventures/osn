@@ -493,7 +493,7 @@ const handler: ExportedHandler<Env> = {
         );
       }
       const appOptions: AppOptions = {
-        // The RSVP CSV export runs on the Effect handle over the same binding.
+        // The CSV exports run on the Effect handle over the same binding.
         effectDb: effectDbFor(env.DB, "fetch"),
         allowedOrigins: origins,
         claimLimiter: edgeLimiter,

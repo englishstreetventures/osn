@@ -429,7 +429,11 @@ export const createOrganiserExportRoutes = (
           }
           return runCire(
             Effect.gen(function* () {
-              const csv = yield* giftExportService.giftsCsv(weddingId);
+              const csv = yield* effectDb === undefined
+                ? Effect.die(new Error("organiser export: no EffectDbService was provided"))
+                : giftExportService
+                    .giftsCsv(weddingId)
+                    .pipe(Effect.provideService(EffectDbService, effectDb));
               return csvAttachment(csv, `cire-gifts-${weddingSlug ?? weddingId}.csv`);
             }).pipe(
               Effect.provideService(DbService, db),
