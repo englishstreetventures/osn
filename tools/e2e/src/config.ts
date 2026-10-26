@@ -160,7 +160,7 @@ export const CIRE_OIDC = {
 } as const;
 
 /**
- * osn-api's dev sign-in (`GET /dev/login`, local and dev tiers only, mounted
+ * osn-api's dev sign-in (`GET /dev/login`, the form, local and dev tiers only, mounted
  * when this is set). It signs in as the fixed dev principal, whose profile id
  * owns cire's sample wedding (`DEV_OWNER_PROFILE_ID`) and the `CIRE_ORGANISER`
  * weddings below. Local only.

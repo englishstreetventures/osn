@@ -138,6 +138,24 @@ function returnToAllowed(target: string, allowed: readonly string[]): boolean {
   }
 }
 
+/** Minimal HTML escaping for the one attribute the page writes: `return_to`. */
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+/** The dev sign-in page. It carries no secret; the form posts the secret to /dev/login/form. */
+function devLoginPage(returnTo: string): string {
+  const hidden = returnTo
+    ? `<input type="hidden" name="return_to" value="${escapeHtml(returnTo)}">`
+    : "";
+  return `<!doctype html><html lang="en"><meta charset="utf-8"><title>Dev sign-in</title><body><form method="post" action="/dev/login/form"><label>Dev login secret <input type="password" name="secret" required autocomplete="off"></label>${hidden}<button type="submit">Sign in</button></form></body></html>`;
+}
+
 export function createDevLoginRoutes(ctx: AuthRouteContext, config: DevLoginConfig) {
   const { auth, run, handleError, resolveIp, socketIpOf, sessionMetaFrom, cookieConfig } = ctx;
 
@@ -250,25 +268,57 @@ export function createDevLoginRoutes(ctx: AuthRouteContext, config: DevLoginConf
   return new Elysia({ prefix: "/dev" })
     .get(
       "/login",
-      async ({ query, headers, set, server, request }) => {
+      ({ query, set }) => {
+        // The page holds no secret: the operator types it into the form.
+        set.headers["referrer-policy"] = "no-referrer";
+        set.headers["cache-control"] = "no-store";
+        const returnTo = query.return_to ?? "";
+        if (returnTo && !returnToAllowed(returnTo, config.allowedReturnOrigins)) {
+          set.status = 400;
+          return { error: "invalid_return_to" };
+        }
+        set.headers["content-type"] = "text/html; charset=utf-8";
+        // A form submit follows its redirect under `form-action`, so the return
+        // origin must be allowed here or the browser stops at the form.
+        const formActions = returnTo ? `'self' ${new URL(returnTo).origin}` : "'self'";
+        set.headers["content-security-policy"] =
+          `default-src 'none'; style-src 'unsafe-inline'; form-action ${formActions}`;
+        return devLoginPage(returnTo);
+      },
+      {
+        query: t.Object({ return_to: t.Optional(t.String()) }),
+        response: {
+          200: t.String(),
+          400: errorResponse,
+        },
+        detail: {
+          summary: "Dev sign-in form (local + dev tiers only)",
+          description:
+            "A page with a form that posts the dev secret to /dev/login/form. The secret never appears in a URL.",
+          tags: ["Auth"],
+        },
+      },
+    )
+    .post(
+      "/login/form",
+      async ({ body, headers, set, server, request }) => {
         try {
-          // The secret rides in the query string, so it is in this URL. Keep it
-          // out of the `Referer` any redirect target would otherwise receive —
-          // same posture as the OIDC authorize endpoint.
           set.headers["referrer-policy"] = "no-referrer";
-          if (query.return_to && !returnToAllowed(query.return_to, config.allowedReturnOrigins)) {
+          set.headers["cache-control"] = "no-store";
+          const returnTo = body.return_to ?? "";
+          if (returnTo && !returnToAllowed(returnTo, config.allowedReturnOrigins)) {
             set.status = 400;
             return { error: "invalid_return_to" };
           }
-          const result = await signIn(query.secret, headers, socketIpOf({ server, request }));
+          const result = await signIn(body.secret, headers, socketIpOf({ server, request }));
           if (!result.ok) {
             set.status = result.status;
             return result.body;
           }
           set.headers["set-cookie"] = result.cookies;
-          if (query.return_to) {
+          if (returnTo) {
             set.status = 302;
-            set.headers["location"] = query.return_to;
+            set.headers["location"] = returnTo;
             return "";
           }
           return result.body;
@@ -279,10 +329,7 @@ export function createDevLoginRoutes(ctx: AuthRouteContext, config: DevLoginConf
         }
       },
       {
-        query: t.Object({
-          secret: t.Optional(t.String()),
-          return_to: t.Optional(t.String()),
-        }),
+        body: t.Object({ secret: t.String(), return_to: t.Optional(t.String()) }),
         response: {
           200: t.Object({ session: tokenResponse, profile: publicProfile }),
           302: t.String(),
@@ -292,9 +339,9 @@ export function createDevLoginRoutes(ctx: AuthRouteContext, config: DevLoginConf
           500: errorResponse,
         },
         detail: {
-          summary: "Dev sign-in (local + dev tiers only)",
+          summary: "Dev sign-in, from the form (local + dev tiers only)",
           description:
-            "Mints a real OSN session for the fixed dev principal. Mounted only when the tier is local/dev AND DEV_LOGIN_SECRET is set.",
+            "Mints a real OSN session for the fixed dev principal and, when return_to is allowlisted, redirects there with the cookie set.",
           tags: ["Auth"],
         },
       },

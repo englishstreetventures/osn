@@ -71,13 +71,13 @@ export function createAuthRoutes(
    */
   rateLimiters: AuthRateLimiters = createDefaultAuthRateLimiters(),
   /**
-   * Cookie session config (C3). Controls whether session tokens are set
+   * Cookie session config. Controls whether session tokens are set
    * as HttpOnly cookies with the Secure flag. Defaults to non-secure
    * (local dev mode).
    */
   cookieConfig: CookieSessionConfig = { secure: false },
   /**
-   * Client-IP trust policy (S-M34). Controls how the request's keying IP is
+   * Client-IP trust policy. Controls how the request's keying IP is
    * derived from headers + socket peer for rate limiting and session-IP
    * persistence. The composition root (`osn/api/src/index.ts`) builds this
    * from `TRUSTED_PROXY_COUNT` (and would set `trustCloudflare` behind CF).
@@ -111,7 +111,7 @@ export function createAuthRoutes(
    */
   turnstileVerifier: TurnstileVerifier | null = null,
   /**
-   * Passkey-less dev sign-in (`GET|POST /dev/login`). KEY-OPTIONAL and
+   * Passkey-less dev sign-in: the form at `GET /dev/login`, `POST /dev/login/form` and the JSON `POST /dev/login`. KEY-OPTIONAL and
    * tier-gated in the composition root:
    *
    *  - `null` / omitted ⇒ the routes are NOT mounted, so the path answers 404
