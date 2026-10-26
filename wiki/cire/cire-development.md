@@ -239,21 +239,32 @@ or a `node:` import), they move to `tests/tsconfig.json`, so the shipped-source
 program stays at the floor: `@cire/dietary`, `@cire/theme`, `@shared/color`,
 `@shared/design-tokens` and `@shared/ui` do this.
 
-`cire/invites/tests/browser-floor.test.ts` lists the site program's files with
-`tsc --listFilesOnly`, walks the site's workspace dependencies (its
-`dependencies` and `devDependencies`, then each package's `dependencies`), and
-fails when:
+`cire/invites/tests/browser-floor.test.ts` lists the files of the site's
+program and of each package's own program with `tsc --listFilesOnly`, walks the
+site's workspace dependencies (its `dependencies` and `devDependencies`, then
+each package's `dependencies`), and fails when:
 
 - the site's own `lib` is not ES2022 + DOM, so raising the floor means editing
   that test and `cire/invites/tsconfig.json` together;
 - the site program loads a library above the floor, from `lib`, a
-  `/// <reference lib>` or a type package, or loads any `bun-types` file. Two
-  libraries are allowed by name: `@types/node` references `es2025.float16` and
-  `esnext.disposable`;
+  `/// <reference lib>` or a type package, or loads any `bun-types` file, or
+  leaves out an `.astro` file under `src/`;
+- a package states no `lib` of its own, or one wider than the site's;
+- a package's own program loads a library above the floor, or any `bun-types`
+  or `@types/node` file;
+- a package's `typecheck` script does not run `bun check`, or the package has a
+  `check` script, which would shadow `bun check`;
 - a package reaches the site program as anything but its `src` (a built `.d.ts`
   would bring its types in without its code);
 - the site's source, `.astro` files included, or a package's `src` imports a
   `@cire/` or `@shared/` package the walk did not reach.
+
+The site program itself loads `@types/node`, because Astro's and Vite's types
+reference it, so `Float16Array`, `DisposableStack` and `Buffer` type-check in
+the site's own source though the floor browsers lack them; the test allows the
+two libraries that brings (`es2025.float16`, `esnext.disposable`) by name. Each
+package's own `bun check`, under a config that loads no type package, is what
+holds shared source to the floor.
 
 It lists the packages it expects, so a new dependency fails it until it meets
 the floor and joins the list. It exempts three build-only packages by name, and

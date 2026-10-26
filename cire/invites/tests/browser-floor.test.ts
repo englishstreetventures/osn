@@ -30,15 +30,20 @@ const appRoot = resolve(import.meta.dirname, "..");
  */
 const FLOOR_LIB = ["ES2022", "DOM", "DOM.Iterable"];
 
+/** `ES2022` and `DOM` with every library they build on. */
+const FLOOR_FILES =
+  /^lib\.(es5|es20(1[5-9]|2[0-2])(\.[a-z.]+)?|dom(\.iterable)?|decorators(\.legacy)?)\.d\.ts$/;
+
 /**
- * Library files the site program may load. `ES2022` and `DOM` with everything
- * they build on, plus two that `@types/node` references (`index.d.ts`) and that
- * add no method the floor browsers lack: `Float16Array` and the
- * `Symbol.dispose` declarations. Any other library, an ES2023 one above all,
- * fails the test.
+ * The site program also loads `@types/node`: Astro's and Vite's own types
+ * reference it, and `types: []` cannot keep a `/// <reference types>` out. It
+ * brings `es2025.float16` and `esnext.disposable`, so `Float16Array`,
+ * `DisposableStack` and `Buffer` type-check in the site's own source though the
+ * floor browsers lack them; that stays a review rule. Each package the site
+ * imports is held to the floor by its own `bun check`, under a config that
+ * loads no type package (the per-package cases below).
  */
-const ALLOWED_LIB =
-  /^lib\.(es5|es20(1[5-9]|2[0-2])(\.[a-z.]+)?|dom(\.iterable)?|decorators(\.legacy)?|es2025\.float16|esnext\.disposable)\.d\.ts$/;
+const SITE_EXTRA_FILES = /^lib\.(es2025\.float16|esnext\.disposable)\.d\.ts$/;
 
 /**
  * Workspace packages this site lists in `devDependencies` that never reach a
@@ -67,6 +72,7 @@ const PACKAGES = [
 interface Manifest {
   readonly dependencies?: Readonly<Record<string, string>>;
   readonly devDependencies?: Readonly<Record<string, string>>;
+  readonly scripts?: Readonly<Record<string, string>>;
 }
 
 function readManifest(dir: string): Manifest {
@@ -86,7 +92,7 @@ function workspaceNames(deps: Manifest["dependencies"]): string[] {
  * the import scan below holds to). Each resolves through its importer's
  * `node_modules` link, as the bundler does.
  */
-function walkPackages(): Map<string, { dir: string }> {
+function walkPackages(): Map<string, { dir: string; manifest: Manifest }> {
   const own = readManifest(appRoot);
   const queue: Array<readonly [from: string, name: string]> = [
     ...workspaceNames(own.dependencies),
@@ -94,13 +100,13 @@ function walkPackages(): Map<string, { dir: string }> {
   ]
     .filter((name) => !BUILD_ONLY.has(name))
     .map((name) => [appRoot, name] as const);
-  const found = new Map<string, { dir: string }>();
+  const found = new Map<string, { dir: string; manifest: Manifest }>();
   for (let next = queue.shift(); next; next = queue.shift()) {
     const [from, name] = next;
     if (found.has(name)) continue;
     const dir = realpathSync(join(from, "node_modules", name));
     const manifest = readManifest(dir);
-    found.set(name, { dir });
+    found.set(name, { dir, manifest });
     for (const dep of workspaceNames(manifest.dependencies)) queue.push([dir, dep]);
   }
   return found;
@@ -111,20 +117,27 @@ function walkPackages(): Map<string, { dir: string }> {
  * the `.astro` content mapper, the same program `typecheck` checks. Workspace
  * packages the site imports are in it as source, checked at the site's `lib`.
  */
-function siteProgramFiles(): string[] {
+function programFiles(project: string, ...flags: string[]): string[] {
   const tsc = join(appRoot, "node_modules", ".bin", "tsc");
-  const out = execFileSync(tsc, ["-p", appRoot, "--runExternalCode", "--listFilesOnly"], {
+  const out = execFileSync(tsc, ["-p", project, ...flags, "--listFilesOnly"], {
     encoding: "utf8",
   });
   return out.split("\n").filter(Boolean);
 }
 
-/** The site's `lib` as `../tsconfig.json` writes it (JSONC, so TypeScript reads it). */
-function readSiteLib(): unknown {
-  using api = new API({ cwd: appRoot });
-  const { config, error } = api.readConfigFile(join(appRoot, "tsconfig.json"));
+/** The `lib` file names a program loads. */
+function libFiles(files: readonly string[]): string[] {
+  return files
+    .map((file) => file.slice(file.lastIndexOf("/") + 1))
+    .filter((name) => /^lib\..*\.d\.ts$/.test(name));
+}
+
+/** `compilerOptions` as a `tsconfig.json` writes it (JSONC, so TypeScript reads it). */
+function writtenOptions(dir: string): { lib?: unknown; types?: unknown } {
+  using api = new API({ cwd: dir });
+  const { config, error } = api.readConfigFile(join(dir, "tsconfig.json"));
   if (error) throw new Error(error.text);
-  return (config as { compilerOptions?: { lib?: unknown } }).compilerOptions?.lib;
+  return (config as { compilerOptions?: { lib?: unknown; types?: unknown } }).compilerOptions ?? {};
 }
 
 /** The workspace packages a file imports, by bare `@cire/` or `@shared/` specifier. */
@@ -134,11 +147,9 @@ function workspaceImports(file: string): string[] {
   return [...text.matchAll(pattern)].map((match) => match[1]!);
 }
 
-const siteLib = readSiteLib();
-const files = siteProgramFiles();
-const libs = files
-  .map((file) => file.slice(file.lastIndexOf("/") + 1))
-  .filter((name) => /^lib\..*\.d\.ts$/.test(name));
+const siteLib = writtenOptions(appRoot).lib;
+const files = programFiles(appRoot, "--runExternalCode");
+const libs = libFiles(files);
 const packages = walkPackages();
 
 describe("browser floor of the guest site and the packages it imports", () => {
@@ -148,8 +159,16 @@ describe("browser floor of the guest site and the packages it imports", () => {
   });
 
   it("loads no library above the floor and no Bun globals", () => {
-    expect(libs.filter((lib) => !ALLOWED_LIB.test(lib))).toEqual([]);
+    expect(libs.filter((lib) => !FLOOR_FILES.test(lib) && !SITE_EXTRA_FILES.test(lib))).toEqual([]);
     expect(files.filter((file) => file.includes("/bun-types/"))).toEqual([]);
+  });
+
+  it("checks every .astro file in its source", () => {
+    const astro = readdirSync(join(appRoot, "src"), { recursive: true, encoding: "utf8" })
+      .filter((path) => path.endsWith(".astro"))
+      .map((path) => join(appRoot, "src", path));
+    expect(astro.length).toBeGreaterThan(0);
+    expect(astro.filter((file) => !files.includes(file))).toEqual([]);
   });
 
   it("walks to every workspace package the site ships", () => {
@@ -173,8 +192,29 @@ describe("browser floor of the guest site and the packages it imports", () => {
     ).toEqual([]);
   });
 
-  describe.each([...packages])("%s", (_name, { dir }) => {
+  describe.each([...packages])("%s", (_name, { dir, manifest }) => {
     const src = join(dir, "src") + "/";
+
+    it("states the floor as its own lib", () => {
+      const options = writtenOptions(dir);
+      expect(options.lib).toBeDefined();
+      expect(
+        (options.lib as string[]).filter(
+          (lib) => !FLOOR_LIB.some((floor) => floor.toLowerCase() === lib.toLowerCase()),
+        ),
+      ).toEqual([]);
+    });
+
+    it("builds a program within the floor, with no Bun or Node globals", () => {
+      const own = programFiles(dir);
+      expect(libFiles(own).filter((lib) => !FLOOR_FILES.test(lib))).toEqual([]);
+      expect(own.filter((file) => /\/(bun-types|@types\/node)\//.test(file))).toEqual([]);
+    });
+
+    it("type-checks itself with bun check, with no check script to shadow it", () => {
+      expect(manifest.scripts?.typecheck ?? "").toMatch(/\bbun check\b/);
+      expect(manifest.scripts?.check).toBeUndefined();
+    });
 
     // Source, never built declarations: a `.d.ts` from `dist/` would carry the
     // package's types into the program without its code, unchecked at the floor.

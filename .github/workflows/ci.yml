@@ -199,6 +199,11 @@ jobs:
       - name: Type check the scripts
         run: bun check --no-script -p scripts/tsconfig.json
 
+      # `tsc` exits 0 on an Astro site whose tsconfig lost its `contentMappers`
+      # entry, having checked no `.astro` file; this fails instead.
+      - name: Check every .astro file is type-checked
+        run: bun run check:astro-typecheck
+
   build-test:
     name: Build & Test
     runs-on: ubuntu-latest

@@ -125,7 +125,10 @@ Each site's `typecheck` is `tsc -p . --runExternalCode`. The mapper turns every
 expressions and processed `<script>` blocks included, and errors point at the
 `.astro` line. `is:inline` scripts are not checked. The program also loads the
 source of every workspace package the site imports, so that source is checked at
-the site's `lib`.
+the site's `lib`. Without the `contentMappers` entry `tsc` still exits 0, having
+checked no `.astro` file, so `bun run check:astro-typecheck` (run in CI's Type
+Check job) lists each site's program and fails when an `.astro` file under `src/`
+is missing from it.
 
 | Rule | Why |
 |---|---|
