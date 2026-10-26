@@ -574,6 +574,16 @@
         "vitest": "5.0.3",
       },
     },
+    "shared/coordination": {
+      "name": "@shared/coordination",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@cloudflare/workers-types": "^5.20260903.1",
+        "@shared/typescript-config": "workspace:*",
+        "miniflare": "^4.20260730.0",
+        "vitest": "5.0.3",
+      },
+    },
     "shared/crypto": {
       "name": "@shared/crypto",
       "version": "0.14.13",
@@ -1934,6 +1944,8 @@
     "@shadcn/lint": ["@shadcn/lint@0.1.0", "", { "dependencies": { "@eslint/core": "^0.17.0", "@typescript-eslint/parser": "^8.40.0", "cn": "0.2.6" }, "optionalDependencies": { "oxc-parser": "^0.148.0" }, "peerDependencies": { "eslint": ">=9.30.0" }, "optionalPeers": ["eslint"] }, "sha512-UDSxO4eQa8UAclN1tChum+L336CL2uB2ZLGYiJ7r/GDrYUBOKPWWNUVoAfh2dZs4LhcwJRCn62+fKG12eAy1FQ=="],
 
     "@shared/color": ["@shared/color@workspace:shared/color"],
+
+    "@shared/coordination": ["@shared/coordination@workspace:shared/coordination"],
 
     "@shared/crypto": ["@shared/crypto@workspace:shared/crypto"],
 

@@ -1,0 +1,11 @@
+{
+  // Workers types only, so a DOM or Bun global in the store or the client
+  // fails `check`. The client itself names no Workers type: a Bun process can
+  // import it too.
+  "extends": "@shared/typescript-config/base.json",
+  "compilerOptions": {
+    "lib": ["ES2023"],
+    "types": ["@cloudflare/workers-types"]
+  },
+  "include": ["src/**/*"]
+}
