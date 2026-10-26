@@ -169,6 +169,18 @@ when those files gzip to more than 3 MiB, 3,145,728 bytes
 
 *Measured 2026-10-20 at commit 0d483b3b — the sum each stack's K10 test computes (`node:zlib` gzip at its default level, file by file, maps included). The test prints it only when it fails, so run an untracked copy of `<stack>/infra/tests/bundle.test.ts` that prints `gzipBytes` in place of its last `expect`, with `bunx --bun vitest run tests/<copy>.test.ts` in `<stack>/infra`.*
 
+The guest site's Worker, cire-invites, is a prebuilt upload: the cire stack
+stages its Astro server output with each module's source map
+([[infrastructure-as-code#Bundling and the module registry]]), and
+`scripts/guard-bundle-size.sh` refuses it before upload when modules and maps
+together gzip past 3 MiB ([[bundle-size-guards]]):
+
+| Worker | Modules, gzip | Source maps, gzip | Together |
+|---|---|---|---|
+| cire-invites | 189,154 B (37 files) | 809,812 B (32 files) | 998,966 B |
+
+*Measured 2026-10-23 at commit cbddd6558 — `ASTRO_KEY=<key> bun run --cwd cire/invites build`, then `planPrebuiltStage()` and `writePrebuiltStage()` from `@shared/infra` over `cire/invites/dist/server`, summing `node:zlib` gzip at its default level file by file over the staged copy. The guard's own `gzip -n` reading of the same build is 187,350 B of modules and 805,221 B of maps.*
+
 **WebSocket connections.** [workers pricing](https://developers.cloudflare.com/workers/platform/pricing/) — "WebSocket connections made to a Worker are charged as a request … WebSocket messages routed through a Worker do not count as requests."
 
 **What happens at the cap.** Past 100K requests/day the account's Workers

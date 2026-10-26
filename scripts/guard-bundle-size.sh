@@ -16,8 +16,9 @@
 # build's output and is annotated on the CI or deploy run, and nothing fails.
 # Everything else this script refuses fails with exit 1: a source map where
 # the app is served publicly, a measured directory that is missing, empty or
-# holds a symlink, `bun` missing in worker mode, and a budgets file that is
-# absent or malformed or has no row for the app.
+# holds a symlink, `bun` missing in worker mode, a Worker whose modules and
+# source maps together gzip past Workers Free's 3 MiB, and a budgets file that
+# is absent or malformed or has no row for the app.
 #
 # Every Astro app in the repo is guarded. cire/invites is the only
 # `output: "server"` app (it emits `dist/server`, a Worker, plus `dist/client`,
@@ -271,6 +272,8 @@ run_guard() {
 
     total=0
     count=0
+    maps_total=0
+    maps_count=0
     if [ "$mode" = "worker" ]; then
       if ! command -v bun >/dev/null 2>&1; then
         echo "::error::${label}: bun is not on PATH, and the worker guard needs it to tell a source map from any other file named *.map."
@@ -288,14 +291,19 @@ run_guard() {
       # would coincide with the upload today and stop matching the moment
       # the adapter emitted a `.js` chunk.
       #
-      # A source map is left out because it IS one (`is_source_map`: a JSON
-      # map beside the chunk it names), not because its name ends in `.map`.
-      # The maps go to Cloudflare for symbolication (`upload_source_maps` in
-      # `wrangler.jsonc`), never as a module the Worker runs, and would
-      # roughly double the reading if counted. Any other file named `*.map`
-      # is measured, so a name alone cannot hide bytes from this guard.
+      # A source map is left out of the budget because it IS one
+      # (`is_source_map`: a JSON map beside the chunk it names), not because
+      # its name ends in `.map`. The maps go to Cloudflare for symbolication
+      # (`upload_source_maps` in `wrangler.jsonc` for production, the cire
+      # stack's staged upload on dev), never as a module the Worker runs, and
+      # would roughly double the reading if counted. They are summed apart
+      # for the Workers Free check below. Any other file named `*.map` is
+      # measured, so a name alone cannot hide bytes from this guard.
       while IFS= read -r -d '' f; do
         if [[ "$f" == *.map ]] && is_source_map "$f"; then
+          size=$(gzip -nc "$f" | wc -c)
+          maps_total=$((maps_total + size))
+          maps_count=$((maps_count + 1))
           continue
         fi
         # `-n` keeps the source filename out of the gzip header. Without it
@@ -340,6 +348,22 @@ run_guard() {
     fi
 
     echo "${label} ${measure_dir} gzip total: ${total} bytes across ${count} files"
+
+    # Workers Free refuses a Worker over 3 MiB compressed. Both uploads of
+    # this Worker send its source maps beside its modules, and no Cloudflare
+    # source says whether the limit counts them (Wrangler's own size report
+    # leaves them out), so this counts them, as each stack's K10 test does
+    # for the bundled API Workers: the check refuses an upload no larger than
+    # Cloudflare might refuse, before it is sent. Unlike the budget below,
+    # this is a refusal, not a warning.
+    if [ "$mode" = "worker" ]; then
+      echo "${label} ${measure_dir} source maps: ${maps_total} bytes gzip across ${maps_count} files"
+      upload=$((total + maps_total))
+      if [ "$upload" -gt 3145728 ]; then
+        echo "::error::${label} ${measure_dir} modules and source maps together gzip to ${upload} bytes (modules ${total}, source maps ${maps_total}), past Workers Free's 3 MiB (3145728 bytes) limit on a Worker's compressed size. Cloudflare would refuse the upload, or this guard counts maps it does not; shrink the bundle or its maps before deploying."
+        exit 1
+      fi
+    fi
 
     # Threshold = the measured total plus headroom for ordinary dependency
     # growth (recorded per app in scripts/bundle-size-budgets.txt, alongside

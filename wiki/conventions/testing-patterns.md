@@ -963,6 +963,12 @@ variable — so the code under test is the code CI runs.
 is the worked example. A run against the real program that needs a database
 belongs in the D1 integration lane above.
 
+A stand-in proves what reaches the program, never how the program takes it.
+After changing a flag or a variable the script passes, run the real program
+once: a stand-in that logs `wrangler dev --env-file <a path that does not
+exist>` passes every test, and the real Wrangler refuses to start
+(`node: <path>: not found`).
+
 ## Reading TypeScript from a test
 
 TypeScript 7 exports no in-process compiler API: `import ts from "typescript"` gives only `{ version }`. A test that parses source or reads a tsconfig uses the client API, which talks to the native compiler in a child process, and which client works depends on the runtime the test runs under:

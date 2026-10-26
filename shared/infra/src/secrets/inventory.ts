@@ -190,7 +190,8 @@ export const WORKFLOW_SECRETS = {
     // cire stack job's build step (deploy.yml).
     "ASTRO_KEY",
     // The Cloudflare Access service token the smoke checks of the dev browser
-    // hosts send (deploy.yml; wiki/shared/dev-environment.md §5).
+    // hosts and the guest route comparison send (deploy.yml;
+    // wiki/shared/dev-environment.md §5).
     "CF_ACCESS_CLIENT_ID",
     "CF_ACCESS_CLIENT_SECRET",
   ],

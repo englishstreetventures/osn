@@ -117,7 +117,7 @@ describe("W3: no install or build step holds a secret", () => {
     }
   });
 
-  test("only the token check, the seed derivation, the deploy, the deployment snapshot and compare, the smoke checks and the guest site's build read a secret", () => {
+  test("only the token check, the seed derivation, the deploy, the deployment snapshot and compare, the smoke checks, the guest route comparison and the guest site's build read a secret", () => {
     // The deploy step and the guest site's build are held exactly above, the
     // musubi job's cire_seed step under DV1.
     const mayRead = (step: Step): readonly string[] => {
@@ -131,6 +131,11 @@ describe("W3: no install or build step holds a secret", () => {
       }
       if (step.id?.startsWith("smoke_") === true) {
         return accountSecrets("dev").concat(["CF_ACCESS_CLIENT_ID", "CF_ACCESS_CLIENT_SECRET"]);
+      }
+      // The Access token alone: it starts `wrangler dev`, which must never
+      // hold a Cloudflare credential.
+      if (step.id === "parity_cire_invites") {
+        return ["CF_ACCESS_CLIENT_ID", "CF_ACCESS_CLIENT_SECRET"];
       }
       return [];
     };

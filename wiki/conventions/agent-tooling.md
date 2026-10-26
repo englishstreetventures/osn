@@ -20,6 +20,8 @@ Locally the repository is the bare `~/.work/osn.git`, and every worktree — `ma
 
 `bun run scripts/bootstrap-bare-root.ts` (part of `scripts/setup.sh`) writes a `SessionStart` hook into that directory saying so, and links its `.claude/skills` to `main`'s. It is idempotent and never overwrites a settings file it did not write.
 
+Every worktree on the machine runs the same commands — `bun src/local.ts` servers, `wrangler dev`, `astro dev`, the `sleep` in `scripts/wait-pr.sh` — often from other sessions at the same time. So a session stops a process it started by the PID it recorded when it started it (`cmd & echo $! > <file>`, then `kill $(cat <file>)`), never with `pkill -f <pattern>`, which matches another worktree's process just as well.
+
 ## Settings
 
 `.claude/settings.json` is committed, so its hooks travel to remote sessions that never read a local config — that is what makes a standing rule hold everywhere. Personal hooks and permissions go in `.claude/settings.local.json`, which is gitignored. A personal untracked `settings.json` blocks the pull that brings the tracked one down.

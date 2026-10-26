@@ -53,12 +53,24 @@ export interface CireDeclaration {
   readonly cireLanding: SiteWorkerInput;
   /** Where the stack writes each generated seed file. */
   readonly seeds: { readonly ownerSeat: string };
+  /**
+   * The guest site's server output, staged before upload: `source` and its
+   * entry `main` are what the Astro build writes, `target` is the copy
+   * `cireInvites.main` names.
+   */
+  readonly invitesServer: {
+    readonly source: string;
+    readonly main: string;
+    readonly target: string;
+  };
   /** Each site directory the stack uploads as built, and the origins its build for `stage` holds. */
   readonly prebuilt: readonly PrebuiltSite[];
 }
 
-// The Astro adapter's output for the guest site: the Worker's server modules and its assets.
+// The Astro adapter's output for the guest site: the Worker's server modules,
+// its entry, and its assets.
 const INVITES_SERVER = "../invites/dist/server";
+const INVITES_ENTRY = "entry.mjs";
 const INVITES_CLIENT = "../invites/dist/client";
 const HOST_DIST = "../host/dist";
 const VENDOR_DIST = "../vendor/dist";
@@ -86,12 +98,25 @@ const RATE_LIMITS: readonly {
 ];
 
 /**
- * Request paths on cire-api and cire-invites carry wedding slugs and names,
- * so invocation logs stay off. Dev traces every request with query strings
- * redacted: cire-api's OIDC callback takes its code in one, and the guest
- * site takes a claim code in one.
+ * cire-api on dev. Its request paths carry wedding slugs and names, so
+ * invocation logs stay off. Dev traces every request with query strings
+ * redacted: the OIDC callback takes its code in one.
  */
 const DEV_OBSERVABILITY: ApiWorkerObservability = {
+  headSamplingRate: 1,
+  redactQueryString: true,
+  traces: { enabled: true, headSamplingRate: 1 },
+  invocationLogs: false,
+  issues: true,
+};
+
+/**
+ * The guest site's observability on every tier: every request traced, query
+ * strings redacted (a claim code arrives in one) and invocation logs off
+ * (paths carry the wedding slug). It is the block `cire/invites/wrangler.jsonc`
+ * deploys to production, so dev runs the guest Worker as production does.
+ */
+export const GUEST_OBSERVABILITY: ApiWorkerObservability = {
   headSamplingRate: 1,
   redactQueryString: true,
   traces: { enabled: true, headSamplingRate: 1 },
@@ -173,6 +198,7 @@ export function cireDeclaration(input: {
   const issuer = origin(hosts.osnApi);
   const api = origin(hosts.cireApi);
   const ownerSeat = join(generatedDir, "seeds", "cire-owner-seat.sql");
+  const invitesServer = join(generatedDir, "invites-server");
   return {
     cireApi: {
       worker: "cire-api",
@@ -259,9 +285,11 @@ export function cireDeclaration(input: {
         stage,
       ),
       stage,
-      // The Astro adapter's build, uploaded as it is: the stack job builds
-      // it with the dev site values and a fixed ASTRO_KEY before the deploy.
-      main: `${INVITES_SERVER}/entry.mjs`,
+      // The Astro adapter's build, staged: its modules byte for byte and
+      // their source maps as Wrangler's `upload_source_maps` sends them. The
+      // stack job builds it with the dev site values and a fixed ASTRO_KEY
+      // before the deploy.
+      main: join(invitesServer, INVITES_ENTRY),
       bundle: false,
       // The adapter's generated `dist/server/wrangler.json` declares only
       // `"assets": { "binding": "ASSETS", "directory": "../client" }`, so
@@ -285,7 +313,7 @@ export function cireDeclaration(input: {
       previewUrls: false,
       vars: {},
       bindings: {},
-      observability: DEV_OBSERVABILITY,
+      observability: GUEST_OBSERVABILITY,
     },
     cireHost: site(
       { base: "cire-host", dev: "cire-host-dev", production: "cire-host" },
@@ -306,6 +334,7 @@ export function cireDeclaration(input: {
       hosts.cireLanding,
     ),
     seeds: { ownerSeat },
+    invitesServer: { source: INVITES_SERVER, main: INVITES_ENTRY, target: invitesServer },
     // Each site's build bakes in what deploy.yml's build step sets. The
     // guest site's client output names cire-api only in its `_headers` CSP;
     // its server output names cire-api, itself and the marketing site
