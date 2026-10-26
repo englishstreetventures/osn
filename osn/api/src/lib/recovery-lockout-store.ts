@@ -43,7 +43,7 @@ import { type RedisClient, registerMemoryCounterScript } from "@shared/redis";
 export const RECOVERY_LOCKOUT_THRESHOLD = 5;
 export const RECOVERY_LOCKOUT_MS = 15 * 60 * 1000; // 15 minutes
 
-export type RecoveryLockoutBackend = "memory" | "redis";
+export type RecoveryLockoutBackend = "memory" | "durable_object" | "redis";
 
 /** What a lockout check answers. `"unknown"`: the counter could not be read. */
 export type LockoutStatus = "open" | "locked" | "unknown";

@@ -56,8 +56,9 @@ import type {
   TotpRekeyResult,
   StepUpVerifyResult,
 } from "@shared/observability/metrics";
-import type { RedisNamespace } from "@shared/redis";
 import { Effect } from "effect";
+
+import type { CeremonyStoreName } from "./lib/coordination/names";
 
 /** Canonical metric name consts — grep-able, refactor-safe. */
 export const OSN_METRICS = {
@@ -613,14 +614,14 @@ export const metricCireSessionRevocation = (
 // calls for). `ops` counts set / get / delete by namespace + backend.
 // ---------------------------------------------------------------------------
 
-type CeremonyStoreBackend = "memory" | "redis";
+type CeremonyStoreBackend = "memory" | "durable_object" | "redis";
 type CeremonyStoreOp = "set" | "get" | "delete";
 type CeremonyStoreOpAttrs = {
-  namespace: RedisNamespace;
+  namespace: CeremonyStoreName;
   op: CeremonyStoreOp;
   backend: CeremonyStoreBackend;
 };
-type CeremonyStoreEntriesAttrs = { namespace: RedisNamespace; backend: CeremonyStoreBackend };
+type CeremonyStoreEntriesAttrs = { namespace: CeremonyStoreName; backend: CeremonyStoreBackend };
 
 const authCeremonyStoreOps = createCounter<CeremonyStoreOpAttrs>({
   name: OSN_METRICS.authCeremonyStoreOps,

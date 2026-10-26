@@ -860,8 +860,8 @@ function makeCountingApp(options: { readonly lockoutsUnreachable?: boolean } = {
     recordFailure: () => Promise.resolve("unknown"),
     reset: () => Promise.resolve(),
   };
-  const lockoutStore = (config?: Parameters<typeof createInMemoryRecoveryLockoutStore>[0]) =>
-    options.lockoutsUnreachable ? unreachable : createInMemoryRecoveryLockoutStore(config);
+  const lockoutStore = (limits?: Parameters<typeof createInMemoryRecoveryLockoutStore>[0]) =>
+    options.lockoutsUnreachable ? unreachable : createInMemoryRecoveryLockoutStore(limits);
   const sqlite = new Database(":memory:");
   applySchema(sqlite);
   const db = drizzle({

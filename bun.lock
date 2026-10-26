@@ -355,6 +355,7 @@
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/openapi": "1.4.16",
         "@osn/db": "workspace:*",
+        "@shared/coordination": "workspace:*",
         "@shared/crypto": "workspace:*",
         "@shared/db-utils": "workspace:*",
         "@shared/email": "workspace:*",

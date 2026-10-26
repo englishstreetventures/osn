@@ -37,22 +37,24 @@
  * conservative answer to "did I win the claim", so the call site decides.
  */
 
-import type { RedisClient, RedisNamespace } from "@shared/redis";
+import type { RedisClient } from "@shared/redis";
 
-export type CeremonyStoreBackend = "memory" | "redis";
+import type { CeremonyStoreName } from "./coordination/names";
+
+export type CeremonyStoreBackend = "memory" | "durable_object" | "redis";
 
 /** Outcome hook for observability — wired to the metric layer in `auth.ts`. */
 export interface CeremonyStoreObserver {
-  onOp?: (op: "set" | "get" | "delete", namespace: RedisNamespace) => void;
+  onOp?: (op: "set" | "get" | "delete", namespace: CeremonyStoreName) => void;
   /** +1 on insert of a new key, -1 on delete of an existing key. */
-  onEntryDelta?: (delta: number, namespace: RedisNamespace) => void;
+  onEntryDelta?: (delta: number, namespace: CeremonyStoreName) => void;
   /** Redis backend only — caught command error. */
   onError?: (op: "set" | "get" | "delete", cause: unknown) => void;
 }
 
 export interface CeremonyStore<V> {
   readonly backend: CeremonyStoreBackend;
-  readonly namespace: RedisNamespace;
+  readonly namespace: CeremonyStoreName;
   /** Store `value` under `key` with a `ttlMs` expiry. Overwrites any prior value. */
   set(key: string, value: V, ttlMs: number): Promise<void>;
   /** Fetch the live value for `key`, or `null` if absent/expired. */
@@ -102,7 +104,7 @@ interface MemoryEntry<V> {
  * keeps the map hard-bounded under abuse even if every entry is still live.
  */
 export function createInMemoryCeremonyStore<V>(
-  namespace: RedisNamespace,
+  namespace: CeremonyStoreName,
   observer: CeremonyStoreObserver = {},
 ): CeremonyStore<V> {
   const entries = new Map<string, MemoryEntry<V>>();
@@ -199,7 +201,7 @@ function redisKey(prefix: string, key: string): string {
  */
 export function createRedisCeremonyStore<V>(
   client: RedisClient,
-  namespace: RedisNamespace,
+  namespace: CeremonyStoreName,
   config: RedisCeremonyStoreConfig = {},
 ): CeremonyStore<V> {
   const observer = config.observer ?? {};

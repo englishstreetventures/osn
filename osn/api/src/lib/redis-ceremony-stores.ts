@@ -12,7 +12,7 @@
  */
 
 import { createRedisRateLimiter } from "@shared/redis";
-import type { RedisClient, RedisNamespace } from "@shared/redis";
+import type { RedisClient } from "@shared/redis";
 
 import { metricCeremonyStoreEntryDelta, metricCeremonyStoreOp } from "../metrics";
 import type {
@@ -40,6 +40,7 @@ import {
   type CeremonyStore,
   type CeremonyStoreObserver,
 } from "./ceremony-store";
+import type { CeremonyStoreName } from "./coordination/names";
 import {
   createRedisRecoveryLockoutStore,
   type RecoveryLockoutStore,
@@ -50,7 +51,7 @@ const ONE_DAY_MS = 24 * ONE_HOUR_MS;
 
 /** Caller hook for a caught Redis error inside any of these stores. */
 export type CeremonyStoreErrorHook = (
-  store: RedisNamespace | "recovery_lockout" | "totp_lockout" | "recovery_otp_lockout",
+  store: CeremonyStoreName | "recovery_lockout" | "totp_lockout" | "recovery_otp_lockout",
   op: string,
   cause: unknown,
 ) => void;
@@ -69,14 +70,14 @@ export function createRedisCeremonyStores(
   client: RedisClient,
   onError?: CeremonyStoreErrorHook,
 ): RedisCeremonyWiring {
-  const observerFor = (namespace: RedisNamespace): CeremonyStoreObserver => ({
+  const observerFor = (namespace: CeremonyStoreName): CeremonyStoreObserver => ({
     onOp: (op, ns) => metricCeremonyStoreOp({ op, namespace: ns, backend: "redis" }),
     onEntryDelta: (delta, ns) =>
       metricCeremonyStoreEntryDelta(delta, { namespace: ns, backend: "redis" }),
     onError: (op, cause) => onError?.(namespace, op, cause),
   });
 
-  const make = <V>(namespace: RedisNamespace): CeremonyStore<V> =>
+  const make = <V>(namespace: CeremonyStoreName): CeremonyStore<V> =>
     createRedisCeremonyStore<V>(client, namespace, { observer: observerFor(namespace) });
 
   const ceremonyStores: CeremonyStores = {

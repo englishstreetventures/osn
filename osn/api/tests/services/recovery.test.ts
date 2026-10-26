@@ -5,9 +5,11 @@ import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { beforeAll } from "vitest";
 
+import { createDurableCoordination } from "../../src/lib/coordination/durable";
 import type { RecoveryLockoutStore } from "../../src/lib/recovery-lockout-store";
 import { createAuthService } from "../../src/services/auth";
 import { makeTestAuthConfig } from "../helpers/auth-config";
+import { createFakeNamespace } from "../helpers/coordination-namespace";
 import { createTestLayer } from "../helpers/db";
 
 let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;
@@ -390,6 +392,26 @@ describe("recovery-code lockout store unavailable", () => {
       // that one did.
       const { events } = yield* svc.listUnacknowledgedSecurityEvents(profile.accountId);
       expect(events.some((e) => e.kind === "recovery_code_lockout")).toBe(false);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("refuses through the Durable Object counter when every object call fails", () =>
+    Effect.gen(function* () {
+      const fake = createFakeNamespace();
+      fake.failWhen(() => true);
+      const svc = createAuthService({
+        ...config,
+        recoveryLockoutStore: createDurableCoordination(fake.ns, () => {}).recoveryLockoutStore,
+      });
+      const profile = yield* svc.registerProfile("lock-do@example.com", "lockdo");
+      const { recoveryCodes: codes } = yield* svc.generateRecoveryCodesForAccount(
+        profile.accountId,
+      );
+      const err = yield* Effect.flip(svc.consumeRecoveryCode("lock-do@example.com", codes[0]!));
+      expect(err.message).toBe("Invalid request");
+      expect(fake.calls.map((call) => `${call.store}.${call.op}`)).toEqual([
+        "recovery_lockout.count",
+      ]);
     }).pipe(Effect.provide(createTestLayer())),
   );
 

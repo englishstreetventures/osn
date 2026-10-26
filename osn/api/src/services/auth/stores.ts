@@ -4,9 +4,8 @@
  * Redis wiring in `lib/redis-ceremony-stores.ts`) import them from one place.
  */
 
-import type { RedisNamespace } from "@shared/redis";
-
 import { createInMemoryCeremonyStore, type CeremonyStore } from "../../lib/ceremony-store";
+import type { CeremonyStoreName } from "../../lib/coordination/names";
 import { metricCeremonyStoreEntryDelta, metricCeremonyStoreOp } from "../../metrics";
 import type { PasskeyProvenance, PublicProfile } from "./types";
 
@@ -291,9 +290,9 @@ export function createInMemoryJtiStore(): StepUpJtiStore {
  */
 export function createDefaultCeremonyStores(): CeremonyStores {
   const observer = {
-    onOp: (op: "set" | "get" | "delete", namespace: RedisNamespace) =>
+    onOp: (op: "set" | "get" | "delete", namespace: CeremonyStoreName) =>
       metricCeremonyStoreOp({ op, namespace, backend: "memory" }),
-    onEntryDelta: (delta: number, namespace: RedisNamespace) =>
+    onEntryDelta: (delta: number, namespace: CeremonyStoreName) =>
       metricCeremonyStoreEntryDelta(delta, { namespace, backend: "memory" }),
   };
   return {
