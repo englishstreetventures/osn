@@ -31,6 +31,7 @@ import { createDb, seedDb } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
 import { organiserSessionService } from "../../src/services/organiser-session";
 import { appRequest, jsonBody, recordStatements, setTier } from "../test-helpers";
+import { captureLogs } from "../test-helpers/capture-logs";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 import { guestNamed, seedPlusOne } from "../test-helpers/plus-one";
@@ -2400,44 +2401,26 @@ describe("CSV export per-user rate limit (CSV-S-L1)", () => {
   });
 });
 
-describe("GET seating.csv when the app has no Effect handle", () => {
-  // The seating export dies inside the route's pipe, so catchDefect answers a plain 500 with no attachment.
-  it("answers 500 with no attachment", async () => {
-    const { app } = buildApp({ withoutEffect: true });
-    const res = await get(
-      app,
-      `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/seating.csv`,
-      BOOTSTRAP_OWNER,
-    );
-    expect(res.status).toBe(500);
-    expect(res.headers.get("content-disposition")).toBeNull();
-  });
-});
-
-describe("GET gifts.csv when the app has no Effect handle", () => {
-  // The gifts export dies inside the route's pipe, so catchDefect answers a plain 500 with no attachment.
-  it("answers 500 with no attachment", async () => {
-    const { app } = buildApp({ withoutEffect: true });
-    const res = await get(
-      app,
-      `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/gifts.csv`,
-      BOOTSTRAP_OWNER,
-    );
-    expect(res.status).toBe(500);
-    expect(res.headers.get("content-disposition")).toBeNull();
-  });
-});
-
-describe("GET rsvps.csv when the app has no Effect handle", () => {
-  // The export's missing handle dies inside the route's pipe, so catchDefect answers a plain 500 with no attachment.
-  it("answers 500 with no attachment", async () => {
-    const { app } = buildApp({ withoutEffect: true });
-    const res = await get(
-      app,
-      `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/rsvps.csv`,
-      BOOTSTRAP_OWNER,
-    );
-    expect(res.status).toBe(500);
-    expect(res.headers.get("content-disposition")).toBeNull();
-  });
+describe("the wedding exports when the app has no Effect handle", () => {
+  // Each export dies inside its route's pipe, so catchDefect logs the export by
+  // name and answers a plain 500 with no attachment.
+  it.each(["rsvps.csv", "guests.csv", "events.csv", "gifts.csv", "seating.csv", "rsvps"])(
+    "%s answers 500 and logs the failed export",
+    async (exportName) => {
+      const { app } = buildApp({ withoutEffect: true });
+      let res: Response | undefined;
+      const logs = await captureLogs(async () => {
+        res = await get(
+          app,
+          `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/${exportName}`,
+          BOOTSTRAP_OWNER,
+        );
+      });
+      expect(res!.status).toBe(500);
+      expect(res!.headers.get("content-disposition")).toBeNull();
+      expect(logs).toContain("csv export failed");
+      expect(logs).toContain(`"export":"${exportName}"`);
+      expect(logs).not.toContain("unhandled request error");
+    },
+  );
 });
