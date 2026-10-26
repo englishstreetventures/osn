@@ -488,7 +488,7 @@ describe("TOTP encryption-key rotation", () => {
         // comment on `completeTotpEnrollment`'s insert in totp.ts.
         //
         // The store is shared explicitly (`ceremonyStores`) because it is
-        // Redis-backed in production: both requests reach the same pending
+        // shared across isolates in production: both requests reach the same pending
         // enrolment regardless of which ring the isolate that served them
         // was running. `authWith` does not share it — each call builds a
         // config with no `ceremonyStores` override, so `createAuthContext`

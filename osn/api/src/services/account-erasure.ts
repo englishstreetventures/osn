@@ -475,7 +475,7 @@ export const runFanOut = (
  * not-applicable). Returns the count of hard-deletes performed.
  *
  * Designed to be called on a `setInterval` (every 6 h in production) with
- * a Redis-locked single-instance guard outside this function. The function
+ * from the Worker cron. The function
  * itself is safe to run concurrently — each account is processed in its
  * own per-row transaction.
  */

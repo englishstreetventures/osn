@@ -38,12 +38,10 @@
  * uncounted.
  */
 
-import { type RedisClient, registerMemoryCounterScript } from "@shared/redis";
-
 export const RECOVERY_LOCKOUT_THRESHOLD = 5;
 export const RECOVERY_LOCKOUT_MS = 15 * 60 * 1000; // 15 minutes
 
-export type RecoveryLockoutBackend = "memory" | "durable_object" | "redis";
+export type RecoveryLockoutBackend = "memory" | "durable_object";
 
 /** What a lockout check answers. `"unknown"`: the counter could not be read. */
 export type LockoutStatus = "open" | "locked" | "unknown";
@@ -107,80 +105,6 @@ export function createInMemoryRecoveryLockoutStore(
     },
     async reset(accountId) {
       buckets.delete(accountId);
-    },
-  };
-}
-
-/** Lua: INCR the key, set PEXPIRE only on first increment, return new count. */
-const RECORD_FAILURE_SCRIPT = `
-local current = redis.call('INCR', KEYS[1])
-if current == 1 then
-  redis.call('PEXPIRE', KEYS[1], ARGV[1])
-end
-return current
-`;
-
-// Let the in-memory RedisClient (dev/test) emulate this counter script. No-op
-// against real Redis, which executes the actual Lua. (X5 otherwise rejects any
-// script it doesn't recognise.)
-registerMemoryCounterScript(RECORD_FAILURE_SCRIPT);
-
-export interface RedisRecoveryLockoutConfig extends RecoveryLockoutConfig {
-  /** Key namespace prefix. Default: "osn:recovery-lockout". */
-  keyPrefix?: string;
-  /** Caught command error. */
-  onError?: (op: "is_locked" | "record" | "reset", cause: unknown) => void;
-}
-
-/**
- * Redis-backed lockout store. One counter key per account with native PX
- * expiry. A command error answers `"unknown"` (see the module docstring).
- */
-export function createRedisRecoveryLockoutStore(
-  client: RedisClient,
-  config: RedisRecoveryLockoutConfig = {},
-): RecoveryLockoutStore {
-  const threshold = config.threshold ?? RECOVERY_LOCKOUT_THRESHOLD;
-  const lockoutMs = config.lockoutMs ?? RECOVERY_LOCKOUT_MS;
-  const prefix = config.keyPrefix ?? "osn:recovery-lockout";
-  const onError = config.onError;
-
-  const key = (accountId: string): string => `${prefix}:${accountId}`;
-  const safeError = (op: "is_locked" | "record" | "reset", cause: unknown): void => {
-    try {
-      onError?.(op, cause);
-    } catch {
-      /* swallowed */
-    }
-  };
-
-  return {
-    backend: "redis",
-    async status(accountId) {
-      try {
-        const raw = await client.get(key(accountId));
-        if (raw === null) return "open";
-        return Number(raw) >= threshold ? "locked" : "open";
-      } catch (cause) {
-        safeError("is_locked", cause);
-        return "unknown";
-      }
-    },
-    async recordFailure(accountId) {
-      try {
-        const result = await client.eval(RECORD_FAILURE_SCRIPT, [key(accountId)], [lockoutMs]);
-        return Number(result);
-      } catch (cause) {
-        safeError("record", cause);
-        return "unknown";
-      }
-    },
-    async reset(accountId) {
-      try {
-        await client.del(key(accountId));
-      } catch (cause) {
-        safeError("reset", cause);
-      }
     },
   };
 }

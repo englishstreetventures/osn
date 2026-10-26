@@ -55,7 +55,7 @@ export function createCrossDeviceModule(
   ): Effect.Effect<{ requestId: string; cdlSecret: string; expiresAt: number }, AuthError, never> =>
     Effect.gen(function* () {
       // The store self-bounds (CEREMONY_STORE_MAX in-memory FIFO drop,
-      // native PX expiry on Redis).
+      // per-entry TTL on the Durable Object store).
       const requestId = genId("cdl_");
       const secretBytes = new Uint8Array(32);
       crypto.getRandomValues(secretBytes);

@@ -614,7 +614,7 @@ export const metricCireSessionRevocation = (
 // calls for). `ops` counts set / get / delete by namespace + backend.
 // ---------------------------------------------------------------------------
 
-type CeremonyStoreBackend = "memory" | "durable_object" | "redis";
+type CeremonyStoreBackend = "memory" | "durable_object";
 type CeremonyStoreOp = "set" | "get" | "delete";
 type CeremonyStoreOpAttrs = {
   namespace: CeremonyStoreName;
@@ -675,11 +675,12 @@ export const metricRecoveryLockout = (result: RecoveryLockoutAttrs["result"]): v
  * Aggregate counts only. The submitted identifier, the resolved account and the
  * code itself appear nowhere near this.
  *
- * `capped` also covers a cap backend that could not be reached:
- * `createRedisRateLimiter.check` returns `false` on a Redis error (fail-closed),
+ * `capped` also covers a cap backend that could not be reached: the
+ * coordination-store limiter answers `false` on a failed call (fail-closed),
  * and the limiter contract gives the caller no way to tell that from a real
  * cap. A sustained `capped` rate with no matching inbox complaint is the tell;
- * correlate with Redis health rather than reading this alone.
+ * correlate with `osn.coordination.store.operations` errors on
+ * `auth.recovery_email_begin_cap` rather than reading this alone.
  */
 type RecoveryEmailBeginAttrs = { result: "sent" | "capped" | "unknown_identifier" };
 

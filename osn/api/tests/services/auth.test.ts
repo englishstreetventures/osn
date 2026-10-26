@@ -601,7 +601,7 @@ describe("beginRegistration + completeRegistration", () => {
     }).pipe(Effect.provide(Layer.merge(createTestLayer(), refusingEmailLayer)));
   });
 
-  // The Redis-backed store answers a read it could not make with `null`. A
+  // A store read that could not be made answers `null` here. A
   // refusal whose read of the entry fails that way still deletes it, or every
   // retry inside the code's life would meet the pending check and send nothing.
   it.effect("a refused send deletes its entry when the store cannot read it back", () => {

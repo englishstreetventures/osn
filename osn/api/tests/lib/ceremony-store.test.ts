@@ -1,12 +1,6 @@
-import type { RedisClient } from "@shared/redis";
-import { createMemoryClient } from "@shared/redis";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import {
-  CEREMONY_STORE_MAX,
-  createInMemoryCeremonyStore,
-  createRedisCeremonyStore,
-} from "../../src/lib/ceremony-store";
+import { CEREMONY_STORE_MAX, createInMemoryCeremonyStore } from "../../src/lib/ceremony-store";
 
 interface Entry {
   challenge: string;
@@ -153,39 +147,6 @@ describe("createInMemoryCeremonyStore", () => {
   });
 });
 
-describe("createRedisCeremonyStore (memory-backed RedisClient)", () => {
-  let client: RedisClient;
-  beforeEach(() => {
-    client = createMemoryClient();
-  });
-
-  it("set → get round-trips JSON across two store instances sharing the client", async () => {
-    // Simulates a `begin` served by pod A and a `complete` served by pod B:
-    // two independent store objects over the same Redis client must agree.
-    const podA = createRedisCeremonyStore<Entry>(client, "login_challenge");
-    const podB = createRedisCeremonyStore<Entry>(client, "login_challenge");
-    await podA.set("k", entry("c"), 60_000);
-    expect(await podB.get("k")).toMatchObject({ challenge: "c" });
-    await podB.delete("k");
-    expect(await podA.get("k")).toBe(null);
-  });
-
-  it("attempts carry-over persists through the client", async () => {
-    const store = createRedisCeremonyStore<Entry>(client, "step_up_otp");
-    await store.set("k", entry("c", 0), 60_000);
-    const first = (await store.get("k"))!;
-    await store.set("k", { ...first, attempts: first.attempts + 2 }, 60_000);
-    expect((await store.get("k"))!.attempts).toBe(2);
-  });
-
-  it("namespaces are isolated", async () => {
-    const a = createRedisCeremonyStore<Entry>(client, "reg_challenge");
-    const b = createRedisCeremonyStore<Entry>(client, "login_challenge");
-    await a.set("k", entry("a"), 60_000);
-    expect(await b.get("k")).toBe(null);
-  });
-});
-
 /**
  * The single-use claim. `get`-then-`delete` is not the same guarantee: two
  * concurrent presentations of one single-use secret can both pass a `get`
@@ -199,17 +160,6 @@ describe("CeremonyStore.consume — first consumer wins", () => {
     const results = await Promise.all([store.consume("k"), store.consume("k")]);
     expect(results.filter(Boolean)).toHaveLength(1);
     expect(await store.get("k")).toBe(null);
-  });
-
-  it("redis: exactly one of two racing claims wins, across store instances", async () => {
-    // Two pods over one client, which is the case the guarantee exists for.
-    const client = createMemoryClient();
-    const podA = createRedisCeremonyStore<Entry>(client, "recovery_disown");
-    const podB = createRedisCeremonyStore<Entry>(client, "recovery_disown");
-    await podA.set("k", entry("c"), 60_000);
-    const results = await Promise.all([podA.consume("k"), podB.consume("k")]);
-    expect(results.filter(Boolean)).toHaveLength(1);
-    expect(await podA.get("k")).toBe(null);
   });
 
   it("an absent key is not a claim", async () => {
@@ -227,67 +177,5 @@ describe("CeremonyStore.consume — first consumer wins", () => {
     } finally {
       vi.useRealTimers();
     }
-  });
-
-  it("redis: a backend error PROPAGATES, unlike delete", async () => {
-    // The one place the conservative swallow is wrong. "Did I win the claim"
-    // has no safe default, so the call site — not the store — decides.
-    const onError = vi.fn();
-    const store = createRedisCeremonyStore<Entry>(failingClient(), "recovery_disown", {
-      observer: { onError },
-    });
-    await expect(store.consume("k")).rejects.toThrow("redis down");
-    expect(onError).toHaveBeenCalledWith("delete", expect.any(Error));
-  });
-});
-
-const failingClient = (): RedisClient => ({
-  eval: async () => {
-    throw new Error("redis down");
-  },
-  ping: async () => "PONG",
-  get: async () => {
-    throw new Error("redis down");
-  },
-  set: async () => {
-    throw new Error("redis down");
-  },
-  del: async () => {
-    throw new Error("redis down");
-  },
-  quit: async () => {},
-});
-
-describe("createRedisCeremonyStore fail-conservative behaviour", () => {
-  it("get returns null and reports via onError on Redis failure", async () => {
-    const onError = vi.fn();
-    const store = createRedisCeremonyStore<Entry>(failingClient(), "reg_challenge", {
-      observer: { onError },
-    });
-    expect(await store.get("k")).toBe(null);
-    expect(onError).toHaveBeenCalledWith("get", expect.any(Error));
-  });
-
-  it("set / delete swallow Redis errors", async () => {
-    const onError = vi.fn();
-    const store = createRedisCeremonyStore<Entry>(failingClient(), "reg_challenge", {
-      observer: { onError },
-    });
-    await expect(store.set("k", entry("c"), 60_000)).resolves.toBeUndefined();
-    await expect(store.delete("k")).resolves.toBeUndefined();
-    expect(onError).toHaveBeenCalledWith("set", expect.any(Error));
-    expect(onError).toHaveBeenCalledWith("delete", expect.any(Error));
-  });
-
-  it("a throwing onError callback does not break the store contract", async () => {
-    const store = createRedisCeremonyStore<Entry>(failingClient(), "reg_challenge", {
-      observer: {
-        onError: () => {
-          throw new Error("logger exploded");
-        },
-      },
-    });
-    await expect(store.get("k")).resolves.toBe(null);
-    await expect(store.set("k", entry("c"), 60_000)).resolves.toBeUndefined();
   });
 });

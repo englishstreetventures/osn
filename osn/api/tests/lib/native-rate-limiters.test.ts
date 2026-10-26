@@ -18,9 +18,9 @@ import type { AuthRateLimiters } from "../../src/routes/auth";
 import { AUTH_RATE_LIMITS, MINUTE_MS, OSN_RATE_LIMITS } from "../../src/routes/auth/limiters";
 
 /**
- * Build a fresh in-memory Redis-fallback bundle (same shape the real Redis
- * factory returns) so the selection logic can be exercised without a Redis
- * client. Every slot is a distinct backend instance so we can assert which one
+ * Build a fresh in-memory fallback bundle (same shape the coordination
+ * bundle carries) so the selection logic can be exercised on its own.
+ * Every slot is a distinct backend instance so we can assert which one
  * the selector chose by identity / behaviour.
  */
 function fallbackBundle(): AuthRateLimiters {
@@ -166,7 +166,7 @@ describe("selectAuthRateLimiters — limiter routing", () => {
     expect(totalNativeCalls).toBe(sixtySecondCount);
   });
 
-  it("keeps the 1-hour per-IP limiters on the Redis fallback (NOT native)", async () => {
+  it("keeps the 1-hour per-IP limiters on the fallback (NOT native)", async () => {
     const tiers = {
       RL_AUTH_IP_5_60: recordingBinding(),
       RL_AUTH_IP_10_60: recordingBinding(),

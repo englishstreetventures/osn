@@ -779,7 +779,7 @@ describe("POST /login/recovery/totp/complete", () => {
 // Round-trip parity
 //
 // Uniform bodies close half the oracle. The other half is cost: every store
-// here is an HTTP hop to Upstash in every tier but `local`, so a branch that
+// call is a Durable Object hop in every tier but `local`, so a branch that
 // makes two hops answers measurably sooner than one that makes four, and the
 // difference is readable with a stopwatch from an unauthenticated client.
 //

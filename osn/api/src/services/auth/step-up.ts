@@ -398,9 +398,9 @@ export function createStepUpModule(ctx: AuthContext) {
         }
       }
 
-      // S-H1: cluster-safe single-use guard. First consumer wins; every
-      // subsequent presentation — local, another pod, or a replay after a
-      // Redis failover — lands on the jti-already-consumed branch.
+      // S-H1: single-use guard shared by every isolate. First consumer wins;
+      // every later presentation, from any isolate, lands on the
+      // jti-already-consumed branch.
       const consumed = yield* Effect.tryPromise({
         try: () => jtiStore.consume(jti, stepUpTokenTtl * 1000),
         catch: () => new AuthError({ message: "Step-up token could not be verified" }),

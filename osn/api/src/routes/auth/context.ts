@@ -153,15 +153,14 @@ export function createAuthRouteContext(deps: AuthRouteDeps) {
 
   // ---------------------------------------------------------------------------
   // IP-based rate limiters. Injected via the `rateLimiters` parameter
-  // so callers can swap in Redis-backed backends at composition time.
+  // so the composition root picks the backend (native binding or store).
   // ---------------------------------------------------------------------------
 
   const rl = rateLimiters;
 
-  // Async to accommodate future Redis backends where `check()` returns a Promise.
-  // In-memory backends resolve immediately; `await` on a non-Promise is a no-op.
+  // A backend may answer synchronously or with a Promise; `await` takes both.
   // Fail-closed: if the backend rejects, treat it as rate-limited so a
-  // Redis outage blocks rather than bypasses the limiter.
+  // store outage blocks rather than bypasses the limiter.
   async function rateLimit(
     headers: Record<string, string | undefined>,
     socketIp: string | null,

@@ -1,7 +1,7 @@
 /**
  * Ceremony / pending-state store contracts and their in-memory defaults.
- * Value shapes live here alongside the store bundle so `index.ts` (and the
- * Redis wiring in `lib/redis-ceremony-stores.ts`) import them from one place.
+ * Value shapes live here alongside the store bundle so the auth service and
+ * the coordination bundle (`lib/coordination`) import them from one place.
  */
 
 import { createInMemoryCeremonyStore, type CeremonyStore } from "../../lib/ceremony-store";
@@ -11,8 +11,8 @@ import type { PasskeyProvenance, PublicProfile } from "./types";
 
 /**
  * Minimal per-account cap surface — structurally compatible with
- * `RateLimiterBackend` from `@shared/rate-limit` and the Redis rate-limiter,
- * so `index.ts` can pass a `createRedisRateLimiter(...)` straight in.
+ * `RateLimiterBackend` from `@shared/rate-limit` and the coordination-store
+ * limiter, so either passes straight in.
  */
 export interface AccountCapLimiter {
   check(key: string): Promise<boolean>;
@@ -20,8 +20,8 @@ export interface AccountCapLimiter {
 
 /**
  * The full set of ceremony / pending-state stores threaded through the
- * auth service. Bundled so `index.ts` wires one Redis client into all of them
- * in a single place, and so tests can override the whole set at once.
+ * auth service. Bundled so the coordination bundle supplies all of them in one
+ * place, and so tests can override the whole set at once.
  */
 export interface CeremonyStores {
   registrationChallenges: CeremonyStore<RegistrationChallengeEntry>;
@@ -135,7 +135,7 @@ export interface CrossDeviceRequest {
 }
 
 // Challenge / pending-state value shapes. The stores that hold them are
-// instantiated per-service (in-memory default or injected Redis-backed) inside
+// instantiated per-service (in-memory default or the injected coordination store) inside
 // createAuthService — see CeremonyStores.
 
 // Step-up OTP codes — keyed by accountId. Separate from loginOtp store so
@@ -178,9 +178,9 @@ export interface PendingRecoveryOtp {
  * when the value is opaque everywhere.
  *
  * The fields are base64 strings rather than byte arrays because the in-memory
- * store keeps the value by reference while the Redis store round-trips it
- * through `JSON.stringify` — a `Uint8Array` here works in every test and comes
- * back from Upstash as `{"0":12,"1":200,…}`.
+ * store keeps the value by reference while the Durable Object store round-trips
+ * it through `JSON.stringify` — a `Uint8Array` here works in every test and
+ * comes back from the store as `{"0":12,"1":200,…}`.
  */
 export interface PendingTotpEnrollment {
   ciphertextB64: string;
@@ -251,12 +251,11 @@ const consumedStepUpTokens = new Map<string, number>();
  *
  * The default implementation (`createInMemoryJtiStore`) is a per-process
  * `Map` — correct for single-node dev and test, but breaks the "single-use"
- * advertised property in a multi-pod deployment (a captured token could be
- * replayed once per instance before any one pod has seen the jti).
+ * advertised property across Worker isolates (a captured token could be
+ * replayed once per isolate before any one of them has seen the jti).
  *
- * In non-local deployments, inject a Redis-backed implementation
- * (`createRedisJtiStore` in `lib/step-up-jti-store.ts`) so the guard is
- * cluster-wide atomic.
+ * A deployed Worker passes the coordination store's (`createDurableJtiStore`
+ * in `lib/coordination/durable.ts`), so the guard holds across every isolate.
  */
 export interface StepUpJtiStore {
   /**
@@ -286,7 +285,7 @@ export function createInMemoryJtiStore(): StepUpJtiStore {
 /**
  * Build the default in-memory ceremony stores. Each carries the metric
  * observer so per-namespace op/entry telemetry works identically to the
- * Redis-backed path. Used when `AuthConfig.ceremonyStores` is omitted.
+ * Durable Object path. Used when `AuthConfig.ceremonyStores` is omitted.
  */
 export function createDefaultCeremonyStores(): CeremonyStores {
   const observer = {
@@ -337,7 +336,7 @@ export function createDefaultCeremonyStores(): CeremonyStores {
 /**
  * A default in-memory fixed-window per-account cap limiter. Structurally a
  * `RateLimiterBackend` so the same `check(key)` contract is satisfied by the
- * Redis-backed limiter injected in production.
+ * coordination-store limiter a deployed Worker injects.
  */
 export function createInMemoryAccountCap(maxRequests: number, windowMs: number): AccountCapLimiter {
   const buckets = new Map<string, { count: number; resetAt: number }>();

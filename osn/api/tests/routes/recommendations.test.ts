@@ -278,10 +278,10 @@ describe("recommendations routes", () => {
   });
 
   it("fails closed when a limiter backend throws", async () => {
-    // The Upstash-unreachable path. Every other limiter stub resolves `false`;
+    // The store-unreachable path. Every other limiter stub resolves `false`;
     // only this one reaches the `catch { allowed = false }` branch.
     const alice = await registerAndGetToken("a@e.com", "alice");
-    const throwing = { check: () => Promise.reject(new Error("redis unreachable")) };
+    const throwing = { check: () => Promise.reject(new Error("store unreachable")) };
     const app = createRecommendationRoutes(config, layer, undefined, {
       suggest: throwing,
       search: throwing,

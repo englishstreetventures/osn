@@ -54,7 +54,7 @@ export function createAuthContext(config: AuthConfig) {
   const jtiStore = config.stepUpJtiStore ?? createInMemoryJtiStore();
 
   // Ceremony / pending-state stores. Default to per-service in-memory;
-  // index.ts injects Redis-backed equivalents in multi-pod deployments.
+  // a deployed Worker passes the coordination store's.
   const stores = config.ceremonyStores ?? createDefaultCeremonyStores();
   // Per-account caps routed through the rate-limiter family. The same
   // constants feed `OSN_RATE_LIMITS` in `routes/auth/limiters.ts`.

@@ -20,7 +20,7 @@
  * - **Every branch of every route here makes the same number of store round
  *   trips**, whichever way it ends. A uniform body and a detached send close the
  *   oracle at `begin` and reopen it at `complete` if the branches there are left
- *   to cost what they happen to cost: each store is an HTTP hop to Upstash in
+ *   to cost what they happen to cost: each store call is a Durable Object hop in
  *   every tier but `local`, so "how many hops did that take" is readable with a
  *   stopwatch and separates a real account from a stranger's guess. Each route
  *   below pins its own count, and the padding always matches the COSTLIEST

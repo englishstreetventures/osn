@@ -664,7 +664,7 @@ export function createPasskeysModule(
           catch: (cause) => new AuthError({ message: String(cause) }),
         });
         // The store self-bounds (CEREMONY_STORE_MAX in-memory, native PX
-        // expiry on Redis) and sweeps expired entries on insert, so no
+        // TTL on the Durable Object store) and sweeps expired entries on insert, so no
         // separate size-cap check is needed.
         const challengeId = crypto.randomUUID();
         yield* Effect.promise(() =>

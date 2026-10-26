@@ -1,55 +1,35 @@
 /**
- * Generic Redis-backed store for short-lived ceremony / pending-state entries
- * (O3).
+ * Store for short-lived ceremony / pending-state entries: passkey and login
+ * challenges, pending registrations, step-up and recovery codes, pending email
+ * changes, cross-device requests, parked `/authorize` requests.
  *
- * Every passkey/login challenge, pending registration, step-up OTP, pending
- * email change and cross-device request used to live in a module-level `Map`
- * inside `auth.ts`. That is correct for single-process dev but silently
- * partitions in multi-pod deployments: a `begin` served by pod A writes the
- * challenge to A's heap, and the matching `complete` routed to pod B finds
- * nothing. The user sees a spurious "challenge expired", and — worse for the
- * caps — a per-account rate window enforced only within one pod is trivially
- * bypassed by spreading requests across pods.
- *
- * This module provides the same injectable triple-pattern used by
- * `StepUpJtiStore`:
+ * A `begin` and its `complete` can land on different isolates, so a deployed
+ * Worker keeps these on the `COORDINATION` Durable Object
+ * (`createDurableCeremonyStore` in `lib/coordination/durable.ts`); a `begin`
+ * kept in one isolate's memory would be invisible to the next.
  *
  *   - `CeremonyStore<V>` — the interface stored on `AuthConfig`.
- *   - `createInMemoryCeremonyStore()` — the single-process default, a TTL-swept
- *     bounded `Map` (port of the old inline behaviour, including the
- *     opportunistic sweep + hard size cap).
- *   - `createRedisCeremonyStore(client, …)` — the multi-pod implementation,
- *     backed by `RedisClient` GET/SET-with-PX/DEL so entry expiry is delegated
- *     to Redis's native per-key TTL (no background sweeper, no unbounded
- *     growth).
+ *   - `createInMemoryCeremonyStore()` — the single-process store for the Bun
+ *     dev server and tests: a TTL-swept bounded `Map`, with an opportunistic
+ *     sweep and a hard size cap.
  *
- * Values are arbitrary JSON-serialisable objects (challenge strings, OTP
- * hashes, pending-registration payloads, …). The `attempts` counter that some
- * in-memory stores carried per entry is just another field on the stored value
- * — `getAndIncrementAttempts` / `replace` keep that semantics intact across
- * both backends.
+ * Values are JSON-serialisable objects (challenge strings, OTP hashes,
+ * pending-registration payloads, …). An `attempts` counter some entries carry
+ * is just another field on the stored value.
  *
- * Fail-open vs fail-closed posture is documented per call site in `auth.ts`.
- * The Redis backend itself surfaces errors via the `onError` hook and returns
- * a conservative result (`get` → `null`, `set`/`delete` → swallow) so a Redis
- * blip degrades to "challenge not found / re-begin" rather than a 500. The one
- * exception is `consume`, the single-use claim, which rethrows: there is no
- * conservative answer to "did I win the claim", so the call site decides.
+ * A backend error propagates from every operation; the call site decides what
+ * the request answers.
  */
-
-import type { RedisClient } from "@shared/redis";
 
 import type { CeremonyStoreName } from "./coordination/names";
 
-export type CeremonyStoreBackend = "memory" | "durable_object" | "redis";
+export type CeremonyStoreBackend = "memory" | "durable_object";
 
-/** Outcome hook for observability — wired to the metric layer in `auth.ts`. */
+/** Outcome hook for observability — wired to the metric layer in `stores.ts`. */
 export interface CeremonyStoreObserver {
   onOp?: (op: "set" | "get" | "delete", namespace: CeremonyStoreName) => void;
   /** +1 on insert of a new key, -1 on delete of an existing key. */
   onEntryDelta?: (delta: number, namespace: CeremonyStoreName) => void;
-  /** Redis backend only — caught command error. */
-  onError?: (op: "set" | "get" | "delete", cause: unknown) => void;
 }
 
 export interface CeremonyStore<V> {
@@ -64,19 +44,13 @@ export interface CeremonyStore<V> {
   /**
    * Claim `key` for single use: remove it and report whether THIS call is the
    * one that removed a live entry. First consumer wins; every other caller
-   * gets `false`, including one racing on another pod.
+   * gets `false`, including one racing in another isolate.
    *
    * The same guarantee `StepUpJtiStore.consume` gives a step-up jti, for the
    * same reason: a `get` followed by a `delete` leaves a window in which two
    * concurrent presentations of one single-use secret both pass the check.
-   *
-   * Two ways it differs from {@link delete}, both deliberate:
-   *
-   * - It answers, so the caller can act on having won rather than assuming it.
-   * - A backend error **propagates** rather than being swallowed. `delete` can
-   *   degrade to a no-op because a stale entry expires on its own; a claim
-   *   whose outcome is unknown cannot be reported as either winner or loser,
-   *   and the caller — not the store — owns that posture.
+   * Unlike {@link delete} it answers, so the caller can act on having won
+   * rather than assuming it.
    */
   consume(key: string): Promise<boolean>;
 }
@@ -174,95 +148,6 @@ export function createInMemoryCeremonyStore<V>(
       observer.onEntryDelta?.(-1, namespace);
       // An entry past its TTL is not a live claim, so removing it wins nothing.
       return entry.expiresAt > Date.now();
-    },
-  };
-}
-
-export interface RedisCeremonyStoreConfig {
-  observer?: CeremonyStoreObserver;
-  /** Override the key prefix. Defaults to `osn:ceremony:{namespace}`. */
-  keyPrefix?: string;
-}
-
-function redisKey(prefix: string, key: string): string {
-  return `${prefix}:${key}`;
-}
-
-/**
- * Redis-backed ceremony store. One key per entry: `{prefix}:{key}` → JSON,
- * PX = ttlMs. Expiry is native, so there is no sweeper and no size bound to
- * maintain. `get` JSON-parses; a malformed/partial value (should never happen
- * — we are the only writer) is treated as absent.
- *
- * Errors are swallowed conservatively and surfaced via `observer.onError`:
- *   - `get` → `null` (caller re-begins the ceremony)
- *   - `set` / `delete` → no-op (the ceremony will fail closed at `complete`
- *     because the value was never persisted)
- */
-export function createRedisCeremonyStore<V>(
-  client: RedisClient,
-  namespace: CeremonyStoreName,
-  config: RedisCeremonyStoreConfig = {},
-): CeremonyStore<V> {
-  const observer = config.observer ?? {};
-  const prefix = config.keyPrefix ?? `osn:ceremony:${namespace}`;
-
-  // Shield the store from a throwing observer callback (e.g. a logger wired to
-  // Effect.runPromise that itself throws on misconfiguration). A crash in the
-  // hook must not cascade into a rejected store op.
-  const safeError = (op: "set" | "get" | "delete", cause: unknown): void => {
-    try {
-      observer.onError?.(op, cause);
-    } catch {
-      /* swallowed */
-    }
-  };
-
-  return {
-    backend: "redis",
-    namespace,
-    async set(key, value, ttlMs) {
-      observer.onOp?.("set", namespace);
-      try {
-        await client.set(redisKey(prefix, key), JSON.stringify(value), ttlMs);
-        observer.onEntryDelta?.(1, namespace);
-      } catch (cause) {
-        safeError("set", cause);
-      }
-    },
-    async get(key) {
-      observer.onOp?.("get", namespace);
-      try {
-        const raw = await client.get(redisKey(prefix, key));
-        if (raw === null) return null;
-        return JSON.parse(raw) as V;
-      } catch (cause) {
-        safeError("get", cause);
-        return null;
-      }
-    },
-    async delete(key) {
-      observer.onOp?.("delete", namespace);
-      try {
-        const removed = await client.del(redisKey(prefix, key));
-        if (removed > 0) observer.onEntryDelta?.(-1, namespace);
-      } catch (cause) {
-        safeError("delete", cause);
-      }
-    },
-    async consume(key) {
-      observer.onOp?.("delete", namespace);
-      // Redis DEL is atomic and returns how many keys it actually removed, so
-      // exactly one of two racing callers can see 1. The error is reported and
-      // then rethrown: unlike `delete`, this answer is load-bearing.
-      try {
-        const removed = await client.del(redisKey(prefix, key));
-        if (removed > 0) observer.onEntryDelta?.(-1, namespace);
-        return removed > 0;
-      } catch (cause) {
-        safeError("delete", cause);
-        throw cause;
-      }
     },
   };
 }

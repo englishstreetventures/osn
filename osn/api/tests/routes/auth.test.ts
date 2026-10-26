@@ -1428,12 +1428,12 @@ describe("auth routes", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Rate limiter dependency injection (Phase 1 of Redis migration)
+  // Rate limiter dependency injection
   //
   // Verifies the `RateLimiterBackend` abstraction: createAuthRoutes accepts
   // an injected rate limiter bundle, sync and async backends both work, and
   // the endpoint-to-limiter wiring inside the route factory is stable. This
-  // is the contract Phase 2 (Redis) relies on.
+  // is the contract the coordination store and native bindings rely on.
   // -------------------------------------------------------------------------
   describe("rate limiter dependency injection", () => {
     it("uses the injected rate limiter bundle instead of the default", async () => {
@@ -1453,7 +1453,7 @@ describe("auth routes", () => {
     });
 
     it("supports async rate limiter backends (Promise<boolean>)", async () => {
-      // Simulates the future Redis backend's async check().
+      // A backend that answers through a Promise, as the store does.
       const asyncBackend: RateLimiterBackend = {
         check: () => Promise.resolve(false),
       };
@@ -1475,9 +1475,9 @@ describe("auth routes", () => {
     });
 
     it("fails closed when the backend rejects (S-M1)", async () => {
-      // Simulates a Redis outage where check() throws.
+      // A store outage where check() rejects.
       const failing: RateLimiterBackend = {
-        check: () => Promise.reject(new Error("Redis connection refused")),
+        check: () => Promise.reject(new Error("store unreachable")),
       };
       const limiters = { ...createDefaultAuthRateLimiters(), handleCheck: failing };
 

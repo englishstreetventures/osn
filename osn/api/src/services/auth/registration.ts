@@ -164,8 +164,8 @@ export function createRegistrationModule(
    * arrived, so it stays.
    *
    * - Nothing was sent: the entry goes, so a retry sends a new code. A read
-   *   that comes back empty deletes too: the Redis store answers a read it
-   *   could not make with `null`, and keeping the entry then would leave every
+   *   that comes back empty deletes too: a store read that could not be made
+   *   answers `null`, and keeping the entry then would leave every
    *   retry meeting the pending check for the code's whole life.
    * - The code may still arrive: the entry stays, for at most
    *   {@link UNKNOWN_DELIVERY_HOLD_MS}, so the address gets no second code at
@@ -217,7 +217,7 @@ export function createRegistrationModule(
    *    timeout), and `osn.email.send.attempts{outcome="failed"}` counts it;
    *    this function's own attempt counter records the begin as `ok`.
    *  - The pending-registrations store is self-bounding (CEREMONY_STORE_MAX
-   *    in-memory, native PX expiry on Redis) and sweeps expired entries on
+   *    in-memory, per-entry TTL on the Durable Object store) and sweeps expired entries on
    *    insert, so unauthenticated abuse can't grow it without bound.
    *  - Refuses to overwrite a non-expired pending entry, so a second begin
    *    for someone's address cannot reset the code they hold. The check and
@@ -270,7 +270,7 @@ export function createRegistrationModule(
       const normalisedEmail = email.toLowerCase();
 
       // The store sweeps expired entries and self-bounds (CEREMONY_STORE_MAX
-      // on the in-memory backend, native PX expiry on Redis), so no explicit
+      // on the in-memory backend, per-entry TTL on the Durable Object store), so no explicit
       // sweep / size cap is needed here any more.
       // A single round-trip existence probe — UNION ALL of two indexed
       // single-table arms (see registerProfile for why not an OR across the

@@ -362,7 +362,6 @@
         "@shared/observability": "workspace:*",
         "@shared/openapi-tools": "workspace:*",
         "@shared/rate-limit": "workspace:*",
-        "@shared/redis": "workspace:*",
         "@shared/turnstile": "workspace:*",
         "@simplewebauthn/server": "^13.3.3",
         "drizzle-orm": "1.0.0-rc.5",

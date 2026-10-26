@@ -584,7 +584,7 @@ describe("graph routes", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Rate limiter dependency injection (Phase 1 of Redis migration)
+  // Rate limiter dependency injection
   // -------------------------------------------------------------------------
   describe("rate limiter dependency injection", () => {
     it("uses the injected rate limiter on write operations", async () => {
@@ -623,7 +623,7 @@ describe("graph routes", () => {
 
     it("fails closed when the backend rejects (S-M1)", async () => {
       const failing: RateLimiterBackend = {
-        check: () => Promise.reject(new Error("Redis connection refused")),
+        check: () => Promise.reject(new Error("store unreachable")),
       };
       const freshGraph = createGraphRoutes(config, layer, Layer.empty, failing);
       const alice = await registerAndGetToken("alice@example.com", "alice");
