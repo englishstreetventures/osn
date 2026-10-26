@@ -15,6 +15,7 @@
         "$TURBO_ROOT$/cire/api/src/**",
         "$TURBO_ROOT$/cire/db/src/**",
         "$TURBO_ROOT$/cire/dietary/src/**",
+        "$TURBO_ROOT$/cire/guest-email/src/**",
         "$TURBO_ROOT$/cire/invite-designs/src/**",
         "$TURBO_ROOT$/cire/theme/src/**",
         "$TURBO_ROOT$/cire/db/migrations/**",
