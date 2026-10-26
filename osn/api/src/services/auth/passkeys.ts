@@ -330,15 +330,14 @@ export function createPasskeysModule(
     Db | EmailService
   > =>
     Effect.gen(function* () {
-      const entry = yield* storeCall(stores.registrationChallenges, "get", () =>
-        stores.registrationChallenges.get(accountId),
+      // Read and removed in one call, so of two presentations of one
+      // attestation at once only one reaches verification.
+      const entry = yield* storeCall(stores.registrationChallenges, "take", () =>
+        stores.registrationChallenges.take(accountId),
       );
       if (!entry || Date.now() > entry.expiresAt) {
         return yield* Effect.fail(new AuthError({ message: "Challenge expired or not found" }));
       }
-      yield* storeCall(stores.registrationChallenges, "delete", () =>
-        stores.registrationChallenges.delete(accountId),
-      );
 
       const verification = yield* Effect.tryPromise({
         try: () =>
@@ -797,15 +796,14 @@ export function createPasskeysModule(
         context.kind === "identified"
           ? normaliseIdentifier(context.identifier)
           : `__disc__:${context.challengeId}`;
-      const entry = yield* storeCall(stores.loginChallenges, "get", () =>
-        stores.loginChallenges.get(challengeKey),
+      // Read and removed in one call, so of two presentations of one
+      // assertion at once only one reaches verification.
+      const entry = yield* storeCall(stores.loginChallenges, "take", () =>
+        stores.loginChallenges.take(challengeKey),
       );
       if (!entry || Date.now() > entry.expiresAt) {
         return yield* Effect.fail(new AuthError({ message: "Challenge expired or not found" }));
       }
-      yield* storeCall(stores.loginChallenges, "delete", () =>
-        stores.loginChallenges.delete(challengeKey),
-      );
 
       const { db } = yield* Db;
       // Look up the credential row by `credentialId` — stable across both

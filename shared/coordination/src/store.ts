@@ -97,6 +97,29 @@ export class CoordinationStore extends DurableObject<unknown> {
     return existed;
   }
 
+  /**
+   * Counts one guess against the live value and answers both in one call: the
+   * value and the count after this guess. With no live entry it stores
+   * nothing and answers `{ value: null, n: 0 }`, so a guess at nothing is not
+   * counted. The count lives on the value's own record: `write` restarts it,
+   * `remove` and `take` clear it with the value, and the expiry stays the
+   * value's.
+   */
+  async guess(): Promise<{ value: string | null; n: number }> {
+    const entry = this.live(Date.now());
+    if (entry === undefined) return { value: null, n: 0 };
+    const n = (entry.n ?? 0) + 1;
+    this.ctx.storage.kv.put<Entry>(ENTRY, { ...entry, n });
+    return { value: entry.v ?? null, n };
+  }
+
+  /** The live value, removed in the same call, or null. Of two takes at once, one gets it. */
+  async take(): Promise<string | null> {
+    const entry = this.live(Date.now());
+    await this.clear();
+    return entry?.v ?? null;
+  }
+
   /** Stores a marker for `ttlMs` if there is no live entry. True only when it stored one. */
   async claim(ttlMs: number): Promise<boolean> {
     assertDuration(ttlMs, "ttlMs");

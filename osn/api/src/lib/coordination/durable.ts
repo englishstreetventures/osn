@@ -9,7 +9,7 @@
  * |---|---|
  * | rate limiters, per-account caps | `increment` in a fixed window; a failed call denies |
  * | ceremony `set` / `get` / `delete` / `consume` | `write` (JSON) / `read` / `remove` / `remove` |
- * | ceremony `recordAttempt` / `clearAttempts` | `increment` / `remove`, on `<store>-attempts` |
+ * | ceremony `guess` / `take` | `guess` / `take`, on the entry's own object |
  * | step-up token guard | `claim` |
  * | lockout `status` / `recordFailure` / `reset` | `count` / `increment` / `remove` |
  * | health probe `roundTrip` | `write` / `read` / `remove`, on a fresh key |
@@ -62,7 +62,7 @@ import type {
   StepUpJtiStore,
   StepUpOtpEntry,
 } from "../../services/auth/stores";
-import type { CeremonyStore } from "../ceremony-store";
+import type { CeremonyStore, CeremonyStoreOp } from "../ceremony-store";
 import { RECOVERY_LOCKOUT_MS, RECOVERY_LOCKOUT_THRESHOLD } from "../recovery-lockout-store";
 import type { RecoveryLockoutStore } from "../recovery-lockout-store";
 import type { CoordinationErrorReporter, CoordinationStores } from "./index";
@@ -79,8 +79,8 @@ export function measured(
   store: CoordinationStoreName,
 ): CoordinationNamespace {
   return {
-    getByName(name) {
-      const stub = ns.getByName(name);
+    getByName(name, options) {
+      const stub = ns.getByName(name, options);
       const count = <A>(op: CoordinationOp, run: () => Promise<A>): Promise<A> => {
         let pending: Promise<A>;
         try {
@@ -107,6 +107,8 @@ export function measured(
         write: (value, ttlMs) => count("write", () => stub.write(value, ttlMs)),
         remove: () => count("remove", () => stub.remove()),
         claim: (ttlMs) => count("claim", () => stub.claim(ttlMs)),
+        guess: () => count("guess", () => stub.guess()),
+        take: () => count("take", () => stub.take()),
       };
     },
   };
@@ -146,30 +148,26 @@ export function createDurableCeremonyStore<V>(
   onError: CoordinationErrorReporter,
 ): CeremonyStore<V> {
   const store = client(ns, name, onError);
-  // Guesses are counted on their own objects, so a `set` never resets a count.
-  const guesses = client(ns, `${name}-attempts`, onError);
-  const op = (kind: "set" | "get" | "delete") =>
+  const op = (kind: CeremonyStoreOp) =>
     metricCeremonyStoreOp({ op: kind, namespace: name, backend: "durable_object" });
+  const parse = (raw: string | null): V | null => {
+    if (raw === null) return null;
+    try {
+      return JSON.parse(raw) as V;
+    } catch {
+      return null;
+    }
+  };
   return {
     backend: "durable_object",
     namespace: name,
-    recordAttempt: (key, windowMs) => guesses.increment(key, windowMs),
-    async clearAttempts(key) {
-      await guesses.remove(key);
-    },
     async set(key, value, ttlMs) {
       op("set");
       await store.write(key, JSON.stringify(value), ttlMs);
     },
     async get(key) {
       op("get");
-      const raw = await store.read(key);
-      if (raw === null) return null;
-      try {
-        return JSON.parse(raw) as V;
-      } catch {
-        return null;
-      }
+      return parse(await store.read(key));
     },
     async delete(key) {
       op("delete");
@@ -178,6 +176,15 @@ export function createDurableCeremonyStore<V>(
     async consume(key) {
       op("delete");
       return store.remove(key);
+    },
+    async guess(key) {
+      op("guess");
+      const { value, n } = await store.guess(key);
+      return { value: parse(value), n };
+    },
+    async take(key) {
+      op("take");
+      return parse(await store.take(key));
     },
   };
 }

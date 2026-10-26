@@ -86,6 +86,7 @@ async function refusal(name: string, op: string, ...args: unknown[]) {
 }
 
 const dump = (name: string) => call<StoreDump>(name, "dump");
+const guess = (name: string) => call<{ value: string | null; n: number }>(name, "guess");
 const EMPTY: StoreDump = { keys: [], alarm: null };
 
 /** Poll in short steps until `check` holds, or fail after `timeoutMs`. */
@@ -323,6 +324,110 @@ describe("CoordinationStore", () => {
       await call("do10-expired", "cancelAlarm");
       await elapse(350);
       expect(await call<number>("do10-expired", "count")).toBe(0);
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  // F-DO12
+  it(
+    "guess on no live entry stores nothing and counts nothing, also once it has expired",
+    async () => {
+      expect(await guess("do12-absent")).toEqual({ value: null, n: 0 });
+      expect(await dump("do12-absent")).toEqual(EMPTY);
+
+      await call("do12-expired", "write", "v", 200);
+      await call("do12-expired", "cancelAlarm");
+      await elapse(350);
+      expect(await guess("do12-expired")).toEqual({ value: null, n: 0 });
+      expect(await call<number>("do12-expired", "count")).toBe(0);
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  // F-DO13
+  it(
+    "guess on a live entry counts on it and keeps its value and expiry",
+    async () => {
+      const name = "do13";
+      await call(name, "write", "code", 600);
+      const before = (await dump(name)).alarm;
+      expect(await guess(name)).toEqual({ value: "code", n: 1 });
+      expect(await guess(name)).toEqual({ value: "code", n: 2 });
+      expect(await call<number>(name, "count")).toBe(2);
+      expect(await call<string | null>(name, "read")).toBe("code");
+      expect((await dump(name)).alarm).toBe(before);
+      await elapse(750);
+      expect(await guess(name)).toEqual({ value: null, n: 0 });
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  // F-DO14
+  it(
+    "answers N concurrent guesses with exactly 1..N",
+    async () => {
+      await call("do14", "write", "code", 60_000);
+      const n = 25;
+      const results = await Promise.all(
+        Array.from({ length: n }, () => call<{ value: string; n: number }>("do14", "guess")),
+      );
+      expect(results.every((r) => r.value === "code")).toBe(true);
+      expect(results.map((r) => r.n).toSorted((a, b) => a - b)).toEqual(
+        Array.from({ length: n }, (_, i) => i + 1),
+      );
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  // F-DO15
+  it(
+    "write restarts the count; remove clears the value and the count together",
+    async () => {
+      const name = "do15";
+      await call(name, "write", "first", 60_000);
+      await guess(name);
+      await guess(name);
+      await call(name, "write", "second", 60_000);
+      expect(await guess(name)).toEqual({ value: "second", n: 1 });
+      expect(await call<boolean>(name, "remove")).toBe(true);
+      expect(await dump(name)).toEqual(EMPTY);
+      expect(await guess(name)).toEqual({ value: null, n: 0 });
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  // F-DO16
+  it(
+    "take answers the live value once and leaves the object empty",
+    async () => {
+      await call("do16", "write", "challenge", 60_000);
+      expect(await call<string | null>("do16", "take")).toBe("challenge");
+      expect(await dump("do16")).toEqual(EMPTY);
+      expect(await call<string | null>("do16", "take")).toBeNull();
+
+      expect(await call<string | null>("do16-absent", "take")).toBeNull();
+      expect(await dump("do16-absent")).toEqual(EMPTY);
+
+      await call("do16-expired", "write", "v", 200);
+      await call("do16-expired", "cancelAlarm");
+      await elapse(350);
+      expect(await call<string | null>("do16-expired", "take")).toBeNull();
+      expect(await dump("do16-expired")).toEqual(EMPTY);
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  // F-DO17
+  it(
+    "lets exactly one of two concurrent takes have the value",
+    async () => {
+      await call("do17", "write", "challenge", 60_000);
+      const results = await Promise.all([
+        call<string | null>("do17", "take"),
+        call<string | null>("do17", "take"),
+      ]);
+      expect(results.filter((r) => r === "challenge")).toHaveLength(1);
+      expect(results.filter((r) => r === null)).toHaveLength(1);
     },
     TEST_TIMEOUT_MS,
   );

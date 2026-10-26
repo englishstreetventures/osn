@@ -4,7 +4,11 @@
  * the coordination bundle (`lib/coordination`) import them from one place.
  */
 
-import { createInMemoryCeremonyStore, type CeremonyStore } from "../../lib/ceremony-store";
+import {
+  createInMemoryCeremonyStore,
+  type CeremonyStore,
+  type CeremonyStoreOp,
+} from "../../lib/ceremony-store";
 import type { CeremonyStoreName } from "../../lib/coordination/names";
 import { metricCeremonyStoreOp } from "../../metrics";
 import type { PasskeyProvenance, PublicProfile } from "./types";
@@ -284,7 +288,7 @@ export function createInMemoryJtiStore(): StepUpJtiStore {
  */
 export function createDefaultCeremonyStores(): CeremonyStores {
   const observer = {
-    onOp: (op: "set" | "get" | "delete", namespace: CeremonyStoreName) =>
+    onOp: (op: CeremonyStoreOp, namespace: CeremonyStoreName) =>
       metricCeremonyStoreOp({ op, namespace, backend: "memory" }),
   };
   return {

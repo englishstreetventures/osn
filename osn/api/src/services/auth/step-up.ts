@@ -35,7 +35,7 @@ import {
   metricStepUpVerified,
   withStepUp,
 } from "../../metrics";
-import { claimEntry, countAttempt, restartAttempts, spendEntry } from "./attempts";
+import { claimEntry, guessEntry, spendEntry } from "./attempts";
 import {
   CHALLENGE_TTL_MS,
   MAX_OTP_ATTEMPTS,
@@ -400,9 +400,9 @@ export function createStepUpModule(ctx: AuthContext) {
         }
       }
 
-      // S-H1: single-use guard shared by every isolate. First consumer wins;
-      // every later presentation, from any isolate, lands on the
-      // jti-already-consumed branch.
+      // Single use across every isolate: the guard is shared, the first
+      // consumer wins, and every later presentation, from any isolate, lands
+      // on the jti-already-consumed branch.
       const consumed = yield* Effect.tryPromise({
         try: () => jtiStore.consume(jti, stepUpTokenTtl * 1000),
         catch: () => new AuthError({ message: "Step-up token could not be verified" }),
@@ -484,15 +484,14 @@ export function createStepUpModule(ctx: AuthContext) {
     Db
   > =>
     Effect.gen(function* () {
-      const entry = yield* storeCall(stores.stepUpPasskeyChallenges, "get", () =>
-        stores.stepUpPasskeyChallenges.get(accountId),
+      // Read and removed in one call, so of two presentations of one
+      // assertion at once only one reaches verification.
+      const entry = yield* storeCall(stores.stepUpPasskeyChallenges, "take", () =>
+        stores.stepUpPasskeyChallenges.take(accountId),
       );
       if (!entry || Date.now() > entry.expiresAt) {
         return yield* Effect.fail(new AuthError({ message: "Challenge expired or not found" }));
       }
-      yield* storeCall(stores.stepUpPasskeyChallenges, "delete", () =>
-        stores.stepUpPasskeyChallenges.delete(accountId),
-      );
 
       const { db } = yield* Db;
       const pkResult = yield* Effect.tryPromise({
@@ -588,7 +587,6 @@ export function createStepUpModule(ctx: AuthContext) {
           otpTtl * 1000,
         ),
       );
-      yield* restartAttempts(stores.stepUpOtp, accountId);
       yield* logDevOtp("step-up", code);
       const email = yield* EmailService;
       yield* email
@@ -618,14 +616,12 @@ export function createStepUpModule(ctx: AuthContext) {
     Db
   > =>
     Effect.gen(function* () {
-      const entry = yield* storeCall(stores.stepUpOtp, "get", () =>
-        stores.stepUpOtp.get(accountId),
-      );
-      if (!entry || Date.now() > entry.expiresAt) {
+      // Read and counted in one call, before the code is compared; see `attempts.ts`.
+      const guessed = yield* guessEntry(stores.stepUpOtp, accountId, MAX_OTP_ATTEMPTS);
+      if (!guessed) {
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
       }
-      // Counted before the code is read; see `attempts.ts`.
-      const standing = yield* countAttempt(stores.stepUpOtp, accountId, entry, MAX_OTP_ATTEMPTS);
+      const { entry, standing } = guessed;
       if (standing === "spent") {
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
       }

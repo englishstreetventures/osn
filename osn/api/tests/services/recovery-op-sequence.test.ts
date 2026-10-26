@@ -62,16 +62,12 @@ function harness() {
   return { fake, auth, layer, record, nthCode };
 }
 
-const BEGIN = [
-  "auth.recovery_email_begin_cap.increment",
-  "pending_recovery_otp.write",
-  "pending_recovery_otp-attempts.remove",
-];
+const BEGIN = ["auth.recovery_email_begin_cap.increment", "pending_recovery_otp.write"];
 
+// The first two run side by side, started in this order.
 const COMPLETE_REFUSED = [
   "recovery_otp_lockout.count",
-  "pending_recovery_otp.read",
-  "pending_recovery_otp-attempts.increment",
+  "pending_recovery_otp.guess",
   "recovery_otp_lockout.increment",
 ];
 
@@ -144,7 +140,7 @@ describe("POST /login/recovery/email/complete", () => {
       yield* h.auth.beginEmailRecovery("seq-right@example.com");
       const code = yield* h.nthCode(0);
       const right = yield* h.record(h.auth.completeEmailRecovery("seq-right@example.com", code));
-      expect(right.ops.slice(0, 3)).toEqual(COMPLETE_REFUSED.slice(0, 3));
+      expect(right.ops.slice(0, 2)).toEqual(COMPLETE_REFUSED.slice(0, 2));
     }).pipe(Effect.provide(h.layer));
   });
 

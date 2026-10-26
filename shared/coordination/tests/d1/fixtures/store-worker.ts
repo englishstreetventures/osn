@@ -67,6 +67,10 @@ async function callObject(
       return stub.remove();
     case "claim":
       return stub.claim(args[0] as number);
+    case "guess":
+      return stub.guess();
+    case "take":
+      return stub.take();
     case "dump":
       return stub.dump();
     case "fireAlarm":

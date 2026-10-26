@@ -17,7 +17,31 @@ export const MAX_TTL_MS = 31 * 24 * 60 * 60 * 1000;
 /** Letters, digits, `_`, `.` and `-`, 1 to 64 of them. Never `:`, the separator. */
 const NAMESPACE_PATTERN = /^[A-Za-z0-9_.-]{1,64}$/;
 
-export type CoordinationOp = "increment" | "count" | "read" | "write" | "remove" | "claim";
+export type CoordinationOp =
+  | "increment"
+  | "count"
+  | "read"
+  | "write"
+  | "remove"
+  | "claim"
+  | "guess"
+  | "take";
+
+/**
+ * Where every object is asked to live: Cloudflare's Oceania region. Cloudflare
+ * places an object near its hint when the object is first created, on a best
+ * effort, and never moves it after, so the hint holds only if every `getByName`
+ * passes it — which {@link createCoordinationClient} does. One fixed region
+ * means an object's distance from the Worker does not depend on who created it.
+ */
+export const COORDINATION_LOCATION_HINT = "oc";
+
+/** The options every stub is got with. */
+export interface CoordinationStubOptions {
+  readonly locationHint: typeof COORDINATION_LOCATION_HINT;
+}
+
+const STUB_OPTIONS: CoordinationStubOptions = { locationHint: COORDINATION_LOCATION_HINT };
 
 /**
  * The calls one object answers. Each is atomic on that object. Durations are
@@ -37,10 +61,19 @@ export interface CoordinationStub {
   remove(): Promise<boolean>;
   /** Stores a marker for `ttlMs` if no live entry exists; true only for the caller that stored it. */
   claim(ttlMs: number): Promise<boolean>;
+  /**
+   * Counts a guess on the live value's own record and answers the value and
+   * the count after it; with no live value, counts nothing and answers
+   * `{ value: null, n: 0 }`. `write` restarts the count; `remove` and `take`
+   * clear it.
+   */
+  guess(): Promise<{ value: string | null; n: number }>;
+  /** The live value, removed in the same call, or null. */
+  take(): Promise<string | null>;
 }
 
 export interface CoordinationNamespace {
-  getByName(name: string): CoordinationStub;
+  getByName(name: string, options?: CoordinationStubOptions): CoordinationStub;
 }
 
 /** What a failed call reports. Never the key and never a value. */
@@ -78,6 +111,8 @@ export interface CoordinationClient {
   write(key: string, value: string, ttlMs: number): Promise<void>;
   remove(key: string): Promise<boolean>;
   claim(key: string, ttlMs: number): Promise<boolean>;
+  guess(key: string): Promise<{ value: string | null; n: number }>;
+  take(key: string): Promise<string | null>;
 }
 
 function assertNamespace(namespace: string): void {
@@ -117,9 +152,9 @@ export function createCoordinationClient<S extends string>(
   };
 
   /**
-   * Runs `run` on the key's object. Only `read` and `count` change nothing,
-   * so only they are tried a second time, through a fresh stub, since a stub
-   * that has thrown may stay broken.
+   * Runs `run` on the key's object, got with the location hint. Only `read`
+   * and `count` change nothing, so only they are tried a second time, through
+   * a fresh stub, since a stub that has thrown may stay broken.
    */
   async function call<A>(
     op: CoordinationOp,
@@ -131,11 +166,11 @@ export function createCoordinationClient<S extends string>(
     let retried = false;
     try {
       try {
-        return await run(ns.getByName(name));
+        return await run(ns.getByName(name, STUB_OPTIONS));
       } catch (error) {
         if ((op !== "read" && op !== "count") || !isRetryable(error)) throw error;
         retried = true;
-        return await run(ns.getByName(name));
+        return await run(ns.getByName(name, STUB_OPTIONS));
       }
     } catch (error) {
       onError?.(namespace, op, { retried, durationMs: Date.now() - started });
@@ -150,6 +185,8 @@ export function createCoordinationClient<S extends string>(
     write: (key, value, ttlMs) => call("write", key, (stub) => stub.write(value, clamp(ttlMs))),
     remove: (key) => call("remove", key, (stub) => stub.remove()),
     claim: (key, ttlMs) => call("claim", key, (stub) => stub.claim(clamp(ttlMs))),
+    guess: (key) => call("guess", key, (stub) => stub.guess()),
+    take: (key) => call("take", key, (stub) => stub.take()),
   };
 }
 

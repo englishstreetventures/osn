@@ -1,4 +1,5 @@
 export {
+  COORDINATION_LOCATION_HINT,
   createCoordinationClient,
   createCoordinationRateLimiter,
   MAX_KEY_LENGTH,
@@ -12,4 +13,5 @@ export {
   type CoordinationRateLimiter,
   type CoordinationRateLimiterOptions,
   type CoordinationStub,
+  type CoordinationStubOptions,
 } from "./client";

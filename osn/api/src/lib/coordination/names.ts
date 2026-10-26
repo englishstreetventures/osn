@@ -36,12 +36,8 @@ export type CeremonyStoreName =
 /** Per-account failed-attempt counters. Three, so no factor can lock out another. */
 export type LockoutStoreName = "recovery_lockout" | "recovery_otp_lockout" | "totp_lockout";
 
-/** A ceremony store's guess counter, kept apart from its entries. */
-export type AttemptStoreName = `${CeremonyStoreName}-attempts`;
-
 export type CoordinationStoreName =
   | CeremonyStoreName
-  | AttemptStoreName
   | LockoutStoreName
   // Consumed step-up token ids: a token verifies once.
   | "step_up_jti"

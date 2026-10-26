@@ -901,14 +901,13 @@ function makeCountingApp(options: { readonly lockoutsUnreachable?: boolean } = {
           hops.pendingRecoveryOtp += 1;
           return pending.delete(key);
         },
-        // The guess counter is a hop on the same ceremony, so it counts here.
-        recordAttempt: (key, windowMs) => {
+        guess: (key) => {
           hops.pendingRecoveryOtp += 1;
-          return pending.recordAttempt(key, windowMs);
+          return pending.guess(key);
         },
-        clearAttempts: (key) => {
+        take: (key) => {
           hops.pendingRecoveryOtp += 1;
-          return pending.clearAttempts(key);
+          return pending.take(key);
         },
         consume: (key) => {
           hops.pendingRecoveryOtp += 1;
@@ -962,9 +961,9 @@ const post = (app: RouteApp, path: string, body: unknown) =>
   app.handle(json(path, { method: "POST", body: JSON.stringify(body) }));
 
 describe("recovery routes cost the same however a request ends", () => {
-  it("POST /login/recovery/email/begin — sent, capped and unknown all make three hops", async () => {
+  it("POST /login/recovery/email/begin — sent, capped and unknown all make two hops", async () => {
     // Goes red on: dropping `padPark` from the capped branch (1 hop instead of
-    // 3 — so a fourth request for an address whose allowance is spent answers
+    // 2 — so a fourth request for an address whose allowance is spent answers
     // sooner than one for an address that names nobody, which confirms the
     // address is real), or any padding call from the unknown branch. The calls
     // themselves are pinned in `tests/services/recovery-op-sequence.test.ts`.
@@ -995,20 +994,20 @@ describe("recovery routes cost the same however a request ends", () => {
     );
 
     const total = (h: Hops) => h.pendingRecoveryOtp + h.recoveryEmailBeginCap;
-    expect(total(sent)).toBe(3);
-    expect(total(capped)).toBe(3);
-    expect(total(unknown)).toBe(3);
+    expect(total(sent)).toBe(2);
+    expect(total(capped)).toBe(2);
+    expect(total(unknown)).toBe(2);
   });
 
-  it("POST /login/recovery/email/complete — every branch makes the same four hops", async () => {
-    // The wrong-code branch is the costliest: the lockout lookup, the entry
-    // read, the guess count, the failure record. Every other branch is padded
-    // up to it, including — especially — the one where the identifier resolves
-    // to nothing.
+  it("POST /login/recovery/email/complete — every branch makes the same three calls", async () => {
+    // The wrong-code branch is the costliest: the lockout lookup, the guess
+    // (the entry read and its count, in one call), the failure record. Every
+    // other branch is padded up to it, including — especially — the one where
+    // the identifier resolves to nothing.
     //
     // Goes red on: removing any padding call from the unknown, locked or
-    // no-pending branches. Deleting the four in the unknown branch alone takes
-    // it to 0 hops against the wrong-code branch's 4.
+    // no-pending branches. Deleting the three in the unknown branch alone takes
+    // it to 0 calls against the wrong-code branch's 3.
 
     // (a) a wrong code against a live pending entry — the costliest branch.
     const wrongHarness = makeCountingApp();
@@ -1058,7 +1057,7 @@ describe("recovery routes cost the same however a request ends", () => {
     );
 
     // (e) the correct code. Self-identifying at 200, so it is not padded: it also
-    //     claims the entry and clears its guess count, two more pending-store calls.
+    //     claims the entry, one more pending-store call.
     const okHarness = makeCountingApp();
     await okHarness.seed("hp-ok@example.com", "hpok");
     const good = await requestCode(okHarness.app, okHarness.recorded, "hp-ok@example.com");
@@ -1073,14 +1072,14 @@ describe("recovery routes cost the same however a request ends", () => {
       pending: h.pendingRecoveryOtp,
       lockout: h.recoveryOtpLockout,
     });
-    // Two on the pending-code store, two on the lockout counter, always. The
+    // One on the pending-code store, two on the lockout counter, always. The
     // split is asserted as well as the total: a branch that swapped a lockout
     // hop for a pending-store hop would keep the total and lose the shape.
-    expect(shape(wrong)).toEqual({ pending: 2, lockout: 2 });
+    expect(shape(wrong)).toEqual({ pending: 1, lockout: 2 });
     expect(shape(unknown)).toEqual(shape(wrong));
     expect(shape(empty)).toEqual(shape(wrong));
     expect(shape(locked)).toEqual(shape(wrong));
-    expect(shape(ok)).toEqual({ pending: 4, lockout: 2 });
+    expect(shape(ok)).toEqual({ pending: 2, lockout: 2 });
   });
 
   it("POST /login/recovery/totp/complete — an unknown identifier costs what a real account costs", async () => {
@@ -1200,7 +1199,7 @@ describe("recovery routes cost the same when the lockout counter cannot be read"
       }),
     );
 
-    expect(real.pendingRecoveryOtp).toBe(2);
+    expect(real.pendingRecoveryOtp).toBe(1);
     expect(real.recoveryOtpLockout).toBe(2);
     expect(unknown.pendingRecoveryOtp).toBe(real.pendingRecoveryOtp);
     expect(unknown.recoveryOtpLockout).toBe(real.recoveryOtpLockout);

@@ -5,9 +5,11 @@ import {
   createCoordinationRateLimiter,
   MAX_KEY_LENGTH,
   MAX_TTL_MS,
+  COORDINATION_LOCATION_HINT,
   type CoordinationNamespace,
   type CoordinationOp,
   type CoordinationStub,
+  type CoordinationStubOptions,
 } from "../src/client";
 
 interface Call {
@@ -23,14 +25,16 @@ interface Call {
  */
 function recordingNamespace(answer: (op: CoordinationOp, attempt: number) => Promise<unknown>) {
   const names: string[] = [];
+  const options: (CoordinationStubOptions | undefined)[] = [];
   const calls: Call[] = [];
   const record = (name: string, op: CoordinationOp, args: readonly unknown[]): Promise<unknown> => {
     calls.push({ name, op, args });
     return answer(op, calls.filter((c) => c.op === op).length);
   };
   const ns: CoordinationNamespace = {
-    getByName(name: string): CoordinationStub {
+    getByName(name: string, stubOptions?: CoordinationStubOptions): CoordinationStub {
       names.push(name);
+      options.push(stubOptions);
       return {
         increment: (windowMs) => record(name, "increment", [windowMs]) as Promise<number>,
         count: () => record(name, "count", []) as Promise<number>,
@@ -38,10 +42,12 @@ function recordingNamespace(answer: (op: CoordinationOp, attempt: number) => Pro
         write: (value, ttlMs) => record(name, "write", [value, ttlMs]) as Promise<void>,
         remove: () => record(name, "remove", []) as Promise<boolean>,
         claim: (ttlMs) => record(name, "claim", [ttlMs]) as Promise<boolean>,
+        guess: () => record(name, "guess", []) as Promise<{ value: string | null; n: number }>,
+        take: () => record(name, "take", []) as Promise<string | null>,
       };
     },
   };
-  return { ns, names, calls };
+  return { ns, names, options, calls };
 }
 
 /** The shape the runtime gives an error a caller may retry. */
@@ -146,6 +152,8 @@ describe("createCoordinationClient", () => {
     ["write", (c: ReturnType<typeof createCoordinationClient>) => c.write(LONG_KEY, "v", 1_000)],
     ["remove", (c: ReturnType<typeof createCoordinationClient>) => c.remove(LONG_KEY)],
     ["claim", (c: ReturnType<typeof createCoordinationClient>) => c.claim(LONG_KEY, 1_000)],
+    ["guess", (c: ReturnType<typeof createCoordinationClient>) => c.guess(LONG_KEY)],
+    ["take", (c: ReturnType<typeof createCoordinationClient>) => c.take(LONG_KEY)],
   ] as const)(
     "%s refuses a key over 256 characters without calling the object",
     async (_op, run) => {
@@ -186,6 +194,41 @@ describe("createCoordinationClient", () => {
     await client.write("k", "v", over);
     await client.claim("k", over);
     expect(calls.map((c) => c.args.at(-1))).toEqual([MAX_TTL_MS, MAX_TTL_MS, MAX_TTL_MS]);
+  });
+
+  // F-CL14
+  it("gets every stub with the Oceania location hint, a retry's included", async () => {
+    const { ns, options } = recordingNamespace((op, attempt) =>
+      op === "read" && attempt === 1
+        ? Promise.reject(runtimeError({ retryable: true }))
+        : Promise.resolve(op === "guess" ? { value: null, n: 0 } : null),
+    );
+    const client = createCoordinationClient(ns, { namespace: "ceremony" });
+    await client.read("k");
+    await client.write("k", "v", 1_000);
+    await client.guess("k");
+    await client.take("k");
+    await createCoordinationRateLimiter(ns, {
+      namespace: "auth.login",
+      maxRequests: 5,
+      windowMs: 60_000,
+    }).check(KEY);
+    expect(COORDINATION_LOCATION_HINT).toBe("oc");
+    expect(options).toHaveLength(6);
+    expect(options).toEqual(options.map(() => ({ locationHint: "oc" })));
+  });
+
+  it("answers guess and take with what the object answered", async () => {
+    const { ns, calls } = recordingNamespace((op) =>
+      Promise.resolve(op === "guess" ? { value: "v", n: 2 } : "taken"),
+    );
+    const client = createCoordinationClient(ns, { namespace: "ceremony" });
+    expect(await client.guess("k")).toEqual({ value: "v", n: 2 });
+    expect(await client.take("k")).toBe("taken");
+    expect(calls.map((c) => [c.name, c.op])).toEqual([
+      ["ceremony:k", "guess"],
+      ["ceremony:k", "take"],
+    ]);
   });
 
   it("passes a TTL at or below zero through to write, which removes the entry", async () => {
@@ -251,6 +294,9 @@ describe("retries", () => {
     ["write", (c: ReturnType<typeof createCoordinationClient>) => c.write("k", "v", 1_000)],
     ["remove", (c: ReturnType<typeof createCoordinationClient>) => c.remove("k")],
     ["claim", (c: ReturnType<typeof createCoordinationClient>) => c.claim("k", 1_000)],
+    // F-CL15: both write — a guess counts, a take clears.
+    ["guess", (c: ReturnType<typeof createCoordinationClient>) => c.guess("k")],
+    ["take", (c: ReturnType<typeof createCoordinationClient>) => c.take("k")],
   ] as const)("%s never retries, even a retryable error", async (_op, run) => {
     const failure = runtimeError({ retryable: true });
     const { ns, calls } = recordingNamespace(() => Promise.reject(failure));

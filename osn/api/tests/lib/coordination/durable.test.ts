@@ -24,12 +24,30 @@ describe("durable ceremony store", () => {
     await expect(store.get(KEY)).rejects.toThrow(/object unavailable/);
     await expect(store.delete(KEY)).rejects.toThrow(/object unavailable/);
     await expect(store.consume(KEY)).rejects.toThrow(/object unavailable/);
+    await expect(store.guess(KEY)).rejects.toThrow(/object unavailable/);
+    await expect(store.take(KEY)).rejects.toThrow(/object unavailable/);
     expect(onError.mock.calls.map(([named, op]) => `${named}.${op}`)).toEqual([
       "step_up_otp.write",
       "step_up_otp.read",
       "step_up_otp.remove",
       "step_up_otp.remove",
+      "step_up_otp.guess",
+      "step_up_otp.take",
     ]);
+  });
+
+  it("guesses and takes on the entry's own object, through JSON", async () => {
+    const fake = createFakeNamespace();
+    const store = createDurableCeremonyStore<typeof VALUE>(fake.ns, "step_up_otp", vi.fn());
+    expect(await store.guess(KEY)).toEqual({ value: null, n: 0 });
+    await store.set(KEY, VALUE, 60_000);
+    expect(await store.guess(KEY)).toEqual({ value: VALUE, n: 1 });
+    expect(await store.guess(KEY)).toEqual({ value: VALUE, n: 2 });
+    expect(await store.take(KEY)).toEqual(VALUE);
+    expect(await store.take(KEY)).toBeNull();
+    // Every call reached the one object, asked for in Oceania.
+    expect(new Set(fake.names)).toEqual(new Set([`step_up_otp:${KEY}`]));
+    expect(new Set(fake.hints)).toEqual(new Set(["oc"]));
   });
 
   // F-CL6

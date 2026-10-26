@@ -2,25 +2,26 @@
  * The guess count every code-checking ceremony keeps: step-up OTP, the
  * emailed recovery code, TOTP enrolment, email change and registration.
  *
- * The life of one count, per pending entry:
+ * The count lives on the pending entry itself, and one store call both reads
+ * the entry and counts the guess against it (`CeremonyStore.guess`). The life
+ * of one count:
  *
- * - `begin` writes a new entry and clears the count ({@link restartAttempts}),
- *   so a new code is never refused for the old one's guesses.
- * - `complete` reads the entry first. No entry, or an expired one, is refused
- *   without counting — there is nothing to guess against.
- * - Otherwise the guess is counted ({@link countAttempt}) before the code is
- *   compared. The count is one atomic increment in the store, so guesses sent
- *   at once each take their own number.
+ * - `begin` writes a new entry, which starts its count at 0, so a new code is
+ *   never refused for the old one's guesses.
+ * - `complete` guesses ({@link guessEntry}): the entry and the count after
+ *   this guess, in one atomic call. No entry, or an expired one, counts
+ *   nothing and is refused — there is nothing to guess against.
  * - The guess that reaches the cap, if wrong, deletes the entry
- *   ({@link spendEntry}). Every guess past the cap is refused without the code
- *   being read; while the count stands, no later guess is read either, even
- *   one that read the entry before it was deleted. The count is left to
- *   expire with the entry's lifetime rather than cleared, for that reason —
- *   and the entry is not deleted again past the cap, so a right code that
- *   reached the cap is not robbed of its claim by the guesses behind it.
- * - A right code claims the entry (`consume`, so of two right codes exactly
- *   one wins) or, where the commit that follows must succeed first, deletes it
- *   after the commit; then the count is cleared.
+ *   ({@link spendEntry}), and its count with it. Every guess past the cap is
+ *   refused without the code being compared. Because the read and the count
+ *   are one call, no guess can read the entry and then count from a number
+ *   the entry no longer has; a guess that arrives after the delete finds
+ *   nothing and counts nothing. A guess past the cap does not delete the entry
+ *   again, so a right code that reached the cap is not robbed of its claim by
+ *   the guesses behind it.
+ * - A right code claims the entry ({@link claimEntry}: of two right codes
+ *   exactly one wins) or, where the commit that follows must succeed first,
+ *   deletes it after the commit.
  */
 
 import { Effect } from "effect";
@@ -36,45 +37,38 @@ import { storeCall } from "./store-call";
  */
 export type AttemptStanding = "open" | "last" | "spent";
 
-/** Count one guess against `entry` at `key`, which allows `max` in all. */
-export const countAttempt = <V extends { readonly expiresAt: number }>(
+/** A guess counted against a live entry. */
+export interface CountedGuess<V> {
+  readonly entry: V;
+  readonly standing: AttemptStanding;
+}
+
+/**
+ * Read the entry at `key`, which allows `max` guesses in all, and count this
+ * guess against it, in one store call. `null` when there is no live entry —
+ * nothing was counted — or when the entry's own expiry has passed.
+ */
+export const guessEntry = <V extends { readonly expiresAt: number }>(
   store: CeremonyStore<V>,
   key: string,
-  entry: V,
   max: number,
-): Effect.Effect<AttemptStanding, CoordinationError> =>
+): Effect.Effect<CountedGuess<V> | null, CoordinationError> =>
   Effect.gen(function* () {
-    // The count lives as long as the entry has left, and at least 1 ms: the
-    // store refuses an empty window.
-    const window = Math.max(1, entry.expiresAt - Date.now());
-    const n = yield* storeCall(store, "recordAttempt", () => store.recordAttempt(key, window));
-    if (n > max) return "spent";
-    return n === max ? "last" : "open";
+    const { value, n } = yield* storeCall(store, "guess", () => store.guess(key));
+    if (value === null || Date.now() > value.expiresAt) return null;
+    if (n > max) return { entry: value, standing: "spent" };
+    return { entry: value, standing: n === max ? "last" : "open" };
   });
 
-/** Delete the entry at `key`; its guess count expires on its own. */
+/** Delete the entry at `key`, and its guess count with it. */
 export const spendEntry = <V>(
   store: CeremonyStore<V>,
   key: string,
 ): Effect.Effect<void, CoordinationError> => storeCall(store, "delete", () => store.delete(key));
 
-/** Clear the guess count at `key`, as a new entry is written or one is used. */
-export const restartAttempts = <V>(
-  store: CeremonyStore<V>,
-  key: string,
-): Effect.Effect<void, CoordinationError> =>
-  storeCall(store, "clearAttempts", () => store.clearAttempts(key));
-
-/**
- * Claim the entry at `key` for the right code. True for exactly one caller;
- * the count is cleared once it is.
- */
+/** Claim the entry at `key` for the right code. True for exactly one caller. */
 export const claimEntry = <V>(
   store: CeremonyStore<V>,
   key: string,
 ): Effect.Effect<boolean, CoordinationError> =>
-  Effect.gen(function* () {
-    const won = yield* storeCall(store, "consume", () => store.consume(key));
-    if (won) yield* restartAttempts(store, key);
-    return won;
-  });
+  storeCall(store, "consume", () => store.consume(key));

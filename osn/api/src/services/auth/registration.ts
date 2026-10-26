@@ -14,7 +14,7 @@ import { Effect, Schema } from "effect";
 
 import { UNIQUE_CONSTRAINT_ERROR } from "../../lib/unique-constraint";
 import { metricAuthHandleCheck, metricAuthOtpSent, withAuthRegister } from "../../metrics";
-import { countAttempt, restartAttempts, spendEntry } from "./attempts";
+import { guessEntry, spendEntry } from "./attempts";
 import { MAX_OTP_ATTEMPTS, MIN_AGE_YEARS, RESERVED_HANDLES } from "./constants";
 import type { AuthContext } from "./context";
 import {
@@ -181,6 +181,11 @@ export function createRegistrationModule(
    *   let each begin mail the address again while sends are slow.
    *
    * A store write that fails leaves the entry as it was.
+   *
+   * Holding the entry rewrites it, and a rewrite starts its guess count again.
+   * That allows at most one more cap's worth of guesses, inside the minute the
+   * entry is held, against a code whose send failed — a bound the cap's own
+   * arithmetic absorbs (ten six-digit guesses, not five).
    */
   const settleFailedSend = (
     key: string,
@@ -333,7 +338,6 @@ export function createRegistrationModule(
           otpTtl * 1000,
         ),
       );
-      yield* restartAttempts(stores.pendingRegistrations, normalisedEmail);
 
       yield* logDevOtp("registration", code);
 
@@ -407,23 +411,16 @@ export function createRegistrationModule(
   > =>
     Effect.gen(function* () {
       const key = email.toLowerCase();
-      const pending = yield* storeCall(stores.pendingRegistrations, "get", () =>
-        stores.pendingRegistrations.get(key),
-      );
-      if (!pending || Date.now() > pending.expiresAt) {
+      // Read and counted in one call, before the code is compared; see
+      // `attempts.ts`. The entry is deleted after the insert below, not
+      // claimed here, so an insert that loses a race leaves the code usable;
+      // the count and the UNIQUE constraints keep two right codes from both
+      // registering.
+      const guessed = yield* guessEntry(stores.pendingRegistrations, key, MAX_OTP_ATTEMPTS);
+      if (!guessed) {
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
       }
-
-      // Counted before the code is read; see `attempts.ts`. The entry is
-      // deleted after the insert below, not claimed here, so an insert that
-      // loses a race leaves the code usable; the count and the UNIQUE
-      // constraints keep two right codes from both registering.
-      const standing = yield* countAttempt(
-        stores.pendingRegistrations,
-        key,
-        pending,
-        MAX_OTP_ATTEMPTS,
-      );
+      const { entry: pending, standing } = guessed;
       if (standing === "spent") {
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
       }
@@ -486,11 +483,10 @@ export function createRegistrationModule(
         return yield* Effect.fail(new AuthError({ message: "Email or handle already registered" }));
       }
 
-      // Success: only NOW delete the pending entry, and its guess count. The
-      // account exists whatever happens here, so a store fault is not the
-      // caller's answer; an entry left behind expires with its TTL.
+      // Success: only NOW delete the pending entry, and its guess count with
+      // it. The account exists whatever happens here, so a store fault is not
+      // the caller's answer; an entry left behind expires with its TTL.
       yield* spendEntry(stores.pendingRegistrations, key).pipe(Effect.ignore);
-      yield* restartAttempts(stores.pendingRegistrations, key).pipe(Effect.ignore);
 
       const issued = yield* issueTokens(
         id,

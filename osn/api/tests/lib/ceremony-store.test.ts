@@ -179,3 +179,72 @@ describe("CeremonyStore.consume — first consumer wins", () => {
     }
   });
 });
+
+/**
+ * A guess is counted on the entry it is a guess at, in the same call that
+ * reads it, so no guess can read the entry and then count from a fresh
+ * number. `take` is the single-use read: the value, removed in the same call.
+ * The Durable Object store gives both the same guarantees (F-DO12–17).
+ */
+describe("CeremonyStore.guess and take", () => {
+  it("counts nothing, and stores nothing, when there is no live entry", async () => {
+    const store = createInMemoryCeremonyStore<Entry>("step_up_otp");
+    expect(await store.guess("ghost")).toEqual({ value: null, n: 0 });
+    expect(await store.get("ghost")).toBe(null);
+    await store.set("k", entry("c"), 1);
+    vi.useFakeTimers();
+    try {
+      vi.advanceTimersByTime(50);
+      expect(await store.guess("k")).toEqual({ value: null, n: 0 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("counts each guess on the entry and answers the value with the count", async () => {
+    const store = createInMemoryCeremonyStore<Entry>("step_up_otp");
+    await store.set("k", entry("c"), 60_000);
+    const results = await Promise.all([store.guess("k"), store.guess("k"), store.guess("k")]);
+    expect(results.map((r) => r.n).toSorted()).toEqual([1, 2, 3]);
+    expect(results.every((r) => r.value?.challenge === "c")).toBe(true);
+  });
+
+  it("set restarts the count; delete and consume clear it with the entry", async () => {
+    const store = createInMemoryCeremonyStore<Entry>("step_up_otp");
+    await store.set("k", entry("first"), 60_000);
+    await store.guess("k");
+    await store.guess("k");
+    await store.set("k", entry("second"), 60_000);
+    expect(await store.guess("k")).toMatchObject({ value: { challenge: "second" }, n: 1 });
+
+    await store.delete("k");
+    await store.set("k", entry("third"), 60_000);
+    expect((await store.guess("k")).n).toBe(1);
+
+    expect(await store.consume("k")).toBe(true);
+    await store.set("k", entry("fourth"), 60_000);
+    expect((await store.guess("k")).n).toBe(1);
+  });
+
+  it("take answers the live value once and removes it", async () => {
+    const store = createInMemoryCeremonyStore<Entry>("login_challenge");
+    await store.set("k", entry("c"), 60_000);
+    const results = await Promise.all([store.take("k"), store.take("k")]);
+    expect(results.filter((r) => r?.challenge === "c")).toHaveLength(1);
+    expect(results.filter((r) => r === null)).toHaveLength(1);
+    expect(await store.get("k")).toBe(null);
+    expect(await store.take("absent")).toBe(null);
+  });
+
+  it("take answers null for an expired entry", async () => {
+    const store = createInMemoryCeremonyStore<Entry>("login_challenge");
+    await store.set("k", entry("c"), 1);
+    vi.useFakeTimers();
+    try {
+      vi.advanceTimersByTime(50);
+      expect(await store.take("k")).toBe(null);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

@@ -16,7 +16,7 @@ import { createTestLayerWithSqlite } from "../helpers/db";
 
 /**
  * Every code-checking ceremony counts its guesses in the store, one atomic
- * increment per guess, before it compares the code. Guesses sent together
+ * read-and-count per guess, before it compares the code. Guesses sent together
  * therefore each take their own place in the count: the guess that reaches
  * the cap burns the entry, every guess after it is refused unread, and the
  * right code cannot be found by sending more guesses at once than the cap.
@@ -28,10 +28,10 @@ import { createTestLayerWithSqlite } from "../helpers/db";
  * let both past the entry check, so only the claim can refuse the second.
  *
  * Run on both bundles: the in-memory one and the Durable Object one over a
- * stand-in namespace. Every `get` answers a few milliseconds late, as a
- * Durable Object round trip does, so the guesses' reads overlap however the
- * rest of each ceremony is scheduled; without that, a test here could pass on
- * code that counts guesses with a read and a write.
+ * stand-in namespace. Every call that reads an entry answers a few
+ * milliseconds late, as a Durable Object round trip does, so the guesses'
+ * reads overlap however the rest of each ceremony is scheduled; without that,
+ * a test here could pass on code that counts guesses with a read and a write.
  */
 
 const BURST = 3;
@@ -43,7 +43,11 @@ beforeAll(async () => {
   base = await makeTestAuthConfig();
 });
 
-/** `stores` with every `get` answering `READ_DELAY_MS` late. */
+/** `run`'s answer, delivered `READ_DELAY_MS` after the store gave it. */
+const late = <A>(run: Promise<A>): Promise<A> =>
+  run.then((value) => new Promise((resolve) => setTimeout(() => resolve(value), READ_DELAY_MS)));
+
+/** `stores` with every call that reads an entry answering `READ_DELAY_MS` late. */
 function slowReads(stores: CeremonyStores): CeremonyStores {
   const out = {} as Record<keyof CeremonyStores, unknown>;
   for (const [name, store] of Object.entries(stores) as [
@@ -52,14 +56,11 @@ function slowReads(stores: CeremonyStores): CeremonyStores {
   ][]) {
     out[name] = {
       ...store,
-      // Read now, answer later: the value is what the store held when the
+      // Read now, answer later: the answer is what the store held when the
       // call arrived, delivered after the round trip.
-      get: (key: string) =>
-        store
-          .get(key)
-          .then(
-            (value) => new Promise((resolve) => setTimeout(() => resolve(value), READ_DELAY_MS)),
-          ),
+      get: (key: string) => late(store.get(key)),
+      guess: (key: string) => late(store.guess(key)),
+      take: (key: string) => late(store.take(key)),
     };
   }
   return out as CeremonyStores;

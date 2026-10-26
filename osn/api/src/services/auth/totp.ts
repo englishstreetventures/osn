@@ -48,7 +48,7 @@ import {
   withTotpOp,
   type TotpLockoutScope,
 } from "../../metrics";
-import { claimEntry, countAttempt, restartAttempts, spendEntry } from "./attempts";
+import { claimEntry, guessEntry, spendEntry } from "./attempts";
 import { TOTP_ENROLL_TTL_MS, TOTP_LOCKOUT_THRESHOLD, TOTP_MAX_ENROLL_ATTEMPTS } from "./constants";
 import type { AuthContext } from "./context";
 import { AuthError, type CoordinationError, DatabaseError } from "./errors";
@@ -237,15 +237,21 @@ export function createTotpModule(
       // Fail-closed: an unreachable lockout counter for TOTP means no throttle
       // at all behind a six-digit code, so an error here denies. See the
       // posture note in `lib/recovery-lockout-store.ts`.
+      //
+      // The lockout lookup and the credential query wait on nothing from each
+      // other, so they run side by side — on every branch, `burnTotpCheckCost`
+      // included, so each still costs the same.
       const key = lockoutKey(accountId, scope);
-      const lockout = yield* Effect.promise(() => totpLockoutStore.status(key));
+      const [lockout, credential] = yield* Effect.all(
+        [Effect.promise(() => totpLockoutStore.status(key)), confirmedCredential(accountId)],
+        { concurrency: "unbounded" },
+      );
       if (lockout !== "open") {
         // Refused without checking the code, at what a wrong code costs: the
         // credential query, a verification against the dummy key, and the
         // failure record — a refused attempt is a failed one. Otherwise a
         // locked account, or a store fault, would answer a real account sooner
         // than an identifier that names nobody (`burnTotpCheckCost`).
-        yield* confirmedCredential(accountId);
         yield* Effect.promise(() => verifyTotpCode({ secret: new Uint8Array(0), code }));
         yield* Effect.promise(() => totpLockoutStore.recordFailure(key));
         if (lockout === "locked") {
@@ -256,8 +262,6 @@ export function createTotpModule(
         }
         return yield* Effect.fail(new AuthError({ message: GENERIC_CODE_FAILURE }));
       }
-
-      const credential = yield* confirmedCredential(accountId);
 
       // `null` for an absent credential, and also for a row no configured key
       // opens — a stamp naming a key nobody installed, a wrong key installed as
@@ -367,8 +371,10 @@ export function createTotpModule(
     Effect.gen(function* () {
       yield* keyRing();
       const key = lockoutKey(probe, "recovery");
-      yield* Effect.promise(() => totpLockoutStore.status(key));
-      yield* confirmedCredential(probe);
+      yield* Effect.all(
+        [Effect.promise(() => totpLockoutStore.status(key)), confirmedCredential(probe)],
+        { concurrency: "unbounded", discard: true },
+      );
       yield* Effect.promise(() => verifyTotpCode({ secret: new Uint8Array(0), code }));
       yield* Effect.promise(() => totpLockoutStore.recordFailure(key));
     });
@@ -423,7 +429,6 @@ export function createTotpModule(
           TOTP_ENROLL_TTL_MS,
         ),
       );
-      yield* restartAttempts(stores.pendingTotpEnrollments, accountId);
 
       // The only response in the service that carries secret material. The
       // field names match the logger deny-list entries (`totpSecret`,
@@ -456,19 +461,16 @@ export function createTotpModule(
     Effect.gen(function* () {
       const ring = yield* keyRing();
 
-      const pending = yield* storeCall(stores.pendingTotpEnrollments, "get", () =>
-        stores.pendingTotpEnrollments.get(accountId),
-      );
-      if (!pending || Date.now() > pending.expiresAt) {
-        return yield* Effect.fail(new AuthError({ message: GENERIC_CODE_FAILURE }));
-      }
-      // Counted before the code is read; see `attempts.ts`.
-      const standing = yield* countAttempt(
+      // Read and counted in one call, before the code is compared; see `attempts.ts`.
+      const guessed = yield* guessEntry(
         stores.pendingTotpEnrollments,
         accountId,
-        pending,
         TOTP_MAX_ENROLL_ATTEMPTS,
       );
+      if (!guessed) {
+        return yield* Effect.fail(new AuthError({ message: GENERIC_CODE_FAILURE }));
+      }
+      const { entry: pending, standing } = guessed;
       if (standing === "spent") {
         metricTotpVerified("invalid");
         return yield* Effect.fail(new AuthError({ message: GENERIC_CODE_FAILURE }));

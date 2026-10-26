@@ -14,8 +14,8 @@
  *     sweep and a hard size cap.
  *
  * Values are JSON-serialisable objects (challenge strings, OTP hashes,
- * pending-registration payloads, …). An `attempts` counter some entries carry
- * is just another field on the stored value.
+ * pending-registration payloads, …). A code ceremony's guess count is kept
+ * beside the value on the same entry, and moved only by `guess`.
  *
  * A backend error propagates from every operation; the call site decides what
  * the request answers.
@@ -25,10 +25,13 @@ import type { CeremonyStoreName } from "./coordination/names";
 
 export type CeremonyStoreBackend = "memory" | "durable_object";
 
+/** What the ceremony-store metric counts. `consume` counts as a `delete`. */
+export type CeremonyStoreOp = "set" | "get" | "delete" | "guess" | "take";
+
 /** Hooks an in-memory store calls as it works. */
 export interface CeremonyStoreObserver {
   /** Every operation; `stores.ts` counts these on the ceremony-store metric. */
-  onOp?: (op: "set" | "get" | "delete", namespace: CeremonyStoreName) => void;
+  onOp?: (op: CeremonyStoreOp, namespace: CeremonyStoreName) => void;
   /**
    * +1 when a new key is stored, -1 when one leaves — by delete, by expiry or
    * by the size cap. Nothing in the service listens; it is how a caller can
@@ -59,16 +62,22 @@ export interface CeremonyStore<V> {
    */
   consume(key: string): Promise<boolean>;
   /**
-   * Count one guess against the entry at `key`, in a counter kept apart from
-   * the entry, and return the count. Atomic: guesses sent at once each get
-   * their own number. The first guess opens a window of `windowMs` (a whole
-   * number of milliseconds, at least 1) — callers pass the entry's remaining
-   * life — and the count resets only when the window ends or
-   * {@link clearAttempts} runs.
+   * Count one guess against the live entry at `key` and return the entry with
+   * the count after this guess, in one atomic call: guesses sent at once each
+   * get their own number, and none can read the entry and then count from a
+   * number the entry no longer has. With no live entry nothing is counted and
+   * the answer is `{ value: null, n: 0 }`.
+   *
+   * The count lives on the entry: {@link set} restarts it, and {@link delete},
+   * {@link consume} and {@link take} clear it with the entry.
    */
-  recordAttempt(key: string, windowMs: number): Promise<number>;
-  /** Drop the guess counter for `key`. Idempotent. */
-  clearAttempts(key: string): Promise<void>;
+  guess(key: string): Promise<{ value: V | null; n: number }>;
+  /**
+   * The live value at `key`, removed in the same call, or `null`. Of two
+   * takes at once exactly one gets the value — the single-use read for an
+   * entry that is spent the moment it is read.
+   */
+  take(key: string): Promise<V | null>;
 }
 
 /** Hard ceiling on in-memory entries per store — belt to the TTL-sweep braces. */
@@ -84,6 +93,8 @@ const SWEEP_DEBOUNCE_MS = 30_000;
 interface MemoryEntry<V> {
   value: V;
   expiresAt: number;
+  /** Guesses counted against this value; a new `set` starts again at 0. */
+  guesses: number;
 }
 
 /**
@@ -98,8 +109,6 @@ export function createInMemoryCeremonyStore<V>(
   observer: CeremonyStoreObserver = {},
 ): CeremonyStore<V> {
   const entries = new Map<string, MemoryEntry<V>>();
-  // Guess counters, kept apart from the entries so a `set` never resets one.
-  const attempts = new Map<string, { count: number; expiresAt: number }>();
   let lastSweepMs = 0;
 
   function sweepExpired(): void {
@@ -109,9 +118,6 @@ export function createInMemoryCeremonyStore<V>(
         entries.delete(k);
         observer.onEntryDelta?.(-1, namespace);
       }
-    }
-    for (const [k, counter] of attempts) {
-      if (counter.expiresAt <= nowMs) attempts.delete(k);
     }
   }
 
@@ -136,59 +142,60 @@ export function createInMemoryCeremonyStore<V>(
     }
   }
 
+  /** The live entry at `key`; an expired one is dropped on the way. */
+  function live(key: string): MemoryEntry<V> | undefined {
+    const entry = entries.get(key);
+    if (!entry) return undefined;
+    if (entry.expiresAt <= Date.now()) {
+      entries.delete(key);
+      observer.onEntryDelta?.(-1, namespace);
+      return undefined;
+    }
+    return entry;
+  }
+
+  /** Remove `key`, and answer what was live there. */
+  function remove(key: string): MemoryEntry<V> | undefined {
+    const found = live(key);
+    if (entries.delete(key)) observer.onEntryDelta?.(-1, namespace);
+    return found;
+  }
+
+  // Every method reads and writes the map with no `await` in between, so each
+  // is atomic against the others, as one Durable Object call is.
   return {
     backend: "memory",
     namespace,
     async set(key, value, ttlMs) {
       maybeSweep();
       const existed = entries.has(key);
-      entries.set(key, { value, expiresAt: Date.now() + ttlMs });
+      entries.set(key, { value, expiresAt: Date.now() + ttlMs, guesses: 0 });
       observer.onOp?.("set", namespace);
       if (!existed) observer.onEntryDelta?.(1, namespace);
     },
     async get(key) {
       observer.onOp?.("get", namespace);
-      const entry = entries.get(key);
-      if (!entry) return null;
-      if (entry.expiresAt <= Date.now()) {
-        entries.delete(key);
-        observer.onEntryDelta?.(-1, namespace);
-        return null;
-      }
-      return entry.value;
+      return live(key)?.value ?? null;
     },
     async delete(key) {
       observer.onOp?.("delete", namespace);
-      if (entries.delete(key)) observer.onEntryDelta?.(-1, namespace);
+      remove(key);
     },
     async consume(key) {
       observer.onOp?.("delete", namespace);
-      const entry = entries.get(key);
-      if (!entry) return false;
-      entries.delete(key);
-      observer.onEntryDelta?.(-1, namespace);
       // An entry past its TTL is not a live claim, so removing it wins nothing.
-      return entry.expiresAt > Date.now();
+      return remove(key) !== undefined;
     },
-    // No `await` between the read and the write, so two guesses can never
-    // read the same count.
-    async recordAttempt(key, windowMs) {
-      const nowMs = Date.now();
-      const counter = attempts.get(key);
-      if (!counter || counter.expiresAt <= nowMs) {
-        if (attempts.size >= CEREMONY_STORE_MAX) {
-          sweepExpired();
-          const oldest = attempts.keys().next().value as string | undefined;
-          if (attempts.size >= CEREMONY_STORE_MAX && oldest !== undefined) attempts.delete(oldest);
-        }
-        attempts.set(key, { count: 1, expiresAt: nowMs + windowMs });
-        return 1;
-      }
-      counter.count += 1;
-      return counter.count;
+    async guess(key) {
+      observer.onOp?.("guess", namespace);
+      const entry = live(key);
+      if (!entry) return { value: null, n: 0 };
+      entry.guesses += 1;
+      return { value: entry.value, n: entry.guesses };
     },
-    async clearAttempts(key) {
-      attempts.delete(key);
+    async take(key) {
+      observer.onOp?.("take", namespace);
+      return remove(key)?.value ?? null;
     },
   };
 }

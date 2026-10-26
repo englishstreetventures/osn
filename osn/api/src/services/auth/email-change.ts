@@ -17,7 +17,7 @@ import {
   metricSessionSecurityInvalidation,
   withEmailChange,
 } from "../../metrics";
-import { countAttempt, restartAttempts } from "./attempts";
+import { guessEntry } from "./attempts";
 import { MAX_OTP_ATTEMPTS } from "./constants";
 import type { AuthContext } from "./context";
 import { AuthError, type CoordinationError, DatabaseError, ValidationError } from "./errors";
@@ -144,7 +144,6 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
           otpTtl * 1000,
         ),
       );
-      yield* restartAttempts(stores.pendingEmailChanges, accountId);
 
       yield* logDevOtp("email-change", code);
 
@@ -193,22 +192,15 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
       // the whole rule exists to hold.
       yield* verifyStepUpForEmailChange(accountId, stepUpToken);
 
-      const pending = yield* storeCall(stores.pendingEmailChanges, "get", () =>
-        stores.pendingEmailChanges.get(accountId),
-      );
-      if (!pending || Date.now() > pending.expiresAt) {
+      // Read and counted in one call, before the code is compared; see
+      // `attempts.ts`. The entry is deleted after the commit below, not
+      // claimed here, so a commit that fails leaves the code usable; the count
+      // and the commit's own checks keep two right codes from both landing.
+      const guessed = yield* guessEntry(stores.pendingEmailChanges, accountId, MAX_OTP_ATTEMPTS);
+      if (!guessed) {
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
       }
-      // Counted before the code is read; see `attempts.ts`. The entry is
-      // deleted after the commit below, not claimed here, so a commit that
-      // fails leaves the code usable; the count and the commit's own checks
-      // keep two right codes from both landing.
-      const standing = yield* countAttempt(
-        stores.pendingEmailChanges,
-        accountId,
-        pending,
-        MAX_OTP_ATTEMPTS,
-      );
+      const { entry: pending, standing } = guessed;
       if (standing === "spent") {
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
       }
@@ -327,9 +319,9 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
       }
 
       // The change has committed, so the answer is success whatever happens
-      // here; an entry the store cannot delete expires with its TTL.
+      // here; an entry the store cannot delete expires with its TTL, and its
+      // guess count with it.
       yield* dropPending(accountId);
-      yield* restartAttempts(stores.pendingEmailChanges, accountId).pipe(Effect.ignore);
       metricSessionSecurityInvalidation("email_change");
       return { email: changed.email };
     }).pipe(withEmailChange("complete"));
