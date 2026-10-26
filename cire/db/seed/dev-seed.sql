@@ -630,7 +630,7 @@ INSERT OR IGNORE INTO guest_events (guest_id, event_id) VALUES
   ('b0000000-0000-4000-8000-000000000006', '9f7a2c14-1b3d-4e5f-8a01-000000000005');
 
 -- ────────────────────────────────────────────────────────────────────────────
--- Seating chart (1 plans, 2 tables, 3 seats) — the Reception
+-- Seating chart (2 plans, 3 tables, 6 seats) — the Reception
 -- ────────────────────────────────────────────────────────────────────────────
 
 -- After the invitations: a seat's foreign key names its guest's invitation
@@ -645,6 +645,10 @@ INSERT OR IGNORE INTO seating_plans (
   (
     'spl_c1d2e3f4-0000-4000-8000-000000000001', 'wed_bootstrap', '9f7a2c14-1b3d-4e5f-8a01-000000000004', 'Plan 1',
     1, unixepoch(), unixepoch()
+  ),
+  (
+    'spl_c1d2e3f4-0000-4000-8000-000000000002', 'wed_bootstrap', '9f7a2c14-1b3d-4e5f-8a01-000000000004', 'Long table',
+    0, unixepoch(), unixepoch()
   );
 
 INSERT OR IGNORE INTO seating_tables (
@@ -666,12 +670,23 @@ INSERT OR IGNORE INTO seating_tables (
       (SELECT id FROM seating_plans WHERE event_id = '9f7a2c14-1b3d-4e5f-8a01-000000000004' AND selected = 1)
     ),
     'Table 2', 10, 1, unixepoch(), unixepoch()
+  ),
+  (
+    'stb_c1d2e3f4-0000-4000-8000-000000000003', 'wed_bootstrap', '9f7a2c14-1b3d-4e5f-8a01-000000000004',
+    COALESCE(
+      (SELECT id FROM seating_plans WHERE id = 'spl_c1d2e3f4-0000-4000-8000-000000000002' AND event_id = '9f7a2c14-1b3d-4e5f-8a01-000000000004'),
+      (SELECT id FROM seating_plans WHERE event_id = '9f7a2c14-1b3d-4e5f-8a01-000000000004' AND selected = 1)
+    ),
+    'Long table', 20, 0, unixepoch(), unixepoch()
   );
 
 INSERT OR IGNORE INTO seating_assignments (table_id, plan_id, event_id, guest_id, created_at) VALUES
   ('stb_c1d2e3f4-0000-4000-8000-000000000001', (SELECT plan_id FROM seating_tables WHERE id = 'stb_c1d2e3f4-0000-4000-8000-000000000001'), '9f7a2c14-1b3d-4e5f-8a01-000000000004', 'b0000000-0000-4000-8000-000000000001', unixepoch()),
   ('stb_c1d2e3f4-0000-4000-8000-000000000001', (SELECT plan_id FROM seating_tables WHERE id = 'stb_c1d2e3f4-0000-4000-8000-000000000001'), '9f7a2c14-1b3d-4e5f-8a01-000000000004', 'b0000000-0000-4000-8000-000000000002', unixepoch()),
-  ('stb_c1d2e3f4-0000-4000-8000-000000000002', (SELECT plan_id FROM seating_tables WHERE id = 'stb_c1d2e3f4-0000-4000-8000-000000000002'), '9f7a2c14-1b3d-4e5f-8a01-000000000004', 'b0000000-0000-4000-8000-000000000006', unixepoch());
+  ('stb_c1d2e3f4-0000-4000-8000-000000000002', (SELECT plan_id FROM seating_tables WHERE id = 'stb_c1d2e3f4-0000-4000-8000-000000000002'), '9f7a2c14-1b3d-4e5f-8a01-000000000004', 'b0000000-0000-4000-8000-000000000006', unixepoch()),
+  ('stb_c1d2e3f4-0000-4000-8000-000000000003', (SELECT plan_id FROM seating_tables WHERE id = 'stb_c1d2e3f4-0000-4000-8000-000000000003'), '9f7a2c14-1b3d-4e5f-8a01-000000000004', 'b0000000-0000-4000-8000-000000000001', unixepoch()),
+  ('stb_c1d2e3f4-0000-4000-8000-000000000003', (SELECT plan_id FROM seating_tables WHERE id = 'stb_c1d2e3f4-0000-4000-8000-000000000003'), '9f7a2c14-1b3d-4e5f-8a01-000000000004', 'b0000000-0000-4000-8000-000000000002', unixepoch()),
+  ('stb_c1d2e3f4-0000-4000-8000-000000000003', (SELECT plan_id FROM seating_tables WHERE id = 'stb_c1d2e3f4-0000-4000-8000-000000000003'), '9f7a2c14-1b3d-4e5f-8a01-000000000004', 'b0000000-0000-4000-8000-000000000006', unixepoch());
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- Replies (10) — the canonical families

@@ -174,8 +174,8 @@ guest surface never tells a caller which of those it is.
 | `POST …/unlock-code` | The route that raises a tier with a code; a gate on it would be the same loop ([[#Unlock codes]]) |
 | `GET …/gifts.csv` | The couple's own record of gifts; they can take it away whatever tier the wedding is on ([[cire-registry]]) |
 | `GET …/budget.csv`, `GET …/tasks.csv` | The budget lines, payments and tasks the couple entered; they can take them away whatever tier the wedding is on ([[cire-budget]], [[cire-checklist-tasks]]) |
-| `GET …/seating.csv` | The seating chart the couple set out; they can take it away whatever tier the wedding is on ([[cire-seating]]) |
-| `GET …/module-rows` | How many rows `budget.csv`, `tasks.csv`, `gifts.csv` and `seating.csv` would carry (`{ budgetLines, tasks, gifts, seats }`), so a locked card offers a download only when there is something in it |
+| `GET …/seating.csv` | The seating plans the couple set out: each event's plan in use, or every plan with `?plans=all`, the file the locked card offers; they can take them away whatever tier the wedding is on ([[cire-seating]]) |
+| `GET …/module-rows` | How many rows `budget.csv`, `tasks.csv`, `gifts.csv` and `seating.csv?plans=all` would carry (`{ budgetLines, tasks, gifts, seats }`; a guest seated in two plans is two seats), so a locked card offers a download only when there is something in it |
 | `PUT …/settings` with `budgetTotalMinor` | A single number written by onboarding, not the budget module ([[cire-budget]]) |
 
 A wedding whose tier no longer includes a module keeps that module's rows; it

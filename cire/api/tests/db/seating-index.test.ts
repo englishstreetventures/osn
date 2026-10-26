@@ -182,6 +182,7 @@ describe("seating statements reach their rows by an index", () => {
     );
     await run(db, seatingService.reorderTablesAtEvent(W, RECEPTION, [t1, t2]));
     await run(db, seatingExportService.seatingCsv(W));
+    await run(db, seatingExportService.seatingCsv(W, { allPlans: true }));
     await run(db, planningExportService.moduleRows(W));
     await run(
       db,

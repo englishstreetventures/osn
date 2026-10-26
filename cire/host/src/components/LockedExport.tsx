@@ -85,7 +85,10 @@ export default function LockedExport(props: {
     const n = probe.count(props.spec);
     if (n === null) return `Anything in ${props.spec.place} is still here.`;
     const noun = n === 1 ? props.spec.noun.one : props.spec.noun.many;
-    return `Your ${n} ${noun} ${n === 1 ? "is" : "are"} still here.`;
+    const kept = `Your ${n} ${noun} ${n === 1 ? "is" : "are"} still here.`;
+    const cap = props.spec.cap;
+    if (cap === undefined || n <= cap.rows) return kept;
+    return `${kept} The file holds the first ${cap.rows.toLocaleString("en")}, ${cap.first}.`;
   };
 
   // Reports through toasts, like the other downloads: a failed download is a

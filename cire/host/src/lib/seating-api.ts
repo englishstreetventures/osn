@@ -29,10 +29,39 @@ export interface SeatingGuest {
   tableId: string | null;
 }
 
+/** One version of an event's chart. */
+export interface SeatingPlan {
+  id: string;
+  name: string;
+  /** The event's plan in use: the one the venue file prints. */
+  selected: boolean;
+}
+
 export interface SeatingChart {
   event: { id: string; name: string };
+  /** The event's plans, the one in use first. */
+  plans: SeatingPlan[];
+  /** The plan the tables and seats are from, or `null` before the event has
+   *  one. */
+  planId: string | null;
   tables: SeatingTable[];
   guests: SeatingGuest[];
+}
+
+/** `GET …/seating/events/:eventId` as the API answers it. An API from before
+ *  plans sends neither `plans` nor `planId`, and the portal can serve against
+ *  it while a release deploys or after one rolls back. */
+export type SeatingChartWire = Omit<SeatingChart, "plans" | "planId"> & {
+  plans?: SeatingPlan[];
+  planId?: string | null;
+};
+
+/** A chart as the portal keeps it, from either shape: one from an API before
+ *  plans reads as an event with no plan, its tables and seats as sent. Read
+ *  until englishstreetventures/osn#1658 lands; no API that sends the old shape
+ *  can serve after it. */
+export function readChart(chart: SeatingChartWire): SeatingChart {
+  return { ...chart, plans: chart.plans ?? [], planId: chart.planId ?? null };
 }
 
 /** A refused or failed request: the status, and the reason the API named. */
@@ -47,6 +76,20 @@ export class SeatingRequestError extends Error {
 }
 
 const enc = encodeURIComponent;
+
+/**
+ * Where a table, order or seat write goes: the plan on screen, or, for a chart
+ * that names no plan, the event's own addresses, which act on its plan in use.
+ * A chart names no plan for an event with none yet, and from an API before
+ * plans; both serve the event's addresses.
+ */
+export interface PlanScope {
+  eventId: string;
+  planId: string | null;
+}
+
+const scopePath = ({ eventId, planId }: PlanScope) =>
+  planId ? `/plans/${enc(planId)}` : `/events/${enc(eventId)}`;
 const seatingPath = (weddingId: string, rest: string) =>
   apiUrl(weddingPath(weddingId, `/seating${rest}`));
 
@@ -64,33 +107,79 @@ async function send<T>(authFetch: AuthFetch, url: string, init: RequestInit = {}
 }
 
 export const seatingApi = {
-  chart: (authFetch: AuthFetch, weddingId: string, eventId: string) =>
-    send<SeatingChart>(authFetch, seatingPath(weddingId, `/events/${enc(eventId)}`)),
+  /** One plan of the event: `planId`, or the plan in use when none is named. */
+  chart: async (
+    authFetch: AuthFetch,
+    weddingId: string,
+    eventId: string,
+    planId?: string | null,
+  ): Promise<SeatingChart> =>
+    readChart(
+      await send<SeatingChartWire>(
+        authFetch,
+        seatingPath(weddingId, `/events/${enc(eventId)}${planId ? `?plan=${enc(planId)}` : ""}`),
+      ),
+    ),
+
+  /** A new plan at the event: blank, or a copy of `copyFrom`. */
+  createPlan: (
+    authFetch: AuthFetch,
+    weddingId: string,
+    eventId: string,
+    body: { name: string; copyFrom?: string },
+  ) =>
+    send<{ plan: SeatingPlan }>(
+      authFetch,
+      seatingPath(weddingId, `/events/${enc(eventId)}/plans`),
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+    ),
+
+  renamePlan: (authFetch: AuthFetch, weddingId: string, planId: string, name: string) =>
+    send<{ plan: SeatingPlan }>(authFetch, seatingPath(weddingId, `/plans/${enc(planId)}`), {
+      method: "PATCH",
+      body: JSON.stringify({ name }),
+    }),
+
+  deletePlan: (authFetch: AuthFetch, weddingId: string, planId: string) =>
+    send<{ ok: true }>(authFetch, seatingPath(weddingId, `/plans/${enc(planId)}`), {
+      method: "DELETE",
+    }),
+
+  /** Make `planId` the event's plan in use. */
+  selectPlan: (authFetch: AuthFetch, weddingId: string, eventId: string, planId: string) =>
+    send<{ ok: true }>(authFetch, seatingPath(weddingId, `/events/${enc(eventId)}/selected-plan`), {
+      method: "PUT",
+      body: JSON.stringify({ planId }),
+    }),
 
   seat: (
     authFetch: AuthFetch,
     weddingId: string,
-    eventId: string,
+    where: PlanScope,
     guestId: string,
     tableId: string | null,
   ) =>
     send<{ guestId: string; tableId: string | null }>(
       authFetch,
-      seatingPath(weddingId, `/events/${enc(eventId)}/guests/${enc(guestId)}`),
+      seatingPath(weddingId, `${scopePath(where)}/guests/${enc(guestId)}`),
       { method: "PUT", body: JSON.stringify({ tableId }) },
     ),
 
+  /** A table in the plan; at the event's own address, in its plan in use,
+   *  which the API makes when the event has none. */
   createTable: (
     authFetch: AuthFetch,
     weddingId: string,
-    eventId: string,
+    where: PlanScope,
     body: { name: string; capacity: number },
   ) =>
-    send<{ table: SeatingTable }>(
-      authFetch,
-      seatingPath(weddingId, `/events/${enc(eventId)}/tables`),
-      { method: "POST", body: JSON.stringify(body) },
-    ),
+    send<{ table: SeatingTable }>(authFetch, seatingPath(weddingId, `${scopePath(where)}/tables`), {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 
   updateTable: (
     authFetch: AuthFetch,
@@ -111,18 +200,54 @@ export const seatingApi = {
   reorderTables: (
     authFetch: AuthFetch,
     weddingId: string,
-    eventId: string,
+    where: PlanScope,
     orderedIds: readonly string[],
   ) =>
-    send<{ ok: true }>(
-      authFetch,
-      seatingPath(weddingId, `/events/${enc(eventId)}/tables/reorder`),
-      {
-        method: "PATCH",
-        body: JSON.stringify({ orderedIds }),
-      },
-    ),
+    send<{ ok: true }>(authFetch, seatingPath(weddingId, `${scopePath(where)}/tables/reorder`), {
+      method: "PATCH",
+      body: JSON.stringify({ orderedIds }),
+    }),
 };
+
+/**
+ * What a plan asks a host to look at, worked out from the guests the chart
+ * already holds: guests seated who declined, guests seated whose invitation
+ * was withdrawn, and guests who said yes with no seat in this plan. A guest's
+ * reply or invitation changing never moves a seat; it shows here, in every
+ * plan, until a host moves the guest. Guests who said maybe or have not
+ * replied carry a badge and are not listed.
+ */
+export interface PlanReview {
+  declinedSeated: SeatingGuest[];
+  withdrawnSeated: SeatingGuest[];
+  attendingUnseated: SeatingGuest[];
+}
+
+export function planReview(guests: readonly SeatingGuest[]): PlanReview {
+  const review: PlanReview = { declinedSeated: [], withdrawnSeated: [], attendingUnseated: [] };
+  for (const guest of guests) {
+    if (guest.tableId !== null) {
+      if (guest.withdrawn) review.withdrawnSeated.push(guest);
+      else if (guest.rsvp === "declined") review.declinedSeated.push(guest);
+    } else if (!guest.withdrawn && guest.rsvp === "attending") {
+      review.attendingUnseated.push(guest);
+    }
+  }
+  return review;
+}
+
+/** A name for a new plan that no plan of the event has: "Plan 2", "Plan 3"… */
+export function nextPlanName(plans: readonly SeatingPlan[]): string {
+  const taken = new Set(plans.map((plan) => plan.name.trim().toLowerCase()));
+  let n = plans.length + 1;
+  while (taken.has(`plan ${n}`)) n += 1;
+  return `Plan ${n}`;
+}
+
+/** The name a copy of `name` starts with, inside the API's 80 characters. */
+export function copyName(name: string): string {
+  return `${name.slice(0, 75).trimEnd()} copy`;
+}
 
 export const guestName = (guest: SeatingGuest): string =>
   `${guest.firstName} ${guest.lastName}`.trim();

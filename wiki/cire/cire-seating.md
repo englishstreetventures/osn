@@ -20,16 +20,16 @@ maybe, has not replied or was withdrawn, prints the chart and downloads it for
 the venue.
 
 An event's chart comes in **seating plans**: versions of it, each with its own
-tables and seats, one of them **in use** — the plan the venue file prints. The
-API makes, copies, renames, deletes and switches plans, and editing one plan
-changes no other; the portal shows and edits each event's plan in use. The
-portal's plan controls are englishstreetventures/osn#1391.
+tables and seats. A host copies a plan to try an idea, starts a blank one, and
+puts one plan **in use** — the plan the venue file prints. Editing one plan
+changes no other, and a guest's reply never moves a seat: each plan lists what
+needs a host's eye.
 
 Seating is a **Gold** module ([[cire-entitlements]]): the reads and writes sit
 behind `weddingTier(db, "gold")`, and the portal fades the nav row below Gold.
 An owner's `seating.csv` and its row count are not tier-gated, so a wedding
-moved below Gold takes its chart back from the locked card; its other plans
-stay stored but cannot be opened until it is back on Gold.
+moved below Gold takes its seating back from the locked card, whose file holds
+every plan.
 
 ## Tables
 
@@ -159,11 +159,14 @@ fails on a full scan of any of them.
 failed smoke check brings back the Worker before it without undoing the
 migration ([[production-deploy#4. Database migrations]]). That Worker names no
 plan. Its tables and seats are adopted by the two adopt triggers, and on an
-event with one plan it reads and writes as it always did. The portal of the
-release that carries the migration is the portal before plans: it calls only
-addresses both Workers serve, and makes no second plan. Only a direct call to
-the new plan routes can. `cire/api/tests/db/migration-20261026040620.test.ts`
-replays that Worker's statements on a migrated database.
+event with one plan it reads and writes as it always did. The portal with the
+plan controls reads a chart from
+either Worker (`readChart` in `cire/host/src/lib/seating-api.ts`), and
+whenever a chart names no plan it writes tables, order and seats through the
+event's own addresses, which both serve; against the Worker before the
+migration it shows no plan controls and still seats guests.
+`cire/api/tests/db/migration-20261026040620.test.ts` replays that Worker's
+statements on a migrated database.
 
 On an event with more than one plan, the Worker before the migration reads and
 writes by event alone: its chart and its venue file list every plan's tables, a
@@ -178,9 +181,9 @@ bunx wrangler d1 execute cire-db --env production --remote --command \
   "SELECT event_id FROM seating_plans GROUP BY event_id HAVING count(*) > 1"
 ```
 
-Once the portal's plan controls ship, roll forward rather than back. The adopt
-triggers go, and `plan_id` stops taking NULL, once no Worker before the
-migration can serve (englishstreetventures/osn#1658).
+The portal makes second plans, so once the query returns a row, roll forward
+rather than back. The adopt triggers go, and `plan_id` stops taking NULL, once
+no Worker before the migration can serve (englishstreetventures/osn#1658).
 
 ### Who a chart holds
 
@@ -196,7 +199,7 @@ households:
 - **An event with no stated end** (`end_at = ""`) seats like any other: nothing
   here reads an end time.
 - **A reply or an invitation that changes moves no seat.** Each plan keeps the
-  guest where they sat.
+  guest where they sat, and the portal lists the change for review.
 
 ## API
 
@@ -219,7 +222,7 @@ plan limiter never apply to each other's routes.
 | PUT | `/seating/plans/:planId/guests/:guestId` `{tableId \| null}` | `weddingEditor` + Gold |
 | PATCH | `/seating/tables/:tableId` `{name?, capacity?}` | `weddingEditor` + Gold |
 | DELETE | `/seating/tables/:tableId` | `weddingEditor` + Gold |
-| GET | `/seating.csv` | `weddingOwner` + the shared export limiter; no tier gate |
+| GET | `/seating.csv[?plans=all]` | `weddingOwner` + the shared export limiter; no tier gate |
 
 Refusals: 404 `event_not_found`, `plan_not_found`, `table_not_found`,
 `guest_not_found`; 409 `plan_limit`, `copy_budget`, `plan_selected`,
@@ -293,10 +296,17 @@ read is `Cache-Control: no-store`.
 - **`seating.csv`** lives with the other CSV exports in
   `createOrganiserExportRoutes`: every guest seated in each event's plan in
   use, by event, table, household and guest order, columns `Event, Table,
-  Capacity, Guest, Household, RSVP`. No other plan, and no dietary column.
-  Capped at 4,000 rows (`MAX_SEATING_EXPORT_ROWS`), read as one past the
-  ceiling and logged when cut; `GET …/module-rows` counts `seats` in the plans
-  in use for the locked card.
+  Capacity, Guest, Household, RSVP`. No other plan, and no dietary column. With
+  `?plans=all` it is every plan instead, each event's plan in use first and
+  then every other plan, with `Plan` and `In use` columns after `Event`, saved
+  as `cire-seating-plans-<slug>.csv`: the file the locked card offers, so a
+  wedding below Gold takes back every plan. Either is capped at 4,000 rows
+  (`MAX_SEATING_EXPORT_ROWS`), read as one past the ceiling and logged when
+  cut; five plans of 1,000 guests pass it at one event, and the order means a
+  cut drops plans not in use first. `GET …/module-rows` counts `seats` in every
+  plan, as the locked card's file prints them, and the card says when that
+  count passes the ceiling ("The file holds the first 4,000, each event's plan
+  in use first.").
 
 ### What other writers do to seats
 
@@ -318,10 +328,30 @@ read is `Cache-Control: no-store`.
 
 `cire/host/src/components/SeatingView.tsx`, loaded on demand from
 `ModuleShell` (a Gold module's bytes are not paid by those who cannot open it).
-One event at a time, chosen from the wedding's events, in its plan in use: the
-chart read names no plan, adding, ordering and seating go to the event's own
-addresses, and a table is renamed or deleted at `…/seating/tables/:tableId`.
+One event at a time, chosen from the wedding's events, and one plan at a time.
 
+- **Plans.** Under the event picker, a plan picker names every plan, the one
+  in use marked "(in use)", and a line says whether the plan on screen is the
+  one the venue file prints. An editor can **Duplicate** the plan on screen
+  (the copy takes the plan's name followed by "copy", and opens), add a **New plan** with no
+  tables ("Plan 2", "Plan 3"…), **Rename** the plan on screen, and, for a plan
+  not in use, **Use this plan** and **Delete plan**, each behind a confirm that
+  names the plan that stays. A copy the daily copy ceiling refuses says so,
+  and suggests a new plan, which copies nothing. The plan in use opens first
+  on every event switch.
+  A plan control that goes away hands the focus on: to the name field as the
+  rename form opens, to Rename as it closes, to the plan picker once Use this
+  plan or Delete plan has done its work. An event with no plan shows no
+  picker; its first table goes to the event's own address, which makes "Plan
+  1", in use, and the chart is read again. A viewer sees the picker and
+  nothing that changes a plan.
+- **Needs review.** A standing warn notice lists, for the plan on screen, the
+  guests seated who declined, the guests seated whose invitation was
+  withdrawn, and the guests who said yes with no seat. It is worked out from
+  the guests the chart already holds, so it costs no read, appears in every
+  plan, and changes as the host seats and moves guests; it is gone once there
+  is nothing to look at. Guests who said maybe or have not replied keep their
+  badges and are not listed.
 - **Two ways to seat, move or unseat a guest**, each complete: drag the row onto
   a table (or back onto "Not seated"), or choose from the row's menu (a Kobalte
   `DropdownMenu` of tables, full tables disabled). The menu is the keyboard,
@@ -334,8 +364,8 @@ addresses, and a table is renamed or deleted at `…/seating/tables/:tableId`.
   trigger, so a chart of 1,000 guests builds no menu state nobody opens. A
   click no press came before (a screen reader's, voice control's) opens the
   menu as a tap's click does, before and after its first use.
-- **A status line** says and shows every seat, move, refusal and table change.
-  It is the live region.
+- **A status line** says and shows every seat, move, refusal, table change and
+  plan change. It is the live region.
 - **Badges** in words: Declined, Maybe, No reply, Invite withdrawn.
 - **Arrange tables** is a uniform one-line-per-table list ordered with
   `createSortableList`, where the package's keyboard path applies unchanged.
@@ -343,10 +373,14 @@ addresses, and a table is renamed or deleted at `…/seating/tables/:tableId`.
   does not handle. The list and the cards iterate table ids and look each table
   up through `sameButOrder`, so a re-order moves a card rather than rebuilding
   it, and a rename form left open stays open.
-- **Print** renders a sheet into `<body>` and marks `<html>` from `beforeprint`
-  to `afterprint`, so no hidden copy of the chart is kept current on screen; the
+- **Print** renders a sheet of the plan on screen, titled with the event and
+  the plan's name, into `<body>` and marks `<html>` from `beforeprint` to
+  `afterprint`, so no hidden copy of the chart is kept current on screen; the
   stylesheet then prints the sheet alone (`cire/host/DESIGN.md` §Print sheet).
   The Print button and the browser's own print both fire the pair.
+- **The venue file** an owner downloads here is each event's plan in use
+  (`SEATING_VENUE_FILE`); the locked card's is every plan
+  (`LOCKED_EXPORTS.seating`).
 - State is the view's own, dropped with it: no wedding cache store holds the
   chart.
 
@@ -378,16 +412,16 @@ addresses, and a table is renamed or deleted at `…/seating/tables/:tableId`.
 
 | What | Where |
 |---|---|
-| The portal before plans on this API: the plan in use read, an event's first table making its plan, a seat in it, the venue file | `tools/e2e/tests/flows/cire-seating.flow.ts` |
-| Gates, refusals, the database's one-seat, one-selected and table-in-its-event's-plan rules, plans, the daily copy ceiling, the event's own addresses, the plan limiter, who a chart holds, the CSV, the metrics, and what a failure answers and logs | `cire/api/tests/routes/seating.test.ts` |
+| The portal on this API: the plan in use read, an event's first table making its plan and a seat in it; copying, changing, renaming, choosing and deleting plans, a table added to a plan not in use, a decline listed for review in both plans, the venue file following the plan in use, and a wedding below Gold taking every plan back from Settings | `tools/e2e/tests/flows/cire-seating.flow.ts` |
+| Gates, refusals, the database's one-seat, one-selected and table-in-its-event's-plan rules, plans, the daily copy ceiling, the event's own addresses, the plan limiter, who a chart holds, both CSVs, the metrics, and what a failure answers and logs | `cire/api/tests/routes/seating.test.ts` |
 | The same rules, the copy (with its day's count), select and event-address seat batches on real D1, a race for the last place and for an event's first plan, and the plans migration replayed with data from two weddings | `cire/api/tests/db/d1-integration.test.ts` (seating) |
 | The plans migration: backfill across events and weddings, seats kept, the Worker before it replayed, the triggers | `cire/api/tests/db/migration-20261026040620.test.ts` |
 | No full scan of any seating table | `cire/api/tests/db/seating-index.test.ts` |
 | The CSV ceiling | `cire/api/tests/services/seating-export.test.ts` |
 | Import warning across plans and explicit deletes | `cire/api/tests/services/import-seating.test.ts` |
 | Retention deletes seats without the cascade, keeps plans and tables | `cire/api/tests/services/retention.test.ts` |
-| The view's controls against a fake API | `cire/host/tests/components/SeatingView.test.tsx` |
-| Real pointer drag, print, phone layout, screenshots | `cire/host/tests/components/SeatingView.browser.test.tsx` |
+| The view's controls, plans, focus, review and both chart shapes against a fake API | `cire/host/tests/components/SeatingView.test.tsx` |
+| Real pointer drag, print, phone layout, a plan not in use, screenshots | `cire/host/tests/components/SeatingView.browser.test.tsx` |
 
 The flow writes its checks, requests and trace to `e2e-artifacts/`; the browser
 tier writes the screenshots a reviewer checks, to

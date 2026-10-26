@@ -7,7 +7,7 @@ import {
   seatingPlans,
   seatingTables,
 } from "@cire/db";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { EffectDbService } from "../db/effect-handle";
@@ -23,15 +23,32 @@ import { serialiseCsv } from "../lib/csv";
  * for 2,000 fourteen-cell rows against the 10 ms Workers Free allows). A
  * seating row is six short cells. Measured side by side with `serialiseCsv`,
  * 2,000 seating rows took half the time of 2,000 gift-shaped rows, so twice the
- * gift ceiling costs about what it does.
+ * gift ceiling costs about what it does. The every-plan file's rows are eight
+ * cells: 4,000 of them took 1.2 times as long as 2,000 gift rows (bun, median
+ * of 50 runs), so about 7 ms against the 10 ms.
  *
  * The ceiling bounds the read as well as the file: the query orders and cuts
  * in the database at one row past it, so the Worker never receives a row it
- * will not print. A cut is logged, never silent.
+ * will not print. A cut is logged, never silent. The every-plan file can pass
+ * it at one event (five plans of 1,000 guests): it prints the plans in use
+ * first, so a cut drops plans not in use, and the locked card, which counts
+ * every seat, says when the file holds fewer.
  */
 export const MAX_SEATING_EXPORT_ROWS = 4000;
 
 const HEADER = ["Event", "Table", "Capacity", "Guest", "Household", "RSVP"];
+/** Every plan's file: the venue file's columns, each row also naming its plan
+ *  and whether that plan is the one in use. */
+const ALL_PLANS_HEADER = [
+  "Event",
+  "Plan",
+  "In use",
+  "Table",
+  "Capacity",
+  "Guest",
+  "Household",
+  "RSVP",
+];
 
 const RSVP_LABEL = {
   attending: "Attending",
@@ -41,6 +58,8 @@ const RSVP_LABEL = {
 
 interface SeatRow {
   eventName: string;
+  planName: string;
+  selected: boolean | number;
   tableName: string;
   capacity: number;
   firstName: string;
@@ -56,18 +75,29 @@ export const seatingExportService = {
    * in each event's selected plan, in event order, then table order, then
    * household and guest order. Seated guests only — the file is who sits
    * where — and no other plan: the venue gets the plan the couple chose. A
-   * guest whose household was
-   * withdrawn after being seated prints with the reply `Invite withdrawn`, so
-   * the file says what the chart shows. The host-preview household can never
-   * be seated, and is filtered here as well. No dietary column: dietary
-   * answers are special-category data and stay in the RSVP export.
+   * guest whose household was withdrawn after being seated prints with the
+   * reply `Invite withdrawn`, so the file says what the chart shows. The
+   * host-preview household can never be seated, and is filtered here as
+   * well. No dietary column: dietary answers are special-category data and
+   * stay in the RSVP export.
+   *
+   * With `allPlans`, every plan of every event instead: each event's plan in
+   * use, then every other plan, each row naming its plan and whether it is in
+   * use. It is the file a wedding below Gold takes back everything its
+   * seating holds with, up to the ceiling below.
    */
-  seatingCsv(weddingId: string): Effect.Effect<string, never, EffectDbService> {
+  seatingCsv(
+    weddingId: string,
+    options: { allPlans?: boolean } = {},
+  ): Effect.Effect<string, never, EffectDbService> {
+    const allPlans = options.allPlans === true;
     return Effect.gen(function* () {
       const db = yield* EffectDbService;
       const rows = (yield* db
         .select({
           eventName: events.name,
+          planName: seatingPlans.name,
+          selected: seatingPlans.selected,
           tableName: seatingTables.name,
           capacity: seatingTables.capacity,
           firstName: guests.firstName,
@@ -79,7 +109,10 @@ export const seatingExportService = {
         .from(events)
         .innerJoin(
           seatingPlans,
-          and(eq(seatingPlans.eventId, events.id), eq(seatingPlans.selected, true)),
+          and(
+            eq(seatingPlans.eventId, events.id),
+            allPlans ? undefined : eq(seatingPlans.selected, true),
+          ),
         )
         // A table's event, as well as its plan: the event's composite key to
         // `events (id, wedding_id)` is what ties the table to this wedding.
@@ -103,9 +136,15 @@ export const seatingExportService = {
           ),
         )
         .where(eq(events.weddingId, weddingId))
+        // Plans in use first, across every event: the venue file reads no
+        // other, and if the ceiling cuts the every-plan file, it cuts plans
+        // not in use first.
         .orderBy(
+          desc(seatingPlans.selected),
           asc(events.sortOrder),
           asc(events.id),
+          asc(seatingPlans.createdAt),
+          asc(seatingPlans.id),
           asc(seatingTables.sortOrder),
           asc(seatingTables.createdAt),
           asc(seatingTables.id),
@@ -123,11 +162,12 @@ export const seatingExportService = {
         );
       }
       return serialiseCsv(
-        HEADER,
-        rows
-          .slice(0, MAX_SEATING_EXPORT_ROWS)
-          .map((row) => [
-            row.eventName,
+        allPlans ? ALL_PLANS_HEADER : HEADER,
+        rows.slice(0, MAX_SEATING_EXPORT_ROWS).map((row) => {
+          const cells = allPlans
+            ? [row.eventName, row.planName, row.selected ? "Yes" : "No"]
+            : [row.eventName];
+          cells.push(
             row.tableName,
             String(row.capacity),
             `${row.firstName} ${row.lastName}`.trim(),
@@ -137,7 +177,9 @@ export const seatingExportService = {
               : row.status === null
                 ? "No reply"
                 : RSVP_LABEL[row.status],
-          ]),
+          );
+          return cells;
+        }),
       );
     }).pipe(Effect.withSpan("cire.seating.exportCsv"));
   },

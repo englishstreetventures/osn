@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import SeatingView from "../../src/components/SeatingView";
 import { __resetEventsCache, type EventRow, setCachedEvents } from "../../src/lib/events-store";
-import type { SeatingChart } from "../../src/lib/seating-api";
+import type { SeatingChart, SeatingPlan } from "../../src/lib/seating-api";
 import { redirectSpy } from "../test-support/mocks";
 
 // The seating chart's behaviour against a fake organiser API that keeps the
@@ -62,13 +62,16 @@ const guest = (
   ...over,
 });
 
-/** Reception: Table 1 (2 seats, full: Bo and Gwen), Table 2 (8 seats, empty);
- *  Ada, Cy and Dot unseated. Gwen's household is withdrawn and never replied.
- *  Ceremony: one table, Ada alone. */
+/** Reception, in its one plan "Plan 1": Table 1 (2 seats, full: Bo and Gwen),
+ *  Table 2 (8 seats, empty); Ada, Cy and Dot unseated. Gwen's household is
+ *  withdrawn and never replied. Ceremony, in its one plan: one table, Ada
+ *  alone. Each plan is its event's plan in use. */
 function charts(): Record<string, SeatingChart> {
   return {
     e_rec: {
       event: { id: "e_rec", name: "Reception" },
+      plans: [{ id: "p_rec", name: "Plan 1", selected: true }],
+      planId: "p_rec",
       tables: [
         { id: "t1", name: "Table 1", capacity: 2, sortOrder: 0 },
         { id: "t2", name: "Table 2", capacity: 8, sortOrder: 1 },
@@ -83,6 +86,8 @@ function charts(): Record<string, SeatingChart> {
     },
     e_cer: {
       event: { id: "e_cer", name: "Ceremony" },
+      plans: [{ id: "p_cer", name: "Plan 1", selected: true }],
+      planId: "p_cer",
       tables: [{ id: "t9", name: "Front row", capacity: 4, sortOrder: 0 }],
       guests: [guest("g_ada", "Ada", "Alpha", { tableId: "t9" })],
     },
@@ -108,13 +113,43 @@ interface FakeOptions {
   events?: EventRow[];
 }
 
-/** A fake of the seating routes, the events read and the venue file. */
+/** A fake of the seating routes, the events read and the venue file. Each
+ *  event in the fixture opens on its plan in use; a plan made here is kept
+ *  beside them and served by its id. */
 function fakeApi(opts: FakeOptions = {}) {
   const state = charts();
   opts.edit?.(state);
   const calls: Call[] = [];
   const contentTypes: string[] = [];
   let created = 0;
+  /** Every plan's chart by plan id, and each plan's event. */
+  const byPlan = new Map<string, SeatingChart>();
+  const eventOf = new Map<string, string>();
+  for (const [eventId, chart] of Object.entries(state)) {
+    for (const plan of chart.plans) {
+      eventOf.set(plan.id, eventId);
+      if (plan.id === chart.planId) byPlan.set(plan.id, chart);
+    }
+  }
+  const plansOf = (eventId: string) => state[eventId]!.plans;
+  /** The chart as the API answers it: the plan's own tables and guests, with
+   *  the event's plans as they stand now; with no plan, no tables and every
+   *  guest unseated, a withdrawn household's left off. */
+  const answer = (eventId: string, planId: string | null) => {
+    const chart = planId ? byPlan.get(planId) : undefined;
+    const base = state[eventId]!;
+    return chart
+      ? { ...chart, plans: plansOf(eventId), planId }
+      : {
+          ...base,
+          plans: plansOf(eventId),
+          planId: null,
+          tables: [],
+          guests: base.guests
+            .filter((g) => !g.withdrawn)
+            .map((g) => Object.assign({}, g, { tableId: null })),
+        };
+  };
   authFetch.mockImplementation(async (url: string, init: RequestInit = {}) => {
     const method = init.method ?? "GET";
     const body = init.body ? JSON.parse(String(init.body)) : undefined;
@@ -145,18 +180,99 @@ function fakeApi(opts: FakeOptions = {}) {
         headers: { "Content-Type": "text/csv" },
       });
     }
-    const chartMatch = /\/seating\/events\/([^/]+)$/.exec(url);
-    if (method === "GET" && chartMatch) return json(200, state[chartMatch[1]!]);
-    const seatMatch = /\/seating\/events\/([^/]+)\/guests\/([^/]+)$/.exec(url);
+    const chartMatch = /\/seating\/events\/([^/?]+)(?:\?plan=([^&]+))?$/.exec(url);
+    if (method === "GET" && chartMatch) {
+      const eventId = chartMatch[1]!;
+      const asked = chartMatch[2] ? decodeURIComponent(chartMatch[2]) : null;
+      if (asked && eventOf.get(asked) !== eventId) return json(404, { error: "plan_not_found" });
+      const inUse = plansOf(eventId).find((plan) => plan.selected)?.id ?? null;
+      return json(200, answer(eventId, asked ?? inUse));
+    }
+    const plansMatch = /\/seating\/events\/([^/]+)\/plans$/.exec(url);
+    if (method === "POST" && plansMatch) {
+      const eventId = plansMatch[1]!;
+      const b = body as { name: string; copyFrom?: string };
+      const id = `p_new_${++created}`;
+      const plan: SeatingPlan = { id, name: b.name, selected: plansOf(eventId).length === 0 };
+      const source = b.copyFrom ? byPlan.get(b.copyFrom) : undefined;
+      const ids = new Map(source?.tables.map((t) => [t.id, `${t.id}_${id}`]) ?? []);
+      byPlan.set(id, {
+        ...state[eventId]!,
+        planId: id,
+        tables: (source?.tables ?? []).map((t) => Object.assign({}, t, { id: ids.get(t.id)! })),
+        guests: (source?.guests ?? state[eventId]!.guests)
+          .filter((g) => source || !g.withdrawn || g.tableId === null)
+          .map((g) =>
+            Object.assign({}, g, { tableId: source && g.tableId ? ids.get(g.tableId)! : null }),
+          ),
+      });
+      eventOf.set(id, eventId);
+      state[eventId]!.plans = [...plansOf(eventId), plan];
+      return json(200, { plan });
+    }
+    const selectMatch = /\/seating\/events\/([^/]+)\/selected-plan$/.exec(url);
+    if (method === "PUT" && selectMatch) {
+      const eventId = selectMatch[1]!;
+      const { planId } = body as { planId: string };
+      for (const p of plansOf(eventId)) p.selected = p.id === planId;
+      return json(200, { ok: true });
+    }
+    const planMatch = /\/seating\/plans\/([^/]+)$/.exec(url);
+    if (planMatch && method === "PATCH") {
+      const eventId = eventOf.get(planMatch[1]!)!;
+      let saved: SeatingPlan | undefined;
+      state[eventId]!.plans = plansOf(eventId).map((p) =>
+        p.id === planMatch[1] ? (saved = { ...p, name: (body as { name: string }).name }) : p,
+      );
+      return json(200, { plan: saved });
+    }
+    if (planMatch && method === "DELETE") {
+      const eventId = eventOf.get(planMatch[1]!)!;
+      if (plansOf(eventId).find((p) => p.id === planMatch[1])?.selected) {
+        return json(409, { error: "plan_selected" });
+      }
+      state[eventId]!.plans = plansOf(eventId).filter((p) => p.id !== planMatch[1]);
+      byPlan.delete(planMatch[1]!);
+      return json(200, { ok: true });
+    }
+    const seatMatch = /\/seating\/plans\/([^/]+)\/guests\/([^/]+)$/.exec(url);
     if (method === "PUT" && seatMatch) {
-      const chart = state[seatMatch[1]!]!;
+      const chart = byPlan.get(seatMatch[1]!)!;
       const g = chart.guests.find((x) => x.id === seatMatch[2]);
       g!.tableId = (body as { tableId: string | null }).tableId;
       return json(200, { guestId: g!.id, tableId: g!.tableId });
     }
-    const tablesMatch = /\/seating\/events\/([^/]+)\/tables$/.exec(url);
+    // A table at the event's own address goes in its plan in use, made as
+    // "Plan 1" when the event has none.
+    const eventTablesMatch = /\/seating\/events\/([^/]+)\/tables$/.exec(url);
+    if (method === "POST" && eventTablesMatch) {
+      const eventId = eventTablesMatch[1]!;
+      let planId = plansOf(eventId).find((p) => p.selected)?.id;
+      if (!planId) {
+        planId = `p_new_${++created}`;
+        state[eventId]!.plans = [{ id: planId, name: "Plan 1", selected: true }];
+        eventOf.set(planId, eventId);
+        byPlan.set(planId, {
+          ...state[eventId]!,
+          planId,
+          tables: [],
+          guests: state[eventId]!.guests.map((g) => Object.assign({}, g, { tableId: null })),
+        });
+      }
+      const chart = byPlan.get(planId)!;
+      const b = body as { name: string; capacity: number };
+      const table = {
+        id: `t_new_${++created}`,
+        name: b.name,
+        capacity: b.capacity,
+        sortOrder: chart.tables.length,
+      };
+      chart.tables.push(table);
+      return json(200, { table });
+    }
+    const tablesMatch = /\/seating\/plans\/([^/]+)\/tables$/.exec(url);
     if (method === "POST" && tablesMatch) {
-      const chart = state[tablesMatch[1]!]!;
+      const chart = byPlan.get(tablesMatch[1]!)!;
       const b = body as { name: string; capacity: number };
       const table = {
         id: `t_new_${++created}`,
@@ -170,7 +286,9 @@ function fakeApi(opts: FakeOptions = {}) {
     if (method === "PATCH" && url.endsWith("/tables/reorder")) return json(200, { ok: true });
     const tableMatch = /\/seating\/tables\/([^/]+)$/.exec(url);
     if (tableMatch && method === "PATCH") {
-      const table = state.e_rec!.tables.find((t) => t.id === tableMatch[1])!;
+      const table = [...byPlan.values()]
+        .flatMap((chart) => chart.tables)
+        .find((t) => t.id === tableMatch[1])!;
       Object.assign(table, body);
       return json(200, { table });
     }
@@ -230,7 +348,7 @@ describe("SeatingView — seating by keyboard", () => {
     await waitFor(() => expect(within(table("Table 2")).getByText("Ada Alpha")).toBeTruthy());
     expect(within(pool()).queryByText("Ada Alpha")).toBeNull();
     expect(api.writes()).toEqual([
-      { method: "PUT", url: `${API}/seating/events/e_rec/guests/g_ada`, body: { tableId: "t2" } },
+      { method: "PUT", url: `${API}/seating/plans/p_rec/guests/g_ada`, body: { tableId: "t2" } },
     ]);
     await screen.findByText("Ada Alpha seated at Table 2.");
     expect(hapticSpy).toHaveBeenLastCalledWith("commit");
@@ -242,7 +360,7 @@ describe("SeatingView — seating by keyboard", () => {
     await choose("Move Bo Alpha", "Not seated");
     await waitFor(() => expect(within(pool()).getByText("Bo Alpha")).toBeTruthy());
     expect(api.writes()).toEqual([
-      { method: "PUT", url: `${API}/seating/events/e_rec/guests/g_bo`, body: { tableId: null } },
+      { method: "PUT", url: `${API}/seating/plans/p_rec/guests/g_bo`, body: { tableId: null } },
     ]);
     await screen.findByText("Bo Alpha is no longer seated.");
   });
@@ -561,7 +679,7 @@ describe("SeatingView — tables", () => {
     expect(api.writes()).toEqual([
       {
         method: "POST",
-        url: `${API}/seating/events/e_rec/tables`,
+        url: `${API}/seating/plans/p_rec/tables`,
         body: { name: "Table 3", capacity: 6 },
       },
     ]);
@@ -620,7 +738,7 @@ describe("SeatingView — tables", () => {
     await waitFor(() => expect(api.writes()).toHaveLength(1));
     expect(api.writes()[0]).toEqual({
       method: "PATCH",
-      url: `${API}/seating/events/e_rec/tables/reorder`,
+      url: `${API}/seating/plans/p_rec/tables/reorder`,
       body: { orderedIds: ["t2", "t1"] },
     });
     const cards = screen
@@ -798,7 +916,7 @@ describe("SeatingView — drag", () => {
     fireEvent(document, new PointerEvent("pointerup", { pointerId: 1, clientX: 450, clientY: 50 }));
     await waitFor(() => expect(within(table("Table 2")).getByText("Ada Alpha")).toBeTruthy());
     expect(api.writes()).toEqual([
-      { method: "PUT", url: `${API}/seating/events/e_rec/guests/g_ada`, body: { tableId: "t2" } },
+      { method: "PUT", url: `${API}/seating/plans/p_rec/guests/g_ada`, body: { tableId: "t2" } },
     ]);
     await screen.findByText("Ada Alpha seated at Table 2.");
   });
@@ -880,7 +998,7 @@ describe("SeatingView — drag", () => {
     drag(within(table("Table 1")).getByText("Bo Alpha"), 20);
     await waitFor(() => expect(within(pool()).getByText("Bo Alpha")).toBeTruthy());
     expect(api.writes()).toEqual([
-      { method: "PUT", url: `${API}/seating/events/e_rec/guests/g_bo`, body: { tableId: null } },
+      { method: "PUT", url: `${API}/seating/plans/p_rec/guests/g_bo`, body: { tableId: null } },
     ]);
     // Ada already sits at the Ceremony's Front row, which has room.
     fireEvent.change(screen.getByLabelText("Event"), { target: { value: "e_cer" } });
@@ -1099,7 +1217,7 @@ describe("SeatingView — refusals and failures are said", () => {
     await renderView();
     fireEvent.input(screen.getByLabelText("Table name"), { target: { value: "Table 3" } });
     fireEvent.click(screen.getByRole("button", { name: "Add table" }));
-    await screen.findByText("This event already has as many tables as it can hold.");
+    await screen.findByText("This plan already has as many tables as it can hold.");
     expect(screen.queryByRole("region", { name: "Table 3" })).toBeNull();
   });
 
@@ -1206,5 +1324,471 @@ describe("SeatingView — refusals and failures are said", () => {
       expect(regions.indexOf("t2")).toBeLessThan(regions.indexOf("t1"));
     });
     expect((screen.getByLabelText("Name of Table 1") as HTMLInputElement).value).toBe("Half-typed");
+  });
+});
+
+describe("SeatingView — plans", () => {
+  const picker = () => screen.getByLabelText("Plan") as HTMLSelectElement;
+  const pickerOptions = () => [...picker().options].map((option) => option.textContent);
+  const planWrites = (api: ReturnType<typeof fakeApi>) =>
+    api.writes().filter((call) => /\/plans|selected-plan/.test(call.url));
+
+  it("names the plan on screen and the plan in use, and opens another plan from the picker", async () => {
+    const api = fakeApi();
+    await renderView();
+    expect(pickerOptions()).toEqual(["Plan 1 (in use)"]);
+    screen.getByText("This plan is in use: the venue file prints it.");
+    fireEvent.click(screen.getByRole("button", { name: "Duplicate" }));
+    await screen.findByText("Plan 1 copy made from Plan 1. Changes to it leave Plan 1 as it is.");
+    expect(pickerOptions()).toEqual(["Plan 1 (in use)", "Plan 1 copy"]);
+    expect(picker().value).toBe("p_new_1");
+    screen.getByText("This plan is not in use. The venue file prints Plan 1.");
+    fireEvent.change(picker(), { target: { value: "p_rec" } });
+    await waitFor(() =>
+      expect(api.calls.at(-1)?.url).toBe(`${API}/seating/events/e_rec?plan=p_rec`),
+    );
+    await screen.findByText("This plan is in use: the venue file prints it.");
+  });
+
+  it("copies the plan on screen with its tables and seats, and seats in the copy alone", async () => {
+    const api = fakeApi();
+    await renderView();
+    fireEvent.click(screen.getByRole("button", { name: "Duplicate" }));
+    await screen.findByText(/made from Plan 1/);
+    expect(planWrites(api)).toEqual([
+      {
+        method: "POST",
+        url: `${API}/seating/events/e_rec/plans`,
+        body: { name: "Plan 1 copy", copyFrom: "p_rec" },
+      },
+    ]);
+    // The copy holds the same tables and seats.
+    expect(within(table("Table 1")).getByText("Bo Alpha")).toBeTruthy();
+    await choose("Seat Ada Alpha", /^Table 2/);
+    await screen.findByText("Ada Alpha seated at Table 2.");
+    expect(api.writes().at(-1)).toEqual({
+      method: "PUT",
+      url: `${API}/seating/plans/p_new_1/guests/g_ada`,
+      body: { tableId: "t2_p_new_1" },
+    });
+  });
+
+  it("reloads the copy, not the plan in use, when a reorder in the copy fails", async () => {
+    const api = fakeApi({
+      refuse: {
+        method: "PATCH",
+        status: 500,
+        error: "Internal error",
+        url: /\/plans\/p_new_1\/tables\/reorder$/,
+      },
+    });
+    await renderView();
+    fireEvent.click(screen.getByRole("button", { name: "Duplicate" }));
+    await screen.findByText(/made from Plan 1/);
+    fireEvent.click(screen.getByRole("button", { name: "Move Table 2 up" }));
+    await screen.findByText("Could not save the order of the tables.");
+    await waitFor(() =>
+      expect(api.calls.findLast((c) => c.method === "GET")?.url).toBe(
+        `${API}/seating/events/e_rec?plan=p_new_1`,
+      ),
+    );
+    expect(picker().value).toBe("p_new_1");
+  });
+
+  it("adds a blank plan under a name no plan has, and opens it", async () => {
+    const api = fakeApi();
+    await renderView();
+    fireEvent.click(screen.getByRole("button", { name: "New plan" }));
+    await screen.findByText("Plan 2 added, with no tables.");
+    expect(planWrites(api)).toEqual([
+      { method: "POST", url: `${API}/seating/events/e_rec/plans`, body: { name: "Plan 2" } },
+    ]);
+    expect(picker().value).toBe("p_new_1");
+    screen.getByText("No tables yet");
+    // Known without a read: no chart is asked for, every guest is unseated,
+    // and the withdrawn guest seated in the other plan is not shown.
+    expect(api.calls.filter((c) => c.method === "GET" && c.url.includes("?plan="))).toEqual([]);
+    expect(screen.queryByText("Gwen Gone")).toBeNull();
+    expect(within(pool()).getByText("Bo Alpha")).toBeTruthy();
+  });
+
+  it("keeps the event switched to while a blank plan was being made", async () => {
+    let release!: () => void;
+    fakeApi({
+      hold: { url: /\/plans$/, until: new Promise<void>((resolve) => (release = resolve)) },
+    });
+    await renderView();
+    fireEvent.click(screen.getByRole("button", { name: "New plan" }));
+    fireEvent.change(screen.getByLabelText("Event"), { target: { value: "e_cer" } });
+    await screen.findByRole("region", { name: "Front row" });
+    release();
+    // The write settles: the plan controls are free again.
+    await waitFor(() =>
+      expect((screen.getByRole("button", { name: "New plan" }) as HTMLButtonElement).disabled).toBe(
+        false,
+      ),
+    );
+    // The ceremony's chart stays on screen: the reception's blank plan is not
+    // painted over it.
+    expect(screen.getByRole("region", { name: "Front row" })).toBeTruthy();
+    expect(screen.queryByText("No tables yet")).toBeNull();
+  });
+
+  it("makes one plan for a double press, and says why a plan was refused", async () => {
+    let release!: () => void;
+    const api = fakeApi({
+      hold: { url: /\/plans$/, until: new Promise<void>((resolve) => (release = resolve)) },
+    });
+    await renderView();
+    fireEvent.click(screen.getByRole("button", { name: "New plan" }));
+    fireEvent.click(screen.getByRole("button", { name: "New plan" }));
+    release();
+    await screen.findByText("Plan 2 added, with no tables.");
+    expect(planWrites(api)).toHaveLength(1);
+
+    fakeApi({ refuse: { method: "POST", status: 409, error: "plan_limit", url: /\/plans$/ } });
+    fireEvent.click(screen.getByRole("button", { name: "Duplicate" }));
+    await screen.findByText(
+      "This event already has as many plans as it can hold. Delete one first.",
+    );
+    expect(hapticSpy).toHaveBeenLastCalledWith("reject");
+    fakeApi({ refuse: { method: "POST", status: 409, error: "copy_budget", url: /\/plans$/ } });
+    fireEvent.click(screen.getByRole("button", { name: "Duplicate" }));
+    await screen.findByText(
+      "This wedding has copied as many tables and seats as it can today. Try again tomorrow, or start a new plan.",
+    );
+    fakeApi({ refuse: { method: "POST", status: 500, error: "Internal error", url: /\/plans$/ } });
+    fireEvent.click(screen.getByRole("button", { name: "New plan" }));
+    await screen.findByText("Could not add a plan.");
+  });
+
+  it("renames the plan on screen, and keeps it as it was for a blank name or Cancel", async () => {
+    const api = fakeApi();
+    await renderView();
+    fireEvent.click(screen.getByRole("button", { name: "Rename" }));
+    const name = screen.getByLabelText("Plan name") as HTMLInputElement;
+    expect(name.value).toBe("Plan 1");
+    fireEvent.input(name, { target: { value: "   " } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(planWrites(api)).toEqual([]);
+    expect(pickerOptions()).toEqual(["Plan 1 (in use)"]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Rename" }));
+    fireEvent.input(screen.getByLabelText("Plan name"), { target: { value: " Garden " } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await screen.findByText("Plan 1 renamed Garden.");
+    expect(planWrites(api)).toEqual([
+      { method: "PATCH", url: `${API}/seating/plans/p_rec`, body: { name: "Garden" } },
+    ]);
+    expect(pickerOptions()).toEqual(["Garden (in use)"]);
+  });
+
+  it("puts another plan in use only once the host confirms, and offers no delete for the plan in use", async () => {
+    const api = fakeApi();
+    await renderView();
+    expect(screen.queryByRole("button", { name: "Use this plan" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Delete plan" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Duplicate" }));
+    await screen.findByText(/made from Plan 1/);
+
+    const confirm = vi.fn(() => false);
+    vi.stubGlobal("confirm", confirm);
+    fireEvent.click(screen.getByRole("button", { name: "Use this plan" }));
+    expect(confirm).toHaveBeenCalledWith(
+      "Use Plan 1 copy for this event? The venue file will print Plan 1 copy instead of Plan 1, which stays saved.",
+    );
+    expect(planWrites(api)).toHaveLength(1);
+
+    confirm.mockReturnValue(true);
+    fireEvent.click(screen.getByRole("button", { name: "Use this plan" }));
+    await screen.findByText("Plan 1 copy is now in use. The venue file prints it.");
+    expect(planWrites(api).at(-1)).toEqual({
+      method: "PUT",
+      url: `${API}/seating/events/e_rec/selected-plan`,
+      body: { planId: "p_new_1" },
+    });
+    expect(pickerOptions()).toEqual(["Plan 1 copy (in use)", "Plan 1"]);
+    expect(screen.queryByRole("button", { name: "Use this plan" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Delete plan" })).toBeNull();
+  });
+
+  it("deletes a plan not in use once the host confirms, and opens the plan in use", async () => {
+    const api = fakeApi();
+    await renderView();
+    fireEvent.click(screen.getByRole("button", { name: "Duplicate" }));
+    await screen.findByText(/made from Plan 1/);
+    const confirm = vi.fn(() => false);
+    vi.stubGlobal("confirm", confirm);
+    fireEvent.click(screen.getByRole("button", { name: "Delete plan" }));
+    expect(confirm).toHaveBeenCalledWith(
+      "Delete Plan 1 copy? Its tables and seats go with it. Plan 1 stays in use.",
+    );
+    expect(planWrites(api)).toHaveLength(1);
+    confirm.mockReturnValue(true);
+    fireEvent.click(screen.getByRole("button", { name: "Delete plan" }));
+    await screen.findByText("Plan 1 copy deleted.");
+    expect(planWrites(api).at(-1)).toEqual({
+      method: "DELETE",
+      url: `${API}/seating/plans/p_new_1`,
+      body: undefined,
+    });
+    expect(pickerOptions()).toEqual(["Plan 1 (in use)"]);
+    expect(api.calls.at(-1)?.url).toBe(`${API}/seating/events/e_rec`);
+  });
+
+  it("says a delete was refused for the plan in use", async () => {
+    fakeApi({ refuse: { method: "DELETE", status: 409, error: "plan_selected" } });
+    await renderView();
+    fireEvent.click(screen.getByRole("button", { name: "Duplicate" }));
+    await screen.findByText(/made from Plan 1/);
+    vi.stubGlobal(
+      "confirm",
+      vi.fn(() => true),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Delete plan" }));
+    expect(
+      await screen.findByText("That plan is in use. Choose another plan to use first."),
+    ).toBeTruthy();
+    expect(hapticSpy).toHaveBeenLastCalledWith("reject");
+  });
+
+  it("lists what the plan on screen needs a host to look at, and keeps it current", async () => {
+    // Dot said yes too, so one line names two guests.
+    fakeApi({ edit: (state) => void (state.e_rec!.guests[3]!.rsvp = "attending") });
+    await renderView();
+    const review = () => screen.getByText(/^Needs review/).closest("section")!;
+    const lines = () => [...review().querySelectorAll("li")].map((li) => li.textContent);
+    expect(screen.getByText("Needs review: 4 guests in this plan")).toBeTruthy();
+    expect(lines()).toEqual([
+      "Seated, but declined (1): Bo Alpha",
+      "Seated, but their invitation was withdrawn (1): Gwen Gone",
+      "Said yes, but not seated (2): Ada Alpha, Dot Delta",
+    ]);
+    await choose("Seat Ada Alpha", /^Table 2/);
+    await choose("Seat Dot Delta", /^Table 2/);
+    await screen.findByText("Needs review: 2 guests in this plan");
+    // A kind with nobody in it says nothing.
+    expect(lines()).toEqual([
+      "Seated, but declined (1): Bo Alpha",
+      "Seated, but their invitation was withdrawn (1): Gwen Gone",
+    ]);
+    await choose("Move Bo Alpha", "Not seated");
+    await screen.findByText("Needs review: 1 guest in this plan");
+    await choose("Move Gwen Gone", "Not seated");
+    await waitFor(() => expect(screen.queryByText(/^Needs review/)).toBeNull());
+  });
+
+  it("opens nothing when the plan on screen is chosen again, and shows the plan it opens", async () => {
+    const api = fakeApi();
+    await renderView();
+    fireEvent.click(screen.getByRole("button", { name: "Duplicate" }));
+    await screen.findByText(/made from Plan 1/);
+    expect(hapticSpy).toHaveBeenLastCalledWith("commit");
+    const reads = () => api.calls.filter((call) => call.method === "GET").length;
+    const before = reads();
+    fireEvent.change(picker(), { target: { value: "p_new_1" } });
+    expect(reads()).toBe(before);
+    fireEvent.change(picker(), { target: { value: "p_rec" } });
+    await screen.findByText("This plan is in use: the venue file prints it.");
+    expect(picker().value).toBe("p_rec");
+  });
+
+  it("names a new plan after the plans the event already has, and keeps a copy's name inside 80 characters", async () => {
+    const api = fakeApi();
+    await renderView();
+    const rename = async (name: string) => {
+      fireEvent.click(screen.getByRole("button", { name: "Rename" }));
+      fireEvent.input(screen.getByLabelText("Plan name"), { target: { value: name } });
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+      await screen.findByText(new RegExp(`renamed ${name}\\.$`));
+    };
+    // "plan 2" is taken whatever its case, so the new plan is Plan 3.
+    await rename("plan 2");
+    fireEvent.click(screen.getByRole("button", { name: "New plan" }));
+    await screen.findByText("Plan 3 added, with no tables.");
+    // A name at the cap is cut to leave room for " copy", and loses the space
+    // the cut leaves at its end.
+    const long = `${"a".repeat(74)} bbbbb`;
+    fireEvent.change(picker(), { target: { value: "p_rec" } });
+    await screen.findByText("This plan is in use: the venue file prints it.");
+    await rename(long);
+    fireEvent.click(screen.getByRole("button", { name: "Duplicate" }));
+    await screen.findByText(/ copy made from /);
+    expect(
+      planWrites(api)
+        .filter((call) => call.method === "POST")
+        .map((call) => call.body),
+    ).toEqual([{ name: "Plan 3" }, { name: `${"a".repeat(74)} copy`, copyFrom: "p_rec" }]);
+  });
+
+  it("hands the focus on when a plan control goes away, so a keyboard user keeps their place", async () => {
+    fakeApi();
+    await renderView();
+    const focused = () => document.activeElement;
+    const settle = () => new Promise((resolve) => queueMicrotask(() => resolve(undefined)));
+    fireEvent.click(screen.getByRole("button", { name: "Rename" }));
+    await settle();
+    expect(focused()).toBe(screen.getByLabelText("Plan name"));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await settle();
+    expect(focused()).toBe(screen.getByRole("button", { name: "Rename" }));
+    fireEvent.click(screen.getByRole("button", { name: "Rename" }));
+    fireEvent.input(screen.getByLabelText("Plan name"), { target: { value: "Garden" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await screen.findByText("Plan 1 renamed Garden.");
+    await settle();
+    expect(focused()).toBe(screen.getByRole("button", { name: "Rename" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Duplicate" }));
+    await screen.findByText(/made from Garden/);
+    vi.stubGlobal(
+      "confirm",
+      vi.fn(() => true),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Use this plan" }));
+    await screen.findByText("Garden copy is now in use. The venue file prints it.");
+    await settle();
+    expect(focused()).toBe(picker());
+    fireEvent.change(picker(), { target: { value: "p_rec" } });
+    const remove = await screen.findByRole("button", { name: "Delete plan" });
+    // Focus starts on the button that goes away, so only the hand-off can put
+    // it on the picker.
+    remove.focus();
+    expect(focused()).toBe(remove);
+    fireEvent.click(remove);
+    await screen.findByText("Garden deleted.");
+    await settle();
+    expect(focused()).toBe(picker());
+  });
+
+  it("renames one plan of several and leaves the others' names alone", async () => {
+    fakeApi();
+    await renderView();
+    fireEvent.click(screen.getByRole("button", { name: "Duplicate" }));
+    await screen.findByText(/made from Plan 1/);
+    fireEvent.click(screen.getByRole("button", { name: "Rename" }));
+    fireEvent.input(screen.getByLabelText("Plan name"), { target: { value: "Garden" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await screen.findByText("Plan 1 copy renamed Garden.");
+    expect(pickerOptions()).toEqual(["Plan 1 (in use)", "Garden"]);
+  });
+
+  it("says a plan write failed for any other reason, and changes nothing on screen", async () => {
+    fakeApi();
+    await renderView();
+    fireEvent.click(screen.getByRole("button", { name: "Duplicate" }));
+    await screen.findByText(/made from Plan 1/);
+    vi.stubGlobal(
+      "confirm",
+      vi.fn(() => true),
+    );
+    const failing = async (method: string, url: RegExp, act: () => void, said: string) => {
+      fakeApi({ refuse: { method, status: 500, error: "Internal error", url } });
+      act();
+      expect(await screen.findByText(said)).toBeTruthy();
+      expect(hapticSpy).toHaveBeenLastCalledWith("reject");
+    };
+    const pressed = (name: string) => () => fireEvent.click(screen.getByRole("button", { name }));
+    await failing("POST", /\/plans$/, pressed("Duplicate"), "Could not copy that plan.");
+    await failing(
+      "PATCH",
+      /\/plans\/p_new_1$/,
+      () => {
+        pressed("Rename")();
+        fireEvent.input(screen.getByLabelText("Plan name"), { target: { value: "Garden" } });
+        pressed("Save")();
+      },
+      "Could not rename Plan 1 copy.",
+    );
+    pressed("Cancel")();
+    await failing(
+      "PUT",
+      /selected-plan$/,
+      pressed("Use this plan"),
+      "Could not start using Plan 1 copy.",
+    );
+    await failing("DELETE", /\/plans\//, pressed("Delete plan"), "Could not delete Plan 1 copy.");
+    expect(pickerOptions()).toEqual(["Plan 1 (in use)", "Plan 1 copy"]);
+  });
+
+  it("starts an event's first plan with its first table, and puts the table in it", async () => {
+    const api = fakeApi({
+      edit: (state) => {
+        state.e_rec!.plans = [];
+        state.e_rec!.planId = null;
+        state.e_rec!.tables = [];
+        for (const g of state.e_rec!.guests) g.tableId = null;
+      },
+    });
+    render(() => <SeatingView weddingId={W} weddingSlug="ada-and-bo" canEdit canManage={false} />);
+    await screen.findByText("No tables yet");
+    expect(screen.queryByLabelText("Plan")).toBeNull();
+    fireEvent.input(screen.getByLabelText("Table name"), { target: { value: "Head" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add table" }));
+    await screen.findByText("Head added.");
+    expect(api.writes()).toEqual([
+      {
+        method: "POST",
+        url: `${API}/seating/events/e_rec/tables`,
+        body: { name: "Head", capacity: 10 },
+      },
+    ]);
+    // The chart is read again, and names the plan the table made.
+    await waitFor(() => expect(pickerOptions()).toEqual(["Plan 1 (in use)"]));
+    expect(api.calls.at(-1)).toMatchObject({ method: "GET", url: `${API}/seating/events/e_rec` });
+    expect(within(table("Head")).getByText("Drop guests here.")).toBeTruthy();
+  });
+
+  it("shows a viewer the plans with no control that changes them", async () => {
+    fakeApi();
+    await renderView({ canEdit: false });
+    expect(pickerOptions()).toEqual(["Plan 1 (in use)"]);
+    for (const name of ["Duplicate", "New plan", "Rename", "Use this plan", "Delete plan"]) {
+      expect(screen.queryByRole("button", { name })).toBeNull();
+    }
+  });
+
+  it("prints the name of the plan on screen", async () => {
+    fakeApi();
+    await renderView();
+    window.dispatchEvent(new Event("beforeprint"));
+    expect(document.body.querySelector("[data-print-sheet] p")?.textContent).toBe(
+      "Seating chart: Plan 1",
+    );
+    window.dispatchEvent(new Event("afterprint"));
+  });
+
+  it("prints an event with no plan yet as a seating chart with no name", async () => {
+    fakeApi({
+      edit: (state) => {
+        state.e_rec!.plans = [];
+        state.e_rec!.planId = null;
+      },
+    });
+    render(() => <SeatingView weddingId={W} weddingSlug="ada-and-bo" canEdit canManage={false} />);
+    await screen.findByText("No tables yet");
+    window.dispatchEvent(new Event("beforeprint"));
+    expect(document.body.querySelector("[data-print-sheet] p")?.textContent).toBe("Seating chart");
+    window.dispatchEvent(new Event("afterprint"));
+  });
+
+  it("reads a chart from an API before plans as one with no plan, and seats through the event's own address", async () => {
+    // The API before plans answers with neither `plans` nor `planId`.
+    const { plans: _plans, planId: _planId, ...old } = charts().e_rec!;
+    const writes: string[] = [];
+    authFetch.mockImplementation(async (url: string, init: RequestInit = {}) => {
+      if ((init.method ?? "GET") !== "GET") writes.push(url);
+      return new Response(JSON.stringify(old), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    await renderView();
+    expect(within(table("Table 1")).getByText("Bo Alpha")).toBeTruthy();
+    expect(screen.queryByLabelText("Plan")).toBeNull();
+    await choose("Seat Ada Alpha", /^Table 2/);
+    expect(await screen.findByText("Ada Alpha seated at Table 2.")).toBeTruthy();
+    expect(writes).toEqual([`${API}/seating/events/e_rec/guests/g_ada`]);
   });
 });

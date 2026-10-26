@@ -91,6 +91,28 @@ describe("LockedExport", () => {
     });
   });
 
+  it("says the seating file holds the first 4,000 seats when the wedding has more, and not at 4,000", async () => {
+    const seating = (seats: number) => {
+      cleanup();
+      __resetModuleRowsStore();
+      answer(
+        () => json({ budgetLines: 0, tasks: 0, gifts: 0, seats }),
+        () => new Response("x"),
+      );
+      render(() => (
+        <LockedExport weddingId="wed_1" weddingSlug="our-day" spec={LOCKED_EXPORTS.seating} />
+      ));
+    };
+    seating(4512);
+    expect(
+      await screen.findByText(
+        "Your 4512 seats are still here. The file holds the first 4,000, each event's plan in use first.",
+      ),
+    ).toBeTruthy();
+    seating(4000);
+    expect(await screen.findByText("Your 4000 seats are still here.")).toBeTruthy();
+  });
+
   // Each request spends the owner's export allowance, and a double tap would
   // save a second copy.
   it("asks for the file once however often it is tapped while it downloads", async () => {

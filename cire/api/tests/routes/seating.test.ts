@@ -1918,6 +1918,53 @@ describe("seating — the venue file", () => {
     expect(file).toBe("Event,Table,Capacity,Guest,Household,RSVP");
   });
 
+  it("prints every plan, the plans in use first, to an owner below Gold asking for all of them", async () => {
+    const { app, db } = setup();
+    const one = await createTable(app, REC, "Table 1", 8);
+    await req(app, "PUT", seatPath(REC, "g_ada"), EDITOR, { tableId: one.id });
+    const garden = await createPlan(app, REC, "Garden", PLAN[REC]);
+    const lawn = await createTable(app, REC, "Lawn", 6, garden.id);
+    await req(app, "PUT", `${planPath(garden.id)}/guests/g_bo`, EDITOR, { tableId: lawn.id });
+    // The newer plan, by a minute, is put in use, so only the in-use term
+    // puts it first.
+    db.update(seatingPlans)
+      .set({ createdAt: new Date(Date.now() + 60_000) })
+      .where(eq(seatingPlans.id, garden.id))
+      .run();
+    await req(app, "PUT", selectPath(REC), EDITOR, { planId: garden.id });
+    // The ceremony, earlier in the event order, has a plan not in use too: it
+    // prints after the reception's plan in use, so a cut at the ceiling drops
+    // plans not in use first.
+    const front = await createTable(app, CER, "Front row", 4);
+    await req(app, "PUT", seatPath(CER, "g_cy"), EDITOR, { tableId: front.id });
+    const aisle = await createPlan(app, CER, "Aisle", PLAN[CER]);
+    const aisleTable = (await chart(app, CER, EDITOR, aisle.id)).tables[0]!;
+    await req(app, "PUT", `${planPath(aisle.id)}/guests/g_ada`, EDITOR, { tableId: aisleTable.id });
+    await seatTheirGuest(app);
+    setTier(db, W, "ivory");
+    const all = await req(app, "GET", `${base}/seating.csv?plans=all`, OWNER);
+    expect(all.status).toBe(200);
+    expect(all.headers.get("content-disposition")).toContain("cire-seating-plans-cire-wedding.csv");
+    expect((await all.text()).split("\r\n")).toEqual([
+      "Event,Plan,In use,Table,Capacity,Guest,Household,RSVP",
+      "Ceremony,Plan 1,Yes,Front row,4,Cy,Charlie,No reply",
+      "Reception,Garden,Yes,Table 1,8,Ada,Alpha,Attending",
+      "Reception,Garden,Yes,Lawn,6,Bo,Alpha,Declined",
+      "Ceremony,Aisle,No,Front row,4,Ada,Alpha,No reply",
+      "Ceremony,Aisle,No,Front row,4,Cy,Charlie,No reply",
+      "Reception,Plan 1,No,Table 1,8,Ada,Alpha,Attending",
+    ]);
+    // Any other value is the venue file, and the file stays the owner's.
+    const venue = await req(app, "GET", `${base}/seating.csv?plans=selected`, OWNER);
+    expect((await venue.text()).split("\r\n")).toEqual([
+      "Event,Table,Capacity,Guest,Household,RSVP",
+      "Ceremony,Front row,4,Cy,Charlie,No reply",
+      "Reception,Table 1,8,Ada,Alpha,Attending",
+      "Reception,Lawn,6,Bo,Alpha,Declined",
+    ]);
+    expect((await req(app, "GET", `${base}/seating.csv?plans=all`, EDITOR)).status).toBe(403);
+  });
+
   it("is a header alone for a wedding with no seats", async () => {
     const { app } = setup();
     const res = await req(app, "GET", `${base}/seating.csv`, OWNER);
@@ -1933,15 +1980,15 @@ describe("seating — the venue file", () => {
     await req(app, "PUT", seatPath(REC, "g_ada"), EDITOR, { tableId: rec.id });
     await req(app, "PUT", seatPath(REC, "g_bo"), EDITOR, { tableId: rec.id });
     await req(app, "PUT", seatPath(CER, "g_ada"), EDITOR, { tableId: cer.id });
-    // A copy of the reception's plan holds two more seats; it is not selected,
-    // so the file prints neither, and the count counts neither.
+    // A copy of the reception's plan holds two more seats. The locked card's
+    // file prints every plan, so the count counts them too.
     await createPlan(app, REC, "Alt", PLAN[REC]);
     // Another wedding's seat is not this wedding's.
     await seatTheirGuest(app);
     // Moved below the module's tier: the count, like the file, is still served.
     setTier(db, W, "ivory");
     const counts = await req(app, "GET", `${base}/module-rows`, OWNER);
-    expect(await jsonBody(counts)).toMatchObject({ seats: 3 });
+    expect(await jsonBody(counts)).toMatchObject({ seats: 5 });
   });
 });
 

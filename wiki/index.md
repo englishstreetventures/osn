@@ -113,7 +113,7 @@ Weddings: guest site, organiser portal, vendor portal, API.
 - [[cire-budget]] — cire budget lines and spend roll-ups
 - [[cire-checklist-tasks]] — the cire planning checklist / tasks module
 - [[cire-run-sheet]] — the day-of run sheet: a task's time (fixed, or linked to an event's start), `GET /run-sheet` narrowed to a helper's scope, and what a schedule change does to linked tasks
-- [[cire-seating]] — the seating chart: up to five plans per event, one in use, tables per plan, one seat per guest per plan in the database, drag or keyboard seating, CSV and print
+- [[cire-seating]] — the seating chart: up to five plans per event, one in use, tables per plan, one seat per guest per plan in the database, drag or keyboard seating, a review list, CSV and print
 - [[cire-entitlements]] — the plan tiers (Ivory, Gold, Crimson): what each opens, the tier gate, guest caps, changing a tier by hand
 - [[cire-upgrades]] — self-serve purchase of a plan tier: catalogue, platform Stripe checkout, the webhook that raises the tier
 - [[cire-invite-designs]] — the invite design selector

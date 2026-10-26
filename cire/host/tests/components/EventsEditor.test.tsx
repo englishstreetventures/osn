@@ -368,7 +368,7 @@ describe("EventsEditor", () => {
     await waitFor(() => expect(screen.getByText(/saved on apply/i)).toBeTruthy());
     fireEvent.click(screen.getAllByRole("button", { name: /^Delete$/i }).at(-1)!);
     expect(window.confirm).toHaveBeenLastCalledWith(
-      "Delete \"this event\"? Any RSVPs for it are discarded, its seating chart is deleted and its uploaded image is removed. You'll confirm the full impact before it's applied.",
+      "Delete \"this event\"? Any RSVPs for it are discarded, every seating plan for it is deleted and its uploaded image is removed. You'll confirm the full impact before it's applied.",
     );
   });
 
@@ -963,7 +963,7 @@ describe("EventsEditor", () => {
     fireEvent.click(screen.getAllByRole("button", { name: /^Delete$/i })[1]!);
     // The confirm names everything the delete takes with the event.
     expect(window.confirm).toHaveBeenLastCalledWith(
-      "Delete \"Reception\"? Any RSVPs for it are discarded, its seating chart is deleted and its uploaded image is removed. You'll confirm the full impact before it's applied.",
+      "Delete \"Reception\"? Any RSVPs for it are discarded, every seating plan for it is deleted and its uploaded image is removed. You'll confirm the full impact before it's applied.",
     );
     // Reception is gone from the list; the draft is dirty.
     await waitFor(() => expect(screen.queryByText("Reception")).toBeNull());

@@ -170,9 +170,9 @@ export const DEV_LOGIN_SECRET = "e2e-dev-login-secret-not-a-real-secret";
 /**
  * The organiser weddings cire-api adds when the stack sets
  * `CIRE_E2E_ORGANISER=1` (`seedE2eOrganiser` in `cire/api/src/db/setup.ts`,
- * which these values copy). All seven are on Gold; `profileId`, the profile
- * osn-api's `/dev/login` signs in as, owns six and is a helper on
- * `runSheetHelper`. The co-hosts are bare
+ * which these values copy). All nine but `seatingLocked`, on Ivory, are on
+ * Gold; `profileId`, the profile osn-api's `/dev/login` signs in as, owns
+ * eight and is a helper on `runSheetHelper`. The co-hosts are bare
  * profile ids: the local cire-api resolves no names, so the portal shows the
  * ids, and a flow finds each person by theirs.
  */
@@ -259,7 +259,8 @@ export const CIRE_ORGANISER = {
     eventId: "evt_e2e_seating_rec",
     planId: "spl_e2e_seating_1",
     planName: "Plan 1",
-    tables: { one: "Table 1", two: "Table 2" },
+    /** The reception's two tables, and the name a flow gives a table it adds. */
+    tables: { one: "Table 1", two: "Table 2", three: "Table 3" },
     party: { id: "evt_e2e_seating_party", name: "After party", table: "Front row" },
     ada: { guestId: "gst_e2e_seating_ada", name: "Ada Alpha" },
     bo: { guestId: "gst_e2e_seating_bo", name: "Bo Alpha" },
@@ -277,6 +278,20 @@ export const CIRE_ORGANISER = {
     added: "gus.tanaka@e2e.test",
     /** Gus's address in the two sheets the flow previews; the second applies. */
     sheetAddresses: { first: "gus.first@e2e.test", second: "gus.second@e2e.test" },
+  },
+  /** A wedding on Ivory that kept two seating plans: "Plan 1", in use, with
+   *  Ada Alpha at Table 1, and "Garden", with Ada and Bo Alpha at Lawn. */
+  seatingLocked: {
+    weddingId: "wed_e2e_seating_locked",
+    slug: "seating-locked",
+    /** The locked Seating card's file, as the API names it. */
+    fileName: "cire-seating-plans-seating-locked.csv",
+    lines: [
+      "Event,Plan,In use,Table,Capacity,Guest,Household,RSVP",
+      "Reception,Plan 1,Yes,Table 1,4,Ada Alpha,Alpha,Attending",
+      "Reception,Garden,No,Lawn,6,Ada Alpha,Alpha,Attending",
+      "Reception,Garden,No,Lawn,6,Bo Alpha,Alpha,Attending",
+    ],
   },
 } as const;
 
