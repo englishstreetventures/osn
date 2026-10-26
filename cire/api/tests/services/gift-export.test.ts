@@ -7,7 +7,6 @@ import {
   registryContributions,
   registryItems,
 } from "@cire/db";
-import type { D1Database, D1PreparedStatement } from "@cloudflare/workers-types";
 import { eq } from "drizzle-orm";
 import { Cause, Effect, Exit, Logger, References } from "effect";
 
@@ -22,6 +21,7 @@ import { planningExportService } from "../../src/services/planning-export";
 import { registryService } from "../../src/services/registry";
 import type { GiftLogEntryDto } from "../../src/services/registry";
 import { recordStatements } from "../test-helpers";
+import { failingReadOf } from "../test-helpers/d1-bindings";
 import { insertWedding } from "../test-helpers/wedding";
 
 /**
@@ -761,7 +761,6 @@ describe("giftExportService.giftsCsv", () => {
       giftExportService
         .giftsCsv(BOOTSTRAP_WEDDING_ID)
         .pipe(
-          Effect.provideService(DbService, db),
           Effect.provideService(EffectDbService, effectDbFor(localD1Binding(db.$client), "fetch")),
           Effect.provide(capture),
         ),
@@ -807,7 +806,6 @@ describe("giftExportService.giftsCsv", () => {
       giftExportService
         .giftsCsv(BOOTSTRAP_WEDDING_ID)
         .pipe(
-          Effect.provideService(DbService, db),
           Effect.provideService(EffectDbService, effectDbFor(localD1Binding(db.$client), "fetch")),
           Effect.provide(capture),
         ),
@@ -835,7 +833,6 @@ describe("giftExportService.giftsCsv", () => {
       giftExportService
         .giftsCsv(BOOTSTRAP_WEDDING_ID)
         .pipe(
-          Effect.provideService(DbService, db),
           Effect.provideService(EffectDbService, effectDbFor(localD1Binding(db.$client), "fetch")),
           Effect.provide(silent),
         ),
@@ -932,22 +929,11 @@ describe("giftExportService.giftsCsv — a failed read", () => {
   it("dies with the injected error rather than failing typed", async () => {
     const db = createDb(":memory:");
     seedDb(db);
-    const base = localD1Binding(db.$client);
-    const failing = Object.assign(Object.create(base), {
-      prepare: (query: string): D1PreparedStatement => {
-        const real = base.prepare(query);
-        if (
-          !query.includes('from "registry_contributions"') &&
-          !query.includes('from "registry_claims"')
-        ) {
-          return real;
-        }
-        const rejected: D1PreparedStatement = Object.assign(Object.create(real.bind()), {
-          raw: () => Promise.reject(new Error("injected read failure")),
-        });
-        return Object.assign(Object.create(real), { bind: () => rejected });
-      },
-    }) as D1Database;
+    const failing = failingReadOf(
+      localD1Binding(db.$client),
+      (query) =>
+        query.includes('from "registry_contributions"') || query.includes('from "registry_claims"'),
+    );
     const exit = await Effect.runPromiseExit(
       giftExportService
         .giftsCsv(BOOTSTRAP_WEDDING_ID)
