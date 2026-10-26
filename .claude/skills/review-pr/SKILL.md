@@ -49,7 +49,9 @@ gh api repos/englishstreetventures/osn/pulls/<n>/commits \
   be pushed from here; report what you would change instead.
 - The branch name must match `^[A-Za-z0-9._/-]+$` before it goes into any
   command below; git allows `$`, `;`, backticks and brackets in a ref name.
-  Anything else → stop and report it.
+  Anything else → stop and report it. A name starting `origin/`, `refs/`,
+  `heads/`, `tags/` or `remotes/` → stop too: checked out here it would shadow
+  a ref every later step trusts.
 - Record the pull request's author and every commit's author and committer in
   the report. Code from an account or a tool the owner did not name is a
   question for the owner before Step 2 runs any of it.
@@ -86,7 +88,8 @@ Fetch first, from wherever you are. Without the explicit refspec, a bare clone's
 wrong commit.
 
 ```bash
-git fetch origin "+refs/heads/<branch>:refs/remotes/origin/<branch>" "+refs/heads/main:refs/remotes/origin/main"
+git fetch --no-tags origin "+refs/heads/<branch>:refs/remotes/origin/<branch>" "+refs/heads/main:refs/remotes/origin/main"
+git for-each-ref refs/heads/origin refs/tags/origin   # must print nothing
 git worktree list | grep -F "[<branch>]"
 ```
 
@@ -97,8 +100,8 @@ layout's worktrees included.
 
 ```bash
 git -C <dir> status --porcelain                    # must print nothing
-git -C <dir> log --oneline origin/<branch>..HEAD   # must print nothing
-git -C <dir> merge --ff-only origin/<branch>       # brings in commits pushed from elsewhere
+git -C <dir> log --oneline refs/remotes/origin/<branch>..HEAD   # must print nothing
+git -C <dir> merge --ff-only refs/remotes/origin/<branch>       # brings in commits pushed from elsewhere
 ```
 
 Uncommitted files, or commits the pull request does not have, are someone
@@ -111,17 +114,17 @@ may have no upstream configured.
 then treat it as none.
 
 **No line** — no checkout holds the branch. If a local branch of that name
-exists, run the same `log origin/<branch>..<branch>` check on it first. Then,
+exists, run the same `log refs/remotes/origin/<branch>..<branch>` check on it first. Then,
 on the local machine, make a worktree and note in the report that this run owns
 it:
 
 ```bash
 git -C /Users/ac/.work/osn.git worktree add /Users/ac/.work/osn.git/<dir> <branch>                      # a local branch exists
-git -C /Users/ac/.work/osn.git worktree add /Users/ac/.work/osn.git/<dir> -b <branch> origin/<branch>   # it does not
+git -C /Users/ac/.work/osn.git worktree add /Users/ac/.work/osn.git/<dir> -b <branch> refs/remotes/origin/<branch>   # it does not
 ```
 
 `<dir>` is the branch name without its prefix. On the remote environment, where
-there is no bare repository, `git checkout -B <branch> origin/<branch>` in the
+there is no bare repository, `git checkout -B <branch> refs/remotes/origin/<branch>` in the
 checkout instead. Every later step runs in that checkout.
 
 Never run `git worktree add` for a branch that already has one — git refuses
@@ -143,7 +146,7 @@ loads its installed `typescript` and any `compilerOptions.plugins` a tsconfig
 names. So before any of those, read every change to a file that runs something:
 
 ```bash
-git diff origin/main...origin/<branch> -- package.json '*/package.json' '*/*/package.json' \
+git diff refs/remotes/origin/main...refs/remotes/origin/<branch> -- package.json '*/package.json' '*/*/package.json' \
   bunfig.toml lefthook.yml .github scripts .claude patches '*.sh' '*.config.*' '*tsconfig*.json'
 ```
 
@@ -175,8 +178,8 @@ them, by value, after the rebase has moved `HEAD`:
 
 ```bash
 git rev-parse HEAD                        # the branch head before the rebase
-git merge-base origin/main HEAD           # the merge base
-git rebase origin/main
+git merge-base refs/remotes/origin/main HEAD           # the merge base
+git rebase refs/remotes/origin/main
 ```
 
 Source conflicts: keep both sides' intent. Sibling pull requests that merged
@@ -218,7 +221,7 @@ When the rebase has finished, regenerate once, in a commit of its own:
 
    ```bash
    d=$(mktemp -d) && git show refs/remotes/origin/main:scripts/lockfile-evidence.sh > "$d/lockfile-evidence.sh" \
-     && bash "$d/lockfile-evidence.sh" <merge-base> <head-before-rebase>
+     && bash "$d/lockfile-evidence.sh" <merge-base> <head-before-rebase> refs/remotes/origin/main
    ```
 
    It refuses an empty or unknown commit, then prints: whether each side changed
@@ -252,7 +255,7 @@ decisive error line, then look at `main`:
 gh run list --repo englishstreetventures/osn --branch main --workflow <workflow-file> --limit 5 \
   --json databaseId,headSha,conclusion,createdAt
 gh run view <main-run-id> --repo englishstreetventures/osn --log-failed | grep -m 20 -F '<test name or error line>'
-git diff --name-only origin/main...HEAD -- <the failing package's directory>
+git diff --name-only refs/remotes/origin/main...HEAD -- <the failing package's directory>
 ```
 
 **Match the failing test or the decisive error line, never the job or step name

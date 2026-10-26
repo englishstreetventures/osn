@@ -79,9 +79,9 @@ claimed:     osn#812 item 264995573
 agent:       implementer — new field on a route response plus its test; rating unconfirmed, chosen from the text
 premises:    checked on origin/main 435c28f65
   - the route file is cire/api/src/routes/vendor-enquiries.ts
-    `git ls-tree --name-only origin/main cire/api/src/routes/ | grep enquir` → organiser-enquiries.ts, vendor-enquiries.ts
+    `git ls-tree --name-only refs/remotes/origin/main cire/api/src/routes/ | grep enquir` → organiser-enquiries.ts, vendor-enquiries.ts
   - the wedding's name column is display_name, not name
-    `git show origin/main:cire/db/src/schema.ts | grep -n display_name` → 27:    displayName: text("display_name").notNull(),
+    `git show refs/remotes/origin/main:cire/db/src/schema.ts | grep -n display_name` → 27:    displayName: text("display_name").notNull(),
 worktree:    /Users/ac/.work/osn.git/vendor-enquiry-name (made by this run)
 branch:      feat/vendor-enquiry-name (base origin/main)
 pr:          not opened
@@ -157,8 +157,8 @@ route said to lack a limiter it has. Three checks, all before dispatch:
    `premises:` line, so a check made against a stale ref shows as one. List
    every fact the brief will state — a file, a column, a script, a route's
    behaviour — and run the command that shows it:
-   `git show origin/main:<path>`, `git grep -n '<text>' origin/main -- <dir>`,
-   `git ls-tree --name-only origin/main <dir>/`. Quote the command and the
+   `git show refs/remotes/origin/main:<path>`, `git grep -n '<text>' refs/remotes/origin/main -- <dir>`,
+   `git ls-tree --name-only refs/remotes/origin/main <dir>/`. Quote the command and the
    output on the task's `premises:` line. A claim the output contradicts is
    corrected or dropped; it is never sent. **A brief states no code fact without
    the command that showed it.**
@@ -187,7 +187,7 @@ route said to lack a limiter it has. Three checks, all before dispatch:
 
 ```bash
 git -C /Users/ac/.work/osn.git fetch origin "+refs/heads/main:refs/remotes/origin/main"
-git -C /Users/ac/.work/osn.git cat-file -e "origin/main:.claude/metrics/$(printf '%s' '<prefix>/<dir>' | tr -c 'A-Za-z0-9._-' '-' | sed 's/^-*//;s/-*$//').json" 2>/dev/null && echo "taken: card on main"
+git -C /Users/ac/.work/osn.git cat-file -e "refs/remotes/origin/main:.claude/metrics/$(printf '%s' '<prefix>/<dir>' | tr -c 'A-Za-z0-9._-' '-' | sed 's/^-*//;s/-*$//').json" 2>/dev/null && echo "taken: card on main"
 gh api "repos/englishstreetventures/osn/pulls?state=all&head=englishstreetventures:<prefix>/<dir>" --jq '.[] | "taken: #\(.number)"'
 ```
 
@@ -196,9 +196,9 @@ A `taken` line means an earlier pull request used the name, and the session-metr
 **Claim the issue** immediately before `git worktree add`, with `next-batch` §Claim. If another session holds it, skip the task, write why into `ORCHESTRATE.md` and take the next one; if the check fails, wait and check again — a failed check is not a free issue. Write the `claimed:` line into the task's block.
 
 ```bash
-git -C /Users/ac/.work/osn.git worktree add /Users/ac/.work/osn.git/<dir> -b <prefix>/<dir> origin/main
+git -C /Users/ac/.work/osn.git worktree add /Users/ac/.work/osn.git/<dir> -b <prefix>/<dir> refs/remotes/origin/main
 (cd /Users/ac/.work/osn.git/<dir> && bun install --frozen-lockfile)      # a fresh worktree has no node_modules
-git -C /Users/ac/.work/osn.git/main merge --ff-only origin/main          # main/ holds the AGENTS.md and skills subagents load
+git -C /Users/ac/.work/osn.git/main merge --ff-only refs/remotes/origin/main          # main/ holds the AGENTS.md and skills subagents load
 ```
 
 Subagents start in `main/`, so Claude Code loads its `CLAUDE.md`, `AGENTS.md` and skills from there, not from the task worktree. The fast-forward above brings that copy to `origin/main` before the dispatch. If it refuses, `main/` has local commits or edits, which is someone else's work: do not reset or stash it. Write the refusal into `ORCHESTRATE.md` and stop, because a subagent would load the stale copy.

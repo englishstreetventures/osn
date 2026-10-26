@@ -67,7 +67,7 @@ The probe above said `PERSONAL` or `REMOTE`. They differ in one thing: whether t
 
 ```bash
 git -C /Users/ac/.work/osn.git fetch origin "+refs/heads/main:refs/remotes/origin/main"
-git -C /Users/ac/.work/osn.git cat-file -e "origin/main:.claude/metrics/$(printf '%s' '<branch>' | tr -c 'A-Za-z0-9._-' '-' | sed 's/^-*//;s/-*$//').json" 2>/dev/null && echo "taken: card on main"
+git -C /Users/ac/.work/osn.git cat-file -e "refs/remotes/origin/main:.claude/metrics/$(printf '%s' '<branch>' | tr -c 'A-Za-z0-9._-' '-' | sed 's/^-*//;s/-*$//').json" 2>/dev/null && echo "taken: card on main"
 gh api "repos/englishstreetventures/osn/pulls?state=all&head=englishstreetventures:<branch>" --jq '.[] | "taken: #\(.number)"'
 ```
 
@@ -78,7 +78,7 @@ Any `taken` line means an earlier pull request used the name. Session-metrics ca
 **PERSONAL** — the bare repo at `/Users/ac/.work/osn.git`. Every piece of work gets its own worktree; never check the branch out inside an existing one (`main/` included) — that mutates its state.
 
 ```bash
-git -C /Users/ac/.work/osn.git worktree add /Users/ac/.work/osn.git/<dir> -b <branch> origin/main
+git -C /Users/ac/.work/osn.git worktree add /Users/ac/.work/osn.git/<dir> -b <branch> refs/remotes/origin/main
 (cd /Users/ac/.work/osn.git/<dir> && bun install --frozen-lockfile)      # a fresh worktree has no node_modules
 ```
 
@@ -94,7 +94,7 @@ Report the branch, its base and the worktree path. **All work happens in that wo
 **REMOTE** — the repository is already checked out in the working directory. No worktree.
 
 ```bash
-git checkout -B <branch> origin/main
+git checkout -B <branch> refs/remotes/origin/main
 [ -d node_modules ] || bun install --frozen-lockfile
 ```
 

@@ -71,7 +71,7 @@ Resolve the base branch first. A stacked branch does not merge into `main`, and 
 ```bash
 BASE=$(git config --get branch.$(git branch --show-current).gh-merge-base || echo main)
 DIFF_BASE=$BASE
-git merge-base --is-ancestor "$BASE" "origin/$BASE" 2>/dev/null && DIFF_BASE="origin/$BASE"
+git merge-base --is-ancestor "$BASE" "refs/remotes/origin/$BASE" 2>/dev/null && DIFF_BASE="refs/remotes/origin/$BASE"
 git diff --name-only "$DIFF_BASE"...HEAD
 ```
 
