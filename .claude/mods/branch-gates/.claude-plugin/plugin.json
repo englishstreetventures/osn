@@ -1,0 +1,7 @@
+{
+  "name": "branch-gates",
+  "version": "0.2.0",
+  "description": "Pane beside the chat in englishstreetventures/osn: the branch, its issue and pull request, the changeset check, NEW-FEAT.md's gates, and /gates to run CI's lint checks",
+  "author": { "name": "englishstreetventures" },
+  "types": "./types/index.d.ts"
+}
