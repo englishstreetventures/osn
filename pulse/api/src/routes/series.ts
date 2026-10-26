@@ -90,8 +90,9 @@ export const createSeriesRoutes = (
   verification: OsnTokenVerification = DEFAULT_VERIFICATION,
   _testKey?: CryptoKey,
   /**
-   * Per-USER write limiters keyed on `claims.profileId` (W4). Defaults are
-   * in-memory; production wires Redis backends at the composition root.
+   * Per-USER write limiters keyed on `claims.profileId` (W4). The
+   * composition root passes the ones from `makeMemoryRateLimiters`; the
+   * defaults are fresh in-memory ones.
    */
   writeRateLimiters: {
     seriesCreate?: RateLimiterBackend;

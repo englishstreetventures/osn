@@ -19,6 +19,7 @@ import {
   parseOidcTxCookie,
   parseWebSessionToken,
 } from "../lib/cookie";
+import { PULSE_IP_LIMITS } from "../lib/rate-limit";
 import { metricOidcLogin } from "../metrics";
 import { webSessionService } from "../services/webSession";
 
@@ -88,26 +89,25 @@ const rateLimitedResponse = jsonErrorResponse("Per-IP rate limit exceeded.");
 /** Seven days — must match `webSessionService`'s default TTL. */
 const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
 
-const ONE_MINUTE_MS = 60_000;
-
 /**
  * Tight per-IP bucket for the redirect legs. Each `/oidc/start` mints a
  * transaction and each `/oidc/callback` costs an issuer token exchange plus a
  * session insert, so a low ceiling is both safe and generous: a human signs in
- * once, and a retry loop after a failure is a handful of clicks.
+ * once, and a retry loop after a failure is a handful of clicks. Budget in
+ * `PULSE_IP_LIMITS`.
  */
 export function createDefaultAuthStartRateLimiter(): RateLimiterBackend {
-  return createRateLimiter({ maxRequests: 20, windowMs: ONE_MINUTE_MS });
+  return createRateLimiter(PULSE_IP_LIMITS.authStart);
 }
 
 /**
  * Looser per-IP bucket for `GET /session` + `POST /signout`. The session probe
  * runs on every page load of the web app, and a shared NAT egress puts many
  * legitimate users behind one key, so this needs far more headroom than the
- * redirect legs.
+ * redirect legs. Budget in `PULSE_IP_LIMITS`.
  */
 export function createDefaultAuthSessionRateLimiter(): RateLimiterBackend {
-  return createRateLimiter({ maxRequests: 120, windowMs: ONE_MINUTE_MS });
+  return createRateLimiter(PULSE_IP_LIMITS.authSession);
 }
 
 const redirect = (location: string, cookies: string[]): Response => {
