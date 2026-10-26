@@ -216,7 +216,7 @@ the guard's warning regardless of how large or small the app's own baseline is:
 
 | App | Mode | Measured | Threshold |
 |---|---|---:|---:|
-| cire/invites | worker | 176733 B | 188433 B *(re-baselined, englishstreetventures/osn#1325 — see below)* |
+| cire/invites | worker | 190660 B | 200900 B *(re-baselined, englishstreetventures/osn#1765 — see below)* |
 | cire/host | static | 319202 B | 330902 B *(re-baselined, englishstreetventures/osn#1396 — see below)* |
 | cire/vendor | static | 77305 B | 81644 B |
 | cire/landing | static | 164847 B | 176547 B |
@@ -334,6 +334,18 @@ sums that over `OrganiserApp`'s chunk and every chunk it imports statically.
 fonts.google.com was refused in that session, so every build, `main`'s
 included, carried no font files; the guard reads only `dist/_astro/*.js` and
 `*.css`.*
+
+### `cire/invites` re-baselined after the zod override
+
+The zod security override (englishstreetventures/osn#1744) grew the guest Worker
+from **176733 B** to **190660 B**, past the 188433 B threshold. The threshold
+moved to measured + 10240 B, **200900 B**, about 10 KB of headroom, by owner
+decision on englishstreetventures/osn#1765. That headroom is below the 21261 B
+cost of a motion-class library, so one such mistake still trips the warning.
+
+*Measured 2026-10-26 — `rm -rf cire/invites/dist && bun run --cwd cire/invites
+build` on `origin/main` at `9eeced131`, then
+`scripts/guard-bundle-size.sh cire/invites`.*
 
 ### `cire/invites` went up for the household member step
 
