@@ -106,6 +106,7 @@ import type { ImagesBindingLike } from "./services/invite-image-transform";
 import type { LinkPreviewOptions } from "./services/link-preview";
 import type {
   OsnAccountResolver,
+  OsnBlockCheck,
   OsnConnectionSearchResolver,
   OsnHandleResolver,
   OsnHandleSearchResolver,
@@ -566,6 +567,13 @@ export interface AppOptions {
    */
   resolveOsnProfileByHandle?: OsnHandleResolver;
   /**
+   * Asks osn-api (server-to-server, ARC) whether the person an owner is adding
+   * as a co-host and that owner have a block, either way round; the add-co-host
+   * POST refuses them when they do. When omitted, that POST answers 503: no
+   * seat is granted unchecked. Tests inject a stub.
+   */
+  osnBlockCheck?: OsnBlockCheck;
+  /**
    * Batch-resolves OSN profile ids to display metadata (handle + display name,
    * server-to-server over ARC) so the host-list GET shows handles instead of
    * raw profile ids. KEY-OPTIONAL + FAIL-SOFT: when omitted (no ARC key) or
@@ -811,6 +819,7 @@ export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
     digestStopLimiter = defaultDigestStopLimiter,
     resolveOsnAccountId,
     resolveOsnProfileByHandle,
+    osnBlockCheck,
     resolveOsnProfileDisplays,
     organiserEmailLookup,
     ownerNoticeEmailsPerDay,
@@ -1172,6 +1181,7 @@ export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
           osnAuthOptions,
           hostLimiter,
           resolveOsnProfileByHandle,
+          osnBlockCheck,
           ownerNotices,
           weddingSignals,
         ),

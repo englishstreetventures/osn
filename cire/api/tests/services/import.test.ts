@@ -784,8 +784,9 @@ describe("applyImport: chunks a large diff into ≤50-statement batches", () => 
     // statements 40-79: the check rides on 49 and 79, the last of each batch.
     const guestInserts = (sqls: string[]) =>
       sqls.flatMap((q, i) => (q.startsWith('insert into "guests"') ? [i] : []));
+    // The cap check is the insert that counts the wedding's guests.
     const capChecks = (sqls: string[]) =>
-      guestInserts(sqls).filter((i) => sqls[i]!.includes("CASE WHEN"));
+      guestInserts(sqls).filter((i) => sqls[i]!.includes("count(*)"));
     expect(chunkSql.map(capChecks)).toEqual([[49], [29], []]);
     expect(chunkSql.map((sqls) => guestInserts(sqls).at(-1) ?? null)).toEqual([49, 29, null]);
 
@@ -1092,7 +1093,6 @@ describe("applyImport — capacity enforcement", () => {
     const db = createDb();
     seedBootstrapWedding(db);
     const now = new Date();
-    const layer = Layer.succeed(DbService, db);
 
     // Insert 99 real guests directly.
     const realFamilyId = crypto.randomUUID();
@@ -1229,7 +1229,6 @@ describe("applyImport — capacity enforcement", () => {
   it("swap-at-cap: remove K and add K at exactly cap → succeeds (net delta = 0)", async () => {
     const db = createDb();
     seedBootstrapWedding(db);
-    const layer = Layer.succeed(DbService, db);
     const now = new Date();
 
     // Seed exactly 100 real guests (= default cap) directly as import-sourced.
