@@ -25,9 +25,9 @@ function assertDuration(ms: unknown, what: "windowMs" | "ttlMs"): asserts ms is 
  * (`getByName("<namespace>:<key>")`, built by the client), so a hot key loads
  * only itself.
  *
- * Every method reads and writes the SQLite-backed synchronous KV with no other
- * I/O in between, so each call is atomic against every other call on the same
- * object. Expiry is exact on read; an alarm at the expiry time then empties
+ * Every method reads and writes the SQLite-backed synchronous KV with no await
+ * in between, so each call is atomic against every other call on the same
+ * object without relying on input gates; the alarm is set or deleted after. Expiry is exact on read; an alarm at the expiry time then empties
  * the object so it stops holding storage. Errors name the bad argument only,
  * never the object.
  *
@@ -45,9 +45,14 @@ export class CoordinationStore extends DurableObject<unknown> {
     await this.ctx.storage.setAlarm(entry.exp);
   }
 
-  /** Deletes the entry and its alarm. An object with no entry has no alarm, so it is left alone. */
+  /**
+   * Deletes the entry, then its alarm. The entry goes in the same synchronous
+   * step as the caller's read, before the first await, so no other call on
+   * this object can see it between the two. An object with no entry has no
+   * alarm, so it is left alone.
+   */
   private async clear(): Promise<void> {
-    if (this.ctx.storage.kv.get(ENTRY) === undefined) return;
+    if (!this.ctx.storage.kv.delete(ENTRY)) return;
     await this.ctx.storage.deleteAlarm();
     await this.ctx.storage.deleteAll();
   }
