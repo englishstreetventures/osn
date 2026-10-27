@@ -63,10 +63,12 @@ SQLite-backed classes, so the class is declared with `new_sqlite_classes`.
 | `claim(ttlMs)` | Stores a marker for `ttlMs` if there is no live entry. `true` only for the caller that stored it | Only when it wins |
 | `guess()` | With a live entry, adds 1 to its count and answers `{ value, n }`, the value and the count after this guess; the expiry stays. With none, counts nothing and answers `{ value: null, n: 0 }`. `write` starts the count again; `remove` and `take` clear it with the value | Only when an entry exists |
 | `take()` | The live value, removed in the same call, or `null`. Of two takes at once, one gets the value | Only when an entry exists |
+| `swap(expected, value, ttlMs)` | Replaces the live value with `value` for `ttlMs` only if it is `expected` (`null`: only if there is no live value), restarting the count; `true` only then. Of several swaps from one value, one wins. A swap that does not match rewrites a live entry unchanged — value, count and expiry — and leaves an empty object empty | Only when an entry exists or it wins |
 | `alarm()` | Empties an expired object; if a later write replaced the entry, sets the alarm again for the new expiry | Only when it deletes |
 
-Each method reads and writes storage with no other I/O between, so every call
-is atomic against every other call on the same object. A window or TTL must be
+Each method reads and writes the entry with no await between, and deletes it
+before awaiting the alarm's removal, so every call is atomic against every
+other call on the same object without relying on input gates. A window or TTL must be
 a whole number of milliseconds from 1 to 31 days (`MAX_TTL_MS`); anything else
 is refused with a `RangeError` and nothing is written. An error names the bad
 argument, never the object.
@@ -136,7 +138,7 @@ A call that fails is tried a second time only when all of these hold:
 
 The second try takes a fresh stub, since one that has thrown may stay broken.
 Every other failure reaches the caller at once: a write, claim, increment,
-remove, guess or take that failed may still have landed.
+remove, guess, take or swap that failed may still have landed.
 
 Each failed call, after any retry, reaches the client's `onError(store, op, { retried, durationMs, kind })`
 once — the namespace, the operation and the failure's kind, never the key, a
@@ -153,7 +155,7 @@ Every consumer fails closed. The mapping lives in
 |---|---|---|
 | Rate limiters and per-account caps | `increment` | Denied, as if over the limit: the route refuses, with 429 where it answers one |
 | Ceremony `set` / `get` / `delete` / `consume` | `write` (JSON) / `read` / `remove` / `remove` | The call rejects; `storeCall` turns it into a `CoordinationError`, which the route answers with a generic 503 (`osn/api/src/lib/public-error.ts`) |
-| Ceremony `guess` / `take` | `guess` / `take`, on the entry's own object | The same 503 |
+| Ceremony `guess` / `take` / `swap` | `guess` / `take` / `swap` (JSON), on the entry's own object | The same 503 |
 | Step-up token guard | `claim` | The token is refused as "could not be verified", and is not counted as a replay |
 | Discoverable passkey challenge claims | `claim` | The same 503 |
 | Lockouts, `status` / `recordFailure` | `count` / `increment` | Answers `"unknown"`. Every caller refuses with its generic error and writes no security event; a failure that could not be counted shows as `result="unavailable"` on the factor's lockout metric |
@@ -177,7 +179,7 @@ mints is a wrong token, answered with that route's uniform 202.
   reads its entry and counts the guess on it in one `guess` before it compares
   the code, so guesses sent at once each take their own number and no guess can
   read the entry and count from a number it no longer has. `begin`'s `write`
-  starts the count at 0. A right code claims its entry with `remove`, so of two
+  (registration's `swap`) starts the count at 0. A right code claims its entry with `remove`, so of two
   right codes exactly one wins. The life of a count is set out in
   `osn/api/src/services/auth/attempts.ts`.
 - **A WebAuthn challenge is used once.** Passkey sign-in with an identifier,
@@ -196,8 +198,9 @@ mints is a wrong token, answered with that route's uniform 202.
   key: recovery by code, by emailed code and by TOTP
   ([[account-recovery-factors]], "The oracle moves to `complete`";
   [[recovery-codes]]), passkey sign-in `begin` (one `write`) and registration
-  `begin` (a `read` and a `write`). So the branches cost the same and, while
-  the store fails, fail together. The probe key is `prb_` and 12 hex digits of
+  `begin` (one `swap` from nothing, which also keeps a pending code from being
+  replaced by a second `begin`, however the two overlap). So the branches cost
+  the same and, while the store fails, fail together. The probe key is `prb_` and 12 hex digits of
   an HMAC-SHA256, under `OSN_SESSION_IP_PEPPER`, of the normalised
   identifier — the length of an account id, and not something a list of
   addresses can be run through. A new unauthenticated route that takes an
@@ -254,6 +257,9 @@ every call, so every call is one request.
 | `guess`, entry present | 1 | about 1 |
 | `guess`, nothing there | 1 | 0 |
 | `take` | as `remove` | as `remove` |
+| `swap`, won | 1, and 1 more when the alarm fires | about 2, and about 1 at expiry |
+| `swap`, lost on a live entry | 1 | about 1 (the entry, rewritten unchanged) |
+| `swap`, lost on nothing | 1 | 0 |
 
 An entry removed before it expires has no alarm left to fire. A request through
 an hour- or day-window limiter costs one `increment`; `GET /health/coordination`
@@ -265,7 +271,8 @@ for (counted from the code, 2026-10-27):
 
 | Route | Calls |
 |---|---|
-| Code `begin` (step-up OTP, TOTP enrolment, email change, registration, recovery email) | 1 write, after any cap or limiter |
+| Code `begin` (step-up OTP, TOTP enrolment, email change, recovery email) | 1 `write`, after any cap or limiter |
+| Registration `begin` | 1 `swap`, after a D1 collision probe |
 | Code `complete`, success | 1 `guess`, then the claim or delete |
 | Passkey sign-in, identified: `begin` / `complete` | 1 / 1 (`take`) |
 | Passkey sign-in, discoverable: `begin` / `complete` | 0 / 1 (`claim`, only once the signature verifies) |
@@ -287,8 +294,8 @@ dev sign-in stops until the reset. The ceilings and how to watch them are in
 
 | Signal | What it carries |
 |---|---|
-| `osn.coordination.store.operations{store, op, result}` | One count per call an object answers or fails, retries included. `store` is a `CoordinationStoreName`, `op` one of the eight calls, `result` `ok` or `error` |
-| `osn.auth.ceremony_store.operations{namespace, op, backend}` | One count per ceremony `set`, `get`, `delete` (a `consume` counts as one), `guess` or `take`; `backend` is `memory` or `durable_object` |
+| `osn.coordination.store.operations{store, op, result}` | One count per call an object answers or fails, retries included. `store` is a `CoordinationStoreName`, `op` one of the nine calls, `result` `ok` or `error` |
+| `osn.auth.ceremony_store.operations{namespace, op, backend}` | One count per ceremony `set`, `get`, `delete` (a `consume` counts as one), `guess`, `take` or `swap`; `backend` is `memory` or `durable_object` |
 | `osn.auth.recovery.lockout{result="unavailable"}`, `osn.auth.totp.lockout{result="unavailable", scope}` | A refusal because the store could not update a lockout counter or, for TOTP and the emailed recovery code, read one |
 | Log `coordination store call failed` | One line per failed call, after any retry, with `store`, `op`, `durationMs`, `retried` and `kind` |
 
@@ -335,11 +342,11 @@ steps are in [[production-deploy#The coordination store's first release]].
 
 | File | What it proves |
 |---|---|
-| `shared/coordination/tests/d1/store.test.ts` | The class on workerd: windows, concurrency, expiry, alarms, refusals, `guess` and `take` under concurrency, state across a restart |
-| `shared/coordination/tests/client.test.ts` | Naming, the location hint on every stub, the key-length refusal, the namespace rule, the retry rule, the limiter's fail-closed answer |
+| `shared/coordination/tests/d1/store.test.ts` | The class on workerd: windows, concurrency, expiry, alarms, refusals, `guess`, `take` and `swap` under concurrency, state across a restart |
+| `shared/coordination/tests/client.test.ts` | Naming, the location hint on every stub, the key-length refusal, the namespace rule, the retry rule, the failure kind, the limiter's fail-closed answer |
 | `osn/api/tests/services/attempt-counting.test.ts` | Each code ceremony under a burst of guesses, and two right codes at once, on both bundles |
 | `osn/api/tests/services/single-use-challenges.test.ts` | Two presentations of one WebAuthn challenge at once: one succeeds, at all four sites; every refusal of a discoverable challenge |
-| `osn/api/tests/services/recovery-op-sequence.test.ts`, `begin-op-sequence.test.ts` | Each padded route's branches make the same store calls (and, for recovery codes, D1 statements), and fail together while the store is down |
+| `osn/api/tests/services/recovery-op-sequence.test.ts`, `begin-op-sequence.test.ts` | Each padded route's branches make the same store calls (and, for recovery codes, D1 statements), and fail together while the store is down; two registration `begin`s at once for one address send one code |
 | `osn/api/tests/lib/coordination/durable.test.ts` | Each consumer's mapping and failure posture, and that no metric or log carries a key or value |
 | `osn/api/tests/lib/coordination/budgets.test.ts` | Both bundles let each limiter's budget through and refuse the next hit, each limiter on its own store |
 | `osn/api/tests/lib/native-rate-limiters.test.ts` | Every native limit in `wrangler.toml` equals its budget, and the `v1` migration creates the class the served module exports |

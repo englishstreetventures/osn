@@ -38,6 +38,7 @@ import {
 } from "./helpers";
 import type { ProfilesModule } from "./profiles";
 import { storeCall } from "./store-call";
+import type { PendingRegistration } from "./stores";
 import type { TokensModule } from "./tokens";
 import type { ProfileWithEmail, SessionMeta } from "./types";
 
@@ -236,9 +237,8 @@ export function createRegistrationModule(
    *    insert, so unauthenticated abuse can't grow it without bound.
    *  - Refuses to overwrite a non-expired pending entry, so a second begin
    *    for someone's address cannot reset the code they hold. The check and
-   *    the write are two store calls, so this holds for begins that do not
-   *    overlap: two that do can both pass the check, and the later one's code
-   *    replaces the earlier one's.
+   *    the write are one store call (`swap` from nothing), so of two begins
+   *    that overlap, one parks its code and the other sends nothing.
    *  - The local-only `Effect.logDebug` of the OTP is gated on
    *    `OSN_ENV` being unset or `"local"`.
    *
@@ -308,57 +308,42 @@ export function createRegistrationModule(
         catch: (cause) => new DatabaseError({ cause }),
       });
 
-      // Every branch — the address or handle taken, a code already pending,
-      // a code sent — makes the same two store calls, a read then a write, so
-      // the branches cost the same in store round trips and fail together
-      // while the store is down. The ones that must not touch a real entry
-      // make them at the caller's probe key, which no `complete` reads; the
-      // value parked there holds a hash no code matches.
-      const probe = serverMac.probeKey(normalisedEmail);
-      const padWrite = storeCall(stores.pendingRegistrations, "set", () =>
-        stores.pendingRegistrations.set(
-          probe,
-          {
-            email: "",
-            handle: "",
-            displayName: null,
-            codeHash: hashSessionToken(genOtpCode() + genId("")),
-            expiresAt: Date.now() + otpTtl * 1000,
-          },
-          otpTtl * 1000,
-        ),
-      );
-
       // Silently no-op when the email or handle already exists. The user
       // can use the login flow if they already have an account; we don't
       // confirm or deny their existence over an unauthenticated channel.
       const taken = collision.length > 0;
 
-      // Don't let an attacker reset a victim's in-progress OTP by
-      // re-posting begin with the same email.
-      const existingPending = yield* storeCall(stores.pendingRegistrations, "get", () =>
-        stores.pendingRegistrations.get(taken ? probe : normalisedEmail),
-      );
-      if (taken || (existingPending && existingPending.expiresAt > Date.now())) {
-        yield* padWrite;
-        return { sent: true };
-      }
-
+      // Every branch — the address or handle taken, a code already pending,
+      // a code sent — makes the same one store call, a swap from nothing, so
+      // the branches cost the same in store round trips and fail together
+      // while the store is down. A swap that finds a live entry leaves it as
+      // it was, so a second begin for someone's address cannot reset the code
+      // they hold, however the two overlap. The taken branch makes it at the
+      // caller's probe key, which no `complete` reads; the value parked there
+      // holds a hash no code matches.
       const code = genOtpCode();
       const codeHash = hashSessionToken(code);
-      yield* storeCall(stores.pendingRegistrations, "set", () =>
-        stores.pendingRegistrations.set(
-          normalisedEmail,
-          {
+      const expiresAt = Date.now() + otpTtl * 1000;
+      const parked: PendingRegistration = taken
+        ? {
+            email: "",
+            handle: "",
+            displayName: null,
+            codeHash: hashSessionToken(genOtpCode() + genId("")),
+            expiresAt,
+          }
+        : {
             email: normalisedEmail,
             handle,
             displayName: displayName ?? null,
             codeHash,
-            expiresAt: Date.now() + otpTtl * 1000,
-          },
-          otpTtl * 1000,
-        ),
+            expiresAt,
+          };
+      const key = taken ? serverMac.probeKey(normalisedEmail) : normalisedEmail;
+      const written = yield* storeCall(stores.pendingRegistrations, "swap", () =>
+        stores.pendingRegistrations.swap(key, null, parked, otpTtl * 1000),
       );
+      if (taken || !written) return { sent: true };
 
       yield* logDevOtp("registration", code);
 
