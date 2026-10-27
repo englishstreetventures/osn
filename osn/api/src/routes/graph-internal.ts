@@ -28,8 +28,8 @@ import { createGraphService } from "../services/graph";
 const AUDIENCE = "osn-api";
 const SCOPE_GRAPH_READ = "graph:read";
 /**
- * Dedicated scope for the profile → account resolution endpoint (S-M1
- * pulse-onboarding). `profileId → accountId` dissolves the multi-account
+ * Dedicated scope for the profile → account resolution endpoint.
+ * `profileId → accountId` dissolves the multi-account
  * privacy invariant ([[identity-model]] §"Privacy Rules") if it leaks, so it
  * must not ride along with the general-purpose `graph:read` grant — only
  * services that genuinely key state by account (pulse-api onboarding,
@@ -62,7 +62,8 @@ const blockedRequester = alias(blocks, "blocked_requester");
  */
 const MAX_CONNECTION_QUERY_LEN = 64;
 /**
- * Exhaustive list of scopes this server will grant to any service. S-M101.
+ * Exhaustive list of scopes this server will grant to any service; a
+ * registration that asks for any other scope is refused.
  *
  * `account:erase` — granted to Pulse / Zap on registration so osn-api can
  * mint outbound ARC tokens addressed at them with this scope when fanning
@@ -143,12 +144,11 @@ export function createInternalGraphRoutes(
   // unset ⇒ those endpoints answer 501 (service registration disabled).
   internalServiceSecret: string | undefined = process.env.INTERNAL_SERVICE_SECRET,
   /**
-   * S-L30. Every sibling route factory merges the observability layer into its
-   * fallback runtime; this one did not, so anything these handlers or the
-   * graph service logged on the layer path went to Effect's default logger —
-   * unredacted, unexported. Production passes the shared `runtime` and never
-   * reaches the fallback, which is exactly why the gap could sit unnoticed
-   * until a local or test run needed a log line.
+   * The observability layer, merged into the fallback runtime as every sibling
+   * route factory does, so what these handlers or the graph service log on
+   * that path is redacted and exported rather than sent to Effect's default
+   * logger. Production passes the shared `runtime` and never reaches the
+   * fallback; local and test runs do.
    */
   loggerLayer: Layer.Layer<never> = Layer.empty,
 ) {
@@ -286,7 +286,7 @@ export function createInternalGraphRoutes(
             set.status = 401;
             return { error: "Unauthorized" };
           }
-          // Validate requested scopes against the server-side allowlist (S-M101).
+          // Validate requested scopes against the server-side allowlist.
           const requestedScopes = body.allowedScopes
             .split(",")
             .map((s) => s.trim().toLowerCase())
@@ -296,7 +296,7 @@ export function createInternalGraphRoutes(
             set.status = 400;
             return { error: `Unknown scopes: ${invalidScopes.join(", ")}` };
           }
-          // S-M1: Validate the JWK can be imported before writing it to the DB.
+          // Validate the JWK can be imported before writing it to the DB.
           // Prevents storage of malformed or non-EC keys that would later cause
           // resolvePublicKey to throw on every ARC verification attempt.
           try {
@@ -307,7 +307,7 @@ export function createInternalGraphRoutes(
           }
           try {
             const now = new Date();
-            // S-L1: refuse to overwrite a kid that's already registered to
+            // Refuse to overwrite a kid that's already registered to
             // a different serviceId. The shared INTERNAL_SERVICE_SECRET is
             // a single trust anchor — without this guard, any holder could
             // pivot across services laterally by reusing another service's
@@ -428,7 +428,7 @@ export function createInternalGraphRoutes(
               }),
             );
             // Evict immediately so the revocation takes effect in this process
-            // without waiting for the 5-minute cache TTL (S-H100).
+            // without waiting for the 5-minute cache TTL.
             evictPublicKeyCacheEntry(params.keyId);
             return { ok: true };
           } catch (e) {
@@ -453,7 +453,7 @@ export function createInternalGraphRoutes(
       // claims and user-facing responses (see osn/api/tests/privacy.test.ts).
       // It is only ever exchanged S2S over ARC, never to clients.
       //
-      // S-M1 (pulse-onboarding): gated by the dedicated
+      // Gated by the dedicated
       // `graph:resolve-account` scope, NOT the general `graph:read` — a
       // generic graph consumer must not be able to enumerate
       // profileId → accountId and dissolve the multi-account privacy
@@ -477,7 +477,7 @@ export function createInternalGraphRoutes(
               Effect.gen(function* () {
                 const { db } = yield* Db;
                 return yield* Effect.tryPromise({
-                  // S-H4 (tombstone rule): join accounts and require
+                  // The tombstone rule: join accounts and require
                   // deletedAt IS NULL so a soft-deleted account cannot be
                   // resolved by downstream services during the grace
                   // window — otherwise the surviving cancel-handle session
