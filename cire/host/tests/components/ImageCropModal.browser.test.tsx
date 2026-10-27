@@ -170,10 +170,15 @@ async function wheel(at: { x: number; y: number }, deltaY: number) {
   });
 }
 
-/** Zoom by one notch over the image's centre and wait for the image to change size. */
-async function zoom(deltaY: number) {
+/**
+ * Zoom by one notch, `dx` px right of the image's centre (left when negative),
+ * and wait for the image to change size. cropperjs zooms about the pointer, so
+ * off centre the image moves as well as grows or shrinks.
+ */
+async function zoom(deltaY: number, dx: number) {
   const before = imageRect();
-  await wheel(centre(before), deltaY);
+  const at = centre(before);
+  await wheel({ x: at.x + dx, y: at.y }, deltaY);
   await waitFor(() => expect(Math.abs(imageRect().width - before.width)).toBeGreaterThan(10));
   return { before, after: imageRect() };
 }
@@ -181,6 +186,41 @@ async function zoom(deltaY: number) {
 interface AXNode {
   ignored: boolean;
   role?: { value: string };
+}
+
+interface DOMNode {
+  nodeId: number;
+  localName: string;
+  documentURL?: string;
+  children?: DOMNode[];
+  contentDocument?: DOMNode;
+  shadowRoots?: DOMNode[];
+}
+
+/** Whether Chrome's accessibility tree leaves out the element `selector` names. */
+async function hiddenFromAssistiveTechnology(selector: string): Promise<boolean> {
+  const session = cdp();
+  const { root } = (await session.send("DOM.getDocument", { depth: -1, pierce: true })) as {
+    root: DOMNode;
+  };
+  const ownDocument = (node: DOMNode): DOMNode | undefined =>
+    node.documentURL === location.href
+      ? node
+      : [...(node.children ?? []), ...(node.contentDocument ? [node.contentDocument] : [])]
+          .map(ownDocument)
+          .find(Boolean);
+  const doc = ownDocument(root);
+  if (!doc) throw new Error(`no document at ${location.href}`);
+  const { nodeId } = (await session.send("DOM.querySelector", {
+    nodeId: doc.nodeId,
+    selector,
+  })) as { nodeId: number };
+  if (!nodeId) throw new Error(`nothing matches ${selector}`);
+  const { nodes } = (await session.send("Accessibility.getPartialAXTree", {
+    nodeId,
+    fetchRelatives: false,
+  })) as { nodes: AXNode[] };
+  return nodes.every((node) => node.ignored);
 }
 
 interface Frame {
@@ -201,6 +241,8 @@ async function accessibilityTree(): Promise<AXNode[]> {
   })) as { nodes: AXNode[] };
   return nodes;
 }
+
+const midX = (r: DOMRect) => (r.left + r.right) / 2;
 
 /** The box's right edge sits at the image's right edge: within one move, and not past it. */
 function expectStoppedAtRightEdge(box: DOMRect, img: DOMRect) {
@@ -227,6 +269,7 @@ describe("ImageCropModal in Chromium", () => {
     styles.mockRestore();
 
     expect(boxRect().left).toBeGreaterThan(startLeft + 24);
+    expectStoppedAtRightEdge(boxRect(), imageRect());
     expect(rectReads).toBe(0);
     expect(styleReads).toBe(0);
   });
@@ -237,8 +280,10 @@ describe("ImageCropModal in Chromium", () => {
     settle(dialog);
     await boxOpened();
 
-    const { before, after } = await zoom(-100);
+    // Off centre, so the zoom moves the image as well as growing it.
+    const { before, after } = await zoom(-100, -200);
     expect(after.right).toBeGreaterThan(before.right + 20);
+    expect(Math.abs(midX(after) - midX(before))).toBeGreaterThan(10);
 
     await dragRight(centre(boxRect()), 200);
     const box = boxRect();
@@ -267,12 +312,33 @@ describe("ImageCropModal in Chromium", () => {
     );
     await waitFor(() => expect(boxRect().width).toBeCloseTo(200, 0));
 
-    const { before, after } = await zoom(100);
+    const { before, after } = await zoom(100, -200);
     expect(after.right).toBeLessThan(before.right - 20);
+    expect(Math.abs(midX(after) - midX(before))).toBeGreaterThan(10);
 
     await dragRight(centre(boxRect()), 300);
     expectStoppedAtRightEdge(boxRect(), after);
     await page.screenshot({ path: `${ARTIFACTS}/zoomed-out-refused.png` });
+  });
+
+  it("fits a newly chosen shape inside the image after a zoom", async () => {
+    await page.viewport(1280, 900);
+    const { dialog } = open(await fixtureUrl());
+    settle(dialog);
+    await boxOpened();
+    const { after } = await zoom(-100, -200);
+
+    screen.getByRole("button", { name: "1:1" }).click();
+    await waitFor(() =>
+      expect(Math.abs(boxRect().width - boxRect().height)).toBeLessThanOrEqual(1),
+    );
+    const box = boxRect();
+    // The largest square in the zoomed image spans its full height.
+    expect(Math.abs(box.height - after.height)).toBeLessThanOrEqual(EDGE);
+    expect(box.top).toBeGreaterThanOrEqual(after.top - EDGE);
+    expect(box.bottom).toBeLessThanOrEqual(after.bottom + EDGE);
+    expect(box.left).toBeGreaterThanOrEqual(after.left - EDGE);
+    expect(box.right).toBeLessThanOrEqual(after.right + EDGE);
   });
 
   it("opens the box over the image while the entry animation is still scaling the dialog", async () => {
@@ -392,7 +458,7 @@ describe("ImageCropModal in Chromium", () => {
     expect(img.width / img.height).toBeCloseTo(2, 2);
   });
 
-  it("gives assistive technology no grid for the guide lines drawn over the box", async () => {
+  it("tells assistive technology nothing about the overlay drawn over the image", async () => {
     await page.viewport(1280, 900);
     const { dialog } = open(await fixtureUrl());
     settle(dialog);
@@ -400,6 +466,11 @@ describe("ImageCropModal in Chromium", () => {
 
     const exposed = (await accessibilityTree()).filter((node) => !node.ignored);
     expect(exposed.map((node) => node.role?.value)).not.toContain("grid");
+    const shown: string[] = [];
+    for (const overlay of ["cropper-shade", "cropper-grid", "cropper-crosshair"]) {
+      if (!(await hiddenFromAssistiveTechnology(overlay))) shown.push(overlay);
+    }
+    expect(shown).toEqual([]);
   });
 
   it("removes every window resize listener it adds when it closes", async () => {
