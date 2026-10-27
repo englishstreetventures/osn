@@ -134,11 +134,17 @@ describe("isKnownTimeZone", () => {
 
   it("never lets a refused spelling read a real zone's remembered answer", () => {
     // The Kelvin sign (U+212A) is written as an escape: normalising the file
-    // would turn the character itself into an ASCII `K`.
+    // would turn the character itself into an ASCII `K`. A Unicode case fold
+    // would map it to the `k` of the lower-case spelling remembered first.
     expect(isKnownTimeZone("Asia/Kolkata")).toBe(true);
+    expect(isKnownTimeZone("Asia/kolkata")).toBe(true);
     for (const zone of ["Bsia/Kolkata", "asia/kolkatx", "Asia/\u212Aolkata"]) {
       expect(isKnownTimeZone(zone)).toBe(false);
     }
+  });
+
+  it("refuses a name too long to be a zone", () => {
+    expect(isKnownTimeZone("x".repeat(65))).toBe(false);
   });
 });
 
