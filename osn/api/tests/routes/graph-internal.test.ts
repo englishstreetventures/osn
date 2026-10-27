@@ -953,6 +953,73 @@ describe("internal graph routes (ARC-protected)", () => {
       );
       expect(res.status).toBe(401);
     });
+
+    describe("with a requesterId", () => {
+      async function search(token: string, query: string): Promise<string[]> {
+        const res = await app.handle(
+          new Request(`http://localhost/graph/internal/profile-search?${query}`, {
+            headers: { Authorization: `ARC ${token}` },
+          }),
+        );
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as { profiles: { handle: string }[] };
+        return body.profiles.map((p) => p.handle);
+      }
+
+      it("leaves out a profile that has blocked the requester", async () => {
+        const { token } = await setupArcService();
+        const owner = await registerProfile("owner@example.com", "owner");
+        const alice = await registerProfile("alice@example.com", "alice");
+        await registerProfile("alina@example.com", "alina");
+        await runWithLayer(graph.blockProfile(alice, owner));
+
+        expect(await search(token, `prefix=al&requesterId=${owner}`)).toEqual(["alina"]);
+      });
+
+      it("leaves out a profile the requester has blocked", async () => {
+        const { token } = await setupArcService();
+        const owner = await registerProfile("owner@example.com", "owner");
+        const alice = await registerProfile("alice@example.com", "alice");
+        await registerProfile("alina@example.com", "alina");
+        await runWithLayer(graph.blockProfile(owner, alice));
+
+        expect(await search(token, `prefix=al&requesterId=${owner}`)).toEqual(["alina"]);
+      });
+
+      it("still fills the page past a blocked profile", async () => {
+        const { token } = await setupArcService();
+        const owner = await registerProfile("owner@example.com", "owner");
+        const sam = await registerProfile("sam@example.com", "sam");
+        await registerProfile("samantha@example.com", "samantha");
+        await registerProfile("samuel@example.com", "samuel");
+        await runWithLayer(graph.blockProfile(sam, owner));
+
+        // "sam" sorts first; with it left out the two after it fill the page.
+        expect(await search(token, `prefix=sam&limit=2&requesterId=${owner}`)).toEqual([
+          "samantha",
+          "samuel",
+        ]);
+      });
+
+      it("keeps a block between two other people out of it", async () => {
+        const { token } = await setupArcService();
+        const owner = await registerProfile("owner@example.com", "owner");
+        const alice = await registerProfile("alice@example.com", "alice");
+        const other = await registerProfile("other@example.com", "other");
+        await runWithLayer(graph.blockProfile(alice, other));
+
+        expect(await search(token, `prefix=al&requesterId=${owner}`)).toEqual(["alice"]);
+      });
+
+      it("filters nothing for a caller that names no requester", async () => {
+        const { token } = await setupArcService();
+        const owner = await registerProfile("owner@example.com", "owner");
+        const alice = await registerProfile("alice@example.com", "alice");
+        await runWithLayer(graph.blockProfile(alice, owner));
+
+        expect(await search(token, "prefix=al")).toEqual(["alice"]);
+      });
+    });
   });
 
   // -------------------------------------------------------------------------

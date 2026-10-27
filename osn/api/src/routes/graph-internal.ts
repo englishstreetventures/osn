@@ -1,10 +1,18 @@
-import { accounts, connections, serviceAccounts, serviceAccountKeys, users } from "@osn/db/schema";
+import {
+  accounts,
+  blocks,
+  connections,
+  serviceAccounts,
+  serviceAccountKeys,
+  users,
+} from "@osn/db/schema";
 import { Db, DbLive } from "@osn/db/service";
 import { evictPublicKeyCacheEntry, importKeyFromJwk } from "@shared/crypto";
 import { timingSafeEqualString } from "@shared/crypto/timing-safe";
 import { jsonEachIn } from "@shared/db-utils";
 import { handlePrefixRange, likeContains, normaliseHandleQuery } from "@shared/db-utils/search";
 import { and, asc, gte, inArray, eq, isNull, lt, or, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
 
@@ -44,6 +52,10 @@ const MIN_SEARCH_PREFIX = 2;
 const DEFAULT_SEARCH_LIMIT = 8;
 /** Hard ceiling on handle prefix search results — caps the enumeration surface. */
 const MAX_SEARCH_LIMIT = 10;
+/** A block the profile-search requester made against a candidate. */
+const requesterBlocked = alias(blocks, "requester_blocked");
+/** A block a candidate made against the profile-search requester. */
+const blockedRequester = alias(blocks, "blocked_requester");
 /**
  * Max characters accepted as a connection-search query. Longer input is a bug
  * or an abuse probe, never a real name someone is typing into an autocomplete.
@@ -593,6 +605,17 @@ export function createInternalGraphRoutes(
       // index traversal on every keystroke. See `handlePrefixRange` in
       // `@shared/db-utils/search` for why, and note that the range also makes
       // `_` literal for free — no LIKE escaping needed on this path.
+      //
+      // `requesterId`, when given, leaves out every profile with a block against
+      // that profile, either way round, so a suggestion list never offers
+      // someone the requester cannot add. Two anti-joins on `blocks_pair_idx`
+      // inside the same statement, so the page still fills to `limit` and costs
+      // no second round trip. A `graph:read` holder learns nothing it could not
+      // already ask `/either-blocked` for.
+      //
+      // CALLER INVARIANT, as for `/connection-search`'s `profileId`:
+      // `requesterId` is the calling service's own authenticated end user, never
+      // a value taken from a client request.
       // -----------------------------------------------------------------------
       .get(
         "/profile-search",
@@ -626,32 +649,52 @@ export function createInternalGraphRoutes(
           const range = handlePrefixRange(prefix);
           if (!range) return { profiles: [] };
 
+          const requesterId = query.requesterId;
+
           try {
             const rows = await run(
               Effect.gen(function* () {
                 const { db } = yield* Db;
+                const matches = db
+                  .select({
+                    id: users.id,
+                    handle: users.handle,
+                    displayName: users.displayName,
+                    avatarUrl: users.avatarUrl,
+                  })
+                  .from(users)
+                  .innerJoin(accounts, eq(users.accountId, accounts.id));
+                const inRange = and(
+                  // Half-open BINARY range — an index SEEK, where the
+                  // equivalent `LIKE 'q%'` is an index SCAN.
+                  gte(users.handle, range.lower),
+                  lt(users.handle, range.upper),
+                  isNull(accounts.deletedAt),
+                );
                 return yield* Effect.tryPromise({
                   try: () =>
-                    db
-                      .select({
-                        id: users.id,
-                        handle: users.handle,
-                        displayName: users.displayName,
-                        avatarUrl: users.avatarUrl,
-                      })
-                      .from(users)
-                      .innerJoin(accounts, eq(users.accountId, accounts.id))
-                      .where(
-                        and(
-                          // Half-open BINARY range — an index SEEK, where the
-                          // equivalent `LIKE 'q%'` is an index SCAN.
-                          gte(users.handle, range.lower),
-                          lt(users.handle, range.upper),
-                          isNull(accounts.deletedAt),
-                        ),
-                      )
-                      .orderBy(asc(users.handle))
-                      .limit(limit),
+                    requesterId
+                      ? matches
+                          .leftJoin(
+                            requesterBlocked,
+                            and(
+                              eq(requesterBlocked.blockerId, requesterId),
+                              eq(requesterBlocked.blockedId, users.id),
+                            ),
+                          )
+                          .leftJoin(
+                            blockedRequester,
+                            and(
+                              eq(blockedRequester.blockerId, users.id),
+                              eq(blockedRequester.blockedId, requesterId),
+                            ),
+                          )
+                          .where(
+                            and(inRange, isNull(requesterBlocked.id), isNull(blockedRequester.id)),
+                          )
+                          .orderBy(asc(users.handle))
+                          .limit(limit)
+                      : matches.where(inRange).orderBy(asc(users.handle)).limit(limit),
                   catch: (cause) => new Error("DB query failed", { cause }),
                 });
               }),
@@ -666,6 +709,7 @@ export function createInternalGraphRoutes(
           query: t.Object({
             prefix: t.String({ minLength: 1, maxLength: 64 }),
             limit: t.Optional(t.String()),
+            requesterId: t.Optional(t.String({ minLength: 1, maxLength: 64 })),
           }),
         },
       )

@@ -24,6 +24,7 @@ import type {
   OsnProfileDisplayResolver,
 } from "../../src/services/osn-bridge";
 import { appRequest, jsonBody, setTier, TEST_CF_IP, TEST_ORIGIN } from "../test-helpers";
+import { captureLogs } from "../test-helpers/capture-logs";
 import { counterValue } from "../test-helpers/metrics-harness";
 import { seedOrganiserSession } from "../test-helpers/organiser-session";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
@@ -461,6 +462,7 @@ describe("POST /api/organiser/weddings/:weddingId/hosts (add by handle)", () => 
     const { app } = buildApp({ resolveOsnProfileByHandle: throwingResolver });
     const res = await req(app, "POST", hostsPath, OWNER, { handle: "bob" });
     expect(res.status).toBe(502);
+    expect(await jsonBody(res)).toEqual({ error: "OSN handle lookup failed" });
   });
 
   it("429s once the per-IP host limit is exceeded (S-L1)", async () => {
@@ -556,7 +558,7 @@ describe("POST /hosts — a block between the candidate and the owner adding the
     expect(seatsOf(second.db, COHOST)).toEqual([]);
   });
 
-  it("returns 502 and seats no one when osn-api cannot answer the check", async () => {
+  it("returns 502, seats no one and logs why when osn-api cannot answer the check", async () => {
     const { db, app } = buildApp({
       osnBlockCheck: async () => {
         throw new Error("osn-api GET /graph/internal/either-blocked returned 500");
@@ -567,14 +569,33 @@ describe("POST /hosts — a block between the candidate and the owner adding the
       role: "none",
     });
 
-    const res = await req(app, "POST", hostsPath, OWNER, { handle: "bob" });
+    let res: Response | undefined;
+    const logs = await captureLogs(async () => {
+      res = await req(app, "POST", hostsPath, OWNER, { handle: "bob" });
+    });
 
-    expect(res.status).toBe(502);
-    expect(await jsonBody(res)).toEqual({ error: "OSN handle lookup failed" });
+    expect(res!.status).toBe(502);
+    expect(await jsonBody(res!)).toEqual({ error: "OSN handle lookup failed" });
     expect(seatsOf(db, COHOST)).toEqual([]);
     expect(
       await counterValue(CIRE_METRICS.hostAdded, { result: "osn_unavailable", role: "none" }),
     ).toBe(before + 1);
+    expect(logs).toContain("osn block check failed");
+    expect(logs).toContain("either-blocked returned 500");
+  });
+
+  it("never asks about an owner adding their own handle, and answers already_host", async () => {
+    const { check, asked } = blockStub([]);
+    const { app } = buildApp({
+      osnBlockCheck: check,
+      resolveOsnProfileByHandle: async () => ({ ok: true, profileId: OWNER, handle: "me" }),
+    });
+
+    const res = await req(app, "POST", hostsPath, OWNER, { handle: "me" });
+
+    expect(res.status).toBe(409);
+    expect(await jsonBody(res)).toEqual({ error: "already_host" });
+    expect(asked).toEqual([]);
   });
 
   it("returns 503 without resolving the handle when no block check is configured", async () => {
@@ -637,11 +658,20 @@ describe("POST /hosts — a block between the candidate and the owner adding the
         })
         .run();
 
+      const before = await counterValue(CIRE_METRICS.hostAdded, {
+        result: "already_host",
+        role: "viewer",
+      });
+
       const res = await req(app, "POST", hostsPath, OWNER, { handle: "bob", role: "viewer" });
 
       expect(res.status, role).toBe(409);
       expect(await jsonBody(res), role).toEqual({ error: "already_host" });
       expect(seatsOf(db, COHOST), role).toEqual([{ role }]);
+      expect(
+        await counterValue(CIRE_METRICS.hostAdded, { result: "already_host", role: "viewer" }),
+        role,
+      ).toBe(before + 1);
     }
   });
 

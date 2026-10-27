@@ -584,20 +584,29 @@ export interface OsnHandleSuggestion {
  * nothing while the manual type-and-submit add path keeps working. This mirrors
  * the profile-display resolver (fail-soft) rather than the handle/account
  * resolvers (which throw to distinguish "not found" from "unavailable").
+ *
+ * `requesterId` is the signed-in organiser asking — the profile id `osnAuth()`
+ * derived, never a value from the request. osn-api leaves out everyone with a
+ * block against that profile, either way round, since the add would refuse
+ * them.
  */
-export type OsnHandleSearchResolver = (prefix: string) => Promise<OsnHandleSuggestion[]>;
+export type OsnHandleSearchResolver = (
+  prefix: string,
+  requesterId: string,
+) => Promise<OsnHandleSuggestion[]>;
 
 /**
  * Builds an {@link OsnHandleSearchResolver} backed by a real ARC-authenticated
  * call to `GET /graph/internal/profile-search`. Same key + `graph:read` scope as
  * the sibling resolvers, so a deployment that has the ARC key registered gets
  * handle autocomplete too. osn-api owns prefix normalisation, the min-length
- * floor, ordering, and the result cap — this just forwards the raw query.
+ * floor, ordering, the result cap and the block filter — this forwards the raw
+ * query and the requester.
  */
 export function createArcHandleSearchResolver(config: ArcResolverConfig): OsnHandleSearchResolver {
   const base = config.osnApiUrl.replace(/\/+$/, "");
 
-  return async (prefix) => {
+  return async (prefix, requesterId) => {
     const empty: OsnHandleSuggestion[] = [];
     if (prefix.trim().length === 0) return empty;
 
@@ -610,7 +619,7 @@ export function createArcHandleSearchResolver(config: ArcResolverConfig): OsnHan
       });
 
       const res = await instrumentedFetch(
-        `${base}/graph/internal/profile-search?prefix=${encodeURIComponent(prefix)}`,
+        `${base}/graph/internal/profile-search?prefix=${encodeURIComponent(prefix)}&requesterId=${encodeURIComponent(requesterId)}`,
         { headers: { authorization: `ARC ${token}` } },
       );
 

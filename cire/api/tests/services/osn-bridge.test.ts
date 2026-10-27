@@ -471,7 +471,7 @@ function silentOsnApi(answer: unknown) {
 
 describe("createArcBlockCheck", () => {
   const config = async (timeoutMs?: number) => ({
-    osnApiUrl: "https://osn.example/",
+    osnApiUrl: "https://osn.example//",
     arcPrivateKey: (await testKeyMaterial()).privateKey,
     arcKeyId: "kid-1",
     ...(timeoutMs === undefined ? {} : { timeoutMs }),
@@ -520,6 +520,8 @@ describe("createArcBlockCheck", () => {
 
   it("throws on an answer it cannot read as a yes or a no", async () => {
     const check = createArcBlockCheck(await config());
+    globalThis.fetch = mockFetch(async () => new Response("{}", { status: 200 }));
+    await expect(check("usr_a", "usr_b")).rejects.toThrow(/missing blocked/);
     for (const body of [
       "{}",
       '{"blocked":"false"}',
@@ -674,14 +676,17 @@ describe("createArcHandleSearchResolver", () => {
       arcPrivateKey: privateKey,
       arcKeyId: "kid-1",
     });
-    const result = await resolve("al");
+    const result = await resolve("al", "usr_org&1");
 
     expect(result).toEqual([
       { profileId: "usr_alice", handle: "alice", displayName: "Alice" },
       { profileId: "usr_alina", handle: "alina", displayName: null },
     ]);
-    // Trailing slash trimmed; prefix query-encoded (raw — osn normalises).
-    expect(seen?.url).toBe("https://osn.example/graph/internal/profile-search?prefix=al");
+    // Trailing slash trimmed; prefix query-encoded (raw — osn normalises); the
+    // requester rides along so osn-api leaves out anyone with a block against them.
+    expect(seen?.url).toBe(
+      "https://osn.example/graph/internal/profile-search?prefix=al&requesterId=usr_org%261",
+    );
     expect(seen?.auth?.startsWith("ARC ")).toBe(true);
     expect(seen?.auth?.split(".")).toHaveLength(3);
   });
@@ -699,7 +704,7 @@ describe("createArcHandleSearchResolver", () => {
       arcPrivateKey: privateKey,
       arcKeyId: "kid-1",
     });
-    expect(await resolve("   ")).toEqual([]);
+    expect(await resolve("   ", "usr_org")).toEqual([]);
     expect(called).toBe(false);
   });
 
@@ -712,7 +717,7 @@ describe("createArcHandleSearchResolver", () => {
       arcPrivateKey: privateKey,
       arcKeyId: "kid-1",
     });
-    expect(await resolve("al")).toEqual([]);
+    expect(await resolve("al", "usr_org")).toEqual([]);
   });
 
   it("FAIL-SOFT: returns an empty list when fetch throws", async () => {
@@ -726,7 +731,7 @@ describe("createArcHandleSearchResolver", () => {
       arcPrivateKey: privateKey,
       arcKeyId: "kid-1",
     });
-    expect(await resolve("al")).toEqual([]);
+    expect(await resolve("al", "usr_org")).toEqual([]);
   });
 
   it("skips malformed rows and coerces a non-string displayName to null", async () => {
@@ -750,7 +755,9 @@ describe("createArcHandleSearchResolver", () => {
       arcPrivateKey: privateKey,
       arcKeyId: "kid-1",
     });
-    expect(await resolve("ok")).toEqual([{ profileId: "usr_ok", handle: "ok", displayName: null }]);
+    expect(await resolve("ok", "usr_org")).toEqual([
+      { profileId: "usr_ok", handle: "ok", displayName: null },
+    ]);
   });
 });
 
@@ -781,7 +788,7 @@ describe("createHandleSearchResolverFromEnv", () => {
       arcKeyId: "kid-env",
     });
     expect(resolve).not.toBeNull();
-    expect(await resolve!("env")).toEqual([
+    expect(await resolve!("env", "usr_org")).toEqual([
       { profileId: "usr_env", handle: "env", displayName: null },
     ]);
   });
