@@ -153,10 +153,31 @@ const CASES: Case[] = [
     control: true,
   },
   {
-    name: "an event update restating B's event's run of show writes no item onto it",
+    // B's event has an item at the position the new one takes, so the insert
+    // collides with it; what this case shows is that the old item survives.
+    name: "an event update restating B's event's run of show deletes none of its items",
     plan: plan({
       eventUpdates: [
         { id: event(B), event: ceremony({ runOfShow: [{ time: "17:00", label: "Toasts" }] }) },
+      ],
+    }),
+    underA: "refused",
+    control: true,
+  },
+  {
+    // B's second event has no items, so only the (event, wedding) foreign key
+    // stands between the insert and B's event.
+    name: "an event update giving B's event a run of show writes no item onto it",
+    plan: plan({
+      eventUpdates: [
+        {
+          id: event2(B),
+          event: ceremony({
+            name: "Reception",
+            sortOrder: 1,
+            runOfShow: [{ time: "19:00", label: "Dinner" }],
+          }),
+        },
       ],
     }),
     underA: "refused",
