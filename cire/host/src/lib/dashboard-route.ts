@@ -124,7 +124,8 @@ export const LIST_ROUTE: DashboardRoute = {
 
 /** The alias table's shape. Keyed by the raw tab segment off the URL hash, so
  *  the key set is open by construction — an unrecognised segment simply has no
- *  alias. */
+ *  alias. Read it only through an own-key check: as an object literal it also
+ *  answers to `constructor`, `toString` and `__proto__`. */
 interface LegacyTabAliases {
   readonly [tab: string]: { module: Module; sub: string };
 }
@@ -231,7 +232,10 @@ export function parseRoute(hash: string): DashboardRoute {
     const weddingId = parts[1];
     if (!weddingId) return LIST_ROUTE;
     const rawTab = parts[2];
-    const alias = rawTab ? LEGACY_TAB_ALIAS[rawTab] : undefined;
+    // Only the table's own keys alias; any other segment, a name every object
+    // inherits included, lands on the default module.
+    const alias =
+      rawTab && Object.hasOwn(LEGACY_TAB_ALIAS, rawTab) ? LEGACY_TAB_ALIAS[rawTab] : undefined;
     if (alias) return weddingRoute(weddingId, alias.module, alias.sub);
     return weddingRoute(weddingId, DEFAULT_MODULE, undefined);
   }

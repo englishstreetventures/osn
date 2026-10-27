@@ -178,6 +178,28 @@ describe("dashboard-route", () => {
         });
       });
 
+      // A tab name is looked up among the seven aliases above and nothing else.
+      // The names every object answers to — functions, and the prototype itself
+      // under `__proto__` — must read as an unknown tab, not as an alias with no
+      // module, which throws while the dashboard is being set up and leaves it
+      // blank on every reload of the link.
+      it.each([
+        "constructor",
+        "__proto__",
+        "toString",
+        "valueOf",
+        "hasOwnProperty",
+        // Decoded before the lookup, so the escaped form is the same name.
+        "%5F%5Fproto%5F%5F",
+      ])("lands #/weddings/w/%s on the wedding's default module", (tab) => {
+        expect(parseRoute(`#/weddings/w/${tab}`)).toEqual({
+          view: "weddings",
+          weddingId: "w",
+          module: DEFAULT_MODULE,
+          sub: defaultSub(DEFAULT_MODULE),
+        });
+      });
+
       it("still resolves the legacy bare #security hash", () => {
         expect(parseRoute("#security")).toEqual({
           view: "security",
