@@ -14,7 +14,7 @@ related:
   - "[[cire-consent]]"
   - "[[cire-plus-ones]]"
   - "[[testing-patterns]]"
-last-reviewed: 2026-10-21
+last-reviewed: 2026-10-27
 ---
 
 # Cire Landing
@@ -243,9 +243,12 @@ allow-lists `images.unsplash.com` for `img-src`.
 **Apex cutover — done in code 2026-07-16 (domain reshuffle).** End state: apex
 `cireweddings.com` → this landing site; `invite.cireweddings.com` → guest site
 (`cire/invites`); `host.cireweddings.com` → organiser portal (`cire/host`, moved
-off `app.cireweddings.com`). CI job `deploy-cire-landing` in
-`.github/workflows/production-release.yml` mirrors `deploy-cire-host` (the `cire-landing`
-Pages project must exist in the account before first run). On dev the cire stack
+off `app.cireweddings.com`). In `.github/workflows/production-release.yml` the `sites`
+job builds it with its production values and `deploy-cire-landing` deploys that build to
+the `cire-landing` Pages project, which must exist in the account before the first run.
+The cire stack deploys the same build to the staged `cire-landing` Worker on
+`next.cireweddings.com` until the apex moves to it
+([[infrastructure-as-code#Production sites]]). On dev the cire stack
 serves it as the `cire-landing-dev` Worker, with static assets, on `cire.<DEV_DOMAIN>`,
 a host derived from the `dev` Environment's `DEV_DOMAIN` variable
 ([[infrastructure-as-code#Dev hosts]]); `deploy.yml`'s cire stack job deploys and

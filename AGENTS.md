@@ -20,7 +20,7 @@ Which name a new package takes is in `wiki/shared/osn-and-musubi.md`; the full t
 
 **Stack:** Bun, TypeScript, Elysia, Effect v4 (backend only), Drizzle, `bun:sqlite` locally and Cloudflare D1 when deployed, SolidJS, Astro, Turborepo, oxlint, Bun's formatter (`bun fmt`), Vitest.
 
-**Deployed** on Cloudflare: identity on `musubi.social` (the `osn-api` Worker on `id.musubi.social`), cire on `cireweddings.com`. A merge to `main` deploys the dev tier at once, through the Alchemy stacks into its own Cloudflare account, on hosts under the `dev` Environment's `DEV_DOMAIN`; production ships in releases (`production-release.yml`, daily and by hand) that each wait for one approval of the `production` GitHub Environment. See `wiki/shared/dev-environment.md`.
+**Deployed** on Cloudflare: identity on `musubi.social` (the `osn-api` Worker on `id.musubi.social`), cire on `cireweddings.com`. A merge to `main` deploys the dev tier at once, through the Alchemy stacks into its own Cloudflare account, on hosts under the `dev` Environment's `DEV_DOMAIN`; production ships in releases (`production-release.yml`, daily and by hand) that each wait for one approval of the `production` GitHub Environment, or two when the release ships an Alchemy stack: its plan, then the deploy. See `wiki/shared/dev-environment.md`.
 
 ## How work runs
 

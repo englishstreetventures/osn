@@ -192,9 +192,9 @@ touching a threshold. In short:
 Every app's own `build` script chains the guard on with `&&` (`astro build &&
 … guard-bundle-size.sh .`) — that is what runs it on a local build and the
 by-hand cire/invites deploy. It ALSO runs as its own step in `ci.yml`'s
-`build-test` job (one `--all` step covering every app), in every production
-deploy job in `production-release.yml` that builds a guarded app (one
-`guard-bundle-size.sh <app>` step; each such job builds one app), and in the
+`build-test` job (one `--all` step covering every app), in `production-release.yml`
+in the `deploy-cire-invites` job and in the `sites` job (one step per site it builds:
+`cire/host`, `cire/vendor`, `cire/landing` and `musubi/landing`), and in the
 stack jobs in `deploy.yml`, with one step per guarded app each builds: the cire
 stack job for `cire/invites`, `cire/host`, `cire/vendor` and `cire/landing`, the
 musubi stack job for `musubi/landing`, and the pulse stack job for

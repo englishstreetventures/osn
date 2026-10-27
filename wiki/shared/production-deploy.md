@@ -15,7 +15,7 @@ related:
   - "[[cire-entitlements]]"
   - "[[stripe-webhooks]]"
   - "[[infrastructure-as-code]]"
-last-reviewed: 2026-10-26
+last-reviewed: 2026-10-27
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -848,10 +848,13 @@ The local equivalent (`bun run --cwd osn/db db:migrate:local`, miniflare) applie
 A **Production release** run starts with `plan`, whose summary on the run page lists
 every surface: the commit production runs, whether this release ships it, and why. Read
 it first. What production runs is the newest successful Deployment record for the
-surface's production job — the record the planner reads — not the last green run. A
-record counts only when the job it links succeeded on the record's commit, in a run of
-`production-release.yml` or `deploy.yml` on `main` in this repository; anyone with write
-access can create a record, so the planner checks each one against its run.
+surface's production job, or for a site whose Worker serves its host its record job's in
+`production-records` — the record the planner reads — not the last green run. A record
+counts only when the job it links succeeded on the record's commit, in a run of
+`production-release.yml` (or, in `production`, `deploy.yml`) on `main` in this
+repository; anyone with write access can create a record, so the planner checks each one
+against its run. The summary also lists each production stack: whether it ships, and
+what holds it.
 
 1. **A failed, cancelled or rejected production job strands nothing.** The planner
    compares each surface with what production runs, not with what the last run tried to
@@ -879,6 +882,14 @@ access can create a record, so the planner checks each one against its run.
    commit; only a `force` dispatch does. The one automatic step back is a failed smoke
    check (item 7).
 5. **A production job stuck on `Waiting` is the approval gate**, not a hang. See §5.5.
+   When a stack ships there are two: `alchemy-plan` first, then every other job.
+   - **A red `alchemy-plan`** holds every deploy job. Its failing step says why: a
+     worker site whose domain is still on Pages (the step names the dispatch that moves
+     it), a flip (refused for now), the token or the state store (bootstrap it after an
+     Alchemy bump), a plan step (the next step prints its log), or the guard (its
+     summary names each refused resource and action).
+   - **A red stack job's guard step** with "not the one approved" means the plan
+     changed between the two approvals; nothing deployed. Dispatch a new release.
 6. **`Set up job` failing with `Failed to resolve action download info` is GitHub
    infrastructure**, not this repo — the runner could not download the actions at all,
    so nothing in the job ever ran. Re-run the failed jobs; there is nothing to fix
@@ -1048,10 +1059,14 @@ top-level D1/R2 bindings (§3.2 nuance).
 ### 5.3 cire/invites (guest SSR Worker) + cire/host, cire/vendor, cire/landing (Pages)
 
 CI builds each site with the prod `PUBLIC_*` vars (§3.3) baked in, then publishes. The
-guest site is a **Worker**, not Pages — `deploy-cire-invites` deploys `cire-invites` from the
-adapter-generated config; the other three are Pages projects (`cire-organiser`,
-`cire-vendor`, `cire-landing` — create each once before its first run). Manual
-equivalents:
+guest site is a **Worker**, not Pages — `deploy-cire-invites` builds and deploys `cire-invites`
+from the adapter-generated config. The other three are Pages projects (`cire-host`,
+`cire-vendor`, `cire-landing` — create each once before its first run) until each site's
+domain moves to a Worker: the `sites` job builds each once, its Pages job deploys that build,
+and the cire stack deploys the same build to a staged Worker on a spare host
+([[infrastructure-as-code#Production sites]]). `deploy-cire-host` deploys to the Pages project
+`cire-host`; confirm in the dashboard that this project holds `host.cireweddings.com` before
+the site's domain moves. Manual equivalents:
 
 ```bash
 # guest site (Worker: cire-invites, custom domain invite.cireweddings.com)
@@ -1063,14 +1078,14 @@ OSN_DEPLOY_TIER=production \
 bunx wrangler deploy --config cire/invites/dist/server/wrangler.json
 bun run scripts/smoke-check.ts cire_invites production   # the check CI runs (§7)
 
-# organiser portal (Pages project: cire-organiser, host.cireweddings.com)
+# organiser portal (Pages project: cire-host, host.cireweddings.com)
 PUBLIC_CIRE_API_URL=https://api.cireweddings.com \
 PUBLIC_OSN_ACCOUNT_URL=https://musubi.social \
 PUBLIC_CIRE_WEB_URL=https://invite.cireweddings.com \
 PUBLIC_MARKETING_URL=https://cireweddings.com \
 OSN_DEPLOY_TIER=production \
   bun run --cwd cire/host build
-bunx wrangler pages deploy cire/host/dist --project-name cire-organiser
+bunx wrangler pages deploy cire/host/dist --project-name cire-host
 ```
 
 `OSN_DEPLOY_TIER=production` marks each as a production deploy build, which fails
@@ -1079,7 +1094,7 @@ unless its cire-api URL is `https://api.cireweddings.com`
 
 `cire/vendor` (→ `cire-vendor`, `vendor.cireweddings.com`) and `cire/landing`
 (→ `cire-landing`, the apex) follow the same Pages pattern; their build env lives in the
-`deploy-cire-vendor` / `deploy-cire-landing` jobs.
+`sites` job.
 
 Make sure the published guest, organiser and vendor origins are exactly the ones listed in
 cire-api's `WEB_ORIGIN` allowlist (§3.2) and in osn-api's `OSN_CORS_ORIGIN` /
@@ -1105,7 +1120,7 @@ automatically once you attach them.
    of their own, so the explicit `id` record takes precedence.
 2. **Pages custom domains (dashboard, one-time).** In each Pages project → Custom domains:
    - `cire-landing` (marketing site) → add the apex **`cireweddings.com`**.
-   - `cire-organiser` (organiser portal) → add **`host.cireweddings.com`**.
+   - `cire-host` (organiser portal) → add **`host.cireweddings.com`**.
    - `cire-vendor` (vendor portal) → add **`vendor.cireweddings.com`** (§8.2).
    - `osn-social` (identity app + OIDC consent screen) → add the apex **`musubi.social`**.
      **Done 2026-07-27.** Not optional: `OSN_AUTHORIZE_UI_URL` points at
@@ -1118,12 +1133,23 @@ automatically once you attach them.
    `cireweddings.com` apex is attached to Pages, confirm it does not collide with the
    email/DNS records from §1.1 (SPF/DKIM/DMARC are TXT records, the apex Pages target is a
    separate record type — they coexist).
-3. **Re-check the allowlists** once the domains resolve: the live guest, organiser,
+   A site whose domain has moved to its Worker (`worker` in
+   `shared/infra/src/production-sites.ts`) loses its Pages custom domain: the release that
+   moves it takes the domain off the Pages project, and Alchemy attaches it to the Worker
+   ([[infrastructure-as-code#Production sites]]).
+3. **Site Worker custom domains (Alchemy, verify only).** The production stacks attach
+   each site Worker's domain on deploy: `www.musubi.social` for musubi landing, and while a
+   site is staged its spare host (`next-host.cireweddings.com`,
+   `next-vendor.cireweddings.com`, `next.cireweddings.com`, `next.musubi.social`). No
+   dashboard step; before the first release run `bun run scripts/pages-domain.ts check`
+   with `CLOUDFLARE_PAGES_DNS_TOKEN` for each to confirm no Pages project or DNS record
+   holds it.
+4. **Re-check the allowlists** once the domains resolve: the live guest, organiser,
    vendor and identity origins must exactly match cire-api `WEB_ORIGIN` and osn-api
    `OSN_CORS_ORIGIN`. `OSN_ORIGIN` is a shorter list on purpose — only `https://musubi.social`,
    the one origin that may run a WebAuthn ceremony under the `musubi.social` RP ID (§3.1).
    A trailing-slash or scheme mismatch fails the Origin guard.
-4. **Turnstile widget domains (dashboard).** `musubi.social` was added on 2026-07-27
+5. **Turnstile widget domains (dashboard).** `musubi.social` was added on 2026-07-27
    (§3.4). Only hostnames that render a form need listing, so `id.musubi.social` does not —
    osn-api serves JSON and siteverifies server-side. The wrangler API token has no
    `challenge-widgets.write` scope, so this cannot be scripted. Only bites once Turnstile
@@ -1138,9 +1164,13 @@ Nothing reaches production unattended, and nothing reaches it per merge.
   someone runs it from **Actions → Production release → Run workflow** on `main`.
 - **What.** The `plan` job runs `scripts/release-plan.ts`. For each surface it reads the
   commit production last deployed — the newest successful GitHub Deployment record in
-  the `production` Environment made by that surface's production job — and diffs it
-  against the release commit using the paths in `scripts/deploy-surfaces.ts`. A surface
-  ships when anything it builds from differs. Because the baseline is what production
+  the `production` Environment made by that surface's production job, or for a site
+  whose Worker serves its host, in the `production-records` Environment made by its
+  record job — and diffs it against the release commit using the paths in
+  `scripts/deploy-surfaces.ts`. A surface ships when anything it builds from differs;
+  for a site a production stack deploys, that includes the stack's `infra/` directory
+  and `shared/infra/`. A stack ships when one of its sites does and none is held back
+  or newer on production; naming one of its sites in `surfaces` names them all. Because the baseline is what production
   runs, a release that was skipped, cancelled or rejected leaves nothing behind: the
   next one finds the same gap.
 - **Dev first.** A changed surface ships only when a recent successful dev record of it
@@ -1153,10 +1183,22 @@ Nothing reaches production unattended, and nothing reaches it per merge.
   contains the release commit is left alone, so re-running an old release in full
   cannot roll production back. A `force` dispatch can, and so can a failed smoke check
   (§5.0 item 7).
-- **One approval.** `build` runs the install, build, tests and D1 tests on the release
-  commit. Then every shipping surface's job reaches the `production` gate at the same
-  moment, and one review releases them all. A release with nothing to ship skips
-  `build` and asks for nothing.
+- **One approval, or two.** `build` runs the install, build, tests and D1 tests on the
+  release commit, and `sites` builds each production site a shipping stack deploys or
+  whose Pages job ships. When a stack ships, `alchemy-plan` reaches the `production`
+  gate first (approval 1): it checks each worker site's domain, the token and the state
+  store, plans each shipping stack and runs the plan guard, writing names, kinds,
+  actions and counts to its summary ([[infrastructure-as-code#The plan guard]]). Then
+  every other shipping job — the Wrangler API jobs, the Pages jobs and the stack jobs —
+  reaches the gate at the same moment, and one review releases them all (approval 2).
+  When no stack ships, `alchemy-plan` is skipped and that one review is all. A release
+  with nothing to ship skips `build` and asks for nothing.
+- **A failure before the gate stops everything.** Every deploy job needs `alchemy-plan`
+  to have passed or been skipped. A guard refusal, a failed site build, a state store
+  left unreadable by an Alchemy bump (run the **Alchemy state store** workflow, tier
+  `production`, bootstrap then check), or a site whose mode says `worker` while its
+  domain is still on Pages holds every release, the daily one included, until fixed —
+  or until a dispatch whose `surfaces` leave the stacks' sites out.
 - **One at a time.** The workflow's concurrency group holds one release in progress —
   waiting for approval counts — and one queued behind it. A newer trigger replaces the
   queued one, never the one in progress.
@@ -1170,11 +1212,20 @@ To release:
    dev deployed the same content and that each surface's automatic smoke check passed
    there (§7), the sites included. What no machine checks is behaviour: walk
    [[dev-environment]] §6 for a passkey ceremony, an organiser sign-in and an RSVP.
-3. Wait until every job the plan ships shows **Waiting**, then click **Review
+3. When a stack ships, `alchemy-plan` waits first. Approve it, then read its summary:
+   each stack's resources, their kinds and actions. Expect site Workers only; the guard
+   has already refused anything else.
+4. Wait until every other job the plan ships shows **Waiting**, then click **Review
    deployments**, tick `production` and approve. The review releases the jobs that were
-   waiting when the dialog opened; a job that arrives later needs a review of its own.
-4. The approval, the approver and the timestamp are recorded on the run — that record is
-   the deploy audit trail (SOC 2 CC8, [[compliance/soc2]]).
+   waiting when the dialog opened; a job that arrives later needs a review of its own. A
+   stack job plans again before it deploys, and refuses a plan that differs from the one
+   you approved in step 3; dispatch a new release when it does.
+5. The approvals, the approver and the timestamps are recorded on the run — that record
+   is the deploy audit trail (SOC 2 CC8, [[compliance/soc2]]). Each stack site whose
+   Worker serves its host is recorded by its record job in `production-records`, which
+   has no reviewer and allows `main` alone; after the stack jobs, `site-parity` keeps a
+   report comparing each staged site with its Pages project, which the owner reads before
+   that site's domain moves.
 
 Rejecting a release leaves production where it was, and the next release offers the
 same surfaces again with whatever merged since.
@@ -1184,6 +1235,7 @@ same surfaces again with whatever merged since.
 | Input | Effect |
 |---|---|
 | `surfaces` | Limit the release to these surface keys (the table in §5.0), comma or space separated. Empty means every surface. The rest stay where they are until a later release. |
+| `flip` | A site whose domain this release moves from its Pages project to its Worker, with `surfaces` naming that site alone. `alchemy-plan` refuses every flip until the stack job's detach step lands (englishstreetventures/osn#1787). |
 | `force` | Ship those surfaces even if production already runs this commit's content, and skip the dev check. With `surfaces` empty it forces every surface, and rolls back any that runs a newer commit. For a change no path shows: a repo Variable baked into a build (`PUBLIC_TURNSTILE_SITEKEY`, `PUBLIC_GOOGLE_MAPS_EMBED_KEY`), a `.bun-version` or `bunfig.toml` change, or a hand-run `wrangler deploy`, `wrangler rollback` or Pages dashboard rollback — none of which leaves a Deployment record. |
 
 Approve or reject the waiting release **before** you dispatch one with inputs. A
@@ -1414,19 +1466,23 @@ yourself (§5.1). A person runs the rest.
 | 8. RSVP write | A person |
 | 9. Account linking, if enabled | A person |
 
-The production Pages surfaces — the organiser and vendor portals, the cire landing
-site and `musubi.social` — have no automatic check and no automatic rollback. On dev
-every surface is a Worker and each is checked. Checks 5 to 7 are the ones that reach
+The production Pages deploys — the organiser and vendor portals, the cire landing
+site and `musubi.social` — have no automatic check and no automatic rollback. The site
+Workers the production stacks deploy are each checked after the stack's deploy, on the
+host their mode gives them: the spare host while staged, the production host once their
+domain has moved. On dev every surface is a Worker and each is checked. Checks 5 to 7 are the ones that reach
 `musubi.social` and the organiser portal.
 
 ### The automatic check
 
 [`scripts/smoke-check.ts`](../../scripts/smoke-check.ts) (`bun run scripts/smoke-check.ts <surface> <tier>`)
 runs as the step after `wrangler deploy` in each Worker job of `production-release.yml`,
-and once per surface in each dev stack job of `deploy.yml`, after the Alchemy deploy. It
-asks the Worker's own hosts. Production hosts come from each Worker's Wrangler route
-config; a dev check names no host and takes its origin from `SMOKE_ORIGIN`, which the
-stack job sets from its `dev-hosts` step ([[infrastructure-as-code#Dev hosts]]):
+once per site in each production stack job, and once per surface in each dev stack job of
+`deploy.yml`, after the Alchemy deploy. It asks the Worker's own hosts. A Wrangler
+Worker's production hosts come from its Wrangler route config; a check of a Worker a stack
+deploys names no host and takes its origin from `SMOKE_ORIGIN`, which the stack job sets
+from its `dev-hosts` step on dev ([[infrastructure-as-code#Dev hosts]]) and its
+`production-hosts` step on production ([[infrastructure-as-code#Production sites]]):
 
 | Surface | Production | Dev probes (on the dev origin) | A working Worker answers |
 |---|---|---|---|
@@ -1434,10 +1490,10 @@ stack job sets from its `dev-hosts` step ([[infrastructure-as-code#Dev hosts]]):
 | cire-api | `https://api.cireweddings.com/api/auth/session` | the same path | 200 `{"signedIn":false}`. cire-api has no health route — its root and `/health` answer 404 |
 | cire-invites | `https://invite.cireweddings.com/` and `/smoke-check-no-such-wedding` | the same paths, the redirect judged against `SMOKE_MARKETING_ORIGIN` | a redirect to the marketing site; a rendered page, 404 or 200 — so a broken design import fails it, and cire-api being down does not |
 | zap-api | `https://zap.cireweddings.com/health` | the same path | 200 `{"status":"ok"}` |
-| cire host, cire vendor, cire landing | none (Pages) | `/` | 200 HTML |
-| musubi landing | none (no production deploy) | `/` | 200 HTML |
-| musubi social | none (Pages) | `/` and `/smoke-check-deep-link` | 200 HTML for both: the second is the single-page fallback |
-| pulse landing | none (no production deploy) | `/` and `/api/geo` | 200 HTML; 200 with a JSON object, from the Worker's own code |
+| cire host, cire vendor, cire landing | the site Worker's `/`, on its spare host while staged (the Pages project has no check) | `/` | 200 HTML |
+| musubi landing | `https://www.musubi.social/` | `/` | 200 HTML |
+| musubi social | the site Worker's `/`, `/smoke-check-deep-link` and `/.well-known/apple-app-site-association`, on `next.musubi.social` while staged | `/` and `/smoke-check-deep-link` | 200 HTML for both: the second is the single-page fallback; and on production 200 `application/json` holding a JSON object, the file iOS reads to offer the app's passkeys |
+| pulse landing | none (`off` on production) | `/` and `/api/geo` | 200 HTML; 200 with a JSON object, from the Worker's own code |
 | every dev browser host: cire-invites, cire host, cire vendor, cire landing, musubi social, musubi landing, pulse landing | none | `/` with no service token, following no redirect | a 301, 302, 303 or 307 to a `*.cloudflareaccess.com` host: Access's sign-in |
 
 The dev browser hosts sit behind Cloudflare Access ([[dev-environment]] §5). The check
@@ -1601,7 +1657,7 @@ How it decides:
 | cire migrate scripts | `cire/db/package.json` (`db:migrate:local|prod`); the dev database: `cire/infra` |
 | cire seed (local; the dev tier imports it through the cire stack) | `cire/db/seed/dev-seed.sql`; `scripts/cire-db-seed.sh`; `cire/infra/src/declaration.ts` |
 | Dev deploys per push | `.github/workflows/deploy.yml` (`changes` → `stack-<stack>-dev` → `deploy-<surface>-dev`); the stacks under `*/infra/` ([[infrastructure-as-code]]) |
-| Production releases (daily or by hand, one approval) | `.github/workflows/production-release.yml` (`plan` → `build` → `deploy-<surface>`); planner `scripts/release-plan.ts`; surface map `scripts/deploy-surfaces.ts` |
+| Production releases (daily or by hand; one approval, two when a stack ships) | `.github/workflows/production-release.yml` (`plan` → `build` → `sites` → `alchemy-plan` → `deploy-<surface>`, `stack-<stack>-production` → `record-<site>`, `site-parity`); planner `scripts/release-plan.ts`; surface map `scripts/deploy-surfaces.ts`; site modes `shared/infra/src/production-sites.ts`; plan guard `shared/infra/src/plan-guard.ts`; Pages domain moves `scripts/pages-domain.ts`; Pages comparison `scripts/site-parity.ts` |
 
 ## Related
 

@@ -10,7 +10,7 @@ related:
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-10-26
+last-reviewed: 2026-10-27
 ---
 
 # Dev environment (cire + OSN identity)
@@ -58,12 +58,15 @@ its value. Each run's summary prints every host under **Dev hosts**.
 | Cire marketing | `cire.<D>` | `cire-landing-dev` (cire) | `cireweddings.com` (apex) |
 | OSN identity API | `id.musubi.<D>` | `osn-api-dev` (musubi) | `id.musubi.social` |
 | OSN social / consent | `musubi.<D>` | `osn-social-dev` (musubi) | `musubi.social` |
-| Musubi marketing | `www.musubi.<D>` | `musubi-landing-dev` (musubi) | none |
+| Musubi marketing | `www.musubi.<D>` | `musubi-landing-dev` (musubi) | `www.musubi.social` |
 | Zap API | `zap.cire.<D>` | `zap-api-dev` (zap) | `zap.cireweddings.com` |
 | Pulse marketing | `pulse.<D>` | `pulse-landing-dev` (pulse) | none |
 
 Every dev surface is a Worker; the sites serve from Workers static assets, not
-Pages ([[infrastructure-as-code#Sites]]).
+Pages ([[infrastructure-as-code#Sites]]). On production the organiser, vendor, cire
+marketing and musubi social hosts are still Pages projects, each with a staged Worker
+on a spare host until its domain moves, and musubi marketing is a Worker
+([[infrastructure-as-code#Production sites]]).
 
 Backing resources, all in the dev account:
 
