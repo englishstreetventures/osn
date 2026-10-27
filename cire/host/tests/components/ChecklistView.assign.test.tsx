@@ -163,6 +163,9 @@ const sent = () =>
 const rowOf = (title: string) => screen.getByRole("checkbox", { name: title }).closest("li")!;
 /** What the row says about who holds it, in words. */
 const heldBy = (title: string) => within(rowOf(title)).queryByText(/^Held by/)?.textContent ?? null;
+/** The holder line the component builds, with the same list format. */
+const heldLine = (names: string[]) =>
+  `Held by ${new Intl.ListFormat("en-AU", { type: "conjunction" }).format(names)}`;
 /** The faces on the row's stack, left to right, by seat. */
 const faces = (title: string) =>
   [...rowOf(title).querySelectorAll("[data-holder]")].map((el) => el.getAttribute("data-holder"));
@@ -243,7 +246,9 @@ describe("who holds a task", () => {
     expect(rowOf("Mind the cake").querySelector("[data-more]")).toHaveAttribute("title", "");
     seats.answer(hostsAnswer([SAM, JO, ANON])());
 
-    await waitFor(() => expect(heldBy("Book venue")).toBe("Held by Sam Lee, @jo and usr_anon"));
+    await waitFor(() =>
+      expect(heldBy("Book venue")).toBe(heldLine(["Sam Lee", "@jo", "usr_anon"])),
+    );
     expect(heldBy("Carry the rings")).toBe("Held by @jo");
     expect(calls("/hosts")).toHaveLength(1);
   });
@@ -271,7 +276,9 @@ describe("who holds a task", () => {
     });
     render(() => <ChecklistView weddingId="wed_1" canEdit={false} />);
 
-    await waitFor(() => expect(heldBy("Book venue")).toBe("Held by usr_anon, @jo and Sam Lee"));
+    await waitFor(() =>
+      expect(heldBy("Book venue")).toBe(heldLine(["usr_anon", "@jo", "Sam Lee"])),
+    );
     expect(faces("Book venue")).toEqual(["whost_anon", "whost_jo", "whost_sam"]);
     expect(faces("Carry the rings")).toEqual(["whost_sam", "whost_jo"]);
   });
@@ -294,7 +301,9 @@ describe("who holds a task", () => {
     render(() => <ChecklistView weddingId="wed_1" canEdit={false} />);
 
     await waitFor(() =>
-      expect(heldBy("Book venue")).toBe("Held by Sam Lee, @jo, usr_anon, Kim Park and Robin Hart"),
+      expect(heldBy("Book venue")).toBe(
+        heldLine(["Sam Lee", "@jo", "usr_anon", "Kim Park", "Robin Hart"]),
+      ),
     );
     expect(faces("Book venue")).toEqual(["whost_sam", "whost_jo", "whost_anon"]);
     expect(more("Book venue")).toBe("+2");
