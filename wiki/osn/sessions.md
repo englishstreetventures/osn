@@ -9,7 +9,7 @@ related:
   - "[[account-recovery-factors]]"
   - "[[cire-auth]]"
   - "[[coordination-store]]"
-last-reviewed: 2026-10-27
+last-reviewed: 2026-10-28
 ---
 
 # Session introspection + revocation
@@ -232,7 +232,8 @@ memory. It lives in D1, in `rotated_sessions` (`osn/db/src/schema/index.ts`):
 | `rotated_at` | Unix **milliseconds**, unlike the seconds the rest of the schema uses: whole seconds would shorten the 10-second grace window by up to one |
 | `expires_at` | Unix milliseconds, `rotated_at` + the session lifetime. Past it the row proves nothing |
 
-Indexes on `expires_at`, `account_id` and `family_id`.
+Two indexes: `expires_at`, for the sweep, and `(account_id, family_id)`, for
+erasure (by account) and a detected reuse (by account and family).
 
 - **Write.** `refreshTokens` deletes the old session row with its
   compare-and-swap, then inserts the new session and the old token's record in

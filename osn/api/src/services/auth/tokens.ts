@@ -580,7 +580,11 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
       const [record] = yield* Effect.tryPromise({
         try: () =>
           db
-            .select({ familyId: rotatedSessions.familyId, rotatedAt: rotatedSessions.rotatedAt })
+            .select({
+              accountId: rotatedSessions.accountId,
+              familyId: rotatedSessions.familyId,
+              rotatedAt: rotatedSessions.rotatedAt,
+            })
             .from(rotatedSessions)
             .where(
               and(eq(rotatedSessions.tokenHash, sessionHash), gt(rotatedSessions.expiresAt, nowMs)),
@@ -609,14 +613,22 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
       // family's sessions and, with them, its rotation records: once the
       // family is gone a further replay from the same chain has nothing left
       // to revoke.
-      const { familyId } = record;
+      const { accountId, familyId } = record;
       metricSessionReuseDetected();
       yield* Effect.logWarning("Session token reuse detected — revoking family");
       yield* Effect.tryPromise({
         try: () =>
           commitBatch(db, [
             db.delete(sessions).where(eq(sessions.familyId, familyId)),
-            db.delete(rotatedSessions).where(eq(rotatedSessions.familyId, familyId)),
+            // Led by `account_id` so it searches `rotated_sessions_account_family_idx`.
+            db
+              .delete(rotatedSessions)
+              .where(
+                and(
+                  eq(rotatedSessions.accountId, accountId),
+                  eq(rotatedSessions.familyId, familyId),
+                ),
+              ),
           ]),
         catch: (cause) => new DatabaseError({ cause }),
       });

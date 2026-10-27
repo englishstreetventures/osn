@@ -8,5 +8,4 @@ CREATE TABLE `rotated_sessions` (
 );
 --> statement-breakpoint
 CREATE INDEX `rotated_sessions_expires_idx` ON `rotated_sessions` (`expires_at`);--> statement-breakpoint
-CREATE INDEX `rotated_sessions_account_idx` ON `rotated_sessions` (`account_id`);--> statement-breakpoint
-CREATE INDEX `rotated_sessions_family_idx` ON `rotated_sessions` (`family_id`);
+CREATE INDEX `rotated_sessions_account_family_idx` ON `rotated_sessions` (`account_id`,`family_id`);

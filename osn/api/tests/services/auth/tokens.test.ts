@@ -17,7 +17,7 @@ import {
 import { hashSessionToken } from "../../../src/services/auth/helpers";
 import { runRotatedSessionSweep } from "../../../src/services/auth/tokens";
 import { makeTestAuthConfig } from "../../helpers/auth-config";
-import { createTestLayerWithSqlite } from "../../helpers/db";
+import { createCapturingTestLayer, createTestLayerWithSqlite } from "../../helpers/db";
 
 /**
  * Rotated-session reuse detection on the `rotated_sessions` table: the record
@@ -176,6 +176,36 @@ describe("refreshTokens: a replayed rotated-out token", () => {
       const live = yield* auth.verifyRefreshToken(t1);
       expect(live.familyId).toBeTruthy();
       expect(reuse).not.toHaveBeenCalled();
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("searches an index for every statement it sends to rotated_sessions", () => {
+    const { layer, db, captured } = createCapturingTestLayer();
+    return Effect.gen(function* () {
+      const { refreshToken: t0 } = yield* signIn("plan@example.com", "plan");
+      const t1 = (yield* auth.refreshTokens(t0)).refreshToken;
+      yield* auth.refreshTokens(t1);
+      yield* Effect.promise(() => db.update(rotatedSessions).set({ rotatedAt: 0 }));
+      captured.length = 0;
+
+      yield* Effect.flip(auth.refreshTokens(t0));
+
+      const onTable = captured.filter(
+        (s) => /"rotated_sessions"/.test(s.sql) && /^\s*(select|delete)/i.test(s.sql),
+      );
+      // The record read, then the family's records deleted.
+      expect(onTable.map((s) => s.sql.trim().split(/\s+/)[0]!.toLowerCase())).toEqual([
+        "select",
+        "delete",
+      ]);
+      for (const { sql, params } of onTable) {
+        const plan = db.$client
+          .query(`EXPLAIN QUERY PLAN ${sql}`)
+          .all(...(params as never[])) as Array<{ detail: string }>;
+        const details = plan.map((row) => row.detail);
+        expect(details.some((d) => d.startsWith("SEARCH rotated_sessions USING"))).toBe(true);
+        expect(details.filter((d) => /^SCAN rotated_sessions\b/.test(d))).toEqual([]);
+      }
     }).pipe(Effect.provide(layer));
   });
 

@@ -272,19 +272,19 @@ checked in the copy's own INSERT, so one wedding's copies write at most about
 12,000 rows a day, whichever isolate serves them; deleting a plan removes only
 rows that were written first ([[cire-seating]]).
 
-**Every osn-api token refresh writes about ten more rows.** A refresh inserts
+**Every osn-api token refresh writes about eight more rows.** A refresh inserts
 one `rotated_sessions` record in the batch that inserts the new session
-([[sessions]]): the row, its primary-key index and its three secondary indexes,
-about 5 rows written. The 6-hourly cron deletes the record once it expires,
-30 days later, about 5 more. A sweep run deletes chunks of 500
+([[sessions]]): the row, its primary-key index and its two secondary indexes,
+about 4 rows written. The 6-hourly cron deletes the record once it expires,
+30 days later, about 4 more. A sweep run deletes chunks of 500
 (`ROTATED_SESSION_SWEEP_CHUNK` in `osn/api/src/services/auth/constants.ts`), at
 most the tier's chunk count (`OSN_ROTATED_SESSION_SWEEP_MAX_CHUNKS`, read by
 `rotatedSweepMaxChunks` in `tokens.ts`). Dev leaves it unset, so 10 chunks:
-5,000 records and about 25,000 rows written a run, 10 of the 50 D1 queries the
+5,000 records and about 20,000 rows written a run, 10 of the 50 D1 queries the
 cron's four sweeps share. Staging and production set 100: 50,000 records a
 run, 100 statements, inside Workers Paid's 1,000 queries per invocation, which
 keeps up with about 2,000 people signed in eight hours a day. On dev's 100,000
-rows a day, ten rows a refresh is about 10,000 refreshes a day, shared with
+rows a day, eight rows a refresh is about 12,500 refreshes a day, shared with
 everything else on the dev account. A run that ends on a full chunk logs
 `auth.session.rotated_sweep ended on a full chunk`; watch for it in Workers Logs.
 

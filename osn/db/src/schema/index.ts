@@ -414,8 +414,9 @@ export const rotatedSessions = sqliteTable(
   },
   (t) => [
     index("rotated_sessions_expires_idx").on(t.expiresAt),
-    index("rotated_sessions_account_idx").on(t.accountId),
-    index("rotated_sessions_family_idx").on(t.familyId),
+    // Account erasure deletes by `account_id`, and a detected reuse deletes
+    // the family's rows by `account_id` and `family_id`: one index serves both.
+    index("rotated_sessions_account_family_idx").on(t.accountId, t.familyId),
   ],
 );
 
