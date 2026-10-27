@@ -338,6 +338,10 @@ const written = (result: GiftSummaryWrittenResult) =>
 const unmailed = (reason: GiftSummaryUnmailedReason) =>
   counterValue(CIRE_METRICS.giftSummaryUnmailed, { reason });
 
+/** Each captured line saying the notices were not delivered, annotations and all. */
+const undelivered = (logs: string): string[] =>
+  logs.split("\n").filter((line) => line.includes("gift summary notices not delivered"));
+
 const SWEEP_AT = new Date("2026-06-17T04:00:00.000Z");
 
 describe("RETENTION_AFTER_FINAL_EVENT_MS", () => {
@@ -1486,11 +1490,23 @@ describe("the parting gift summary", () => {
         // The notifier's error channel is `never` by contract, so the only
         // shape a broken one can take is a defect. The sweep has already
         // committed its deletes by then and must not fail on the courtesy.
-        const deleted = yield* retentionService.sweepExpiredGuestData(now, {}, () =>
-          Effect.die(new Error("mail transport unreachable")),
+        let deleted: number | undefined;
+        const logs = yield* Effect.promise(() =>
+          captureLogs(async () => {
+            deleted = await Effect.runPromise(
+              retentionService
+                .sweepExpiredGuestData(now, {}, () =>
+                  Effect.die(new Error("mail transport unreachable")),
+                )
+                .pipe(Effect.provideService(DbService, db)),
+            );
+          }),
         );
 
         expect(deleted).toBe(1);
+        // Told apart from a hang, so a notifier that breaks every run is not
+        // read as a mail host that is down.
+        expect(undelivered(logs)).toEqual([expect.stringContaining('"reason":"defect"')]);
         const guestsLeft = yield* dbQuery(() =>
           db.select().from(guests).where(eq(guests.id, guestId)).all(),
         );
@@ -1540,8 +1556,7 @@ describe("the parting gift summary", () => {
     expect(deleted).toBe(1);
     expect(guestCount(db, wedding.guestId)).toBe(0);
     expect(storedSummary(db, wedding.weddingId)).not.toBeNull();
-    expect(logs).toContain("gift summary notices not delivered");
-    expect(logs).toContain("timeout");
+    expect(undelivered(logs)).toEqual([expect.stringContaining('"reason":"timeout"')]);
   });
 
   it(
