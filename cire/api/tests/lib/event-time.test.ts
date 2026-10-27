@@ -89,6 +89,18 @@ describe("isKnownTimeZone", () => {
     }
     expect(zoneOffsetAt("Australia/Sydney", "2026-11-14", "15:00")).toBe("+11:00");
   });
+
+  it("never lets a non-ASCII spelling share a real zone's cached answer", () => {
+    // The cache folds ASCII case only, as `Intl` does. A Unicode case fold
+    // would map the Kelvin sign (U+212A) to `k`, so this spelling, which
+    // `Intl` refuses, would read back a real spelling's cached `true`. The
+    // sign is written as an escape: normalising the file would turn the
+    // character itself into an ASCII `K`.
+    for (const real of ["Asia/Kolkata", "ASIA/KOLKATA", "Asia/kolkata"]) {
+      expect(isKnownTimeZone(real)).toBe(true);
+    }
+    expect(isKnownTimeZone("Asia/\u212Aolkata")).toBe(false);
+  });
 });
 
 describe("zoneOffsetAt", () => {

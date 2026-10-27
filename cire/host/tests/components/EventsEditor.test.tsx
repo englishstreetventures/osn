@@ -574,10 +574,10 @@ describe("EventsEditor", () => {
     expect(ceremony.timezone).toBe("Australia/Brisbane");
   });
 
-  it("keeps an unresolvable imported zone's stored offset when another field is edited", async () => {
-    // A spreadsheet import can carry a free-text zone this tz database can't
-    // resolve ("AEST"). `stamped()` falls back to the offset already on the
-    // value, so touching the time must not silently shift the event by hours.
+  it("keeps an unresolvable stored zone's wall clock, and asks for a zone before saving", async () => {
+    // A row stored before either door checked zones can carry one this tz
+    // database can't resolve ("AEST"). `stamped()` falls back to the offset
+    // already on the value, so touching the time must not shift the event.
     authFetchMock.mockImplementation((url: string) => {
       const u = String(url);
       if (u.endsWith("/events")) {
@@ -612,8 +612,20 @@ describe("EventsEditor", () => {
     const hint = document.getElementById(zone.getAttribute("aria-describedby")!)!;
     expect(hint.textContent).toBe("Times below are local to AEST.");
 
-    // The STORED offset is untouched underneath: an unresolvable zone can't be
-    // re-derived from, so editing another field must not shift the event.
+    // The API refuses a schedule save on a zone it cannot resolve, so Save
+    // waits for a real one, and says so.
+    expect(screen.getByText("Choose a timezone from the list.")).toBeTruthy();
+    expect(
+      (screen.getByRole("button", { name: /Save changes/i }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+
+    // Picking one stamps that zone's offset onto the wall clock typed above.
+    fireEvent.change(zone, { target: { value: "Australia/Sydney" } });
+    await waitFor(() =>
+      expect(
+        (screen.getByRole("button", { name: /Save changes/i }) as HTMLButtonElement).disabled,
+      ).toBe(false),
+    );
     fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
     await waitFor(() =>
       expect(authFetchMock.mock.calls.some((c) => String(c[0]).endsWith("/changes/preview"))).toBe(
@@ -623,9 +635,10 @@ describe("EventsEditor", () => {
     const body = JSON.parse(
       authFetchMock.mock.calls.find((c) => String(c[0]).endsWith("/changes/preview"))![1].body,
     );
-    expect((body.desiredState.events[0] as { startAt: string }).startAt).toBe(
-      "2026-11-14T16:00:00+10:00",
-    );
+    expect(body.desiredState.events[0]).toMatchObject({
+      startAt: "2026-11-14T16:00:00+11:00",
+      timezone: "Australia/Sydney",
+    });
   });
 
   it("shows an empty zone as empty, not as the first zone in the database", async () => {

@@ -234,6 +234,19 @@ describe("POST /api/rsvp", () => {
   );
 
   it(
+    "returns 400 for a batch with no reply in it",
+    eff(
+      Effect.gen(function* () {
+        const cookie = yield* claimAndCookie("TESTONE-IVY-AA11");
+        const res = yield* post({ rsvps: [] }, cookie);
+        expect(res.status).toBe(400);
+        const data = yield* Effect.promise(() => res.json<{ error: string }>());
+        expect(data.error).toBe("Missing or invalid fields");
+      }),
+    ),
+  );
+
+  it(
     "returns 400 for a status outside the closed literal set",
     eff(
       Effect.gen(function* () {

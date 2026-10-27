@@ -11,7 +11,13 @@ import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { weddingEditor } from "../middleware/wedding-editor";
 import { runCire } from "../observability";
-import { ApplyBody, ChangeScope, DesiredState, RevertBody } from "../schemas/import";
+import {
+  ApplyBody,
+  ChangeScope,
+  DesiredState,
+  GuestsScopeDesiredState,
+  RevertBody,
+} from "../schemas/import";
 import type { ImportPlan, ParsedFamily } from "../schemas/import";
 import {
   claimChanges,
@@ -286,7 +292,9 @@ interface ChangeSummary {
  *    single-sheet upload stored `""` in the slot it didn't carry, so `scope`
  *    (not the stored bytes) decides which slots are read.
  *  - `kind = 'editor'` — the DesiredState JSON in the events key (guests key is
- *    an empty sentinel); JSON-decoded back to a DesiredState.
+ *    an empty sentinel); JSON-decoded back under the schema its scope's body
+ *    used at preview (`GuestsScopeDesiredState` for a guests save, else
+ *    `DesiredState`).
  *
  * Re-reading at apply is the TOCTOU defence: the DB may have shifted since
  * preview, so the plan is always freshly diffed against live state. For a
@@ -306,7 +314,8 @@ function desiredStateFromRow(
   return Effect.gen(function* () {
     if (row.kind === "editor") {
       const json = yield* fetchUpload(row.eventsR2Key);
-      return yield* Schema.decodeUnknownEffect(Schema.fromJsonString(DesiredState))(json);
+      const draft = scope === "guests" ? GuestsScopeDesiredState : DesiredState;
+      return yield* Schema.decodeUnknownEffect(Schema.fromJsonString(draft))(json);
     }
     const events =
       scope === "guests"

@@ -55,6 +55,20 @@ describe("decodeChangeBody: editor scope", () => {
   );
 
   it(
+    "a desiredState body carrying scope: 'both' decodes to scope: 'both'",
+    withDb(
+      Effect.gen(function* () {
+        const decoded = yield* decodeChangeBody(
+          { desiredState: { events: [], families: [] }, scope: "both", ...EDITOR },
+          BOOTSTRAP_WEDDING_ID,
+        );
+        expect(decoded.scope).toBe("both");
+        expect(decoded.kind).toBe("editor");
+      }),
+    ),
+  );
+
+  it(
     "a desiredState body omitting scope still decodes to scope: 'both'",
     withDb(
       Effect.gen(function* () {
