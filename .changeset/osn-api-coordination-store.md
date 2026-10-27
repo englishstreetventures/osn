@@ -19,7 +19,7 @@ osn-api keeps its short-lived shared state on a Cloudflare Durable Object instea
 - `@osn/db`: a `rotated_sessions` table (migration `20261026102423_rotated_sessions`).
 - `@pulse/api`: every rate limiter is in memory, built from one budget table (`PULSE_WRITE_LIMITS`, `PULSE_IP_LIMITS` in `src/lib/rate-limit.ts`). `REDIS_URL` and `REDIS_REQUIRED` are no longer read, and the dependency on `@shared/redis` is gone.
 - `@shared/observability`: the `RotatedStoreAction`, `RotatedStoreResult` and `RotatedStoreBackend` metric attribute types are removed.
-- `@musubi/infra`: osn-api's dev Worker binds `COORDINATION` and the two per-user rate limits, and is bundled from `osn/api/src/entry.ts`.
+- `@musubi/infra`: osn-api's dev Worker binds `COORDINATION` and the two per-user rate limits, and is bundled from `osn/api/src/entry.ts`. Dev leaves `OSN_ROTATED_SESSION_SWEEP_MAX_CHUNKS` unset, as the parity and reads checks record.
 - `@shared/infra`: osn-api's secret inventory no longer lists the Upstash secrets, and the workflow check lets osn-api's dev smoke check read `INTERNAL_SERVICE_SECRET`.
 - `@musubi/social`, `@pulse/web`: the privacy page names Cloudflare, not Upstash, for rate-limit state. Musubi's names Oceania, where Cloudflare hosts the databases and supporting infrastructure, rather than Australia and Sydney.
 - `@shared/crypto`, `@shared/rate-limit`: comments only.

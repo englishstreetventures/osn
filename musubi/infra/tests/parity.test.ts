@@ -46,6 +46,8 @@ const DEV_ONLY: Readonly<Record<string, string>> = {
 /** Names osn-api holds on production and not on dev, each with why. */
 const PRODUCTION_ONLY: Readonly<Record<string, string>> = {
   TURNSTILE_SECRET_KEY: "dev does not enforce Turnstile; osn-api is key-optional",
+  OSN_ROTATED_SESSION_SWEEP_MAX_CHUNKS:
+    "dev is on Workers Free: unset, the sweep keeps its default of 10 chunks, inside the 50 D1 queries one cron run may make",
 };
 
 let dev: Evaluation;
