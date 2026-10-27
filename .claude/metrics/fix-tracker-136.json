@@ -1,0 +1,193 @@
+{
+  "schema_version": 3,
+  "pr": {
+    "number": 1800,
+    "branch": "fix/tracker-136",
+    "base_sha": "d1214c53eade0e5fead63cf87b8d7b994692ab06",
+    "head_sha": "53547277b62a4b56760338b0937900ce5805430f",
+    "generated_at": "2026-10-27T12:29:17.814Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": null,
+    "type": null,
+    "labels": []
+  },
+  "complexity": {
+    "declared": null,
+    "method": "not-fetched",
+    "issues": 0
+  },
+  "window": {
+    "sessions": 4,
+    "first_ts": "2026-10-27T11:36:01.388Z",
+    "last_ts": "2026-10-27T12:29:13.299Z",
+    "span_seconds": 3192,
+    "active_seconds": 3223,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 32.18969500000003,
+    "tokens": {
+      "input": 670,
+      "output": 278268,
+      "thinking": 146955,
+      "cache_write_5m": 1095304,
+      "cache_write_1h": 0,
+      "cache_read": 53107307
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 664,
+          "output": 277836,
+          "thinking": 146955,
+          "cache_write_5m": 1063788,
+          "cache_write_1h": 0,
+          "cache_read": 53033978
+        },
+        "usd_equivalent": 32.09190720000002,
+        "messages": 327
+      },
+      "claude-sonnet-5-5": {
+        "tokens": {
+          "input": 6,
+          "output": 432,
+          "thinking": 0,
+          "cache_write_5m": 31516,
+          "cache_write_1h": 0,
+          "cache_read": 73329
+        },
+        "usd_equivalent": 0.09778780000000001,
+        "messages": 3
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 14,
+          "output": 2791,
+          "thinking": 930,
+          "cache_write_5m": 32539,
+          "cache_write_1h": 0,
+          "cache_read": 110904
+        },
+        "usd_equivalent": 0.26293259999999996,
+        "messages": 7
+      },
+      "subagent": {
+        "tokens": {
+          "input": 656,
+          "output": 275477,
+          "thinking": 146025,
+          "cache_write_5m": 1062765,
+          "cache_write_1h": 0,
+          "cache_read": 52996403
+        },
+        "usd_equivalent": 31.926762400000023,
+        "messages": 323
+      }
+    },
+    "effort": {
+      "medium": 10,
+      "xhigh": 223,
+      "high": 97
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 4,
+      "docs": 1,
+      "config": 0,
+      "source": 2
+    },
+    "loc": {
+      "generated": {
+        "added": 5,
+        "deleted": 0
+      },
+      "test": {
+        "added": 436,
+        "deleted": 4
+      },
+      "docs": {
+        "added": 2,
+        "deleted": 0
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 130,
+        "deleted": 30
+      }
+    },
+    "packages": [
+      "cire/api"
+    ],
+    "touches_migration": false,
+    "commits": 4
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 259,
+      "Edit": 42,
+      "Read": 39,
+      "Skill": 11,
+      "Write": 5,
+      "SubagentHandback": 5,
+      "Agent": 4,
+      "StructuredOutput": 3,
+      "Grep": 2,
+      "ToolSearch": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 3,
+      "max_edits_one_file": 22
+    },
+    "skills": {
+      "new-feat": 1,
+      "stress-plan": 1,
+      "write-wiki": 1,
+      "obsidian:obsidian-markdown": 1,
+      "prep-pr": 1,
+      "review-tests": 1,
+      "write-pr": 1,
+      "review-security": 1,
+      "review-performance": 1,
+      "write-issue": 1,
+      "retro-v2": 1
+    },
+    "subagents": {
+      "attacker": 1,
+      "reviewer": 3
+    },
+    "requests": {
+      "main": 7,
+      "subagent": 323,
+      "with_tools": 325,
+      "with_one_tool": 296,
+      "context_median": 124651,
+      "context_p90": 342074
+    }
+  },
+  "review": {
+    "reports": 1,
+    "findings": 1,
+    "located": 1,
+    "acted_on": 1,
+    "paired": 1,
+    "acted_on_paired": 1,
+    "control_changed": 0,
+    "acted_on_by_test": 0,
+    "acted_on_paired_by_test": 0
+  }
+}
