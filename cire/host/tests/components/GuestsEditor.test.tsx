@@ -814,6 +814,42 @@ describe("GuestsEditor", () => {
       expect(screen.queryByRole("button", { name: /Reload and keep my edits/i })).toBeNull();
     });
 
+    it("asks for Save again, not a reload, when the apply finds the preview expired", async () => {
+      primeLoad();
+      render(() => <GuestsEditor weddingId="wed_a" />);
+      await waitFor(() => expect(screen.getByDisplayValue("Ada")).toBeTruthy());
+      fireEvent.input(screen.getByDisplayValue("Ada"), { target: { value: "Adaeze" } });
+      authFetchMock.mockImplementation((url: string) => {
+        const u = String(url);
+        if (u.endsWith("/changes/preview")) return Promise.resolve(previewResponse());
+        if (u.endsWith("/changes/apply")) {
+          return Promise.resolve(
+            json(
+              {
+                error: "This preview has expired — preview the change again",
+                reason: "preview_expired",
+              },
+              409,
+            ),
+          );
+        }
+        return Promise.resolve(fallback(url));
+      });
+      fireEvent.click(await waitFor(() => screen.getByRole("button", { name: /Save changes/i })));
+      await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
+      fireEvent.click(screen.getByRole("button", { name: /Confirm & save/i }));
+
+      await waitFor(() =>
+        expect(screen.getByText(/Press Save changes to preview your edits again/)).toBeTruthy(),
+      );
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(screen.queryByText(/changed elsewhere/i)).toBeNull();
+      expect(screen.queryByRole("button", { name: /Reload and keep my edits/i })).toBeNull();
+      // The edit is still there to save.
+      expect(screen.getByDisplayValue("Adaeze")).toBeTruthy();
+      expect(screen.getByRole("button", { name: /Save changes/i })).toBeTruthy();
+    });
+
     it("shows a load error, not a draft, when the head cannot be read", async () => {
       authFetchMock.mockImplementation((url: string) => {
         if (String(url).endsWith("/changes/head")) {

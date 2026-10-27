@@ -22,6 +22,7 @@ import {
   currentEventsAsParsed,
   decodeChangeBody,
   headRevision,
+  PREVIEW_EXPIRES_AFTER_MS,
   underClaim,
 } from "../services/changes";
 import type { ChangeConflict } from "../services/changes";
@@ -206,6 +207,19 @@ function staleDraft(set: { status?: number | string }) {
 }
 
 /**
+ * The 409 for a preview at least {@link PREVIEW_EXPIRES_AFTER_MS} old. The
+ * remedy is a new preview: the portal sends the organiser back to upload the
+ * sheet, or save the editor draft, again.
+ */
+function previewExpired(set: { status?: number | string }) {
+  set.status = 409;
+  return {
+    error: "This preview has expired — preview the change again",
+    reason: "preview_expired" as const,
+  };
+}
+
+/**
  * The 409 for a change that could not take the wedding (`claimChanges`). The
  * two causes want different remedies: a head that moved means the preview is
  * out of date (`head_moved`, the reason apply's own head check gives too, so
@@ -329,11 +343,14 @@ function desiredStateFromRow(
  *    summary). Returns `{changeId, plan, warnings, baseRevision, scope, clears}`.
  *  - `apply` — `{changeId, confirmClears?}`. Re-reads the head revision and 409s
  *    if it moved since preview (optimistic concurrency — a co-host applied in
- *    between). Re-diffs against live state (TOCTOU); an editor save that empties
- *    a half of the wedding needs `confirmClears` to match. Takes the wedding's
- *    change claim at the preview's head (409 when another change holds it or the
- *    head moved), checkpoints the before-image (E3), applies, prunes. Returns
- *    `{summary, revision}`, `revision` being the head after this change.
+ *    between), then 409s `preview_expired` for a preview at least
+ *    `PREVIEW_EXPIRES_AFTER_MS` old. Re-diffs against live state (TOCTOU); an
+ *    editor save that empties a half of the wedding needs `confirmClears` to
+ *    match. Takes the wedding's change claim at the preview's head (409 when
+ *    another change holds it or the head moved), checkpoints the before-image
+ *    (E3; 409 `preview_expired` again if the preview reached that age
+ *    meanwhile), applies, prunes. Returns `{summary, revision}`, `revision`
+ *    being the head after this change.
  *  - `revert` — `{changeId}`. Before-image restore (E3).
  *  - `list` — paginated change history (imports + editor saves).
  *
@@ -626,6 +643,21 @@ export const createOrganiserChangeRoutes = (
                   };
                 }
 
+                // ── Expiry ──────────────────────────────────────────────────
+                // A preview this old is refused before anything below reads
+                // or writes R2. `captureBeforeImage` checks the same age again
+                // just before it stores, so no store of this change's
+                // before-image comes later than `PREVIEW_EXPIRES_AFTER_MS`
+                // after the preview. After the head check: when both hold,
+                // `head_moved` is what lets an editor reload with its edits
+                // kept.
+                if (Date.now() - row.uploadedAt >= PREVIEW_EXPIRES_AFTER_MS) {
+                  yield* Effect.logWarning("change refused: preview expired", {
+                    changeKind: row.kind,
+                  });
+                  return previewExpired(set);
+                }
+
                 // Re-derive the desired state from the row's stored input and
                 // re-diff against LIVE state (TOCTOU defence), honouring the
                 // provenance toggle AND the scope captured at preview.
@@ -788,7 +820,7 @@ export const createOrganiserChangeRoutes = (
                 const summary = yield* underClaim(
                   claim,
                   Effect.gen(function* () {
-                    const before = yield* captureBeforeImage(changeId, weddingId);
+                    const before = yield* captureBeforeImage(changeId, weddingId, row.uploadedAt);
                     return yield* applyImport(
                       changeId,
                       plan,
@@ -812,8 +844,11 @@ export const createOrganiserChangeRoutes = (
                       },
                     );
                   }),
-                  // Both are raised before any data statement is sent.
-                  (e) => e._tag === "R2Error" || e._tag === "CapacityExceeded",
+                  // All three are raised before any data statement is sent.
+                  (e) =>
+                    e._tag === "R2Error" ||
+                    e._tag === "CapacityExceeded" ||
+                    e._tag === "PreviewExpired",
                 ).pipe(
                   // A failed write set may have committed its first batches.
                   Effect.tapError((e) =>
@@ -854,6 +889,14 @@ export const createOrganiserChangeRoutes = (
                   Effect.sync(() => {
                     set.status = 500;
                     return { error: "Storage error" };
+                  }),
+                ),
+                // The preview passed the check at the top and reached the
+                // cut-off before its before-image was stored; nothing was.
+                Effect.catchTag("PreviewExpired", () =>
+                  Effect.gen(function* () {
+                    yield* Effect.logWarning("change refused: preview expired before its store");
+                    return previewExpired(set);
                   }),
                 ),
                 Effect.catchTag("ChangeConflict", (e) =>

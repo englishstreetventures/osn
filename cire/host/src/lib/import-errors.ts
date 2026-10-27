@@ -207,6 +207,9 @@ export function formatImportError(status: number, body: ImportErrorBody): string
   if (status === 413) {
     return "That upload is too large — the limit is 1 MB per import. If your guest list is genuinely that big, split it into two uploads.";
   }
+  if (body.reason === "preview_expired") {
+    return "This preview has expired. Press Preview to upload your sheet again.";
+  }
   if (status === 409 && body.error?.startsWith("State changed")) {
     return "Someone else changed this wedding while you were previewing. Press Preview again to see a fresh diff before applying.";
   }

@@ -19,9 +19,10 @@
 import { imports } from "@cire/db";
 import { jsonEachIn } from "@shared/db-utils";
 import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
-import { Effect } from "effect";
+import { Data, Effect } from "effect";
 
 import { DbService, dbQuery } from "../db";
+import { PREVIEW_EXPIRES_AFTER_MS } from "./changes";
 import type { DeletableBucket } from "./r2-cleanup";
 import { reapR2Objects } from "./r2-cleanup";
 import { R2Service, storeBeforeImage } from "./r2-imports";
@@ -34,21 +35,40 @@ import { stateExportService } from "./state-export";
 export const BEFORE_IMAGE_RETENTION = 10;
 
 /**
+ * The change's preview reached {@link PREVIEW_EXPIRES_AFTER_MS} before its
+ * before-image was stored. Nothing was stored.
+ */
+export class PreviewExpired extends Data.TaggedError("PreviewExpired") {}
+
+/**
  * Serialise the wedding's current state at `"snapshot"` fidelity and store it as
  * the before-image for `importId`, returning the two R2 keys to record on the
  * change row. Runs at apply time BEFORE the write set commits — the snapshot
  * must capture the pre-change state.
+ *
+ * `previewedAt` is the change's `uploadedAt`. A preview at least
+ * {@link PREVIEW_EXPIRES_AFTER_MS} old when the snapshot is ready fails with
+ * {@link PreviewExpired} and stores nothing: this is the last check before the
+ * put, so no store of a change's before-image comes later than that age.
  */
 export function captureBeforeImage(
   importId: string,
   weddingId: string,
-): Effect.Effect<{ eventsKey: string; guestsKey: string }, R2Error, DbService | R2Service> {
+  previewedAt: number,
+): Effect.Effect<
+  { eventsKey: string; guestsKey: string },
+  R2Error | PreviewExpired,
+  DbService | R2Service
+> {
   return Effect.gen(function* () {
     // `Family Code` (codes restored, not re-minted), `Family ID`/`Guest ID`/
     // `Event ID` (rows still present match by id, so a rename since is undone in
     // place), and household-only rows so a guest-less household survives.
     const eventsCsv = yield* stateExportService.eventsCsv(weddingId, "snapshot");
     const guestsCsv = yield* stateExportService.guestsCsv(weddingId, "snapshot");
+    if (Date.now() - previewedAt >= PREVIEW_EXPIRES_AFTER_MS) {
+      return yield* Effect.fail(new PreviewExpired());
+    }
     return yield* storeBeforeImage(eventsCsv, guestsCsv, importId);
   }).pipe(Effect.withSpan("cire.checkpoint.captureBeforeImage"));
 }

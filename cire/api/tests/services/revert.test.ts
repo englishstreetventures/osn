@@ -107,7 +107,7 @@ async function applyWithBeforeImage(
       const ev = yield* parseEventsCsv(eventsCsv);
       const fam = (yield* parseGuestsCsv(guestsCsv, ev)) as ParsedFamily[];
       const plan = yield* diffAgainstDb(ev, fam, BOOTSTRAP_WEDDING_ID);
-      const before = yield* captureBeforeImage(importId, BOOTSTRAP_WEDDING_ID);
+      const before = yield* captureBeforeImage(importId, BOOTSTRAP_WEDDING_ID, Date.now());
       const summary = yield* applyImport(importId, plan, BOOTSTRAP_WEDDING_ID);
       const db = yield* DbService;
       db.insert(imports)
@@ -224,7 +224,7 @@ describe("revertImport — before-image path (E3)", () => {
         const fam = (yield* parseGuestsCsv(guestsCsv, ev)) as ParsedFamily[];
         const renamed = fam.map((f) => ({ ...f, familyName: "Renamed In Place" }));
         yield* storeUpload(JSON.stringify({ events: ev, families: renamed }), "", "chg-2");
-        const before = yield* captureBeforeImage("chg-2", BOOTSTRAP_WEDDING_ID);
+        const before = yield* captureBeforeImage("chg-2", BOOTSTRAP_WEDDING_ID, Date.now());
         const plan = yield* diffAgainstDb(ev, renamed, BOOTSTRAP_WEDDING_ID, {
           removeManual: true,
           matchByName: false,
@@ -569,7 +569,7 @@ async function applyChange(
         decoded.uploadedCsv?.guestsCsv ?? "",
         changeId,
       );
-      const before = yield* captureBeforeImage(changeId, BOOTSTRAP_WEDDING_ID);
+      const before = yield* captureBeforeImage(changeId, BOOTSTRAP_WEDDING_ID, Date.now());
       yield* applyImport(changeId, plan, BOOTSTRAP_WEDDING_ID);
       const db = yield* DbService;
       db.insert(imports)

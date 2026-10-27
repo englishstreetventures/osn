@@ -61,7 +61,7 @@ async function applyWithCheckpoint(
       const fam = (yield* parseGuestsCsv(guestsCsv, ev)) as ParsedFamily[];
       const plan = yield* diffAgainstDb(ev, fam, BOOTSTRAP_WEDDING_ID);
 
-      const before = yield* captureBeforeImage(importId, BOOTSTRAP_WEDDING_ID);
+      const before = yield* captureBeforeImage(importId, BOOTSTRAP_WEDDING_ID, Date.now());
       yield* applyImport(importId, plan, BOOTSTRAP_WEDDING_ID);
       const database = yield* DbService;
       database

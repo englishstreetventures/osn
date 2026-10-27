@@ -22,6 +22,7 @@ import { allAuthFirst, apiUrl, isAuthExpired, redirectToLogin, weddingPath } fro
 import {
   isChangeInProgress,
   isHeadMoved,
+  isPreviewExpired,
   loadHeadRevision,
   revisionOf,
 } from "../lib/change-revision";
@@ -298,13 +299,19 @@ export default function GuestsEditor(props: { weddingId: string }) {
         // 409 = a co-host applied in between; the previewed diff is stale, so
         // the modal is dismissed — re-confirming it could only 409 again, and
         // the error itself renders in the sticky bar the modal was covering.
-        // Another save still being written is the one 409 that is not stale:
-        // say so, since the same edit will save once that one finishes.
+        // Another save still being written, or a preview too old to apply, are
+        // the 409s that are not stale: say so, since the same edit will save
+        // once that change finishes, or from a fresh preview.
         if (res.status === 409) {
           setPreview(null);
           if (isHeadMoved(body)) {
             setStale(true);
             throw new Error("Someone else changed the guest list since you opened the editor.");
+          }
+          if (isPreviewExpired(body)) {
+            throw new Error(
+              "This preview has expired. Press Save changes to preview your edits again.",
+            );
           }
           throw new Error(
             isChangeInProgress(body) && body.error

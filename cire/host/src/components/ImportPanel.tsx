@@ -7,6 +7,7 @@ import type { JSX } from "solid-js";
 import { createEffect, createSignal, Show, For, on, onMount } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
+import { isPreviewExpired } from "../lib/change-revision";
 import { downloadBlob, downloadCsv } from "../lib/download";
 import { invalidateEvents } from "../lib/events-store";
 import { invalidateGuests } from "../lib/guests-store";
@@ -293,6 +294,9 @@ export default function ImportPanel(props: {
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as ImportErrorBody;
+        // An expired preview can never apply, so its Apply goes with it. The
+        // sheet stays chosen: Preview uploads it again.
+        if (isPreviewExpired(body)) setPreview(null);
         throw new Error(formatImportError(res.status, body));
       }
       const data = (await res.json()) as ApplyResponse;
