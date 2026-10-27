@@ -46,9 +46,10 @@ const rowIdle = "text-text-muted hover:text-text hover:bg-surface/50";
  * contrast contract (`styles/global.css`): in the light theme it paints about
  * 2.2:1 on its own wash, and this label, the one that says where the organiser
  * is, is normal-size text that needs 4.5:1. `gold-ink` clears that on the wash
- * in both themes. The icon beside it stays gold, set on the icon itself: it is
- * decoration (hidden from assistive tech, the label names the row), so no
- * contrast floor applies to it.
+ * in both themes. Where the label shows, the icon beside it stays gold, set on
+ * the icon itself: it is decoration (hidden from assistive tech, the label
+ * names the row), so no contrast floor applies to it. On the collapsed rail the
+ * icon is all the row shows, and it takes `gold-ink` there (see the rail).
  */
 const rowActive = "text-gold-ink bg-gold/10";
 
@@ -258,7 +259,7 @@ function LockedRow(props: {
     armLeave: () => open() && preview(),
   });
 
-  createEffect(on(open, (isOpen) => props.onCardChange?.(isOpen), { defer: true }));
+  createEffect(on(open, (isOpen) => props.onCardChange?.(isOpen)));
 
   const controls = () => (card ? [...card.querySelectorAll<HTMLElement>(CARD_CONTROLS)] : []);
 
@@ -464,17 +465,32 @@ export default function ModuleSidebar(props: {
   /** Set by the first press of the toggle, and only then: the labels fade in
    *  as the rail widens, never on a page that loads expanded. */
   const [moved, setMoved] = createSignal(false);
-  /** The locked row whose card is open on the rail, or null. While one is,
-   *  no label shows anywhere on the rail. */
-  const [cardOpen, setCardOpen] = createSignal<Module | null>(null);
-  const railTips = () => collapsed() && cardOpen() === null;
+  /** A press's slide is running. The width transition is on the rail only
+   *  then: the expanded width also steps when the shell crosses `@5xl/shell`
+   *  (a resize, zoom, a scrollbar arriving), and that should land at once,
+   *  as everything else in the shell does, not slide the panel for 200ms. */
+  const [sliding, setSliding] = createSignal(false);
+  /** A locked row's card is open on the rail. While one is, no label shows
+   *  anywhere on the rail. One flag serves every row: a card closes on the
+   *  pointer-down or the focus leaving it, before another row's press opens
+   *  the next. */
+  const [cardOpen, setCardOpen] = createSignal(false);
+  const railTips = () => collapsed() && !cardOpen();
   const navId = createUniqueId();
 
   const toggleRail = () => {
     const next = !collapsed();
+    setSliding(true);
     setCollapsed(next);
     setMoved(true);
     writeRailCollapsed(next);
+  };
+
+  /** The slide has landed. Only an end clears it, never a cancel: a second
+   *  press mid-slide cancels the first transition and starts the reverse, and
+   *  dropping the transition then would snap the reverse to its end. */
+  const slideEnded = (event: TransitionEvent) => {
+    if (event.target === event.currentTarget && event.propertyName === "width") setSliding(false);
   };
 
   const offerUpgrade = (mod: ModuleDef, opener: HTMLElement | undefined) => {
@@ -542,12 +558,14 @@ export default function ModuleSidebar(props: {
           the rail is the row's own padding around the icon — `px-3` twice and
           the 1.125rem icon, 2.625rem, which is `w-10.5` on the spacing scale —
           so no icon moves as it narrows; the panel takes the width it gives
-          up. */}
+          up. The width slides only while a press's slide runs ({@link
+          sliding}). */}
       <div
         data-rail=""
-        class={`hidden shrink-0 flex-col transition-[width] duration-(--dur-base) ease-(--ease-in-out) @2xl/shell:sticky @2xl/shell:top-[calc(5.5rem+1px)] @2xl/shell:flex @2xl/shell:self-start ${
-          collapsed() ? "w-10.5" : "w-52 @5xl/shell:w-56"
-        }`}
+        onTransitionEnd={slideEnded}
+        class={`hidden shrink-0 flex-col @2xl/shell:sticky @2xl/shell:top-[calc(5.5rem+1px)] @2xl/shell:flex @2xl/shell:self-start ${
+          sliding() ? "transition-[width] duration-(--dur-base) ease-(--ease-in-out)" : ""
+        } ${collapsed() ? "w-10.5" : "w-52 @5xl/shell:w-56"}`}
       >
         <nav
           id={navId}
@@ -577,11 +595,25 @@ export default function ModuleSidebar(props: {
               // little — the toggle at the foot by about 20px. Expanding after a
               // press, the label fades in as the rail makes room rather than
               // appearing cut short.
+              //
+              // Collapsed, the icon is all a row shows, so it is held to the 3:1
+              // a graphic that identifies a control needs: no `opacity-80` fade,
+              // and the active one in `gold-ink`, which reads on the pill's wash
+              // where `gold` does not. Expanded, the label carries the row and
+              // the icon keeps its quieter look.
               const Body = () => (
                 <>
                   <ModuleIcon
                     icon={mod.icon}
-                    class={isActive() ? "text-gold opacity-80" : "opacity-80"}
+                    class={
+                      collapsed()
+                        ? isActive()
+                          ? "text-gold-ink"
+                          : ""
+                        : isActive()
+                          ? "text-gold opacity-80"
+                          : "opacity-80"
+                    }
                   />
                   <span
                     class={
@@ -644,9 +676,7 @@ export default function ModuleSidebar(props: {
                     rowClass={`${railRow()} ${rowLocked}`}
                     dwell={!collapsed()}
                     tip={railTips()}
-                    onCardChange={(open) =>
-                      setCardOpen((was) => (open ? mod.id : was === mod.id ? null : was))
-                    }
+                    onCardChange={setCardOpen}
                     onUpgrade={(row) => offerUpgrade(mod, row)}
                     weddingId={props.weddingId}
                     weddingSlug={props.weddingSlug}
@@ -670,7 +700,7 @@ export default function ModuleSidebar(props: {
             button often is not. */}
         <div class="border-border mt-2 border-t pt-2">
           <RailTip
-            enabled={cardOpen() === null}
+            enabled={!cardOpen()}
             label={collapsed() ? "Expand sidebar" : "Collapse sidebar"}
           >
             <Tooltip.Trigger

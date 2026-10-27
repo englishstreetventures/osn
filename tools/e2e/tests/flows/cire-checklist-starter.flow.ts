@@ -197,10 +197,20 @@ test("cire-checklist-starter", async ({ page, flow }) => {
   const panelLeft = async (): Promise<number> => (await panelHeading.boundingBox())?.x ?? -1;
   const vendors = nav.getByRole("button", { name: RAIL_ROWS[5], exact: true });
 
+  const railLabels = page.locator("[data-rail-tip]");
+  /** Keyboard focus on a row opens its label at once wherever labels show, so
+   *  a count straight after it says whether this rail shows them. */
+  const labelsOnFocus = async (name: string): Promise<number> => {
+    await nav.getByRole("button", { name, exact: true }).focus();
+    return railLabels.count();
+  };
+
   const collapsed = await flow.step("collapse the module rail", async () => {
     const toggle = page.getByRole("button", { name: "Collapse sidebar" });
     await expect(toggle).toHaveAttribute("aria-expanded", "true");
     expect(await railWidth()).toBe(RAIL_EXPANDED);
+    // Expanded, a row's name is on screen: focus shows no label beside it.
+    const expandedLabels = await labelsOnFocus("Overview");
     const before = await panelLeft();
     await toggle.click();
     const expand = page.getByRole("button", { name: "Expand sidebar" });
@@ -211,8 +221,14 @@ test("cire-checklist-starter", async ({ page, flow }) => {
     for (const name of RAIL_ROWS) {
       if (await nav.getByRole("button", { name, exact: true }).isVisible()) reachable += 1;
     }
-    return { width: await railWidth(), gave: before - (await panelLeft()), reachable };
+    return {
+      expandedLabels,
+      width: await railWidth(),
+      gave: before - (await panelLeft()),
+      reachable,
+    };
   });
+  flow.check("rail: expanded, a focused row shows no label", 0, collapsed.expandedLabels);
   flow.check("rail: collapsed to its icons, in px", RAIL_COLLAPSED, collapsed.width);
   flow.check("rail: the panel took the width the rail gave up", true, collapsed.gave >= 160);
   flow.check(
@@ -274,13 +290,35 @@ test("cire-checklist-starter", async ({ page, flow }) => {
     );
     await expect.poll(railWidth).toBe(RAIL_EXPANDED);
     await expect(nav.getByText("Run sheet", { exact: true })).toBeVisible();
-    // Off the rail, so the final screenshot shows the rail and no label.
+    const labels = await labelsOnFocus("Overview");
+    // Off the rail, so the final screenshot shows the rail with no label and
+    // no focus ring.
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await panelHeading.hover();
-    await expect(page.locator("[data-rail-tip]")).toHaveCount(0);
-    return { width: await railWidth(), slides: await railSlides(page) };
+    await expect(railLabels).toHaveCount(0);
+    return { width: await railWidth(), slides: await railSlides(page), labels };
   });
   flow.check("rail: expanded again, in px", RAIL_EXPANDED, expanded.width);
   // The same document's count as the reload's check read: the press is the
   // one slide in it, which shows the counter sees a slide when there is one.
   flow.check("rail: the press slides it open, the one slide since the reload", 1, expanded.slides);
+  flow.check("rail: expanded again, a focused row shows no label", 0, expanded.labels);
+
+  // Against the real top bar: the rail sticks below it once the page scrolls
+  // far enough to take the rail's own place under the bar.
+  const stuck = await flow.step("scroll the checklist under the top bar", async () => {
+    const railTop = (await nav.boundingBox())?.y ?? 0;
+    const want = Math.round(railTop) - 10;
+    await page.evaluate((by) => window.scrollBy(0, by), want);
+    const scrolled = await page.evaluate(() => window.scrollY);
+    const bar = await page.getByRole("banner").boundingBox();
+    const rail = await nav.boundingBox();
+    await page.evaluate(() => window.scrollTo(0, 0));
+    return {
+      far: scrolled >= want,
+      below: bar !== null && rail !== null && rail.y >= bar.y + bar.height,
+    };
+  });
+  flow.check("rail: the page scrolled past the rail's own place", true, stuck.far);
+  flow.check("rail: sticks below the top bar", true, stuck.below);
 });

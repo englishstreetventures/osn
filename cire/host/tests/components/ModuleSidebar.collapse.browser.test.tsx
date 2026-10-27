@@ -1,4 +1,4 @@
-import { contrastRatio, WCAG_TEXT_MIN } from "@cire/theme";
+import { contrastRatio, WCAG_TEXT_MIN, WCAG_UI_MIN } from "@cire/theme";
 import { cleanup, render, screen, within } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cdp, commands, page, userEvent } from "vitest/browser";
@@ -12,21 +12,25 @@ import "../../src/styles/global.css";
  * a locked row's card on the collapsed rail. What only a stylesheet, a layout
  * engine and Chrome's accessibility tree can answer is here:
  *
+ * - that no icon or row moves as the rail narrows, and nothing spills past it;
  * - where a collapsed row's label appears, that it paints on top of the panel
- *   and the top bar, and that its ink reads in both themes;
+ *   and the top bar, and that its ink, and every collapsed icon's, reads in
+ *   both themes;
+ * - that labels show only on the collapsed rail, and the toggle's on both;
  * - that a collapsed row is named by its label and described by its hint once,
  *   with the label's panel open or closed, and that the toggle has no
  *   description to repeat its name;
  * - that a locked row's card and the labels never sit on top of one another,
  *   and that a resting pointer opens no card on the collapsed rail;
+ * - that the labels fade in after a press and never on load, and that the rail
+ *   slides on a press and never when the shell crosses a width step;
  * - that a phone, where the sheet stands in for the rail, ignores the choice;
- * - that a reader who asked for no motion gets the narrow rail at once;
- * - that the sticky rail stays below the sticky top bar once the page scrolls;
- * - what the slide costs, frame by frame, over a wedding-sized RSVP table.
+ * - that a reader who asked for no motion gets the narrow rail at once.
  *
  * It renders the real `ModuleShell` on Guests → RSVPs for a Gold wedding, so
  * Vendors is the one locked row, under a stand-in for the page's sticky top bar
- * with the same classes and heights. Screenshots land in `__screenshots__/`
+ * with the same classes and heights. Where the rail sticks against the real top
+ * bar is the end-to-end flow's to check. Screenshots land in `__screenshots__/`
  * beside this file (gitignored).
  *
  * The browser context, and so `localStorage`, is shared by every browser test
@@ -64,9 +68,8 @@ const shot = (name: string) =>
   `__screenshots__/ModuleSidebar.collapse.browser.test.tsx/${name}.png`;
 
 /** The page around the shell: the frame container, a sticky top bar with the
- *  real one's classes and the page measure — and, when `tall`, enough below
- *  the shell to scroll it under the bar. */
-function renderPage(guests = 12, tall = false) {
+ *  real one's classes, and the page measure. */
+function renderPage(guests = 12) {
   const payload = { events: [eventPayload("evt_ceremony", "Ceremony", guestList(guests), 0)] };
   authFetch.mockImplementation(
     async () =>
@@ -105,7 +108,6 @@ function renderPage(guests = 12, tall = false) {
           guestCap={1000}
         />
       </main>
-      {tall ? <div style={{ height: "2000px" }} /> : null}
     </div>
   ));
   return rows;
@@ -124,11 +126,14 @@ const toggle = () => screen.getByRole("button", { name: /^(Collapse|Expand) side
 const row = (name: string | RegExp) => within(nav()).getByRole("button", { name });
 const vendors = () => row(/^Vendors — locked/);
 const heading = () => screen.getByRole("heading", { level: 2, name: "Guests" });
-const topBar = () => document.querySelector<HTMLElement>("[data-top-bar]")!;
 const upgrade = () => screen.queryByRole("button", { name: "Upgrade to Crimson" });
 /** The open label, if any. It is `aria-hidden`, so a role query skips it. */
 const tip = () => document.querySelector<HTMLElement>("[data-rail-tip]");
 const width = (el: Element) => el.getBoundingClientRect().width;
+const box = (el: Element) => el.getBoundingClientRect();
+const glyph = (el: Element) => el.querySelector("svg")!;
+/** A row's label: the first `<span>` in it, after the icon. */
+const labelOf = (el: Element) => el.querySelector("span")!;
 /** Where every icon on the rail sits, the toggle's last. */
 const marks = () =>
   [...rail().querySelectorAll("svg")].map((svg) => {
@@ -158,28 +163,42 @@ async function openTip(): Promise<HTMLElement> {
   return found;
 }
 
-/** Composite `layers` bottom-up on a 1px canvas and read back plain `rgb`. */
-function composite(layers: readonly string[]): string {
+/** Composite `layers` bottom-up on a 1px canvas, the last at `alpha`, and read
+ *  back plain `rgb`. */
+function composite(layers: readonly string[], alpha = 1): string {
   const canvas = document.createElement("canvas");
   canvas.width = canvas.height = 1;
   const ctx = canvas.getContext("2d")!;
-  for (const layer of layers) {
+  layers.forEach((layer, i) => {
+    ctx.globalAlpha = i === layers.length - 1 ? alpha : 1;
     ctx.fillStyle = layer;
     ctx.fillRect(0, 0, 1, 1);
-  }
+  });
   const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
   return `rgb(${r}, ${g}, ${b})`;
 }
 
-/** A line's ink against every background under it, as the screen shows them. */
-function ratio(line: Element): number {
+/** Every background up `el`'s tree, outermost first. */
+function backgrounds(el: Element): string[] {
   const layers: string[] = [];
-  for (let node: Element | null = line; node; node = node.parentElement) {
+  for (let node: Element | null = el; node; node = node.parentElement) {
     const bg = getComputedStyle(node).backgroundColor;
     if (bg && bg !== "rgba(0, 0, 0, 0)" && bg !== "transparent") layers.push(bg);
   }
-  const backdrop = composite(layers.toReversed());
-  return contrastRatio(composite([backdrop, getComputedStyle(line).color]), backdrop)!;
+  return layers.toReversed();
+}
+
+/**
+ * Ink against everything under it, as the screen shows them: the element's
+ * own `color` at its own `opacity`, over every background up its tree and any
+ * `under` — a wash that is a sibling rather than an ancestor, as the rail's
+ * sliding pill is.
+ */
+function ratio(el: Element, under: readonly string[] = []): number {
+  const backdrop = composite([...backgrounds(el), ...under]);
+  const style = getComputedStyle(el);
+  const ink = composite([backdrop, style.color], Number(style.opacity));
+  return contrastRatio(ink, backdrop)!;
 }
 
 /** Whether the element painted at a box's centre is that box or inside it. */
@@ -260,15 +279,47 @@ describe("the collapsed rail at desktop width", () => {
       await page.viewport(1280, 800);
       await ready(renderPage());
       expect(width(rail())).toBe(EXPANDED);
+      // Expanded: a row's label sits one gap after its icon, and the toggle's
+      // icon sits in the rows' icon column.
+      const overviewRow = row("Overview");
+      expect(box(labelOf(overviewRow)).left - box(glyph(overviewRow)).right).toBeCloseTo(12, 1);
+      expect(box(glyph(toggle())).left).toBe(box(glyph(overviewRow)).left);
+      // A row shows no label beside it — its name is on screen, and its hint is
+      // its native tooltip — while the toggle, an icon alone, names itself.
+      await userEvent.hover(overviewRow);
+      await pause(700);
+      expect(tip()).toBeNull();
+      await userEvent.hover(toggle());
+      await vi.waitFor(() => expect(tip()?.textContent).toBe("Collapse sidebar"));
+      await userEvent.hover(heading());
+      await vi.waitFor(() => expect(tip()).toBeNull());
       await page.screenshot({ path: shot(`${theme}-1280-expanded`) });
       const before = marks();
 
       await slide(COLLAPSED);
       // Every icon and the toggle stayed exactly where they were: the row's
       // padding is the rail's width, and a row keeps its height without its
-      // label, so a second click lands on the toggle again.
+      // label, so a second click lands on the toggle again. Nothing in a row
+      // reaches past the narrow rail.
       expect(width(nav())).toBe(COLLAPSED);
       expect(marks()).toEqual(before);
+      for (const each of within(nav()).getAllByRole("button")) {
+        expect(each.scrollWidth, `${each.textContent} spills past the rail`).toBeLessThanOrEqual(
+          each.clientWidth,
+        );
+      }
+      // Collapsed, an icon is the only mark a row shows, so it is held to the
+      // 3:1 a graphic that identifies a control needs: locked, idle and active
+      // (on the sliding pill's wash) alike.
+      const pill = getComputedStyle(nav().querySelector("span[aria-hidden='true']")!);
+      for (const each of within(nav()).getAllByRole("button")) {
+        const active = each.getAttribute("aria-current") === "page";
+        const measured = ratio(glyph(each), active ? [pill.backgroundColor] : []);
+        expect(
+          measured,
+          `${each.getAttribute("aria-label") ?? each.textContent} icon measured ${measured.toFixed(2)}:1`,
+        ).toBeGreaterThanOrEqual(WCAG_UI_MIN);
+      }
       // The toggle's own label may have opened under the resting pointer; it
       // goes once the pointer leaves.
       await userEvent.hover(heading());
@@ -353,8 +404,12 @@ describe("the collapsed rail at desktop width", () => {
     await pause(700);
     expect(tip()).toBeNull();
 
-    // No other row's label opens while the card is open.
+    // No other label opens while the card is open: not another row's, and not
+    // the toggle's.
     await userEvent.hover(row("Overview"));
+    await pause(700);
+    expect(tip()).toBeNull();
+    await userEvent.hover(toggle());
     await pause(700);
     expect(tip()).toBeNull();
     expect(upgrade()).not.toBeNull();
@@ -406,18 +461,65 @@ describe("the collapsed rail at desktop width", () => {
     expect(rail().getAnimations()).toHaveLength(0);
   });
 
-  it("keeps the sticky rail below the sticky top bar once the page scrolls", async () => {
+  it("fades the labels in after a press, and never on a page that loads expanded", async () => {
     await page.viewport(1280, 800);
-    await ready(renderPage(12, true));
-    // Far enough that the rail's own place in the page has gone under the bar.
-    window.scrollBy(0, rail().getBoundingClientRect().top - 10);
-    await nextFrame();
-    expect(rail().getBoundingClientRect().top).toBeGreaterThanOrEqual(
-      topBar().getBoundingClientRect().bottom,
-    );
-    expectOnTop(toggle(), "the toggle, after scrolling");
+    await ready(renderPage());
+    const fades = () =>
+      labelOf(row("Overview"))
+        .getAnimations()
+        .map((animation) => (animation as CSSAnimation).animationName);
+    expect(fades()).toEqual([]);
+    await slide(COLLAPSED);
+    toggle().click();
+    expect(fades()).toEqual(["rail-label-in"]);
+    await expect.poll(() => width(rail())).toBe(EXPANDED);
   });
 
+  it("slides on a press, both ways, and never when the shell crosses a width step", async () => {
+    await page.viewport(1280, 800);
+    await ready(renderPage());
+    let slides = 0;
+    let landed = 0;
+    const onRail = (event: TransitionEvent) =>
+      event.target === rail() && event.propertyName === "width";
+    const count = (event: TransitionEvent) => {
+      if (onRail(event)) slides += 1;
+    };
+    const land = (event: TransitionEvent) => {
+      if (onRail(event)) landed += 1;
+    };
+    document.addEventListener("transitionrun", count, true);
+    document.addEventListener("transitionend", land, true);
+    try {
+      // Under `@5xl/shell` the expanded rail is 13rem, not 14rem: the window
+      // narrowing takes the shell across that step, and the rail follows at
+      // once, as everything else in the shell does.
+      await page.viewport(1000, 800);
+      await expect.poll(() => width(rail())).toBe(208);
+      await slide(COLLAPSED);
+      await slide(208);
+      // The slide has ended, a frame after its last width.
+      await expect.poll(() => landed).toBe(2);
+      await page.viewport(1280, 800);
+      await expect.poll(() => width(rail())).toBe(EXPANDED);
+      await nextFrame();
+      await nextFrame();
+      expect(slides).toBe(2);
+    } finally {
+      document.removeEventListener("transitionrun", count, true);
+      document.removeEventListener("transitionend", land, true);
+    }
+  });
+});
+
+/**
+ * What the slide costs, frame by frame, over a wedding-sized table. A
+ * measurement rather than a check, so it runs only when asked for:
+ * `VITE_RAIL_SLIDE_BENCH=1 bunx --bun vitest run --project browser
+ * tests/components/ModuleSidebar.collapse.browser.test.tsx --reporter=verbose`.
+ * The figures it prints are the ones `cire/host/DESIGN.md` §5 quotes.
+ */
+describe.runIf(import.meta.env.VITE_RAIL_SLIDE_BENCH === "1")("rail slide cost", () => {
   it("slides, frame by frame, over a 300-guest table", async ({ annotate }) => {
     await page.viewport(1280, 800);
     await ready(renderPage(300));
@@ -447,7 +549,7 @@ describe("the collapsed rail at desktop width", () => {
     const expand = await record(EXPANDED);
     await annotate(`${summary("collapse", collapse)}; ${summary("expand", expand)}`);
 
-    // It moved between the two widths rather than jumping, and it landed.
+    // The figures mean something only if both runs slid and landed.
     for (const run of [collapse, expand]) {
       expect(run.widths.some((w) => w > COLLAPSED + 1 && w < EXPANDED - 1)).toBe(true);
     }
@@ -472,6 +574,13 @@ describe("on a phone", () => {
       for (const label of ["Overview", "Guests", "Settings"]) {
         expect(width(within(sheet).getByText(label))).toBeGreaterThan(20);
       }
+      // The sheet's rows show their own words; a locked one shows no label
+      // beside it, even on keyboard focus, which opens one at once on the rail.
+      within(sheet)
+        .getByRole("button", { name: /^Vendors — locked/ })
+        .focus();
+      await pause(400);
+      expect(tip()).toBeNull();
       await page.screenshot({ path: shot(`${theme}-390-sheet`) });
     });
   }

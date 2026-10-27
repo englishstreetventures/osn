@@ -301,11 +301,18 @@ Each choice, and what it was weighed against:
 
 - **An icon rail, not a hidden or off-canvas one.** Collapsed, the rail is
   2.625rem: the row's own `px-3` around the 1.125rem icon, so no icon moves as
-  it narrows (§1). The active row keeps its gold icon, pill and bar, and locked
-  rows keep their fade, so the organiser still sees where they are and still
-  reaches any module in one click. A rail hidden outright makes every move two
-  clicks and drops the "you are here" mark; an off-canvas drawer at desktop is
-  the phone's sheet, a modal per move.
+  it narrows (§1). The active row keeps its icon, pill and bar, and locked rows
+  stay dimmer than the rest, so the organiser still sees where they are and
+  still reaches any module in one click. A rail hidden outright makes every
+  move two clicks and drops the "you are here" mark; an off-canvas drawer at
+  desktop is the phone's sheet, a modal per move.
+- **A collapsed icon reads at 3:1.** Collapsed, the icon is the only mark a row
+  shows, so it is held to the 3:1 WCAG asks of a graphic that identifies a
+  control: it drops the `opacity-80` fade it wears beside a label, and the
+  active one is `--gold-ink`, since `--gold` has no contrast contract (§2) and
+  falls short of 3:1 on the pill's wash in the light theme. A locked icon stays
+  in `--text-faint`, which clears 3:1 at full strength and still reads dimmer
+  than an idle one.
 - **Every row keeps its place.** A collapsed label stays in the row's flow at
   no width, with the gap before it gone. `sr-only` would take the label's line
   box, which is taller than the icon, out of the row, and every row below would
@@ -341,19 +348,22 @@ Each choice, and what it was weighed against:
   the tier after 300ms, and a card in the same place three seconds later would
   say it again, so there a locked row's card opens on a press only. No tooltip
   shows while any card is open.
-- **Motion.** The rail's `width` transitions over `--dur-base` with
-  `--ease-in-out`, something moving between two places. The labels fade back in
-  as it widens (`rail-label`, held for the first 40% by keyframe percentage), and
-  a tooltip arrives with a `--dur-fast` fade and a 4px slide out of the rail
-  (`rail-tip`) and leaves at once. The reduced-motion switch stops all three.
-  The panel reflows on every frame of the slide. Holding the panel's width
-  through the slide was rejected: expanding would push the held content under
-  the frame's edge and then snap, which §1 forbids.
+- **Motion.** On a press, the rail's `width` transitions over `--dur-base` with
+  `--ease-in-out`, something moving between two places. Only on a press: the
+  expanded width also steps at `@5xl/shell` (a resize, zoom, a scrollbar
+  arriving), and that lands at once, as everything else in the shell does, so
+  the transition is on the rail only while a press's slide runs. The labels
+  fade back in as it widens (`rail-label`, held for the first 40% by keyframe
+  percentage), and a tooltip arrives with a `--dur-fast` fade and a 4px slide
+  out of the rail (`rail-tip`) and leaves at once. The reduced-motion switch
+  stops all three. The panel reflows on every frame of the slide. Holding the
+  panel's width through the slide was rejected: expanding would push the held
+  content under the frame's edge and then snap, which §1 forbids.
 
   Over a 300-guest RSVP table, the slide each way takes 24–25 frames, the
   longest 9.4–21.9ms and the median 8.3ms.
 
-  *Measured 2026-10-28 — `bunx --bun vitest run --project browser tests/components/ModuleSidebar.collapse.browser.test.tsx -t "frame by frame" --reporter=verbose` in `cire/host`, headless Chromium on a 120Hz Mac, two runs*
+  *Measured 2026-10-28 — `VITE_RAIL_SLIDE_BENCH=1 bunx --bun vitest run --project browser tests/components/ModuleSidebar.collapse.browser.test.tsx -t "frame by frame" --reporter=verbose` in `cire/host`, headless Chromium on a 120Hz Mac, two runs*
 - **Remembered per browser.** `localStorage` key `cire.host.rail`, value
   `collapsed` (`src/lib/rail-preference.ts`); expanding removes the key. It is
   read as the sidebar is created, so a collapsed page paints collapsed and never
@@ -369,10 +379,11 @@ Each choice, and what it was weighed against:
   4rem and hairline at every width that has a rail, plus 1.5rem. A smaller
   offset slides the rail's first rows under the bar once the page scrolls.
 
-`ModuleSidebar.collapse.browser.test.tsx` checks the places, the tooltip, the
-names, the motion and the sticking in Chromium; the `cire-checklist-starter`
-end-to-end flow checks the toggle, the stored choice across a reload and a
-locked card opened from the narrow rail.
+`ModuleSidebar.collapse.browser.test.tsx` checks the places, the icon and
+tooltip ink, the tooltip, the names and the motion in Chromium; the
+`cire-checklist-starter` end-to-end flow checks the toggle, the stored choice
+across a reload, a locked card opened from the narrow rail and the rail
+sticking below the real top bar.
 
 ---
 

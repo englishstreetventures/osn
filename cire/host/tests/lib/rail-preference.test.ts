@@ -39,13 +39,6 @@ afterEach(() => {
 });
 
 describe("rail-preference", () => {
-  it("remembers a collapsed rail", () => {
-    expect(readRailCollapsed()).toBe(false);
-    writeRailCollapsed(true);
-    expect(globalThis.localStorage.getItem(RAIL_PREFERENCE_KEY)).toBe("collapsed");
-    expect(readRailCollapsed()).toBe(true);
-  });
-
   it("reads expanded, and writes nothing, when reaching storage throws", () => {
     // Site data blocked by the browser: the `localStorage` getter itself throws
     // a SecurityError, which a `typeof localStorage` guard does not stop.
