@@ -159,7 +159,7 @@ Every consumer fails closed. The mapping lives in
 | Step-up token guard | `claim` | The token is refused as "could not be verified", and is not counted as a replay |
 | Discoverable passkey challenge claims | `claim` | The same 503 |
 | Lockouts, `status` / `recordFailure` | `count` / `increment` | Answers `"unknown"`. Every caller refuses with its generic error and writes no security event; a failure that could not be counted shows as `result="unavailable"` on the factor's lockout metric |
-| Lockouts, `reset` | `remove` | Swallowed; the counter expires with its window |
+| Lockouts, `reset` | `remove`, only when the lookup on the way in counted a failure; on the recovery-code and TOTP routes it runs after the answer | Swallowed; the counter expires with its window |
 | Health probe | `write`, `read`, `remove` | `GET /health/coordination` answers 503 |
 
 A ceremony value that does not parse as JSON reads as absent, which sends the
@@ -276,7 +276,9 @@ for (counted from the code, 2026-10-27):
 |---|---|
 | Code `begin` (step-up OTP, TOTP enrolment, email change, recovery email) | 1 `write`, after any cap or limiter |
 | Registration `begin` | 1 `swap`, after a D1 collision probe |
-| Code `complete`, success | 1 `guess`, then the claim or delete |
+| Code `complete`, success | 1 `guess`, then the claim; registration and email change instead delete the entry once their commit lands, after the answer |
+| Recovery code sign-in, success | 1 (the lockout lookup); the reset runs after the answer, and only when the lookup counted a failure |
+| TOTP step-up or TOTP recovery, success | 1 (the lockout lookup, beside the credential read); the reset as for a recovery code |
 | Passkey sign-in, identified: `begin` / `complete` | 1 / 1 (`take`) |
 | Passkey sign-in, discoverable: `begin` / `complete` | 0 / 1 (`claim`, only once the signature verifies) |
 | Step-up passkey, passkey registration `complete` | 1 (`take`) |

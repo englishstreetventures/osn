@@ -284,6 +284,8 @@ describe("O2 recovery-code lockout", () => {
         );
       }
       yield* svc.consumeRecoveryCode("lock-reset@example.com", codes[0]!);
+      // The reset runs after the answer; let it land.
+      yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 10)));
       // After the reset, 4 more fails still don't lock (would need 5 fresh).
       for (let i = 0; i < 4; i++) {
         yield* Effect.flip(
@@ -365,7 +367,7 @@ describe("O2 recovery-code lockout", () => {
 describe("recovery-code lockout store unavailable", () => {
   const unreachable: RecoveryLockoutStore = {
     backend: "memory",
-    status: () => Promise.resolve("unknown"),
+    status: () => Promise.resolve({ status: "unknown" as const }),
     recordFailure: () => Promise.resolve("unknown"),
     reset: () => Promise.resolve(),
   };
@@ -426,7 +428,10 @@ describe("recovery-code lockout store unavailable", () => {
       // refused, and none is known to have crossed the threshold.
       const svc = createAuthService({
         ...config,
-        recoveryLockoutStore: { ...unreachable, status: () => Promise.resolve("open") },
+        recoveryLockoutStore: {
+          ...unreachable,
+          status: () => Promise.resolve({ status: "open" as const, failures: 0 }),
+        },
       });
       const profile = yield* svc.registerProfile("lock-nowrite@example.com", "locknowrite");
       yield* svc.generateRecoveryCodesForAccount(profile.accountId);

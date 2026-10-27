@@ -326,9 +326,9 @@ export function createRecoveryModule(
       // owner retries once the store answers again — and no security event is
       // written, since nothing is known to have crossed the threshold.
       const lockout = yield* Effect.promise(() => recoveryLockoutStore.status(profile.accountId));
-      if (lockout !== "open") {
+      if (lockout.status !== "open") {
         yield* padRefusal;
-        metricRecoveryLockout(lockout === "locked" ? "locked" : "unavailable");
+        metricRecoveryLockout(lockout.status === "locked" ? "locked" : "unavailable");
         metricRecoveryCodeConsumed("invalid");
         return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
       }
@@ -402,9 +402,15 @@ export function createRecoveryModule(
       });
 
       metricRecoveryCodeConsumed("success");
-      // O2: a successful consume clears the failed-attempt counter.
-      yield* Effect.promise(() => recoveryLockoutStore.reset(profile.accountId));
-      metricRecoveryLockout("reset");
+      // O2: a successful consume clears the failed-attempt counter — after the
+      // answer, since the answer does not depend on it, and only when the
+      // lookup above counted a failure to clear. A failure a concurrent wrong
+      // code records in between is left standing, which is stricter, and
+      // expires with its window.
+      if (lockout.failures > 0) {
+        yield* forkBackground(Effect.promise(() => recoveryLockoutStore.reset(profile.accountId)));
+        metricRecoveryLockout("reset");
+      }
       // S-L3: whole-account session wipe is a security-relevant event — emit
       // the canonical invalidation metric so the existing dashboard covers it.
       metricSessionSecurityInvalidation("recovery_code_consume");

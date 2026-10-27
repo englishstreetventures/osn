@@ -11,6 +11,7 @@ import { type EmailError, EmailService } from "@shared/email";
 import { and, count as countFn, eq, gte, ne } from "drizzle-orm";
 import { Effect, Schema } from "effect";
 
+import { forkBackground } from "../../lib/background";
 import { UNIQUE_CONSTRAINT_ERROR } from "../../lib/unique-constraint";
 import {
   metricAuthOtpSent,
@@ -319,9 +320,9 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
       }
 
       // The change has committed, so the answer is success whatever happens
-      // here; an entry the store cannot delete expires with its TTL, and its
-      // guess count with it.
-      yield* dropPending(accountId);
+      // here, and the delete runs after it; an entry the store cannot delete
+      // expires with its TTL, and its guess count with it.
+      yield* forkBackground(dropPending(accountId));
       metricSessionSecurityInvalidation("email_change");
       return { email: changed.email };
     }).pipe(withEmailChange("complete"));

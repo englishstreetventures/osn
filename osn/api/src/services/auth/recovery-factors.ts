@@ -539,7 +539,7 @@ export function createRecoveryFactorsModule(
         ],
         { concurrency: "unbounded" },
       );
-      if (lockout !== "open") {
+      if (lockout.status !== "open") {
         // Pad to the failure record and answer the same generic failure: a
         // locked account must be indistinguishable from a wrong code, or the
         // lockout becomes its own oracle — and one an attacker can create at
@@ -548,7 +548,7 @@ export function createRecoveryFactorsModule(
         // sooner than an identifier that names nobody. The failure goes to the
         // probe key: a refused guess does not extend the lockout.
         yield* padFailure(probe);
-        metricRecoveryLockout(lockout === "locked" ? "locked" : "unavailable");
+        metricRecoveryLockout(lockout.status === "locked" ? "locked" : "unavailable");
         return yield* Effect.fail(new AuthError({ message: GENERIC_FAILURE }));
       }
 

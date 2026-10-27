@@ -43,13 +43,20 @@ export const RECOVERY_LOCKOUT_MS = 15 * 60 * 1000; // 15 minutes
 
 export type RecoveryLockoutBackend = "memory" | "durable_object";
 
-/** What a lockout check answers. `"unknown"`: the counter could not be read. */
-export type LockoutStatus = "open" | "locked" | "unknown";
+/**
+ * What a lockout check answers: `"locked"` while the account has at least the
+ * threshold's failures inside the window, `"open"` otherwise, each with the
+ * failures counted; `"unknown"` when the counter could not be read. A caller
+ * that succeeds skips `reset` when `failures` was 0: there is nothing to clear.
+ */
+export type LockoutReading =
+  | { readonly status: "open" | "locked"; readonly failures: number }
+  | { readonly status: "unknown" };
 
 export interface RecoveryLockoutStore {
   readonly backend: RecoveryLockoutBackend;
-  /** `"locked"` while the account has ≥ THRESHOLD failures inside the window. */
-  status(accountId: string): Promise<LockoutStatus>;
+  /** The account's standing, and its failures inside the window. */
+  status(accountId: string): Promise<LockoutReading>;
   /**
    * Record one failed attempt. Returns the running failure count within the
    * current window (so the caller can emit a `locked` metric on the attempt
@@ -91,8 +98,8 @@ export function createInMemoryRecoveryLockoutStore(
   return {
     backend: "memory",
     async status(accountId) {
-      const bucket = live(accountId);
-      return bucket !== null && bucket.count >= threshold ? "locked" : "open";
+      const failures = live(accountId)?.count ?? 0;
+      return { status: failures >= threshold ? "locked" : "open", failures };
     },
     async recordFailure(accountId) {
       const bucket = live(accountId);

@@ -12,6 +12,7 @@ import { eq, sql } from "drizzle-orm";
 import { unionAll } from "drizzle-orm/sqlite-core";
 import { Effect, Schema } from "effect";
 
+import { forkBackground } from "../../lib/background";
 import { UNIQUE_CONSTRAINT_ERROR } from "../../lib/unique-constraint";
 import { metricAuthHandleCheck, metricAuthOtpSent, withAuthRegister } from "../../metrics";
 import { guessEntry, spendEntry } from "./attempts";
@@ -494,9 +495,10 @@ export function createRegistrationModule(
       }
 
       // Success: only NOW delete the pending entry, and its guess count with
-      // it. The account exists whatever happens here, so a store fault is not
-      // the caller's answer; an entry left behind expires with its TTL.
-      yield* spendEntry(stores.pendingRegistrations, key).pipe(Effect.ignore);
+      // it — after the answer, since the account exists whatever happens
+      // here. A store fault is not the caller's answer; an entry left behind
+      // expires with its TTL.
+      yield* forkBackground(spendEntry(stores.pendingRegistrations, key).pipe(Effect.ignore));
 
       const issued = yield* issueTokens(
         id,

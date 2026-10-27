@@ -246,7 +246,7 @@ export function createTotpModule(
         [Effect.promise(() => totpLockoutStore.status(key)), confirmedCredential(accountId)],
         { concurrency: "unbounded" },
       );
-      if (lockout !== "open") {
+      if (lockout.status !== "open") {
         // Refused without checking the code, at what a wrong code costs: the
         // credential query, a verification against the dummy key, and the
         // failure record — a refused attempt is a failed one. Otherwise a
@@ -254,7 +254,7 @@ export function createTotpModule(
         // than an identifier that names nobody (`burnTotpCheckCost`).
         yield* Effect.promise(() => verifyTotpCode({ secret: new Uint8Array(0), code }));
         yield* Effect.promise(() => totpLockoutStore.recordFailure(key));
-        if (lockout === "locked") {
+        if (lockout.status === "locked") {
           metricTotpLockout("locked", scope);
           metricTotpVerified("locked_out");
         } else {
@@ -342,8 +342,12 @@ export function createTotpModule(
       // read high exactly when it matters.
       if (rekey) metricTotpRekeyed("ok");
 
-      yield* Effect.promise(() => totpLockoutStore.reset(lockoutKey(accountId, scope)));
-      metricTotpLockout("reset", scope);
+      // Clears the failed-attempt counter after the answer, and only when the
+      // lookup above counted a failure to clear; see `consumeRecoveryCode`.
+      if (lockout.failures > 0) {
+        yield* forkBackground(Effect.promise(() => totpLockoutStore.reset(key)));
+        metricTotpLockout("reset", scope);
+      }
       metricTotpVerified("ok");
     });
 

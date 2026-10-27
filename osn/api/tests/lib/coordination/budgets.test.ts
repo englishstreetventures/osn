@@ -181,10 +181,15 @@ describe.each(Object.entries(builders))("%s bundle", (_name, build) => {
         }
         vi.setSystemTime(start + lockoutMs - 1);
         // eslint-disable-next-line no-await-in-loop -- one store at a time
-        expect(await store.status("acc_1"), `${name} at the end of its window`).toBe("locked");
+        expect(await store.status("acc_1"), `${name} at the end of its window`).toMatchObject({
+          status: "locked",
+        });
         vi.setSystemTime(start + lockoutMs + 1);
         // eslint-disable-next-line no-await-in-loop -- one store at a time
-        expect(await store.status("acc_1"), `${name} after its window`).toBe("open");
+        expect(await store.status("acc_1"), `${name} after its window`).toEqual({
+          status: "open",
+          failures: 0,
+        });
       }
     } finally {
       vi.useRealTimers();

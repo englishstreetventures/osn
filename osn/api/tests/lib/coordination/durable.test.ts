@@ -136,7 +136,7 @@ describe("durable lockout counters", () => {
         { threshold: 5, lockoutMs: 900_000 },
         onError,
       );
-      expect(await store.status(KEY)).toBe("unknown");
+      expect(await store.status(KEY)).toEqual({ status: "unknown" });
       expect(await store.recordFailure(KEY)).toBe("unknown");
       await expect(store.reset(KEY)).resolves.toBeUndefined();
       expect(onError.mock.calls.map(([named, op]) => `${named}.${op}`)).toEqual([
@@ -157,11 +157,11 @@ describe("durable lockout counters", () => {
     );
     expect(await store.recordFailure(KEY)).toBe(1);
     expect(await store.recordFailure(KEY)).toBe(2);
-    expect(await store.status(KEY)).toBe("open");
+    expect(await store.status(KEY)).toEqual({ status: "open", failures: 2 });
     expect(await store.recordFailure(KEY)).toBe(3);
-    expect(await store.status(KEY)).toBe("locked");
+    expect(await store.status(KEY)).toEqual({ status: "locked", failures: 3 });
     await store.reset(KEY);
-    expect(await store.status(KEY)).toBe("open");
+    expect(await store.status(KEY)).toEqual({ status: "open", failures: 0 });
   });
 
   // F-CL9

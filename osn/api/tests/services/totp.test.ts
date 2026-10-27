@@ -805,7 +805,7 @@ describe("TOTP per-account lockout", () => {
 
       const broken = {
         backend: "memory" as const,
-        status: () => Promise.resolve("unknown" as const),
+        status: () => Promise.resolve({ status: "unknown" as const }),
         recordFailure: () => Promise.resolve("unknown" as const),
         reset: () => Promise.resolve(),
       };
@@ -822,12 +822,12 @@ describe("TOTP per-account lockout", () => {
     // backend never reports a permanent lockout, or a first failure as having
     // reached the threshold, which would break every local dev ceremony.
     const store = createInMemoryRecoveryLockoutStore({ threshold: 3 });
-    expect(await store.status("acc_x")).toBe("open");
+    expect(await store.status("acc_x")).toEqual({ status: "open", failures: 0 });
     expect(await store.recordFailure("acc_x")).toBe(1);
-    expect(await store.status("acc_x")).toBe("open");
+    expect(await store.status("acc_x")).toEqual({ status: "open", failures: 1 });
     expect(await store.recordFailure("acc_x")).toBe(2);
     expect(await store.recordFailure("acc_x")).toBe(3);
-    expect(await store.status("acc_x")).toBe("locked");
+    expect(await store.status("acc_x")).toEqual({ status: "locked", failures: 3 });
   });
 });
 

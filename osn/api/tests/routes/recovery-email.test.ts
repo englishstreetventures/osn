@@ -483,7 +483,7 @@ describe("POST /login/recovery/email/complete", () => {
     const { app, db, seed, recorded } = makeApp(undefined, {
       recoveryOtpLockoutStore: {
         backend: "memory",
-        status: () => Promise.resolve("unknown"),
+        status: () => Promise.resolve({ status: "unknown" as const }),
         recordFailure: () => Promise.resolve("unknown"),
         reset: () => Promise.resolve(),
       },
@@ -856,7 +856,7 @@ function makeCountingApp(options: { readonly lockoutsUnreachable?: boolean } = {
   // stands in for one, so a branch's cost can be measured during a fault.
   const unreachable: RecoveryLockoutStore = {
     backend: "memory",
-    status: () => Promise.resolve("unknown"),
+    status: () => Promise.resolve({ status: "unknown" as const }),
     recordFailure: () => Promise.resolve("unknown"),
     reset: () => Promise.resolve(),
   };

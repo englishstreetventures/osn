@@ -214,9 +214,10 @@ export function createDurableLockoutStore(
     backend: "durable_object",
     async status(accountId) {
       try {
-        return (await store.count(accountId)) >= config.threshold ? "locked" : "open";
+        const failures = await store.count(accountId);
+        return { status: failures >= config.threshold ? "locked" : "open", failures };
       } catch {
-        return "unknown";
+        return { status: "unknown" };
       }
     },
     async recordFailure(accountId) {
