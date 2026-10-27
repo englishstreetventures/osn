@@ -211,6 +211,71 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
       : Math.max(1, Math.min(accessTokenTtl, restrictedUntil - nowSec));
 
   /**
+   * Makes room for one more `sessions` row on `accountId`. At the cap it
+   * deletes the least recently used rows, leaving one fewer than
+   * MAX_SESSIONS_PER_ACCOUNT, so the insert that follows leaves the account
+   * at the cap. Every path that inserts a session row calls it first.
+   *
+   * A stolen credential can never hold more than the cap's worth of sessions
+   * open, and an account with many devices loses its least recently used
+   * session instead of failing the new sign-in.
+   */
+  const makeRoomForSession = (accountId: string): Effect.Effect<void, DatabaseError, Db> =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      yield* Effect.tryPromise({
+        try: async () => {
+          const rows = await db
+            .select({ id: sessions.id, lastUsedAt: sessions.lastUsedAt })
+            .from(sessions)
+            .where(eq(sessions.accountId, accountId))
+            .orderBy(desc(sessions.lastUsedAt))
+            .limit(MAX_SESSIONS_PER_ACCOUNT + 1);
+          if (rows.length >= MAX_SESSIONS_PER_ACCOUNT) {
+            const evictIds = rows.slice(MAX_SESSIONS_PER_ACCOUNT - 1).map((r) => r.id);
+            // oxlint-disable-next-line house/no-unbounded-in-array -- at most two ids: the tail of a MAX_SESSIONS_PER_ACCOUNT + 1 read
+            await db.delete(sessions).where(inArray(sessions.id, evictIds));
+          }
+        },
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+    });
+
+  /**
+   * Inserts a `sessions` row for `accountId`, live until `expiresAtSec`, whose
+   * token nobody holds: the token it hashes is dropped here, so the row can
+   * never be presented. It holds a place that any revocation removes, and
+   * answers the row's id. It counts against the session cap like any other row.
+   */
+  const reserveSession = (
+    accountId: string,
+    expiresAtSec: number,
+    sessionMeta: SessionMeta | undefined,
+  ): Effect.Effect<string, DatabaseError, Db> =>
+    Effect.gen(function* () {
+      yield* makeRoomForSession(accountId);
+      const { db } = yield* Db;
+      const id = hashSessionToken(generateSessionToken());
+      const nowSec = Math.floor(Date.now() / 1000);
+      yield* Effect.tryPromise({
+        try: () =>
+          db.insert(sessions).values({
+            id,
+            accountId,
+            familyId: genId("sfam_"),
+            expiresAt: expiresAtSec,
+            createdAt: nowSec,
+            authenticatedAt: nowSec,
+            uaLabel: sessionMeta?.uaLabel ?? null,
+            ipHash: sessionMeta?.ip ? hashIp(sessionMeta.ip) : null,
+            lastUsedAt: nowSec,
+          }),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      return id;
+    });
+
+  /**
    * Full token issuance: creates a server-side session row and returns an
    * opaque session token (the "refresh token") alongside a short-lived
    * access token JWT. The session token is what the client persists; the
@@ -263,29 +328,8 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
       );
       const fam = familyId ?? genId("sfam_");
 
+      yield* makeRoomForSession(accountId);
       const { db } = yield* Db;
-
-      // S-M1: LRU-evict the oldest sessions once the per-account cap is
-      // exceeded. An attacker with a stolen credential can't inflate the
-      // revocation surface beyond MAX_SESSIONS_PER_ACCOUNT; legitimate
-      // users with genuinely many devices see their least-recently-used
-      // sessions drop off rather than their new login failing.
-      yield* Effect.tryPromise({
-        try: async () => {
-          const rows = await db
-            .select({ id: sessions.id, lastUsedAt: sessions.lastUsedAt })
-            .from(sessions)
-            .where(eq(sessions.accountId, accountId))
-            .orderBy(desc(sessions.lastUsedAt))
-            .limit(MAX_SESSIONS_PER_ACCOUNT + 1);
-          if (rows.length >= MAX_SESSIONS_PER_ACCOUNT) {
-            const evictIds = rows.slice(MAX_SESSIONS_PER_ACCOUNT - 1).map((r) => r.id);
-            // oxlint-disable-next-line house/no-unbounded-in-array -- at most two ids: the tail of a MAX_SESSIONS_PER_ACCOUNT + 1 read
-            await db.delete(sessions).where(inArray(sessions.id, evictIds));
-          }
-        },
-        catch: (cause) => new DatabaseError({ cause }),
-      });
 
       yield* Effect.tryPromise({
         try: () =>
@@ -872,6 +916,7 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
     issueAccessToken,
     issueTokens,
     issueRecoverySession,
+    reserveSession,
     verifyRefreshToken,
     refreshTokens,
     verifyAccessToken,

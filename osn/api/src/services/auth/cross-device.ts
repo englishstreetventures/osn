@@ -28,7 +28,7 @@ import { metricSecurityEventRecorded, withCrossDeviceOp } from "../../metrics";
 import { CDL_TTL_SECONDS } from "./constants";
 import type { AuthContext } from "./context";
 import { AuthError, type CoordinationError, DatabaseError } from "./errors";
-import { generateSessionToken, genId, hashSessionToken } from "./helpers";
+import { genId } from "./helpers";
 import type { ProfilesModule } from "./profiles";
 import type { SecurityEventsModule } from "./security-events";
 import { storeCall } from "./store-call";
@@ -45,39 +45,7 @@ export function createCrossDeviceModule(
 ) {
   const { stores, hashIp } = ctx;
   const { findDefaultProfile, findProfileById } = profiles;
-  const { issueTokens } = tokens;
-
-  /**
-   * Inserts device B's reserved `sessions` row, live until the request
-   * expires, and answers its id. The token it hashes is dropped here, so the
-   * row can never be presented; it exists to be removed by any revocation
-   * between the approval and the poll.
-   */
-  const reserveSession = (
-    accountId: string,
-    entry: CrossDeviceRequest,
-  ): Effect.Effect<string, DatabaseError, Db> =>
-    Effect.gen(function* () {
-      const { db } = yield* Db;
-      const id = hashSessionToken(generateSessionToken());
-      const nowSec = Math.floor(Date.now() / 1000);
-      yield* Effect.tryPromise({
-        try: () =>
-          db.insert(sessions).values({
-            id,
-            accountId,
-            familyId: genId("sfam_"),
-            expiresAt: Math.ceil(entry.expiresAt / 1000),
-            createdAt: nowSec,
-            authenticatedAt: nowSec,
-            uaLabel: entry.uaLabel,
-            ipHash: null,
-            lastUsedAt: nowSec,
-          }),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
-      return id;
-    });
+  const { issueTokens, reserveSession } = tokens;
 
   /**
    * Deletes the reserved row `id` while it is live, and answers whether this
@@ -305,7 +273,10 @@ export function createCrossDeviceModule(
 
       // Device B's session row is reserved before the approval lands, so a
       // poll never finds an approval without one.
-      const sessionId = yield* reserveSession(accountId, entry);
+      const sessionId = yield* reserveSession(accountId, Math.ceil(entry.expiresAt / 1000), {
+        uaLabel: entry.uaLabel,
+        ip: null,
+      });
 
       // Replaces exactly the pending entry read above, with the remaining TTL
       // so it still expires on schedule.

@@ -9,6 +9,7 @@ import { beforeAll } from "vitest";
 
 import { createDurableCoordination } from "../../src/lib/coordination/durable";
 import { createAuthService } from "../../src/services/auth";
+import { MAX_SESSIONS_PER_ACCOUNT } from "../../src/services/auth/constants";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createFakeNamespace } from "../helpers/coordination-namespace";
 import { createTestLayer } from "../helpers/db";
@@ -427,6 +428,45 @@ describe("cross-device login on the shared store", () => {
       ),
     ),
   );
+
+  it.live("an approval at the session cap evicts the least recently used session", () => {
+    const { svc, layer } = harness();
+    return Effect.gen(function* () {
+      const profile = yield* svc.registerProfile("cdl-cap@example.com", "cdlcap");
+      const issued: string[] = [];
+      for (let i = 0; i < MAX_SESSIONS_PER_ACCOUNT; i++) {
+        const tokens = yield* svc.issueTokens(
+          profile.id,
+          profile.accountId,
+          profile.email,
+          profile.handle,
+          profile.displayName,
+        );
+        issued.push(svc.hashSessionToken(tokens.refreshToken));
+      }
+      const { db } = yield* Db;
+      const oldest = issued[7]!;
+      yield* Effect.promise(() =>
+        db.update(sessions).set({ lastUsedAt: 1 }).where(eq(sessions.id, oldest)),
+      );
+
+      const { requestId, cdlSecret } = yield* svc.beginCrossDeviceLogin();
+      yield* svc.approveCrossDeviceLogin(requestId, cdlSecret, profile.accountId);
+
+      const ids = (yield* Effect.promise(() =>
+        db
+          .select({ id: sessions.id })
+          .from(sessions)
+          .where(eq(sessions.accountId, profile.accountId)),
+      )).map((row) => row.id);
+      expect(ids).toHaveLength(MAX_SESSIONS_PER_ACCOUNT);
+      expect(ids).not.toContain(oldest);
+
+      const poll = yield* svc.getCrossDeviceLoginStatus(requestId, cdlSecret);
+      expect(poll.status).toBe("approved");
+      expect((yield* countRows(profile.accountId)).sessions).toBe(MAX_SESSIONS_PER_ACCOUNT);
+    }).pipe(Effect.provide(layer));
+  });
 
   it.live("of two polls at once, one gets a session and the other finds nothing", () => {
     const { svc, layer } = harness();

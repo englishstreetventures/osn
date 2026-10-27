@@ -68,7 +68,7 @@ Local dev leaves `OSN_COOKIE_DOMAIN` unset — localhost is one host, so a host-
 
 **Standing constraint:** the marker is readable by every host under `OSN_COOKIE_DOMAIN`. That is accepted — the bit is not a secret — but it means a `*.musubi.social` subdomain must never be delegated to a party that shouldn't learn whether a visitor holds an OSN session. Keep subdomain delegation in-house.
 
-Per-account hard cap: `MAX_SESSIONS_PER_ACCOUNT = 50`. `issueTokens` LRU-evicts the oldest rows once the cap is reached so an attacker can't inflate the revocation surface. The public revocation handle (first 16 hex of the SHA-256) is collision-safe inside that bounded population.
+Per-account hard cap: `MAX_SESSIONS_PER_ACCOUNT = 50`. Every insert of a session row — `issueTokens`, a restricted recovery session, and the row a cross-device approval reserves — first evicts the least recently used rows once the cap is reached (`makeRoomForSession`), so an attacker can't inflate the revocation surface. The public revocation handle (first 16 hex of the SHA-256) is collision-safe inside that bounded population.
 
 ## Endpoints
 
