@@ -963,6 +963,10 @@ describe("EventsEditor", () => {
     await waitFor(() =>
       expect(screen.getByText(/Press Save changes to preview your edits again/)).toBeTruthy(),
     );
+    // Announced: the dialog closes, so focus says nothing about why.
+    expect(screen.getByRole("alert").textContent).toMatch(
+      /Press Save changes to preview your edits again/,
+    );
     // Confirming the same preview again could only be refused again.
     expect(screen.queryByRole("dialog", { name: /Review changes before applying/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /Reload and keep my edits/i })).toBeNull();

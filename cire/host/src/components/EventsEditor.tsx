@@ -597,7 +597,9 @@ export default function EventsEditor(props: { weddingId: string }) {
             </Show>
             <Show when={saveError()}>
               <div class="border-error/20 bg-error/5 text-error page-frame text-ui-sm flex flex-wrap items-center gap-3 border-t py-2">
-                <p>{saveError()}</p>
+                {/* Announced: a refused apply closes the preview, and focus
+                    returning to Save says nothing about why. */}
+                <p role="alert">{saveError()}</p>
                 <Show when={stale()}>
                   <Button
                     variant="outline"
