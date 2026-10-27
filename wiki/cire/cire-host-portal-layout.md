@@ -8,7 +8,7 @@ related:
   - "[[cire-organiser]]"
   - "[[cire-entitlements]]"
   - "[[cire-rsvp-table]]"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-28
 ---
 # Host Portal Layout System
 
@@ -143,9 +143,25 @@ component was previously reading a container it did not live in.
 ## Layout switches worth knowing
 
 - **Module rail** (`ModuleSidebar`) — `@2xl/shell` swaps the sheet trigger for the
-  rail, and the rail is `sticky top-6 self-start` from the same threshold. Without
-  `self-start` the flex row stretches it to the panel's height and there is
-  nothing left to slide against. Widening to `w-56` at `@5xl/shell`.
+  rail, and the rail is `sticky self-start` from the same threshold, at
+  `top-[calc(5.5rem+1px)]`: under the page's sticky top bar (4rem and its
+  hairline wherever the frame is wide enough for the rail) plus 1.5rem of air.
+  A smaller offset slides the rail's top rows under the bar once the page
+  scrolls. Without `self-start` the flex row stretches it to the panel's height
+  and there is nothing left to slide against. Widening to `w-56` at
+  `@5xl/shell`.
+  A toggle at the rail's foot, under a hairline below Settings, collapses it to
+  its icons (2.625rem, the row's own padding around the icon, so no icon moves)
+  and back. The width is two whole class sets swapped by a ternary, since a
+  collapsed width beside `w-52` would lose to the `@5xl/shell:w-56` variant, and
+  it slides over `--dur-base`. The browser keeps the choice in `localStorage`
+  (`cire.host.rail`, `src/lib/rail-preference.ts`), read as the sidebar is
+  created so a collapsed page never slides on load; the sheet ignores it.
+  Collapsed, a row keeps its label as its accessible name — in flow at no
+  width, because `sr-only` would drop the label's line box and every row below
+  would rise — and shows it, with the module's hint, in a Kobalte tooltip on
+  hover after 300ms or at once on keyboard focus. `cire/host/DESIGN.md` §5 The
+  rail, collapsed holds the design and its trade-offs.
   A row for a module the wedding's tier does not include stays on both the rail
   and the sheet, faded to `text-text-faint` and inert: it navigates nowhere, and
   a press — click, tap, Enter or Space — opens a card (a Kobalte `Popover`)
@@ -153,10 +169,12 @@ component was previously reading a container it did not live in.
   it is small text that has to be read — with an **Upgrade to Gold** button.
   The row's accessible name carries the same words, so the lock is heard while
   tabbing. A press moves focus onto **Upgrade to Gold**, and Escape puts it back
-  on the row. On the rail only, a pointer resting on the row for three seconds
-  also opens the card, as a preview that takes no focus and closes once the
-  pointer has left the row and the card; once focus goes into it, it stays. The
-  sheet has no dwell, because an open card stands down the sheet's focus trap.
+  on the row. On the expanded rail only, a pointer resting on the row for three
+  seconds also opens the card, as a preview that takes no focus and closes once
+  the pointer has left the row and the card; once focus goes into it, it stays.
+  The sheet has no dwell, because an open card stands down the sheet's focus
+  trap, and neither does the collapsed rail, whose tooltip already names the
+  tier; there a press opens the card, and no tooltip shows while a card is open.
   The card portals out on both surfaces, because the sheet's nav scrolls and
   would clip it, so `LockedRow` puts it back in the tab order by hand: Tab on
   the open row enters the card, Shift+Tab from its first button returns to the
@@ -584,5 +602,6 @@ What that leaves testable, and where it lives:
 | Master-detail behaviour: draft-per-enquiry, no cross-thread messages, placeholder, `aria-current` cardinality, post-reply refresh | `EnquiriesView.test.tsx`, `EnquiryInbox.test.tsx` |
 | Which preview layer mounts, and that its crossover matches `@4xl/builder` | `InviteBuilder.test.tsx` — a stub `ResizeObserver` reporting a fixed content-box width; a reasonable cheap choice in the unit tier, since happy-dom runs no layout, not a workaround for a missing harness |
 | The RSVP view's event tabs (ids beside the shell's, keys, a strip of twelve), sort heads, the pinned head row at 1280 and Guest column at 390 (in flow at 1280), focus kept clear of the pinned cells, and the box fitting under the top bar | `RsvpView.events.browser.test.tsx`, real Chromium, with the real `ModuleShell` around it; screenshots in light and dark land in its gitignored `__screenshots__/` |
+| The collapsed rail: icons and toggle that do not move, the tooltip's place, stacking and contrast in both themes, Chrome's names and descriptions, labels kept off a locked row's card and no dwell, reduced motion, the rail sticking below the top bar, frame times over a 300-guest table, and the sheet ignoring the choice at 390 | `ModuleSidebar.collapse.browser.test.tsx`, real Chromium, real `ModuleShell`; clears `cire.host.rail` before and after each test, since the browser context is shared across files. The toggle, the stored choice across a reload and a locked card from the narrow rail are in the `cire-checklist-starter` E2E flow |
 | The run sheet's thread, and its `run-sheet` switch from two grid tracks to three | `RunSheetView.browser.test.tsx`, at 390 and 1280px |
 | The container queries themselves | `bun run --cwd cire/host test:browser` — a real-Chromium tier documented in `wiki/conventions/browser-tests.md`. Worked example: `cire/host/tests/components/PreviewInviteButton.browser.test.tsx`, which asserts the "Preview invite" label is clipped to `sr-only` at phone width and swaps to the written label once the `frame` container passes 42rem. |

@@ -637,6 +637,50 @@
   }
 }
 
+/* ── The rail, collapsed ────────────────────────────────────────────────────
+ * The rail's width is a plain transition on the element (`ModuleSidebar`).
+ * Two things move with it, both as keyframes so the reduced-motion block above
+ * stops them:
+ *
+ * - `rail-tip` — a row's label arriving beside its icon, a short fade and a
+ *   4px slide out of the rail. No exit: Kobalte unmounts a tooltip at once
+ *   when it has no closing animation, which is what a label should do.
+ * - `rail-label` — the row labels fading back in as the rail widens. The fade
+ *   is held for the first part of the run by keyframe percentage, never by
+ *   `animation-delay`, which the reduced-motion block leaves alone; until then
+ *   the rail is too narrow for a label to read as more than its first letter.
+ */
+@keyframes rail-tip-in {
+  from {
+    opacity: 0;
+    transform: translateX(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes rail-label-in {
+  from,
+  40% {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@utility rail-tip {
+  &[data-expanded] {
+    animation: rail-tip-in var(--dur-fast) var(--ease-out);
+  }
+}
+
+@utility rail-label {
+  animation: rail-label-in var(--dur-base) var(--ease-out);
+}
+
 /* ── Attention glow ─────────────────────────────────────────────────────────
  * A slow gold breath around a box that wants to be noticed once — today, the
  * CSV format guide the first time an organiser meets an import panel. Three

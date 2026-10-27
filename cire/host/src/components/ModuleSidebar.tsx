@@ -1,8 +1,23 @@
 import Button from "@cire/ui/button";
 import { Dialog } from "@kobalte/core/dialog";
 import { Popover } from "@kobalte/core/popover";
+import { Tooltip } from "@kobalte/core/tooltip";
 import Menu from "lucide-solid/icons/menu";
-import { createSignal, For, type JSX, onCleanup, Show, untrack } from "solid-js";
+import PanelLeftClose from "lucide-solid/icons/panel-left-close";
+import PanelLeftOpen from "lucide-solid/icons/panel-left-open";
+import {
+  type ComponentProps,
+  createEffect,
+  createSignal,
+  createUniqueId,
+  For,
+  type JSX,
+  on,
+  onCleanup,
+  Show,
+  splitProps,
+  untrack,
+} from "solid-js";
 import { Portal } from "solid-js/web";
 
 import type { Module } from "../lib/dashboard-route";
@@ -10,6 +25,7 @@ import { haptic } from "../lib/haptics";
 import { type LockedExport as LockedExportSpec, lockedExportFor } from "../lib/locked-exports";
 import { isModuleLocked, MODULE_NAV, type ModuleDef, moduleDef } from "../lib/module-nav";
 import { createPointerDwell } from "../lib/pointer-dwell";
+import { readRailCollapsed, writeRailCollapsed } from "../lib/rail-preference";
 import { createSlidingPill } from "../lib/sliding-pill";
 import { type Tier, TIER_LABEL } from "../lib/tiers";
 import LockedExport from "./LockedExport";
@@ -17,9 +33,10 @@ import ModuleIcon from "./ModuleIcon";
 import UpgradeDialog from "./UpgradeDialog";
 
 /** Shared row shape for both surfaces, so the rail and the sheet read as the
- *  same control at two sizes rather than as two different navs. */
+ *  same control at two sizes rather than as two different navs. The gap
+ *  between icon and label is each surface's own: the collapsed rail has none. */
 const rowBase =
-  "font-body flex w-full items-center gap-3 rounded-sm text-left tracking-ui-wider uppercase " +
+  "font-body flex w-full items-center rounded-sm text-left tracking-ui-wider uppercase " +
   "transition-colors duration-(--dur-fast) ease-(--ease-out)";
 
 const rowIdle = "text-text-muted hover:text-text hover:bg-surface/50";
@@ -66,6 +83,91 @@ const LEAVE_MS = 300;
 /** What Tab stops on inside a card, in document order. */
 const CARD_CONTROLS = "button:not(:disabled), a[href]";
 
+/** How long a pointer rests on a collapsed rail's row before its label shows.
+ *  Long enough that a pointer crossing the rail on its way to the panel opens
+ *  nothing; once one label has shown, Kobalte's skip delay shows the next row's
+ *  at once, so running down the rail reads each label in turn. */
+const TIP_DELAY_MS = 300;
+
+/**
+ * The label beside an icon on the collapsed rail, and beside the toggle.
+ *
+ * For the eye only. The panel is `aria-hidden` and no element points at it: a
+ * row's accessible name is already its label, and its description is its hint
+ * (see the rail below), so a screen reader hears each once whether the panel
+ * is open or not. Keyboard focus shows it at once; a pointer after
+ * {@link TIP_DELAY_MS}; touch never, because Kobalte ignores touch.
+ *
+ * `open` is held here rather than left to Kobalte, because Kobalte's `disabled`
+ * only stops a label opening from a new hover or focus. A label shows only
+ * while it is enabled, so expanding the rail or opening a card takes any label
+ * off the screen. And a press that opens a card lands inside the open delay a
+ * pointer started on the way in, which Kobalte lets run out; the open it asks
+ * for then is refused, so the label does not appear once the card has closed
+ * and the pointer has gone.
+ *
+ * `z-50`: Kobalte copies the content's computed `z-index` onto the element it
+ * positions, so without one the label paints under the sticky top bar (`z-30`)
+ * and the panel's own layers. It keeps pointer events, so a pointer can move
+ * onto it without it closing.
+ */
+function RailTip(props: {
+  enabled: boolean;
+  label: string;
+  /** A second, quieter line: the module's hint, or the tier a lock names. */
+  detail?: JSX.Element;
+  children: JSX.Element;
+}) {
+  const [open, setOpen] = createSignal(false);
+  return (
+    <Tooltip
+      open={props.enabled && open()}
+      onOpenChange={(next) => setOpen(next && props.enabled)}
+      disabled={!props.enabled}
+      placement="right"
+      gutter={8}
+      openDelay={TIP_DELAY_MS}
+    >
+      {props.children}
+      <Tooltip.Portal>
+        <Tooltip.Content
+          aria-hidden="true"
+          data-rail-tip=""
+          class="rail-tip border-border bg-surface-raised z-50 flex max-w-64 flex-col gap-0.5 rounded-sm border px-3 py-2 shadow-md"
+        >
+          <span class="font-body text-text text-ui-xs tracking-ui-wider uppercase">
+            {props.label}
+          </span>
+          {props.detail}
+        </Tooltip.Content>
+      </Tooltip.Portal>
+    </Tooltip>
+  );
+}
+
+/**
+ * The toggle's element: a plain `<button>` that declines `aria-describedby`.
+ *
+ * Kobalte's tooltip trigger points `aria-describedby` at its open panel, which
+ * Chrome exposes as the trigger's description, so a screen reader would hear
+ * "Expand sidebar" twice. Kobalte sets it before the caller's props and Solid's
+ * `mergeProps` skips `undefined`, so only the element can decline it — the same
+ * move as `TriggerSpan` in `@shared/ui`'s tooltip.
+ */
+function ToggleButton(props: ComponentProps<"button">) {
+  const [, rest] = splitProps(props, ["aria-describedby"]);
+  return <button {...rest} />;
+}
+
+/** A locked row's element: its card's trigger, which the label's trigger wears.
+ *  It declines `aria-describedby` for the reason {@link ToggleButton} gives —
+ *  a locked row carries no description on either rail, and its name already
+ *  says what the label does. */
+function LockedTrigger(props: ComponentProps<typeof Popover.Trigger>) {
+  const [, rest] = splitProps(props, ["aria-describedby"]);
+  return <Popover.Trigger {...rest} />;
+}
+
 /**
  * A nav row for a module this wedding's tier does not include.
  *
@@ -80,13 +182,16 @@ const CARD_CONTROLS = "button:not(:disabled), a[href]";
  *   "Upgrade to …". Escape closes it and puts focus back on the row; a click
  *   outside closes it. Pressing the row again closes it too, which is the
  *   obvious way out for a touch user, who has no pointer to move away.
- * - **A pointer resting on the row** for {@link DWELL_MS}, on the rail only.
- *   That card is a preview: it takes no focus, and it closes once the pointer
- *   has been off the row and the card for {@link LEAVE_MS}. The moment focus
- *   goes into it, it is a card someone is using, and the pointer leaving no
- *   longer closes it. The sheet has no dwell: it is the phone's surface, and an
- *   open card stands down the sheet's focus trap, so a preview opened under a
- *   keyboard user would hand them a way out of the modal.
+ * - **A pointer resting on the row** for {@link DWELL_MS}, on the expanded rail
+ *   only. That card is a preview: it takes no focus, and it closes once the
+ *   pointer has been off the row and the card for {@link LEAVE_MS}. The moment
+ *   focus goes into it, it is a card someone is using, and the pointer leaving
+ *   no longer closes it. The sheet has no dwell: it is the phone's surface, and
+ *   an open card stands down the sheet's focus trap, so a preview opened under
+ *   a keyboard user would hand them a way out of the modal. The collapsed rail
+ *   has none either: its row already shows a label naming the lock after
+ *   {@link TIP_DELAY_MS}, and a card in the same place three seconds later
+ *   would say it again.
  *
  * The card is portalled, so in the document it sits at the end of `<body>`,
  * nowhere near its row. Two key handlers put it back in the tab order straight
@@ -108,6 +213,12 @@ function LockedRow(props: {
   placement: "right-start" | "bottom-start";
   /** Whether a pointer resting on the row opens the card. */
   dwell: boolean;
+  /** Whether the row shows its label beside it — on the collapsed rail, while
+   *  no card is open. */
+  tip?: boolean;
+  /** Told when the card opens and closes, so the rail can keep every label
+   *  off the screen while a card is on it. */
+  onCardChange?: (open: boolean) => void;
   /** Opens the upgrade dialog, given the row that asked. Lifted to the sidebar
    *  so there is ONE dialog rather than one per locked row. */
   onUpgrade: (row: HTMLElement) => void;
@@ -147,6 +258,8 @@ function LockedRow(props: {
     armLeave: () => open() && preview(),
   });
 
+  createEffect(on(open, (isOpen) => props.onCardChange?.(isOpen), { defer: true }));
+
   const controls = () => (card ? [...card.querySelectorAll<HTMLElement>(CARD_CONTROLS)] : []);
 
   const onRowKeyDown = (event: KeyboardEvent) => {
@@ -184,22 +297,38 @@ function LockedRow(props: {
           `aria-disabled` is wrong for the same reason it is tempting — the row
           *is* operable, it opens this card; a control that answers a press
           must not tell assistive tech it does nothing. What it does not do is
-          navigate, and that is what the accessible name says. */}
-      <Popover.Trigger
-        ref={row}
-        type="button"
-        aria-label={`${props.mod.label} — locked. Included with ${TIER_LABEL[lock().tier]}.`}
-        onKeyDown={onRowKeyDown}
-        onPointerEnter={(event: PointerEvent) => {
-          if (props.dwell) dwell.enterTrigger(event);
-        }}
-        onPointerLeave={(event: PointerEvent) => {
-          if (props.dwell) dwell.leave(event);
-        }}
-        class={props.rowClass}
+          navigate, and that is what the accessible name says.
+
+          The label sits inside the card's root and outside its portal: both
+          provide the context Kobalte positions a panel from, and each panel
+          reads the nearest. Both triggers also write `data-expanded` and
+          `data-closed` onto this one element, so nothing styles the row on
+          them. */}
+      <RailTip
+        enabled={props.tip ?? false}
+        label={props.mod.label}
+        detail={
+          <span class="font-body text-gold-ink text-ui-xs tracking-ui-wider uppercase">
+            Included with {TIER_LABEL[lock().tier]}
+          </span>
+        }
       >
-        {props.children}
-      </Popover.Trigger>
+        <Tooltip.Trigger
+          as={LockedTrigger}
+          ref={row}
+          aria-label={`${props.mod.label} — locked. Included with ${TIER_LABEL[lock().tier]}.`}
+          onKeyDown={onRowKeyDown}
+          onPointerEnter={(event: PointerEvent) => {
+            if (props.dwell) dwell.enterTrigger(event);
+          }}
+          onPointerLeave={(event: PointerEvent) => {
+            if (props.dwell) dwell.leave(event);
+          }}
+          class={props.rowClass}
+        >
+          {props.children}
+        </Tooltip.Trigger>
+      </RailTip>
 
       {/* Portalled on both surfaces: the sheet's nav scrolls and would clip an
           in-flow card, and on the rail it keeps the card's own button out of
@@ -299,6 +428,11 @@ function LockedRow(props: {
  * A module the wedding's tier does not include keeps its row on both surfaces.
  * It is faded, navigates nowhere, and offers the upgrade instead — see
  * {@link LockedRow}.
+ *
+ * The rail collapses to its icons and back from a toggle at its foot, and the
+ * browser remembers the choice (`lib/rail-preference.ts`). Collapsed, every row
+ * is still one click away and still marked when active; its label moves into
+ * {@link RailTip}. The sheet ignores the choice: a phone has no room to give.
  */
 export default function ModuleSidebar(props: {
   active: Module;
@@ -323,6 +457,25 @@ export default function ModuleSidebar(props: {
    *  `Show` tears down. */
   let upgradeOpener: HTMLElement | undefined;
   let sheetTrigger: HTMLButtonElement | undefined;
+
+  // Read as the signal's first value, not on mount, so a rail the organiser
+  // left collapsed paints collapsed and never slides in on load.
+  const [collapsed, setCollapsed] = createSignal(readRailCollapsed());
+  /** Set by the first press of the toggle, and only then: the labels fade in
+   *  as the rail widens, never on a page that loads expanded. */
+  const [moved, setMoved] = createSignal(false);
+  /** The locked row whose card is open on the rail, or null. While one is,
+   *  no label shows anywhere on the rail. */
+  const [cardOpen, setCardOpen] = createSignal<Module | null>(null);
+  const railTips = () => collapsed() && cardOpen() === null;
+  const navId = createUniqueId();
+
+  const toggleRail = () => {
+    const next = !collapsed();
+    setCollapsed(next);
+    setMoved(true);
+    writeRailCollapsed(next);
+  };
 
   const offerUpgrade = (mod: ModuleDef, opener: HTMLElement | undefined) => {
     upgradeOpener = opener;
@@ -377,76 +530,162 @@ export default function ModuleSidebar(props: {
       {/* ── Wide container: persistent rail ────────────────────────────── */}
       {/* Sticky from the rail breakpoint up: on a tall panel (the invite
           builder, a long guest table) the modules used to scroll away, which is
-          the one thing a persistent rail exists not to do. `self-start` keeps it
+          the one thing a persistent rail exists not to do. It sticks just under
+          the page's sticky top bar — 4rem and its 1px hairline, the bar's
+          height wherever the frame is wide enough for the rail — plus the
+          1.5rem of air it had at the top of the page. `self-start` keeps it
           from being stretched to the panel's height by the flex row — a
-          full-height flex item has nothing to slide against. */}
-      <nav
-        ref={pill.track}
-        aria-label="Wedding modules"
-        class="relative hidden w-52 shrink-0 flex-col gap-0.5 @2xl/shell:sticky @2xl/shell:top-6 @2xl/shell:flex @2xl/shell:self-start @5xl/shell:w-56"
+          full-height flex item has nothing to slide against.
+
+          Two widths, swapped whole: a collapsed width beside `w-52` would lose
+          to `@5xl/shell:w-56`, which is a container-query variant. Collapsed,
+          the rail is the row's own padding around the icon — `px-3` twice and
+          the 1.125rem icon, 2.625rem, which is `w-10.5` on the spacing scale —
+          so no icon moves as it narrows; the panel takes the width it gives
+          up. */}
+      <div
+        data-rail=""
+        class={`hidden shrink-0 flex-col transition-[width] duration-(--dur-base) ease-(--ease-in-out) @2xl/shell:sticky @2xl/shell:top-[calc(5.5rem+1px)] @2xl/shell:flex @2xl/shell:self-start ${
+          collapsed() ? "w-10.5" : "w-52 @5xl/shell:w-56"
+        }`}
       >
-        {/* The marker: one box, told where to be. It sits under the rows (they
-            are `relative`, it is not stacked above them), so it reads as the
-            active row's own background even though it belongs to the nav. */}
-        <span
-          aria-hidden="true"
-          class="bg-gold/10 pointer-events-none absolute top-0 left-0 rounded-sm"
-          style={pill.style()}
+        <nav
+          id={navId}
+          ref={pill.track}
+          aria-label="Wedding modules"
+          class="relative flex flex-col gap-0.5"
         >
-          <span class="bg-gold absolute inset-y-1 left-0 w-0.5 rounded-full" />
-        </span>
-        <For each={MODULE_NAV}>
-          {(mod) => {
-            const isActive = () => props.active === mod.id;
-            const locked = () => isModuleLocked(mod.id, props.tier);
-            const Body = () => (
-              <>
-                <ModuleIcon
-                  icon={mod.icon}
-                  class={isActive() ? "text-gold opacity-80" : "opacity-80"}
-                />
-                <span class="min-w-0 truncate">{mod.label}</span>
-              </>
-            );
-            const railRow = `${rowBase} relative px-3 py-2 text-ui-sm`;
-            // `Show`, not a ternary. `MODULE_NAV` never changes, so `For` runs
-            // this callback once per module and a ternary between two elements
-            // would be resolved once and for all — a wedding switched underneath
-            // the rail, or a tier raised mid-session, would leave the row
-            // showing the previous lock.
-            return (
-              <Show
-                when={locked()}
-                fallback={
-                  <button
-                    ref={pill.item(mod.id)}
-                    type="button"
-                    aria-current={isActive() ? "page" : undefined}
-                    title={mod.hint}
-                    onClick={() => props.onSelect(mod.id)}
-                    class={`${railRow} ${isActive() ? railActive : rowIdle}`}
+          {/* The marker: one box, told where to be. It sits under the rows (they
+              are `relative`, it is not stacked above them), so it reads as the
+              active row's own background even though it belongs to the nav. */}
+          <span
+            aria-hidden="true"
+            class="bg-gold/10 pointer-events-none absolute top-0 left-0 rounded-sm"
+            style={pill.style()}
+          >
+            <span class="bg-gold absolute inset-y-1 left-0 w-0.5 rounded-full" />
+          </span>
+          <For each={MODULE_NAV}>
+            {(mod) => {
+              const isActive = () => props.active === mod.id;
+              const locked = () => isModuleLocked(mod.id, props.tier);
+              const hintId = createUniqueId();
+              // Collapsed, the label stays the row's accessible name and stays
+              // in the row's flow at no width, with the gap before it gone. Not
+              // `sr-only`: that takes the label's line box out of the row, which
+              // is taller than the icon, and every row below would rise a
+              // little — the toggle at the foot by about 20px. Expanding after a
+              // press, the label fades in as the rail makes room rather than
+              // appearing cut short.
+              const Body = () => (
+                <>
+                  <ModuleIcon
+                    icon={mod.icon}
+                    class={isActive() ? "text-gold opacity-80" : "opacity-80"}
+                  />
+                  <span
+                    class={
+                      collapsed()
+                        ? "w-0 overflow-hidden whitespace-nowrap"
+                        : `min-w-0 truncate ${moved() ? "rail-label" : ""}`
+                    }
+                  >
+                    {mod.label}
+                  </span>
+                </>
+              );
+              const railRow = () =>
+                `${rowBase} ${collapsed() ? "" : "gap-3"} relative px-3 py-2 text-ui-sm`;
+              // `Show`, not a ternary. `MODULE_NAV` never changes, so `For` runs
+              // this callback once per module and a ternary between two elements
+              // would be resolved once and for all — a wedding switched underneath
+              // the rail, or a tier raised mid-session, would leave the row
+              // showing the previous lock.
+              return (
+                <Show
+                  when={locked()}
+                  fallback={
+                    <RailTip
+                      enabled={railTips()}
+                      label={mod.label}
+                      detail={
+                        <span class="font-body text-text-muted text-ui-xs leading-snug">
+                          {mod.hint}
+                        </span>
+                      }
+                    >
+                      {/* The hint is the row's description on both rails: the
+                          native `title` while expanded, and a hidden copy the
+                          row points at while collapsed, where a `title` would
+                          be a second tooltip over the label. A described-by
+                          the row sets beats the one Kobalte would point at the
+                          label's panel. */}
+                      <Tooltip.Trigger
+                        ref={pill.item(mod.id)}
+                        aria-current={isActive() ? "page" : undefined}
+                        aria-describedby={collapsed() ? hintId : undefined}
+                        title={collapsed() ? undefined : mod.hint}
+                        onClick={() => props.onSelect(mod.id)}
+                        class={`${railRow()} ${isActive() ? railActive : rowIdle}`}
+                      >
+                        <Body />
+                        <Show when={collapsed()}>
+                          <span id={hintId} hidden>
+                            {mod.hint}
+                          </span>
+                        </Show>
+                      </Tooltip.Trigger>
+                    </RailTip>
+                  }
+                >
+                  <LockedRow
+                    mod={mod}
+                    placement="right-start"
+                    rowClass={`${railRow()} ${rowLocked}`}
+                    dwell={!collapsed()}
+                    tip={railTips()}
+                    onCardChange={(open) =>
+                      setCardOpen((was) => (open ? mod.id : was === mod.id ? null : was))
+                    }
+                    onUpgrade={(row) => offerUpgrade(mod, row)}
+                    weddingId={props.weddingId}
+                    weddingSlug={props.weddingSlug}
+                    lockedExport={lockedExport(mod.id)}
                   >
                     <Body />
-                  </button>
-                }
-              >
-                <LockedRow
-                  mod={mod}
-                  placement="right-start"
-                  rowClass={`${railRow} ${rowLocked}`}
-                  dwell
-                  onUpgrade={(row) => offerUpgrade(mod, row)}
-                  weddingId={props.weddingId}
-                  weddingSlug={props.weddingSlug}
-                  lockedExport={lockedExport(mod.id)}
-                >
-                  <Body />
-                </LockedRow>
-              </Show>
-            );
-          }}
-        </For>
-      </nav>
+                  </LockedRow>
+                </Show>
+              );
+            }}
+          </For>
+        </nav>
+
+        {/* The toggle: below the modules, so every row keeps its place and Tab
+            reaches the modules first, and in the icons' own column, so it does
+            not move between the two states and a second click undoes the
+            first. Icon-only in both, never a row with a label, so it is not
+            read as one more module. Its name changes with the state and it
+            also carries `aria-expanded`: the name is the words its label
+            shows, and a state change is announced where a renamed focused
+            button often is not. */}
+        <div class="border-border mt-2 border-t pt-2">
+          <RailTip
+            enabled={cardOpen() === null}
+            label={collapsed() ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            <Tooltip.Trigger
+              as={ToggleButton}
+              aria-label={collapsed() ? "Expand sidebar" : "Collapse sidebar"}
+              aria-expanded={!collapsed()}
+              aria-controls={navId}
+              onClick={toggleRail}
+              class={`${rowIdle} flex w-fit items-center rounded-sm px-3 py-2 transition-colors duration-(--dur-fast) ease-(--ease-out)`}
+            >
+              <ModuleIcon icon={collapsed() ? PanelLeftOpen : PanelLeftClose} class="opacity-80" />
+            </Tooltip.Trigger>
+          </RailTip>
+        </div>
+      </div>
 
       {/* ── Narrow container: trigger + sheet ──────────────────────────── */}
       <div class="@2xl/shell:hidden" ref={watchNarrowSurface}>
@@ -465,7 +704,7 @@ export default function ModuleSidebar(props: {
           <Dialog.Trigger
             ref={sheetTrigger}
             aria-label={`Open wedding navigation, currently ${current().label}`}
-            class={`${rowBase} border-border bg-surface/40 text-text hover:border-gold-dim text-ui-sm justify-between border px-4 py-3`}
+            class={`${rowBase} border-border bg-surface/40 text-text hover:border-gold-dim text-ui-sm justify-between gap-3 border px-4 py-3`}
           >
             <span class="flex min-w-0 items-center gap-3">
               <ModuleIcon icon={current().icon} class="text-gold" />
@@ -516,7 +755,7 @@ export default function ModuleSidebar(props: {
                         </span>
                       </>
                     );
-                    const sheetRow = `${rowBase} items-start px-3 py-2.5 text-ui-sm`;
+                    const sheetRow = `${rowBase} items-start gap-3 px-3 py-2.5 text-ui-sm`;
                     // `Show` for the same reason as the rail above.
                     return (
                       <Show
