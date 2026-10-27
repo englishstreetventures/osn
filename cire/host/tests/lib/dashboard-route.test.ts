@@ -178,11 +178,9 @@ describe("dashboard-route", () => {
         });
       });
 
-      // A tab name is looked up among the seven aliases above and nothing else.
-      // The names every object answers to — functions, and the prototype itself
-      // under `__proto__` — must read as an unknown tab, not as an alias with no
-      // module, which throws while the dashboard is being set up and leaves it
-      // blank on every reload of the link.
+      // A tab name resolves only to one of the seven aliases above. The names
+      // every object answers to read as an unknown tab, which lands on the
+      // wedding's default module.
       it.each([
         "constructor",
         "__proto__",
