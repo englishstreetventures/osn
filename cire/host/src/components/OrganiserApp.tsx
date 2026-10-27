@@ -94,6 +94,15 @@ const RECHECK_AFTER_MS = 60_000;
  *  next trigger sends a fresh one rather than waiting on it. */
 const RECHECK_ABANDONED_AFTER_MS = 30_000;
 
+/**
+ * How soon after the tab is shown a `reconnected` still counts as the
+ * return's own: the push socket the hidden tab closed, reopening. Such a
+ * reconnect may rely on a list read started after the show, so what it can
+ * miss is a change committed between that read's query and the hub admitting
+ * the socket — under this long. A slower reopening reads again.
+ */
+const RESUME_REOPEN_MS = 1_000;
+
 type WeddingsState =
   | { kind: "error"; message: string }
   | { kind: "ready"; weddings: WeddingSummary[] };
@@ -310,14 +319,21 @@ function Dashboard() {
   // already in flight cannot overwrite it with an older answer (see
   // `recheckWeddings`). It also frees the recheck slot: a trigger arriving
   // after this write must send a new request, not join one whose answer is
-  // about to be thrown away.
+  // about to be thrown away. And the list on screen is then no read's answer.
   let listVersion = 0;
   let recheck: { startedAt: number; done: Promise<void> } | null = null;
   let recheckSeq = 0;
   let lastRecheckedAt = Date.now();
+  // The `recheckSeq` of the read whose answer is the list on screen; 0 when
+  // none is (no read has landed yet, or the list was written locally since).
+  let appliedSeq = 0;
+  // When the tab was last shown, and the newest read started before then.
+  let shownAt: number | undefined;
+  let shownSeq = 0;
   const setWeddings = ((value: Parameters<Setter<WeddingSummary[] | null>>[0]) => {
     listVersion += 1;
     recheck = null;
+    appliedSeq = 0;
     return writeWeddings(value);
   }) as Setter<WeddingSummary[] | null>;
 
@@ -340,7 +356,8 @@ function Dashboard() {
    * answer may predate the change, so a new request is sent. An answer is
    * thrown away if the list was written locally while it was in flight (a
    * created wedding, a rename), and then asked for once more; an answer
-   * overtaken by a newer request is thrown away too.
+   * overtaken by a newer request is thrown away too. A reconnect just after
+   * the tab is shown goes through `recheckAfterReturn` instead.
    *
    * `changedAt` is when the change is known to have happened by: for a 403,
    * when the refused request was sent; for a push signal, a reconnect or a
@@ -379,6 +396,7 @@ function Dashboard() {
       lastRecheckedAt = Date.now();
       if (answer === null) return;
       if (version === listVersion) {
+        appliedSeq = seq;
         if (JSON.stringify(deletedAnswer) !== JSON.stringify(untrack(deletedWeddings))) {
           setDeletedWeddings(deletedAnswer);
         }
@@ -399,9 +417,42 @@ function Dashboard() {
     if (Date.now() - lastRecheckedAt >= RECHECK_AFTER_MS) void recheckWeddings();
   }
 
+  /** Whether a `reconnected` arriving now is the return's own: within
+   *  `RESUME_REOPEN_MS` of the tab being shown, by a clock not set back since. */
+  function reopenedForReturn(): boolean {
+    if (shownAt === undefined) return false;
+    const gap = Date.now() - shownAt;
+    return gap >= 0 && gap <= RESUME_REOPEN_MS;
+  }
+
+  /**
+   * The re-read for the return's own reconnect. A read started after the tab
+   * was shown holds every change committed before it was sent, so the
+   * reconnect sends none while such a read is on screen. While one is in
+   * flight it waits on it, and on any newer read that overtakes it, and reads
+   * only if none of them lands.
+   */
+  async function recheckAfterReturn(): Promise<void> {
+    let awaited: Promise<void> | undefined;
+    while (
+      appliedSeq <= shownSeq &&
+      recheck !== null &&
+      recheckSeq > shownSeq &&
+      recheck.done !== awaited
+    ) {
+      awaited = recheck.done;
+      await awaited;
+    }
+    if (appliedSeq > shownSeq) return;
+    await recheckWeddings(Date.now());
+  }
+
   onMount(() => {
     const onVisibility = () => {
-      if (document.visibilityState === "visible") recheckIfDue();
+      if (document.visibilityState !== "visible") return;
+      shownAt = Date.now();
+      shownSeq = recheckSeq;
+      recheckIfDue();
     };
     document.addEventListener("visibilitychange", onVisibility);
     onCleanup(() => document.removeEventListener("visibilitychange", onVisibility));
@@ -629,14 +680,20 @@ function Dashboard() {
   // that lands after a re-read started sends a fresh one. A dropped socket
   // passes none and joins a re-read in flight: it reports no change of its
   // own. A reconnect may have missed a change of either kind, so it does what
-  // both do. A removed member's socket is closed for good after the signal,
+  // both do. The one exception is a reconnect within a second of the tab being
+  // shown, the socket the hidden tab closed reopening: the return's own read
+  // already holds what it missed, so it reads only if that read does not land
+  // (`recheckAfterReturn`). A removed member's socket is closed for good after the signal,
   // and the stop that follows is the last prompt it gets.
   const [membersChanged, setMembersChanged] = createSignal(0);
   const [tasksChanged, setTasksChanged] = createSignal(0);
   // Every seat that listens has a run sheet, a helper's included, and the run
   // sheet names its tasks' holders: both kinds mark it stale.
-  const seatsChanged = (wedding: WeddingSummary | null) => {
-    void recheckWeddings(Date.now());
+  const seatsChanged = (
+    wedding: WeddingSummary | null,
+    reread: () => Promise<void> = () => recheckWeddings(Date.now()),
+  ) => {
+    void reread();
     if (wedding && surfacesFor(wedding.role).canOpenDashboard) invalidateHosts(wedding.id);
     if (wedding && surfacesFor(wedding.role).canListen) markRunSheetStale(wedding.id);
     setMembersChanged((count) => count + 1);
@@ -652,7 +709,7 @@ function Dashboard() {
       case "message":
         return signalled(event.signal.kind, wedding);
       case "reconnected":
-        seatsChanged(wedding);
+        seatsChanged(wedding, reopenedForReturn() ? recheckAfterReturn : undefined);
         return checklistChanged(wedding);
       case "dropped":
         return void recheckWeddings(undefined);

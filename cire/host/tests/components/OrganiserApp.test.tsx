@@ -1948,4 +1948,202 @@ describe("OrganiserApp Dashboard", () => {
       await waitFor(() => expect(listCalls()).toBe(2));
     });
   });
+
+  describe("returning to the tab", () => {
+    // A tab hidden long enough closes its socket. Shown again, it re-reads the
+    // list when the last check is a minute old, and the socket's reopening
+    // reports `reconnected`. A reconnect within a second of the show reads
+    // nothing more while a read started after the show is on screen or in
+    // flight; any other reconnect reads, as one always does.
+    const start = 1_900_000_000_000;
+    const RETURN = 70_000;
+    let clock: { mockReturnValue(value: number): unknown; mockRestore(): void };
+    const at = (ms: number) => clock.mockReturnValue(start + ms);
+    beforeEach(() => {
+      clock = vi.spyOn(Date, "now").mockReturnValue(start);
+    });
+    afterEach(() => clock.mockRestore());
+
+    const wedding = (tier: string) => [
+      { id: "wed_a", slug: "a", displayName: "Alice & Bob", tier },
+    ];
+    /** A re-read's answer: the same wedding on Gold, so a re-read that lands shows on the shell. */
+    const onGold = () => Promise.resolve(listResponse(wedding("gold")));
+    const landed = () => waitFor(() => expect(shell().getAttribute("data-tier")).toBe("gold"));
+    const show = () => document.dispatchEvent(new Event("visibilitychange"));
+    const reconnect = () => topic.onSignal?.({ reason: "reconnected" });
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+    /** Open wed_a on Ivory. Read 1 is the load; read `n` after it is `reread(n)`.
+     *  Every other request is refused, so `read-vendors` starts a re-read. */
+    async function openWedding(reread: (read: number) => Promise<Response> = onGold) {
+      history.replaceState(null, "", "#/w/wed_a");
+      let reads = 0;
+      authFetchMock.mockImplementation((url: string) => {
+        if (url !== LIST_URL) {
+          return Promise.resolve(new Response(JSON.stringify({ error: "x" }), { status: 403 }));
+        }
+        reads += 1;
+        return reads === 1 ? Promise.resolve(listResponse(wedding("ivory"))) : reread(reads);
+      });
+      render(() => <OrganiserApp />);
+      await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+      expect(listCalls()).toBe(1);
+    }
+
+    it("lets a reconnect just after the return join the return's read", async () => {
+      const returned = heldList();
+      await openWedding(() => returned.promise);
+      at(RETURN);
+      show();
+      at(RETURN + 300);
+      expect(listCalls()).toBe(2);
+      reconnect();
+      await settle();
+      expect(listCalls()).toBe(2);
+
+      returned.answer(listResponse(wedding("gold")));
+      await landed();
+      expect(listCalls()).toBe(2);
+    });
+
+    it.each([0, 300, 1_000])(
+      "reads nothing on a reconnect %i ms after the return once the return's read has landed",
+      async (gap) => {
+        await openWedding();
+        at(RETURN);
+        show();
+        await landed();
+        at(RETURN + gap);
+        expect(listCalls()).toBe(2);
+        reconnect();
+        await settle();
+        expect(listCalls()).toBe(2);
+      },
+    );
+
+    it("reads once more when the read a reconnect joined fails", async () => {
+      const returned = heldList();
+      await openWedding((read) => (read === 2 ? returned.promise : onGold()));
+      at(RETURN);
+      show();
+      at(RETURN + 300);
+      expect(listCalls()).toBe(2);
+      reconnect();
+      await settle();
+      expect(listCalls()).toBe(2);
+
+      returned.answer(new Response(null, { status: 500 }));
+      await landed();
+      expect(listCalls()).toBe(3);
+    });
+
+    it("reads on a reconnect after the return's read failed", async () => {
+      await openWedding((read) =>
+        read === 2 ? Promise.resolve(new Response(null, { status: 500 })) : onGold(),
+      );
+      at(RETURN);
+      show();
+      await settle();
+      at(RETURN + 300);
+      expect(listCalls()).toBe(2);
+      reconnect();
+      await landed();
+      expect(listCalls()).toBe(3);
+    });
+
+    it("reads on a reconnect after the list was written locally", async () => {
+      await openWedding();
+      at(RETURN);
+      show();
+      await landed();
+      fireEvent.click(screen.getByText("rename"));
+      at(RETURN + 300);
+      expect(listCalls()).toBe(2);
+      reconnect();
+      await waitFor(() => expect(listCalls()).toBe(3));
+    });
+
+    it("reads on a reconnect more than a second after the return", async () => {
+      await openWedding();
+      at(RETURN);
+      show();
+      await landed();
+      at(RETURN + 1_001);
+      expect(listCalls()).toBe(2);
+      reconnect();
+      await waitFor(() => expect(listCalls()).toBe(3));
+    });
+
+    it("reads on a reconnect after a return too soon to read", async () => {
+      await openWedding();
+      at(30_000);
+      show();
+      at(30_300);
+      expect(listCalls()).toBe(1);
+      reconnect();
+      await waitFor(() => expect(listCalls()).toBe(2));
+    });
+
+    it("reads on a reconnect stamped before the return", async () => {
+      // The clock was set back between the show and the reconnect.
+      await openWedding();
+      at(RETURN);
+      show();
+      await landed();
+      at(RETURN - 5_000);
+      expect(listCalls()).toBe(2);
+      reconnect();
+      await waitFor(() => expect(listCalls()).toBe(3));
+    });
+
+    it("reads on a reconnect when the read in flight started before the return", async () => {
+      // A refusal while the tab was hidden started a read, and the return joined it.
+      const hidden = heldList();
+      await openWedding((read) => (read === 2 ? hidden.promise : onGold()));
+      at(RETURN - 1_000);
+      fireEvent.click(screen.getByText("read-vendors"));
+      await waitFor(() => expect(listCalls()).toBe(2));
+      at(RETURN);
+      show();
+      at(RETURN + 300);
+      expect(listCalls()).toBe(2);
+      reconnect();
+      await settle();
+      expect(listCalls()).toBe(3);
+
+      hidden.answer(listResponse(wedding("ivory")));
+      await landed();
+      expect(listCalls()).toBe(3);
+    });
+
+    it("lets a reconnect follow the read that overtook the one it joined", async () => {
+      const returned = heldList();
+      const newer = heldList();
+      await openWedding((read) =>
+        read === 2 ? returned.promise : read === 3 ? newer.promise : onGold(),
+      );
+      at(RETURN);
+      show();
+      at(RETURN + 300);
+      expect(listCalls()).toBe(2);
+      reconnect();
+      await settle();
+      expect(listCalls()).toBe(2);
+
+      // A seat change after the return's read started sends a newer read.
+      at(RETURN + 400);
+      topic.onSignal?.(message("members-changed"));
+      expect(listCalls()).toBe(3);
+
+      at(RETURN + 500);
+      returned.answer(listResponse(wedding("ivory")));
+      await settle();
+      expect(listCalls()).toBe(3);
+
+      newer.answer(listResponse(wedding("gold")));
+      await landed();
+      expect(listCalls()).toBe(3);
+    });
+  });
 });
