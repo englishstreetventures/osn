@@ -7,7 +7,7 @@
  *
  * Rotating the pepper changes every probe key, which only moves padding to
  * fresh objects, and voids the discoverable passkey challenges in flight,
- * which live five minutes.
+ * which live two minutes (`CHALLENGE_TTL_MS`).
  *
  * With no pepper (local dev and tests), the key is random and made once per
  * service, never a fixed one: a fixed key in the source would make every

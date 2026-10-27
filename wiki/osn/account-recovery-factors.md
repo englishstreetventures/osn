@@ -455,19 +455,25 @@ this:
 | Branch | Store calls, unequalised |
 |---|---|
 | identifier resolves to nothing | 0 |
-| account locked out | 1 |
+| account locked out | 2 |
 | no code pending | 2 |
-| wrong code, live pending entry | 4 |
+| wrong code, live pending entry | 3 |
 
-Four calls means a real unlocked account; none means no such account. So each
+Three calls means a real unlocked account; none means no such account. So each
 route makes the **same store calls on every refusal**, padded to the
 *costliest* real branch rather than the cheapest — padding down is the same
-oracle upside down. `begin` makes three on all three branches: the cap check,
-the entry write, the guess-count restart. `/login/recovery/email/complete`
-makes four on every refusal: the lockout lookup, the entry read, the guess
-count, the failure record. `/login/recovery/totp/complete` pays what
-`checkTotpCode` pays — the configuration check, the lockout lookup, the
-`totp_credentials` query, the dummy-key verification and the failure record.
+oracle upside down. `begin` makes two on all three branches: the cap check and
+the entry write, which starts the code's guess count. `/login/recovery/email/complete`
+makes three on every refusal, in two hops: the lockout lookup and the guess
+(the entry read and its count, one `guess` call) side by side, then the
+failure record. `/login/recovery/totp/complete` pays what `checkTotpCode`
+pays — the configuration check, the lockout lookup and the `totp_credentials`
+query side by side, the dummy-key verification and the failure record.
+Recovery-code sign-in (`/login/recovery/complete`, [[recovery-codes]]) does the
+same: every refusal makes the lockout lookup and the failure record, and the
+same two `recovery_codes` statements. On both code routes the audit row a
+threshold-crossing failure writes is written after the answer, so no refusal
+waits on an insert only a real account can make.
 
 Two rules the padding follows:
 
@@ -475,11 +481,15 @@ Two rules the padding follows:
   Durable Object call's cost depends on whether it reads or writes and on
   whether the object was used a moment ago, so a read standing in for a write,
   or a fresh random key, would leave a difference a stopwatch can find. Each
-  padding call goes to `recoveryProbeKey(identifier)`: derived from what the
-  caller submitted, the same length as an account id, and the same object on
-  every request that names that identifier. The writes leave small entries under
-  probe keys; each expires with the TTL the real one would have, and the per-IP
-  limits on these routes bound how many identifiers a caller can name.
+  padding call goes to the caller's probe key, `serverMac.probeKey(identifier)`:
+  `prb_` and 12 hex digits of an HMAC-SHA256, under the session IP pepper, of
+  what the caller submitted — the same length as an account id, the same object
+  on every request that names that identifier, and not reversible from a list
+  of addresses. Every object, a probe key's or an account's, is created in
+  Cloudflare's Oceania region, so the two are the same distance from any caller
+  ([[coordination-store]]). The writes leave small entries under probe keys;
+  each expires with the TTL the real one would have, and the per-IP limits on
+  these routes bound how many identifiers a caller can name.
 - **The TOTP route's padding lives beside `checkTotpCode`**, as
   `burnTotpCheckCost`, not at the call site — a hop added to one belongs in the
   other, and they only stay in step if they are read together.

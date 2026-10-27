@@ -1047,6 +1047,12 @@ Before approving it:
    `bun run --cwd shared/infra secrets:check-live -- --tier production` prints
    `DIFF … not in the inventory: UPSTASH_REDIS_REST_TOKEN, UPSTASH_REDIS_REST_URL`
    and exits 1. That drift is expected.
+4. Confirm the `production` GitHub Environment holds `INTERNAL_SERVICE_SECRET`
+   with the value the production Worker holds. The smoke check sends it to
+   `/health/coordination`: without it the check refuses to start, and with a
+   different value the probe answers 401; either fails the job, and neither rolls
+   the Worker back. `bun run --cwd shared/infra secrets:check-github -- --tier production`
+   checks the name, not the value.
 
 If the smoke check fails, the step reports `Rollback failed`: Cloudflare blocks
 a rollback to a version from before the class existed, and a hand rollback meets
@@ -1641,7 +1647,7 @@ from its `dev-hosts` step on dev ([[infrastructure-as-code#Dev hosts]]) and its
 
 | Surface | Production | Dev probes (on the dev origin) | A working Worker answers |
 |---|---|---|---|
-| osn-api | `https://id.musubi.social/health`, `/.well-known/jwks.json` and `/health/coordination` | the same paths | 200 `{"status":"ok"}`; 200 with an ES256 key on P-256; 200 `{"ok":true}`, a write, read and remove through the coordination store ([[coordination-store#The health probe]]) |
+| osn-api | `https://id.musubi.social/health`, `/.well-known/jwks.json` and `/health/coordination` | the same paths | 200 `{"status":"ok"}`; 200 with an ES256 key on P-256; 200 `{"ok":true}`, a write, read and remove through the coordination store ([[coordination-store#The health probe]]). The last answers only the `INTERNAL_SERVICE_SECRET` bearer, which the check sends to it alone, from the job's Environment |
 | cire-api | `https://api.cireweddings.com/api/auth/session` | the same path | 200 `{"signedIn":false}`. cire-api has no health route — its root and `/health` answer 404 |
 | cire-invites | `https://invite.cireweddings.com/` and `/smoke-check-no-such-wedding` | the same paths, the redirect judged against `SMOKE_MARKETING_ORIGIN` | a redirect to the marketing site; a rendered page, 404 or 200 — so a broken design import fails it, and cire-api being down does not |
 | zap-api | `https://zap.cireweddings.com/health` | the same path | 200 `{"status":"ok"}` |
@@ -1695,6 +1701,11 @@ How it decides:
   the daily request cap is spent, and anyone can spend it from the public hosts. The
   one probed route with a limit of its own, osn-api's `/health/coordination`, allows
   10 calls a minute per IP, and a check asks it at most 8 times.
+- **osn-api refused the bearer**: `/health/coordination` answered 401, so the
+  `INTERNAL_SERVICE_SECRET` the job holds is not the Worker's. No rollback: new code
+  cannot fix a secret. Set the Environment's value to the Worker's (`gh secret set
+  INTERNAL_SERVICE_SECRET --env <tier>`) and run the check again. The check refuses
+  to start at all, before any request, when the job has no value for it.
 - **On dev, Access did not guard a browser host**: its `/`, asked with no service
   token, got anything but Access's sign-in redirect. The annotation is titled
   `Cloudflare Access`, and nothing is rolled back: the host may be open to anyone,

@@ -46,7 +46,7 @@ Current limits (defined once in `AUTH_RATE_LIMITS` and `OSN_RATE_LIMITS`, `osn/a
 | `/account/email/begin` | 3 / IP / hour | Caps email-change OTPs |
 | `POST /recovery/generate` | 10 / IP / hour | Flood control: each call burns the previous set |
 
-The one-minute windows run on **native Workers rate-limit bindings** in the deployed tiers. The hour- and day-window limiters, the per-account caps and the account export and erasure limiters run on the **coordination store** ([[coordination-store]]), because the native binding supports only a 10- or 60-second `period`.
+The one-minute windows run on **native Workers rate-limit bindings** in the deployed tiers. The hour- and day-window limiters — the per-account caps and the per-account export, deletion and restore limiters among them — run on the **coordination store** ([[coordination-store]]), because the native binding supports only a 10- or 60-second `period`.
 
 ### 3. Check Client-IP Trust Policy
 
@@ -61,7 +61,7 @@ The rate limiter resolves the keying IP with `getClientIp(headers, clientIpConfi
 Three backends are in play. Check the metric `osn.auth.rate_limited` plus osn-api's `coordination store call failed` log line to tell them apart:
 
 - **Native Workers bindings** (deployed tiers: the one-minute per-IP auth limiters, and the per-user graph, organisation and recommendation limiters) — enforced at the edge, with no store call, so a coordination-store failure cannot affect them. Cloudflare counts these **per colo**, not globally, so a caller spread across colos sees a slightly looser effective cap ([[rate-limiting]]).
-- **Coordination-store limiters** (the hour and day windows, the per-account caps, account export and erasure) → a failed call **fails closed** (deny) and logs `coordination store call failed` with the store's name. A spike of 429s with those lines → the store is failing; `GET /health/coordination` answers 503 while it is. Do not flip the checks to fail-open. On dev, a spent Durable Object allowance looks the same until 00:00 UTC ([[free-tier-limits]]).
+- **Coordination-store limiters** (the hour and day windows, the per-account caps, the per-account export, deletion and restore limiters) → a failed call **fails closed** (deny) and logs `coordination store call failed` with the store's name. A spike of 429s with those lines → the store is failing; `GET /health/coordination` answers 503 while it is. Do not flip the checks to fail-open. On dev, a spent Durable Object allowance looks the same until 00:00 UTC ([[free-tier-limits]]).
 - **In-memory** (the Bun dev server) → process restarts wipe state. A deployed Worker never falls back to it: without `COORDINATION` or its `RL_USER_*` bindings it answers 503 on every route.
 
 ### 5. Check for Coordinated Attack

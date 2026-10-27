@@ -17,7 +17,7 @@ last-reviewed: 2026-10-27
 # osn-api's shared state on a Durable Object, not Upstash Redis
 
 osn-api keeps its short-lived shared state — the limiters no native binding
-carries, the per-account caps, ceremony entries, guess counters, step-up
+carries, the per-account caps, ceremony entries and their guess counts, step-up
 token ids and lockout counters — in `CoordinationStore`, a SQLite-backed Durable Object class
 with **one object per key**, bound as `COORDINATION`. It replaced Upstash Redis
 over REST. Two pieces of state left the shared store altogether: the record of
@@ -51,6 +51,23 @@ Answered on 2026-10-26.
 | 6 | Do the account export and erasure limiters move too? | **Yes** | They ran in memory on the Worker, so "one export a day per account" held only per isolate |
 
 *Estimated, not measured: with 5-minute access tokens a person signed in for 8 hours refreshes about 96 times a day. On the Durable Object that would be about 192 requests, so about 520 such people would spend dev's 100,000 a day on refreshes alone.*
+
+## Where the objects live
+
+Every object is asked for with `locationHint: "oc"`, so Cloudflare creates it
+in its Oceania region whoever calls first. Decided by the owner on
+2026-10-27.
+
+| Option | Why not, or why |
+|---|---|
+| **No hint** | Cloudflare places an object near the request that first creates it and never moves it. The privacy notices name one region for the infrastructure behind the service's security, Cloudflare's Oceania region, and an object first created from Europe would sit in Europe. And the recovery routes pad a refusal for an address that names nobody with calls on a probe key: a probe object created by the caller sits near the caller, while a real account's object sits wherever its owner first used it, so the same calls take measurably different times and the padding stops hiding which addresses are real |
+| **Pin only the stores that pad** | Leaves the notices untrue for the limiters' IP-keyed objects and the ceremony entries |
+| **Pin everything to Oceania** (chosen) | One place for every object: the notices hold, a probe object and a real one are the same distance from any caller, and the store sits beside the D1 databases. The cost is latency for callers outside Oceania — every sequential store call is a trip there and back — which is why each ceremony keeps its sequential calls to one or two ([[coordination-store#Cost]]) |
+
+The hint is a best effort, and applies only when an object is created
+([data location](https://developers.cloudflare.com/durable-objects/reference/data-location/)).
+Every entry lives a day at most, so within a day of the release that adds the
+hint every object has been created under it.
 
 ## Per-colo counting for per-user keys
 

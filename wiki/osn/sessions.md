@@ -249,7 +249,10 @@ Indexes on `expires_at`, `account_id` and `family_id`.
   `DatabaseError` — the grant fails and nothing is revoked, so a storage error
   never passes for "not rotated" and never makes a revocation up.
 - **Sweep.** `runRotatedSessionSweep` deletes expired records in chunks of 500,
-  at most 10 chunks a run, so a backlog drains over several runs. It waits 75 ms
+  at most the tier's chunk count a run — `OSN_ROTATED_SESSION_SWEEP_MAX_CHUNKS`,
+  100 on staging and production, 10 where unset (dev) — so a backlog drains over
+  several runs, and a run that ends on a full chunk logs the warning
+  `auth.session.rotated_sweep ended on a full chunk`. It waits 75 ms
   between two chunks (`ROTATED_SESSION_SWEEP_PAUSE_MS`), never after the last,
   so requests waiting to write run in between ([[retention#Sweeper design contract]]).
   The Worker's 6-hourly `scheduled` cron runs it, and so does the Bun dev

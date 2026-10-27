@@ -11,7 +11,7 @@ packages:
   - "@osn/db"
   - "@osn/api"
   - "@osn/client"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-27
 ---
 # Identity Model
 
@@ -295,7 +295,9 @@ Settings-surface operations over an account's existing credentials. All routes b
 
 ### Discoverable-credential login
 
-`POST /login/passkey/begin` with no body (or `{}`) returns `{ options, challengeId }`. Browser calls `navigator.credentials.get({ mediation: "conditional", … })`; the signed assertion is posted back via `/login/passkey/complete` with `{ challengeId, assertion }`. The server resolves the caller from the credential's `accountId` + `userHandle`. Exactly one of `identifier` / `challengeId` must be present — the route returns 400 otherwise.
+`POST /login/passkey/begin` with no body (or `{}`) returns `{ options, challengeId }`; `challengeId` is `options.challenge`. Browser calls `navigator.credentials.get({ mediation: "conditional", … })`; the signed assertion is posted back via `/login/passkey/complete` with `{ challengeId, assertion }`. The server resolves the caller from the credential's `accountId` + `userHandle`. Exactly one of `identifier` / `challengeId` must be present — the route returns 400 otherwise.
+
+The challenge proves itself — 16 random bytes, an expiry and an HMAC over both — so `begin` stores nothing. `complete` refuses a challenge that is not the one the browser signed, that the server did not mint or that has expired, and claims its nonce once the signature verifies, so it signs in once ([[coordination-store#Refusals cost the same, and single use is atomic]]).
 
 ### Last-passkey guard
 

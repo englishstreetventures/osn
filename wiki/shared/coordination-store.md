@@ -28,19 +28,21 @@ osn-api keeps its short-lived shared state in one Durable Object class,
 `CoordinationStore` from `@shared/coordination`, bound to the Worker as
 `COORDINATION`. Every isolate of the deployed Worker sees the same state:
 
-- the rate limiters no native binding carries: the hour-window auth limiters, the account export and erasure limiters, and the per-account caps (on the Bun dev server, every limiter);
-- the ceremony entries: WebAuthn challenges, pending registrations, emailed codes, pending email changes and TOTP enrolments, cross-device requests, parked `/authorize` requests, recovery disown tokens;
-- each ceremony's guess counter;
-- the step-up token ids already used;
+- the rate limiters no native binding carries: the hour-window auth limiters, the per-account export, deletion and restore limiters, and the per-account caps (on the Bun dev server, every limiter);
+- the ceremony entries: identified passkey challenges, pending registrations, emailed codes, pending email changes and TOTP enrolments, cross-device requests, parked `/authorize` requests, recovery disown tokens;
+- each code ceremony's guess count, kept on its entry;
+- the step-up token ids already used, and the discoverable passkey challenges already used, by nonce;
 - the three per-account lockout counters (recovery code, emailed recovery code, TOTP);
 - the health probe's round trip.
 
-Two things are not in it. Sessions and the record of rotated-out session
+Three things are not in it. Sessions and the record of rotated-out session
 tokens live in D1 ([[sessions]]). On a deployed tier the one-minute per-IP auth
-limiters and the graph, organisation, recommendation, profile and health-probe
-limiters run on Cloudflare's native Rate Limiting bindings, which need no store
-([[rate-limiting]]). Why a Durable Object, one per key, and what it replaced:
-[[durable-object-over-upstash]].
+limiters and the graph, organisation, recommendation, profile, health-probe,
+account-export IP and deletion-status limiters run on Cloudflare's native Rate
+Limiting bindings, which need no store ([[rate-limiting]]). A discoverable
+passkey challenge carries its own proof and is stored nowhere until it is used
+([[#Refusals cost the same, and single use is atomic]]). Why a Durable Object,
+one per key, and what it replaced: [[durable-object-over-upstash]].
 
 ## The class
 
@@ -59,6 +61,8 @@ SQLite-backed classes, so the class is declared with `new_sqlite_classes`.
 | `write(value, ttlMs)` | Replaces the entry for `ttlMs`. A TTL at or below zero removes the entry instead | Yes |
 | `remove()` | Deletes the entry and its alarm. `true` only if a live entry was there | Only when an entry exists |
 | `claim(ttlMs)` | Stores a marker for `ttlMs` if there is no live entry. `true` only for the caller that stored it | Only when it wins |
+| `guess()` | With a live entry, adds 1 to its count and answers `{ value, n }`, the value and the count after this guess; the expiry stays. With none, counts nothing and answers `{ value: null, n: 0 }`. `write` starts the count again; `remove` and `take` clear it with the value | Only when an entry exists |
+| `take()` | The live value, removed in the same call, or `null`. Of two takes at once, one gets the value | Only when an entry exists |
 | `alarm()` | Empties an expired object; if a later write replaced the entry, sets the alarm again for the new expiry | Only when it deletes |
 
 Each method reads and writes storage with no other I/O between, so every call
@@ -94,8 +98,17 @@ await client.claim(jti, ttlMs); // calls the object named "step_up_jti:<jti>"
 - **A key longer than 256 characters is refused before any call** (`MAX_KEY_LENGTH`).
   The client throws a `RangeError`; a limiter denies.
 - **One object per key, not per namespace.** A hot key loads only its own object,
-  and no call spans two keys. Cloudflare places each object near the Worker that
-  first asks for it.
+  and no call spans two keys.
+- **Every object is asked to live in Oceania.** The client gets every stub with
+  `{ locationHint: "oc" }` (`COORDINATION_LOCATION_HINT`), retries included.
+  Cloudflare honours a hint on a best effort, only when the object is first
+  created, and never moves an object afterwards
+  ([data location](https://developers.cloudflare.com/durable-objects/reference/data-location/)).
+  So every object, whoever creates it, is placed in a data centre Cloudflare
+  chooses in its Oceania region, beside the D1 databases. A caller outside
+  Oceania pays the trip there on every call, which is why the ceremonies keep
+  their sequential calls few ([[#Cost]]). Why it is pinned:
+  [[durable-object-over-upstash#Where the objects live]].
 - **The client caps every window and TTL at 31 days** before the call, so the
   store refuses only a duration that is not a whole number above zero. A `write`
   with a TTL at or below zero removes the entry instead.
@@ -105,9 +118,9 @@ osn-api's namespaces form a closed union, `CoordinationStoreName`, in
 eleven ceremony stores (`reg_challenge`, `login_challenge`, `pending_registration`,
 `step_up_challenge`, `step_up_otp`, `pending_email_change`, `cross_device`,
 `pending_totp_enroll`, `pending_recovery_otp`, `recovery_disown`,
-`oidc_authorize_request`), each with its `<store>-attempts` guess counter; the
-three lockouts (`recovery_lockout`, `recovery_otp_lockout`, `totp_lockout`);
-`step_up_jti`; `health_probe`; and one per limiter, named in the budget table
+`oidc_authorize_request`); the three lockouts (`recovery_lockout`,
+`recovery_otp_lockout`, `totp_lockout`); `step_up_jti`;
+`passkey_challenge_claim`; `health_probe`; and one per limiter, named in the budget table
 in `osn/api/src/routes/auth/limiters.ts` (`auth.<endpoint>` for the auth
 limiters, `account.export`, `auth.profile_switch_cap` and the like for the rest).
 The same name is the `store` attribute on every metric and log line, so a store
@@ -122,8 +135,8 @@ A call that fails is tried a second time only when all of these hold:
 - the runtime did not mark it `overloaded`, where a retry adds to the load.
 
 The second try takes a fresh stub, since one that has thrown may stay broken.
-Every other failure reaches the caller at once: a write, claim, increment or
-remove that failed may still have landed.
+Every other failure reaches the caller at once: a write, claim, increment,
+remove, guess or take that failed may still have landed.
 
 Each failed call, after any retry, reaches the client's `onError(store, op, { retried, durationMs })`
 once — the namespace and the operation, never the key or a value.
@@ -137,8 +150,9 @@ Every consumer fails closed. The mapping lives in
 |---|---|---|
 | Rate limiters and per-account caps | `increment` | Denied, as if over the limit: the route refuses, with 429 where it answers one |
 | Ceremony `set` / `get` / `delete` / `consume` | `write` (JSON) / `read` / `remove` / `remove` | The call rejects; `storeCall` turns it into a `CoordinationError`, which the route answers with a generic 503 (`osn/api/src/lib/public-error.ts`) |
-| Ceremony guess counts, `recordAttempt` / `clearAttempts` | `increment` / `remove` on `<store>-attempts` | The same 503 |
+| Ceremony `guess` / `take` | `guess` / `take`, on the entry's own object | The same 503 |
 | Step-up token guard | `claim` | The token is refused as "could not be verified", and is not counted as a replay |
+| Discoverable passkey challenge claims | `claim` | The same 503 |
 | Lockouts, `status` / `recordFailure` | `count` / `increment` | Answers `"unknown"`. Every caller refuses with its generic error and writes no security event; a failure that could not be counted shows as `result="unavailable"` on the factor's lockout metric |
 | Lockouts, `reset` | `remove` | Swallowed; the counter expires with its window |
 | Health probe | `write`, `read`, `remove` | `GET /health/coordination` answers 503 |
@@ -147,18 +161,43 @@ A ceremony value that does not parse as JSON reads as absent, which sends the
 user back to `begin`: this store is its only writer, so such a value is
 truncated or foreign.
 
-Two constraints rest on the store's atomicity:
+A key over 256 characters never reaches a call. The routes that key an entry
+by what the caller typed — passkey sign-in by the identifier, registration by
+the address — refuse one over 255 characters, longer than any account holds,
+as bad input (400); a disown token whose lookup id is not the shape the server
+mints is a wrong token, answered with that route's uniform 202.
+
+## Refusals cost the same, and single use is atomic
 
 - **Guesses are counted atomically.** Every code-checking ceremony — step-up
   OTP, the emailed recovery code, TOTP enrolment, email change, registration —
-  counts a guess with one `increment` before it compares the code, so guesses
-  sent at once each take their own number. A right code claims its entry with
-  `remove`, so of two right codes exactly one wins. The life of a count is set
-  out in `osn/api/src/services/auth/attempts.ts`.
+  reads its entry and counts the guess on it in one `guess` before it compares
+  the code, so guesses sent at once each take their own number and no guess can
+  read the entry and count from a number it no longer has. `begin`'s `write`
+  starts the count at 0. A right code claims its entry with `remove`, so of two
+  right codes exactly one wins. The life of a count is set out in
+  `osn/api/src/services/auth/attempts.ts`.
+- **A WebAuthn challenge is used once.** Passkey sign-in with an identifier,
+  passkey registration and step-up by passkey `take` their challenge, so of two
+  presentations of one assertion sent at once only one reaches verification.
+  A discoverable sign-in's challenge is 16 random bytes, an expiry and an
+  HMAC-SHA256 over both (`osn/api/src/services/auth/server-mac.ts`): `begin`
+  stores nothing, and `complete` requires the challenge in `clientDataJSON` to
+  be the `challengeId` the client sent, opens it, verifies the signature, then
+  `claim`s the nonce on `passkey_challenge_claim` for the challenge's remaining
+  life. A changed byte, another key's challenge, an expired one or a lost claim
+  is refused.
 - **Refusal paths make the same store calls whatever the identifier.** The
-  unauthenticated recovery routes pad a branch that names no account with the
-  same operations, on the same store, at a key derived from the submitted
-  identifier ([[account-recovery-factors]], "The oracle moves to `complete`").
+  unauthenticated routes that take an identifier pad a branch that names no
+  account with the same operations, on the same store, at the caller's probe
+  key: recovery by code, by emailed code and by TOTP
+  ([[account-recovery-factors]], "The oracle moves to `complete`";
+  [[recovery-codes]]), passkey sign-in `begin` (one `write`) and registration
+  `begin` (a `read` and a `write`). So the branches cost the same and, while
+  the store fails, fail together. The probe key is `prb_` and 12 hex digits of
+  an HMAC-SHA256, under `OSN_SESSION_IP_PEPPER`, of the normalised
+  identifier — the length of an account id, and not something a list of
+  addresses can be run through.
 
 ## Wiring
 
@@ -205,11 +244,27 @@ every call, so every call is one request.
 | `remove`, nothing there | 1 | 0 |
 | `claim`, won | 1, and 1 more when the alarm fires | about 2, and about 1 at expiry |
 | `claim`, lost | 1 | 0 |
+| `guess`, entry present | 1 | about 1 |
+| `guess`, nothing there | 1 | 0 |
+| `take` | as `remove` | as `remove` |
 
 An entry removed before it expires has no alarm left to fire. A request through
 an hour- or day-window limiter costs one `increment`; `GET /health/coordination`
 costs three calls. A token refresh costs no Durable Object call: its rotation
 record is a D1 row ([[sessions#Reuse detection across isolates]]).
+
+Sequential calls per request, which is what a caller far from Oceania waits
+for (counted from the code, 2026-10-27):
+
+| Route | Calls |
+|---|---|
+| Code `begin` (step-up OTP, TOTP enrolment, email change, registration, recovery email) | 1 write, after any cap or limiter |
+| Code `complete`, success | 1 `guess`, then the claim or delete |
+| Passkey sign-in, identified: `begin` / `complete` | 1 / 1 (`take`) |
+| Passkey sign-in, discoverable: `begin` / `complete` | 0 / 1 (`claim`, only once the signature verifies) |
+| Step-up passkey, passkey registration `complete` | 1 (`take`) |
+| Recovery email `complete`, any refusal | 3 calls in 2 hops (the lockout lookup and the guess side by side, then the failure record) |
+| Recovery code sign-in, any refusal | 2 (the lockout lookup, the failure record) |
 
 *Counted from the code on 2026-10-27 (`shared/coordination/src/store.ts`, `client.ts`) against the pricing page's billing rules, not measured. The pricing page does not say how `deleteAlarm()` or `deleteAll()` are billed beyond "deletes are counted as rows written".*
 
@@ -225,8 +280,8 @@ dev sign-in stops until the reset. The ceilings and how to watch them are in
 
 | Signal | What it carries |
 |---|---|
-| `osn.coordination.store.operations{store, op, result}` | One count per call an object answers or fails, retries included. `store` is a `CoordinationStoreName`, `op` one of the six calls, `result` `ok` or `error` |
-| `osn.auth.ceremony_store.operations{namespace, op, backend}` | One count per ceremony `set`, `get` or `delete`; `backend` is `memory` or `durable_object` |
+| `osn.coordination.store.operations{store, op, result}` | One count per call an object answers or fails, retries included. `store` is a `CoordinationStoreName`, `op` one of the eight calls, `result` `ok` or `error` |
+| `osn.auth.ceremony_store.operations{namespace, op, backend}` | One count per ceremony `set`, `get`, `delete` (a `consume` counts as one), `guess` or `take`; `backend` is `memory` or `durable_object` |
 | `osn.auth.recovery.lockout{result="unavailable"}`, `osn.auth.totp.lockout{result="unavailable", scope}` | A refusal because the store could not update a lockout counter or, for TOTP and the emailed recovery code, read one |
 | Log `coordination store call failed` | One line per failed call, after any retry, with `store`, `op`, `durationMs` and `retried` |
 
@@ -245,14 +300,19 @@ with a 60-second TTL, reads it back and removes it. It answers 200 `{ "ok": true
 when the value reads back unchanged and the remove finds it, and 503
 `{ "ok": false }` otherwise, with `cache-control: no-store`.
 
+- It answers only a caller sending `Authorization: Bearer <INTERNAL_SERVICE_SECRET>`:
+  401 without it, 501 where the secret is unset, and neither touches the
+  limiter or the store. Each probe costs three calls from the allowance every
+  sign-in shares, so it is not public.
 - It takes no input, so it can only ever touch its own entries.
-- A per-IP limiter allows 10 calls a minute (`OSN_RATE_LIMITS.healthCoordination`),
-  on the `RL_AUTH_IP_10_60` binding on a deployed tier. An IP that cannot be
-  resolved is refused with 429.
+- Behind the secret, a per-IP limiter allows 10 calls a minute
+  (`OSN_RATE_LIMITS.healthCoordination`), on the `RL_AUTH_IP_10_60` binding on
+  a deployed tier. An IP that cannot be resolved is refused with 429.
 - It is left out of the OpenAPI document, like `/health`.
 - `/health` touches no store, so this is the probe that shows a deployed Worker
   can reach the store. The post-deploy smoke check asks it on production and on
-  dev ([[production-deploy#7. Post-deploy verification (smoke checks)]]).
+  dev, with the secret from the job's Environment; a 401 fails the check
+  without a rollback ([[production-deploy#7. Post-deploy verification (smoke checks)]]).
 
 ## Rollback and the first release
 
@@ -268,8 +328,11 @@ steps are in [[production-deploy#The coordination store's first release]].
 
 | File | What it proves |
 |---|---|
-| `shared/coordination/tests/d1/store.test.ts` | The class on workerd: windows, concurrency, expiry, alarms, refusals, state across a restart |
-| `shared/coordination/tests/client.test.ts` | Naming, the key-length refusal, the namespace rule, the retry rule, the limiter's fail-closed answer |
+| `shared/coordination/tests/d1/store.test.ts` | The class on workerd: windows, concurrency, expiry, alarms, refusals, `guess` and `take` under concurrency, state across a restart |
+| `shared/coordination/tests/client.test.ts` | Naming, the location hint on every stub, the key-length refusal, the namespace rule, the retry rule, the limiter's fail-closed answer |
+| `osn/api/tests/services/attempt-counting.test.ts` | Each code ceremony under a burst of guesses, and two right codes at once, on both bundles |
+| `osn/api/tests/services/single-use-challenges.test.ts` | Two presentations of one WebAuthn challenge at once: one succeeds, at all four sites; every refusal of a discoverable challenge |
+| `osn/api/tests/services/recovery-op-sequence.test.ts`, `begin-op-sequence.test.ts` | Each padded route's branches make the same store calls (and, for recovery codes, D1 statements), and fail together while the store is down |
 | `osn/api/tests/lib/coordination/durable.test.ts` | Each consumer's mapping and failure posture, and that no metric or log carries a key or value |
 | `osn/api/tests/lib/coordination/budgets.test.ts` | Both bundles let each limiter's budget through and refuse the next hit, each limiter on its own store |
 | `osn/api/tests/lib/native-rate-limiters.test.ts` | Every native limit in `wrangler.toml` equals its budget, and the `v1` migration creates the class the served module exports |
@@ -282,5 +345,6 @@ steps are in [[production-deploy#The coordination store's first release]].
 - [osn/api/src/lib/coordination/](../../osn/api/src/lib/coordination/) — the `CoordinationStores` bundle, its durable and in-memory builders, store names, the health probe
 - [osn/api/src/services/auth/store-call.ts](../../osn/api/src/services/auth/store-call.ts) — `storeCall`, a store call as an Effect failing with `CoordinationError`
 - [osn/api/src/services/auth/attempts.ts](../../osn/api/src/services/auth/attempts.ts) — guess counting
+- [osn/api/src/services/auth/server-mac.ts](../../osn/api/src/services/auth/server-mac.ts) — probe keys and the discoverable challenge's MAC
 - [osn/api/src/entry.ts](../../osn/api/src/entry.ts) — the Worker's module
 - [osn/api/wrangler.toml](../../osn/api/wrangler.toml) — the binding and the `v1` migration

@@ -12,7 +12,7 @@ packages:
   - "@osn/client"
   - "@osn/auth-ui"
   - "@musubi/social"
-last-reviewed: 2026-10-26
+last-reviewed: 2026-10-27
 ---
 
 # Passkey-Primary Login
@@ -388,17 +388,22 @@ production cannot mount the route at all.
 userVerification, … } }` in all three branches:
 
 - Unknown identifier: synthetic `allowCredentials` of length 1 (random 32
-  bytes, base64url). No challenge is persisted, so a subsequent
-  `/login/passkey/complete` hits the "challenge not found" guard,
-  indistinguishable from a legitimate timeout.
+  bytes, base64url). The challenge is parked at the caller's probe key, which
+  no `complete` reads, so a subsequent `/login/passkey/complete` hits the
+  "challenge not found" guard, indistinguishable from a legitimate timeout.
 - Known account with 0 passkeys (unreachable in practice — the ≥1 invariant
-  holds — legacy/corrupt data only): same synthetic shape.
-- Known account with ≥1 passkey: real `allowCredentials` from the DB.
+  holds — legacy/corrupt data only): same synthetic shape, same probe-key park.
+- Known account with ≥1 passkey: real `allowCredentials` from the DB, and the
+  challenge parked at the normalised identifier.
 
 An anonymous caller cannot probe the handle/email namespace through this
 endpoint. A DB SELECT runs on both branches (real query for known; a
-never-matching accountId query for unknown) so the latency distribution is
-the same.
+never-matching accountId query for unknown), and every branch makes the same
+one coordination-store write with the same TTL, so the latency distribution
+is the same, and while the store is failing every branch answers the same 503
+([[coordination-store#Refusals cost the same, and single use is atomic]]). An
+identifier over 255 characters, longer than any account holds, is refused with
+400 before any of it.
 
 ## Access-token audience
 

@@ -276,11 +276,17 @@ rows that were written first ([[cire-seating]]).
 one `rotated_sessions` record in the batch that inserts the new session
 ([[sessions]]): the row, its primary-key index and its three secondary indexes,
 about 5 rows written. The 6-hourly cron deletes the record once it expires,
-30 days later, about 5 more. Each sweep run deletes at most 5,000 records, in
-chunks of 500 (`ROTATED_SESSION_SWEEP_CHUNK`, `ROTATED_SESSION_SWEEP_MAX_CHUNKS`
-in `osn/api/src/services/auth/constants.ts`): at most about 25,000 rows written a
-run. On dev's 100,000 a day, ten rows a refresh is about 10,000 refreshes a day,
-shared with everything else on the dev account.
+30 days later, about 5 more. A sweep run deletes chunks of 500
+(`ROTATED_SESSION_SWEEP_CHUNK` in `osn/api/src/services/auth/constants.ts`), at
+most the tier's chunk count (`OSN_ROTATED_SESSION_SWEEP_MAX_CHUNKS`, read by
+`rotatedSweepMaxChunks` in `tokens.ts`). Dev leaves it unset, so 10 chunks:
+5,000 records and about 25,000 rows written a run, 10 of the 50 D1 queries the
+cron's four sweeps share. Staging and production set 100: 50,000 records a
+run, 100 statements, inside Workers Paid's 1,000 queries per invocation, which
+keeps up with about 2,000 people signed in eight hours a day. On dev's 100,000
+rows a day, ten rows a refresh is about 10,000 refreshes a day, shared with
+everything else on the dev account. A run that ends on a full chunk logs
+`auth.session.rotated_sweep ended on a full chunk`; watch for it in Workers Logs.
 
 *Counted from the schema (`osn/db/src/schema/index.ts`, `rotatedSessions`) and the pricing page's rule that each index entry is a row written, on 2026-10-27; not measured.*
 
@@ -419,7 +425,7 @@ table, don't guess.**
 
 | Dependency down / over-quota | Subsystem | Posture (verified) | Effect | Detect | Action |
 |---|---|---|---|---|---|
-| **Coordination store** (osn-api's `COORDINATION` Durable Object) failing, or the dev account's Durable Object allowance spent | The auth limiters longer than a minute, the account export and erasure limiters, the per-account caps | **fail-CLOSED** — a failed `increment` denies (`createCoordinationRateLimiter`, `shared/coordination/src/client.ts`) | 429 on recovery-code generate and sign-in, emailed-recovery begin, email-change begin, OIDC client registration, account export and deletion | `coordination store call failed` in osn-api's logs; `osn.auth.rate_limited` spike | Wait out a blip; on dev, the 00:00 UTC reset. **Do not** flip to fail-open. |
+| **Coordination store** (osn-api's `COORDINATION` Durable Object) failing, or the dev account's Durable Object allowance spent | The auth limiters longer than a minute, the per-account export, deletion and restore limiters, the per-account caps | **fail-CLOSED** — a failed `increment` denies (`createCoordinationRateLimiter`, `shared/coordination/src/client.ts`) | 429 on recovery-code generate and sign-in, emailed-recovery begin, email-change begin, OIDC client registration, account export and deletion | `coordination store call failed` in osn-api's logs; `osn.auth.rate_limited` spike | Wait out a blip; on dev, the 00:00 UTC reset. **Do not** flip to fail-open. |
 | ″ | Ceremony stores and their guess counts | **fail-CLOSED** — a failed call is a `CoordinationError`, answered with a generic 503 (`osn/api/src/services/auth/store-call.ts`) | Passkey sign-in and registration, step-up, recovery, email change, TOTP enrolment, cross-device sign-in and the `/authorize` hand-off answer 503 | `coordination store call failed`; `GET /health/coordination` answers 503 | The user-facing one: restore it first. |
 | ″ | Step-up token guard | **fail-CLOSED** — a failed `claim` refuses the token as "could not be verified" (`osn/api/src/services/auth/step-up.ts`) | Step-up-gated actions refused | `osn.auth.step_up.verified` drop | Same — the posture is intentional. |
 | ″ | Lockout counters (recovery code, emailed recovery code, TOTP) | **fail-CLOSED** — `status` and `recordFailure` answer `"unknown"`; the caller refuses with its generic error and writes no security event (`osn/api/src/lib/coordination/durable.ts`) | Recovery-code sign-in, emailed recovery and TOTP checks refused | `osn.auth.recovery.lockout{result="unavailable"}`, `osn.auth.totp.lockout{result="unavailable"}` | Restore promptly — the owner's own recovery is refused. |
