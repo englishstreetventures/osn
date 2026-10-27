@@ -501,7 +501,8 @@ drops the rows. The re-read runs on:
   wedding is open, for every role — a helper's seat included
   (`surfacesFor().canListen`). A `members-changed` signal, a dropped socket, a
   reconnect and a stop each re-read the list at once, outside the
-  once-a-minute limit; a `tasks-changed` signal does not, since no task
+  once-a-minute limit, except a reconnect just after a return to the tab
+  (below); a `tasks-changed` signal does not, since no task
   changes who may open the wedding. A member removed or who left, and every
   member of a deleted wedding, gets the signal and then a 1008 close, so their
   tab re-reads and stops listening. A member narrowed to `helper` keeps the
@@ -528,6 +529,18 @@ or one without a list, changes nothing. The list is also written locally: a
 created wedding, a rename, or the upgrade return's own refresh. An answer
 that arrives after one of those local writes is thrown away and the list is
 asked for once more.
+
+A tab hidden for two ping intervals closes its socket, and shown again it
+reopens it, so a return can bring both the tab's own re-read and a
+reconnect. A reconnect within a second of the tab being shown
+(`RESUME_REOPEN_MS`) counts as the return's own: it sends no request while
+one started after the show has been applied, waits on one in flight (and on
+any newer one that overtakes it), and sends its own only if none of them is
+applied. What it can miss is a change committed between that request's query
+and the hub admitting the socket, under a second. A later reconnect, or one
+after a return too soon to re-read, sends its own request as above. So a
+return reads the list once when the socket reopens within the second; how
+often a real return does is not measured.
 
 Push stops in a tab when no hub is bound on the tier, when the socket is
 blocked, after six failed attempts, or when the hub closes the socket with
