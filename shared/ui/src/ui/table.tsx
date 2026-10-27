@@ -18,23 +18,81 @@ import type { SafeProps } from "./props";
  * keys; the labelled region is what stops the new tab stop being an unexplained
  * one on the way past.
  *
- * Which is why `label` is required rather than optional. A focusable box with no
- * name is worse than the bug it fixes, and any table can say in a word what it
- * holds. A named `<section>` *is* a region, so the name does both jobs and there
- * is no `role` to write.
+ * Which is why `label` is required in box mode rather than optional. A
+ * focusable box with no name is worse than the bug it fixes, and any table can
+ * say in a word what it holds. A named `<section>` *is* a region, so the name
+ * does both jobs and there is no `role` to write.
+ *
+ * ## Page mode
+ *
+ * `scroll="page"` is for a long table whose head row sticks to the page under
+ * the app's own chrome, rather than to a box: a sticky cell sticks to the
+ * nearest scroll container, and `overflow-x: auto` makes the box one on both
+ * axes. Page mode clips instead (`overflow-x: clip` scrolls nothing), so the
+ * document stays the scroller and the head holds under whatever offset the call
+ * site gives its pinned cells (`top-[…]`, which wins over `pin`'s `top-0`).
+ * Nothing scrolls sideways, so there is no tab stop and no region to name: the
+ * call site names the `<table>` itself (`aria-label` or `aria-labelledby`), and
+ * must give the table room for its columns, since a clipped column is gone.
  *
  * `border-separate` with zero spacing, rather than `border-collapse`: a
  * collapsed table hands its border to the cells, and the outer radius on the
  * wrapper then gets a square corner poking through it.
  */
-export interface TableProps {
-  /** Names the scroll region: "Guests", "Replies", "Changes". */
-  label: string;
+interface TableBase {
+  /**
+   * `hairline`, the default, draws the box's border and radius. `none` is for
+   * a table set inside something that already draws its edge — one of a run
+   * of tables under a shared frame, a table across the full width of a card.
+   */
+  frame?: "hairline" | "none";
   class?: string;
   children: ComponentProps<"table">["children"];
 }
 
+/** The default: the table scrolls sideways in its own focusable, named box. */
+interface BoxTableProps extends TableBase {
+  scroll?: "box";
+  /** Names the scroll region: "Guests", "Replies", "Changes". */
+  label: string;
+}
+
+/** The page scrolls; the table is clipped to its box and named on itself. */
+interface PageTableProps extends TableBase {
+  scroll: "page";
+  label?: never;
+  "aria-label"?: string;
+  "aria-labelledby"?: string;
+}
+
+export type TableProps = BoxTableProps | PageTableProps;
+
+const TABLE_CLASS =
+  "base:font-ui-body base:w-full base:border-separate base:border-spacing-0 base:text-left";
+const FRAME = {
+  hairline: "base:border-ui-hairline base:rounded-ui-sm base:border",
+  none: "",
+} satisfies Readonly<Record<"hairline" | "none", string>>;
+
 export function Table(props: TableProps) {
+  const frame = () => FRAME[props.frame ?? "hairline"];
+  // The call site's classes after a space, never glued to a literal: Tailwind
+  // reads this file as text, and `overflow-x-auto${…}` is no class it knows.
+  const extra = () => props.class ?? "";
+  if (props.scroll === "page") {
+    const page = props;
+    return (
+      <div class={`${frame()} base:overflow-x-clip ${extra()}`}>
+        <table
+          aria-label={page["aria-label"]}
+          aria-labelledby={page["aria-labelledby"]}
+          class={TABLE_CLASS}
+        >
+          {page.children}
+        </table>
+      </div>
+    );
+  }
   // oxlint-disable no-noninteractive-tabindex -- the rule is about static
   // content, and this box scrolls. Focusing it is what gives the arrow keys
   // somewhere to go; the name above is what makes the stop explicable. A
@@ -44,11 +102,9 @@ export function Table(props: TableProps) {
     <section
       aria-label={props.label}
       tabindex="0"
-      class={`base:border-ui-hairline base:overflow-x-auto base:rounded-ui-sm base:border${props.class ? ` ${props.class}` : ""}`}
+      class={`${frame()} base:overflow-x-auto ${extra()}`}
     >
-      <table class="base:font-ui-body base:w-full base:border-separate base:border-spacing-0 base:text-left">
-        {props.children}
-      </table>
+      <table class={TABLE_CLASS}>{props.children}</table>
     </section>
   );
   // oxlint-enable no-noninteractive-tabindex
@@ -120,6 +176,13 @@ export type ThProps = Omit<SafeProps<"th">, "align"> & {
   /** {@link ThPin}: `top` for a head held at the top of the box, `top-start`
    *  for the head of a held first column. */
   pin?: ThPin;
+  /**
+   * A head for assistive technology only, where the eye reads a copy of the
+   * heads elsewhere — a strip held above several tables that share their
+   * columns. The cell stays in the table, so the header still governs its
+   * column; its words are hidden and it gives its row no height.
+   */
+  srOnly?: boolean;
 };
 
 /**
@@ -127,17 +190,23 @@ export type ThProps = Omit<SafeProps<"th">, "align"> & {
  * guess which cells a header governs, and in a wide table it guesses wrong.
  */
 export function Th(props: ThProps) {
-  const [own, rest] = splitProps(props, ["align", "pin", "class"]);
+  const [own, rest] = splitProps(props, ["align", "pin", "srOnly", "class", "children"]);
   return (
     <th
       scope="col"
       {...rest}
-      class={`base:font-ui-body base:border-ui-hairline base:text-ui-accent-ink base:border-b base:px-4 base:py-3 ${
+      class={`base:font-ui-body base:text-ui-accent-ink ${
+        own.srOnly
+          ? "base:border-0 base:p-0"
+          : "base:border-ui-hairline base:border-b base:px-4 base:py-3"
+      } ${
         ALIGN[own.align ?? "start"]
       } base:text-ui-xs base:font-normal base:tracking-ui-wider base:whitespace-nowrap base:uppercase${
         own.pin ? ` ${TH_PIN[own.pin]}` : ""
       }${own.class ? ` ${own.class}` : ""}`}
-    />
+    >
+      {own.srOnly ? <span class="base:sr-only">{own.children}</span> : own.children}
+    </th>
   );
 }
 

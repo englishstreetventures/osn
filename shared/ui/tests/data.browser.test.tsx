@@ -247,6 +247,66 @@ describe("Table — pinned cells", () => {
   });
 });
 
+/**
+ * Page mode: a table that scrolls with the page rather than in a box of its
+ * own, so its head row sticks to the page under whatever chrome the call site
+ * names. `overflow-x: auto` would make the box a scroll container on both axes
+ * and the head would stick to the box instead; page mode clips.
+ */
+describe("Table — page mode", () => {
+  function renderPage() {
+    return render(() => (
+      <div>
+        <Table scroll="page" aria-labelledby="page-mode-name">
+          <caption id="page-mode-name">Replies</caption>
+          <thead>
+            <tr>
+              <Th pin="top" class="top-10">
+                Guest
+              </Th>
+            </tr>
+          </thead>
+          <tbody>
+            <For each={Array.from({ length: 120 }, (_, i) => i)}>
+              {(row) => (
+                <tr>
+                  <Td>Guest {row}</Td>
+                </tr>
+              )}
+            </For>
+          </tbody>
+        </Table>
+        <div style={{ height: "1200px" }} />
+      </div>
+    ));
+  }
+
+  it("holds its head row to the page at the call site's offset, not at 0", () => {
+    const { getByRole } = renderPage();
+    const head = getByRole("columnheader", { name: "Guest" });
+    const box = head.closest("table")!.parentElement!;
+    expect(getComputedStyle(box).overflowX).toBe("clip");
+    window.scrollTo(0, 1500);
+    expect(window.scrollY).toBe(1500);
+    // The table's own top is far above the window by now; its head is not.
+    expect(box.getBoundingClientRect().top).toBeLessThan(-1000);
+    expect(head.getBoundingClientRect().top).toBeCloseTo(40, 0);
+    window.scrollTo(0, 0);
+  });
+
+  it("is no tab stop and no region: the page is what scrolls", () => {
+    const { container } = renderPage();
+    const box = container.querySelector("table")!.parentElement!;
+    expect(box.hasAttribute("tabindex")).toBe(false);
+    expect(box.hasAttribute("aria-label")).toBe(false);
+    expect(container.querySelector("[role=region], section")).toBeNull();
+    // The table itself carries the name the call site gave it.
+    expect(container.querySelector("table")!.getAttribute("aria-labelledby")).toBe(
+      "page-mode-name",
+    );
+  });
+});
+
 describe("meterPct", () => {
   it("clamps, and survives a maximum of zero", () => {
     // A budget with no total set is the ordinary case on a new wedding, and

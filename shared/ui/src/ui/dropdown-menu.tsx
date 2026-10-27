@@ -68,9 +68,14 @@ const DropdownMenuContent: ParentComponent<ComponentProps<"div">> = (props) => {
   );
 };
 
-const DropdownMenuItem: ParentComponent<ComponentProps<"div"> & { onSelect?: () => void }> = (
-  props,
-) => {
+/**
+ * One choice. `disabled` is Kobalte's: the item stays in the menu, marked
+ * `data-disabled`, and cannot be chosen — for a choice that would change
+ * nothing right now, rather than one the reader may never make.
+ */
+const DropdownMenuItem: ParentComponent<
+  ComponentProps<"div"> & { onSelect?: () => void; disabled?: boolean }
+> = (props) => {
   const [local, others] = splitProps(props, ["class", "onSelect"]);
   return (
     <KobalteDropdownMenu.Item
