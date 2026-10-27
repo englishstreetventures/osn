@@ -243,6 +243,8 @@ describe("selectOsnLimiters — graph, organisation, recommendation and profile 
       profileRateLimiters: bundle.profileRateLimiters,
       recommendationRateLimiters: bundle.recommendationRateLimiters,
       healthProbeLimiter: bundle.healthProbeLimiter,
+      accountExportIpLimiter: bundle.accountExportIpLimiter,
+      accountErasureRateLimiters: bundle.accountErasureRateLimiters,
     };
   };
 
@@ -259,6 +261,8 @@ describe("selectOsnLimiters — graph, organisation, recommendation and profile 
     await selected.profileRateLimiters.profileDelete.check("9.9.9.9");
     await selected.profileRateLimiters.profileSetDefault.check("9.9.9.9");
     await selected.healthProbeLimiter.check("9.9.9.9");
+    await selected.accountExportIpLimiter.check("9.9.9.9");
+    await selected.accountErasureRateLimiters.accountDeletionStatus.check("9.9.9.9");
 
     expect(tiers.RL_USER_60_60!.keys).toEqual([
       "graph.write:usr_1",
@@ -274,6 +278,25 @@ describe("selectOsnLimiters — graph, organisation, recommendation and profile 
       "profile.set_default:9.9.9.9",
       "health.coordination:9.9.9.9",
     ]);
+    // Each under its own prefix, so neither shares a bucket with an auth route
+    // on the same tier.
+    expect(tiers.RL_AUTH_IP_30_60!.keys).toEqual([
+      "account.export_ip:9.9.9.9",
+      "account.deletion_status:9.9.9.9",
+    ]);
+  });
+
+  it("leaves the per-account deletion and restore limiters, an hour long, on the store", () => {
+    const tiers = Object.fromEntries(ALL_TIERS.map((tier) => [tier, recordingBinding()]));
+    const bindings = Object.fromEntries(ALL_TIERS.map((tier) => [tier, tiers[tier]!.binding]));
+    const base = fallback();
+    const selected = selectOsnLimiters(bindings, base);
+    expect(selected.accountErasureRateLimiters.accountDelete).toBe(
+      base.accountErasureRateLimiters.accountDelete,
+    );
+    expect(selected.accountErasureRateLimiters.accountRestore).toBe(
+      base.accountErasureRateLimiters.accountRestore,
+    );
   });
 
   it("runs each limiter on the tier whose limit is its budget", () => {

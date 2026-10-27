@@ -157,12 +157,16 @@ describe("Part 2 — buildAppDeps native rate-limit binding selection", () => {
     await built.deps.recommendationRateLimiters.suggest.check("usr_1");
     await built.deps.recommendationRateLimiters.search.check("usr_1");
     await built.deps.profileRateLimiters.profileCreate.check("9.9.9.9");
+    await built.deps.accountExportIpLimiter.check("9.9.9.9");
+    await built.deps.accountErasureRateLimiters.accountDeletionStatus.check("9.9.9.9");
     expect(seen).toEqual([
       "graph.write:usr_1",
       "org.write:usr_1",
       "recs.read:usr_1",
       "recs.search:usr_1",
       "profile.create:9.9.9.9",
+      "account.export_ip:9.9.9.9",
+      "account.deletion_status:9.9.9.9",
     ]);
     // The caps and the export / erasure limiters are hour- or day-windowed and
     // stay on the coordination store.

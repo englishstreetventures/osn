@@ -26,6 +26,7 @@ import {
   type WorkersRateLimitBinding,
 } from "@shared/rate-limit";
 
+import type { AccountErasureRateLimiters } from "../routes/account-erasure";
 import type { AuthRateLimiters } from "../routes/auth";
 import { AUTH_RATE_LIMITS, MINUTE_MS, OSN_RATE_LIMITS } from "../routes/auth/limiters";
 import type { ProfileRateLimiters } from "../routes/profile";
@@ -191,6 +192,8 @@ export interface OsnMinuteLimiters {
   readonly profileRateLimiters: ProfileRateLimiters;
   readonly recommendationRateLimiters: RecommendationRateLimiters;
   readonly healthProbeLimiter: RateLimiterBackend;
+  readonly accountExportIpLimiter: RateLimiterBackend;
+  readonly accountErasureRateLimiters: AccountErasureRateLimiters;
 }
 
 type OsnMinuteBudget =
@@ -201,14 +204,17 @@ type OsnMinuteBudget =
   | "profileCreate"
   | "profileDelete"
   | "profileSetDefault"
-  | "healthCoordination";
+  | "healthCoordination"
+  | "accountExportIp"
+  | "accountDeletionStatus";
 
 /**
  * Which tier each one-minute non-auth limiter runs on. Per-user keys (graph,
  * organisation, recommendations) take an `RL_USER_*` tier; profile create,
- * delete and set-default and `GET /health/coordination` are keyed per IP, so
- * they share the `RL_AUTH_IP_*` tiers under their own key prefix. The limit in each tier's name is the
- * budget's `maxRequests`; a test holds the two together.
+ * delete and set-default, `GET /health/coordination`, the account export's
+ * IP guard and `GET /account/deletion-status` are keyed per IP, so they share
+ * the `RL_AUTH_IP_*` tiers under their own key prefix. The limit in each
+ * tier's name is the budget's `maxRequests`; a test holds the two together.
  */
 export const NATIVE_BINDING_FOR_OSN_LIMITER = {
   graphWrite: "RL_USER_60_60",
@@ -219,6 +225,8 @@ export const NATIVE_BINDING_FOR_OSN_LIMITER = {
   profileDelete: "RL_AUTH_IP_5_60",
   profileSetDefault: "RL_AUTH_IP_10_60",
   healthCoordination: "RL_AUTH_IP_10_60",
+  accountExportIp: "RL_AUTH_IP_30_60",
+  accountDeletionStatus: "RL_AUTH_IP_30_60",
 } as const satisfies Readonly<Record<OsnMinuteBudget, TierName>>;
 
 /**
@@ -259,5 +267,15 @@ export function selectOsnLimiters(
       search: pick("recommendationSearch", fallback.recommendationRateLimiters.search),
     },
     healthProbeLimiter: pick("healthCoordination", fallback.healthProbeLimiter),
+    accountExportIpLimiter: pick("accountExportIp", fallback.accountExportIpLimiter),
+    // Deletion and restore are per account and an hour long, so they stay on
+    // the store.
+    accountErasureRateLimiters: {
+      ...fallback.accountErasureRateLimiters,
+      accountDeletionStatus: pick(
+        "accountDeletionStatus",
+        fallback.accountErasureRateLimiters.accountDeletionStatus,
+      ),
+    },
   };
 }
