@@ -3169,15 +3169,13 @@ describe("cire/api over real D1 (Miniflare)", () => {
     "an import's batch rolls back over D1 when a guest names another wedding's household",
     async () => {
       const now = new Date();
-      await db
-        .insert(weddings)
-        .values({
-          id: "wed_other",
-          slug: "other",
-          displayName: "Other",
-          createdAt: now,
-          updatedAt: now,
-        });
+      await db.insert(weddings).values({
+        id: "wed_other",
+        slug: "other",
+        displayName: "Other",
+        createdAt: now,
+        updatedAt: now,
+      });
       await db.insert(families).values({
         id: "fam_other",
         weddingId: "wed_other",

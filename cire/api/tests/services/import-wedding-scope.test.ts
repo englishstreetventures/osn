@@ -10,6 +10,7 @@ import type { TestDb } from "../../src/db/setup";
 import type { ImportPlan, ParsedEvent } from "../../src/schemas/import";
 import { applyImport } from "../../src/services/import";
 import type { ApplyImportOptions } from "../../src/services/import";
+import { BASE_GUEST_CAP } from "../../src/services/tiers";
 import { setTier } from "../test-helpers";
 import { fullWeddingStatements, WEDDING_CHILD_TABLES } from "../test-helpers/full-wedding";
 
@@ -213,22 +214,6 @@ const CASES: Case[] = [
     control: true,
   },
   {
-    name: "a guest create naming B's household is refused as such, not as a full wedding, when A is at its cap",
-    // The plan carries a cap above the live one, so the check before the write
-    // passes and the insert itself checks the cap.
-    plan: plan({ guestCreates: [newGuest("gst_new", family(B))], derivedCap: 500 }),
-    seed: (db) => {
-      setTier(db, A, "ivory");
-      for (let i = 1; i < 100; i++) {
-        db.run(
-          sql`INSERT INTO guests (id, family_id, first_name, created_at, updated_at) VALUES (${`gst_fill_${i}`}, ${family(A)}, 'Fill', 1, 1)`,
-        );
-      }
-    },
-    underA: "refused",
-    control: false,
-  },
-  {
     name: "an invitation remove naming B's guest and event deletes nothing",
     plan: plan({ eventLinkRemoves: [{ guestId: guest(B), eventId: event(B) }] }),
     underA: "applied",
@@ -303,6 +288,32 @@ describe("applyImport under one wedding's id writes nothing in another", () => {
       }
     });
   }
+
+  it("a guest create naming B's household is refused as such, not as a full wedding, when A is at its cap", async () => {
+    const db = twoWeddings();
+    setTier(db, A, "ivory");
+    // The fixture's one guest and these fill A to the cap.
+    for (let i = 1; i < BASE_GUEST_CAP; i++) {
+      db.run(
+        sql`INSERT INTO guests (id, family_id, first_name, created_at, updated_at) VALUES (${`gst_fill_${i}`}, ${family(A)}, 'Fill', 1, 1)`,
+      );
+    }
+    // Each plan carries a cap above the live one, so the check before the
+    // write passes and the insert itself checks the cap.
+    const into = (familyId: string) =>
+      plan({ guestCreates: [newGuest("gst_new", familyId)], derivedCap: BASE_GUEST_CAP * 5 });
+    const before = dump(db);
+
+    // A is full: a guest of its own is refused as a full wedding.
+    const full = await apply(db, into(family(A)), A);
+    expect(
+      Exit.isFailure(full) ? Option.getOrUndefined(Cause.findErrorOption(full.cause)) : undefined,
+    ).toMatchObject({ _tag: "ImportError", capacity: { limit: BASE_GUEST_CAP } });
+    expect(dump(db)).toEqual(before);
+
+    expect(outcome(await apply(db, into(family(B)), A))).toBe("refused");
+    expect(dump(db)).toEqual(before);
+  });
 
   it("the wedding's own rows still write: existing ones, and ones the same plan creates", async () => {
     const db = twoWeddings();
