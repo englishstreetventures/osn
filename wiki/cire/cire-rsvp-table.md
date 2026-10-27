@@ -7,7 +7,7 @@ related:
   - "[[cire-rsvp-changes]]"
   - "[[cire-plus-ones]]"
   - "[[component-library]]"
-last-reviewed: 2026-10-21
+last-reviewed: 2026-10-27
 ---
 # The RSVP table
 
@@ -17,8 +17,13 @@ shows who replied to each event and who still owes a reply. It reads
 uses, and an owner or editor records a phone or paper reply from a row. This
 page covers what the host sees and what each control does; how the page sizes
 and scrolls is in [[cire-host-portal-layout]], and the "New" badges and the
-change log behind them in [[cire-rsvp-changes]]. The CSV download on the Guests
-tab covers every event, whichever one this page shows.
+change log behind them in [[cire-rsvp-changes]].
+
+An owner downloads the RSVP sheet here with "Download RSVPs (CSV)", the same
+`rsvps.csv` the Guests tab offers. It covers every event, whichever one this
+page shows. Editors and viewers get no button, since the API gates the file
+with `weddingOwner()` ([[cire-auth]]), and none shows while no event invites a
+guest.
 
 ## One event at a time
 

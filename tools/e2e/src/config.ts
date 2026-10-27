@@ -256,6 +256,7 @@ export const CIRE_ORGANISER = {
    *  inviting Ada, with no plan yet. */
   seating: {
     weddingId: "wed_e2e_seating",
+    slug: "seating-wedding",
     eventId: "evt_e2e_seating_rec",
     planId: "spl_e2e_seating_1",
     planName: "Plan 1",

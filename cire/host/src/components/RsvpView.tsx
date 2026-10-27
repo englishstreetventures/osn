@@ -6,6 +6,7 @@ import {
 import Button from "@cire/ui/button";
 import DietaryPresets from "@cire/ui/dietary-presets-popover";
 import { useAuth } from "@shared/rp-auth/solid";
+import { toast } from "@shared/toast";
 import { EmptyState } from "@shared/ui/ui/empty-state";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
@@ -31,6 +32,7 @@ import {
 import { createStore, reconcile } from "solid-js/store";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
+import { downloadBlob } from "../lib/download";
 import { haptic } from "../lib/haptics";
 import { CIRE_MARKETING_URL } from "../lib/osn";
 import { fetchRsvpChangeRows, markRsvpChangesSeen, newRowCheck } from "../lib/rsvp-changes";
@@ -57,6 +59,12 @@ interface RsvpViewProps {
   weddingId: string;
   /** Owner/editor may record RSVPs; a viewer sees the read-only summary only. */
   canEdit?: boolean;
+  /** Owner only: offered the RSVP download, which the API gates with
+   *  `weddingOwner()`. */
+  canManage?: boolean;
+  /** Names the downloaded file, as the Guests tab names its own; absent, the
+   *  wedding id does, as in the API's Content-Disposition. */
+  weddingSlug?: string;
   /** The event to show, from the page address. Absent, or naming no event the
    *  API returned: the first event. */
   event?: string;
@@ -220,6 +228,29 @@ export default function RsvpView(props: RsvpViewProps) {
   });
 
   const hasEvents = () => state.events.length > 0;
+  /** A file with no guests in it is only its header row, so none is offered. */
+  const hasGuests = () => state.events.some((event) => event.invited > 0);
+
+  // The whole RSVP sheet, every event, as the Guests tab downloads it. Outcome
+  // through toasts, as there: a failed download is a thing the owner retries.
+  const [exporting, setExporting] = createSignal(false);
+  const exportRsvps = async () => {
+    if (exporting()) return;
+    setExporting(true);
+    try {
+      const res = await authFetch(apiUrl(weddingPath(props.weddingId, "/rsvps.csv")));
+      if (res.status === 401) return redirectToLogin();
+      if (!res.ok) throw new Error(`Export failed (${res.status})`);
+      downloadBlob(`cire-rsvps-${props.weddingSlug ?? props.weddingId}.csv`, await res.blob());
+      toast.success("RSVP export downloaded");
+    } catch (err) {
+      if (isAuthExpired(err)) return redirectToLogin();
+      haptic("reject");
+      toast.error("RSVP export failed. Try again.");
+    } finally {
+      setExporting(false);
+    }
+  };
 
   // A store, not a signal: reload writes patch each event's own fields in
   // place, so an event nothing touched keeps its object identity. That alone
@@ -574,7 +605,20 @@ export default function RsvpView(props: RsvpViewProps) {
         description={
           props.canEdit
             ? "Who's coming to each event, with dietary notes and who still owes a reply. Pick an event, search or filter to find a guest, then record a phone or paper reply on their behalf. Changing only the status keeps the dietary requirements already given; new dietary requirements replace them and are marked as host-entered."
-            : "Who's coming to each event, with dietary notes and who still owes a reply — updated as guests reply. Read-only; download the full sheet from the Guests tab."
+            : "Who's coming to each event, with dietary notes and who still owes a reply — updated as guests reply. Read-only."
+        }
+        actions={
+          <Show when={props.canManage && !loading() && !error() && hasGuests()}>
+            <Button
+              variant="outline"
+              size="sm"
+              type="button"
+              onClick={() => void exportRsvps()}
+              disabled={exporting()}
+            >
+              {exporting() ? "Exporting…" : "Download RSVPs (CSV)"}
+            </Button>
+          </Show>
         }
       />
 

@@ -20,7 +20,11 @@
  * table there makes the event's one plan, in use, and the guest seated at it
  * sits in that plan. The venue file prints both events.
  *
- * The guest-email steps share this flow's sign-in because `flows.test.ts` caps
+ * RSVPs (the same wedding). The owner downloads the RSVP sheet from the RSVPs
+ * page, before any seating step: the file carries each guest's reply to both
+ * events, and seating writes nothing it reads.
+ *
+ * The guest-email and RSVP steps share this flow's sign-in because `flows.test.ts` caps
  * organiser sign-ins at six. They run first, so the flow's screenshot is the
  * seating chart.
  */
@@ -37,7 +41,7 @@ import {
   type Flow,
 } from "../support/fixtures";
 
-const { weddingId, planName, tables, party, ada, bo, cy } = CIRE_ORGANISER.seating;
+const { weddingId, slug, planName, tables, party, ada, bo, cy } = CIRE_ORGANISER.seating;
 const WEDDING_API = `${ORIGINS.cireApi}/api/organiser/weddings/${weddingId}`;
 
 const {
@@ -295,6 +299,30 @@ test("cire-seating", async ({ page, flow }) => {
   await signInToCireHost(flow, page);
 
   await guestEmailSteps(flow, page);
+
+  const rsvps = await flow.step("download the RSVP sheet from the RSVPs page", async () => {
+    await page.goto(`${ORIGINS.cireHost}/#/w/${weddingId}/guests/rsvps`);
+    const download = page.waitForEvent("download");
+    await page.getByRole("button", { name: "Download RSVPs (CSV)" }).click();
+    const file = await download;
+    const stream = await file.createReadStream();
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) chunks.push(chunk as Buffer);
+    return { name: file.suggestedFilename(), body: Buffer.concat(chunks).toString("utf8") };
+  });
+  flow.check("the RSVP sheet is named for the wedding", `cire-rsvps-${slug}.csv`, rsvps.name);
+  flow.check(
+    "the RSVP sheet holds every guest's reply to each event",
+    // Only Ada is invited to the after party, so only her row has a reply
+    // there; Bo's and Cy's cells for it are empty, not "No response".
+    [
+      `Family Code,Family Name,Guest First Name,Guest Last Name,Reception,Reception Dietary,${party.name},${party.name} Dietary,Recorded By,Plus-one Of`,
+      "TESTSEAT-ALP-0001,Alpha,Ada,Alpha,Attending,,No response,,Guest,",
+      "TESTSEAT-ALP-0001,Alpha,Bo,Alpha,Attending,,,,Guest,",
+      "TESTSEAT-CHA-0002,Charlie,Cy,Charlie,Attending,,,,Guest,",
+    ].join("\n"),
+    rsvps.body.split("\r\n").join("\n"),
+  );
 
   await flow.step("open the wedding's seating chart", async () => {
     await page.goto(`${ORIGINS.cireHost}/#/w/${weddingId}/seating`);
