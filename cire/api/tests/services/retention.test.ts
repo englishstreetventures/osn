@@ -1233,10 +1233,20 @@ describe("the parting gift summary", () => {
         })
         .run();
     }
-    for (const on of ["2025-05-20", "2025-02-10"]) {
+    // The money read groups by currency, in code order, so the AUD group with
+    // the latest gift is read before the JPY one: the range must be the widest
+    // of the groups, not the last one read.
+    for (const [currency, on] of [
+      ["AUD", "2025-05-20"],
+      ["AUD", "2025-02-10"],
+      ["JPY", "2025-03-15"],
+    ] as const) {
       await runOn(
         db,
-        addGift(giftsOnly.weddingId, giftsOnly.familyId, { at: new Date(`${on}T09:00:00.000Z`) }),
+        addGift(giftsOnly.weddingId, giftsOnly.familyId, {
+          currency,
+          at: new Date(`${on}T09:00:00.000Z`),
+        }),
       );
     }
 
@@ -1963,6 +1973,33 @@ describe("each money gift, listed in the kept summary", () => {
       );
     }
     const over = await weddingWithGifts(db, "2025-06-01", GIFT_SUMMARY_MAX_LISTED);
+    // A claim as well: the claims read must hold it back too, or a summary of
+    // its claims alone would be stored while its rows stay to be counted again.
+    const itemId = `reg_${crypto.randomUUID()}`;
+    db.insert(registryItems)
+      .values({
+        id: itemId,
+        weddingId: over.weddingId,
+        kind: "product",
+        title: "Copper pan",
+        quantityWanted: 1,
+        sortOrder: 0,
+        createdAt: GIFT_STAMP,
+        updatedAt: GIFT_STAMP,
+      })
+      .run();
+    db.insert(registryClaims)
+      .values({
+        id: `rcl_${crypto.randomUUID()}`,
+        weddingId: over.weddingId,
+        itemId,
+        familyId: over.familyId,
+        quantity: 1,
+        status: "reserved",
+        createdAt: GIFT_STAMP,
+        updatedAt: GIFT_STAMP,
+      })
+      .run();
     const giftless = await runOn(db, makeWedding({ eventDates: ["2025-06-02"] }));
 
     const logs = await captureLogs(() =>
@@ -1988,6 +2025,7 @@ describe("each money gift, listed in the kept summary", () => {
     await runOn(db, retentionService.sweepExpiredGuestData(new Date("2026-06-18T04:00:00.000Z")));
     expect(guestCount(db, over.guestId)).toBe(0);
     expect(kept(db, over.weddingId)?.contributions.count).toBe(GIFT_SUMMARY_MAX_LISTED);
+    expect(kept(db, over.weddingId)?.claims).toEqual({ reserved: 1, purchased: 0 });
   });
 
   it("never makes a wedding past the hold-back ceiling wait, and lists only what the budget has room for", async () => {
@@ -2317,18 +2355,22 @@ describe("the gift summary hold-back ceiling", () => {
 
   it("mails nothing about summaries a failed batch did not store, and returns what the retry deleted", async () => {
     const db = freshDb();
-    // Past the ceiling, so the retry deletes it without its summary...
+    // Past the ceiling, so the retry deletes them without their summaries;
+    // only the one with gifts had a summary to lose...
     const past = await runOn(db, makeGiftedWedding("2025-05-01"));
+    const pastGiftless = await runOn(db, makeWedding({ eventDates: ["2025-05-02"] }));
     // ...and inside the hold-back, so it waits for the next run.
     const held = await runOn(db, makeGiftedWedding("2025-06-01"));
+    const abandoned = await written("abandoned");
     let suppressionDeletes = 0;
+    let ownerReads = 0;
     // The first statement of the first batch, the one carrying both summaries.
     // A D1 batch that fails commits nothing; failing its first statement is how
     // bun:sqlite, which runs them one by one, ends in the same place.
-    const fault = failStatements(
-      db,
-      (sql) => sql.startsWith('delete from "email_suppressions"') && ++suppressionDeletes === 1,
-    );
+    const fault = failStatements(db, (sql) => {
+      if (sql.includes('join "wedding_hosts"')) ownerReads += 1;
+      return sql.startsWith('delete from "email_suppressions"') && ++suppressionDeletes === 1;
+    });
     let calls = 0;
 
     let deleted: number | undefined;
@@ -2344,12 +2386,16 @@ describe("the gift summary hold-back ceiling", () => {
     });
 
     expect(fault.failed()).toBe(1);
-    expect(deleted).toBe(1);
-    // The email says "this is the record we kept"; with no record kept, none goes.
+    expect(deleted).toBe(2);
+    expect(await written("abandoned")).toBe(abandoned + 1);
+    // The email says "this is the record we kept"; with no record kept, none
+    // goes, and nobody is even looked up to send it to.
     expect(calls).toBe(0);
+    expect(ownerReads).toBe(0);
     expect(storedSummary(db, past.weddingId)).toBeNull();
     expect(storedSummary(db, held.weddingId)).toBeNull();
     expect(guestCount(db, past.guestId)).toBe(0);
+    expect(guestCount(db, pastGiftless.guestId)).toBe(0);
     expect(guestCount(db, held.guestId)).toBe(1);
     expect(contributionCount(db, held.weddingId)).toBe(1);
   });
