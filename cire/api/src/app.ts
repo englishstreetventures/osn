@@ -277,8 +277,8 @@ const defaultRealtimeFallbackLimiter = createRateLimiter({ maxRequests: 10, wind
  */
 const defaultDirectoryLimiter = createRateLimiter({ maxRequests: 60, windowMs: 60_000 });
 /**
- * Default per-USER limiter for the couple-side enquiry write routes (Vendors S4,
- * spam control §96). An authenticated organiser opening/replying to vendor
+ * Default per-USER limiter for the couple-side enquiry write routes (spam
+ * control §96). An authenticated organiser opening/replying to vendor
  * threads drives an ARC-signed S2S provision + message into zap-api plus a
  * transactional email — 20 writes/min is generous for hand-use while capping the
  * amplifier. Keys on `osnProfileId` so each organiser has an independent bucket.
@@ -637,7 +637,7 @@ export interface AppOptions {
    */
   profileOrgs?: OsnProfileOrgsResolver;
   /**
-   * Zap c2b chat client for the couple-side enquiry routes (Vendors S4).
+   * Zap c2b chat client for the couple-side enquiry routes.
    * KEY-OPTIONAL: `null`/omitted ⇒ the ZAP_API_URL/ARC config is absent and the
    * enquiry routes still mount, but open/reply against a claimed listing answer
    * 503 (`ZapUnavailable`). Built once per isolate in `index.ts` via
@@ -766,7 +766,15 @@ export function organiserAuthOptions(
   };
 }
 
-export function createApp(db: Db, options: AppOptions = {}) {
+/**
+ * The cire API's Elysia app. Returned as `AnyElysia`: nothing reads its route
+ * types, and the chain's inferred type names DTOs the route modules do not
+ * export, which `declaration` refuses with TS4058.
+ *
+ * @see wiki/cire/cire-development.md — where a route is mounted, and how long
+ * the chain can grow before `tsc` reports TS2589.
+ */
+export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
   const {
     webOrigin = "http://localhost:4321",
     organiserOrigin = DEFAULT_ORGANISER_ORIGIN,
@@ -882,7 +890,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
   // enquiry list is empty (never an unscoped cross-tenant scan).
   const vendorProfileOrgs = profileOrgs ?? (() => Promise.resolve([]));
 
-  // Couple-side enquiry BFF service (Vendors S4). Its zap client + email sender
+  // Couple-side enquiry BFF service. Its zap client + email sender
   // are injected (tests) or built from env (index.ts). The email layer reuses the
   // vendor email layer unless a dedicated one is supplied. `sendEmail` is
   // pre-wrapped with error channel `never`: an `EmailError` is caught, logged as
@@ -961,7 +969,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
   // behave exactly as they did before push.
   const weddingSignals = createWeddingSignals(realtimeHub);
 
-  // Capture the chain so we can conditionally mount the payment webhook below.
+  // The upgrade routes below extend this chain when Stripe is configured.
   const app =
     // `aot: false` — Elysia's ahead-of-time compilation builds handlers via
     // `new Function`, which Cloudflare Workers forbids (no dynamic code
@@ -1180,14 +1188,14 @@ export function createApp(db: Db, options: AppOptions = {}) {
           resolveOsnConnectionSearch,
         ),
       )
-      // General change API (guest+event editor E4). Both front doors
+      // General change API (the guest and event editor). Both front doors
       // (DesiredState JSON + `{eventsCsv, guestsCsv}`) funnel into one pipeline.
       .use(createOrganiserChangeRoutes(db, r2, osnAuthOptions, weddingSignals))
-      // Wedding-profile Settings (platform Phase 0). Reads admit owner OR
+      // Wedding-profile Settings. Reads admit owner OR
       // co-host; the profile save is owner-only. No event location config —
       // an event's place is its venue name and free-text `address`.
       .use(createOrganiserSettingsRoutes(db, osnAuthOptions, weddingSignals))
-      // Organiser-recorded RSVPs (platform Phase 0). Editor records a
+      // Organiser-recorded RSVPs. Editor records a
       // phone/paper RSVP on a guest's behalf into the SAME `rsvps` table the
       // invite writes to (upsert, last-writer-wins); stamped
       // `consent_source='organiser_attested'` unless the save is status-only,
@@ -1203,7 +1211,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
       .use(createOrganiserRsvpChangeWriteRoutes(db, osnAuthOptions))
       // Plus-one permission, per guest or per household. weddingEditor()-gated.
       .use(createOrganiserPlusOneRoutes(db, osnAuthOptions))
-      // Checklist tasks (platform Phase 1). Reads admit any member role
+      // Checklist tasks. Reads admit any member role
       // (weddingMember); writes require editor or owner (weddingEditor; viewer
       // gets 403 read_only_role), then spend a per-user limiter. Split into
       // sibling instances so the read gate never cross-contaminates with the
@@ -1273,7 +1281,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
         }),
       )
       .use(createRegistryImageServeRoutes(db, osnAuthOptions, { assets, images }))
-      // Vendor CRM (platform Phase 1). Reads admit any member role (weddingMember);
+      // Vendor CRM. Reads admit any member role (weddingMember);
       // writes require editor or owner (weddingEditor; viewer gets 403
       // read_only_role). Split into sibling instances so the read gate never
       // cross-contaminates with the write gate. Write factory carries
@@ -1285,14 +1293,14 @@ export function createApp(db: Db, options: AppOptions = {}) {
           emailLayer: vendorEmailLayer,
         }),
       )
-      // Vendor directory browse (platform Phase 2, Vendors Slice 1). Admits
+      // Vendor directory browse. Admits
       // any wedding member (weddingMember). Per-user rate limiter to cap the
       // D1 query amplifier from scripted callers with valid organiser tokens.
       .use(createVendorDirectoryReadRoutes(db, osnAuthOptions, directoryLimiter))
-      // Vendor directory add-from-directory write route (platform Phase 2).
+      // Vendor directory add-from-directory write route.
       // weddingEditor-gated (viewer gets 403 read_only_role).
       .use(createVendorDirectoryWriteRoutes(db, osnAuthOptions, directoryLimiter))
-      // Couple-side vendor enquiries (Vendors S4). Reads (list + messages) admit
+      // Couple-side vendor enquiries. Reads (list + messages) admit
       // any member (weddingMember); writes (open / reply / add-to-budget) require
       // editor or owner (weddingEditor; viewer → 403 read_only_role) behind a
       // per-user limiter. The enquiry service was built once above with its zap
@@ -1344,7 +1352,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
           vendorPortalLimiter,
         ),
       )
-      // Vendor-side enquiry routes (Vendors S4): list + thread + reply + quote,
+      // Vendor-side enquiry routes: list + thread + reply + quote,
       // mounted at /api/vendor. osnAuth()-gated; the per-enquiry org gate
       // resolves the owning org from the enquiry's listing and 404s on a
       // cross-tenant id (no enumeration). Writes behind the shared per-user
@@ -1356,69 +1364,46 @@ export function createApp(db: Db, options: AppOptions = {}) {
           profileOrgs: vendorProfileOrgs,
           limiter: enquiryLimiter,
         }),
-      );
-  // Phase-2 seam: mount the inert payment-webhook skeleton ONLY when the flag
-  // is explicitly set. Default is false — the POST /api/payments/webhook route
-  // is never reachable unless a deployment opts in. This keeps Phase 1 safe
-  // (no unverified endpoint is ever exposed by default).
-  //
-  // `app` is widened to Elysia's own `AnyElysia` before the final conditional
-  // mount: adding the vendor-enquiry routes above grew the fluent chain's
-  // inferred type to the point where threading it through one more `.use()`
-  // tips TS past its instantiation-depth limit (TS2589). Erasing the
-  // accumulated route-type surface here caps the depth; it's runtime-inert
-  // (`.use()` only needs an Elysia instance) and scoped to this final mount.
-  const rootApp: AnyElysia = app;
-  // The seating chart. `.use()` registers on the instance itself, so this mounts it.
-  rootApp.use(createSeatingRoutes(db, osnAuthOptions, seatingPlanLimiter));
-  // The portal's read of the invite images. The organiser-facing customisation
-  // links the closing image here, because the public route keeps it for claimed
-  // households. A sibling of the invite builder's writes, with no limiter — see
-  // `createInviteImageServeRoutes`. Mounted past the widening, and before the
-  // no-Stripe early return, for the same reasons as the lifecycle routes.
-  const withInviteImages: AnyElysia = rootApp.use(
-    createInviteImageServeRoutes(db, osnAuthOptions, { assets, images }),
-  );
-  // An owner's wedding delete and restore, and redeeming an unlock code.
-  // Mounted past the widening for the same reason as the upgrade routes below,
-  // and before the no-Stripe early return so they exist in every deployment: a
-  // code needs no Stripe.
-  const withLifecycle: AnyElysia = withInviteImages
-    .use(
-      createOrganiserWeddingDeleteRoute(
-        db,
-        osnAuthOptions,
-        weddingLifecycleLimiter,
-        ownerNotices,
-        weddingSignals,
-      ),
-    )
-    .use(createOrganiserWeddingRestoreRoute(db, osnAuthOptions, weddingLifecycleLimiter))
-    .use(createUnlockCodeRoutes(db, osnAuthOptions, unlockCodeLimiter));
-  // The realtime fallback beacon. Past the widening, like every mount here, so
-  // the typed chain above does not grow.
-  const withRealtimeFallback: AnyElysia = withLifecycle.use(
-    createRealtimeFallbackRoutes({ limiter: realtimeFallbackLimiter }),
-  );
-  // Stripe's own deliveries. Mounted only with a signing secret: nothing else
-  // authenticates this endpoint, so without one it must not exist.
-  const withStripeWebhook: AnyElysia = connectWebhookSecret
-    ? withRealtimeFallback.use(
-        createStripeWebhookRoutes(db, { webhookSecret: connectWebhookSecret }),
       )
-    : withRealtimeFallback;
-  // Self-serve upgrades. Mounted HERE, past the `AnyElysia` widening, rather
-  // than inside the organiser chain above: that chain is already at
-  // TypeScript's instantiation-depth limit (see the comment on `rootApp`), and
-  // one more `.use()` there fails the type-check. Key-optional like the
-  // Connect routes — no Stripe client, no purchase surface.
-  if (!stripe) return withStripeWebhook;
+      // The seating chart.
+      .use(createSeatingRoutes(db, osnAuthOptions, seatingPlanLimiter))
+      // The portal's read of the invite images. The organiser-facing customisation
+      // links the closing image here, because the public route keeps it for claimed
+      // households. A sibling of the invite builder's writes, with no limiter — see
+      // `createInviteImageServeRoutes`.
+      .use(createInviteImageServeRoutes(db, osnAuthOptions, { assets, images }))
+      // An owner's wedding delete and restore, and redeeming an unlock code.
+      .use(
+        createOrganiserWeddingDeleteRoute(
+          db,
+          osnAuthOptions,
+          weddingLifecycleLimiter,
+          ownerNotices,
+          weddingSignals,
+        ),
+      )
+      .use(createOrganiserWeddingRestoreRoute(db, osnAuthOptions, weddingLifecycleLimiter))
+      .use(createUnlockCodeRoutes(db, osnAuthOptions, unlockCodeLimiter))
+      // The realtime fallback beacon.
+      .use(createRealtimeFallbackRoutes({ limiter: realtimeFallbackLimiter }))
+      // Stripe's own deliveries. Mounted only with a signing secret: nothing else
+      // authenticates this endpoint, so without one it must not exist.
+      .use(
+        connectWebhookSecret
+          ? createStripeWebhookRoutes(db, { webhookSecret: connectWebhookSecret })
+          : new Elysia(),
+      );
+  // Self-serve upgrades, and the platform webhook that grants them. Both use one
+  // upgrade service, which exists only with a Stripe client, so without one
+  // neither is mounted. Key-optional like the Connect routes — no Stripe client,
+  // no purchase surface.
+  if (!stripe) return app;
   // ONE catalogue, shared by the routes and the service. Two would mean two
   // price caches in the same isolate, so every cached read would be paid for
   // twice against the platform's Stripe quota.
   const upgradeCatalogue = createUpgradeCatalogue({ stripe, prices: upgradePrices });
   const upgrades = createUpgradeService({ stripe, catalogue: upgradeCatalogue });
-  const withUpgradeRoutes: AnyElysia = withStripeWebhook.use(
+  const withUpgradeRoutes: AnyElysia = app.use(
     createUpgradeRoutes(db, osnAuthOptions, {
       catalogue: upgradeCatalogue,
       upgrades,

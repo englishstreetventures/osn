@@ -9,7 +9,7 @@ related:
   - "[[cire-auth]]"
   - "[[cire-host-portal-layout]]"
   - "[[cire-development]]"
-last-reviewed: 2026-10-09
+last-reviewed: 2026-10-27
 ---
 
 # Self-serve upgrades — buying a plan tier
@@ -125,9 +125,9 @@ same URL without `upgrade` on cancel.
 > query that finds the caller's seat, and that is what the catalogue prices
 > from, so it costs no query of its own. See [[cire-entitlements]].
 
-They are mounted **after** the `AnyElysia` widening in `app.ts`: the organiser
-chain is already at TypeScript's instantiation-depth limit (TS2589) and one
-more `.use()` there fails the type-check.
+They are mounted after `createApp`'s route chain, with the platform webhook:
+both use one upgrade service, which exists only with a Stripe client
+([[cire-development#Mounting a route]]).
 
 ---
 

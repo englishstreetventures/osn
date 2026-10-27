@@ -937,9 +937,8 @@ CSV-import `R2Bucket` is text-only and is **not** widened in place). Routes:
   organiser-session lookup on the cookie path. The same serve tail as the public
   image route (`serveSlotImage`: variant, hero blur, cache key, and how long a
   gated response is kept), always `Cache-Control: private, max-age=3600`. Its own
-  instance so the per-IP write limiter does not count the builder's image loads,
-  and mounted in `cire/api/src/app.ts` past the `AnyElysia` widening. The builder
-  links only the closing image here; see the claim gate above.
+  instance so the per-IP write limiter does not count the builder's image loads.
+  The builder links only the closing image here; see the claim gate above.
 
 Image URL paths are returned relative to the API origin (`/api/invite/<slug>/
 image/<slot>?v=…`, or `/api/organiser/weddings/<id>/invite/image/footer?v=…`

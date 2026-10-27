@@ -58,9 +58,6 @@ const failed = (set: SetStatus, error: string) =>
  * which the daily purge hard-deletes it. Refused, writing nothing, while an
  * upgrade payment or a gift checkout can still land, or a change is mid-apply.
  *
- * Its own instance, mounted past the app's `AnyElysia` widening: the organiser
- * chain inside `createApp` is at TypeScript's instantiation-depth limit.
- *
  * The owner gate is defence in depth, kept on purpose. `softDelete`'s guarded
  * UPDATE re-proves existence, liveness and the caller's owner seat in the
  * statement that writes, so the gate's read is a second check of the same

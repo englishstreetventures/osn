@@ -33,7 +33,7 @@ function send(path: string, method: string, origin: string | null) {
   );
 }
 
-describe("origin guard (C5 / S-L3)", () => {
+describe("origin guard", () => {
   it("403s a state-changing POST with a missing Origin", async () => {
     const res = await send("/api/claim", "POST", null);
     expect(res.status).toBe(403);

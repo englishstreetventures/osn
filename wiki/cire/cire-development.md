@@ -23,7 +23,7 @@ related:
   - "[[commands]]"
   - "[[bundle-size-guards]]"
   - "[[cire-registry]]"
-last-reviewed: 2026-10-26
+last-reviewed: 2026-10-27
 ---
 
 # Cire development guide
@@ -116,6 +116,35 @@ route name. Never add a role check inside a route handler: the roles live in
 `wedding-role.ts` so that adding one to the column is a compile error at every
 place that decides, and a check written in a handler is invisible to that.
 
+### Mounting a route
+
+`createApp` ([`cire/api/src/app.ts`](../../cire/api/src/app.ts)) builds the API
+on one fluent Elysia chain. Where a new route goes:
+
+| Where | What goes there |
+|---|---|
+| Before `originGuard` | A route no browser session authenticates, whose callers do not all send an allowed `Origin`: the CSP collector, the internal revoke back-channel, the RSVP digest's stop link and the invite lookup. A global `onBeforeHandle` covers only what is mounted after it, so these skip the guard with no entry in `EXEMPT_PATHS` |
+| After the chain | The upgrade routes and the Stripe platform webhook. They share one upgrade service, which exists only with a Stripe client, and the `if (!stripe)` return skips both without one |
+| Anywhere else | Inside the chain, after the guard. A route that exists only under a setting mounts as `setting ? routes : new Elysia()`, as Connect onboarding and the Connect webhook do |
+
+The two Stripe webhooks sit after the guard and skip it by exact path instead —
+[[cire-auth#CSRF origin guard]].
+
+`createApp` returns `AnyElysia`. Nothing reads its route types, and the chain's
+inferred type names DTOs that the route modules do not export, which
+`declaration` (on in `shared/typescript-config/base.json`) refuses with TS4058.
+
+**The chain has a length limit that `typecheck` does not catch.** TypeScript
+7.1's `tsc` reports TS2589 once the chain reaches **99 calls**, counting
+`.decorate`, `.onError` and the upgrade routes' `app.use()` after the chain, and
+puts the error on `new Elysia(...)`, not on the call that crossed the limit.
+`createApp` makes **66**. `bun check`, which `typecheck` runs in CI and before a
+push, reported no error at **1,075**. Editors and the agents' `LSP` tool run
+`tsc` ([[agent-tooling#Code search]]), so they show the error while `typecheck`
+passes.
+
+*Measured 2026-10-27 on TypeScript 7.1.0-beta and Bun 1.4.4 — the chain's own mounts repeated in a scratch copy of `createApp`, checked with `node_modules/.bin/tsc -p cire/api --noEmit` and `bun run --cwd cire/api typecheck`*
+
 ### Soft-deleted weddings
 
 A wedding with `weddings.deleted_at` set must be unreachable from every guest,
@@ -137,11 +166,6 @@ as reaching a wedding (and then must refuse a deleted one, with a live control)
 or as not wedding-scoped, with a reason. It cannot see crons, webhooks or
 service code; those need their own test against a deleted wedding. Stripe's
 webhooks deliberately settle into a deleted wedding — see [[cire-auth]].
-
-Mount new routes that need the widened app — the lifecycle and upgrade routes —
-past the `AnyElysia` widening in `app.ts`: the organiser chain is at
-TypeScript's instantiation-depth limit, and one more `.use()` there fails
-`check` with TS2589.
 
 ### CSV exports
 

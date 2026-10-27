@@ -200,9 +200,9 @@ households:
 
 ## API
 
-`cire/api/src/routes/seating.ts`, mounted in `createApp` past the `AnyElysia`
-widening. Three sibling instances, so the read gate, the write gate and the
-plan limiter never apply to each other's routes.
+`cire/api/src/routes/seating.ts`, mounted in `createApp`. Three sibling
+instances, so the read gate, the write gate and the plan limiter never apply
+to each other's routes.
 
 | Method | Path under `/api/organiser/weddings/:weddingId` | Gate |
 |---|---|---|
