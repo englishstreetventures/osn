@@ -3783,14 +3783,21 @@ describe("POST /changes/apply — a preview expires", () => {
     reason: "preview_expired",
   };
 
-  it("refuses an expired spreadsheet preview", async () => {
-    const { app, db } = buildApp();
+  it("refuses an expired spreadsheet preview before reading its sheets", async () => {
+    const { app, db, r2 } = buildApp();
     const changeId = await sheetPreview(app);
     previewedAt(db, changeId, expired());
+    let reads = 0;
+    const get = r2.get.bind(r2);
+    r2.get = (key: string) => {
+      reads += 1;
+      return get(key);
+    };
 
     const res = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId });
     expect(res.status).toBe(409);
     expect(await jsonBody(res)).toEqual(EXPIRED_BODY);
+    expect(reads).toBe(0);
   });
 
   it("refuses an expired editor preview", async () => {
@@ -3830,6 +3837,29 @@ describe("POST /changes/apply — a preview expires", () => {
     expect(beforeKeys(r2, changeId)).toEqual([]);
   });
 
+  it("leaves a preview whose before-image store failed open to a retry", async () => {
+    const { app, db, r2 } = buildApp();
+    const changeId = await sheetPreview(app);
+    const put = r2.put.bind(r2);
+    r2.put = (key: string, value: string) => {
+      if (key.includes("/before/")) throw new Error("R2 unavailable");
+      return put(key, value);
+    };
+
+    const failed = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId });
+    expect(failed.status).toBe(500);
+    // Nothing was written, so the claim is freed and the head stays.
+    const [wedding] = db
+      .select({ rev: weddings.changeRev, claim: weddings.changeClaim })
+      .from(weddings)
+      .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+      .all();
+    expect(wedding).toEqual({ rev: 0, claim: null });
+
+    r2.put = put;
+    expect((await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId })).status).toBe(200);
+  });
+
   it("writes nothing and leaves the wedding free for the next change", async () => {
     const { app, db, r2 } = buildApp();
     const changeId = await sheetPreview(app);
@@ -3860,13 +3890,21 @@ describe("POST /changes/apply — a preview expires", () => {
     // when the file started.
     const now = Date.now();
     setSystemTime(new Date(now));
-    const { app, db } = buildApp();
+    const { app, db, r2 } = buildApp();
 
     const atCutOff = await sheetPreview(app);
     previewedAt(db, atCutOff, now - PREVIEW_EXPIRES_AFTER_MS);
+    let reads = 0;
+    const get = r2.get.bind(r2);
+    r2.get = (key: string) => {
+      reads += 1;
+      return get(key);
+    };
     const refused = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId: atCutOff });
     expect(refused.status).toBe(409);
     expect(await jsonBody(refused)).toEqual(EXPIRED_BODY);
+    // Refused by the opening check, before the sheets are read.
+    expect(reads).toBe(0);
 
     const younger = await sheetPreview(app);
     previewedAt(db, younger, now - PREVIEW_EXPIRES_AFTER_MS + 1);
