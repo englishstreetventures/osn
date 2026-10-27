@@ -1040,7 +1040,7 @@ export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
   const badOrigin = (name: string): number =>
     usage(
       env[name] === undefined || env[name] === ""
-        ? `${name} is not set: the stack job passes each dev check its origin`
+        ? `${name} is not set: the stack job passes each check of a Worker it deploys its origin`
         : `${name} must be an https:// origin with no path, query or trailing slash, not '${oneLine(env[name] ?? "", 100)}'`,
     );
 

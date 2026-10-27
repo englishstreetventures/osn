@@ -52,6 +52,15 @@ export const DEV_READONLY_CREDENTIALS: readonly string[] = [
   "CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY",
 ];
 
+/**
+ * The `production` Environment's token for moving a site's custom domain
+ * between its Pages project and its Worker: Pages Edit on the account and
+ * DNS Edit on the production zones, nothing else. Only scripts/pages-domain.ts
+ * reads it, in a step that runs before any install, so no dependency's code
+ * ever holds it.
+ */
+export const PAGES_DNS_CREDENTIALS: readonly string[] = ["CLOUDFLARE_PAGES_DNS_TOKEN"];
+
 /** Repository-level credentials, outside both Environments: read-only access to the production account. */
 export const REPOSITORY_CREDENTIALS: readonly string[] = [
   "CLOUDFLARE_ACCOUNT_ID",
@@ -66,9 +75,15 @@ export function accountSecrets(tier: Tier): readonly string[] {
   return [account.accountIdSecret, account.apiTokenSecret].toSorted();
 }
 
-/** The credentials `tier`'s Environment must hold: its account's pair and, on dev, the read-only token. Sorted. */
+/**
+ * The credentials `tier`'s Environment must hold: its account's pair, and on
+ * dev the read-only token, on production the Pages and DNS token. Sorted.
+ */
 export function requiredCredentials(tier: Tier): readonly string[] {
-  return [...accountSecrets(tier), ...(tier === "dev" ? DEV_READONLY_CREDENTIALS : [])].toSorted();
+  return [
+    ...accountSecrets(tier),
+    ...(tier === "dev" ? DEV_READONLY_CREDENTIALS : PAGES_DNS_CREDENTIALS),
+  ].toSorted();
 }
 
 /** Credential names `tier`'s Environment must never hold: the other tier's and the retired dev ones, where this tier does not use the name too. Sorted. */
@@ -86,6 +101,7 @@ export function knownCredentials(): readonly string[] {
       ...accountSecrets("dev"),
       ...accountSecrets("production"),
       ...DEV_READONLY_CREDENTIALS,
+      ...PAGES_DNS_CREDENTIALS,
       ...REPOSITORY_CREDENTIALS,
     ]),
   ].toSorted();

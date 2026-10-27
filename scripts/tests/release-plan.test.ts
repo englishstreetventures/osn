@@ -15,6 +15,7 @@ import { dirname, join } from "node:path";
 import {
   changedFiles,
   deployReason,
+  PRODUCTION_STACKS,
   PRODUCTION_SURFACES,
   surface,
   type SurfaceKey,
@@ -32,10 +33,12 @@ import {
   outputLines,
   parseRequest,
   type PlanDecision,
+  type ReleaseDecisions,
   renderSummary,
   restReader,
   runReleasePlan,
   sameContent,
+  stackPlans,
 } from "../release-plan";
 import {
   API,
@@ -230,9 +233,19 @@ describe("a surface whose production deploy never ran", () => {
         (await runReleasePlan({ env: env(b), fetch: github.fetch, cwd: repo })).outputs,
       );
       expect(Object.keys(outputs).toSorted()).toEqual(
-        [...PRODUCTION_SURFACES.map((s) => s.key), "any"].toSorted(),
+        [
+          ...PRODUCTION_SURFACES.map((s) => s.key),
+          ...PRODUCTION_STACKS.map((s) => `stack_${s.key}`),
+          "any",
+          "any_site",
+          "any_stack",
+          "stacks",
+          "flip",
+        ].toSorted(),
       );
-      expect(Object.values(outputs).every((value) => value === "false")).toBe(true);
+      const { stacks, flip, ...flags } = outputs;
+      expect(Object.values(flags).every((value) => value === "false")).toBe(true);
+      expect({ stacks, flip }).toEqual({ stacks: "", flip: "" });
       // Nothing ships, so no dev record is read.
       expect(github.calls.some((call) => call.includes("environment=dev"))).toBe(false);
     });
@@ -350,7 +363,7 @@ describe("dev still gates production", () => {
     });
   });
 
-  test("force ships what it names, whatever production and dev run", async () => {
+  test("force ships what it names, whatever production and dev run, and a stack site's whole stack", async () => {
     await withRepo(async (repo) => {
       const a = await commit(repo, { "cire/host/src/App.tsx": "1" });
       const github = fakeGitHub([...fullRun("production", a, 1)]);
@@ -366,7 +379,16 @@ describe("dev still gates production", () => {
         Object.entries(outputs)
           .filter(([, v]) => v === "true")
           .map(([k]) => k),
-      ).toEqual(["cire_host", "any"]);
+      ).toEqual([
+        "cire_host",
+        "cire_vendor",
+        "cire_landing",
+        "stack_cire",
+        "any",
+        "any_site",
+        "any_stack",
+      ]);
+      expect(outputs.stacks).toBe("cire");
       expect(github.calls.some((call) => call.includes("environment=dev"))).toBe(false);
     });
   });
@@ -557,8 +579,62 @@ describe("lastDeployed", () => {
       "production",
       PRODUCTION_SURFACES.map((s) => s.key),
     );
-    expect(found.size).toBe(8);
-    expect(github.calls.filter((call) => call.includes("/jobs"))).toHaveLength(1);
+    expect(found.size).toBe(PRODUCTION_SURFACES.length);
+    // One run for the jobs' own records, one for the record jobs'.
+    expect(github.calls.filter((call) => call.includes("/jobs"))).toHaveLength(2);
+  });
+
+  test("RP1: a site its stack deploys is read from production-records by its record job, never from production", async () => {
+    const record = {
+      sha: "b2",
+      run: 7,
+      job: prod("musubi_landing"),
+      states: ["success"],
+    } as const;
+    const inProduction = fakeGitHub([{ ...record, environment: "production" }]);
+    expect(
+      Object.fromEntries(
+        await lastDeployed(reader(inProduction), "production", ["musubi_landing"]),
+      ),
+    ).toEqual({});
+    const inRecords = fakeGitHub([{ ...record, environment: "production-records" }]);
+    expect(
+      Object.fromEntries(await lastDeployed(reader(inRecords), "production", ["musubi_landing"])),
+    ).toEqual({ musubi_landing: "b2" });
+    expect(inRecords.calls.some((call) => call.includes("environment=production-records"))).toBe(
+      true,
+    );
+    // A job surface's record is never looked for there.
+    const api = fakeGitHub([
+      { ...record, job: prod("osn_api"), environment: "production-records" },
+    ]);
+    expect(Object.fromEntries(await lastDeployed(reader(api), "production", ["osn_api"]))).toEqual(
+      {},
+    );
+  });
+
+  test("RP2: a production-records record counts only from a production-release.yml run on main in this repository", async () => {
+    const record = {
+      environment: "production-records",
+      sha: "b2",
+      run: 7,
+      job: prod("musubi_landing"),
+      states: ["success"],
+    } as const;
+    for (const origin of [
+      { path: WORKFLOW_FILE.dev },
+      { path: ".github/workflows/other.yml" },
+      { branch: "feature" },
+      { headRepository: "someone/fork" },
+    ]) {
+      const github = fakeGitHub([record], { origins: { 7: origin } });
+      expect({
+        origin,
+        found: Object.fromEntries(
+          await lastDeployed(reader(github), "production", ["musubi_landing"]),
+        ),
+      }).toEqual({ origin, found: {} });
+    }
   });
 
   test("findDeployed keeps walking past records accept refuses, and reports the newest it saw", async () => {
@@ -941,11 +1017,40 @@ describe("parseRequest", () => {
     });
   });
 
-  test("takes a comma or space separated list, once each", () => {
-    expect(parseRequest("cire_host, cire_api cire_host", "false").surfaces).toEqual([
-      "cire_host",
+  test("takes a comma or space separated list, once each, in map order", () => {
+    expect(parseRequest("osn_api, cire_api osn_api", "false").surfaces).toEqual([
       "cire_api",
+      "osn_api",
     ]);
+  });
+
+  test("RP5: naming a site a production stack deploys asks for every site that stack deploys, and nothing else", () => {
+    expect(parseRequest("cire_host, cire_api", "").surfaces).toEqual([
+      "cire_api",
+      "cire_host",
+      "cire_vendor",
+      "cire_landing",
+    ]);
+    expect(parseRequest("musubi_landing", "").surfaces).toEqual(["osn_social", "musubi_landing"]);
+    expect(parseRequest("osn_api", "").surfaces).toEqual(["osn_api"]);
+  });
+
+  test("RP6: a flip names one site served from its Worker, with SURFACES naming only that stack's served sites", () => {
+    expect(parseRequest("musubi_landing", "", "musubi_landing")).toEqual({
+      surfaces: ["musubi_landing"],
+      force: false,
+      flip: "musubi_landing",
+    });
+    // Not a site served from its Worker: an API, a staged site, an off one, a typo.
+    for (const flip of ["osn_api", "cire_host", "pulse_landing", "musubi-landing"]) {
+      expect(() => parseRequest("musubi_landing", "", flip)).toThrow(`FLIP names ${flip}`);
+    }
+    // SURFACES empty asks for everything; naming anything outside the stack's served sites runs another job.
+    expect(() => parseRequest("", "", "musubi_landing")).toThrow(/set SURFACES to musubi_landing/);
+    for (const surfaces of ["musubi_landing osn_social", "musubi_landing osn_api", "cire_api"]) {
+      expect(() => parseRequest(surfaces, "", "musubi_landing")).toThrow(/also names/);
+    }
+    expect(parseRequest("", "", "").flip).toBeUndefined();
   });
 
   test("refuses a name that is not a surface, listing the real ones", () => {
@@ -1115,9 +1220,69 @@ describe("applyDevGate", () => {
   });
 });
 
+/** What a release decides from `decide`'s decisions: its stacks too. */
+const release = (decisions: readonly PlanDecision[], force = false): ReleaseDecisions =>
+  stackPlans(decisions, force);
+
+describe("which production stacks ship", () => {
+  const shippingStacks = (decisions: readonly PlanDecision[]) =>
+    release(decisions)
+      .stacks.filter((s) => s.ship)
+      .map((s) => s.key);
+
+  test("RP3: a staged site that ships ships its stack; an API alone ships none", () => {
+    expect(shippingStacks(decide(["cire/host/src/App.tsx"]))).toEqual(["cire"]);
+    expect(shippingStacks(decide(["musubi/landing/src/a.astro"]))).toEqual(["musubi"]);
+    expect(shippingStacks(decide(["osn/api/src/index.ts", "cire/api/x.ts"]))).toEqual([]);
+    const lines = outputLines(release(decide(["cire/host/src/App.tsx"])));
+    expect(parseOutputs(lines)).toMatchObject({
+      cire_host: "true",
+      stack_cire: "true",
+      stack_musubi: "false",
+      any_site: "true",
+      any_stack: "true",
+      stacks: "cire",
+    });
+  });
+
+  test("RP4: a site held back or newer on production holds its stack and the stack's own sites; a staged site's Pages job still ships", () => {
+    const musubi = decide(["musubi/landing/src/a.astro", "musubi/social/src/a.tsx"]);
+    const social = musubi.findIndex((d) => d.key === "osn_social");
+    musubi[social] = { ...musubi[social]!, ship: false, status: "held back" };
+    const held = release(musubi);
+    expect(held.stacks.find((s) => s.key === "musubi")).toMatchObject({ ship: false });
+    expect(held.stacks.find((s) => s.key === "musubi")?.reason).toContain(
+      "osn_social is held back",
+    );
+    expect(held.decisions.find((d) => d.key === "musubi_landing")).toMatchObject({
+      ship: false,
+      status: "held back",
+    });
+
+    const cire = decide(["cire/host/src/App.tsx", "cire/vendor/src/App.tsx"]);
+    const vendor = cire.findIndex((d) => d.key === "cire_vendor");
+    cire[vendor] = { ...cire[vendor]!, ship: false, status: "production is newer" };
+    const waits = release(cire);
+    expect(waits.stacks.find((s) => s.key === "cire")).toMatchObject({ ship: false });
+    expect(waits.decisions.find((d) => d.key === "cire_host")).toMatchObject({
+      ship: true,
+      status: "ships",
+    });
+    expect(parseOutputs(outputLines(waits))).toMatchObject({
+      cire_host: "true",
+      stack_cire: "false",
+      any_site: "true",
+      any_stack: "false",
+      stacks: "",
+    });
+    // Forced, nothing holds it.
+    expect(release(cire, true).stacks.find((s) => s.key === "cire")?.ship).toBe(true);
+  });
+});
+
 describe("what the plan job writes", () => {
-  test("names exactly the eight production surfaces, never a dev-only one", async () => {
-    const EIGHT: SurfaceKey[] = [
+  test("names exactly the surfaces production ships, never one it does not", async () => {
+    const SHIPPED: SurfaceKey[] = [
       "cire_api",
       "cire_invites",
       "cire_host",
@@ -1125,6 +1290,7 @@ describe("what the plan job writes", () => {
       "cire_landing",
       "osn_api",
       "osn_social",
+      "musubi_landing",
       "zap_api",
     ];
     await withRepo(async (repo) => {
@@ -1133,39 +1299,63 @@ describe("what the plan job writes", () => {
       const github = fakeGitHub([...fullRun("production", a, 1), ...fullRun("dev", b, 2)]);
 
       const plan = await runReleasePlan({ env: env(b), fetch: github.fetch, cwd: repo });
-      expect(plan.decisions.map((d) => d.key)).toEqual(EIGHT);
+      expect(plan.decisions.map((d) => d.key)).toEqual(SHIPPED);
       expect(
         plan.outputs
           .trim()
           .split("\n")
           .map((line) => line.split("=")[0]),
-      ).toEqual([...EIGHT, "any"]);
-      expect(plan.summary).not.toContain("musubi_landing");
+      ).toEqual([
+        ...SHIPPED,
+        "stack_musubi",
+        "stack_cire",
+        "any",
+        "any_site",
+        "any_stack",
+        "stacks",
+        "flip",
+      ]);
+      expect(plan.summary).toContain("musubi_landing");
       expect(plan.summary).not.toContain("pulse_landing");
+      // Two approvals when a stack ships.
+      expect(plan.summary).toContain("Alchemy plan job");
     });
-    expect(parseRequest("", "").surfaces).toEqual(EIGHT);
-    for (const key of ["musubi_landing", "pulse_landing"]) {
-      expect(() => parseRequest(key, "")).toThrow(`SURFACES names ${key}, which is not a`);
-    }
+    expect(parseRequest("", "").surfaces).toEqual(SHIPPED);
+    expect(() => parseRequest("pulse_landing", "")).toThrow(
+      "SURFACES names pulse_landing, which is not a",
+    );
   });
 
-  test("one line per surface, then any", () => {
-    const lines = outputLines(decide(["osn/api/x.ts"]))
+  test("RP7: one line per surface and production stack, then any, any_site, any_stack, stacks and flip", () => {
+    const lines = outputLines(release(decide(["osn/api/x.ts"])))
       .trim()
       .split("\n");
     expect(lines).toEqual([
       ...PRODUCTION_SURFACES.map((s) => `${s.key}=${s.key === "osn_api"}`),
+      "stack_musubi=false",
+      "stack_cire=false",
       "any=true",
+      "any_site=false",
+      "any_stack=false",
+      "stacks=",
+      "flip=",
     ]);
-    expect(outputLines(decide([])).trim().split("\n").at(-1)).toBe("any=false");
+    expect(parseOutputs(outputLines(release(decide([]))))).toMatchObject({ any: "false" });
+    expect(parseOutputs(outputLines({ ...release(decide([])), flip: "musubi_landing" })).flip).toBe(
+      "musubi_landing",
+    );
+    expect(parseOutputs(outputLines(release(decide(["shared/infra/src/x.ts"]))))).toMatchObject({
+      stacks: "musubi cire",
+      any_stack: "true",
+    });
   });
 
   test("the summary warns when cire-api ships while the host portal is behind", () => {
     const context = { head, repository: REPO, serverUrl: "https://github.com" };
     expect(apiAheadOfHost(decide(["cire/dietary/x.ts"]))).toBe(true);
-    expect(renderSummary(decide(["cire/dietary/x.ts"]), context)).toContain("[!WARNING]");
+    expect(renderSummary(release(decide(["cire/dietary/x.ts"])), context)).toContain("[!WARNING]");
     expect(apiAheadOfHost(decide(["cire/api/x.ts"]))).toBe(false);
-    expect(renderSummary(decide(["cire/api/x.ts"]), context)).not.toContain("[!WARNING]");
+    expect(renderSummary(release(decide(["cire/api/x.ts"])), context)).not.toContain("[!WARNING]");
     const held = decide(["cire/dietary/x.ts"]);
     const host = held.findIndex((d) => d.key === "cire_host");
     held[host] = { ...held[host]!, ship: false, status: "held back" };
@@ -1173,7 +1363,7 @@ describe("what the plan job writes", () => {
   });
 
   test("the summary lists every surface with its production commit and a compare link", () => {
-    const summary = renderSummary(decide(["osn/api/x.ts"]), {
+    const summary = renderSummary(release(decide(["osn/api/x.ts"])), {
       head,
       repository: REPO,
       serverUrl: "https://github.com",

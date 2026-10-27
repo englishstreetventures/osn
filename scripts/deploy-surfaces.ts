@@ -11,10 +11,14 @@
  *
  * On dev every surface belongs to one Alchemy stack (STACKS), and a stack job
  * deploys all of its surfaces at once. A stack's own paths (its `infra/`
- * directory, and shared/infra/) change how dev deploys, not what any surface
- * is built from, so they redeploy every dev surface of the stack and offer
- * production nothing. Production ships only the surfaces with a production
- * job (PRODUCTION_SURFACES).
+ * directory, and shared/infra/) change how a stack deploys, not what any
+ * surface is built from, so they redeploy every dev surface of the stack,
+ * and on production every surface its production stack deploys: the sites
+ * shared/infra/src/production-sites.ts does not turn off. Production ships
+ * only the surfaces with a production deploy (PRODUCTION_SURFACES): an API
+ * Worker or a staged site its own job deploys (`job`), or a site whose
+ * Worker serves its host, which its stack's production job deploys and a
+ * record job after it records (`stack`).
  *
  * Each cire surface lists every `@cire/*` package it bundles, directly or
  * through another one; scripts/tests/deploy-surface-map.test.ts fails when a
@@ -33,8 +37,13 @@
  *
  * The job ids and names are load-bearing. A GitHub Deployment record does not
  * say which surface it deployed; the name of the job that made it does, and
- * release-plan.ts reads it to find the commit each surface last deployed.
- * scripts/tests/deploy-workflows.test.ts holds both workflows to this map.
+ * release-plan.ts reads it to find the commit each surface last deployed:
+ * a `job` surface's in the `production` Environment, a `stack` surface's in
+ * `production-records`. scripts/tests/deploy-workflows.test.ts holds both
+ * workflows to this map.
+ *
+ * This file imports only production-sites.ts, which imports nothing, so the
+ * workflows run it with no install.
  *
  * Usage, as the `changes` job calls it (repository root as the working
  * directory):
@@ -44,6 +53,12 @@
  */
 
 import { appendFileSync } from "node:fs";
+
+import {
+  PRODUCTION_SITE_MODES,
+  SITE_SURFACES,
+  type SiteSurface,
+} from "../shared/infra/src/production-sites";
 
 export type Tier = "dev" | "production";
 
@@ -68,28 +83,61 @@ export interface Job {
   readonly name: string;
 }
 
+/**
+ * How production deploys a surface, and which job's Deployment record says
+ * what it runs: its own job in production-release.yml (`job`, recorded in
+ * the `production` Environment), or its stack's production job, recorded by
+ * a record job after it (`stack`, in `production-records`).
+ */
+export interface ProductionDeploy extends Job {
+  readonly kind: "job" | "stack";
+}
+
 export interface Surface {
   readonly key: SurfaceKey;
   /** Every path whose change redeploys this surface, apart from the shared ones. */
   readonly paths: RegExp;
   /** The stack that deploys this surface on dev. */
   readonly stack: StackKey;
-  /** The job in production-release.yml; none for a surface production does not ship yet. */
-  readonly production?: Job;
+  /** How production deploys it; none for a surface production does not ship yet. */
+  readonly production?: ProductionDeploy;
   /** The record job in deploy.yml; it carries the surface's dev Deployment record. */
   readonly dev: Job;
 }
 
 /** A surface production ships. */
-export type ProductionSurface = Surface & { readonly production: Job };
+export type ProductionSurface = Surface & { readonly production: ProductionDeploy };
 
 export interface Stack {
   readonly key: StackKey;
   /** The Alchemy job in deploy.yml. */
   readonly job: Job;
-  /** Paths that redeploy every dev surface of the stack and no production surface. */
+  /** The Alchemy job in production-release.yml, for a stack that deploys anything to production. */
+  readonly production?: Job;
+  /** Paths that redeploy every surface the stack deploys. */
   readonly paths: RegExp;
 }
+
+const isSite = (key: SurfaceKey): key is SiteSurface => SITE_SURFACES.some((site) => site === key);
+
+/**
+ * A site's production deploy at its mode in PRODUCTION_SITE_MODES: none while
+ * off; its Pages job while staged, since that job still serves the host; its
+ * record job once its Worker does.
+ */
+function siteDeploy(
+  key: SiteSurface,
+  pages: Job | undefined,
+  record: Job,
+): ProductionDeploy | undefined {
+  const mode = PRODUCTION_SITE_MODES[key];
+  if (mode === "off") return undefined;
+  if (mode === "worker") return { kind: "stack", ...record };
+  if (pages === undefined) throw new Error(`${key} is staged, but no Pages job serves its host`);
+  return { kind: "job", ...pages };
+}
+
+const ownJob = (id: string, name: string): ProductionDeploy => ({ kind: "job", id, name });
 
 export const SURFACES: readonly Surface[] = [
   {
@@ -97,7 +145,7 @@ export const SURFACES: readonly Surface[] = [
     paths:
       /^(cire\/api\/|cire\/db\/|cire\/dietary\/|cire\/guest-email\/|cire\/invite-designs\/|cire\/theme\/|scripts\/(cire-db-|check-d1-database-id|migration-files))/,
     stack: "cire",
-    production: { id: "deploy-cire-api", name: "Deploy cire/api — production" },
+    production: ownJob("deploy-cire-api", "Deploy cire/api — production"),
     dev: { id: "deploy-cire-api-dev", name: "Deploy cire/api — dev" },
   },
   {
@@ -105,7 +153,7 @@ export const SURFACES: readonly Surface[] = [
     paths:
       /^(cire\/invites\/|cire\/build-tools\/|cire\/dietary\/|cire\/guest-email\/|cire\/invite-designs\/|cire\/theme\/|cire\/ui\/)/,
     stack: "cire",
-    production: { id: "deploy-cire-invites", name: "Deploy cire/invites — production" },
+    production: ownJob("deploy-cire-invites", "Deploy cire/invites — production"),
     dev: { id: "deploy-cire-invites-dev", name: "Deploy cire/invites — dev" },
   },
   {
@@ -113,41 +161,61 @@ export const SURFACES: readonly Surface[] = [
     paths:
       /^(cire\/host\/|cire\/build-tools\/|cire\/dietary\/|cire\/guest-email\/|cire\/invite-designs\/|cire\/theme\/|cire\/ui\/)/,
     stack: "cire",
-    production: { id: "deploy-cire-host", name: "Deploy cire/host — production" },
+    production: siteDeploy(
+      "cire_host",
+      { id: "deploy-cire-host", name: "Deploy cire/host — production" },
+      { id: "record-cire-host", name: "Record cire/host — production" },
+    ),
     dev: { id: "deploy-cire-host-dev", name: "Deploy cire/host — dev" },
   },
   {
     key: "cire_vendor",
     paths: /^(cire\/vendor\/|cire\/build-tools\/|cire\/dietary\/|cire\/theme\/|cire\/ui\/)/,
     stack: "cire",
-    production: { id: "deploy-cire-vendor", name: "Deploy cire/vendor — production" },
+    production: siteDeploy(
+      "cire_vendor",
+      { id: "deploy-cire-vendor", name: "Deploy cire/vendor — production" },
+      { id: "record-cire-vendor", name: "Record cire/vendor — production" },
+    ),
     dev: { id: "deploy-cire-vendor-dev", name: "Deploy cire/vendor — dev" },
   },
   {
     key: "cire_landing",
     paths: /^(cire\/landing\/|cire\/dietary\/|cire\/ui\/)/,
     stack: "cire",
-    production: { id: "deploy-cire-landing", name: "Deploy cire/landing — production (apex)" },
+    production: siteDeploy(
+      "cire_landing",
+      { id: "deploy-cire-landing", name: "Deploy cire/landing — production (apex)" },
+      { id: "record-cire-landing", name: "Record cire/landing — production" },
+    ),
     dev: { id: "deploy-cire-landing-dev", name: "Deploy cire/landing — dev" },
   },
   {
     key: "osn_api",
     paths: /^(osn\/api\/|osn\/db\/)/,
     stack: "musubi",
-    production: { id: "deploy-osn-api", name: "Deploy osn/api — production" },
+    production: ownJob("deploy-osn-api", "Deploy osn/api — production"),
     dev: { id: "deploy-osn-api-dev", name: "Deploy osn/api — dev" },
   },
   {
     key: "osn_social",
     paths: /^(musubi\/social\/|osn\/client\/|shared\/ui\/|osn\/auth-ui\/)/,
     stack: "musubi",
-    production: { id: "deploy-osn-social", name: "Deploy musubi/social — production" },
+    production: siteDeploy(
+      "osn_social",
+      { id: "deploy-osn-social", name: "Deploy musubi/social — production" },
+      { id: "record-osn-social", name: "Record musubi/social — production" },
+    ),
     dev: { id: "deploy-osn-social-dev", name: "Deploy musubi/social — dev" },
   },
   {
     key: "musubi_landing",
     paths: /^musubi\/landing\//,
     stack: "musubi",
+    production: siteDeploy("musubi_landing", undefined, {
+      id: "record-musubi-landing",
+      name: "Record musubi/landing — production",
+    }),
     dev: { id: "deploy-musubi-landing-dev", name: "Deploy musubi/landing — dev" },
   },
   {
@@ -156,13 +224,17 @@ export const SURFACES: readonly Surface[] = [
     // not what it is built from.
     paths: /^zap\/(?!infra\/)/,
     stack: "zap",
-    production: { id: "deploy-zap-api", name: "Deploy zap/api — production" },
+    production: ownJob("deploy-zap-api", "Deploy zap/api — production"),
     dev: { id: "deploy-zap-api-dev", name: "Deploy zap/api — dev" },
   },
   {
     key: "pulse_landing",
     paths: /^pulse\/landing\//,
     stack: "pulse",
+    production: siteDeploy("pulse_landing", undefined, {
+      id: "record-pulse-landing",
+      name: "Record pulse/landing — production",
+    }),
     dev: { id: "deploy-pulse-landing-dev", name: "Deploy pulse/landing — dev" },
   },
 ];
@@ -173,16 +245,22 @@ export const PRODUCTION_SURFACES: readonly ProductionSurface[] = SURFACES.flatMa
   return production === undefined ? [] : [{ ...s, production }];
 });
 
-/** Every stack, in deploy order. shared/infra/ is the deploy tooling every stack runs. */
+/**
+ * Every stack, in deploy order. shared/infra/ is the deploy tooling every
+ * stack runs. A stack has a production job while it deploys any site to
+ * production (scripts/tests/deploy-surfaces.test.ts holds the two together).
+ */
 export const STACKS: readonly Stack[] = [
   {
     key: "musubi",
     job: { id: "stack-musubi-dev", name: "Alchemy musubi stack — dev" },
+    production: { id: "stack-musubi-production", name: "Alchemy musubi stack — production" },
     paths: /^(musubi\/infra\/|shared\/infra\/)/,
   },
   {
     key: "cire",
     job: { id: "stack-cire-dev", name: "Alchemy cire stack — dev" },
+    production: { id: "stack-cire-production", name: "Alchemy cire stack — production" },
     paths: /^(cire\/infra\/|shared\/infra\/)/,
   },
   {
@@ -257,19 +335,42 @@ export function stack(key: StackKey): Stack {
   return found;
 }
 
+/** A stack that deploys anything to production. */
+export type ProductionStack = Stack & { readonly production: Job };
+
+/** The stacks with a production job, in deploy order. */
+export const PRODUCTION_STACKS: readonly ProductionStack[] = STACKS.flatMap((s) => {
+  const { production } = s;
+  return production === undefined ? [] : [{ ...s, production }];
+});
+
+/**
+ * Whether a production stack deploys `target`: a site that
+ * PRODUCTION_SITE_MODES stages or serves from its Worker. Such a surface
+ * ships its stack, and its stack's paths redeploy it.
+ */
+export function stackDeployed(target: Surface): boolean {
+  return isSite(target.key) && PRODUCTION_SITE_MODES[target.key] !== "off";
+}
+
 /** Whether a change to `file` redeploys every surface on `tier`. */
 export function sharedPath(file: string, tier: Tier): boolean {
   return SHARED_CONTENT.test(file) || file === WORKFLOW_FILE[tier] || file === SURFACE_MAP_FILE;
 }
 
 /**
- * Whether `file` is part of what `target` is built from: its own paths or the
- * shared content. Workflow files and this map are left out — they change how a
- * surface deploys, not the code that deploys — so two commits that differ only
- * there build the same thing.
+ * Whether `file` is part of what production deploys for `target`: its own
+ * paths, the shared content, and for a surface a production stack deploys,
+ * that stack's paths. Workflow files and this map are left out — they change
+ * how a surface deploys, not the code that deploys — so two commits that
+ * differ only there deploy the same thing.
  */
 export function changesContent(target: Surface, file: string): boolean {
-  return SHARED_CONTENT.test(file) || target.paths.test(file);
+  return (
+    SHARED_CONTENT.test(file) ||
+    target.paths.test(file) ||
+    (stackDeployed(target) && stack(target.stack).paths.test(file))
+  );
 }
 
 /** Why `files` redeploy `target` on `tier`, or undefined when they do not. */
@@ -286,9 +387,10 @@ export function deployReason(
       ? `${own[0]} changed`
       : `${own[0]} changed, and ${own.length - 1} more of its files`;
   }
-  if (tier === "production") return undefined;
-  const infra = files.find((file) => stack(target.stack).paths.test(file));
+  const deploys = tier === "dev" || stackDeployed(target);
+  const infra = deploys ? files.find((file) => stack(target.stack).paths.test(file)) : undefined;
   if (infra !== undefined) return `${infra} changed, which the ${target.stack} stack deploys`;
+  if (tier === "production") return undefined;
   const check = SMOKE_CHECKED_ON_DEV.has(target.key)
     ? files.find((file) => DEV_CHECK_FILES.has(file))
     : undefined;

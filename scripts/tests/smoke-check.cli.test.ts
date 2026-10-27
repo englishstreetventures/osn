@@ -47,10 +47,10 @@ test("a call with no tier exits 2 with an annotation", async () => {
   expect(result.stdout).toContain("::error::smoke-check: usage");
 });
 
-test("a surface with no Worker on the tier exits 2", async () => {
-  const result = await run(["osn_social", "production"]);
+test("a production site check with no SMOKE_ORIGIN exits 2 before asking anything", async () => {
+  const result = await run(["osn_social", "production"], { SMOKE_DEPLOYMENT: "unchanged" });
   expect(result.exitCode).toBe(2);
-  expect(result.stdout).toContain("osn_social has no production Worker");
+  expect(result.stdout).toContain("SMOKE_ORIGIN is not set");
 });
 
 test("a dev check with no SMOKE_ORIGIN exits 2 before asking anything", async () => {
