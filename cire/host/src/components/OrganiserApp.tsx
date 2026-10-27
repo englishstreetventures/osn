@@ -327,8 +327,9 @@ function Dashboard() {
   // The `recheckSeq` of the read whose answer is the list on screen; 0 when
   // none is (no read has landed yet, or the list was written locally since).
   let appliedSeq = 0;
-  // When the tab was last shown, and the newest read started before then.
-  let shownAt: number | undefined;
+  // When the tab was last shown (never, at first), and the newest read
+  // started before then.
+  let shownAt = Number.NEGATIVE_INFINITY;
   let shownSeq = 0;
   const setWeddings = ((value: Parameters<Setter<WeddingSummary[] | null>>[0]) => {
     listVersion += 1;
@@ -420,7 +421,6 @@ function Dashboard() {
   /** Whether a `reconnected` arriving now is the return's own: within
    *  `RESUME_REOPEN_MS` of the tab being shown, by a clock not set back since. */
   function reopenedForReturn(): boolean {
-    if (shownAt === undefined) return false;
     const gap = Date.now() - shownAt;
     return gap >= 0 && gap <= RESUME_REOPEN_MS;
   }
@@ -433,15 +433,11 @@ function Dashboard() {
    * only if none of them lands.
    */
   async function recheckAfterReturn(): Promise<void> {
-    let awaited: Promise<void> | undefined;
-    while (
-      appliedSeq <= shownSeq &&
-      recheck !== null &&
-      recheckSeq > shownSeq &&
-      recheck.done !== awaited
-    ) {
-      awaited = recheck.done;
-      await awaited;
+    // The newest read is always `recheck`; each is waited on once.
+    let awaitedSeq = shownSeq;
+    while (recheck !== null && recheckSeq > awaitedSeq) {
+      awaitedSeq = recheckSeq;
+      await recheck.done;
     }
     if (appliedSeq > shownSeq) return;
     await recheckWeddings(Date.now());

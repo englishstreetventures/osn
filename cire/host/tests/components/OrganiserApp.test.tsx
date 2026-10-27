@@ -1988,6 +1988,9 @@ describe("OrganiserApp Dashboard", () => {
       });
       render(() => <OrganiserApp />);
       await waitFor(() => expect(shell().textContent).toContain("wed_a"));
+      // The route settles after the shell mounts; a move within the dashboard
+      // is a trigger of its own, so let it land before the clock moves.
+      await settle();
       expect(listCalls()).toBe(1);
     }
 
@@ -2073,6 +2076,22 @@ describe("OrganiserApp Dashboard", () => {
       expect(listCalls()).toBe(2);
       reconnect();
       await waitFor(() => expect(listCalls()).toBe(3));
+    });
+
+    it("reads nothing when the tab is hidden, however long since the last read", async () => {
+      await openWedding();
+      at(RETURN);
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        get: () => "hidden",
+      });
+      try {
+        document.dispatchEvent(new Event("visibilitychange"));
+      } finally {
+        Reflect.deleteProperty(document, "visibilityState");
+      }
+      await settle();
+      expect(listCalls()).toBe(1);
     });
 
     it("reads on a reconnect after a return too soon to read", async () => {
