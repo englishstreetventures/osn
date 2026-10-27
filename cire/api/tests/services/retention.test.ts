@@ -20,7 +20,8 @@ import {
   weddingHosts,
 } from "@cire/db";
 import { eq } from "drizzle-orm";
-import { Effect, Exit } from "effect";
+import { Deferred, Effect, Exit, Fiber } from "effect";
+import { TestClock } from "effect/testing";
 
 import { DbService, dbQuery } from "../../src/db";
 import { createDb, seedDb, type TestDb } from "../../src/db/setup";
@@ -1183,6 +1184,72 @@ describe("the parting gift summary", () => {
     ),
   );
 
+  it("dates a wedding with only claims, or only money gifts, by the gifts it had", async () => {
+    // The two kinds are counted by separate reads, each with its own min and
+    // max. A wedding with one kind only must take its range from that read
+    // alone; in the mixed wedding above, the claims fall on the first gift's
+    // day, so dropping their dates from the range would go unseen there.
+    const db = freshDb();
+    const claimsOnly = await runOn(db, makeWedding({ eventDates: ["2025-05-10"] }));
+    const giftsOnly = await runOn(db, makeWedding({ eventDates: ["2025-05-10"] }));
+    for (const { weddingId } of [claimsOnly, giftsOnly]) {
+      db.insert(registrySettings)
+        .values({ weddingId, published: true, createdAt: GIFT_STAMP, updatedAt: GIFT_STAMP })
+        .run();
+    }
+    // The claims read groups by status, so the two reserved claims are what
+    // tell its own min from its max.
+    for (const [index, [status, on]] of (
+      [
+        ["reserved", "2025-04-15"],
+        ["purchased", "2025-03-20"],
+        ["reserved", "2025-03-02"],
+      ] as const
+    ).entries()) {
+      const at = new Date(`${on}T09:00:00.000Z`);
+      const itemId = `reg_${index}_${crypto.randomUUID()}`;
+      db.insert(registryItems)
+        .values({
+          id: itemId,
+          weddingId: claimsOnly.weddingId,
+          kind: "product",
+          title: `Gift ${index}`,
+          quantityWanted: 1,
+          sortOrder: index,
+          createdAt: at,
+          updatedAt: at,
+        })
+        .run();
+      db.insert(registryClaims)
+        .values({
+          id: `rcl_${crypto.randomUUID()}`,
+          weddingId: claimsOnly.weddingId,
+          itemId,
+          familyId: claimsOnly.familyId,
+          quantity: 1,
+          status,
+          createdAt: at,
+          updatedAt: at,
+        })
+        .run();
+    }
+    for (const on of ["2025-05-20", "2025-02-10"]) {
+      await runOn(
+        db,
+        addGift(giftsOnly.weddingId, giftsOnly.familyId, { at: new Date(`${on}T09:00:00.000Z`) }),
+      );
+    }
+
+    await runOn(db, retentionService.sweepExpiredGuestData(SWEEP_AT));
+
+    const range = (weddingId: string) => {
+      const summary = JSON.parse(storedSummary(db, weddingId) ?? "{}") as GiftSummary;
+      return [summary.firstGiftOn, summary.lastGiftOn];
+    };
+    expect(range(claimsOnly.weddingId)).toEqual(["2025-03-02", "2025-04-15"]);
+    expect(range(giftsOnly.weddingId)).toEqual(["2025-02-10", "2025-05-20"]);
+  });
+
   it(
     "hands the notifier one notice per swept wedding, and only after the detail is gone",
     withDb(
@@ -1426,6 +1493,46 @@ describe("the parting gift summary", () => {
       }),
     ),
   );
+
+  it("stops waiting on a notifier that hangs after 30 seconds, and returns what it deleted", async () => {
+    // A hang, not a failure, is what would stop the sweep: the notifier's error
+    // channel is `never`. On the test clock the 30 seconds pass at once.
+    const db = freshDb();
+    const wedding = await runOn(db, makeGiftedWedding("2025-05-10"));
+
+    let deleted: number | undefined;
+    const logs = await captureLogs(async () => {
+      deleted = await Effect.runPromise(
+        Effect.gen(function* () {
+          const reached = yield* Deferred.make<void>();
+          const sweep = yield* Effect.forkChild(
+            retentionService.sweepExpiredGuestData(SWEEP_AT, {}, () =>
+              Deferred.succeed(reached, undefined).pipe(Effect.andThen(Effect.never)),
+            ),
+          );
+          yield* Deferred.await(reached);
+          // Let the timeout's timer reach the test clock before moving it.
+          yield* TestClock.withLive(Effect.sleep("20 millis"));
+
+          yield* TestClock.adjust("29 seconds");
+          expect(sweep.pollUnsafe()).toBeUndefined();
+
+          yield* TestClock.adjust("1 second");
+          // Polled rather than joined: without the bound the sweep never ends,
+          // and a join would wait for it.
+          const exit = sweep.pollUnsafe();
+          expect(exit).toBeDefined();
+          return yield* Fiber.join(sweep);
+        }).pipe(Effect.provide(TestClock.layer()), Effect.provideService(DbService, db)),
+      );
+    });
+
+    expect(deleted).toBe(1);
+    expect(guestCount(db, wedding.guestId)).toBe(0);
+    expect(storedSummary(db, wedding.weddingId)).not.toBeNull();
+    expect(logs).toContain("gift summary notices not delivered");
+    expect(logs).toContain("timeout");
+  });
 
   it(
     "writes nothing for a wedding that never had a gift",
@@ -2206,6 +2313,45 @@ describe("the gift summary hold-back ceiling", () => {
     expect(storedSummary(db, wedding.weddingId)).toBeNull();
     expect(guestCount(db, wedding.guestId)).toBe(0);
     expect(contributionCount(db, wedding.weddingId)).toBe(0);
+  });
+
+  it("mails nothing about summaries a failed batch did not store, and returns what the retry deleted", async () => {
+    const db = freshDb();
+    // Past the ceiling, so the retry deletes it without its summary...
+    const past = await runOn(db, makeGiftedWedding("2025-05-01"));
+    // ...and inside the hold-back, so it waits for the next run.
+    const held = await runOn(db, makeGiftedWedding("2025-06-01"));
+    let suppressionDeletes = 0;
+    // The first statement of the first batch, the one carrying both summaries.
+    // A D1 batch that fails commits nothing; failing its first statement is how
+    // bun:sqlite, which runs them one by one, ends in the same place.
+    const fault = failStatements(
+      db,
+      (sql) => sql.startsWith('delete from "email_suppressions"') && ++suppressionDeletes === 1,
+    );
+    let calls = 0;
+
+    let deleted: number | undefined;
+    await captureLogs(async () => {
+      deleted = await runOn(
+        db,
+        retentionService.sweepExpiredGuestData(SWEEP_AT, {}, () =>
+          Effect.sync(() => {
+            calls += 1;
+          }),
+        ),
+      );
+    });
+
+    expect(fault.failed()).toBe(1);
+    expect(deleted).toBe(1);
+    // The email says "this is the record we kept"; with no record kept, none goes.
+    expect(calls).toBe(0);
+    expect(storedSummary(db, past.weddingId)).toBeNull();
+    expect(storedSummary(db, held.weddingId)).toBeNull();
+    expect(guestCount(db, past.guestId)).toBe(0);
+    expect(guestCount(db, held.guestId)).toBe(1);
+    expect(contributionCount(db, held.weddingId)).toBe(1);
   });
 });
 
