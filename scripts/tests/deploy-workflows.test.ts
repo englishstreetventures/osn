@@ -251,16 +251,22 @@ interface ShellRun {
   readonly bunCalls: readonly string[];
 }
 
+/** What the stand-in `bun` prints on stdout and stderr, as Alchemy's output would be. */
+const BUN_OUTPUT = "stand-in-bun-output";
+
 /**
  * Runs a step's `run` script as GitHub runs one with no `shell:` (`bash -e`),
- * with a stand-in `bun` on PATH that records its arguments and exits with
- * `bunExit`.
+ * with a stand-in `bun` on PATH that records its arguments, prints
+ * BUN_OUTPUT to stdout and stderr, and exits with `bunExit`.
  */
 function runStep(step: Step, env: Readonly<Record<string, string>>, bunExit = 0): ShellRun {
   const dir = mkdtempSync(join(tmpdir(), "deploy-workflow-step-"));
   const log = join(dir, "bun-calls");
   const bun = join(dir, "bun");
-  writeFileSync(bun, `#!/bin/sh\nprintf '%s\\n' "$*" >> "${log}"\nexit ${bunExit}\n`);
+  writeFileSync(
+    bun,
+    `#!/bin/sh\nprintf '%s\\n' "$*" >> "${log}"\necho ${BUN_OUTPUT}\necho ${BUN_OUTPUT} >&2\nexit ${bunExit}\n`,
+  );
   chmodSync(bun, 0o755);
   const result = Bun.spawnSync(["bash", "--noprofile", "--norc", "-e", "-c", step.run ?? ""], {
     cwd: dir,
@@ -757,6 +763,35 @@ describe("production-release.yml", () => {
 
   test("PW10: every Alchemy run in it sends no telemetry", () => {
     expect(production.env?.DO_NOT_TRACK).toBe("1");
+  });
+
+  test("PW10: no production Alchemy run writes to the public run log: each writes a file, which the next step shows only when the run failed", () => {
+    const runs = Object.values(production.jobs).flatMap((job) =>
+      stepsOf(job).flatMap((step, at) =>
+        /\b(plan|deploy):production\b/.test(step.run ?? "") ? [{ job, step, at }] : [],
+      ),
+    );
+    // A plan per stack at approval 1, and a re-plan and a deploy in each stack job.
+    expect(runs).toHaveLength(3 * PRODUCTION_STACKS.length);
+    for (const { job, step, at } of runs) {
+      expect(step.run).not.toMatch(/\btee\b|\|/);
+      const file = /> "(\$RUNNER_TEMP\/[^"]+\.log)" 2>&1\s*$/.exec(step.run ?? "")?.[1];
+      expect({ step: step.name, file: file !== undefined }).toEqual({
+        step: step.name,
+        file: true,
+      });
+      for (const exit of [0, 3]) {
+        const ran = runStep(step, { FORCE: "" }, exit);
+        expect({ step: step.name, exit, shown: ran.output.includes(BUN_OUTPUT) }).toEqual({
+          step: step.name,
+          exit,
+          shown: false,
+        });
+      }
+      const show = stepsOf(job)[at + 1];
+      expect(show?.if).toBe(`\${{ failure() && steps.${step.id}.outcome == 'failure' }}`);
+      expect(show?.run).toBe(`cat "${file}"`);
+    }
   });
 
   test("one release at a time, never cancelling one in progress", () => {

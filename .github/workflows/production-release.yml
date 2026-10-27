@@ -564,6 +564,12 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
+      # Raw Alchemy output stays out of the public run log unless the step
+      # failed; GitHub masks every secret the job holds in what it prints.
+      - name: Show the cire plan log, as the step failed
+        if: ${{ failure() && steps.plan_cire.outcome == 'failure' }}
+        run: cat "$RUNNER_TEMP/plan/cire.log"
+
       - name: Plan the musubi stack
         id: plan_musubi
         if: needs.plan.outputs.stack_musubi == 'true'
@@ -577,6 +583,12 @@ jobs:
           OSN_DEPLOY_TIER: production
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      # Raw Alchemy output stays out of the public run log unless the step
+      # failed; GitHub masks every secret the job holds in what it prints.
+      - name: Show the musubi plan log, as the step failed
+        if: ${{ failure() && steps.plan_musubi.outcome == 'failure' }}
+        run: cat "$RUNNER_TEMP/plan/musubi.log"
 
       # Names, kinds, actions and counts to the run summary; fails on a plan
       # the guard refuses. Its record is what the stack job's re-plan must
@@ -1329,6 +1341,12 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
+      # Raw Alchemy output stays out of the public run log unless the step
+      # failed; GitHub masks every secret the job holds in what it prints.
+      - name: Show the cire plan log, as the step failed
+        if: ${{ failure() && steps.plan.outcome == 'failure' }}
+        run: cat "$RUNNER_TEMP/plan/cire.log"
+
       - name: Guard the plan, and hold it to the approved one
         id: guard
         working-directory: cire/infra
@@ -1354,9 +1372,7 @@ jobs:
       - name: Deploy the cire stack
         id: deploy
         working-directory: cire/infra
-        run: |
-          set -o pipefail
-          bun run deploy:production ${FORCE:+--force} 2>&1 | tee "$RUNNER_TEMP/alchemy.log"
+        run: bun run deploy:production ${FORCE:+--force} > "$RUNNER_TEMP/alchemy.log" 2>&1
         env:
           FORCE: ${{ steps.snapshot.outputs.force == 'true' && 'yes' || '' }}
           DO_NOT_TRACK: "1"
@@ -1364,7 +1380,13 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
-      # Change counts and resource names to the run summary.
+      # Raw Alchemy output stays out of the public run log unless the step
+      # failed; GitHub masks every secret the job holds in what it prints.
+      - name: Show the cire deploy log, as the step failed
+        if: ${{ failure() && steps.deploy.outcome == 'failure' }}
+        run: cat "$RUNNER_TEMP/alchemy.log"
+
+      # Change counts alone to the run summary, never a line of the log.
       - name: Summarise the plan
         if: ${{ !cancelled() && steps.deploy.outcome != 'skipped' }}
         run: bun run --cwd shared/infra plan-summary -- --stack cire "$RUNNER_TEMP/alchemy.log"
@@ -1508,6 +1530,12 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
+      # Raw Alchemy output stays out of the public run log unless the step
+      # failed; GitHub masks every secret the job holds in what it prints.
+      - name: Show the musubi plan log, as the step failed
+        if: ${{ failure() && steps.plan.outcome == 'failure' }}
+        run: cat "$RUNNER_TEMP/plan/musubi.log"
+
       - name: Guard the plan, and hold it to the approved one
         id: guard
         working-directory: musubi/infra
@@ -1533,9 +1561,7 @@ jobs:
       - name: Deploy the musubi stack
         id: deploy
         working-directory: musubi/infra
-        run: |
-          set -o pipefail
-          bun run deploy:production ${FORCE:+--force} 2>&1 | tee "$RUNNER_TEMP/alchemy.log"
+        run: bun run deploy:production ${FORCE:+--force} > "$RUNNER_TEMP/alchemy.log" 2>&1
         env:
           FORCE: ${{ steps.snapshot.outputs.force == 'true' && 'yes' || '' }}
           DO_NOT_TRACK: "1"
@@ -1543,7 +1569,13 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
-      # Change counts and resource names to the run summary.
+      # Raw Alchemy output stays out of the public run log unless the step
+      # failed; GitHub masks every secret the job holds in what it prints.
+      - name: Show the musubi deploy log, as the step failed
+        if: ${{ failure() && steps.deploy.outcome == 'failure' }}
+        run: cat "$RUNNER_TEMP/alchemy.log"
+
+      # Change counts alone to the run summary, never a line of the log.
       - name: Summarise the plan
         if: ${{ !cancelled() && steps.deploy.outcome != 'skipped' }}
         run: bun run --cwd shared/infra plan-summary -- --stack musubi "$RUNNER_TEMP/alchemy.log"
