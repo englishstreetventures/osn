@@ -4,11 +4,16 @@ import type { CoordinationStores } from "../../../src/lib/coordination";
 import { createDurableCoordination } from "../../../src/lib/coordination/durable";
 import { createInMemoryCoordination } from "../../../src/lib/coordination/memory";
 import {
+  RECOVERY_LOCKOUT_MS,
+  RECOVERY_LOCKOUT_THRESHOLD,
+} from "../../../src/lib/recovery-lockout-store";
+import {
   AUTH_RATE_LIMITS,
   OSN_RATE_LIMITS,
   type AuthRateLimiters,
   type RateLimitBudget,
 } from "../../../src/routes/auth/limiters";
+import { TOTP_LOCKOUT_MS, TOTP_LOCKOUT_THRESHOLD } from "../../../src/services/auth/constants";
 import { createFakeNamespace } from "../../helpers/coordination-namespace";
 
 /**
@@ -147,6 +152,39 @@ describe.each(Object.entries(builders))("%s bundle", (_name, build) => {
         vi.setSystemTime(start + windowMs + 1);
         // eslint-disable-next-line no-await-in-loop -- one slot at a time
         expect(await slot.check("key-1"), `${slot.label} after its window`).toBe(true);
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("holds each lockout for its whole window, then opens", async () => {
+    const lockouts = [
+      ["recovery_lockout", RECOVERY_LOCKOUT_THRESHOLD, RECOVERY_LOCKOUT_MS],
+      ["recovery_otp_lockout", RECOVERY_LOCKOUT_THRESHOLD, RECOVERY_LOCKOUT_MS],
+      ["totp_lockout", TOTP_LOCKOUT_THRESHOLD, TOTP_LOCKOUT_MS],
+    ] as const;
+    const storeOf = (bundle: CoordinationStores, name: (typeof lockouts)[number][0]) =>
+      ({
+        recovery_lockout: bundle.recoveryLockoutStore,
+        recovery_otp_lockout: bundle.recoveryOtpLockoutStore,
+        totp_lockout: bundle.totpLockoutStore,
+      })[name];
+    vi.useFakeTimers();
+    try {
+      for (const [name, threshold, lockoutMs] of lockouts) {
+        const store = storeOf(build(), name);
+        const start = Date.now();
+        for (let i = 0; i < threshold; i++) {
+          // eslint-disable-next-line no-await-in-loop -- failures count in order
+          await store.recordFailure("acc_1");
+        }
+        vi.setSystemTime(start + lockoutMs - 1);
+        // eslint-disable-next-line no-await-in-loop -- one store at a time
+        expect(await store.status("acc_1"), `${name} at the end of its window`).toBe("locked");
+        vi.setSystemTime(start + lockoutMs + 1);
+        // eslint-disable-next-line no-await-in-loop -- one store at a time
+        expect(await store.status("acc_1"), `${name} after its window`).toBe("open");
       }
     } finally {
       vi.useRealTimers();

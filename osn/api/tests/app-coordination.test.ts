@@ -1,4 +1,11 @@
-import { generateArcKeyPair } from "@shared/crypto";
+import { serviceAccountKeys, serviceAccounts } from "@osn/db/schema";
+import { Db } from "@osn/db/service";
+import {
+  clearPublicKeyCache,
+  createArcToken,
+  exportKeyToJwk,
+  generateArcKeyPair,
+} from "@shared/crypto";
 import { Effect } from "effect";
 import { exportJWK } from "jose";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -21,6 +28,7 @@ import { createTestLayer } from "./helpers/db";
 let env: EnvVars;
 const b64 = (o: unknown): string => Buffer.from(JSON.stringify(o)).toString("base64");
 const IP = "203.0.113.9";
+const ORIGIN = "http://localhost:5173";
 
 beforeAll(async () => {
   const { privateKey, publicKey } = await generateArcKeyPair();
@@ -29,6 +37,7 @@ beforeAll(async () => {
     OSN_JWT_PRIVATE_KEY: b64(await exportJWK(privateKey)),
     OSN_JWT_PUBLIC_KEY: b64(await exportJWK(publicKey)),
     TRUSTED_PROXY_COUNT: "1",
+    OSN_CORS_ORIGIN: ORIGIN,
   };
 });
 
@@ -56,7 +65,15 @@ async function signedIn() {
       )
       .pipe(Effect.provide(layer)),
   );
-  return { app: createApp(built.deps), fake, auth, accountId: profile.accountId, accessToken };
+  return {
+    app: createApp(built.deps),
+    fake,
+    auth,
+    layer,
+    handle: profile.handle,
+    accountId: profile.accountId,
+    accessToken,
+  };
 }
 
 const callsOn = (fake: FakeNamespace, store: string) =>
@@ -100,5 +117,80 @@ describe("createApp wires the coordination bundle into the account routes", () =
     );
     expect(res.status).toBe(200);
     expect(callsOn(h.fake, "account.deletion_status")).toEqual(["increment"]);
+  });
+
+  it("DELETE /account claims its step-up token on the shared store", async () => {
+    const h = await signedIn();
+    const res = await h.app.handle(
+      new Request("http://localhost/account", {
+        method: "DELETE",
+        headers: {
+          "x-forwarded-for": IP,
+          origin: ORIGIN,
+          authorization: `Bearer ${h.accessToken}`,
+          "content-type": "application/json",
+          "x-step-up-token": await Effect.runPromise(
+            h.auth.issueStepUpToken(h.accountId, "otp", "account_delete"),
+          ),
+        },
+        body: JSON.stringify({ confirm_handle: h.handle }),
+      }),
+    );
+    expect(res.status).toBe(202);
+    expect(callsOn(h.fake, "step_up_jti")).toEqual(["claim"]);
+  });
+
+  it("POST /internal/step-up/verify claims its step-up token on the shared store", async () => {
+    clearPublicKeyCache();
+    const h = await signedIn();
+    const kp = await generateArcKeyPair();
+    const keyId = crypto.randomUUID();
+    const now = new Date();
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const { db } = yield* Db;
+        yield* Effect.promise(() =>
+          db.insert(serviceAccounts).values({
+            serviceId: "pulse-api",
+            allowedScopes: "step-up:verify",
+            createdAt: now,
+            updatedAt: now,
+          }),
+        );
+        yield* Effect.promise(async () =>
+          db.insert(serviceAccountKeys).values({
+            keyId,
+            serviceId: "pulse-api",
+            publicKeyJwk: await exportKeyToJwk(kp.publicKey),
+            registeredAt: now,
+            expiresAt: null,
+            revokedAt: null,
+          }),
+        );
+      }).pipe(Effect.provide(h.layer)),
+    );
+    const arc = await createArcToken(kp.privateKey, {
+      iss: "pulse-api",
+      aud: "osn-api",
+      scope: "step-up:verify",
+      kid: keyId,
+    });
+    const token = await Effect.runPromise(
+      h.auth.issueStepUpToken(h.accountId, "otp", "pulse_app_delete"),
+    );
+    const verify = async () =>
+      (
+        await h.app.handle(
+          new Request("http://localhost/internal/step-up/verify", {
+            method: "POST",
+            headers: { authorization: `ARC ${arc}`, "content-type": "application/json" },
+            body: JSON.stringify({ token, purpose: "pulse_app_delete" }),
+          }),
+        )
+      ).json();
+
+    expect(await verify()).toEqual({ ok: true, account_id: h.accountId });
+    expect(await verify()).toEqual({ ok: false, reason: "consumed" });
+    expect(callsOn(h.fake, "step_up_jti")).toEqual(["claim", "claim"]);
   });
 });
