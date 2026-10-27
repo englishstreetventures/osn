@@ -11,7 +11,7 @@ import { evictPublicKeyCacheEntry, importKeyFromJwk } from "@shared/crypto";
 import { timingSafeEqualString } from "@shared/crypto/timing-safe";
 import { jsonEachIn } from "@shared/db-utils";
 import { handlePrefixRange, likeContains, normaliseHandleQuery } from "@shared/db-utils/search";
-import { and, asc, gte, inArray, eq, isNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, gte, inArray, eq, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
@@ -606,9 +606,9 @@ export function createInternalGraphRoutes(
       // `@shared/db-utils/search` for why, and note that the range also makes
       // `_` literal for free — no LIKE escaping needed on this path.
       //
-      // `requesterId`, when given, leaves out every profile with a block against
-      // that profile, either way round, so a suggestion list never offers
-      // someone the requester cannot add. Two anti-joins on `blocks_pair_idx`
+      // `requesterId`, when given, leaves out the requester and every profile
+      // with a block against them, either way round, so a suggestion list never
+      // offers someone the requester cannot add. Two anti-joins on `blocks_pair_idx`
       // inside the same statement, so the page still fills to `limit` and costs
       // no second round trip. A `graph:read` holder learns nothing it could not
       // already ask `/either-blocked` for.
@@ -690,7 +690,12 @@ export function createInternalGraphRoutes(
                             ),
                           )
                           .where(
-                            and(inRange, isNull(requesterBlocked.id), isNull(blockedRequester.id)),
+                            and(
+                              inRange,
+                              ne(users.id, requesterId),
+                              isNull(requesterBlocked.id),
+                              isNull(blockedRequester.id),
+                            ),
                           )
                           .orderBy(asc(users.handle))
                           .limit(limit)

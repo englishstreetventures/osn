@@ -63,7 +63,7 @@ A block is a one-way action. When A blocks B:
 - The block removes any existing connection between A and B (wrapped in a DB transaction)
 - B cannot send connection requests to A
 - Neither can add the other as a co-host on a cire wedding: cire-api asks `GET /graph/internal/either-blocked` before it seats anyone, and checks only the owner doing the adding ([[cire-auth#Equal owners]])
-- Neither is suggested to the other by the internal handle search: `GET /graph/internal/profile-search` given a `requesterId` leaves out everyone with a block against that profile, either way round, and cire's co-host autocomplete always passes the signed-in organiser
+- Neither is suggested to the other by the internal handle search: `GET /graph/internal/profile-search` given a `requesterId` leaves out that profile and everyone with a block against it, either way round, and cire's co-host autocomplete always passes the signed-in organiser
 - Blocks are global across all OSN apps today (per-app blocking is a deferred decision)
 
 The `is-blocked` route only checks whether the caller has blocked the target (`isBlocked(caller, target)`) -- it does not reveal whether the target has blocked the caller.

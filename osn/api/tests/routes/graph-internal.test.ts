@@ -1001,6 +1001,18 @@ describe("internal graph routes (ARC-protected)", () => {
         ]);
       });
 
+      it("leaves out the requester, and fills the page without them", async () => {
+        const { token } = await setupArcService();
+        const sam = await registerProfile("sam@example.com", "sam");
+        await registerProfile("samantha@example.com", "samantha");
+        await registerProfile("samuel@example.com", "samuel");
+
+        expect(await search(token, `prefix=sam&limit=2&requesterId=${sam}`)).toEqual([
+          "samantha",
+          "samuel",
+        ]);
+      });
+
       it("keeps a block between two other people out of it", async () => {
         const { token } = await setupArcService();
         const owner = await registerProfile("owner@example.com", "owner");

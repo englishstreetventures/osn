@@ -53,10 +53,11 @@ const ARC_ORG_READ_SCOPE = "org:read";
  */
 const ARC_ACCOUNT_EMAIL_SCOPE = "account:email-read";
 /**
- * How long the co-host add waits for osn-api on each call — the handle lookup
- * and the block check — before giving up. Giving up refuses the add (the
- * organiser is asked to try again), so the bound sits far above a normal
- * answer; it exists so a hung osn-api cannot hold the request open.
+ * How long a co-host call waits for osn-api before giving up: the add's handle
+ * lookup and block check, and the autocomplete's two searches. Giving up
+ * refuses the add (the organiser is asked to try again) or leaves that source
+ * out of the suggestions, so the bound sits far above a normal answer; it
+ * exists so a hung osn-api cannot hold the request open.
  */
 export const OSN_LOOKUP_TIMEOUT_MS = 5_000;
 
@@ -226,7 +227,7 @@ export type OsnHandleResolution =
  */
 export type OsnHandleResolver = (handle: string) => Promise<OsnHandleResolution>;
 
-/** How long one co-host-add call to osn-api may take; see {@link OSN_LOOKUP_TIMEOUT_MS}. */
+/** How long one co-host call to osn-api may take; see {@link OSN_LOOKUP_TIMEOUT_MS}. */
 export interface LookupTimeoutConfig {
   /** Milliseconds before the call is aborted and throws. Default {@link OSN_LOOKUP_TIMEOUT_MS}. */
   timeoutMs?: number;
@@ -603,8 +604,11 @@ export type OsnHandleSearchResolver = (
  * floor, ordering, the result cap and the block filter — this forwards the raw
  * query and the requester.
  */
-export function createArcHandleSearchResolver(config: ArcResolverConfig): OsnHandleSearchResolver {
+export function createArcHandleSearchResolver(
+  config: ArcResolverConfig & LookupTimeoutConfig,
+): OsnHandleSearchResolver {
   const base = config.osnApiUrl.replace(/\/+$/, "");
+  const timeoutMs = config.timeoutMs ?? OSN_LOOKUP_TIMEOUT_MS;
 
   return async (prefix, requesterId) => {
     const empty: OsnHandleSuggestion[] = [];
@@ -620,7 +624,7 @@ export function createArcHandleSearchResolver(config: ArcResolverConfig): OsnHan
 
       const res = await instrumentedFetch(
         `${base}/graph/internal/profile-search?prefix=${encodeURIComponent(prefix)}&requesterId=${encodeURIComponent(requesterId)}`,
-        { headers: { authorization: `ARC ${token}` } },
+        { headers: { authorization: `ARC ${token}` }, signal: AbortSignal.timeout(timeoutMs) },
       );
 
       if (!res.ok) return empty;
@@ -832,9 +836,10 @@ export type OsnConnectionSearchResolver = (
  * to match against the global namespace; here it is the on-focus case.
  */
 export function createArcConnectionSearchResolver(
-  config: ArcResolverConfig,
+  config: ArcResolverConfig & LookupTimeoutConfig,
 ): OsnConnectionSearchResolver {
   const base = config.osnApiUrl.replace(/\/+$/, "");
+  const timeoutMs = config.timeoutMs ?? OSN_LOOKUP_TIMEOUT_MS;
 
   return async (profileId, prefix) => {
     const empty: OsnHandleSuggestion[] = [];
@@ -850,7 +855,7 @@ export function createArcConnectionSearchResolver(
 
       const res = await instrumentedFetch(
         `${base}/graph/internal/connection-search?profileId=${encodeURIComponent(profileId)}&q=${encodeURIComponent(prefix)}`,
-        { headers: { authorization: `ARC ${token}` } },
+        { headers: { authorization: `ARC ${token}` }, signal: AbortSignal.timeout(timeoutMs) },
       );
 
       if (!res.ok) return empty;

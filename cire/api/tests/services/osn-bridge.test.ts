@@ -759,6 +759,19 @@ describe("createArcHandleSearchResolver", () => {
       { profileId: "usr_ok", handle: "ok", displayName: null },
     ]);
   });
+
+  it("FAIL-SOFT: suggests nothing once its time bound passes when osn-api never answers", async () => {
+    const { privateKey } = await testKeyMaterial();
+    globalThis.fetch = silentOsnApi({ profiles: [{ id: "usr_ok", handle: "ok" }] });
+
+    const resolve = createArcHandleSearchResolver({
+      osnApiUrl: "https://osn.example",
+      arcPrivateKey: privateKey,
+      arcKeyId: "kid-1",
+      timeoutMs: 20,
+    });
+    expect(await resolve("ok", "usr_org")).toEqual([]);
+  });
 });
 
 describe("createHandleSearchResolverFromEnv", () => {
@@ -945,6 +958,19 @@ describe("createArcConnectionSearchResolver", () => {
     expect(await resolve("usr_organiser", "ok")).toEqual([
       { profileId: "usr_ok", handle: "ok", displayName: null },
     ]);
+  });
+
+  it("FAIL-SOFT: suggests nothing once its time bound passes when osn-api never answers", async () => {
+    const { privateKey } = await testKeyMaterial();
+    globalThis.fetch = silentOsnApi({ profiles: [{ id: "usr_ok", handle: "ok" }] });
+
+    const resolve = createArcConnectionSearchResolver({
+      osnApiUrl: "https://osn.example",
+      arcPrivateKey: privateKey,
+      arcKeyId: "kid-1",
+      timeoutMs: 20,
+    });
+    expect(await resolve("usr_organiser", "ok")).toEqual([]);
   });
 });
 
