@@ -78,7 +78,7 @@ describe("isKnownTimeZone", () => {
     }
   });
 
-  it("is stable across repeated calls (P-C1: memoized, but must stay correct)", () => {
+  it("is stable across repeated calls (memoized, but must stay correct)", () => {
     // Not a call-count assertion (that would pin an implementation detail) —
     // this pins the OUTCOME the cache must never break: hammering the same
     // zone repeatedly, and interleaving a rejection between hits, can't flip
@@ -100,6 +100,14 @@ describe("isKnownTimeZone", () => {
       expect(isKnownTimeZone(real)).toBe(true);
     }
     expect(isKnownTimeZone("Asia/\u212Aolkata")).toBe(false);
+  });
+
+  it("never lets a refused spelling read a real zone's cached answer", () => {
+    // The cache key must stand for one zone. A fold that gave these the real
+    // zone's key would answer `true` for names `Intl` refuses.
+    expect(isKnownTimeZone("Asia/Kolkata")).toBe(true);
+    expect(isKnownTimeZone("Bsia/Kolkata")).toBe(false);
+    expect(isKnownTimeZone("asia/kolkatx")).toBe(false);
   });
 });
 

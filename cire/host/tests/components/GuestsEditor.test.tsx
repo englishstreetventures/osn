@@ -310,6 +310,24 @@ describe("GuestsEditor", () => {
     expect(screen.getByText(/Fix 1 error before saving/i)).toBeTruthy();
   });
 
+  it("counts every error a guests save waits on, and none it does not", async () => {
+    // The duplicate name and the blank name count; the zone does not.
+    primeLoadWithEvents([
+      EVENTS[0],
+      { ...EVENTS[0], id: "evt_2", slug: "ceremony-2", sortOrder: 1 },
+      { ...EVENTS[0], id: "evt_3", slug: "untitled", name: "", timezone: "AEST", sortOrder: 2 },
+    ]);
+    render(() => <GuestsEditor weddingId="wed_a" />);
+    await waitFor(() => expect(screen.getByDisplayValue("Ada")).toBeTruthy());
+
+    fireEvent.input(screen.getByDisplayValue("Ada"), { target: { value: "Adaeze" } });
+    const save = (await waitFor(() =>
+      screen.getByRole("button", { name: /Save changes/i }),
+    )) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    expect(screen.getByText("Fix 2 errors before saving.")).toBeTruthy();
+  });
+
   it("runs the save flow: preview → shared modal → apply → toast", async () => {
     primeLoad();
     render(() => <GuestsEditor weddingId="wed_a" />);

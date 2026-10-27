@@ -855,6 +855,22 @@ describe("an editor draft is bounded in events and households", () => {
     expect(atCap.status).toBe(200);
   });
 
+  it(`400s a guests save carrying more than ${MAX_EVENTS} events`, async () => {
+    const { app } = buildApp();
+    const schedule = Array.from({ length: MAX_EVENTS + 1 }, (_, i) => event(i));
+    const res = await editorPreview(app, {
+      desiredState: { events: schedule, families: [] },
+      scope: "guests",
+    });
+    expect(res.status).toBe(400);
+
+    const atCap = await editorPreview(app, {
+      desiredState: { events: schedule.slice(0, MAX_EVENTS), families: [] },
+      scope: "guests",
+    });
+    expect(atCap.status).toBe(200);
+  });
+
   it(`400s more than ${MAX_ROWS} households`, async () => {
     const { app } = buildApp();
     const households = Array.from({ length: MAX_ROWS + 1 }, (_, i) => ({
@@ -1569,6 +1585,23 @@ describe("POST /changes/preview + /apply — editor (DesiredState JSON) front do
       });
       expect(res.status).toBe(400);
     });
+
+    // A guests save holds these to the cell cap alone, so the cap is the
+    // whole check: at it the save is taken, one character over it refused.
+    it.each([["startAt"], ["endAt"], ["timezone"]])(
+      "holds a guests save's event %s to the cell cap",
+      async (field) => {
+        const { app, db } = buildApp();
+        const guestsSave = async (value: string) =>
+          editorPreview(app, {
+            desiredState: { events: [{ ...event, [field]: value }], families: [] },
+            scope: "guests",
+          });
+        expect((await guestsSave("x".repeat(10_001))).status).toBe(400);
+        expect(db.select().from(imports).all()).toHaveLength(0);
+        expect((await guestsSave("x".repeat(10_000))).status).toBe(200);
+      },
+    );
   });
 
   it("saves a HOUSEHOLD NAME edit — id-matched rename writes through, code + guests survive", async () => {
