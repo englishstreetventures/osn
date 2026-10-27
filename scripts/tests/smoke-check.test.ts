@@ -22,6 +22,7 @@ import {
   type Outcome,
   probeOnce,
   type Probe,
+  productionSiteTarget,
   productionTarget,
   restorePlan,
   rollbackMessage,
@@ -166,7 +167,8 @@ const workerOf = (args: readonly string[]) => {
   const [surface, tier] = args;
   if (surface === undefined || !isSurfaceKey(surface)) return undefined;
   if (tier === "dev") return devTarget(surface)?.worker;
-  return tier === "production" ? productionTarget(surface)?.worker : undefined;
+  if (tier !== "production") return undefined;
+  return (productionSiteTarget(surface) ?? productionTarget(surface))?.worker;
 };
 
 // Dev hosts come from the stack job's dev-hosts step, never from this script.
@@ -230,6 +232,31 @@ const hanging = (_: number, init: RequestInit | undefined): Promise<Response> =>
   });
 
 // ── what counts as healthy ──────────────────────────────────────────────────
+
+describe("judge: a static JSON file", () => {
+  const file = probe("https://next.musubi.social/.well-known/apple-app-site-association", {
+    kind: "jsonFile",
+  });
+  const answer = (status: number, type: string, body: string) =>
+    judge(file, new Response(body, { status, headers: { "content-type": type } }), body, false);
+
+  test("SM3: passes 200 application/json holding an object, and nothing else", () => {
+    expect(answer(200, "application/json", '{"applinks":{}}')).toEqual({ kind: "pass" });
+    for (const [status, type, body] of [
+      [200, "text/html; charset=utf-8", '{"applinks":{}}'],
+      [200, "application/octet-stream", '{"applinks":{}}'],
+      [200, "application/json", "[]"],
+      [404, "application/json", '{"applinks":{}}'],
+    ] as const) {
+      expect({ status, type, body, kind: answer(status, type, body).kind }).toEqual({
+        status,
+        type,
+        body,
+        kind: "wrong",
+      });
+    }
+  });
+});
 
 describe("judge", () => {
   const verdict = async (p: Probe, response: Response, access = false): Promise<Outcome> =>
@@ -1376,6 +1403,62 @@ describe("dev learns its host and its deployment from the stack job", () => {
   });
 });
 
+describe("a production site the production stack deployed", () => {
+  const STAGED_SOCIAL = "https://next.musubi.social";
+  const siteEnv = (extra: Record<string, string | undefined> = {}) => ({
+    SMOKE_ORIGIN: STAGED_SOCIAL,
+    SMOKE_DEPLOYMENT: DEP_THIS_JOB,
+    ...extra,
+  });
+  const appFile = (type: string, body: string) =>
+    new Response(body, { status: 200, headers: { "content-type": type } });
+  const SOCIAL = (association: Response) => ({
+    [`${STAGED_SOCIAL}/`]: html(200),
+    [`${STAGED_SOCIAL}/smoke-check-deep-link`]: html(200),
+    [`${STAGED_SOCIAL}/.well-known/apple-app-site-association`]: association,
+  });
+
+  test("SM1: probes the host the stack job names, the app's deep link and its app-site association, with no Access token", async () => {
+    const result = await smoke(
+      ["osn_social", "production"],
+      SOCIAL(appFile("application/json", '{"webcredentials":{"apps":["X.social.musubi"]}}')),
+      { env: siteEnv({ CF_ACCESS_CLIENT_ID: "id", CF_ACCESS_CLIENT_SECRET: "secret" }) },
+    );
+    expect(result.code).toBe(0);
+    expect([...new Set(result.calls.map((call) => call.url))].toSorted()).toEqual(
+      Object.keys(SOCIAL(html(200))).toSorted(),
+    );
+    for (const call of result.calls) {
+      expect(new Headers(call.init?.headers).get("cf-access-client-id")).toBeNull();
+    }
+    expect(result.posts).toEqual([]);
+  });
+
+  test("SM3: an app-site association not served as application/json fails the check and rolls back this run's deployment", async () => {
+    const result = await smoke(["osn_social", "production"], SOCIAL(appFile("text/html", "<p>")), {
+      env: siteEnv(),
+    });
+    expect(result.code).toBe(1);
+    expect(result.output).toContain("expected 200 application/json");
+    expect(result.posts).toHaveLength(1);
+  });
+
+  test("SM2: without an https SMOKE_ORIGIN or a SMOKE_DEPLOYMENT it exits 2, asking nothing", async () => {
+    for (const env of [
+      { SMOKE_DEPLOYMENT: DEP_THIS_JOB },
+      siteEnv({ SMOKE_ORIGIN: "http://next.musubi.social" }),
+      siteEnv({ SMOKE_DEPLOYMENT: undefined }),
+      siteEnv({ SMOKE_DEPLOYMENT: "latest" }),
+    ]) {
+      const result = await smoke(["osn_social", "production"], {}, { env });
+      expect(result.code).toBe(2);
+      expect(result.calls).toEqual([]);
+      expect(result.apiCalls).toEqual([]);
+      expect(result.output).toContain("SMOKE_");
+    }
+  });
+});
+
 describe("usage", () => {
   test.each([
     [["osn_api"]],
@@ -1435,6 +1518,27 @@ describe("SMOKE_TARGETS", () => {
       "osn_api",
       "zap_api",
     ]);
+  });
+
+  test("SM1: names the Worker each production site stack deploys, by its production name", () => {
+    const keys = Object.keys(SMOKE_TARGETS) as (keyof typeof SMOKE_TARGETS)[];
+    expect(
+      Object.fromEntries(
+        keys.flatMap((key) => {
+          const worker = productionSiteTarget(key)?.worker;
+          return worker === undefined ? [] : [[key, worker]];
+        }),
+      ),
+    ).toEqual({
+      cire_host: "cire-host",
+      cire_vendor: "cire-vendor",
+      cire_landing: "cire-landing",
+      osn_social: "osn-social",
+      musubi_landing: "musubi-landing",
+      pulse_landing: "pulse-landing",
+    });
+    // No surface is both: a site Worker is the stack's, an API Worker Wrangler's.
+    expect(keys.filter((key) => productionSiteTarget(key) && productionTarget(key))).toEqual([]);
   });
 
   test("checks osn-api's JWKS on both tiers", () => {

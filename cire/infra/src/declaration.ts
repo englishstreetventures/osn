@@ -3,12 +3,18 @@ import { join } from "node:path";
 import {
   origin,
   physicalName,
+  PRODUCTION_SITE_MODES,
+  productionSiteKinds,
   refuseProductionTier,
+  siteDomain,
   type ApiWorkerInput,
   type ApiWorkerObservability,
   type PrebuiltSite,
+  type ResourceKind,
   type RetainedBucketInput,
   type RetainedD1Input,
+  type SiteMode,
+  type SiteSurface,
   type SiteWorkerInput,
   type StageHosts,
   type StageNames,
@@ -162,7 +168,7 @@ const site = (
   names: StageNames,
   stage: string,
   directory: string,
-  domain: string,
+  domain: string | null,
 ): SiteWorkerInput => ({
   name: physicalName(names, stage),
   stage,
@@ -180,12 +186,111 @@ const site = (
   issues: true,
 });
 
+/** The cire sites a production stack can deploy. */
+type CireSite = "cire_host" | "cire_vendor" | "cire_landing";
+
+/** Each cire site's logical id, which keys its state row on every stage, so it never changes. */
+export const SITE_LOGICAL_IDS = {
+  cire_host: "CireHost",
+  cire_vendor: "CireVendor",
+  cire_landing: "CireLanding",
+} as const satisfies Readonly<Record<CireSite, string>> &
+  Readonly<Partial<Record<SiteSurface, string>>>;
+
+/**
+ * Each cire site's names, build output and the hosts its build bakes in,
+ * from what each deploy build sets: the organiser portal cire-api, the
+ * account app (PUBLIC_OSN_ACCOUNT_URL) and the guest site
+ * (PUBLIC_CIRE_WEB_URL); the vendor portal cire-api and the account app;
+ * the marketing site itself (SITE) and the organiser portal
+ * (PUBLIC_ORGANISER_URL).
+ */
+interface CireSiteSpec {
+  readonly names: StageNames;
+  readonly site: string;
+  readonly directory: string;
+  readonly host: (hosts: StageHosts) => string;
+  readonly baked: (hosts: StageHosts) => readonly string[];
+}
+
+const SITES = {
+  cire_host: {
+    names: { base: "cire-host", dev: "cire-host-dev", production: "cire-host" },
+    site: "@cire/host",
+    directory: HOST_DIST,
+    host: (hosts) => hosts.cireHost,
+    baked: (hosts) => [hosts.cireApi, hosts.musubiSocial, hosts.cireInvites],
+  },
+  cire_vendor: {
+    names: { base: "cire-vendor", dev: "cire-vendor-dev", production: "cire-vendor" },
+    site: "@cire/vendor",
+    directory: VENDOR_DIST,
+    host: (hosts) => hosts.cireVendor,
+    baked: (hosts) => [hosts.cireApi, hosts.musubiSocial],
+  },
+  cire_landing: {
+    names: { base: "cire-landing", dev: "cire-landing-dev", production: "cire-landing" },
+    site: "@cire/landing",
+    directory: LANDING_DIST,
+    host: (hosts) => hosts.cireLanding,
+    baked: (hosts) => [hosts.cireLanding, hosts.cireHost],
+  },
+} satisfies Readonly<Record<CireSite, CireSiteSpec>>;
+
+const CIRE_SITES = Object.keys(SITE_LOGICAL_IDS) as readonly CireSite[];
+
+/** What a site's build for `hosts` must hold. */
+const sitePrebuilt = (key: CireSite, hosts: StageHosts): PrebuiltSite => ({
+  site: SITES[key].site,
+  directory: SITES[key].directory,
+  origins: SITES[key].baked(hosts).map(origin),
+});
+
+/** Every resource the cire stack declares on production, by logical id, with its kind for the plan guard. */
+export const PRODUCTION_RESOURCE_KINDS: Readonly<Record<string, ResourceKind>> =
+  productionSiteKinds(SITE_LOGICAL_IDS, PRODUCTION_SITE_MODES);
+
+/** The cire stack on production: its sites, by logical id, and the build each uploads. */
+export interface CireProductionSites {
+  readonly sites: Readonly<Record<string, SiteWorkerInput>>;
+  readonly prebuilt: readonly PrebuiltSite[];
+}
+
+/**
+ * What the cire stack declares on production: each site `modes` does not
+ * turn off, under today's production name, serving its spare host while
+ * staged and its production host as a worker. Every build is the
+ * production build, so it bakes in `hosts`, today's production hosts, at
+ * either mode. No API Worker, database or bucket: those join the stack in
+ * later steps of phase P3. Pure.
+ */
+export function cireProductionSites(input: {
+  readonly modes: Readonly<Record<SiteSurface, SiteMode>>;
+  readonly hosts: StageHosts;
+}): CireProductionSites {
+  const shipped = CIRE_SITES.filter((key) => input.modes[key] !== "off");
+  return {
+    sites: Object.fromEntries(
+      shipped.map((key) => [
+        SITE_LOGICAL_IDS[key],
+        site(
+          SITES[key].names,
+          "production",
+          SITES[key].directory,
+          siteDomain(key, input.modes[key]),
+        ),
+      ]),
+    ),
+    prebuilt: shipped.map((key) => sitePrebuilt(key, input.hosts)),
+  };
+}
+
 /**
  * Every name, var, binding, domain and setting the cire stack declares at
  * `stage`: cire-api with its database and buckets, cire-invites, and the
  * host, vendor and landing sites. Pure; every host comes from `hosts`.
  * `ownerSeat` says whether the stack seeds the sample wedding's owner seat.
- * The production tier is refused until its stack is declared.
+ * The production tier is refused: `cireProductionSites` declares it.
  */
 export function cireDeclaration(input: {
   readonly stage: string;
@@ -315,33 +420,21 @@ export function cireDeclaration(input: {
       bindings: {},
       observability: GUEST_OBSERVABILITY,
     },
-    cireHost: site(
-      { base: "cire-host", dev: "cire-host-dev", production: "cire-host" },
-      stage,
-      HOST_DIST,
-      hosts.cireHost,
-    ),
-    cireVendor: site(
-      { base: "cire-vendor", dev: "cire-vendor-dev", production: "cire-vendor" },
-      stage,
-      VENDOR_DIST,
-      hosts.cireVendor,
-    ),
+    cireHost: site(SITES.cire_host.names, stage, HOST_DIST, SITES.cire_host.host(hosts)),
+    cireVendor: site(SITES.cire_vendor.names, stage, VENDOR_DIST, SITES.cire_vendor.host(hosts)),
     cireLanding: site(
-      { base: "cire-landing", dev: "cire-landing-dev", production: "cire-landing" },
+      SITES.cire_landing.names,
       stage,
       LANDING_DIST,
-      hosts.cireLanding,
+      SITES.cire_landing.host(hosts),
     ),
     seeds: { ownerSeat },
     invitesServer: { source: INVITES_SERVER, main: INVITES_ENTRY, target: invitesServer },
     // Each site's build bakes in what deploy.yml's build step sets. The
     // guest site's client output names cire-api only in its `_headers` CSP;
     // its server output names cire-api, itself and the marketing site
-    // (PUBLIC_API_URL, PUBLIC_SITE_URL, PUBLIC_MARKETING_URL). The organiser
-    // portal names cire-api, the account app and the guest site; the vendor
-    // portal cire-api and the account app; the marketing site itself (SITE)
-    // and the organiser portal (PUBLIC_ORGANISER_URL).
+    // (PUBLIC_API_URL, PUBLIC_SITE_URL, PUBLIC_MARKETING_URL). SITES says
+    // what the other three hold.
     prebuilt: [
       { site: "@cire/invites client", directory: INVITES_CLIENT, origins: [api] },
       {
@@ -349,17 +442,7 @@ export function cireDeclaration(input: {
         directory: INVITES_SERVER,
         origins: [api, origin(hosts.cireInvites), origin(hosts.cireLanding)],
       },
-      {
-        site: "@cire/host",
-        directory: HOST_DIST,
-        origins: [api, origin(hosts.musubiSocial), origin(hosts.cireInvites)],
-      },
-      { site: "@cire/vendor", directory: VENDOR_DIST, origins: [api, origin(hosts.musubiSocial)] },
-      {
-        site: "@cire/landing",
-        directory: LANDING_DIST,
-        origins: [origin(hosts.cireLanding), origin(hosts.cireHost)],
-      },
+      ...CIRE_SITES.map((key) => sitePrebuilt(key, hosts)),
     ],
   };
 }

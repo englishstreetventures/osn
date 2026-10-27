@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { Redacted } from "effect";
 import { describe, expect, test } from "vitest";
 
+import { ProductionNotAdoptedError } from "../src/production";
 import { tierSecrets } from "../src/secrets/inventory";
 import { requireSecrets } from "../src/secrets/require";
 import type { Tier } from "../src/stage";
@@ -71,6 +72,9 @@ const cireApiDev: ApiWorkerInput = {
   },
 };
 
+/** The production Workers these tests build props for, as a step that adopts them would list them. */
+const ADOPTED: readonly string[] = ["cire-api-production", "cire-invites", "osn-api-production"];
+
 const cireApiProduction: ApiWorkerInput = {
   ...cireApiDev,
   name: "cire-api-production",
@@ -101,8 +105,23 @@ describe("apiWorkerProps", () => {
     });
   });
 
+  test("BA1: refuses a production Worker no step has adopted, after every other production rule", () => {
+    expect(() => apiWorkerProps(cireApiProduction)).toThrow(ProductionNotAdoptedError);
+    expect(() => apiWorkerProps(cireApiProduction, ["cire-api"])).toThrow(
+      ProductionNotAdoptedError,
+    );
+    expect(apiWorkerProps(cireApiProduction, ["cire-api-production"]).name).toBe(
+      "cire-api-production",
+    );
+    // A Worker that breaks a production rule reports that rule, adopted or not.
+    expect(() => apiWorkerProps({ ...cireApiProduction, previewUrls: true })).toThrow(
+      ProductionPreviewUrlsError,
+    );
+    expect(apiWorkerProps(cireApiDev).name).toBe("cire-api-dev");
+  });
+
   test("refuses version preview URLs on production", () => {
-    expect(apiWorkerProps(cireApiProduction).workersDev).toEqual({
+    expect(apiWorkerProps(cireApiProduction, ADOPTED).workersDev).toEqual({
       enabled: false,
       previewsEnabled: false,
     });
@@ -147,7 +166,7 @@ describe("apiWorkerProps", () => {
   });
 
   test("keeps query strings redacted and native traces off on production", () => {
-    expect(apiWorkerProps(cireApiProduction).observability).toEqual({
+    expect(apiWorkerProps(cireApiProduction, ADOPTED).observability).toEqual({
       enabled: true,
       headSamplingRate: 1,
       redactQueryString: true,
@@ -190,7 +209,7 @@ describe("apiWorkerProps", () => {
   };
 
   test("O1: the guest Worker traces every request on production, with query strings redacted and invocation logs off", () => {
-    expect(apiWorkerProps(guestProduction).observability).toEqual({
+    expect(apiWorkerProps(guestProduction, ADOPTED).observability).toEqual({
       enabled: true,
       headSamplingRate: 1,
       redactQueryString: true,
@@ -258,7 +277,7 @@ describe("apiWorkerProps", () => {
       ),
       observability: { ...cireApiProduction.observability, invocationLogs: true },
     };
-    expect(apiWorkerProps(osnApi).observability?.logs).toEqual({
+    expect(apiWorkerProps(osnApi, ADOPTED).observability?.logs).toEqual({
       enabled: true,
       invocationLogs: true,
     });
@@ -318,13 +337,16 @@ describe("apiWorkerProps", () => {
     const env = Object.fromEntries(
       [...row.secrets, optional].map((name) => [name, "not-a-real-secret"]),
     );
-    const props = apiWorkerProps({
-      ...cireApiProduction,
-      worker: "osn-api",
-      name: "osn-api-production",
-      main: "../../osn/api/src/index.ts",
-      secrets: requireSecrets({ worker: "osn-api", stage: "production", env }),
-    });
+    const props = apiWorkerProps(
+      {
+        ...cireApiProduction,
+        worker: "osn-api",
+        name: "osn-api-production",
+        main: "../../osn/api/src/index.ts",
+        secrets: requireSecrets({ worker: "osn-api", stage: "production", env }),
+      },
+      ADOPTED,
+    );
     const passed = (props.env as Record<string, unknown>)[optional];
     expect(Redacted.isRedacted(passed)).toBe(true);
   });
@@ -506,6 +528,17 @@ describe("siteWorkerProps", () => {
     expect(() => siteWorkerProps({ ...site, previewUrls: true })).toThrow(
       ProductionPreviewUrlsError,
     );
+  });
+
+  test("BA4: a production site redacts query strings, keeps invocation logs and traces off, and needs no adoption", () => {
+    expect(siteWorkerProps(site).observability).toEqual({
+      enabled: true,
+      redactQueryString: true,
+      logs: { enabled: true, invocationLogs: false },
+      traces: { enabled: false },
+      issues: { enabled: true },
+    });
+    expect(siteWorkerProps(site).name).toBe("cire-landing");
   });
 
   test("B4: a site with an entry runs it before the assets it names; one without has no script", () => {

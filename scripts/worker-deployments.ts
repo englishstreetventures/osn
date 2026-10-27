@@ -1,14 +1,18 @@
 #!/usr/bin/env bun
 /**
- * Record each dev Worker's newest deployment before a stack deploy, and name
- * the deployment the deploy made after it.
+ * Record each Worker's newest deployment before a stack deploy, and name the
+ * deployment the deploy made after it.
  *
  * Alchemy reports no version id for a normal deploy, and uploads nothing for a
  * Worker it finds unchanged. So each stack job in .github/workflows/deploy.yml
- * snapshots its Workers' newest deployments before the deploy and compares
- * after; each smoke step takes the answer as SMOKE_DEPLOYMENT, and
- * scripts/smoke-check.ts rolls back only that deployment, and never a Worker
- * the deploy left unchanged.
+ * and .github/workflows/production-release.yml snapshots its Workers' newest
+ * deployments before the deploy and compares after; each smoke step takes the
+ * answer as SMOKE_DEPLOYMENT, and scripts/smoke-check.ts rolls back only that
+ * deployment, and never a Worker the deploy left unchanged.
+ *
+ * `--tier production` (anywhere after the command) reads the production site
+ * Workers a production stack deploys (SMOKE_TARGETS' `productionSite`);
+ * without it, the dev Workers.
  *
  *   bun run scripts/worker-deployments.ts snapshot <file> <surface>...
  *     Writes {"<surface>": "<newest deployment id>" | null} to <file>; null for
@@ -28,7 +32,7 @@
  *
  * Environment:
  *   CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN
- *                       the dev account's credentials, sent only to
+ *                       the tier's account's credentials, sent only to
  *                       api.cloudflare.com to list each Worker's deployments.
  *                       No message carries either.
  *   GITHUB_OUTPUT       receives the output lines (stdout when unset).
@@ -51,8 +55,15 @@ import {
   DEPLOYMENT_ID,
   devTarget,
   isSmokeRollback,
+  productionSiteTarget,
   readDeployments,
 } from "./smoke-check";
+
+/** The Worker a stack deploys for `surface` on `tier`, or undefined when it deploys none. */
+function stackWorker(surface: string, tier: "dev" | "production"): string | undefined {
+  if (!isSurfaceKey(surface)) return undefined;
+  return tier === "production" ? productionSiteTarget(surface)?.worker : devTarget(surface)?.worker;
+}
 
 /** Cloudflare's answer for a Worker that does not exist on the account. */
 const NO_SUCH_WORKER = 10_007;
@@ -122,19 +133,32 @@ export async function runWorkerDeployments(input: WorkerDeploymentsInput): Promi
     return 2;
   };
 
-  const [command = "", file = "", ...names] = input.args;
-  if ((command !== "snapshot" && command !== "compare") || file === "" || names.length === 0) {
-    return usage("usage: worker-deployments.ts snapshot|compare <file> <surface>...");
+  const at = input.args.indexOf("--tier");
+  const tierArg = at === -1 ? "dev" : input.args[at + 1];
+  const args =
+    at === -1 ? input.args : input.args.filter((_, index) => index !== at && index !== at + 1);
+  const [command = "", file = "", ...names] = args;
+  if (
+    (command !== "snapshot" && command !== "compare") ||
+    file === "" ||
+    names.length === 0 ||
+    (tierArg !== "dev" && tierArg !== "production")
+  ) {
+    return usage(
+      "usage: worker-deployments.ts snapshot|compare <file> [--tier dev|production] <surface>...",
+    );
   }
-  const notDev = names.filter((name) => !isSurfaceKey(name) || devTarget(name) === undefined);
-  if (notDev.length > 0) {
-    const known = SURFACES.filter((s) => devTarget(s.key) !== undefined).map((s) => s.key);
-    return usage(`'${notDev.join("', '")}' is not a dev surface; use any of ${known.join(", ")}`);
+  const tier = tierArg;
+  const unknown = names.filter((name) => stackWorker(name, tier) === undefined);
+  if (unknown.length > 0) {
+    const known = SURFACES.filter((s) => stackWorker(s.key, tier) !== undefined).map((s) => s.key);
+    return usage(
+      `'${unknown.join("', '")}' is not a ${tier === "production" ? "production site" : "dev surface"}; use any of ${known.join(", ")}`,
+    );
   }
   const surfaces = [...new Set(names)].flatMap((name) => {
-    if (!isSurfaceKey(name)) return [];
-    const target = devTarget(name);
-    return target === undefined ? [] : [{ key: name, worker: target.worker }];
+    const worker = stackWorker(name, tier);
+    return worker === undefined ? [] : [{ key: name, worker }];
   });
   const api = cloudflareCredentials(env, input.fetch, input.sleep);
   if (typeof api === "string") return usage(api);

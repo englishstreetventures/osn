@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   origin,
+  PRODUCTION_SITE_MODES,
   SeedValueError,
   SiteBuildError,
   STACK_STEP_SECRETS,
@@ -13,8 +14,9 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { SURFACES, type SurfaceKey } from "../../../scripts/deploy-surfaces";
 import { listMigrations } from "../../../scripts/migration-files";
-import { devTarget } from "../../../scripts/smoke-check";
+import { devTarget, productionSiteTarget } from "../../../scripts/smoke-check";
 import { refusedTargets } from "../../../shared/infra/tests/support/refused-targets";
+import { PRODUCTION_RESOURCE_KINDS, SITE_LOGICAL_IDS } from "../src/declaration";
 import { osnSeedSql } from "../src/seeds";
 import {
   ARC_KEY_ID,
@@ -23,8 +25,10 @@ import {
   failureOf,
   generateArcPublicJwk,
   OIDC_CLIENT_SECRET_SHA256,
+  productionEnv,
   removeEvaluations,
   resourcesOf,
+  SITE_DIRECTORIES,
   stackEnv,
   type Evaluation,
   type SiteFixtures,
@@ -234,7 +238,7 @@ describe("the musubi stack, evaluated offline", () => {
     }
   });
 
-  test.each(refusedTargets(["osn-api"]))(
+  test.each(refusedTargets(["osn-api"], "declared"))(
     "K12: $name refuses the run before it writes or calls anything",
     async (target) => {
       const refused = await evaluateMusubi({
@@ -285,6 +289,131 @@ describe("the musubi stack, evaluated offline", () => {
         expect(failureOf(refused)).toMatchObject({ site: entry.site, missing: [lacking] });
         expect(existsSync(refused.generatedDir)).toBe(false);
       }
+    }
+  });
+});
+
+describe("the musubi stack on production", () => {
+  let production: Evaluation;
+
+  beforeAll(async () => {
+    production = await evaluateMusubi({ stage: "production", env: productionEnv() });
+  });
+
+  test("KP1: declares musubi social and musubi landing alone, under today's production names; no osn-api or database", () => {
+    const resources = resourcesOf(production);
+    expect(production.fetches).toEqual([]);
+    expect(
+      Object.fromEntries(
+        Object.entries(resources).map(([logicalId, resource]) => [
+          logicalId,
+          [resource.Type, resource.Props.name, resource.RemovalPolicy],
+        ]),
+      ),
+    ).toEqual({
+      MusubiSocial: ["Cloudflare.Worker", "osn-social", "retain"],
+      MusubiLanding: ["Cloudflare.Worker", "musubi-landing", "retain"],
+    });
+    expect(PRODUCTION_RESOURCE_KINDS).toEqual({
+      MusubiSocial: "custom-domain",
+      MusubiLanding: "custom-domain",
+    });
+    expect(SITE_LOGICAL_IDS).toEqual({
+      osn_social: "MusubiSocial",
+      musubi_landing: "MusubiLanding",
+    });
+  });
+
+  test("KP2: staged musubi social serves its spare host, musubi landing serves www.musubi.social, with the dev site settings; no workers.dev or preview URL", async () => {
+    const resources = resourcesOf(production);
+    expect({
+      social: resources.MusubiSocial?.Props.domain,
+      landing: resources.MusubiLanding?.Props.domain,
+    }).toEqual({ social: "next.musubi.social", landing: "www.musubi.social" });
+    // musubi social's deep links take the single-page fallback, with the
+    // built `_redirects` (for Pages) emptied; musubi landing 404s.
+    expect(resources.MusubiSocial?.Props.assets).toEqual({
+      directory: "../social/dist",
+      htmlHandling: "auto-trailing-slash",
+      notFoundHandling: "single-page-application",
+      redirects: "",
+    });
+    expect(resources.MusubiLanding?.Props.assets).toEqual({
+      directory: "../landing/dist",
+      htmlHandling: "auto-trailing-slash",
+      notFoundHandling: "none",
+    });
+    for (const resource of Object.values(resources)) {
+      expect({ [resource.LogicalId]: resource.Props.workersDev }).toEqual({
+        [resource.LogicalId]: { enabled: false, previewsEnabled: false },
+      });
+      expect({ [resource.LogicalId]: resource.Props.observability?.redactQueryString }).toEqual({
+        [resource.LogicalId]: true,
+      });
+    }
+    const moved = resourcesOf(
+      await evaluateMusubi({
+        stage: "production",
+        env: productionEnv(),
+        modes: { ...PRODUCTION_SITE_MODES, osn_social: "worker", musubi_landing: "off" },
+      }),
+    );
+    expect(
+      Object.fromEntries(
+        Object.entries(moved).map(([id, resource]) => [id, resource.Props.domain]),
+      ),
+    ).toEqual({ MusubiSocial: "musubi.social" });
+  });
+
+  test("KP3: reads no osn-api secret, cire seed value or DEV_DOMAIN, and writes nothing", () => {
+    expect(Object.keys(productionEnv()).toSorted()).toEqual([
+      "CLOUDFLARE_ACCOUNT_ID",
+      "CLOUDFLARE_API_TOKEN",
+      "OSN_DEPLOY_TIER",
+    ]);
+    expect(Object.keys(resourcesOf(production)).toSorted()).toEqual([
+      "MusubiLanding",
+      "MusubiSocial",
+    ]);
+    expect(existsSync(production.generatedDir)).toBe(false);
+  });
+
+  test("KP5: site output built for dev hosts refuses the run, naming the production origins each build must hold", async () => {
+    const devBuilt = Object.fromEntries(
+      SITE_DIRECTORIES.map((directory) => [
+        directory,
+        Object.values(stageHosts(DEV_DOMAIN, "dev")).map(origin),
+      ]),
+    );
+    const refused = await evaluateMusubi({
+      stage: "production",
+      env: productionEnv(),
+      sites: devBuilt,
+    });
+    expect(failureOf(refused)).toBeInstanceOf(SiteBuildError);
+    expect(failureOf(refused)).toMatchObject({
+      site: "@musubi/social",
+      missing: ["https://id.musubi.social"],
+    });
+    const landingOnly = await evaluateMusubi({
+      stage: "production",
+      env: productionEnv(),
+      sites: { ...devBuilt, "social/dist": ["https://id.musubi.social"] },
+    });
+    expect(failureOf(landingOnly)).toMatchObject({
+      site: "@musubi/landing",
+      missing: ["https://musubi.social", "https://www.musubi.social"],
+    });
+    expect(refused.fetches).toEqual([]);
+  });
+
+  test("KP6: each production site's smoke target names the Worker the stack deploys for it", () => {
+    const resources = resourcesOf(production);
+    for (const [key, logicalId] of Object.entries(SITE_LOGICAL_IDS)) {
+      expect({ key, worker: productionSiteTarget(key as SurfaceKey)?.worker }).toEqual({
+        key,
+        worker: resources[logicalId]?.Props.name,
+      });
     }
   });
 });

@@ -377,3 +377,64 @@ describe("usage", () => {
     });
   });
 });
+
+describe("--tier production: the site Workers a production stack deploys", () => {
+  test("WD1: snapshots and compares the production site Workers by their production names", async () => {
+    await withFiles(async ({ snapshot, output }) => {
+      const before = await run(
+        ["snapshot", snapshot, "--tier", "production", "cire_host", "musubi_landing"],
+        {
+          "cire-host": () => listing([deployment(DEP_OLD, "2026-10-16T09:00:00Z")]),
+          "musubi-landing": NOT_FOUND,
+        },
+        { GITHUB_OUTPUT: output },
+      );
+      expect(before.code).toBe(0);
+      expect(JSON.parse((await readOr(snapshot)) ?? "")).toEqual({
+        cire_host: DEP_OLD,
+        musubi_landing: null,
+      });
+      expect(before.calls).toEqual([deploymentsUrl("cire-host"), deploymentsUrl("musubi-landing")]);
+
+      const after = await run(
+        ["compare", snapshot, "cire_host", "musubi_landing", "--tier", "production"],
+        {
+          "cire-host": () => listing([deployment(DEP_OLD, "2026-10-16T09:00:00Z")]),
+          "musubi-landing": () => listing([deployment(DEP_NEW, "2026-10-17T09:00:00Z")]),
+        },
+        { GITHUB_OUTPUT: output },
+      );
+      expect(after.code).toBe(0);
+      expect(await readOr(output)).toContain(
+        `cire_host_deployment=unchanged\nmusubi_landing_deployment=${DEP_NEW}\n`,
+      );
+    });
+  });
+
+  test("WD2: a surface with no production site Worker, or a tier that is neither, exits 2 before any request; dev keeps its own list", async () => {
+    await withFiles(async ({ snapshot }) => {
+      for (const args of [
+        ["snapshot", snapshot, "--tier", "production", "cire_api"],
+        ["snapshot", snapshot, "--tier", "staging", "cire_host"],
+        ["snapshot", snapshot, "cire_host", "--tier"],
+      ]) {
+        const refused = await run(args, {}, {});
+        expect({ args, code: refused.code, calls: refused.calls }).toEqual({
+          args,
+          code: 2,
+          calls: [],
+        });
+      }
+      const production = await run(
+        ["snapshot", snapshot, "--tier", "production", "cire_api"],
+        {},
+        {},
+      );
+      expect(production.output).toContain("is not a production site");
+      const dev = await run(["snapshot", snapshot, "cire_api"], { "cire-api-dev": NOT_FOUND }, {});
+      expect(dev.code).toBe(0);
+      expect(dev.calls).toEqual([deploymentsUrl("cire-api-dev")]);
+      expect(existsSync(snapshot)).toBe(true);
+    });
+  });
+});

@@ -1,11 +1,12 @@
 import { join } from "node:path";
 
 import {
-  assertDevDeployTarget,
+  assertDeployTarget,
   assertSiteBuiltFor,
   assertStackRetained,
   readDevDomain,
   refuseDotEnvFiles,
+  refuseProductionTier,
   siteWorker,
   stackOptions,
   stageHosts,
@@ -22,7 +23,8 @@ import { pulseDeclaration } from "./src/declaration";
  * checked to be built for the stage's host, before anything is declared.
  * Paths are relative to the working directory, `pulse/infra`. `workingDir`
  * names that directory to the checks: the `.env` files Bun would load from
- * it are refused, and the site path resolves from it.
+ * it are refused, and the site path resolves from it. The production stage
+ * is refused: pulse landing is `off` there until englishstreetventures/osn#1794.
  */
 export const pulseStack = (input: {
   readonly env: Readonly<Record<string, string | undefined>>;
@@ -31,7 +33,8 @@ export const pulseStack = (input: {
   Effect.gen(function* () {
     const { env } = input;
     refuseDotEnvFiles(input.workingDir);
-    const stage = assertDevDeployTarget(yield* Alchemy.Stage, env);
+    const stage = assertDeployTarget(yield* Alchemy.Stage, env);
+    refuseProductionTier(stage);
     const hosts = stageHosts(readDevDomain(env), stage);
     const declared = pulseDeclaration({ stage, hosts });
     for (const site of declared.prebuilt) {
