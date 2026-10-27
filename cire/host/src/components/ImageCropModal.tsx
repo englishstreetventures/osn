@@ -4,7 +4,6 @@ import { Notice } from "@shared/ui/ui/notice";
 import Cropper from "cropperjs";
 import type { CropperImage, CropperSelection } from "cropperjs";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
-import { Portal } from "solid-js/web";
 
 import { haptic } from "../lib/haptics";
 import {
@@ -43,16 +42,21 @@ import {
  * selection's cancellable `change` event to keep the box INSIDE the displayed
  * image (v2 dropped v1's built-in containment — unconstrained, the box roams
  * the letterbox background and the out-of-image area clamps away on save).
- * Once the image is ready we seed the saved crop's box (and its preset), or —
- * with no saved crop — fit the box over the displayed image, because v2's
- * `initial-coverage` covers the canvas, not the image. Save derives the crop
- * rectangle from the live geometry — the displayed `<cropper-image>` bounding box
- * vs the `<cropper-selection>` bounding box give the same 0..1 source fractions
- * v1's `getData(true)` produced (selection-over-image fractions are
- * resolution-independent), and `naturalWidth/Height` give `natW`/`natH`. Reset
+ * That check runs on every pointer move of a drag, so it reads image bounds the
+ * editor already holds and never measures the layout: they are worked out from
+ * the image's natural size and transform matrix, and recomputed whenever the
+ * image pans or zooms (its `transform` event) and when the window resizes.
+ * Once cropperjs has sized and centred the image we seed the saved crop's box
+ * (and its preset), or — with no saved crop — fit the box over the displayed
+ * image, because v2's `initial-coverage` covers the canvas, not the image.
+ * Save derives the crop rectangle from the live geometry — the displayed
+ * `<cropper-image>` bounding box vs the `<cropper-selection>` bounding box give
+ * the same 0..1 source fractions v1's `getData(true)` produced
+ * (selection-over-image fractions are resolution-independent), and
+ * `naturalWidth/Height` give `natW`/`natH`. Reset
  * clears back to the full-frame default (`crop: null`). Both delegate the network
- * call to the parent. On cleanup we `destroy()` the cropper (removes the canvas,
- * restores the `<img>`).
+ * call to the parent. On cleanup we remove every listener we added and
+ * `destroy()` the cropper (removes the canvas, restores the `<img>`).
  */
 export interface ImageCropModalProps {
   /** Absolute image URL to crop (already API-origin-prefixed). */
@@ -96,23 +100,54 @@ export default function ImageCropModal(props: ImageCropModalProps) {
   }
 
   /**
-   * The displayed image's rect in `<cropper-canvas>` pixel space — the
-   * coordinate space all selection geometry lives in. Undefined before the
-   * cropper is live or the image has laid out.
+   * The displayed image's box in `<cropper-canvas>` pixel space — the
+   * coordinate space all selection geometry lives in — under `matrix`.
+   *
+   * Arithmetic only, no layout read. cropperjs lays `<cropper-image>` out at the
+   * canvas origin at the picture's natural size and moves it only through its
+   * transform matrix, applied about the image's centre. The template allows
+   * scale and translate and nothing else, and every scale a wheel or a pinch
+   * makes is positive, so the matrix is `[a, 0, 0, d, e, f]` with `a, d > 0`.
+   * Undefined until the picture's natural size is known.
    */
-  function imageBounds(): Box | undefined {
-    const img = cropperImage();
-    const canvas = cropper?.getCropperCanvas();
-    if (!img || !canvas) return undefined;
-    const imgRect = img.getBoundingClientRect();
-    const canvasRect = canvas.getBoundingClientRect();
-    if (imgRect.width <= 0 || imgRect.height <= 0) return undefined;
+  function imageBoxFor(matrix: readonly number[]): Box | undefined {
+    const picture = cropperImage()?.$image;
+    const width = picture?.naturalWidth ?? 0;
+    const height = picture?.naturalHeight ?? 0;
+    if (width <= 0 || height <= 0) return undefined;
+    const [a, , , d, e, f] = matrix;
     return {
-      x: imgRect.left - canvasRect.left,
-      y: imgRect.top - canvasRect.top,
-      w: imgRect.width,
-      h: imgRect.height,
+      x: width / 2 + e - (a * width) / 2,
+      y: height / 2 + f - (d * height) / 2,
+      w: a * width,
+      h: d * height,
     };
+  }
+
+  /**
+   * The displayed image's box, as {@link imageBoxFor} last worked it out. The
+   * containment veto runs on every pointer move of a drag and reads only this.
+   * Recomputed once cropperjs has laid the image out, on every image
+   * `transform` — the only way the image moves in canvas space — and on window
+   * `resize`, which moves nothing in canvas space and costs a few
+   * multiplications. An update that cannot work a box out keeps the last one.
+   */
+  let imageBounds: Box | undefined;
+
+  /** Recompute {@link imageBounds} from the matrix the image carries now. */
+  function refreshImageBounds() {
+    const img = cropperImage();
+    if (img) imageBounds = imageBoxFor(img.$getTransform()) ?? imageBounds;
+  }
+
+  /**
+   * cropperjs fires `transform` with the matrix it applies the moment the event
+   * returns, and nothing in this editor cancels it, so the box is current
+   * before the next selection change is checked against it.
+   */
+  function onImageTransform(e: Event) {
+    const { matrix } = (e as CustomEvent<{ matrix: number[] }>).detail;
+    imageBounds = imageBoxFor(matrix) ?? imageBounds;
   }
 
   // Rounding slack for the containment veto below — see `boxWithinBounds`.
@@ -128,7 +163,7 @@ export default function ImageCropModal(props: ImageCropModalProps) {
   function onSelectionChange(e: Event) {
     const detail = (e as CustomEvent<{ x: number; y: number; width: number; height: number }>)
       .detail;
-    const bounds = imageBounds();
+    const bounds = imageBounds;
     if (!detail || !bounds) return;
     const box: Box = { x: detail.x, y: detail.y, w: detail.width, h: detail.height };
     if (!boxWithinBounds(box, bounds, EDGE_EPS)) {
@@ -148,7 +183,7 @@ export default function ImageCropModal(props: ImageCropModalProps) {
     const sel = selection();
     if (!sel) return;
     sel.aspectRatio = ratio;
-    const bounds = imageBounds();
+    const bounds = imageBounds;
     if (Number.isFinite(ratio) && bounds) {
       const centreX = sel.width > 0 ? sel.x + sel.width / 2 : undefined;
       const centreY = sel.height > 0 ? sel.y + sel.height / 2 : undefined;
@@ -167,7 +202,7 @@ export default function ImageCropModal(props: ImageCropModalProps) {
    */
   function fitSelectionToImage(ratio: number) {
     const sel = selection();
-    const bounds = imageBounds();
+    const bounds = imageBounds;
     if (!sel || !bounds) return;
     const box = Number.isFinite(ratio) ? fitAspectBox(bounds, ratio) : bounds;
     sel.$change(box.x, box.y, box.w, box.h, Number.NaN, true);
@@ -183,8 +218,11 @@ export default function ImageCropModal(props: ImageCropModalProps) {
       // is movable + resizable with corner/edge handles. No `initial-coverage` —
       // it would cover the CANVAS, not the image; `fitSelectionToImage` opens the
       // box over the displayed image once it's ready (v1's `autoCropArea: 1`).
+      // No `rotatable`: a saved crop carries no rotation, and with it a pinch
+      // tilts the image as it zooms, so the frame saved would not be the one
+      // shown. Without it cropperjs turns a pinch into a plain zoom.
       template: `<cropper-canvas background style="width:100%;height:100%">
-        <cropper-image rotatable scalable translatable></cropper-image>
+        <cropper-image scalable translatable></cropper-image>
         <cropper-shade hidden></cropper-shade>
         <cropper-handle action="select" plain></cropper-handle>
         <cropper-selection movable resizable outlined>
@@ -209,39 +247,49 @@ export default function ImageCropModal(props: ImageCropModalProps) {
       sel.aspectRatio = presetAspectRatio(preset(), props.slot);
       sel.addEventListener("change", onSelectionChange);
     }
-    // Position the box once the image has loaded — its layout + transform are
-    // applied before `$ready` callbacks run, so geometry reads are safe here.
-    // A saved crop re-opens on its stored rect; otherwise open over the whole
-    // image (aspect-fitted), replacing `initial-coverage`'s canvas-wide default.
-    img?.$ready(() => {
+    // Position the box once cropperjs has sized and centred the image. Its own
+    // `load` handler does that, and cropperjs added it when `<cropper-image>`
+    // connected inside `new Cropper` above, so this one runs after it. Not
+    // `$ready`: for a picture the browser already holds — the dashboard shows
+    // this one first — it resolves before that handler has run, and the box
+    // would open over a layout about to change. A saved crop re-opens on its
+    // stored rect; otherwise open over the whole image (aspect-fitted),
+    // replacing `initial-coverage`'s canvas-wide default.
+    const openSelection = () => {
+      refreshImageBounds();
       if (props.initialCrop) {
         seedInitialCrop();
       } else {
         fitSelectionToImage(presetAspectRatio(preset(), props.slot));
       }
+    };
+    img?.$image.addEventListener("load", openSelection, { once: true });
+    img?.addEventListener("transform", onImageTransform);
+    window.addEventListener("resize", refreshImageBounds);
+    onCleanup(() => {
+      window.removeEventListener("resize", refreshImageBounds);
+      img?.removeEventListener("transform", onImageTransform);
+      img?.$image.removeEventListener("load", openSelection);
+      sel?.removeEventListener("change", onSelectionChange);
     });
   });
 
   /**
    * Map the saved `{x,y,w,h}` source fractions onto the live selection. v2's
    * selection geometry is in `<cropper-canvas>` pixel space, so we project the
-   * fractions through the displayed `<cropper-image>` bounding box (which already
+   * fractions through the displayed image's box ({@link imageBounds}, which
    * reflects the image's scale + position inside the canvas).
    */
   function seedInitialCrop() {
     const c = props.initialCrop;
     const sel = selection();
-    const img = cropperImage();
-    const canvas = cropper?.getCropperCanvas();
-    if (!c || !sel || !img || !canvas) return;
-    const imgRect = img.getBoundingClientRect();
-    const canvasRect = canvas.getBoundingClientRect();
-    if (imgRect.width <= 0 || imgRect.height <= 0) return;
+    const bounds = imageBounds;
+    if (!c || !sel || !bounds) return;
     // Canvas-local coordinates of the saved crop region.
-    const x = imgRect.left - canvasRect.left + c.x * imgRect.width;
-    const y = imgRect.top - canvasRect.top + c.y * imgRect.height;
-    const width = c.w * imgRect.width;
-    const height = c.h * imgRect.height;
+    const x = bounds.x + c.x * bounds.w;
+    const y = bounds.y + c.y * bounds.h;
+    const width = c.w * bounds.w;
+    const height = c.h * bounds.h;
     // NaN ratio for this one change: restore EXACTLY the saved rect. Passing the
     // preset lock here would "cover"-adjust the box whenever the stored crop's
     // aspect differs even fractionally from the matched preset, silently growing

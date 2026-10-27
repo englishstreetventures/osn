@@ -11,7 +11,7 @@ packages:
   - "@musubi/social"
   - "@pulse/web"
   - "@shared/ui"
-last-reviewed: 2026-10-26
+last-reviewed: 2026-10-27
 ---
 
 # Browser Tests
@@ -203,10 +203,13 @@ context, so it needs no command. `page.viewport(width, height)` from
 `vitest/browser` resizes the iframe the tests render into, and everything inside
 it — `innerWidth`, `getBoundingClientRect`, `clientWidth`, media queries — is the
 CSS pixels asked for. A `<dialog>` opened with `showModal()` follows, because its
-containing block is that same viewport. The provider CSS-scales the iframe's
-wrapper to fit the Playwright page; every test in the tier already runs under
-that scaling at the default 414×896, so this is the existing code path with
-different numbers.
+containing block is that same viewport. The Playwright provider resizes the
+page to match (`setViewportSize`), and a headless run leaves the iframe
+unscaled at the page's origin, so a CDP input event's `x` and `y` are the
+iframe's own CSS pixels — what `SeatingView.browser.test.tsx` and
+`ImageCropModal.browser.test.tsx` pass straight from `getBoundingClientRect`.
+Only Vitest's browser UI (`browser.ui`) CSS-scales the iframe to fit its panel,
+and there those coordinates miss.
 
 Two rules, both cheap to get wrong:
 
@@ -387,6 +390,7 @@ nothing.
 | `@cire/host`     | `tests/components/invite/InviteMessageCopy.browser.test.tsx` | The invite builder's message preview wraps a link and a household code with no space in them inside its card at the 320px Reflow floor, rather than widening the card — verified against the bug: it fails with `wrap-break-word` removed |
 | `@shared/ui`     | `tests/checkbox.browser.test.tsx`, `tests/radio-group.browser.test.tsx` | Tab lands on Kobalte's clipped `<input>` and the box or circle beside it paints a ring in `--ui-focus`, keyed off the input through `peer`; a pointer click checks it and paints none — verified against the bug: with the ring on the box's own `:focus-visible` the Tab case reads `box-shadow: none` |
 | `@cire/host`     | `tests/components/ModuleSidebar.keyboard.browser.test.tsx` | A locked nav row's card, from the keyboard alone, on the rail at 1200px and in the sheet at 375px: Enter moves focus to a named, outlined **Upgrade to Gold**; Shift+Tab returns to the row with the card open, Tab goes back in, and Tab from the card's last button reaches the next row and closes it; an owner's **Download as CSV** follows the upgrade; Escape returns to the row and, in the sheet, leaves the sheet open; the card's last button leads to the next row in the sheet as well, past the sheet's paused focus trap; the purchase dialog opens with focus on Cancel, outside anything the closing sheet marked `aria-hidden` at that moment, and Escape or Cancel hands focus back to the row, or to the sheet's trigger; a card a resting pointer opened stays once the keyboard has gone into it, and closing a preview moves no focus — verified against the bug: the nine walking the card fail on the hover card, the `aria-hidden` check fails with the dialog mounted in place, and the preview check fails without the close-focus guard |
+| `@cire/host`     | `tests/components/ImageCropModal.browser.test.tsx` | The crop editor with real pointer, wheel and touch input (CDP) on an 800×400 picture at 1280×900: dragging the crop box calls neither `getBoundingClientRect` nor `getComputedStyle`, refused moves included; after one wheel notch in, and after one out, a drag past the image's right edge stops within one 4px move of the zoomed image's edge; with the modal's entry animation paused at its starting scale, the box opens spanning the image's height and a saved crop saves back within 0.003 of itself; for a picture the page already holds (`complete` before anything yields) the box opens over the image once cropperjs has placed it, and moves; a two-finger twist zooms the image without tilting it; every window `resize` listener added is removed on close. Writes `cire/host/.vitest/attachments/image-crop/{zoomed-in-refused,zoomed-out-refused,opened-mid-animation,held-image}.png` — verified against the bug: the held-picture case fails with the box opened from `$ready`, the two zoom cases with the `transform` listener removed or reading the matrix before cropperjs applies it, the twist case with `rotatable` back on the image, and the close case with the `resize` listener left in place |
 
 Six of these were verified against the bug rather than merely written green.
 The #203 test fails when the popover is put back at `z-90`. The
