@@ -646,24 +646,25 @@ describe("POST /hosts — a block between the candidate and the owner adding the
   });
 
   it("refuses as an unknown handle when the wedding is deleted while the check runs", async () => {
-    let db: Db | undefined;
-    const built = buildApp({
+    // Set once the app exists: the check deletes the wedding, then says blocked.
+    const whileChecking: { run?: () => void } = {};
+    const { db, app } = buildApp({
       osnBlockCheck: async () => {
-        db!
-          .update(weddings)
-          .set({ deletedAt: new Date() })
-          .where(eq(weddings.id, WEDDING_ID))
-          .run();
+        whileChecking.run?.();
         return true;
       },
     });
-    db = built.db;
+    whileChecking.run = () =>
+      db.update(weddings).set({ deletedAt: new Date() }).where(eq(weddings.id, WEDDING_ID)).run();
 
-    const res = await req(built.app, "POST", hostsPath, OWNER, { handle: "bob" });
+    const res = await req(app, "POST", hostsPath, OWNER, { handle: "bob" });
 
     expect(res.status).toBe(404);
     expect(await jsonBody(res)).toEqual(NOT_FOUND);
-    expect(seatsOf(built.db, COHOST)).toEqual([]);
+    expect(seatsOf(db, COHOST)).toEqual([]);
+    // The deletion ran, so the seat read met no live wedding.
+    const [wedding] = db.select({ deletedAt: weddings.deletedAt }).from(weddings).all();
+    expect(wedding?.deletedAt).toBeInstanceOf(Date);
   });
 });
 
