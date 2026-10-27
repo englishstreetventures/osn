@@ -192,6 +192,35 @@
   --dur-slow: calc(320ms * var(--motion-scale));
 }
 
+/* ── The stuck stack ────────────────────────────────────────────────────────
+ * What holds at the top of the window as a long view scrolls, from the top
+ * down: the top bar, the module's view bar, a view's column heads or card
+ * header, and a household's bar. Each layer's `top` is the sum of the heights
+ * above it, so each one is written here or measured, never guessed.
+ *
+ * `--chrome-h` is the top bar with its hairline. It follows the `frame`
+ * container, the same condition as the bar's own breakpoint, so the wide value
+ * lives on `.chrome-scope` — the wrapper round the bar and `<main>`, and the
+ * boot bar — and inherits from there; `:root` holds the narrow value for
+ * anything outside one. `--bar-h` is measured: `ModuleShell` writes the view
+ * bar's height on the shell and removes it with the bar, so every use carries a
+ * `0px` fallback. The household bar, the editor's card header and the head
+ * strip are fixed rows, so their heights are constants here, and a focused
+ * control's scroll margin can sum them.
+ */
+:root {
+  --chrome-h: calc(3.5rem + 1px);
+  --hh-bar-h: 2.75rem;
+  --card-head-h: 2.75rem;
+  --head-strip-h: 2.125rem;
+}
+
+@container frame (min-width: 42rem) {
+  .chrome-scope {
+    --chrome-h: calc(4rem + 1px);
+  }
+}
+
 /* ── Toast ──────────────────────────────────────────────────────────────────
  * `@shared/toast` styles itself from these names, so the toast is the portal's
  * own surface rather than a foreign white pill. Aliases onto the ramp like
@@ -971,9 +1000,7 @@
 @utility blank-avatar {
   /* `--text-faint` is translucent, and a face on a stack overlaps the one
      before it: laid over the page's own colour, the disc is opaque. */
-  background:
-    linear-gradient(var(--text-faint), var(--text-faint)),
-    var(--bg);
+  background: linear-gradient(var(--text-faint), var(--text-faint)), var(--bg);
   color: var(--bg);
 }
 

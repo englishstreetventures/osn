@@ -1,10 +1,14 @@
-import type { JSX } from "solid-js";
+import FileSpreadsheet from "lucide-solid/icons/file-spreadsheet";
+import TableProperties from "lucide-solid/icons/table-properties";
+import type { Component, JSX } from "solid-js";
 import { createSignal, createUniqueId, For, lazy, Show, Suspense } from "solid-js";
 
 import { haptic } from "../lib/haptics";
 import { confirmNavigation } from "../lib/unsaved-guard";
+import { TipTrigger } from "./ActionTip";
 import type { ImportKind } from "./ImportPanel";
 import PanelLoading from "./PanelLoading";
+import { createCompact, ViewBar } from "./ViewBar";
 
 /** Split out of the eager portal bundle: ~900 lines dragging in `ChangeHistory`,
  *  `ChangePreview` and `import-templates` for a surface two clicks deep that
@@ -21,10 +25,24 @@ function warmImportPanel(): void {
 /** The two ways to change this module's data. */
 type EditMode = "editor" | "import";
 
-const MODES: { id: EditMode; label: string; hint: string }[] = [
-  { id: "editor", label: "Web editor", hint: "Edit here, row by row" },
-  { id: "import", label: "Spreadsheet import", hint: "Upload a CSV and preview the diff" },
+const MODES: {
+  id: EditMode;
+  label: string;
+  hint: string;
+  icon: Component<{ class?: string; strokeWidth?: number; "aria-hidden"?: "true" }>;
+}[] = [
+  { id: "editor", label: "Web editor", hint: "Edit here, row by row", icon: TableProperties },
+  {
+    id: "import",
+    label: "Spreadsheet import",
+    hint: "Upload a CSV and preview the diff",
+    icon: FileSpreadsheet,
+  },
 ];
+
+/** Below this panel width the switch shows its icons alone, the label each
+ *  one's tooltip and name — the same line as the shell's sub-tabs. */
+const NARROW_BAR_REM = 36;
 
 /**
  * A module's Edit sub-tab: the same data, two ways in — the on-page editor, or a
@@ -51,8 +69,15 @@ export default function EditWorkspace(props: {
   editor: () => JSX.Element;
   /** True for an owner: the import offers the current rows as a download. */
   canManage?: boolean;
+  /** Drawn alone, outside the module shell: whether the switch shows its
+   *  icons alone. Inside the shell the panel's width decides. */
+  compact?: boolean;
 }) {
   const [mode, setMode] = createSignal<EditMode>("editor");
+  const { compact } = createCompact(
+    () => NARROW_BAR_REM,
+    () => props.compact ?? false,
+  );
   const baseId = createUniqueId();
   const hintId = (id: EditMode) => `${baseId}-${id}-hint`;
 
@@ -71,52 +96,64 @@ export default function EditWorkspace(props: {
 
   return (
     <div class="flex flex-col gap-6">
-      {/* A radiogroup, not a tablist: the two panels below are alternative ways
-          to do one job rather than two views of one thing, and the shell already
-          owns the tablist above this. Arrow keys come free with the native radio
-          semantics of a `role="radio"` group only if we wire them, so the labels
-          stay real buttons and each is its own tab stop — a two-item group is
-          under the threshold where roving focus earns its complexity. */}
-      <div
-        role="radiogroup"
-        aria-label="How do you want to edit?"
-        class="border-border bg-surface/30 flex flex-wrap gap-1 self-start rounded-sm border p-1"
-      >
-        <For each={MODES}>
-          {(m) => (
-            <button
-              type="button"
-              /* `aria-describedby`, not `title`. A `title` tooltip needs a
-                 hover: it is unreachable on touch, unreachable by keyboard, and
-                 announced inconsistently by AT — so the only sentence explaining
-                 what the two modes actually DO was missing for exactly the users
-                 who can't infer it from a two-word label. The hint is visible
-                 text below the group now, and each control points at its own. */
-              aria-describedby={hintId(m.id)}
-              /* A real <input type="radio"> would be the tag for this, and the
-                 lint rule is right in general. Not here: choosing a mode can be
-                 REFUSED (an unsaved draft, confirm declined), and a native radio
-                 has already moved its own checked state by the time the handler
-                 runs — leaving the dot on a mode the panel didn't switch to,
-                 with no signal change to re-render it back. `aria-checked` is
-                 derived from the signal, so a refusal simply never moves it. */
-              // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-              role="radio"
-              aria-checked={mode() === m.id}
-              onClick={() => choose(m.id)}
-              onPointerEnter={m.id === "import" ? warmImportPanel : undefined}
-              onFocus={m.id === "import" ? warmImportPanel : undefined}
-              class="font-body text-ui-xs tracking-ui-wider relative flex items-center gap-2 rounded-sm px-3.5 py-1.5 whitespace-nowrap uppercase transition-colors duration-(--dur-fast) ease-(--ease-out)"
-              classList={{
-                "bg-gold/12 text-gold": mode() === m.id,
-                "text-text-muted hover:text-text hover:bg-surface/60": mode() !== m.id,
-              }}
-            >
-              {m.label}
-            </button>
-          )}
-        </For>
-      </div>
+      {/* The switch sits in the module's view bar, so the way back to the
+          other mode is to hand however far down the list the host is.
+
+          A radiogroup, not a tablist: the two panels below are alternative
+          ways to do one job rather than two views of one thing, and the shell
+          already owns the tablist beside this. Arrow keys come free with the
+          native radio semantics of a `role="radio"` group only if we wire them,
+          so the labels stay real buttons and each is its own tab stop — a
+          two-item group is under the threshold where roving focus earns its
+          complexity. */}
+      <ViewBar slot="end">
+        <div
+          role="radiogroup"
+          aria-label="How do you want to edit?"
+          class="border-border bg-surface/30 flex shrink-0 gap-1 rounded-sm border p-1"
+        >
+          <For each={MODES}>
+            {(m) => (
+              <TipTrigger
+                label={m.label}
+                tipDisabled={!compact()}
+                /* `aria-describedby`, not `title`. A `title` tooltip needs a
+                   hover: it is unreachable on touch, unreachable by keyboard,
+                   and announced inconsistently by AT — so the only sentence
+                   explaining what the two modes actually DO was missing for
+                   exactly the users who can't infer it from a two-word label.
+                   The hint is visible text under the bar, and each control
+                   points at its own. */
+                describedBy={hintId(m.id)}
+                /* A real <input type="radio"> would be the tag for this, and
+                   the lint rule is right in general. Not here: choosing a mode
+                   can be REFUSED (an unsaved draft, confirm declined), and a
+                   native radio has already moved its own checked state by the
+                   time the handler runs — leaving the dot on a mode the panel
+                   didn't switch to, with no signal change to re-render it back.
+                   `aria-checked` is derived from the signal, so a refusal
+                   simply never moves it. */
+                // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+                role="radio"
+                aria-checked={mode() === m.id}
+                onClick={() => choose(m.id)}
+                onPointerEnter={m.id === "import" ? warmImportPanel : undefined}
+                onFocus={m.id === "import" ? warmImportPanel : undefined}
+                class={`font-body text-ui-xs tracking-ui-wider relative flex items-center gap-2 rounded-sm py-1.5 whitespace-nowrap uppercase transition-colors duration-(--dur-fast) ease-(--ease-out) ${
+                  compact() ? "px-3.5" : "px-3"
+                } ${
+                  mode() === m.id
+                    ? "bg-gold/12 text-gold"
+                    : "text-text-muted hover:text-text hover:bg-surface/60"
+                }`}
+              >
+                <m.icon aria-hidden="true" strokeWidth={1.75} class="size-3.5 shrink-0" />
+                <span class={compact() ? "sr-only" : undefined}>{m.label}</span>
+              </TipTrigger>
+            )}
+          </For>
+        </div>
+      </ViewBar>
 
       {/* The hints, as real text. Only the active one is shown — both would be a
           paragraph of chrome above every edit surface — but BOTH ids exist for
@@ -128,7 +165,7 @@ export default function EditWorkspace(props: {
           <p
             id={hintId(m.id)}
             hidden={mode() !== m.id}
-            class="font-body text-text-muted text-ui-sm -mt-3"
+            class="font-body text-text-muted text-ui-sm"
           >
             {m.hint}
           </p>

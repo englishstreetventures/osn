@@ -99,8 +99,6 @@ const KIND = {
   events: {
     eyebrow: "Events",
     title: "Import your events from a spreadsheet",
-    description:
-      "Upload an events sheet and your schedule is updated to match it. Your guest list isn't touched — though guests are dropped from any event this file removes.",
     fileName: "events.csv",
     templateFile: "cire-events-template.csv",
     buildTemplate: buildEventsTemplateCsv,
@@ -115,8 +113,6 @@ const KIND = {
   guests: {
     eyebrow: "Guests",
     title: "Import your guest list from a spreadsheet",
-    description:
-      "Upload a guests sheet and your households, guests, and who's invited to what are updated to match it. Your events aren't touched.",
     fileName: "guests.csv",
     templateFile: "cire-guests-template.csv",
     buildTemplate: buildGuestsTemplateCsv,
@@ -133,7 +129,6 @@ const KIND = {
   {
     eyebrow: string;
     title: string;
-    description: string;
     /** The file name organisers are told to upload, and the label on the input. */
     fileName: string;
     templateFile: string;
@@ -402,11 +397,7 @@ export default function ImportPanel(props: {
 
   return (
     <div class="flex flex-col gap-6">
-      <SectionIntro
-        eyebrow={copy().eyebrow}
-        title={copy().title}
-        description={copy().description}
-      />
+      <SectionIntro eyebrow={copy().eyebrow} title={copy().title} />
 
       <div class="flex flex-wrap items-center gap-3">
         <Button

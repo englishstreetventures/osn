@@ -1,11 +1,28 @@
+import BriefcaseBusiness from "lucide-solid/icons/briefcase-business";
+import Compass from "lucide-solid/icons/compass";
+import Gift from "lucide-solid/icons/gift";
+import House from "lucide-solid/icons/house";
+import IdCard from "lucide-solid/icons/id-card";
+import Inbox from "lucide-solid/icons/inbox";
+import KeyRound from "lucide-solid/icons/key-round";
+import List from "lucide-solid/icons/list";
+import MailCheck from "lucide-solid/icons/mail-check";
+import PackageCheck from "lucide-solid/icons/package-check";
+import Palette from "lucide-solid/icons/palette";
+import PencilLine from "lucide-solid/icons/pencil-line";
+import Settings2 from "lucide-solid/icons/settings-2";
+import UsersRound from "lucide-solid/icons/users-round";
 import {
   type Component,
+  createComputed,
   createEffect,
   createMemo,
   createSignal,
   For,
   lazy,
   on,
+  onCleanup,
+  onMount,
   Show,
   Suspense,
 } from "solid-js";
@@ -14,9 +31,11 @@ import { createAutoSize } from "../lib/auto-size";
 import { peekCachedBudget } from "../lib/budget-store";
 import { DEFAULT_MODULE, defaultSub, isSubOf, type Module } from "../lib/dashboard-route";
 import { isModuleLocked, moduleDef } from "../lib/module-nav";
+import { scrollDelta } from "../lib/scroll-to-results";
 import { createSlidingPill } from "../lib/sliding-pill";
 import type { PaidTier, Tier } from "../lib/tiers";
 import type { WeddingRole } from "../lib/wedding-roles";
+import { TipTrigger } from "./ActionTip";
 import BudgetView from "./BudgetView";
 import ChecklistView from "./ChecklistView";
 import EditWorkspace from "./EditWorkspace";
@@ -34,6 +53,7 @@ import PanelLoading from "./PanelLoading";
 import RemintPanel from "./RemintPanel";
 import RsvpView from "./RsvpView";
 import SettingsPanel from "./SettingsPanel";
+import { ViewBarContext, type ViewBarContextValue, type ViewBarSlot } from "./ViewBar";
 
 /**
  * The three big write surfaces, split out of the first load.
@@ -215,6 +235,9 @@ interface ModuleShellProps {
 interface SubDef {
   id: string;
   label: string;
+  /** Drawn before the label, and alone where the panel is too narrow for the
+   *  words (the label is then the tab's tooltip and stays its name). */
+  icon: Component<{ class?: string; strokeWidth?: number; "aria-hidden"?: "true" }>;
   /** Owner-only sub (e.g. invite/codes). */
   manage?: boolean;
   /** Editor-or-owner sub (hidden from read-only viewers). */
@@ -228,37 +251,41 @@ interface ModuleSubTabs extends Partial<Record<Module, SubDef[]>> {}
 
 const MODULE_SUB_TABS: ModuleSubTabs = {
   events: [
-    { id: "list", label: "List" },
-    { id: "edit", label: "Edit", edit: true },
+    { id: "list", label: "List", icon: List },
+    { id: "edit", label: "Edit", icon: PencilLine, edit: true },
   ],
   vendors: [
-    { id: "index", label: "My vendors" },
-    { id: "browse", label: "Browse" },
-    { id: "enquiries", label: "Enquiries" },
+    { id: "index", label: "My vendors", icon: BriefcaseBusiness },
+    { id: "browse", label: "Browse", icon: Compass },
+    { id: "enquiries", label: "Enquiries", icon: Inbox },
   ],
   registry: [
-    { id: "list", label: "Gift list" },
-    { id: "gifts", label: "Gifts received" },
+    { id: "list", label: "Gift list", icon: Gift },
+    { id: "gifts", label: "Gifts received", icon: PackageCheck },
     // `edit`, not `manage`: a co-host with edit rights may publish the list and
     // write its copy. The one owner-only control — connecting the account gifts
     // are paid into — is disabled inside the panel with the reason, rather than
     // hiding a whole tab from someone who is allowed most of it.
-    { id: "settings", label: "Settings", edit: true },
+    { id: "settings", label: "Settings", icon: Settings2, edit: true },
   ],
   guests: [
-    { id: "list", label: "Households" },
-    { id: "edit", label: "Edit", edit: true },
-    { id: "rsvps", label: "RSVPs" },
+    { id: "list", label: "Households", icon: House },
+    { id: "edit", label: "Edit", icon: PencilLine, edit: true },
+    { id: "rsvps", label: "RSVPs", icon: MailCheck },
   ],
   invite: [
-    { id: "design", label: "Design", edit: true },
-    { id: "codes", label: "Codes", manage: true },
+    { id: "design", label: "Design", icon: Palette, edit: true },
+    { id: "codes", label: "Codes", icon: KeyRound, manage: true },
   ],
   settings: [
-    { id: "wedding", label: "Profile" },
-    { id: "hosts", label: "Co-hosts" },
+    { id: "wedding", label: "Profile", icon: IdCard },
+    { id: "hosts", label: "Co-hosts", icon: UsersRound },
   ],
 };
+
+/** Below this panel width the sub-tabs show their icons alone. Measured: three
+ *  labelled tabs and a view's controls share one row down to about here. */
+const ICON_TABS_BELOW_PX = 36 * 16;
 
 /** Where each of the invite message's places lives. `section` is the invite
  *  builder section to open on arrival — builder state that is not in the URL. */
@@ -347,6 +374,29 @@ export default function ModuleShell(props: ModuleShellProps) {
   );
 
   let heading: HTMLHeadingElement | undefined;
+  /** The shell's root: `--bar-h` is written here, so every view inherits it. */
+  let shellEl: HTMLDivElement | undefined;
+  /** A box at the bar's resting place, `--chrome-h` tall: its top above its
+   *  own height is the bar stuck under the top bar. Present with or without a
+   *  bar, so a module with none still knows where the chrome's foot is. */
+  let sentinel: HTMLDivElement | undefined;
+  let frameEl: HTMLDivElement | undefined;
+  let barContent: HTMLDivElement | undefined;
+
+  /** Where the stuck chrome ends: the top bar, plus the view bar when the
+   *  module has one, at the height the bar is settling to. */
+  function stackFoot(): number {
+    const chrome = sentinel?.offsetHeight ?? 0;
+    return barContent?.isConnected
+      ? chrome + barContent.getBoundingClientRect().height + 1
+      : chrome;
+  }
+
+  /** Whether the header has scrolled away under the top bar. */
+  function isStuck(): boolean {
+    if (!sentinel?.isConnected) return false;
+    return sentinel.getBoundingClientRect().top < sentinel.offsetHeight - 0.5;
+  }
 
   /**
    * Follow one of the invite-message links. One route write: a module change
@@ -357,14 +407,21 @@ export default function ModuleShell(props: ModuleShellProps) {
    * The parent writes the route synchronously, so straight after the call the
    * view is either the target or — refused — unchanged. Only a move that
    * landed takes focus to the new view's heading; the link that was clicked
-   * has just unmounted with the view it sat in.
+   * has just unmounted with the view it sat in. Focus moves without the
+   * browser's own scroll, which would put the heading under the top bar; the
+   * page then brings the heading to the foot of the chrome if it is above it,
+   * which overrides the panel jump a view change makes.
    */
   function openInviteMessagePlace(place: InviteMessagePlace) {
     const to: InviteMessageRoute = INVITE_MESSAGE_ROUTES[place];
     setBuilderSection(to.section);
     if (to.module !== module()) props.onModule(to.module, to.sub);
     else if (to.sub !== active()) props.onSub(to.sub);
-    if (module() === to.module && active() === to.sub) heading?.focus();
+    if (module() === to.module && active() === to.sub && heading) {
+      heading.focus({ preventScroll: true });
+      const move = scrollDelta(heading.getBoundingClientRect().top, sentinel?.offsetHeight ?? 0);
+      if (move !== 0) window.scrollBy({ top: move, behavior: "instant" });
+    }
   }
 
   /** The invite-message line for one place, wired to this shell's roles and
@@ -378,45 +435,248 @@ export default function ModuleShell(props: ModuleShellProps) {
     />
   );
 
-  // Roving tabindex: only the selected tab is in the tab order, and the arrow
-  // keys move focus between the rest. Refs are indexed by position in the
-  // current module's visible tabs — a module switch rewrites every entry the
-  // handler can reach, so a stale ref past the new length is never read.
-  const tabRefs: HTMLButtonElement[] = [];
-
-  // The strip's selected background, as one box that travels rather than one
-  // per tab that switches on and off. The strip wraps at narrow panel widths,
-  // which is why the pill measures both axes.
-  const pill = createSlidingPill(active);
-
   // The panel takes the height of whatever view the tabs swapped in, and moves
   // between the two rather than jumping. Nothing is held at rest — see the note
   // in `auto-size.ts` for why that matters on a panel this general.
   const panelSize = createAutoSize();
 
-  function focusTab(index: number) {
-    const count = subTabs().length;
-    if (count === 0) return;
-    tabRefs[((index % count) + count) % count]?.focus();
+  // ── The view bar's contract with the views (`ViewBar.tsx`) ───────────────
+  // The panel's width, which decides each view's narrow layout and whether the
+  // sub-tabs show their words. Read once, synchronously, as the shell mounts,
+  // before anything paints — a view draws nothing list-shaped until it is
+  // known — and then followed.
+  const [panelWidth, setPanelWidth] = createSignal<number | null>(null);
+  let panelEl: HTMLDivElement | undefined;
+  onMount(() => {
+    if (!panelEl) return;
+    setPanelWidth(panelEl.getBoundingClientRect().width);
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) setPanelWidth(entry.contentRect.width);
+    });
+    observer.observe(panelEl);
+    onCleanup(() => observer.disconnect());
+  });
+  const iconTabs = () => {
+    const width = panelWidth();
+    return width !== null && width < ICON_TABS_BELOW_PX;
+  };
+
+  const [endMount, setEndMount] = createSignal<HTMLElement>();
+  const [row2Mount, setRow2Mount] = createSignal<HTMLElement>();
+
+  // A sub-tab or module change keeps the new panel at least a screen tall
+  // until its view says its data is in, so the page cannot clamp while it
+  // loads. A view that holds nothing lets go on the next frame.
+  const [holding, setHolding] = createSignal(false);
+  let holds = 0;
+  function hold(): () => void {
+    holds += 1;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      holds -= 1;
+      if (holds === 0) setHolding(false);
+    };
   }
 
-  function onTabKeyDown(event: KeyboardEvent, index: number) {
-    // Focus only — Enter and Space fall through to the button's native click,
-    // which is what actually selects. Moving through the strip must not mount
-    // (and fetch for) a view the host is only passing over.
-    if (event.key === "ArrowRight") {
-      event.preventDefault();
-      focusTab(index + 1);
-    } else if (event.key === "ArrowLeft") {
-      event.preventDefault();
-      focusTab(index - 1);
-    } else if (event.key === "Home") {
-      event.preventDefault();
-      focusTab(0);
-    } else if (event.key === "End") {
-      event.preventDefault();
-      focusTab(subTabs().length - 1);
+  const viewBar: ViewBarContextValue = {
+    mount: (slot: ViewBarSlot) => (slot === "end" ? endMount() : row2Mount()),
+    panelWidth,
+    hold,
+  };
+
+  // On a change of view, the page moves once, at once, so the new panel's top
+  // sits at the foot of the stuck chrome — but only when the chrome is stuck:
+  // a host who has not scrolled sees nothing move. Whether it was stuck is read
+  // before the DOM changes (a computation runs ahead of the render), and the
+  // move after it, with the panel already held open.
+  let wasStuck = false;
+  createComputed(
+    on(
+      [module, active],
+      () => {
+        wasStuck = isStuck();
+        setHolding(true);
+      },
+      { defer: true },
+    ),
+  );
+  createEffect(
+    on(
+      [module, active],
+      () => {
+        if (wasStuck && frameEl) {
+          const move = frameEl.getBoundingClientRect().top - stackFoot();
+          if (move !== 0) window.scrollBy({ top: move, behavior: "instant" });
+        }
+        requestAnimationFrame(() => {
+          if (holds === 0) setHolding(false);
+        });
+      },
+      { defer: true },
+    ),
+  );
+
+  /**
+   * The bar itself: the sub-tabs, then the two places a view's controls go.
+   * Its own component so its height animation and its `--bar-h` writer are
+   * made when the bar mounts and disposed with it — a module with one view
+   * has no bar, and a stale `--bar-h` would hold every layer below it down.
+   */
+  function ShellBar() {
+    const size = createAutoSize();
+    let bar: HTMLDivElement | undefined;
+
+    // Roving tabindex: only the selected tab is in the tab order, and the arrow
+    // keys move focus between the rest. Refs are indexed by position in the
+    // current module's visible tabs — a module switch rewrites every entry the
+    // handler can reach, so a stale ref past the new length is never read.
+    const tabRefs: HTMLButtonElement[] = [];
+
+    // The strip's selected background, as one box that travels rather than one
+    // per tab that switches on and off.
+    const pill = createSlidingPill(active);
+
+    function focusTab(index: number) {
+      const count = subTabs().length;
+      if (count === 0) return;
+      tabRefs[((index % count) + count) % count]?.focus();
     }
+
+    function onTabKeyDown(event: KeyboardEvent, index: number) {
+      // Focus only — Enter and Space fall through to the button's native click,
+      // which is what actually selects. Moving through the strip must not mount
+      // (and fetch for) a view the host is only passing over.
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        focusTab(index + 1);
+      } else if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        focusTab(index - 1);
+      } else if (event.key === "Home") {
+        event.preventDefault();
+        focusTab(0);
+      } else if (event.key === "End") {
+        event.preventDefault();
+        focusTab(subTabs().length - 1);
+      }
+    }
+
+    onMount(() => {
+      if (!bar) return;
+      const write = () => {
+        if (bar) shellEl?.style.setProperty("--bar-h", `${bar.getBoundingClientRect().height}px`);
+      };
+      write();
+      const observer = new ResizeObserver(write);
+      observer.observe(bar, { box: "border-box" });
+      onCleanup(() => {
+        observer.disconnect();
+        shellEl?.style.removeProperty("--bar-h");
+      });
+    });
+    onCleanup(() => {
+      setEndMount(undefined);
+      setRow2Mount(undefined);
+      barContent = undefined;
+    });
+
+    return (
+      // One landmark, named for the module, outside the module's tab panel:
+      // the sub-tabs still control the panel, and a view's controls here still
+      // name the part of the view they act on.
+      <div
+        ref={bar}
+        role="region"
+        aria-label={`${moduleDef(module()).label} controls`}
+        data-view-bar
+        class="border-border bg-bg sticky top-(--chrome-h) z-20 mb-6 border-b"
+      >
+        {/* Its height moves with the panel's, through the same helper, so a
+            change of view that adds or drops a row of controls never jumps. */}
+        <div ref={size.frame}>
+          <div
+            ref={(el) => {
+              barContent = el;
+              size.content(el);
+            }}
+            class="flow-root"
+          >
+            <div class="flex items-center gap-2 py-2">
+              {/* Manual activation (arrows move focus, Enter/Space selects):
+                  every panel behind these mounts a fetching view, so
+                  selection-follows-focus would fire a request per keypress. */}
+              <div
+                ref={pill.track}
+                class="border-border bg-surface/30 relative inline-flex shrink-0 gap-1 rounded-sm border p-1"
+                role="tablist"
+                aria-label="Views"
+              >
+                {/* The selection, as a box that moves. It sits behind the tabs
+                    (they are `relative`, it is not stacked over them), so it
+                    reads as the selected tab's own background. */}
+                <span
+                  aria-hidden="true"
+                  class="bg-gold/12 pointer-events-none absolute top-0 left-0 rounded-sm"
+                  style={pill.style()}
+                />
+                <For each={subTabs()}>
+                  {(subTab, index) => (
+                    <TipTrigger
+                      label={subTab.label}
+                      tipDisabled={!iconTabs()}
+                      ref={(el: HTMLButtonElement) => {
+                        // Two things want this element: the roving tabindex,
+                        // which reaches tabs by position, and the pill, which
+                        // reaches them by id. One ref, both told.
+                        tabRefs[index()] = el;
+                        pill.item(subTab.id)(el);
+                      }}
+                      role="tab"
+                      id={tabId(module(), subTab.id)}
+                      aria-controls={panelId(module())}
+                      aria-selected={active() === subTab.id}
+                      tabindex={active() === subTab.id ? 0 : -1}
+                      onKeyDown={(event: KeyboardEvent) => onTabKeyDown(event, index())}
+                      onPointerEnter={() => warmPanel(module(), subTab.id)}
+                      onFocus={() => warmPanel(module(), subTab.id)}
+                      onClick={() => props.onSub(subTab.id)}
+                      class={`font-body text-ui-xs tracking-ui-wider relative flex items-center gap-2 rounded-sm py-1.5 whitespace-nowrap uppercase transition-colors duration-(--dur-fast) ease-(--ease-out) ${
+                        iconTabs() ? "px-3.5" : "px-3"
+                      } ${
+                        active() === subTab.id
+                          ? "text-gold"
+                          : "text-text-muted hover:text-text hover:bg-surface/60"
+                      }`}
+                    >
+                      <subTab.icon
+                        aria-hidden="true"
+                        strokeWidth={1.75}
+                        class="size-3.5 shrink-0"
+                      />
+                      <span class={iconTabs() ? "sr-only" : undefined}>{subTab.label}</span>
+                    </TipTrigger>
+                  )}
+                </For>
+              </div>
+              {/* A view's controls on the tabs' own row. `[&>div]:contents`:
+                  each view's controls arrive in a portal's wrapper div, which
+                  must not break the row. */}
+              <div
+                ref={setEndMount}
+                class="flex min-w-0 flex-1 items-center justify-end gap-2 [&>div]:contents"
+              />
+            </div>
+            {/* A second row, drawn only when a view fills it. */}
+            <div
+              ref={setRow2Mount}
+              class="flex flex-wrap items-center gap-2 pb-2 empty:hidden [&>div]:contents"
+            />
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -425,7 +685,7 @@ export default function ModuleShell(props: ModuleShellProps) {
     // shell actually has, not off the viewport. The container sits on the outer
     // element and is queried by the inner one: an element can't respond to a
     // container it declares itself.
-    <div class="@container/shell">
+    <div ref={shellEl} class="@container/shell">
       {/* The gap opens up as the shell widens — at 1600px a rail 32px from a
           1300px panel reads as one crowded block; the extra air is what makes
           the two halves legible as separate things. */}
@@ -439,344 +699,310 @@ export default function ModuleShell(props: ModuleShellProps) {
           onSelect={props.onModule}
         />
 
-        <div class="@container/panel min-w-0 flex-1">
+        <div ref={panelEl} class="@container/panel relative min-w-0 flex-1">
           {/* The panel names itself. With the per-wedding header gone from the
               chrome, this is the only thing that says which module is open —
               and unlike a chrome band it scrolls away with the content it
               titles. The hint under it is the same sentence the rail and the
               palette use, so a module reads the same wherever it is met. */}
-          <header class="mb-6 flex flex-col gap-4">
-            <div class="flex flex-wrap items-end justify-between gap-x-8 gap-y-3">
-              <div class="flex min-w-0 flex-col gap-1">
-                <h2
-                  ref={heading}
-                  tabindex="-1"
-                  class="font-display text-text text-ui-lg leading-none font-light"
-                >
-                  {moduleDef(module()).label}
-                </h2>
-                <p class="font-body text-text-muted text-ui-sm">{moduleDef(module()).hint}</p>
-              </div>
-
-              {/* Sub-tabs, only for modules that have more than one visible
-                  view. Manual activation (arrows move focus, Enter/Space
-                  selects): every panel behind these mounts a fetching view, so
-                  selection-follows-focus would fire a request per keypress. */}
-              <Show when={subTabs().length > 1}>
-                <div
-                  ref={pill.track}
-                  class="border-border bg-surface/30 relative inline-flex max-w-full flex-wrap gap-1 rounded-sm border p-1"
-                  role="tablist"
-                  aria-label="Views"
-                >
-                  {/* The selection, as a box that moves. It sits behind the tabs
-                      (they are `relative`, it is not stacked over them), so it
-                      reads as the selected tab's own background. */}
-                  <span
-                    aria-hidden="true"
-                    class="bg-gold/12 pointer-events-none absolute top-0 left-0 rounded-sm"
-                    style={pill.style()}
-                  />
-                  <For each={subTabs()}>
-                    {(subTab, index) => (
-                      <button
-                        ref={(el) => {
-                          // Two things want this element: the roving tabindex,
-                          // which reaches tabs by position, and the pill, which
-                          // reaches them by id. One ref, both told.
-                          tabRefs[index()] = el;
-                          pill.item(subTab.id)(el);
-                        }}
-                        type="button"
-                        role="tab"
-                        id={tabId(module(), subTab.id)}
-                        aria-controls={panelId(module())}
-                        aria-selected={active() === subTab.id}
-                        tabindex={active() === subTab.id ? 0 : -1}
-                        onKeyDown={(event) => onTabKeyDown(event, index())}
-                        onPointerEnter={() => warmPanel(module(), subTab.id)}
-                        onFocus={() => warmPanel(module(), subTab.id)}
-                        onClick={() => props.onSub(subTab.id)}
-                        class={`font-body text-ui-xs tracking-ui-wider relative flex items-center gap-2 rounded-sm px-3.5 py-1.5 whitespace-nowrap uppercase transition-colors duration-(--dur-fast) ease-(--ease-out) ${
-                          active() === subTab.id
-                            ? "text-gold"
-                            : "text-text-muted hover:text-text hover:bg-surface/60"
-                        }`}
-                      >
-                        {subTab.label}
-                      </button>
-                    )}
-                  </For>
-                </div>
-              </Show>
+          <header class="mb-4 flex flex-col gap-4">
+            <div class="flex min-w-0 flex-col gap-1">
+              <h2
+                ref={heading}
+                tabindex="-1"
+                class="font-display text-text text-ui-lg leading-none font-light"
+              >
+                {moduleDef(module()).label}
+              </h2>
+              <p class="font-body text-text-muted text-ui-sm">{moduleDef(module()).hint}</p>
             </div>
 
             <hr class="gilt-rule opacity-60" />
           </header>
 
+          <div
+            ref={sentinel}
+            aria-hidden="true"
+            class="pointer-events-none invisible absolute h-(--chrome-h) w-px"
+          />
+
+          {/* The view bar, only for modules that have more than one visible
+              view. It sticks under the top bar; the title above scrolls away. */}
+          <Show when={subTabs().length > 1}>
+            <ShellBar />
+          </Show>
+
           {/* One panel for the whole module: the sub-tabs swap what is inside
               it, so the tab contract points at this element. It only claims the
               role when there are tabs to label it. */}
-          <div
-            ref={panelSize.frame}
-            id={panelId(module())}
-            role={subTabs().length > 1 ? "tabpanel" : undefined}
-            aria-labelledby={subTabs().length > 1 ? tabId(module(), active()) : undefined}
-            tabindex={subTabs().length > 1 ? 0 : undefined}
-            class="outline-none"
-          >
-            {/* The measured box has to be a child of the frame, and `flow-root`
+          <ViewBarContext.Provider value={viewBar}>
+            <div
+              ref={(el) => {
+                frameEl = el;
+                panelSize.frame(el);
+              }}
+              id={panelId(module())}
+              role={subTabs().length > 1 ? "tabpanel" : undefined}
+              aria-labelledby={subTabs().length > 1 ? tabId(module(), active()) : undefined}
+              tabindex={subTabs().length > 1 ? 0 : undefined}
+              class="outline-none"
+              style={{ "min-height": holding() ? "100svh" : undefined }}
+            >
+              {/* The measured box has to be a child of the frame, and `flow-root`
                 is what makes the measurement honest: without it a first or last
                 child's margin collapses through the wrapper, so the height read
                 differs depending on whether the frame is currently clipped. */}
-            <div ref={panelSize.content} class="flow-root">
-              {/* ── Overview ─────────────────────────────────────────────────── */}
-              <Show when={module() === "overview"}>
-                <Overview
-                  weddingId={props.weddingId}
-                  tier={props.tier}
-                  onNavigate={props.onModule}
-                />
-              </Show>
-
-              {/* ── Events: List (read) + Edit ───────────────────────────────── */}
-              <Show when={module() === "events"}>
-                <Show when={active() === "list"}>
-                  <EventTable
-                    weddingId={props.weddingId}
-                    weddingSlug={props.weddingSlug}
-                    canManage={props.canManage}
-                  />
-                </Show>
-                {/* Edit = the on-page editor OR an events CSV import, behind one
-              choice. A pure write surface, editor-gated (the API also gates
-              changes/* with weddingEditor()). */}
-                <Show when={active() === "edit" && props.canEdit}>
-                  <EditWorkspace
-                    weddingId={props.weddingId}
-                    kind="events"
-                    canManage={props.canManage}
-                    editor={() => (
-                      <Suspense fallback={<PanelLoading />}>
-                        <EventsEditor weddingId={props.weddingId} />
-                      </Suspense>
-                    )}
-                  />
-                </Show>
-              </Show>
-
-              {/* ── Checklist: freeform tasks by lead-time bucket ────────────── */}
-              <Show when={module() === "checklist"}>
-                <ChecklistView
-                  weddingId={props.weddingId}
-                  canEdit={props.canEdit}
-                  canManage={props.canManage}
-                />
-              </Show>
-
-              {/* ── Run sheet: the day, read-only for every role ─────────────── */}
-              <Show when={module() === "run-sheet"}>
-                <Suspense fallback={<PanelLoading />}>
-                  <RunSheetView
+              <div ref={panelSize.content} class="flow-root">
+                {/* ── Overview ─────────────────────────────────────────────────── */}
+                <Show when={module() === "overview"}>
+                  <Overview
                     weddingId={props.weddingId}
                     tier={props.tier}
-                    callerRole={props.callerRole}
-                    canEdit={props.canEdit}
-                    onOpenChecklist={props.canEdit ? () => props.onModule("checklist") : undefined}
+                    onNavigate={props.onModule}
                   />
-                </Suspense>
-              </Show>
+                </Show>
 
-              {/* ── Budget: per-category items + payments ────────────────────── */}
-              <Show when={module() === "budget"}>
-                <BudgetView
-                  weddingId={props.weddingId}
-                  canEdit={props.canEdit}
-                  canManage={props.canManage}
-                />
-              </Show>
-
-              {/* ── Vendors: CRM ("My vendors") + directory Browse ──────────── */}
-              <Show when={module() === "vendors"}>
-                {/* One boundary for all three subs, as the registry does: a sub
-                switch inside the module never re-suspends once its own chunk
-                has landed. */}
-                <Suspense fallback={<PanelLoading />}>
-                  <Show when={active() === "index"}>
-                    <VendorsView
+                {/* ── Events: List (read) + Edit ───────────────────────────────── */}
+                <Show when={module() === "events"}>
+                  <Show when={active() === "list"}>
+                    <EventTable
                       weddingId={props.weddingId}
-                      currency={peekCachedBudget(props.weddingId)?.currency ?? "AUD"}
-                      canEdit={props.canEdit}
+                      weddingSlug={props.weddingSlug}
                       canManage={props.canManage}
                     />
                   </Show>
-                  <Show when={active() === "browse"}>
-                    <DirectoryBrowseView weddingId={props.weddingId} canEdit={props.canEdit} />
-                  </Show>
-                  <Show when={active() === "enquiries"}>
-                    <EnquiriesView
+                  {/* Edit = the on-page editor OR an events CSV import, behind one
+              choice. A pure write surface, editor-gated (the API also gates
+              changes/* with weddingEditor()). */}
+                  <Show when={active() === "edit" && props.canEdit}>
+                    <EditWorkspace
                       weddingId={props.weddingId}
-                      currency={peekCachedBudget(props.weddingId)?.currency ?? "AUD"}
-                      canEdit={props.canEdit}
+                      kind="events"
+                      canManage={props.canManage}
+                      editor={() => (
+                        <Suspense fallback={<PanelLoading />}>
+                          <EventsEditor weddingId={props.weddingId} />
+                        </Suspense>
+                      )}
                     />
                   </Show>
-                </Suspense>
-              </Show>
+                </Show>
 
-              {/* ── Registry: the gift list, the gifts received, settings ────── */}
-              <Show when={module() === "registry"}>
-                {/* One boundary for all three subs. The list and the gifts
+                {/* ── Checklist: freeform tasks by lead-time bucket ────────────── */}
+                <Show when={module() === "checklist"}>
+                  <ChecklistView
+                    weddingId={props.weddingId}
+                    canEdit={props.canEdit}
+                    canManage={props.canManage}
+                  />
+                </Show>
+
+                {/* ── Run sheet: the day, read-only for every role ─────────────── */}
+                <Show when={module() === "run-sheet"}>
+                  <Suspense fallback={<PanelLoading />}>
+                    <RunSheetView
+                      weddingId={props.weddingId}
+                      tier={props.tier}
+                      callerRole={props.callerRole}
+                      canEdit={props.canEdit}
+                      onOpenChecklist={
+                        props.canEdit ? () => props.onModule("checklist") : undefined
+                      }
+                    />
+                  </Suspense>
+                </Show>
+
+                {/* ── Budget: per-category items + payments ────────────────────── */}
+                <Show when={module() === "budget"}>
+                  <BudgetView
+                    weddingId={props.weddingId}
+                    canEdit={props.canEdit}
+                    canManage={props.canManage}
+                  />
+                </Show>
+
+                {/* ── Vendors: CRM ("My vendors") + directory Browse ──────────── */}
+                <Show when={module() === "vendors"}>
+                  {/* One boundary for all three subs, as the registry does: a sub
+                switch inside the module never re-suspends once its own chunk
+                has landed. */}
+                  <Suspense fallback={<PanelLoading />}>
+                    <Show when={active() === "index"}>
+                      <VendorsView
+                        weddingId={props.weddingId}
+                        currency={peekCachedBudget(props.weddingId)?.currency ?? "AUD"}
+                        canEdit={props.canEdit}
+                        canManage={props.canManage}
+                      />
+                    </Show>
+                    <Show when={active() === "browse"}>
+                      <DirectoryBrowseView weddingId={props.weddingId} canEdit={props.canEdit} />
+                    </Show>
+                    <Show when={active() === "enquiries"}>
+                      <EnquiriesView
+                        weddingId={props.weddingId}
+                        currency={peekCachedBudget(props.weddingId)?.currency ?? "AUD"}
+                        canEdit={props.canEdit}
+                      />
+                    </Show>
+                  </Suspense>
+                </Show>
+
+                {/* ── Registry: the gift list, the gifts received, settings ────── */}
+                <Show when={module() === "registry"}>
+                  {/* One boundary for all three subs. The list and the gifts
                 received share a chunk, so switching between those never
                 re-suspends once it has landed; settings is a second chunk and
                 suspends the first time it is opened cold — which is what
                 `warmPanel` on the sub-tab is for, and why the fallback below
                 is the panel-shaped one rather than a spinner. */}
-                <Suspense fallback={<PanelLoading />}>
-                  <Show when={active() === "list"}>
-                    <RegistryView
-                      weddingId={props.weddingId}
-                      weddingSlug={props.weddingSlug}
-                      view="list"
-                      canEdit={props.canEdit}
-                    />
-                  </Show>
-                  <Show when={active() === "gifts"}>
-                    <RegistryView
-                      weddingId={props.weddingId}
-                      weddingSlug={props.weddingSlug}
-                      view="gifts"
-                      canEdit={props.canEdit}
-                      canManage={props.canManage}
-                    />
-                  </Show>
-                  <Show when={active() === "settings"}>
-                    <RegistrySettingsView
-                      weddingId={props.weddingId}
-                      canEdit={props.canEdit}
-                      canManage={props.canManage}
-                    />
-                  </Show>
-                </Suspense>
-              </Show>
-
-              {/* ── Guests: Households + RSVPs ───────────────────────────────── */}
-              <Show when={module() === "guests"}>
-                <Show when={active() === "list"}>
-                  <GuestTable
-                    weddingId={props.weddingId}
-                    canManage={props.canManage}
-                    canEdit={props.canEdit}
-                    weddingName={props.weddingName}
-                    weddingSlug={props.weddingSlug}
-                    inviteMessageLinks={inviteMessageLinks("households")}
-                  />
+                  <Suspense fallback={<PanelLoading />}>
+                    <Show when={active() === "list"}>
+                      <RegistryView
+                        weddingId={props.weddingId}
+                        weddingSlug={props.weddingSlug}
+                        view="list"
+                        canEdit={props.canEdit}
+                      />
+                    </Show>
+                    <Show when={active() === "gifts"}>
+                      <RegistryView
+                        weddingId={props.weddingId}
+                        weddingSlug={props.weddingSlug}
+                        view="gifts"
+                        canEdit={props.canEdit}
+                        canManage={props.canManage}
+                      />
+                    </Show>
+                    <Show when={active() === "settings"}>
+                      <RegistrySettingsView
+                        weddingId={props.weddingId}
+                        canEdit={props.canEdit}
+                        canManage={props.canManage}
+                      />
+                    </Show>
+                  </Suspense>
                 </Show>
-                {/* Edit = the on-page editor OR a guests CSV import, behind one
+
+                {/* ── Guests: Households + RSVPs ───────────────────────────────── */}
+                <Show when={module() === "guests"}>
+                  <Show when={active() === "list"}>
+                    <GuestTable
+                      weddingId={props.weddingId}
+                      canManage={props.canManage}
+                      canEdit={props.canEdit}
+                      weddingName={props.weddingName}
+                      weddingSlug={props.weddingSlug}
+                      inviteMessageLinks={inviteMessageLinks("households")}
+                    />
+                  </Show>
+                  {/* Edit = the on-page editor OR a guests CSV import, behind one
               choice. A pure write surface, editor-gated (the API also gates
               changes/* with weddingEditor()) — the import moved off the read
               tab, where it sat above the list carrying BOTH sheets. */}
-                <Show when={active() === "edit" && props.canEdit}>
-                  <EditWorkspace
-                    weddingId={props.weddingId}
-                    kind="guests"
-                    canManage={props.canManage}
-                    editor={() => (
-                      <Suspense fallback={<PanelLoading />}>
-                        <GuestsEditor weddingId={props.weddingId} />
-                      </Suspense>
-                    )}
-                  />
-                </Show>
-                <Show when={active() === "rsvps"}>
-                  <RsvpView
-                    weddingId={props.weddingId}
-                    canEdit={props.canEdit}
-                    canManage={props.canManage}
-                    weddingSlug={props.weddingSlug}
-                    event={props.rsvpEvent}
-                    onEvent={props.onRsvpEvent}
-                  />
-                </Show>
-              </Show>
-
-              {/* ── Seating: tables and who sits where, per event ────────────── */}
-              <Show when={module() === "seating"}>
-                <Suspense fallback={<PanelLoading />}>
-                  <SeatingView
-                    weddingId={props.weddingId}
-                    weddingSlug={props.weddingSlug}
-                    canEdit={props.canEdit}
-                    canManage={props.canManage}
-                  />
-                </Suspense>
-              </Show>
-
-              {/* ── Invite: Design + Codes ───────────────────────────────────── */}
-              <Show when={module() === "invite"}>
-                <Show when={active() === "design"}>
-                  {/* The builder is one big write surface; a viewer sees the invite
-                itself via the header's "Preview invite" (member-gated) instead. */}
-                  <Show
-                    when={props.canEdit}
-                    fallback={
-                      <p class="border-border bg-surface/30 text-text-muted text-ui-base rounded-sm border p-6">
-                        You have view-only access to this wedding. Use “Preview invite” above to see
-                        the invitation as guests will — ask an owner for editor access to customise
-                        it.
-                      </p>
-                    }
-                  >
-                    <Suspense fallback={<PanelLoading />}>
-                      <InviteBuilder
-                        weddingId={props.weddingId}
-                        weddingSlug={props.weddingSlug}
-                        weddingName={props.weddingName}
-                        canEdit={props.canEdit}
-                        entitlements={props.entitlements}
-                        initialSection={builderSection()}
-                        inviteMessageLinks={inviteMessageLinks("message")}
-                      />
-                    </Suspense>
+                  <Show when={active() === "edit" && props.canEdit}>
+                    <EditWorkspace
+                      weddingId={props.weddingId}
+                      kind="guests"
+                      canManage={props.canManage}
+                      editor={() => (
+                        <Suspense fallback={<PanelLoading />}>
+                          <GuestsEditor weddingId={props.weddingId} />
+                        </Suspense>
+                      )}
+                    />
+                  </Show>
+                  <Show when={active() === "rsvps"}>
+                    <RsvpView
+                      weddingId={props.weddingId}
+                      canEdit={props.canEdit}
+                      canManage={props.canManage}
+                      weddingSlug={props.weddingSlug}
+                      event={props.rsvpEvent}
+                      onEvent={props.onRsvpEvent}
+                    />
                   </Show>
                 </Show>
-                <Show when={active() === "codes" && props.canManage}>
-                  <RemintPanel
-                    weddingId={props.weddingId}
-                    inviteMessageLinks={inviteMessageLinks("codes")}
-                  />
-                </Show>
-              </Show>
 
-              {/* ── Settings: Profile + Co-hosts ─────────────────────────────── */}
-              <Show when={module() === "settings"}>
-                <Show when={active() === "wedding"}>
-                  <SettingsPanel
-                    weddingId={props.weddingId}
-                    canManage={props.canManage}
-                    canEditRsvpDeadline={props.canEdit}
-                    tier={props.tier}
-                    onWeddingUpdated={props.onWeddingUpdated}
-                    onWeddingDeleted={props.onWeddingDeleted}
-                    onTierRaised={props.onTierRaised}
-                  />
+                {/* ── Seating: tables and who sits where, per event ────────────── */}
+                <Show when={module() === "seating"}>
+                  <Suspense fallback={<PanelLoading />}>
+                    <SeatingView
+                      weddingId={props.weddingId}
+                      weddingSlug={props.weddingSlug}
+                      canEdit={props.canEdit}
+                      canManage={props.canManage}
+                    />
+                  </Suspense>
                 </Show>
-                <Show when={active() === "hosts"}>
-                  {/* The role itself, not the flags: the panel needs what the
+
+                {/* ── Invite: Design + Codes ───────────────────────────────────── */}
+                <Show when={module() === "invite"}>
+                  <Show when={active() === "design"}>
+                    {/* The builder is one big write surface; a viewer sees the invite
+                itself via the header's "Preview invite" (member-gated) instead. */}
+                    <Show
+                      when={props.canEdit}
+                      fallback={
+                        <p class="border-border bg-surface/30 text-text-muted text-ui-base rounded-sm border p-6">
+                          You have view-only access to this wedding. Use “Preview invite” above to
+                          see the invitation as guests will — ask an owner for editor access to
+                          customise it.
+                        </p>
+                      }
+                    >
+                      <Suspense fallback={<PanelLoading />}>
+                        <InviteBuilder
+                          weddingId={props.weddingId}
+                          weddingSlug={props.weddingSlug}
+                          weddingName={props.weddingName}
+                          canEdit={props.canEdit}
+                          entitlements={props.entitlements}
+                          initialSection={builderSection()}
+                          inviteMessageLinks={inviteMessageLinks("message")}
+                        />
+                      </Suspense>
+                    </Show>
+                  </Show>
+                  <Show when={active() === "codes" && props.canManage}>
+                    <RemintPanel
+                      weddingId={props.weddingId}
+                      inviteMessageLinks={inviteMessageLinks("codes")}
+                    />
+                  </Show>
+                </Show>
+
+                {/* ── Settings: Profile + Co-hosts ─────────────────────────────── */}
+                <Show when={module() === "settings"}>
+                  <Show when={active() === "wedding"}>
+                    <SettingsPanel
+                      weddingId={props.weddingId}
+                      canManage={props.canManage}
+                      canEditRsvpDeadline={props.canEdit}
+                      tier={props.tier}
+                      onWeddingUpdated={props.onWeddingUpdated}
+                      onWeddingDeleted={props.onWeddingDeleted}
+                      onTierRaised={props.onTierRaised}
+                    />
+                  </Show>
+                  <Show when={active() === "hosts"}>
+                    {/* The role itself, not the flags: the panel needs what the
                   caller may grant, which only the role says. Adding, changing
                   and removing a seat are all `weddingOwner()`. Every seat may
                   leave; the API refuses the last owner. */}
-                  <HostsPanel
-                    weddingId={props.weddingId}
-                    callerRole={props.callerRole}
-                    tier={props.tier}
-                    canLeave
-                    onLeft={props.onLeftWedding}
-                    onOwnRoleChanged={props.onOwnRoleChanged}
-                  />
+                    <HostsPanel
+                      weddingId={props.weddingId}
+                      callerRole={props.callerRole}
+                      tier={props.tier}
+                      canLeave
+                      onLeft={props.onLeftWedding}
+                      onOwnRoleChanged={props.onOwnRoleChanged}
+                    />
+                  </Show>
                 </Show>
-              </Show>
+              </div>
             </div>
-          </div>
+          </ViewBarContext.Provider>
         </div>
       </div>
     </div>

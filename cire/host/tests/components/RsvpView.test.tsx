@@ -312,9 +312,11 @@ describe("RsvpView", () => {
     render(() => <RsvpView weddingId="wed_a" />);
     await waitFor(() => expect(tab("Reception")).toBeTruthy());
     expect(tab("Reception").getAttribute("aria-label")).toBe("Reception, 1 guest");
-    expect(screen.getByRole("region", { name: "Replies for Ceremony" })).toBeTruthy();
+    // The table scrolls with the page, so it is no region of its own: its
+    // caption names it.
+    expect(screen.getByRole("table", { name: "RSVPs for Ceremony" })).toBeTruthy();
     show("Reception");
-    expect(screen.getByRole("region", { name: "Replies for Reception" })).toBeTruthy();
+    expect(screen.getByRole("table", { name: "RSVPs for Reception" })).toBeTruthy();
   });
 
   it("saves to the event on screen, never to an id the address named", async () => {

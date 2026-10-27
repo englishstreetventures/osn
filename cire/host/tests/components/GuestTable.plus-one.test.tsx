@@ -227,7 +227,9 @@ describe("GuestTable — plus-one permission", () => {
     expect(switchFor("Ada Sharma").checked).toBe(true);
     expect(switchFor("Bo Sharma").checked).toBe(false);
     expect(switchFor("Cy Jones").checked).toBe(true);
-    expect(screen.getByRole("columnheader", { name: "Plus-one" })).toBeTruthy();
+    // Each household is its own table with its own heads, so ask one of them.
+    const sharma = screen.getByRole("group", { name: "Sharma" });
+    expect(within(sharma).getByRole("columnheader", { name: "Plus-one" })).toBeTruthy();
   });
 
   it("lists a plus-one after the guest who brought them, named as theirs, with no switch", async () => {
@@ -632,7 +634,11 @@ describe("GuestTable — plus-one permission", () => {
       .filter((g) => !g.plusOneOf)
       .map(({ plusOneAllowed: _a, plusOneOf: _o, ...rest }) => rest as OrganiserGuestRow);
     await mount();
-    expect(screen.queryByRole("columnheader", { name: "Plus-one" })).toBeNull();
+    // Neither the households' own heads nor the strip the eye reads above them.
+    expect(screen.queryAllByRole("columnheader", { name: "Plus-one" })).toHaveLength(0);
+    const strip = document.querySelector("[data-head-strip]");
+    expect(strip).not.toBeNull();
+    expect(strip!.textContent).not.toContain("Plus-one");
     expect(screen.queryAllByRole("switch")).toHaveLength(0);
     expect(screen.queryByRole("group", { name: /Plus-ones for the/ })).toBeNull();
   });

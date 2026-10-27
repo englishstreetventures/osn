@@ -547,8 +547,7 @@ export default function ModuleSidebar(props: {
       {/* Sticky from the rail breakpoint up: on a tall panel (the invite
           builder, a long guest table) the modules used to scroll away, which is
           the one thing a persistent rail exists not to do. It sticks just under
-          the page's sticky top bar — 4rem and its 1px hairline, the bar's
-          height wherever the frame is wide enough for the rail — plus the
+          the page's sticky top bar, whose height is `--chrome-h`, plus the
           1.5rem of air it had at the top of the page. `self-start` keeps it
           from being stretched to the panel's height by the flex row — a
           full-height flex item has nothing to slide against.
@@ -563,7 +562,7 @@ export default function ModuleSidebar(props: {
       <div
         data-rail=""
         onTransitionEnd={slideEnded}
-        class={`hidden shrink-0 flex-col @2xl/shell:sticky @2xl/shell:top-[calc(5.5rem+1px)] @2xl/shell:flex @2xl/shell:self-start ${
+        class={`hidden shrink-0 flex-col @2xl/shell:sticky @2xl/shell:top-[calc(var(--chrome-h)+1.5rem)] @2xl/shell:flex @2xl/shell:self-start ${
           sliding() ? "transition-[width] duration-(--dur-base) ease-(--ease-in-out)" : ""
         } ${collapsed() ? "w-10.5" : "w-52 @5xl/shell:w-56"}`}
       >
