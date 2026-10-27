@@ -37,7 +37,9 @@
  *
  * Subagent spend lives in a sibling `<session-id>/subagents/*.jsonl` directory
  * rather than the main transcript — miss it and a card under-reports by however
- * much was delegated, which on an orchestrated task is most of it.
+ * much was delegated, which on an orchestrated task is most of it. Agents a
+ * Workflow run starts write one level deeper, under
+ * `subagents/workflows/<run-id>/agent-*.jsonl`.
  *
  * `SCHEMA_VERSION` is bumped whenever a field changes meaning or leaves.
  * Readers key off this.
@@ -1739,6 +1741,12 @@ export function recordsInWindow(
  * dispatch may lead with a worktree instruction — only to be alone on its own. */
 const TASK_BRANCH_MARKER = /^TASK-BRANCH:[ \t]*(\S+)[ \t]*$/m;
 
+/** The marker as a Workflow harness hands it on: the harness indents every
+ * line of the task a script computed, so leading spaces or tabs are allowed.
+ * Read only from that task (`workflowTaskBranch`); everywhere else the marker
+ * is a line an agent wrote, and stays at column 0. */
+const INDENTED_TASK_BRANCH_MARKER = /^[ \t]*TASK-BRANCH:[ \t]*(\S+)[ \t]*$/m;
+
 /** How far into a prompt the marker is honoured.
  *
  * A dispatch prompt routinely quotes text this repository did not author —
@@ -1754,9 +1762,9 @@ const MARKER_WINDOW_LINES = 3;
  * capture names no card at all rather than an unexpected one. */
 const PLAUSIBLE_REF = /^[A-Za-z0-9][\w.\-/]*$/;
 
-function markerBranch(prompt: string): string | null {
+function markerBranch(prompt: string, marker = TASK_BRANCH_MARKER): string | null {
   const head = prompt.split("\n", MARKER_WINDOW_LINES).join("\n");
-  const captured = TASK_BRANCH_MARKER.exec(head)?.[1];
+  const captured = marker.exec(head)?.[1];
   if (!captured || captured.includes("..") || !PLAUSIBLE_REF.test(captured)) return null;
 
   return captured;
@@ -1775,10 +1783,15 @@ function markerBranch(prompt: string): string | null {
  * stays `main` throughout anyway: a session that plans and dispatches
  * without ever `cd`-ing itself.)
  *
- * The pairing is already on disk: every `agent-<id>.jsonl` has a sibling
- * `agent-<id>.meta.json` carrying the `toolUseId` of the `Agent` tool call that
- * spawned it, and that id appears in the parent transcript on the `tool_use`
+ * The pairing is already on disk: every `agent-<id>.jsonl` an `Agent` tool
+ * call starts has a sibling `agent-<id>.meta.json` carrying that call's
+ * `toolUseId`, and that id appears in the parent transcript on the `tool_use`
  * block whose `input.prompt` is the dispatch.
+ *
+ * An agent a Workflow run starts has no such call to join to: a script starts
+ * it, and its transcript sits under `subagents/workflows/<run-id>/`. There the
+ * marker is read from the agent's own transcript instead — see
+ * `workflowTaskBranch`.
  */
 const resolvedBranches = new Map<string, string | null>();
 
@@ -1804,6 +1817,11 @@ function resolveUncached(subagentFile: string, seen: Set<string>): string | null
   if (seen.has(subagentFile) || seen.size > 8) return null;
   seen.add(subagentFile);
 
+  // Decided by where the file sits, whatever its sidecar holds: the parent
+  // search below looks in the session file and the agent's siblings, and a
+  // workflow agent's task is in neither.
+  if (WORKFLOW_AGENT_FILE.test(subagentFile)) return workflowTaskBranch(subagentFile);
+
   const meta = readSubagentMeta(subagentFile.replace(/\.jsonl$/, ".meta.json"));
   const toolUseId = meta?.toolUseId;
   if (!toolUseId) return null;
@@ -1825,6 +1843,67 @@ function resolveUncached(subagentFile: string, seen: Set<string>): string | null
     return parent.includes("/subagents/")
       ? resolveDispatchBranch(parent, seen)
       : resolveSessionBranch(parent);
+  }
+
+  return null;
+}
+
+/** Where a Workflow run's agents write: `<session>/subagents/workflows/<run-id>/`. */
+const WORKFLOW_AGENT_FILE = /\/subagents\/workflows\/[^/]+\/[^/]+\.jsonl$/;
+
+/** The line a Workflow harness writes above the task a script computed for one
+ * agent, as the first line of that task's own user record. */
+const WORKFLOW_TASK_HEADER = "[Workflow harness — computed task]";
+
+/** How much of a workflow agent's transcript is read for its task. The task is
+ * its second record, and some 250 KB of attachments come before its first reply. */
+const WORKFLOW_HEAD_BYTES = 1024 * 1024;
+
+/**
+ * The branch a Workflow run's agent was started for, or `null`.
+ *
+ * The harness opens the agent's transcript with its relay of the user request
+ * that started the run, then the task the script computed for this agent. Each
+ * is a user record whose first line is the harness's own header, and every line
+ * the harness relays below it is indented by two spaces. The marker is read
+ * from the task alone, inside the usual window, and nowhere else:
+ *
+ * - the relay is the same text for every agent of a run that may drive several
+ *   branches, and it quotes whatever the user pasted;
+ * - text the harness or a hook adds is not the task;
+ * - anything after the agent's first reply — tool results, later prompts — is
+ *   text nobody here wrote.
+ *
+ * The header is safe to key on because the harness indents what it relays, so
+ * relayed text cannot begin a record with it. A harness that renamed it would
+ * stop attribution, and `unattributedSubagentFiles` would count every such agent.
+ */
+function workflowTaskBranch(file: string): string | null {
+  const head = readHead(file, WORKFLOW_HEAD_BYTES);
+  if (head === null) return null;
+
+  const lines = head.text.split("\n");
+  // A partial read can end mid-record.
+  if (!head.whole) lines.pop();
+
+  for (const line of lines) {
+    let record: SessionRecord;
+    try {
+      record = JSON.parse(line) as SessionRecord;
+    } catch {
+      continue;
+    }
+
+    if (record.type === "assistant") return null;
+
+    const content = record.message?.content;
+    if (
+      record.type === "user" &&
+      typeof content === "string" &&
+      content.startsWith(WORKFLOW_TASK_HEADER)
+    ) {
+      return markerBranch(content, INDENTED_TASK_BRANCH_MARKER);
+    }
   }
 
   return null;
@@ -2145,7 +2224,10 @@ function transcriptFiles(
       ["*/*/subagents/*.jsonl", true],
       // Agents a Workflow run starts write one level deeper, under
       // `subagents/workflows/<run-id>/`. They are subagent spend all the same.
-      ["*/*/subagents/workflows/*/*.jsonl", true],
+      // The run's `journal.jsonl` beside them is its log, not a transcript: it
+      // holds no spend and no branch, and counted it would only add a file to
+      // the unattributed warning.
+      ["*/*/subagents/workflows/*/agent-*.jsonl", true],
     ];
 
     // Globbed in-process rather than through `sh -c`: the root comes from an
@@ -2168,15 +2250,23 @@ function transcriptFiles(
 /** The first line of a file, without reading the rest of it. The 366 subagent
  * transcripts here total 200 MB and only their first line is wanted. */
 function firstLine(file: string): string | null {
+  const head = readHead(file, 64 * 1024);
+  if (head === null) return null;
+
+  const newline = head.text.indexOf("\n");
+
+  return newline === -1 ? head.text : head.text.slice(0, newline);
+}
+
+/** A file's first `bytes` bytes as text, and whether they are all of it. */
+function readHead(file: string, bytes: number): { text: string; whole: boolean } | null {
   let fd: number | null = null;
   try {
     fd = openSync(file, "r");
-    const buffer = Buffer.alloc(64 * 1024);
-    const read = readSync(fd, buffer, 0, buffer.length, 0);
-    const text = buffer.toString("utf8", 0, read);
-    const newline = text.indexOf("\n");
+    const buffer = Buffer.alloc(bytes);
+    const read = readSync(fd, buffer, 0, bytes, 0);
 
-    return newline === -1 ? text : text.slice(0, newline);
+    return { text: buffer.toString("utf8", 0, read), whole: read < bytes };
   } catch {
     return null;
   } finally {

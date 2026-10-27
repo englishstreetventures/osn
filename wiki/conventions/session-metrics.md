@@ -230,11 +230,12 @@ name maps to one pull request as long as no name is used twice — see
 [[#One card per pull request]]. For delegated work it is not enough — see
 [[#Attributing subagent spend]].
 
-Five traps the collector handles and any reimplementation must:
+Seven traps the collector handles and any reimplementation must:
 
 - **Subagent spend is in a sibling directory**, `<session-id>/subagents/*.jsonl`,
-  not in the main transcript. Missing it under-reports every delegated task, and
-  on orchestrated work that is most of the cost.
+  not in the main transcript, and a Workflow run's agents write one level
+  deeper, `subagents/workflows/<run-id>/agent-*.jsonl`. Missing it under-reports
+  every delegated task, and on orchestrated work that is most of the cost.
 - **One conversation is sometimes written into two session files.** 615 assistant
   records on this machine — 5.2% of session spend — appear in both, and reading
   them twice doubles the branch's cost. A duplicate repeats the record's `uuid`,
@@ -314,19 +315,20 @@ machine, one day, no script kept.*
 
 So `orchestrate`, `stress-plan`, `prep-pr`, `review-pr` and `new-feat`'s
 `Plan`-subagent dispatch each put a marker on its own line at the top of every
-dispatch prompt:
+dispatch prompt, and a Workflow script puts one at the top of the task it
+computes for each agent it starts:
 
 ```
 TASK-BRANCH: feat/example
 ```
 
 `resolveDispatchBranch` in `tools/pr-metrics/index.ts` reads it back. Every
-subagent transcript has a sibling `agent-<id>.meta.json` carrying the
-`toolUseId` of the `Agent` call that spawned it; that id appears on the
-`tool_use` block in the parent transcript, whose `input.prompt` is the dispatch.
-The marked branch then replaces `gitBranch` for every record in that file.
+subagent an `Agent` call starts has a sibling `agent-<id>.meta.json` carrying
+the `toolUseId` of that call; that id appears on the `tool_use` block in the
+parent transcript, whose `input.prompt` is the dispatch. The marked branch then
+replaces `gitBranch` for every record in that file.
 
-Three things about it worth keeping:
+Six things about it worth keeping:
 
 - **The parent may be another subagent.** `spawnDepth: 2` is 79 of this
   machine's 363 subagent files, 8.3% of subagent spend, and every one of those
@@ -351,6 +353,24 @@ Three things about it worth keeping:
   like a ref. Dispatch prompts quote text nobody here wrote — issue bodies,
   review comments, fetched pages — and a planted `TASK-BRANCH:` line further
   down would otherwise re-point a subagent's whole spend onto another card.
+- **A Workflow run's agents are read from their own transcript.** A script
+  starts them, not an `Agent` call, so they sit under
+  `subagents/workflows/<run-id>/`, their sidecar carries no `toolUseId`, and no
+  parent transcript holds their prompt. The harness opens each one's transcript
+  with two `user` records: its relay of the user request that started the run,
+  then the task the script computed for this agent. Each has a header line of
+  the harness's own, and every line the harness relays below it is indented by
+  two spaces. The collector reads the marker from the task record alone — the
+  one whose first line starts `[Workflow harness — computed task]` — within its
+  first three lines, and allows the indentation there and nowhere else. It never
+  reads the relay, which is the same text for every agent of a run that may
+  drive several branches, nor anything after the agent's first reply. The run's
+  `journal.jsonl` is a log, not a transcript, and is not read.
+
+  *Measured 2026-10-27 — `jq` over the `user` records before the first
+  `assistant` record of every `subagents/workflows/*/agent-*.jsonl` on one
+  machine: 98 agents in 5 runs, each opening with one relay record and then one
+  task record.*
 
 This is **not purely forward-looking**. `resolveDispatchBranch` also falls back
 to `resolveSessionBranch` (below) when a dispatch's own parent is the

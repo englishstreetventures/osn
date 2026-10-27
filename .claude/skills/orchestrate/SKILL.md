@@ -228,7 +228,9 @@ gets followed to the letter. Every dispatch carries:
   collector reads the marker back out of this prompt
   (`tools/pr-metrics/index.ts`, `resolveDispatchBranch`); a subagent that
   dispatches further work does not need to repeat it, because a child with no
-  marker inherits its parent's.
+  marker inherits its parent's. A Workflow script that starts agents puts the
+  same line first in the task text it hands each one; the collector reads it
+  there too.
 - **The claim, as the second line: `CLAIMED: <repo>#<n>`**, in the hand-off for
   a task from the board. `new-feat` Step 0 runs the claim check itself unless
   its brief carries this line, and would find your claim and stop.
