@@ -118,7 +118,7 @@ describe("origin guard", () => {
  * The existing webhook tests cannot see this: they go through `appRequest`,
  * which injects an Origin. These build the request by hand.
  */
-describe("the Stripe webhook is exempt (S-C1)", () => {
+describe("the Stripe webhook is exempt by exact path", () => {
   const webhookDb = createDb(":memory:");
   const SECRET = "whsec_test";
   const webhookApp = createApp(webhookDb, {
