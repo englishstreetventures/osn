@@ -29,13 +29,14 @@ export interface ModuleLock {
 
 /** A module's nav entry. `icon` is a small leading mark that makes the row
  *  scannable, drawn through `ModuleIcon` so every surface sizes it alike; `hint` is its one-line description — a native tooltip on the
- *  rail, visible text in the sheet and the command palette, and the panel
+ *  expanded rail, the second line of the row's label on the collapsed rail,
+ *  visible text in the sheet and the command palette, and the panel
  *  header's subtitle (touch has no hover, so a hover-only hint would be
  *  unreachable on the surface that needs it most). A locked row is the one
- *  exception to the rail tooltip: it carries no `title`, because a native
+ *  exception on the rail: it carries no `title`, because a native
  *  tooltip appears in well under the dwell its upgrade popover waits for and
- *  the two would race. `lock`, where present, names the tier that
- *  unlocks the module. */
+ *  the two would race, and its collapsed label names the tier instead.
+ *  `lock`, where present, names the tier that unlocks the module. */
 export interface ModuleDef {
   id: Module;
   label: string;
