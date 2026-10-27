@@ -133,7 +133,8 @@ export interface ComplexityPoint {
 export interface ComplexityView {
   points: ComplexityPoint[];
   /** No declared complexity: no rating on the issue, a pull request that only
-   * advances its issue, or a lookup that did not land. */
+   * advances its issue, a lookup that did not land, or a tracker issue this
+   * token could not read. */
   unrated: number;
   /** Rated by an agent, unconfirmed — excluded so the chart cannot be circular. */
   unconfirmed: number;

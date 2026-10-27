@@ -14,7 +14,7 @@ related:
   - "[[shared/observability/metrics]]"
   - "[[conventions/review-findings]]"
   - "[[conventions/stacked-prs]]"
-last-reviewed: 2026-10-27
+last-reviewed: 2026-10-28
 ---
 
 # Session Metrics
@@ -86,11 +86,12 @@ predate the label.
 
 Two answers, kept apart. `issue.number` is the issue the branch was cut for.
 `complexity.declared` is the sum of the ratings of every issue in this
-repository the pull request closes. A branch that closes three issues did three
+repository the pull request closes, or, when it links no issue here, of the
+private tracker issues it closes. A branch that closes three issues did three
 issues' work, so dividing its spend by one of their ratings makes it read three
 times as dear as it was. `card -- --resolve-issue` and `backfill` share the
-functions that decide both (`selectIssues` and `decideComplexity` in
-`tools/pr-metrics/index.ts`).
+functions that decide both (`selectIssues`, `issuesToRate` and
+`decideComplexity` in `tools/pr-metrics/index.ts`).
 
 **The issue** — the first of these that applies:
 
@@ -121,11 +122,11 @@ $49.77 session against a complexity-1 follow-up the same pull request closed
 The body is read as prose. A closing keyword in a code span, a fenced block, an
 HTML comment or a table row is not read, because GitHub does not act on it.
 
-**What the pull request closes** — for an open pull request, its body's
-`Closes` lines and GitHub's references together, each issue once: a stacked
-pull request has no references until GitHub retargets it to `main`. For a
-merged one (`backfill`), GitHub's references alone, since they are what the
-merge closed.
+**What the pull request closes** — in this repository and in others alike: for
+an open pull request, its body's `Closes` lines and GitHub's references
+together, each issue once: a stacked pull request has no references until
+GitHub retargets it to `main`. For a merged one (`backfill`), GitHub's
+references alone, since they are what the merge closed.
 
 **The denominator** — the first of these that applies:
 
@@ -135,14 +136,29 @@ merge closed.
 | Closes issues here, one has no rating | null | `none`, with a warning naming it | 0 |
 | Closes issues here, a label lookup failed | null | `lookup-failed` | 0 |
 | Closes nothing here, has a `Part of` line | null | `part-of` | 0 |
-| Closes only another repository's issue | null | `not-fetched` | 0 |
+| Links nothing here, closes tracker issues, every one read and rated | Their sum | `confirmed`, or `unconfirmed` if any part is | How many were summed |
+| Links nothing here, closes a tracker issue this run could not read | null | `not-fetched`, with a warning naming it | 0 |
+| Links nothing here, closes tracker issues, one has no rating | null | `none`, with a warning naming it | 0 |
+| Links nothing here, only `Part of` another repository's issue | null | `part-of` | 0 |
+| Links nothing here, closes an issue in a third repository, or one GitHub did not register | null | `not-fetched` | 0 |
 | Links nothing | null | `none` | 0 |
+
+**From a tracker issue, a card takes only its `complexity:N` and
+`complexity:unconfirmed` labels.** Its `severity:` and `area:` labels must never
+reach a card committed to this public repository (`AGENTS.md` §Issues), so
+every answer from the tracker passes through `ratingLabels` as it arrives, and
+`issue.labels` is read only from an issue in this repository: a card that rates
+tracker work names no issue and has `issue.labels: []`. Only
+`englishstreetventures/osn-tracker` is ever asked, at most 50 issues per run;
+anything past that, or a token that cannot read the tracker, records
+`not-fetched`. The rating needs a token that can read the tracker wherever
+`card` or `backfill` runs.
 
 `--issue-labels` and `--complexity` supply the rating themselves and turn the
 lookup off; a rating read from `--issue-labels` counts one issue, and a
 `--complexity` one counts none.
 
-Four things this does to the comparison of spend against declared difficulty:
+Five things this does to the comparison of spend against declared difficulty:
 
 - **A sum is not a Fibonacci number.** Queries 5 and 6 group by `declared`, so a
   batched branch's 6 or 11 forms a row of its own: points of declared work, not
@@ -150,9 +166,14 @@ Four things this does to the comparison of spend against declared difficulty:
 - **Overlapping issues inflate the sum.** Three issues that describe one defect
   from three sides add up to three issues' worth. `complexity.issues` shows how
   many were summed, so a reader can tell 6 from three issues from 6 from one.
-- **A tracker issue adds nothing.** A pull request that closes a finding in the
-  private `englishstreetventures/osn-tracker` and public issues besides is
-  divided by the public ratings alone; the tracker's labels are never read.
+- **Beside an issue here, a tracker issue adds nothing.** Those tracker issues
+  are mostly the branch's own review findings, which `prep-pr` files and the
+  branch fixes, so the issue here states the work; their ratings would make a
+  branch whose review found more read cheaper per point. No tracker issue is
+  asked about for such a pull request.
+- **A tracker-only sum counts the review's findings too.** With no issue here,
+  every tracker issue the pull request closes is summed, the finding the branch
+  was cut for and those its review filed alike, so the sum runs high.
 - **A `Part of` pull request is unrated.** The issue's rating describes the
   whole of it, and the branch did a part. A series of stacked pull requests
   records `part-of` on each but the one that closes the issue, which carries the
@@ -160,6 +181,14 @@ Four things this does to the comparison of spend against declared difficulty:
 
 Cards with a `schema_version` below 3 predate the sum: their `declared` is one issue's
 rating, taken from the first issue GitHub listed or from the body's one link.
+Cards below 4 never read a tracker issue: one that closes only tracker issues
+records `not-fetched`.
+
+*Measured 2026-10-27 over the last 100 merged pull requests (`gh pr list --json
+closingIssuesReferences`, then each tracker issue's `createdAt` against the pull
+request's first commit): 28 closed an issue here and 121 tracker issues besides,
+103 of them filed after the branch's first commit; 11 closed only tracker
+issues, 39 in all, 32 filed after it.*
 
 ## Who writes a card
 
@@ -488,16 +517,18 @@ Two things worth keeping in mind:
 4 made `interaction.corrective_turns` count only the prompts sent while the
 agent was working; on an older card it counted every human turn after the
 session's first tool call, and every reader treats that count as unknown — see
-[[#The two fields that name a cause]]. Version 3 made `complexity.declared` a
-sum over the issues a pull request closes and added `complexity.issues`; on an
-older card `declared` is one issue's rating.
+[[#The two fields that name a cause]]. Version 4 also rates a pull request that
+links no issue here from the tracker issues it closes; an older card records
+`not-fetched` for it. Version 3 made `complexity.declared` a sum over the issues
+a pull request closes and added `complexity.issues`; on an older card `declared`
+is one issue's rating.
 
 | Field | Meaning |
 |---|---|
 | `pr.number`, `pr.branch`, `pr.base_sha`, `pr.head_sha` | Identity |
 | `pr.phase` | `at-open` or `at-merge` — see [[#Two phases]] |
-| `issue.number`, `issue.type`, `issue.labels` | The issue the branch was cut for — see [[#Which issue a card names, and what it divides by]]. With `--resolve-issue`, `labels` are read only when that issue is one the pull request closes |
-| `complexity.declared` | The sum of the ratings of the issues in this repository the pull request closes — 1, 2, 3, 5 or 8 for one issue. The only judgement in the file |
+| `issue.number`, `issue.type`, `issue.labels` | The issue the branch was cut for — see [[#Which issue a card names, and what it divides by]]. Only ever an issue in this repository, and `labels` only ever its labels: never a tracker issue's, whose number is not recorded and whose labels other than the `complexity:` pair are never kept. With `--resolve-issue`, `labels` are read only when that issue is one the pull request closes |
+| `complexity.declared` | The sum of the ratings of the issues in this repository the pull request closes or, when it links none here, of the tracker issues it closes — 1, 2, 3, 5 or 8 for one issue. On a tracker-only card, `declared` and `issues` show how many tracker issues it closed and their summed rating; the pull request's own `Closes` lines already show the count. The only judgement in the file |
 | `complexity.method` | How that number was arrived at: `confirmed`, `unconfirmed`, `none`, `not-fetched`, `lookup-failed`, `part-of`, or `manual` for `--complexity` |
 | `complexity.issues` | How many issues' ratings `declared` adds up. Absent before version 3 |
 | `window.sessions` | Distinct sessions on this branch |
@@ -700,14 +731,19 @@ request is credited with the issues GitHub registered as closed. Labels are
 fetched by GraphQL node id in one batched `nodes(ids:)` call, so an issue named
 only in the body is recorded with no labels.
 
-**Only issues in this same repository.** Most of this repository's pull
-requests close a finding in the private `englishstreetventures/osn-tracker` repo
-instead, and that issue's labels are never fetched at all — its
-`severity:`/`area:` pair must not reach a card committed here (see `AGENTS.md`
-§Issues on not linking a finding from a public file). A card that closes only
-such an issue writes `complexity.method: "not-fetched"`, not `"none"`: a rating
-may well exist on that issue, nobody checked. `englishstreetventures/osn#1012`
-tracks whether and how to surface it safely later.
+**A card's labels come only from this repository's issues; a tracker issue
+gives only its rating.** A pull request that links no issue here is rated from
+the tracker issues GitHub registered as closed. Their node ids go in a
+`nodes(ids:)` call of their own, so a tracker this token cannot read never
+costs a public lookup, and the answer keeps only each issue's `complexity:`
+pair. The card names no issue and writes `issue.labels: []`: a tracker
+issue's number and its `severity:`/`area:` labels must not reach a card
+committed here (see `AGENTS.md` §Issues on not linking a finding from a public
+file). A tracker issue the token cannot read writes
+`complexity.method: "not-fetched"`, not `"none"`: a rating may well exist
+there, unread. So does a body that names a tracker issue GitHub did not
+register as closed: GitHub may leave out a reference to a repository the token
+cannot see.
 
 "Same repository" is decided against the canonical name: `backfill` asks
 `gh repo view <--repo>` once, and `gh` follows a renamed owner and answers in
@@ -727,11 +763,14 @@ Two cases are not a lowered rating, or cannot carry one:
 - **This run records `part-of`.** That null is the rule's answer, not a failed
   read. A rating looked up from the issue (`confirmed`, `unconfirmed`) is
   dropped, since it describes the whole issue; one given by hand is kept.
-- **The card on disk rates fewer issues than the pull request closes.** A
+- **The card on disk rates fewer issues than the sum now covers.** A
   card before version 3 rates one issue, and version 3's `declared` is the sum over
   all of them: carried across, one issue's rating would count four issues of
   work as one. A new sum is written instead. When this run has no sum either,
-  the card on disk is left as it is, on its old version, and the run names it.
+  the card on disk is left as it is, on its old version, and the run names it —
+  unless that card's `issue` names an issue this run does not link here, or
+  carries labels with no issue. Then the rebuilt card is written, without the
+  old rating, so no tracker number or label survives.
 
 Only `"confirmed"` is a rating to act on; every other method is either an
 agent's guess (`"unconfirmed"`) or a null `complexity.declared`, for the reasons

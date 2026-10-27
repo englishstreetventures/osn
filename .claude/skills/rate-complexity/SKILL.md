@@ -102,7 +102,9 @@ gh issue list --repo englishstreetventures/osn --label "complexity:1" --search "
 
 ## What consumes this
 
-`@tools/pr-metrics` reads the label into `complexity.declared` on the card, and
-`wiki/conventions/session-metrics.md` holds the queries that use it. That page
+`@tools/pr-metrics` reads the label into `complexity.declared` on the card —
+from this repository's issues, and from tracker issues for a pull request that
+links none here — and `wiki/conventions/session-metrics.md` holds the queries
+that use it. That page
 also carries the rule this skill exists to protect: the card stores exactly one
 scalar judgement, and this is it.

@@ -1,7 +1,8 @@
 // Which issue a card names, and what it divides spend by. The two answers are
 // separate on purpose: `issue.number` is the issue the branch was cut for,
 // `complexity.declared` is the sum of the ratings of every issue in this
-// repository the pull request closes. A pull request that closes several issues
+// repository the pull request closes, or, for a pull request that links none,
+// of the tracker issues it closes. A pull request that closes several issues
 // must never be divided by one of them, and the one it names must never depend
 // on the order GitHub happens to list them in.
 
@@ -10,13 +11,23 @@ import { describe, expect, test } from "bun:test";
 import {
   bodyIssueLinks,
   decideComplexity,
+  type ForeignIssue,
   type IssueReference,
+  type IssueSelection,
+  issueKey,
+  issuesToRate,
   newFeatIssue,
+  ratingLabels,
   sameRepository,
   selectIssues,
+  TRACKER_REPO,
+  trackerLabelsFromAnswer,
 } from "../index.ts";
 
 const REPO = "englishstreetventures/osn";
+const TRACKER = "englishstreetventures/osn-tracker";
+
+const tracker = (number: number, repo = TRACKER): ForeignIssue => ({ repo, number });
 
 function ref(number: number, repo = REPO): IssueReference {
   const [login = "", name = ""] = repo.split("/");
@@ -56,7 +67,7 @@ describe("bodyIssueLinks reads prose only", () => {
     );
 
     expect(links.closes).toEqual([21]);
-    expect(links.foreignCloses).toEqual([598]);
+    expect(links.foreignCloses).toEqual([tracker(598)]);
   });
 
   test("unclosed comments and lone backticks are read in linear time", () => {
@@ -153,6 +164,7 @@ describe("selectIssues — the branch's own issue", () => {
     expect(selection.issue).toBeNull();
     expect(selection.closed).toEqual([]);
     expect(selection.foreign).toBe(true);
+    expect(selection.closedElsewhere).toEqual([tracker(754)]);
   });
 
   test("an issue both listed by GitHub and named in the body is closed once", () => {
@@ -179,17 +191,164 @@ describe("selectIssues — the branch's own issue", () => {
   });
 });
 
+describe("selectIssues — another repository's issues", () => {
+  test("an open pull request closes a tracker issue once, from its body or GitHub's list", () => {
+    const selection = selectIssues({
+      body: `Closes ${TRACKER}#5\nCloses #9`,
+      refs: [ref(5, "EnglishStreetVentures/OSN-Tracker"), ref(6, TRACKER), ref(9)],
+      repo: REPO,
+      closedFromBody: true,
+    });
+
+    expect(selection.closed).toEqual([9]);
+    expect(selection.closedElsewhere.map(issueKey)).toEqual([`${TRACKER}#5`, `${TRACKER}#6`]);
+  });
+
+  // GitHub may leave out a reference to a repository the token cannot read, so
+  // a merged pull request's body-only tracker line still says a rating exists
+  // somewhere nobody looked.
+  test("a merged pull request is credited with the tracker issues GitHub registered alone", () => {
+    const selection = selectIssues({
+      body: `Closes ${TRACKER}#5`,
+      refs: [],
+      repo: REPO,
+      closedFromBody: false,
+    });
+
+    expect(selection.closedElsewhere).toEqual([]);
+    expect(selection.foreign).toBe(true);
+    expect(decideComplexity(selection, new Map(), new Map()).method).toBe("not-fetched");
+  });
+
+  test("a Part of line naming a tracker issue is kept apart from what it closes", () => {
+    const selection = selectIssues({
+      body: `Part of ${TRACKER}#7\nCloses ${TRACKER}#8`,
+      refs: [],
+      repo: REPO,
+      closedFromBody: true,
+    });
+
+    expect(selection.partOfElsewhere).toEqual([tracker(7)]);
+    expect(selection.closedElsewhere).toEqual([tracker(8)]);
+    expect(selection.issue).toBeNull();
+  });
+});
+
+describe("ratingLabels — all a card takes from another repository's issue", () => {
+  test("keeps the complexity pair and drops every other label", () => {
+    expect(
+      ratingLabels([
+        "severity:high",
+        "area:security",
+        "product:osn",
+        "needs:decision",
+        "complexity:huge",
+        "complexity:3",
+        " complexity:unconfirmed ",
+        "xcomplexity:5",
+      ]),
+    ).toEqual(["complexity:3", "complexity:unconfirmed"]);
+  });
+});
+
+describe("trackerLabelsFromAnswer — reading the one tracker call", () => {
+  const answer = (repository: unknown) => JSON.stringify({ data: { repository } });
+
+  test("keeps the complexity pair of each issue and nothing else", () => {
+    const read = trackerLabelsFromAnswer(
+      answer({
+        i619: {
+          labels: {
+            nodes: [
+              { name: "severity:high" },
+              { name: "area:security" },
+              { name: "complexity:3" },
+              { name: "complexity:unconfirmed" },
+            ],
+          },
+        },
+        i620: null,
+      }),
+      [tracker(619), tracker(620)],
+    );
+
+    expect([...read.entries()]).toEqual([
+      [`${TRACKER}#619`, ["complexity:3", "complexity:unconfirmed"]],
+    ]);
+  });
+
+  test.each([
+    ["a repository the token cannot see", answer(null)],
+    ["output that is not JSON", "gh: Could not resolve to a Repository"],
+    ["no output", null],
+  ])("reads nothing from %s", (_, raw) => {
+    expect(trackerLabelsFromAnswer(raw, [tracker(619)]).size).toBe(0);
+  });
+});
+
+describe("issuesToRate — which issues the denominator sums", () => {
+  const selection = (fields: Partial<IssueSelection>): IssueSelection => ({
+    issue: null,
+    closed: [],
+    partOf: [],
+    foreign: (fields.closedElsewhere ?? []).length > 0,
+    closedElsewhere: [],
+    partOfElsewhere: [],
+    candidates: [],
+    ...fields,
+  });
+
+  test("beside an issue here, the tracker issues it closes are not rated", () => {
+    expect(issuesToRate(selection({ closed: [4], closedElsewhere: [tracker(619)] }))).toEqual({
+      here: [4],
+      elsewhere: [],
+    });
+  });
+
+  test("with nothing here, the tracker issues it closes are", () => {
+    expect(issuesToRate(selection({ closedElsewhere: [tracker(619)] }))).toEqual({
+      here: [],
+      elsewhere: [tracker(619)],
+    });
+  });
+
+  test("a Part of line here leaves nothing to rate", () => {
+    expect(issuesToRate(selection({ partOf: [1000], closedElsewhere: [tracker(619)] }))).toEqual({
+      here: [],
+      elsewhere: [],
+    });
+  });
+
+  test("only the tracker's issues are ever asked about", () => {
+    expect(TRACKER_REPO).toBe(TRACKER);
+  });
+});
+
 describe("decideComplexity — the denominator", () => {
   const labels = (entries: [number, string[] | null][]) => new Map(entries);
+  const elsewhere = (entries: [ForeignIssue, string[] | null][]) =>
+    new Map(entries.map(([issue, names]) => [issueKey(issue), names]));
+  const none = elsewhere([]);
+  const pick = (fields: Partial<IssueSelection>): IssueSelection => ({
+    issue: null,
+    closed: [],
+    partOf: [],
+    foreign: (fields.closedElsewhere ?? []).length > 0,
+    closedElsewhere: [],
+    partOfElsewhere: [],
+    candidates: [],
+    ...fields,
+  });
 
   test("a pull request closing three complexity:2 issues declares 6 over 3 issues", () => {
     const decision = decideComplexity(
-      { issue: 1, closed: [1, 2, 3], partOf: [], foreign: false, candidates: [] },
+      pick({ issue: 1, closed: [1, 2, 3] }),
       labels([
         [1, ["complexity:2"]],
         [2, ["complexity:2"]],
         [3, ["complexity:2"]],
       ]),
+      none,
     );
 
     expect(decision).toEqual({ declared: 6, method: "confirmed", issues: 3, unrated: [] });
@@ -197,11 +356,12 @@ describe("decideComplexity — the denominator", () => {
 
   test("one unconfirmed part makes the whole sum unconfirmed", () => {
     const decision = decideComplexity(
-      { issue: 1, closed: [1, 2], partOf: [], foreign: false, candidates: [] },
+      pick({ issue: 1, closed: [1, 2] }),
       labels([
         [1, ["complexity:3"]],
         [2, ["complexity:2", "complexity:unconfirmed"]],
       ]),
+      none,
     );
 
     expect(decision.declared).toBe(5);
@@ -210,23 +370,25 @@ describe("decideComplexity — the denominator", () => {
 
   test("one unrated issue makes the sum unknown rather than partial, and names it", () => {
     const decision = decideComplexity(
-      { issue: 1, closed: [1, 2], partOf: [], foreign: false, candidates: [] },
+      pick({ issue: 1, closed: [1, 2] }),
       labels([
         [1, ["complexity:3"]],
         [2, ["product:cire"]],
       ]),
+      none,
     );
 
-    expect(decision).toEqual({ declared: null, method: "none", issues: 0, unrated: [2] });
+    expect(decision).toEqual({ declared: null, method: "none", issues: 0, unrated: ["#2"] });
   });
 
   test("a label lookup that did not land is lookup-failed", () => {
     const decision = decideComplexity(
-      { issue: 1, closed: [1, 2], partOf: [], foreign: false, candidates: [] },
+      pick({ issue: 1, closed: [1, 2] }),
       labels([
         [1, ["complexity:3"]],
         [2, null],
       ]),
+      none,
     );
 
     expect(decision.declared).toBeNull();
@@ -235,8 +397,9 @@ describe("decideComplexity — the denominator", () => {
 
   test("a Part of issue's rating is never this branch's", () => {
     const decision = decideComplexity(
-      { issue: 1673, closed: [], partOf: [1673], foreign: false, candidates: [] },
+      pick({ issue: 1673, partOf: [1673] }),
       labels([[1673, ["complexity:8"]]]),
+      none,
     );
 
     expect(decision).toEqual({ declared: null, method: "part-of", issues: 0, unrated: [] });
@@ -244,33 +407,102 @@ describe("decideComplexity — the denominator", () => {
 
   test("a child that closes one issue and is Part of an epic divides by the one it closes", () => {
     const decision = decideComplexity(
-      { issue: 1041, closed: [1041], partOf: [1000], foreign: false, candidates: [] },
+      pick({ issue: 1041, closed: [1041], partOf: [1000] }),
       labels([
         [1041, ["complexity:2"]],
         [1000, ["epic", "complexity:8"]],
       ]),
+      none,
     );
 
     expect(decision).toEqual({ declared: 2, method: "confirmed", issues: 1, unrated: [] });
   });
 
-  test("a pull request closing only a tracker issue is not-fetched", () => {
+  test("a pull request closing only tracker issues sums their ratings", () => {
     const decision = decideComplexity(
-      { issue: null, closed: [], partOf: [], foreign: true, candidates: [] },
+      pick({ closedElsewhere: [tracker(619), tracker(620)] }),
       labels([]),
+      elsewhere([
+        [tracker(619), ["complexity:3"]],
+        [tracker(620), ["complexity:2", "complexity:unconfirmed"]],
+      ]),
+    );
+
+    expect(decision).toEqual({ declared: 5, method: "unconfirmed", issues: 2, unrated: [] });
+  });
+
+  test("a tracker issue this run could not read is not-fetched", () => {
+    const decision = decideComplexity(
+      pick({ closedElsewhere: [tracker(619), tracker(620)] }),
+      labels([]),
+      elsewhere([
+        [tracker(619), ["complexity:3"]],
+        [tracker(620), null],
+      ]),
+    );
+
+    expect(decision).toEqual({ declared: null, method: "not-fetched", issues: 0, unrated: [] });
+  });
+
+  test("a tracker issue nobody asked about is not-fetched", () => {
+    const decision = decideComplexity(
+      pick({ closedElsewhere: [tracker(5, "someone/else")] }),
+      labels([]),
+      none,
     );
 
     expect(decision.method).toBe("not-fetched");
   });
 
-  test("a tracker issue beside public ones adds nothing to the sum", () => {
+  test("an unrated tracker issue makes the sum unknown and is named by repository", () => {
     const decision = decideComplexity(
-      { issue: 4, closed: [4], partOf: [], foreign: true, candidates: [] },
-      labels([[4, ["complexity:3"]]]),
+      pick({ closedElsewhere: [tracker(619), tracker(620)] }),
+      labels([]),
+      elsewhere([
+        [tracker(619), ["complexity:3"]],
+        [tracker(620), []],
+      ]),
     );
 
-    expect(decision.declared).toBe(3);
-    expect(decision.issues).toBe(1);
+    expect(decision).toEqual({
+      declared: null,
+      method: "none",
+      issues: 0,
+      unrated: [`${TRACKER}#620`],
+    });
+  });
+
+  test("a tracker issue beside public ones adds nothing to the sum, read or not", () => {
+    const selection = pick({ issue: 4, closed: [4], closedElsewhere: [tracker(619)] });
+    const read = decideComplexity(
+      selection,
+      labels([[4, ["complexity:3"]]]),
+      elsewhere([[tracker(619), ["complexity:2"]]]),
+    );
+    const unread = decideComplexity(selection, labels([[4, ["complexity:3"]]]), none);
+
+    expect(read).toEqual({ declared: 3, method: "confirmed", issues: 1, unrated: [] });
+    expect(unread).toEqual(read);
+  });
+
+  test("a pull request only Part of a tracker issue is part-of", () => {
+    const decision = decideComplexity(
+      pick({ partOfElsewhere: [tracker(700)] }),
+      labels([]),
+      elsewhere([[tracker(700), ["complexity:8"]]]),
+    );
+
+    expect(decision).toEqual({ declared: null, method: "part-of", issues: 0, unrated: [] });
+  });
+
+  test("Part of an issue here wins over tracker issues it closes", () => {
+    const decision = decideComplexity(
+      pick({ issue: 1000, partOf: [1000], closedElsewhere: [tracker(619)] }),
+      labels([]),
+      elsewhere([[tracker(619), ["complexity:2"]]]),
+    );
+
+    expect(decision.method).toBe("part-of");
   });
 });
 

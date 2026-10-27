@@ -66,7 +66,7 @@ describe("bodyIssueLinks", () => {
     expect(bodyIssueLinks("Closes englishstreetventures/osn-tracker#593")).toEqual({
       closes: [],
       partOf: [],
-      foreignCloses: [593],
+      foreignCloses: [{ repo: "englishstreetventures/osn-tracker", number: 593 }],
       foreignPartOf: [],
     });
   });

@@ -61,6 +61,6 @@ file is only about what a **single** card licenses you to say.
 
 | Field | Answers | A finding it supports | The trap |
 |---|---|---|---|
-| `complexity.declared` + `.method` | What was declared, and by whom | `method: "unconfirmed"` on work that turned out to be an 8 → get the rating confirmed next time | `"not-fetched"` is **not** a missing rating. It means the issue lives in the private tracker and its labels were deliberately not fetched into a public card. Never file that as a gap |
+| `complexity.declared` + `.method` | What was declared, and by whom | `method: "unconfirmed"` on work that turned out to be an 8 → get the rating confirmed next time | `"not-fetched"` is **not** a missing rating. It means the pull request links no issue here and closes a tracker issue this run could not read (before `schema_version` 4, any tracker-only pull request). Only a tracker issue's `complexity:` pair ever reaches a card. Never file that as a gap |
 | `pr.phase` | `at-open` or `at-merge` | Nothing | An `at-open` card has not seen review-cycle cost. Do not conclude a session was cheap from one |
 | `pr.number: null` | The `SessionEnd` fallback wrote this card, before a pull request existed | Step 1 fills the identity in | Only the identity is missing. The spend and interaction numbers are as trustworthy as any other card's, and stay usable when Step 1 cannot run |

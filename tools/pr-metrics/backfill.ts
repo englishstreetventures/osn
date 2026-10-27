@@ -26,7 +26,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 
-import type { BranchPull, Card, IssueReference, SessionsRoots } from "./index.ts";
+import type { BranchPull, Card, IssueReference, IssueSelection, SessionsRoots } from "./index.ts";
 import {
   branchCards,
   buildCard,
@@ -34,8 +34,11 @@ import {
   decideComplexity,
   defaultMetricsDir,
   defaultSessionsRoots,
+  issueKey,
+  issuesToRate,
   otherPullRequest,
   parseNumstat,
+  ratingLabels,
   recordsByBranch,
   recordsInWindow,
   recordWindow,
@@ -44,6 +47,7 @@ import {
   sameApartFromGeneratedAt,
   sameRepository,
   selectIssues,
+  TRACKER_REPO,
 } from "./index.ts";
 
 /** A merged pull request as `gh pr list --json` returns it. Each linked issue
@@ -67,8 +71,7 @@ const DEFAULT_REPO = "englishstreetventures/osn";
 /**
  * The card to write, given the card already on disk: `next`; `next` carrying
  * the disk card's rating; or `null`, meaning leave the disk card as it is.
- * `links` are the issues in this repository the pull request closes and the
- * ones it is `Part of`.
+ * `selection` is what the pull request links, here and in other repositories.
  *
  * A backfill rebuilds every card it can cost, and a run whose label lookup
  * failed, or that can no longer read an issue, produces a card with a null
@@ -86,18 +89,17 @@ const DEFAULT_REPO = "englishstreetventures/osn";
  *   read: the issue's rating describes more than the branch did. A rating
  *   looked up from the issue (`confirmed`, `unconfirmed`) is not carried into
  *   it; one a caller gave by hand is.
- * - The disk rating covers fewer issues than the pull request closes — a card
- *   older than version 3, which rates one issue, for a pull request that closes
- *   several. `declared` is now the sum over all of them, and one issue's rating
- *   under that label would count several issues of work at one issue's rating.
- *   A new sum is written; when this run has none either, the disk card is left
- *   as it is, on its old version and true to that version's meaning.
+ * - The disk rating covers fewer issues than the rating sums now
+ *   ({@link issuesToRate}) — a card older than version 3, which rates one
+ *   issue, for a pull request that closes several. `declared` is now the sum
+ *   over all of them, and one issue's rating under that label would count
+ *   several issues of work at one issue's rating. A new sum is written; when
+ *   this run has none either, the disk card is left as it is, on its old
+ *   version and true to that version's meaning — unless its `issue` names an
+ *   issue this run does not link here, or carries labels with no issue: a
+ *   public card must not keep those, so the rebuilt card is written instead.
  */
-export function keepRating(
-  onDisk: unknown,
-  next: Card,
-  links: { closed: readonly number[]; partOf: readonly number[] },
-): Card | null {
+export function keepRating(onDisk: unknown, next: Card, selection: IssueSelection): Card | null {
   if (onDisk === null || typeof onDisk !== "object") return next;
 
   const disk = onDisk as Partial<Pick<Card, "pr" | "issue" | "complexity">>;
@@ -113,15 +115,22 @@ export function keepRating(
   const lookedUp = old.method === "confirmed" || old.method === "unconfirmed";
   if (next.complexity.method === "part-of" && lookedUp) return next;
 
-  const covered = typeof old.issues === "number" ? old.issues : oldDeclared === null ? 0 : 1;
-  if (covered < links.closed.length) return next.complexity.declared === null ? null : next;
-
   const diskIssue = disk.issue?.number;
   const linkedHere =
     typeof diskIssue === "number" &&
     (diskIssue === next.issue.number ||
-      links.closed.includes(diskIssue) ||
-      links.partOf.includes(diskIssue));
+      selection.closed.includes(diskIssue) ||
+      selection.partOf.includes(diskIssue));
+
+  const rated = issuesToRate(selection);
+  const covered = typeof old.issues === "number" ? old.issues : oldDeclared === null ? 0 : 1;
+  if (covered < rated.here.length + rated.elsewhere.length) {
+    if (next.complexity.declared !== null) return next;
+    const issueless =
+      (diskIssue === null || diskIssue === undefined) && (disk.issue?.labels ?? []).length === 0;
+
+    return linkedHere || issueless ? null : next;
+  }
 
   return {
     ...next,
@@ -425,15 +434,16 @@ if (import.meta.main) {
   // depends on the other's result, and the loop's own work is local.
   const numbers = carded.map((pull) => pull.number);
 
-  // A linked issue's labels are read only when the issue itself lives in
-  // this same repository — see `issueLabelsById`'s doc comment for why a
-  // repository-scoped alias can't be used for one elsewhere, and
-  // englishstreetventures/osn#1012 for why one elsewhere (chiefly the private
-  // englishstreetventures/osn-tracker) is never fetched at all: its labels can carry a
-  // severity/area pair that must not reach a card committed in this public
-  // repository. A merged pull request is credited with what its merge closed,
-  // GitHub's references, and its body only names which one the branch was
-  // cut for. Keyed by pull-request number for the per-pull loop below.
+  // A merged pull request is credited with what its merge closed, GitHub's
+  // references, and its body only names which one the branch was cut for.
+  // Labels are fetched by node id (see `issueLabelsById`'s doc comment for why
+  // not by number). A card's `issue.labels` come only from this repository's
+  // issues. A pull request that links no issue here is rated from the tracker
+  // issues it closes (`issuesToRate`), and those ids go in a call of their own
+  // whose answer keeps only the `complexity:` pair (`ratingLabels`): a tracker
+  // issue's `severity:`/`area:` labels must never reach a card committed in
+  // this public repository, and a tracker this token cannot read must not cost
+  // a public lookup. Keyed by pull-request number for the per-pull loop below.
   const selections = new Map(
     carded.map((pull) => [
       pull.number,
@@ -456,10 +466,35 @@ if (import.meta.main) {
   const uniqueIssueIds = new Set<string>();
   for (const ids of localIssueIds.values()) for (const id of ids.values()) uniqueIssueIds.add(id);
 
-  const [counts, files, labelsById] = await Promise.all([
+  // Each tracker issue a pull request's rating sums, by `issueKey`, to its node id.
+  const trackerIssueIds = new Map<number, Map<string, string>>();
+  for (const pull of carded) {
+    const wanted = new Set(
+      issuesToRate(selections.get(pull.number) as IssueSelection)
+        .elsewhere.filter((issue) => issue.repo.toLowerCase() === TRACKER_REPO)
+        .map(issueKey),
+    );
+    const ids = new Map<string, string>();
+    for (const ref of pull.closingIssuesReferences ?? []) {
+      const key = issueKey({
+        repo: `${ref.repository.owner.login}/${ref.repository.name}`,
+        number: ref.number,
+      });
+      if (ref.id !== undefined && wanted.has(key)) ids.set(key, ref.id);
+    }
+    trackerIssueIds.set(pull.number, ids);
+  }
+  const uniqueTrackerIds = new Set<string>();
+  for (const ids of trackerIssueIds.values())
+    for (const id of ids.values()) uniqueTrackerIds.add(id);
+
+  const [counts, files, labelsById, trackerLabelsById] = await Promise.all([
     commitCounts(repo, numbers),
     fileLists(repo, numbers),
     issueLabelsById([...uniqueIssueIds]),
+    issueLabelsById([...uniqueTrackerIds]).then(
+      (found) => new Map([...found].map(([id, names]) => [id, ratingLabels(names)])),
+    ),
   ]);
 
   // Oldest merge first, so on a reused branch name the first pull request
@@ -529,13 +564,15 @@ if (import.meta.main) {
     const changed = files.get(pull.number) ?? [];
 
     // Only this repository's issues are recorded. A private tracker number on
-    // a public card would reveal that the finding exists, and its labels are
-    // never asked for.
-    const selection = selections.get(pull.number) ?? {
+    // a public card would reveal that the finding exists, and of its labels
+    // only the `complexity:` pair is ever kept, for the rating.
+    const selection: IssueSelection = selections.get(pull.number) ?? {
       issue: null,
       closed: [],
       partOf: [],
       foreign: false,
+      closedElsewhere: [],
+      partOfElsewhere: [],
       candidates: [],
     };
     const ids = localIssueIds.get(pull.number) ?? new Map<number, string>();
@@ -549,7 +586,15 @@ if (import.meta.main) {
         return [issue, id === undefined ? null : (labelsById.get(id) ?? null)];
       }),
     );
-    const complexity = decideComplexity(selection, issueLabels);
+    // Tracker issues by `issueKey`, rating labels only; one with no id, or
+    // whose node did not resolve, is absent and reads as `not-fetched`.
+    const trackerIds = trackerIssueIds.get(pull.number) ?? new Map<string, string>();
+    const labelsElsewhere = new Map<string, string[] | null>();
+    for (const [key, id] of trackerIds) {
+      const names = trackerLabelsById.get(id);
+      if (names !== undefined) labelsElsewhere.set(key, names);
+    }
+    const complexity = decideComplexity(selection, issueLabels, labelsElsewhere);
 
     if (complexity.method === "lookup-failed") {
       const missing = selection.closed.filter((issue) => issueLabels.get(issue) === null);
@@ -557,9 +602,17 @@ if (import.meta.main) {
         `  ⚠️  could not fetch labels for ${missing.map((n) => `#${n}`).join(", ")} (closed by PR #${pull.number}) — leaving complexity unrated rather than guessing.\n`,
       );
     }
+    const unread = issuesToRate(selection).elsewhere.filter(
+      (issue) => !labelsElsewhere.has(issueKey(issue)),
+    );
+    if (unread.length > 0) {
+      process.stderr.write(
+        `  ⚠️  could not read ${unread.map((issue) => `${issue.repo}#${issue.number}`).join(", ")} (closed by PR #${pull.number}) — recording not-fetched.\n`,
+      );
+    }
     if (complexity.unrated.length > 0) {
       process.stderr.write(
-        `  ⚠️  ${complexity.unrated.map((n) => `#${n}`).join(", ")} (closed by PR #${pull.number}) carries no complexity: rating, so the sum is unknown.\n`,
+        `  ⚠️  ${complexity.unrated.join(", ")} (closed by PR #${pull.number}) carries no complexity: rating, so the sum is unknown.\n`,
       );
     }
 

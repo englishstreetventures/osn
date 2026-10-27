@@ -53,9 +53,12 @@ import { compactTokens, humanDuration } from "./format.ts";
 /** 4: `interaction.corrective_turns` counts only the prompts a person sent while
  * the agent was still working; before 4 it counted every human turn after the
  * session's first tool call, and readers treat an older card's count as
- * unknown. 3: `complexity.declared` is the sum of the ratings of every issue in
- * this repository the pull request closes, and `complexity.issues` counts them.
- * A card before version 3 has one issue's rating in `declared`. */
+ * unknown. Also from 4, a pull request that links no issue in this repository
+ * sums the ratings of the tracker issues it closes into `complexity.declared`;
+ * before 4 it recorded `not-fetched`. 3: `complexity.declared` is the sum of the
+ * ratings of every issue in this repository the pull request closes, and
+ * `complexity.issues` counts them. A card before version 3 has one issue's
+ * rating in `declared`. */
 export const SCHEMA_VERSION = 4;
 
 /**
@@ -1123,6 +1126,22 @@ export function declaredFromLabels(labels: string[]): DeclaredComplexity {
   return { declared: ratings[0], method: unconfirmed ? "unconfirmed" : "confirmed" };
 }
 
+/**
+ * The only labels a card may take from an issue in another repository: a
+ * `complexity:N` rating and `complexity:unconfirmed`, trimmed.
+ *
+ * The tracker's issues carry `severity:` and `area:` labels that must never
+ * reach a card committed to a public repository. Every tracker answer passes
+ * through this as it arrives, so no other label of such an issue is held past
+ * the call that read it. It is the second guard: the first is that a card's
+ * `issue.labels` is read only from this repository's issues.
+ */
+export function ratingLabels(labels: string[]): string[] {
+  return labels
+    .map((label) => label.trim())
+    .filter((label) => /^complexity:(?:\d+|unconfirmed)$/.test(label));
+}
+
 /** A linked issue as `gh pr list --json closingIssuesReferences` returns it.
  * The repository is the load-bearing part: it decides whether the labels may
  * be read at all. `id` is the GraphQL node id, which `backfill` fetches labels
@@ -1131,6 +1150,23 @@ export interface IssueReference {
   id?: string;
   number: number;
   repository: { name: string; owner: { login: string } };
+}
+
+/** The private repository that holds security, performance and compliance
+ * findings. Its issues are the only ones outside this repository a card's
+ * rating is ever read from; an issue anywhere else is never asked about. */
+export const TRACKER_REPO = "englishstreetventures/osn-tracker";
+
+/** An issue in another repository that a pull request links, by the name a
+ * reference or the body gave its repository. */
+export interface ForeignIssue {
+  repo: string;
+  number: number;
+}
+
+/** One key per issue, whatever case its repository was written in. */
+export function issueKey(issue: ForeignIssue): string {
+  return `${issue.repo.toLowerCase()}#${issue.number}`;
 }
 
 /** How `complexity.declared` was arrived at. `part-of` is a pull request that
@@ -2888,6 +2924,21 @@ function gh(args: string[]): string | null {
   }
 }
 
+/** One `gh` invocation's stdout whatever its exit status, or `null` where `gh`
+ * could not run or printed nothing. For `gh api graphql`, which exits non-zero
+ * when any one alias in a document does not resolve and still prints the
+ * `data` it found for the rest. */
+function ghOutput(args: string[]): string | null {
+  try {
+    const result = Bun.spawnSync(["gh", ...args], { stdout: "pipe", stderr: "pipe" });
+    const out = result.stdout.toString().trim();
+
+    return out === "" ? null : out;
+  } catch {
+    return null;
+  }
+}
+
 /** A pull request's state and merge time from `gh`, or both `null` where the
  * call fails or answers with something else. */
 function mergeState(number: number): Pick<BranchPull, "mergedAt" | "state"> {
@@ -2974,6 +3025,90 @@ function fetchIssueLabels(issue: number, repo: string): string[] | null {
   }
 }
 
+/** The most tracker issues one run asks about. A pull-request body decides
+ * the list, and the `SessionEnd` hook that runs this has 60 seconds; past this
+ * many, nothing is asked and the rating is `not-fetched`. */
+const TRACKER_QUERY_CAP = 50;
+
+/** One issue in the tracker call's answer, under its `i<number>` alias. */
+interface TrackerIssueNode {
+  labels?: { nodes?: { name?: unknown }[] };
+}
+
+/** The largest number GraphQL's `Int` holds. */
+const GRAPHQL_INT_MAX = 2 ** 31 - 1;
+
+/**
+ * The rating labels of each tracker issue in one `gh api graphql` answer to
+ * {@link fetchTrackerLabels}'s query, keyed by {@link issueKey}, through
+ * {@link ratingLabels}. An issue whose alias is `null` or missing — a number
+ * that is not an issue, or one this token cannot read — is left out, as is
+ * every issue when the repository itself is `null` (a token that cannot see
+ * the tracker) or the output is not JSON.
+ */
+export function trackerLabelsFromAnswer(
+  raw: string | null,
+  issues: ForeignIssue[],
+): Map<string, string[]> {
+  const read = new Map<string, string[]>();
+  if (raw === null) return read;
+
+  let parsed: { data?: { repository?: Record<string, TrackerIssueNode | null> | null } };
+  try {
+    parsed = JSON.parse(raw) as typeof parsed;
+  } catch {
+    return read;
+  }
+
+  const repository = parsed.data?.repository;
+  if (repository === null || typeof repository !== "object") return read;
+
+  for (const issue of issues) {
+    const names = repository[`i${issue.number}`]?.labels?.nodes;
+    if (!Array.isArray(names)) continue;
+
+    read.set(
+      issueKey(issue),
+      ratingLabels(names.map((label) => label.name).filter((name) => typeof name === "string")),
+    );
+  }
+
+  return read;
+}
+
+/**
+ * The rating labels of the given issues in {@link TRACKER_REPO}, in one call.
+ * Only the tracker's issues are asked about; any other repository's, and every
+ * one of them when there are more than {@link TRACKER_QUERY_CAP} or one number
+ * is not a GraphQL `Int`, are left out, which reads as `not-fetched`.
+ */
+function fetchTrackerLabels(issues: ForeignIssue[]): Map<string, string[]> {
+  const wanted = issues.filter((issue) => issue.repo.toLowerCase() === TRACKER_REPO);
+  const askable =
+    wanted.length > 0 &&
+    wanted.length <= TRACKER_QUERY_CAP &&
+    wanted.every((issue) => Number.isSafeInteger(issue.number) && issue.number <= GRAPHQL_INT_MAX);
+  if (!askable) return new Map();
+
+  const [owner, name] = TRACKER_REPO.split("/");
+  const fields = wanted
+    .map(
+      (issue) =>
+        `i${issue.number}: issue(number: ${issue.number}) { labels(first: 20) { nodes { name } } }`,
+    )
+    .join(" ");
+
+  return trackerLabelsFromAnswer(
+    ghOutput([
+      "api",
+      "graphql",
+      "-f",
+      `query=query { repository(owner: "${owner}", name: "${name}") { ${fields} } }`,
+    ]),
+    wanted,
+  );
+}
+
 /**
  * Recover a branch's pull request, issue and rating from `gh`, for a run that
  * was given none of them.
@@ -2983,12 +3118,16 @@ function fetchIssueLabels(issue: number, repo: string): string[] | null {
  * then records nothing. `retro` runs it once the pull request is open.
  *
  * The rules are `wiki/conventions/session-metrics.md` §Which issue a card
- * names: {@link selectIssues} names the issue, {@link decideComplexity} sums
- * the ratings. **Labels are read only from an issue in this same repository.**
- * Most of this repository's pull requests close a finding in the private
- * `englishstreetventures/osn-tracker`, whose `severity:`/`area:` labels must
- * never reach a card committed to a public one, so such an issue is never asked
- * about. `backfill.ts` draws the same outcomes from the same functions.
+ * names: {@link selectIssues} names the issue, {@link issuesToRate} says which
+ * issues the rating sums and {@link decideComplexity} sums them. **A card's
+ * `issue.labels` are read only from an issue in this same repository.** Many of
+ * this repository's pull requests close a finding in the private
+ * {@link TRACKER_REPO}, whose `severity:`/`area:` labels must never reach a
+ * card committed to a public one. A pull request that links no issue here is
+ * rated from the tracker issues it closes, and from those only their
+ * `complexity:` pair is kept ({@link ratingLabels}); a token that cannot read
+ * the tracker leaves the rating `not-fetched`. `backfill.ts` draws the same
+ * outcomes from the same functions.
  *
  * `explicitIssue` is `--issue`: it names the issue and nothing else, so the
  * rating is still the sum of what the pull request closes. The card is public,
@@ -3048,8 +3187,8 @@ function resolveIdentity(branch: string, explicitIssue: number | null): Resolved
   const refs = pull.closingIssuesReferences ?? [];
   const body = bodyIssueLinks(pull.body ?? "", repo);
   const elsewhere = new Set([
-    ...body.foreignCloses,
-    ...body.foreignPartOf,
+    ...body.foreignCloses.map((issue) => issue.number),
+    ...body.foreignPartOf.map((issue) => issue.number),
     ...refs.filter((ref) => repo === null || !sameRepository(ref, repo)).map((ref) => ref.number),
   ]);
   const here = new Set([...selection.closed, ...selection.partOf]);
@@ -3074,10 +3213,19 @@ function resolveIdentity(branch: string, explicitIssue: number | null): Resolved
   const labels = new Map<number, string[] | null>();
   for (const issue of selection.closed) labels.set(issue, fetchIssueLabels(issue, repo));
 
-  const decision = decideComplexity(selection, labels);
+  const rated = issuesToRate(selection);
+  const labelsElsewhere = fetchTrackerLabels(rated.elsewhere);
+
+  const decision = decideComplexity(selection, labels, labelsElsewhere);
   if (decision.unrated.length > 0) {
     process.stderr.write(
-      `⚠️  pr-metrics: ${decision.unrated.map((n) => `#${n}`).join(", ")} carries no complexity: rating, so the sum of what pull request #${pull.number} closes is unknown and the card records none.\n`,
+      `⚠️  pr-metrics: ${decision.unrated.join(", ")} carries no complexity: rating, so the sum of what pull request #${pull.number} closes is unknown and the card records none.\n`,
+    );
+  }
+  const unread = rated.elsewhere.filter((issue) => !labelsElsewhere.has(issueKey(issue)));
+  if (unread.length > 0) {
+    process.stderr.write(
+      `⚠️  pr-metrics: could not read ${unread.map((issue) => `${issue.repo}#${issue.number}`).join(", ")}, which pull request #${pull.number} closes, so the card records not-fetched. Only ${TRACKER_REPO} is asked, at most ${TRACKER_QUERY_CAP} issues, and only with a token that can read it.\n`,
     );
   }
 
@@ -3216,19 +3364,20 @@ function findRun(line: string, length: number, from: number): number {
  * body order, from its prose only (see {@link proseOnly}).
  *
  * A bare `#N` is this repository's issue. A qualified `owner/name#N` is this
- * repository's when it names `repo`, and otherwise another repository's: its
- * number goes to `foreignCloses` or `foreignPartOf`, never to `closes` or
- * `partOf`. With no `repo`, every qualified reference is foreign.
+ * repository's when it names `repo`, and otherwise another repository's: it
+ * goes to `foreignCloses` or `foreignPartOf` with the repository as written,
+ * never to `closes` or `partOf`. With no `repo`, every qualified reference is
+ * foreign.
  */
 export interface BodyIssueLinks {
   /** This repository's issues the pull request closes on merge. */
   closes: number[];
   /** Issues it only advances: a `Part of` line, for partial work. */
   partOf: number[];
-  /** Another repository's issues it closes. */
-  foreignCloses: number[];
-  /** Another repository's issues it only advances. */
-  foreignPartOf: number[];
+  /** Another repository's issues it closes, each once. */
+  foreignCloses: ForeignIssue[];
+  /** Another repository's issues it only advances, each once. */
+  foreignPartOf: ForeignIssue[];
 }
 
 export function bodyIssueLinks(body: string, repo: string | null = null): BodyIssueLinks {
@@ -3239,8 +3388,8 @@ export function bodyIssueLinks(body: string, repo: string | null = null): BodyIs
   );
   const closes = new Set<number>();
   const partOf = new Set<number>();
-  const foreignCloses = new Set<number>();
-  const foreignPartOf = new Set<number>();
+  const foreignCloses = new Map<string, ForeignIssue>();
+  const foreignPartOf = new Map<string, ForeignIssue>();
 
   for (const [, keyword = "", qualifier, digits = ""] of matches) {
     const number = Number(digits);
@@ -3249,7 +3398,9 @@ export function bodyIssueLinks(body: string, repo: string | null = null): BodyIs
     const advances = /^part/i.test(keyword);
 
     if (!here) {
-      (advances ? foreignPartOf : foreignCloses).add(number);
+      const issue = { repo: qualifier, number };
+      const into = advances ? foreignPartOf : foreignCloses;
+      if (!into.has(issueKey(issue))) into.set(issueKey(issue), issue);
       continue;
     }
     if (advances) partOf.add(number);
@@ -3259,8 +3410,8 @@ export function bodyIssueLinks(body: string, repo: string | null = null): BodyIs
   return {
     closes: [...closes],
     partOf: [...partOf],
-    foreignCloses: [...foreignCloses],
-    foreignPartOf: [...foreignPartOf],
+    foreignCloses: [...foreignCloses.values()],
+    foreignPartOf: [...foreignPartOf.values()],
   };
 }
 
@@ -3272,8 +3423,15 @@ export interface IssueSelection {
   closed: number[];
   /** Issues in this repository it only advances. */
   partOf: number[];
-  /** It also closes an issue in another repository. */
+  /** It also closes an issue in another repository: one GitHub lists, or one
+   * a `Closes` line in the body names, whether or not it is in
+   * `closedElsewhere`. */
   foreign: boolean;
+  /** Issues in other repositories it closes, each once, by the same rule as
+   * `closed`. */
+  closedElsewhere: ForeignIssue[];
+  /** Issues in other repositories it only advances, each once. */
+  partOfElsewhere: ForeignIssue[];
   /** When `issue` is null: the issues it could have been, for the warning. */
   candidates: number[];
 }
@@ -3289,10 +3447,11 @@ export interface IssueSelection {
  * for. `preferred` only chooses among the pull request's own links — a scratch
  * file never introduces an issue the pull request does not name.
  *
- * The closed set: an open pull request (`closedFromBody`) is credited with its
- * body's `Closes` lines as well as GitHub's references, since a stacked pull
- * request has none of the latter until it is retargeted. A merged one is
- * credited with GitHub's references alone — they are what the merge closed.
+ * The closed set, in this repository and in others: an open pull request
+ * (`closedFromBody`) is credited with its body's `Closes` lines as well as
+ * GitHub's references, since a stacked pull request has none of the latter
+ * until it is retargeted. A merged one is credited with GitHub's references
+ * alone — they are what the merge closed.
  */
 export function selectIssues(input: {
   body: string;
@@ -3311,6 +3470,23 @@ export function selectIssues(input: {
   const foreign = links.foreignCloses.length > 0 || here.length < refs.length;
   const linked = new Set([...closed, ...partOf, ...links.closes]);
 
+  const closedElsewhere = new Map<string, ForeignIssue>();
+  const elsewhere = [
+    ...(closedFromBody ? links.foreignCloses : []),
+    ...refs
+      .filter((ref) => repo === null || !sameRepository(ref, repo))
+      .map((ref) => ({
+        repo: `${ref.repository.owner.login}/${ref.repository.name}`,
+        number: ref.number,
+      })),
+  ];
+  for (const issue of elsewhere) {
+    if (!closedElsewhere.has(issueKey(issue))) closedElsewhere.set(issueKey(issue), issue);
+  }
+  const partOfElsewhere = links.foreignPartOf.filter(
+    (issue) => !closedElsewhere.has(issueKey(issue)),
+  );
+
   const issue =
     (preferred !== null && linked.has(preferred) ? preferred : null) ??
     links.closes[0] ??
@@ -3322,21 +3498,49 @@ export function selectIssues(input: {
     closed,
     partOf,
     foreign,
+    closedElsewhere: [...closedElsewhere.values()],
+    partOfElsewhere,
     candidates: issue === null && referenced.length > 1 ? referenced : [],
   };
 }
 
-/** The denominator a card records, and the closed issues that had no rating. */
+/** The issues a pull request's rating sums, in this repository and in others. */
+export interface RatedIssues {
+  /** This repository's issues, by number. */
+  here: number[];
+  /** Other repositories' issues, by repository and number. */
+  elsewhere: ForeignIssue[];
+}
+
+/**
+ * The issues a pull request's rating sums: every issue in this repository it
+ * closes or, when it links no issue here at all, every issue in another
+ * repository it closes.
+ *
+ * Beside an issue here, the tracker issues a pull request closes are mostly
+ * its own review's findings, which `prep-pr` files and the branch fixes. The
+ * issue here states the work; adding the findings' ratings would make a branch
+ * whose review found more read as cheaper per point. A pull request that links
+ * nothing here, such as one cut for a tracker finding, has no other rating.
+ */
+export function issuesToRate(selection: IssueSelection): RatedIssues {
+  const linkedHere = selection.closed.length > 0 || selection.partOf.length > 0;
+
+  return { here: selection.closed, elsewhere: linkedHere ? [] : selection.closedElsewhere };
+}
+
+/** The denominator a card records, and the closed issues that had no rating,
+ * as `#N` or `owner/name#N`. */
 export interface ComplexityDecision {
   declared: number | null;
   method: ComplexityMethod;
   issues: number;
-  unrated: number[];
+  unrated: string[];
 }
 
 /**
  * The declared complexity of what a pull request does: the sum of the ratings
- * of every issue in this repository it closes.
+ * of the issues {@link issuesToRate} names.
  *
  * Summed, because a branch that closes three issues did three issues' work,
  * and dividing its spend by one of their ratings makes it read three times as
@@ -3345,41 +3549,65 @@ export interface ComplexityDecision {
  * could not be read: a partial sum understates the work the same way one
  * issue's rating does.
  *
- * A pull request that closes nothing here but advances an issue (`Part of`)
- * records `part-of`: that issue's rating describes more than the branch did.
- * One that closes only another repository's issue records `not-fetched`; that
- * issue is never asked about.
+ * `labels` holds this repository's issues by number, `null` for a lookup that
+ * did not land (`lookup-failed`). `labelsElsewhere` holds another repository's
+ * by {@link issueKey}, rating labels only; one missing from it was not read,
+ * and the sum is `not-fetched`.
+ *
+ * A pull request that rates nothing but advances an issue (`Part of`), here or
+ * elsewhere, records `part-of`: that issue's rating describes more than the
+ * branch did. One whose body closes another repository's issue that GitHub did
+ * not register records `not-fetched`: a rating may exist there, unread.
  */
 export function decideComplexity(
   selection: IssueSelection,
   labels: Map<number, string[] | null>,
+  labelsElsewhere: Map<string, string[] | null>,
 ): ComplexityDecision {
-  const unknown = (method: ComplexityMethod, unrated: number[] = []): ComplexityDecision => ({
+  const unknown = (method: ComplexityMethod, unrated: string[] = []): ComplexityDecision => ({
     declared: null,
     method,
     issues: 0,
     unrated,
   });
-
-  if (selection.closed.length > 0) {
-    const found = selection.closed.map((issue) => labels.get(issue) ?? null);
-    if (found.some((names) => names === null)) return unknown("lookup-failed");
-
-    const ratings = found.map((names) => declaredFromLabels(names ?? []));
-    const unrated = selection.closed.filter((_, i) => ratings[i]?.declared === null);
+  const sum = (parts: { name: string; labels: string[] }[]): ComplexityDecision => {
+    const ratings = parts.map((part) => declaredFromLabels(part.labels));
+    const unrated = parts.filter((_, i) => ratings[i]?.declared === null).map((part) => part.name);
     if (unrated.length > 0) return unknown("none", unrated);
 
     return {
-      declared: ratings.reduce((sum, rating) => sum + (rating.declared ?? 0), 0),
+      declared: ratings.reduce((total, rating) => total + (rating.declared ?? 0), 0),
       method: ratings.some((rating) => rating.method === "unconfirmed")
         ? "unconfirmed"
         : "confirmed",
       issues: ratings.length,
       unrated: [],
     };
+  };
+  const rated = issuesToRate(selection);
+
+  if (rated.here.length > 0) {
+    const found = rated.here.map((issue) => labels.get(issue) ?? null);
+    if (found.some((names) => names === null)) return unknown("lookup-failed");
+
+    return sum(rated.here.map((issue, i) => ({ name: `#${issue}`, labels: found[i] ?? [] })));
   }
 
   if (selection.partOf.length > 0) return unknown("part-of");
+
+  if (rated.elsewhere.length > 0) {
+    const found = rated.elsewhere.map((issue) => labelsElsewhere.get(issueKey(issue)) ?? null);
+    if (found.some((names) => names === null)) return unknown("not-fetched");
+
+    return sum(
+      rated.elsewhere.map((issue, i) => ({
+        name: `${issue.repo}#${issue.number}`,
+        labels: found[i] ?? [],
+      })),
+    );
+  }
+
+  if (selection.partOfElsewhere.length > 0) return unknown("part-of");
   if (selection.foreign) return unknown("not-fetched");
 
   return unknown("none");

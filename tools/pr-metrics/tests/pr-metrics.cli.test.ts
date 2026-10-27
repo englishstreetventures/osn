@@ -1104,9 +1104,13 @@ test("the SessionEnd hook still passes the flags this CLI relies on", async () =
  * and the fall-through then exits non-zero and fails loudly instead of quietly
  * going online.
  *
- * `labels` maps an issue number to what `gh issue view <n> --json labels`
- * prints; a number missing from it makes that call fail. The stub writes every
- * call it receives to a log, returned as `calls`.
+ * `labels` maps an issue number in this repository to what `gh issue view <n>
+ * --repo <this repository> --json labels` prints; a number missing from it makes
+ * that call fail. `trackerLabels` is the same for the private tracker, answered
+ * the way the one `gh api graphql` call against it is: every listed issue under
+ * its `i<n>` alias, `trackerUnreadable` ones as `null` with a non-zero exit, and
+ * `trackerRepository: null` as a repository the token cannot see. The stub
+ * writes every call it receives to a log, returned as `calls`.
  */
 interface ResolvingOptions {
   /** The pull request `gh pr list` returns; `null` lists none. */
@@ -1119,11 +1123,15 @@ interface ResolvingOptions {
   repoView?: string | null;
   /** A branch the fixture checkout is switched to before the run. */
   checkout?: string;
+  trackerLabels?: Record<number, string[]>;
+  trackerUnreadable?: number[];
+  /** `null`: the tracker answers as a repository this token cannot see. */
+  trackerRepository?: null;
 }
 
 async function runResolving(
   options: ResolvingOptions,
-): Promise<{ card: Card; stderr: string; calls: string[] }> {
+): Promise<{ card: Card; cardText: string; stdout: string; stderr: string; calls: string[] }> {
   const dir = await mkdtemp(join(tmpdir(), "pr-metrics-resolve-"));
 
   try {
@@ -1163,12 +1171,26 @@ async function runResolving(
             },
           ],
     );
+    const repo = options.repoView ?? "englishstreetventures/osn";
     const issueCases = Object.entries(options.labels ?? {})
       .map(
         ([n, names]) =>
-          `  *"issue view ${n} "*) printf '%s' '${JSON.stringify({ labels: names.map((name) => ({ name })) })}' ;;`,
+          `  *"issue view ${n} --repo ${repo} "*) printf '%s' '${JSON.stringify({ labels: names.map((name) => ({ name })) })}' ;;`,
       )
       .join("\n");
+    const trackerIssues = Object.fromEntries([
+      ...Object.entries(options.trackerLabels ?? {}).map(([n, names]) => [
+        `i${n}`,
+        { labels: { nodes: names.map((name) => ({ name })) } },
+      ]),
+      ...(options.trackerUnreadable ?? []).map((n) => [`i${n}`, null]),
+    ]);
+    const trackerAnswer =
+      options.trackerRepository === null
+        ? `printf '%s' '{"data":{"repository":null},"errors":[{"type":"NOT_FOUND"}]}' ; exit 1`
+        : `printf '%s' '${JSON.stringify({ data: { repository: trackerIssues } })}' ; ${
+            (options.trackerUnreadable ?? []).length > 0 ? "exit 1" : "exit 0"
+          }`;
 
     const binDir = join(dir, "bin");
     await mkdir(binDir, { recursive: true });
@@ -1183,6 +1205,7 @@ case "$*" in
       : `printf '%s' '${options.repoView ?? "englishstreetventures/osn"}'`
   } ;;
   *"pr list"*) printf '%s' '${listing}' ;;
+  *"api graphql"*"osn-tracker"*) ${trackerAnswer} ;;
 ${issueCases}
   *) exit 1 ;;
 esac
@@ -1224,15 +1247,17 @@ esac
         },
       },
     );
-    const stderr = await new Response(proc.stderr).text();
+    const [stdout, stderr] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ]);
     await proc.exited;
 
-    const card = JSON.parse(
-      await Bun.file(join(dir, "out", "feat-metrics-cli-fixture.json")).text(),
-    ) as Card;
+    const cardText = await Bun.file(join(dir, "out", "feat-metrics-cli-fixture.json")).text();
+    const card = JSON.parse(cardText) as Card;
     const calls = (await Bun.file(log).text()).split("\n").filter(Boolean);
 
-    return { card, stderr, calls };
+    return { card, cardText, stdout, stderr, calls };
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -1252,21 +1277,131 @@ test("--resolve-issue recovers the pull request, issue and rating", async () => 
   expect(card.complexity).toEqual({ declared: 3, method: "confirmed", issues: 1 });
 });
 
-// The one that must not regress. Most of this repository's pull requests close
+// The one that must not regress. Many of this repository's pull requests close
 // a finding in the private `englishstreetventures/osn-tracker`, whose `severity:`/`area:`
 // labels must never reach a card committed to a public repository. A pull request
-// that closes only such an issue records no issue at all, and never asks for its
-// labels: a rating may exist there, and nobody looked.
-test("--resolve-issue records no issue for one that closes only a tracker issue", async () => {
-  const { card, calls } = await runResolving({
-    pull: { refs: [{ number: 1041, repo: "englishstreetventures/osn-tracker" }] },
-    labels: { 1041: ["severity:high", "area:security", "complexity:5"] },
+// that links no issue here takes its rating from the tracker issues it closes —
+// the `complexity:` pair and nothing else — and names no issue.
+const TRACKER = "englishstreetventures/osn-tracker";
+const FINDING_LABELS = ["severity:high", "area:security", "product:osn", "needs:decision"];
+const leaks = /severity:|area:|needs:|product:osn"/;
+
+test("--resolve-issue rates a tracker-only pull request and carries none of the tracker's other labels", async () => {
+  const { card, cardText, stdout, stderr, calls } = await runResolving({
+    pull: { body: `Closes ${TRACKER}#1041`, refs: [{ number: 1041, repo: TRACKER }] },
+    trackerLabels: { 1041: [...FINDING_LABELS, "complexity:5"] },
   });
 
   expect(card.issue.number).toBeNull();
-  expect(card.complexity).toEqual({ declared: null, method: "not-fetched", issues: 0 });
   expect(card.issue.labels).toEqual([]);
+  expect(card.complexity).toEqual({ declared: 5, method: "confirmed", issues: 1 });
+  expect(cardText).not.toMatch(leaks);
+  expect(stdout).not.toMatch(leaks);
+  expect(stderr).not.toMatch(leaks);
+  expect(calls.filter((call) => call.includes("api graphql"))).toHaveLength(1);
   expect(calls.filter((call) => call.includes("issue view"))).toEqual([]);
+});
+
+test("--resolve-issue sums the ratings of every tracker issue a tracker-only pull request closes", async () => {
+  const { card } = await runResolving({
+    pull: {
+      body: "",
+      refs: [
+        { number: 1041, repo: TRACKER },
+        { number: 1042, repo: TRACKER },
+      ],
+    },
+    trackerLabels: {
+      1041: ["severity:low", "complexity:3"],
+      1042: ["area:performance", "complexity:2", "complexity:unconfirmed"],
+    },
+  });
+
+  expect(card.complexity).toEqual({ declared: 5, method: "unconfirmed", issues: 2 });
+  expect(card.issue.labels).toEqual([]);
+});
+
+test.each([
+  ["a repository it cannot see", { trackerRepository: null }],
+  [
+    "an issue it cannot resolve",
+    { trackerUnreadable: [1042], trackerLabels: { 1041: ["complexity:3"] } },
+  ],
+] as [string, Partial<ResolvingOptions>][])(
+  "--resolve-issue records not-fetched when the token meets %s in the tracker",
+  async (_, tracker) => {
+    const { card, stderr } = await runResolving({
+      pull: {
+        body: "",
+        refs: [
+          { number: 1041, repo: TRACKER },
+          { number: 1042, repo: TRACKER },
+        ],
+      },
+      ...tracker,
+    });
+
+    expect(card.complexity).toEqual({ declared: null, method: "not-fetched", issues: 0 });
+    expect(stderr).toContain(`${TRACKER}#1042`);
+  },
+);
+
+// A stacked pull request has no closing references until it is retargeted to
+// `main`, so its body's tracker line is all there is to read.
+test("--resolve-issue rates an open pull request from a tracker line in its body alone", async () => {
+  const { card } = await runResolving({
+    pull: { body: `Closes ${TRACKER}#1041`, refs: [] },
+    trackerLabels: { 1041: ["complexity:2", "complexity:unconfirmed"] },
+  });
+
+  expect(card.complexity).toEqual({ declared: 2, method: "unconfirmed", issues: 1 });
+});
+
+// Beside an issue here the tracker issues are the branch's own review findings,
+// filed and fixed on it. They add nothing, so nothing is asked about them.
+test("--resolve-issue never asks the tracker about a pull request that closes an issue here", async () => {
+  const { card, cardText, calls } = await runResolving({
+    pull: {
+      body: `Closes #1041\nCloses ${TRACKER}#619`,
+      refs: [
+        { number: 1041, repo: "englishstreetventures/osn" },
+        { number: 619, repo: TRACKER },
+      ],
+    },
+    labels: { 1041: ["product:shared", "complexity:2"] },
+    trackerLabels: { 619: [...FINDING_LABELS, "complexity:3"] },
+  });
+
+  expect(card.issue.number).toBe(1041);
+  expect(card.issue.labels).toEqual(["product:shared", "complexity:2"]);
+  expect(card.complexity).toEqual({ declared: 2, method: "confirmed", issues: 1 });
+  expect(cardText).not.toMatch(/severity:|area:/);
+  expect(calls.filter((call) => call.includes("api graphql"))).toEqual([]);
+});
+
+test("--resolve-issue never asks a third repository, and records not-fetched", async () => {
+  const { card, calls } = await runResolving({
+    pull: { body: "Closes someone/else#5", refs: [] },
+  });
+
+  expect(card.complexity).toEqual({ declared: null, method: "not-fetched", issues: 0 });
+  expect(calls.filter((call) => call.includes("someone") || call.includes("graphql"))).toEqual([]);
+});
+
+// A body anyone with write access can edit decides how many tracker issues are
+// asked about, and the `SessionEnd` hook that runs this has 60 seconds. A number
+// GraphQL cannot take as an `Int` would fail the whole call.
+test.each([
+  ["more than 50 tracker issues", Array.from({ length: 51 }, (_, i) => 2000 + i)],
+  ["a number GraphQL cannot take", [5, 99_999_999_999]],
+])("--resolve-issue asks nothing for %s and records not-fetched", async (_, numbers) => {
+  const { card, calls } = await runResolving({
+    pull: { body: numbers.map((n) => `Closes ${TRACKER}#${n}`).join("\n"), refs: [] },
+    trackerLabels: Object.fromEntries(numbers.map((n) => [n, ["complexity:1"]])),
+  });
+
+  expect(card.complexity).toEqual({ declared: null, method: "not-fetched", issues: 0 });
+  expect(calls.filter((call) => call.includes("api graphql"))).toEqual([]);
 });
 
 // GitHub lists the issues a pull request closes by number, not by what the
@@ -1400,8 +1535,9 @@ test.each([
 // closes here. A number named by mistake has nothing read for it.
 test("--issue naming an issue the pull request does not close reads none of its labels", async () => {
   const { card, calls } = await runResolving({
-    pull: { refs: [{ number: 754, repo: "englishstreetventures/osn-tracker" }] },
+    pull: { refs: [{ number: 754, repo: TRACKER }] },
     labels: { 1999: ["complexity:8"] },
+    trackerUnreadable: [754],
     extraArgs: ["--issue", "1999"],
   });
 
@@ -1414,18 +1550,20 @@ test("--issue naming an issue the pull request does not close reads none of its 
 // A card is public. `--issue` with the number of another repository's issue
 // the pull request links is refused: the card names no issue.
 test("--issue naming the tracker issue the pull request closes records no issue", async () => {
-  const { card, calls, stderr } = await runResolving({
+  const { card, cardText, calls, stderr } = await runResolving({
     pull: {
-      body: "Closes englishstreetventures/osn-tracker#754",
-      refs: [{ number: 754, repo: "englishstreetventures/osn-tracker" }],
+      body: `Closes ${TRACKER}#754`,
+      refs: [{ number: 754, repo: TRACKER }],
     },
-    labels: { 754: ["complexity:3"] },
+    labels: { 754: ["product:osn-core", "complexity:8"] },
+    trackerLabels: { 754: ["severity:high", "complexity:3"] },
     extraArgs: ["--issue", "754"],
   });
 
   expect(card.issue.number).toBeNull();
   expect(card.issue.labels).toEqual([]);
-  expect(card.complexity.method).toBe("not-fetched");
+  expect(card.complexity).toEqual({ declared: 3, method: "confirmed", issues: 1 });
+  expect(cardText).not.toMatch(/severity:/);
   expect(calls.filter((call) => call.includes("issue view"))).toEqual([]);
   expect(stderr).toContain("--issue");
 });
