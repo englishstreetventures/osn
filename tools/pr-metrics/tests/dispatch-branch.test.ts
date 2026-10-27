@@ -457,9 +457,9 @@ test("resolveDispatchBranch terminates when two siblings dispatch each other", a
 });
 
 // `uuid` is what a cross-file duplicate repeats, on the assistant side
-// and on the `user` records `user_turns` and `corrective_turns` are counted
-// from alike. If the dedupe never fires those numbers double on a duplicated
-// conversation.
+// and on the `user` and queued records `user_turns` and `corrective_turns` are
+// counted from alike. If the dedupe never fires those numbers double on a
+// duplicated conversation.
 test("a record present in two files is dropped on its uuid, assistant or user", async () => {
   const dir = await tree();
   try {

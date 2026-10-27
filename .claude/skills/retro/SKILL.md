@@ -203,7 +203,7 @@ below has to cite:
 | From the card | What it is |
 |---|---|
 | `complexity.declared` + `spend.usd_equivalent` | The whole comparison. Spend against difficulty declared **before** anyone knew the cost |
-| `interaction.corrective_turns` | Human turns after the agent had already picked up tools. The one number here that measures the brief, not the model |
+| `interaction.corrective_turns` | Prompts the person sent while the agent was still working — interruptions. A turn sent after the agent stopped is not one. The one number here about the brief, not the model. **A card before `schema_version` 4 counted every turn after the first tool call**: report its count, but take which turns were corrections from the prompts or the owner's note, and do not apply Step 4's threshold to it |
 | `interaction.tokens_before_first_edit` and `sessions_with_observed_edit` | Exploration. **`null` means unobserved, not "all of it"** |
 | `interaction.edit_churn.max_edits_one_file` | An agent building, or an agent lost |
 | `interaction.skills` / `interaction.subagents` | What was invoked — and what conspicuously was not |
@@ -260,9 +260,10 @@ The five sources, in the order they are worth mining:
    a wiki page, a `AGENTS.md` row or a skill could have stated. This is the
    highest-yield source and the reason `tokens_before_first_edit` is on the
    card.
-2. **What was corrected.** Every `corrective_turn` is a course correction that
-   the brief did not prevent. Read the actual prompts — what did the person have
-   to say that the task should have carried?
+2. **What was corrected.** Every `corrective_turn` is a prompt the person sent
+   while the agent was working. Read the actual prompts: the ones that corrected
+   the agent, not the status notes or added scope, are what the brief did not
+   prevent. What did the person have to say that the task should have carried?
 3. **What a gate caught late.** A `review-security`, `review-performance` or
    `review-tests` finding that a test, an oxlint house rule or a CI step could
    have caught before a review agent had to. `stress-plan` findings count
@@ -281,7 +282,7 @@ The five sources, in the order they are worth mining:
 |---|---|---|
 | High `tokens_before_first_edit`, package with no wiki page | No map for that surface | A new `wiki/` page, and a line in `wiki/index.md` |
 | A fact re-derived that one line could have stated | `AGENTS.md` is missing a row, or the wiki page is missing a heading | Prefer the wiki page; `AGENTS.md` only for something every session needs |
-| `corrective_turns` ≥ 3 | The brief was unclear | **The prompt.** Say what the task should have carried. No issue — there is nobody to assign it to |
+| `corrective_turns` ≥ 3 on a card from `schema_version` 4 | The person had to step in mid-run three times or more; the corrections among those prompts are what the brief left out. A turn sent after the agent stopped is not counted, so a long session that took on new work turn by turn does not trip this | **The prompt.** Say what the task should have carried. No issue — there is nobody to assign it to |
 | A skill ran and the mistake happened anyway | The skill is missing a trap | That `SKILL.md`, as a named failure mode, not a general exhortation |
 | A review finding a gate could have caught | Missing test, missing house rule, missing CI step | `tests/`, `tools/oxlint/house`, or `.github/workflows` |
 | `edit_churn.max_edits_one_file` high on one file | The agent was lost in that file | Usually the file, not the docs — a shape nobody can hold in their head |

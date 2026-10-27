@@ -8,8 +8,9 @@
  *     severely right-skewed and a mean describes its three largest cards.
  *   - A `null` ratio is *unknown*, not zero and not 100%. `exploreShare` is null
  *     when the transcript showed no edit; a correction rate is null when a card
- *     recorded no human turn at all. Both are excluded and the excluded count
- *     is returned, so a chart can say how much of the corpus it is not showing.
+ *     recorded no human turn at all, or predates schema version 4. Both are
+ *     excluded and the excluded count is returned, so a chart can say how much
+ *     of the corpus it is not showing.
  *
  * `toRow` and `median` come from `@tools/pr-metrics`'s own report rather than
  * being restated, so the dashboard and the CLI cannot disagree about a ratio.
@@ -111,9 +112,11 @@ export function monthly(rows: CardRow[], pick: (row: CardRow) => number | null):
   return { points: points.toSorted((a, b) => a.month.localeCompare(b.month)), medians, excluded };
 }
 
-/** Corrections as a share of human turns; unknown when nobody typed anything. */
+/** Prompts sent mid-turn as a share of human turns; unknown when nobody typed
+ * anything or the card predates schema version 4 (`toRow` reads both as a null
+ * count). */
 export const correctionRate = (row: CardRow): number | null =>
-  row.turns > 0 ? row.corrections / row.turns : null;
+  row.corrections !== null && row.turns > 0 ? row.corrections / row.turns : null;
 
 // ---------------------------------------------------------------------------
 // Cost against declared complexity

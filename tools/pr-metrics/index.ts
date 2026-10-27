@@ -48,10 +48,13 @@ import { posix } from "node:path";
 
 import { compactTokens, humanDuration } from "./format.ts";
 
-/** 3: `complexity.declared` is the sum of the ratings of every issue in this
- * repository the pull request closes, and `complexity.issues` counts them. A
- * card before version 3 has one issue's rating in `declared`. */
-export const SCHEMA_VERSION = 3;
+/** 4: `interaction.corrective_turns` counts only the prompts a person sent while
+ * the agent was still working; before 4 it counted every human turn after the
+ * session's first tool call, and readers treat an older card's count as
+ * unknown. 3: `complexity.declared` is the sum of the ratings of every issue in
+ * this repository the pull request closes, and `complexity.issues` counts them.
+ * A card before version 3 has one issue's rating in `declared`. */
+export const SCHEMA_VERSION = 4;
 
 /**
  * Gaps longer than this are somebody making lunch, not an agent working.
@@ -195,7 +198,19 @@ export interface SessionRecord {
     content?: string | ContentBlock[];
     usage?: RawUsage;
   };
-  attachment?: { type?: string; prompt?: string };
+  attachment?: {
+    type?: string;
+    prompt?: string;
+    /** On a `queued_command`: `prompt` for typed text, `task-notification`
+     * for a background task's report. Absent on older transcripts. */
+    commandMode?: string;
+    /** On a `queued_command`: who sent it. `human` is a person;
+     * `task-notification`, `peer` and `coordinator` are the harness or another
+     * agent. Absent on older transcripts. */
+    origin?: { kind?: string };
+    /** Set by the harness on a queued prompt a person typed. */
+    humanTurn?: boolean;
+  };
 }
 
 export function emptyTokens(): TokenTotals {
@@ -354,18 +369,16 @@ export function isHumanTurn(record: SessionRecord): boolean {
 /**
  * The text of a human instruction, or `null` if this record is not one.
  *
- * Two shapes carry a real prompt, and missing the second one was the original
- * defect here:
+ * Two shapes carry a real prompt:
  *
  *   - `type: "user"` with string content — a prompt typed at an idle session.
  *   - `type: "attachment"` with `attachment.type === "queued_command"` — a
  *     prompt typed *while the agent was working*.
  *
- * The second shape never appears as a `user` record, and it is precisely what
- * `corrective_turns` exists to count: a message sent mid-flight is by
- * definition a course correction. Reading only `user` records scored every
- * interruption as zero and made the field describe the opposite of what it
- * claims to. Across this repository's own transcripts that was 354 prompts.
+ * The second shape never appears as a `user` record, and it is the whole of
+ * what `corrective_turns` counts. Background task reports, subagent hand-backs
+ * and harness notices arrive in it too, so a queued record is a person's only
+ * when {@link queuedByPerson} says the harness labelled it so.
  *
  * Both shapes are then filtered the same way, by {@link humanText} for a
  * machine record wearing a prompt's clothes and by {@link isMachineDriven} for
@@ -377,7 +390,7 @@ export function humanTurnText(record: SessionRecord): string | null {
   if (isMachineDriven(record)) return null;
 
   if (record.type === "attachment" && record.attachment?.type === "queued_command") {
-    return humanText(record.attachment.prompt);
+    return queuedByPerson(record.attachment) ? humanText(record.attachment.prompt) : null;
   }
 
   if (record.type !== "user") return null;
@@ -397,13 +410,9 @@ export function humanTurnText(record: SessionRecord): string | null {
  * Tool results, hook output, system reminders, slash-command envelopes,
  * subagent hand-backs and task notifications all reach the transcript in a
  * record a person could have written, and every one of them opens with a tag.
- * Both shapes `humanTurnText` reads need this, and only one of them used to get
- * it: the queued branch returned its prompt unexamined, so every background
- * `<agent-message>` and `<task-notification>` scored as a course correction.
- * Nine of them did on one branch here, against three turns the person actually
- * sent — and `corrective_turns` is the field documented as measuring the person
- * rather than the model, so it read the brief as poor when it had been followed
- * with no correction at all.
+ * Both shapes `humanTurnText` reads need this: a queued `<agent-message>` or
+ * `<task-notification>` let through would count as an interruption on
+ * `corrective_turns`.
  *
  * The bias is not random. Those records arrive in proportion to how many
  * background subagents a session runs, which is what `orchestrate` and
@@ -427,13 +436,47 @@ function humanText(raw: string | undefined): string | null {
 const MACHINE_PREFIX =
   /^(?:Another Claude session sent a message:\s*)?<(?:agent-message|task-notification)\b/;
 
+/** The `origin.kind` values a queued record is known to carry. Only `human` is a person. */
+const KNOWN_QUEUE_ORIGINS = new Set(["human", "task-notification", "peer", "coordinator"]);
+
 /**
- * A bare "continue" or "go on" — a nudge to keep an agent running, not a
- * correction. It is still a human turn, so it counts in `user_turns`, but it
- * says nothing about the brief and so is not `corrective_turns`.
+ * Whether the harness labelled a queued record as one a person typed.
+ *
+ * An allow-list: where the record names its sender, only `human` (or the
+ * harness's own `humanTurn` mark) is a person, so a sender added later is left
+ * out rather than counted — and {@link unknownQueuedOrigins} names it, so the
+ * CLI can say so. A transcript older than the label falls back on
+ * `commandMode`, where only `prompt` is typed text, and one with neither keeps
+ * the tag test alone.
  */
-export function isBareContinuation(text: string): boolean {
-  return /^(?:continue|go on|keep going|carry on|proceed)[.!]*$/i.test(text.trim());
+function queuedByPerson(attachment: NonNullable<SessionRecord["attachment"]>): boolean {
+  if (attachment.humanTurn === true) return true;
+  if (attachment.origin) return attachment.origin.kind === "human";
+
+  return attachment.commandMode === undefined || attachment.commandMode === "prompt";
+}
+
+/**
+ * The senders of main-thread queued records that {@link queuedByPerson}
+ * dropped only because it did not know them, each named once.
+ *
+ * Those records count nowhere, so a harness that starts labelling a person's
+ * prompt with a new kind would make every card read no interruptions. A
+ * non-empty answer is the CLI's cue to warn.
+ */
+export function unknownQueuedOrigins(records: SessionRecord[]): string[] {
+  const kinds = new Set<string>();
+
+  for (const record of records) {
+    const attachment = record.attachment;
+    if (record.isSidechain || attachment?.type !== "queued_command") continue;
+    if (attachment.humanTurn === true || !attachment.origin) continue;
+
+    const kind = attachment.origin.kind ?? "(none)";
+    if (!KNOWN_QUEUE_ORIGINS.has(kind)) kinds.add(kind);
+  }
+
+  return [...kinds].toSorted();
 }
 
 /**
@@ -784,17 +827,20 @@ export function aggregateRequests(records: SessionRecord[]): RequestSummary {
  * the first session's answer. Repeatedly high in one area of the repository
  * means that area has no usable map, and the fix is a wiki page or a skill.
  *
- * `corrective_turns` is human turns that arrive after the agent has already
- * started work — course corrections rather than the brief. High means the
- * opening prompt did not carry enough to act on. That is the one number here
- * that measures the person rather than the model.
+ * `corrective_turns` is the prompts a person sent while the agent was still
+ * working — interruptions, read from the queued records {@link humanTurnText}
+ * accepts. A turn sent after the agent stopped (a new task, an answer to its
+ * question, "continue") is not one, however late in the session. Two limits:
+ * an interruption is often a status note or added scope rather than a
+ * correction, so read the prompts before calling any of it a brief finding;
+ * and while a session waits on background subagents its main agent is idle,
+ * so a redirect sent then is an idle turn and is not counted.
  */
 export function aggregateInteraction(records: SessionRecord[]): InteractionSummary {
   const tools: Record<string, number> = {};
   const skills: Record<string, number> = {};
   const subagents: Record<string, number> = {};
   const editsPerFile = new Map<string, number>();
-  const sessionsWithWork = new Set<string>();
   const sessionsPastFirstEdit = new Set<string>();
 
   // Accumulated per session, not globally, and only banked once that session
@@ -812,35 +858,28 @@ export function aggregateInteraction(records: SessionRecord[]): InteractionSumma
 
   const ordered = [...records].sort((a, b) => (a.timestamp ?? "").localeCompare(b.timestamp ?? ""));
 
-  // A queued prompt is occasionally echoed as a `user` record once it is
-  // dequeued — about 2% of them across this repository's transcripts. Both
-  // copies are the same instruction, so the pair is collapsed per session.
-  // Only a queued/user duplicate is collapsed, never two `user` records: a
-  // person who genuinely types "continue" twice steered twice.
-  const queuedTexts = new Map<string, Set<string>>();
-  for (const record of ordered) {
-    if (record.type !== "attachment") continue;
-
-    const text = humanTurnText(record);
-    if (text === null) continue;
-
-    const session = record.sessionId ?? "unknown";
-    const seen = queuedTexts.get(session);
-    if (seen) seen.add(text);
-    else queuedTexts.set(session, new Set([text]));
-  }
+  // A queued prompt is sometimes echoed as a `user` record once it is
+  // dequeued. Both copies are one instruction, so a `user` record is dropped
+  // when it is the next human record in its session after a queued prompt with
+  // the same text. Never two `user` records: a person who types "continue"
+  // twice steered twice.
+  const lastQueued = new Map<string, string>();
 
   for (const record of ordered) {
     const session = record.sessionId ?? "unknown";
     const turnText = humanTurnText(record);
 
     if (turnText !== null) {
-      if (record.type === "user" && queuedTexts.get(session)?.has(turnText)) continue;
+      const echoed = record.type === "user" && lastQueued.get(session) === turnText;
+      lastQueued.delete(session);
+      if (echoed) continue;
 
       userTurns += 1;
-      // Work had already started in this session, so this turn is steering an
-      // agent mid-flight rather than opening the task.
-      if (sessionsWithWork.has(session) && !isBareContinuation(turnText)) correctiveTurns += 1;
+      // Queued means the agent was mid-turn when it arrived: an interruption.
+      if (record.type === "attachment") {
+        correctiveTurns += 1;
+        lastQueued.set(session, turnText);
+      }
       continue;
     }
 
@@ -854,7 +893,6 @@ export function aggregateInteraction(records: SessionRecord[]): InteractionSumma
     if (record.type !== "assistant") continue;
 
     const uses = toolUses(record);
-    if (uses.length > 0) sessionsWithWork.add(session);
 
     // The same guard `aggregateSpend` uses, and for the same reason: this sum
     // reads `message.usage`, which a split response repeats on every block.
@@ -1408,7 +1446,7 @@ export function renderDetails(card: Card, file = `${branchSlug(card.pr.branch)}.
       "Source diff",
       `${source} across ${diff.files.source} file(s), ${diff.packages.length} package(s)`,
     ],
-    ["Turns", `${interaction.user_turns} (${interaction.corrective_turns} corrective)`],
+    ["Turns", `${interaction.user_turns} (${interaction.corrective_turns} sent mid-turn)`],
     [
       "Before first edit",
       interaction.tokens_before_first_edit === null
@@ -3582,6 +3620,14 @@ if (import.meta.main) {
     );
     console.warn("   under a `main`/`HEAD` session, so their spend lands on no card. See");
     console.warn("   wiki/conventions/session-metrics.md §Attributing subagent spend.");
+  }
+
+  const unknownOrigins = unknownQueuedOrigins(records);
+  if (unknownOrigins.length > 0) {
+    process.stderr.write(
+      `⚠️  pr-metrics: queued record(s) from an unknown sender (${unknownOrigins.join(", ")}) count as no turn.\n` +
+        "   If a person typed them, add the kind to queuedByPerson in tools/pr-metrics/index.ts.\n",
+    );
   }
 
   if (card.spend.unpriced_models.length > 0) {

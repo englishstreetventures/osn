@@ -7,7 +7,6 @@ import {
   bodyIssueLinks,
   defaultSessionsRoots,
   humanTurnText,
-  isBareContinuation,
   parseNumstat,
   renamedTo,
   unattributedSubagentFiles,
@@ -95,25 +94,6 @@ describe("bodyIssueLinks", () => {
     bodyIssueLinks(`Closes${" ".repeat(20_000)}x`);
 
     expect(performance.now() - started).toBeLessThan(500);
-  });
-});
-
-describe("isBareContinuation alternatives", () => {
-  test.each(["keep going", "carry on", "proceed", "Proceed!", "GO ON."])("matches %s", (phrase) => {
-    expect(isBareContinuation(phrase)).toBe(true);
-  });
-});
-
-describe("isBareContinuation", () => {
-  test("matches a nudge to keep going", () => {
-    expect(isBareContinuation("continue")).toBe(true);
-    expect(isBareContinuation("Continue.")).toBe(true);
-    expect(isBareContinuation("  go on  ")).toBe(true);
-  });
-
-  test("does not match a correction that starts the same way", () => {
-    expect(isBareContinuation("continue, but use the other index")).toBe(false);
-    expect(isBareContinuation("Prep pr")).toBe(false);
   });
 });
 

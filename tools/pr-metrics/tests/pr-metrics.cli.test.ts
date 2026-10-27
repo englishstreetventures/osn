@@ -132,10 +132,32 @@ async function run(
             { type: "tool_use", name: "Edit", input: { file_path: "osn/api/src/auth.ts" } },
           ],
         }),
+        // Typed while the agent was working: the harness queues it.
+        record({
+          type: "attachment",
+          timestamp: "2026-09-07T10:01:15.000Z",
+          attachment: {
+            type: "queued_command",
+            prompt: "not like that",
+            commandMode: "prompt",
+            origin: { kind: "human" },
+          },
+        }),
+        // Queued by a sender the collector does not know: no turn, and a warning.
+        record({
+          type: "attachment",
+          timestamp: "2026-09-07T10:01:20.000Z",
+          attachment: {
+            type: "queued_command",
+            prompt: "sent from somewhere new",
+            origin: { kind: "remote-human" },
+          },
+        }),
+        // Typed once the agent had stopped: a new instruction, not an interruption.
         record({
           type: "user",
           timestamp: "2026-09-07T10:02:00.000Z",
-          message: { content: "not like that" },
+          message: { content: "now the docs" },
         }),
         // Machinery that also arrives as role user; must not count as a turn.
         record({
@@ -257,7 +279,7 @@ test("the CLI writes a card from a real repo and a real transcript", async () =>
   const { exitCode, card } = await run();
 
   expect(exitCode).toBe(0);
-  expect(card.schema_version).toBe(3);
+  expect(card.schema_version).toBe(4);
   expect(card.pr.number).toBe(908);
   expect(card.pr.branch).toBe(BRANCH);
   expect(card.pr.phase).toBe("at-open");
@@ -289,11 +311,19 @@ test("the CLI buckets the diff by path", async () => {
   expect(card.diff.commits).toBe(1);
 });
 
-test("the CLI separates the opening brief from a mid-flight correction", async () => {
+test("the CLI counts only the prompt sent mid-turn as corrective", async () => {
   const { card } = await run();
 
-  expect(card.interaction.user_turns).toBe(2);
+  expect(card.interaction.user_turns).toBe(3);
   expect(card.interaction.corrective_turns).toBe(1);
+});
+
+// A sender the allow-list does not know counts as no turn, which on its own
+// would read as "no interruptions". The warning is what makes it visible.
+test("the CLI names a queued record's unknown sender", async () => {
+  const { stderr } = await run();
+
+  expect(stderr).toContain("unknown sender (remote-human)");
 });
 
 test("the CLI charges pre-edit exploration to tokens_before_first_edit", async () => {

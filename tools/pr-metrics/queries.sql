@@ -84,7 +84,11 @@ CREATE OR REPLACE VIEW metrics AS
     diff.loc.source.added + diff.loc.source.deleted AS source_loc,
     diff.files.source                               AS source_files,
     interaction.user_turns                          AS turns,
-    interaction.corrective_turns                    AS corrections,
+    -- NULL before schema version 4, when the field counted every human turn
+    -- after the session's first tool call, and on a card with no human turn:
+    -- unknown, not zero. report.ts's toRow applies the same rule.
+    CASE WHEN schema_version >= 4 AND interaction.user_turns > 0
+         THEN interaction.corrective_turns END      AS corrections,
     "window".active_seconds                           AS active_s,
     spend.tokens.output
       + spend.tokens.cache_read
@@ -138,14 +142,15 @@ ORDER BY explore_pct DESC;
 --------------------------------------------------------------------------------
 -- 3. Are briefs getting clearer?
 --------------------------------------------------------------------------------
--- `corrections` counts turns that arrived after the agent had already started
--- work. This is the one number here that measures the person rather than the
--- model: one turn and a large spend is a clear brief; nine turns is a brief
--- that needed nine patches.
+-- `corrections` counts the prompts the person sent while the agent was still
+-- working. Some are status notes or added scope rather than corrections, so
+-- read them before blaming the brief. `v4_prs` is how many cards the median
+-- covers: a card before schema version 4, or with no human turn, reads NULL.
 
 SELECT date_trunc('month', at_ts) AS month,
        count(*)                AS prs,
        round(median(turns), 1)    AS median_turns,
+       count(corrections)         AS v4_prs,
        round(median(corrections), 1) AS median_corrections
 FROM metrics
 GROUP BY month

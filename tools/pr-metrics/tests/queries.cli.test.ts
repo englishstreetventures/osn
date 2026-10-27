@@ -148,3 +148,47 @@ test.skipIf(Bun.which("duckdb") === null)(
     }
   },
 );
+
+test.skipIf(Bun.which("duckdb") === null)(
+  "the metrics view reads corrections only from a card of schema version 4 or later",
+  async () => {
+    const dir = await mkdtemp(join(tmpdir(), "pr-metrics-queries-"));
+    try {
+      const template = await Bun.file(TEMPLATE).json();
+      // branch: [schema_version, user_turns]. The last has no human turn.
+      const fixtures: Record<string, [number, number]> = {
+        "a-v3": [3, 9],
+        "b-v4": [4, 9],
+        "c-v4-silent": [4, 0],
+      };
+      await mkdir(join(dir, ".claude", "metrics"), { recursive: true });
+      for (const [branch, [version, turns]] of Object.entries(fixtures)) {
+        await writeFile(
+          join(dir, ".claude", "metrics", `${branch}.json`),
+          JSON.stringify({
+            ...template,
+            schema_version: version,
+            pr: { ...template.pr, branch, merged_at: "2026-10-22T00:00:00.000Z" },
+            interaction: { ...template.interaction, user_turns: turns, corrective_turns: 2 },
+          }),
+        );
+      }
+
+      const { stdout, exitCode } = await duckdb(dir, [
+        "-json",
+        ":memory:",
+        "-c",
+        `.read ${QUERIES}`,
+        "-c",
+        "SELECT list(corrections ORDER BY branch) AS corrections_by_branch FROM metrics",
+      ]);
+
+      expect(exitCode).toBe(0);
+      expect(stdout).toMatch(/"corrections_by_branch":\s*\[\s*null,\s*2,\s*null\s*\]/);
+      // Query 3 says how many cards its corrections median covers.
+      expect(stdout).toMatch(/"prs":\s*3,[^{}]*"v4_prs":\s*1,[^{}]*"median_corrections":\s*2/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  },
+);

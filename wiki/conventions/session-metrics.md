@@ -14,7 +14,7 @@ related:
   - "[[shared/observability/metrics]]"
   - "[[conventions/review-findings]]"
   - "[[conventions/stacked-prs]]"
-last-reviewed: 2026-10-23
+last-reviewed: 2026-10-27
 ---
 
 # Session Metrics
@@ -253,20 +253,24 @@ Five traps the collector handles and any reimplementation must:
   as a measure of steering.
 - **A prompt typed while the agent is working is not a `user` record at all.**
   It arrives as `type: "attachment"` with `attachment.type === "queued_command"`
-  and the text under `attachment.prompt`. This is the one that matters most: a
-  message sent mid-flight *is* a course correction, so reading only `user`
-  records scores every interruption as zero and makes `corrective_turns` report
-  the opposite of what it claims. There were 354 such prompts in this
-  repository's transcripts when the collector was written. About 2% are also
-  echoed back as a `user` record once dequeued, so a queued/user pair with the
-  same text in the same session is collapsed — but two identical `user` turns
-  are never collapsed, because a person who types "continue" twice steered
-  twice.
-- **Not everything in that shape is a prompt.** A subagent hand-back and a
-  background task notification are delivered as queued commands too, and both
-  open with a tag (`<agent-message …>`, `<task-notification>`). They are
-  rejected the same way the `user` branch has always rejected a system
-  reminder — the leading `<`.
+  and the text under `attachment.prompt`. This shape is the whole of
+  `corrective_turns`: a queued prompt is one the person sent mid-turn, and a
+  `user` record is one sent to an idle agent. A queued prompt is sometimes
+  echoed back as a `user` record once dequeued, so a `user` record that is the
+  next human record in its session after a queued prompt with the same text is
+  collapsed into it. Two identical `user` turns never are, because a person who
+  types "continue" twice steered twice.
+- **Not everything in that shape is a prompt.** Subagent hand-backs,
+  background task notifications and the harness's own notices are delivered as
+  queued commands too. The harness labels the sender in
+  `attachment.origin.kind`, and the collector reads that as an allow-list: only
+  `human`, or a record marked `humanTurn: true`, is a person. `task-notification`,
+  `peer` and `coordinator` are not, and a kind it has never seen counts as no
+  turn — the CLI warns and names it, so a new sender cannot zero the field
+  unnoticed. A transcript older than the label falls back on
+  `attachment.commandMode`, where only `prompt` is typed text. Either way the
+  prompt must also pass the tag test the `user` branch applies: no leading `<`,
+  which rejects `<agent-message …>` and `<task-notification>`.
 - **Not every session in the directory is the person's.** `~/.claude/projects`
   keys transcripts by working directory, so a headless tool run against a
   worktree writes into the same directory as the person working there, and its
@@ -460,9 +464,13 @@ Two things worth keeping in mind:
 
 ## Schema
 
-`schema_version` is `3`. Bump it when a field changes meaning or leaves. Version
-3 made `complexity.declared` a sum over the issues a pull request closes and
-added `complexity.issues`; on an older card `declared` is one issue's rating.
+`schema_version` is `4`. Bump it when a field changes meaning or leaves. Version
+4 made `interaction.corrective_turns` count only the prompts sent while the
+agent was working; on an older card it counted every human turn after the
+session's first tool call, and every reader treats that count as unknown — see
+[[#The two fields that name a cause]]. Version 3 made `complexity.declared` a
+sum over the issues a pull request closes and added `complexity.issues`; on an
+older card `declared` is one issue's rating.
 
 | Field | Meaning |
 |---|---|
@@ -483,7 +491,7 @@ added `complexity.issues`; on an older card `declared` is one issue's rating.
 | `diff.files`, `diff.loc` | Counts bucketed `source` / `test` / `docs` / `config` / `generated` |
 | `diff.packages` | Workspace directories touched |
 | `interaction.user_turns` | Real human instructions |
-| `interaction.corrective_turns` | Human turns arriving *after* the agent started work. Machine records in a prompt's clothes — subagent hand-backs, task notifications, a headless session's opening instruction — are excluded; older cards overstate it |
+| `interaction.corrective_turns` | Prompts the person sent while the agent was still working — interruptions. A turn sent after the agent stopped (a new task, an answer to its question, "continue") is not counted. Before version 4 it counted every human turn after the first tool call; readers show that as unknown |
 | `interaction.tokens_before_first_edit` | Exploration cost, summed per session. **`null` when no edit was observed** — see below |
 | `interaction.sessions_with_observed_edit` | How many sessions contributed to that figure, so a partial reading reads as partial |
 | `interaction.edit_churn` | `files_edited_3plus`, `max_edits_one_file` |
@@ -739,25 +747,39 @@ one area means that area has no usable map.
 > per-package share over today's corpus with
 > `bun run --cwd tools/pr-metrics report -- --exploration`.*
 
-**`corrective_turns` → an unclear brief.** Human turns that arrive after the
-agent has already picked up tools: course corrections rather than the task. One
-turn and a large spend is an agent given a clear brief. Nine turns is a brief
-that needed nine patches. This is the one number here that measures the person
-rather than the model.
+**`corrective_turns` → where the brief fell short, once you read the
+prompts.** The prompts the person sent while the agent was still working —
+interruptions. A turn sent after the agent stopped and handed back (a new task,
+an answer to its question, "continue") is not counted, however late in the
+session it comes, so a long session that took on new work turn by turn does not
+read as a badly briefed one. High means the person had to step in mid-run.
 
-> [!warning] Cards written before 2026-09-22 overstate it
-> Until then the collector read a queued record's prompt without checking
-> whether a person wrote it, and counted a headless session sharing the
-> worktree's directory as the person's own. Both inflate the field, and the
-> first inflates it **in proportion to how many background subagents a session
-> ran** — which is what `orchestrate` and `prep-pr` tell it to do, so the more
-> a session followed this repository's conventions, the worse its brief
-> appeared. One branch read 11 corrective turns against three turns the person
-> actually sent and no correction among them.
+Two limits keep it from being a verdict on its own:
+
+- **An interruption is not always a correction.** Some are status notes
+  ("Merged a bunch of PRs") or added scope. Read the prompts; the corrections
+  among them are the brief's gaps.
+- **An orchestrator's redirects are mostly not counted.** While a session waits
+  on background subagents its main agent is idle, so a redirect sent then lands
+  as an idle turn. A low count on an orchestrated branch says less than it
+  seems.
+
+> [!warning] A card before version 4 counted something else
+> Before `schema_version` 4 the field counted every human turn after the
+> session's first tool call, so any session that was not one-shot approached
+> its ceiling of `user_turns` minus sessions. Over this machine's transcripts,
+> the 15 branches other than `main` with a human turn held 107 turns: the old
+> rule called 93 of them corrective, the new one 14.
 >
-> The transcripts those cards were built from are local and unversioned, so
-> nothing can be recomputed. Read the field on an older card as an upper bound,
-> and read a high value on a subagent-heavy branch as probably an artefact.
+> *Measured 2026-10-27 — `aggregateInteraction` from `origin/main` and from
+> schema version 4, over every main-session transcript under
+> `~/.claude*/projects/*osn*`, grouped by `gitBranch`.*
+>
+> So `report`, `queries.sql` and the dashboard read an older card's count as
+> unknown, and say how many cards they left out. `backfill` rebuilds a card at
+> the current version from transcripts still on this machine, rewriting its
+> spend and diff with it. A remote session's card cannot be rebuilt: its
+> container took the transcripts with it.
 
 Two supporting signals: a rising **cache-read share** across PRs means the
 context surface — `AGENTS.md`, the skills, the wiki pages an agent opens — is
@@ -895,13 +917,17 @@ HAVING prs >= 3
 ORDER BY explore_share DESC;
 ```
 
-**Whether briefs are getting clearer** — corrective turns over time:
+**Whether briefs are getting clearer** — prompts sent mid-turn over time. Read
+`corrections` from the `metrics` view, which is NULL on a card before version 4
+or with no human turn; `interaction.corrective_turns` read straight from `cards`
+mixes two meanings:
 
 ```sql
-SELECT date_trunc('month', pr.generated_at::TIMESTAMP) AS month,
-       avg(interaction.corrective_turns) AS avg_corrections,
-       avg(interaction.user_turns) AS avg_turns
-FROM cards
+SELECT date_trunc('month', at_ts) AS month,
+       count(corrections) AS v4_prs,
+       median(corrections) AS median_corrections,
+       median(turns) AS median_turns
+FROM metrics
 GROUP BY 1 ORDER BY 1;
 ```
 
