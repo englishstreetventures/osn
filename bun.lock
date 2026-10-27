@@ -902,7 +902,7 @@
     },
     "tools/metrics": {
       "name": "@tools/metrics",
-      "version": "0.2.33",
+      "version": "0.2.34",
       "dependencies": {
         "@observablehq/plot": "^0.6.17",
         "@shared/ui": "workspace:*",
