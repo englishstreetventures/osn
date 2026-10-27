@@ -176,6 +176,51 @@ describe("CORS preflight for the deployed portal origins", () => {
   });
 });
 
+/**
+ * Write routes mounted before `originGuard` in `createApp`: no browser session
+ * authenticates them, and their callers do not all send an allowed `Origin`.
+ */
+const BEFORE_GUARD = new Set([
+  "POST /api/csp-report/",
+  "POST /internal/revoke-organiser-sessions",
+  "POST /api/rsvp-digest/stop",
+  "POST /api/invite/resolve",
+]);
+/** Mounted after the guard and exempt by exact path (`EXEMPT_PATHS`). */
+const EXEMPT = new Set(["POST /api/stripe/webhook", "POST /api/stripe/platform-webhook"]);
+
+const WRITE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+const writeRoutes = deployedApp.routes
+  .filter((route) => WRITE_METHODS.has(route.method))
+  .map((route) => `${route.method} ${route.path}`);
+
+// Every write route is walked, so one mounted before the guard by mistake —
+// today's or a later one — fails here even though its own tests, which all
+// send the allowed origin, still pass.
+describe("the CSRF origin guard, across every mounted write route", () => {
+  it("has every exception mounted", () => {
+    for (const key of [...BEFORE_GUARD, ...EXEMPT]) expect(writeRoutes).toContain(key);
+  });
+
+  it("refuses a foreign Origin on every other write route", async () => {
+    const refusal = JSON.stringify({ error: "forbidden", message: "Origin not allowed" });
+    const admitted: string[] = [];
+    for (const key of writeRoutes) {
+      if (BEFORE_GUARD.has(key) || EXEMPT.has(key)) continue;
+      const [method, path] = key.split(" ");
+      const res = await appRequest(deployedApp, path.replace(/:[^/]+/g, "x"), {
+        method,
+        headers: { Origin: "https://evil.example", "Content-Type": "application/json" },
+        body: "{}",
+      });
+      const body = await res.text();
+      if (res.status !== 403 || body !== refusal) admitted.push(`${key}: ${res.status}`);
+    }
+    expect(writeRoutes.length).toBeGreaterThan(BEFORE_GUARD.size + EXEMPT.size);
+    expect(admitted).toEqual([]);
+  });
+});
+
 describe("not-found handler", () => {
   it("returns the JSON 404 contract for unknown paths", async () => {
     const res = await appRequest(app, "/nope");
