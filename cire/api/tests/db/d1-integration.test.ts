@@ -3166,6 +3166,54 @@ describe("cire/api over real D1 (Miniflare)", () => {
   );
 
   it(
+    "an import's batch rolls back over D1 when a guest names another wedding's household",
+    async () => {
+      const now = new Date();
+      await db
+        .insert(weddings)
+        .values({
+          id: "wed_other",
+          slug: "other",
+          displayName: "Other",
+          createdAt: now,
+          updatedAt: now,
+        });
+      await db.insert(families).values({
+        id: "fam_other",
+        weddingId: "wed_other",
+        publicId: "OTHER-0001",
+        familyName: "Other",
+        createdAt: now,
+        updatedAt: now,
+      });
+      const plan = importPlan({
+        familyCreates: [{ id: "fam_mine", publicId: "MINE-0001", familyName: "Mine" }],
+        guestCreates: [
+          {
+            id: "g_crossed",
+            familyId: "fam_other",
+            firstName: "Lee",
+            lastName: "",
+            nickname: null,
+            sortOrder: 0,
+          },
+        ],
+      });
+
+      const failure = await run(
+        Effect.flip(applyImport("imp_crossed", plan, BOOTSTRAP_WEDDING_ID)),
+      );
+
+      expect(failure._tag).toBe("ImportError");
+      expect(failure._tag === "ImportError" ? failure.capacity : undefined).toBeUndefined();
+      expect(await db.select().from(guests).where(eq(guests.familyId, "fam_other"))).toEqual([]);
+      // The wedding's own household rode in the same batch as the refused guest.
+      expect(await db.select().from(families).where(eq(families.id, "fam_mine"))).toEqual([]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
     "every D1 batch of an import's guests checks the cap at its end, not only the last",
     async () => {
       // 49 guests, and 51 more in batches of 50 and 1. Two plus-ones named

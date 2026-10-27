@@ -1093,7 +1093,6 @@ describe("applyImport — capacity enforcement", () => {
     const db = createDb();
     seedBootstrapWedding(db);
     const now = new Date();
-    const layer = Layer.succeed(DbService, db);
 
     // Insert 99 real guests directly.
     const realFamilyId = crypto.randomUUID();
@@ -1230,7 +1229,6 @@ describe("applyImport — capacity enforcement", () => {
   it("swap-at-cap: remove K and add K at exactly cap → succeeds (net delta = 0)", async () => {
     const db = createDb();
     seedBootstrapWedding(db);
-    const layer = Layer.succeed(DbService, db);
     const now = new Date();
 
     // Seed exactly 100 real guests (= default cap) directly as import-sourced.
