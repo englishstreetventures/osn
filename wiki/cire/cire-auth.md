@@ -138,7 +138,7 @@ Four routes make up the surface, plus the middleware:
 
 **The cookie.** `cire_org_session`, 256 bits from `crypto.getRandomValues`, stored **SHA-256-hashed** in `organiser_sessions` (migration `0047`), `HttpOnly; SameSite=Lax; Path=/`, 7-day TTL, host-scoped to the API origin (`api.cireweddings.com`) — so the portal's own origin can never read it and every call rides `credentials: "include"`. `Secure` tracks the configured web origin's scheme, the same test the guest cookie uses.
 
-**Why `SameSite=Lax` and not `Strict`.** The callback is a cross-site top-level GET arriving from `musubi.social`; `Strict` would drop the cookie on exactly the navigation that sets it. Lax plus the app-wide `originGuard` is the pair that covers organiser writes — see [CSRF origin guard](#csrf-origin-guard-c5--s-l3). Both have to stay.
+**Why `SameSite=Lax` and not `Strict`.** The callback is a cross-site top-level GET arriving from `musubi.social`; `Strict` would drop the cookie on exactly the navigation that sets it. Lax plus the app-wide `originGuard` is the pair that covers organiser writes — see [CSRF origin guard](#csrf-origin-guard). Both have to stay.
 
 **Open-redirect guard.** Exactly one redirect URI is registered per environment (`…/api/auth/oidc/callback` on the API host), so the issuer's own allowlist is a single value. The real destination rides in the tx cookie, not in the URL, and is re-validated against the CORS allowlist both when it goes in and when it comes back out.
 

@@ -1,5 +1,5 @@
 /**
- * CSRF origin guard (C5 / S-L3 cire) — Copenhagen Book M1.
+ * CSRF origin guard — Copenhagen Book M1.
  *
  * The guest `cire_session` cookie carries auth state, so cire needs CSRF
  * defence. `SameSite=Lax` already blocks cross-origin POST in modern browsers,
@@ -15,14 +15,12 @@
  *
  * ## The exemptions
  *
- * Two of cire's server-to-server routes sidestep this by being mounted BEFORE
- * the guard — a global `onBeforeHandle` only applies to what comes after it —
- * and that is the pattern to prefer: the CSP violation collector and the
- * internal revoke endpoint. The two Stripe webhooks cannot use it. Both are
- * mounted last on purpose (the fluent chain's inferred type is erased there to
- * stay under TypeScript's instantiation-depth limit, and moving those mounts
- * earlier would erase every route's types for Eden), so they need a path
- * exemption instead — see `EXEMPT_PATHS`.
+ * A route that no browser session authenticates, and whose callers do not all
+ * send an allowed `Origin`, is mounted BEFORE the guard in `createApp` — a
+ * global `onBeforeHandle` only applies to what comes after it — and needs no
+ * entry here. Mount a new one there rather than adding a path. The two Stripe
+ * webhooks are mounted after the guard, so `EXEMPT_PATHS` exempts them by
+ * exact path.
  */
 
 import { Elysia } from "elysia";

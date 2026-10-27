@@ -33,7 +33,7 @@ function send(path: string, method: string, origin: string | null) {
   );
 }
 
-describe("origin guard (C5 / S-L3)", () => {
+describe("origin guard", () => {
   it("403s a state-changing POST with a missing Origin", async () => {
     const res = await send("/api/claim", "POST", null);
     expect(res.status).toBe(403);
@@ -118,7 +118,7 @@ describe("origin guard (C5 / S-L3)", () => {
  * The existing webhook tests cannot see this: they go through `appRequest`,
  * which injects an Origin. These build the request by hand.
  */
-describe("the Stripe webhook is exempt (S-C1)", () => {
+describe("the Stripe webhook is exempt by exact path", () => {
   const webhookDb = createDb(":memory:");
   const SECRET = "whsec_test";
   const webhookApp = createApp(webhookDb, {
