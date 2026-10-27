@@ -205,7 +205,12 @@ export function Th(props: ThProps) {
         own.pin ? ` ${TH_PIN[own.pin]}` : ""
       }${own.class ? ` ${own.class}` : ""}`}
     >
-      {own.srOnly ? <span class="base:sr-only">{own.children}</span> : own.children}
+      {/* `normal-case`: Chrome reads a head's capitals into its name. */}
+      {own.srOnly ? (
+        <span class="base:sr-only base:normal-case">{own.children}</span>
+      ) : (
+        own.children
+      )}
     </th>
   );
 }

@@ -1005,6 +1005,21 @@ describe("ModuleShell", () => {
       expect(screen.queryByRole("tablist")).toBeNull();
       expect(screen.queryByRole("tab")).toBeNull();
       expect(screen.queryByRole("tabpanel")).toBeNull();
+      // Nor any view bar: there is nothing to hold under the top bar.
+      expect(document.querySelector("[data-view-bar]")).toBeNull();
+    });
+
+    it("holds the sub-tabs in a bar named for the module, outside its panel", () => {
+      // The bar sticks under the top bar while the title above it scrolls
+      // away; the tabs in it still control the module's one panel.
+      renderShell({ module: "guests", sub: "list" });
+      const bar = screen.getByRole("region", { name: "Guests controls" });
+      const strip = within(bar).getByRole("tablist", { name: "Views" });
+      const panel = screen.getByRole("tabpanel");
+      expect(panel.contains(bar)).toBe(false);
+      for (const tab of within(strip).getAllByRole("tab")) {
+        expect(tab.getAttribute("aria-controls")).toBe(panel.id);
+      }
     });
 
     it("re-mints the tab/panel id pair when the module changes", () => {

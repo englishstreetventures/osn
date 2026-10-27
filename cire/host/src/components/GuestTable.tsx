@@ -257,9 +257,11 @@ interface GuestTableProps {
 const TABLE_MIN_REM = { plusOnes: 46, plain: 40 } as const;
 
 /** Where a focused control in a household's rows must stay below: the top bar,
- *  the view bar, the head strip when there is one, and the household's bar. */
+ *  the view bar, the head strip when there is one, and the household's bar,
+ *  and a rem more, because a switch's focusable input sits inside its label,
+ *  below the track's top edge. */
 const ROWS_SCROLL_MARGIN =
-  "[&_:is(button,input,a,[tabindex])]:scroll-mt-[calc(var(--chrome-h)+var(--bar-h,0px)+var(--heads-h,0px)+var(--hh-bar-h)+0.5rem)]";
+  "[&_:is(button,input,a,[tabindex])]:scroll-mt-[calc(var(--chrome-h)+var(--bar-h,0px)+var(--heads-h,0px)+var(--hh-bar-h)+1rem)]";
 
 /** One row of a household's bar: its name and state, then what can be done. */
 const HOUSEHOLD_BAR =
@@ -763,10 +765,14 @@ export default function GuestTable(props: GuestTableProps) {
     <>
       <Show when={isDeactivated(family)}>
         <span
-          class="font-body border-error/40 text-error text-ui-xs tracking-ui-widest min-w-0 truncate rounded-sm border px-1.5 py-0.5 uppercase not-italic"
+          class="font-body border-error/40 text-error text-ui-xs tracking-ui-widest shrink-0 rounded-sm border px-1.5 py-0.5 uppercase not-italic"
           title="Deactivated — this household's code no longer opens the invite. Reactivate to restore it."
         >
-          Deactivated — code disabled
+          {/* The whole state on a wide bar; one word where the bar is narrow,
+              the rest kept for assistive technology. */}
+          <Show when={compact()} fallback="Deactivated — code disabled">
+            Deactivated<span class="sr-only"> — code disabled</span>
+          </Show>
         </span>
       </Show>
       {/* Status badges are suppressed while deactivated — the "Deactivated"
@@ -778,7 +784,7 @@ export default function GuestTable(props: GuestTableProps) {
           fallback={
             <Show when={isShared(family)}>
               <span
-                class="font-body text-gold/80 border-gold/30 text-ui-xs tracking-ui-widest min-w-0 truncate rounded-sm border px-1.5 py-0.5 uppercase not-italic"
+                class="font-body text-gold/80 border-gold/30 text-ui-xs tracking-ui-widest shrink-0 rounded-sm border px-1.5 py-0.5 uppercase not-italic"
                 title="Sent — you copied this family's invite message"
               >
                 Sent
@@ -787,7 +793,7 @@ export default function GuestTable(props: GuestTableProps) {
           }
         >
           <span
-            class="font-body bg-gold text-bg text-ui-xs tracking-ui-widest min-w-0 truncate rounded-sm px-1.5 py-0.5 uppercase not-italic"
+            class="font-body bg-gold text-bg text-ui-xs tracking-ui-widest shrink-0 rounded-sm px-1.5 py-0.5 uppercase not-italic"
             title={`Opened — a guest opened this invite (code used) on ${formatOpenedDate(
               family.firstOpenedAt!,
             )}`}
@@ -996,9 +1002,9 @@ export default function GuestTable(props: GuestTableProps) {
   return (
     <div
       class="flex flex-col gap-8"
-      // Whether a head strip sits between the view bar and each household's
-      // bar: the households' bars stick below it when it does.
-      style={{ "--heads-h": compact() ? "0px" : "var(--head-strip-h)" }}
+      // Whether a head strip (its row and its hairline) sits between the view
+      // bar and each household's bar: the households' bars stick below it.
+      style={{ "--heads-h": compact() ? "0px" : "calc(var(--head-strip-h) + 1px)" }}
     >
       {/* The pointer to where the message is written sits with the intro, not
           a whole section gap below it. */}
@@ -1182,7 +1188,7 @@ export default function GuestTable(props: GuestTableProps) {
                   const plusOneBadge = (member: FamilyMember) => (
                     <Show when={isPlusOne(member)}>
                       {" "}
-                      <span class="font-body text-gold-ink border-gold/45 text-ui-xs tracking-ui-wide ml-1 inline-block rounded-sm border px-1.5 py-0.5 whitespace-nowrap">
+                      <span class="font-body text-gold-ink border-gold/45 text-ui-xs tracking-ui-wide ml-1 inline-block max-w-full rounded-sm border px-1.5 py-0.5 wrap-break-word">
                         Plus-one of {inviterName(member) || "another guest"}
                       </span>
                     </Show>
@@ -1211,9 +1217,17 @@ export default function GuestTable(props: GuestTableProps) {
                           </span>
                           {householdBadge(family)}
                         </div>
+                        {/* The count, shortened to an icon and a fraction: the
+                            narrow bar holds the name, its state and this. */}
                         <Show when={compact() && plusOneControls()}>
-                          <span class="font-body text-text-muted text-ui-xs tracking-ui-wide shrink-0">
-                            Plus-ones: {permission().allowed} of {permission().total}
+                          <span class="font-body text-text-muted text-ui-xs flex shrink-0 items-center gap-1 font-mono">
+                            <UserCheck aria-hidden="true" strokeWidth={1.75} class="size-3.5" />
+                            <span aria-hidden="true">
+                              {permission().allowed}/{permission().total}
+                            </span>
+                            <span class="sr-only">
+                              Plus-ones: {permission().allowed} of {permission().total}
+                            </span>
                           </span>
                         </Show>
                         <Show

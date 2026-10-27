@@ -760,6 +760,7 @@ function FamilyCard(props: {
       style={{ "--edit-table-w": width() }}
     >
       <div
+        data-card-head
         class={`border-border sticky top-[calc(var(--chrome-h)+var(--bar-h,0px))] z-10 -mx-4 border-b px-4 ${CARD_GROUND}`}
       >
         {/* One fixed-height row. On a narrow panel it holds the name alone,
