@@ -1404,6 +1404,19 @@ test.each([
   expect(calls.filter((call) => call.includes("api graphql"))).toEqual([]);
 });
 
+// The cap and the `Int` bound are limits, not refusals: 50 tracker issues,
+// one of them numbered at GraphQL's largest `Int`, are still asked about.
+test("--resolve-issue asks about 50 tracker issues, the largest GraphQL Int among them", async () => {
+  const numbers = [...Array.from({ length: 49 }, (_, i) => 902000 + i), 2 ** 31 - 1];
+  const { card, calls } = await runResolving({
+    pull: { body: numbers.map((n) => `Closes ${TRACKER}#${n}`).join("\n"), refs: [] },
+    trackerLabels: Object.fromEntries(numbers.map((n) => [n, ["complexity:1"]])),
+  });
+
+  expect(calls.filter((call) => call.includes("api graphql"))).toHaveLength(1);
+  expect(card.complexity).toEqual({ declared: 50, method: "confirmed", issues: 50 });
+});
+
 // GitHub lists the issues a pull request closes by number, not by what the
 // branch was cut for. Taking the first of that list put a $49.77 session
 // against a complexity-1 follow-up it also closed.

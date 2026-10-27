@@ -249,6 +249,8 @@ describe("ratingLabels — all a card takes from another repository's issue", ()
         "complexity:3",
         " complexity:unconfirmed ",
         "xcomplexity:5",
+        "complexity:3-severity:high",
+        "complexity:unconfirmed-area:security",
       ]),
     ).toEqual(["complexity:3", "complexity:unconfirmed"]);
   });

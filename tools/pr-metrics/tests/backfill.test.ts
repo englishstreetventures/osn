@@ -1270,12 +1270,14 @@ test("backfill records not-fetched for a tracker issue the token cannot resolve"
     );
     await sessionOn(f, branch);
 
-    expect((await runBackfill(f)).exitCode).toBe(0);
+    const run = await runBackfill(f);
+    expect(run.exitCode).toBe(0);
 
     const card = JSON.parse(
       await readFile(join(f.dir, "cards", `${branchSlug(branch)}.json`), "utf8"),
     ) as Card;
     expect(card.complexity).toEqual({ declared: null, method: "not-fetched", issues: 0 });
+    expect(run.stderr).toContain(`could not read ${TRACKER}#900620`);
   } finally {
     await rm(f.dir, { recursive: true, force: true });
   }
@@ -1596,6 +1598,17 @@ describe("keepRating", () => {
     };
 
     expect(keepRating(tracked, fresh, links([], [], [900619, 900620]))).toBe(fresh);
+  });
+
+  test("rebuilds rather than leave a card carrying labels with no issue", () => {
+    const fresh = next({ declared: null, method: "not-fetched", issues: 0 }, null);
+    const labelled = {
+      pr: { number: 1 },
+      issue: { number: null, type: null, labels: ["severity:high", "complexity:3"] },
+      complexity: { declared: 1, method: "manual" },
+    };
+
+    expect(keepRating(labelled, fresh, links([], [], [900619, 900620]))).toBe(fresh);
   });
 
   test("ignores a card on disk with no rating or for another pull request", () => {
