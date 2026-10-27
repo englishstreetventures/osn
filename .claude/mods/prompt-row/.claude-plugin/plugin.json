@@ -1,0 +1,7 @@
+{
+  "name": "prompt-row",
+  "version": "0.1.0",
+  "description": "One row under the prompt: the model in its colour with its effort level, a context-window bar, Claude Code's own hint with the mode, and the session id; a model-coloured dot before the working spinner",
+  "types": "./types/index.d.ts",
+  "author": { "name": "englishstreetventures" }
+}

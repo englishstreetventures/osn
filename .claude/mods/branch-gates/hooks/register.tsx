@@ -110,11 +110,6 @@ const clockText = (ms: number) => {
 
 const shortHead = (head: string | null) => head?.slice(0, 7) ?? "unknown HEAD";
 
-const statusLine = (snap: Snapshot) =>
-  [snap.branch, snap.issue, snap.complexity && `complexity ${snap.complexity}`]
-    .filter(Boolean)
-    .join(" · ");
-
 // The reason the guard hook gave, when this call's result is its refusal: the
 // call's own tool named at the very start of an errored result's text.
 const guardReason = (tool: string, ran: ToolCallResult) => {
@@ -284,7 +279,6 @@ const fillComplexity = async (
       ? { ...held, complexity }
       : held,
   );
-  $.ui.status(statusLine({ ...snap, complexity }));
 };
 
 const measureOnce = async ($: EngineInterface, root: string) => {
@@ -292,7 +286,6 @@ const measureOnce = async ($: EngineInterface, root: string) => {
     const snap = await measure($, root, live.complexities, live.changeset);
     await update($, snapshot, () => snap);
     if ((await read($, fault)) !== null) await update($, fault, () => null);
-    $.ui.status(statusLine(snap));
     const issue = issueRefOf(snap.issue);
     if (issue !== null && !live.complexities.has(issue.ref) && !live.asking.has(issue.ref)) {
       void fillComplexity($, root, snap, issue);

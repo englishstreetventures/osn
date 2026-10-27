@@ -7,7 +7,7 @@ related:
   - "[[session-metrics]]"
   - "[[contributing]]"
   - "[[wiki-search]]"
-last-reviewed: 2026-10-26
+last-reviewed: 2026-10-27
 ---
 
 # Agent tooling
@@ -53,8 +53,8 @@ The hook command, inline in `settings.json`, runs **main's copy** of the script:
 
 | Mod | Shows |
 |---|---|
-| `branch-gates` | A **Branch gates** pane beside the chat. It shows the branch; the `Issue:` line of `NEW-FEAT.md` with that issue's `complexity:` label, and "(unconfirmed)" when that label is on it too; commits ahead and files changed against `refs/remotes/origin/main`, or "base unknown" when git cannot say; uncommitted files; and whether the diff needs a changeset. Under **Pull request**: the branch's PR from `gh pr view`, its state (open, merged or closed), its CI rollup (passing, failing or pending), its unresolved review threads and its review decision, or `gh`'s own error. Under **Checks**: the last `/gates` run, with its HEAD and time, marked stale after any later Bash, Edit, Write or NotebookEdit call, or a new HEAD or `git status`. Under **Gates**: each row of the `## Gates` section of `NEW-FEAT.md`. It also shows a band above the prompt when a changeset is required and missing, a status line with the branch and issue, and a toast, "Guard: <reason>", when the guard hook above refuses a Bash, Write, Edit or Agent call. |
-| `model-colour` | The current model's family (Fable, Opus, Haiku, Sonnet) as a coloured tag before the prompt hint, and a dot in the same colour before the working spinner. |
+| `branch-gates` | A **Branch gates** pane beside the chat. It shows the branch; the `Issue:` line of `NEW-FEAT.md` with that issue's `complexity:` label, and "(unconfirmed)" when that label is on it too; commits ahead and files changed against `refs/remotes/origin/main`, or "base unknown" when git cannot say; uncommitted files; and whether the diff needs a changeset. Under **Pull request**: the branch's PR from `gh pr view`, its state (open, merged or closed), its CI rollup (passing, failing or pending), its unresolved review threads and its review decision, or `gh`'s own error. Under **Checks**: the last `/gates` run, with its HEAD and time, marked stale after any later Bash, Edit, Write or NotebookEdit call, or a new HEAD or `git status`. Under **Gates**: each row of the `## Gates` section of `NEW-FEAT.md`. It also shows a band above the prompt when a changeset is required and missing, and a toast, "Guard: <reason>", when the guard hook above refuses a Bash, Write, Edit or Agent call. It draws no status line. |
+| `prompt-row` | One row under the prompt, drawn by the mod in place of Claude Code's hint text, its parts split by ` \| `. In the terminal, Claude Code draws the permission-mode pill (`⏵⏵ auto mode on`) itself, ahead of the row, where no mod can move it; the mod drops its "(shift+tab to cycle)" key hint, which arrives in the hint text. The empty row between the prompt and this one is Claude Code's footer row for its right-hand labels (`--debug`'s "Debug", the effort shortcut), kept whether or not any label shows. **Agents:** the hint's `← N agents`, when there are any. **Model:** the family (Fable, Opus, Haiku, Sonnet) as a coloured tag, with the effort level of the main thread's last model request, as `● Opus · high`; the level is left out until the session's first request, after one that named no level, and while the last request went to another family (a switch, `opusplan`'s other model, a fallback). **Context:** a ten-cell bar and the context window's fill, as `▰▰▰▱▱▱▱▱▱▱ 34%`, dim below 70%, a warning from 70% and an error from 85%; there is no bar before the window's first response, after `/clear` or after a compaction. **Session:** `session <id>`, the full ID that `claude --resume <id>` takes; it resumes only once its session has sent a prompt. **Last:** whatever else the hint held, such as `? for shortcuts` or `esc to interrupt`. The mod finds the agents count and the key hint in the hint's text by pattern, since Claude Code hands the hint over as one string; a hint worded differently in a later release lands in the last part instead. The row redraws after each main-thread model request, a new context reading, a compaction, a model switch, a prompt and the end of a session (`/clear`, `/resume`). It also puts a dot in the model's colour before the working spinner, which in the terminal shows the effort as well. |
 
 `branch-gates` works only in a repository whose `origin` is `englishstreetventures/osn` on github.com, as `https://github.com/…`, `git@github.com:…` or `ssh://git@github.com/…`. At session start it reads the repository's root (`git rev-parse --show-toplevel` in the session's directory) and that root's origin, keeps both for the session, and runs every later git, `gh` and `bash` call in that root, wherever the session's directory moves. Anywhere else it opens no pane, registers no command and makes no git call after those two, and a project's own `/gates` answers instead. Unprompted, it runs only git, `gh` and the copy of `scripts/changeset-required.sh` in the worktree the mods are loaded from, read from disk and run as `bash -c` with the file list on stdin; never a script from the session's checkout. It reads `NEW-FEAT.md` only when it is a regular file of at most 256 KB, and removes control characters from every text it draws from the checkout or from `gh`.
 
@@ -62,23 +62,23 @@ The hook command, inline in `settings.json`, runs **main's copy** of the script:
 
 *Measured 2026-10-26 — the three commands run in turn from the repository root in a cloud container: lint 7.0 s, `fmt:check` 0.5 s, the warning ceiling 18.6 s.*
 
-**Loading them.** Claude Code loads a folder of plugins named in `CLAUDE_CODE_PLUGIN_DIRS`, read from the process environment or the `env` block of `~/.claude/settings.json`, never from a project's settings. Give the mods a detached worktree of their own, used for nothing else, at `refs/remotes/origin/main`:
+**Loading them.** Claude Code loads a folder of plugins named in `CLAUDE_CODE_PLUGIN_DIRS`, read from the process environment or the `env` block of the user settings file, never from a project's settings. The user settings file is `$CLAUDE_CONFIG_DIR/settings.json`, which is `~/.claude/settings.json` only when `CLAUDE_CONFIG_DIR` is unset; a machine that runs Claude Code under several config directories needs the entry in each one's `settings.json`. Give the mods a detached worktree of their own, used for nothing else, at `refs/remotes/origin/main`:
 
 ```bash
 git -C ~/.work/osn.git fetch origin "+refs/heads/main:refs/remotes/origin/main"
 git -C ~/.work/osn.git worktree add --detach ~/.work/osn.git/claude-mods refs/remotes/origin/main
 ```
 
-Then add its `.claude/mods` to `CLAUDE_CODE_PLUGIN_DIRS` in `~/.claude/settings.json`, in fish. The `jq` program keeps any folders the variable already names, appends this one after a `:`, and adds nothing when it is already there:
+Then add its `.claude/mods` to `CLAUDE_CODE_PLUGIN_DIRS` in that settings file, in fish; run it once per config directory, with `CLAUDE_CONFIG_DIR` set to each. The `jq` program keeps any folders the variable already names, appends this one after a `:`, and adds nothing when it is already there:
 
 ```fish
-set f ~/.claude/settings.json
+set f (set -q CLAUDE_CONFIG_DIR; and echo $CLAUDE_CONFIG_DIR; or echo ~/.claude)/settings.json
 set dir "$HOME/.work/osn.git/claude-mods/.claude/mods"
 test -e $f; or echo '{}' > $f
 jq --arg dir $dir '.env.CLAUDE_CODE_PLUGIN_DIRS |= (if . == null or . == "" then $dir elif (split(":") | index($dir)) != null then . else . + ":" + $dir end)' $f > $f.new; and mv $f.new $f
 ```
 
-or by hand, as `"env": { "CLAUDE_CODE_PLUGIN_DIRS": "/Users/<you>/.work/osn.git/claude-mods/.claude/mods" }`, after a `:` when the value already names other folders. New sessions load both mods, in every repository: `model-colour` runs everywhere, and `branch-gates` turns itself off outside this one. To update them, move the worktree to main's latest commit:
+or by hand, as `"env": { "CLAUDE_CODE_PLUGIN_DIRS": "/Users/<you>/.work/osn.git/claude-mods/.claude/mods" }`, after a `:` when the value already names other folders. New sessions load both mods, in every repository: `prompt-row` runs everywhere, and `branch-gates` turns itself off outside this one. To update them, move the worktree to main's latest commit:
 
 ```bash
 git -C ~/.work/osn.git fetch origin "+refs/heads/main:refs/remotes/origin/main"
@@ -88,9 +88,19 @@ git -C ~/.work/osn.git/claude-mods checkout --detach refs/remotes/origin/main
 > [!warning]
 > Never point `CLAUDE_CODE_PLUGIN_DIRS` at a checkout where branches are switched. An interactive session watches the folder and reloads a mod's hooks when its files change, so `git checkout` of a branch you are reviewing would run that branch's `register.tsx` inside your session. The dedicated worktree changes only when you move it to main.
 
-**Costs.** No mod calls the model; `/gates` leaves one line of output in the conversation. `branch-gates` refreshes at session start and after a Bash, Edit, Write or NotebookEdit call, at most once every 2 s, with one more refresh at the end of the window when calls keep coming. A refresh is four git reads run together, its `git status` run with `--no-optional-locks` so it never takes the index lock; one `bash` for the changeset script only when the changed files or the script change; and one `gh issue view` per issue per load, made after the pane has drawn. The pull request is read at session start, on `/gates`, and after a Bash `git push` or `gh` command, at most once a minute with one trailing read; each read is one `gh pr view` and one GraphQL call.
+**Costs.** No mod calls the model; `/gates` leaves one line of output in the conversation. `branch-gates` refreshes at session start and after a Bash, Edit, Write or NotebookEdit call, at most once every 2 s, with one more refresh at the end of the window when calls keep coming. A refresh is four git reads run together, its `git status` run with `--no-optional-locks` so it never takes the index lock; one `bash` for the changeset script only when the changed files or the script change; and one `gh issue view` per issue per load, made after the pane has drawn. The pull request is read at session start, on `/gates`, and after a Bash `git push` or `gh` command, at most once a minute with one trailing read; each read is one `gh pr view` and one GraphQL call. `prompt-row` asks Claude Code for the model, the session ID and the context reading each time the prompt row redraws, which is once per main-thread model request and on the other events above; none of them runs a process or counts tokens. It also sits on every model request, main thread and subagent alike, as a `turn.step` hook that passes the response through untouched (`return yield* next(e)`), so every streamed chunk of every response resumes it once, subagents' included, though only the main thread's requests are of use to it; no matcher can leave subagent requests out. Beside a main-thread request it records the model and effort level without the request waiting on it, so a slow or failing state call costs the row its level and never holds the request.
 
 **Where they run.** A cloud session has only the checkout, and no checkout file sets the variable, so cloud sessions load neither mod. The tests sit in each mod's `tests/` folder and run with `claude plugin test .claude/mods/<mod>`, only locally: CI has no `claude` CLI. Verified on Claude Code 2.1.310, whose plugin API is early access and may change between releases.
+
+**What the test kit does not show.** Each of these passes `claude plugin test` and differs in a real session:
+
+- **`classic.*` hooks never run.** A plugin named `cc-plugin-sec-default` runs first and passes every classic event on past a mod's hooks; `claude -p --plugin-dir <mod>` prints a line saying so for each. Hook engine events instead (`session.end`, `turn.step`, `session.measure`).
+- **A redraw is lazy in the kit**: `$.ui.invalidate` redraws at the next read, so a test cannot tell an immediate redraw from a delayed one. A redraw test changes the value, checks the row has not moved, then raises the event.
+- **The engine refuses a tree with a control character** and drops the whole drawing for its own; strip every drawn text.
+- **The terminal's prompt hint is a block**: a tree drawn beside `next(e)`'s lands on the row below, and the permission-mode pill and the footer row above it are the terminal's own.
+- **Loading a mod writes a `tsconfig.json`** beside it; `.gitignore` covers it.
+
+Check a mod's look with `env CLAUDE_CODE_PLUGIN_DIRS= claude --plugin-dir .claude/mods/<mod>` from its worktree, so `main`'s copies do not draw beside it.
 
 ## Subagents
 
