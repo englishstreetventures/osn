@@ -41,12 +41,13 @@ import {
   isHttpUrl,
   isIsoTimestamp,
   isPaletteColorSafe,
+  isStoredTimestamp,
   MAX_CELL_LENGTH,
   normaliseName,
 } from "./guest-validation";
 import type { OrganiserGuestRow } from "./guests-store";
 import type { OrganiserHouseholdRow } from "./households-store";
-import { browserTimeZone } from "./timezones";
+import { browserTimeZone, canonicalTimeZone } from "./timezones";
 
 // ── Draft row shapes ─────────────────────────────────────────────────────────
 //
@@ -373,8 +374,10 @@ export function toDesiredState(
   const events: WireEvent[] = draft.events.map((e) => {
     const wire: WireEvent = {
       name: e.name,
-      startAt: e.startAt,
-      endAt: e.endAt,
+      // Trimmed, as the API stores Start and End only without spaces around
+      // them; an End of spaces is no end.
+      startAt: e.startAt.trim(),
+      endAt: e.endAt.trim(),
       timezone: e.timezone,
       // Kept, null, because a cire-api older than the venue name requires it:
       // such an API still takes the save during a deploy, and the current API
@@ -734,6 +737,10 @@ export interface FieldError {
    *  it is about: the drawer shows it under that field, not above the form. */
   item?: string;
   field?: "time" | "label";
+  /** A Start, End or timezone error. Only a save that writes the schedule is
+   *  refused for one: a guests save sends its events' times and zone
+   *  unchecked, so the guests editor does not wait on these. */
+  scheduleOnly?: true;
 }
 
 /**
@@ -741,7 +748,9 @@ export interface FieldError {
  * inline feedback — the server stays authoritative. Blocks Save when non-empty:
  *  Events —
  *   - a non-blank Event Name / Start / Timezone (the hard requirements);
- *   - Start (and End, when present) an ISO-8601-with-offset timestamp;
+ *   - Start (and End, when present) a date and time with a UTC offset
+ *     (`isStoredTimestamp`, the API's `isEventInstant`);
+ *   - a timezone the API resolves (checked here with this browser's `Intl`);
  *   - http(s)-only Pinterest / Maps URLs;
  *   - each palette swatch a non-blank name + a colour on the theme allow-list;
  *   - name/field length bounds;
@@ -761,6 +770,17 @@ export interface FieldError {
 export function validateDraft(draft: DraftState): FieldError[] {
   const errors: FieldError[] = [];
   const tooLong = (s: string) => s.length > MAX_CELL_LENGTH;
+  // Each distinct zone is looked up once per pass: this runs on every draft
+  // change, and building an `Intl` formatter is the slow part.
+  const zoneResolves = new Map<string, boolean>();
+  const resolves = (zone: string): boolean => {
+    let known = zoneResolves.get(zone);
+    if (known === undefined) {
+      known = canonicalTimeZone(zone) !== null;
+      zoneResolves.set(zone, known);
+    }
+    return known;
+  };
 
   // ── Events ──
   const seenEventName = new Map<string, string>();
@@ -783,24 +803,36 @@ export function validateDraft(draft: DraftState): FieldError[] {
     // time yet — see `event-datetime.ts`). Still an error, so Save stays shut
     // and nothing invents a midnight, but named precisely: the organiser is one
     // field away, and "not a valid date and time" doesn't say which one.
+    //
+    // A value with a readable wall clock but no usable offset can only be a
+    // stored one: the drawer always writes an offset. Entering the time again
+    // stamps the zone's.
+    const scheduleError = (message: string) =>
+      errors.push({ key: evt.key, message, scheduleOnly: true });
     if (isBlankName(evt.startAt)) {
-      errors.push({ key: evt.key, message: "Start date & time is required." });
+      scheduleError("Start date & time is required.");
     } else if (isDateOnly(evt.startAt)) {
-      errors.push({ key: evt.key, message: "Start time is required." });
+      scheduleError("Start time is required.");
     } else if (!isIsoTimestamp(evt.startAt)) {
-      errors.push({ key: evt.key, message: "Start must be a valid date and time." });
+      scheduleError("Start must be a valid date and time.");
+    } else if (!isStoredTimestamp(evt.startAt)) {
+      scheduleError("Re-enter the start time.");
     }
     // End is optional ("" ⇒ open-ended); only shape-check a present value.
     if (isDateOnly(evt.endAt)) {
-      errors.push({ key: evt.key, message: "End time is required." });
+      scheduleError("End time is required.");
     } else if (evt.endAt.trim().length > 0 && !isIsoTimestamp(evt.endAt)) {
-      errors.push({ key: evt.key, message: "End must be a valid date and time." });
+      scheduleError("End must be a valid date and time.");
+    } else if (evt.endAt.trim().length > 0 && !isStoredTimestamp(evt.endAt)) {
+      scheduleError("Re-enter the end time.");
     }
 
     if (isBlankName(evt.timezone)) {
-      errors.push({ key: evt.key, message: "Timezone is required." });
+      scheduleError("Timezone is required.");
     } else if (tooLong(evt.timezone)) {
       errors.push({ key: evt.key, message: "Timezone is too long." });
+    } else if (!resolves(evt.timezone)) {
+      scheduleError("Choose a timezone from the list.");
     }
 
     if (evt.venueName && tooLong(evt.venueName)) {

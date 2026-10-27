@@ -773,9 +773,10 @@ function EventDrawer(props: {
   /** Stamp the offset the event's ZONE is on for this wall-clock date + time.
    *  The organiser never types an offset any more — it is a fact about the zone
    *  on that day, so it's derived (DST and all). Falls back to whatever offset
-   *  the stored value already carried when the zone can't be resolved (an
-   *  imported free-text zone this browser's tz database doesn't know), so an
-   *  edit elsewhere in the drawer can't silently rewrite an imported time. */
+   *  the stored value already carried when the zone can't be resolved (a
+   *  stored zone this browser's tz database doesn't know, which keeps Save shut
+   *  until one is picked), so an edit elsewhere in the drawer can't silently
+   *  move the stored time. */
   const stamped = (parts: DateTimeParts, zone: string): DateTimeParts => ({
     ...parts,
     offset: zoneOffset(zone, parts.date, parts.time) ?? parts.offset,

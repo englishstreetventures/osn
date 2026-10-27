@@ -2,6 +2,8 @@ import { isValidGuestEmail, normaliseGuestEmail } from "@cire/guest-email";
 import { isSafeCssColor } from "@cire/theme";
 import { Schema } from "effect";
 
+import { isEventInstant, isKnownTimeZone } from "../lib/event-time";
+
 // ── Size limits ───────────────────────────────────────────────────────────────
 
 /**
@@ -103,20 +105,55 @@ export type ChildrenPolicy = Schema.Schema.Type<typeof ChildrenPolicy>;
 export const PlusOnePolicy = Schema.Literals(["by_invitation", "welcome"]);
 export type PlusOnePolicy = Schema.Schema.Type<typeof PlusOnePolicy>;
 
-export const ParsedEvent = Schema.Struct({
-  /**
-   * Optional stable id, honoured from the `Event ID` fidelity column when a
-   * `?fidelity=full` export is re-imported (E2). Absent (the default for a
-   * hand-authored or standard-export sheet) ⇒ the diff matches by name, exactly
-   * today's behaviour. Present ⇒ the diff matches by id, so a rename is an
-   * update rather than remove+create.
-   */
-  id: Schema.optional(Schema.String),
-  name: BoundedText("name"),
-  startAt: BoundedText("startAt"),
-  /** Optional in the sheet; "" ⇒ no stated end (matches the DB's "" sentinel). */
-  endAt: BoundedText("endAt"),
-  timezone: BoundedText("timezone"),
+/**
+ * An event's name: not blank, and within the cell cap. Attendance is linked by
+ * event name, so a guests save is held to this too. A name may start with a
+ * formula marker (`+1 Drinks`): an upload stores one once it has taken the
+ * download's `'` guard back off, and every download guards it again.
+ */
+const EventName = Schema.String.check(
+  Schema.makeFilter((s: string) =>
+    s.trim().length > 0 && s.length <= MAX_CELL_LENGTH
+      ? undefined
+      : `name must be non-blank and at most ${MAX_CELL_LENGTH} characters`,
+  ),
+);
+
+/**
+ * A Start as a schedule save stores it: an instant whose text begins with its
+ * date ({@link isEventInstant}). The cell cap runs first, since the shape
+ * allows a fraction of any length.
+ */
+const EventStart = Schema.String.check(
+  withinCell("startAt"),
+  Schema.makeFilter((s: string) =>
+    isEventInstant(s) ? undefined : "startAt must be a date and time with its UTC offset",
+  ),
+);
+
+/** An End: `""` (no stated end, the DB's sentinel) or an instant, as Start. */
+const EventEnd = Schema.String.check(
+  withinCell("endAt"),
+  Schema.makeFilter((s: string) =>
+    s === "" || isEventInstant(s)
+      ? undefined
+      : "endAt must be blank or a date and time with its UTC offset",
+  ),
+);
+
+/**
+ * An IANA zone this runtime resolves, stored as sent, as the sheet stores its
+ * Timezone cell. Fixed-offset spellings are refused (`isKnownTimeZone`). The
+ * length cap runs before the lookup; no zone name comes near it.
+ */
+const EventTimeZone = Schema.String.check(
+  Schema.makeFilter((s: string) =>
+    s.length <= 64 && isKnownTimeZone(s) ? undefined : "timezone must be an IANA time zone name",
+  ),
+);
+
+/** The fields of an event after its id, name, Start, End and timezone. */
+const eventDetailFields = {
   /**
    * The event's description, shown under About on the invite and in calendar
    * entries. Optional, and ABSENT is not empty: a sheet with no Description
@@ -157,6 +194,23 @@ export const ParsedEvent = Schema.Struct({
   pinterestUrl: Schema.NullOr(BoundedText("pinterestUrl")),
   mapsUrl: Schema.NullOr(BoundedText("mapsUrl")),
   sortOrder: Schema.Number,
+};
+
+export const ParsedEvent = Schema.Struct({
+  /**
+   * Optional stable id, honoured from the `Event ID` fidelity column when a
+   * `?fidelity=full` export is re-imported (E2). Absent (the default for a
+   * hand-authored or standard-export sheet) ⇒ the diff matches by name, exactly
+   * today's behaviour. Present ⇒ the diff matches by id, so a rename is an
+   * update rather than remove+create.
+   */
+  id: Schema.optional(Schema.String),
+  name: EventName,
+  startAt: EventStart,
+  /** Optional in the sheet; "" ⇒ no stated end (matches the DB's "" sentinel). */
+  endAt: EventEnd,
+  timezone: EventTimeZone,
+  ...eventDetailFields,
 });
 export type ParsedEvent = Schema.Schema.Type<typeof ParsedEvent>;
 
@@ -175,6 +229,21 @@ const DraftEmail = Schema.String.check(
       : "email must be blank or one email address",
   ),
 );
+
+/**
+ * An event in a guests-only editor save. That save writes no event: the diff
+ * reads its events for their ids and names only, so its Start, End and timezone
+ * are held to the cell cap alone, and an event whose stored values a schedule
+ * save would refuse does not block the guest list.
+ */
+const GuestsScopeEvent = Schema.Struct({
+  id: Schema.optional(Schema.String),
+  name: EventName,
+  startAt: BoundedText("startAt"),
+  endAt: BoundedText("endAt"),
+  timezone: BoundedText("timezone"),
+  ...eventDetailFields,
+});
 
 export const ParsedGuest = Schema.Struct({
   /** Optional stable id from the `Guest ID` fidelity column (E2). Absent ⇒
@@ -293,6 +362,16 @@ export const DesiredState = Schema.Struct({
   families: Schema.Array(ParsedFamily).check(Schema.isMaxLength(MAX_ROWS)),
 });
 export type DesiredState = Schema.Schema.Type<typeof DesiredState>;
+
+/**
+ * The desired state of a guests-only editor save (`scope: "guests"`): the same
+ * shape as {@link DesiredState}, its events held only to what that save reads
+ * (see `GuestsScopeEvent`).
+ */
+export const GuestsScopeDesiredState = Schema.Struct({
+  events: Schema.Array(GuestsScopeEvent).check(Schema.isMaxLength(MAX_EVENTS)),
+  families: Schema.Array(ParsedFamily).check(Schema.isMaxLength(MAX_ROWS)),
+});
 
 /**
  * Which halves of the wedding a change is AUTHORITATIVE over.

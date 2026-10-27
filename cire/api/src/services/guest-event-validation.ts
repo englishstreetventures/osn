@@ -67,18 +67,16 @@ export function normaliseName(s: string): string {
 
 // ── Cell-value rules ──────────────────────────────────────────────────────────
 
-// The Start/End cell rule USED to live here as `isIsoTimestamp`. It is now
-// `parseWallTime` in `lib/event-time.ts`, because validating the cell's shape
-// and reading the local date + time out of it are the same operation: an event's
-// time is a WALL CLOCK plus an IANA zone, and the UTC offset the stored
-// timestamp carries is DERIVED from that zone rather than typed. It is still a
-// rule both front doors share (the sheet path calls it directly;
-// `organiser/src/lib/guest-validation.ts` mirrors it), and it still carries the
-// invariant it always did: `events.start_at`/`end_at` are compared LEXICALLY
-// against a `YYYY-MM-DD` cutoff by the guest-data retention sweep
-// (`services/retention.ts`), so a free-text date like "1st Nov 2026" (sorts
-// below any `2…` cutoff) would make an upcoming wedding aggregate as expired and
-// have its guest PII deleted, while "TBD" (sorts above) would never expire.
+// The Start/End rule lives in `lib/event-time.ts`, because validating the value's
+// shape and reading the local date + time out of it are the same operation: an
+// event's time is a WALL CLOCK plus an IANA zone, and the UTC offset the stored
+// timestamp carries is DERIVED from that zone rather than typed. Both front
+// doors share it: the sheet path calls `parseWallTime` and stamps the offset;
+// the editor door's `ParsedEvent` calls `isEventInstant`, which also requires
+// the offset the editor stamped; `cire/host/src/lib/guest-validation.ts`
+// mirrors both. `events.start_at`/`end_at` are compared LEXICALLY against a
+// `YYYY-MM-DD` cutoff by the guest-data retention sweep (`services/retention.ts`),
+// so a stored value must begin with its date.
 
 /** Truthy tokens for an attendance cell. */
 const TRUTHY = new Set(["true", "yes", "1", "x"]);

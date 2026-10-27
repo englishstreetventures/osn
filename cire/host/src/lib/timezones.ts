@@ -13,8 +13,8 @@
 /**
  * Resolve a zone to its canonical IANA spelling, or null when this runtime's tz
  * data can't take it. A client-side twin of `canonicalTimeZone` in
- * `cire/api/src/lib/rsvp-deadline.ts` — same rules, same reasons (S-L2 there,
- * S-L1 here), duplicated only because that module is server-side Effect code.
+ * `cire/api/src/lib/rsvp-deadline.ts` — same rules, same reasons, duplicated
+ * only because that module is server-side Effect code.
  *
  * `Intl` accepts considerably more than "an IANA identifier": `"+05:30"`,
  * `"utc"` and `"AUSTRALIA/sydney"` all construct successfully. Waving those
@@ -26,8 +26,8 @@
  *  - and it is what keeps the formatter caches below BOUNDED. They key on the
  *    canonical form precisely because there are unboundedly many spellings of
  *    a zone that `Intl` will happily resolve, and `event.timezone` is not
- *    canonicalised anywhere upstream (the CSV parser checks non-blank; the
- *    JSON front door checks nothing).
+ *    canonicalised anywhere upstream (both API front doors check that the zone
+ *    resolves, and store it as sent).
  *
  * Deliberately NOT cached itself: it takes arbitrary strings, so caching by
  * INPUT would reintroduce the unbounded growth it exists to prevent.
@@ -59,7 +59,7 @@ export function browserTimeZone(): string {
   return ownZone;
 }
 
-/** Zone-name formatters, cached by CANONICAL zone (P-I3). Construction is the
+/** Zone-name formatters, cached by CANONICAL zone. Construction is the
  *  expensive part (~187µs, vs ~2µs to reuse one). Keyed on the canonical form,
  *  so neither an unresolvable zone nor an alternate spelling of a real one can
  *  grow the map — see {@link canonicalTimeZone}. */
@@ -242,9 +242,9 @@ const UNGROUPED_LABEL = "UTC";
 
 /** The grouped list, built once. Held so {@link timeZoneGroups} can return the
  *  SAME array identity on every call for a known zone — a `<For>` reconciles by
- *  item reference, so a freshly-allocated list of freshly-allocated groups made
- *  every zone change tear down and rebuild ~900 `<optgroup>`/`<option>` nodes
- *  (P-W1). The content never depends on the selection, so there is nothing to
+ *  item reference, so a freshly-allocated list of freshly-allocated groups would
+ *  make every zone change tear down and rebuild ~900 `<optgroup>`/`<option>`
+ *  nodes. The content never depends on the selection, so there is nothing to
  *  rebuild; and replacing every `<option>` under a `<select>` is also how an
  *  element loses the selection it was just given. */
 let groupedZones: TimeZoneGroup[] | null = null;
