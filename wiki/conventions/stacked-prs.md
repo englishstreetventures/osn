@@ -129,8 +129,10 @@ The retarget is not enough. PR 2's branch still carries PR 1's original commits,
 ```bash
 git rebase --onto refs/remotes/origin/main <PR 1's tip before the merge> <PR 2's branch>
 bun install --frozen-lockfile
-git push --force-with-lease origin <PR 2's branch>
+git push --force-with-lease=<PR 2's branch>:<its recorded head> --force-if-includes origin <PR 2's branch>
 ```
+
+Pin the lease to the head you recorded. Every worktree shares one set of remote refs, so any session's `git fetch` refreshes a bare lease, and a commit pushed from elsewhere, such as a suggestion accepted in the web editor, would be overwritten without a word.
 
 PR 1's tip is gone by then: the merge deletes its branch on GitHub and Step 5 of `orchestrate` deletes it locally. Record it when PR 2 is cut and after every rebase, as `git merge-base <PR 1's branch> <PR 2's branch>`. Queue a child only once its base is `main`. Only `main` has a ruleset, so a child still based on its parent's branch has no queue and no required checks, and `--auto` merges it into the parent at once.
 
@@ -171,7 +173,7 @@ Keep a stack short. Three deep is manageable; five means the bottom PR sat unrev
 
 Frontend work that adds or changes a component in a UI package — `@shared/ui`, `@cire/ui`, `@osn/auth-ui` — ships as a stack. Each such component gets its own pull request, and the feature pull request sits on top. The feature PR only composes the components and adds the layout and styling between them. The owner reviews each component on its own; a change asked for in a component PR is made there and carried up by rebase.
 
-A part used by one screen only, outside a UI package, is not a component here and stays in the feature PR.
+A part used by one screen only, outside a UI package, is not a component here and stays in the feature PR. A fix for a private tracker finding is never a stack: it ships as one pull request named by area, as `new-feat` Step 0 says, since every branch in a stack is public while it waits.
 
 ### Who builds it
 
@@ -186,7 +188,7 @@ The `orchestrate` skill, from `main/`. A session that starts `new-feat` on such 
 At most three components under one feature, so four deep. More means the issue splits into two features.
 
 - One issue, `#N`, claimed once at the first cut. Every brief carries `TASK-BRANCH:` and `CLAIMED: englishstreetventures/osn#N`, and the worktree and branch already cut.
-- `ORCHESTRATE.md` records each branch's base (`git merge-base <parent> <child>`) at the cut and after every rebase. The rebases below need it after the parent's branch is gone.
+- `ORCHESTRATE.md` records each branch's base (`git merge-base <parent> <child>`) and head at the cut and after every rebase or push. The rebases below need the base after the parent's branch is gone, and the lease and the owner's approval need the head.
 - The agent comes from the `pick-agent` skill. A new component is `designer` work.
 - A session-metrics card per pull request. A component PR's card records `part-of`, and the feature PR's carries #N's rating ([[session-metrics#Which issue a card names, and what it divides by]]).
 
@@ -204,8 +206,10 @@ The owner approves the stack as a whole, by marking the **feature** pull request
 
 1. Every pull request in the stack opens as a draft (`prep-pr` Step 9).
 2. Each component PR's `## Impact` ends with `**Do not merge until** #<feature PR> is marked ready by the owner.` The feature PR's line says the owner's review of the stack. The owner leaves component PRs as drafts.
-3. Once the owner marks the feature PR ready, `orchestrate` Step 5 merges bottom up. For each component PR, it removes the line, marks the PR ready and queues it. Each child is rebased past its merged parent first ([[#Merge order]]), and queued only once its base is `main`.
-4. A push to any pull request in the stack after the owner marked the feature ready, for a review fix or a conflict, puts the feature back to draft (`gh pr ready --undo <feature PR>`). The owner's ready covered the code they saw.
+3. When `orchestrate` parks the stack, it records each pull request's head commit in `ORCHESTRATE.md`. The owner's ready covers those commits and no others.
+4. Once the owner marks the feature PR ready, `orchestrate` Step 5 first checks that every head still matches what it recorded. A head that moved means someone pushed after the review, through `review-pr`, a remote session or the web editor: put the feature back to draft (`gh pr ready --undo <feature PR>`), record the new heads and park again.
+5. Then it merges bottom up. For each child, it rebases the child past its merged parent ([[#Merge order]]) **before** releasing anything, and compares the patches: `git range-diff <recorded base>..<old head> refs/remotes/origin/main..<new head>`. When every line pairs as `=`, the rebase changed nothing the owner saw. It pushes, removes the line, marks the PR ready and queues it once its base is `main`. When any patch changed, which means a conflict was resolved, it pushes, puts the feature back to draft and parks the stack again.
+6. A review fix to any pull request after the owner marked the feature ready also puts the feature back to draft. The owner's ready covered the code they saw.
 
 ### Carrying a change up
 
@@ -214,10 +218,10 @@ A fix to a component pull request is made in that component's worktree. Then eac
 ```bash
 git rebase --onto <parent branch> <recorded base> <child branch>
 bun install --frozen-lockfile
-git push --force-with-lease origin <child branch>
+git push --force-with-lease=<child branch>:<its recorded head> --force-if-includes origin <child branch>
 ```
 
-Record the child's new base, then go up one. Never rebase a branch while a subagent is still building in it; wait for it to return. When parking removed a worktree, re-add it with `git worktree add <dir> <branch>`. A stacked pull request that GitHub shows `DIRTY` or `BEHIND` is rebased onto its parent branch, never onto `origin/main`. When the bottom one is rebased onto `main`, the whole stack above it is carried up the same way.
+Record the child's new base and head, then go up one. Never rebase a branch while a subagent is still building in it; wait for it to return. When parking removed a worktree, re-add it with `git worktree add <dir> <branch>`. A stacked pull request that GitHub shows `DIRTY` or `BEHIND` is rebased onto its parent branch, never onto `origin/main`. When the bottom one is rebased onto `main`, the whole stack above it is carried up the same way.
 
 A remote session on a designated `claude/*` branch can push nowhere else, so it cannot cut a stack. It builds the bottom component pull request and reports the rest for a local `orchestrate` run.
 

@@ -132,7 +132,11 @@ every file under a cire package's `src/`, never sees them.
   does. That gives the `ui-*` utilities cire's light and dark values. Anything
   outside the contract, such as cire's `font-body`, renders in the lab's
   defaults: judge it in the app.
-- **A session.** Pass client objects as props where the component takes them.
+- **A session.** Pass stub client objects as props where the component takes
+  them: objects in the story file that return fixed data, never a real client.
+  Every token a fixture carries is an obvious placeholder, such as
+  `"fixture-access-token"`, never one copied from a real session: a story
+  file is public, and nothing scans it for secrets.
   Where it calls `useAuth`, wrap it in `AuthContext.Provider` from
   `@osn/client/solid` with a fixed value, typed as
   `ComponentProps<typeof AuthContext.Provider>["value"]`. Never use
