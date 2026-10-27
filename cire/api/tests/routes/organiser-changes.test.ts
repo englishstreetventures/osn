@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from "bun:test";
+import { afterEach, describe, it, expect, beforeAll, setSystemTime } from "bun:test";
 
 import {
   BOOTSTRAP_WEDDING_ID,
@@ -26,7 +26,7 @@ import { DbService } from "../../src/db";
 import { createDb, seedBootstrapWedding } from "../../src/db/setup";
 import { claimRefused } from "../../src/routes/organiser-changes";
 import { MAX_EVENTS, MAX_ROWS } from "../../src/schemas/import";
-import { ChangeConflict } from "../../src/services/changes";
+import { ChangeConflict, PREVIEW_EXPIRES_AFTER_MS } from "../../src/services/changes";
 import { organiserSessionService } from "../../src/services/organiser-session";
 import { createR2Stub } from "../../src/services/r2-imports";
 import {
@@ -3744,6 +3744,169 @@ describe("POST /changes/apply — 402 on capacity breach", () => {
     expect(await refused(501)).toMatchObject({ tier: "crimson", limit: 500 });
     setTier(db, BOOTSTRAP_WEDDING_ID, "crimson");
     expect(await refused(1001)).toMatchObject({ tier: null, limit: 1000 });
+  });
+});
+
+// ── A preview expires ───────────────────────────────────────────────────────
+
+describe("POST /changes/apply — a preview expires", () => {
+  afterEach(() => {
+    setSystemTime();
+  });
+
+  type TestApp = ReturnType<typeof buildApp>;
+
+  /** Set a change row's preview time, as if it had been previewed then. */
+  function previewedAt(db: TestApp["db"], changeId: string, uploadedAt: number) {
+    db.update(imports).set({ uploadedAt }).where(eq(imports.id, changeId)).run();
+  }
+
+  /** A minute past the cut-off, on the real clock. */
+  const expired = () => Date.now() - PREVIEW_EXPIRES_AFTER_MS - 60_000;
+
+  /** Every before-image key the stub holds for `changeId`. */
+  function beforeKeys(r2: TestApp["r2"], changeId: string) {
+    return [...r2._store.keys()].filter((k) => k.startsWith(`imports/${changeId}/before/`));
+  }
+
+  async function sheetPreview(app: TestApp["app"], guestsCsv = GUESTS_CSV) {
+    const res = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+      eventsCsv: EVENTS_CSV,
+      guestsCsv,
+    });
+    expect(res.status).toBe(200);
+    return ((await res.json()) as { changeId: string }).changeId;
+  }
+
+  const EXPIRED_BODY = {
+    error: "This preview has expired — preview the change again",
+    reason: "preview_expired",
+  };
+
+  it("refuses an expired spreadsheet preview", async () => {
+    const { app, db } = buildApp();
+    const changeId = await sheetPreview(app);
+    previewedAt(db, changeId, expired());
+
+    const res = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId });
+    expect(res.status).toBe(409);
+    expect(await jsonBody(res)).toEqual(EXPIRED_BODY);
+  });
+
+  it("refuses an expired editor preview", async () => {
+    const { app, db } = buildApp();
+    const previewRes = await editorPreview(app, {
+      desiredState: { events: [], families: [] },
+      scope: "guests",
+    });
+    expect(previewRes.status).toBe(200);
+    const { changeId } = (await previewRes.json()) as { changeId: string };
+    previewedAt(db, changeId, expired());
+
+    const res = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId });
+    expect(res.status).toBe(409);
+    expect(await jsonBody(res)).toEqual(EXPIRED_BODY);
+  });
+
+  it("refuses a retry before it puts the before-image again", async () => {
+    const { app, db, r2 } = buildApp();
+    // 101 guests on Ivory's cap of 100: the first apply puts its before-image,
+    // is refused, and leaves the row in `preview` for a retry.
+    const header = "Family ID,Family Name,Guest First Name,Guest Last Name,Mehndi,Reception";
+    const rows = Array.from({ length: 101 }, (_, i) => `1,Bigfamily,Guest${i},Bigfamily,no,no`);
+    const changeId = await sheetPreview(app, [header, ...rows].join("\n"));
+    expect((await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId })).status).toBe(402);
+    expect(beforeKeys(r2, changeId)).toHaveLength(2);
+
+    // No row names those objects, so the sheets reconciler deletes them once
+    // they are past its grace window. The retry comes after, with room to apply.
+    for (const key of beforeKeys(r2, changeId)) r2._store.delete(key);
+    previewedAt(db, changeId, expired());
+    setTier(db, BOOTSTRAP_WEDDING_ID, "gold");
+
+    const retry = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId });
+    expect(retry.status).toBe(409);
+    expect(await jsonBody(retry)).toEqual(EXPIRED_BODY);
+    expect(beforeKeys(r2, changeId)).toEqual([]);
+  });
+
+  it("writes nothing and leaves the wedding free for the next change", async () => {
+    const { app, db, r2 } = buildApp();
+    const changeId = await sheetPreview(app);
+    previewedAt(db, changeId, expired());
+
+    expect((await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId })).status).toBe(409);
+    const [row] = db.select().from(imports).where(eq(imports.id, changeId)).all();
+    expect(row!.status).toBe("preview");
+    expect(row!.beforeEventsR2Key).toBeNull();
+    expect(row!.beforeGuestsR2Key).toBeNull();
+    expect(beforeKeys(r2, changeId)).toEqual([]);
+    expect(db.select().from(families).all()).toHaveLength(0);
+    expect(db.select().from(events).all()).toHaveLength(0);
+    const [wedding] = db
+      .select({ rev: weddings.changeRev, claim: weddings.changeClaim })
+      .from(weddings)
+      .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+      .all();
+    expect(wedding).toEqual({ rev: 0, claim: null });
+
+    // The organiser previews again, and that preview applies.
+    const fresh = await sheetPreview(app);
+    expect((await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId: fresh })).status).toBe(200);
+  });
+
+  it("refuses a preview exactly at the cut-off and applies one a millisecond younger", async () => {
+    // Held at the real time: the file's bearer is a five-minute token signed
+    // when the file started.
+    const now = Date.now();
+    setSystemTime(new Date(now));
+    const { app, db } = buildApp();
+
+    const atCutOff = await sheetPreview(app);
+    previewedAt(db, atCutOff, now - PREVIEW_EXPIRES_AFTER_MS);
+    const refused = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId: atCutOff });
+    expect(refused.status).toBe(409);
+    expect(await jsonBody(refused)).toEqual(EXPIRED_BODY);
+
+    const younger = await sheetPreview(app);
+    previewedAt(db, younger, now - PREVIEW_EXPIRES_AFTER_MS + 1);
+    const applied = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId: younger });
+    expect(applied.status).toBe(200);
+  });
+
+  it("answers 404, not expired, for an old change applied through another wedding", async () => {
+    const { app, db } = buildApp();
+    const OTHER = "wed_other_expiry";
+    const now = new Date();
+    insertWedding(db, {
+      id: OTHER,
+      slug: "other-expiry",
+      displayName: "Other",
+      createdAt: now,
+      updatedAt: now,
+      owners: ["usr_dev_bootstrap_owner"],
+    });
+    const changeId = await sheetPreview(app);
+    previewedAt(db, changeId, expired());
+
+    const res = await ownerPost(app, `/api/organiser/weddings/${OTHER}/changes/apply`, {
+      changeId,
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it("says the head moved, not expired, when both are true", async () => {
+    // An editor offers to reload with its edits kept on `head_moved`; an
+    // expiry message would reach that offer only after one more save.
+    const { app, db } = buildApp();
+    const stale = await sheetPreview(app);
+    const other = await sheetPreview(app);
+    expect((await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId: other })).status).toBe(200);
+    previewedAt(db, stale, expired());
+
+    const res = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId: stale });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { reason: string }).reason).toBe("head_moved");
   });
 });
 

@@ -7,7 +7,7 @@ import { Effect, Exit } from "effect";
 
 import { DbService } from "../../src/db";
 import { createDb } from "../../src/db/setup";
-import { PREVIEW_STALE_AFTER_MS } from "../../src/services/maintenance-sweeps";
+import { PREVIEW_EXPIRES_AFTER_MS } from "../../src/services/changes";
 import {
   createR2Stub,
   R2Service,
@@ -166,11 +166,12 @@ describe("sheet reconciliation settings", () => {
     expect(SHEET_POSITION_KEY.startsWith(SHEETS_PREFIX)).toBe(false);
   });
 
-  it("lets no preview outlive the grace window", () => {
+  it("has apply refuse a preview an hour inside the grace window", () => {
     // An apply retried on a preview puts its before-image again under the same
-    // key. Previews are swept once this old, so the earlier put of a key a
-    // retry can rewrite is never older than the grace window.
-    expect(PREVIEW_STALE_AFTER_MS).toBeLessThanOrEqual(RECONCILE_GRACE_MS);
+    // key. The apply refuses a preview this old before it puts anything, so the
+    // earlier put of a key a retry rewrites is younger than the grace window,
+    // for any apply that reaches its put within the hour.
+    expect(RECONCILE_GRACE_MS - PREVIEW_EXPIRES_AFTER_MS).toBeGreaterThanOrEqual(60 * 60 * 1000);
   });
 
   it("sends a full page of the longest key the writers build in under 100 KB", async () => {

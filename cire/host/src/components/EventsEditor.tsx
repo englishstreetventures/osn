@@ -33,7 +33,12 @@ import {
 import { Portal } from "solid-js/web";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
-import { isHeadMoved, loadHeadRevision, revisionOf } from "../lib/change-revision";
+import {
+  isHeadMoved,
+  isPreviewExpired,
+  loadHeadRevision,
+  revisionOf,
+} from "../lib/change-revision";
 import { type DateTimeParts, joinIso, splitIso } from "../lib/event-datetime";
 import { formatEventWhen } from "../lib/event-display";
 import {
@@ -338,6 +343,14 @@ export default function EventsEditor(props: { weddingId: string }) {
           setPreview(null);
           setStale(true);
           throw new Error("Someone else changed the schedule since you opened the editor.");
+        }
+        // A preview too old to apply: confirming it again could only be refused
+        // again, and the draft is not stale, so Save previews the same edits.
+        if (isPreviewExpired(body)) {
+          setPreview(null);
+          throw new Error(
+            "This preview has expired. Press Save changes to preview your edits again.",
+          );
         }
         // 409 is usually a co-host applying in between, which makes the previewed
         // diff stale. It is no longer only that: the server also 409s a stored

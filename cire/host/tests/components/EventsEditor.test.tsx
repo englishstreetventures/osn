@@ -955,6 +955,20 @@ describe("EventsEditor", () => {
     await waitFor(() => expect(screen.getByText(/changed elsewhere/i)).toBeTruthy());
   });
 
+  it("closes an expired preview and asks for Save again, not a reload", async () => {
+    await applyRenameAgainst409({
+      error: "This preview has expired — preview the change again",
+      reason: "preview_expired",
+    });
+    await waitFor(() =>
+      expect(screen.getByText(/Press Save changes to preview your edits again/)).toBeTruthy(),
+    );
+    // Confirming the same preview again could only be refused again.
+    expect(screen.queryByRole("dialog", { name: /Review changes before applying/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Reload and keep my edits/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /Save changes/i })).toBeTruthy();
+  });
+
   it("deletes an event after a confirm", async () => {
     primeLoad();
     render(() => <EventsEditor weddingId="wed_a" />);

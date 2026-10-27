@@ -28,8 +28,10 @@
  *     is never reaped. Age is read from the listing, so a writer that puts an
  *     existing key again, after the listing and before the delete, could lose
  *     that object. The one such writer, an apply retried on a `cire-sheets`
- *     preview, rewrites that preview's before-image, and the stale-preview
- *     sweep removes previews once they are as old as the grace window.
+ *     preview, rewrites that preview's before-image. The apply route refuses a
+ *     preview `PREVIEW_EXPIRES_AFTER_MS` old (`changes.ts`, the grace window
+ *     less an hour) before it puts anything, so a key a retry rewrites was
+ *     first put less than the grace window ago and is never a candidate.
  *  3. PREFIX SCOPING — only keys under the plan's prefix are considered, even if
  *     a listing returns others.
  *  4. DELETE LAST, CAPPED — the reference check runs once, after the walk, and

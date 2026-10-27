@@ -62,3 +62,12 @@ export function isChangeInProgress(body: { reason?: unknown } | null): boolean {
 export function isHeadMoved(body: { reason?: unknown } | null): boolean {
   return body?.reason === "head_moved";
 }
+
+/**
+ * Whether an apply was refused because the preview is too old to apply (a
+ * 409). Nothing else changed, so the draft is not stale: a fresh preview of
+ * the same edits, or the same sheet, applies.
+ */
+export function isPreviewExpired(body: { reason?: unknown }): boolean {
+  return body.reason === "preview_expired";
+}

@@ -466,6 +466,67 @@ describe("ImportPanel — surfacing import failures", () => {
     fireEvent.click(screen.getByRole("button", { name: /apply import/i }));
     await waitFor(() => expect(document.body.textContent).toMatch(/limit of 100 guests/i));
     expect(document.body.textContent).not.toMatch(/payment_required/);
+    // The preview stays: the same one applies after an upgrade.
+    expect(screen.getByRole("button", { name: /apply import/i })).toBeTruthy();
+  });
+
+  it("drops an expired preview and has Preview upload the same sheet again", async () => {
+    const jsonResponse = (body: unknown, status = 200) =>
+      new Response(JSON.stringify(body), {
+        status,
+        headers: { "Content-Type": "application/json" },
+      });
+    const preview = {
+      changeId: "chg_1",
+      scope: "guests",
+      warnings: [],
+      plan: {
+        eventCreates: [],
+        eventUpdates: [],
+        eventRemoves: [],
+        familyCreates: [],
+        familyRemoves: [],
+        guestCreates: [],
+        guestUpdates: [],
+        guestRemoves: [],
+        eventLinkCreates: [],
+        eventLinkRemoves: [],
+        warnings: [],
+      },
+    };
+    authFetchMock
+      .mockResolvedValueOnce(jsonResponse(preview))
+      .mockResolvedValueOnce(
+        jsonResponse(
+          {
+            error: "This preview has expired — preview the change again",
+            reason: "preview_expired",
+          },
+          409,
+        ),
+      )
+      .mockResolvedValueOnce(jsonResponse({ ...preview, changeId: "chg_2" }));
+
+    render(() => <ImportPanel weddingId="wed_a" kind="guests" />);
+    choose(csvFile("guests.csv"));
+    fireEvent.click(previewButton());
+    await waitFor(() => expect(screen.getByText(/diff preview/i)).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: /apply import/i }));
+
+    await waitFor(() =>
+      expect(document.body.textContent).toMatch(/Press Preview to upload your sheet again/),
+    );
+    // The expired preview's Apply could only be refused again.
+    expect(screen.queryByRole("button", { name: /apply import/i })).toBeNull();
+    expect(screen.queryByText(/diff preview/i)).toBeNull();
+
+    // The sheet is still chosen, so Preview uploads it again.
+    fireEvent.click(previewButton());
+    await waitFor(() => expect(screen.getByRole("button", { name: /apply import/i })).toBeTruthy());
+    const previews = authFetchMock.mock.calls.filter((c) =>
+      String(c[0]).endsWith("/changes/preview"),
+    );
+    expect(previews).toHaveLength(2);
   });
 
   it("renders the families-updated count in the applied summary (and 0 when absent)", async () => {
