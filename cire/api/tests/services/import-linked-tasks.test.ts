@@ -522,7 +522,8 @@ describe("applying it", () => {
     const withGuests = chunks.filter((sqls) => guestInserts(sqls).length > 0);
     expect(withGuests.length).toBeGreaterThan(1);
     for (const sqls of withGuests) {
-      const checks = guestInserts(sqls).filter((i) => sqls[i]!.includes("CASE WHEN"));
+      // The cap check is the insert that counts the wedding's guests.
+      const checks = guestInserts(sqls).filter((i) => sqls[i]!.includes("count(*)"));
       expect(checks).toEqual([guestInserts(sqls).at(-1)!]);
     }
   });

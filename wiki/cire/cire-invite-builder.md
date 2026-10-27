@@ -9,7 +9,7 @@ related:
   - "[[cire-development]]"
   - "[[drag-and-drop]]"
   - "[[cire-host-portal-layout]]"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-27
 ---
 # Cire invite builder
 
@@ -1805,6 +1805,19 @@ switches, and re-seeds a saved crop to its exact stored rectangle (NaN
 per-change ratio, so the preset lock never "cover"-adjusts it). Save converts
 the selection-over-image bounding boxes into resolution-independent 0..1
 source fractions plus the image's natural dimensions.
+
+The veto runs on every pointer move of a drag, so it checks the box against
+image bounds the modal already holds and never measures the layout. They are
+worked out from the picture's natural size and the `<cropper-image>` transform
+matrix (cropperjs lays the image out at the canvas origin and moves it only by
+that matrix), and recomputed on each `transform` event — every pan and zoom —
+and on window `resize`. The selection opens, or a saved crop reopens, from a
+`load` listener that runs after cropperjs's own, once the image is sized and
+centred: `$ready` resolves before that for a picture the page has already
+loaded. The image is not `rotatable` — a saved crop carries no rotation — so a
+pinch zooms without tilting.
+[`ImageCropModal.browser.test.tsx`](../../cire/host/tests/components/ImageCropModal.browser.test.tsx)
+drives all of it with real input ([[browser-tests#Current coverage]]).
 
 The modal's `<img>` **carries no `crossOrigin`**. The editor only reads element
 geometry and `naturalWidth`/`naturalHeight`, never canvas pixels, so a no-cors

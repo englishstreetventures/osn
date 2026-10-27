@@ -61,6 +61,31 @@ describe("the story registry", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
+  it("finds no story that imports a stylesheet", () => {
+    // The lab imports every story module to build its sidebar, so a stylesheet
+    // one story imports lands on every story, and a global `:root` in it
+    // re-themes the whole lab. happy-dom applies no CSS, so the render test
+    // below cannot see it. The globs mirror the ones in `registry.ts`.
+    const sources = import.meta.glob<string>(
+      [
+        "../src/stories/**/*.story.tsx",
+        "../../../osn/*/src/**/*.story.tsx",
+        "../../../pulse/*/src/**/*.story.tsx",
+        "../../../cire/*/src/**/*.story.tsx",
+        "../../../zap/*/src/**/*.story.tsx",
+        "../../../shared/*/src/**/*.story.tsx",
+      ],
+      { query: "?raw", import: "default", eager: true },
+    );
+    expect(Object.keys(sources).length).toBe(storyFileCount);
+    const offenders = Object.entries(sources)
+      .filter(([, source]) =>
+        /^\s*import\s+(?:[^"';]+\s+from\s+)?["'][^"']+\.css(?:\?[^"']*)?["']/m.test(source),
+      )
+      .map(([file]) => file);
+    expect(offenders).toEqual([]);
+  });
+
   // One test renders every story, so the 5 s default is too tight on a loaded
   // CI runner: the whole file took 26 s there against 1 s locally, with no
   // single story over 25 ms. The limit leaves room above that CI figure.

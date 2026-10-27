@@ -24,6 +24,7 @@ import {
   recordWindow,
   type SessionRecord,
   skillCommandsIn,
+  unknownQueuedOrigins,
 } from "../index";
 
 function assistant(overrides: Partial<SessionRecord> = {}): SessionRecord {
@@ -237,9 +238,9 @@ test("isHumanTurn rejects the machinery that also arrives as role user", () => {
 });
 
 // A prompt typed while the agent is working never becomes a `user` record — it
-// lands as a `queued_command` attachment. That is exactly the mid-flight
-// correction `corrective_turns` claims to measure, so reading only `user`
-// records scored every interruption as zero.
+// lands as a `queued_command` attachment. That shape is the whole of what
+// `corrective_turns` counts, so reading only `user` records scored every
+// interruption as zero.
 test("isHumanTurn reads a prompt queued while the agent was working", () => {
   expect(
     isHumanTurn({
@@ -254,6 +255,80 @@ test("isHumanTurn reads a prompt queued while the agent was working", () => {
   expect(
     isHumanTurn({ type: "attachment", attachment: { type: "queued_command", prompt: "  " } }),
   ).toBe(false);
+});
+
+// The harness labels who queued a record. Only a person's typed prompt is a
+// human turn: a background task's report or another agent's message in the
+// same shape is not, even when it opens with no tag. Older transcripts carry no
+// `origin`; there `commandMode` decides, and with neither the previous answer
+// stands.
+test("isHumanTurn reads a queued record as a person's only when the harness says so", () => {
+  const queued = (fields: Record<string, unknown>): SessionRecord => ({
+    type: "attachment",
+    attachment: { type: "queued_command", prompt: "2 background agents were stopped", ...fields },
+  });
+
+  expect(isHumanTurn(queued({ origin: { kind: "human" }, commandMode: "prompt" }))).toBe(true);
+  expect(isHumanTurn(queued({ origin: { kind: "task-notification" } }))).toBe(false);
+  expect(isHumanTurn(queued({ origin: { kind: "peer" }, commandMode: "prompt" }))).toBe(false);
+  expect(isHumanTurn(queued({ origin: {} }))).toBe(false);
+  // An allow-list, not a deny-list: a kind nobody has seen yet is not a person…
+  expect(isHumanTurn(queued({ origin: { kind: "some-later-kind" }, commandMode: "prompt" }))).toBe(
+    false,
+  );
+  // …unless the harness also marks the record as a person's turn.
+  expect(isHumanTurn(queued({ origin: { kind: "some-later-kind" }, humanTurn: true }))).toBe(true);
+
+  expect(isHumanTurn(queued({ commandMode: "task-notification" }))).toBe(false);
+  expect(isHumanTurn(queued({ commandMode: "some-later-mode" }))).toBe(false);
+  expect(isHumanTurn(queued({ commandMode: "prompt" }))).toBe(true);
+  expect(isHumanTurn(queued({}))).toBe(true);
+});
+
+// A queued record from a sender the collector does not know is dropped, which
+// would read as "no interruptions" on a version-4 card. The CLI warns with the
+// kinds this returns, so a new sender is seen rather than silently zeroed.
+test("unknownQueuedOrigins names a sender outside the known set, once", () => {
+  const queued = (kind: string, extra: Record<string, unknown> = {}): SessionRecord => ({
+    type: "attachment",
+    attachment: { type: "queued_command", prompt: "x", origin: { kind }, ...extra },
+  });
+
+  expect(
+    unknownQueuedOrigins([
+      queued("human"),
+      queued("task-notification"),
+      queued("peer"),
+      queued("coordinator"),
+      queued("remote-human"),
+      queued("remote-human"),
+      queued("accepted-anyway", { humanTurn: true }),
+      { ...queued("subagent-only"), isSidechain: true },
+    ]),
+  ).toEqual(["remote-human"]);
+});
+
+test("aggregateInteraction counts a harness notice queued mid-turn as no turn at all", () => {
+  const interaction = aggregateInteraction([
+    { type: "user", sessionId: "s1", timestamp: "…01", message: { content: "run the batch" } },
+    assistant({
+      timestamp: "…02",
+      message: { model: "claude-opus-5", content: [toolUse("Read")], usage: usage({}) },
+    }),
+    {
+      type: "attachment",
+      sessionId: "s1",
+      timestamp: "…03",
+      attachment: {
+        type: "queued_command",
+        commandMode: "task-notification",
+        prompt: '2 background agents were stopped by the user: "a", "b"',
+      },
+    },
+  ]);
+
+  expect(interaction.user_turns).toBe(1);
+  expect(interaction.corrective_turns).toBe(0);
 });
 
 // Hook feedback and a subagent's hand-back can also arrive as plain-text `user`
@@ -408,6 +483,29 @@ test("aggregateInteraction collapses a queued prompt echoed as a user record", (
   ]);
 
   expect(interaction.user_turns).toBe(1);
+  expect(interaction.corrective_turns).toBe(1);
+});
+
+// The collapse looks forward only. An idle "continue" typed before a queued
+// "continue" is its own turn, not the queued one's echo.
+test("aggregateInteraction collapses only a user record that follows its queued twin", () => {
+  const interaction = aggregateInteraction([
+    { type: "user", sessionId: "s1", timestamp: "…01", message: { content: "build it" } },
+    { type: "user", sessionId: "s1", timestamp: "…02", message: { content: "continue" } },
+    assistant({
+      timestamp: "…03",
+      message: { model: "claude-opus-5", content: [toolUse("Read")], usage: usage({}) },
+    }),
+    {
+      type: "attachment",
+      sessionId: "s1",
+      timestamp: "…04",
+      attachment: { type: "queued_command", prompt: "continue" },
+    },
+  ]);
+
+  expect(interaction.user_turns).toBe(3);
+  expect(interaction.corrective_turns).toBe(1);
 });
 
 // ...but two genuine `user` turns with the same text are two acts of steering.
@@ -424,36 +522,62 @@ test("aggregateInteraction does not collapse two identical typed turns", () => {
   expect(interaction.user_turns).toBe(2);
 });
 
-// The opening brief is not a correction. Only turns that land after the agent
-// has already picked up tools are steering it off a path it had started down.
-test("aggregateInteraction counts only mid-flight turns as corrective", () => {
+// An echo comes straight after its queued prompt. A queued "continue" that was
+// never echoed must not swallow a "continue" typed hours later.
+test("aggregateInteraction collapses only the next human record after a queued prompt", () => {
   const interaction = aggregateInteraction([
-    { type: "user", sessionId: "s1", timestamp: "…01", message: { content: "build the thing" } },
-    assistant({
+    { type: "user", sessionId: "s1", timestamp: "…01", message: { content: "build it" } },
+    {
+      type: "attachment",
+      sessionId: "s1",
       timestamp: "…02",
+      attachment: { type: "queued_command", prompt: "continue" },
+    },
+    assistant({
+      timestamp: "…03",
       message: { model: "claude-opus-5", content: [toolUse("Read")], usage: usage({}) },
     }),
-    { type: "user", sessionId: "s1", timestamp: "…03", message: { content: "no, not that file" } },
+    { type: "user", sessionId: "s1", timestamp: "…04", message: { content: "now the docs" } },
+    { type: "user", sessionId: "s1", timestamp: "…05", message: { content: "continue" } },
   ]);
 
-  expect(interaction.user_turns).toBe(2);
+  expect(interaction.user_turns).toBe(4);
   expect(interaction.corrective_turns).toBe(1);
 });
 
-// A bare nudge mid-flight is a human turn but not a correction: the brief was
-// followed and the person only asked for more.
-test("aggregateInteraction does not count a bare continue as corrective", () => {
+// Only an interruption counts. A turn typed after the agent stopped and handed
+// back — a new task, an answer to its question, "continue", even "no, not that
+// file" — is not, however late in the session it comes.
+test("aggregateInteraction does not count a turn sent to an idle agent as corrective", () => {
   const interaction = aggregateInteraction([
     { type: "user", sessionId: "s1", timestamp: "…01", message: { content: "build the thing" } },
     assistant({
       timestamp: "…02",
       message: { model: "claude-opus-5", content: [toolUse("Read")], usage: usage({}) },
     }),
-    { type: "user", sessionId: "s1", timestamp: "…03", message: { content: "continue" } },
-    { type: "user", sessionId: "s1", timestamp: "…04", message: { content: "no, not that file" } },
+    { type: "user", sessionId: "s1", timestamp: "…03", message: { content: "now do the docs" } },
+    { type: "user", sessionId: "s1", timestamp: "…04", message: { content: "continue" } },
+    { type: "user", sessionId: "s1", timestamp: "…05", message: { content: "no, not that file" } },
   ]);
 
-  expect(interaction.user_turns).toBe(3);
+  expect(interaction.user_turns).toBe(4);
+  expect(interaction.corrective_turns).toBe(0);
+});
+
+// A prompt queued before the agent's first tool call still arrived mid-turn:
+// the agent was working, it had just not called a tool yet.
+test("aggregateInteraction counts a queued prompt that lands before any tool call", () => {
+  const interaction = aggregateInteraction([
+    { type: "user", sessionId: "s1", timestamp: "…01", message: { content: "build the thing" } },
+    {
+      type: "attachment",
+      sessionId: "s1",
+      timestamp: "…02",
+      attachment: { type: "queued_command", prompt: "in tools/, not scripts/" },
+    },
+  ]);
+
+  expect(interaction.user_turns).toBe(2);
   expect(interaction.corrective_turns).toBe(1);
 });
 

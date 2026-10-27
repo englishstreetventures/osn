@@ -29,6 +29,7 @@ import { maintenanceSweeps } from "./services/maintenance-sweeps";
 import { organiserSessionService } from "./services/organiser-session";
 import {
   createAccountResolverFromEnv,
+  createBlockCheckFromEnv,
   createConnectionSearchResolverFromEnv,
   createHandleResolverFromEnv,
   createHandleSearchResolverFromEnv,
@@ -348,6 +349,15 @@ const handler: ExportedHandler<Env> = {
           arcPrivateKeyJwk: env.CIRE_API_ARC_PRIVATE_KEY,
           arcKeyId: env.CIRE_API_ARC_KEY_ID,
         })) ?? undefined;
+      // The add-host POST's block check (osn-api `either-blocked`), same key +
+      // graph:read scope. Null (⇒ add-host POST answers 503) when the ARC
+      // config is absent, so no one is seated unchecked.
+      const osnBlockCheck =
+        (await createBlockCheckFromEnv({
+          osnApiUrl: env.OSN_API_URL,
+          arcPrivateKeyJwk: env.CIRE_API_ARC_PRIVATE_KEY,
+          arcKeyId: env.CIRE_API_ARC_KEY_ID,
+        })) ?? undefined;
       // Sibling ARC resolver for host-list display (profileId → handle), same
       // key + graph:read scope. Null (⇒ host list shows profile ids as the
       // fallback) when the ARC config is absent — fail-soft, never a 503.
@@ -522,6 +532,7 @@ const handler: ExportedHandler<Env> = {
         resolveOsnAccountId,
         memberStepExcludedWeddings: memberStepExclusion.weddings,
         resolveOsnProfileByHandle,
+        osnBlockCheck,
         resolveOsnProfileDisplays,
         // Owner notices need both a way to find the owners' addresses and a
         // real transport; without Resend they would only reach the log

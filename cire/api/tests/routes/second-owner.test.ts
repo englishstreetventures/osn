@@ -108,6 +108,7 @@ function buildApp() {
       profileId: `usr_${handle}`,
       handle,
     }),
+    osnBlockCheck: async () => false,
     registryStripeLimiter: limiter(),
     hostLimiter: limiter(),
     remintLimiter: limiter(),

@@ -16,10 +16,11 @@ related:
   - "[[event-access]]"
   - "[[d1-limits]]"
   - "[[house-lint-rules]]"
+  - "[[cire-auth]]"
 packages:
   - "@osn/api"
   - "@osn/db"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-27
 ---
 
 # Social Graph
@@ -61,6 +62,8 @@ direction — no new endpoint needed for cancel).
 A block is a one-way action. When A blocks B:
 - The block removes any existing connection between A and B (wrapped in a DB transaction)
 - B cannot send connection requests to A
+- Neither can add the other as a co-host on a cire wedding: cire-api asks `GET /graph/internal/either-blocked` before it seats anyone, and checks only the owner doing the adding ([[cire-auth#Equal owners]])
+- Neither is suggested to the other by the internal handle search: `GET /graph/internal/profile-search` given a `requesterId` leaves out that profile and everyone with a block against it, either way round, and cire's co-host autocomplete always passes the signed-in organiser
 - Blocks are global across all OSN apps today (per-app blocking is a deferred decision)
 
 The `is-blocked` route only checks whether the caller has blocked the target (`isBlocked(caller, target)`) -- it does not reveal whether the target has blocked the caller.
@@ -97,6 +100,8 @@ Other packages (notably `@pulse/api`) access the social graph through `graphBrid
 
 - `getConnectionIds(profileId)` -- accepted connections set
 - `getProfileDisplays(profileIds[])` -- batched profile metadata join
+
+`@cire/api` reaches the graph through its own ARC bridge, [`cire/api/src/services/osn-bridge.ts`](../../cire/api/src/services/osn-bridge.ts), which runs on Workers. Its block check is `GET /graph/internal/either-blocked` (`graph:read`), the symmetric check the user-facing routes do not expose.
 
 Apps that own a close-friends-style list (e.g. Pulse — see [[pulse-close-friends]]) call `getConnectionIds` to validate eligibility when adding a friend.
 

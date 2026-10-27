@@ -41,7 +41,10 @@ export interface CardRow {
   sourceFiles: number;
   packages: string[];
   turns: number;
-  corrections: number;
+  /** Prompts sent while the agent was working. `null` — unknown — on a card
+   * before {@link CORRECTIONS_SINCE}, which counted something else, and on one
+   * with no human turn, which says nothing about interruptions. */
+  corrections: number | null;
   activeSeconds: number;
   totalTokens: number;
   cacheReadShare: number;
@@ -58,6 +61,17 @@ export interface CardRow {
   contextMedian: number | null;
   review: ReviewSummary | null;
 }
+
+/**
+ * The card `schema_version` from which `interaction.corrective_turns` counts
+ * only the prompts sent mid-turn. An older card counted every human turn after
+ * the session's first tool call, on another scale entirely, so a reader that
+ * mixed the two would draw a cliff rather than a trend. Restated rather than
+ * imported from `SCHEMA_VERSION`: this file may not import a value from
+ * `index.ts` (see above), and the bump that changes the field again changes
+ * this too. `queries.sql`'s `metrics` view applies the same rule.
+ */
+const CORRECTIONS_SINCE = 4;
 
 function ratio(part: number, whole: number): number {
   return whole > 0 ? part / whole : 0;
@@ -81,7 +95,10 @@ export function toRow(card: Card): CardRow {
     sourceFiles: card.diff.files.source,
     packages: card.diff.packages,
     turns: card.interaction.user_turns,
-    corrections: card.interaction.corrective_turns,
+    corrections:
+      card.schema_version >= CORRECTIONS_SINCE && card.interaction.user_turns > 0
+        ? card.interaction.corrective_turns
+        : null,
     activeSeconds: card.window.active_seconds,
     totalTokens: total,
     cacheReadShare: ratio(t.cache_read, total),
@@ -177,7 +194,7 @@ export function waste(rows: CardRow[]): Table {
       String(r.sourceLoc),
       usd(r.usd),
       String(r.turns),
-      String(r.corrections),
+      r.corrections === null ? "—" : String(r.corrections),
     ]),
   };
 }
@@ -223,19 +240,29 @@ export function exploration(rows: CardRow[], minPrs = 3): Table {
 /** 3. Are briefs getting clearer? */
 export function briefs(rows: CardRow[]): Table {
   const byMonth = groupBy(rows, (row) => monthOf(row.at));
+  const unknown = rows.filter((row) => row.corrections === null).length;
 
   return {
     title: "3. Are briefs getting clearer?",
-    note: "Corrections are turns that arrived after work had started. The one number here that measures the brief rather than the model.",
-    headers: ["month", "PRs", "median turns", "median corrections"],
+    note:
+      "Corrections are prompts the person sent while the agent was still working. Some are status notes or added scope, so read them before blaming the brief." +
+      (unknown > 0
+        ? ` ${unknown} card(s) left out of the corrections median: written before schema version ${CORRECTIONS_SINCE}, or with no human turn. "v4 PRs" counts the cards it covers.`
+        : ""),
+    headers: ["month", "PRs", "median turns", "v4 PRs", "median corrections"],
     rows: [...byMonth.entries()]
       .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([month, group]) => [
-        month,
-        String(group.length),
-        median(group.map((r) => r.turns)).toFixed(1),
-        median(group.map((r) => r.corrections)).toFixed(1),
-      ]),
+      .map(([month, group]) => {
+        const known = group.flatMap((r) => (r.corrections === null ? [] : [r.corrections]));
+
+        return [
+          month,
+          String(group.length),
+          median(group.map((r) => r.turns)).toFixed(1),
+          String(known.length),
+          known.length > 0 ? median(known).toFixed(1) : "—",
+        ];
+      }),
   };
 }
 

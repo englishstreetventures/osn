@@ -14,7 +14,7 @@ related:
   - "[[shared/observability/metrics]]"
   - "[[conventions/review-findings]]"
   - "[[conventions/stacked-prs]]"
-last-reviewed: 2026-10-23
+last-reviewed: 2026-10-28
 ---
 
 # Session Metrics
@@ -86,11 +86,12 @@ predate the label.
 
 Two answers, kept apart. `issue.number` is the issue the branch was cut for.
 `complexity.declared` is the sum of the ratings of every issue in this
-repository the pull request closes. A branch that closes three issues did three
+repository the pull request closes, or, when it links no issue here, of the
+private tracker issues it closes. A branch that closes three issues did three
 issues' work, so dividing its spend by one of their ratings makes it read three
 times as dear as it was. `card -- --resolve-issue` and `backfill` share the
-functions that decide both (`selectIssues` and `decideComplexity` in
-`tools/pr-metrics/index.ts`).
+functions that decide both (`selectIssues`, `issuesToRate` and
+`decideComplexity` in `tools/pr-metrics/index.ts`).
 
 **The issue** — the first of these that applies:
 
@@ -121,11 +122,11 @@ $49.77 session against a complexity-1 follow-up the same pull request closed
 The body is read as prose. A closing keyword in a code span, a fenced block, an
 HTML comment or a table row is not read, because GitHub does not act on it.
 
-**What the pull request closes** — for an open pull request, its body's
-`Closes` lines and GitHub's references together, each issue once: a stacked
-pull request has no references until GitHub retargets it to `main`. For a
-merged one (`backfill`), GitHub's references alone, since they are what the
-merge closed.
+**What the pull request closes** — in this repository and in others alike: for
+an open pull request, its body's `Closes` lines and GitHub's references
+together, each issue once: a stacked pull request has no references until
+GitHub retargets it to `main`. For a merged one (`backfill`), GitHub's
+references alone, since they are what the merge closed.
 
 **The denominator** — the first of these that applies:
 
@@ -135,14 +136,33 @@ merge closed.
 | Closes issues here, one has no rating | null | `none`, with a warning naming it | 0 |
 | Closes issues here, a label lookup failed | null | `lookup-failed` | 0 |
 | Closes nothing here, has a `Part of` line | null | `part-of` | 0 |
-| Closes only another repository's issue | null | `not-fetched` | 0 |
+| Links nothing here, closes tracker issues, every one read and rated | Their sum | `confirmed`, or `unconfirmed` if any part is | How many were summed |
+| Links nothing here, closes a tracker issue this run could not read | null | `not-fetched`, with a warning that counts it | 0 |
+| Links nothing here, closes tracker issues, one has no rating | null | `none`, with a warning that counts it | 0 |
+| Links nothing here, only `Part of` another repository's issue | null | `part-of` | 0 |
+| Links nothing here, closes an issue in a third repository, or one GitHub did not register | null | `not-fetched` | 0 |
 | Links nothing | null | `none` | 0 |
+
+**From a tracker issue, a card takes only its `complexity:N` and
+`complexity:unconfirmed` labels.** Its `severity:` and `area:` labels must never
+reach a card committed to this public repository (`AGENTS.md` §Issues), so
+every answer from the tracker passes through `ratingLabels` as it arrives, and
+`issue.labels` is read only from an issue in this repository: a card that rates
+tracker work names no issue and has `issue.labels: []`. Only
+`englishstreetventures/osn-tracker` is ever asked, at most 50 issues per run;
+anything past that, or a token that cannot read the tracker, records
+`not-fetched`. The rating needs a token that can read the tracker wherever
+`card` or `backfill` runs. `--resolve-issue` reads the newest pull request
+whose branch lives in this repository: `gh pr list --head` matches the branch
+name in every fork too, and a fork's body never decides which tracker issues
+are asked about. A warning names an issue here by number and counts tracker
+issues without naming them, because warnings end up in public test plans.
 
 `--issue-labels` and `--complexity` supply the rating themselves and turn the
 lookup off; a rating read from `--issue-labels` counts one issue, and a
 `--complexity` one counts none.
 
-Four things this does to the comparison of spend against declared difficulty:
+Five things this does to the comparison of spend against declared difficulty:
 
 - **A sum is not a Fibonacci number.** Queries 5 and 6 group by `declared`, so a
   batched branch's 6 or 11 forms a row of its own: points of declared work, not
@@ -150,9 +170,14 @@ Four things this does to the comparison of spend against declared difficulty:
 - **Overlapping issues inflate the sum.** Three issues that describe one defect
   from three sides add up to three issues' worth. `complexity.issues` shows how
   many were summed, so a reader can tell 6 from three issues from 6 from one.
-- **A tracker issue adds nothing.** A pull request that closes a finding in the
-  private `englishstreetventures/osn-tracker` and public issues besides is
-  divided by the public ratings alone; the tracker's labels are never read.
+- **Beside an issue here, a tracker issue adds nothing.** Those tracker issues
+  are mostly the branch's own review findings, which `prep-pr` files and the
+  branch fixes, so the issue here states the work; their ratings would make a
+  branch whose review found more read cheaper per point. No tracker issue is
+  asked about for such a pull request.
+- **A tracker-only sum counts the review's findings too.** With no issue here,
+  every tracker issue the pull request closes is summed, the finding the branch
+  was cut for and those its review filed alike, so the sum runs high.
 - **A `Part of` pull request is unrated.** The issue's rating describes the
   whole of it, and the branch did a part. A series of stacked pull requests
   records `part-of` on each but the one that closes the issue, which carries the
@@ -160,6 +185,14 @@ Four things this does to the comparison of spend against declared difficulty:
 
 Cards with a `schema_version` below 3 predate the sum: their `declared` is one issue's
 rating, taken from the first issue GitHub listed or from the body's one link.
+Cards below 4 never read a tracker issue: one that closes only tracker issues
+records `not-fetched`.
+
+*Measured 2026-10-27 over the last 100 merged pull requests (`gh pr list --json
+closingIssuesReferences`, then each tracker issue's `createdAt` against the pull
+request's first commit): 28 closed an issue here and 121 tracker issues besides,
+103 of them filed after the branch's first commit; 11 closed only tracker
+issues, 39 in all, 32 filed after it.*
 
 ## Who writes a card
 
@@ -230,11 +263,12 @@ name maps to one pull request as long as no name is used twice — see
 [[#One card per pull request]]. For delegated work it is not enough — see
 [[#Attributing subagent spend]].
 
-Five traps the collector handles and any reimplementation must:
+Seven traps the collector handles and any reimplementation must:
 
 - **Subagent spend is in a sibling directory**, `<session-id>/subagents/*.jsonl`,
-  not in the main transcript. Missing it under-reports every delegated task, and
-  on orchestrated work that is most of the cost.
+  not in the main transcript, and a Workflow run's agents write one level
+  deeper, `subagents/workflows/<run-id>/agent-*.jsonl`. Missing it under-reports
+  every delegated task, and on orchestrated work that is most of the cost.
 - **One conversation is sometimes written into two session files.** 615 assistant
   records on this machine — 5.2% of session spend — appear in both, and reading
   them twice doubles the branch's cost. A duplicate repeats the record's `uuid`,
@@ -253,20 +287,24 @@ Five traps the collector handles and any reimplementation must:
   as a measure of steering.
 - **A prompt typed while the agent is working is not a `user` record at all.**
   It arrives as `type: "attachment"` with `attachment.type === "queued_command"`
-  and the text under `attachment.prompt`. This is the one that matters most: a
-  message sent mid-flight *is* a course correction, so reading only `user`
-  records scores every interruption as zero and makes `corrective_turns` report
-  the opposite of what it claims. There were 354 such prompts in this
-  repository's transcripts when the collector was written. About 2% are also
-  echoed back as a `user` record once dequeued, so a queued/user pair with the
-  same text in the same session is collapsed — but two identical `user` turns
-  are never collapsed, because a person who types "continue" twice steered
-  twice.
-- **Not everything in that shape is a prompt.** A subagent hand-back and a
-  background task notification are delivered as queued commands too, and both
-  open with a tag (`<agent-message …>`, `<task-notification>`). They are
-  rejected the same way the `user` branch has always rejected a system
-  reminder — the leading `<`.
+  and the text under `attachment.prompt`. This shape is the whole of
+  `corrective_turns`: a queued prompt is one the person sent mid-turn, and a
+  `user` record is one sent to an idle agent. A queued prompt is sometimes
+  echoed back as a `user` record once dequeued, so a `user` record that is the
+  next human record in its session after a queued prompt with the same text is
+  collapsed into it. Two identical `user` turns never are, because a person who
+  types "continue" twice steered twice.
+- **Not everything in that shape is a prompt.** Subagent hand-backs,
+  background task notifications and the harness's own notices are delivered as
+  queued commands too. The harness labels the sender in
+  `attachment.origin.kind`, and the collector reads that as an allow-list: only
+  `human`, or a record marked `humanTurn: true`, is a person. `task-notification`,
+  `peer` and `coordinator` are not, and a kind it has never seen counts as no
+  turn — the CLI warns and names it, so a new sender cannot zero the field
+  unnoticed. A transcript older than the label falls back on
+  `attachment.commandMode`, where only `prompt` is typed text. Either way the
+  prompt must also pass the tag test the `user` branch applies: no leading `<`,
+  which rejects `<agent-message …>` and `<task-notification>`.
 - **Not every session in the directory is the person's.** `~/.claude/projects`
   keys transcripts by working directory, so a headless tool run against a
   worktree writes into the same directory as the person working there, and its
@@ -310,19 +348,20 @@ machine, one day, no script kept.*
 
 So `orchestrate`, `stress-plan`, `prep-pr`, `review-pr` and `new-feat`'s
 `Plan`-subagent dispatch each put a marker on its own line at the top of every
-dispatch prompt:
+dispatch prompt, and a Workflow script puts one at the top of the task it
+computes for each agent it starts:
 
 ```
 TASK-BRANCH: feat/example
 ```
 
 `resolveDispatchBranch` in `tools/pr-metrics/index.ts` reads it back. Every
-subagent transcript has a sibling `agent-<id>.meta.json` carrying the
-`toolUseId` of the `Agent` call that spawned it; that id appears on the
-`tool_use` block in the parent transcript, whose `input.prompt` is the dispatch.
-The marked branch then replaces `gitBranch` for every record in that file.
+subagent an `Agent` call starts has a sibling `agent-<id>.meta.json` carrying
+the `toolUseId` of that call; that id appears on the `tool_use` block in the
+parent transcript, whose `input.prompt` is the dispatch. The marked branch then
+replaces `gitBranch` for every record in that file.
 
-Three things about it worth keeping:
+Six things about it worth keeping:
 
 - **The parent may be another subagent.** `spawnDepth: 2` is 79 of this
   machine's 363 subagent files, 8.3% of subagent spend, and every one of those
@@ -347,6 +386,24 @@ Three things about it worth keeping:
   like a ref. Dispatch prompts quote text nobody here wrote — issue bodies,
   review comments, fetched pages — and a planted `TASK-BRANCH:` line further
   down would otherwise re-point a subagent's whole spend onto another card.
+- **A Workflow run's agents are read from their own transcript.** A script
+  starts them, not an `Agent` call, so they sit under
+  `subagents/workflows/<run-id>/`, their sidecar carries no `toolUseId`, and no
+  parent transcript holds their prompt. The harness opens each one's transcript
+  with two `user` records: its relay of the user request that started the run,
+  then the task the script computed for this agent. Each has a header line of
+  the harness's own, and every line the harness relays below it is indented by
+  two spaces. The collector reads the marker from the task record alone — the
+  one whose first line starts `[Workflow harness — computed task]` — within its
+  first three lines, and allows the indentation there and nowhere else. It never
+  reads the relay, which is the same text for every agent of a run that may
+  drive several branches, nor anything after the agent's first reply. The run's
+  `journal.jsonl` is a log, not a transcript, and is not read.
+
+  *Measured 2026-10-27 — `jq` over the `user` records before the first
+  `assistant` record of every `subagents/workflows/*/agent-*.jsonl` on one
+  machine: 98 agents in 5 runs, each opening with one relay record and then one
+  task record.*
 
 This is **not purely forward-looking**. `resolveDispatchBranch` also falls back
 to `resolveSessionBranch` (below) when a dispatch's own parent is the
@@ -460,16 +517,22 @@ Two things worth keeping in mind:
 
 ## Schema
 
-`schema_version` is `3`. Bump it when a field changes meaning or leaves. Version
-3 made `complexity.declared` a sum over the issues a pull request closes and
-added `complexity.issues`; on an older card `declared` is one issue's rating.
+`schema_version` is `4`. Bump it when a field changes meaning or leaves. Version
+4 made `interaction.corrective_turns` count only the prompts sent while the
+agent was working; on an older card it counted every human turn after the
+session's first tool call, and every reader treats that count as unknown — see
+[[#The two fields that name a cause]]. Version 4 also rates a pull request that
+links no issue here from the tracker issues it closes; an older card records
+`not-fetched` for it. Version 3 made `complexity.declared` a sum over the issues
+a pull request closes and added `complexity.issues`; on an older card `declared`
+is one issue's rating.
 
 | Field | Meaning |
 |---|---|
 | `pr.number`, `pr.branch`, `pr.base_sha`, `pr.head_sha` | Identity |
 | `pr.phase` | `at-open` or `at-merge` — see [[#Two phases]] |
-| `issue.number`, `issue.type`, `issue.labels` | The issue the branch was cut for — see [[#Which issue a card names, and what it divides by]]. With `--resolve-issue`, `labels` are read only when that issue is one the pull request closes |
-| `complexity.declared` | The sum of the ratings of the issues in this repository the pull request closes — 1, 2, 3, 5 or 8 for one issue. The only judgement in the file |
+| `issue.number`, `issue.type`, `issue.labels` | The issue the branch was cut for — see [[#Which issue a card names, and what it divides by]]. Only ever an issue in this repository, and `labels` only ever its labels: never a tracker issue's, whose number is not recorded and whose labels other than the `complexity:` pair are never kept. With `--resolve-issue`, `labels` are read only when that issue is one the pull request closes |
+| `complexity.declared` | The sum of the ratings of the issues in this repository the pull request closes or, when it links none here, of the tracker issues it closes — 1, 2, 3, 5 or 8 for one issue. On a tracker-only card, `declared` and `issues` show how many tracker issues it closed and their summed rating; the pull request's own `Closes` lines already show the count. The only judgement in the file |
 | `complexity.method` | How that number was arrived at: `confirmed`, `unconfirmed`, `none`, `not-fetched`, `lookup-failed`, `part-of`, or `manual` for `--complexity` |
 | `complexity.issues` | How many issues' ratings `declared` adds up. Absent before version 3 |
 | `window.sessions` | Distinct sessions on this branch |
@@ -483,7 +546,7 @@ added `complexity.issues`; on an older card `declared` is one issue's rating.
 | `diff.files`, `diff.loc` | Counts bucketed `source` / `test` / `docs` / `config` / `generated` |
 | `diff.packages` | Workspace directories touched |
 | `interaction.user_turns` | Real human instructions |
-| `interaction.corrective_turns` | Human turns arriving *after* the agent started work. Machine records in a prompt's clothes — subagent hand-backs, task notifications, a headless session's opening instruction — are excluded; older cards overstate it |
+| `interaction.corrective_turns` | Prompts the person sent while the agent was still working — interruptions. A turn sent after the agent stopped (a new task, an answer to its question, "continue") is not counted. Before version 4 it counted every human turn after the first tool call; readers show that as unknown |
 | `interaction.tokens_before_first_edit` | Exploration cost, summed per session. **`null` when no edit was observed** — see below |
 | `interaction.sessions_with_observed_edit` | How many sessions contributed to that figure, so a partial reading reads as partial |
 | `interaction.edit_churn` | `files_edited_3plus`, `max_edits_one_file` |
@@ -672,14 +735,19 @@ request is credited with the issues GitHub registered as closed. Labels are
 fetched by GraphQL node id in one batched `nodes(ids:)` call, so an issue named
 only in the body is recorded with no labels.
 
-**Only issues in this same repository.** Most of this repository's pull
-requests close a finding in the private `englishstreetventures/osn-tracker` repo
-instead, and that issue's labels are never fetched at all — its
-`severity:`/`area:` pair must not reach a card committed here (see `AGENTS.md`
-§Issues on not linking a finding from a public file). A card that closes only
-such an issue writes `complexity.method: "not-fetched"`, not `"none"`: a rating
-may well exist on that issue, nobody checked. `englishstreetventures/osn#1012`
-tracks whether and how to surface it safely later.
+**A card's labels come only from this repository's issues; a tracker issue
+gives only its rating.** A pull request that links no issue here is rated from
+the tracker issues GitHub registered as closed. Their node ids go in a
+`nodes(ids:)` call of their own, so a tracker this token cannot read never
+costs a public lookup, and the answer keeps only each issue's `complexity:`
+pair. The card names no issue and writes `issue.labels: []`: a tracker
+issue's number and its `severity:`/`area:` labels must not reach a card
+committed here (see `AGENTS.md` §Issues on not linking a finding from a public
+file). A tracker issue the token cannot read writes
+`complexity.method: "not-fetched"`, not `"none"`: a rating may well exist
+there, unread. So does a body that names a tracker issue GitHub did not
+register as closed: GitHub may leave out a reference to a repository the token
+cannot see.
 
 "Same repository" is decided against the canonical name: `backfill` asks
 `gh repo view <--repo>` once, and `gh` follows a renamed owner and answers in
@@ -699,11 +767,14 @@ Two cases are not a lowered rating, or cannot carry one:
 - **This run records `part-of`.** That null is the rule's answer, not a failed
   read. A rating looked up from the issue (`confirmed`, `unconfirmed`) is
   dropped, since it describes the whole issue; one given by hand is kept.
-- **The card on disk rates fewer issues than the pull request closes.** A
+- **The card on disk rates fewer issues than the sum now covers.** A
   card before version 3 rates one issue, and version 3's `declared` is the sum over
   all of them: carried across, one issue's rating would count four issues of
   work as one. A new sum is written instead. When this run has no sum either,
-  the card on disk is left as it is, on its old version, and the run names it.
+  the card on disk is left as it is, on its old version, and the run names it —
+  unless that card's `issue` names an issue this run does not link here, or
+  carries labels with no issue. Then the rebuilt card is written, without the
+  old rating, so no tracker number or label survives.
 
 Only `"confirmed"` is a rating to act on; every other method is either an
 agent's guess (`"unconfirmed"`) or a null `complexity.declared`, for the reasons
@@ -714,7 +785,7 @@ in the table above.
 Most of the card describes cost. Two fields point at what to *do*, one per
 lever:
 
-**`tokens_before_first_edit` → a missing skill or wiki page.** Everything spent
+**`tokens_before_first_edit`: a missing skill or wiki page.** Everything spent
 before the first edit is the agent working out where the code lives. It is
 summed per session, so a second session re-orienting from scratch is charged
 again rather than hidden behind the first session's answer. Repeatedly high in
@@ -739,25 +810,39 @@ one area means that area has no usable map.
 > per-package share over today's corpus with
 > `bun run --cwd tools/pr-metrics report -- --exploration`.*
 
-**`corrective_turns` → an unclear brief.** Human turns that arrive after the
-agent has already picked up tools: course corrections rather than the task. One
-turn and a large spend is an agent given a clear brief. Nine turns is a brief
-that needed nine patches. This is the one number here that measures the person
-rather than the model.
+**`corrective_turns`: where the brief fell short, once you read the
+prompts.** The prompts the person sent while the agent was still working —
+interruptions. A turn sent after the agent stopped and handed back (a new task,
+an answer to its question, "continue") is not counted, however late in the
+session it comes, so a long session that took on new work turn by turn does not
+read as a badly briefed one. High means the person had to step in mid-run.
 
-> [!warning] Cards written before 2026-09-22 overstate it
-> Until then the collector read a queued record's prompt without checking
-> whether a person wrote it, and counted a headless session sharing the
-> worktree's directory as the person's own. Both inflate the field, and the
-> first inflates it **in proportion to how many background subagents a session
-> ran** — which is what `orchestrate` and `prep-pr` tell it to do, so the more
-> a session followed this repository's conventions, the worse its brief
-> appeared. One branch read 11 corrective turns against three turns the person
-> actually sent and no correction among them.
+Two limits keep it from being a verdict on its own:
+
+- **An interruption is not always a correction.** Some are status notes
+  ("Merged a bunch of PRs") or added scope. Read the prompts; the corrections
+  among them are the brief's gaps.
+- **An orchestrator's redirects are mostly not counted.** While a session waits
+  on background subagents its main agent is idle, so a redirect sent then lands
+  as an idle turn. A low count on an orchestrated branch says less than it
+  seems.
+
+> [!warning] A card before version 4 counted something else
+> Before `schema_version` 4 the field counted every human turn after the
+> session's first tool call, so any session that was not one-shot approached
+> its ceiling of `user_turns` minus sessions. Over this machine's transcripts,
+> the 15 branches other than `main` with a human turn held 107 turns: the old
+> rule called 93 of them corrective, the new one 14.
 >
-> The transcripts those cards were built from are local and unversioned, so
-> nothing can be recomputed. Read the field on an older card as an upper bound,
-> and read a high value on a subagent-heavy branch as probably an artefact.
+> *Measured 2026-10-27 — `aggregateInteraction` from `origin/main` and from
+> schema version 4, over every main-session transcript under
+> `~/.claude*/projects/*osn*`, grouped by `gitBranch`.*
+>
+> So `report`, `queries.sql` and the dashboard read an older card's count as
+> unknown, and say how many cards they left out. `backfill` rebuilds a card at
+> the current version from transcripts still on this machine, rewriting its
+> spend and diff with it. A remote session's card cannot be rebuilt: its
+> container took the transcripts with it.
 
 Two supporting signals: a rising **cache-read share** across PRs means the
 context surface — `AGENTS.md`, the skills, the wiki pages an agent opens — is
@@ -847,11 +932,24 @@ median showed about 2×.
 came from an ad-hoc pass, not a committed query; the median re-derives over
 today's corpus with `bun run --cwd tools/pr-metrics report -- --context`.*
 
-The raw view, if you want to start from nothing:
+**The `cards` view declares the card's shape; it does not infer it.** Five
+objects on a card are keyed by data: `spend.by_model`, `spend.effort` and
+`interaction.tool_calls`, `.skills` and `.subagents`. One card can hold two keys
+there that differ only in case, `Bash` and `bash`. DuckDB's struct fields are
+case-insensitive, so `read_json_auto` stops on the duplicate name whenever it
+infers one of those objects as a struct, and whether it does depends on the
+DuckDB version and on which cards exist. The view declares the five as MAPs:
+read a key with `interaction.tool_calls['Bash']`, or with dot access, and either
+way the key's case counts.
+
+A field the collector adds reaches `cards` only once
+[`queries.sql`](../../tools/pr-metrics/queries.sql) declares it; a field it
+drops reads NULL. `tests/queries-schema.test.ts` in the package fails until the
+declaration and the card agree, and it needs no DuckDB, so CI runs it. To start
+from nothing, read the raw JSON:
 
 ```sql
-CREATE VIEW cards AS
-  SELECT * FROM read_json_auto('.claude/metrics/*.json', union_by_name := true);
+CREATE VIEW raw AS SELECT json FROM read_json_objects('.claude/metrics/*.json');
 ```
 
 **Where agents cost too much for the job** — the query this whole system exists
@@ -882,13 +980,17 @@ HAVING prs >= 3
 ORDER BY explore_share DESC;
 ```
 
-**Whether briefs are getting clearer** — corrective turns over time:
+**Whether briefs are getting clearer** — prompts sent mid-turn over time. Read
+`corrections` from the `metrics` view, which is NULL on a card before version 4
+or with no human turn; `interaction.corrective_turns` read straight from `cards`
+mixes two meanings:
 
 ```sql
-SELECT date_trunc('month', pr.generated_at::TIMESTAMP) AS month,
-       avg(interaction.corrective_turns) AS avg_corrections,
-       avg(interaction.user_turns) AS avg_turns
-FROM cards
+SELECT date_trunc('month', at_ts) AS month,
+       count(corrections) AS v4_prs,
+       median(corrections) AS median_corrections,
+       median(turns) AS median_turns
+FROM metrics
 GROUP BY 1 ORDER BY 1;
 ```
 

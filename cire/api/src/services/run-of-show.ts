@@ -52,9 +52,10 @@ const utf8 = new TextEncoder();
  * run when the batch does on both drivers.
  *
  * `replaced` lists events whose items already exist and are being replaced
- * (an update); a new event has none to delete. Every event id comes from a
- * plan built from this wedding's reads, and the delete is held to the wedding
- * besides.
+ * (an update); a new event has none to delete. Each statement is held to the
+ * wedding whatever event ids it is given: the delete names the wedding, and
+ * every item written carries it, so the (event, wedding) foreign key refuses an
+ * event that is not the wedding's.
  */
 export function runOfShowStatements(
   db: Db,
