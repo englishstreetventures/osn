@@ -7,11 +7,13 @@ import {
   cacheProfileDisplayResolver,
   createAccountResolverFromEnv,
   createArcAccountResolver,
+  createArcBlockCheck,
   createArcHandleResolver,
   createArcHandleSearchResolver,
   createArcConnectionSearchResolver,
   createArcOrgMembershipResolver,
   createArcProfileOrgsResolver,
+  createBlockCheckFromEnv,
   createConnectionSearchResolverFromEnv,
   createHandleResolverFromEnv,
   createHandleSearchResolverFromEnv,
@@ -427,6 +429,174 @@ describe("createArcHandleResolver", () => {
       arcKeyId: "kid-1",
     });
     expect(await resolve("alice")).toEqual({ ok: true, profileId: "usr_alice", handle: "alice" });
+  });
+
+  it("gives up once its time bound passes when osn-api never answers", async () => {
+    const { privateKey } = await testKeyMaterial();
+    globalThis.fetch = silentOsnApi({ profileId: "usr_alice", handle: "alice" });
+
+    const resolve = createArcHandleResolver({
+      osnApiUrl: "https://osn.example",
+      arcPrivateKey: privateKey,
+      arcKeyId: "kid-1",
+      timeoutMs: 20,
+    });
+    await expect(resolve("alice")).rejects.toThrow();
+  });
+});
+
+/**
+ * An osn-api that never answers a request carrying an abort signal: the call
+ * settles only when that signal aborts, as a real `fetch` does. A request with
+ * no signal gets `answer` at once, so a call with no time bound fails the test
+ * at once rather than hanging it.
+ */
+function silentOsnApi(answer: unknown) {
+  return mockFetch(
+    (_url, init) =>
+      new Promise<Response>((resolve, reject) => {
+        const signal = init?.signal;
+        if (!signal) {
+          resolve(new Response(JSON.stringify(answer), { status: 200 }));
+          return;
+        }
+        if (signal.aborted) {
+          reject(signal.reason);
+          return;
+        }
+        signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+      }),
+  );
+}
+
+describe("createArcBlockCheck", () => {
+  const config = async (timeoutMs?: number) => ({
+    osnApiUrl: "https://osn.example/",
+    arcPrivateKey: (await testKeyMaterial()).privateKey,
+    arcKeyId: "kid-1",
+    ...(timeoutMs === undefined ? {} : { timeoutMs }),
+  });
+
+  it("asks osn-api with a graph:read ARC token whether either profile blocked the other", async () => {
+    let seen: { url: string; auth: string | null } | undefined;
+    globalThis.fetch = mockFetch(async (url: string | URL | Request, init?: RequestInit) => {
+      seen = { url: String(url), auth: new Headers(init?.headers).get("authorization") };
+      return new Response(JSON.stringify({ blocked: true }), { status: 200 });
+    });
+
+    const check = createArcBlockCheck(await config());
+
+    expect(await check("usr_a&b", "usr_c")).toBe(true);
+    expect(seen?.url).toBe(
+      "https://osn.example/graph/internal/either-blocked?profileA=usr_a%26b&profileB=usr_c",
+    );
+    expect(seen?.auth?.startsWith("ARC ")).toBe(true);
+    const payloadSegment = seen!.auth!.slice("ARC ".length).split(".")[1]!;
+    const payload = JSON.parse(Buffer.from(payloadSegment, "base64url").toString("utf8")) as {
+      scope?: string;
+    };
+    expect(payload.scope).toBe("graph:read");
+  });
+
+  it("answers false when osn-api says neither has blocked the other", async () => {
+    globalThis.fetch = mockFetch(
+      async () => new Response(JSON.stringify({ blocked: false }), { status: 200 }),
+    );
+    const check = createArcBlockCheck(await config());
+    expect(await check("usr_a", "usr_b")).toBe(false);
+  });
+
+  it("throws on any error status, never reading it as no block", async () => {
+    const check = createArcBlockCheck(await config());
+    for (const status of [401, 404, 422, 500, 503]) {
+      globalThis.fetch = mockFetch(
+        async () => new Response(JSON.stringify({ blocked: false }), { status }),
+      );
+      await expect(check("usr_a", "usr_b"), String(status)).rejects.toThrow(
+        new RegExp(`returned ${status}`),
+      );
+    }
+  });
+
+  it("throws on an answer it cannot read as a yes or a no", async () => {
+    const check = createArcBlockCheck(await config());
+    for (const body of [
+      "{}",
+      '{"blocked":"false"}',
+      '{"blocked":0}',
+      '{"blocked":null}',
+      "<html>",
+    ]) {
+      globalThis.fetch = mockFetch(async () => new Response(body, { status: 200 }));
+      await expect(check("usr_a", "usr_b"), body).rejects.toThrow();
+    }
+  });
+
+  it("throws when the request itself fails", async () => {
+    globalThis.fetch = mockFetch(async () => {
+      throw new TypeError("network down");
+    });
+    const check = createArcBlockCheck(await config());
+    await expect(check("usr_a", "usr_b")).rejects.toThrow(/network down/);
+  });
+
+  it("gives up once its time bound passes when osn-api never answers", async () => {
+    globalThis.fetch = silentOsnApi({ blocked: false });
+    const check = createArcBlockCheck(await config(20));
+    await expect(check("usr_a", "usr_b")).rejects.toThrow();
+  });
+
+  it("starts each call's time bound afresh", async () => {
+    globalThis.fetch = mockFetch(async (_url, init) => {
+      if (init?.signal?.aborted) throw init.signal.reason;
+      return new Response(JSON.stringify({ blocked: false }), { status: 200 });
+    });
+    const check = createArcBlockCheck(await config(20));
+
+    expect(await check("usr_a", "usr_b")).toBe(false);
+    await Bun.sleep(60);
+    expect(await check("usr_a", "usr_b")).toBe(false);
+  });
+});
+
+describe("createBlockCheckFromEnv", () => {
+  it("returns null when any ARC config piece is missing", async () => {
+    const { jwk } = await testKeyMaterial();
+    expect(await createBlockCheckFromEnv({})).toBeNull();
+    expect(
+      await createBlockCheckFromEnv({ osnApiUrl: "https://osn.example", arcKeyId: "k" }),
+    ).toBeNull();
+    expect(
+      await createBlockCheckFromEnv({ osnApiUrl: "https://osn.example", arcPrivateKeyJwk: jwk }),
+    ).toBeNull();
+    expect(await createBlockCheckFromEnv({ arcPrivateKeyJwk: jwk, arcKeyId: "k" })).toBeNull();
+  });
+
+  it("returns null, without throwing, when the ARC key does not import", async () => {
+    for (const badJwk of ["{not-json", "garbage", '{"kty":"EC"}']) {
+      expect(
+        await createBlockCheckFromEnv({
+          osnApiUrl: "https://osn.example",
+          arcPrivateKeyJwk: badJwk,
+          arcKeyId: "kid-env",
+        }),
+        badJwk,
+      ).toBeNull();
+    }
+  });
+
+  it("builds a working check when all config is present", async () => {
+    const { jwk } = await testKeyMaterial();
+    globalThis.fetch = mockFetch(
+      async () => new Response(JSON.stringify({ blocked: true }), { status: 200 }),
+    );
+    const check = await createBlockCheckFromEnv({
+      osnApiUrl: "https://osn.example",
+      arcPrivateKeyJwk: jwk,
+      arcKeyId: "kid-env",
+    });
+    expect(check).not.toBeNull();
+    expect(await check!("usr_a", "usr_b")).toBe(true);
   });
 });
 

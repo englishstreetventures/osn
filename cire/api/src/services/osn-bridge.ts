@@ -2,8 +2,11 @@ import { importKeyFromJwk, signArcToken } from "@shared/crypto/jwk";
 import { instrumentedFetch } from "@shared/observability/fetch";
 
 /**
- * Server-to-server bridge to osn-api for the optional guest account-linking
- * flow. The ONLY file in cire/api that makes an outbound S2S call to osn-api.
+ * Server-to-server bridge to osn-api: guest account linking, the co-host add
+ * (handle lookup and the block check), the co-host list's names and photos, the
+ * co-host autocomplete, the vendor portal's organisation checks, and the
+ * organiser email lookup. The ONLY file in cire/api that makes an outbound S2S
+ * call to osn-api.
  *
  * Why this is hand-rolled rather than reusing pulse/osn `outbound-arc.ts`:
  * those helpers import the `@shared/crypto` barrel (which pulls
@@ -19,7 +22,9 @@ import { instrumentedFetch } from "@shared/observability/fetch";
  * Key distribution: cire holds a stable ES256 private key (the
  * `CIRE_API_ARC_PRIVATE_KEY` wrangler secret); the matching public key is
  * pre-registered in osn-api's `service_accounts` table under serviceId
- * `cire-api` with the `graph:read,graph:resolve-account` scopes. Workers have
+ * `cire-api`, allowed every scope this file signs with — the `ARC_*_SCOPE`
+ * constants below: `graph:read`, `graph:resolve-account`, `org:read` and
+ * `account:email-read`. Workers have
  * no long-lived process, so the ephemeral-key + startup self-registration +
  * rotation dance that pulse-api uses does not apply here — see
  * `[[wiki/cire/cire-auth]]`.
@@ -47,6 +52,14 @@ const ARC_ORG_READ_SCOPE = "org:read";
  * withdrawn on its own.
  */
 const ARC_ACCOUNT_EMAIL_SCOPE = "account:email-read";
+/**
+ * How long the co-host add waits for osn-api on each call — the handle lookup
+ * and the block check — before giving up. Giving up refuses the add (the
+ * organiser is asked to try again), so the bound sits far above a normal
+ * answer; it exists so a hung osn-api cannot hold the request open.
+ */
+export const OSN_LOOKUP_TIMEOUT_MS = 5_000;
+
 /**
  * osn-api caps the lookup at 100 ids per request and 422s a longer body, so a
  * cohort larger than that is chunked here rather than truncated there.
@@ -213,14 +226,22 @@ export type OsnHandleResolution =
  */
 export type OsnHandleResolver = (handle: string) => Promise<OsnHandleResolution>;
 
+/** How long one co-host-add call to osn-api may take; see {@link OSN_LOOKUP_TIMEOUT_MS}. */
+export interface LookupTimeoutConfig {
+  /** Milliseconds before the call is aborted and throws. Default {@link OSN_LOOKUP_TIMEOUT_MS}. */
+  timeoutMs?: number;
+}
+
 /**
  * Builds an {@link OsnHandleResolver} backed by a real ARC-authenticated call
- * to `GET /graph/internal/profile-by-handle`. Same key + scope as the account
- * resolver (`graph:read`), so a deployment that has the ARC key registered for
- * account-linking automatically gets handle resolution too.
+ * to `GET /graph/internal/profile-by-handle`, signed with `graph:read`. Each
+ * call is aborted, and throws, once `timeoutMs` passes.
  */
-export function createArcHandleResolver(config: ArcResolverConfig): OsnHandleResolver {
+export function createArcHandleResolver(
+  config: ArcResolverConfig & LookupTimeoutConfig,
+): OsnHandleResolver {
   const base = config.osnApiUrl.replace(/\/+$/, "");
+  const timeoutMs = config.timeoutMs ?? OSN_LOOKUP_TIMEOUT_MS;
 
   return async (handle) => {
     const token = await signArcToken(config.arcPrivateKey, {
@@ -232,7 +253,7 @@ export function createArcHandleResolver(config: ArcResolverConfig): OsnHandleRes
 
     const res = await instrumentedFetch(
       `${base}/graph/internal/profile-by-handle?handle=${encodeURIComponent(handle)}`,
-      { headers: { authorization: `ARC ${token}` } },
+      { headers: { authorization: `ARC ${token}` }, signal: AbortSignal.timeout(timeoutMs) },
     );
 
     if (res.status === 404) {
@@ -274,6 +295,71 @@ export async function createHandleResolverFromEnv(env: {
   const arcPrivateKey = await importKeyFromJwk(env.arcPrivateKeyJwk).catch(() => null);
   if (!arcPrivateKey) return null;
   return createArcHandleResolver({
+    osnApiUrl: env.osnApiUrl,
+    arcPrivateKey,
+    arcKeyId: env.arcKeyId,
+  });
+}
+
+/**
+ * Whether either of two OSN profiles has blocked the other — the question the
+ * co-host add asks before seating anyone. Throws on a transport failure, a
+ * timeout, any error status, and an answer that is not a plain `true` or
+ * `false`, so a caller that must refuse on a block can refuse when it cannot
+ * tell: an unreadable answer never reads as "no block".
+ */
+export type OsnBlockCheck = (profileA: string, profileB: string) => Promise<boolean>;
+
+/**
+ * Builds an {@link OsnBlockCheck} backed by a real ARC-authenticated call to
+ * `GET /graph/internal/either-blocked`, signed with `graph:read`. Each call is
+ * aborted, and throws, once `timeoutMs` passes.
+ */
+export function createArcBlockCheck(
+  config: ArcResolverConfig & LookupTimeoutConfig,
+): OsnBlockCheck {
+  const base = config.osnApiUrl.replace(/\/+$/, "");
+  const timeoutMs = config.timeoutMs ?? OSN_LOOKUP_TIMEOUT_MS;
+
+  return async (profileA, profileB) => {
+    const token = await signArcToken(config.arcPrivateKey, {
+      iss: ARC_ISSUER,
+      aud: ARC_AUDIENCE,
+      scope: ARC_SCOPE,
+      kid: config.arcKeyId,
+    });
+
+    const res = await instrumentedFetch(
+      `${base}/graph/internal/either-blocked?profileA=${encodeURIComponent(profileA)}&profileB=${encodeURIComponent(profileB)}`,
+      { headers: { authorization: `ARC ${token}` }, signal: AbortSignal.timeout(timeoutMs) },
+    );
+    if (!res.ok) {
+      throw new Error(`osn-api GET /graph/internal/either-blocked returned ${res.status}`);
+    }
+
+    const data = (await res.json()) as { blocked?: unknown } | null;
+    if (typeof data?.blocked !== "boolean") {
+      throw new Error("osn-api either-blocked response missing blocked");
+    }
+    return data.blocked;
+  };
+}
+
+/**
+ * Builds the block check from raw env material — the sibling of
+ * {@link createHandleResolverFromEnv}, from the same three values. Returns
+ * `null` when any piece is absent or the key does not import; the add-host
+ * POST then answers 503, so no seat is ever granted unchecked.
+ */
+export async function createBlockCheckFromEnv(env: {
+  osnApiUrl?: string;
+  arcPrivateKeyJwk?: string;
+  arcKeyId?: string;
+}): Promise<OsnBlockCheck | null> {
+  if (!env.osnApiUrl || !env.arcPrivateKeyJwk || !env.arcKeyId) return null;
+  const arcPrivateKey = await importKeyFromJwk(env.arcPrivateKeyJwk).catch(() => null);
+  if (!arcPrivateKey) return null;
+  return createArcBlockCheck({
     osnApiUrl: env.osnApiUrl,
     arcPrivateKey,
     arcKeyId: env.arcKeyId,

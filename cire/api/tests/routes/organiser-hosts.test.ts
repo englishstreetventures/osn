@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from "bun:test";
 
-import { hostRsvpNotices, weddingHosts } from "@cire/db";
+import { hostRsvpNotices, weddingHosts, weddings } from "@cire/db";
 import { makeLogEmailLive } from "@shared/email";
 import { createRateLimiter } from "@shared/rate-limit";
 import type { CloseTargets, HubNamespace } from "@shared/realtime/server";
@@ -17,6 +17,7 @@ import { weddingRunSheet } from "../../src/middleware/wedding-run-sheet";
 import { MAX_HOSTS_PER_WEDDING } from "../../src/services/hosts";
 import type { AssignableHostRole } from "../../src/services/hosts";
 import type {
+  OsnBlockCheck,
   OsnHandleResolver,
   OsnOrganiserEmailLookup,
   OsnProfileDisplay,
@@ -120,6 +121,7 @@ function buildApp(overrides: Partial<AppOptions> = {}) {
   const app = createApp(db, {
     osnTestKey: auth.key,
     resolveOsnProfileByHandle: stubResolver,
+    osnBlockCheck: async () => false,
     // A fresh limiter per app: the module-level default is shared
     // process-wide, so the calls in this file would otherwise 429 whichever
     // test ran last. The limiter's own test passes a tight one.
@@ -469,6 +471,199 @@ describe("POST /api/organiser/weddings/:weddingId/hosts (add by handle)", () => 
     expect(first.status).toBe(201);
     const second = await req(app, "POST", hostsPath, OWNER, { handle: "carol" });
     expect(second.status).toBe(429);
+  });
+});
+
+describe("POST /hosts — a block between the candidate and the owner adding them", () => {
+  const NOT_FOUND = { error: "No OSN account with that handle" };
+
+  /**
+   * Stands in for osn-api's `either-blocked`: `blocks` are directed
+   * `[blocker, blocked]` pairs, answered whichever way round the route asks.
+   * Every question is recorded, so a test can say who was checked.
+   */
+  function blockStub(blocks: readonly (readonly [string, string])[]) {
+    const asked: [string, string][] = [];
+    const check: OsnBlockCheck = async (a, b) => {
+      asked.push([a, b]);
+      return blocks.some(
+        ([blocker, blocked]) =>
+          (blocker === a && blocked === b) || (blocker === b && blocked === a),
+      );
+    };
+    return { check, asked };
+  }
+
+  const seatsOf = (db: Db, osnProfileId: string) =>
+    db
+      .select({ role: weddingHosts.role })
+      .from(weddingHosts)
+      .where(eq(weddingHosts.osnProfileId, osnProfileId))
+      .all();
+
+  it("refuses, as an unknown handle, someone who has blocked the adding owner", async () => {
+    const { check } = blockStub([[COHOST, OWNER]]);
+    const { db, app } = buildApp({ osnBlockCheck: check });
+    const before = await counterValue(CIRE_METRICS.hostAdded, {
+      result: "blocked",
+      role: "viewer",
+    });
+
+    const res = await req(app, "POST", hostsPath, OWNER, { handle: "bob" });
+
+    expect(res.status).toBe(404);
+    expect(await jsonBody(res)).toEqual(NOT_FOUND);
+    expect(seatsOf(db, COHOST)).toEqual([]);
+    expect(await counterValue(CIRE_METRICS.hostAdded, { result: "blocked", role: "viewer" })).toBe(
+      before + 1,
+    );
+  });
+
+  it("refuses, as an unknown handle, someone the adding owner has blocked", async () => {
+    const { check } = blockStub([[OWNER, COHOST]]);
+    const { db, app } = buildApp({ osnBlockCheck: check });
+
+    const res = await req(app, "POST", hostsPath, OWNER, { handle: "bob", role: "editor" });
+
+    expect(res.status).toBe(404);
+    expect(await jsonBody(res)).toEqual(NOT_FOUND);
+    expect(seatsOf(db, COHOST)).toEqual([]);
+  });
+
+  it("checks the owner adding them and no one else, a second owner included", async () => {
+    const SECOND = "usr_second_owner";
+    // The wedding's first owner has a block with bob; the second owner adding
+    // him does not, so the add goes through.
+    const allowed = blockStub([[OWNER, COHOST]]);
+    const first = buildApp({ osnBlockCheck: allowed.check });
+    seedHostSeat(first.db, SECOND, "owner");
+
+    const seated = await req(first.app, "POST", hostsPath, SECOND, { handle: "bob" });
+
+    expect(seated.status).toBe(201);
+    expect(seatsOf(first.db, COHOST)).toEqual([{ role: "viewer" }]);
+    expect(allowed.asked).toEqual([[COHOST, SECOND]]);
+
+    // A block with the owner adding them refuses.
+    const refused = blockStub([[COHOST, SECOND]]);
+    const second = buildApp({ osnBlockCheck: refused.check });
+    seedHostSeat(second.db, SECOND, "owner");
+
+    const res = await req(second.app, "POST", hostsPath, SECOND, { handle: "bob" });
+
+    expect(res.status).toBe(404);
+    expect(await jsonBody(res)).toEqual(NOT_FOUND);
+    expect(seatsOf(second.db, COHOST)).toEqual([]);
+  });
+
+  it("returns 502 and seats no one when osn-api cannot answer the check", async () => {
+    const { db, app } = buildApp({
+      osnBlockCheck: async () => {
+        throw new Error("osn-api GET /graph/internal/either-blocked returned 500");
+      },
+    });
+    const before = await counterValue(CIRE_METRICS.hostAdded, {
+      result: "osn_unavailable",
+      role: "none",
+    });
+
+    const res = await req(app, "POST", hostsPath, OWNER, { handle: "bob" });
+
+    expect(res.status).toBe(502);
+    expect(await jsonBody(res)).toEqual({ error: "OSN handle lookup failed" });
+    expect(seatsOf(db, COHOST)).toEqual([]);
+    expect(
+      await counterValue(CIRE_METRICS.hostAdded, { result: "osn_unavailable", role: "none" }),
+    ).toBe(before + 1);
+  });
+
+  it("returns 503 without resolving the handle when no block check is configured", async () => {
+    let resolved = 0;
+    const { db, app } = buildApp({
+      osnBlockCheck: undefined,
+      resolveOsnProfileByHandle: async (handle) => {
+        resolved += 1;
+        return stubResolver(handle);
+      },
+    });
+
+    const res = await req(app, "POST", hostsPath, OWNER, { handle: "bob" });
+
+    expect(res.status).toBe(503);
+    expect(await jsonBody(res)).toEqual({ error: "Adding hosts is not available" });
+    expect(resolved).toBe(0);
+    expect(seatsOf(db, COHOST)).toEqual([]);
+  });
+
+  it("seats someone with no block against the adding owner, whoever else they have blocked", async () => {
+    const VIEWER = "usr_viewer";
+    const { check, asked } = blockStub([[COHOST, VIEWER]]);
+    const { db, app } = buildApp({ osnBlockCheck: check });
+    seedHostSeat(db, VIEWER, "viewer");
+
+    const res = await req(app, "POST", hostsPath, OWNER, { handle: "bob" });
+
+    expect(res.status).toBe(201);
+    expect(seatsOf(db, COHOST)).toEqual([{ role: "viewer" }]);
+    expect(asked).toEqual([[COHOST, OWNER]]);
+  });
+
+  it("answers a blocked handle exactly as an unknown one, and never checks an unknown one", async () => {
+    const { check, asked } = blockStub([[COHOST, OWNER]]);
+    const { app } = buildApp({ osnBlockCheck: check });
+
+    const unknown = await req(app, "POST", hostsPath, OWNER, { handle: "ghost" });
+    const blocked = await req(app, "POST", hostsPath, OWNER, { handle: "bob" });
+
+    expect(blocked.status).toBe(unknown.status);
+    expect(blocked.headers.get("content-type")).toBe(unknown.headers.get("content-type"));
+    expect(await blocked.text()).toBe(await unknown.text());
+    // Only bob's add asked osn-api: an unknown handle has no profile to check.
+    expect(asked).toEqual([[COHOST, OWNER]]);
+  });
+
+  it("answers already_host, not an unknown handle, for a blocked person who already holds a seat", async () => {
+    for (const role of ["editor", "owner", "host"] as const) {
+      const { check } = blockStub([[COHOST, OWNER]]);
+      const { db, app } = buildApp({ osnBlockCheck: check });
+      db.insert(weddingHosts)
+        .values({
+          id: `whost_${role}`,
+          weddingId: WEDDING_ID,
+          osnProfileId: COHOST,
+          addedByOsnProfileId: OWNER,
+          role,
+          createdAt: new Date(),
+        })
+        .run();
+
+      const res = await req(app, "POST", hostsPath, OWNER, { handle: "bob", role: "viewer" });
+
+      expect(res.status, role).toBe(409);
+      expect(await jsonBody(res), role).toEqual({ error: "already_host" });
+      expect(seatsOf(db, COHOST), role).toEqual([{ role }]);
+    }
+  });
+
+  it("refuses as an unknown handle when the wedding is deleted while the check runs", async () => {
+    let db: Db | undefined;
+    const built = buildApp({
+      osnBlockCheck: async () => {
+        db!
+          .update(weddings)
+          .set({ deletedAt: new Date() })
+          .where(eq(weddings.id, WEDDING_ID))
+          .run();
+        return true;
+      },
+    });
+    db = built.db;
+
+    const res = await req(built.app, "POST", hostsPath, OWNER, { handle: "bob" });
+
+    expect(res.status).toBe(404);
+    expect(await jsonBody(res)).toEqual(NOT_FOUND);
+    expect(seatsOf(built.db, COHOST)).toEqual([]);
   });
 });
 

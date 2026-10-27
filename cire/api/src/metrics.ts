@@ -317,6 +317,10 @@ export type WeddingSettingsSavedResult = "ok" | "error";
 export type HostAddResult =
   | "ok"
   | "handle_not_found"
+  // The candidate and the owner adding them have a block, either way round.
+  // The caller is answered exactly as for `handle_not_found`; only this label
+  // tells the two apart.
+  | "blocked"
   | "osn_unavailable"
   | "already_host"
   // The wedding is at MAX_HOSTS_PER_WEDDING, owners counted. Worth its own

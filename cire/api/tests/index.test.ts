@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it, spyOn } from "bun:test";
 
 import { weddingHosts, weddings } from "@cire/db";
 import { exportKeyToJwk, generateArcKeyPair } from "@shared/crypto/jwk";
+import { eq } from "drizzle-orm";
 import { Miniflare } from "miniflare";
 
 import { probeRequests, type ProbeRequest } from "../scripts/d1-latency-probe";
@@ -1571,5 +1572,97 @@ describe("realtime subscribe at the Worker entry", () => {
       release();
       await Promise.allSettled(scheduled);
     }
+  });
+});
+
+describe("co-host add at the Worker entry", () => {
+  const PORTAL = "https://host.example.com";
+  const OSN_API = "https://osn.example.test";
+  const OWNER = "usr_add_owner";
+  /** Handle → profile id, as osn-api's profile-by-handle answers it. */
+  const PROFILES: Record<string, string> = { blocker: "usr_add_blocker", friend: "usr_add_friend" };
+
+  /** A new object over the same database, so the Worker rebuilds its cached
+   *  app with this test's env (the app is cached on `env.DB`'s identity). */
+  const freshBinding = (): D1Database =>
+    new Proxy(DB_REALTIME, {
+      get(target, prop) {
+        const value = Reflect.get(target, prop, target) as unknown;
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+
+  it("builds the block check from env: a handle osn-api reports blocked is refused, another is seated", async () => {
+    const db = createD1Db(DB_REALTIME);
+    const now = new Date();
+    await db
+      .insert(weddings)
+      .values({ id: "wed_add", slug: "add", displayName: "Add", createdAt: now, updatedAt: now })
+      .onConflictDoNothing();
+    await db.insert(weddingHosts).values(ownerSeat("wed_add", OWNER)).onConflictDoNothing();
+    const token = await seedOrganiserSession(db, OWNER);
+
+    const asked: string[] = [];
+    const osnApi = spyOn(globalThis, "fetch").mockImplementation(((
+      input: string | URL | Request,
+    ) => {
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      if (url.origin !== OSN_API) return Promise.reject(new Error(`unexpected fetch ${url.href}`));
+      if (url.pathname === "/graph/internal/profile-by-handle") {
+        const handle = url.searchParams.get("handle")!.replace(/^@/, "");
+        const profileId = PROFILES[handle];
+        return Promise.resolve(
+          profileId ? Response.json({ profileId, handle }) : Response.json({}, { status: 404 }),
+        );
+      }
+      if (url.pathname === "/graph/internal/either-blocked") {
+        const pair = [url.searchParams.get("profileA"), url.searchParams.get("profileB")];
+        asked.push(pair.join(" "));
+        return Promise.resolve(Response.json({ blocked: pair.includes("usr_add_blocker") }));
+      }
+      return Promise.reject(new Error(`unexpected osn-api call ${url.pathname}`));
+    }) as typeof fetch);
+
+    const env = {
+      ...BASE_ENV,
+      DB: freshBinding(),
+      WEB_ORIGIN: `https://invite.example.com,${PORTAL}`,
+      OSN_API_URL: OSN_API,
+      CIRE_API_ARC_PRIVATE_KEY: await exportKeyToJwk((await generateArcKeyPair()).privateKey),
+      CIRE_API_ARC_KEY_ID: "kid_test",
+    } as unknown as Parameters<NonNullable<typeof handler.fetch>>[1];
+    const add = (handle: string) =>
+      handler.fetch!(
+        new Request("https://api.example.com/api/organiser/weddings/wed_add/hosts", {
+          method: "POST",
+          headers: {
+            origin: PORTAL,
+            cookie: `cire_org_session=${token}`,
+            "content-type": "application/json",
+            "cf-connecting-ip": "203.0.113.30",
+          },
+          body: JSON.stringify({ handle }),
+        }) as Parameters<NonNullable<typeof handler.fetch>>[0],
+        env,
+        ctx,
+      );
+
+    try {
+      const refused = await add("blocker");
+      expect(refused.status).toBe(404);
+      expect(await jsonBody(refused)).toEqual({ error: "No OSN account with that handle" });
+
+      const seated = await add("friend");
+      expect(seated.status).toBe(201);
+    } finally {
+      osnApi.mockRestore();
+    }
+
+    expect(asked).toEqual([`usr_add_blocker ${OWNER}`, `usr_add_friend ${OWNER}`]);
+    const seats = await db
+      .select({ osnProfileId: weddingHosts.osnProfileId })
+      .from(weddingHosts)
+      .where(eq(weddingHosts.weddingId, "wed_add"));
+    expect(seats.map((s) => s.osnProfileId).toSorted()).toEqual(["usr_add_friend", OWNER]);
   });
 });
