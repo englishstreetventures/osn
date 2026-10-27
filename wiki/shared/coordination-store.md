@@ -12,7 +12,7 @@ tags:
 status: current
 related:
   - "[[rate-limiting]]"
-  - "[[durable-object-over-upstash]]"
+  - "[[coordination-store-on-durable-objects]]"
   - "[[sessions]]"
   - "[[free-tier-limits]]"
   - "[[production-deploy]]"
@@ -20,7 +20,7 @@ related:
 packages:
   - "@shared/coordination"
   - "@osn/api"
-last-reviewed: 2026-10-27
+last-reviewed: 2026-10-28
 ---
 # Coordination store
 
@@ -28,7 +28,7 @@ osn-api keeps its short-lived shared state in one Durable Object class,
 `CoordinationStore` from `@shared/coordination`, bound to the Worker as
 `COORDINATION`. Every isolate of the deployed Worker sees the same state:
 
-- the rate limiters no native binding carries: the hour-window auth limiters, the per-account export, deletion and restore limiters, and the per-account caps (on the Bun dev server, every limiter);
+- the rate limiters no native binding carries: the hour-window auth limiters, the per-account export limiter, the per-IP deletion and restore limiters, and the per-account caps (on the Bun dev server, every limiter);
 - the ceremony entries: identified passkey challenges, pending registrations, emailed codes, pending email changes and TOTP enrolments, cross-device requests, parked `/authorize` requests, recovery disown tokens;
 - each code ceremony's guess count, kept on its entry;
 - the step-up token ids already used, and the discoverable passkey challenges already used, by nonce;
@@ -42,7 +42,7 @@ account-export IP and deletion-status limiters run on Cloudflare's native Rate
 Limiting bindings, which need no store ([[rate-limiting]]). A discoverable
 passkey challenge carries its own proof and is stored nowhere until it is used
 ([[#Refusals cost the same, and single use is atomic]]). Why a Durable Object,
-one per key, and what it replaced: [[durable-object-over-upstash]].
+one per key, and what it replaced: [[coordination-store-on-durable-objects]].
 
 ## The class
 
@@ -110,7 +110,7 @@ await client.claim(jti, ttlMs); // calls the object named "step_up_jti:<jti>"
   chooses in its Oceania region, beside the D1 databases. A caller outside
   Oceania pays the trip there on every call, which is why the ceremonies keep
   their sequential calls few ([[#Cost]]). Why it is pinned:
-  [[durable-object-over-upstash#Where the objects live]].
+  [[coordination-store-on-durable-objects#Where the objects live]].
 - **The client caps every window and TTL at 31 days** before the call, so the
   store refuses only a duration that is not a whole number above zero. A `write`
   with a TTL at or below zero removes the entry instead.
@@ -270,7 +270,7 @@ costs three calls. A token refresh costs no Durable Object call: its rotation
 record is a D1 row ([[sessions#Reuse detection across isolates]]).
 
 Sequential calls per request, which is what a caller far from Oceania waits
-for (counted from the code, 2026-10-27):
+for (counted from the code, 2026-10-28):
 
 | Route | Calls |
 |---|---|
@@ -282,10 +282,11 @@ for (counted from the code, 2026-10-27):
 | Passkey sign-in, identified: `begin` / `complete` | 1 / 1 (`take`) |
 | Passkey sign-in, discoverable: `begin` / `complete` | 0 / 1 (`claim`, only once the signature verifies) |
 | Step-up passkey, passkey registration `complete` | 1 (`take`) |
+| Cross-device: `begin` / poll / `approve` or `reject` | 1 (`write`) / 1 `read`, then a `take` once the request is approved / 2 (`read`, then `swap`) |
 | Recovery email `complete`, any refusal | 3 calls in 2 hops (the lockout lookup and the guess side by side, then the failure record) |
 | Recovery code sign-in, any refusal | 2 (the lockout lookup; then the failure record, beside the D1 read that classifies the refusal) |
 
-*Counted from the code on 2026-10-27 (`shared/coordination/src/store.ts`, `client.ts`) against the pricing page's billing rules, not measured. The pricing page does not say how `deleteAlarm()` or `deleteAll()` are billed beyond "deletes are counted as rows written".*
+*Counted from the code on 2026-10-28 (`shared/coordination/src/store.ts`, `client.ts`, and the services under `osn/api/src/services/auth/`) against the pricing page's billing rules, not measured. The pricing page does not say how `deleteAlarm()` or `deleteAll()` are billed beyond "deletes are counted as rows written".*
 
 **Plans.** The production account is on **Workers Paid**: no daily cap, 1
 million Durable Object requests a month included, then $0.15 a million. The dev

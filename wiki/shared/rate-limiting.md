@@ -22,7 +22,7 @@ packages:
   - "@cire/api"
   - "@shared/rate-limit"
   - "@shared/coordination"
-last-reviewed: 2026-10-27
+last-reviewed: 2026-10-28
 ---
 # Rate Limiting
 
@@ -70,11 +70,11 @@ osn-api runs on Cloudflare Workers. Its **one-minute limiters** run on the **Clo
 | Graph and organisation writes, recommendation suggest and search (per user) | **Native binding**, `RL_USER_20_60` / `RL_USER_60_60` | Search fires once per keystroke; a binding costs nothing per call |
 | Profile create, delete and set-default, `GET /health/coordination`, the account export's per-IP guard and `GET /account/deletion-status` (per IP) | **Native binding**, the `RL_AUTH_IP_*` tiers under their own key prefix | One-minute windows |
 | Hour-window per-IP auth limiters (`recoveryGenerate`, `recoveryComplete`, `recoveryEmailBegin`, `emailChangeBegin`, `oidcClientCreate`) | **Coordination store** | The native binding supports only `period` 10 or 60 s |
-| Per-account caps (`profileSwitchCap`, `emailChangeBeginCap`, `recoveryEmailBeginCap`), the account export limiter (one a day per account) and the account deletion and restore limiters (per account, an hour) | **Coordination store** | Windows of an hour or a day |
+| Per-account caps (`profileSwitchCap`, `emailChangeBeginCap`, `recoveryEmailBeginCap`), the account export limiter (one a day per account) and the account deletion and restore limiters (per IP, an hour) | **Coordination store** | Windows of an hour or a day |
 
 **Tiers + keying.** The native binding's `limit`/`period` live in `wrangler.toml`, so there is one binding per request-budget tier — `RL_AUTH_IP_{5,10,20,30,60}_60` per IP and `RL_USER_{20,60}_60` per user, each `simple = { limit, period = 60 }` — declared at top level **and mirrored into every named env** (named envs do NOT inherit top-level bindings). Each limiter maps to the tier whose limit is its budget. `selectAuthRateLimiters` keys an auth limiter `"<endpoint>:" + ip`, and `selectOsnLimiters` keys the others `"<store>:" + key` (`osn/api/src/lib/native-rate-limiters.ts`), so limiters sharing a tier never share a counter. Both run **once per isolate** (inside the per-isolate-cached `buildAll`), not per request. `osn/api/tests/lib/native-rate-limiters.test.ts` holds every `limit` in `wrangler.toml` to its budget.
 
-**Per-colo trade-off (accepted).** Cloudflare counts native rate limits **per colo**, not globally. A single caller's requests reach one colo, so a per-IP limit holds. A user's devices can reach several, so a per-user limit can be looser than its budget by up to the number of colos in use; accepted, since no per-user limit guards a secret ([[durable-object-over-upstash]]). The brute-force guards that matter — the lockout counters — are on the coordination store, which is global. The `namespace_id`s are account-scoped: production 2001–2007, staging 2201–2207, dev 2101–2107 — verify they're unused in the account at deploy.
+**Per-colo trade-off (accepted).** Cloudflare counts native rate limits **per colo**, not globally. A single caller's requests reach one colo, so a per-IP limit holds. A user's devices can reach several, so a per-user limit can be looser than its budget by up to the number of colos in use; accepted, since no per-user limit guards a secret ([[coordination-store-on-durable-objects]]). The brute-force guards that matter — the lockout counters — are on the coordination store, which is global. The `namespace_id`s are account-scoped: production 2001–2007, staging 2201–2207, dev 2101–2107 — verify they're unused in the account at deploy.
 
 **Observability.** `[observability]` is enabled in `wrangler.toml` (every tier) so Workers Logs/invocations are captured in the Cloudflare dashboard — interim while OTel export stays deferred on workerd (the redacting `osnLoggerLayer` is unchanged).
 

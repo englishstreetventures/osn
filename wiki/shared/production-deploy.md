@@ -90,12 +90,11 @@ marked **TBD** blocks the deploy.
 | `RESEND_API_KEY` (live email transport) | osn-api | **DONE** — set on the production Worker; delivering since 2026-06-18 (§1.1) |
 | `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_EMAIL_API_TOKEN` | osn-api | optional / **legacy** (Cloudflare-email fallback transport; not used now Resend is the live path — §1.1) |
 | **The production account's plan: Workers Paid** | osn-api's coordination store (and every Worker, Durable Object and D1 database on the account) | **The owner switches it in the Cloudflare dashboard before the first release that ships the coordination store** — the deploy token has no billing scope. §1.4 |
-| `INTERNAL_SERVICE_SECRET` (S2S register-service) | osn-api | optional — only to register cire's ARC key (§6.2) |
+| `INTERNAL_SERVICE_SECRET` (bearer for the coordination probe and register-service) | osn-api + its smoke-check step | **required** — the post-deploy smoke check sends it to `GET /health/coordination`; a Worker without it answers 501 there, which fails the check and rolls the deploy back. It also guards `POST /graph/internal/register-service`, which registers cire's ARC key (§6.2). The `production` Environment secret of that name holds the Worker's value, for the smoke-check step |
 | `CIRE_INTERNAL_REVOKE_SECRET` (one value, ≥32 characters) | osn-api + cire-api | **optional, not set yet** — until both Workers hold it, sign out everywhere else and revoking cire's connection leave cire organiser sessions alone ([[sessions#Sign out everywhere else reaches cire]]). To turn it on: `openssl rand -base64 32`; store it as the `production` Environment secret of the same name; `wrangler secret put CIRE_INTERNAL_REVOKE_SECRET --env production` in `osn/api` and again in `cire/api`. On dev: set the `dev` Environment secret, then deploy both the musubi and cire stacks (each Worker gets it only from its own stack's deploy). Rotate the same way, both Workers together: with one side changed every revoke is refused with 401. |
 | `TRUSTED_PROXY_COUNT` (proxy hops in front of osn-api) | osn-api rate limits | optional — CF sets `cf-connecting-ip`, usually unneeded on Workers |
 | osn D1 `database_id` per env | osn-api wrangler.toml | **DONE** — dev `a1dfceb8-2e7a-48eb-a161-ad428f3ddff5`, staging `eb71428e-8540-4a30-815f-fb9cd4ae97ea`, prod `767a9ac1-129b-4efa-9fcf-f68ed7a48c38` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` + `OTEL_EXPORTER_OTLP_HEADERS` | osn-api + cire | **provision** (Grafana, section 1) |
-| `INTERNAL_SERVICE_SECRET` | osn-api | needed only to register cire's ARC key (section 6.2) |
 | cire D1 `database_id` | cire-api wrangler.toml | **DONE** — `6e835474-e0a7-4db9-8883-3247c3c891cd` |
 | cire R2 buckets | cire-api | **DONE** — `cire-sheets`, `cire-assets` (the `-preview` pair was deleted 2026-07-27) |
 | cire `WEB_ORIGIN` allowlist (guest, organiser **and** vendor origins) | cire-api | **DONE — `https://invite.cireweddings.com,https://host.cireweddings.com,https://vendor.cireweddings.com`** (reshuffle 2026-07-16: guest→`invite.`, organiser→`host.`; transitional apex + `app.` pruned post-cutover 2026-07-16) |
@@ -259,7 +258,7 @@ The production account must be on Workers Paid before the first release that
 ships the coordination store, and stay on it. The deploy token has no billing
 scope, so the owner switches the plan in the Cloudflare dashboard. The dev
 account stays on Free: a spent allowance there stops only dev sign-in. Why:
-[[durable-object-over-upstash]].
+[[coordination-store-on-durable-objects]].
 
 ### 1.5 OTel / Grafana endpoint
 
@@ -417,7 +416,7 @@ bunx wrangler secret put OTEL_EXPORTER_OTLP_HEADERS  --env <staging|production>
 | `RESEND_API_URL` | **Never set** | **Must be absent** | Local emulation only ([[email#Local emulation]]). osn-api refuses to boot with it in any non-local tier (503 on every route), and the production deploy job refuses to run while it exists as a secret. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `[env.<env>.vars]` | Recommended | Grafana OTLP gateway. Metric/trace **export is deferred on workerd** — the redacting logger is active, recording call-sites are no-ops until an exporter is attached. [[observability-setup]] |
 | `OTEL_EXPORTER_OTLP_HEADERS` | `wrangler secret put` | Recommended | `Authorization=Basic <base64(instance:token)>`. [[observability-setup]] |
-| `INTERNAL_SERVICE_SECRET` | `wrangler secret put` | **Conditional** | Bearer secret guarding `POST /graph/internal/register-service` (`routes/graph-internal.ts`). Needed **only** to register cire-api's ARC public key (§6.2). Endpoint returns 501 when unset. |
+| `INTERNAL_SERVICE_SECRET` | `wrangler secret put` | **Yes** | Bearer secret for `GET /health/coordination` (`routes/health-coordination.ts`), which the post-deploy smoke check asks, and for `POST /graph/internal/register-service` (`routes/graph-internal.ts`), which registers cire-api's ARC public key (§6.2). Both answer 501 when it is unset, and a 501 from the probe fails the smoke check, which rolls the deploy back. The `production` GitHub Environment holds the same value for the smoke-check step. |
 | `TURNSTILE_SECRET_KEY` | `wrangler secret put` | **Optional (key-optional)** | Cloudflare Turnstile secret. When set, `/register/begin` + `/login/passkey/begin` **require** a valid Turnstile token and **fail-closed** (reject on missing/invalid/duplicate; single-use enforced by Cloudflare). When unset, those gates are skipped and the flows behave as before — safe to leave unset until the widget exists. **Currently SET** on `osn-api-production` (#160), so the gates bite. Server half of the sitekey baked into the **musubi/social** build as `VITE_TURNSTILE_SITEKEY` (§3.3) — it was the organiser-portal build until the 2026-07-27 OIDC swap moved the ceremonies. Create the widget in §3.4. (`build-deps.ts` → `createTurnstileVerifier`). |
 | `TRUSTED_PROXY_COUNT` | `[env.<env>.vars]` | Optional | On Workers, Cloudflare sets `cf-connecting-ip`, so this is usually unneeded. Set only if a proxy sits in front and XFF must be trusted N hops. |
 | `OSN_RP_NAME` | `[env.<env>.vars]` | Optional | Display name in passkey prompts and the issuer label in authenticator apps (default: the instance name, `Musubi`). Display only: changing it leaves existing passkeys and authenticator codes working, since sign-in checks `OSN_RP_ID` and the TOTP secret, never the name. |
@@ -1029,12 +1028,16 @@ to the served URL.)
 
 #### The coordination store's first release
 
+This section covers one release. Once its last step below is done, delete the
+section: it is the only live page that still names the old store's secrets
+([[coordination-store-on-durable-objects#The owner's decisions]], decision 4).
+
 The first production release that ships `@shared/coordination` creates the
 `CoordinationStore` class (the `v1` migration in `osn/api/wrangler.toml`) and
 moves osn-api's shared state onto it ([[coordination-store]]). Nothing carries
 over: ceremonies in flight fail once, rate windows and lockouts start again, and
 tokens rotated before the release have no rotation record
-([[durable-object-over-upstash#What the cutover drops]]).
+([[coordination-store-on-durable-objects#What the cutover drops]]).
 
 Before approving it:
 

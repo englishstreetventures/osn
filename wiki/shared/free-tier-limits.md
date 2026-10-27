@@ -23,7 +23,7 @@ last-reviewed: 2026-10-28
 > covers the production account's Workers, Durable Objects and D1: their daily
 > caps become monthly allowances with billed overage, because osn-api's
 > coordination store sits on every sign-in path and fails closed
-> ([[durable-object-over-upstash]]). The Free ceilings below therefore bind the
+> ([[coordination-store-on-durable-objects]]). The Free ceilings below therefore bind the
 > dev account, and production wherever a section says so. Cloudflare Free zone,
 > Pages and Turnstile cost nothing. This runbook records every ceiling, what
 > breaks when we hit it, how to detect it, the immediate mitigation, and the

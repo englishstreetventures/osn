@@ -11,7 +11,7 @@ related:
   - "[[sessions]]"
   - "[[free-tier-limits]]"
   - "[[decisions/README]]"
-last-reviewed: 2026-10-27
+last-reviewed: 2026-10-28
 ---
 
 # osn-api's shared state on a Durable Object, not Upstash Redis
@@ -46,7 +46,7 @@ Answered on 2026-10-26.
 | 1 | Where do rotated-session records live? | **D1**, table `rotated_sessions` | Every token refresh writes one, and each must last the session's 30 days. On the Durable Object that is two requests per refresh and an object per token that lives a month; refreshes would spend the Free allowance first (below). In D1 the record commits in the same batch as the session that replaces it, so a session never exists without its predecessor's record, and a failed write is a `DatabaseError` the token route already answers as "status unknown" |
 | 2 | Where do the per-user one-minute limiters run? | **Native Rate Limiting bindings**, `RL_USER_20_60` and `RL_USER_60_60` | People search fires once per debounced keystroke. A binding costs no request and needs no store, where the Durable Object would cost a request per keystroke |
 | 3 | englishstreetventures/osn#1735 (a smoke probe that reaches the store) | **Folded in**: `GET /health/coordination`, asked by the smoke check | `/health` touches no store, so a Worker that cannot reach the store passed every probe. A write, read and remove under a key the server makes needs no OAuth client and takes no input |
-| 4 | Which files may still say Redis? | Historical ones only: `docs/superpowers/`, `.claude/metrics/`, changelogs, an unreleased changeset, and this folder | Rewriting a changelog or a session record falsifies it |
+| 4 | Which files may still say Redis? | Historical ones only: `docs/superpowers/`, `.claude/metrics/`, changelogs, an unreleased changeset, and this folder. One live section is excepted until it is done: "The coordination store's first release" in `wiki/shared/production-deploy.md` names the two Upstash secrets the owner deletes once that release is live, and is deleted with them. A word that only contains the letters, such as "rediscover", is not a mention | Rewriting a changelog or a session record falsifies it, and a runbook cannot tell the owner which secrets to delete without naming them |
 | 5 | Which plan does each account run? | **Production on Workers Paid; dev stays on Workers Free** | The store sits on every auth path and fails closed. On Free, a spent daily allowance — shared with cire's realtime hub, and spendable by anyone from the public hosts — would stop sign-in until 00:00 UTC. Paid has no daily cap and bills the overage. On dev that outage costs only dev sign-in. The deploy token has no billing scope, so the owner switches the plan in the dashboard before the first release |
 | 6 | Do the account export and erasure limiters move too? | **Yes** | They ran in memory on the Worker, so "one export a day per account" held only per isolate |
 

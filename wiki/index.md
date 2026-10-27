@@ -168,7 +168,7 @@ decided it — see [[decisions/README]] for what belongs here and what does not.
 - [[top-layer-over-z-index-stack]] — nothing in cire's stacking scale ranks against a sheet: the top layer, entered later, over a bigger number
 - [[closing-band-width-bound-over-height-clip]] — the closing band takes the crop's aspect, and its height bound is applied to the width so nothing is clipped
 - [[d1-session-first-primary]] — one D1 session per request, `first-primary` Worker-wide, over a per-route constraint
-- [[durable-object-over-upstash]] — why osn-api's shared state lives on one Durable Object per key; rotated sessions in D1, per-user minute limiters on native bindings, production on Workers Paid
+- [[coordination-store-on-durable-objects]] — why osn-api's shared state lives on one Durable Object per key; rotated sessions in D1, per-user minute limiters on native bindings, production on Workers Paid
 
 ## Compliance
 

@@ -91,7 +91,7 @@ A row graduates to an issue when its "Revisit When" lands.
 
 ### Decided 2026-06-18
 
-- **Email provider → degraded-for-now.** osn-api ships with **no** Cloudflare Email Service creds and `OSN_EMAIL_OPTIONAL=true` (no-op transport). The provider choice (Resend / SendGrid / Postmark / SES at the Worker level) is parked until email is re-enabled — see [[email]]. Shared-state store: decided Upstash then, and replaced since by a Durable Object — see [[durable-object-over-upstash]].
+- **Email provider → degraded-for-now.** osn-api ships with **no** Cloudflare Email Service creds and `OSN_EMAIL_OPTIONAL=true` (no-op transport). The provider choice (Resend / SendGrid / Postmark / SES at the Worker level) is parked until email is re-enabled — see [[email]]. Shared-state store: decided Upstash then, and replaced since by a Durable Object — see [[coordination-store-on-durable-objects]].
 - **Production domain → `cireweddings.com`** (guest apex / `app.` / `api.` / `id.`; passkey RP ID `cireweddings.com`) — #149. **Superseded twice:** the 2026-07-16 reshuffle moved the guest site to `invite.` and the organiser portal to `host.`, and the 2026-07-27 move took identity off the zone entirely — issuer `id.musubi.social`, RP ID `musubi.social`. See [[musubi-identity-migration]].
 - **Maps approach → Google Maps Embed** (key-optional, CSS-card fallback) — #146.
 - **WAF vs own rate limiter → keep the app limiter.** The Cloudflare Free WAF (1 rule, 10s window) can't replace the app's per-IP/per-user limiters; WAF is reserved for coarse edge defence. Free dashboard hardening steps documented in [[free-tier-limits]].

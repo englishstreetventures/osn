@@ -290,8 +290,9 @@ export const OSN_RATE_LIMITS = {
   // unauthenticated flood from spending token-verification time.
   accountExport: { store: "account.export", maxRequests: 1, windowMs: DAY_MS },
   accountExportIp: { store: "account.export_ip", maxRequests: 30, windowMs: MINUTE_MS },
-  // Per account. Deletion is a destructive ceremony; the step-up gate is the
-  // primary defence and these only curb noise.
+  // Per IP: `routes/account-erasure.ts` keys each on the caller's address.
+  // Deletion is a destructive ceremony; the step-up gate is the primary
+  // defence and these only curb noise.
   accountDelete: { store: "account.delete", maxRequests: 5, windowMs: HOUR_MS },
   accountRestore: { store: "account.restore", maxRequests: 10, windowMs: HOUR_MS },
   accountDeletionStatus: {
