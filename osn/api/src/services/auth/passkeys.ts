@@ -49,7 +49,7 @@ import {
 } from "./constants";
 import type { AuthContext } from "./context";
 import { AuthError, type CoordinationError, DatabaseError } from "./errors";
-import { genId, normaliseIdentifier, now, probeAccountId } from "./helpers";
+import { genId, MAX_IDENTIFIER_LENGTH, normaliseIdentifier, now, probeAccountId } from "./helpers";
 import type { ProfilesModule } from "./profiles";
 import type { SecurityEventsModule } from "./security-events";
 import type { SessionsModule } from "./sessions";
@@ -698,6 +698,10 @@ export function createPasskeysModule(
       }
 
       const normalised = normaliseIdentifier(identifier);
+      // Longer than any account's identifier, and too long to key a challenge.
+      if (normalised.length > MAX_IDENTIFIER_LENGTH) {
+        return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
+      }
       const profile = yield* resolveIdentifier(normalised);
 
       // Resolve passkeys for the account when the identifier is known, or
@@ -812,8 +816,12 @@ export function createPasskeysModule(
       let expectedChallenge: string;
       let discoverable: { readonly nonce: string; readonly expiresAt: number } | null = null;
       if (context.kind === "identified") {
+        const key = normaliseIdentifier(context.identifier);
+        if (key.length > MAX_IDENTIFIER_LENGTH) {
+          return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
+        }
         const entry = yield* storeCall(stores.loginChallenges, "take", () =>
-          stores.loginChallenges.take(normaliseIdentifier(context.identifier)),
+          stores.loginChallenges.take(key),
         );
         if (!entry || Date.now() > entry.expiresAt) return yield* Effect.fail(notFound);
         expectedChallenge = entry.challenge;

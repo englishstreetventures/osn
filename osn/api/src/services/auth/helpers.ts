@@ -75,9 +75,23 @@ export function parseDisownToken(
   const parts = token.split(".");
   if (parts.length !== 2) return null;
   const [lookupId, secret] = parts;
-  if (!lookupId || !secret) return null;
+  // The lookup id keys a store entry, so only the shape `genDisownToken`
+  // makes is one: anything else, an over-long one included, is a wrong token.
+  if (!lookupId || !secret || !DISOWN_LOOKUP_ID.test(lookupId)) return null;
   return { lookupId, secret };
 }
+
+/** A disown token's lookup id, as `genId("rdt_")` makes it. */
+const DISOWN_LOOKUP_ID = /^rdt_[0-9a-f]{12}$/;
+
+/**
+ * The longest identifier — a handle or an email address — any account can
+ * hold: an address is at most 255 characters (`EmailSchema`), a handle far
+ * fewer. A longer one names no account, and a store keyed by it would refuse
+ * it, so the ceremonies that key by an identifier refuse it first, as bad
+ * input.
+ */
+export const MAX_IDENTIFIER_LENGTH = 255;
 
 export function now(): Date {
   return new Date();

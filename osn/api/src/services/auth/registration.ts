@@ -33,6 +33,7 @@ import {
   HandleSchema,
   hashSessionToken,
   logDevOtp,
+  MAX_IDENTIFIER_LENGTH,
   now,
 } from "./helpers";
 import type { ProfilesModule } from "./profiles";
@@ -431,6 +432,10 @@ export function createRegistrationModule(
   > =>
     Effect.gen(function* () {
       const key = email.toLowerCase();
+      // Longer than any address an account can hold, and too long to key an entry.
+      if (key.length > MAX_IDENTIFIER_LENGTH) {
+        return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
+      }
       // Read and counted in one call, before the code is compared; see
       // `attempts.ts`. The entry is deleted after the insert below, not
       // claimed here, so an insert that loses a race leaves the code usable;
