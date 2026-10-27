@@ -186,6 +186,8 @@ OSN_ISSUER_URL = "https://api.staging.osn.example"
 OSN_CORS_ORIGIN = "https://staging.osn.example"
 # Marker-cookie domain only — see the production block. Placeholder like the rest.
 OSN_COOKIE_DOMAIN = "staging.osn.example"
+# Rotated-session sweep chunks per cron run, as production (see there).
+OSN_ROTATED_SESSION_SWEEP_MAX_CHUNKS = "100"
 
 [[env.staging.durable_objects.bindings]]
 name = "COORDINATION"
@@ -301,6 +303,12 @@ OSN_EMAIL_FROM = "hello@cireweddings.com"
 # `/authorize` on the FIRST OSN_ORIGIN, which is fine only because that is now
 # the apex too; set it anyway, because the fallback silently follows list order.
 OSN_AUTHORIZE_UI_URL = "https://musubi.social/authorize"
+# Chunks of 500 expired rotation records the 6-hourly sweep deletes per run, read
+# by `rotatedSweepMaxChunks` (src/services/auth/tokens.ts) in the `scheduled`
+# handler (src/index.ts). 100 chunks is 50 000 records a run, inside Workers
+# Paid's 1 000 D1 queries per invocation; unset, as on dev (Workers Free, 50
+# queries shared by four sweeps), it is 10.
+OSN_ROTATED_SESSION_SWEEP_MAX_CHUNKS = "100"
 # Sign out everywhere else, and revoking cire's connection, ask cire-api to end
 # the account's organiser sessions at CIRE_INTERNAL_REVOKE_URL. Both values
 # equal cire-api's own (cire/api/wrangler.toml CIRE_API_ORIGIN and

@@ -43,12 +43,34 @@ import type { AccessTokenClaims } from "./helpers";
 import type { ProfilesModule } from "./profiles";
 import type { RecoveryFactorAmr, SessionMeta, TokenSet } from "./types";
 
+/** The most chunks a tier may ask one sweep pass for. */
+export const ROTATED_SESSION_SWEEP_MAX_CHUNKS_CEILING = 200;
+
+/**
+ * The tier's per-pass chunk cap, from `OSN_ROTATED_SESSION_SWEEP_MAX_CHUNKS`
+ * (`osn/api/wrangler.toml` sets it for staging and production; the Worker's
+ * `scheduled` handler reads it). Unset: {@link ROTATED_SESSION_SWEEP_MAX_CHUNKS},
+ * which keeps a Workers Free tier inside its 50 D1 queries per invocation,
+ * shared by the four sweeps of one cron tick. A whole number from 1 to
+ * {@link ROTATED_SESSION_SWEEP_MAX_CHUNKS_CEILING}: that number, which keeps a
+ * Workers Paid tier well inside its 1,000. Anything else is `"invalid"`, for
+ * the caller to log and replace with the default.
+ */
+export function rotatedSweepMaxChunks(raw: string | undefined): number | "invalid" {
+  if (raw === undefined || raw === "") return ROTATED_SESSION_SWEEP_MAX_CHUNKS;
+  if (!/^[0-9]+$/.test(raw)) return "invalid";
+  const chunks = Number(raw);
+  return chunks >= 1 && chunks <= ROTATED_SESSION_SWEEP_MAX_CHUNKS_CEILING ? chunks : "invalid";
+}
+
 /**
  * Deletes expired `rotated_sessions` rows, in chunks of
- * {@link ROTATED_SESSION_SWEEP_CHUNK} and at most
- * {@link ROTATED_SESSION_SWEEP_MAX_CHUNKS} of them, so one run's writes and
- * statements stay bounded however far behind the table is. A row is expired
- * once `expires_at <= now`: past that, reuse detection ignores it.
+ * {@link ROTATED_SESSION_SWEEP_CHUNK} and at most `maxChunks` of them (the
+ * tier's cap, {@link rotatedSweepMaxChunks}), so one run's writes and
+ * statements stay bounded however far behind the table is. A pass that ends
+ * on a full chunk has left expired rows behind, and says so in a warning, so
+ * a backlog shows in the Worker's logs. A row is expired once
+ * `expires_at <= now`: past that, reuse detection ignores it.
  *
  * Each chunk is `DELETE … WHERE rowid IN (SELECT rowid … LIMIT n)`: the
  * subquery binds the same few values whatever the chunk size, never one per
@@ -64,11 +86,12 @@ import type { RecoveryFactorAmr, SessionMeta, TokenSet } from "./types";
  * beside the account-deletion sweeps.
  */
 export const runRotatedSessionSweep = (
-  opts: { nowMs?: number } = {},
+  opts: { nowMs?: number; maxChunks?: number } = {},
 ): Effect.Effect<{ deleted: number }, DatabaseError, Db> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
     const nowMs = opts.nowMs ?? Date.now();
+    const maxChunks = opts.maxChunks ?? ROTATED_SESSION_SWEEP_MAX_CHUNKS;
     const startedAt = yield* Clock.currentTimeMillis;
     let deleted = 0;
     const deleteChunk = Effect.tryPromise({
@@ -86,12 +109,16 @@ export const runRotatedSessionSweep = (
       catch: (cause) => new DatabaseError({ cause }),
     });
     yield* Effect.gen(function* () {
-      for (let chunk = 0; chunk < ROTATED_SESSION_SWEEP_MAX_CHUNKS; chunk++) {
+      for (let chunk = 0; chunk < maxChunks; chunk++) {
         if (chunk > 0) yield* Effect.sleep(ROTATED_SESSION_SWEEP_PAUSE_MS);
         const changed = rowsChanged(yield* deleteChunk);
         deleted += changed;
-        if (changed < ROTATED_SESSION_SWEEP_CHUNK) break;
+        if (changed < ROTATED_SESSION_SWEEP_CHUNK) return;
       }
+      // Every chunk came back full, so expired rows are likely still there.
+      yield* Effect.logWarning("auth.session.rotated_sweep ended on a full chunk").pipe(
+        Effect.annotateLogs({ chunks: maxChunks, deleted }),
+      );
     }).pipe(
       Effect.ensuring(
         Effect.gen(function* () {

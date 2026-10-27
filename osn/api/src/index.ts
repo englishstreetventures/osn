@@ -15,7 +15,7 @@ import { flushOsnTelemetry, osnLoggerLayer } from "./observability";
 import * as accountErasure from "./services/account-erasure";
 import { setRuntimeTier } from "./services/auth/helpers";
 import { runExpiredAuthCodeSweep } from "./services/auth/oidc";
-import { runRotatedSessionSweep } from "./services/auth/tokens";
+import { rotatedSweepMaxChunks, runRotatedSessionSweep } from "./services/auth/tokens";
 
 // ---------------------------------------------------------------------------
 // Cloudflare Workers handler for @osn/api. The Worker's module is
@@ -75,6 +75,9 @@ export interface Env {
   OSN_COOKIE_DOMAIN?: string;
   OSN_ACCESS_TOKEN_TTL?: string;
   OSN_REFRESH_TOKEN_TTL?: string;
+  // The rotated-session sweep's chunks per cron run (`rotatedSweepMaxChunks`).
+  // Unset: 10, a Workers Free tier's share. Staging and production set 100.
+  OSN_ROTATED_SESSION_SWEEP_MAX_CHUNKS?: string;
   OSN_EMAIL_FROM?: string;
   // Explicit opt-in: when truthy AND the Cloudflare email creds are absent in a
   // non-local env, osn-api boots with a no-op email transport (transactional
@@ -415,10 +418,21 @@ export const handler: OsnWorkerHandler = {
 
     // Reap expired rotation records. Every refresh writes one, and nothing
     // else removes a record whose token was never replayed; the sweep is
-    // bounded per run, so a backlog drains over several ticks.
+    // bounded per run, by this tier's chunk cap, so a backlog drains over
+    // several ticks.
+    const sweepChunks = rotatedSweepMaxChunks(env.OSN_ROTATED_SESSION_SWEEP_MAX_CHUNKS);
     ctx.waitUntil(
       Effect.runPromise(
-        runRotatedSessionSweep().pipe(
+        Effect.gen(function* () {
+          if (sweepChunks === "invalid") {
+            yield* Effect.logWarning(
+              "OSN_ROTATED_SESSION_SWEEP_MAX_CHUNKS is not a whole number from 1 to 200; sweeping with the default",
+            );
+          }
+          return yield* runRotatedSessionSweep({
+            maxChunks: sweepChunks === "invalid" ? undefined : sweepChunks,
+          });
+        }).pipe(
           Effect.catch((err) =>
             Effect.logError("scheduled rotated-session sweep failed", { reason: String(err) }),
           ),

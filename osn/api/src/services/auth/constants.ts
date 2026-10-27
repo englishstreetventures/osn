@@ -123,10 +123,12 @@ export const RECOVERY_SESSION_TTL_SEC = 900; // 15 min
  */
 export const ROTATION_GRACE_MS = 10_000;
 /**
- * Bounds on one `runRotatedSessionSweep` pass: at most this many chunks of
- * this many expired `rotated_sessions` rows. One cron run therefore writes at
- * most 5 000 rows and issues at most 10 deletes; anything left over goes on
- * the next run, six hours later.
+ * Bounds on one `runRotatedSessionSweep` pass: chunks of this many expired
+ * `rotated_sessions` rows, and by default at most this many chunks — 5 000
+ * rows and 10 deletes a run, the Workers Free tier's share of its per-run D1
+ * queries. A tier on Workers Paid raises the chunk count with
+ * `OSN_ROTATED_SESSION_SWEEP_MAX_CHUNKS` (see `rotatedSweepMaxChunks` in
+ * `tokens.ts`). Anything left over goes on the next run, six hours later.
  */
 export const ROTATED_SESSION_SWEEP_CHUNK = 500;
 export const ROTATED_SESSION_SWEEP_MAX_CHUNKS = 10;

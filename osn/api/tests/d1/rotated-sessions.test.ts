@@ -178,6 +178,36 @@ describe("the 6-hourly cron on D1", () => {
 
     expect((await recordsOf(profile.accountId)).map((r) => r.tokenHash)).toEqual(["d1_live_1"]);
   });
+
+  it("deletes no more chunks a run than OSN_ROTATED_SESSION_SWEEP_MAX_CHUNKS allows", async () => {
+    const { profile } = await signIn("d1-sweep-cap@example.com", "d1sweepcap");
+    const now = Date.now();
+    await d1
+      .prepare(
+        `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 510)
+         INSERT INTO rotated_sessions (token_hash, family_id, account_id, rotated_at, expires_at)
+         SELECT 'd1_cap_' || i, 'f', ?1, 0, ?2 FROM n`,
+      )
+      .bind(profile.accountId, now - 1)
+      .run();
+    const pending: Promise<unknown>[] = [];
+    const ctx = {
+      waitUntil: (p: Promise<unknown>) => void pending.push(p),
+      passThroughOnException: () => {},
+      props: {},
+    } as unknown as ExecutionContext;
+    const event = { scheduledTime: now, cron: "0 */6 * * *", noRetry: () => {} };
+
+    // One chunk of 500 a run: the default of 10 would have taken all 510.
+    await handler.scheduled(
+      event as unknown as ScheduledController,
+      { DB: d1, OSN_ENV: "local", OSN_ROTATED_SESSION_SWEEP_MAX_CHUNKS: "1" },
+      ctx,
+    );
+    await Promise.all(pending);
+
+    expect(await recordsOf(profile.accountId)).toHaveLength(10);
+  });
 });
 
 describe("account erasure on D1", () => {
