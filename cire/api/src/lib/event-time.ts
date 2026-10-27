@@ -168,10 +168,18 @@ function formatOffsetMinutes(minutes: number): string {
  * casing of a zone one entry, and the keys that land are bounded by the real
  * IANA names. ASCII only, never `toLowerCase()`: that maps the Kelvin sign
  * (U+212A) to `k`, so a spelling `Intl` refuses would read a real zone's entry.
+ *
+ * A name longer than {@link MAX_ZONE_NAME_LENGTH} is refused before the fold:
+ * a stored `events.timezone` reaches here uncapped, and a miss is never cached,
+ * so it would pay the fold on every call.
  */
 const canonicalZoneCache = new Map<string, string>();
 
+/** No IANA zone name or link comes near this many characters. */
+const MAX_ZONE_NAME_LENGTH = 64;
+
 function resolveTimeZone(zone: string): string | null {
+  if (zone.length > MAX_ZONE_NAME_LENGTH) return null;
   const key = zone.replace(/[A-Z]/g, (c) => c.toLowerCase());
   const cached = canonicalZoneCache.get(key);
   if (cached) return cached;

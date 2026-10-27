@@ -143,12 +143,12 @@ const EventEnd = Schema.String.check(
 
 /**
  * An IANA zone this runtime resolves, stored as sent, as the sheet stores its
- * Timezone cell. Fixed-offset spellings are refused (`isKnownTimeZone`). The
- * length cap runs before the lookup; no zone name comes near it.
+ * Timezone cell. Fixed-offset spellings, and names too long to be a zone, are
+ * refused before any lookup (`isKnownTimeZone`).
  */
 const EventTimeZone = Schema.String.check(
   Schema.makeFilter((s: string) =>
-    s.length <= 64 && isKnownTimeZone(s) ? undefined : "timezone must be an IANA time zone name",
+    isKnownTimeZone(s) ? undefined : "timezone must be an IANA time zone name",
   ),
 );
 
