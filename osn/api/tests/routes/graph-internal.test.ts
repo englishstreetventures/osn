@@ -1019,6 +1019,46 @@ describe("internal graph routes (ARC-protected)", () => {
 
         expect(await search(token, "prefix=al")).toEqual(["alice"]);
       });
+
+      it("still leaves out a soft-deleted account", async () => {
+        const { token } = await setupArcService();
+        const owner = await registerProfile("owner@example.com", "owner");
+        const alice = await registerProfile("alice@example.com", "alice");
+        await registerProfile("alina@example.com", "alina");
+        await runWithLayer(
+          Effect.gen(function* () {
+            const { db } = yield* Db;
+            const rows = yield* Effect.tryPromise({
+              try: () =>
+                db.select({ accountId: users.accountId }).from(users).where(eq(users.id, alice)),
+              catch: (e) => e,
+            });
+            yield* Effect.tryPromise({
+              try: () =>
+                db
+                  .update(accounts)
+                  .set({ deletedAt: Math.floor(Date.now() / 1000) })
+                  .where(eq(accounts.id, rows[0]!.accountId)),
+              catch: (e) => e,
+            });
+          }),
+        );
+
+        expect(await search(token, `prefix=al&requesterId=${owner}`)).toEqual(["alina"]);
+      });
+
+      it("refuses an empty or over-long requesterId with 422", async () => {
+        const { token } = await setupArcService();
+        for (const requesterId of ["", "u".repeat(65)]) {
+          const res = await app.handle(
+            new Request(
+              `http://localhost/graph/internal/profile-search?prefix=al&requesterId=${requesterId}`,
+              { headers: { Authorization: `ARC ${token}` } },
+            ),
+          );
+          expect(res.status, `length ${requesterId.length}`).toBe(422);
+        }
+      });
     });
   });
 

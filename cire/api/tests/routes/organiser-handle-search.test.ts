@@ -221,8 +221,11 @@ describe("GET /api/organiser/handle-search", () => {
   });
 
   it("never suggests someone with a block against the organiser, asking as the signed-in organiser", async () => {
-    // Stands in for osn-api's profile-search: it leaves out anyone with a
-    // block against the requester it is given, either way round.
+    // Stands in for osn-api's profile-search, which leaves out anyone with a
+    // block against the requester it is given, either way round; osn-api's own
+    // route tests prove that filter. What this test checks of the route is the
+    // requester it passes: the organiser the token names, so the filter drops
+    // alice. Asked as anyone else, she would be suggested.
     const BLOCKS: [string, string][] = [["usr_alice", ORGANISER]];
     const requesters: string[] = [];
     const { app } = buildApp({
