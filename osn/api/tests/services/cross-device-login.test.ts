@@ -1,5 +1,5 @@
 import { it, expect, describe } from "@effect/vitest";
-import { securityEvents, sessions } from "@osn/db/schema";
+import { accounts, securityEvents, sessions, users } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import type { CoordinationNamespace } from "@shared/coordination";
 import { makeLogEmailLive } from "@shared/email";
@@ -202,8 +202,11 @@ describe("cross-device login", () => {
 });
 
 /**
- * An approval parks who approved and the profile device B signs in as, never
- * a token: the poll that takes the approved entry mints the session. Run on
+ * An approval reserves a session row for device B and parks who approved,
+ * which profile, and the reserved row's id — never a token. The poll that
+ * takes the approved entry replaces the reserved row with device B's session,
+ * minted from the account and profile as they are then, and refuses when a
+ * revocation has removed the row or the account or profile has gone. Run on
  * the Durable Object bundle over a stand-in namespace, with every `read`
  * answering a few milliseconds late, as a round trip does, so two requests'
  * reads overlap however the rest is scheduled.
@@ -256,26 +259,174 @@ describe("cross-device login on the shared store", () => {
   const successes = (results: readonly { readonly _tag: string }[]) =>
     results.filter((r) => r._tag === "Success").length;
 
-  it.live("the approved entry holds the account, the profile and the approval, no token", () => {
-    const { svc, layer, store } = harness();
+  it.live(
+    "the approved entry holds the account, the profile id and the reserved row, no token",
+    () => {
+      const { svc, layer, store } = harness();
+      return Effect.gen(function* () {
+        const profile = yield* svc.registerProfile("cdl-store@example.com", "cdlstore");
+        const { requestId, cdlSecret } = yield* svc.beginCrossDeviceLogin();
+        yield* svc.approveCrossDeviceLogin(requestId, cdlSecret, profile.accountId);
+
+        const entry = yield* Effect.promise(() => store.get(requestId));
+        expect(entry).toMatchObject({
+          status: "approved",
+          accountId: profile.accountId,
+          profileId: profile.id,
+        });
+        expect(Object.keys(entry!).toSorted()).toEqual([
+          "accountId",
+          "createdAt",
+          "expiresAt",
+          "ipHash",
+          "profileId",
+          "requestId",
+          "secretHash",
+          "sessionId",
+          "status",
+          "uaLabel",
+        ]);
+        const stored = JSON.stringify(entry);
+        expect(stored).not.toMatch(/ses_|eyJ|accessToken|refreshToken|cdl-store@example\.com/);
+        // The reserved row is the only session, and it lasts no longer than the request.
+        const { db } = yield* Db;
+        const rows = yield* Effect.promise(() =>
+          db.select().from(sessions).where(eq(sessions.accountId, profile.accountId)),
+        );
+        expect(rows.map((r) => r.id)).toEqual([entry!.sessionId]);
+        expect(rows[0]!.expiresAt).toBeLessThanOrEqual(Math.ceil(entry!.expiresAt / 1000));
+      }).pipe(Effect.provide(layer));
+    },
+  );
+
+  /** An account, a request it approved, and the poll that follows `between`. */
+  const approvedThen = <E>(
+    handle: string,
+    between: (
+      svc: ReturnType<typeof createAuthService>,
+      profile: { readonly id: string; readonly accountId: string },
+    ) => Effect.Effect<unknown, E, Db>,
+  ) => {
+    const { svc, layer } = harness();
     return Effect.gen(function* () {
-      const profile = yield* svc.registerProfile("cdl-store@example.com", "cdlstore");
+      const profile = yield* svc.registerProfile(`${handle}@example.com`, handle);
       const { requestId, cdlSecret } = yield* svc.beginCrossDeviceLogin();
       yield* svc.approveCrossDeviceLogin(requestId, cdlSecret, profile.accountId);
-
-      const entry = yield* Effect.promise(() => store.get(requestId));
-      expect(entry).toMatchObject({
-        status: "approved",
-        accountId: profile.accountId,
-        profile: { id: profile.id, handle: "cdlstore", email: "cdl-store@example.com" },
-      });
-      expect(Object.keys(entry!)).not.toContain("session");
-      const stored = JSON.stringify(entry);
-      expect(stored).not.toMatch(/ses_|eyJ|accessToken|refreshToken/);
-      // Nothing is minted until device B polls.
-      expect((yield* countRows(profile.accountId)).sessions).toBe(0);
+      yield* between(svc, profile);
+      const poll = yield* svc.getCrossDeviceLoginStatus(requestId, cdlSecret);
+      const { sessions: live } = yield* countRows(profile.accountId);
+      return { poll, live, profile };
     }).pipe(Effect.provide(layer));
-  });
+  };
+
+  it.live("refuses, with no token, once the account's other sessions are revoked", () =>
+    approvedThen("cdlrevoked", (svc, profile) =>
+      svc.revokeAllOtherAccountSessions(profile.accountId, "ses-hash-of-device-a"),
+    ).pipe(
+      Effect.tap(({ poll, live }) =>
+        Effect.sync(() => {
+          expect(poll).toEqual({ status: "expired" });
+          expect(live).toBe(0);
+        }),
+      ),
+    ),
+  );
+
+  it.live("refuses, with no token, once the account is scheduled for deletion", () =>
+    approvedThen("cdldeleted", (_svc, profile) =>
+      Effect.gen(function* () {
+        const { db } = yield* Db;
+        yield* Effect.promise(() =>
+          db
+            .update(accounts)
+            .set({ deletedAt: Math.floor(Date.now() / 1000) })
+            .where(eq(accounts.id, profile.accountId)),
+        );
+      }),
+    ).pipe(
+      Effect.tap(({ poll, live }) =>
+        Effect.sync(() => {
+          expect(poll).toEqual({ status: "expired" });
+          expect(live).toBe(0);
+        }),
+      ),
+    ),
+  );
+
+  it.live("refuses, with no token, once the profile is gone", () =>
+    approvedThen("cdlgone", (_svc, profile) =>
+      Effect.gen(function* () {
+        const { db } = yield* Db;
+        yield* Effect.promise(() => db.delete(users).where(eq(users.id, profile.id)));
+      }),
+    ).pipe(
+      Effect.tap(({ poll, live }) =>
+        Effect.sync(() => {
+          expect(poll).toEqual({ status: "expired" });
+          expect(live).toBe(0);
+        }),
+      ),
+    ),
+  );
+
+  it.live("refuses, with no token, once the profile belongs to another account", () =>
+    approvedThen("cdlmoved", (svc, profile) =>
+      Effect.gen(function* () {
+        const other = yield* svc.registerProfile("cdlmoved-other@example.com", "cdlmovedother");
+        const { db } = yield* Db;
+        yield* Effect.promise(() =>
+          db.update(users).set({ accountId: other.accountId }).where(eq(users.id, profile.id)),
+        );
+      }),
+    ).pipe(
+      Effect.tap(({ poll, live }) =>
+        Effect.sync(() => {
+          expect(poll).toEqual({ status: "expired" });
+          expect(live).toBe(0);
+        }),
+      ),
+    ),
+  );
+
+  it.live("signs device B in with the profile as it is at the poll", () =>
+    approvedThen("cdlrenamed", (_svc, profile) =>
+      Effect.gen(function* () {
+        const { db } = yield* Db;
+        yield* Effect.promise(() =>
+          db
+            .update(users)
+            .set({ handle: "cdlrenamednow", displayName: "Renamed" })
+            .where(eq(users.id, profile.id)),
+        );
+        yield* Effect.promise(() =>
+          db
+            .update(accounts)
+            .set({ email: "cdlrenamed-now@example.com" })
+            .where(eq(accounts.id, profile.accountId)),
+        );
+      }),
+    ).pipe(
+      Effect.tap(({ poll, live }) =>
+        Effect.sync(() => {
+          if (poll.status !== "approved") throw new Error(`poll answered ${poll.status}`);
+          expect(poll.profile).toMatchObject({
+            handle: "cdlrenamednow",
+            displayName: "Renamed",
+            email: "cdlrenamed-now@example.com",
+          });
+          const claims = JSON.parse(
+            Buffer.from(poll.session.accessToken.split(".")[1]!, "base64url").toString("utf8"),
+          ) as Record<string, unknown>;
+          expect(claims).toMatchObject({
+            handle: "cdlrenamednow",
+            email: "cdlrenamed-now@example.com",
+          });
+          // The reserved row was replaced by device B's session, not added to.
+          expect(live).toBe(1);
+        }),
+      ),
+    ),
+  );
 
   it.live("of two polls at once, one gets a session and the other finds nothing", () => {
     const { svc, layer } = harness();

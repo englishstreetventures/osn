@@ -12,7 +12,7 @@ import {
 } from "../../lib/ceremony-store";
 import type { CeremonyStoreName } from "../../lib/coordination/names";
 import { metricCeremonyStoreOp } from "../../metrics";
-import type { PasskeyProvenance, PublicProfile } from "./types";
+import type { PasskeyProvenance } from "./types";
 
 /**
  * Minimal per-account cap surface — structurally compatible with
@@ -133,11 +133,14 @@ export interface CrossDeviceRequest {
   expiresAt: number; // milliseconds
   createdAt: number; // milliseconds
   /**
-   * Set on approve: who approved, and the profile device B signs in as. Never
-   * a token — the poll that takes the approved entry mints device B's session.
+   * Set on approve: who approved, the profile device B signs in as, and the id
+   * (a SHA-256 hash) of the `sessions` row reserved for device B. Never a
+   * token: the reserved row's token was never kept, and the poll that takes
+   * the approved entry replaces that row with the session it mints.
    */
   accountId?: string;
-  profile?: PublicProfile;
+  profileId?: string;
+  sessionId?: string;
 }
 
 // Challenge / pending-state value shapes. The stores that hold them are
