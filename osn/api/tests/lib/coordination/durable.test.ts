@@ -199,7 +199,7 @@ describe("what a failed call reports", () => {
     for (const [store, op, detail] of onError.mock.calls) {
       expect(typeof store).toBe("string");
       expect(typeof op).toBe("string");
-      expect(Object.keys(detail).toSorted()).toEqual(["durationMs", "retried"]);
+      expect(Object.keys(detail).toSorted()).toEqual(["durationMs", "kind", "retried"]);
     }
   });
 

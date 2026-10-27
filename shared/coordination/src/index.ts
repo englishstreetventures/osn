@@ -1,5 +1,6 @@
 export {
   COORDINATION_LOCATION_HINT,
+  coordinationErrorKind,
   createCoordinationClient,
   createCoordinationRateLimiter,
   MAX_KEY_LENGTH,
@@ -8,6 +9,7 @@ export {
   type CoordinationClientOptions,
   type CoordinationErrorDetail,
   type CoordinationErrorHook,
+  type CoordinationErrorKind,
   type CoordinationNamespace,
   type CoordinationOp,
   type CoordinationRateLimiter,

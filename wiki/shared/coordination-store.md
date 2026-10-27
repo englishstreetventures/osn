@@ -138,8 +138,11 @@ The second try takes a fresh stub, since one that has thrown may stay broken.
 Every other failure reaches the caller at once: a write, claim, increment,
 remove, guess or take that failed may still have landed.
 
-Each failed call, after any retry, reaches the client's `onError(store, op, { retried, durationMs })`
-once — the namespace and the operation, never the key or a value.
+Each failed call, after any retry, reaches the client's `onError(store, op, { retried, durationMs, kind })`
+once — the namespace, the operation and the failure's kind, never the key, a
+value or the error's message. `kind` comes from the runtime's flags on the
+error, then its class: `overloaded`, `reset` (the object restarted mid-call),
+`retryable`, `invalid_input` (a `RangeError` from the object) or `other`.
 
 ## What each consumer does when a call fails
 
@@ -287,7 +290,7 @@ dev sign-in stops until the reset. The ceilings and how to watch them are in
 | `osn.coordination.store.operations{store, op, result}` | One count per call an object answers or fails, retries included. `store` is a `CoordinationStoreName`, `op` one of the eight calls, `result` `ok` or `error` |
 | `osn.auth.ceremony_store.operations{namespace, op, backend}` | One count per ceremony `set`, `get`, `delete` (a `consume` counts as one), `guess` or `take`; `backend` is `memory` or `durable_object` |
 | `osn.auth.recovery.lockout{result="unavailable"}`, `osn.auth.totp.lockout{result="unavailable", scope}` | A refusal because the store could not update a lockout counter or, for TOTP and the emailed recovery code, read one |
-| Log `coordination store call failed` | One line per failed call, after any retry, with `store`, `op`, `durationMs` and `retried` |
+| Log `coordination store call failed` | One line per failed call, after any retry, with `store`, `op`, `durationMs`, `retried` and `kind` |
 
 No attribute or log field carries a key, an IP, an account id or a stored value.
 The counters record nothing on workerd until englishstreetventures/osn#501

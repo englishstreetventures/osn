@@ -99,11 +99,11 @@ describe("GET /health/coordination", () => {
     expect(h.onError).toHaveBeenCalledWith("health_probe", "write", expect.any(Object));
     for (const [store, op, detail] of h.onError.mock.calls) {
       expect([store, op]).not.toContain("203.0.113.7");
-      expect(Object.keys(detail as object).toSorted()).toEqual(["durationMs", "retried"]);
+      expect(Object.keys(detail as object).toSorted()).toEqual(["durationMs", "kind", "retried"]);
     }
   });
 
-  it("logs a failed store call once, by store and operation, and never the caller's IP", async () => {
+  it("logs a failed store call once, by store, operation and kind, and never the caller's IP or the error's message", async () => {
     const lines: { level: string; message: unknown; annotations: Record<string, unknown> }[] = [];
     const capture = Logger.layer([
       Logger.map(Logger.formatStructured, (line) => {
@@ -140,8 +140,11 @@ describe("GET /health/coordination", () => {
       op: "write",
       durationMs: expect.any(Number),
       retried: false,
+      kind: "other",
     });
     expect(JSON.stringify(lines)).not.toContain("203.0.113.7");
+    // The stand-in's error message names the object; the line must not carry it.
+    expect(JSON.stringify(lines)).not.toContain("object unavailable");
   });
 
   it("refuses the eleventh call in a minute from one IP without touching the store", async () => {

@@ -87,7 +87,7 @@ describe("createCoordinationRateLimiter", () => {
     const [store, op, detail] = onError.mock.calls[0]!;
     expect(store).toBe("auth.login");
     expect(op).toBe("increment");
-    expect(detail).toEqual({ retried: false, durationMs: expect.any(Number) });
+    expect(detail).toEqual({ retried: false, durationMs: expect.any(Number), kind: "other" });
     expect(JSON.stringify(onError.mock.calls)).not.toContain(KEY);
   });
 
@@ -180,6 +180,7 @@ describe("createCoordinationClient", () => {
     expect(onError).toHaveBeenCalledWith("ceremony", "write", {
       retried: false,
       durationMs: expect.any(Number),
+      kind: "other",
     });
     const reported = JSON.stringify(onError.mock.calls);
     expect(reported).not.toContain("acct_secret");
@@ -243,6 +244,38 @@ describe("createCoordinationClient", () => {
   });
 });
 
+// F-CL16
+describe("the kind a failed call reports", () => {
+  const SECRET_TEXT = "acct_secret value_secret";
+  it.each([
+    [
+      "an overloaded object",
+      Object.assign(new Error(SECRET_TEXT), { overloaded: true, retryable: false }),
+      "overloaded",
+    ],
+    [
+      "an object reset",
+      Object.assign(new Error(SECRET_TEXT), { durableObjectReset: true, retryable: true }),
+      "reset",
+    ],
+    ["a retryable error", Object.assign(new Error(SECRET_TEXT), { retryable: true }), "retryable"],
+    ["a refused argument", new RangeError(SECRET_TEXT), "invalid_input"],
+    ["any other error", new Error(SECRET_TEXT), "other"],
+    ["a thrown string", SECRET_TEXT, "other"],
+  ] as const)("is %s's, and never its message", async (_what, failure, kind) => {
+    const onError = vi.fn();
+    const { ns } = recordingNamespace(() => Promise.reject(failure));
+    const client = createCoordinationClient(ns, { namespace: "ceremony", onError });
+    await expect(client.write("k", "v", 1_000)).rejects.toBe(failure);
+    expect(onError).toHaveBeenCalledWith("ceremony", "write", {
+      retried: false,
+      durationMs: expect.any(Number),
+      kind,
+    });
+    expect(JSON.stringify(onError.mock.calls)).not.toContain("secret");
+  });
+});
+
 // F-CL12
 describe("retries", () => {
   it.each(["read", "count"] as const)(
@@ -270,14 +303,15 @@ describe("retries", () => {
     expect(onError).toHaveBeenCalledWith("ceremony", op, {
       retried: true,
       durationMs: expect.any(Number),
+      kind: "retryable",
     });
   });
 
   it.each([
-    ["an overloaded object", runtimeError({ retryable: true, overloaded: true })],
-    ["a non-retryable error", runtimeError({ retryable: false })],
-    ["a plain error", new Error("bad input")],
-  ])("read does not retry %s", async (_what, failure) => {
+    ["an overloaded object", runtimeError({ retryable: true, overloaded: true }), "overloaded"],
+    ["a non-retryable error", runtimeError({ retryable: false }), "other"],
+    ["a plain error", new Error("bad input"), "other"],
+  ] as const)("read does not retry %s", async (_what, failure, kind) => {
     const onError = vi.fn();
     const { ns, calls } = recordingNamespace(() => Promise.reject(failure));
     const client = createCoordinationClient(ns, { namespace: "ceremony", onError });
@@ -286,6 +320,7 @@ describe("retries", () => {
     expect(onError).toHaveBeenCalledWith("ceremony", "read", {
       retried: false,
       durationMs: expect.any(Number),
+      kind,
     });
   });
 

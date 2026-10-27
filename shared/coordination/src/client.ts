@@ -76,12 +76,32 @@ export interface CoordinationNamespace {
   getByName(name: string, options?: CoordinationStubOptions): CoordinationStub;
 }
 
-/** What a failed call reports. Never the key and never a value. */
+/**
+ * What kind of failure a call met, read from the runtime's flags on the error
+ * and from its class, never from its message:
+ *
+ * - `overloaded`: the object refused the call because it had too much to do.
+ * - `reset`: the object was restarted while the call was in flight.
+ * - `retryable`: any other failure the runtime marks as safe to try again,
+ *   such as a broken connection.
+ * - `invalid_input`: the object refused an argument (`RangeError`).
+ * - `other`: anything else.
+ */
+export type CoordinationErrorKind =
+  | "overloaded"
+  | "reset"
+  | "retryable"
+  | "invalid_input"
+  | "other";
+
+/** What a failed call reports. Never the key, a value or the error's message. */
 export interface CoordinationErrorDetail {
   /** Whether the call was tried a second time before it failed. */
   readonly retried: boolean;
   /** Time from the first attempt to the final failure. */
   readonly durationMs: number;
+  /** The final failure's kind. */
+  readonly kind: CoordinationErrorKind;
 }
 
 /**
@@ -137,6 +157,21 @@ function isRetryable(error: unknown): boolean {
   return retryable === true && overloaded !== true;
 }
 
+/** The {@link CoordinationErrorKind} of `error`, from its flags first, then its class. */
+export function coordinationErrorKind(error: unknown): CoordinationErrorKind {
+  if (typeof error !== "object" || error === null) return "other";
+  const flags = error as {
+    overloaded?: unknown;
+    durableObjectReset?: unknown;
+    retryable?: unknown;
+  };
+  if (flags.overloaded === true) return "overloaded";
+  if (flags.durableObjectReset === true) return "reset";
+  if (flags.retryable === true) return "retryable";
+  if (error instanceof RangeError) return "invalid_input";
+  return "other";
+}
+
 export function createCoordinationClient<S extends string>(
   ns: CoordinationNamespace,
   options: CoordinationClientOptions<S>,
@@ -173,7 +208,11 @@ export function createCoordinationClient<S extends string>(
         return await run(ns.getByName(name, STUB_OPTIONS));
       }
     } catch (error) {
-      onError?.(namespace, op, { retried, durationMs: Date.now() - started });
+      onError?.(namespace, op, {
+        retried,
+        durationMs: Date.now() - started,
+        kind: coordinationErrorKind(error),
+      });
       throw error;
     }
   }

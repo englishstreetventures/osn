@@ -419,8 +419,9 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
     authorizeUiUrl: env.OSN_AUTHORIZE_UI_URL,
   };
 
-  // Every failed store call, once, after any retry: the store's name and the
-  // operation, never a key or a value. Logged through the shared runtime.
+  // Every failed store call, once, after any retry: the store's name, the
+  // operation and the failure's kind, never a key, a value or the error's
+  // message. Logged through the shared runtime.
   const reportCoordinationError: CoordinationErrorReporter = (store, op, detail) => {
     void appRuntime.runPromise(
       Effect.logError("coordination store call failed").pipe(
@@ -429,6 +430,7 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
           op,
           durationMs: detail.durationMs,
           retried: detail.retried,
+          kind: detail.kind,
         }),
       ),
     );
