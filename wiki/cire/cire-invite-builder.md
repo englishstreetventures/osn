@@ -9,7 +9,7 @@ related:
   - "[[cire-development]]"
   - "[[drag-and-drop]]"
   - "[[cire-host-portal-layout]]"
-last-reviewed: 2026-10-27
+last-reviewed: 2026-10-28
 ---
 # Cire invite builder
 
@@ -219,14 +219,31 @@ change — and a wider one than it looks:
 
 - **`SLOT_COLUMNS` in `cire/api/src/services/invite.ts`** is the one place the
   union maps onto storage (key column, crop column, and the hero-only mobile
-  crop column). Every read/write indexes it. Before `footer` landed the service
-  branched `slot === "hero" ? … : …` in five places, each of which would have
-  silently treated a third slot as the story slot; the map exists so that class
-  of bug can't recur.
-- **`loadReferencedKeys` in `asset-reconcile.ts` must list the new key column.**
-  This one is not a no-op if missed — that query is what marks an object LIVE,
-  so an unlisted slot's images read as orphans and get swept after the grace
-  window. Pinned by a reconcile test that seeds every slot.
+  crop column). Every write to a slot's columns, and every lookup of one slot's
+  image key, indexes it. Before `footer` landed the service branched
+  `slot === "hero" ? … : …` in five places, each of which would have silently
+  treated a third slot as the story slot; the map exists so that class of bug
+  can't recur.
+- **The compiler checks the map against the table.** `SlotColumns<S>` lets a
+  slot name only its own `<slot>ImageKey`, `<slot>ImageCrop` and
+  `<slot>ImageCropMobile` columns, and only ones `wedding_invite_customisations`
+  has. A misspelt column, another slot's column or a missing one fails
+  `bun run --cwd cire/api typecheck`, so a new slot does not compile until its
+  migration adds the columns and its entry names them. This matters because
+  Drizzle drops an unknown key from `.values()` and `.set()` without an error.
+  The service builds its slot writes by assignment, never with a computed key,
+  because a computed key of union type type-checks whatever the name.
+  [`tests/services/invite.test.ts`](../../cire/api/tests/services/invite.test.ts)
+  holds the refusals.
+- **The asset reconciler and the wedding purge read every slot's key column
+  from `SLOT_COLUMNS`** (`loadReferencedKeys` in `asset-reconcile.ts`,
+  `purgeOne` in `maintenance-sweeps.ts`), so a new slot needs no edit there. A
+  slot missing from the reconciler's read would not be a no-op: that read marks
+  an object LIVE, so the slot's images would read as orphans and be swept after
+  the grace window. The read selects only columns that hold an R2 key, and
+  reads them by slot name. Two tests pin it: one compares the columns the read
+  names with every `*_image_key` column in the schema, and one uploads an image
+  to every slot and checks the sweep keeps them all.
 - `CROP_ASPECT` in `cire/host/src/lib/image-crop.ts` needs the slot's
   default editor shape (`footer` is 16∶9 — it renders as a full-bleed closing
   hero band, so it opens on the same wide frame the hero does).
