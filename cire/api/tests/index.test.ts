@@ -12,6 +12,7 @@ import handler from "../src/index";
 import { CIRE_METRICS } from "../src/metrics";
 import * as osnBridge from "../src/services/osn-bridge";
 import { RECONCILE_STOP_KEY } from "../src/services/r2-reconcile";
+import { retentionService } from "../src/services/retention";
 import { jsonBody } from "./test-helpers";
 import { captureLogs } from "./test-helpers/capture-logs";
 import { ddlStatements } from "./test-helpers/ddl-statements";
@@ -1162,6 +1163,43 @@ describe("D1 session routing at the entry points", () => {
     expect((await runCron(mail)).pending).toHaveLength(11);
     expect((await runCron({ ...arc, OSN_API_URL: mail.OSN_API_URL })).pending).toHaveLength(11);
   }, 30_000);
+
+  // The retention sweep mails its parting summaries only through a real
+  // transport to an address osn-api gives. Without either, it gets no notifier
+  // and sweeps silently; a log transport standing in would be mail nobody
+  // reads, recorded as the couple having been told.
+  it.each([
+    ["a", "a Resend key and osn-api's ARC settings", { RESEND_API_KEY: "re_test" }, true],
+    ["no", "osn-api's ARC settings but no Resend key", {}, true],
+    ["no", "a Resend key but no osn-api ARC settings", { RESEND_API_KEY: "re_test" }, false],
+    [
+      "no",
+      "osn-api's ARC settings and a Resend key whose RESEND_API_URL the deployed tier refuses",
+      { RESEND_API_KEY: "re_test", RESEND_API_URL: "http://localhost:4008" },
+      true,
+    ],
+  ])(
+    "gives the retention sweep %s gift-summary notifier with %s",
+    async (given, _, mail, withArc) => {
+      const arc = withArc
+        ? {
+            OSN_API_URL: "https://osn.example.test",
+            CIRE_API_ARC_PRIVATE_KEY: await exportKeyToJwk((await generateArcKeyPair()).privateKey),
+            CIRE_API_ARC_KEY_ID: "kid_test",
+          }
+        : {};
+      const sweep = spyOn(retentionService, "sweepExpiredGuestData");
+      try {
+        await captureLogs(() => runCron({ ...mail, ...arc }));
+        // The sweep runs either way; only its third argument differs.
+        expect(sweep).toHaveBeenCalledTimes(1);
+        expect(typeof sweep.mock.calls[0]?.[2]).toBe(given === "a" ? "function" : "undefined");
+      } finally {
+        sweep.mockRestore();
+      }
+    },
+    30_000,
+  );
 
   it("skips the RSVP digest when WEB_ORIGIN fails the boot check", async () => {
     // A cron-only isolate never runs the `fetch` check, and the digest builds
