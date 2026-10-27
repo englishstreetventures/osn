@@ -9,7 +9,7 @@
  * |---|---|
  * | rate limiters, per-account caps | `increment` in a fixed window; a failed call denies |
  * | ceremony `set` / `get` / `delete` / `consume` | `write` (JSON) / `read` / `remove` / `remove` |
- * | ceremony `guess` / `take` | `guess` / `take`, on the entry's own object |
+ * | ceremony `guess` / `take` / `swap` | `guess` / `take` / `swap`, on the entry's own object |
  * | step-up token guard, discoverable passkey challenge claims | `claim` |
  * | lockout `status` / `recordFailure` / `reset` | `count` / `increment` / `remove` |
  * | health probe `roundTrip` | `write` / `read` / `remove`, on a fresh key |
@@ -110,6 +110,7 @@ export function measured(
         claim: (ttlMs) => count("claim", () => stub.claim(ttlMs)),
         guess: () => count("guess", () => stub.guess()),
         take: () => count("take", () => stub.take()),
+        swap: (expected, value, ttlMs) => count("swap", () => stub.swap(expected, value, ttlMs)),
       };
     },
   };
@@ -186,6 +187,17 @@ export function createDurableCeremonyStore<V>(
     async take(key) {
       op("take");
       return parse(await store.take(key));
+    },
+    async swap(key, expected, value, ttlMs) {
+      op("swap");
+      // Every value is written with `JSON.stringify`, so an `expected` that a
+      // `get` parsed stringifies back to the text stored.
+      return store.swap(
+        key,
+        expected === null ? null : JSON.stringify(expected),
+        JSON.stringify(value),
+        ttlMs,
+      );
     },
   };
 }

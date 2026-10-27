@@ -26,7 +26,7 @@ import type { CeremonyStoreName } from "./coordination/names";
 export type CeremonyStoreBackend = "memory" | "durable_object";
 
 /** What the ceremony-store metric counts. `consume` counts as a `delete`. */
-export type CeremonyStoreOp = "set" | "get" | "delete" | "guess" | "take";
+export type CeremonyStoreOp = "set" | "get" | "delete" | "guess" | "take" | "swap";
 
 /** Hooks an in-memory store calls as it works. */
 export interface CeremonyStoreObserver {
@@ -78,6 +78,15 @@ export interface CeremonyStore<V> {
    * entry that is spent the moment it is read.
    */
   take(key: string): Promise<V | null>;
+  /**
+   * Replace the live value at `key` with `value` for `ttlMs` only if it is
+   * `expected` — a value an earlier {@link get} answered, compared as JSON —
+   * or, for `expected` `null`, only if nothing live is there. Answers whether
+   * THIS call replaced it: of several swaps from one value at once, exactly
+   * one wins. The guess count restarts, as on {@link set}. A swap that does
+   * not match leaves a live entry as it was, value, count and expiry.
+   */
+  swap(key: string, expected: V | null, value: V, ttlMs: number): Promise<boolean>;
 }
 
 /** Hard ceiling on in-memory entries per store — belt to the TTL-sweep braces. */
@@ -196,6 +205,17 @@ export function createInMemoryCeremonyStore<V>(
     async take(key) {
       observer.onOp?.("take", namespace);
       return remove(key)?.value ?? null;
+    },
+    async swap(key, expected, value, ttlMs) {
+      observer.onOp?.("swap", namespace);
+      const entry = live(key);
+      const current = entry === undefined ? null : JSON.stringify(entry.value);
+      if (current !== (expected === null ? null : JSON.stringify(expected))) return false;
+      maybeSweep();
+      const existed = entries.has(key);
+      entries.set(key, { value, expiresAt: Date.now() + ttlMs, guesses: 0 });
+      if (!existed) observer.onEntryDelta?.(1, namespace);
+      return true;
     },
   };
 }

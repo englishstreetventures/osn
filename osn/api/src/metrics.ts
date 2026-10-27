@@ -615,7 +615,7 @@ export const metricCireSessionRevocation = (
 // ---------------------------------------------------------------------------
 
 type CeremonyStoreBackend = "memory" | "durable_object";
-type CeremonyStoreOp = "set" | "get" | "delete" | "guess" | "take";
+type CeremonyStoreOp = "set" | "get" | "delete" | "guess" | "take" | "swap";
 type CeremonyStoreOpAttrs = {
   namespace: CeremonyStoreName;
   op: CeremonyStoreOp;

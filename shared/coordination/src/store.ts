@@ -125,6 +125,27 @@ export class CoordinationStore extends DurableObject<unknown> {
     return entry?.v ?? null;
   }
 
+  /**
+   * Replaces the live value with `value` for `ttlMs` only if it is `expected`
+   * (`null`: only if there is no live value), restarting the count. True only
+   * when it replaced it; of several swaps from one value, one wins. A swap
+   * that does not match rewrites a live entry unchanged — value, count and
+   * expiry — so it costs the storage write a matching one does, and leaves an
+   * empty object empty.
+   */
+  async swap(expected: string | null, value: string, ttlMs: number): Promise<boolean> {
+    if (typeof value !== "string") throw new TypeError("value must be a string");
+    assertDuration(ttlMs, "ttlMs");
+    const now = Date.now();
+    const entry = this.live(now);
+    if ((entry?.v ?? null) !== expected) {
+      if (entry !== undefined) this.ctx.storage.kv.put<Entry>(ENTRY, entry);
+      return false;
+    }
+    await this.store({ v: value, exp: now + ttlMs });
+    return true;
+  }
+
   /** Stores a marker for `ttlMs` if there is no live entry. True only when it stored one. */
   async claim(ttlMs: number): Promise<boolean> {
     assertDuration(ttlMs, "ttlMs");

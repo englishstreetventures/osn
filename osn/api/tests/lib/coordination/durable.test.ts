@@ -26,6 +26,7 @@ describe("durable ceremony store", () => {
     await expect(store.consume(KEY)).rejects.toThrow(/object unavailable/);
     await expect(store.guess(KEY)).rejects.toThrow(/object unavailable/);
     await expect(store.take(KEY)).rejects.toThrow(/object unavailable/);
+    await expect(store.swap(KEY, null, VALUE, 60_000)).rejects.toThrow(/object unavailable/);
     expect(onError.mock.calls.map(([named, op]) => `${named}.${op}`)).toEqual([
       "step_up_otp.write",
       "step_up_otp.read",
@@ -33,6 +34,7 @@ describe("durable ceremony store", () => {
       "step_up_otp.remove",
       "step_up_otp.guess",
       "step_up_otp.take",
+      "step_up_otp.swap",
     ]);
   });
 

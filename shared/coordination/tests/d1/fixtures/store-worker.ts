@@ -71,6 +71,8 @@ async function callObject(
       return stub.guess();
     case "take":
       return stub.take();
+    case "swap":
+      return stub.swap(args[0] as string | null, args[1] as string, args[2] as number);
     case "dump":
       return stub.dump();
     case "fireAlarm":

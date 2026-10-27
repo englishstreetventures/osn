@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { CEREMONY_STORE_MAX, createInMemoryCeremonyStore } from "../../src/lib/ceremony-store";
+import { createDurableCeremonyStore } from "../../src/lib/coordination/durable";
+import { createFakeNamespace } from "../helpers/coordination-namespace";
 
 interface Entry {
   challenge: string;
@@ -246,5 +248,53 @@ describe("CeremonyStore.guess and take", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+/**
+ * `swap` is the store's compare-and-set: from `null` it writes only where
+ * nothing is live, and from a value `get` answered it replaces only that
+ * value. Of several swaps from one value, one wins. Both builders answer
+ * alike; the Durable Object store compares the JSON it stored (F-DO18–21).
+ */
+describe.each([
+  ["memory", () => createInMemoryCeremonyStore<Entry>("cross_device")],
+  [
+    "durable_object",
+    () => createDurableCeremonyStore<Entry>(createFakeNamespace().ns, "cross_device", vi.fn()),
+  ],
+] as const)("CeremonyStore.swap (%s)", (_backend, build) => {
+  it("from null writes where nothing is live, and keeps a live entry and its count", async () => {
+    const store = build();
+    const first = entry("first");
+    expect(await store.swap("k", null, first, 60_000)).toBe(true);
+    expect(await store.get("k")).toEqual(first);
+    await store.guess("k");
+    expect(await store.swap("k", null, entry("second"), 60_000)).toBe(false);
+    expect(await store.guess("k")).toEqual({ value: first, n: 2 });
+  });
+
+  it("from a value get answered replaces only that value, and restarts the count", async () => {
+    const store = build();
+    await store.set("k", entry("pending"), 60_000);
+    await store.guess("k");
+    const read = await store.get("k");
+    const decided = entry("decided");
+    expect(await store.swap("k", entry("other"), decided, 60_000)).toBe(false);
+    expect(await store.swap("k", read, decided, 60_000)).toBe(true);
+    expect(await store.guess("k")).toEqual({ value: decided, n: 1 });
+    expect(await store.swap("k", read, entry("late"), 60_000)).toBe(false);
+    expect(await store.swap("absent", read, decided, 60_000)).toBe(false);
+    expect(await store.get("absent")).toBeNull();
+  });
+
+  it("lets exactly one of several swaps from one value win", async () => {
+    const store = build();
+    await store.set("k", entry("pending"), 60_000);
+    const read = await store.get("k");
+    const results = await Promise.all(
+      Array.from({ length: 5 }, (_, i) => store.swap("k", read, entry(`decided-${i}`), 60_000)),
+    );
+    expect(results.filter(Boolean)).toHaveLength(1);
   });
 });

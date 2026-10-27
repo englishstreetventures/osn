@@ -117,6 +117,13 @@ export function createFakeNamespace(): FakeNamespace {
             entries.delete(name);
             return entry?.v ?? null;
           }),
+        swap: (expected, value, ttlMs) =>
+          run("swap", () => {
+            assertDuration(ttlMs);
+            if ((live(name)?.v ?? null) !== expected) return false;
+            entries.set(name, { v: value, exp: Date.now() + ttlMs });
+            return true;
+          }),
       };
     },
   };

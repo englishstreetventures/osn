@@ -432,6 +432,97 @@ describe("CoordinationStore", () => {
     TEST_TIMEOUT_MS,
   );
 
+  // F-DO18
+  it(
+    "swap from null writes the value with its TTL when no live entry is there, also once one has expired",
+    async () => {
+      expect(await call<boolean>("do18", "swap", null, "v", 400)).toBe(true);
+      expect(await call<string | null>("do18", "read")).toBe("v");
+      expect((await dump("do18")).alarm).not.toBeNull();
+      await elapse(550);
+      expect(await call<string | null>("do18", "read")).toBeNull();
+
+      await call("do18-expired", "write", "old", 200);
+      await call("do18-expired", "cancelAlarm");
+      await elapse(350);
+      expect(await call<boolean>("do18-expired", "swap", null, "new", 60_000)).toBe(true);
+      expect(await guess("do18-expired")).toEqual({ value: "new", n: 1 });
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  // F-DO19
+  it(
+    "swap from null on a live entry answers false and keeps its value, count and expiry",
+    async () => {
+      const name = "do19";
+      await call(name, "write", "held", 600);
+      await guess(name);
+      const before = (await dump(name)).alarm;
+      expect(await call<boolean>(name, "swap", null, "other", 60_000)).toBe(false);
+      expect(await guess(name)).toEqual({ value: "held", n: 2 });
+      expect((await dump(name)).alarm).toBe(before);
+      await elapse(750);
+      expect(await call<string | null>(name, "read")).toBeNull();
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  // F-DO20
+  it(
+    "swap from a value replaces only that value, restarts the count, and leaves an empty object empty",
+    async () => {
+      const name = "do20";
+      await call(name, "write", "pending", 60_000);
+      await guess(name);
+      expect(await call<boolean>(name, "swap", "approved", "rejected", 60_000)).toBe(false);
+      expect(await call<string | null>(name, "read")).toBe("pending");
+      expect(await call<boolean>(name, "swap", "pending", "approved", 60_000)).toBe(true);
+      expect(await guess(name)).toEqual({ value: "approved", n: 1 });
+
+      expect(await call<boolean>("do20-absent", "swap", "pending", "approved", 60_000)).toBe(false);
+      expect(await dump("do20-absent")).toEqual(EMPTY);
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  // F-DO21
+  it(
+    "lets exactly one of ten concurrent swaps from one value win",
+    async () => {
+      await call("do21", "write", "pending", 60_000);
+      const results = await Promise.all(
+        Array.from({ length: 10 }, (_, i) =>
+          call<boolean>("do21", "swap", "pending", `decided-${i}`, 60_000),
+        ),
+      );
+      expect(results.filter(Boolean)).toHaveLength(1);
+      const winner = results.indexOf(true);
+      expect(await call<string | null>("do21", "read")).toBe(`decided-${winner}`);
+
+      const fromNull = await Promise.all(
+        Array.from({ length: 10 }, (_, i) =>
+          call<boolean>("do21-null", "swap", null, `first-${i}`, 60_000),
+        ),
+      );
+      expect(fromNull.filter(Boolean)).toHaveLength(1);
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  // F-DO22
+  it.each([0, -1, Number.NaN, 1.5, MAX_TTL_MS + 1])(
+    "swap refuses TTL %p and writes nothing",
+    async (ms) => {
+      const name = `do22-${String(ms)}`;
+      const refused = await refusal(name, "swap", null, "v", ms);
+      expect(refused.name).toBe("RangeError");
+      expect(refused.message).not.toContain(name);
+      expect(await dump(name)).toEqual(EMPTY);
+    },
+    TEST_TIMEOUT_MS,
+  );
+
   it(
     "the client addresses <namespace>:<key> on a real binding",
     async () => {

@@ -44,6 +44,8 @@ function recordingNamespace(answer: (op: CoordinationOp, attempt: number) => Pro
         claim: (ttlMs) => record(name, "claim", [ttlMs]) as Promise<boolean>,
         guess: () => record(name, "guess", []) as Promise<{ value: string | null; n: number }>,
         take: () => record(name, "take", []) as Promise<string | null>,
+        swap: (expected, value, ttlMs) =>
+          record(name, "swap", [expected, value, ttlMs]) as Promise<boolean>,
       };
     },
   };
@@ -154,6 +156,10 @@ describe("createCoordinationClient", () => {
     ["claim", (c: ReturnType<typeof createCoordinationClient>) => c.claim(LONG_KEY, 1_000)],
     ["guess", (c: ReturnType<typeof createCoordinationClient>) => c.guess(LONG_KEY)],
     ["take", (c: ReturnType<typeof createCoordinationClient>) => c.take(LONG_KEY)],
+    [
+      "swap",
+      (c: ReturnType<typeof createCoordinationClient>) => c.swap(LONG_KEY, null, "v", 1_000),
+    ],
   ] as const)(
     "%s refuses a key over 256 characters without calling the object",
     async (_op, run) => {
@@ -194,7 +200,14 @@ describe("createCoordinationClient", () => {
     await client.increment("k", over);
     await client.write("k", "v", over);
     await client.claim("k", over);
-    expect(calls.map((c) => c.args.at(-1))).toEqual([MAX_TTL_MS, MAX_TTL_MS, MAX_TTL_MS]);
+    // F-CL17
+    await client.swap("k", null, "v", over);
+    expect(calls.map((c) => c.args.at(-1))).toEqual([
+      MAX_TTL_MS,
+      MAX_TTL_MS,
+      MAX_TTL_MS,
+      MAX_TTL_MS,
+    ]);
   });
 
   // F-CL14
@@ -332,6 +345,8 @@ describe("retries", () => {
     // F-CL15: both write — a guess counts, a take clears.
     ["guess", (c: ReturnType<typeof createCoordinationClient>) => c.guess("k")],
     ["take", (c: ReturnType<typeof createCoordinationClient>) => c.take("k")],
+    // F-CL17: a swap writes.
+    ["swap", (c: ReturnType<typeof createCoordinationClient>) => c.swap("k", "a", "b", 1_000)],
   ] as const)("%s never retries, even a retryable error", async (_op, run) => {
     const failure = runtimeError({ retryable: true });
     const { ns, calls } = recordingNamespace(() => Promise.reject(failure));

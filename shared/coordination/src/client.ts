@@ -25,7 +25,8 @@ export type CoordinationOp =
   | "remove"
   | "claim"
   | "guess"
-  | "take";
+  | "take"
+  | "swap";
 
 /**
  * Where every object is asked to live: Cloudflare's Oceania region. Cloudflare
@@ -70,6 +71,13 @@ export interface CoordinationStub {
   guess(): Promise<{ value: string | null; n: number }>;
   /** The live value, removed in the same call, or null. */
   take(): Promise<string | null>;
+  /**
+   * Replaces the live value with `value` for `ttlMs` only if it is `expected`
+   * (`null`: only if there is no live value), restarting the count; true only
+   * for the caller that replaced it. A swap that does not match leaves a live
+   * entry as it was.
+   */
+  swap(expected: string | null, value: string, ttlMs: number): Promise<boolean>;
 }
 
 export interface CoordinationNamespace {
@@ -106,7 +114,8 @@ export interface CoordinationErrorDetail {
 
 /**
  * Called once for each call that fails, after any retry, before the failure
- * reaches the caller. It receives the namespace and the operation only.
+ * reaches the caller. It receives the namespace, the operation and the
+ * {@link CoordinationErrorDetail} only.
  */
 export type CoordinationErrorHook<S extends string> = (
   store: S,
@@ -133,6 +142,7 @@ export interface CoordinationClient {
   claim(key: string, ttlMs: number): Promise<boolean>;
   guess(key: string): Promise<{ value: string | null; n: number }>;
   take(key: string): Promise<string | null>;
+  swap(key: string, expected: string | null, value: string, ttlMs: number): Promise<boolean>;
 }
 
 function assertNamespace(namespace: string): void {
@@ -226,6 +236,8 @@ export function createCoordinationClient<S extends string>(
     claim: (key, ttlMs) => call("claim", key, (stub) => stub.claim(clamp(ttlMs))),
     guess: (key) => call("guess", key, (stub) => stub.guess()),
     take: (key) => call("take", key, (stub) => stub.take()),
+    swap: (key, expected, value, ttlMs) =>
+      call("swap", key, (stub) => stub.swap(expected, value, clamp(ttlMs))),
   };
 }
 
