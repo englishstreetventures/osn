@@ -486,12 +486,12 @@ export default function ModuleSidebar(props: {
     writeRailCollapsed(next);
   };
 
-  /** The slide has landed. Only an end clears it, never a cancel: a second
-   *  press mid-slide cancels the first transition and starts the reverse, and
-   *  dropping the transition then would snap the reverse to its end. */
-  const slideEnded = (event: TransitionEvent) => {
-    if (event.target === event.currentTarget && event.propertyName === "width") setSliding(false);
-  };
+  /** Any transition ending in the rail clears it, a row's hover colour
+   *  included: a slide already running carries on when the class goes, since
+   *  the default `transition-property`, `all`, still names `width`. Only an end
+   *  clears it, never a cancel: a second press mid-slide cancels the first
+   *  transition and starts the reverse, which has to start with the class on. */
+  const slideEnded = () => setSliding(false);
 
   const offerUpgrade = (mod: ModuleDef, opener: HTMLElement | undefined) => {
     upgradeOpener = opener;
@@ -598,22 +598,15 @@ export default function ModuleSidebar(props: {
               //
               // Collapsed, the icon is all a row shows, so it is held to the 3:1
               // a graphic that identifies a control needs: no `opacity-80` fade,
-              // and the active one in `gold-ink`, which reads on the pill's wash
-              // where `gold` does not. Expanded, the label carries the row and
-              // the icon keeps its quieter look.
+              // and no `gold` of its own, so the active one takes the row's
+              // `gold-ink`, which reads on the pill's wash where `gold` does
+              // not. Expanded, the label carries the row and the icon keeps its
+              // quieter look.
               const Body = () => (
                 <>
                   <ModuleIcon
                     icon={mod.icon}
-                    class={
-                      collapsed()
-                        ? isActive()
-                          ? "text-gold-ink"
-                          : ""
-                        : isActive()
-                          ? "text-gold opacity-80"
-                          : "opacity-80"
-                    }
+                    class={collapsed() ? "" : isActive() ? "text-gold opacity-80" : "opacity-80"}
                   />
                   <span
                     class={

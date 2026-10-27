@@ -56,6 +56,7 @@ vi.mock("../../src/lib/rsvp-changes", async (importOriginal) => ({
 
 import ModuleShell from "../../src/components/ModuleShell";
 import { RAIL_PREFERENCE_KEY } from "../../src/lib/rail-preference";
+import type { Tier } from "../../src/lib/tiers";
 import { eventPayload, guestList } from "../test-support/rsvp-guests";
 
 /** The rail's two widths: 14rem at this shell width, and the row's own padding
@@ -68,8 +69,9 @@ const shot = (name: string) =>
   `__screenshots__/ModuleSidebar.collapse.browser.test.tsx/${name}.png`;
 
 /** The page around the shell: the frame container, a sticky top bar with the
- *  real one's classes, and the page measure. */
-function renderPage(guests = 12) {
+ *  real one's classes, and the page measure. Gold by default, so Vendors is
+ *  the one locked row. */
+function renderPage(guests = 12, tier: Tier = "gold") {
   const payload = { events: [eventPayload("evt_ceremony", "Ceremony", guestList(guests), 0)] };
   authFetch.mockImplementation(
     async () =>
@@ -103,7 +105,7 @@ function renderPage(guests = 12) {
           onSub={() => {}}
           rsvpEvent={undefined}
           onRsvpEvent={() => {}}
-          tier="gold"
+          tier={tier}
           entitlements={[]}
           guestCap={1000}
         />
@@ -279,6 +281,8 @@ describe("the collapsed rail at desktop width", () => {
       await page.viewport(1280, 800);
       await ready(renderPage());
       expect(width(rail())).toBe(EXPANDED);
+      // No label shows until a pointer or focus asks for one.
+      expect(tip()).toBeNull();
       // Expanded: a row's label sits one gap after its icon, and the toggle's
       // icon sits in the rows' icon column.
       const overviewRow = row("Overview");
@@ -320,6 +324,11 @@ describe("the collapsed rail at desktop width", () => {
           `${each.getAttribute("aria-label") ?? each.textContent} icon measured ${measured.toFixed(2)}:1`,
         ).toBeGreaterThanOrEqual(WCAG_UI_MIN);
       }
+      // The open module is still marked by its icon's colour, not only by the
+      // pill behind it.
+      expect(getComputedStyle(glyph(row("Guests"))).color).not.toBe(
+        getComputedStyle(glyph(row("Overview"))).color,
+      );
       // The toggle's own label may have opened under the resting pointer; it
       // goes once the pointer leaves.
       await userEvent.hover(heading());
@@ -475,6 +484,14 @@ describe("the collapsed rail at desktop width", () => {
     await expect.poll(() => width(rail())).toBe(EXPANDED);
   });
 
+  it("shows labels on a wedding with no locked module", async () => {
+    await page.viewport(1280, 800);
+    await ready(renderPage(12, "crimson"));
+    await slide(COLLAPSED);
+    await userEvent.hover(row("Vendors"));
+    await vi.waitFor(() => expect(tip()?.textContent).toBe("VendorsTrack and book your suppliers"));
+  });
+
   it("slides on a press, both ways, and never when the shell crosses a width step", async () => {
     await page.viewport(1280, 800);
     await ready(renderPage());
@@ -574,6 +591,9 @@ describe("on a phone", () => {
       for (const label of ["Overview", "Guests", "Settings"]) {
         expect(width(within(sheet).getByText(label))).toBeGreaterThan(20);
       }
+      // Each row's words sit one gap after its icon, as on the expanded rail.
+      const overviewRow = within(sheet).getByRole("button", { name: /^Overview/ });
+      expect(box(labelOf(overviewRow)).left - box(glyph(overviewRow)).right).toBeCloseTo(12, 1);
       // The sheet's rows show their own words; a locked one shows no label
       // beside it, even on keyboard focus, which opens one at once on the rail.
       within(sheet)
