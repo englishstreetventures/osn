@@ -348,8 +348,9 @@ function desiredStateFromRow(
  *    editor save that empties a half of the wedding needs `confirmClears` to
  *    match. Takes the wedding's change claim at the preview's head (409 when
  *    another change holds it or the head moved), checkpoints the before-image
- *    (E3), applies, prunes. Returns `{summary, revision}`, `revision` being the
- *    head after this change.
+ *    (E3; 409 `preview_expired` again if the preview reached that age
+ *    meanwhile), applies, prunes. Returns `{summary, revision}`, `revision`
+ *    being the head after this change.
  *  - `revert` — `{changeId}`. Before-image restore (E3).
  *  - `list` — paginated change history (imports + editor saves).
  *
@@ -644,11 +645,12 @@ export const createOrganiserChangeRoutes = (
 
                 // ── Expiry ──────────────────────────────────────────────────
                 // A preview this old is refused before anything below reads
-                // or writes R2, so a retry never stores this change's
-                // before-image again once the first store could have left the
-                // sheets reconciler's grace window. After the head check: when
-                // both hold, `head_moved` is what lets an editor reload with
-                // its edits kept.
+                // or writes R2. `captureBeforeImage` checks the same age again
+                // just before it stores, so no store of this change's
+                // before-image comes later than `PREVIEW_EXPIRES_AFTER_MS`
+                // after the preview. After the head check: when both hold,
+                // `head_moved` is what lets an editor reload with its edits
+                // kept.
                 if (Date.now() - row.uploadedAt >= PREVIEW_EXPIRES_AFTER_MS) {
                   yield* Effect.logWarning("change refused: preview expired", {
                     changeKind: row.kind,
@@ -818,7 +820,7 @@ export const createOrganiserChangeRoutes = (
                 const summary = yield* underClaim(
                   claim,
                   Effect.gen(function* () {
-                    const before = yield* captureBeforeImage(changeId, weddingId);
+                    const before = yield* captureBeforeImage(changeId, weddingId, row.uploadedAt);
                     return yield* applyImport(
                       changeId,
                       plan,
@@ -842,8 +844,11 @@ export const createOrganiserChangeRoutes = (
                       },
                     );
                   }),
-                  // Both are raised before any data statement is sent.
-                  (e) => e._tag === "R2Error" || e._tag === "CapacityExceeded",
+                  // All three are raised before any data statement is sent.
+                  (e) =>
+                    e._tag === "R2Error" ||
+                    e._tag === "CapacityExceeded" ||
+                    e._tag === "PreviewExpired",
                 ).pipe(
                   // A failed write set may have committed its first batches.
                   Effect.tapError((e) =>
@@ -884,6 +889,14 @@ export const createOrganiserChangeRoutes = (
                   Effect.sync(() => {
                     set.status = 500;
                     return { error: "Storage error" };
+                  }),
+                ),
+                // The preview passed the check at the top and reached the
+                // cut-off before its before-image was stored; nothing was.
+                Effect.catchTag("PreviewExpired", () =>
+                  Effect.gen(function* () {
+                    yield* Effect.logWarning("change refused: preview expired before its store");
+                    return previewExpired(set);
                   }),
                 ),
                 Effect.catchTag("ChangeConflict", (e) =>

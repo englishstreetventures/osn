@@ -391,15 +391,15 @@ function counterOf(revision: string): number | null {
 export const CLAIM_TTL_MS = 10 * 60 * 1000;
 
 /**
- * An apply refuses a preview this old or older before it puts anything in R2.
- * It is the `cire-sheets` reconciler's grace window less an hour. A change's
- * before-image keys are fixed by its id, and an apply refused after storing it
- * leaves the preview open to a retry that stores it again under the same keys.
- * The reconciler reads an object's age from its listing, so the retry must come
- * before that first put leaves the grace window. Refusing an hour early keeps
- * it inside for any apply that gets from its age check to its put within the
- * hour — six times {@link CLAIM_TTL_MS}, past which an apply holding the
- * wedding is taken to be dead.
+ * An apply refuses a preview this old or older: before it reads anything in
+ * R2, and again just before it stores the change's before-image. It is the
+ * `cire-sheets` reconciler's grace window less an hour. A change's before-image
+ * keys are fixed by its id, and an apply refused after storing it leaves the
+ * preview open to a retry that stores it again under the same keys. The
+ * reconciler reads an object's age from its listing, so every store of a key
+ * must come before the first store of it leaves the grace window. The check
+ * just before the store holds each store to this age; the hour covers the
+ * store itself and any difference between the Worker's clock and R2's.
  */
 export const PREVIEW_EXPIRES_AFTER_MS = RECONCILE_GRACE_MS - 60 * 60 * 1000;
 

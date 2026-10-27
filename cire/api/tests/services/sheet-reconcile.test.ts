@@ -168,9 +168,10 @@ describe("sheet reconciliation settings", () => {
 
   it("has apply refuse a preview an hour inside the grace window", () => {
     // An apply retried on a preview puts its before-image again under the same
-    // key. The apply refuses a preview this old before it puts anything, so the
-    // earlier put of a key a retry rewrites is younger than the grace window,
-    // for any apply that reaches its put within the hour.
+    // key. The apply refuses a preview this old just before it puts, so the
+    // earlier put of a key a retry rewrites is younger than the grace window
+    // while the put and the gap between the Worker's and R2's clocks take
+    // less than the hour.
     expect(RECONCILE_GRACE_MS - PREVIEW_EXPIRES_AFTER_MS).toBeGreaterThanOrEqual(60 * 60 * 1000);
   });
 

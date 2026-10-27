@@ -3874,6 +3874,39 @@ describe("POST /changes/apply — a preview expires", () => {
     expect(applied.status).toBe(200);
   });
 
+  it("refuses at the before-image store a preview that reached the cut-off during the apply", async () => {
+    const now = Date.now();
+    setSystemTime(new Date(now));
+    const { app, db, r2 } = buildApp();
+    const changeId = await sheetPreview(app);
+    previewedAt(db, changeId, now - PREVIEW_EXPIRES_AFTER_MS + 1);
+
+    // The apply's first R2 read comes after its opening age check, which this
+    // preview passes by a millisecond. The clock moves on a millisecond there,
+    // so the preview is at the cut-off when the before-image would be stored.
+    const get = r2.get.bind(r2);
+    r2.get = (key: string) => {
+      setSystemTime(new Date(now + 1));
+      return get(key);
+    };
+
+    const res = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId });
+    expect(res.status).toBe(409);
+    expect(await jsonBody(res)).toEqual(EXPIRED_BODY);
+    expect(beforeKeys(r2, changeId)).toEqual([]);
+    const [row] = db.select().from(imports).where(eq(imports.id, changeId)).all();
+    expect(row!.status).toBe("preview");
+    expect(row!.beforeEventsR2Key).toBeNull();
+    expect(row!.beforeGuestsR2Key).toBeNull();
+    // Nothing was written, so the claim is freed and the head stays.
+    const [wedding] = db
+      .select({ rev: weddings.changeRev, claim: weddings.changeClaim })
+      .from(weddings)
+      .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+      .all();
+    expect(wedding).toEqual({ rev: 0, claim: null });
+  });
+
   it("answers 404, not expired, for an old change applied through another wedding", async () => {
     const { app, db } = buildApp();
     const OTHER = "wed_other_expiry";
