@@ -114,6 +114,10 @@ and the wiki pages above, which hold everything a skill would be checked against
 
 A design that only type-checks has not been looked at. Before you report done:
 
+- **A new or changed UI-package component is its own pull request**, under the
+  feature that uses it (`wiki/conventions/stacked-prs.md` §Frontend: one
+  component per pull request). Work only on the component your brief names.
+
 - **Look at it rendered** at a phone width and a desktop width, and in light and
   dark on a surface that themes. With the Chrome browser tools
   (`mcp__claude-in-chrome__*`), open the dev
@@ -130,9 +134,14 @@ A design that only type-checks has not been looked at. Before you report done:
   | `pulse/landing` | `bun run dev:pulse-landing` |
   | `musubi/social` | `bun run dev:social` |
   | `musubi/landing` | `bun run dev:landing` |
-  | Shared components, `osn/auth-ui` | `bun run dev:lab` |
+  | `@shared/ui`, `@cire/ui`, `@osn/auth-ui` | `bun run dev:lab`, at the component's stories |
 
-  Without them, a browser test can take the screenshots
+  A UI-package component is looked at through its lab stories, one per state,
+  under `tools/lab/src/stories/shared-ui/`, `cire-ui/` or `osn-auth-ui/`. A
+  component in `@cire/ui` or `@osn/auth-ui` with no story yet gets one first:
+  `wiki/conventions/component-lab.md` §Stories for auth and cire components has
+  the fixture and colour rules. The lab draws cire's contract tokens only, so
+  judge anything beyond them in the app. Without them, a browser test can take the screenshots
   (`wiki/conventions/browser-tests.md`). With neither, the check is `NOT RUN`,
   with the reason.
 - **When layout or a computed style is the thing that must hold**, write the

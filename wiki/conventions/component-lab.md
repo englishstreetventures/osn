@@ -8,7 +8,7 @@ related:
   - "[[frontend-patterns]]"
   - "[[commands]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-10-23
+last-reviewed: 2026-10-28
 ---
 
 # Component Lab
@@ -75,9 +75,8 @@ contract is `@theme inline` — see [[design-tokens]] §`@theme inline`.
 
 The sidebar title comes from each file's `meta.title`, not from its path, so
 moving a story does not move its row. The other two component layers —
-`@osn/auth-ui` and `@cire/ui`, see [[component-library]] — have no catalogue
-story: every auth view takes an `@osn/client` and a live session, which is the
-fixture problem below.
+`@osn/auth-ui` and `@cire/ui`, see [[component-library]] — get stories as each
+component is added or changed, under [[#Stories for auth and cire components]].
 
 `shared/toast` and `shared/sortable` are benches rather than catalogues: they
 exist for the behaviour no test tier can reach. Their unit suites assert the
@@ -106,9 +105,40 @@ open where a component needs no such context: `pulse/Icon` is catalogued from
 a story sitting in `pulse/web/src/components/Icon.story.tsx`, which imports
 nothing from the lab and so stays an ordinary file in its own package, and
 `cire/host/src/components/ModuleSidebar.story.tsx` does the same for a component
-that supplies its own fixtures and imports its own `global.css`. The two
-`shared/*` benches are the same shape — bare component exports, no lab imports,
-typechecked and linted in their own package like any other file.
+that supplies its own fixtures. The two `shared/*` benches are the same shape —
+bare component exports, no lab imports, typechecked and linted in their own
+package like any other file.
+
+**A story never imports an app stylesheet.** The lab imports every story module
+to build its sidebar, so a stylesheet that declares a global `:root` lands on
+the page whatever story is open, and the last one loaded re-themes the whole lab.
+`ModuleSidebar.story.tsx` says so in its header, and gives up cire's colours
+here for that reason.
+
+### Stories for auth and cire components
+
+Every new or changed component in `@osn/auth-ui` or `@cire/ui` gets stories
+under `tools/lab/src/stories/osn-auth-ui/` or `tools/lab/src/stories/cire-ui/`:
+one per state. They live in the lab, not beside the component, for two reasons.
+Their fixtures stay out of app source, and cire's mutation run, which mutates
+every file under a cire package's `src/`, never sees them.
+
+- **Packages.** `tools/lab` depends on `@shared/ui` alone until a story needs
+  more. Add each workspace package a story imports with
+  `bun add <package>@workspace:* --cwd tools/lab`, `@osn/client` included for a
+  fixture.
+- **cire's colours.** Wrap the component in an element that sets the `--ui-*`
+  contract inline, one wrapper per ramp, as `design-system/theming.story.tsx`
+  does. That gives the `ui-*` utilities cire's light and dark values. Anything
+  outside the contract, such as cire's `font-body`, renders in the lab's
+  defaults: judge it in the app.
+- **A session.** Pass client objects as props where the component takes them.
+  Where it calls `useAuth`, wrap it in `AuthContext.Provider` from
+  `@osn/client/solid` with a fixed value, typed as
+  `ComponentProps<typeof AuthContext.Provider>["value"]`. Never use
+  `AuthProvider`, which loads a session from the issuer on mount; the story
+  test (`tools/lab/tests/stories.test.tsx`) mounts every story headless and
+  cannot answer it.
 
 ## Why not Storybook
 
@@ -136,18 +166,19 @@ addons, or if the design system needs published docs for people outside the repo
 | Shell | `src/Lab.tsx` | Sidebar, backdrops, viewports, theme, remount, `?bare`. |
 
 Stories live either under `tools/lab/src/stories/` — the `shared/ui` catalogue
-in `stories/shared-ui/`, the token contract in `stories/design-system/`, spikes
-at the top level; the glob is recursive — or
-next to a real component under any workspace's `src/` (permanent bench). Both
-are found.
+in `stories/shared-ui/`, auth and cire components in `stories/osn-auth-ui/` and
+`stories/cire-ui/`, the token contract in `stories/design-system/`, spikes at
+the top level; the glob is recursive — or next to a real app component under any
+workspace's `src/` (permanent bench). Both are found.
 
 ## Decisions worth keeping
 
 **The lab imports `musubi/social/src/App.css` rather than copying tokens.** That
 file is the source of truth for `--background`, the `.dark` block and the `base:`
 variant every `@shared/ui` class is written against. A second copy drifts. The cost
-is that Musubi's look is the lab's default; a story with its own design language
-imports its own CSS.
+is that Musubi's look is the lab's default. A story with its own design language
+sets the `--ui-*` contract inline on a wrapper instead of importing its own CSS
+([[#Stories for auth and cire components]]).
 
 **No iframe.** Stories render in the same document as the chrome. Hot reload
 stays instant and the code stays small; the trade is isolation — a story that

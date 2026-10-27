@@ -8,9 +8,10 @@ import type {
 } from "./types.ts";
 
 /**
- * Every `*.story.tsx` in the monorepo, wherever it lives. Local scratch
- * stories sit in `tools/lab/src/stories`; a story that belongs to a real
- * component sits next to that component and is picked up from here.
+ * Every `*.story.tsx` in the monorepo, wherever it lives. Scratch stories and
+ * every UI-package component's stories sit in `tools/lab/src/stories`; a story
+ * for an app component may sit next to that component and is picked up from
+ * here.
  *
  * The globs are literal on purpose — Vite resolves `import.meta.glob` at build
  * time and cannot see through a variable. Adding a workspace root means adding

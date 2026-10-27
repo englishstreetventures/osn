@@ -53,6 +53,8 @@ gh issue view 412 --repo englishstreetventures/osn --json number,title,body,labe
 
 **Otherwise open one** with the **`write-issue`** skill. It picks the title, type and labels, writes a body that stands on its own, files it in the public repository, rates it through `rate-complexity` and adds it to the Project. The type sets the branch prefix below, so get it right there: `Feature` for new capability, `Bug` for something built that behaves wrongly, `Task` for the rest.
 
+**Frontend work that adds or changes a UI-package component goes to `orchestrate`.** A component in `@shared/ui`, `@cire/ui` or `@osn/auth-ui` ships in its own pull request under the feature that uses it (`wiki/conventions/stacked-prs.md` §Frontend: one component per pull request), and `orchestrate` builds that stack. Once the issue exists and is rated, stop here — before the claim and before any branch — and run `orchestrate` with the issue, which claims it at its first cut. Two exceptions build in place instead: a brief carrying `TASK-BRANCH:` or `CLAIMED:`, since `orchestrate` dispatched it and it is one task of the stack; and a REMOTE session, which builds the bottom component's pull request on its branch and reports the rest of the stack for a local run.
+
 Then three things follow from the issue:
 
 - **Status, which is the claim** — first, because an issue another session holds ends the run here. If your brief carries `CLAIMED: <repo>#<n>` for this issue, the orchestrator that dispatched you holds it; go on. Otherwise run `next-batch` §Claim: held by another session → stop and report which; free → it moves the issue to **In Progress** in the **OSN Platform** project. The board calls need the `project` scope; if it is missing, say so and move it in the UI rather than skipping it.
@@ -60,6 +62,8 @@ Then three things follow from the issue:
 - **Complexity** — an issue `write-issue` just opened is already rated; do not rate it again. An existing issue taken by number with no `complexity:` label gets one now: invoke the **`rate-complexity`** skill, which proposes a rating from the issue body alone and asks the owner to confirm or amend it. Do this **before** the branch exists: the rating is the denominator every session-metrics query divides spend by, and one made later — with a token total already on screen — is contaminated and worthless. An unattended run rates it anyway and adds `complexity:unconfirmed`. Never rate from the diff, and never let the agent that does the work rate the work.
 
 ## Step 1 — The branch
+
+**A brief that names a worktree and branch has done this step.** `orchestrate` cut them; `cd` into the worktree, keep the branch name, and go to Step 2. Cut nothing: the orchestrator records each stacked branch's base, and a branch it did not cut is one it cannot carry up.
 
 The probe above said `PERSONAL` or `REMOTE`. They differ in one thing: whether there is a bare repo to add a worktree to.
 
