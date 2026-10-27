@@ -283,7 +283,7 @@ for (counted from the code, 2026-10-27):
 | Passkey sign-in, discoverable: `begin` / `complete` | 0 / 1 (`claim`, only once the signature verifies) |
 | Step-up passkey, passkey registration `complete` | 1 (`take`) |
 | Recovery email `complete`, any refusal | 3 calls in 2 hops (the lockout lookup and the guess side by side, then the failure record) |
-| Recovery code sign-in, any refusal | 2 (the lockout lookup, the failure record) |
+| Recovery code sign-in, any refusal | 2 (the lockout lookup; then the failure record, beside the D1 read that classifies the refusal) |
 
 *Counted from the code on 2026-10-27 (`shared/coordination/src/store.ts`, `client.ts`) against the pricing page's billing rules, not measured. The pricing page does not say how `deleteAlarm()` or `deleteAll()` are billed beyond "deletes are counted as rows written".*
 

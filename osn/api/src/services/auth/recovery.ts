@@ -232,8 +232,9 @@ export function createRecoveryModule(
    * "wrong identifier" and "wrong code" over the wire.
    *
    * **Every refusal does the same work**, so it costs the same: the lockout
-   * lookup, the conditional consume (`UPDATE … RETURNING`), the
-   * classification read, and the failure record — two store round trips and
+   * lookup, the conditional consume (`UPDATE … RETURNING`), then the
+   * classification read and the failure record side by side — two store
+   * round trips and
    * two `recovery_codes` statements of the same shape, whether the identifier
    * names nobody, names a locked account, or names an account and the code is
    * wrong. That is what a wrong code costs, and the most any refusal costs.
@@ -298,13 +299,16 @@ export function createRecoveryModule(
       /**
        * A wrong code's statements and failure record, touching nothing real:
        * the statements against a fresh random account id no row has (see
-       * `probeAccountId`), the failure at the probe key.
+       * `probeAccountId`), the failure at the probe key. The classification
+       * read and the failure record run side by side, as on the real branch.
        */
       const padRefusal = Effect.gen(function* () {
         const sentinel = probeAccountId();
         yield* tryConsume(sentinel);
-        yield* classify(sentinel);
-        yield* Effect.promise(() => recoveryLockoutStore.recordFailure(probe));
+        yield* Effect.all(
+          [classify(sentinel), Effect.promise(() => recoveryLockoutStore.recordFailure(probe))],
+          { concurrency: "unbounded", discard: true },
+        );
       });
 
       if (!profile) {
@@ -341,16 +345,21 @@ export function createRecoveryModule(
         // threshold. Both "wrong code" and "already-used code" count; the
         // read-only follow-up classifies which for the metric and the replay
         // log (a concurrent double-consume loser lands here as "used" too).
-        const replayRows = yield* classify(profile.accountId);
+        // Neither the classification nor the failure record waits on the
+        // other, so they run side by side.
+        const [replayRows, attempts] = yield* Effect.all(
+          [
+            classify(profile.accountId),
+            Effect.promise(() => recoveryLockoutStore.recordFailure(profile.accountId)),
+          ],
+          { concurrency: "unbounded" },
+        );
         if (replayRows[0] && replayRows[0].usedAt !== null) {
           yield* Effect.logWarning("Used recovery code replayed");
           metricRecoveryCodeConsumed("used");
         } else {
           metricRecoveryCodeConsumed("invalid");
         }
-        const attempts = yield* Effect.promise(() =>
-          recoveryLockoutStore.recordFailure(profile.accountId),
-        );
         if (attempts === "unknown") {
           // Not counted, so not known to have crossed the threshold: no event.
           metricRecoveryLockout("unavailable");

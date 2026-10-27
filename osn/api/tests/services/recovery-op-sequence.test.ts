@@ -1,7 +1,8 @@
 import { it, expect, describe } from "@effect/vitest";
+import { recoveryCodes } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { makeLogEmailLive } from "@shared/email";
-import { Effect, Layer } from "effect";
+import { Effect, Fiber, Layer } from "effect";
 import { beforeAll } from "vitest";
 
 import { createDurableCoordination } from "../../src/lib/coordination/durable";
@@ -10,7 +11,7 @@ import { createAuthService } from "../../src/services/auth";
 import { RECOVERY_EMAIL_BEGIN_PER_ACCOUNT_MAX } from "../../src/services/auth/constants";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createFakeNamespace } from "../helpers/coordination-namespace";
-import { createCapturingTestLayer } from "../helpers/db";
+import { createCapturingTestLayer, createTestLayerWithSqlite } from "../helpers/db";
 
 /**
  * F-CL13. The recovery routes answer the same whether or not the identifier
@@ -245,5 +246,105 @@ describe("POST /login/recovery/complete", () => {
         expect(nobody).toEqual(real);
       }).pipe(Effect.provide(h.layer));
     },
+  );
+});
+
+/**
+ * A refused recovery code reads `recovery_codes` to classify the refusal and
+ * records the failure on the store; neither waits on the other, so they run
+ * side by side, on the real branch and on the padded one alike. Here every
+ * read of `recovery_codes` waits until released: the failure record must
+ * reach the store while it waits.
+ */
+describe("POST /login/recovery/complete, a refusal's last two calls", () => {
+  /** `node`, a query builder, not run while `gate` holds once it reads `recovery_codes`. */
+  function holdChain(
+    node: object,
+    gate: { readonly held: Promise<void> },
+    reads: { codes: boolean },
+  ): object {
+    return new Proxy(node, {
+      get(target, prop, receiver) {
+        const value = Reflect.get(target, prop, receiver);
+        if (typeof value !== "function") return value;
+        if (prop === "then") {
+          return (onFulfilled?: (v: unknown) => unknown, onRejected?: (e: unknown) => unknown) =>
+            (reads.codes ? gate.held : Promise.resolve())
+              .then(() =>
+                (value as (...a: unknown[]) => unknown).call(target, (real: unknown) => real),
+              )
+              .then(onFulfilled, onRejected);
+        }
+        return (...args: unknown[]) => {
+          if (prop === "from" && args[0] === recoveryCodes) reads.codes = true;
+          const out = (value as (...a: unknown[]) => unknown).apply(target, args);
+          return out !== null && typeof out === "object" ? holdChain(out, gate, reads) : out;
+        };
+      },
+    });
+  }
+
+  function harness() {
+    const fake = createFakeNamespace();
+    const bundle = createDurableCoordination(fake.ns, () => {});
+    const auth = createAuthService({ ...base, recoveryLockoutStore: bundle.recoveryLockoutStore });
+    let release!: () => void;
+    const gate = {
+      held: new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+    };
+    const { db } = createTestLayerWithSqlite();
+    const holding = new Proxy(db as object, {
+      get(target, prop, receiver) {
+        const value = Reflect.get(target, prop, receiver);
+        if (prop === "select" && typeof value === "function") {
+          return (...args: unknown[]) =>
+            holdChain((value as (...a: unknown[]) => object).apply(target, args), gate, {
+              codes: false,
+            });
+        }
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    }) as typeof db;
+    const layer = Layer.merge(Layer.succeed(Db, { db: holding }), makeLogEmailLive().layer);
+    /** Whether the failure record reaches the store within a second. */
+    const recorded = Effect.gen(function* () {
+      for (let i = 0; i < 100; i++) {
+        if (fake.calls.some((c) => `${c.store}.${c.op}` === "recovery_lockout.increment")) {
+          return true;
+        }
+        yield* Effect.sleep("10 millis");
+      }
+      return false;
+    });
+    return { auth, layer, recorded, release };
+  }
+
+  /** Refuses a wrong code for `handle`, answering whether the failure was recorded while the read waited. */
+  const refuse = (handle: string, real: boolean) => {
+    const h = harness();
+    return Effect.gen(function* () {
+      if (real) yield* h.auth.registerProfile(`${handle}@example.com`, handle);
+      const refusal = yield* Effect.forkChild(
+        Effect.result(h.auth.consumeRecoveryCode(handle, "wrong-code")),
+      );
+      const sideBySide = yield* h.recorded;
+      h.release();
+      const outcome = yield* Fiber.join(refusal);
+      return { sideBySide, outcome: outcome._tag };
+    }).pipe(Effect.provide(h.layer));
+  };
+
+  it.live("records the failure while the classification read waits, for a real account", () =>
+    refuse("seqrcpar", true).pipe(
+      Effect.map((result) => expect(result).toEqual({ sideBySide: true, outcome: "Failure" })),
+    ),
+  );
+
+  it.live("records the failure while the classification read waits, for nobody", () =>
+    refuse("seqrcparnobody", false).pipe(
+      Effect.map((result) => expect(result).toEqual({ sideBySide: true, outcome: "Failure" })),
+    ),
   );
 });
