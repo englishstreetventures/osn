@@ -1,5 +1,9 @@
+import { weddingInviteCustomisations } from "@cire/db";
 import { sql } from "drizzle-orm";
 import type { SQL } from "drizzle-orm";
+
+import { INVITE_IMAGE_SLOTS } from "../../src/schemas/invite";
+import { SLOT_COLUMNS } from "../../src/services/invite";
 
 /**
  * Every table whose rows belong to a wedding, reached from `weddings.id` by
@@ -46,8 +50,22 @@ export const WEDDING_CHILD_TABLES = [
  *  case, as the claim route normalises what a guest types. */
 export const fullWeddingCode = (id: string): string => `CODE-${id.toUpperCase()}`;
 
+/**
+ * The `cire-assets` keys {@link fullWeddingStatements} writes: one for every
+ * slot in `INVITE_IMAGE_SLOTS`, so a slot added there is seeded without an edit
+ * here, then the event's and the registry item's.
+ */
+function assetKeys(id: string): { slots: string[]; event: string; registry: string } {
+  return {
+    slots: INVITE_IMAGE_SLOTS.map((slot) => `assets/${id}/${slot}-1`),
+    event: `assets/${id}/event-1`,
+    registry: `assets/${id}/registry-1`,
+  };
+}
+
 /** The R2 keys {@link fullWeddingStatements} writes, by bucket. */
 export function fullWeddingKeys(id: string): { sheets: string[]; assets: string[] } {
+  const assets = assetKeys(id);
   return {
     sheets: [
       `imports/imp_${id}/events.csv`,
@@ -55,15 +73,17 @@ export function fullWeddingKeys(id: string): { sheets: string[]; assets: string[
       `imports/imp_${id}/before/events.csv`,
       `imports/imp_${id}/before/guests.csv`,
     ],
-    assets: [
-      `assets/${id}/hero-1`,
-      `assets/${id}/story-1`,
-      `assets/${id}/footer-1`,
-      `assets/${id}/event-1`,
-      `assets/${id}/registry-1`,
-    ],
+    assets: [...assets.slots, assets.event, assets.registry],
   };
 }
+
+/** Every invite image slot's key column, in `INVITE_IMAGE_SLOTS` order. */
+const slotKeyColumns = sql.join(
+  INVITE_IMAGE_SLOTS.map((slot) =>
+    sql.identifier(weddingInviteCustomisations[SLOT_COLUMNS[slot].key].name),
+  ),
+  sql`, `,
+);
 
 /**
  * Insert statements for a wedding with one row in every one of
@@ -87,6 +107,11 @@ export function fullWeddingStatements(
       : Math.floor(opts.deletedAt.getTime() / 1000);
   const deletedBy = deletedAt === null ? null : owner;
   const keys = fullWeddingKeys(id);
+  const assets = assetKeys(id);
+  const slotKeys = sql.join(
+    assets.slots.map((key) => sql`${key}`),
+    sql`, `,
+  );
   const fam = `fam_${id}`;
   const guest = `gst_${id}`;
   const event = `evt_${id}`;
@@ -101,7 +126,7 @@ export function fullWeddingStatements(
     sql`INSERT INTO families (id, wedding_id, public_id, family_name, created_at, updated_at) VALUES (${fam}, ${id}, ${fullWeddingCode(id)}, 'Family', ${s}, ${s})`,
     sql`INSERT INTO guests (id, family_id, first_name, created_at, updated_at, email, email_source, email_consent_at, email_consent_version, email_hash) VALUES (${guest}, ${fam}, 'Ada', ${s}, ${s}, 'ada@example.test', 'guest', ${s}, 'guest-email-2026-10-21', ${`hash_${id}`})`,
     sql`INSERT INTO email_suppressions (id, wedding_id, email_hash, guest_id, reason, created_at) VALUES (${`sup_${id}`}, ${id}, ${`hash_${id}`}, ${guest}, 'guest_removed', ${s})`,
-    sql`INSERT INTO events (id, wedding_id, slug, name, start_at, end_at, timezone, event_image_key) VALUES (${event}, ${id}, 'ceremony', 'Ceremony', '2027-01-01T10:00', '2027-01-01T11:00', 'UTC', ${keys.assets[3]!})`,
+    sql`INSERT INTO events (id, wedding_id, slug, name, start_at, end_at, timezone, event_image_key) VALUES (${event}, ${id}, 'ceremony', 'Ceremony', '2027-01-01T10:00', '2027-01-01T11:00', 'UTC', ${assets.event})`,
     sql`INSERT INTO guest_events (guest_id, event_id) VALUES (${guest}, ${event})`,
     sql`INSERT INTO run_of_show_items (event_id, wedding_id, sort_order, time, label) VALUES (${event}, ${id}, 0, '16:00', 'Ceremony')`,
     sql`INSERT INTO seating_plans (id, wedding_id, event_id, name, selected, created_at, updated_at) VALUES (${`spl_${id}`}, ${id}, ${event}, 'Plan 1', 1, ${s}, ${s})`,
@@ -113,7 +138,7 @@ export function fullWeddingStatements(
     sql`INSERT INTO host_rsvp_notices (wedding_id, osn_profile_id, updated_at) VALUES (${id}, ${owner}, ${s})`,
     sql`INSERT INTO sessions (id, family_id, token, expires_at, created_at) VALUES (${`ses_${id}`}, ${fam}, ${`tok_${id}`}, ${s + 86_400}, ${s})`,
     sql`INSERT INTO guest_account_links (id, guest_id, family_id, wedding_id, osn_account_id, osn_profile_id, linked_at, updated_at) VALUES (${`gal_${id}`}, ${guest}, ${fam}, ${id}, 'acc_1', 'usr_guest', ${s}, ${s})`,
-    sql`INSERT INTO wedding_invite_customisations (wedding_id, updated_at, hero_image_key, story_image_key, footer_image_key) VALUES (${id}, ${s}, ${keys.assets[0]!}, ${keys.assets[1]!}, ${keys.assets[2]!})`,
+    sql`INSERT INTO wedding_invite_customisations (wedding_id, updated_at, ${slotKeyColumns}) VALUES (${id}, ${s}, ${slotKeys})`,
     sql`INSERT INTO wedding_faqs (id, wedding_id, question, answer, created_at, updated_at) VALUES (${`faq_${id}`}, ${id}, 'Q', 'A', ${s}, ${s})`,
     sql`INSERT INTO imports (id, wedding_id, uploaded_at, format, events_r2_key, guests_r2_key, before_events_r2_key, before_guests_r2_key, summary, status) VALUES (${`imp_${id}`}, ${id}, ${s}, 'csv', ${keys.sheets[0]!}, ${keys.sheets[1]!}, ${keys.sheets[2]!}, ${keys.sheets[3]!}, '{}', 'applied')`,
     sql`INSERT INTO tasks (id, wedding_id, title, timeframe_bucket, created_at) VALUES (${`task_${id}`}, ${id}, 'Book', '12m', ${s})`,
@@ -126,7 +151,7 @@ export function fullWeddingStatements(
     sql`INSERT INTO vendor_enquiries (id, wedding_id, directory_vendor_id, vendor_id, created_by, last_message_at, created_at, updated_at) VALUES (${`enq_${id}`}, ${id}, ${dirVendor}, ${vendor}, ${owner}, ${s}, ${s}, ${s})`,
     sql`INSERT INTO wedding_entitlements (wedding_id, entitlement, source, granted_at, granted_by) VALUES (${id}, 'registry', 'comp', ${s}, ${owner})`,
     sql`INSERT INTO registry_settings (wedding_id, created_at, updated_at, published) VALUES (${id}, ${s}, ${s}, 1)`,
-    sql`INSERT INTO registry_items (id, wedding_id, title, image_key, created_at, updated_at) VALUES (${item}, ${id}, 'Vase', ${keys.assets[4]!}, ${s}, ${s})`,
+    sql`INSERT INTO registry_items (id, wedding_id, title, image_key, created_at, updated_at) VALUES (${item}, ${id}, 'Vase', ${assets.registry}, ${s}, ${s})`,
     sql`INSERT INTO registry_claims (id, wedding_id, item_id, family_id, created_at, updated_at) VALUES (${`rclm_${id}`}, ${id}, ${item}, ${fam}, ${s}, ${s})`,
     sql`INSERT INTO registry_contributions (id, wedding_id, family_id, status, amount_minor, currency, created_at, updated_at) VALUES (${`rcon_${id}`}, ${id}, ${fam}, 'succeeded', 5000, 'AUD', ${s - 30 * 86_400}, ${s})`,
     sql`INSERT INTO wedding_upgrade_purchases (id, wedding_id, entitlement, status, created_by_osn_profile_id, created_at, updated_at) VALUES (${purchase}, ${id}, 'vendors', 'succeeded', ${owner}, ${s - 30 * 86_400}, ${s})`,
