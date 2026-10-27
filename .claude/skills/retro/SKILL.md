@@ -241,9 +241,9 @@ Three readings that are wrong every time:
     when `issue.number` is null), and that issue's rating describes the whole
     of it. **Never divide by that label**: there is no denominator.
   - `none` with a pull request — a closed issue carries no rating (the run's
-    warning named it), or nothing is linked. A tracker issue the warning names
-    is rated in the tracker, and the warning text never goes into anything
-    public.
+    warning names one here and counts a tracker one), or nothing is linked. A
+    tracker issue is rated in the tracker; read it there, and copy nothing of
+    it into anything public.
 
   Only for `part-of`, or an issue with no `complexity:` label, is the work
   genuinely unrated, and only then do you say "unrated, so I cannot tell".

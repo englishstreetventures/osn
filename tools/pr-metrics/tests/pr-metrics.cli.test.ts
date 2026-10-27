@@ -1115,6 +1115,8 @@ test("the SessionEnd hook still passes the flags this CLI relies on", async () =
 interface ResolvingOptions {
   /** The pull request `gh pr list` returns; `null` lists none. */
   pull?: { body?: string; refs: { number: number; repo: string }[] } | null;
+  /** A pull request from a fork on the same branch name, listed first (newest). */
+  fork?: { body: string };
   labels?: Record<number, string[]>;
   /** Written to `NEW-FEAT.md` at the fixture's root. */
   newFeat?: string;
@@ -1156,12 +1158,23 @@ async function runResolving(
       options.pull === undefined
         ? { body: "", refs: [{ number: 1041, repo: "englishstreetventures/osn" }] }
         : options.pull;
-    const listing = JSON.stringify(
-      pull === null
+    const listing = JSON.stringify([
+      ...(options.fork === undefined
+        ? []
+        : [
+            {
+              number: 1047,
+              isCrossRepository: true,
+              body: options.fork.body,
+              closingIssuesReferences: [],
+            },
+          ]),
+      ...(pull === null
         ? []
         : [
             {
               number: 1046,
+              isCrossRepository: false,
               body: pull.body ?? "",
               closingIssuesReferences: pull.refs.map(({ number, repo }) => {
                 const [login, name] = repo.split("/");
@@ -1169,8 +1182,8 @@ async function runResolving(
                 return { number, repository: { name, owner: { login } } };
               }),
             },
-          ],
-    );
+          ]),
+    ]);
     const repo = options.repoView ?? "englishstreetventures/osn";
     const issueCases = Object.entries(options.labels ?? {})
       .map(
@@ -1342,9 +1355,54 @@ test.each([
     });
 
     expect(card.complexity).toEqual({ declared: null, method: "not-fetched", issues: 0 });
-    expect(stderr).toContain(`${TRACKER}#901042`);
+    expect(stderr).toMatch(/could not read [12] issues? in another repository/);
+    expect(stderr).not.toContain("osn-tracker#");
   },
 );
+
+// A warning is pasted into test plans and reports that become public, so it
+// counts another repository's issues and never names one beside what was read.
+test("--resolve-issue counts, and does not name, a tracker issue with no rating", async () => {
+  const { card, stderr } = await runResolving({
+    pull: {
+      body: "",
+      refs: [
+        { number: 901041, repo: TRACKER },
+        { number: 901042, repo: TRACKER },
+      ],
+    },
+    trackerLabels: { 901041: ["complexity:3"], 901042: ["severity:low"] },
+  });
+
+  expect(card.complexity).toEqual({ declared: null, method: "none", issues: 0 });
+  expect(stderr).toContain("no complexity: rating on 1 issue in another repository");
+  expect(stderr).not.toContain("osn-tracker#");
+});
+
+// `gh pr list --head` matches a branch name in any fork. Only a pull request
+// whose branch lives in this repository is the one a card describes, and only
+// its body decides which tracker issues are asked about.
+test("--resolve-issue ignores a pull request from a fork on the same branch name", async () => {
+  const { card, calls } = await runResolving({
+    pull: null,
+    fork: { body: `Closes ${TRACKER}#901099` },
+  });
+
+  expect(card.pr.number).toBeNull();
+  expect(calls.filter((call) => call.includes("api graphql"))).toEqual([]);
+});
+
+test("--resolve-issue takes this repository's pull request when a fork's is newer", async () => {
+  const { card, calls } = await runResolving({
+    pull: { body: `Closes ${TRACKER}#901041`, refs: [] },
+    fork: { body: `Closes ${TRACKER}#901099` },
+    trackerLabels: { 901041: ["complexity:2"] },
+  });
+
+  expect(card.pr.number).toBe(1046);
+  expect(card.complexity).toEqual({ declared: 2, method: "confirmed", issues: 1 });
+  expect(calls.filter((call) => call.includes("901099"))).toEqual([]);
+});
 
 // A stacked pull request has no closing references until it is retargeted to
 // `main`, so its body's tracker line is all there is to read.
@@ -1509,7 +1567,7 @@ test("--resolve-issue records none for a closed issue with no labels, and names 
   });
 
   expect(card.complexity).toEqual({ declared: null, method: "none", issues: 0 });
-  expect(stderr).toContain("#1041 carries no complexity");
+  expect(stderr).toContain("no complexity: rating on #1041");
 });
 
 test("--resolve-issue records lookup-failed when one closed issue's labels cannot be read", async () => {

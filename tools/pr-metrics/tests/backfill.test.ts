@@ -1277,7 +1277,8 @@ test("backfill records not-fetched for a tracker issue the token cannot resolve"
       await readFile(join(f.dir, "cards", `${branchSlug(branch)}.json`), "utf8"),
     ) as Card;
     expect(card.complexity).toEqual({ declared: null, method: "not-fetched", issues: 0 });
-    expect(run.stderr).toContain(`could not read ${TRACKER}#900620`);
+    expect(run.stderr).toContain("could not read 1 issue in another repository");
+    expect(run.stderr).not.toContain("osn-tracker#");
   } finally {
     await rm(f.dir, { recursive: true, force: true });
   }

@@ -1127,6 +1127,23 @@ export function declaredFromLabels(labels: string[]): DeclaredComplexity {
 }
 
 /**
+ * How a warning names issues: one in this repository by number (`#N`), one in
+ * another repository by count alone. Warnings end up in test plans and reports
+ * that become public, so a tracker issue's number is never printed beside what
+ * was read about it.
+ */
+export function issuesForWarning(references: string[]): string {
+  const here = references.filter((reference) => reference.startsWith("#"));
+  const elsewhere = references.length - here.length;
+  const counted =
+    elsewhere === 0
+      ? []
+      : [`${elsewhere} issue${elsewhere === 1 ? "" : "s"} in another repository`];
+
+  return [...here, ...counted].join(", ");
+}
+
+/**
  * The only labels a card may take from an issue in another repository: a
  * `complexity:N` rating and `complexity:unconfirmed`, trimmed.
  *
@@ -3155,20 +3172,28 @@ function resolveIdentity(branch: string, explicitIssue: number | null): Resolved
     "--state",
     "all",
     "--limit",
-    "1",
+    "10",
     "--json",
-    "number,body,closingIssuesReferences",
+    "number,isCrossRepository,body,closingIssuesReferences",
   ]);
   if (listed === null) return miss;
 
-  let pulls: { number: number; body: string | null; closingIssuesReferences: IssueReference[] }[];
+  let pulls: {
+    number: number;
+    isCrossRepository?: boolean;
+    body: string | null;
+    closingIssuesReferences: IssueReference[];
+  }[];
   try {
     pulls = JSON.parse(listed) as typeof pulls;
   } catch {
     return miss;
   }
 
-  const pull = pulls[0];
+  // `--head` matches the branch name in every fork too. The card describes the
+  // newest pull request whose branch lives in this repository, and only its
+  // body says which tracker issues are asked about.
+  const pull = pulls.find((candidate) => candidate.isCrossRepository !== true);
   if (pull === undefined) return miss;
 
   // NEW-FEAT.md is this checkout's scratch file, so it speaks for the branch
@@ -3219,13 +3244,13 @@ function resolveIdentity(branch: string, explicitIssue: number | null): Resolved
   const decision = decideComplexity(selection, labels, labelsElsewhere);
   if (decision.unrated.length > 0) {
     process.stderr.write(
-      `⚠️  pr-metrics: ${decision.unrated.join(", ")} carries no complexity: rating, so the sum of what pull request #${pull.number} closes is unknown and the card records none.\n`,
+      `⚠️  pr-metrics: no complexity: rating on ${issuesForWarning(decision.unrated)}, so the sum of what pull request #${pull.number} closes is unknown and the card records none.\n`,
     );
   }
   const unread = rated.elsewhere.filter((issue) => !labelsElsewhere.has(issueKey(issue)));
   if (unread.length > 0) {
     process.stderr.write(
-      `⚠️  pr-metrics: could not read ${unread.map((issue) => `${issue.repo}#${issue.number}`).join(", ")}, which pull request #${pull.number} closes, so the card records not-fetched. Only ${TRACKER_REPO} is asked, at most ${TRACKER_QUERY_CAP} issues, and only with a token that can read it.\n`,
+      `⚠️  pr-metrics: could not read ${issuesForWarning(unread.map(issueKey))}, which pull request #${pull.number} closes, so the card records not-fetched. Only ${TRACKER_REPO} is asked, at most ${TRACKER_QUERY_CAP} issues, and only with a token that can read it.\n`,
     );
   }
 

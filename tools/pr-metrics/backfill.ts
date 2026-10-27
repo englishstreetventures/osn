@@ -35,6 +35,7 @@ import {
   defaultMetricsDir,
   defaultSessionsRoots,
   issueKey,
+  issuesForWarning,
   issuesToRate,
   otherPullRequest,
   parseNumstat,
@@ -606,12 +607,12 @@ if (import.meta.main) {
     const unread = rated.elsewhere.filter((issue) => !labelsElsewhere.has(issueKey(issue)));
     if (unread.length > 0) {
       process.stderr.write(
-        `  ⚠️  could not read ${unread.map((issue) => `${issue.repo}#${issue.number}`).join(", ")} (closed by PR #${pull.number}) — recording not-fetched.\n`,
+        `  ⚠️  could not read ${issuesForWarning(unread.map(issueKey))} (closed by PR #${pull.number}) — recording not-fetched.\n`,
       );
     }
     if (complexity.unrated.length > 0) {
       process.stderr.write(
-        `  ⚠️  ${complexity.unrated.join(", ")} (closed by PR #${pull.number}) carries no complexity: rating, so the sum is unknown.\n`,
+        `  ⚠️  no complexity: rating on ${issuesForWarning(complexity.unrated)} (closed by PR #${pull.number}), so the sum is unknown.\n`,
       );
     }
 

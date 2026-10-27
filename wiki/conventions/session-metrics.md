@@ -137,8 +137,8 @@ references alone, since they are what the merge closed.
 | Closes issues here, a label lookup failed | null | `lookup-failed` | 0 |
 | Closes nothing here, has a `Part of` line | null | `part-of` | 0 |
 | Links nothing here, closes tracker issues, every one read and rated | Their sum | `confirmed`, or `unconfirmed` if any part is | How many were summed |
-| Links nothing here, closes a tracker issue this run could not read | null | `not-fetched`, with a warning naming it | 0 |
-| Links nothing here, closes tracker issues, one has no rating | null | `none`, with a warning naming it | 0 |
+| Links nothing here, closes a tracker issue this run could not read | null | `not-fetched`, with a warning that counts it | 0 |
+| Links nothing here, closes tracker issues, one has no rating | null | `none`, with a warning that counts it | 0 |
 | Links nothing here, only `Part of` another repository's issue | null | `part-of` | 0 |
 | Links nothing here, closes an issue in a third repository, or one GitHub did not register | null | `not-fetched` | 0 |
 | Links nothing | null | `none` | 0 |
@@ -152,7 +152,11 @@ tracker work names no issue and has `issue.labels: []`. Only
 `englishstreetventures/osn-tracker` is ever asked, at most 50 issues per run;
 anything past that, or a token that cannot read the tracker, records
 `not-fetched`. The rating needs a token that can read the tracker wherever
-`card` or `backfill` runs.
+`card` or `backfill` runs. `--resolve-issue` reads the newest pull request
+whose branch lives in this repository: `gh pr list --head` matches the branch
+name in every fork too, and a fork's body never decides which tracker issues
+are asked about. A warning names an issue here by number and counts tracker
+issues without naming them, because warnings end up in public test plans.
 
 `--issue-labels` and `--complexity` supply the rating themselves and turn the
 lookup off; a rating read from `--issue-labels` counts one issue, and a
@@ -781,7 +785,7 @@ in the table above.
 Most of the card describes cost. Two fields point at what to *do*, one per
 lever:
 
-**`tokens_before_first_edit` → a missing skill or wiki page.** Everything spent
+**`tokens_before_first_edit`: a missing skill or wiki page.** Everything spent
 before the first edit is the agent working out where the code lives. It is
 summed per session, so a second session re-orienting from scratch is charged
 again rather than hidden behind the first session's answer. Repeatedly high in
@@ -806,7 +810,7 @@ one area means that area has no usable map.
 > per-package share over today's corpus with
 > `bun run --cwd tools/pr-metrics report -- --exploration`.*
 
-**`corrective_turns` → where the brief fell short, once you read the
+**`corrective_turns`: where the brief fell short, once you read the
 prompts.** The prompts the person sent while the agent was still working —
 interruptions. A turn sent after the agent stopped and handed back (a new task,
 an answer to its question, "continue") is not counted, however late in the
