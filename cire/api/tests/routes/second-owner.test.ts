@@ -112,9 +112,11 @@ function buildApp() {
     registryStripeLimiter: limiter(),
     hostLimiter: limiter(),
     remintLimiter: limiter(),
-    // The default export limiter is one module-level 10/min bucket per caller,
-    // and this file calls every export as the same second owner.
+    // The default export limiters are module-level buckets per caller (10/min,
+    // and 3/min for the gift log), and this file calls every export as the
+    // same second owner.
     exportLimiter: limiter(),
+    giftExportLimiter: limiter(),
   });
   const [family] = db.select({ id: families.id }).from(families).limit(1).all();
   return { app, db, familyId: family!.id };

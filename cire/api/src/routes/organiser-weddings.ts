@@ -340,6 +340,10 @@ export const createOrganiserWeddingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
  * (`/module-rows`) sit with them. The dashboard's RSVP view (`/rsvps`) is a screen read, so it stays
  * `weddingMember()`.
  *
+ * The gift-log download is not here: it has an instance of its own
+ * ({@link createOrganiserGiftExportRoutes}), where a tighter limiter answers
+ * before this group's shared one. Its row count stays in `/module-rows`.
+ *
  * The per-user limiter keys on `osnProfileId` (not the client IP): the caller
  * is already authenticated and wedding-scoped, so keying on their identity
  * rather than their edge IP is both more accurate (one person per bucket) and
@@ -403,34 +407,6 @@ export const createOrganiserExportRoutes = (
               const csv = yield* onEffectDb(effectDb, tableExportService.eventsCsv(weddingId));
               return csvAttachment(csv, `cire-events-${weddingSlug ?? weddingId}.csv`);
             }).pipe(Effect.catchDefect(() => exportDefect(set, "events.csv", weddingId))),
-          );
-        })
-        // Gift-log CSV export — one row per gift, claims and cash together,
-        // newest first: the same log the registry tab pages through, whole.
-        // This is the couple's copy of a record we delete a year after the
-        // wedding, so it carries the detail the year-end summary cannot:
-        // who gave what, in which currency, and what they wrote. Same owner
-        // gate + attachment/no-store contract as the exports above.
-        //
-        // No `weddingTier(db, "gold")` gate, unlike every other registry
-        // surface, and that is deliberate: the log is the couple's own
-        // record, and they must be able to take it away whether or not the
-        // wedding is still on Gold. Refusing to hand back data we hold is the
-        // worse failure. A wedding that was never on Gold has no gifts, so it
-        // gets the header line and nothing else; the read
-        // is capped and rate-limited. A gate here would have to keep admitting
-        // this read for as long as the gift rows exist, so it cannot be the
-        // plain one the registry routes use.
-        .get("/gifts.csv", ({ weddingId, weddingSlug, set }) => {
-          if (!weddingId) {
-            set.status = 500;
-            return { error: "Internal error" };
-          }
-          return runCire(
-            Effect.gen(function* () {
-              const csv = yield* onEffectDb(effectDb, giftExportService.giftsCsv(weddingId));
-              return csvAttachment(csv, `cire-gifts-${weddingSlug ?? weddingId}.csv`);
-            }).pipe(Effect.catchDefect(() => exportDefect(set, "gifts.csv", weddingId))),
           );
         })
         // The budget and checklist exports — the couple's budget lines (each
@@ -577,6 +553,63 @@ export const createOrganiserExportRoutes = (
               set.headers["cache-control"] = "no-store";
               return view;
             }).pipe(Effect.catchDefect(() => exportDefect(set, "rsvps", weddingId))),
+          );
+        }),
+    );
+
+/**
+ * The gift-log CSV export, in an instance of its own so it answers to a
+ * tighter per-user limiter of its own as well as the shared export one above.
+ * It is the heaviest export — the read runs to `MAX_GIFT_EXPORT_ROWS` + 1 rows
+ * and the whole file is serialised close to the Worker's CPU ceiling.
+ *
+ * The gift limiter answers first, so a gift download it refuses spends nothing
+ * from the shared allowance; one it admits spends one of each. An owner's
+ * exports therefore stay within the shared limit in all, and at most the gift
+ * limit of them are gift downloads. Same gates in the same order as the other
+ * CSV downloads: `osnAuth()`, then `weddingOwner()`, then the per-user limiters,
+ * both keyed on `osnProfileId`.
+ */
+export const createOrganiserGiftExportRoutes = (
+  db: Db,
+  osnAuthOptions: OsnAuthOptions,
+  giftLimiter: RateLimiterBackend,
+  exportLimiter: RateLimiterBackend,
+  effectDb: EffectD1Db | undefined,
+) =>
+  new Elysia({ prefix: "/api/organiser" })
+    .use(osnAuth(osnAuthOptions))
+    .group("/weddings/:weddingId", (group) =>
+      group
+        .use(weddingOwner(db))
+        .use(rateLimitMiddlewareByUser(giftLimiter))
+        .use(rateLimitMiddlewareByUser(exportLimiter))
+        // One row per gift, claims and cash together, newest first: the same
+        // log the registry tab pages through, whole. This is the couple's copy
+        // of a record we delete a year after the wedding, so it carries the
+        // detail the year-end summary cannot: who gave what, in which
+        // currency, and what they wrote. Same owner gate +
+        // attachment/no-store contract as the other exports.
+        //
+        // No `weddingTier(db, "gold")` gate, unlike every other registry
+        // surface, and that is deliberate: the log is the couple's own
+        // record, and they must be able to take it away whether or not the
+        // wedding is still on Gold. Refusing to hand back data we hold is the
+        // worse failure. A wedding that was never on Gold has no gifts, so it
+        // gets the header line and nothing else; the read
+        // is capped and rate-limited. A gate here would have to keep admitting
+        // this read for as long as the gift rows exist, so it cannot be the
+        // plain one the registry routes use.
+        .get("/gifts.csv", ({ weddingId, weddingSlug, set }) => {
+          if (!weddingId) {
+            set.status = 500;
+            return { error: "Internal error" };
+          }
+          return runCire(
+            Effect.gen(function* () {
+              const csv = yield* onEffectDb(effectDb, giftExportService.giftsCsv(weddingId));
+              return csvAttachment(csv, `cire-gifts-${weddingSlug ?? weddingId}.csv`);
+            }).pipe(Effect.catchDefect(() => exportDefect(set, "gifts.csv", weddingId))),
           );
         }),
     );

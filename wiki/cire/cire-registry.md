@@ -14,7 +14,7 @@ related:
   - "[[cire-auth]]"
   - "[[testing-patterns]]"
   - "[[toast]]"
-last-reviewed: 2026-10-26
+last-reviewed: 2026-10-27
 ---
 
 # Gift registry
@@ -381,7 +381,7 @@ A Worker-cache hit goes to the browser with **no `Age` and a `Date` of now**. Th
 
 ### Taking the log away (`gifts.csv`)
 
-`GET /api/organiser/weddings/:weddingId/gifts.csv` hands the couple their whole gift log as a spreadsheet — the third organiser export, beside `guests.csv` and `events.csv`, and the one that answers a data-portability request. It sits on the export route group, so the gate is `osnAuth()` → `weddingOwner` → per-user limiter — every CSV export is owner-only — and not the Gold tier gate: a couple whose wedding is no longer on Gold must still be able to take their own record out.
+`GET /api/organiser/weddings/:weddingId/gifts.csv` hands the couple their whole gift log as a spreadsheet — the third organiser export, beside `guests.csv` and `events.csv`, and the one that answers a data-portability request. The gates are `osnAuth()`, then `weddingOwner`, then the per-user limiters — every CSV export is owner-only — and not the Gold tier gate: a couple whose wedding has left Gold must still be able to take their own record out. It is the heaviest export, so it sits in an Elysia instance of its own (`createOrganiserGiftExportRoutes` in `cire/api/src/routes/organiser-weddings.ts`) where a limiter of its own, **3 a minute per owner**, answers before the 10 a minute every export shares. A gift download the first refuses spends nothing from the shared allowance; one it admits spends one of each. Both count in memory, per Worker isolate. The Registry card's row count (`module-rows`) is on the shared allowance alone.
 
 Below Gold the Registry module itself is locked in the portal, so the download moves to the locked Registry card and to Settings: an owner is offered **Download as CSV** when `GET …/module-rows` counts any gifts (`giftCountSql`, which counts exactly the rows the file prints). Only a wedding that has been on Gold can hold gifts, so in practice that is a wedding an operator moved back down. See [[cire-entitlements]].
 

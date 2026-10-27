@@ -78,6 +78,7 @@ const LIMITER_OPTIONS = [
   "claimSessionLimiter",
   "accountLinkLimiter",
   "exportLimiter",
+  "giftExportLimiter",
   "inviteLimiter",
   "previewLimiter",
   "weddingCreateLimiter",

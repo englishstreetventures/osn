@@ -65,6 +65,7 @@ function buildApp(opts: { withoutEffect?: boolean } = {}) {
     osnTestKey: auth.key,
     weddingCreateLimiter: createRateLimiter({ maxRequests: 1_000, windowMs: 60_000 }),
     exportLimiter: createRateLimiter({ maxRequests: 1_000, windowMs: 60_000 }),
+    giftExportLimiter: createRateLimiter({ maxRequests: 1_000, windowMs: 60_000 }),
     previewLimiter: createRateLimiter({ maxRequests: 1_000, windowMs: 60_000 }),
     remintLimiter: createRateLimiter({ maxRequests: 1_000, windowMs: 60_000 }),
   });
@@ -436,7 +437,7 @@ describe("POST /api/organiser/weddings", () => {
     expect(body.wedding.slug).toMatch(/^wedding-[0-9a-f]{6}$/);
   });
 
-  it("429s once the per-IP create limit is exceeded (S-L1)", async () => {
+  it("429s once the per-IP create limit is exceeded", async () => {
     const db = createDb(":memory:");
     seedDb(db);
     const app = createApp(db, {
@@ -2331,7 +2332,7 @@ describe("GET /api/organiser/weddings/:weddingId/export/{events,guests}.csv", ()
   });
 });
 
-describe("CSV export per-user rate limit (CSV-S-L1)", () => {
+describe("CSV export per-user rate limit", () => {
   // Mirrors the POST /weddings 429 test above: inject a tight 1-req/min limiter
   // and verify the second export from the SAME user is 429'd, while a different
   // user's first export is still 200 (per-user, not per-IP).
@@ -2353,7 +2354,8 @@ describe("CSV export per-user rate limit (CSV-S-L1)", () => {
 
   // The budget, checklist and count routes carry no tier gate; the owner
   // gate and this limiter are what stand in front of them. They share the one
-  // per-user allowance with every other export.
+  // per-user allowance with every other export, `gifts.csv` included, which
+  // also answers to a tighter one of its own first (below).
   for (const route of ["budget.csv", "tasks.csv", "module-rows"] as const) {
     it(`429s ${route} once the per-user export limit is spent`, async () => {
       const db = createDb(":memory:");
@@ -2398,6 +2400,81 @@ describe("CSV export per-user rate limit (CSV-S-L1)", () => {
     expect((await get(app, ownerPath, BOOTSTRAP_OWNER)).status).toBe(429);
     // The other wedding's owner (different user) still has a full bucket.
     expect((await get(app, otherPath, OTHER_OWNER)).status).toBe(200);
+  });
+});
+
+describe("the gift export's own per-user limit", () => {
+  const base = `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}`;
+
+  function limitedApp(limits: { exportMax: number; giftMax: number }) {
+    const db = createDb(":memory:");
+    seedDb(db);
+    seedOtherWedding(db);
+    const app = createApp(db, {
+      effectDb: effectDbFor(localD1Binding(db.$client), "fetch"),
+      osnTestKey: auth.key,
+      exportLimiter: createRateLimiter({ maxRequests: limits.exportMax, windowMs: 60_000 }),
+      giftExportLimiter: createRateLimiter({ maxRequests: limits.giftMax, windowMs: 60_000 }),
+    });
+    return app;
+  }
+
+  it("counts each gift download against the shared export allowance too", async () => {
+    // So one owner's exports stay within the shared limit in all.
+    const app = limitedApp({ exportMax: 1, giftMax: 5 });
+    expect((await get(app, `${base}/guests.csv`, BOOTSTRAP_OWNER)).status).toBe(200);
+    expect((await get(app, `${base}/gifts.csv`, BOOTSTRAP_OWNER)).status).toBe(429);
+  });
+
+  it("spends nothing from the shared allowance on a gift download it refuses", async () => {
+    const app = limitedApp({ exportMax: 2, giftMax: 1 });
+    expect((await get(app, `${base}/gifts.csv`, BOOTSTRAP_OWNER)).status).toBe(200);
+    expect((await get(app, `${base}/gifts.csv`, BOOTSTRAP_OWNER)).status).toBe(429);
+    // One of the two shared requests is left after the refused gift download.
+    expect((await get(app, `${base}/guests.csv`, BOOTSTRAP_OWNER)).status).toBe(200);
+    expect((await get(app, `${base}/guests.csv`, BOOTSTRAP_OWNER)).status).toBe(429);
+  });
+
+  it("429s the gift export once its own allowance is spent", async () => {
+    const app = limitedApp({ exportMax: 1_000, giftMax: 2 });
+    expect((await get(app, `${base}/gifts.csv`, BOOTSTRAP_OWNER)).status).toBe(200);
+    expect((await get(app, `${base}/gifts.csv`, BOOTSTRAP_OWNER)).status).toBe(200);
+    const refused = await get(app, `${base}/gifts.csv`, BOOTSTRAP_OWNER);
+    expect(refused.status).toBe(429);
+    expect(refused.headers.get("retry-after")).toBe("60");
+    expect(refused.headers.get("content-disposition")).toBeNull();
+    expect(await jsonBody(refused)).toEqual({ error: "Too many requests" });
+  });
+
+  it("keys the allowance on the caller, not the address", async () => {
+    // Both owners send from the one test address.
+    const app = limitedApp({ exportMax: 1_000, giftMax: 1 });
+    expect((await get(app, `${base}/gifts.csv`, BOOTSTRAP_OWNER)).status).toBe(200);
+    expect((await get(app, `${base}/gifts.csv`, BOOTSTRAP_OWNER)).status).toBe(429);
+    const other = `/api/organiser/weddings/${OTHER_WEDDING_ID}/gifts.csv`;
+    expect((await get(app, other, OTHER_OWNER)).status).toBe(200);
+  });
+
+  it("admits three gift exports a minute by default", async () => {
+    // The default limiter is module-level, so this test's owner is one no
+    // other test signs in as.
+    const owner = "usr_gift_default_limit";
+    const weddingId = "wed_gift_default_limit";
+    const db = createDb(":memory:");
+    seedDb(db);
+    insertWedding(db, {
+      id: weddingId,
+      slug: "gift-default-limit",
+      displayName: "Gift Default Limit",
+      owners: [owner],
+    });
+    const app = createApp(db, {
+      effectDb: effectDbFor(localD1Binding(db.$client), "fetch"),
+      osnTestKey: auth.key,
+    });
+    const path = `/api/organiser/weddings/${weddingId}/gifts.csv`;
+    for (let i = 0; i < 3; i++) expect((await get(app, path, owner)).status).toBe(200);
+    expect((await get(app, path, owner)).status).toBe(429);
   });
 });
 
