@@ -771,8 +771,8 @@ export function organiserAuthOptions(
  * types, and the chain's inferred type names DTOs the route modules do not
  * export, which `declaration` refuses with TS4058.
  *
- * @see wiki/cire/cire-development.md — where a route is mounted, and how long
- * the chain can grow before `tsc` reports TS2589.
+ * @see wiki/cire/cire-development.md — where a route is mounted, and the type
+ * limits on the chain.
  */
 export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
   const {
@@ -969,7 +969,7 @@ export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
   // behave exactly as they did before push.
   const weddingSignals = createWeddingSignals(realtimeHub);
 
-  // The upgrade routes below extend this chain when Stripe is configured.
+  // The Stripe mounts below extend this chain.
   const app =
     // `aot: false` — Elysia's ahead-of-time compilation builds handlers via
     // `new Function`, which Cloudflare Workers forbids (no dynamic code
@@ -1385,25 +1385,29 @@ export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
       .use(createOrganiserWeddingRestoreRoute(db, osnAuthOptions, weddingLifecycleLimiter))
       .use(createUnlockCodeRoutes(db, osnAuthOptions, unlockCodeLimiter))
       // The realtime fallback beacon.
-      .use(createRealtimeFallbackRoutes({ limiter: realtimeFallbackLimiter }))
-      // Stripe's own deliveries. Mounted only with a signing secret: nothing else
-      // authenticates this endpoint, so without one it must not exist.
-      .use(
-        connectWebhookSecret
-          ? createStripeWebhookRoutes(db, { webhookSecret: connectWebhookSecret })
-          : new Elysia(),
-      );
+      .use(createRealtimeFallbackRoutes({ limiter: realtimeFallbackLimiter }));
+  // Widened before the conditional Stripe mounts below. `secret ? app.use(…) :
+  // app` makes TypeScript compare the chain's type with that type plus one
+  // `.use()`, and the comparison fails `typecheck` with TS2589. No type limit
+  // keeps the Stripe webhooks after the chain: inside it, `.use(secret ? routes
+  // : new Elysia())` type-checks.
+  const rootApp: AnyElysia = app;
+  // Stripe's own deliveries. Mounted only with a signing secret: nothing else
+  // authenticates this endpoint, so without one it must not exist.
+  const withStripeWebhook: AnyElysia = connectWebhookSecret
+    ? rootApp.use(createStripeWebhookRoutes(db, { webhookSecret: connectWebhookSecret }))
+    : rootApp;
   // Self-serve upgrades, and the platform webhook that grants them. Both use one
   // upgrade service, which exists only with a Stripe client, so without one
   // neither is mounted. Key-optional like the Connect routes — no Stripe client,
   // no purchase surface.
-  if (!stripe) return app;
+  if (!stripe) return withStripeWebhook;
   // ONE catalogue, shared by the routes and the service. Two would mean two
   // price caches in the same isolate, so every cached read would be paid for
   // twice against the platform's Stripe quota.
   const upgradeCatalogue = createUpgradeCatalogue({ stripe, prices: upgradePrices });
   const upgrades = createUpgradeService({ stripe, catalogue: upgradeCatalogue });
-  const withUpgradeRoutes: AnyElysia = app.use(
+  const withUpgradeRoutes: AnyElysia = withStripeWebhook.use(
     createUpgradeRoutes(db, osnAuthOptions, {
       catalogue: upgradeCatalogue,
       upgrades,

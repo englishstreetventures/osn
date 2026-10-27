@@ -124,8 +124,8 @@ on one fluent Elysia chain. Where a new route goes:
 | Where | What goes there |
 |---|---|
 | Before `originGuard` | A route no browser session authenticates, whose callers do not all send an allowed `Origin`: the CSP collector, the internal revoke back-channel, the RSVP digest's stop link and the invite lookup. A global `onBeforeHandle` covers only what is mounted after it, so these skip the guard with no entry in `EXEMPT_PATHS` |
-| After the chain | The upgrade routes and the Stripe platform webhook. They share one upgrade service, which exists only with a Stripe client, and the `if (!stripe)` return skips both without one |
-| Anywhere else | Inside the chain, after the guard. A route that exists only under a setting mounts as `setting ? routes : new Elysia()`, as Connect onboarding and the Connect webhook do |
+| After the chain | The Stripe mounts: the Connect webhook, the upgrade routes and the platform webhook. The upgrade routes and the platform webhook share one upgrade service, which exists only with a Stripe client, and the `if (!stripe)` return skips both without one. No type limit keeps the two webhooks here |
+| Anywhere else | Inside the chain, after the guard. A route that exists only under a setting mounts as `setting ? routes : new Elysia()`, as Connect onboarding does |
 
 The two Stripe webhooks sit after the guard and skip it by exact path instead —
 [[cire-auth#CSRF origin guard]].
@@ -134,16 +134,25 @@ The two Stripe webhooks sit after the guard and skip it by exact path instead �
 inferred type names DTOs that the route modules do not export, which
 `declaration` (on in `shared/typescript-config/base.json`) refuses with TS4058.
 
-**The chain has a length limit that `typecheck` does not catch.** TypeScript
-7.1's `tsc` reports TS2589 once the chain reaches **99 calls**, counting
-`.decorate`, `.onError` and the upgrade routes' `app.use()` after the chain, and
-puts the error on `new Elysia(...)`, not on the call that crossed the limit.
-`createApp` makes **66**. `bun check`, which `typecheck` runs in CI and before a
-push, reported no error at **1,075**. Editors and the agents' `LSP` tool run
-`tsc` ([[agent-tooling#Code search]]), so they show the error while `typecheck`
-passes.
+Two type limits apply to the chain:
 
-*Measured 2026-10-27 on TypeScript 7.1.0-beta and Bun 1.4.4 — the chain's own mounts repeated in a scratch copy of `createApp`, checked with `node_modules/.bin/tsc -p cire/api --noEmit` and `bun run --cwd cire/api typecheck`*
+- **A conditional between two of the chain's types fails `typecheck`.**
+  `secret ? app.use(routes) : app` makes TypeScript compare the chain's type
+  with that type plus one `.use()`, and both `bun check` and `tsc` report TS2589
+  once the chain passes **33 calls**. Put the condition on the plugin,
+  `app.use(secret ? routes : new Elysia())`, or widen to `AnyElysia` first, as
+  `createApp` does before the Stripe mounts.
+- **The chain's length has a limit that `typecheck` does not catch.**
+  TypeScript 7.1's `tsc` reports TS2589 once the chain reaches **99 calls**,
+  counting `.decorate` and `.onError`, and puts the error on `new Elysia(...)`,
+  not on the call that crossed the limit. `bun check`, which `typecheck` runs in
+  CI and before a push, reported no error at **1,075**. Editors and the agents'
+  `LSP` tool run `tsc` ([[agent-tooling#Code search]]), so they show the error
+  while `typecheck` passes.
+
+`createApp` makes **64** chained calls.
+
+*Measured 2026-10-27 on TypeScript 7.1.0-beta and Bun 1.4.4 — the chain's own mounts repeated or cut in a scratch copy of `createApp`, checked with `node_modules/.bin/tsc -p cire/api --noEmit` and `bun run --cwd cire/api typecheck`*
 
 ### Soft-deleted weddings
 

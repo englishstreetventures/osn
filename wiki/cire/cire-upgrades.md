@@ -63,7 +63,9 @@ nothing.
 **Both endpoints are exempt from the CSRF origin guard** by exact path
 (`cire/api/src/lib/origin-guard.ts`). Stripe sends no `Origin`, so without the
 exemption the guard 403s every delivery before its signature is checked and
-Stripe retries the 403 for days.
+Stripe retries the 403 for days. Both are mounted after `createApp`'s route
+chain, and so after the guard; no type limit keeps them there
+([[cire-development#Mounting a route]]).
 
 ---
 
