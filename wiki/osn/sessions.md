@@ -101,13 +101,13 @@ QR-code mediated session transfer — authenticate on a new device by scanning a
 | Route | Auth | Purpose |
 |---|---|---|
 | `POST /login/cross-device/begin` | None | Create a pending request; returns `requestId` + `cdlSecret` |
-| `POST /login/cross-device/:requestId/status` | None | Poll for approval; returns session tokens once on approval |
-| `POST /login/cross-device/:requestId/approve` | Bearer | Device A approves; issues session for device B |
+| `POST /login/cross-device/:requestId/status` | None | Poll for approval; on approval, mints device B's session and returns it once |
+| `POST /login/cross-device/:requestId/approve` | Bearer | Device A approves; device B's next poll gets the session |
 | `POST /login/cross-device/:requestId/reject` | Bearer | Device A explicitly rejects |
 
-**Protocol:** Device B calls `begin`, renders a QR code encoding the `requestId` + `cdlSecret`, and polls `status` at ~2s intervals. Device A scans the QR, calls `approve` with its access token + the secret from the QR fragment. The server issues a session for device B and records a `cross_device_login` security event + email notification.
+**Protocol:** Device B calls `begin`, renders a QR code encoding the `requestId` + `cdlSecret`, and polls `status` at ~2s intervals. Device A scans the QR, calls `approve` with its access token + the secret from the QR fragment. The server records the approval — the approving account and the public profile device B signs in as, never a token — plus a `cross_device_login` security event + email notification. Device B's next poll takes the approved entry and only then mints its session.
 
-**Security properties:** 256-bit CSPRNG secret, SHA-256 hashed at rest, constant-time comparison, one-time session consumption, 5-minute TTL, rate-limited on all endpoints. The secret never appears in URL query strings (all endpoints use POST bodies). Pending requests live in the `cross_device` ceremony store, which a deployed Worker keeps on the coordination store, one object per request, gone when its TTL ends ([[coordination-store]]); the Bun dev server keeps them in memory.
+**Security properties:** 256-bit CSPRNG secret, SHA-256 hashed at rest, constant-time comparison, no token stored (the poll mints the session after it `take`s the approved entry, so one poll gets it), one decision per request (approve and reject each replace the pending entry they read in one `swap`, so of two at once one lands), 5-minute TTL, rate-limited on all endpoints. The secret never appears in URL query strings (all endpoints use POST bodies). Pending requests live in the `cross_device` ceremony store, which a deployed Worker keeps on the coordination store, one object per request, gone when its TTL ends ([[coordination-store]]); the Bun dev server keeps them in memory.
 
 ## Metadata captured at issue time
 

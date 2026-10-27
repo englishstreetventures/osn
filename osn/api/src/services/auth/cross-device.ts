@@ -92,8 +92,12 @@ export function createCrossDeviceModule(
 
   /**
    * Device B polls this to check whether device A has approved the request.
-   * Returns `{ status: "pending" }` until approved, then returns the session
-   * tokens exactly once (marks the request as consumed to prevent replay).
+   * Returns `{ status: "pending" }` until approved. The poll that finds the
+   * approval takes the entry and only then mints device B's session, so the
+   * session is delivered once — of two polls at once, one gets it and the
+   * other answers `expired` — and no token is ever stored. A session that
+   * fails to mint after the take answers the error, and the request is
+   * spent: device B begins again.
    */
   const getCrossDeviceLoginStatus = (
     requestId: string,
@@ -103,8 +107,8 @@ export function createCrossDeviceModule(
     | { status: "approved"; session: TokenSet; profile: PublicProfile }
     | { status: "rejected" }
     | { status: "expired" },
-    AuthError | CoordinationError,
-    never
+    AuthError | DatabaseError | CoordinationError,
+    Db
   > =>
     Effect.gen(function* () {
       const entry = yield* storeCall(stores.crossDeviceRequests, "get", () =>
@@ -135,24 +139,39 @@ export function createCrossDeviceModule(
         return { status: "rejected" as const };
       }
 
-      if (entry.status === "approved" && entry.session && entry.profile) {
-        // One-time consumption — prevent replay.
-        yield* storeCall(stores.crossDeviceRequests, "delete", () =>
-          stores.crossDeviceRequests.delete(requestId),
+      if (entry.status === "approved") {
+        // Single delivery: the take removes the entry in the same call that
+        // reads it, so only one poll holds the approval it mints from.
+        const taken = yield* storeCall(stores.crossDeviceRequests, "take", () =>
+          stores.crossDeviceRequests.take(requestId),
         );
-        return {
-          status: "approved" as const,
-          session: entry.session,
-          profile: entry.profile,
-        };
+        if (taken?.status !== "approved" || !taken.accountId || !taken.profile) {
+          return { status: "expired" as const };
+        }
+        const { accountId, profile } = taken;
+        // Device B's session, carrying device B's label from begin.
+        const session = yield* issueTokens(
+          profile.id,
+          accountId,
+          profile.email,
+          profile.handle,
+          profile.displayName,
+          undefined,
+          { uaLabel: taken.uaLabel, ip: null },
+        );
+        return { status: "approved" as const, session, profile };
       }
 
       return { status: "pending" as const, uaLabel: entry.uaLabel };
     }).pipe(withCrossDeviceOp("poll"));
 
   /**
-   * Device A (authenticated) approves the request. The server issues a
-   * session for device B and records a `cross_device_login` security event.
+   * Device A (authenticated) approves the request: the entry records who
+   * approved and the profile device B signs in as, never a token — device B's
+   * poll mints the session. The approval replaces the pending entry it read
+   * in one `swap`, so of two decisions at once (two approvals, or an approval
+   * and a rejection) exactly one lands; the other answers "already
+   * processed". Records a `cross_device_login` security event.
    */
   const approveCrossDeviceLogin = (
     requestId: string,
@@ -186,40 +205,31 @@ export function createCrossDeviceModule(
         return yield* Effect.fail(new AuthError({ message: "Request expired" }));
       }
 
-      // Resolve the approver's default profile to issue session for device B.
+      // The approver's default profile is the one device B signs in as.
       const profile = yield* findDefaultProfile(accountId);
       if (!profile) {
         return yield* Effect.fail(new AuthError({ message: "Profile not found" }));
       }
 
-      // Issue session for device B using device B's session meta (from begin).
-      const session = yield* issueTokens(
-        profile.id,
-        accountId,
-        profile.email,
-        profile.handle,
-        profile.displayName,
-        undefined,
-        { uaLabel: entry.uaLabel, ip: null },
-      );
-
-      // Store the session + profile on the request for device B to pick up.
-      // Re-persist the mutated entry (the store returns a copy, not a live
-      // reference) carrying the remaining TTL so it still expires on schedule.
+      // Replaces exactly the pending entry read above, with the remaining TTL
+      // so it still expires on schedule.
       const approvedEntry: CrossDeviceRequest = {
         ...entry,
         status: "approved",
         accountId,
-        session,
         profile: toPublicProfile(profile, profile.email),
       };
-      yield* storeCall(stores.crossDeviceRequests, "set", () =>
-        stores.crossDeviceRequests.set(
+      const decided = yield* storeCall(stores.crossDeviceRequests, "swap", () =>
+        stores.crossDeviceRequests.swap(
           requestId,
+          entry,
           approvedEntry,
-          Math.max(0, entry.expiresAt - Date.now()),
+          Math.max(1, entry.expiresAt - Date.now()),
         ),
       );
+      if (!decided) {
+        return yield* Effect.fail(new AuthError({ message: "Request already processed" }));
+      }
 
       // Audit trail — security event + best-effort email notification.
       const { db } = yield* Db;
@@ -249,7 +259,9 @@ export function createCrossDeviceModule(
 
   /**
    * Device A explicitly rejects the request — the next poll from device B
-   * will see `{ status: "rejected" }`.
+   * will see `{ status: "rejected" }`. Like an approval, it replaces the
+   * pending entry it read in one `swap`, so it lands only if no other
+   * decision has.
    */
   const rejectCrossDeviceLogin = (
     requestId: string,
@@ -272,15 +284,19 @@ export function createCrossDeviceModule(
         return yield* Effect.fail(new AuthError({ message: "Invalid secret" }));
       }
 
-      // Re-persist the rejected status (store returns a copy) with the
-      // remaining TTL so a subsequent poll observes "rejected" then cleans up.
-      yield* storeCall(stores.crossDeviceRequests, "set", () =>
-        stores.crossDeviceRequests.set(
+      // The rejected status, with the remaining TTL, so a subsequent poll
+      // observes "rejected" and then cleans up.
+      const decided = yield* storeCall(stores.crossDeviceRequests, "swap", () =>
+        stores.crossDeviceRequests.swap(
           requestId,
+          entry,
           { ...entry, status: "rejected" },
-          Math.max(0, entry.expiresAt - Date.now()),
+          Math.max(1, entry.expiresAt - Date.now()),
         ),
       );
+      if (!decided) {
+        return yield* Effect.fail(new AuthError({ message: "Request already processed" }));
+      }
     }).pipe(withCrossDeviceOp("reject"));
 
   return {

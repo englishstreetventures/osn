@@ -125,16 +125,18 @@ export interface CrossDeviceRequest {
   requestId: string;
   /** SHA-256 of the 256-bit secret — the plaintext never touches the server. */
   secretHash: string;
-  status: "pending" | "approved" | "rejected" | "consumed";
+  status: "pending" | "approved" | "rejected";
   /** Device B's coarse UA label. */
   uaLabel: string | null;
   /** Device B's peppered IP hash. */
   ipHash: string | null;
   expiresAt: number; // milliseconds
   createdAt: number; // milliseconds
-  // Populated on approve:
+  /**
+   * Set on approve: who approved, and the profile device B signs in as. Never
+   * a token — the poll that takes the approved entry mints device B's session.
+   */
   accountId?: string;
-  session?: { accessToken: string; refreshToken: string; expiresIn: number };
   profile?: PublicProfile;
 }
 
