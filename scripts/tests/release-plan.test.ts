@@ -1344,6 +1344,13 @@ describe("what the plan job writes", () => {
     expect(parseOutputs(outputLines({ ...release(decide([])), flip: "musubi_landing" })).flip).toBe(
       "musubi_landing",
     );
+    // The approver of a flip is told its four approvals, and when the site is down.
+    const flipSummary = renderSummary(
+      { ...release(decide(["musubi/landing/x.astro"])), flip: "musubi_landing" },
+      { head, repository: REPO, serverUrl: "https://github.com" },
+    );
+    expect(flipSummary).toContain("Four approvals, one per job");
+    expect(flipSummary).toContain("down from the detach until the deploy");
     expect(parseOutputs(outputLines(release(decide(["shared/infra/src/x.ts"]))))).toMatchObject({
       stacks: "musubi cire",
       any_stack: "true",

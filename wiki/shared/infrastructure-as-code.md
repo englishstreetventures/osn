@@ -16,7 +16,7 @@ related:
   - "[[monorepo-structure]]"
   - "[[database-environments]]"
   - "[[osn-and-musubi]]"
-last-reviewed: 2026-10-27
+last-reviewed: 2026-10-28
 ---
 
 # Infrastructure as code (Alchemy)
@@ -517,4 +517,4 @@ The CLI writes a record holding resource names, kinds, actions and counts in a f
 
 Owner actions before the first release: the production token gains Secrets Store Edit; `CLOUDFLARE_PAGES_DNS_TOKEN` and the `production-records` Environment (no reviewer, `main` only) are created; the production state store is bootstrapped, and again after every Alchemy bump; no Worker named `cire-host`, `cire-vendor`, `cire-landing`, `osn-social` or `musubi-landing` exists; and `pages-domain.ts check` finds `www.musubi.social` and each spare host free.
 
-**Moving a site's domain.** A pull request turns the site from `staged` to `worker`; a release dispatched with `flip: <site>` and `surfaces: <site>` then moves the domain, and the precheck refuses any release in which a `worker` site's host is still on Pages without that flip, so the daily run never moves one. The stack job is to take the domain and its CNAME off the Pages project (`pages-domain.ts detach`) right before the deploy attaches it; whether that step runs before the job's install or after its re-plan is still open, so `alchemy-plan` refuses every flip until it is settled (englishstreetventures/osn#1787). Rollback: remove the Worker's custom domain, `pages-domain.ts attach`, and revert the mode to `staged`. Each Pages project and its job stay until musubi.social has moved and soaked.
+**Moving a site's domain.** A pull request turns the site from `staged` to `worker`; a release dispatched with `flip: <site>` and `surfaces: <site>` then moves the domain, and the precheck refuses any release in which a `worker` site's host is still on Pages without that flip, so the daily run never moves one. A flip release runs three jobs for the site's stack, each asking its own approval after `alchemy-plan`'s: `stack-<stack>-verify` plans again and guards the flip against the approved plan, deploying nothing; `flip-detach-<stack>`, on a fresh runner with nothing installed and the only job holding `CLOUDFLARE_PAGES_DNS_TOKEN`, takes the domain and its CNAME off the Pages project (`pages-domain.ts check`, then `detach`); then `stack-<stack>-production` deploys, attaching the domain to the Worker. A release that moves no domain runs neither of the first two. Rollback: remove the Worker's custom domain, `pages-domain.ts attach`, and revert the mode to `staged` ([[production-deploy#5.7 Moving a site's domain from Pages to its Worker (a flip) 🔑]]). Each Pages project and its job stay until musubi.social has moved and soaked.

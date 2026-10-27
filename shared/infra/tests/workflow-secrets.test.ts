@@ -343,9 +343,9 @@ describe("PW3: production-release.yml hands each credential only to the steps th
     readFileSync(`${ROOT}.github/workflows/production-release.yml`, "utf8"),
   ) as Workflow;
   const productionJobs = Object.entries(PRODUCTION.jobs);
-  /** The jobs that run Alchemy: the plan job and each stack's deploy. */
+  /** The jobs that run Alchemy: the plan job, and each stack's flip verify and deploy. */
   const alchemyJobs = productionJobs.filter(
-    ([id]) => id === "alchemy-plan" || /^stack-[a-z]+-production$/.test(id),
+    ([id]) => id === "alchemy-plan" || /^stack-[a-z]+-(production|verify)$/.test(id),
   );
   const isInstall = (step: Step) => /\bbun install\b/.test(step.run ?? "");
 
@@ -355,11 +355,30 @@ describe("PW3: production-release.yml hands each credential only to the steps th
         secretsRead(step).includes(PAGES_DNS_CREDENTIALS[0] ?? "") ? [{ id, step, at, job }] : [],
       ),
     );
-    expect(readers.map(({ id, step }) => `${id} ${step.id}`)).toEqual(["alchemy-plan domains"]);
-    for (const { step, at, job } of readers) {
-      expect(step.run).toMatch(/^bun run scripts\/pages-domain\.ts /);
+    expect(readers.map(({ id, step }) => `${id} ${step.id}`).toSorted()).toEqual([
+      "alchemy-plan domains",
+      "flip-detach-cire detach",
+      "flip-detach-musubi detach",
+    ]);
+    for (const { id, step, at, job } of readers) {
+      // Every command the step runs is pages-domain.ts.
+      const commands = (step.run ?? "").split("\n").filter((line) => line.trim() !== "");
+      expect(commands.every((line) => line.startsWith("bun run scripts/pages-domain.ts "))).toBe(
+        true,
+      );
       const install = (job.steps ?? []).findIndex(isInstall);
-      expect(install).toBeGreaterThan(at);
+      expect({ id, installsBefore: install > -1 && install < at }).toEqual({
+        id,
+        installsBefore: false,
+      });
+      // The narrow token travels with the account id alone.
+      expect(secretsRead(step)).toEqual(
+        ["CLOUDFLARE_ACCOUNT_ID", ...PAGES_DNS_CREDENTIALS].toSorted(),
+      );
+    }
+    // A detach job installs nothing at all, so no dependency's code runs on its runner.
+    for (const [id, job] of productionJobs.filter(([name]) => name.startsWith("flip-detach-"))) {
+      expect({ id, installs: (job.steps ?? []).some(isInstall) }).toEqual({ id, installs: false });
     }
     for (const [, job] of productionJobs) {
       expect(secretsRead(job.env)).not.toContain(PAGES_DNS_CREDENTIALS[0]);
@@ -370,7 +389,9 @@ describe("PW3: production-release.yml hands each credential only to the steps th
     expect(alchemyJobs.map(([id]) => id).toSorted()).toEqual([
       "alchemy-plan",
       "stack-cire-production",
+      "stack-cire-verify",
       "stack-musubi-production",
+      "stack-musubi-verify",
     ]);
     const holds =
       /^(token|state|snapshot(_[a-z]+)?|plan(_[a-z]+)?|deploy|deployments|smoke_[a-z_]+)$/;

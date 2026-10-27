@@ -792,7 +792,8 @@ export function renderSummary(
       ? []
       : [
           `> [!IMPORTANT]`,
-          `> Flip release: \`${release.flip}\`'s domain moves from its Pages project to its Worker. Approve the deploy at low traffic.`,
+          `> Flip release: \`${release.flip}\`'s domain moves from its Pages project to its Worker, at low traffic.`,
+          "> Four approvals, one per job: the Alchemy plan, the verify job, the detach, then the deploy. The site is down from the detach until the deploy attaches its domain, so approve the deploy at once.",
           "",
         ];
   const approvals =

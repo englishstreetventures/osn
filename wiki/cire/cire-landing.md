@@ -14,7 +14,7 @@ related:
   - "[[cire-consent]]"
   - "[[cire-plus-ones]]"
   - "[[testing-patterns]]"
-last-reviewed: 2026-10-27
+last-reviewed: 2026-10-28
 ---
 
 # Cire Landing
@@ -272,7 +272,9 @@ apex-based invite links in the wild (guests use the full link).**
 
 Remaining **manual** steps (Cloudflare dashboard + one deploy), sequenced in
 [[production-deploy]]:
-1. Attach `host.cireweddings.com` custom domain → `cire-organiser` Pages.
+1. Attach `host.cireweddings.com` custom domain → the organiser portal's Pages project,
+   `cire-host`, the one `deploy-cire-host` deploys (confirm in the dashboard that it is
+   the project holding the domain).
 2. Attach apex `cireweddings.com` → `cire-landing` Pages (Cloudflare offers to
    *move* it off the `cire-invites` Worker — confirm).
 3. Confirm `invite.cireweddings.com` auto-provisioned on the `cire-invites` Worker
@@ -283,7 +285,8 @@ Remaining **manual** steps (Cloudflare dashboard + one deploy), sequenced in
    cire-api `WEB_ORIGIN` and `app.` from osn-api `OSN_ORIGIN`/`OSN_CORS_ORIGIN`
    (`cire/invites`'s Worker route was already `invite.`-only, no apex route to drop).
    **Remaining manual dashboard step:** remove the `app.cireweddings.com` custom
-   domain from the `cire-organiser` Pages project so `app.` stops resolving.
+   domain from the organiser portal's Pages project (`cire-host`, the one
+   `deploy-cire-host` deploys; confirm in the dashboard) so `app.` stops resolving.
 
 ## Roadmap — toward a wedding platform
 

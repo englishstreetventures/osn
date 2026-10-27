@@ -15,7 +15,7 @@ related:
   - "[[cire-entitlements]]"
   - "[[stripe-webhooks]]"
   - "[[infrastructure-as-code]]"
-last-reviewed: 2026-10-27
+last-reviewed: 2026-10-28
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -882,10 +882,11 @@ what holds it.
    commit; only a `force` dispatch does. The one automatic step back is a failed smoke
    check (item 7).
 5. **A production job stuck on `Waiting` is the approval gate**, not a hang. See §5.5.
-   When a stack ships there are two: `alchemy-plan` first, then every other job.
+   When a stack ships there are two: `alchemy-plan` first, then every other job. A
+   flip release has four, one per job (§5.7).
    - **A red `alchemy-plan`** holds every deploy job. Its failing step says why: a
      worker site whose domain is still on Pages (the step names the dispatch that moves
-     it), a flip (refused for now), the token or the state store (bootstrap it after an
+     it), the token or the state store (bootstrap it after an
      Alchemy bump), a plan step (the next step prints its log), or the guard (its
      summary names each refused resource and action).
    - **A red stack job's guard step** with "not the one approved" means the plan
@@ -1192,6 +1193,7 @@ Nothing reaches production unattended, and nothing reaches it per merge.
   every other shipping job — the Wrangler API jobs, the Pages jobs and the stack jobs —
   reaches the gate at the same moment, and one review releases them all (approval 2).
   When no stack ships, `alchemy-plan` is skipped and that one review is all. A release
+  that moves a site's domain asks four, one per job (§5.7). A release
   with nothing to ship skips `build` and asks for nothing.
 - **A failure before the gate stops everything.** Every deploy job needs `alchemy-plan`
   to have passed or been skipped. A guard refusal, a failed site build, a state store
@@ -1235,7 +1237,7 @@ same surfaces again with whatever merged since.
 | Input | Effect |
 |---|---|
 | `surfaces` | Limit the release to these surface keys (the table in §5.0), comma or space separated. Empty means every surface. The rest stay where they are until a later release. |
-| `flip` | A site whose domain this release moves from its Pages project to its Worker, with `surfaces` naming that site alone. `alchemy-plan` refuses every flip until the stack job's detach step lands (englishstreetventures/osn#1787). |
+| `flip` | A site whose domain this release moves from its Pages project to its Worker, with `surfaces` naming that site alone (§5.7). |
 | `force` | Ship those surfaces even if production already runs this commit's content, and skip the dev check. With `surfaces` empty it forces every surface, and rolls back any that runs a newer commit. For a change no path shows: a repo Variable baked into a build (`PUBLIC_TURNSTILE_SITEKEY`, `PUBLIC_GOOGLE_MAPS_EMBED_KEY`), a `.bun-version` or `bunfig.toml` change, or a hand-run `wrangler deploy`, `wrangler rollback` or Pages dashboard rollback — none of which leaves a Deployment record. |
 
 Approve or reject the waiting release **before** you dispatch one with inputs. A
@@ -1384,6 +1386,53 @@ on the repository and on each Environment shows Cloudflare names only as
 stated here.*
 
 ---
+
+### 5.7 Moving a site's domain from Pages to its Worker (a flip) 🔑
+
+Each Pages site moves one at a time, in the order cire vendor, cire host, cire landing,
+then `musubi.social` (englishstreetventures/osn#1787). Before each:
+
+- The site has run `staged` through at least one release, and the `site-parity` artifact
+  of the latest release shows no difference a real path relies on (an unknown path's 404
+  in place of Pages' 200, and Pages' `access-control-allow-origin: *`, are accepted
+  unless one does).
+- A pull request turns the site from `staged` to `worker` in
+  `shared/infra/src/production-sites.ts`. Once it merges, every release that ships the
+  site's stack fails at `alchemy-plan`'s precheck until the flip runs, so the daily run
+  never moves a domain; dispatch releases whose `surfaces` leave that stack's sites out
+  meanwhile.
+
+**The flip release.** At low traffic, dispatch **Production release** with
+`flip: <site>` and `surfaces: <site>`. It runs only the site's stack, and asks four
+approvals, one per job, in this order:
+
+1. `alchemy-plan` — the precheck confirms the host is still on the site's Pages project;
+   the plan must show the site's Worker as its only `update`, every other line a noop.
+2. `stack-<stack>-verify` — plans the stack again with the same force, and refuses unless
+   the plan is still that one update and equals the plan approved in step 1. It deploys
+   nothing and holds no Pages token. A refusal here ends the release with nothing moved.
+3. `flip-detach-<stack>` — on a fresh runner with nothing installed, the only job holding
+   `CLOUDFLARE_PAGES_DNS_TOKEN`: `pages-domain.ts check`, then `detach`, which takes the
+   host off the Pages project and deletes its CNAME. **The site is down from here** until
+   step 4's deploy attaches the domain, so approve step 4 at once.
+4. `stack-<stack>-production` — installs, checks the state store, deploys (which attaches
+   the domain to the Worker), and smoke-checks the site on its production host, rolling
+   back on failure. The record job then records the site in `production-records`.
+
+**If step 4 fails or the site misbehaves**, roll back in this order:
+
+1. Take the custom domain off the Worker: in the dashboard (Workers → the site's Worker →
+   Settings → Domains & Routes), or by merging a pull request that sets the mode back to
+   `staged`, whose next release detaches it.
+2. `bun run scripts/pages-domain.ts attach <site>` with `CLOUDFLARE_ACCOUNT_ID` and
+   `CLOUDFLARE_PAGES_DNS_TOKEN`: it refuses while any DNS record for the host remains,
+   then puts the CNAME back and adds the domain to the Pages project. Pages re-validates
+   and issues the certificate, which takes minutes.
+3. Revert the flip pull request, so the mode is `staged` again and no release tries to
+   attach the domain.
+
+Each Pages project and its job keep deploying until `musubi.social` has moved and
+soaked, so the Pages copy a rollback returns to is current.
 
 ## 6. Optional: guest account-linking bridge (cire → osn)
 
