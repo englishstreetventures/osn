@@ -101,7 +101,8 @@ export default function ImageCropModal(props: ImageCropModalProps) {
 
   /**
    * The displayed image's box in `<cropper-canvas>` pixel space — the
-   * coordinate space all selection geometry lives in — under `matrix`.
+   * coordinate space all selection geometry lives in — for `picture` under
+   * `matrix`.
    *
    * Arithmetic only, no layout read. cropperjs lays `<cropper-image>` out at the
    * canvas origin at the picture's natural size and moves it only through its
@@ -110,10 +111,9 @@ export default function ImageCropModal(props: ImageCropModalProps) {
    * makes is positive, so the matrix is `[a, 0, 0, d, e, f]` with `a, d > 0`.
    * Undefined until the picture's natural size is known.
    */
-  function imageBoxFor(matrix: readonly number[]): Box | undefined {
-    const picture = cropperImage()?.$image;
-    const width = picture?.naturalWidth ?? 0;
-    const height = picture?.naturalHeight ?? 0;
+  function imageBoxFor(picture: HTMLImageElement, matrix: readonly number[]): Box | undefined {
+    const width = picture.naturalWidth;
+    const height = picture.naturalHeight;
     if (width <= 0 || height <= 0) return undefined;
     const [a, , , d, e, f] = matrix;
     return {
@@ -133,22 +133,6 @@ export default function ImageCropModal(props: ImageCropModalProps) {
    * multiplications. An update that cannot work a box out keeps the last one.
    */
   let imageBounds: Box | undefined;
-
-  /** Recompute {@link imageBounds} from the matrix the image carries now. */
-  function refreshImageBounds() {
-    const img = cropperImage();
-    if (img) imageBounds = imageBoxFor(img.$getTransform()) ?? imageBounds;
-  }
-
-  /**
-   * cropperjs fires `transform` with the matrix it applies the moment the event
-   * returns, and nothing in this editor cancels it, so the box is current
-   * before the next selection change is checked against it.
-   */
-  function onImageTransform(e: Event) {
-    const { matrix } = (e as CustomEvent<{ matrix: number[] }>).detail;
-    imageBounds = imageBoxFor(matrix) ?? imageBounds;
-  }
 
   // Rounding slack for the containment veto below — see `boxWithinBounds`.
   const EDGE_EPS = 1;
@@ -220,14 +204,16 @@ export default function ImageCropModal(props: ImageCropModalProps) {
       // box over the displayed image once it's ready (v1's `autoCropArea: 1`).
       // No `rotatable`: a saved crop carries no rotation, and with it a pinch
       // tilts the image as it zooms, so the frame saved would not be the one
-      // shown. Without it cropperjs turns a pinch into a plain zoom.
+      // shown. Without it cropperjs turns a pinch into a plain zoom. The shade,
+      // grid and crosshair only draw, so assistive technology is told nothing
+      // about them; the grid carries no `role`, having no rows or cells.
       template: `<cropper-canvas background style="width:100%;height:100%">
         <cropper-image scalable translatable></cropper-image>
-        <cropper-shade hidden></cropper-shade>
+        <cropper-shade hidden aria-hidden="true"></cropper-shade>
         <cropper-handle action="select" plain></cropper-handle>
         <cropper-selection movable resizable outlined>
-          <cropper-grid role="grid" covered></cropper-grid>
-          <cropper-crosshair centered></cropper-crosshair>
+          <cropper-grid covered aria-hidden="true"></cropper-grid>
+          <cropper-crosshair centered aria-hidden="true"></cropper-crosshair>
           <cropper-handle action="move" theme-color="rgba(255,255,255,0.35)"></cropper-handle>
           <cropper-handle action="n-resize"></cropper-handle>
           <cropper-handle action="e-resize"></cropper-handle>
@@ -246,7 +232,23 @@ export default function ImageCropModal(props: ImageCropModalProps) {
     if (sel) {
       sel.aspectRatio = presetAspectRatio(preset(), props.slot);
       sel.addEventListener("change", onSelectionChange);
+      onCleanup(() => sel.removeEventListener("change", onSelectionChange));
     }
+    if (!img) return;
+
+    /** Recompute {@link imageBounds} from the matrix the image carries now. */
+    const refreshImageBounds = () => {
+      imageBounds = imageBoxFor(img.$image, img.$getTransform()) ?? imageBounds;
+    };
+
+    // cropperjs fires `transform` with the matrix it applies the moment the
+    // event returns, and nothing in this editor cancels it, so the box is
+    // current before the next selection change is checked against it.
+    const onImageTransform = (e: Event) => {
+      const { matrix } = (e as CustomEvent<{ matrix: number[] }>).detail;
+      imageBounds = imageBoxFor(img.$image, matrix) ?? imageBounds;
+    };
+
     // Position the box once cropperjs has sized and centred the image. Its own
     // `load` handler does that, and cropperjs added it when `<cropper-image>`
     // connected inside `new Cropper` above, so this one runs after it. Not
@@ -263,14 +265,13 @@ export default function ImageCropModal(props: ImageCropModalProps) {
         fitSelectionToImage(presetAspectRatio(preset(), props.slot));
       }
     };
-    img?.$image.addEventListener("load", openSelection, { once: true });
-    img?.addEventListener("transform", onImageTransform);
+    img.$image.addEventListener("load", openSelection, { once: true });
+    img.addEventListener("transform", onImageTransform);
     window.addEventListener("resize", refreshImageBounds);
     onCleanup(() => {
       window.removeEventListener("resize", refreshImageBounds);
-      img?.removeEventListener("transform", onImageTransform);
-      img?.$image.removeEventListener("load", openSelection);
-      sel?.removeEventListener("change", onSelectionChange);
+      img.removeEventListener("transform", onImageTransform);
+      img.$image.removeEventListener("load", openSelection);
     });
   });
 

@@ -178,6 +178,30 @@ async function zoom(deltaY: number) {
   return { before, after: imageRect() };
 }
 
+interface AXNode {
+  ignored: boolean;
+  role?: { value: string };
+}
+
+interface Frame {
+  frame: { id: string; url: string };
+  childFrames?: Frame[];
+}
+
+/** Chrome's accessibility tree for the frame this test runs in. */
+async function accessibilityTree(): Promise<AXNode[]> {
+  const session = cdp();
+  const { frameTree } = (await session.send("Page.getFrameTree")) as { frameTree: Frame };
+  const find = (node: Frame): Frame | undefined =>
+    node.frame.url === location.href ? node : node.childFrames?.map(find).find(Boolean);
+  const own = find(frameTree);
+  if (!own) throw new Error(`no frame at ${location.href}`);
+  const { nodes } = (await session.send("Accessibility.getFullAXTree", {
+    frameId: own.frame.id,
+  })) as { nodes: AXNode[] };
+  return nodes;
+}
+
 /** The box's right edge sits at the image's right edge: within one move, and not past it. */
 function expectStoppedAtRightEdge(box: DOMRect, img: DOMRect) {
   expect(box.right).toBeLessThanOrEqual(img.right + EDGE);
@@ -366,6 +390,16 @@ describe("ImageCropModal in Chromium", () => {
     expect(c).toBe(0);
     const img = imageRect();
     expect(img.width / img.height).toBeCloseTo(2, 2);
+  });
+
+  it("gives assistive technology no grid for the guide lines drawn over the box", async () => {
+    await page.viewport(1280, 900);
+    const { dialog } = open(await fixtureUrl());
+    settle(dialog);
+    await boxOpened();
+
+    const exposed = (await accessibilityTree()).filter((node) => !node.ignored);
+    expect(exposed.map((node) => node.role?.value)).not.toContain("grid");
   });
 
   it("removes every window resize listener it adds when it closes", async () => {
