@@ -110,10 +110,13 @@ const editorContract = {
  * guests-only save is {@link GuestsChangeBody}.
  */
 export const DesiredStateChangeBody = Schema.Struct({
-  desiredState: DesiredState,
   // Which half of the wedding this save is authoritative over. The events
-  // editor sends `"events"`; omitted, it defaults to `"both"`.
+  // editor sends `"events"`; omitted, it defaults to `"both"`. Declared before
+  // the draft: fields decode in order and stop at the first refusal, so a
+  // guests body, which {@link ChangeBody} tries against this one first, is
+  // refused here before any of its draft is read.
   scope: Schema.optional(Schema.Literals(["both", "events"])),
+  desiredState: DesiredState,
   ...editorContract,
 });
 export type DesiredStateChangeBody = Schema.Schema.Type<typeof DesiredStateChangeBody>;
@@ -125,8 +128,10 @@ export type DesiredStateChangeBody = Schema.Schema.Type<typeof DesiredStateChang
  * save would refuse does not block the guest list.
  */
 export const GuestsChangeBody = Schema.Struct({
-  desiredState: GuestsScopeDesiredState,
+  // Before the draft, as in `DesiredStateChangeBody`: a schedule body that
+  // fails that member is refused here without its draft being read again.
   scope: Schema.Literal("guests"),
+  desiredState: GuestsScopeDesiredState,
   ...editorContract,
 });
 

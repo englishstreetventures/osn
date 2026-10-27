@@ -47,7 +47,7 @@ import {
 } from "./guest-validation";
 import type { OrganiserGuestRow } from "./guests-store";
 import type { OrganiserHouseholdRow } from "./households-store";
-import { browserTimeZone, canonicalTimeZone } from "./timezones";
+import { browserTimeZone, isKnownTimeZone } from "./timezones";
 
 // ── Draft row shapes ─────────────────────────────────────────────────────────
 //
@@ -770,17 +770,6 @@ export interface FieldError {
 export function validateDraft(draft: DraftState): FieldError[] {
   const errors: FieldError[] = [];
   const tooLong = (s: string) => s.length > MAX_CELL_LENGTH;
-  // Each distinct zone is looked up once per pass: this runs on every draft
-  // change, and building an `Intl` formatter is the slow part.
-  const zoneResolves = new Map<string, boolean>();
-  const resolves = (zone: string): boolean => {
-    let known = zoneResolves.get(zone);
-    if (known === undefined) {
-      known = canonicalTimeZone(zone) !== null;
-      zoneResolves.set(zone, known);
-    }
-    return known;
-  };
 
   // ── Events ──
   const seenEventName = new Map<string, string>();
@@ -831,7 +820,7 @@ export function validateDraft(draft: DraftState): FieldError[] {
       scheduleError("Timezone is required.");
     } else if (tooLong(evt.timezone)) {
       errors.push({ key: evt.key, message: "Timezone is too long." });
-    } else if (!resolves(evt.timezone)) {
+    } else if (!isKnownTimeZone(evt.timezone)) {
       scheduleError("Choose a timezone from the list.");
     }
 

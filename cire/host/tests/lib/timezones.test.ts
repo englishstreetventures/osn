@@ -4,6 +4,7 @@ import {
   browserTimeZone,
   canonicalTimeZone,
   describeTimeZone,
+  isKnownTimeZone,
   timeZoneGroups,
   zoneOffset,
 } from "../../src/lib/timezones";
@@ -118,6 +119,25 @@ describe("canonicalTimeZone", () => {
   it("rejects fixed-offset forms and anything Intl can't resolve", () => {
     for (const zone of ["+05:30", "-14:00", "Not/AZone", "", "Mars/Olympus_Mons"]) {
       expect(canonicalTimeZone(zone)).toBeNull();
+    }
+  });
+});
+
+describe("isKnownTimeZone", () => {
+  it("takes a real zone in any ASCII casing, and refuses what canonicalTimeZone refuses", () => {
+    expect(isKnownTimeZone("Asia/Kolkata")).toBe(true);
+    expect(isKnownTimeZone("ASIA/KOLKATA")).toBe(true);
+    for (const zone of ["AEST", "+10:00", "Not/AZone", ""]) {
+      expect(isKnownTimeZone(zone)).toBe(false);
+    }
+  });
+
+  it("never lets a refused spelling read a real zone's remembered answer", () => {
+    // The Kelvin sign (U+212A) is written as an escape: normalising the file
+    // would turn the character itself into an ASCII `K`.
+    expect(isKnownTimeZone("Asia/Kolkata")).toBe(true);
+    for (const zone of ["Bsia/Kolkata", "asia/kolkatx", "Asia/\u212Aolkata"]) {
+      expect(isKnownTimeZone(zone)).toBe(false);
     }
   });
 });
