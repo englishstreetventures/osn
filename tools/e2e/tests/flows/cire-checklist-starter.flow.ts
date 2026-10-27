@@ -11,8 +11,8 @@
  *
  * Then, on the same page, the owner collapses the module rail to its icons,
  * reads a module's label from the keyboard, reloads to find the rail still
- * collapsed, opens the locked Vendors card from the narrow rail and expands
- * the rail again.
+ * collapsed, opens and closes the locked Vendors card from the narrow rail,
+ * expands the rail again and scrolls to check it sticks below the top bar.
  */
 
 import type { Page } from "@playwright/test";
@@ -238,16 +238,16 @@ test("cire-checklist-starter", async ({ page, flow }) => {
   );
 
   const named = await flow.step("name a module from the collapsed rail", async () => {
-    // From the toggle at the rail's foot, back up to the last module.
-    await page.keyboard.press("Shift+Tab");
-    await expect(nav.getByRole("button", { name: "Settings", exact: true })).toBeFocused();
-    const label = page.locator("[data-rail-tip]", { hasText: "Settings" });
+    // From the toggle at the top of the rail, Tab goes to the first module.
+    await page.keyboard.press("Tab");
+    await expect(nav.getByRole("button", { name: "Overview", exact: true })).toBeFocused();
+    const label = page.locator("[data-rail-tip]", { hasText: "Overview" });
     await expect(label).toBeVisible();
     return (await label.locator("span").allTextContents()).join(" / ");
   });
   flow.check(
     "rail: a focused row shows its label and its hint",
-    "Settings / Profile, budget, and co-hosts",
+    "Overview / Your wedding at a glance",
     named,
   );
 
@@ -264,22 +264,37 @@ test("cire-checklist-starter", async ({ page, flow }) => {
   flow.check("rail: still collapsed after a reload, in px", RAIL_COLLAPSED, reloaded.width);
   flow.check("rail: painted collapsed, with no slide on load", 0, reloaded.slides);
 
-  const card = await flow.step("open a locked module's card from the collapsed rail", async () => {
-    await vendors.click();
-    const offer = page.getByRole("dialog", { name: "Vendors & directory" });
-    const upgrade = offer.getByRole("button", { name: "Upgrade to Crimson" });
-    await expect(upgrade).toBeFocused();
-    const eyebrow = (await offer.getByText(/^Included with /).textContent()) ?? "";
-    await page.keyboard.press("Escape");
-    await expect(offer).toBeHidden();
-    await expect(vendors).toBeFocused();
-    return { eyebrow, returned: await vendors.evaluate((row) => row === document.activeElement) };
-  });
+  const card = await flow.step(
+    "open and close a locked module's card from the collapsed rail",
+    async () => {
+      const offer = page.getByRole("dialog", { name: "Vendors & directory" });
+      const upgrade = offer.getByRole("button", { name: "Upgrade to Crimson" });
+      // A click opens the card; a second click on the same icon closes it.
+      await vendors.click();
+      await expect(upgrade).toBeFocused();
+      const eyebrow = (await offer.getByText(/^Included with /).textContent()) ?? "";
+      await vendors.click();
+      await expect(offer).toBeHidden();
+      const closedByClick = !(await offer.isVisible());
+      // From the keyboard, Enter opens it and Escape hands focus back to the row.
+      await vendors.press("Enter");
+      await expect(upgrade).toBeFocused();
+      await page.keyboard.press("Escape");
+      await expect(offer).toBeHidden();
+      await expect(vendors).toBeFocused();
+      return {
+        eyebrow,
+        closedByClick,
+        returned: await vendors.evaluate((row) => row === document.activeElement),
+      };
+    },
+  );
   flow.check(
     "rail: a press on a locked icon opens its card",
     "Included with Crimson",
     card.eyebrow,
   );
+  flow.check("rail: a second click on the locked icon closes its card", true, card.closedByClick);
   flow.check("rail: Escape hands focus back to the locked row", true, card.returned);
 
   const expanded = await flow.step("expand the module rail", async () => {

@@ -430,7 +430,7 @@ function LockedRow(props: {
  * It is faded, navigates nowhere, and offers the upgrade instead — see
  * {@link LockedRow}.
  *
- * The rail collapses to its icons and back from a toggle at its foot, and the
+ * The rail collapses to its icons and back from a toggle at its top, and the
  * browser remembers the choice (`lib/rail-preference.ts`). Collapsed, every row
  * is still one click away and still marked when active; its label moves into
  * {@link RailTip}. The sheet ignores the choice: a phone has no room to give.
@@ -567,6 +567,34 @@ export default function ModuleSidebar(props: {
           sliding() ? "transition-[width] duration-(--dur-base) ease-(--ease-in-out)" : ""
         } ${collapsed() ? "w-10.5" : "w-52 @5xl/shell:w-56"}`}
       >
+        {/* The toggle: at the top of the rail, above the first module and a
+            hairline, in the icons' own column, so it does not move between
+            the two states and a second click undoes the first. It comes
+            first in the tab order because it comes first on screen: focus
+            follows what the eye reads, and a control placed before the list
+            it changes is met before that list. Icon-only in both states,
+            never a row with a label, so it is not read as one more module,
+            and outside the `<nav>`, which holds the modules alone. Its name
+            changes with the state and it also carries `aria-expanded`: the
+            name is the words its label shows, and a state change is
+            announced where a renamed focused button often is not. */}
+        <div class="border-border mb-2 border-b pb-2">
+          <RailTip
+            enabled={!cardOpen()}
+            label={collapsed() ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            <Tooltip.Trigger
+              as={ToggleButton}
+              aria-label={collapsed() ? "Expand sidebar" : "Collapse sidebar"}
+              aria-expanded={!collapsed()}
+              aria-controls={navId}
+              onClick={toggleRail}
+              class={`${rowIdle} flex w-fit items-center rounded-sm px-3 py-2 transition-colors duration-(--dur-fast) ease-(--ease-out)`}
+            >
+              <ModuleIcon icon={collapsed() ? PanelLeftOpen : PanelLeftClose} class="opacity-80" />
+            </Tooltip.Trigger>
+          </RailTip>
+        </div>
         <nav
           id={navId}
           ref={pill.track}
@@ -592,7 +620,7 @@ export default function ModuleSidebar(props: {
               // in the row's flow at no width, with the gap before it gone. Not
               // `sr-only`: that takes the label's line box out of the row, which
               // is taller than the icon, and every row below would rise a
-              // little — the toggle at the foot by about 20px. Expanding after a
+              // little — Settings, the last, by about 17px. Expanding after a
               // press, the label fades in as the rail makes room rather than
               // appearing cut short.
               //
@@ -682,32 +710,6 @@ export default function ModuleSidebar(props: {
             }}
           </For>
         </nav>
-
-        {/* The toggle: below the modules, so every row keeps its place and Tab
-            reaches the modules first, and in the icons' own column, so it does
-            not move between the two states and a second click undoes the
-            first. Icon-only in both, never a row with a label, so it is not
-            read as one more module. Its name changes with the state and it
-            also carries `aria-expanded`: the name is the words its label
-            shows, and a state change is announced where a renamed focused
-            button often is not. */}
-        <div class="border-border mt-2 border-t pt-2">
-          <RailTip
-            enabled={!cardOpen()}
-            label={collapsed() ? "Expand sidebar" : "Collapse sidebar"}
-          >
-            <Tooltip.Trigger
-              as={ToggleButton}
-              aria-label={collapsed() ? "Expand sidebar" : "Collapse sidebar"}
-              aria-expanded={!collapsed()}
-              aria-controls={navId}
-              onClick={toggleRail}
-              class={`${rowIdle} flex w-fit items-center rounded-sm px-3 py-2 transition-colors duration-(--dur-fast) ease-(--ease-out)`}
-            >
-              <ModuleIcon icon={collapsed() ? PanelLeftOpen : PanelLeftClose} class="opacity-80" />
-            </Tooltip.Trigger>
-          </RailTip>
-        </div>
       </div>
 
       {/* ── Narrow container: trigger + sheet ──────────────────────────── */}

@@ -296,7 +296,7 @@ checks it under print media.
 
 ### The rail, collapsed
 
-The module rail collapses to its icons from a toggle at its foot, and back.
+The module rail collapses to its icons from a toggle at its top, and back.
 Each choice, and what it was weighed against:
 
 - **An icon rail, not a hidden or off-canvas one.** Collapsed, the rail is
@@ -316,14 +316,20 @@ Each choice, and what it was weighed against:
 - **Every row keeps its place.** A collapsed label stays in the row's flow at
   no width, with the gap before it gone. `sr-only` would take the label's line
   box, which is taller than the icon, out of the row, and every row below would
-  rise — the toggle by about 20px, out from under the pointer that pressed it.
-- **The toggle sits at the rail's foot**, under a hairline below Settings, in
-  the icons' column and outside the `<nav>`. It is icon-only in both states
-  (`panel-left-close`, `panel-left-open`), so it never reads as one more module.
-  At the foot rather than the top, the modules keep their places and come first
-  in the tab order, so a keyboard user who never collapses the rail pays
-  nothing. The whole rail is about 420px tall, so the foot is on screen on a
-  short laptop.
+  rise — Settings, the last, by about 17px.
+- **The toggle sits at the rail's top** — the owner's choice — above the first
+  module and a hairline, in the icons' column and outside the `<nav>`, which
+  holds the modules alone. It stays in that one place in both states, so after
+  a click it is still under the pointer and a second click undoes the first.
+  It is icon-only in both states (`panel-left-close`, `panel-left-open`), so it
+  never reads as one more module.
+- **The toggle comes first in the tab order.** Focus follows what is on screen
+  (WCAG 2.4.3 focus order, 1.3.2 meaningful sequence): a toggle drawn above the
+  modules but reached after them, by CSS `order` or a `tabindex`, would send
+  keyboard focus back up the rail. It is also the order a reader meets the
+  controls in — the control that changes the list, then the list. The cost is
+  one Tab stop before Overview on every keyboard pass through the rail; a
+  keyboard user who never collapses it pays that stop and nothing more.
 - **Its name changes with the state, and it keeps `aria-expanded`.** "Collapse
   sidebar" and "Expand sidebar" are also the words its tooltip shows, so voice
   control can say what it sees; `aria-expanded` is there because a screen
@@ -343,11 +349,13 @@ Each choice, and what it was weighed against:
   the expanded row uses `title` — so a screen reader hears the same in both
   states. `@shared/ui`'s `Tooltip` does not fit: its trigger is a span that
   takes no focus.
-- **No dwell on the collapsed rail.** On the expanded rail, a pointer resting
-  three seconds on a locked row opens its card. Collapsed, the tooltip names
-  the tier after 300ms, and a card in the same place three seconds later would
-  say it again, so there a locked row's card opens on a press only. No tooltip
-  shows while any card is open.
+- **On the collapsed rail a locked card opens on a press and closes on the
+  next** — the owner's choice. On the expanded rail, a pointer resting three
+  seconds on a locked row also opens its card. Collapsed, the tooltip names the
+  tier after 300ms, and a card in the same place three seconds later would say
+  it again, so there is no dwell: a click, Enter or Space opens the card, a
+  second click on the same row closes it, and Escape closes it and puts focus
+  back on the row. No tooltip shows while any card is open.
 - **Motion.** On a press, the rail's `width` transitions over `--dur-base` with
   `--ease-in-out`, something moving between two places. Only on a press: the
   expanded width also steps at `@5xl/shell` (a resize, zoom, a scrollbar
@@ -382,7 +390,7 @@ Each choice, and what it was weighed against:
 `ModuleSidebar.collapse.browser.test.tsx` checks the places, the icon and
 tooltip ink, the tooltip, the names and the motion in Chromium; the
 `cire-checklist-starter` end-to-end flow checks the toggle, the stored choice
-across a reload, a locked card opened from the narrow rail and the rail
+across a reload, a locked card opened and closed from the narrow rail and the rail
 sticking below the real top bar.
 
 ---

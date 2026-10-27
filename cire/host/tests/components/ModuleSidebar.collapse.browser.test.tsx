@@ -136,7 +136,7 @@ const box = (el: Element) => el.getBoundingClientRect();
 const glyph = (el: Element) => el.querySelector("svg")!;
 /** A row's label: the first `<span>` in it, after the icon. */
 const labelOf = (el: Element) => el.querySelector("span")!;
-/** Where every icon on the rail sits, the toggle's last. */
+/** Where every icon on the rail sits, the toggle's first. */
 const marks = () =>
   [...rail().querySelectorAll("svg")].map((svg) => {
     const { left, top } = svg.getBoundingClientRect();
@@ -283,11 +283,12 @@ describe("the collapsed rail at desktop width", () => {
       expect(width(rail())).toBe(EXPANDED);
       // No label shows until a pointer or focus asks for one.
       expect(tip()).toBeNull();
-      // Expanded: a row's label sits one gap after its icon, and the toggle's
-      // icon sits in the rows' icon column.
+      // Expanded: a row's label sits one gap after its icon, and the toggle
+      // sits above the first module, its icon in the rows' icon column.
       const overviewRow = row("Overview");
       expect(box(labelOf(overviewRow)).left - box(glyph(overviewRow)).right).toBeCloseTo(12, 1);
       expect(box(glyph(toggle())).left).toBe(box(glyph(overviewRow)).left);
+      expect(box(toggle()).bottom).toBeLessThan(box(overviewRow).top);
       // A row shows no label beside it — its name is on screen, and its hint is
       // its native tooltip — while the toggle, an icon alone, names itself.
       await userEvent.hover(overviewRow);
@@ -375,6 +376,14 @@ describe("the collapsed rail at desktop width", () => {
     expect(await describedAs("Overview")).toBe("Your wedding at a glance");
     expect(await describedAs("Collapse sidebar")).toBe("");
 
+    // The toggle is first in the tab order, as it is first on screen, and Tab
+    // goes from it to the first module.
+    (document.activeElement as HTMLElement | null)?.blur();
+    await userEvent.tab();
+    expect(document.activeElement).toBe(toggle());
+    await userEvent.tab();
+    expect(document.activeElement).toBe(row("Overview"));
+
     await slide(COLLAPSED);
     expect(toggle().getAttribute("aria-expanded")).toBe("false");
     expect(document.getElementById(toggle().getAttribute("aria-controls")!)).toBe(nav());
@@ -399,7 +408,7 @@ describe("the collapsed rail at desktop width", () => {
     expect(await describedAs("Expand sidebar")).toBe("");
   });
 
-  it("keeps the labels off a locked row's card, and opens no card on a resting pointer", async () => {
+  it("opens and closes a locked row's card on a press, keeps the labels off it, and opens none on a resting pointer", async () => {
     await page.viewport(1280, 800);
     await ready(renderPage());
     await slide(COLLAPSED);
@@ -437,11 +446,13 @@ describe("the collapsed rail at desktop width", () => {
     await vi.waitFor(() => expect(upgrade()).not.toBeNull());
     expect(tip()).toBeNull();
 
-    // Pressed again, the card closes. A pointer resting on the row past the
-    // expanded rail's three-second dwell opens nothing more: collapsed, the
-    // label names the lock and the card waits for a press.
+    // A second press on the same row closes its card: open on a press, close
+    // on the next.
     await userEvent.click(vendors());
     await vi.waitFor(() => expect(upgrade()).toBeNull());
+    // A pointer resting on the row past the expanded rail's three-second dwell
+    // opens nothing more: collapsed, the label names the lock and the card
+    // waits for a press.
     await pause(3_400);
     expect(upgrade()).toBeNull();
 
