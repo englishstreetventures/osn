@@ -41,7 +41,7 @@ describe("sameRepository", () => {
   });
 
   test("never matches the private tracker", () => {
-    expect(sameRepository(ref(1, "englishstreetventures/osn-tracker"), REPO)).toBe(false);
+    expect(sameRepository(ref(900001, "englishstreetventures/osn-tracker"), REPO)).toBe(false);
   });
 });
 
@@ -62,12 +62,12 @@ describe("bodyIssueLinks reads prose only", () => {
 
   test("this repository's qualified form counts; another repository's is foreign", () => {
     const links = bodyIssueLinks(
-      `Closes ${REPO}#21\nCloses englishstreetventures/osn-tracker#598`,
+      `Closes ${REPO}#21\nCloses englishstreetventures/osn-tracker#900598`,
       REPO,
     );
 
     expect(links.closes).toEqual([21]);
-    expect(links.foreignCloses).toEqual([tracker(598)]);
+    expect(links.foreignCloses).toEqual([tracker(900598)]);
   });
 
   test("unclosed comments and lone backticks are read in linear time", () => {
@@ -154,17 +154,17 @@ describe("selectIssues — the branch's own issue", () => {
 
   test("NEW-FEAT.md never introduces an issue the pull request does not link", () => {
     const selection = selectIssues({
-      body: "Closes englishstreetventures/osn-tracker#754",
-      refs: [ref(754, "englishstreetventures/osn-tracker")],
+      body: "Closes englishstreetventures/osn-tracker#900754",
+      refs: [ref(900754, "englishstreetventures/osn-tracker")],
       repo: REPO,
-      preferred: 754,
+      preferred: 900754,
       closedFromBody: true,
     });
 
     expect(selection.issue).toBeNull();
     expect(selection.closed).toEqual([]);
     expect(selection.foreign).toBe(true);
-    expect(selection.closedElsewhere).toEqual([tracker(754)]);
+    expect(selection.closedElsewhere).toEqual([tracker(900754)]);
   });
 
   test("an issue both listed by GitHub and named in the body is closed once", () => {
@@ -194,14 +194,17 @@ describe("selectIssues — the branch's own issue", () => {
 describe("selectIssues — another repository's issues", () => {
   test("an open pull request closes a tracker issue once, from its body or GitHub's list", () => {
     const selection = selectIssues({
-      body: `Closes ${TRACKER}#5\nCloses #9`,
-      refs: [ref(5, "EnglishStreetVentures/OSN-Tracker"), ref(6, TRACKER), ref(9)],
+      body: `Closes ${TRACKER}#900005\nCloses #9`,
+      refs: [ref(900005, "EnglishStreetVentures/OSN-Tracker"), ref(900006, TRACKER), ref(9)],
       repo: REPO,
       closedFromBody: true,
     });
 
     expect(selection.closed).toEqual([9]);
-    expect(selection.closedElsewhere.map(issueKey)).toEqual([`${TRACKER}#5`, `${TRACKER}#6`]);
+    expect(selection.closedElsewhere.map(issueKey)).toEqual([
+      `${TRACKER}#900005`,
+      `${TRACKER}#900006`,
+    ]);
   });
 
   // GitHub may leave out a reference to a repository the token cannot read, so
@@ -209,7 +212,7 @@ describe("selectIssues — another repository's issues", () => {
   // somewhere nobody looked.
   test("a merged pull request is credited with the tracker issues GitHub registered alone", () => {
     const selection = selectIssues({
-      body: `Closes ${TRACKER}#5`,
+      body: `Closes ${TRACKER}#900005`,
       refs: [],
       repo: REPO,
       closedFromBody: false,
@@ -222,14 +225,14 @@ describe("selectIssues — another repository's issues", () => {
 
   test("a Part of line naming a tracker issue is kept apart from what it closes", () => {
     const selection = selectIssues({
-      body: `Part of ${TRACKER}#7\nCloses ${TRACKER}#8`,
+      body: `Part of ${TRACKER}#900007\nCloses ${TRACKER}#900008`,
       refs: [],
       repo: REPO,
       closedFromBody: true,
     });
 
-    expect(selection.partOfElsewhere).toEqual([tracker(7)]);
-    expect(selection.closedElsewhere).toEqual([tracker(8)]);
+    expect(selection.partOfElsewhere).toEqual([tracker(900007)]);
+    expect(selection.closedElsewhere).toEqual([tracker(900008)]);
     expect(selection.issue).toBeNull();
   });
 });
@@ -257,7 +260,7 @@ describe("trackerLabelsFromAnswer — reading the one tracker call", () => {
   test("keeps the complexity pair of each issue and nothing else", () => {
     const read = trackerLabelsFromAnswer(
       answer({
-        i619: {
+        i900619: {
           labels: {
             nodes: [
               { name: "severity:high" },
@@ -267,13 +270,13 @@ describe("trackerLabelsFromAnswer — reading the one tracker call", () => {
             ],
           },
         },
-        i620: null,
+        i900620: null,
       }),
-      [tracker(619), tracker(620)],
+      [tracker(900619), tracker(900620)],
     );
 
     expect([...read.entries()]).toEqual([
-      [`${TRACKER}#619`, ["complexity:3", "complexity:unconfirmed"]],
+      [`${TRACKER}#900619`, ["complexity:3", "complexity:unconfirmed"]],
     ]);
   });
 
@@ -282,7 +285,7 @@ describe("trackerLabelsFromAnswer — reading the one tracker call", () => {
     ["output that is not JSON", "gh: Could not resolve to a Repository"],
     ["no output", null],
   ])("reads nothing from %s", (_, raw) => {
-    expect(trackerLabelsFromAnswer(raw, [tracker(619)]).size).toBe(0);
+    expect(trackerLabelsFromAnswer(raw, [tracker(900619)]).size).toBe(0);
   });
 });
 
@@ -299,24 +302,26 @@ describe("issuesToRate — which issues the denominator sums", () => {
   });
 
   test("beside an issue here, the tracker issues it closes are not rated", () => {
-    expect(issuesToRate(selection({ closed: [4], closedElsewhere: [tracker(619)] }))).toEqual({
+    expect(issuesToRate(selection({ closed: [4], closedElsewhere: [tracker(900619)] }))).toEqual({
       here: [4],
       elsewhere: [],
     });
   });
 
   test("with nothing here, the tracker issues it closes are", () => {
-    expect(issuesToRate(selection({ closedElsewhere: [tracker(619)] }))).toEqual({
+    expect(issuesToRate(selection({ closedElsewhere: [tracker(900619)] }))).toEqual({
       here: [],
-      elsewhere: [tracker(619)],
+      elsewhere: [tracker(900619)],
     });
   });
 
   test("a Part of line here leaves nothing to rate", () => {
-    expect(issuesToRate(selection({ partOf: [1000], closedElsewhere: [tracker(619)] }))).toEqual({
-      here: [],
-      elsewhere: [],
-    });
+    expect(issuesToRate(selection({ partOf: [1000], closedElsewhere: [tracker(900619)] }))).toEqual(
+      {
+        here: [],
+        elsewhere: [],
+      },
+    );
   });
 
   test("only the tracker's issues are ever asked about", () => {
@@ -420,11 +425,11 @@ describe("decideComplexity — the denominator", () => {
 
   test("a pull request closing only tracker issues sums their ratings", () => {
     const decision = decideComplexity(
-      pick({ closedElsewhere: [tracker(619), tracker(620)] }),
+      pick({ closedElsewhere: [tracker(900619), tracker(900620)] }),
       labels([]),
       elsewhere([
-        [tracker(619), ["complexity:3"]],
-        [tracker(620), ["complexity:2", "complexity:unconfirmed"]],
+        [tracker(900619), ["complexity:3"]],
+        [tracker(900620), ["complexity:2", "complexity:unconfirmed"]],
       ]),
     );
 
@@ -433,11 +438,11 @@ describe("decideComplexity — the denominator", () => {
 
   test("a tracker issue this run could not read is not-fetched", () => {
     const decision = decideComplexity(
-      pick({ closedElsewhere: [tracker(619), tracker(620)] }),
+      pick({ closedElsewhere: [tracker(900619), tracker(900620)] }),
       labels([]),
       elsewhere([
-        [tracker(619), ["complexity:3"]],
-        [tracker(620), null],
+        [tracker(900619), ["complexity:3"]],
+        [tracker(900620), null],
       ]),
     );
 
@@ -456,11 +461,11 @@ describe("decideComplexity — the denominator", () => {
 
   test("an unrated tracker issue makes the sum unknown and is named by repository", () => {
     const decision = decideComplexity(
-      pick({ closedElsewhere: [tracker(619), tracker(620)] }),
+      pick({ closedElsewhere: [tracker(900619), tracker(900620)] }),
       labels([]),
       elsewhere([
-        [tracker(619), ["complexity:3"]],
-        [tracker(620), []],
+        [tracker(900619), ["complexity:3"]],
+        [tracker(900620), []],
       ]),
     );
 
@@ -468,16 +473,16 @@ describe("decideComplexity — the denominator", () => {
       declared: null,
       method: "none",
       issues: 0,
-      unrated: [`${TRACKER}#620`],
+      unrated: [`${TRACKER}#900620`],
     });
   });
 
   test("a tracker issue beside public ones adds nothing to the sum, read or not", () => {
-    const selection = pick({ issue: 4, closed: [4], closedElsewhere: [tracker(619)] });
+    const selection = pick({ issue: 4, closed: [4], closedElsewhere: [tracker(900619)] });
     const read = decideComplexity(
       selection,
       labels([[4, ["complexity:3"]]]),
-      elsewhere([[tracker(619), ["complexity:2"]]]),
+      elsewhere([[tracker(900619), ["complexity:2"]]]),
     );
     const unread = decideComplexity(selection, labels([[4, ["complexity:3"]]]), none);
 
@@ -487,9 +492,9 @@ describe("decideComplexity — the denominator", () => {
 
   test("a pull request only Part of a tracker issue is part-of", () => {
     const decision = decideComplexity(
-      pick({ partOfElsewhere: [tracker(700)] }),
+      pick({ partOfElsewhere: [tracker(900700)] }),
       labels([]),
-      elsewhere([[tracker(700), ["complexity:8"]]]),
+      elsewhere([[tracker(900700), ["complexity:8"]]]),
     );
 
     expect(decision).toEqual({ declared: null, method: "part-of", issues: 0, unrated: [] });
@@ -497,9 +502,9 @@ describe("decideComplexity — the denominator", () => {
 
   test("Part of an issue here wins over tracker issues it closes", () => {
     const decision = decideComplexity(
-      pick({ issue: 1000, partOf: [1000], closedElsewhere: [tracker(619)] }),
+      pick({ issue: 1000, partOf: [1000], closedElsewhere: [tracker(900619)] }),
       labels([]),
-      elsewhere([[tracker(619), ["complexity:2"]]]),
+      elsewhere([[tracker(900619), ["complexity:2"]]]),
     );
 
     expect(decision.method).toBe("part-of");
@@ -548,20 +553,20 @@ describe("newFeatIssue", () => {
   test.each([
     [
       "a tracker reference",
-      ["# NEW-FEAT — fix/pr-metrics", "Issue: englishstreetventures/osn-tracker#712"],
+      ["# NEW-FEAT — fix/pr-metrics", "Issue: englishstreetventures/osn-tracker#900712"],
     ],
     [
       "a tracker URL",
       [
         "# NEW-FEAT — fix/pr-metrics",
-        "Issue: https://github.com/englishstreetventures/osn-tracker/issues/712",
+        "Issue: https://github.com/englishstreetventures/osn-tracker/issues/900712",
       ],
     ],
     [
       "a link whose text is a bare number and whose target is the tracker",
       [
         "# NEW-FEAT — fix/pr-metrics",
-        "**Issue:** [#712](https://github.com/englishstreetventures/osn-tracker/issues/712)",
+        "**Issue:** [#900712](https://github.com/englishstreetventures/osn-tracker/issues/900712)",
       ],
     ],
     ["a file for another branch", ["# NEW-FEAT — fix/other", "Issue: #9"]],

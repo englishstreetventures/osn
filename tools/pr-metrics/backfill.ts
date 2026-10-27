@@ -602,9 +602,8 @@ if (import.meta.main) {
         `  ⚠️  could not fetch labels for ${missing.map((n) => `#${n}`).join(", ")} (closed by PR #${pull.number}) — leaving complexity unrated rather than guessing.\n`,
       );
     }
-    const unread = issuesToRate(selection).elsewhere.filter(
-      (issue) => !labelsElsewhere.has(issueKey(issue)),
-    );
+    const rated = issuesToRate(selection);
+    const unread = rated.elsewhere.filter((issue) => !labelsElsewhere.has(issueKey(issue)));
     if (unread.length > 0) {
       process.stderr.write(
         `  ⚠️  could not read ${unread.map((issue) => `${issue.repo}#${issue.number}`).join(", ")} (closed by PR #${pull.number}) — recording not-fetched.\n`,
@@ -688,7 +687,7 @@ if (import.meta.main) {
 
     if (card === null) {
       process.stderr.write(
-        `  ⚠️  #${pull.number}: the card on disk rates fewer issues than the ${selection.closed.length} this pull request closes, and this run could not read their sum — leaving that card as it is.\n`,
+        `  ⚠️  #${pull.number}: the card on disk rates fewer issues than the ${rated.here.length + rated.elsewhere.length} this pull request closes, and this run could not read their sum — leaving that card as it is.\n`,
       );
       leftAsIs.push(pull.number);
       continue;

@@ -63,10 +63,10 @@ describe("bodyIssueLinks", () => {
   });
 
   test("leaves out another repository's issue", () => {
-    expect(bodyIssueLinks("Closes englishstreetventures/osn-tracker#593")).toEqual({
+    expect(bodyIssueLinks("Closes englishstreetventures/osn-tracker#900593")).toEqual({
       closes: [],
       partOf: [],
-      foreignCloses: [{ repo: "englishstreetventures/osn-tracker", number: 593 }],
+      foreignCloses: [{ repo: "englishstreetventures/osn-tracker", number: 900593 }],
       foreignPartOf: [],
     });
   });

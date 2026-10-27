@@ -1233,10 +1233,10 @@ test("backfill rates a tracker-only pull request from the tracker and writes non
       `  *"pr list"*) printf '%s' '${prListing(
         6001,
         branch,
-        [{ id: "I_tracker_619", number: 619, repo: TRACKER }],
-        `Closes ${TRACKER}#619`,
+        [{ id: "I_tracker_900619", number: 900619, repo: TRACKER }],
+        `Closes ${TRACKER}#900619`,
       )}' ;;
-  *"nodes(ids:"*"I_tracker_619"*) printf '%s' '${TRACKER_FINDING}' ;;
+  *"nodes(ids:"*"I_tracker_900619"*) printf '%s' '${TRACKER_FINDING}' ;;
   *"api graphql"*) printf '%s' '{"data":{"repository":{"p6001":{"commits":{"totalCount":1}}}}}' ;;`,
     );
     await sessionOn(f, branch);
@@ -1262,7 +1262,7 @@ test("backfill records not-fetched for a tracker issue the token cannot resolve"
     await stubGh(
       f,
       `  *"pr list"*) printf '%s' '${prListing(6002, branch, [
-        { id: "I_tracker_620", number: 620, repo: TRACKER },
+        { id: "I_tracker_900620", number: 900620, repo: TRACKER },
       ])}' ;;
   *"nodes(ids:"*) printf '%s' '{"data":{"nodes":[null]},"errors":[{"type":"NOT_FOUND"}]}'
     exit 1 ;;
@@ -1292,9 +1292,9 @@ test("backfill never asks the tracker about a pull request that closes an issue 
       f,
       `  *"pr list"*) printf '%s' '${prListing(6003, branch, [
         { id: "I_local_970", number: 970 },
-        { id: "I_tracker_619", number: 619, repo: TRACKER },
+        { id: "I_tracker_900619", number: 900619, repo: TRACKER },
       ])}' ;;
-  *"nodes(ids:"*"I_tracker_619"*) printf '%s' '${TRACKER_FINDING}' ;;
+  *"nodes(ids:"*"I_tracker_900619"*) printf '%s' '${TRACKER_FINDING}' ;;
   *"nodes(ids:"*) printf '%s' '{"data":{"nodes":[{"labels":{"nodes":[{"name":"product:osn-core"},{"name":"complexity:2"}]}}]}}' ;;
   *"api graphql"*) printf '%s' '{"data":{"repository":{"p6003":{"commits":{"totalCount":1}}}}}' ;;`,
     );
@@ -1308,7 +1308,7 @@ test("backfill never asks the tracker about a pull request that closes an issue 
     expect(card.issue.labels).toEqual(["product:osn-core", "complexity:2"]);
     expect(card.complexity).toEqual({ declared: 2, method: "confirmed", issues: 1 });
     expect(text).not.toMatch(/severity:|area:/);
-    expect(await readFile(f.log, "utf8")).not.toContain("I_tracker_619");
+    expect(await readFile(f.log, "utf8")).not.toContain("I_tracker_900619");
   } finally {
     await rm(f.dir, { recursive: true, force: true });
   }
@@ -1327,8 +1327,8 @@ test("backfill keeps a rating on disk but not an issue this repository does not 
       `  *"pr list"*) printf '%s' '${prListing(
         8006,
         branch,
-        [{ id: "I_t", number: 619, repo: "englishstreetventures/osn-tracker" }],
-        "Closes englishstreetventures/osn-tracker#619",
+        [{ id: "I_t", number: 900619, repo: "englishstreetventures/osn-tracker" }],
+        "Closes englishstreetventures/osn-tracker#900619",
       )}' ;;
   *"nodes(ids:"*) printf '%s' '{"data":{"nodes":[null]}}'
     exit 1 ;;
@@ -1343,7 +1343,7 @@ test("backfill keeps a rating on disk but not an issue this repository does not 
       JSON.stringify({
         schema_version: 1,
         pr: { number: 8006, branch, merged_at: "2026-09-09T12:00:00Z", phase: "at-open" },
-        issue: { number: 619, type: "Bug", labels: ["severity:high", "complexity:3"] },
+        issue: { number: 900619, type: "Bug", labels: ["severity:high", "complexity:3"] },
         complexity: { declared: 3, method: "confirmed" },
         spend: { usd_equivalent: 1 },
         interaction: {},
@@ -1368,8 +1368,8 @@ test("backfill strips a tracker issue's number and labels from a card it cannot 
     await stubGh(
       f,
       `  *"pr list"*) printf '%s' '${prListing(8007, branch, [
-        { id: "I_t1", number: 619, repo: TRACKER },
-        { id: "I_t2", number: 620, repo: TRACKER },
+        { id: "I_t1", number: 900619, repo: TRACKER },
+        { id: "I_t2", number: 900620, repo: TRACKER },
       ])}' ;;
   *"nodes(ids:"*) printf '%s' '{"data":{"nodes":[null,null]}}'
     exit 1 ;;
@@ -1384,7 +1384,7 @@ test("backfill strips a tracker issue's number and labels from a card it cannot 
       JSON.stringify({
         schema_version: 1,
         pr: { number: 8007, branch, merged_at: "2026-09-09T12:00:00Z", phase: "at-open" },
-        issue: { number: 619, type: "Bug", labels: ["severity:high", "complexity:3"] },
+        issue: { number: 900619, type: "Bug", labels: ["severity:high", "complexity:3"] },
         complexity: { declared: 3, method: "confirmed" },
         spend: { usd_equivalent: 1 },
         interaction: {},
@@ -1403,13 +1403,54 @@ test("backfill strips a tracker issue's number and labels from a card it cannot 
   }
 });
 
+// The warning counts what the sum would cover — on a tracker-only pull request,
+// the tracker issues it closes, not the none it closes here.
+test("backfill leaves an issueless tracker-only card as it is and counts the issues the sum covers", async () => {
+  const f = await fixture({ withTranscript: false });
+  try {
+    const branch = "feat/keep-tracker-three";
+    await stubGh(
+      f,
+      `  *"pr list"*) printf '%s' '${prListing(8009, branch, [
+        { id: "I_t1", number: 900619, repo: TRACKER },
+        { id: "I_t2", number: 900620, repo: TRACKER },
+        { id: "I_t3", number: 900621, repo: TRACKER },
+      ])}' ;;
+  *"nodes(ids:"*) printf '%s' '{"data":{"nodes":[null,null,null]}}'
+    exit 1 ;;
+  *"api graphql"*) printf '%s' '{"data":{"repository":{"p8009":{"commits":{"totalCount":1}}}}}' ;;`,
+    );
+    await sessionOn(f, branch);
+
+    const cardPath = join(f.dir, "cards", `${branchSlug(branch)}.json`);
+    await mkdir(join(f.dir, "cards"), { recursive: true });
+    const before = JSON.stringify({
+      schema_version: 1,
+      pr: { number: 8009, branch, merged_at: "2026-09-09T12:00:00Z", phase: "at-open" },
+      issue: { number: null, type: null, labels: [] },
+      complexity: { declared: 3, method: "manual" },
+      spend: { usd_equivalent: 1 },
+      interaction: {},
+    });
+    await writeFile(cardPath, before);
+
+    const run = await runBackfill(f);
+
+    expect(run.exitCode).toBe(0);
+    expect(await readFile(cardPath, "utf8")).toBe(before);
+    expect(run.stderr).toContain("rates fewer issues than the 3 this pull request closes");
+  } finally {
+    await rm(f.dir, { recursive: true, force: true });
+  }
+});
+
 test("backfill records not-fetched for a merged pull request whose tracker line GitHub did not register", async () => {
   const f = await fixture({ withTranscript: false });
   try {
     const branch = "feat/tracker-body-only";
     await stubGh(
       f,
-      `  *"pr list"*) printf '%s' '${prListing(8008, branch, [], `Closes ${TRACKER}#621`)}' ;;
+      `  *"pr list"*) printf '%s' '${prListing(8008, branch, [], `Closes ${TRACKER}#900621`)}' ;;
   *"api graphql"*) printf '%s' '{"data":{"repository":{"p8008":{"commits":{"totalCount":1}}}}}' ;;`,
     );
     await sessionOn(f, branch);
@@ -1511,7 +1552,11 @@ describe("keepRating", () => {
 
   test("keeps the rating but not an issue this run does not link to this repository", () => {
     const fresh = next({ declared: null, method: "not-fetched", issues: 0 }, null);
-    const kept = keepRating(disk({ declared: 3, method: "confirmed" }, 1, 619), fresh, links([]));
+    const kept = keepRating(
+      disk({ declared: 3, method: "confirmed" }, 1, 900619),
+      fresh,
+      links([]),
+    );
 
     expect(kept?.complexity).toEqual({ declared: 3, method: "confirmed", issues: 1 });
     expect(kept?.issue).toEqual(fresh.issue);
@@ -1535,7 +1580,7 @@ describe("keepRating", () => {
       keepRating(
         noIssue,
         next({ declared: null, method: "not-fetched", issues: 0 }, null),
-        links([], [], [619, 620, 621]),
+        links([], [], [900619, 900620, 900621]),
       ),
     ).toBeNull();
   });
@@ -1546,11 +1591,11 @@ describe("keepRating", () => {
     const fresh = next({ declared: null, method: "not-fetched", issues: 0 }, null);
     const tracked = {
       pr: { number: 1 },
-      issue: { number: 619, type: "Bug", labels: ["severity:high", "complexity:3"] },
+      issue: { number: 900619, type: "Bug", labels: ["severity:high", "complexity:3"] },
       complexity: { declared: 3, method: "manual" },
     };
 
-    expect(keepRating(tracked, fresh, links([], [], [619, 620]))).toBe(fresh);
+    expect(keepRating(tracked, fresh, links([], [], [900619, 900620]))).toBe(fresh);
   });
 
   test("ignores a card on disk with no rating or for another pull request", () => {

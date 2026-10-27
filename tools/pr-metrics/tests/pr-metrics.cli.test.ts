@@ -1288,8 +1288,8 @@ const leaks = /severity:|area:|needs:|product:osn"/;
 
 test("--resolve-issue rates a tracker-only pull request and carries none of the tracker's other labels", async () => {
   const { card, cardText, stdout, stderr, calls } = await runResolving({
-    pull: { body: `Closes ${TRACKER}#1041`, refs: [{ number: 1041, repo: TRACKER }] },
-    trackerLabels: { 1041: [...FINDING_LABELS, "complexity:5"] },
+    pull: { body: `Closes ${TRACKER}#901041`, refs: [{ number: 901041, repo: TRACKER }] },
+    trackerLabels: { 901041: [...FINDING_LABELS, "complexity:5"] },
   });
 
   expect(card.issue.number).toBeNull();
@@ -1307,13 +1307,13 @@ test("--resolve-issue sums the ratings of every tracker issue a tracker-only pul
     pull: {
       body: "",
       refs: [
-        { number: 1041, repo: TRACKER },
-        { number: 1042, repo: TRACKER },
+        { number: 901041, repo: TRACKER },
+        { number: 901042, repo: TRACKER },
       ],
     },
     trackerLabels: {
-      1041: ["severity:low", "complexity:3"],
-      1042: ["area:performance", "complexity:2", "complexity:unconfirmed"],
+      901041: ["severity:low", "complexity:3"],
+      901042: ["area:performance", "complexity:2", "complexity:unconfirmed"],
     },
   });
 
@@ -1325,7 +1325,7 @@ test.each([
   ["a repository it cannot see", { trackerRepository: null }],
   [
     "an issue it cannot resolve",
-    { trackerUnreadable: [1042], trackerLabels: { 1041: ["complexity:3"] } },
+    { trackerUnreadable: [901042], trackerLabels: { 901041: ["complexity:3"] } },
   ],
 ] as [string, Partial<ResolvingOptions>][])(
   "--resolve-issue records not-fetched when the token meets %s in the tracker",
@@ -1334,15 +1334,15 @@ test.each([
       pull: {
         body: "",
         refs: [
-          { number: 1041, repo: TRACKER },
-          { number: 1042, repo: TRACKER },
+          { number: 901041, repo: TRACKER },
+          { number: 901042, repo: TRACKER },
         ],
       },
       ...tracker,
     });
 
     expect(card.complexity).toEqual({ declared: null, method: "not-fetched", issues: 0 });
-    expect(stderr).toContain(`${TRACKER}#1042`);
+    expect(stderr).toContain(`${TRACKER}#901042`);
   },
 );
 
@@ -1350,8 +1350,8 @@ test.each([
 // `main`, so its body's tracker line is all there is to read.
 test("--resolve-issue rates an open pull request from a tracker line in its body alone", async () => {
   const { card } = await runResolving({
-    pull: { body: `Closes ${TRACKER}#1041`, refs: [] },
-    trackerLabels: { 1041: ["complexity:2", "complexity:unconfirmed"] },
+    pull: { body: `Closes ${TRACKER}#901041`, refs: [] },
+    trackerLabels: { 901041: ["complexity:2", "complexity:unconfirmed"] },
   });
 
   expect(card.complexity).toEqual({ declared: 2, method: "unconfirmed", issues: 1 });
@@ -1362,14 +1362,14 @@ test("--resolve-issue rates an open pull request from a tracker line in its body
 test("--resolve-issue never asks the tracker about a pull request that closes an issue here", async () => {
   const { card, cardText, calls } = await runResolving({
     pull: {
-      body: `Closes #1041\nCloses ${TRACKER}#619`,
+      body: `Closes #1041\nCloses ${TRACKER}#900619`,
       refs: [
         { number: 1041, repo: "englishstreetventures/osn" },
-        { number: 619, repo: TRACKER },
+        { number: 900619, repo: TRACKER },
       ],
     },
     labels: { 1041: ["product:shared", "complexity:2"] },
-    trackerLabels: { 619: [...FINDING_LABELS, "complexity:3"] },
+    trackerLabels: { 900619: [...FINDING_LABELS, "complexity:3"] },
   });
 
   expect(card.issue.number).toBe(1041);
@@ -1392,8 +1392,8 @@ test("--resolve-issue never asks a third repository, and records not-fetched", a
 // asked about, and the `SessionEnd` hook that runs this has 60 seconds. A number
 // GraphQL cannot take as an `Int` would fail the whole call.
 test.each([
-  ["more than 50 tracker issues", Array.from({ length: 51 }, (_, i) => 2000 + i)],
-  ["a number GraphQL cannot take", [5, 99_999_999_999]],
+  ["more than 50 tracker issues", Array.from({ length: 51 }, (_, i) => 902000 + i)],
+  ["a number GraphQL cannot take", [900005, 99_999_999_999]],
 ])("--resolve-issue asks nothing for %s and records not-fetched", async (_, numbers) => {
   const { card, calls } = await runResolving({
     pull: { body: numbers.map((n) => `Closes ${TRACKER}#${n}`).join("\n"), refs: [] },
@@ -1535,9 +1535,9 @@ test.each([
 // closes here. A number named by mistake has nothing read for it.
 test("--issue naming an issue the pull request does not close reads none of its labels", async () => {
   const { card, calls } = await runResolving({
-    pull: { refs: [{ number: 754, repo: TRACKER }] },
+    pull: { refs: [{ number: 900754, repo: TRACKER }] },
     labels: { 1999: ["complexity:8"] },
-    trackerUnreadable: [754],
+    trackerUnreadable: [900754],
     extraArgs: ["--issue", "1999"],
   });
 
@@ -1552,12 +1552,12 @@ test("--issue naming an issue the pull request does not close reads none of its 
 test("--issue naming the tracker issue the pull request closes records no issue", async () => {
   const { card, cardText, calls, stderr } = await runResolving({
     pull: {
-      body: `Closes ${TRACKER}#754`,
-      refs: [{ number: 754, repo: TRACKER }],
+      body: `Closes ${TRACKER}#900754`,
+      refs: [{ number: 900754, repo: TRACKER }],
     },
-    labels: { 754: ["product:osn-core", "complexity:8"] },
-    trackerLabels: { 754: ["severity:high", "complexity:3"] },
-    extraArgs: ["--issue", "754"],
+    labels: { 900754: ["product:osn-core", "complexity:8"] },
+    trackerLabels: { 900754: ["severity:high", "complexity:3"] },
+    extraArgs: ["--issue", "900754"],
   });
 
   expect(card.issue.number).toBeNull();
