@@ -150,6 +150,8 @@ interface CallOptions {
   readonly bearer?: string;
   readonly cookie?: string;
   readonly body?: Readonly<Record<string, string>>;
+  /** Sent as an `application/x-www-form-urlencoded` body instead of JSON. */
+  readonly form?: Readonly<Record<string, string>>;
   readonly query?: string;
 }
 
@@ -169,14 +171,23 @@ async function call(
   const headers = new Headers({ "x-forwarded-for": options.ip });
   if (method === "POST") {
     headers.set("origin", ORIGIN);
-    headers.set("content-type", "application/json");
+    headers.set(
+      "content-type",
+      options.form ? "application/x-www-form-urlencoded" : "application/json",
+    );
   }
   if (options.bearer !== undefined) headers.set("authorization", `Bearer ${options.bearer}`);
   if (options.cookie !== undefined) headers.set("cookie", options.cookie);
+  const body =
+    method !== "POST"
+      ? undefined
+      : options.form
+        ? new URLSearchParams(options.form).toString()
+        : JSON.stringify(options.body ?? {});
   const res = await mf.dispatchFetch(`${API}${path}${options.query ?? ""}`, {
     method,
     headers,
-    body: method === "POST" ? JSON.stringify(options.body ?? {}) : undefined,
+    body,
   });
   const text = await res.text();
   let json: Record<string, unknown> = {};
@@ -274,9 +285,9 @@ describe("osn-api on workerd, with the coordination store on its Durable Object"
   });
 
   it("signs in as the dev principal", async () => {
-    const res = await call("dev sign-in", "GET", "/dev/login", {
+    const res = await call("dev sign-in", "POST", "/dev/login/form", {
       ip: MAIN_IP,
-      query: `?secret=${DEV_LOGIN_SECRET}`,
+      form: { secret: DEV_LOGIN_SECRET },
     });
     expect(res.status).toBe(200);
     const tokens = res.json["session"] as { access_token: string };
@@ -397,9 +408,9 @@ describe("osn-api on workerd, with the coordination store on its Durable Object"
 
     // The refused code was not spent: all ten are still unused. The restart
     // changed the local tier's signing key, so this needs a fresh sign-in.
-    const signIn = await call("dev sign-in after restart", "GET", "/dev/login", {
+    const signIn = await call("dev sign-in after restart", "POST", "/dev/login/form", {
       ip: MAIN_IP,
-      query: `?secret=${DEV_LOGIN_SECRET}`,
+      form: { secret: DEV_LOGIN_SECRET },
     });
     expect(signIn.status).toBe(200);
     const fresh = (signIn.json["session"] as { access_token: string }).access_token;
