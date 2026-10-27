@@ -37,7 +37,9 @@
  *
  * Subagent spend lives in a sibling `<session-id>/subagents/*.jsonl` directory
  * rather than the main transcript — miss it and a card under-reports by however
- * much was delegated, which on an orchestrated task is most of it.
+ * much was delegated, which on an orchestrated task is most of it. Agents a
+ * Workflow run starts write one level deeper, under
+ * `subagents/workflows/<run-id>/agent-*.jsonl`.
  *
  * `SCHEMA_VERSION` is bumped whenever a field changes meaning or leaves.
  * Readers key off this.
@@ -48,10 +50,16 @@ import { posix } from "node:path";
 
 import { compactTokens, humanDuration } from "./format.ts";
 
-/** 3: `complexity.declared` is the sum of the ratings of every issue in this
- * repository the pull request closes, and `complexity.issues` counts them. A
- * card before version 3 has one issue's rating in `declared`. */
-export const SCHEMA_VERSION = 3;
+/** 4: `interaction.corrective_turns` counts only the prompts a person sent while
+ * the agent was still working; before 4 it counted every human turn after the
+ * session's first tool call, and readers treat an older card's count as
+ * unknown. Also from 4, a pull request that links no issue in this repository
+ * sums the ratings of the tracker issues it closes into `complexity.declared`;
+ * before 4 it recorded `not-fetched`. 3: `complexity.declared` is the sum of the
+ * ratings of every issue in this repository the pull request closes, and
+ * `complexity.issues` counts them. A card before version 3 has one issue's
+ * rating in `declared`. */
+export const SCHEMA_VERSION = 4;
 
 /**
  * Gaps longer than this are somebody making lunch, not an agent working.
@@ -195,7 +203,19 @@ export interface SessionRecord {
     content?: string | ContentBlock[];
     usage?: RawUsage;
   };
-  attachment?: { type?: string; prompt?: string };
+  attachment?: {
+    type?: string;
+    prompt?: string;
+    /** On a `queued_command`: `prompt` for typed text, `task-notification`
+     * for a background task's report. Absent on older transcripts. */
+    commandMode?: string;
+    /** On a `queued_command`: who sent it. `human` is a person;
+     * `task-notification`, `peer` and `coordinator` are the harness or another
+     * agent. Absent on older transcripts. */
+    origin?: { kind?: string };
+    /** Set by the harness on a queued prompt a person typed. */
+    humanTurn?: boolean;
+  };
 }
 
 export function emptyTokens(): TokenTotals {
@@ -354,18 +374,16 @@ export function isHumanTurn(record: SessionRecord): boolean {
 /**
  * The text of a human instruction, or `null` if this record is not one.
  *
- * Two shapes carry a real prompt, and missing the second one was the original
- * defect here:
+ * Two shapes carry a real prompt:
  *
  *   - `type: "user"` with string content — a prompt typed at an idle session.
  *   - `type: "attachment"` with `attachment.type === "queued_command"` — a
  *     prompt typed *while the agent was working*.
  *
- * The second shape never appears as a `user` record, and it is precisely what
- * `corrective_turns` exists to count: a message sent mid-flight is by
- * definition a course correction. Reading only `user` records scored every
- * interruption as zero and made the field describe the opposite of what it
- * claims to. Across this repository's own transcripts that was 354 prompts.
+ * The second shape never appears as a `user` record, and it is the whole of
+ * what `corrective_turns` counts. Background task reports, subagent hand-backs
+ * and harness notices arrive in it too, so a queued record is a person's only
+ * when {@link queuedByPerson} says the harness labelled it so.
  *
  * Both shapes are then filtered the same way, by {@link humanText} for a
  * machine record wearing a prompt's clothes and by {@link isMachineDriven} for
@@ -377,7 +395,7 @@ export function humanTurnText(record: SessionRecord): string | null {
   if (isMachineDriven(record)) return null;
 
   if (record.type === "attachment" && record.attachment?.type === "queued_command") {
-    return humanText(record.attachment.prompt);
+    return queuedByPerson(record.attachment) ? humanText(record.attachment.prompt) : null;
   }
 
   if (record.type !== "user") return null;
@@ -397,13 +415,9 @@ export function humanTurnText(record: SessionRecord): string | null {
  * Tool results, hook output, system reminders, slash-command envelopes,
  * subagent hand-backs and task notifications all reach the transcript in a
  * record a person could have written, and every one of them opens with a tag.
- * Both shapes `humanTurnText` reads need this, and only one of them used to get
- * it: the queued branch returned its prompt unexamined, so every background
- * `<agent-message>` and `<task-notification>` scored as a course correction.
- * Nine of them did on one branch here, against three turns the person actually
- * sent — and `corrective_turns` is the field documented as measuring the person
- * rather than the model, so it read the brief as poor when it had been followed
- * with no correction at all.
+ * Both shapes `humanTurnText` reads need this: a queued `<agent-message>` or
+ * `<task-notification>` let through would count as an interruption on
+ * `corrective_turns`.
  *
  * The bias is not random. Those records arrive in proportion to how many
  * background subagents a session runs, which is what `orchestrate` and
@@ -427,13 +441,47 @@ function humanText(raw: string | undefined): string | null {
 const MACHINE_PREFIX =
   /^(?:Another Claude session sent a message:\s*)?<(?:agent-message|task-notification)\b/;
 
+/** The `origin.kind` values a queued record is known to carry. Only `human` is a person. */
+const KNOWN_QUEUE_ORIGINS = new Set(["human", "task-notification", "peer", "coordinator"]);
+
 /**
- * A bare "continue" or "go on" — a nudge to keep an agent running, not a
- * correction. It is still a human turn, so it counts in `user_turns`, but it
- * says nothing about the brief and so is not `corrective_turns`.
+ * Whether the harness labelled a queued record as one a person typed.
+ *
+ * An allow-list: where the record names its sender, only `human` (or the
+ * harness's own `humanTurn` mark) is a person, so a sender added later is left
+ * out rather than counted — and {@link unknownQueuedOrigins} names it, so the
+ * CLI can say so. A transcript older than the label falls back on
+ * `commandMode`, where only `prompt` is typed text, and one with neither keeps
+ * the tag test alone.
  */
-export function isBareContinuation(text: string): boolean {
-  return /^(?:continue|go on|keep going|carry on|proceed)[.!]*$/i.test(text.trim());
+function queuedByPerson(attachment: NonNullable<SessionRecord["attachment"]>): boolean {
+  if (attachment.humanTurn === true) return true;
+  if (attachment.origin) return attachment.origin.kind === "human";
+
+  return attachment.commandMode === undefined || attachment.commandMode === "prompt";
+}
+
+/**
+ * The senders of main-thread queued records that {@link queuedByPerson}
+ * dropped only because it did not know them, each named once.
+ *
+ * Those records count nowhere, so a harness that starts labelling a person's
+ * prompt with a new kind would make every card read no interruptions. A
+ * non-empty answer is the CLI's cue to warn.
+ */
+export function unknownQueuedOrigins(records: SessionRecord[]): string[] {
+  const kinds = new Set<string>();
+
+  for (const record of records) {
+    const attachment = record.attachment;
+    if (record.isSidechain || attachment?.type !== "queued_command") continue;
+    if (attachment.humanTurn === true || !attachment.origin) continue;
+
+    const kind = attachment.origin.kind ?? "(none)";
+    if (!KNOWN_QUEUE_ORIGINS.has(kind)) kinds.add(kind);
+  }
+
+  return [...kinds].toSorted();
 }
 
 /**
@@ -784,17 +832,20 @@ export function aggregateRequests(records: SessionRecord[]): RequestSummary {
  * the first session's answer. Repeatedly high in one area of the repository
  * means that area has no usable map, and the fix is a wiki page or a skill.
  *
- * `corrective_turns` is human turns that arrive after the agent has already
- * started work — course corrections rather than the brief. High means the
- * opening prompt did not carry enough to act on. That is the one number here
- * that measures the person rather than the model.
+ * `corrective_turns` is the prompts a person sent while the agent was still
+ * working — interruptions, read from the queued records {@link humanTurnText}
+ * accepts. A turn sent after the agent stopped (a new task, an answer to its
+ * question, "continue") is not one, however late in the session. Two limits:
+ * an interruption is often a status note or added scope rather than a
+ * correction, so read the prompts before calling any of it a brief finding;
+ * and while a session waits on background subagents its main agent is idle,
+ * so a redirect sent then is an idle turn and is not counted.
  */
 export function aggregateInteraction(records: SessionRecord[]): InteractionSummary {
   const tools: Record<string, number> = {};
   const skills: Record<string, number> = {};
   const subagents: Record<string, number> = {};
   const editsPerFile = new Map<string, number>();
-  const sessionsWithWork = new Set<string>();
   const sessionsPastFirstEdit = new Set<string>();
 
   // Accumulated per session, not globally, and only banked once that session
@@ -812,35 +863,28 @@ export function aggregateInteraction(records: SessionRecord[]): InteractionSumma
 
   const ordered = [...records].sort((a, b) => (a.timestamp ?? "").localeCompare(b.timestamp ?? ""));
 
-  // A queued prompt is occasionally echoed as a `user` record once it is
-  // dequeued — about 2% of them across this repository's transcripts. Both
-  // copies are the same instruction, so the pair is collapsed per session.
-  // Only a queued/user duplicate is collapsed, never two `user` records: a
-  // person who genuinely types "continue" twice steered twice.
-  const queuedTexts = new Map<string, Set<string>>();
-  for (const record of ordered) {
-    if (record.type !== "attachment") continue;
-
-    const text = humanTurnText(record);
-    if (text === null) continue;
-
-    const session = record.sessionId ?? "unknown";
-    const seen = queuedTexts.get(session);
-    if (seen) seen.add(text);
-    else queuedTexts.set(session, new Set([text]));
-  }
+  // A queued prompt is sometimes echoed as a `user` record once it is
+  // dequeued. Both copies are one instruction, so a `user` record is dropped
+  // when it is the next human record in its session after a queued prompt with
+  // the same text. Never two `user` records: a person who types "continue"
+  // twice steered twice.
+  const lastQueued = new Map<string, string>();
 
   for (const record of ordered) {
     const session = record.sessionId ?? "unknown";
     const turnText = humanTurnText(record);
 
     if (turnText !== null) {
-      if (record.type === "user" && queuedTexts.get(session)?.has(turnText)) continue;
+      const echoed = record.type === "user" && lastQueued.get(session) === turnText;
+      lastQueued.delete(session);
+      if (echoed) continue;
 
       userTurns += 1;
-      // Work had already started in this session, so this turn is steering an
-      // agent mid-flight rather than opening the task.
-      if (sessionsWithWork.has(session) && !isBareContinuation(turnText)) correctiveTurns += 1;
+      // Queued means the agent was mid-turn when it arrived: an interruption.
+      if (record.type === "attachment") {
+        correctiveTurns += 1;
+        lastQueued.set(session, turnText);
+      }
       continue;
     }
 
@@ -854,7 +898,6 @@ export function aggregateInteraction(records: SessionRecord[]): InteractionSumma
     if (record.type !== "assistant") continue;
 
     const uses = toolUses(record);
-    if (uses.length > 0) sessionsWithWork.add(session);
 
     // The same guard `aggregateSpend` uses, and for the same reason: this sum
     // reads `message.usage`, which a split response repeats on every block.
@@ -1083,6 +1126,39 @@ export function declaredFromLabels(labels: string[]): DeclaredComplexity {
   return { declared: ratings[0], method: unconfirmed ? "unconfirmed" : "confirmed" };
 }
 
+/**
+ * How a warning names issues: one in this repository by number (`#N`), one in
+ * another repository by count alone. Warnings end up in test plans and reports
+ * that become public, so a tracker issue's number is never printed beside what
+ * was read about it.
+ */
+export function issuesForWarning(references: string[]): string {
+  const here = references.filter((reference) => reference.startsWith("#"));
+  const elsewhere = references.length - here.length;
+  const counted =
+    elsewhere === 0
+      ? []
+      : [`${elsewhere} issue${elsewhere === 1 ? "" : "s"} in another repository`];
+
+  return [...here, ...counted].join(", ");
+}
+
+/**
+ * The only labels a card may take from an issue in another repository: a
+ * `complexity:N` rating and `complexity:unconfirmed`, trimmed.
+ *
+ * The tracker's issues carry `severity:` and `area:` labels that must never
+ * reach a card committed to a public repository. Every tracker answer passes
+ * through this as it arrives, so no other label of such an issue is held past
+ * the call that read it. It is the second guard: the first is that a card's
+ * `issue.labels` is read only from this repository's issues.
+ */
+export function ratingLabels(labels: string[]): string[] {
+  return labels
+    .map((label) => label.trim())
+    .filter((label) => /^complexity:(?:\d+|unconfirmed)$/.test(label));
+}
+
 /** A linked issue as `gh pr list --json closingIssuesReferences` returns it.
  * The repository is the load-bearing part: it decides whether the labels may
  * be read at all. `id` is the GraphQL node id, which `backfill` fetches labels
@@ -1091,6 +1167,23 @@ export interface IssueReference {
   id?: string;
   number: number;
   repository: { name: string; owner: { login: string } };
+}
+
+/** The private repository that holds security, performance and compliance
+ * findings. Its issues are the only ones outside this repository a card's
+ * rating is ever read from; an issue anywhere else is never asked about. */
+export const TRACKER_REPO = "englishstreetventures/osn-tracker";
+
+/** An issue in another repository that a pull request links, by the name a
+ * reference or the body gave its repository. */
+export interface ForeignIssue {
+  repo: string;
+  number: number;
+}
+
+/** One key per issue, whatever case its repository was written in. */
+export function issueKey(issue: ForeignIssue): string {
+  return `${issue.repo.toLowerCase()}#${issue.number}`;
 }
 
 /** How `complexity.declared` was arrived at. `part-of` is a pull request that
@@ -1236,6 +1329,8 @@ export function controlLine(line: number, length: number): number | null {
   return null;
 }
 
+/** `queries.sql` declares this shape for DuckDB, field by field; a change here
+ * is a change there, and `tests/queries-schema.test.ts` fails until both agree. */
 export interface Card {
   schema_version: number;
   pr: {
@@ -1406,7 +1501,7 @@ export function renderDetails(card: Card, file = `${branchSlug(card.pr.branch)}.
       "Source diff",
       `${source} across ${diff.files.source} file(s), ${diff.packages.length} package(s)`,
     ],
-    ["Turns", `${interaction.user_turns} (${interaction.corrective_turns} corrective)`],
+    ["Turns", `${interaction.user_turns} (${interaction.corrective_turns} sent mid-turn)`],
     [
       "Before first edit",
       interaction.tokens_before_first_edit === null
@@ -1699,6 +1794,12 @@ export function recordsInWindow(
  * dispatch may lead with a worktree instruction — only to be alone on its own. */
 const TASK_BRANCH_MARKER = /^TASK-BRANCH:[ \t]*(\S+)[ \t]*$/m;
 
+/** The marker as a Workflow harness hands it on: the harness indents every
+ * line of the task a script computed, so leading spaces or tabs are allowed.
+ * Read only from that task (`workflowTaskBranch`); everywhere else the marker
+ * is a line an agent wrote, and stays at column 0. */
+const INDENTED_TASK_BRANCH_MARKER = /^[ \t]*TASK-BRANCH:[ \t]*(\S+)[ \t]*$/m;
+
 /** How far into a prompt the marker is honoured.
  *
  * A dispatch prompt routinely quotes text this repository did not author —
@@ -1714,9 +1815,9 @@ const MARKER_WINDOW_LINES = 3;
  * capture names no card at all rather than an unexpected one. */
 const PLAUSIBLE_REF = /^[A-Za-z0-9][\w.\-/]*$/;
 
-function markerBranch(prompt: string): string | null {
+function markerBranch(prompt: string, marker = TASK_BRANCH_MARKER): string | null {
   const head = prompt.split("\n", MARKER_WINDOW_LINES).join("\n");
-  const captured = TASK_BRANCH_MARKER.exec(head)?.[1];
+  const captured = marker.exec(head)?.[1];
   if (!captured || captured.includes("..") || !PLAUSIBLE_REF.test(captured)) return null;
 
   return captured;
@@ -1735,10 +1836,15 @@ function markerBranch(prompt: string): string | null {
  * stays `main` throughout anyway: a session that plans and dispatches
  * without ever `cd`-ing itself.)
  *
- * The pairing is already on disk: every `agent-<id>.jsonl` has a sibling
- * `agent-<id>.meta.json` carrying the `toolUseId` of the `Agent` tool call that
- * spawned it, and that id appears in the parent transcript on the `tool_use`
+ * The pairing is already on disk: every `agent-<id>.jsonl` an `Agent` tool
+ * call starts has a sibling `agent-<id>.meta.json` carrying that call's
+ * `toolUseId`, and that id appears in the parent transcript on the `tool_use`
  * block whose `input.prompt` is the dispatch.
+ *
+ * An agent a Workflow run starts has no such call to join to: a script starts
+ * it, and its transcript sits under `subagents/workflows/<run-id>/`. There the
+ * marker is read from the agent's own transcript instead — see
+ * `workflowTaskBranch`.
  */
 const resolvedBranches = new Map<string, string | null>();
 
@@ -1764,6 +1870,11 @@ function resolveUncached(subagentFile: string, seen: Set<string>): string | null
   if (seen.has(subagentFile) || seen.size > 8) return null;
   seen.add(subagentFile);
 
+  // Decided by where the file sits, whatever its sidecar holds: the parent
+  // search below looks in the session file and the agent's siblings, and a
+  // workflow agent's task is in neither.
+  if (WORKFLOW_AGENT_FILE.test(subagentFile)) return workflowTaskBranch(subagentFile);
+
   const meta = readSubagentMeta(subagentFile.replace(/\.jsonl$/, ".meta.json"));
   const toolUseId = meta?.toolUseId;
   if (!toolUseId) return null;
@@ -1785,6 +1896,67 @@ function resolveUncached(subagentFile: string, seen: Set<string>): string | null
     return parent.includes("/subagents/")
       ? resolveDispatchBranch(parent, seen)
       : resolveSessionBranch(parent);
+  }
+
+  return null;
+}
+
+/** Where a Workflow run's agents write: `<session>/subagents/workflows/<run-id>/`. */
+const WORKFLOW_AGENT_FILE = /\/subagents\/workflows\/[^/]+\/[^/]+\.jsonl$/;
+
+/** The line a Workflow harness writes above the task a script computed for one
+ * agent, as the first line of that task's own user record. */
+const WORKFLOW_TASK_HEADER = "[Workflow harness — computed task]";
+
+/** How much of a workflow agent's transcript is read for its task. The task is
+ * its second record, and some 250 KB of attachments come before its first reply. */
+const WORKFLOW_HEAD_BYTES = 1024 * 1024;
+
+/**
+ * The branch a Workflow run's agent was started for, or `null`.
+ *
+ * The harness opens the agent's transcript with its relay of the user request
+ * that started the run, then the task the script computed for this agent. Each
+ * is a user record whose first line is the harness's own header, and every line
+ * the harness relays below it is indented by two spaces. The marker is read
+ * from the task alone, inside the usual window, and nowhere else:
+ *
+ * - the relay is the same text for every agent of a run that may drive several
+ *   branches, and it quotes whatever the user pasted;
+ * - text the harness or a hook adds is not the task;
+ * - anything after the agent's first reply — tool results, later prompts — is
+ *   text nobody here wrote.
+ *
+ * The header is safe to key on because the harness indents what it relays, so
+ * relayed text cannot begin a record with it. A harness that renamed it would
+ * stop attribution, and `unattributedSubagentFiles` would count every such agent.
+ */
+function workflowTaskBranch(file: string): string | null {
+  const head = readHead(file, WORKFLOW_HEAD_BYTES);
+  if (head === null) return null;
+
+  const lines = head.text.split("\n");
+  // A partial read can end mid-record.
+  if (!head.whole) lines.pop();
+
+  for (const line of lines) {
+    let record: SessionRecord;
+    try {
+      record = JSON.parse(line) as SessionRecord;
+    } catch {
+      continue;
+    }
+
+    if (record.type === "assistant") return null;
+
+    const content = record.message?.content;
+    if (
+      record.type === "user" &&
+      typeof content === "string" &&
+      content.startsWith(WORKFLOW_TASK_HEADER)
+    ) {
+      return markerBranch(content, INDENTED_TASK_BRANCH_MARKER);
+    }
   }
 
   return null;
@@ -2105,7 +2277,10 @@ function transcriptFiles(
       ["*/*/subagents/*.jsonl", true],
       // Agents a Workflow run starts write one level deeper, under
       // `subagents/workflows/<run-id>/`. They are subagent spend all the same.
-      ["*/*/subagents/workflows/*/*.jsonl", true],
+      // The run's `journal.jsonl` beside them is its log, not a transcript: it
+      // holds no spend and no branch, and counted it would only add a file to
+      // the unattributed warning.
+      ["*/*/subagents/workflows/*/agent-*.jsonl", true],
     ];
 
     // Globbed in-process rather than through `sh -c`: the root comes from an
@@ -2128,15 +2303,23 @@ function transcriptFiles(
 /** The first line of a file, without reading the rest of it. The 366 subagent
  * transcripts here total 200 MB and only their first line is wanted. */
 function firstLine(file: string): string | null {
+  const head = readHead(file, 64 * 1024);
+  if (head === null) return null;
+
+  const newline = head.text.indexOf("\n");
+
+  return newline === -1 ? head.text : head.text.slice(0, newline);
+}
+
+/** A file's first `bytes` bytes as text, and whether they are all of it. */
+function readHead(file: string, bytes: number): { text: string; whole: boolean } | null {
   let fd: number | null = null;
   try {
     fd = openSync(file, "r");
-    const buffer = Buffer.alloc(64 * 1024);
-    const read = readSync(fd, buffer, 0, buffer.length, 0);
-    const text = buffer.toString("utf8", 0, read);
-    const newline = text.indexOf("\n");
+    const buffer = Buffer.alloc(bytes);
+    const read = readSync(fd, buffer, 0, bytes, 0);
 
-    return newline === -1 ? text : text.slice(0, newline);
+    return { text: buffer.toString("utf8", 0, read), whole: read < bytes };
   } catch {
     return null;
   } finally {
@@ -2758,6 +2941,21 @@ function gh(args: string[]): string | null {
   }
 }
 
+/** One `gh` invocation's stdout whatever its exit status, or `null` where `gh`
+ * could not run or printed nothing. For `gh api graphql`, which exits non-zero
+ * when any one alias in a document does not resolve and still prints the
+ * `data` it found for the rest. */
+function ghOutput(args: string[]): string | null {
+  try {
+    const result = Bun.spawnSync(["gh", ...args], { stdout: "pipe", stderr: "pipe" });
+    const out = result.stdout.toString().trim();
+
+    return out === "" ? null : out;
+  } catch {
+    return null;
+  }
+}
+
 /** A pull request's state and merge time from `gh`, or both `null` where the
  * call fails or answers with something else. */
 function mergeState(number: number): Pick<BranchPull, "mergedAt" | "state"> {
@@ -2844,6 +3042,90 @@ function fetchIssueLabels(issue: number, repo: string): string[] | null {
   }
 }
 
+/** The most tracker issues one run asks about. A pull-request body decides
+ * the list, and the `SessionEnd` hook that runs this has 60 seconds; past this
+ * many, nothing is asked and the rating is `not-fetched`. */
+const TRACKER_QUERY_CAP = 50;
+
+/** One issue in the tracker call's answer, under its `i<number>` alias. */
+interface TrackerIssueNode {
+  labels?: { nodes?: { name?: unknown }[] };
+}
+
+/** The largest number GraphQL's `Int` holds. */
+const GRAPHQL_INT_MAX = 2 ** 31 - 1;
+
+/**
+ * The rating labels of each tracker issue in one `gh api graphql` answer to
+ * {@link fetchTrackerLabels}'s query, keyed by {@link issueKey}, through
+ * {@link ratingLabels}. An issue whose alias is `null` or missing — a number
+ * that is not an issue, or one this token cannot read — is left out, as is
+ * every issue when the repository itself is `null` (a token that cannot see
+ * the tracker) or the output is not JSON.
+ */
+export function trackerLabelsFromAnswer(
+  raw: string | null,
+  issues: ForeignIssue[],
+): Map<string, string[]> {
+  const read = new Map<string, string[]>();
+  if (raw === null) return read;
+
+  let parsed: { data?: { repository?: Record<string, TrackerIssueNode | null> | null } };
+  try {
+    parsed = JSON.parse(raw) as typeof parsed;
+  } catch {
+    return read;
+  }
+
+  const repository = parsed.data?.repository;
+  if (repository === null || typeof repository !== "object") return read;
+
+  for (const issue of issues) {
+    const names = repository[`i${issue.number}`]?.labels?.nodes;
+    if (!Array.isArray(names)) continue;
+
+    read.set(
+      issueKey(issue),
+      ratingLabels(names.map((label) => label.name).filter((name) => typeof name === "string")),
+    );
+  }
+
+  return read;
+}
+
+/**
+ * The rating labels of the given issues in {@link TRACKER_REPO}, in one call.
+ * Only the tracker's issues are asked about; any other repository's, and every
+ * one of them when there are more than {@link TRACKER_QUERY_CAP} or one number
+ * is not a GraphQL `Int`, are left out, which reads as `not-fetched`.
+ */
+function fetchTrackerLabels(issues: ForeignIssue[]): Map<string, string[]> {
+  const wanted = issues.filter((issue) => issue.repo.toLowerCase() === TRACKER_REPO);
+  const askable =
+    wanted.length > 0 &&
+    wanted.length <= TRACKER_QUERY_CAP &&
+    wanted.every((issue) => Number.isSafeInteger(issue.number) && issue.number <= GRAPHQL_INT_MAX);
+  if (!askable) return new Map();
+
+  const [owner, name] = TRACKER_REPO.split("/");
+  const fields = wanted
+    .map(
+      (issue) =>
+        `i${issue.number}: issue(number: ${issue.number}) { labels(first: 20) { nodes { name } } }`,
+    )
+    .join(" ");
+
+  return trackerLabelsFromAnswer(
+    ghOutput([
+      "api",
+      "graphql",
+      "-f",
+      `query=query { repository(owner: "${owner}", name: "${name}") { ${fields} } }`,
+    ]),
+    wanted,
+  );
+}
+
 /**
  * Recover a branch's pull request, issue and rating from `gh`, for a run that
  * was given none of them.
@@ -2853,12 +3135,16 @@ function fetchIssueLabels(issue: number, repo: string): string[] | null {
  * then records nothing. `retro` runs it once the pull request is open.
  *
  * The rules are `wiki/conventions/session-metrics.md` §Which issue a card
- * names: {@link selectIssues} names the issue, {@link decideComplexity} sums
- * the ratings. **Labels are read only from an issue in this same repository.**
- * Most of this repository's pull requests close a finding in the private
- * `englishstreetventures/osn-tracker`, whose `severity:`/`area:` labels must
- * never reach a card committed to a public one, so such an issue is never asked
- * about. `backfill.ts` draws the same outcomes from the same functions.
+ * names: {@link selectIssues} names the issue, {@link issuesToRate} says which
+ * issues the rating sums and {@link decideComplexity} sums them. **A card's
+ * `issue.labels` are read only from an issue in this same repository.** Many of
+ * this repository's pull requests close a finding in the private
+ * {@link TRACKER_REPO}, whose `severity:`/`area:` labels must never reach a
+ * card committed to a public one. A pull request that links no issue here is
+ * rated from the tracker issues it closes, and from those only their
+ * `complexity:` pair is kept ({@link ratingLabels}); a token that cannot read
+ * the tracker leaves the rating `not-fetched`. `backfill.ts` draws the same
+ * outcomes from the same functions.
  *
  * `explicitIssue` is `--issue`: it names the issue and nothing else, so the
  * rating is still the sum of what the pull request closes. The card is public,
@@ -2886,20 +3172,28 @@ function resolveIdentity(branch: string, explicitIssue: number | null): Resolved
     "--state",
     "all",
     "--limit",
-    "1",
+    "10",
     "--json",
-    "number,body,closingIssuesReferences",
+    "number,isCrossRepository,body,closingIssuesReferences",
   ]);
   if (listed === null) return miss;
 
-  let pulls: { number: number; body: string | null; closingIssuesReferences: IssueReference[] }[];
+  let pulls: {
+    number: number;
+    isCrossRepository?: boolean;
+    body: string | null;
+    closingIssuesReferences: IssueReference[];
+  }[];
   try {
     pulls = JSON.parse(listed) as typeof pulls;
   } catch {
     return miss;
   }
 
-  const pull = pulls[0];
+  // `--head` matches the branch name in every fork too. The card describes the
+  // newest pull request whose branch lives in this repository, and only its
+  // body says which tracker issues are asked about.
+  const pull = pulls.find((candidate) => candidate.isCrossRepository !== true);
   if (pull === undefined) return miss;
 
   // NEW-FEAT.md is this checkout's scratch file, so it speaks for the branch
@@ -2918,8 +3212,8 @@ function resolveIdentity(branch: string, explicitIssue: number | null): Resolved
   const refs = pull.closingIssuesReferences ?? [];
   const body = bodyIssueLinks(pull.body ?? "", repo);
   const elsewhere = new Set([
-    ...body.foreignCloses,
-    ...body.foreignPartOf,
+    ...body.foreignCloses.map((issue) => issue.number),
+    ...body.foreignPartOf.map((issue) => issue.number),
     ...refs.filter((ref) => repo === null || !sameRepository(ref, repo)).map((ref) => ref.number),
   ]);
   const here = new Set([...selection.closed, ...selection.partOf]);
@@ -2944,10 +3238,19 @@ function resolveIdentity(branch: string, explicitIssue: number | null): Resolved
   const labels = new Map<number, string[] | null>();
   for (const issue of selection.closed) labels.set(issue, fetchIssueLabels(issue, repo));
 
-  const decision = decideComplexity(selection, labels);
+  const rated = issuesToRate(selection);
+  const labelsElsewhere = fetchTrackerLabels(rated.elsewhere);
+
+  const decision = decideComplexity(selection, labels, labelsElsewhere);
   if (decision.unrated.length > 0) {
     process.stderr.write(
-      `⚠️  pr-metrics: ${decision.unrated.map((n) => `#${n}`).join(", ")} carries no complexity: rating, so the sum of what pull request #${pull.number} closes is unknown and the card records none.\n`,
+      `⚠️  pr-metrics: no complexity: rating on ${issuesForWarning(decision.unrated)}, so the sum of what pull request #${pull.number} closes is unknown and the card records none.\n`,
+    );
+  }
+  const unread = rated.elsewhere.filter((issue) => !labelsElsewhere.has(issueKey(issue)));
+  if (unread.length > 0) {
+    process.stderr.write(
+      `⚠️  pr-metrics: could not read ${issuesForWarning(unread.map(issueKey))}, which pull request #${pull.number} closes, so the card records not-fetched. Only ${TRACKER_REPO} is asked, at most ${TRACKER_QUERY_CAP} issues, and only with a token that can read it.\n`,
     );
   }
 
@@ -3086,19 +3389,20 @@ function findRun(line: string, length: number, from: number): number {
  * body order, from its prose only (see {@link proseOnly}).
  *
  * A bare `#N` is this repository's issue. A qualified `owner/name#N` is this
- * repository's when it names `repo`, and otherwise another repository's: its
- * number goes to `foreignCloses` or `foreignPartOf`, never to `closes` or
- * `partOf`. With no `repo`, every qualified reference is foreign.
+ * repository's when it names `repo`, and otherwise another repository's: it
+ * goes to `foreignCloses` or `foreignPartOf` with the repository as written,
+ * never to `closes` or `partOf`. With no `repo`, every qualified reference is
+ * foreign.
  */
 export interface BodyIssueLinks {
   /** This repository's issues the pull request closes on merge. */
   closes: number[];
   /** Issues it only advances: a `Part of` line, for partial work. */
   partOf: number[];
-  /** Another repository's issues it closes. */
-  foreignCloses: number[];
-  /** Another repository's issues it only advances. */
-  foreignPartOf: number[];
+  /** Another repository's issues it closes, each once. */
+  foreignCloses: ForeignIssue[];
+  /** Another repository's issues it only advances, each once. */
+  foreignPartOf: ForeignIssue[];
 }
 
 export function bodyIssueLinks(body: string, repo: string | null = null): BodyIssueLinks {
@@ -3109,8 +3413,8 @@ export function bodyIssueLinks(body: string, repo: string | null = null): BodyIs
   );
   const closes = new Set<number>();
   const partOf = new Set<number>();
-  const foreignCloses = new Set<number>();
-  const foreignPartOf = new Set<number>();
+  const foreignCloses = new Map<string, ForeignIssue>();
+  const foreignPartOf = new Map<string, ForeignIssue>();
 
   for (const [, keyword = "", qualifier, digits = ""] of matches) {
     const number = Number(digits);
@@ -3119,7 +3423,9 @@ export function bodyIssueLinks(body: string, repo: string | null = null): BodyIs
     const advances = /^part/i.test(keyword);
 
     if (!here) {
-      (advances ? foreignPartOf : foreignCloses).add(number);
+      const issue = { repo: qualifier, number };
+      const into = advances ? foreignPartOf : foreignCloses;
+      if (!into.has(issueKey(issue))) into.set(issueKey(issue), issue);
       continue;
     }
     if (advances) partOf.add(number);
@@ -3129,8 +3435,8 @@ export function bodyIssueLinks(body: string, repo: string | null = null): BodyIs
   return {
     closes: [...closes],
     partOf: [...partOf],
-    foreignCloses: [...foreignCloses],
-    foreignPartOf: [...foreignPartOf],
+    foreignCloses: [...foreignCloses.values()],
+    foreignPartOf: [...foreignPartOf.values()],
   };
 }
 
@@ -3142,8 +3448,15 @@ export interface IssueSelection {
   closed: number[];
   /** Issues in this repository it only advances. */
   partOf: number[];
-  /** It also closes an issue in another repository. */
+  /** It also closes an issue in another repository: one GitHub lists, or one
+   * a `Closes` line in the body names, whether or not it is in
+   * `closedElsewhere`. */
   foreign: boolean;
+  /** Issues in other repositories it closes, each once, by the same rule as
+   * `closed`. */
+  closedElsewhere: ForeignIssue[];
+  /** Issues in other repositories it only advances, each once. */
+  partOfElsewhere: ForeignIssue[];
   /** When `issue` is null: the issues it could have been, for the warning. */
   candidates: number[];
 }
@@ -3159,10 +3472,11 @@ export interface IssueSelection {
  * for. `preferred` only chooses among the pull request's own links — a scratch
  * file never introduces an issue the pull request does not name.
  *
- * The closed set: an open pull request (`closedFromBody`) is credited with its
- * body's `Closes` lines as well as GitHub's references, since a stacked pull
- * request has none of the latter until it is retargeted. A merged one is
- * credited with GitHub's references alone — they are what the merge closed.
+ * The closed set, in this repository and in others: an open pull request
+ * (`closedFromBody`) is credited with its body's `Closes` lines as well as
+ * GitHub's references, since a stacked pull request has none of the latter
+ * until it is retargeted. A merged one is credited with GitHub's references
+ * alone — they are what the merge closed.
  */
 export function selectIssues(input: {
   body: string;
@@ -3181,6 +3495,23 @@ export function selectIssues(input: {
   const foreign = links.foreignCloses.length > 0 || here.length < refs.length;
   const linked = new Set([...closed, ...partOf, ...links.closes]);
 
+  const closedElsewhere = new Map<string, ForeignIssue>();
+  const elsewhere = [
+    ...(closedFromBody ? links.foreignCloses : []),
+    ...refs
+      .filter((ref) => repo === null || !sameRepository(ref, repo))
+      .map((ref) => ({
+        repo: `${ref.repository.owner.login}/${ref.repository.name}`,
+        number: ref.number,
+      })),
+  ];
+  for (const issue of elsewhere) {
+    if (!closedElsewhere.has(issueKey(issue))) closedElsewhere.set(issueKey(issue), issue);
+  }
+  const partOfElsewhere = links.foreignPartOf.filter(
+    (issue) => !closedElsewhere.has(issueKey(issue)),
+  );
+
   const issue =
     (preferred !== null && linked.has(preferred) ? preferred : null) ??
     links.closes[0] ??
@@ -3192,21 +3523,49 @@ export function selectIssues(input: {
     closed,
     partOf,
     foreign,
+    closedElsewhere: [...closedElsewhere.values()],
+    partOfElsewhere,
     candidates: issue === null && referenced.length > 1 ? referenced : [],
   };
 }
 
-/** The denominator a card records, and the closed issues that had no rating. */
+/** The issues a pull request's rating sums, in this repository and in others. */
+export interface RatedIssues {
+  /** This repository's issues, by number. */
+  here: number[];
+  /** Other repositories' issues, by repository and number. */
+  elsewhere: ForeignIssue[];
+}
+
+/**
+ * The issues a pull request's rating sums: every issue in this repository it
+ * closes or, when it links no issue here at all, every issue in another
+ * repository it closes.
+ *
+ * Beside an issue here, the tracker issues a pull request closes are mostly
+ * its own review's findings, which `prep-pr` files and the branch fixes. The
+ * issue here states the work; adding the findings' ratings would make a branch
+ * whose review found more read as cheaper per point. A pull request that links
+ * nothing here, such as one cut for a tracker finding, has no other rating.
+ */
+export function issuesToRate(selection: IssueSelection): RatedIssues {
+  const linkedHere = selection.closed.length > 0 || selection.partOf.length > 0;
+
+  return { here: selection.closed, elsewhere: linkedHere ? [] : selection.closedElsewhere };
+}
+
+/** The denominator a card records, and the closed issues that had no rating,
+ * as `#N` or `owner/name#N`. */
 export interface ComplexityDecision {
   declared: number | null;
   method: ComplexityMethod;
   issues: number;
-  unrated: number[];
+  unrated: string[];
 }
 
 /**
  * The declared complexity of what a pull request does: the sum of the ratings
- * of every issue in this repository it closes.
+ * of the issues {@link issuesToRate} names.
  *
  * Summed, because a branch that closes three issues did three issues' work,
  * and dividing its spend by one of their ratings makes it read three times as
@@ -3215,41 +3574,65 @@ export interface ComplexityDecision {
  * could not be read: a partial sum understates the work the same way one
  * issue's rating does.
  *
- * A pull request that closes nothing here but advances an issue (`Part of`)
- * records `part-of`: that issue's rating describes more than the branch did.
- * One that closes only another repository's issue records `not-fetched`; that
- * issue is never asked about.
+ * `labels` holds this repository's issues by number, `null` for a lookup that
+ * did not land (`lookup-failed`). `labelsElsewhere` holds another repository's
+ * by {@link issueKey}, rating labels only; one missing from it was not read,
+ * and the sum is `not-fetched`.
+ *
+ * A pull request that rates nothing but advances an issue (`Part of`), here or
+ * elsewhere, records `part-of`: that issue's rating describes more than the
+ * branch did. One whose body closes another repository's issue that GitHub did
+ * not register records `not-fetched`: a rating may exist there, unread.
  */
 export function decideComplexity(
   selection: IssueSelection,
   labels: Map<number, string[] | null>,
+  labelsElsewhere: Map<string, string[] | null>,
 ): ComplexityDecision {
-  const unknown = (method: ComplexityMethod, unrated: number[] = []): ComplexityDecision => ({
+  const unknown = (method: ComplexityMethod, unrated: string[] = []): ComplexityDecision => ({
     declared: null,
     method,
     issues: 0,
     unrated,
   });
-
-  if (selection.closed.length > 0) {
-    const found = selection.closed.map((issue) => labels.get(issue) ?? null);
-    if (found.some((names) => names === null)) return unknown("lookup-failed");
-
-    const ratings = found.map((names) => declaredFromLabels(names ?? []));
-    const unrated = selection.closed.filter((_, i) => ratings[i]?.declared === null);
+  const sum = (parts: { name: string; labels: string[] }[]): ComplexityDecision => {
+    const ratings = parts.map((part) => declaredFromLabels(part.labels));
+    const unrated = parts.filter((_, i) => ratings[i]?.declared === null).map((part) => part.name);
     if (unrated.length > 0) return unknown("none", unrated);
 
     return {
-      declared: ratings.reduce((sum, rating) => sum + (rating.declared ?? 0), 0),
+      declared: ratings.reduce((total, rating) => total + (rating.declared ?? 0), 0),
       method: ratings.some((rating) => rating.method === "unconfirmed")
         ? "unconfirmed"
         : "confirmed",
       issues: ratings.length,
       unrated: [],
     };
+  };
+  const rated = issuesToRate(selection);
+
+  if (rated.here.length > 0) {
+    const found = rated.here.map((issue) => labels.get(issue) ?? null);
+    if (found.some((names) => names === null)) return unknown("lookup-failed");
+
+    return sum(rated.here.map((issue, i) => ({ name: `#${issue}`, labels: found[i] ?? [] })));
   }
 
   if (selection.partOf.length > 0) return unknown("part-of");
+
+  if (rated.elsewhere.length > 0) {
+    const found = rated.elsewhere.map((issue) => labelsElsewhere.get(issueKey(issue)) ?? null);
+    if (found.some((names) => names === null)) return unknown("not-fetched");
+
+    return sum(
+      rated.elsewhere.map((issue, i) => ({
+        name: `${issue.repo}#${issue.number}`,
+        labels: found[i] ?? [],
+      })),
+    );
+  }
+
+  if (selection.partOfElsewhere.length > 0) return unknown("part-of");
   if (selection.foreign) return unknown("not-fetched");
 
   return unknown("none");
@@ -3580,6 +3963,14 @@ if (import.meta.main) {
     );
     console.warn("   under a `main`/`HEAD` session, so their spend lands on no card. See");
     console.warn("   wiki/conventions/session-metrics.md §Attributing subagent spend.");
+  }
+
+  const unknownOrigins = unknownQueuedOrigins(records);
+  if (unknownOrigins.length > 0) {
+    process.stderr.write(
+      `⚠️  pr-metrics: queued record(s) from an unknown sender (${unknownOrigins.join(", ")}) count as no turn.\n` +
+        "   If a person typed them, add the kind to queuedByPerson in tools/pr-metrics/index.ts.\n",
+    );
   }
 
   if (card.spend.unpriced_models.length > 0) {

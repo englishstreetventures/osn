@@ -86,7 +86,8 @@ BASE="origin/$(git config --get "branch.$BRANCH.gh-merge-base" || echo main)"
 
 # 1. The committed card. `--resolve-issue` finds the pull request, names the
 #    issue the branch was cut for and sums the `complexity:` ratings of every
-#    issue in this repository the pull request closes.
+#    issue in this repository the pull request closes, or, when it links none
+#    here, of the tracker issues it closes.
 bun run --cwd tools/pr-metrics card -- --resolve-issue --base "$BASE"
 
 # 2. The `<details>` block for the pull-request body, on stdout, warnings excluded.
@@ -101,13 +102,16 @@ Five rules about that pair:
   repository's issue of the same number and writes a stranger's `complexity:`
   label in as this branch's denominator. `resolveIdentity` in
   `tools/pr-metrics/index.ts` compares the reference's own repository.
-- **Labels are read only from an issue in this repository.** Most work here
-  closes a finding in the private `englishstreetventures/osn-tracker`, and that issue's
-  `severity:`/`area:` labels must never reach a card committed to a public
-  repository. The flag withholds them and records
+- **A card's labels come only from an issue in this repository.** Much work
+  here closes a finding in the private `englishstreetventures/osn-tracker`, and
+  that issue's `severity:`/`area:` labels must never reach a card committed to
+  a public repository. For a pull request that links no issue here, the flag
+  reads the tracker issues it closes and keeps only their `complexity:` pair,
+  for the rating; the card names no issue. Beside an issue here, tracker issues
+  are not read. A tracker issue the token cannot read records
   `complexity.method: "not-fetched"`, which is **not** `"none"` — a rating may
-  well exist there and nobody looked. `"lookup-failed"` is its third answer,
-  for a call that did not land.
+  well exist there, unread. `"lookup-failed"` is a call to this repository
+  that did not land.
 - **Check the issue the card names.** It is the issue in the branch's
   `NEW-FEAT.md` when the pull request links it, else the first `Closes` line of
   the body, else the first `Part of` line; with several closing references and
@@ -119,7 +123,8 @@ Five rules about that pair:
   number.
 - **Pass explicit flags only where you know better than `gh` does.** `--pr`,
   `--issue-labels` and `--complexity` win over the lookup; `--issue-labels`
-  turns the rating lookup off and declares that one issue's rating. The usual
+  turns the rating lookup off and declares that one issue's rating; pass this
+  repository's issue's labels only, never a tracker issue's. The usual
   reason is a branch whose pull request is not open yet.
 - **Commit the JSON with the branch.** `~/.claude/projects` is local,
   unversioned and dies with a remote container. The committed file is the
@@ -203,7 +208,7 @@ below has to cite:
 | From the card | What it is |
 |---|---|
 | `complexity.declared` + `spend.usd_equivalent` | The whole comparison. Spend against difficulty declared **before** anyone knew the cost |
-| `interaction.corrective_turns` | Human turns after the agent had already picked up tools. The one number here that measures the brief, not the model |
+| `interaction.corrective_turns` | Prompts the person sent while the agent was still working — interruptions. A turn sent after the agent stopped is not one. The one number here about the brief, not the model. **A card before `schema_version` 4 counted every turn after the first tool call**: report its count, but take which turns were corrections from the prompts or the owner's note, and do not apply Step 4's threshold to it |
 | `interaction.tokens_before_first_edit` and `sessions_with_observed_edit` | Exploration. **`null` means unobserved, not "all of it"** |
 | `interaction.edit_churn.max_edits_one_file` | An agent building, or an agent lost |
 | `interaction.skills` / `interaction.subagents` | What was invoked — and what conspicuously was not |
@@ -220,21 +225,25 @@ Three readings that are wrong every time:
 
 - **A `null` rating means the work is unrated.** `complexity.declared` is the
   sum of the `complexity:` ratings of every issue in this repository the pull
-  request closes, and `complexity.issues` says how many it adds up (a card
-  older than `schema_version` 3 has no `issues` and rates one issue). A `null` has a reason, and
-  `complexity.method` names it. Read it before you conclude anything:
+  request closes or, when it links none here, of the tracker issues it closes,
+  and `complexity.issues` says how many it adds up (a card older than
+  `schema_version` 3 has no `issues` and rates one issue). A `null` has a
+  reason, and `complexity.method` names it. Read it before you conclude anything:
   - `lookup-failed`, or `none` on a card with `pr.number: null` — the card did
     not read a rating. Look at the issues the pull request closes; where each
     carries a `complexity:` label, **their sum is the denominator**.
-  - `not-fetched` — the pull request closes only a private tracker issue, whose
-    labels the card never reads. That issue's `complexity:` label is the
-    denominator; read it there, and never copy the issue or its labels into
-    anything public.
-  - `part-of` — the branch only advances `issue.number`, and that issue's
-    rating describes the whole of it. **Never divide by that label**: there is
-    no denominator.
+  - `not-fetched` — the pull request links no issue here and closes a tracker
+    issue the token could not read (on a card before `schema_version` 4, any
+    tracker-only pull request). The tracker issues' `complexity:` labels are
+    the denominator; read them there, and never copy an issue or its labels
+    into anything public.
+  - `part-of` — the branch only advances `issue.number` (or a tracker issue,
+    when `issue.number` is null), and that issue's rating describes the whole
+    of it. **Never divide by that label**: there is no denominator.
   - `none` with a pull request — a closed issue carries no rating (the run's
-    warning named it), or nothing is linked.
+    warning names one here and counts a tracker one), or nothing is linked. A
+    tracker issue is rated in the tracker; read it there, and copy nothing of
+    it into anything public.
 
   Only for `part-of`, or an issue with no `complexity:` label, is the work
   genuinely unrated, and only then do you say "unrated, so I cannot tell".
@@ -260,9 +269,10 @@ The five sources, in the order they are worth mining:
    a wiki page, a `AGENTS.md` row or a skill could have stated. This is the
    highest-yield source and the reason `tokens_before_first_edit` is on the
    card.
-2. **What was corrected.** Every `corrective_turn` is a course correction that
-   the brief did not prevent. Read the actual prompts — what did the person have
-   to say that the task should have carried?
+2. **What was corrected.** Every `corrective_turn` is a prompt the person sent
+   while the agent was working. Read the actual prompts: the ones that corrected
+   the agent, not the status notes or added scope, are what the brief did not
+   prevent. What did the person have to say that the task should have carried?
 3. **What a gate caught late.** A `review-security`, `review-performance` or
    `review-tests` finding that a test, an oxlint house rule or a CI step could
    have caught before a review agent had to. `stress-plan` findings count
@@ -281,7 +291,7 @@ The five sources, in the order they are worth mining:
 |---|---|---|
 | High `tokens_before_first_edit`, package with no wiki page | No map for that surface | A new `wiki/` page, and a line in `wiki/index.md` |
 | A fact re-derived that one line could have stated | `AGENTS.md` is missing a row, or the wiki page is missing a heading | Prefer the wiki page; `AGENTS.md` only for something every session needs |
-| `corrective_turns` ≥ 3 | The brief was unclear | **The prompt.** Say what the task should have carried. No issue — there is nobody to assign it to |
+| `corrective_turns` ≥ 3 on a card from `schema_version` 4 | The person had to step in mid-run three times or more; the corrections among those prompts are what the brief left out. A turn sent after the agent stopped is not counted, so a long session that took on new work turn by turn does not trip this | **The prompt.** Say what the task should have carried. No issue — there is nobody to assign it to |
 | A skill ran and the mistake happened anyway | The skill is missing a trap | That `SKILL.md`, as a named failure mode, not a general exhortation |
 | A review finding a gate could have caught | Missing test, missing house rule, missing CI step | `tests/`, `tools/oxlint/house`, or `.github/workflows` |
 | `edit_churn.max_edits_one_file` high on one file | The agent was lost in that file | Usually the file, not the docs — a shape nobody can hold in their head |

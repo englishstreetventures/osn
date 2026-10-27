@@ -53,6 +53,16 @@ function card(
   });
 }
 
+// Since schema version 4 the count is of prompts sent while the agent was
+// still working, and the line says so.
+test("renderDetails names corrective turns as prompts sent mid-turn", () => {
+  const c = card();
+  c.interaction.user_turns = 5;
+  c.interaction.corrective_turns = 2;
+
+  expect(renderDetails(c)).toContain("5 (2 sent mid-turn)");
+});
+
 // `prep-pr` permits a fixed set of `##` headings and counts them before it
 // finishes. A metrics *section* would fail a body that is otherwise correct, so
 // the block must contribute no heading at all.

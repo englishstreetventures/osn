@@ -454,16 +454,16 @@ export function Dashboard() {
 
         <Section
           title="Corrective-turn rate over time"
-          question="Are briefs getting clearer? Corrections are human turns that arrived after the agent had started work."
-          note={`Rate is corrections ÷ human turns per pull request. ${corrections.excluded} card(s) excluded: no human turn recorded, so the rate is unknown rather than zero.`}
+          question="Are briefs getting clearer? Corrections are prompts the person sent while the agent was still working; some are status notes or added scope."
+          note={`Rate is prompts sent mid-turn ÷ human turns per pull request. ${corrections.excluded} card(s) excluded: no human turn recorded, or written before schema version 4 counted only mid-turn prompts, so the rate is unknown rather than zero.`}
         >
           <Show
             when={corrections.points.length > 0}
-            fallback={<Empty>No merged card recorded a human turn.</Empty>}
+            fallback={<Empty>No merged card from schema version 4 on recorded a human turn.</Empty>}
           >
             <MonthlyChart
               data={corrections}
-              label="corrective turns ÷ human turns"
+              label="prompts sent mid-turn ÷ human turns"
               format={pct}
               tickFormat=".0%"
             />

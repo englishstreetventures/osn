@@ -16,7 +16,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { type ChangedFile, keepRating, numstatFromApi } from "../backfill";
-import { branchSlug, type Card, parseNumstat } from "../index";
+import { branchSlug, type Card, type IssueSelection, parseNumstat } from "../index";
 
 test("numstatFromApi reshapes the GitHub API's file list into numstat lines", () => {
   const files: ChangedFile[] = [
@@ -610,72 +610,6 @@ esac
     expect(cardB.issue.labels).toEqual(["product:cire"]);
     expect(cardB.complexity.declared).toBeNull();
     expect(cardB.complexity.method).toBe("none");
-  } finally {
-    await rm(f.dir, { recursive: true, force: true });
-  }
-});
-
-// `wiki/conventions/session-metrics.md` §Backfilling: a linked issue outside
-// this repository — chiefly the private `englishstreetventures/osn-tracker`, which closes
-// most of this repository's pull requests — is never fetched at all, because
-// its labels can carry a severity/area pair that must not reach a card
-// committed here. `method: "not-fetched"` says so, distinct from `"none"`.
-test("a linked issue outside this repository is never fetched", async () => {
-  const f = await fixture({ withTranscript: false });
-  try {
-    const branch = "feat/tracker-linked";
-    const slug = "feat-tracker-linked";
-
-    await writeFile(
-      join(f.binDir, "gh"),
-      `#!/bin/sh
-printf '%s\\n' "$*" >> "$GH_CALL_LOG"
-case "$*" in
-  *"pr list"*)
-    printf '%s' '[{"number":6001,"headRefName":"${branch}","mergedAt":"2026-09-09T12:00:00Z","baseRefOid":"aaa","headRefOid":"bbb","closingIssuesReferences":[{"id":"I_test_tracker_619","number":619,"repository":{"name":"osn-tracker","owner":{"login":"englishstreetventures"}}}]}]' ;;
-  *"nodes(ids:"*)
-    printf '%s' 'SHOULD NOT BE CALLED' ;;
-  *"api graphql"*)
-    printf '%s' '{"data":{"repository":{"p6001":{"commits":{"totalCount":1}}}}}' ;;
-  *"/files"*)
-    printf '%s\\n' '{"filename":"osn/api/src/svc.ts","additions":1,"deletions":0}' ;;
-  *)
-    printf '%s' '3' ;;
-esac
-`,
-    );
-    await chmod(join(f.binDir, "gh"), 0o755);
-
-    const project = join(f.sessions, await projectDirFor(f.dir));
-    await mkdir(project, { recursive: true });
-    await writeFile(
-      join(project, "sess-tracker.jsonl"),
-      `${JSON.stringify({
-        type: "assistant",
-        sessionId: "sess-tracker",
-        gitBranch: branch,
-        requestId: "req-tracker",
-        timestamp: "2026-09-09T11:00:00.000Z",
-        message: { model: "claude-opus-5", usage: { output_tokens: 50 } },
-      })}\n`,
-    );
-
-    const run = await runBackfill(f);
-    expect(run.exitCode).toBe(0);
-
-    // The filter excludes it before any fetch — not merely fails softly.
-    const calls = await readFile(f.log, "utf8");
-    expect(calls).not.toContain("nodes(ids:");
-
-    const card = JSON.parse(await readFile(join(f.dir, "cards", `${slug}.json`), "utf8")) as {
-      issue: { number: number | null; labels: string[] };
-      complexity: { declared: number | null; method: string };
-    };
-    // The tracker issue's number is private, so it is not recorded at all.
-    expect(card.issue.number).toBeNull();
-    expect(card.issue.labels).toEqual([]);
-    expect(card.complexity.declared).toBeNull();
-    expect(card.complexity.method).toBe("not-fetched");
   } finally {
     await rm(f.dir, { recursive: true, force: true });
   }
@@ -1281,6 +1215,108 @@ test("backfill leaves a one-issue card alone rather than relabel it as a batched
   }
 });
 
+// `wiki/conventions/session-metrics.md` §Backfilling: a pull request that links
+// no issue here takes its rating from the tracker issues GitHub registered as
+// closed — their `complexity:` pair and nothing else. The tracker's ids go in a
+// call of their own, so a tracker the token cannot read never costs a public
+// lookup, and its other labels are dropped as the answer arrives.
+const TRACKER = "englishstreetventures/osn-tracker";
+const TRACKER_FINDING =
+  '{"data":{"nodes":[{"labels":{"nodes":[{"name":"severity:high"},{"name":"area:security"},{"name":"needs:decision"},{"name":"complexity:3"},{"name":"complexity:unconfirmed"}]}}]}}';
+
+test("backfill rates a tracker-only pull request from the tracker and writes none of its other labels", async () => {
+  const f = await fixture({ withTranscript: false });
+  try {
+    const branch = "feat/tracker-linked";
+    await stubGh(
+      f,
+      `  *"pr list"*) printf '%s' '${prListing(
+        6001,
+        branch,
+        [{ id: "I_tracker_900619", number: 900619, repo: TRACKER }],
+        `Closes ${TRACKER}#900619`,
+      )}' ;;
+  *"nodes(ids:"*"I_tracker_900619"*) printf '%s' '${TRACKER_FINDING}' ;;
+  *"api graphql"*) printf '%s' '{"data":{"repository":{"p6001":{"commits":{"totalCount":1}}}}}' ;;`,
+    );
+    await sessionOn(f, branch);
+
+    expect((await runBackfill(f)).exitCode).toBe(0);
+
+    const text = await readFile(join(f.dir, "cards", `${branchSlug(branch)}.json`), "utf8");
+    const card = JSON.parse(text) as Card;
+    // The tracker issue's number is private, so it is not recorded at all.
+    expect(card.issue.number).toBeNull();
+    expect(card.issue.labels).toEqual([]);
+    expect(card.complexity).toEqual({ declared: 3, method: "unconfirmed", issues: 1 });
+    expect(text).not.toMatch(/severity:|area:|needs:/);
+  } finally {
+    await rm(f.dir, { recursive: true, force: true });
+  }
+});
+
+test("backfill records not-fetched for a tracker issue the token cannot resolve", async () => {
+  const f = await fixture({ withTranscript: false });
+  try {
+    const branch = "feat/tracker-unreadable";
+    await stubGh(
+      f,
+      `  *"pr list"*) printf '%s' '${prListing(6002, branch, [
+        { id: "I_tracker_900620", number: 900620, repo: TRACKER },
+      ])}' ;;
+  *"nodes(ids:"*) printf '%s' '{"data":{"nodes":[null]},"errors":[{"type":"NOT_FOUND"}]}'
+    exit 1 ;;
+  *"api graphql"*) printf '%s' '{"data":{"repository":{"p6002":{"commits":{"totalCount":1}}}}}' ;;`,
+    );
+    await sessionOn(f, branch);
+
+    const run = await runBackfill(f);
+    expect(run.exitCode).toBe(0);
+
+    const card = JSON.parse(
+      await readFile(join(f.dir, "cards", `${branchSlug(branch)}.json`), "utf8"),
+    ) as Card;
+    expect(card.complexity).toEqual({ declared: null, method: "not-fetched", issues: 0 });
+    expect(run.stderr).toContain("could not read 1 issue in another repository");
+    expect(run.stderr).not.toContain("osn-tracker#");
+  } finally {
+    await rm(f.dir, { recursive: true, force: true });
+  }
+});
+
+// Beside an issue here, the tracker issues a pull request closes are its own
+// review findings, filed and fixed on the branch: they add nothing to the sum,
+// so their ids are never sent.
+test("backfill never asks the tracker about a pull request that closes an issue here", async () => {
+  const f = await fixture({ withTranscript: false });
+  try {
+    const branch = "feat/tracker-beside";
+    await stubGh(
+      f,
+      `  *"pr list"*) printf '%s' '${prListing(6003, branch, [
+        { id: "I_local_970", number: 970 },
+        { id: "I_tracker_900619", number: 900619, repo: TRACKER },
+      ])}' ;;
+  *"nodes(ids:"*"I_tracker_900619"*) printf '%s' '${TRACKER_FINDING}' ;;
+  *"nodes(ids:"*) printf '%s' '{"data":{"nodes":[{"labels":{"nodes":[{"name":"product:osn-core"},{"name":"complexity:2"}]}}]}}' ;;
+  *"api graphql"*) printf '%s' '{"data":{"repository":{"p6003":{"commits":{"totalCount":1}}}}}' ;;`,
+    );
+    await sessionOn(f, branch);
+
+    expect((await runBackfill(f)).exitCode).toBe(0);
+
+    const text = await readFile(join(f.dir, "cards", `${branchSlug(branch)}.json`), "utf8");
+    const card = JSON.parse(text) as Card;
+    expect(card.issue.number).toBe(970);
+    expect(card.issue.labels).toEqual(["product:osn-core", "complexity:2"]);
+    expect(card.complexity).toEqual({ declared: 2, method: "confirmed", issues: 1 });
+    expect(text).not.toMatch(/severity:|area:/);
+    expect(await readFile(f.log, "utf8")).not.toContain("I_tracker_900619");
+  } finally {
+    await rm(f.dir, { recursive: true, force: true });
+  }
+});
+
 // A card is public, and the rating on disk is kept only as a number. Its issue
 // block is kept only when this run links that issue to this repository: a
 // tracker number or tracker labels on a card written some other way never
@@ -1294,9 +1330,11 @@ test("backfill keeps a rating on disk but not an issue this repository does not 
       `  *"pr list"*) printf '%s' '${prListing(
         8006,
         branch,
-        [{ id: "I_t", number: 619, repo: "englishstreetventures/osn-tracker" }],
-        "Closes englishstreetventures/osn-tracker#619",
+        [{ id: "I_t", number: 900619, repo: "englishstreetventures/osn-tracker" }],
+        "Closes englishstreetventures/osn-tracker#900619",
       )}' ;;
+  *"nodes(ids:"*) printf '%s' '{"data":{"nodes":[null]}}'
+    exit 1 ;;
   *"api graphql"*) printf '%s' '{"data":{"repository":{"p8006":{"commits":{"totalCount":1}}}}}' ;;`,
     );
     await sessionOn(f, branch);
@@ -1308,7 +1346,7 @@ test("backfill keeps a rating on disk but not an issue this repository does not 
       JSON.stringify({
         schema_version: 1,
         pr: { number: 8006, branch, merged_at: "2026-09-09T12:00:00Z", phase: "at-open" },
-        issue: { number: 619, type: "Bug", labels: ["severity:high", "complexity:3"] },
+        issue: { number: 900619, type: "Bug", labels: ["severity:high", "complexity:3"] },
         complexity: { declared: 3, method: "confirmed" },
         spend: { usd_equivalent: 1 },
         interaction: {},
@@ -1326,6 +1364,112 @@ test("backfill keeps a rating on disk but not an issue this repository does not 
   }
 });
 
+test("backfill strips a tracker issue's number and labels from a card it cannot re-rate", async () => {
+  const f = await fixture({ withTranscript: false });
+  try {
+    const branch = "feat/keep-tracker-two";
+    await stubGh(
+      f,
+      `  *"pr list"*) printf '%s' '${prListing(8007, branch, [
+        { id: "I_t1", number: 900619, repo: TRACKER },
+        { id: "I_t2", number: 900620, repo: TRACKER },
+      ])}' ;;
+  *"nodes(ids:"*) printf '%s' '{"data":{"nodes":[null,null]}}'
+    exit 1 ;;
+  *"api graphql"*) printf '%s' '{"data":{"repository":{"p8007":{"commits":{"totalCount":1}}}}}' ;;`,
+    );
+    await sessionOn(f, branch);
+
+    const cardPath = join(f.dir, "cards", `${branchSlug(branch)}.json`);
+    await mkdir(join(f.dir, "cards"), { recursive: true });
+    await writeFile(
+      cardPath,
+      JSON.stringify({
+        schema_version: 1,
+        pr: { number: 8007, branch, merged_at: "2026-09-09T12:00:00Z", phase: "at-open" },
+        issue: { number: 900619, type: "Bug", labels: ["severity:high", "complexity:3"] },
+        complexity: { declared: 3, method: "confirmed" },
+        spend: { usd_equivalent: 1 },
+        interaction: {},
+      }),
+    );
+
+    expect((await runBackfill(f)).exitCode).toBe(0);
+
+    const text = await readFile(cardPath, "utf8");
+    const card = JSON.parse(text) as Card;
+    expect(text).not.toContain("severity:");
+    expect(card.issue).toEqual({ number: null, type: null, labels: [] });
+    expect(card.complexity).toEqual({ declared: null, method: "not-fetched", issues: 0 });
+  } finally {
+    await rm(f.dir, { recursive: true, force: true });
+  }
+});
+
+// The warning counts what the sum would cover — on a tracker-only pull request,
+// the tracker issues it closes, not the none it closes here.
+test("backfill leaves an issueless tracker-only card as it is and counts the issues the sum covers", async () => {
+  const f = await fixture({ withTranscript: false });
+  try {
+    const branch = "feat/keep-tracker-three";
+    await stubGh(
+      f,
+      `  *"pr list"*) printf '%s' '${prListing(8009, branch, [
+        { id: "I_t1", number: 900619, repo: TRACKER },
+        { id: "I_t2", number: 900620, repo: TRACKER },
+        { id: "I_t3", number: 900621, repo: TRACKER },
+      ])}' ;;
+  *"nodes(ids:"*) printf '%s' '{"data":{"nodes":[null,null,null]}}'
+    exit 1 ;;
+  *"api graphql"*) printf '%s' '{"data":{"repository":{"p8009":{"commits":{"totalCount":1}}}}}' ;;`,
+    );
+    await sessionOn(f, branch);
+
+    const cardPath = join(f.dir, "cards", `${branchSlug(branch)}.json`);
+    await mkdir(join(f.dir, "cards"), { recursive: true });
+    const before = JSON.stringify({
+      schema_version: 1,
+      pr: { number: 8009, branch, merged_at: "2026-09-09T12:00:00Z", phase: "at-open" },
+      issue: { number: null, type: null, labels: [] },
+      complexity: { declared: 3, method: "manual" },
+      spend: { usd_equivalent: 1 },
+      interaction: {},
+    });
+    await writeFile(cardPath, before);
+
+    const run = await runBackfill(f);
+
+    expect(run.exitCode).toBe(0);
+    expect(await readFile(cardPath, "utf8")).toBe(before);
+    expect(run.stderr).toContain("rates fewer issues than the 3 this pull request closes");
+  } finally {
+    await rm(f.dir, { recursive: true, force: true });
+  }
+});
+
+test("backfill records not-fetched for a merged pull request whose tracker line GitHub did not register", async () => {
+  const f = await fixture({ withTranscript: false });
+  try {
+    const branch = "feat/tracker-body-only";
+    await stubGh(
+      f,
+      `  *"pr list"*) printf '%s' '${prListing(8008, branch, [], `Closes ${TRACKER}#900621`)}' ;;
+  *"api graphql"*) printf '%s' '{"data":{"repository":{"p8008":{"commits":{"totalCount":1}}}}}' ;;`,
+    );
+    await sessionOn(f, branch);
+
+    expect((await runBackfill(f)).exitCode).toBe(0);
+
+    const card = JSON.parse(
+      await readFile(join(f.dir, "cards", `${branchSlug(branch)}.json`), "utf8"),
+    ) as Card;
+    expect(card.complexity).toEqual({ declared: null, method: "not-fetched", issues: 0 });
+    expect(await readFile(f.log, "utf8")).not.toContain("nodes(ids:");
+  } finally {
+    await rm(f.dir, { recursive: true, force: true });
+  }
+});
+
 describe("keepRating", () => {
   const next = (complexity: Card["complexity"], issue: number | null = 2): Card =>
     ({
@@ -1338,7 +1482,19 @@ describe("keepRating", () => {
     issue: { number: issue, type: null, labels: ["complexity:5", "complexity:unconfirmed"] },
     complexity,
   });
-  const links = (closed: number[], partOf: number[] = []) => ({ closed, partOf });
+  const links = (
+    closed: number[],
+    partOf: number[] = [],
+    closedElsewhere: number[] = [],
+  ): IssueSelection => ({
+    issue: null,
+    closed,
+    partOf,
+    foreign: closedElsewhere.length > 0,
+    closedElsewhere: closedElsewhere.map((number) => ({ repo: TRACKER, number })),
+    partOfElsewhere: [],
+    candidates: [],
+  });
 
   test("keeps an unconfirmed rating over a null", () => {
     const kept = keepRating(
@@ -1399,7 +1555,11 @@ describe("keepRating", () => {
 
   test("keeps the rating but not an issue this run does not link to this repository", () => {
     const fresh = next({ declared: null, method: "not-fetched", issues: 0 }, null);
-    const kept = keepRating(disk({ declared: 3, method: "confirmed" }, 1, 619), fresh, links([]));
+    const kept = keepRating(
+      disk({ declared: 3, method: "confirmed" }, 1, 900619),
+      fresh,
+      links([]),
+    );
 
     expect(kept?.complexity).toEqual({ declared: 3, method: "confirmed", issues: 1 });
     expect(kept?.issue).toEqual(fresh.issue);
@@ -1411,6 +1571,45 @@ describe("keepRating", () => {
     expect(keepRating(disk({ declared: 3, method: "confirmed" }), fresh, links([2, 3]))).toBe(
       fresh,
     );
+  });
+
+  test("counts the tracker issues a tracker-only sum covers", () => {
+    const noIssue = {
+      ...disk({ declared: 3, method: "manual" }),
+      issue: { number: null, type: null, labels: [] },
+    };
+
+    expect(
+      keepRating(
+        noIssue,
+        next({ declared: null, method: "not-fetched", issues: 0 }, null),
+        links([], [], [900619, 900620, 900621]),
+      ),
+    ).toBeNull();
+  });
+
+  // Leaving a card as it is would keep a tracker number and its labels that a
+  // rebuild strips, so a card whose issue this run does not link is rebuilt.
+  test("rebuilds rather than leave a card naming an issue this run does not link here", () => {
+    const fresh = next({ declared: null, method: "not-fetched", issues: 0 }, null);
+    const tracked = {
+      pr: { number: 1 },
+      issue: { number: 900619, type: "Bug", labels: ["severity:high", "complexity:3"] },
+      complexity: { declared: 3, method: "manual" },
+    };
+
+    expect(keepRating(tracked, fresh, links([], [], [900619, 900620]))).toBe(fresh);
+  });
+
+  test("rebuilds rather than leave a card carrying labels with no issue", () => {
+    const fresh = next({ declared: null, method: "not-fetched", issues: 0 }, null);
+    const labelled = {
+      pr: { number: 1 },
+      issue: { number: null, type: null, labels: ["severity:high", "complexity:3"] },
+      complexity: { declared: 1, method: "manual" },
+    };
+
+    expect(keepRating(labelled, fresh, links([], [], [900619, 900620]))).toBe(fresh);
   });
 
   test("ignores a card on disk with no rating or for another pull request", () => {

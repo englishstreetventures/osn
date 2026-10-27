@@ -189,6 +189,57 @@ test("briefs groups by month of merge", () => {
   expect(briefs(rows).rows.map((r) => r[0])).toEqual(["2026-08", "2026-09"]);
 });
 
+// `corrective_turns` changed meaning at schema version 4. An older card counted
+// every turn after the first tool call, many times the new figure on the same
+// work, so a reader that mixed the two would draw a cliff, not a trend.
+function v4(mergedAt: string, corrections: number): CardRow {
+  const fresh = { ...card({ merged_at: mergedAt }), schema_version: 4 };
+  fresh.interaction = { ...fresh.interaction, corrective_turns: corrections };
+
+  return toRow(fresh);
+}
+
+test("toRow reads corrections only from a card of schema version 4 or later", () => {
+  expect(toRow({ ...card(), schema_version: 3 }).corrections).toBeNull();
+  expect(toRow({ ...card(), schema_version: 4 }).corrections).toBe(2);
+  // A card loaded by a cast can lack the field; it is not a version-4 card.
+  const unversioned: Record<string, unknown> = { ...card() };
+  delete unversioned.schema_version;
+  expect(toRow(unversioned as unknown as Card).corrections).toBeNull();
+});
+
+// No human turn on the branch — orchestrated from another session, or no
+// records at all — says nothing about interruptions either way.
+test("toRow reads corrections as unknown on a card with no human turn", () => {
+  const silent = { ...card(), schema_version: 4 };
+  silent.interaction = { ...silent.interaction, user_turns: 0, corrective_turns: 0 };
+
+  expect(toRow(silent).corrections).toBeNull();
+});
+
+test("briefs takes the corrections median over version-4 cards and counts them", () => {
+  const aug = "2026-08-15T00:00:00.000Z";
+  const sep = "2026-09-02T00:00:00.000Z";
+  const table = briefs([
+    toRow(card({ merged_at: aug })),
+    toRow(card({ merged_at: sep })),
+    v4(sep, 1),
+    v4(sep, 3),
+  ]);
+
+  expect(table.headers).toEqual(["month", "PRs", "median turns", "v4 PRs", "median corrections"]);
+  expect(table.rows).toEqual([
+    ["2026-08", "1", "4.0", "0", "—"],
+    ["2026-09", "3", "4.0", "2", "2.0"],
+  ]);
+  expect(table.note).toContain("2 card(s) left out");
+});
+
+test("waste prints a correction count it cannot read as a dash", () => {
+  expect(waste([toRow(card())]).rows[0][5]).toBe("—");
+  expect(waste([v4("2026-09-02T00:00:00.000Z", 1)]).rows[0][5]).toBe("1");
+});
+
 test("costByComplexity divides cost by the declared rating", () => {
   const table = costByComplexity([toRow(card())]);
 
