@@ -197,7 +197,11 @@ mints is a wrong token, answered with that route's uniform 202.
   the store fails, fail together. The probe key is `prb_` and 12 hex digits of
   an HMAC-SHA256, under `OSN_SESSION_IP_PEPPER`, of the normalised
   identifier — the length of an account id, and not something a list of
-  addresses can be run through.
+  addresses can be run through. A new unauthenticated route that takes an
+  identifier, or a new store call on one of these routes, joins this list in
+  the same pull request, with a case in `recovery-op-sequence.test.ts` or
+  `begin-op-sequence.test.ts` that compares its branches, including the
+  failing-store case.
 
 ## Wiring
 
