@@ -42,6 +42,7 @@ import {
   withAuthLogin,
 } from "../../metrics";
 import {
+  CHALLENGE_CLAIM_MARGIN_MS,
   CHALLENGE_TTL_MS,
   MAX_PASSKEYS_PER_ACCOUNT,
   PASSKEY_LAST_USED_COALESCE_MS,
@@ -814,7 +815,7 @@ export function createPasskeysModule(
       // must open under the server's MAC and be unexpired; its single use is
       // claimed once the signature verifies, below.
       let expectedChallenge: string;
-      let discoverable: { readonly nonce: string; readonly expiresAt: number } | null = null;
+      let discoverable: { readonly nonce: string } | null = null;
       if (context.kind === "identified") {
         const key = normaliseIdentifier(context.identifier);
         if (key.length > MAX_IDENTIFIER_LENGTH) {
@@ -936,12 +937,14 @@ export function createPasskeysModule(
 
       // A discoverable challenge signs in once: the first claim of its nonce,
       // across every isolate, wins. Claimed only now, so only a caller holding
-      // a valid assertion spends a store call, and for no longer than the
-      // challenge could still verify.
+      // a valid assertion spends a store call. The claim lasts a challenge's
+      // whole life plus a margin, counted from now, so it outlives every
+      // moment an isolate could still accept the challenge, whichever clock
+      // that isolate or the store keeps.
       if (discoverable) {
-        const { nonce, expiresAt } = discoverable;
+        const { nonce } = discoverable;
         const won = yield* storeCall(challengeClaims, "claim", () =>
-          challengeClaims.claim(nonce, Math.max(1, expiresAt - Date.now())),
+          challengeClaims.claim(nonce, CHALLENGE_TTL_MS + CHALLENGE_CLAIM_MARGIN_MS),
         );
         if (!won) return yield* Effect.fail(notFound);
       }

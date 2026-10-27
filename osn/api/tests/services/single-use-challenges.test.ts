@@ -95,7 +95,7 @@ function harness() {
     ceremonyStores: slowReads(bundle.ceremonyStores),
     passkeyChallengeClaims: bundle.passkeyChallengeClaims,
   });
-  return { auth, fake };
+  return { auth, fake, claims: bundle.passkeyChallengeClaims };
 }
 
 const base64url = (text: string) => Buffer.from(text, "utf8").toString("base64url");
@@ -268,6 +268,28 @@ describe("discoverable passkey challenge", () => {
         "passkey_challenge_claim.claim",
       ]);
       expect(yield* refusal(auth, challengeId!, assertion)).toBe("Challenge expired or not found");
+    }).pipe(Effect.provide(createTestLayer()));
+  });
+
+  // The claim must outlive every moment any isolate could still accept the
+  // challenge. An isolate whose clock runs behind the store's accepts it past
+  // `expiresAt`, so a claim that ends exactly then lets a replay through.
+  it.live("holds the nonce's claim for a minute after the challenge expires", () => {
+    const { auth, claims } = harness();
+    return Effect.gen(function* () {
+      const { credentialId, userId } = yield* accountWithPasskey(auth, "discmargin");
+      const { challengeId } = yield* auth.beginPasskeyLogin(null);
+      const assertion = discoverableAssertion(credentialId, challengeId!, userId);
+      yield* auth.completePasskeyLoginDirect({ challengeId: challengeId!, assertion });
+
+      const opened = createServerMac(PEPPER).openChallenge(challengeId!);
+      if (!opened.ok) throw new Error("the minted challenge does not open");
+      const later = vi.spyOn(Date, "now").mockReturnValue(opened.expiresAt + 59_000);
+      try {
+        expect(yield* Effect.promise(() => claims.claim(opened.nonce, 1_000))).toBe(false);
+      } finally {
+        later.mockRestore();
+      }
     }).pipe(Effect.provide(createTestLayer()));
   });
 

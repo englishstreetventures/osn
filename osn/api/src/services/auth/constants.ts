@@ -21,6 +21,11 @@ export const MIN_AGE_YEARS = 13;
 // step-up). 120s matches the previous inline `Date.now() + 120_000`.
 export const CHALLENGE_TTL_MS = 120_000;
 
+// How long a used discoverable passkey challenge's nonce stays claimed beyond
+// the challenge's own life. Wider than any clock difference between the
+// isolate that checks a challenge's expiry and the store that times the claim.
+export const CHALLENGE_CLAIM_MARGIN_MS = 60_000;
+
 // Per-account profile-switch rate limiting. Fixed window:
 // max 20 switches per hour per account. Enforced via an injectable
 // per-account cap limiter (`profileSwitchCap`) so the window is shared across

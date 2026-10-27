@@ -189,8 +189,11 @@ mints is a wrong token, answered with that route's uniform 202.
   HMAC-SHA256 over both (`osn/api/src/services/auth/server-mac.ts`): `begin`
   stores nothing, and `complete` requires the challenge in `clientDataJSON` to
   be the `challengeId` the client sent, opens it, verifies the signature, then
-  `claim`s the nonce on `passkey_challenge_claim` for the challenge's remaining
-  life. A changed byte, another key's challenge, an expired one or a lost claim
+  `claim`s the nonce on `passkey_challenge_claim` for a challenge's whole life
+  plus a minute (`CHALLENGE_TTL_MS` + `CHALLENGE_CLAIM_MARGIN_MS`, three
+  minutes), counted from the claim. The claim so outlives every moment an
+  isolate could still accept the challenge, whatever its clock or the store's
+  says. A changed byte, another key's challenge, an expired one or a lost claim
   is refused.
 - **Refusal paths make the same store calls whatever the identifier.** The
   unauthenticated routes that take an identifier pad a branch that names no
