@@ -1,10 +1,18 @@
-import { accounts, connections, serviceAccounts, serviceAccountKeys, users } from "@osn/db/schema";
+import {
+  accounts,
+  blocks,
+  connections,
+  serviceAccounts,
+  serviceAccountKeys,
+  users,
+} from "@osn/db/schema";
 import { Db, DbLive } from "@osn/db/service";
 import { evictPublicKeyCacheEntry, importKeyFromJwk } from "@shared/crypto";
 import { timingSafeEqualString } from "@shared/crypto/timing-safe";
 import { jsonEachIn } from "@shared/db-utils";
 import { handlePrefixRange, likeContains, normaliseHandleQuery } from "@shared/db-utils/search";
-import { and, asc, gte, inArray, eq, isNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, gte, inArray, eq, isNull, lt, ne, or, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
 
@@ -20,8 +28,8 @@ import { createGraphService } from "../services/graph";
 const AUDIENCE = "osn-api";
 const SCOPE_GRAPH_READ = "graph:read";
 /**
- * Dedicated scope for the profile → account resolution endpoint (S-M1
- * pulse-onboarding). `profileId → accountId` dissolves the multi-account
+ * Dedicated scope for the profile → account resolution endpoint.
+ * `profileId → accountId` dissolves the multi-account
  * privacy invariant ([[identity-model]] §"Privacy Rules") if it leaks, so it
  * must not ride along with the general-purpose `graph:read` grant — only
  * services that genuinely key state by account (pulse-api onboarding,
@@ -44,13 +52,18 @@ const MIN_SEARCH_PREFIX = 2;
 const DEFAULT_SEARCH_LIMIT = 8;
 /** Hard ceiling on handle prefix search results — caps the enumeration surface. */
 const MAX_SEARCH_LIMIT = 10;
+/** A block the profile-search requester made against a candidate. */
+const requesterBlocked = alias(blocks, "requester_blocked");
+/** A block a candidate made against the profile-search requester. */
+const blockedRequester = alias(blocks, "blocked_requester");
 /**
  * Max characters accepted as a connection-search query. Longer input is a bug
  * or an abuse probe, never a real name someone is typing into an autocomplete.
  */
 const MAX_CONNECTION_QUERY_LEN = 64;
 /**
- * Exhaustive list of scopes this server will grant to any service. S-M101.
+ * Exhaustive list of scopes this server will grant to any service; a
+ * registration that asks for any other scope is refused.
  *
  * `account:erase` — granted to Pulse / Zap on registration so osn-api can
  * mint outbound ARC tokens addressed at them with this scope when fanning
@@ -131,12 +144,11 @@ export function createInternalGraphRoutes(
   // unset ⇒ those endpoints answer 501 (service registration disabled).
   internalServiceSecret: string | undefined = process.env.INTERNAL_SERVICE_SECRET,
   /**
-   * S-L30. Every sibling route factory merges the observability layer into its
-   * fallback runtime; this one did not, so anything these handlers or the
-   * graph service logged on the layer path went to Effect's default logger —
-   * unredacted, unexported. Production passes the shared `runtime` and never
-   * reaches the fallback, which is exactly why the gap could sit unnoticed
-   * until a local or test run needed a log line.
+   * The observability layer, merged into the fallback runtime as every sibling
+   * route factory does, so what these handlers or the graph service log on
+   * that path is redacted and exported rather than sent to Effect's default
+   * logger. Production passes the shared `runtime` and never reaches the
+   * fallback; local and test runs do.
    */
   loggerLayer: Layer.Layer<never> = Layer.empty,
 ) {
@@ -274,7 +286,7 @@ export function createInternalGraphRoutes(
             set.status = 401;
             return { error: "Unauthorized" };
           }
-          // Validate requested scopes against the server-side allowlist (S-M101).
+          // Validate requested scopes against the server-side allowlist.
           const requestedScopes = body.allowedScopes
             .split(",")
             .map((s) => s.trim().toLowerCase())
@@ -284,7 +296,7 @@ export function createInternalGraphRoutes(
             set.status = 400;
             return { error: `Unknown scopes: ${invalidScopes.join(", ")}` };
           }
-          // S-M1: Validate the JWK can be imported before writing it to the DB.
+          // Validate the JWK can be imported before writing it to the DB.
           // Prevents storage of malformed or non-EC keys that would later cause
           // resolvePublicKey to throw on every ARC verification attempt.
           try {
@@ -295,7 +307,7 @@ export function createInternalGraphRoutes(
           }
           try {
             const now = new Date();
-            // S-L1: refuse to overwrite a kid that's already registered to
+            // Refuse to overwrite a kid that's already registered to
             // a different serviceId. The shared INTERNAL_SERVICE_SECRET is
             // a single trust anchor — without this guard, any holder could
             // pivot across services laterally by reusing another service's
@@ -416,7 +428,7 @@ export function createInternalGraphRoutes(
               }),
             );
             // Evict immediately so the revocation takes effect in this process
-            // without waiting for the 5-minute cache TTL (S-H100).
+            // without waiting for the 5-minute cache TTL.
             evictPublicKeyCacheEntry(params.keyId);
             return { ok: true };
           } catch (e) {
@@ -441,7 +453,7 @@ export function createInternalGraphRoutes(
       // claims and user-facing responses (see osn/api/tests/privacy.test.ts).
       // It is only ever exchanged S2S over ARC, never to clients.
       //
-      // S-M1 (pulse-onboarding): gated by the dedicated
+      // Gated by the dedicated
       // `graph:resolve-account` scope, NOT the general `graph:read` — a
       // generic graph consumer must not be able to enumerate
       // profileId → accountId and dissolve the multi-account privacy
@@ -465,7 +477,7 @@ export function createInternalGraphRoutes(
               Effect.gen(function* () {
                 const { db } = yield* Db;
                 return yield* Effect.tryPromise({
-                  // S-H4 (tombstone rule): join accounts and require
+                  // The tombstone rule: join accounts and require
                   // deletedAt IS NULL so a soft-deleted account cannot be
                   // resolved by downstream services during the grace
                   // window — otherwise the surviving cancel-handle session
@@ -593,6 +605,17 @@ export function createInternalGraphRoutes(
       // index traversal on every keystroke. See `handlePrefixRange` in
       // `@shared/db-utils/search` for why, and note that the range also makes
       // `_` literal for free — no LIKE escaping needed on this path.
+      //
+      // `requesterId`, when given, leaves out the requester and every profile
+      // with a block against them, either way round, so a suggestion list never
+      // offers someone the requester cannot add. Two anti-joins on `blocks_pair_idx`
+      // inside the same statement, so the page still fills to `limit` and costs
+      // no second round trip. A `graph:read` holder learns nothing it could not
+      // already ask `/either-blocked` for.
+      //
+      // CALLER INVARIANT, as for `/connection-search`'s `profileId`:
+      // `requesterId` is the calling service's own authenticated end user, never
+      // a value taken from a client request.
       // -----------------------------------------------------------------------
       .get(
         "/profile-search",
@@ -626,32 +649,57 @@ export function createInternalGraphRoutes(
           const range = handlePrefixRange(prefix);
           if (!range) return { profiles: [] };
 
+          const requesterId = query.requesterId;
+
           try {
             const rows = await run(
               Effect.gen(function* () {
                 const { db } = yield* Db;
+                const matches = db
+                  .select({
+                    id: users.id,
+                    handle: users.handle,
+                    displayName: users.displayName,
+                    avatarUrl: users.avatarUrl,
+                  })
+                  .from(users)
+                  .innerJoin(accounts, eq(users.accountId, accounts.id));
+                const inRange = and(
+                  // Half-open BINARY range — an index SEEK, where the
+                  // equivalent `LIKE 'q%'` is an index SCAN.
+                  gte(users.handle, range.lower),
+                  lt(users.handle, range.upper),
+                  isNull(accounts.deletedAt),
+                );
                 return yield* Effect.tryPromise({
                   try: () =>
-                    db
-                      .select({
-                        id: users.id,
-                        handle: users.handle,
-                        displayName: users.displayName,
-                        avatarUrl: users.avatarUrl,
-                      })
-                      .from(users)
-                      .innerJoin(accounts, eq(users.accountId, accounts.id))
-                      .where(
-                        and(
-                          // Half-open BINARY range — an index SEEK, where the
-                          // equivalent `LIKE 'q%'` is an index SCAN.
-                          gte(users.handle, range.lower),
-                          lt(users.handle, range.upper),
-                          isNull(accounts.deletedAt),
-                        ),
-                      )
-                      .orderBy(asc(users.handle))
-                      .limit(limit),
+                    requesterId
+                      ? matches
+                          .leftJoin(
+                            requesterBlocked,
+                            and(
+                              eq(requesterBlocked.blockerId, requesterId),
+                              eq(requesterBlocked.blockedId, users.id),
+                            ),
+                          )
+                          .leftJoin(
+                            blockedRequester,
+                            and(
+                              eq(blockedRequester.blockerId, users.id),
+                              eq(blockedRequester.blockedId, requesterId),
+                            ),
+                          )
+                          .where(
+                            and(
+                              inRange,
+                              ne(users.id, requesterId),
+                              isNull(requesterBlocked.id),
+                              isNull(blockedRequester.id),
+                            ),
+                          )
+                          .orderBy(asc(users.handle))
+                          .limit(limit)
+                      : matches.where(inRange).orderBy(asc(users.handle)).limit(limit),
                   catch: (cause) => new Error("DB query failed", { cause }),
                 });
               }),
@@ -666,6 +714,7 @@ export function createInternalGraphRoutes(
           query: t.Object({
             prefix: t.String({ minLength: 1, maxLength: 64 }),
             limit: t.Optional(t.String()),
+            requesterId: t.Optional(t.String({ minLength: 1, maxLength: 64 })),
           }),
         },
       )

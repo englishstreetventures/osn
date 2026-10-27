@@ -61,6 +61,10 @@ interface Suggestion {
  *      the remainder. Kept because a co-host is *not required* to be a
  *      connection, and dropping it would turn "not connected yet" into "cannot
  *      be added" — a regression for exactly the planner-hired-last-week case.
+ *      It is asked as the signed-in organiser, so osn-api leaves out anyone
+ *      with a block against them, either way round: `POST /hosts` would refuse
+ *      that person, and offering them first would tell the organiser why.
+ *      Connections need no such filter, since a block deletes the connection.
  *
  * A profile that appears in both is emitted once, from the connections source,
  * so `connected` is never understated.
@@ -140,7 +144,7 @@ export const createOrganiserHandleSearchRoutes = (
                 ? connectionSearch(viewerId, q).catch(() => [])
                 : Promise.resolve([]),
               handleSearch && normalised.length >= MIN_GLOBAL_SEARCH_LEN
-                ? handleSearch(q).catch(() => [])
+                ? handleSearch(q, viewerId).catch(() => [])
                 : Promise.resolve([]),
             ]);
 

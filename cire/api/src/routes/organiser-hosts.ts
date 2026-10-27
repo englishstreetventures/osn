@@ -32,7 +32,11 @@ import type {
   RunSheetScope,
   WeddingRole,
 } from "../services/hosts";
-import type { OsnHandleResolver, OsnProfileDisplayResolver } from "../services/osn-bridge";
+import type {
+  OsnBlockCheck,
+  OsnHandleResolver,
+  OsnProfileDisplayResolver,
+} from "../services/osn-bridge";
 import { createWeddingSignals, type WeddingSignals } from "../services/realtime";
 
 const PREFIX = "/api/organiser";
@@ -108,6 +112,15 @@ function roleChangeFailure(
 class OsnHandleLookupError extends Data.TaggedError("OsnHandleLookupError")<{
   reason: string;
 }> {}
+
+/** osn-api could not say whether the candidate and the adding owner have a
+ *  block (down, an error status, a timeout, an unreadable answer). */
+class OsnBlockCheckError extends Data.TaggedError("OsnBlockCheckError")<{
+  reason: string;
+}> {}
+
+/** The add's refusal for a handle that names no one it can seat. */
+const NO_SUCH_HANDLE = { error: "No OSN account with that handle" } as const;
 
 /**
  * Tell the owners an owner was removed or demoted, once the write has
@@ -218,6 +231,17 @@ export const createOrganiserHostsReadRoutes = (
  * the bridge is unconfigured the add fails closed with 503 (the same
  * degradation as account-linking).
  *
+ * **No one is seated who has a block with the owner adding them**, either way
+ * round, asked of osn-api (`either-blocked`) before the write. The refusal is
+ * the same 404 as an unknown handle, so it does not say a block exists; a
+ * candidate who already holds a seat gets the usual 409 `already_host`
+ * instead, as an unblocked one would. The add fails closed: with no block
+ * check configured it answers 503 before the handle is resolved, and when
+ * osn-api cannot answer the check (down, an error, a timeout) it answers 502
+ * and seats no one. Only the adding owner is checked, not the wedding's other
+ * owners: owners can be seated without their consent, so checking them would
+ * let an owner learn whether two other people have a block.
+ *
  * **Host management is owner-only.** Adding a seat at any role, changing a
  * role, setting a helper's run-sheet scope and removing a seat are all
  * `weddingOwner()`: an editor gets 403 `forbidden` for every one of them.
@@ -242,6 +266,7 @@ export const createOrganiserHostsWriteRoutes = (
   osnAuthOptions: OsnAuthOptions,
   limiter: RateLimiterBackend,
   resolveOsnProfileByHandle?: OsnHandleResolver,
+  osnBlockCheck?: OsnBlockCheck,
   ownerNotices?: OwnerNotices,
   signals: WeddingSignals = createWeddingSignals(undefined),
 ) =>
@@ -261,13 +286,15 @@ export const createOrganiserHostsWriteRoutes = (
               set.status = 500;
               return { error: "Internal error" };
             }
-            if (!resolveOsnProfileByHandle) {
-              // No ARC key configured — adding hosts by handle is disabled, not broken.
+            if (!resolveOsnProfileByHandle || !osnBlockCheck) {
+              // No ARC key configured — adding hosts by handle is disabled, not
+              // broken. Without the block check no one is seated at all.
               metricHostAdded("disabled");
               set.status = 503;
               return { error: "Adding hosts is not available" };
             }
             const resolveHandle = resolveOsnProfileByHandle;
+            const checkBlock = osnBlockCheck;
             const addedByProfileId = osnProfileId;
             const scopedWeddingId = weddingId;
 
@@ -284,7 +311,33 @@ export const createOrganiserHostsWriteRoutes = (
                 if (!resolution.ok) {
                   yield* Effect.sync(() => metricHostAdded("handle_not_found", body.role));
                   set.status = 404;
-                  return { error: "No OSN account with that handle" };
+                  return NO_SUCH_HANDLE;
+                }
+
+                // An owner adding themselves is answered `already_host` by the
+                // write; a profile can hold no block against itself.
+                if (resolution.profileId !== addedByProfileId) {
+                  const blocked = yield* Effect.tryPromise({
+                    try: () => checkBlock(resolution.profileId, addedByProfileId),
+                    catch: (cause) => new OsnBlockCheckError({ reason: String(cause) }),
+                  }).pipe(Effect.withSpan("cire.host.block_check"));
+                  if (blocked) {
+                    // A seated candidate is answered as any re-add is, so the
+                    // refusal says nothing a list of the seats does not. A
+                    // wedding deleted since the gate reads as no seat.
+                    const seat = yield* hostsService.authorize(
+                      scopedWeddingId,
+                      resolution.profileId,
+                    );
+                    if (seat !== null && seat.hostId !== null) {
+                      yield* Effect.sync(() => metricHostAdded("already_host", body.role));
+                      set.status = 409;
+                      return { error: "already_host" as const };
+                    }
+                    yield* Effect.sync(() => metricHostAdded("blocked", body.role));
+                    set.status = 404;
+                    return NO_SUCH_HANDLE;
+                  }
                 }
 
                 const host = yield* hostsService
@@ -356,6 +409,19 @@ export const createOrganiserHostsWriteRoutes = (
                     }),
                   OsnHandleLookupError: (err) =>
                     Effect.logError("osn handle lookup failed", { reason: err.reason }).pipe(
+                      Effect.flatMap(() =>
+                        Effect.sync(() => {
+                          metricHostAdded("osn_unavailable");
+                          set.status = 502;
+                          return { error: "OSN handle lookup failed" };
+                        }),
+                      ),
+                    ),
+                  // Fail closed: no answer is not a "no block". Same 502 and
+                  // body as a failed handle lookup, which the portal words as
+                  // "try again".
+                  OsnBlockCheckError: (err) =>
+                    Effect.logError("osn block check failed", { reason: err.reason }).pipe(
                       Effect.flatMap(() =>
                         Effect.sync(() => {
                           metricHostAdded("osn_unavailable");

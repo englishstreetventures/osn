@@ -220,6 +220,38 @@ describe("GET /api/organiser/handle-search", () => {
     expect(body.some((p) => p.connected)).toBe(false);
   });
 
+  it("never suggests someone with a block against the organiser, asking as the signed-in organiser", async () => {
+    // Stands in for osn-api's profile-search, which leaves out anyone with a
+    // block against the requester it is given, either way round; osn-api's own
+    // route tests prove that filter. What this test checks of the route is the
+    // requester it passes: the organiser the token names, so the filter drops
+    // alice. Asked as anyone else, she would be suggested.
+    const BLOCKS: [string, string][] = [["usr_alice", ORGANISER]];
+    const requesters: string[] = [];
+    const { app } = buildApp({
+      resolveOsnConnectionSearch: async () => [],
+      resolveOsnHandleSearch: async (prefix, requesterId) => {
+        requesters.push(requesterId);
+        const blocked = (id: string) =>
+          BLOCKS.some(
+            ([a, b]) => (a === id && b === requesterId) || (a === requesterId && b === id),
+          );
+        return (await stubSearch(prefix, requesterId)).filter((s) => !blocked(s.profileId));
+      },
+    });
+
+    // A requester named by the client is ignored: only the token says who asks.
+    const res = await req(
+      app,
+      `${searchPath("al")}&requesterId=usr_someone_else&profileId=usr_someone_else`,
+      ORGANISER,
+    );
+
+    expect(res.status).toBe(200);
+    expect((await profiles(res)).map((p) => p.handle)).toEqual(["alina"]);
+    expect(requesters).toEqual([ORGANISER]);
+  });
+
   it("caps the merged list at 8 suggestions", async () => {
     const many: OsnHandleSuggestion[] = Array.from({ length: 12 }, (_, i) => ({
       profileId: `usr_${i}`,
