@@ -560,8 +560,12 @@ while any of these is open:
   children. Whether the owner has answered is
   `wiki/conventions/review-findings.md` §What counts as the owner's answer.
 - **An approval only the owner can give**: the `production` Environment
-  approval on a release it needs first, or an audit-ignore entry they have to
-  accept.
+  approval on a release it needs first, an audit-ignore entry they have to
+  accept, or the owner's approval of a frontend stack. Every pull request in
+  one waits on it (`wiki/conventions/stacked-prs.md` §Frontend: one component
+  per pull request). A component's line names the feature pull request being
+  marked ready; the owner leaves components as drafts, and the session that
+  merges the stack marks them ready.
 - **A "not ready" only the owner can settle**, named in this run's report or in
   the report of the session that built the branch.
 
@@ -587,10 +591,13 @@ owner answers:
   which also says how to convert one already open. A remote session, which has
   no GraphQL, decides before it opens.
 - **The question**: put it where the owner reads it, as a `needs:decision`
-  proposal on the issue the pull request closes (`write-issue`).
+  proposal on the issue the pull request closes (`write-issue`). An approval
+  has no question: no proposal, no label.
 - **Leaving draft**: the owner marks it ready, and nobody else; no session
   marks ready a pull request whose body carries a `**Do not merge until**`
-  line. A session that applies the owner's answer pushes it, rewords the line
+  line. The one exception is a frontend stack's component pull request, which
+  the merging session marks ready once the owner has marked the feature pull
+  request ready and the line is edited out. A session that applies the owner's answer pushes it, rewords the line
   to say the answer is applied and the owner has only to mark it ready, and
   tells the owner. The session that merges it, once the owner has, removes the
   line. GitHub will not merge a draft.
