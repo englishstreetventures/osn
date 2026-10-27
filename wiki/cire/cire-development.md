@@ -23,7 +23,7 @@ related:
   - "[[commands]]"
   - "[[bundle-size-guards]]"
   - "[[cire-registry]]"
-last-reviewed: 2026-10-27
+last-reviewed: 2026-10-28
 ---
 
 # Cire development guide
@@ -548,7 +548,10 @@ parser resolves them as dot segments, so where a wedding id is read from a URL �
 the dashboard hash (`dashboard-route.ts`) and the upgrade return query
 (`upgrade-return.ts`) — `isDotSegment` refuses it. `parseRoute` drops the RSVP page's event id, also
 read from the hash, the same way, though that id only ever selects among the
-events the API returned and never reaches a request path. Ids further along the path
+events the API returned and never reaches a request path. A tab name from an old
+`#/weddings/<id>/<tab>` link picks a module only when it is one of the legacy
+alias table's own keys (`Object.hasOwn`); any other name, one every object
+inherits included, opens the wedding's default module. Ids further along the path
 (an item, a task, a payment) are encoded at the call site with
 `encodeURIComponent`. `tests/lib/wedding-path.contract.test.ts` fails on any
 hand-built `/api/organiser/weddings/${…}` outside `api.ts`.
