@@ -15,7 +15,8 @@ import {
 import { formatDietaryCell, parsePresets } from "@cire/dietary";
 import { isValidGuestEmail, normaliseGuestEmail } from "@cire/guest-email";
 import { jsonEachIn } from "@shared/db-utils";
-import { and, asc, eq, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
+import { and, asc, eq, exists, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
+import type { SQL } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Effect, Data, type Types } from "effect";
 
@@ -25,6 +26,7 @@ import {
   DbService,
   dbQuery,
   driverErrorText,
+  outerColumn,
   startsNewChunk,
   MAX_STATEMENTS_PER_BATCH,
 } from "../db";
@@ -171,8 +173,9 @@ export function mintUniqueEventSlug(name: string, used: Set<string>): string {
  * they're reached by an inner join through `families`. This join is load-bearing
  * — `guest_events` has no `wedding_id` at all, so a naive per-table
  * `WHERE wedding_id = ?` couldn't scope the link table and would read a second
- * wedding's links as removals. applyImport then deletes only by id within this
- * scoped set, so the two halves stay tenant-consistent.
+ * wedding's links as removals. applyImport holds every statement it writes to
+ * the same wedding again, through the same columns and joins, so a plan that
+ * names another wedding's row writes nothing there.
  *
  * PROVENANCE (E4, [[guest-event-editor]] §6 "Provenance default"): a family/
  * guest carries a `source` of `'import'` (spreadsheet-created) or `'manual'`
@@ -209,7 +212,8 @@ export interface DiffOptions {
    *
    * Cross-half fallout is still correct: an events-only upload that REMOVES an
    * event drops that event's `guest_events` links + RSVPs (applyImport deletes
-   * them by `event_id`), because the event genuinely no longer exists. What it
+   * them by the `event_id`s the change removes from this wedding), because the
+   * event genuinely no longer exists. What it
    * does not do is touch a household or a guest row.
    */
   readonly scope?: ChangeScope;
@@ -1430,6 +1434,47 @@ export interface ApplyImportOptions {
   readonly emailStamp?: EmailStamp;
 }
 
+// ── The wedding, inside each statement ───────────────────────────────────────
+//
+// Each is a primary-key lookup, so a statement that carries one reads one or
+// two rows more and no statement is added.
+
+/**
+ * Whether `familyId` names one of the wedding's households. Given
+ * `outerColumn(guests.familyId)` it correlates to the guest row the statement
+ * writes, so it reads that row's household alone rather than every household
+ * of the wedding.
+ */
+function householdOf(db: Db, weddingId: string, familyId: string | SQL): SQL {
+  return exists(
+    db
+      .select({ one: sql`1` })
+      .from(families)
+      .where(and(eq(families.id, familyId), eq(families.weddingId, weddingId))),
+  );
+}
+
+/** Whether `eventId` names one of the wedding's events. */
+function eventOf(db: Db, weddingId: string, eventId: string): SQL {
+  return exists(
+    db
+      .select({ one: sql`1` })
+      .from(events)
+      .where(and(eq(events.id, eventId), eq(events.weddingId, weddingId))),
+  );
+}
+
+/** Whether `guestId` names a guest in one of the wedding's households. */
+function guestOf(db: Db, weddingId: string, guestId: string): SQL {
+  return exists(
+    db
+      .select({ one: sql`1` })
+      .from(guests)
+      .innerJoin(families, eq(families.id, guests.familyId))
+      .where(and(eq(guests.id, guestId), eq(families.weddingId, weddingId))),
+  );
+}
+
 /**
  * The one write group for every removed event: the checklist tasks linked to
  * them first, then their RSVPs, invitations and the event rows — at most six
@@ -1446,7 +1491,8 @@ export interface ApplyImportOptions {
  *     at an offset it did not see, keeps no time rather than an offset with no
  *     event.
  *  3. The events' RSVPs, invitations and rows: after the tasks, so no task is
- *     ever left naming an event that is gone.
+ *     ever left naming an event that is gone. Each goes by the removed events
+ *     that are this wedding's, so an id from another wedding deletes nothing.
  */
 function removedEventsGroup(
   db: Db,
@@ -1458,6 +1504,10 @@ function removedEventsGroup(
 ): BatchItem<"sqlite">[] {
   const group: BatchItem<"sqlite">[] = [];
   const removed = jsonEachIn(eventIds);
+  const removedHere = db
+    .select({ id: events.id })
+    .from(events)
+    .where(and(inArray(events.id, removed), eq(events.weddingId, weddingId)));
   const chosen = linked.filter((t) => removing.has(t.id)).map((t) => t.id);
   if (chosen.length > 0) {
     const doomed = and(
@@ -1502,8 +1552,8 @@ function removedEventsGroup(
         eventRemovedAt: now,
       })
       .where(and(eq(tasks.weddingId, weddingId), inArray(tasks.eventId, removed))),
-    db.delete(rsvps).where(inArray(rsvps.eventId, removed)),
-    db.delete(guestEvents).where(inArray(guestEvents.eventId, removed)),
+    db.delete(rsvps).where(inArray(rsvps.eventId, removedHere)),
+    db.delete(guestEvents).where(inArray(guestEvents.eventId, removedHere)),
     db.delete(events).where(and(inArray(events.id, removed), eq(events.weddingId, weddingId))),
   );
   return group;
@@ -1556,12 +1606,23 @@ type GuestEmailColumns = Pick<
 >;
 
 /**
- * One planned guest's insert, with its address when the plan sets one. When
- * `checkCap` is set, the row names its household only while the wedding has
- * room for one more guest under the cap its tier gives it now, counting every
- * guest written before it, the earlier rows of its own batch included. Without
- * room the household is NULL: the NOT NULL column fails the statement and, on
- * D1, rolls back the batch it rides in.
+ * One planned guest's insert, with its address when the plan sets one.
+ *
+ * The row takes its first name only when its household is the wedding's: one
+ * it already has, or one this write set created earlier. Any other household
+ * leaves the NOT NULL `first_name` NULL, so the statement fails as an insert
+ * naming a household that does not exist fails, and writes nothing. The guard
+ * sits on `first_name` because `family_id` NULL means "no room"
+ * ({@link NO_ROOM_FOR_GUEST}), and on no primary key because the test schema
+ * declares them nullable.
+ *
+ * When `checkCap` is set, the row names its household only while the wedding
+ * has room for one more guest under the cap its tier gives it now, counting
+ * every guest written before it, the earlier rows of its own batch included.
+ * Without room the household is NULL: the NOT NULL column fails the statement
+ * and, on D1, rolls back the batch it rides in. A household outside the wedding
+ * passes this check, so its refusal is never read as a full wedding: SQLite
+ * reports the first NOT NULL column it finds NULL, and `family_id` comes first.
  */
 function insertGuest(
   db: Db,
@@ -1571,13 +1632,14 @@ function insertGuest(
   checkCap: boolean,
   email?: GuestEmailColumns,
 ): BatchItem<"sqlite"> {
+  const household = householdOf(db, weddingId, gc.familyId);
   return db.insert(guests).values({
     ...email,
     id: gc.id,
     familyId: checkCap
-      ? sql`CASE WHEN ${roomForOneMoreGuest(weddingId)} THEN ${gc.familyId} END`
+      ? sql`CASE WHEN NOT ${household} OR ${roomForOneMoreGuest(weddingId)} THEN ${gc.familyId} END`
       : gc.familyId,
-    firstName: gc.firstName,
+    firstName: sql`CASE WHEN ${household} THEN ${gc.firstName} END`,
     lastName: gc.lastName,
     nickname: gc.nickname,
     sortOrder: gc.sortOrder,
@@ -1636,8 +1698,19 @@ export function applyImport(
     // chunker relies on (removes → event/family/guest creates → updates → link
     // removes → link creates). Each statement is its own group but a removed
     // event's, which commits with its tasks.
+    //
+    // Every statement carries the wedding itself, whatever built the plan. An
+    // update or delete names it in its WHERE — directly on `events` and
+    // `families`, through the household for `guests`, through both the guest
+    // and the event for `guest_events` — so another wedding's row matches
+    // nothing. An insert writes the wedding's id, or writes a parent's id only
+    // when that parent is the wedding's (`insertGuest`, the invitation inserts)
+    // and otherwise fails, as an insert naming a missing parent does.
     const statements = writeSet();
     const { groups, add: addGroup } = statements;
+    // The conjunct every update and delete of `guests` carries: the row's own
+    // household is the wedding's.
+    const guestsHousehold = householdOf(db, weddingId, outerColumn(guests.familyId));
 
     // 1. event removes. The event_id FKs cascade since migration 0052, but the
     // child deletes stay explicit so this write set does not depend on cascade
@@ -1797,12 +1870,19 @@ export function applyImport(
       if (eu.event.childrenPolicy !== undefined) set.childrenPolicy = eu.event.childrenPolicy;
       if (eu.event.plusOnePolicy !== undefined) set.plusOnePolicy = eu.event.plusOnePolicy;
       if (eu.event.guestPolicyNote !== undefined) set.guestPolicyNote = eu.event.guestPolicyNote;
-      statements.push(db.update(events).set(set).where(eq(events.id, eu.id)));
+      statements.push(
+        db
+          .update(events)
+          .set(set)
+          .where(and(eq(events.id, eu.id), eq(events.weddingId, weddingId))),
+      );
     }
 
     // 3b. runs of show, after the events they belong to. A created event gets
     // the list it states; an updated one has its list replaced only when the
-    // update states one, which the diff leaves out when it is unchanged.
+    // update states one, which the diff leaves out when it is unchanged. An
+    // item names its event and the wedding, and the (event, wedding) foreign
+    // key refuses an event that is not the wedding's.
     const restated = plan.eventUpdates.filter((eu) => eu.event.runOfShow !== undefined);
     statements.push(
       ...runOfShowStatements(
@@ -1818,7 +1898,9 @@ export function applyImport(
 
     // 4. family removes (cascade guests, rsvps, sessions)
     for (const fr of plan.familyRemoves) {
-      statements.push(db.delete(families).where(eq(families.id, fr.id)));
+      statements.push(
+        db.delete(families).where(and(eq(families.id, fr.id), eq(families.weddingId, weddingId))),
+      );
     }
 
     // 5. family creates
@@ -1837,10 +1919,6 @@ export function applyImport(
     }
 
     // 5b. family updates (id-matched renames — only the name changes in place).
-    // The wedding conjunct is defence in depth: every plan reaching here today
-    // is built from wedding-scoped reads, but that guarantee lives in
-    // diffAgainstDb — this keeps the statement itself tenant-safe if a future
-    // caller ever hands applyImport a plan from elsewhere.
     for (const fu of plan.familyUpdates) {
       statements.push(
         db
@@ -1855,7 +1933,7 @@ export function applyImport(
     // inviter's delete above it cascades them, so theirs would match nothing.
     for (const gr of plan.guestRemoves) {
       if (gr.cascaded === true) continue;
-      statements.push(db.delete(guests).where(eq(guests.id, gr.id)));
+      statements.push(db.delete(guests).where(and(eq(guests.id, gr.id), guestsHousehold)));
     }
 
     // The organiser's attestation stands behind every address set without a
@@ -1934,7 +2012,12 @@ export function applyImport(
         updatedAt: now,
       };
       if (gu.firstName !== undefined) set.firstName = gu.firstName;
-      statements.push(db.update(guests).set(set).where(eq(guests.id, gu.id)));
+      statements.push(
+        db
+          .update(guests)
+          .set(set)
+          .where(and(eq(guests.id, gu.id), guestsHousehold)),
+      );
     }
 
     // 8b. an existing guest's address. Each write applies only while the
@@ -1954,6 +2037,7 @@ export function applyImport(
               w.emailSourceWas === null
                 ? isNull(guests.emailSource)
                 : eq(guests.emailSource, w.emailSourceWas),
+              guestsHousehold,
             ),
           ),
       );
@@ -1961,19 +2045,34 @@ export function applyImport(
 
     // 9. guest_events: per-pair removes then creates. The diff already emitted
     // only the (guestId, eventId) pairs that should disappear, so we delete each
-    // pair individually rather than wiping a whole guest's link set.
+    // pair individually rather than wiping a whole guest's link set. A pair is
+    // the wedding's when its guest and its event both are: a remove matches
+    // only such a pair, and a create writes each id only when it names the
+    // wedding's row. Either id from elsewhere leaves its NOT NULL column NULL,
+    // so the insert fails as one naming a missing guest or event does (the
+    // conflict clause covers only the primary key).
     for (const link of plan.eventLinkRemoves) {
       statements.push(
         db
           .delete(guestEvents)
-          .where(and(eq(guestEvents.guestId, link.guestId), eq(guestEvents.eventId, link.eventId))),
+          .where(
+            and(
+              eq(guestEvents.guestId, link.guestId),
+              eq(guestEvents.eventId, link.eventId),
+              guestOf(db, weddingId, link.guestId),
+              eventOf(db, weddingId, link.eventId),
+            ),
+          ),
       );
     }
     for (const link of plan.eventLinkCreates) {
       statements.push(
         db
           .insert(guestEvents)
-          .values({ guestId: link.guestId, eventId: link.eventId })
+          .values({
+            guestId: sql`CASE WHEN ${guestOf(db, weddingId, link.guestId)} THEN ${link.guestId} END`,
+            eventId: sql`CASE WHEN ${eventOf(db, weddingId, link.eventId)} THEN ${link.eventId} END`,
+          })
           .onConflictDoNothing(),
       );
     }
