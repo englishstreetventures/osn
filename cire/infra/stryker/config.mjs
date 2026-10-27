@@ -7,8 +7,9 @@
  * runs tests under Node. So this uses the command runner, which runs the
  * whole suite under Bun once per mutant; it takes a few seconds.
  *
- * The cross-stack test imports the musubi stack's declaration and seeds, so
- * the sandbox keeps `musubi/`.
+ * The cross-stack test imports the musubi stack's declaration and seeds, and
+ * reads osn-api's production vars from `osn/api/wrangler.toml`, so the
+ * sandbox keeps `musubi/` and `osn/`.
  */
 
 import { cireStryker } from "../../../tools/stryker/src/options.mjs";
@@ -17,7 +18,9 @@ const { pkg, options } = cireStryker(import.meta.dirname);
 
 export default {
   ...options,
-  ignorePatterns: options.ignorePatterns.filter((pattern) => pattern !== "musubi"),
+  ignorePatterns: options.ignorePatterns.filter(
+    (pattern) => pattern !== "musubi" && pattern !== "osn",
+  ),
   testRunner: "command",
   commandRunner: { command: `cd ${pkg} && bunx --bun vitest run` },
   // Each run starts Bun, Vitest and Alchemy and bundles cire-api; with one
