@@ -184,6 +184,31 @@ export interface GuardInput {
 }
 
 /**
+ * What the guard refuses in a plan's text alone, whatever the stack: what
+ * `parsePlan` could not read or will not run, and lines that disagree with
+ * the Plan line's counts. Empty for a plan with no Plan line, which
+ * `guardPlan` refuses on its own.
+ */
+export function planTextFaults(plan: ParsedPlan): string[] {
+  if (plan.plan === "missing") return [];
+  const faults = [...plan.problems];
+  for (const action of COUNTED) {
+    const listed = plan.resources.filter((resource) => resource.action === action).length;
+    const counted = plan.counts[action] ?? 0;
+    if (listed !== counted) {
+      faults.push(`the plan lists ${listed} to ${action}, and its Plan line counts ${counted}`);
+    }
+  }
+  const changedBindings = plan.bindings.filter((binding) => binding.action !== "noop").length;
+  if (changedBindings !== (plan.counts["binding changes"] ?? 0)) {
+    faults.push(
+      `the plan lists ${changedBindings} binding changes, and its Plan line counts ${plan.counts["binding changes"] ?? 0}`,
+    );
+  }
+  return faults;
+}
+
+/**
  * Every reason to refuse `plan`, empty when it may be applied: no Plan line,
  * plan text the guard cannot read or whose lines disagree with its counts,
  * a resource the stack does not declare on production, an adoption while
@@ -193,20 +218,7 @@ export interface GuardInput {
 export function guardPlan(input: GuardInput): string[] {
   const { plan, kinds } = input;
   if (plan.plan === "missing") return ["the Alchemy log holds no Plan line"];
-  const refusals = [...plan.problems];
-  for (const action of COUNTED) {
-    const listed = plan.resources.filter((resource) => resource.action === action).length;
-    const counted = plan.counts[action] ?? 0;
-    if (listed !== counted) {
-      refusals.push(`the plan lists ${listed} to ${action}, and its Plan line counts ${counted}`);
-    }
-  }
-  const changedBindings = plan.bindings.filter((binding) => binding.action !== "noop").length;
-  if (changedBindings !== (plan.counts["binding changes"] ?? 0)) {
-    refusals.push(
-      `the plan lists ${changedBindings} binding changes, and its Plan line counts ${plan.counts["binding changes"] ?? 0}`,
-    );
-  }
+  const refusals = planTextFaults(plan);
   if ((plan.counts.tasks ?? 0) > 0)
     refusals.push("the plan runs tasks; a production plan runs none");
   const adoptions = input.adoptions ?? PRODUCTION_ADOPTIONS;

@@ -109,6 +109,28 @@ describe("plan-summary", () => {
     expect(run([...NOISE, NO_RESOURCES], ["--expect-no-change"]).exitCode).toBe(1);
   });
 
+  test("C8: a plan the production guard could not read warns, naming each fault, and still passes; a real dev log reads clean", () => {
+    const unread = run(
+      [...NOISE, logged(`${bold("Plan:")} ${warning("1 to update")}`), logged("[OsnApi] teleport")],
+      [],
+    );
+    expect(unread.exitCode).toBe(0);
+    expect(unread.stdout).toContain(
+      "::warning::musubi: the production plan guard would refuse this plan's text: OsnApi has an action the guard does not know.",
+    );
+    expect(unread.stdout).toContain(
+      "::warning::musubi: the production plan guard would refuse this plan's text: the plan lists 0 to update, and its Plan line counts 1.",
+    );
+    expect(unread.summary).toBe("### musubi: 1 to update\n");
+    const real = readFileSync(
+      fileURLToPath(new URL("fixtures/alchemy-dev-musubi.log", import.meta.url)),
+      "utf8",
+    );
+    const clean = run(real.trimEnd().split("\n"), []);
+    expect(clean.exitCode).toBe(0);
+    expect(clean.stdout).not.toContain("::warning::");
+  });
+
   test("C7: the summary carries counts only, never the account id or a secret line", () => {
     for (const plan of [NO_CHANGES, CHANGES, NO_RESOURCES]) {
       for (const flags of [[], ["--expect-no-change"]]) {

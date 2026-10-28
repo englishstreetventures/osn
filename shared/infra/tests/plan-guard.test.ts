@@ -1,7 +1,10 @@
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
+import { formatPlanLines } from "alchemy/Cli/LoggingCli";
+import type { Plan } from "alchemy/Plan";
 import { describe, expect, test } from "vitest";
 
 import {
@@ -9,6 +12,7 @@ import {
   messageOf,
   parsePlan,
   planRecord,
+  planTextFaults,
   productionSiteKinds,
   renderGuardSummary,
   runPlanGuardCli,
@@ -90,6 +94,201 @@ describe("parsePlan", () => {
   });
 });
 
+/*
+ * Alchemy's own output, so the guard is held to what Alchemy prints rather
+ * than to a reading of its source. The two fixtures are the `bun run
+ * deploy:dev` output of a dev stack job (deploy.yml tees it to the public run
+ * log): cire from run 40524474810 (2026-10-27), musubi from run 40317410716
+ * (2026-10-26), Alchemy 2.0.0-beta.83, each from the command line to `Done:`,
+ * with GitHub's per-line prefix taken off. The stack outputs printed after
+ * `Done:` are left out: they name dev hosts. `deploy --yes` prints the plan,
+ * a blank record and the apply; the production plan (`deploy --dry-run`)
+ * prints the same plan lines and stops (alchemy src/Cli/LoggingCli.ts
+ * `displayPlan`, `startApplySession`).
+ */
+describe("parsePlan reads what Alchemy prints", () => {
+  const fixture = (name: string) =>
+    readFileSync(fileURLToPath(new URL(`fixtures/${name}`, import.meta.url)), "utf8");
+  /** Every resource in the plan as a kind, so only the text itself can be refused. */
+  const anyKinds = (plan: ReturnType<typeof parsePlan>) =>
+    Object.fromEntries(plan.resources.map((resource) => [resource.fqn, "worker" as const]));
+
+  test.each([
+    {
+      file: "alchemy-dev-cire.log",
+      plan: "changes",
+      counts: { update: 2 },
+      resources: [
+        ["CireApi", "noop"],
+        ["CireAssets", "noop"],
+        ["CireDb", "noop"],
+        ["CireHost", "update"],
+        ["CireInvites", "update"],
+        ["CireLanding", "noop"],
+        ["CireSheets", "noop"],
+        ["CireVendor", "noop"],
+      ],
+      owner: "CireApi",
+      bindings: 27,
+    },
+    {
+      file: "alchemy-dev-musubi.log",
+      plan: "no-changes",
+      counts: {},
+      resources: [
+        ["MusubiLanding", "noop"],
+        ["MusubiSocial", "noop"],
+        ["OsnApi", "noop"],
+        ["OsnDb", "noop"],
+      ],
+      owner: "OsnApi",
+      bindings: 28,
+    },
+  ])(
+    "T-S1: a real dev deploy log, $file, reads with no fault, up to the blank record before the apply",
+    (expected) => {
+      const plan = parsePlan(fixture(expected.file));
+      expect(plan.plan).toBe(expected.plan);
+      expect(plan.counts).toEqual(expected.counts);
+      expect(plan.problems).toEqual([]);
+      expect(plan.resources.map((resource) => [resource.fqn, resource.action])).toEqual(
+        expected.resources,
+      );
+      expect(plan.bindings).toHaveLength(expected.bindings);
+      for (const binding of plan.bindings) {
+        expect(binding.fqn.startsWith(`${expected.owner}/`)).toBe(true);
+        expect(binding.action).toBe("noop");
+      }
+      expect(planTextFaults(plan)).toEqual([]);
+      expect(guardPlan({ plan, kinds: anyKinds(plan) })).toEqual([]);
+    },
+  );
+
+  /** One resource row of a plan, as Alchemy's planner hands it to the CLI. */
+  interface Row {
+    readonly fqn: string;
+    readonly action: string;
+    readonly mode?: "live" | "local";
+    readonly renamedFrom?: readonly string[];
+    readonly bindings?: readonly (readonly [string, string])[];
+  }
+  /** A plan holding the fields `formatPlanLines` reads, and nothing else. */
+  function planOf(input: {
+    readonly resources?: readonly Row[];
+    readonly deletions?: readonly Row[];
+    readonly tasks?: readonly (readonly [string, "run" | "delete"])[];
+  }): Plan {
+    const item = (row: Row) => [
+      row.fqn,
+      {
+        action: row.action,
+        resource: { LogicalId: row.fqn.split("/").at(-1), FQN: row.fqn },
+        mode: row.mode ?? "live",
+        state: { providerMode: row.mode ?? "live" },
+        renamedFrom: row.renamedFrom,
+        bindings: (row.bindings ?? []).map(([sid, action]) => ({ sid, action })),
+      },
+    ];
+    const plan = {
+      resources: Object.fromEntries((input.resources ?? []).map(item)),
+      deletions: Object.fromEntries((input.deletions ?? []).map(item)),
+      actions: Object.fromEntries(
+        (input.tasks ?? []).map(([fqn, action]) => [
+          fqn,
+          { action, def: { LogicalId: fqn, FQN: fqn } },
+        ]),
+      ),
+      actionDeletions: {},
+    };
+    return plan as unknown as Plan;
+  }
+  /** The plan as the production plan step logs it: each line one record, nothing after. */
+  const printed = (plan: Plan) => pretty(...formatPlanLines(plan));
+
+  test("T-S1: every resource action, binding action and note the installed Alchemy prints reads back as itself", () => {
+    const plan = parsePlan(
+      printed(
+        planOf({
+          resources: [
+            { fqn: "CireVendor", action: "create" },
+            {
+              fqn: "Sites/CireHost",
+              action: "update",
+              bindings: [
+                ["ASSETS", "noop"],
+                ["DB", "create"],
+                ["KV", "update"],
+                ["OLD", "delete"],
+              ],
+            },
+            { fqn: "CireLanding", action: "noop" },
+            { fqn: "CireDb", action: "adopted" },
+            { fqn: "CireApi", action: "replace" },
+          ],
+          deletions: [
+            { fqn: "CireOld", action: "delete" },
+            { fqn: "CireGone", action: "orphaned" },
+          ],
+        }),
+      ),
+    );
+    expect(plan.plan).toBe("changes");
+    expect(plan.counts).toEqual({
+      create: 1,
+      update: 1,
+      adopted: 1,
+      replace: 1,
+      delete: 1,
+      orphaned: 1,
+      "binding changes": 3,
+    });
+    expect(plan.problems).toEqual([]);
+    expect(
+      plan.resources.map((resource) => `${resource.fqn} ${resource.action}`).toSorted(),
+    ).toEqual(
+      [
+        "CireApi replace",
+        "CireDb adopted",
+        "CireGone orphaned",
+        "CireLanding noop",
+        "CireOld delete",
+        "CireVendor create",
+        "Sites/CireHost update",
+      ].toSorted(),
+    );
+    expect(plan.bindings).toEqual([
+      { fqn: "Sites/CireHost/ASSETS", action: "noop" },
+      { fqn: "Sites/CireHost/DB", action: "create" },
+      { fqn: "Sites/CireHost/KV", action: "update" },
+      { fqn: "Sites/CireHost/OLD", action: "unbind" },
+    ]);
+    expect(planTextFaults(plan)).toEqual([]);
+
+    const quiet = parsePlan(printed(planOf({ resources: [{ fqn: "CireHost", action: "noop" }] })));
+    expect(quiet).toMatchObject({ plan: "no-changes", counts: {}, problems: [] });
+    expect(parsePlan(printed(planOf({})))).toMatchObject({ plan: "no-resources", problems: [] });
+
+    // What production never runs reads as a fault, not as a resource line.
+    const refused = parsePlan(
+      printed(
+        planOf({
+          resources: [
+            { fqn: "CireHost", action: "update", mode: "local" },
+            { fqn: "CireVendor", action: "update", renamedFrom: ["Vendor"] },
+          ],
+          tasks: [["Seed", "run"]],
+        }),
+      ),
+    );
+    expect(refused.counts).toEqual({ update: 2, tasks: 1 });
+    expect(refused.problems).toEqual([
+      "CireHost does not run live; every production resource does",
+      "CireVendor moved from another logical id; production ids never change",
+      "Seed is a task; a production plan runs none",
+    ]);
+  });
+});
+
 describe("guardPlan refuses", () => {
   test("G1: a log with no Plan line", () => {
     expect(refusals("planning failed\n")).toEqual(["the Alchemy log holds no Plan line"]);
@@ -115,8 +314,11 @@ describe("guardPlan refuses", () => {
     ).toEqual(["the plan lists 0 binding changes, and its Plan line counts 1"]);
   });
 
-  test("G4: a resource the stack does not declare on production", () => {
+  test("G4: a resource the stack does not declare on production, whatever its action, a noop included", () => {
     expect(refusals(pretty("Plan: 1 to create", "[ZapApi] create"))).toEqual([
+      "ZapApi is not a resource this stack declares on production",
+    ]);
+    expect(refusals(pretty("Plan: no changes", "[ZapApi] noop"))).toEqual([
       "ZapApi is not a resource this stack declares on production",
     ]);
   });
@@ -160,6 +362,19 @@ describe("guardPlan refuses", () => {
     expect(refusals(pretty("Plan: 1 to update", "[CireHost] update (remote)"))).toHaveLength(1);
     expect(refusals(pretty("Plan: 1 to update", "[CireHost] update (renamed from Host)"))).toEqual([
       "CireHost moved from another logical id; production ids never change",
+    ]);
+    // A binding line carries no note; one that does is not read as a binding.
+    expect(
+      refusals(
+        pretty(
+          "Plan: 1 to update, 1 binding changes",
+          "[CireApi] update",
+          "[CireApi/DB] create (local)",
+        ),
+      ),
+    ).toEqual([
+      "CireApi/DB has a binding action the guard does not know",
+      "the plan lists 0 binding changes, and its Plan line counts 1",
     ]);
   });
 
