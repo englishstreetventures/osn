@@ -37,10 +37,12 @@ const srcset = widths.map((w) => `${unsplash(image.id, w)} ${w}w`).join(', ')
 </figure>
 
 <style>
+  /* A framed picture takes the field corner, as framed pictures do across
+     cire; `overflow: hidden` clips the photo to it. */
   .cire-figure {
     position: relative;
     overflow: hidden;
-    border-radius: 0.5rem;
+    border-radius: var(--ui-radius-field);
     border: 1px solid var(--color-border);
     margin: 0;
   }
@@ -52,7 +54,9 @@ const srcset = widths.map((w) => `${unsplash(image.id, w)} ${w}w`).join(', ')
     object-fit: cover;
   }
 
-  /* Photo credit, required by the Unsplash licence — present but visually quiet. */
+  /* Photo credit, required by the Unsplash licence — present but visually quiet.
+     A text badge 0.5rem in from the frame, so its corner is the frame's 14px
+     less that inset: the small step. */
   .cire-figure figcaption {
     position: absolute;
     right: 0.5rem;
@@ -62,9 +66,9 @@ const srcset = widths.map((w) => `${unsplash(image.id, w)} ${w}w`).join(', ')
     color: var(--color-text);
     background: oklch(0% 0 0 / 0.45);
     padding: 0.15rem 0.45rem;
-    border-radius: 0.25rem;
+    border-radius: var(--radius-sm);
     opacity: 0;
-    transition: opacity 0.2s ease;
+    transition: opacity var(--dur-fast) var(--ease-out);
   }
 
   .cire-figure:hover figcaption,

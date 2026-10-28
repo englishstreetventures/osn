@@ -198,14 +198,16 @@
    `data-reveal` starts dimmed + nudged down; the IntersectionObserver in
    BaseLayout adds `data-revealed` when it scrolls into view. No-JS / reduced
    motion: the reveal still lands visible (the observer sets it, and reduced
-   motion zeroes the transition). */
+   motion zeroes the transition). The 0.7s is a written duration on purpose:
+   a section settling into place as it scrolls in is choreography, slower than
+   the ladder's longest step, which is sized for controls and panels. */
 @layer utilities {
   [data-reveal] {
     opacity: 0;
     transform: translateY(1.5rem);
     transition:
-      opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1),
-      transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+      opacity 0.7s var(--ease-out),
+      transform 0.7s var(--ease-out);
     will-change: opacity, transform;
   }
 
@@ -255,21 +257,28 @@
   }
 
   /* Shared CTA voice — a gold-filled primary and a hairline-outlined secondary,
-     both with a proper, instantly-visible focus ring (never animated). */
+     both with a proper, instantly-visible focus ring (never animated).
+
+     Pills, as every cire button is, with a sentence-case label set as `Button`'s
+     `lg` sets one: the same type step, normal tracking, the medium weight (this
+     site loads no Lato 500, so this rule and `Button`'s `font-medium` both
+     draw the 400 face). The side padding is wider than a rectangle of this
+     height would need, because each round end takes half the height out of
+     the room beside the label. */
   .cta-primary,
   .cta-ghost {
     font-family: var(--font-body);
-    font-size: 0.84rem;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    padding: 0.95rem 1.9rem;
-    border-radius: 0.125rem;
+    font-size: var(--ui-text-base);
+    font-weight: 500;
+    letter-spacing: var(--ui-tracking-normal);
+    padding: 0.95rem 2.25rem;
+    border-radius: var(--ui-radius-control);
     border: 1px solid transparent;
     transition:
-      color 0.2s var(--ease-out),
-      background-color 0.2s var(--ease-out),
-      border-color 0.2s var(--ease-out),
-      transform 0.12s var(--ease-out);
+      color var(--dur-fast) var(--ease-out),
+      background-color var(--dur-fast) var(--ease-out),
+      border-color var(--dur-fast) var(--ease-out),
+      transform var(--dur-fast) var(--ease-out);
   }
   .cta-primary {
     background: var(--color-gold);

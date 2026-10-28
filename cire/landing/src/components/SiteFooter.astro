@@ -117,8 +117,8 @@ const year = 2026
     text-decoration: none;
     border-bottom: 1px solid transparent;
     transition:
-      color 0.2s var(--ease-out, ease),
-      border-color 0.2s var(--ease-out, ease);
+      color var(--dur-fast) var(--ease-out, ease),
+      border-color var(--dur-fast) var(--ease-out, ease);
   }
 
   .site-footer a:hover,
@@ -130,6 +130,6 @@ const year = 2026
   .site-footer a:focus-visible {
     outline: 2px solid var(--color-gold, oklch(74.99% 0.0854 82.08));
     outline-offset: 3px;
-    border-radius: 0.125rem;
+    border-radius: var(--radius-hair);
   }
 </style>

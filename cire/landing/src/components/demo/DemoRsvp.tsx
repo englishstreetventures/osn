@@ -62,7 +62,7 @@ export function DemoRsvp() {
   const [rsvpEvent, setRsvpEvent] = createSignal<DemoEvent | null>(null);
 
   return (
-    <div class="border-border bg-surface-raised mx-auto max-w-160 overflow-hidden rounded-lg border shadow-2xl">
+    <div class="border-border bg-surface-raised rounded-ui-lg mx-auto max-w-160 overflow-hidden border shadow-2xl">
       {/* An honest frame header — a plain label, not imitation browser chrome. */}
       <div class="border-border flex items-center justify-center border-b px-4 py-3">
         <span class="font-body text-text-muted text-ui-xs tracking-ui-widest uppercase">
@@ -84,7 +84,7 @@ export function DemoRsvp() {
         <div class="flex flex-col gap-4 text-left">
           <For each={DEMO_EVENTS}>
             {(event) => (
-              <article class="border-border bg-surface rounded-sm border px-5 py-5">
+              <article class="border-border bg-surface rounded-ui-lg border px-5 py-5">
                 <h4 class="font-display text-text mb-1 text-xl font-normal italic">{event.name}</h4>
                 <p class="font-body text-gold text-ui-xs tracking-ui-wider mb-1 uppercase">
                   {event.date}
@@ -149,16 +149,15 @@ function DemoRsvpModal(props: DemoRsvpModalProps) {
   /*
    * Reset per event, explicitly.
    *
-   * This component used to be mounted inside `<Show when={rsvpEvent()}>`, so
-   * every event got a fresh instance and its state reset by construction. It
-   * stays mounted now — the sheet has to survive its own exit animation — which
-   * means one instance for every event, and a `createSignal` initialiser that
-   * runs once, while `props.event` is still null.
+   * The sheet stays mounted so it can play its own exit animation, so one
+   * instance serves every event, and each `createSignal` initialiser runs
+   * once, while `props.event` is still null. The state resets here instead,
+   * whenever the event changes.
    *
-   * The failure that caused was quiet rather than loud: `responses` stayed `{}`,
-   * so `current[guestId]?.attending !== null` was `undefined !== null`, every
-   * guest counted as answered, and the "respond for everyone" guard never
-   * fired. A test caught it; nothing about the rendered sheet looked wrong.
+   * Without this the failure is quiet: `responses` stays `{}`, so
+   * `current[guestId]?.attending !== null` is `undefined !== null`, every
+   * guest counts as answered, and the "respond for everyone" guard never
+   * fires, while nothing about the rendered sheet looks wrong.
    */
   createEffect(
     on(
@@ -238,14 +237,22 @@ function DemoRsvpModal(props: DemoRsvpModalProps) {
             {(member) => {
               const guestId = member.guestId;
               return (
-                <fieldset class="border-border m-0 rounded-sm border p-5">
+                // `min-w-0` overrides a `<fieldset>`'s default `min-width:
+                // min-content`, as on the guest sheet. Without it the dietary
+                // picker's scrolling track sets the fieldset's width, and on a
+                // phone the answer pair stretches off the dialog's edge.
+                <fieldset class="border-border m-0 min-w-0 rounded-sm border p-5">
                   <legend class="font-display text-text text-ui-md mb-3 font-normal italic">
                     {member.firstName} {member.lastName}
                   </legend>
+                  {/* Raw, as the guest sheet's pair is: `Button` `choice`
+                      marks the chosen answer with a ring, where the sheet
+                      fills it with a gold tint, and this pair has to look
+                      like the sheet's. */}
                   <div class="flex gap-2">
                     <button
                       type="button"
-                      class="font-body text-ui-sm tracking-ui-wide flex-1 cursor-pointer rounded-sm border px-3 py-2.5 uppercase transition-colors duration-200"
+                      class="font-body text-ui-sm tracking-ui-normal rounded-ui-control focus-visible:outline-ui-focus flex-1 cursor-pointer border px-4 py-2.5 font-medium transition-colors duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2"
                       classList={{
                         "border-gold text-gold bg-gold/8":
                           responses()[guestId]?.attending === "attending",
@@ -259,7 +266,7 @@ function DemoRsvpModal(props: DemoRsvpModalProps) {
                     </button>
                     <button
                       type="button"
-                      class="font-body text-ui-sm tracking-ui-wide flex-1 cursor-pointer rounded-sm border px-3 py-2.5 uppercase transition-colors duration-200"
+                      class="font-body text-ui-sm tracking-ui-normal rounded-ui-control focus-visible:outline-ui-focus flex-1 cursor-pointer border px-4 py-2.5 font-medium transition-colors duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2"
                       classList={{
                         "border-gold text-gold bg-gold/8":
                           responses()[guestId]?.attending === "declined",
@@ -291,7 +298,7 @@ function DemoRsvpModal(props: DemoRsvpModalProps) {
                         Anything else
                         <input
                           type="text"
-                          class="border-border font-body text-text placeholder:text-text-muted focus:border-gold sm:text-ui-base mt-1.5 block w-full rounded-sm border bg-transparent px-3 py-2.5 text-base transition-colors duration-200 focus:outline-none"
+                          class="border-border font-body text-text placeholder:text-text-muted focus:border-gold sm:text-ui-base rounded-ui-field focus-visible:outline-ui-focus mt-1.5 block w-full border bg-transparent px-3 py-2.5 text-base transition-colors duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2"
                           placeholder="e.g. no onion or garlic"
                           value={responses()[guestId]?.dietary ?? ""}
                           onInput={(e) => setDietary(guestId, e.currentTarget.value)}
