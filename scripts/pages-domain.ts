@@ -139,7 +139,7 @@ function cloudflare(env: Readonly<Record<string, string | undefined>>, fetcher: 
     const parsed = (await response.json().catch(() => null)) as {
       success?: unknown;
       result?: unknown;
-      result_info?: { total_pages?: unknown };
+      result_info?: { page?: unknown; total_pages?: unknown };
       errors?: readonly { code?: unknown }[];
     } | null;
     if (!response.ok || parsed?.success !== true) {
