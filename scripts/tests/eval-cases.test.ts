@@ -177,13 +177,24 @@ test("the README case table matches each case's allowed_tools", () => {
   expect(wrong).toEqual([]);
 });
 
-test("every scaffold parses, guards an empty workspace and strips the plugin's instructions", () => {
+test("every scaffold parses, guards an empty workspace and strips the plugin's instructions", async () => {
   const wrong: string[] = [];
-  for (const name of cases) {
+  // The parse checks share no state, so every `bash -n` runs at once.
+  const scaffolds = cases.filter((name) => existsSync(join(EVALS, name, "setup.sh")));
+  const parses = await Promise.all(
+    scaffolds.map(async (name) => {
+      const proc = Bun.spawn(["bash", "-n", join(EVALS, name, "setup.sh")], {
+        stdout: "ignore",
+        stderr: "pipe",
+      });
+      const [stderr, exitCode] = await Promise.all([new Response(proc.stderr).text(), proc.exited]);
+      return { exitCode, stderr };
+    }),
+  );
+  for (const [index, name] of scaffolds.entries()) {
     const path = join(EVALS, name, "setup.sh");
-    if (!existsSync(path)) continue;
-    const check = Bun.spawnSync(["bash", "-n", path]);
-    if (check.exitCode !== 0) wrong.push(`${name}: bash -n: ${check.stderr.toString().trim()}`);
+    const check = parses[index];
+    if (check && check.exitCode !== 0) wrong.push(`${name}: bash -n: ${check.stderr.trim()}`);
     const text = readFileSync(path, "utf8");
     if (!/ls -A/.test(text)) wrong.push(`${name}: no empty-workspace guard`);
     // All of .claude, or all but metrics/ where the case reads it.

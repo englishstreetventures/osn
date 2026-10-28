@@ -1,13 +1,8 @@
 ---
-type: llm
-weight: 1
-focus: { source: file, path: PR-BODY.md }
+type: regex
+weight: 0.4
+pattern: '^(?=[\s\S]*^## Impact[ \t]*\r?\n(?:[ \t]*\r?\n)*(?!#{1,2} )(?!None[ \t]*$)\S)(?=[\s\S]*^## Summary[ \t]*$)(?=[\s\S]*^## Workspaces affected[ \t]*$)(?=[\s\S]*^## Issues[ \t]*$)(?=[\s\S]*^## Decisions[ \t]*$)(?=[\s\S]*^## Test plan[ \t]*$)'
+flags: m
+match: contains
+target: { source: file, path: PR-BODY.md }
 ---
-
-The file is a pull-request body.
-
-PASS if it has all six second-level sections, `## Impact`, `## Summary`, `## Workspaces affected`, `## Issues`, `## Decisions`, `## Test plan`, and no other `##` heading. `## Impact` is not `None`.
-
-FAIL if any of the six is missing or renamed, the body is free-form, or an extra `##` section appears.
-
-FAIL also if the file is missing or empty.

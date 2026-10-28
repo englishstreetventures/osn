@@ -1,13 +1,8 @@
 ---
-type: llm
+type: regex
 weight: 2
-focus: { source: file, path: PR-BODY.md }
+pattern: '^## Impact[ \t]*\r?\n(?:[ \t]*\r?\n)*(?!#{1,2} )\S[\s\S]*?^## Summary[ \t]*\r?\n(?:[ \t]*\r?\n)*(?!#{1,2} )\S[\s\S]*?^## Workspaces affected[ \t]*\r?\n(?:[ \t]*\r?\n)*(?!#{1,2} )\S[\s\S]*?^## Issues[ \t]*\r?\n(?:[ \t]*\r?\n)*(?!#{1,2} )\S[\s\S]*?^## Decisions[ \t]*\r?\n(?:[ \t]*\r?\n)*(?!#{1,2} )\S[\s\S]*?^## Test plan[ \t]*\r?\n(?:[ \t]*\r?\n)*(?!#{1,2} )\S'
+flags: m
+match: contains
+target: { source: file, path: PR-BODY.md }
 ---
-
-The file is a pull-request title and body.
-
-PASS if the six sections `## Impact`, `## Summary`, `## Workspaces affected`, `## Issues`, `## Decisions`, `## Test plan` appear in that order, and a section with nothing to say keeps the word `None` rather than being dropped.
-
-FAIL if they are out of order, a section is empty without `None`, or the six are not all there.
-
-FAIL also if the file is missing or empty.
