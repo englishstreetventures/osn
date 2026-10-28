@@ -38,7 +38,7 @@ const noop = () => {};
 describe("EventCard", () => {
   afterEach(() => cleanup());
 
-  it("renders the event name, day (from startAt), venue (from address), description and BOTH buttons (Event Details first)", () => {
+  it("renders the event name, day (from startAt), venue (from address), description and BOTH buttons (Event details first)", () => {
     const { getByRole, container } = render(() => (
       <EventCard event={baseEvent} onRespond={noop} onDetails={noop} />
     ));
@@ -53,7 +53,7 @@ describe("EventCard", () => {
     // DOM order is also the visual order and the tab order — which is why the
     // reorder was done here rather than in CSS.
     // `EventCard.actions.browser.test.tsx` measures the painted result.
-    expect(buttons.map((b) => b.textContent)).toEqual(["Event Details", "Respond"]);
+    expect(buttons.map((b) => b.textContent)).toEqual(["Event details", "Respond"]);
   });
 
   it("paints the date in the prose gold, not the metal (C-M2 / WCAG 1.4.3)", () => {
@@ -254,7 +254,7 @@ describe("EventCard", () => {
       ));
       // Nothing to answer and nothing to look back at, so no button at all —
       // the badge beside the name says why, and is not a control.
-      expect(getAllByRole("button").map((b) => b.textContent)).toEqual(["Event Details"]);
+      expect(getAllByRole("button").map((b) => b.textContent)).toEqual(["Event details"]);
       expect(getByText("RSVPs closed").closest("button")).toBeNull();
     });
 
@@ -345,7 +345,7 @@ describe("EventCard", () => {
       expect(badge.parentElement).toBe(heading.parentElement);
     });
 
-    it("moves focus to Event Details when the deadline removes a focused answer button", () => {
+    it("moves focus to Event details when the deadline removes a focused answer button", () => {
       const [closed, setClosed] = createSignal(false);
       const { getByRole } = render(() => (
         <EventCard event={baseEvent} rsvpClosed={closed()} onRespond={noop} onDetails={noop} />
@@ -355,7 +355,7 @@ describe("EventCard", () => {
       setClosed(true);
 
       // Without the rescue the guest's focus would fall to <body> mid-page.
-      expect(document.activeElement).toBe(getByRole("button", { name: "Event Details" }));
+      expect(document.activeElement).toBe(getByRole("button", { name: "Event details" }));
     });
 
     it("rescues focus when the sheet closes after the deadline removed the button behind it", () => {
@@ -385,7 +385,7 @@ describe("EventCard", () => {
         expect(document.activeElement).toBe(document.body);
         setCovered(false);
 
-        expect(document.activeElement).toBe(getByRole("button", { name: "Event Details" }));
+        expect(document.activeElement).toBe(getByRole("button", { name: "Event details" }));
       } finally {
         dialogStandIn.remove();
       }
@@ -401,7 +401,7 @@ describe("EventCard", () => {
 
     it("leaves focus to the sheet when it closes over an answer button that is still there", () => {
       // The ordinary close: the dialog hands focus back to the button that
-      // opened it, so the card must not pull it to Event Details first.
+      // opened it, so the card must not pull it to Event details first.
       const [covered, setCovered] = createSignal(true);
       render(() => (
         <EventCard event={baseEvent} covered={covered()} onRespond={noop} onDetails={noop} />
@@ -450,22 +450,26 @@ describe("EventCard", () => {
     // on a `flex-1` item beside a `whitespace-nowrap` sibling lets this button
     // shrink past its own label. `overflow-clip` clips the fill to the same
     // rounded box and keeps the minimum. The browser tier proves the outcome;
-    // this names the class that delivers it.
+    // this names the class that delivers it. That box is the `control` pill,
+    // the same corner as "Event details" beside it, and the only corner the
+    // button carries.
     const { getByRole } = render(() => (
       <EventCard event={baseEvent} onRespond={noop} onDetails={noop} />
     ));
     const respond = getByRole("button", { name: "Respond" });
     expect(respond.className).toContain("overflow-clip");
     expect(respond.className).not.toContain("overflow-hidden");
-    expect(respond.className).toContain("rounded-sm");
+    expect(respond.className.split(/\s+/).filter((c) => c.startsWith("rounded-"))).toEqual([
+      "rounded-ui-control",
+    ]);
   });
 
-  it("keeps Event Details reachable after the deadline (only the answer locks)", () => {
+  it("keeps Event details reachable after the deadline (only the answer locks)", () => {
     const onDetails = vi.fn();
     const { getByRole } = render(() => (
       <EventCard event={baseEvent} rsvpClosed onRespond={noop} onDetails={onDetails} />
     ));
-    fireEvent.click(getByRole("button", { name: "Event Details" }));
+    fireEvent.click(getByRole("button", { name: "Event details" }));
     expect(onDetails).toHaveBeenCalledWith(baseEvent);
   });
 

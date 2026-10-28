@@ -277,7 +277,7 @@ describe("EventSheet — moving between the panels", () => {
     await page.viewport(...PHONE);
     render(() => <Harness />);
 
-    await userEvent.click(cardButton("Event Details"));
+    await userEvent.click(cardButton("Event details"));
     await settle();
     const sheet = dialog();
     expect(sheet.matches(":modal")).toBe(true);
@@ -313,10 +313,10 @@ describe("EventSheet — moving between the panels", () => {
     );
   });
 
-  it("gives focus back to Event Details when closed from the form it led to", async () => {
+  it("gives focus back to Event details when closed from the form it led to", async () => {
     await page.viewport(...PHONE);
     render(() => <Harness />);
-    const opener = cardButton("Event Details");
+    const opener = cardButton("Event details");
 
     await userEvent.click(opener);
     await settle();
@@ -374,7 +374,7 @@ describe("EventSheet — the motion", () => {
     // a check made there could not fail.
     await page.viewport(...PHONE);
     render(() => <Harness />);
-    await userEvent.click(cardButton("Event Details"));
+    await userEvent.click(cardButton("Event details"));
     await settle();
 
     badge("Give RSVP").click();
@@ -434,7 +434,7 @@ describe("EventSheet — the motion", () => {
     // `getBoundingClientRect` reports the box after its transform.
     await page.viewport(...PHONE);
     render(() => <Harness members={party} />);
-    await userEvent.click(cardButton("Event Details"));
+    await userEvent.click(cardButton("Event details"));
     await settle();
 
     await userEvent.click(badge("Give RSVP"));
@@ -474,7 +474,7 @@ describe("EventSheet — the motion", () => {
     // slow embed would leave the panel the guest asked for unclickable.
     await page.viewport(...PHONE);
     render(() => <Harness />);
-    await userEvent.click(cardButton("Event Details"));
+    await userEvent.click(cardButton("Event details"));
     await settle();
     await userEvent.click(badge("Give RSVP"));
     await settle();
@@ -501,7 +501,7 @@ describe("EventSheet — the motion", () => {
     // must not clear the state of the one now running.
     await page.viewport(1280, 900);
     render(() => <Harness />);
-    await userEvent.click(cardButton("Event Details"));
+    await userEvent.click(cardButton("Event details"));
     await settle();
 
     badge("Give RSVP").click();
@@ -530,7 +530,7 @@ describe("EventSheet — the badge", () => {
     // as tall as its line of text.
     await page.viewport(...PHONE);
     render(() => <Harness />);
-    await userEvent.click(cardButton("Event Details"));
+    await userEvent.click(cardButton("Event details"));
     await settle();
 
     const close = button("Close").getBoundingClientRect();
@@ -548,7 +548,7 @@ describe("EventSheet — the badge", () => {
   it("is a pill, filled like the close button beside it", async () => {
     await page.viewport(...PHONE);
     render(() => <Harness />);
-    await userEvent.click(cardButton("Event Details"));
+    await userEvent.click(cardButton("Event details"));
     await settle();
     const give = badge("Give RSVP");
     const radius = Number.parseFloat(getComputedStyle(give).borderTopLeftRadius);
@@ -580,7 +580,7 @@ describe("EventSheet — the badge", () => {
   it("starts the content below the bar on a 320px phone", async () => {
     await page.viewport(320, 640);
     render(() => <Harness />);
-    await userEvent.click(cardButton("Event Details"));
+    await userEvent.click(cardButton("Event details"));
     await settle();
     const row = bar().getBoundingClientRect();
     const first = wrapperOf("details").querySelector("dl")!.getBoundingClientRect();
@@ -603,7 +603,7 @@ describe("EventSheet — the badge", () => {
     // leading back to the details.
     await page.viewport(...PHONE);
     render(() => <Harness members={members} />);
-    await userEvent.click(cardButton("Event Details"));
+    await userEvent.click(cardButton("Event details"));
     await settle();
     const at = centre(badge("Give RSVP"));
     await mouseClick(at);
@@ -621,7 +621,7 @@ describe("EventSheet — the badge", () => {
   it("still closes on a backdrop tap once the panels are still", async () => {
     await page.viewport(...PHONE);
     render(() => <Harness />);
-    await userEvent.click(cardButton("Event Details"));
+    await userEvent.click(cardButton("Event details"));
     await settle();
     await userEvent.click(badge("Give RSVP"));
     await settle();
@@ -661,7 +661,7 @@ describe("EventSheet — the bar", () => {
         });
       await page.viewport(w, h);
       render(() => <Harness event={full} members={fullParty} />);
-      await userEvent.click(cardButton("Event Details"));
+      await userEvent.click(cardButton("Event details"));
       await settle();
       const atRest = bar().getBoundingClientRect();
       const facts = wrapperOf("details").querySelector("dl")!;
@@ -697,7 +697,7 @@ describe("EventSheet — the bar", () => {
       applyPaletteToRoot({ palettePreset, headingFont: null, bodyFont: null });
       await page.viewport(390, 844);
       render(() => <Harness event={full} members={fullParty} />);
-      await userEvent.click(cardButton("Event Details"));
+      await userEvent.click(cardButton("Event details"));
       await settle();
       const style = getComputedStyle(bar());
       // Frosted: what passes under it is blurred, and shows through a fill
@@ -955,7 +955,7 @@ describe("EventSheet — the badge follows a swipe", () => {
       page.screenshot({ path: `__screenshots__/EventSheet.browser.test.tsx/badge-${name}.png` });
     await page.viewport(390, 844);
     render(() => <Harness />);
-    await userEvent.click(cardButton("Event Details"));
+    await userEvent.click(cardButton("Event details"));
     await settle();
     await shotOf("details");
 
@@ -1086,13 +1086,21 @@ describe("EventSheet — the badge follows a swipe", () => {
   it("eases its words over on a press, as the panels slide", async () => {
     await openOn("details");
     const { details, rsvp } = badgeParts();
+    // Each transition the words start, heard as it is created rather than read
+    // while it runs: the window is the panels' `--dur-base`, and a slow runner
+    // can spend all of it between the click and a read.
+    const easing = new Set<string>();
+    const heard = (event: TransitionEvent) => easing.add(event.propertyName);
+    for (const label of [details, rsvp]) label.addEventListener("transitionrun", heard);
     await userEvent.click(badge("Give RSVP"));
-    await new Promise(requestAnimationFrame);
-    // Mid-way, not swapped: both words are crossing over on the panels' 280ms.
-    const easing = [details, rsvp].flatMap((label) =>
-      label.getAnimations().map((a) => (a as CSSTransition).transitionProperty),
-    );
-    expect(easing).toEqual(expect.arrayContaining(["opacity", "transform"]));
+    const deadline = performance.now() + 3000;
+    while (!(easing.has("opacity") && easing.has("transform"))) {
+      if (performance.now() > deadline) break;
+      await new Promise(requestAnimationFrame);
+    }
+    for (const label of [details, rsvp]) label.removeEventListener("transitionrun", heard);
+    // Crossing over, not swapped: both words ease their opacity and their place.
+    expect([...easing]).toEqual(expect.arrayContaining(["opacity", "transform"]));
     await settleBadge();
     expect(opacityOf(details)).toBe(0);
     expect(opacityOf(rsvp)).toBe(1);
@@ -1372,7 +1380,7 @@ async function settleSwipe() {
 async function openOn(panel: EventPanel, members?: FamilyMember[]) {
   await page.viewport(...PHONE);
   render(() => <Harness members={members} />);
-  await userEvent.click(cardButton(panel === "details" ? "Event Details" : "Respond"));
+  await userEvent.click(cardButton(panel === "details" ? "Event details" : "Respond"));
   await settle();
 }
 
@@ -1380,7 +1388,7 @@ async function openOn(panel: EventPanel, members?: FamilyMember[]) {
 async function openOnWide(panel: EventPanel, members?: FamilyMember[]) {
   await page.viewport(1280, 800);
   render(() => <Harness members={members} />);
-  await userEvent.click(cardButton(panel === "details" ? "Event Details" : "Respond"));
+  await userEvent.click(cardButton(panel === "details" ? "Event details" : "Respond"));
   await settle();
 }
 
@@ -1457,10 +1465,19 @@ describe("EventSheet — swiping between the panels", () => {
     expect(wrapperOf("rsvp").hidden).toBe(false);
 
     start = bodyOf("rsvp");
-    // Two moves, read at once: a replayed 280ms slide would still be running.
+    const form = wrapperOf("rsvp");
+    // A replayed slide is heard as it starts, so one short enough to finish
+    // before the read below is still caught.
+    const replayed: string[] = [];
+    const heard = (event: AnimationEvent) => {
+      if (event.target === form) replayed.push(event.animationName);
+    };
+    form.addEventListener("animationstart", heard);
     await touchDrag(start, { x: start.x + 60, y: start.y }, { steps: 2, end: "hold" });
     await new Promise(requestAnimationFrame);
-    const form = wrapperOf("rsvp");
+    await new Promise(requestAnimationFrame);
+    form.removeEventListener("animationstart", heard);
+    expect(replayed).toEqual([]);
     expect(form.style.transform).toBe("translateX(60px)");
     expect(moving(form)).toEqual([]);
     expect(getComputedStyle(form).opacity).toBe("1");
@@ -2018,7 +2035,7 @@ describe("EventSheet — the swipe's physics", () => {
       await new Promise(requestAnimationFrame);
     }
     expect(document.querySelector("dialog")).toBeNull();
-    expect(document.activeElement).toBe(cardButton("Event Details"));
+    expect(document.activeElement).toBe(cardButton("Event details"));
   });
 
   it("lets a tap during a pull's spring back through, and does not catch it", async () => {
@@ -2196,7 +2213,7 @@ describe("EventSheet — one height for both panels", () => {
         // Opened on the details: the badge there and back, then a swipe there
         // and back. The first switch is a press of the badge.
         const first = render(() => <Harness event={fx.event} members={fx.members} />);
-        await userEvent.click(cardButton("Event Details"));
+        await userEvent.click(cardButton("Event details"));
         await settle();
         let stop = watchHeight();
         const dl = wrapperOf("details").querySelector("dl")!.getBoundingClientRect();
@@ -2254,7 +2271,7 @@ describe("EventSheet — a full event inside the sheet", () => {
     it(`scrolls both panels to their ends cleanly at ${vp.size.join("×")}`, async () => {
       await page.viewport(vp.size[0], vp.size[1]);
       render(() => <Harness event={full} members={fullParty} />);
-      await userEvent.click(cardButton("Event Details"));
+      await userEvent.click(cardButton("Event details"));
       await settle();
       const rem = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
 
@@ -2308,7 +2325,7 @@ describe("EventSheet — the form a swipe draws in", () => {
       // then drop its bar to the edge.
       await page.viewport(390, 844);
       render(() => <Harness event={c.event} members={[{ ...priya, eventIds: [c.event.id] }]} />);
-      await userEvent.click(cardButton("Event Details"));
+      await userEvent.click(cardButton("Event details"));
       await settle();
       scroller().scrollTop = c.scroll;
       expect(scroller().scrollTop).toBe(c.scroll);

@@ -19,14 +19,16 @@ import type { EventSummary } from "../../src/components/types";
  * Two widths, because a flex row has two shapes and only one of them is the
  * obvious one:
  *
- * - **One line.** The row lays out left to right, so "Event Details" must be the
+ * - **One line.** The row lays out left to right, so "Event details" must be the
  *   left-hand button.
- * - **Wrapped.** The row breaks onto two lines, so "Event Details" must be the
- *   line ABOVE. A 320px phone reaches that shape: below `sm` both buttons are
- *   `flex-1`, and each keeps the automatic minimum size of its own label, so the
- *   row breaks rather than squeezing either one. The desktop card's two-column
- *   text half does not: the two sentence-case labels fit it at every width,
- *   past the 1024px root-size step included.
+ * - **Wrapped.** The row breaks onto two lines, so "Event details" must be the
+ *   line ABOVE. A 320px phone with a reply on file reaches that shape, its
+ *   answer button reading "RSVP given" beside the tick: below `sm` both buttons
+ *   are `flex-1`, and each keeps the automatic minimum size of its own label, so
+ *   the row breaks rather than squeezing either one. "Respond" alone is short
+ *   enough to share the 320px row. The desktop card's two-column text half
+ *   holds "Event details" and "Respond" on one line at every width, past the
+ *   1024px root-size step included.
  *
  * The Reflow cases below measure that phone as well, because the Respond button
  * clips its own label the moment it is allowed to shrink past the word.
@@ -40,13 +42,16 @@ import type { EventSummary } from "../../src/components/types";
 /** The tester iframe's own default, restored after every test that changes it. */
 const DEFAULT: readonly [number, number] = [414, 896];
 /**
- * Single-column card, well clear of a wrap: a 590px row against a 243px need
- * (the two buttons' own widths, 118.5px and 112.5px, and the 12px gap).
+ * Single-column card, well clear of a wrap: a 590px row against a 220px need
+ * (the two buttons' own widths, 115.9px and 92.2px, and the 12px gap).
  */
 const ONE_LINE: readonly [number, number] = [700, 900];
-/** A phone at the Reflow floor: a 222px row against the same 243px need. */
+/**
+ * A phone at the Reflow floor, with a reply on file: a 222px row against a 260px
+ * need ("Event details" 115.9px, "RSVP given" and its tick 131.7px, the gap).
+ */
 const WRAPPED: readonly [number, number] = [320, 900];
-/** Two-column card: a 272px text-half row against a 257px need (125.8 + 119.4 + 12 gap). */
+/** Two-column card: a 272px text-half row against a 233px need (123.1 + 97.8 + 12 gap). */
 const DESKTOP: readonly [number, number] = [1280, 900];
 /** WCAG 2.2 Reflow's floor (1.4.10), and the width an iPhone SE reports. */
 const REFLOW: readonly [number, number] = [320, 900];
@@ -107,7 +112,7 @@ function renderCard(withImage: boolean, rsvpClosed = false, responded = false) {
 /** The two action buttons and the row that holds them, as painted. */
 function actions(container: HTMLElement) {
   const buttons = [...container.querySelectorAll("button")];
-  const details = buttons.find((b) => b.textContent === "Event Details")!;
+  const details = buttons.find((b) => b.textContent === "Event details")!;
   // By elimination rather than by label: the answer button reads "Respond"
   // before a reply and "RSVP given" after one, and both are measured here.
   const respond = buttons.find((b) => b !== details)!;
@@ -135,7 +140,7 @@ afterEach(async () => {
 });
 
 describe("the event card's two actions, as painted", () => {
-  it("puts Event Details on the left when they share a line", async () => {
+  it("puts Event details on the left when they share a line", async () => {
     await page.viewport(...ONE_LINE);
     const { container } = renderCard(false);
     // The invite's faces are self-hosted, and a width taken against fallback
@@ -151,7 +156,7 @@ describe("the event card's two actions, as painted", () => {
     expect(details.right).toBeLessThanOrEqual(respond.left);
   });
 
-  it("puts Event Details on the left when they share a line, in the two-column desktop card", async () => {
+  it("puts Event details on the left when they share a line, in the two-column desktop card", async () => {
     await page.viewport(...DESKTOP);
     const { container } = renderCard(true);
     await document.fonts.ready;
@@ -163,9 +168,9 @@ describe("the event card's two actions, as painted", () => {
     expect(details.right).toBeLessThanOrEqual(respond.left);
   });
 
-  it("puts Event Details on the line above when the row wraps", async () => {
+  it("puts Event details on the line above when the row wraps", async () => {
     await page.viewport(...WRAPPED);
-    const { container } = renderCard(false);
+    const { container } = renderCard(false, false, true);
     await document.fonts.ready;
 
     const { details, respond, rowWidth } = actions(container);
@@ -183,7 +188,7 @@ describe("the event card's two actions, as painted", () => {
  * The narrowest width the invite promises, MEASURED.
  *
  * The answer button clips: it carries a clipping `overflow` for the confirmation
- * fill that sweeps across it, and "Event Details" carries `whitespace-nowrap`,
+ * fill that sweeps across it, and "Event details" carries `whitespace-nowrap`,
  * so whichever way the free space is short the answer button is the one that
  * absorbs it. Its own automatic minimum size is the only thing standing between
  * the guest and a half-word — and a scroll container's automatic minimum size is

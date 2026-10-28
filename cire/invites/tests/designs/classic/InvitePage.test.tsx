@@ -131,13 +131,13 @@ function respondButtonFor(container: HTMLElement, eventName: string) {
   ) as HTMLButtonElement;
 }
 
-/** The Event Details button on the card for `eventName`. */
+/** The Event details button on the card for `eventName`. */
 function detailsButtonFor(container: HTMLElement, eventName: string) {
   const card = [...container.querySelectorAll("[data-event-card]")].find((el) =>
     el.textContent?.includes(eventName),
   ) as HTMLElement;
   return [...card.querySelectorAll("button")].find(
-    (b) => b.textContent === "Event Details",
+    (b) => b.textContent === "Event details",
   ) as HTMLButtonElement;
 }
 
@@ -163,7 +163,7 @@ describe("InvitePage", () => {
     window.history.replaceState(null, "", "/");
   });
 
-  it("orders each card's actions Event Details then Respond", async () => {
+  it("orders each card's actions Event details then Respond", async () => {
     vi.stubGlobal(
       "fetch",
       noSession(
@@ -181,7 +181,7 @@ describe("InvitePage", () => {
     ));
 
     fireEvent.input(getByPlaceholderText(/PATEL-JOY/), { target: { value: "SHARMA-JOY-RK97" } });
-    fireEvent.click(getByText("Open Invitation"));
+    fireEvent.click(getByText("Open invitation"));
     await waitFor(() => expect(container.querySelector("[data-event-card]")).toBeTruthy(), {
       timeout: 2000,
     });
@@ -194,7 +194,7 @@ describe("InvitePage", () => {
     // button reads "RSVP given".
     for (const card of container.querySelectorAll("[data-event-card]")) {
       expect([...card.querySelectorAll("button")].map((b) => b.textContent)).toEqual([
-        "Event Details",
+        "Event details",
         "RSVP given",
       ]);
     }
@@ -347,7 +347,7 @@ describe("InvitePage", () => {
     expect(themeVars["--invite-section-bg"]).toBe("var(--color-surface-raised)");
   });
 
-  it("threads the details theme into the sheet opened from Event Details too", async () => {
+  it("threads the details theme into the sheet opened from Event details too", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ ...claim, preview: true }), {
         status: 200,
@@ -369,10 +369,10 @@ describe("InvitePage", () => {
       />
     ));
 
-    await waitFor(() => expect(getByRole("button", { name: /Event Details/i })).toBeTruthy(), {
+    await waitFor(() => expect(getByRole("button", { name: /Event details/i })).toBeTruthy(), {
       timeout: 2000,
     });
-    fireEvent.click(getByRole("button", { name: /Event Details/i }));
+    fireEvent.click(getByRole("button", { name: /Event details/i }));
     await waitFor(() => expect(getByTestId("details-sheet-stub")).toBeTruthy());
 
     const themeVars = capturedProps.value?.themeVars as Record<string, string>;
@@ -434,7 +434,7 @@ describe("InvitePage", () => {
       />
     ));
 
-    const section = getByText("Enter Your Code").closest("section") as HTMLElement;
+    const section = getByText("Enter your code").closest("section") as HTMLElement;
     expect(section.style.getPropertyValue("--invite-section-bg")).toBe("var(--color-surface)");
     expect(section.style.getPropertyValue("background-color")).toBe("var(--invite-section-bg)");
     // The section's gold utilities (labels, focus border, button hover fill)
@@ -472,7 +472,7 @@ describe("InvitePage", () => {
       <InvitePage apiUrl="https://api.test" slug="cire-wedding" inviteMissing />
     ));
 
-    getByText("Enter Your Code");
+    getByText("Enter your code");
     const root = document.documentElement.style;
     await waitFor(() =>
       expect(root.getPropertyValue("--color-surface")).toBe(
@@ -490,7 +490,7 @@ describe("InvitePage", () => {
       <InvitePage apiUrl="https://api.test" theme={{ headingFont: null, bodyFont: null }} />
     ));
 
-    const section = getByText("Enter Your Code").closest("section") as HTMLElement;
+    const section = getByText("Enter your code").closest("section") as HTMLElement;
     // No tone ⇒ the section sits on the page ground, as it always has.
     expect(section.style.getPropertyValue("--invite-section-bg")).toBe("var(--color-bg)");
   });
@@ -665,7 +665,7 @@ describe("InvitePage", () => {
     expect(queryByTestId("pulse-account-link-stub")).toBeNull();
 
     fireEvent.input(getByPlaceholderText(/PATEL-JOY/), { target: { value: "SHARMA-JOY-RK97" } });
-    fireEvent.click(getByText("Open Invitation"));
+    fireEvent.click(getByText("Open invitation"));
 
     // Present once claimed (this claim is not a preview).
     await waitFor(() => expect(queryByTestId("pulse-account-link-stub")).toBeTruthy(), {
@@ -691,11 +691,11 @@ describe("InvitePage", () => {
     ));
 
     fireEvent.input(getByPlaceholderText(/PATEL-JOY/), { target: { value: "SHARMA-JOY-RK97" } });
-    fireEvent.click(getByText("Open Invitation"));
+    fireEvent.click(getByText("Open invitation"));
 
     const link = await findByTestId("pulse-account-link-stub", {}, { timeout: 2000 });
     // The household's controls live together in the panel the guest lands on.
-    expect(link.closest("section")).toBe(getByText("Enter Your Code").closest("section"));
+    expect(link.closest("section")).toBe(getByText("Enter your code").closest("section"));
     expect(getByText("Your Events").closest("section")!.contains(link)).toBe(false);
   });
 
@@ -717,7 +717,7 @@ describe("InvitePage", () => {
     ));
 
     fireEvent.input(getByPlaceholderText(/PATEL-JOY/), { target: { value: "SHARMA-JOY-RK97" } });
-    fireEvent.click(getByText("Open Invitation"));
+    fireEvent.click(getByText("Open invitation"));
 
     await waitFor(() => expect(getByText("Welcome back to your invite, Priya")).toBeTruthy(), {
       timeout: 2000,
@@ -727,7 +727,7 @@ describe("InvitePage", () => {
 
     // The code form is back, the previously claimed household's events are
     // gone, and the field the household typed into is blank again.
-    await waitFor(() => expect(getByText("Enter Your Code")).toBeTruthy());
+    await waitFor(() => expect(getByText("Enter your code")).toBeTruthy());
     expect(queryByText(/Welcome back/)).toBeNull();
     expect(queryByText("Mehndi")).toBeNull();
 
@@ -738,11 +738,11 @@ describe("InvitePage", () => {
     const input = getByPlaceholderText(/PATEL-JOY/) as HTMLInputElement;
     expect(input.value).toBe("");
     expect(input.disabled).toBe(false);
-    const submit = getByText("Open Invitation") as HTMLButtonElement;
+    const submit = getByText("Open invitation") as HTMLButtonElement;
     // Disabled right now only because the field is empty — the normal
     // pre-claim state, not the stuck one. Typing must re-enable it; before the
     // fix the label read "Checking…" and no amount of typing helped.
-    expect(submit.textContent).toBe("Open Invitation");
+    expect(submit.textContent).toBe("Open invitation");
     expect(submit.disabled).toBe(true);
     fireEvent.input(input, { target: { value: "OKAFOR-LILY-AB12CD" } });
     expect(submit.disabled).toBe(false);
@@ -775,7 +775,7 @@ describe("InvitePage", () => {
     ));
 
     fireEvent.input(getByPlaceholderText(/PATEL-JOY/), { target: { value: "SHARMA-JOY-RK97" } });
-    fireEvent.click(getByText("Open Invitation"));
+    fireEvent.click(getByText("Open invitation"));
     await waitFor(() => expect(getByText("Welcome back to your invite, Priya")).toBeTruthy(), {
       timeout: 2000,
     });
@@ -841,16 +841,16 @@ describe("InvitePage", () => {
     ));
 
     fireEvent.input(getByPlaceholderText(/PATEL-JOY/), { target: { value: "SHARMA-JOY-RK97" } });
-    fireEvent.click(getByText("Open Invitation"));
+    fireEvent.click(getByText("Open invitation"));
     await waitFor(() => expect(getByText("Welcome back to your invite, Priya")).toBeTruthy(), {
       timeout: 2000,
     });
 
     fireEvent.click(getByText(/Sign out/));
-    await waitFor(() => expect(getByText("Enter Your Code")).toBeTruthy());
+    await waitFor(() => expect(getByText("Enter your code")).toBeTruthy());
 
     fireEvent.input(getByPlaceholderText(/PATEL-JOY/), { target: { value: "OKAFOR-LILY-AB12CD" } });
-    fireEvent.click(getByText("Open Invitation"));
+    fireEvent.click(getByText("Open invitation"));
 
     await waitFor(() => expect(getByText(/Dear Chidi/)).toBeTruthy(), { timeout: 2000 });
     // The second POST carried the second code — not a stale or blank one.
@@ -895,7 +895,7 @@ describe("InvitePage", () => {
     ));
 
     fireEvent.input(getByPlaceholderText(/PATEL-JOY/), { target: { value: "SHARMA-JOY-RK97" } });
-    fireEvent.click(getByText("Open Invitation"));
+    fireEvent.click(getByText("Open invitation"));
 
     // Wait for the sequence to have STARTED and parked — i.e. `onFormHidden`
     // has fired and we are inside the window the guard protects. Deliberately
@@ -909,7 +909,7 @@ describe("InvitePage", () => {
     // Now let the choreography finish — its trailing write must not resurrect
     // the welcome half over a null claim.
     releaseSequence?.();
-    await waitFor(() => expect(getByText("Enter Your Code")).toBeTruthy());
+    await waitFor(() => expect(getByText("Enter your code")).toBeTruthy());
     expect(queryByText(/Welcome back/)).toBeNull();
     expect((getByPlaceholderText(/PATEL-JOY/) as HTMLInputElement).disabled).toBe(false);
   });
@@ -954,7 +954,7 @@ describe("InvitePage", () => {
     ));
 
     fireEvent.input(getByPlaceholderText(/PATEL-JOY/), { target: { value: "SHARMA-JOY-RK97" } });
-    fireEvent.click(getByText("Open Invitation"));
+    fireEvent.click(getByText("Open invitation"));
     await waitFor(() => expect(getByText("Dear Priya")).toBeTruthy(), { timeout: 2000 });
 
     await waitFor(() => expect(getByText(/Respond/i)).toBeTruthy(), { timeout: 2000 });
@@ -990,7 +990,7 @@ describe("InvitePage", () => {
     fireEvent.input(getByPlaceholderText(/PATEL-JOY/), {
       target: { value: "SHARMA-JOY-RK97" },
     });
-    fireEvent.click(getByText("Open Invitation"));
+    fireEvent.click(getByText("Open invitation"));
 
     // Wait for the event card's answer button — "RSVP given", since `claim`
     // already has Mehndi answered.
@@ -1072,7 +1072,7 @@ describe("InvitePage", () => {
       <InvitePage apiUrl="https://api.test" />
     ));
     fireEvent.input(getByPlaceholderText(/PATEL-JOY/), { target: { value: "SHARMA-JOY-RK97" } });
-    fireEvent.click(getByText("Open Invitation"));
+    fireEvent.click(getByText("Open invitation"));
 
     fireEvent.input(await findByLabelText("First name", {}, { timeout: 2000 }), {
       target: { value: "Sam" },
@@ -1669,7 +1669,7 @@ describe("InvitePage", () => {
 
       const card = container.querySelector("[data-event-card]")!;
       expect([...card.querySelectorAll("button")].map((b) => b.textContent)).toEqual([
-        "Event Details",
+        "Event details",
       ]);
       expect(closedBadges().length).toBe(1);
     });
@@ -1755,7 +1755,7 @@ describe("InvitePage", () => {
       // guest loads their invite with the form still sitting on top of it. The
       // greeting assertion above cannot see that: textContent queries match
       // inside a `display: none` subtree.
-      expect((getByText("Enter Your Code").parentElement as HTMLElement).style.display).toBe(
+      expect((getByText("Enter your code").parentElement as HTMLElement).style.display).toBe(
         "none",
       );
     });
@@ -1903,13 +1903,13 @@ describe("InvitePage", () => {
       fireEvent.input(screen.getByPlaceholderText(/PATEL-JOY/), {
         target: { value: "SHARMA-JOY-RK97" },
       });
-      fireEvent.click(screen.getByText("Open Invitation"));
+      fireEvent.click(screen.getByText("Open invitation"));
       return screen;
     }
 
     /** The form's wrapper — the element whose `display` the swap drives. */
     const formPanel = (screen: { getByText: (t: string) => HTMLElement }) =>
-      screen.getByText("Enter Your Code").parentElement as HTMLElement;
+      screen.getByText("Enter your code").parentElement as HTMLElement;
 
     it("hides the form when the sequence reports it faded out", async () => {
       const { getByText } = await claimWith(async (_f, _w, _e, hooks) => {

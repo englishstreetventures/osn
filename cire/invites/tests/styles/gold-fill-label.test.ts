@@ -99,12 +99,13 @@ describe("labels on a gold fill", () => {
   it("finds the gold fills it is meant to be checking", () => {
     // Vacuity guard: a changed file layout or class spelling that matched
     // nothing would let both tests above pass while checking nothing. The
-    // fills today: the consent "Save choices" button, the answer button, the
-    // hover, keyboard-focus and pressed states of a link menu's items (one
-    // class list for all three), the RSVP sheet's submit and both
-    // gift-registry links.
+    // fills today: the answer button, the hover, keyboard-focus and pressed
+    // states of a link menu's items (one class list for all three) and the
+    // RSVP sheet's submit. The consent "Save choices" button and both
+    // gift-registry links are `@cire/ui`'s Button, which paints with the
+    // contract's accent rather than `bg-gold`.
     const fills = goldFills();
-    expect(fills.length).toBeGreaterThanOrEqual(8);
+    expect(fills.length).toBeGreaterThanOrEqual(5);
     expect(new Set(fills.map((f) => f.variant))).toEqual(
       new Set(["", "hover:", "focus-visible:", "active:"]),
     );

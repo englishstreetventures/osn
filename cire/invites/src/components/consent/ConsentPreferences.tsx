@@ -1,3 +1,4 @@
+import Button from "@cire/ui/button";
 import { CATEGORY_LIST, type ConsentCategory } from "@cire/ui/consent-categories";
 import { gatedVendorsInCategory } from "@cire/ui/consent-vendors";
 import { Modal } from "@shared/ui/ui/modal";
@@ -91,13 +92,11 @@ export function ConsentPreferences() {
       </div>
 
       <div class="border-border/70 mt-6 flex justify-end border-t pt-5">
-        <button
-          type="button"
-          onClick={() => saveConsent(draft())}
-          class="border-gold bg-gold text-on-gold font-body hover:text-gold-ink focus-visible:ring-gold/60 text-ui-xs tracking-ui-wider rounded-sm border px-5 py-2 uppercase transition-colors duration-200 hover:bg-transparent focus:outline-none focus-visible:ring-2"
-        >
+        {/* The sheet's one commit, so the filled `primary` rather than the
+            outlined `cta` the prompt's three equal choices take. */}
+        <Button variant="primary" size="sm" onClick={() => saveConsent(draft())}>
           Save choices
-        </button>
+        </Button>
       </div>
     </Modal>
   );
@@ -114,7 +113,7 @@ function SwitchRow(props: {
   const vendor = () => gatedVendorsInCategory(props.id)[0];
 
   return (
-    <div class="border-border/60 bg-surface-raised/40 rounded-md border px-4 py-3.5">
+    <div class="border-border/60 bg-surface-raised/40 rounded-sm border px-4 py-3.5">
       <div class="flex items-start gap-3">
         <input
           id={inputId}

@@ -51,7 +51,8 @@ interface PulseAccountLinkProps {
   /** "Not you?" — clear the member and end the musubi sign-in. */
   onNotYou: () => void;
   /**
-   * Placement on the panel that hosts it — width, centring and spacing. The
+   * Placement on the panel that hosts it — width, centring, spacing and the
+   * corner, which depends on whether that panel is itself a card. The
    * component owns only its own surface.
    */
   class?: string;
@@ -198,7 +199,7 @@ export function PulseAccountLink(props: PulseAccountLinkProps) {
 
   return (
     <section
-      class={`border-gold/30 bg-gold/5 rounded-sm border px-5 py-6 text-left ${props.class ?? ""}`}
+      class={`border-gold/30 bg-gold/5 border px-5 py-6 text-left ${props.class ?? ""}`}
       aria-labelledby="pulse-link-heading"
     >
       <h3

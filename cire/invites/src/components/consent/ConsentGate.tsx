@@ -99,7 +99,7 @@ export function ConsentPlaceholder(props: { category: ConsentCategory; vendor: s
   const categoryTitle = () => CATEGORY_META[props.category].title;
 
   return (
-    <div class="border-border/70 bg-surface-raised/60 mt-2 rounded-md border px-4 py-4 text-center">
+    <div class="border-border/70 bg-surface-raised/60 mt-2 rounded-sm border px-4 py-4 text-center">
       {/* The purpose is written in the third person for the privacy notice
           ("Shows the couple's…"), so it follows "It" here rather than "would",
           which would need the bare verb. */}

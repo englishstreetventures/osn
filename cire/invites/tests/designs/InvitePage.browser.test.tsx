@@ -123,7 +123,7 @@ function answer(name: string) {
 /**
  * The sheet's Save button, scoped to the dialog. NOT `document.querySelector(
  * "button[type=submit]")` — the login form stays in the layout after the invite
- * opens (only `display: none`), and its "Open Invitation" submit comes first in
+ * opens (only `display: none`), and its "Open invitation" submit comes first in
  * the DOM, so an unscoped query silently clicks that instead and the RSVP is
  * never sent.
  */
@@ -301,7 +301,7 @@ async function openByCode(Pack: typeof classicInvitePage, rsvpResponses: Respons
   fireEvent.input(input, { target: { value: "SHARMA-JOY-RK97" } });
   (
     [...document.querySelectorAll("button")].find(
-      (b) => b.textContent === "Open Invitation",
+      (b) => b.textContent === "Open invitation",
     ) as HTMLButtonElement
   ).click();
 
@@ -364,16 +364,16 @@ describe.each([
     expect(respondButton().querySelector("svg")).not.toBeNull();
   });
 
-  it("moves between the details and the form in one sheet, and closes back onto Event Details", async () => {
+  it("moves between the details and the form in one sheet, and closes back onto Event details", async () => {
     // The pack's own wiring of the sheet, in the page it ships in: the card's
-    // Event Details opens the sheet on the details, the guest crosses to the
+    // Event details opens the sheet on the details, the guest crosses to the
     // form and back without the dialog closing, and Escape hands focus back to
     // the button that opened it.
     openRestored(Pack, []);
     await waitFor(() => expect(respondButton()).toBeTruthy(), { timeout: 3000 });
     const card = respondButton().closest("article") as HTMLElement;
     const opener = [...card.querySelectorAll("button")].find(
-      (b) => b.textContent === "Event Details",
+      (b) => b.textContent === "Event details",
     ) as HTMLButtonElement;
 
     await userEvent.click(opener);

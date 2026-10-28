@@ -600,7 +600,7 @@ test("cire-event-details", async ({ page, context, flow }) => {
     await page
       .getByRole("article")
       .filter({ has: page.getByRole("heading", { name: CIRE_EVENT_EDIT.event }) })
-      .getByRole("button", { name: "Event Details" })
+      .getByRole("button", { name: "Event details" })
       .click();
     await expect(
       sheet.getByRole("heading", { name: new RegExp(`^Details.*${CIRE_EVENT_EDIT.event}`) }),

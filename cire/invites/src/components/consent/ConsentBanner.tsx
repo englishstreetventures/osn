@@ -293,6 +293,8 @@ export function ConsentPreferencesLink(props: { label?: string; class?: string }
 
   return (
     <>
+      {/* A raw button: its caller styles it as a peer of the links beside it
+          (the footer's legal row), which no `Button` variant would match. */}
       <button
         type="button"
         onClick={openConsentPreferences}
