@@ -1066,8 +1066,8 @@ from the adapter-generated config. The other three are Pages projects (`cire-hos
 domain moves to a Worker: the `sites` job builds each once, its Pages job deploys that build,
 and the cire stack deploys the same build to a staged Worker on a spare host
 ([[infrastructure-as-code#Production sites]]). `deploy-cire-host` deploys to the Pages project
-`cire-host`; confirm in the dashboard that this project holds `host.cireweddings.com` before
-the site's domain moves. Manual equivalents:
+`cire-host`, the project that holds `host.cireweddings.com` (*measured 2026-10-28 —
+dashboard, Workers & Pages → `cire-host` → Custom domains*). Manual equivalents:
 
 ```bash
 # guest site (Worker: cire-invites, custom domain invite.cireweddings.com)
