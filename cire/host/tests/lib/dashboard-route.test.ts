@@ -178,6 +178,26 @@ describe("dashboard-route", () => {
         });
       });
 
+      // A tab name resolves only to one of the seven aliases above. The names
+      // every object answers to read as an unknown tab, which lands on the
+      // wedding's default module.
+      it.each([
+        "constructor",
+        "__proto__",
+        "toString",
+        "valueOf",
+        "hasOwnProperty",
+        // Decoded before the lookup, so the escaped form is the same name.
+        "%5F%5Fproto%5F%5F",
+      ])("lands #/weddings/w/%s on the wedding's default module", (tab) => {
+        expect(parseRoute(`#/weddings/w/${tab}`)).toEqual({
+          view: "weddings",
+          weddingId: "w",
+          module: DEFAULT_MODULE,
+          sub: defaultSub(DEFAULT_MODULE),
+        });
+      });
+
       it("still resolves the legacy bare #security hash", () => {
         expect(parseRoute("#security")).toEqual({
           view: "security",
