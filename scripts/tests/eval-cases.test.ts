@@ -36,15 +36,69 @@ const GRADER_KEYS: Record<string, readonly string[]> = {
   baseline: ["baseline_file", "criteria"],
 };
 const COMMON_GRADER_KEYS = new Set(["type", "weight", "arm"]);
+// Options the docs give no default for: a grader without one cannot load or
+// grades nothing. `llm` needs a body or `criteria`, checked apart.
+const REQUIRED_GRADER_KEYS: Record<string, readonly string[]> = {
+  regex: ["pattern"],
+  tool_used: ["tool"],
+  tool_order: ["before", "after"],
+  file_exists: ["path"],
+  llm: [],
+  baseline: ["baseline_file"],
+};
+const FOCUS_NAMES = new Set(["last_message", "trace", "files", "mock_calls"]);
+const CASE_KEYS = new Set([
+  "schema_version",
+  "name",
+  "description",
+  "tags",
+  "plugins",
+  "runs",
+  "expected_outcome",
+  "execution",
+  "context",
+  "graders",
+]);
+const CONTEXT_KEYS = new Set(["scaffold_script", "history_file", "add_dirs"]);
+// Suite-level directories that are not cases.
+const SUITE_DIRS = new Set(["results", "mocks"]);
+// Files the agent is meant to create, so its prompt need not name them.
+const CREATED_BY_AGENT = new Set([
+  "prep-pr-missing-test-written/cire/api/tests/lib/guest-note.test.ts",
+]);
+const GRANTS = ["Bash", "Write", "Edit"];
 
 type Front = Record<string, unknown>;
 
-function compiles(pattern: string): boolean {
+function compiles(pattern: string, flags: unknown): boolean {
   try {
-    return new RegExp(pattern).source.length > 0;
+    return RegExp(pattern, typeof flags === "string" ? flags : "") instanceof RegExp;
   } catch {
     return false;
   }
+}
+
+function isObject(value: unknown): value is Front {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function validFocus(value: unknown): boolean {
+  if (typeof value === "string") return FOCUS_NAMES.has(value);
+  if (!isObject(value)) return false;
+  return (
+    value.source === "file" &&
+    typeof value.path === "string" &&
+    value.path.trim() !== "" &&
+    Object.keys(value).every((key) => key === "source" || key === "path")
+  );
+}
+
+function validRuns(value: unknown): boolean {
+  return Number.isInteger(value) && (value as number) >= 1 && (value as number) <= 50;
+}
+
+function isCaseDir(name: string): boolean {
+  return existsSync(join(EVALS, name, "prompt.md")) || existsSync(join(EVALS, name, "case.yaml"));
 }
 
 function frontmatter(path: string): { data: Front; body: string } {
@@ -54,11 +108,17 @@ function frontmatter(path: string): { data: Front; body: string } {
   return { data: (Bun.YAML.parse(match[1] ?? "") ?? {}) as Front, body: match[2] ?? "" };
 }
 
-const cases = readdirSync(EVALS, { withFileTypes: true })
-  .filter((entry) => entry.isDirectory() && entry.name !== "results")
-  .map((entry) => entry.name)
-  .toSorted();
+const evalDirs = readdirSync(EVALS, { withFileTypes: true })
+  .filter((entry) => entry.isDirectory())
+  .map((entry) => entry.name);
+// A directory is a case when it holds `prompt.md` or `case.yaml`.
+const cases = evalDirs.filter(isCaseDir).toSorted();
 const skills = readdirSync(SKILLS);
+
+test("every directory under evals is a case or a suite-level directory", () => {
+  const stray = evalDirs.filter((name) => !isCaseDir(name) && !SUITE_DIRS.has(name));
+  expect(stray).toEqual([]);
+});
 
 test("every eval case is named after the skill it measures", () => {
   // `--case '<skill>-*'` is how a run picks one skill's cases; a case no
@@ -66,6 +126,74 @@ test("every eval case is named after the skill it measures", () => {
   const orphans = cases.filter((name) => !skills.some((skill) => name.startsWith(`${skill}-`)));
   expect(cases.length).toBeGreaterThan(0);
   expect(orphans).toEqual([]);
+});
+
+test("a skill name that prefixes another skill's name is narrowed in the README", () => {
+  // `--case 'retro-*'` also selects every `retro-v2-*` case. Each such pair
+  // must sit in one README paragraph with both globs.
+  const pairs = skills.flatMap((short) =>
+    skills.filter((long) => long.startsWith(`${short}-`)).map((long) => [short, long] as const),
+  );
+  const paragraphs = readFileSync(join(EVALS, "README.md"), "utf8").split(/\n\s*\n/);
+  const unnamed = pairs
+    .filter(
+      ([short, long]) =>
+        !paragraphs.some((p) => p.includes(`${short}-*`) && p.includes(`${long}-*`)),
+    )
+    .map(([short, long]) => `${short} / ${long}`);
+  expect(unnamed).toEqual([]);
+});
+
+test("the README case table matches each case's allowed_tools", () => {
+  const rows = new Map<string, string[]>();
+  const row = /^\| `([^`]+)` \| `[^`]+` \| ([^|]*) \| [^|]*\|$/;
+  for (const line of readFileSync(join(EVALS, "README.md"), "utf8").split("\n")) {
+    const m = row.exec(line);
+    if (m) {
+      const cell = (m[2] ?? "").replaceAll("`", "");
+      rows.set(
+        m[1] ?? "",
+        cell.split(/\s+/).filter((t) => t !== ""),
+      );
+    }
+  }
+  const wrong: string[] = [];
+  for (const name of cases) {
+    const listed = rows.get(name);
+    if (!listed) {
+      wrong.push(`${name}: no README row`);
+      continue;
+    }
+    const { data } = frontmatter(join(EVALS, name, "prompt.md"));
+    const tools = Array.isArray(data.allowed_tools) ? (data.allowed_tools as string[]) : [];
+    const want = GRANTS.filter((g) => tools.includes(g)).join(" ");
+    if (listed.join(" ") !== want) {
+      wrong.push(`${name}: README grants "${listed.join(" ")}", allowed_tools needs "${want}"`);
+    }
+  }
+  for (const name of rows.keys()) {
+    if (!cases.includes(name)) wrong.push(`${name}: README row has no case`);
+  }
+  expect(wrong).toEqual([]);
+});
+
+test("every scaffold parses, guards an empty workspace and strips the plugin's instructions", () => {
+  const wrong: string[] = [];
+  for (const name of cases) {
+    const path = join(EVALS, name, "setup.sh");
+    if (!existsSync(path)) continue;
+    const check = Bun.spawnSync(["bash", "-n", path]);
+    if (check.exitCode !== 0) wrong.push(`${name}: bash -n: ${check.stderr.toString().trim()}`);
+    const text = readFileSync(path, "utf8");
+    if (!/ls -A/.test(text)) wrong.push(`${name}: no empty-workspace guard`);
+    // All of .claude, or all but metrics/ where the case reads it.
+    const wholeClaude = /^rm -rf \.claude \.agents$/m.test(text);
+    const keepsMetrics =
+      /^find \.claude -mindepth 1 -maxdepth 1 ! -name metrics -exec rm -rf \{\} \+$/m.test(text) &&
+      /^rm -rf \.agents$/m.test(text);
+    if (!wholeClaude && !keepsMetrics) wrong.push(`${name}: does not remove .claude and .agents`);
+  }
+  expect(wrong).toEqual([]);
 });
 
 test("every eval case has a prompt, a case file, a scaffold and a grader", () => {
@@ -90,6 +218,13 @@ test("case.yaml names its own case and its scaffold", () => {
     if (data.schema_version !== "1.1") wrong.push(`${name}: schema_version`);
     if (data.name !== name) wrong.push(`${name}: name`);
     if (context.scaffold_script !== "setup.sh") wrong.push(`${name}: context.scaffold_script`);
+    for (const key of Object.keys(data)) {
+      if (!CASE_KEYS.has(key)) wrong.push(`${name}: unknown case.yaml key ${key}`);
+    }
+    for (const key of Object.keys(context)) {
+      if (!CONTEXT_KEYS.has(key)) wrong.push(`${name}: unknown context key ${key}`);
+    }
+    if (data.runs !== undefined && !validRuns(data.runs)) wrong.push(`${name}: case.yaml runs`);
   }
   expect(wrong).toEqual([]);
 });
@@ -108,6 +243,16 @@ test("prompt.md uses only documented keys, within their limits", () => {
       wrong.push(`${name}: timeout_seconds`);
     if (!Array.isArray(data.allowed_tools)) wrong.push(`${name}: allowed_tools`);
     if (body.trim() === "") wrong.push(`${name}: empty prompt`);
+    if (data.name !== undefined && data.name !== name) wrong.push(`${name}: prompt.md name`);
+    if (data.runs !== undefined && !validRuns(data.runs)) wrong.push(`${name}: prompt.md runs`);
+    if (data.env !== undefined) {
+      if (!isObject(data.env)) wrong.push(`${name}: env`);
+      else {
+        for (const key of Object.keys(data.env)) {
+          if (!/^EVAL_[A-Z0-9_]*$/.test(key)) wrong.push(`${name}: env key ${key}`);
+        }
+      }
+    }
   }
   expect(wrong).toEqual([]);
 });
@@ -116,6 +261,7 @@ test("every grader has a known type, only its own keys, and a pattern that compi
   const wrong: string[] = [];
   for (const name of cases) {
     const dir = join(EVALS, name, "graders");
+    const prompt = frontmatter(join(EVALS, name, "prompt.md")).body;
     for (const file of readdirSync(dir).filter((f) => f.endsWith(".md"))) {
       const where = `${name}/graders/${file}`;
       const { data, body } = frontmatter(join(dir, file));
@@ -132,12 +278,46 @@ test("every grader has a known type, only its own keys, and a pattern that compi
         wrong.push(`${where}: weight`);
       }
       if (type === "llm" && body.trim() === "" && !data.criteria) wrong.push(`${where}: no rubric`);
+      for (const key of REQUIRED_GRADER_KEYS[type] ?? []) {
+        if (data[key] === undefined || data[key] === null || data[key] === "") {
+          wrong.push(`${where}: missing ${key}`);
+        }
+      }
+      for (const key of ["focus", "target"]) {
+        if (data[key] !== undefined && !validFocus(data[key])) wrong.push(`${where}: ${key} value`);
+      }
+      if (
+        data.match !== undefined &&
+        !/^(contains|not_contains|count:\d+)$/.test(String(data.match))
+      ) {
+        wrong.push(`${where}: match value`);
+      }
+      if (data.arm !== undefined && data.arm !== "with-only" && data.arm !== "both") {
+        wrong.push(`${where}: arm value`);
+      }
+      for (const key of ["min", "max"]) {
+        const v = data[key];
+        if (v !== undefined && !(Number.isInteger(v) && (v as number) >= 0)) {
+          wrong.push(`${where}: ${key} value`);
+        }
+      }
+      if (typeof data.min === "number" && typeof data.max === "number" && data.min > data.max) {
+        wrong.push(`${where}: min exceeds max`);
+      }
+      if (type === "llm" && isObject(data.focus) && data.focus.source === "file") {
+        if (!/missing or empty/i.test(body))
+          wrong.push(`${where}: rubric passes on a missing file`);
+        const path = data.focus.path;
+        if (typeof path === "string" && !CREATED_BY_AGENT.has(`${name}/${path}`)) {
+          if (!prompt.includes(path)) wrong.push(`${where}: prompt.md never names ${path}`);
+        }
+      }
       const patterns: unknown[] = [data.input_match, data.pattern];
       for (const side of [data.before, data.after]) {
         if (side && typeof side === "object") patterns.push((side as Front).input_match);
       }
       for (const pattern of patterns) {
-        if (typeof pattern === "string" && !compiles(pattern)) {
+        if (typeof pattern === "string" && !compiles(pattern, data.flags)) {
           wrong.push(`${where}: pattern does not compile`);
         }
       }

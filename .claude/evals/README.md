@@ -65,6 +65,10 @@ claude plugin eval .claude --case '<skill>-*' --scaffold --allow-tools <grants>
   target as one more tool.
 - Narrow the glob when skill names share a prefix: `review-security-*`, not
   `review-*`, which also takes `review-pr`, `review-tests` and the rest.
+  `retro-*` likewise takes every `retro-v2-*` case: run `retro-v2` with
+  `retro-v2-*`, and run `retro` by its longer prefixes, `retro-fallback-*` and
+  `retro-restraint-*`. `eval-cases.test.ts` fails when one skill name prefixes
+  another's and no paragraph here names both globs.
 - `--runs 1` is a quick look, not a measurement; see
   [Reading a score](#reading-a-score).
 - The default judge is Haiku. These graders read long reports, and a small
@@ -79,7 +83,7 @@ and `report.html`.
 
 | Case | Skill | `--allow-tools` | Known limit |
 |---|---|---|---|
-| `evaluate-tracker-move-cost-pull` | `evaluate` | `Write Edit` | |
+| `evaluate-tracker-move-cost-pull` | `evaluate` | `Write` | |
 | `new-feat-tracker-finding-branch` | `new-feat` | `Bash Write Edit` | |
 | `orchestrate-open-issue-tally` | `orchestrate` | `Write Edit` | |
 | `orchestrate-parked-draft-waits-on-owner` | `orchestrate` | `Bash Write Edit` | |
