@@ -56,7 +56,7 @@ three helpers beside them that the registry ignores because they are not
 | `design-system/colour` | `colour.story.tsx` | Every colour role in use, with the rule from `tokens.css` beside it; the same tokens by contrast obligation |
 | `design-system/contrast` | `contrast.story.tsx` | Every pair `contrastPairs()` hands the conformance harness, measured from the painted cell |
 | `design-system/type` | `type.story.tsx` | The type, tracking, leading and measure scales, stacked; contract value beside painted value |
-| `design-system/shape-motion` | `shape.story.tsx` | Radius and the `control` role, elevation, the focus ring, durations × easings |
+| `design-system/shape-motion` | `shape.story.tsx` | Radius and its three roles (`control`, `field`, `sheet`), elevation, the focus ring, durations × easings |
 | `design-system/theming` | `theming.story.tsx` | The same `@shared/ui` components under three mappings — musubi's, cire's, none |
 
 Three decisions carry the group. **The lists are derived, not typed**: every

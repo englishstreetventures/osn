@@ -55,14 +55,20 @@ export const CONTRACT_SCALAR_TOKENS = {
     "--ui-radius-pill",
     // A role rather than a size, like `--ui-focus`. How round a control is
     // turns out to be an app-level decision independent of how round a card
-    // is — musubi's house style is pill CTAs, cire's is a sharp 4px — and a
-    // shared control that picked a sized step instead gets overridden at every
-    // call site in at least one app.
+    // is — musubi's house style is pill CTAs — and a shared control that
+    // picked a sized step instead gets overridden at every call site in at
+    // least one app.
     "--ui-radius-control",
-    // The other role radius: the TOP corners of a bottom sheet, whose own
+    // The text-input role: the corner `Input`, `Textarea` and `Select` share.
+    // Apart from `control` so an app can have pill buttons without pill text
+    // fields. It falls back to `control`, so an app that maps only that one
+    // keeps its fields and buttons alike.
+    "--ui-radius-field",
+    // The third role radius: the TOP corners of a bottom sheet, whose own
     // bottom corners are square against the screen edge. Independent of `lg`
     // because a sheet's grip scales with the edge it is pulled from rather
-    // than with a card's corner — cire wants 28px there with 10px cards.
+    // than with a card's corner — cire's guest site wants 28px there with
+    // smaller card corners.
     "--ui-radius-sheet",
   ],
   fontFamily: ["--ui-font-body", "--ui-font-display", "--ui-font-mono"],
