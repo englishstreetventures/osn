@@ -600,25 +600,63 @@ function fromWritten(
   return row ? toCustomisation({ id: row.weddingId, slug }, row) : EMPTY;
 }
 
-export const inviteService = {
-  /** Customisation for an organiser-owned wedding (weddingId already authorised). */
-  getForWedding(
-    weddingId: string,
-    slug: string,
-  ): Effect.Effect<InviteCustomisation, never, DbService> {
-    return Effect.gen(function* () {
-      const db = yield* DbService;
-      const [row] = yield* dbQuery(() =>
-        db
-          .select()
-          .from(weddingInviteCustomisations)
-          .where(eq(weddingInviteCustomisations.weddingId, weddingId))
-          .all(),
-      );
-      return row ? toCustomisation({ id: weddingId, slug }, row) : EMPTY;
-    }).pipe(Effect.withSpan("cire.invite.getForWedding"));
-  },
+/**
+ * Every customisation column {@link toCustomisation} reads, for a select that
+ * LEFT JOINs `wedding_invite_customisations` onto `weddings`: a wedding with no
+ * customisation row reads every column as null, which maps to the defaults.
+ */
+const customisationColumns = {
+  heroTitle: weddingInviteCustomisations.heroTitle,
+  heroSubtitle: weddingInviteCustomisations.heroSubtitle,
+  storyEyebrow: weddingInviteCustomisations.storyEyebrow,
+  storyHeading: weddingInviteCustomisations.storyHeading,
+  storyBody: weddingInviteCustomisations.storyBody,
+  detailsEyebrow: weddingInviteCustomisations.detailsEyebrow,
+  detailsHeading: weddingInviteCustomisations.detailsHeading,
+  welcomeMessage: weddingInviteCustomisations.welcomeMessage,
+  registryEyebrow: weddingInviteCustomisations.registryEyebrow,
+  registryHeading: weddingInviteCustomisations.registryHeading,
+  registryBody: weddingInviteCustomisations.registryBody,
+  footerMessage: weddingInviteCustomisations.footerMessage,
+  heroImageKey: weddingInviteCustomisations.heroImageKey,
+  storyImageKey: weddingInviteCustomisations.storyImageKey,
+  footerImageKey: weddingInviteCustomisations.footerImageKey,
+  heroImageCrop: weddingInviteCustomisations.heroImageCrop,
+  heroImageCropMobile: weddingInviteCustomisations.heroImageCropMobile,
+  storyImageCrop: weddingInviteCustomisations.storyImageCrop,
+  footerImageCrop: weddingInviteCustomisations.footerImageCrop,
+  heroBlur: weddingInviteCustomisations.heroBlur,
+  heroTitleBackdropOpacity: weddingInviteCustomisations.heroTitleBackdropOpacity,
+  heroTitleBackdropBlur: weddingInviteCustomisations.heroTitleBackdropBlur,
+  themeHeadingFont: weddingInviteCustomisations.themeHeadingFont,
+  themeBodyFont: weddingInviteCustomisations.themeBodyFont,
+  themeHeadingSize: weddingInviteCustomisations.themeHeadingSize,
+  themeHeadingWeight: weddingInviteCustomisations.themeHeadingWeight,
+  themeHeadingStyle: weddingInviteCustomisations.themeHeadingStyle,
+  themeBodyWeight: weddingInviteCustomisations.themeBodyWeight,
+  themeBodyStyle: weddingInviteCustomisations.themeBodyStyle,
+  palettePreset: weddingInviteCustomisations.palettePreset,
+  paletteGround: weddingInviteCustomisations.paletteGround,
+  paletteCard: weddingInviteCustomisations.paletteCard,
+  paletteInk: weddingInviteCustomisations.paletteInk,
+  paletteGilt: weddingInviteCustomisations.paletteGilt,
+  paletteBloom: weddingInviteCustomisations.paletteBloom,
+  heroTone: weddingInviteCustomisations.heroTone,
+  storyTone: weddingInviteCustomisations.storyTone,
+  detailsTone: weddingInviteCustomisations.detailsTone,
+  welcomeTone: weddingInviteCustomisations.welcomeTone,
+  registryTone: weddingInviteCustomisations.registryTone,
+  heroVisible: weddingInviteCustomisations.heroVisible,
+  storyVisible: weddingInviteCustomisations.storyVisible,
+  footerVisible: weddingInviteCustomisations.footerVisible,
+  faqVisible: weddingInviteCustomisations.faqVisible,
+  inviteMessage: weddingInviteCustomisations.inviteMessage,
+  designId: weddingInviteCustomisations.designId,
+  updatedAt: weddingInviteCustomisations.updatedAt,
+  imagesUpdatedAt: weddingInviteCustomisations.imagesUpdatedAt,
+};
 
+export const inviteService = {
   /**
    * Customisation for an owned wedding (organiser GET). Single LEFT JOIN so the
    * slug + customisation come back in one round-trip.
@@ -630,57 +668,7 @@ export const inviteService = {
       const db = yield* DbService;
       const [row] = yield* dbQuery(() =>
         db
-          .select({
-            slug: weddings.slug,
-            heroTitle: weddingInviteCustomisations.heroTitle,
-            heroSubtitle: weddingInviteCustomisations.heroSubtitle,
-            storyEyebrow: weddingInviteCustomisations.storyEyebrow,
-            storyHeading: weddingInviteCustomisations.storyHeading,
-            storyBody: weddingInviteCustomisations.storyBody,
-            detailsEyebrow: weddingInviteCustomisations.detailsEyebrow,
-            detailsHeading: weddingInviteCustomisations.detailsHeading,
-            welcomeMessage: weddingInviteCustomisations.welcomeMessage,
-            registryEyebrow: weddingInviteCustomisations.registryEyebrow,
-            registryHeading: weddingInviteCustomisations.registryHeading,
-            registryBody: weddingInviteCustomisations.registryBody,
-            footerMessage: weddingInviteCustomisations.footerMessage,
-            heroImageKey: weddingInviteCustomisations.heroImageKey,
-            storyImageKey: weddingInviteCustomisations.storyImageKey,
-            footerImageKey: weddingInviteCustomisations.footerImageKey,
-            heroImageCrop: weddingInviteCustomisations.heroImageCrop,
-            heroImageCropMobile: weddingInviteCustomisations.heroImageCropMobile,
-            storyImageCrop: weddingInviteCustomisations.storyImageCrop,
-            footerImageCrop: weddingInviteCustomisations.footerImageCrop,
-            heroBlur: weddingInviteCustomisations.heroBlur,
-            heroTitleBackdropOpacity: weddingInviteCustomisations.heroTitleBackdropOpacity,
-            heroTitleBackdropBlur: weddingInviteCustomisations.heroTitleBackdropBlur,
-            themeHeadingFont: weddingInviteCustomisations.themeHeadingFont,
-            themeBodyFont: weddingInviteCustomisations.themeBodyFont,
-            themeHeadingSize: weddingInviteCustomisations.themeHeadingSize,
-            themeHeadingWeight: weddingInviteCustomisations.themeHeadingWeight,
-            themeHeadingStyle: weddingInviteCustomisations.themeHeadingStyle,
-            themeBodyWeight: weddingInviteCustomisations.themeBodyWeight,
-            themeBodyStyle: weddingInviteCustomisations.themeBodyStyle,
-            palettePreset: weddingInviteCustomisations.palettePreset,
-            paletteGround: weddingInviteCustomisations.paletteGround,
-            paletteCard: weddingInviteCustomisations.paletteCard,
-            paletteInk: weddingInviteCustomisations.paletteInk,
-            paletteGilt: weddingInviteCustomisations.paletteGilt,
-            paletteBloom: weddingInviteCustomisations.paletteBloom,
-            heroTone: weddingInviteCustomisations.heroTone,
-            storyTone: weddingInviteCustomisations.storyTone,
-            detailsTone: weddingInviteCustomisations.detailsTone,
-            welcomeTone: weddingInviteCustomisations.welcomeTone,
-            registryTone: weddingInviteCustomisations.registryTone,
-            heroVisible: weddingInviteCustomisations.heroVisible,
-            storyVisible: weddingInviteCustomisations.storyVisible,
-            footerVisible: weddingInviteCustomisations.footerVisible,
-            faqVisible: weddingInviteCustomisations.faqVisible,
-            inviteMessage: weddingInviteCustomisations.inviteMessage,
-            designId: weddingInviteCustomisations.designId,
-            updatedAt: weddingInviteCustomisations.updatedAt,
-            imagesUpdatedAt: weddingInviteCustomisations.imagesUpdatedAt,
-          })
+          .select({ slug: weddings.slug, ...customisationColumns })
           .from(weddings)
           .leftJoin(
             weddingInviteCustomisations,
@@ -715,17 +703,22 @@ export const inviteService = {
   getForSlug(slug: string): Effect.Effect<PublicInviteCustomisation, WeddingNotFound, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      const [wedding] = yield* dbQuery(() =>
+      // One statement on every guest page load: the wedding and its
+      // customisation come back together.
+      const [row] = yield* dbQuery(() =>
         db
-          .select({ id: weddings.id })
+          .select({ id: weddings.id, ...customisationColumns })
           .from(weddings)
+          .leftJoin(
+            weddingInviteCustomisations,
+            eq(weddingInviteCustomisations.weddingId, weddings.id),
+          )
           .where(and(eq(weddings.slug, slug), weddingIsLive))
           .all(),
       );
       // A soft-deleted wedding is answered as an unknown slug.
-      if (!wedding) return yield* Effect.fail(new WeddingNotFound({ slug }));
-      const full = yield* inviteService.getForWedding(wedding.id, slug);
-      return publicView(full);
+      if (!row) return yield* Effect.fail(new WeddingNotFound({ slug }));
+      return publicView(toCustomisation({ id: row.id, slug }, row));
     }).pipe(Effect.withSpan("cire.invite.getForSlug"));
   },
 

@@ -185,6 +185,22 @@ describe("GET /api/invite/:slug (public)", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("cache-control")).toBe("no-store");
   });
+
+  // Every guest page load runs this read, so the wedding and its customisation
+  // come back from one statement.
+  it("reads the wedding and its customisation in one statement", async () => {
+    const { app, db } = buildApp();
+    db.insert(weddingInviteCustomisations)
+      .values({ weddingId: BOOTSTRAP_WEDDING_ID, heroTitle: "Ana & Ben", updatedAt: new Date() })
+      .run();
+    const statements = recordStatements(db);
+
+    const res = await appRequest(app, `/api/invite/${SLUG}`);
+
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { hero: { title: string } }).hero.title).toBe("Ana & Ben");
+    expect(statements).toHaveLength(1);
+  });
 });
 
 describe("POST /api/invite/resolve (fixed-path guest lookup)", () => {
