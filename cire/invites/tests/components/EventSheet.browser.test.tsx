@@ -1257,6 +1257,20 @@ async function mouseClick(p: Point) {
   });
 }
 
+/** The last timestamp, in seconds, a touch helper has sent. */
+let lastTouchStamp = 0;
+
+/**
+ * The time, in seconds, to stamp the next touch sequence with: now, or just
+ * after the last stamp sent, whichever is later. `touchDrag` stamps its moves
+ * over the speed it is asked for, which runs ahead of the clock, so a touch
+ * sent straight after one would otherwise be stamped before it ended — and
+ * Chromium drops a sequence whose time runs backwards, firing no click.
+ */
+function touchClock(): number {
+  return Math.max(Date.now() / 1000, lastTouchStamp + 0.02);
+}
+
 /**
  * A finger from `from` to `to` over `ms`, in `steps` moves, through the
  * browser's real input pipeline — so `touch-action` and the browser's own
@@ -1274,7 +1288,8 @@ async function touchDrag(
   }: { ms?: number; steps?: number; end?: "lift" | "cancel" | "hold" } = {},
 ) {
   const session = cdp();
-  const t0 = Date.now() / 1000;
+  const t0 = touchClock();
+  lastTouchStamp = t0 + ms / 1000 + 0.01;
   const point = (p: Point) => ({ ...toTop(p), id: 1 });
   await session.send("Input.dispatchTouchEvent", {
     type: "touchStart",
@@ -1338,10 +1353,19 @@ function bodyOf(panel: EventPanel): Point {
   return { x: across.left + across.width / 2, y: line.top + line.height / 2 };
 }
 
-/** Wait for the swipe's settle, which is a transition rather than an animation. */
+/**
+ * Wait for the swipe's settle. It is a scripted spring, which
+ * `getAnimations()` cannot see, so this waits on the rail's `data-settling`,
+ * which every settle carries until it lands — after a frame first, so a
+ * release CDP has sent but the page has not yet handled is not missed.
+ */
 async function settleSwipe() {
-  await settle();
-  await new Promise((resolve) => setTimeout(resolve, 400));
+  await new Promise(requestAnimationFrame);
+  const deadline = performance.now() + 3000;
+  while (rail().hasAttribute("data-settling")) {
+    if (performance.now() > deadline) throw new Error("the swipe never settled");
+    await new Promise(requestAnimationFrame);
+  }
   await settle();
 }
 
@@ -1350,6 +1374,71 @@ async function openOn(panel: EventPanel, members?: FamilyMember[]) {
   render(() => <Harness members={members} />);
   await userEvent.click(cardButton(panel === "details" ? "Event Details" : "Respond"));
   await settle();
+}
+
+/** The same, on the md sheet: 480px wide in a desktop viewport, still by touch. */
+async function openOnWide(panel: EventPanel, members?: FamilyMember[]) {
+  await page.viewport(1280, 800);
+  render(() => <Harness members={members} />);
+  await userEvent.click(cardButton(panel === "details" ? "Event Details" : "Respond"));
+  await settle();
+}
+
+/**
+ * Every frame's offset of `el` from now until its settle lands, with the
+ * frame's time — what the eye sees of a spring.
+ */
+async function framesOf(el: HTMLElement): Promise<{ t: number; x: number }[]> {
+  const frames: { t: number; x: number }[] = [];
+  await new Promise(requestAnimationFrame);
+  const deadline = performance.now() + 3000;
+  while (rail().hasAttribute("data-settling") && performance.now() < deadline) {
+    const t = await new Promise<number>(requestAnimationFrame);
+    frames.push({ t, x: el.style.transform === "" ? 0 : shiftOf(el) });
+  }
+  return frames;
+}
+
+/**
+ * Lift a finger `touchDrag` left down (`end: "hold"`) after it has rested
+ * `ms`, so it lifts with no speed. A fast lift starts the browser's own fling,
+ * and Chromium spends the next tap on stopping that fling: it fires no click.
+ * Headless Chromium on Linux flings where it does not on macOS.
+ */
+async function liftAfterRest(ms = 150) {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+  const t = Math.max(touchClock(), lastTouchStamp + ms / 1000);
+  lastTouchStamp = t;
+  await cdp().send("Input.dispatchTouchEvent", {
+    type: "touchEnd",
+    touchPoints: [],
+    timestamp: t,
+  });
+}
+
+/** A finger that goes down at `at`, moves `jitter` px and lifts: a tap. */
+async function tapAt(at: Point, jitter = 0) {
+  const session = cdp();
+  const p = toTop(at);
+  const t0 = touchClock();
+  lastTouchStamp = t0 + 0.05;
+  await session.send("Input.dispatchTouchEvent", {
+    type: "touchStart",
+    touchPoints: [{ ...p, id: 1 }],
+    timestamp: t0,
+  });
+  if (jitter) {
+    await session.send("Input.dispatchTouchEvent", {
+      type: "touchMove",
+      touchPoints: [{ x: p.x + jitter, y: p.y, id: 1 }],
+      timestamp: t0 + 0.02,
+    });
+  }
+  await session.send("Input.dispatchTouchEvent", {
+    type: "touchEnd",
+    touchPoints: [],
+    timestamp: t0 + 0.05,
+  });
 }
 
 /** Every running animation or transition on `el` itself. */
@@ -1413,23 +1502,28 @@ describe("EventSheet — swiping between the panels", () => {
     expect(getComputedStyle(rail()).overflowX).not.toBe("clip");
   });
 
-  it("eases a released panel to rest rather than snapping it", async () => {
+  it("springs a released panel to rest rather than snapping it", async () => {
     await openOn("details");
     const start = bodyOf("details");
     await touchDrag(start, { x: start.x - 60, y: start.y }, { ms: 1000 });
-    await new Promise(requestAnimationFrame);
-    const transitions = moving(wrapperOf("details")).filter(
-      (a) => (a as CSSTransition).transitionProperty === "transform",
-    );
-    expect(transitions).toHaveLength(1);
+    const frames = await framesOf(wrapperOf("details"));
+    // Several frames on the way, each nearer rest than the last, none past it.
+    const between = frames.filter((f) => f.x < -1);
+    expect(between.length).toBeGreaterThan(2);
+    for (let i = 1; i < frames.length; i++) {
+      expect(frames[i]!.x).toBeGreaterThanOrEqual(frames[i - 1]!.x - 0.5);
+      expect(frames[i]!.x).toBeLessThanOrEqual(0.5);
+    }
     await settleSwipe();
+    expect(wrapperOf("details").style.transform).toBe("");
   });
 
   it("follows the first finger only, and settles cleanly when a second joins it", async () => {
     await openOn("details");
     const start = bodyOf("details");
     const session = cdp();
-    const t0 = Date.now() / 1000;
+    const t0 = touchClock();
+    lastTouchStamp = t0 + 1;
     const one = (x: number) => toTop({ x, y: start.y });
     const two = toTop({ x: start.x, y: start.y + 120 });
     await session.send("Input.dispatchTouchEvent", {
@@ -1595,14 +1689,46 @@ describe("EventSheet — swiping between the panels", () => {
     expect(wrapperOf("rsvp").hidden).toBe(true);
   });
 
-  it("does nothing for a drag toward the side with no panel", async () => {
+  it("gives a little under a pull toward the side with no panel, and draws nothing in", async () => {
     await openOn("details");
     const start = bodyOf("details");
-    await touchDrag(start, { x: start.x + 120, y: start.y }, { end: "hold" });
+    await touchDrag(start, { x: start.x + 80, y: start.y }, { end: "hold" });
     await new Promise(requestAnimationFrame);
+    try {
+      const pulled = shiftOf(wrapperOf("details"));
+      expect(pulled).toBeGreaterThan(0);
+      expect(pulled).toBeLessThan(80);
+      // Nothing beside it to show, so nothing mounted: no map, no board.
+      expect(dialog().querySelector('[data-panel="rsvp"]')).toBeNull();
+      expect(getComputedStyle(rail()).overflowX).toBe("clip");
+      expect(badgeParts().chip.style.getPropertyValue("--badge-progress")).toBe("0");
+
+      // Back past where it started: the panel stops at its rest.
+      const session = cdp();
+      const back = toTop({ x: start.x - 40, y: start.y });
+      await session.send("Input.dispatchTouchEvent", {
+        type: "touchMove",
+        touchPoints: [{ ...back, id: 1 }],
+      });
+      await new Promise(requestAnimationFrame);
+      expect(shiftOf(wrapperOf("details"))).toBe(0);
+    } finally {
+      await cdp().send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+      await settleSwipe();
+    }
     expect(wrapperOf("details").style.transform).toBe("");
     expect(dialog().querySelector('[data-panel="rsvp"]')).toBeNull();
-    await cdp().send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
+  });
+
+  it("springs a pull toward the side with no panel back to rest", async () => {
+    await openOn("details");
+    const start = bodyOf("details");
+    await touchDrag(start, { x: start.x + 120, y: start.y }, { ms: 300 });
+    const frames = await framesOf(wrapperOf("details"));
+    expect(frames.filter((f) => f.x > 1).length).toBeGreaterThan(1);
+    await settleSwipe();
+    expect(wrapperOf("details").style.transform).toBe("");
+    expect(wrapperOf("details").hidden).toBe(false);
   });
 
   it("leaves a vertical drag to the browser's scroll", async () => {
@@ -1691,12 +1817,268 @@ describe("EventSheet — swiping between the panels", () => {
     await openOn("details");
     const start = bodyOf("details");
     await touchDrag(start, { x: start.x - 250, y: start.y }, { ms: 600 });
-    // No wait for a 280ms transition: two frames and the switch has happened.
+    // No wait for a spring: two frames and the switch has happened.
     await new Promise(requestAnimationFrame);
     await new Promise(requestAnimationFrame);
     await new Promise((resolve) => setTimeout(resolve, 60));
     expect(wrapperOf("rsvp").hidden).toBe(false);
     expect(wrapperOf("details").hidden).toBe(true);
+  });
+});
+
+describe("EventSheet — the swipe's physics", () => {
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  it("damps a drag past the form's rest, keeps the badge inside its rests, and springs in", async () => {
+    await openOnWide("details");
+    const width = rail().clientWidth;
+    const start = bodyOf("details");
+    await touchDrag(start, { x: start.x - width - 120, y: start.y }, { ms: 800, end: "hold" });
+    await new Promise(requestAnimationFrame);
+    let held = 0;
+    try {
+      // The form is past its rest by less than the finger is.
+      held = shiftOf(wrapperOf("rsvp"));
+      expect(held).toBeLessThan(0);
+      expect(held).toBeGreaterThan(-120);
+      const progress = Number(badgeParts().chip.style.getPropertyValue("--badge-progress"));
+      expect(progress).toBeGreaterThanOrEqual(0);
+      expect(progress).toBeLessThanOrEqual(1);
+      await page.screenshot({
+        path: "__screenshots__/EventSheet.browser.test.tsx/band-past-the-form.png",
+      });
+    } finally {
+      await cdp().send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    }
+    const frames = await framesOf(wrapperOf("rsvp"));
+    // Springing in from beyond its rest, not snapping there.
+    expect(frames.some((f) => f.x < -1 && f.x > held + 1)).toBe(true);
+    await settleSwipe();
+    expect(wrapperOf("rsvp").hidden).toBe(false);
+    expect(wrapperOf("details").hidden).toBe(true);
+  });
+
+  it("carries a flick's speed into the settle", async () => {
+    /** ms from the first spring frame until the form is 80% of the way in. */
+    async function timeTo80(lift: "flick" | "rest") {
+      await openOn("details");
+      const width = rail().clientWidth;
+      const start = bodyOf("details");
+      const to = { x: start.x - width * 0.4, y: start.y };
+      if (lift === "flick") {
+        // ~0.4 × 366px in 40ms: over 3px/ms at the lift.
+        await touchDrag(start, to, { ms: 40, steps: 8 });
+      } else {
+        await touchDrag(start, to, { ms: 300, end: "hold" });
+        await sleep(150);
+        await cdp().send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+      }
+      const frames = await framesOf(wrapperOf("rsvp"));
+      await settleSwipe();
+      expect(wrapperOf("rsvp").hidden).toBe(false);
+      cleanup();
+      const near = frames.find((f) => Math.abs(f.x) <= width * 0.6 * 0.2)!;
+      return near.t - frames[0]!.t;
+    }
+    const flicked = await timeTo80("flick");
+    const rested = await timeTo80("rest");
+    // From the spring's formula: about 105ms against 143ms. At least a frame.
+    expect(flicked + 16).toBeLessThanOrEqual(rested);
+  });
+
+  it("catches a settling panel without pressing what was under the finger", async () => {
+    await openOn("details");
+    const width = rail().clientWidth;
+    const start = bodyOf("details");
+    // A slow, short drag: it springs back.
+    await touchDrag(start, { x: start.x - width * 0.2, y: start.y }, { ms: 600 });
+    await sleep(60);
+    expect(rail().hasAttribute("data-settling")).toBe(true);
+
+    const target = within(wrapperOf("details")).getAllByRole("button")[0]!;
+    let pressed = 0;
+    const press = () => pressed++;
+    target.addEventListener("click", press);
+    const seen: MouseEvent[] = [];
+    const watch = (e: MouseEvent) => seen.push(e);
+    window.addEventListener("click", watch, true);
+    try {
+      // A real finger jitters: 2px is still a tap.
+      await tapAt(centre(target), 2);
+      await sleep(40);
+      expect(pressed).toBe(0);
+      // The tap did fire a click, and it reached the window already stopped.
+      expect(seen).toHaveLength(1);
+      expect(seen[0]!.defaultPrevented).toBe(true);
+    } finally {
+      target.removeEventListener("click", press);
+      window.removeEventListener("click", watch, true);
+    }
+    // The tap let go, so the settle went on to where it was going.
+    await settleSwipe();
+    expect(wrapperOf("details").style.transform).toBe("");
+    expect(wrapperOf("details").hidden).toBe(false);
+  });
+
+  it("hands a caught panel to the finger, and the next tap after it lands", async () => {
+    await openOn("details", party);
+    const width = rail().clientWidth;
+    const start = bodyOf("details");
+    await touchDrag(start, { x: start.x - width * 0.2, y: start.y }, { ms: 600 });
+    await sleep(60);
+    // Caught mid-settle and dragged on past the commit share.
+    const at = { x: start.x - width * 0.1, y: start.y };
+    await touchDrag(at, { x: at.x - width * 0.35, y: at.y }, { ms: 400 });
+    await settleSwipe();
+    expect(wrapperOf("rsvp").hidden).toBe(false);
+    expect(wrapperOf("details").hidden).toBe(true);
+
+    // Past the swallow's lapse, a tap on the form reaches its control.
+    await sleep(350);
+    const control = within(wrapperOf("rsvp")).getAllByRole("button")[0]!;
+    let pressed = 0;
+    const press = () => pressed++;
+    control.addEventListener("click", press);
+    try {
+      await tapAt(centre(control));
+      await sleep(40);
+      expect(pressed).toBe(1);
+    } finally {
+      control.removeEventListener("click", press);
+    }
+  });
+
+  it("swallows nothing after a catch that became a drag, so the next tap goes through", async () => {
+    await openOn("details");
+    const width = rail().clientWidth;
+    const start = bodyOf("details");
+    await touchDrag(start, { x: start.x - width * 0.2, y: start.y }, { ms: 600 });
+    await sleep(60);
+    // Caught, then dragged back past where it began: the release springs out
+    // of a rubber band, which no later touch can catch.
+    const at = { x: start.x - width * 0.1, y: start.y };
+    await touchDrag(at, { x: at.x + width * 0.4, y: at.y }, { ms: 200, end: "hold" });
+    await liftAfterRest();
+    // Captured at the window, ahead of the rail's own listener, and read after
+    // dispatch: a swallowed click still arrives here, marked prevented.
+    const seen: MouseEvent[] = [];
+    const watch = (e: MouseEvent) => seen.push(e);
+    window.addEventListener("click", watch, true);
+    try {
+      // Within 300ms of the lift, on the panel still springing back — so it
+      // lands on whatever is under the finger then, which is beside the
+      // point: a swallow timed alone would cancel it wherever it lands.
+      await tapAt(bodyOf("details"));
+      await sleep(40);
+      expect(seen).toHaveLength(1);
+      expect(seen[0]!.defaultPrevented).toBe(false);
+    } finally {
+      window.removeEventListener("click", watch, true);
+    }
+    await settleSwipe();
+  });
+
+  it("lets a committed swipe land when a scroll starts on it mid-settle", async () => {
+    await openOn("details", party);
+    const width = rail().clientWidth;
+    const start = bodyOf("details");
+    await touchDrag(start, { x: start.x - width * 0.5, y: start.y }, { ms: 600 });
+    await sleep(60);
+    expect(rail().hasAttribute("data-settling")).toBe(true);
+    const at = { x: start.x - width * 0.3, y: start.y + 150 };
+    await touchDrag(at, { x: at.x, y: at.y - 200 }, { ms: 200 });
+    await settleSwipe();
+    expect(wrapperOf("rsvp").hidden).toBe(false);
+    expect(wrapperOf("details").hidden).toBe(true);
+  });
+
+  it("holds a fast flick at the form's rest rather than past it", async () => {
+    await openOn("details");
+    const width = rail().clientWidth;
+    const start = bodyOf("details");
+    // Over 7px/ms at the lift, past ω × the distance left: a critically damped
+    // spring from here would cross its target.
+    await touchDrag(start, { x: start.x - width * 0.6, y: start.y }, { ms: 30, steps: 6 });
+    const frames = await framesOf(wrapperOf("rsvp"));
+    expect(frames.length).toBeGreaterThan(1);
+    for (const f of frames) expect(f.x).toBeGreaterThanOrEqual(-0.5);
+    await settleSwipe();
+    expect(wrapperOf("rsvp").hidden).toBe(false);
+  });
+
+  it("closed mid-settle, hands focus back to the card button that opened it", async () => {
+    await openOn("details");
+    const width = rail().clientWidth;
+    const start = bodyOf("details");
+    await touchDrag(start, { x: start.x - width * 0.5, y: start.y }, { ms: 600 });
+    expect(rail().hasAttribute("data-settling")).toBe(true);
+    await userEvent.keyboard("{Escape}");
+    const deadline = performance.now() + 3000;
+    while (document.querySelector("dialog") && performance.now() < deadline) {
+      await new Promise(requestAnimationFrame);
+    }
+    expect(document.querySelector("dialog")).toBeNull();
+    expect(document.activeElement).toBe(cardButton("Event Details"));
+  });
+
+  it("lets a tap during a pull's spring back through, and does not catch it", async () => {
+    await openOn("details");
+    const start = bodyOf("details");
+    await touchDrag(start, { x: start.x + 120, y: start.y }, { ms: 300, end: "hold" });
+    await liftAfterRest();
+    expect(rail().hasAttribute("data-settling")).toBe(true);
+    // Captured at the window, ahead of the rail's own listener, and read after
+    // dispatch: a swallowed click still arrives here, marked prevented. The
+    // panel is still moving, so the click lands on whatever is under the
+    // finger then — not caught means it is not cancelled, wherever it lands.
+    const seen: MouseEvent[] = [];
+    const watch = (e: MouseEvent) => seen.push(e);
+    window.addEventListener("click", watch, true);
+    try {
+      await tapAt(bodyOf("details"));
+      await sleep(40);
+      expect(seen).toHaveLength(1);
+      expect(seen[0]!.defaultPrevented).toBe(false);
+    } finally {
+      window.removeEventListener("click", watch, true);
+    }
+    await settleSwipe();
+    expect(wrapperOf("details").style.transform).toBe("");
+  });
+
+  it("ignores a tap on the badge while a pull springs back", async () => {
+    await openOn("details");
+    const start = bodyOf("details");
+    await touchDrag(start, { x: start.x + 120, y: start.y }, { ms: 300 });
+    expect(rail().hasAttribute("data-settling")).toBe(true);
+    await tapAt(centre(badge("Give RSVP")));
+    await settleSwipe();
+    await settle();
+    expect(wrapperOf("details").hidden).toBe(false);
+    expect(dialog().querySelector('[data-panel="rsvp"]')).toBeNull();
+  });
+
+  it("does not catch a swipe springing in from past the form's rest", async () => {
+    await openOnWide("details");
+    const width = rail().clientWidth;
+    const start = bodyOf("details");
+    await touchDrag(start, { x: start.x - width - 120, y: start.y }, { ms: 800 });
+    expect(rail().hasAttribute("data-settling")).toBe(true);
+    const seen: MouseEvent[] = [];
+    const watch = (e: MouseEvent) => seen.push(e);
+    window.addEventListener("click", watch, true);
+    try {
+      await tapAt(bodyOf("rsvp"));
+      await sleep(40);
+      // Not caught: the settle runs on, and the tap's click is not stopped.
+      expect(seen.length).toBeGreaterThan(0);
+      expect(seen.every((e) => !e.defaultPrevented)).toBe(true);
+    } finally {
+      window.removeEventListener("click", watch, true);
+    }
+    await settleSwipe();
+    expect(wrapperOf("rsvp").hidden).toBe(false);
+    expect(wrapperOf("rsvp").style.transform).toBe("");
   });
 });
 

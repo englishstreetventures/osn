@@ -302,7 +302,7 @@ function StepMarker(props: { n: number; complete: boolean }) {
   return (
     <span
       aria-hidden
-      class="font-body text-ui-sm mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border transition-colors"
+      class="font-body text-ui-sm mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border transition-colors duration-(--dur-fast) ease-(--ease-out)"
       classList={{
         "border-gold bg-gold text-bg": props.complete,
         "border-gold/40 text-gold-dim group-hover:border-gold/70": !props.complete,

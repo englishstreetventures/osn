@@ -12,7 +12,7 @@ import { render, cleanup, fireEvent, waitFor, within } from "@solidjs/testing-li
 import { createSignal } from "solid-js";
 import { describe, it, expect, vi, afterEach } from "vitest";
 
-import { cssTimeMs, EventSheet, type EventPanel } from "../../src/components/EventSheet";
+import { EventSheet, type EventPanel } from "../../src/components/EventSheet";
 import type { EventSummary, FamilyMember } from "../../src/components/types";
 
 vi.mock("motion", () => ({
@@ -90,18 +90,6 @@ function fieldsetFor(name: string): HTMLElement {
   }
   throw new Error(`fieldset for ${name} not found`);
 }
-
-describe("the settle's timing, read back from the computed style", () => {
-  it("reads a duration in seconds or milliseconds, and the clamped one too", () => {
-    expect(cssTimeMs("0.28s")).toBe(280);
-    expect(cssTimeMs("280ms")).toBe(280);
-    expect(cssTimeMs("0.28s, 1s")).toBe(280);
-    // The reduced-motion clamp, as Chromium serialises 0.01ms.
-    expect(cssTimeMs("1e-05s")).toBeCloseTo(0.01);
-    // jsdom computes no animation at all.
-    expect(cssTimeMs("")).toBe(0);
-  });
-});
 
 describe("EventSheet", () => {
   afterEach(() => {

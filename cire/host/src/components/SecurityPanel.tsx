@@ -33,7 +33,7 @@ export default function SecurityPanel() {
         href={settingsUrl}
         target="_blank"
         rel="noreferrer"
-        class="border-gold font-body text-gold hover:bg-gold hover:text-bg text-ui-sm tracking-ui-wider self-start rounded-sm border px-5 py-2.5 uppercase transition-colors duration-200"
+        class="border-gold font-body text-gold hover:bg-gold hover:text-bg text-ui-sm tracking-ui-wider self-start rounded-sm border px-5 py-2.5 uppercase transition-colors duration-(--dur-fast) ease-(--ease-out)"
       >
         Manage on musubi
       </a>

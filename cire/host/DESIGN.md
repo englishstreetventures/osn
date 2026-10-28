@@ -205,9 +205,19 @@ the whole `animation` declaration, so `@theme` declares a one-overshoot
 small things arriving — a popover, a tick — never for a sheet or a page, which
 should not bounce.
 
-Every duration is scaled by `--motion-scale`, so the fixtures page can slow the
-whole app to 0.1× and a reference behaviour can be judged frame by frame. Nothing
-in the app itself writes it.
+**The ladder follows the input, not the screen.** With a fine pointer — a mouse
+or a trackpad, at a desk — an organiser waits on every popover and panel before
+the next click, so `@media (pointer: fine)` shortens the ladder to 90 / 150 /
+200ms. On touch the ladder above stays: a phone is held, not worked at. The
+query reads the *primary* pointer, so a touch laptop driven by its trackpad
+gets the desk pace. `Modal` (`@shared/ui`) takes its two durations from the same
+ladder through `--ui-modal-enter` and `--ui-modal-exit`, set under the same
+query. A new motion reaches for a `--dur-*` token, never a literal or
+Tailwind's bare 150ms `transition`, so it follows the input with everything
+else.
+
+Every duration is scaled by `--motion-scale`, so a reference behaviour can be
+slowed to 0.1× and judged frame by frame. Nothing in the app itself writes it.
 
 `prefers-reduced-motion: reduce` is a global kill switch in `@layer base`, not a
 per-component branch. It sets `transition-duration` and `animation-duration` with
@@ -245,6 +255,28 @@ out of the trigger — is not done: the panel portals to `<body>`, away from the
 trigger, and the filter would blur its border and shadow. The exit is a quick
 shrink and fade, as keyframes, because Kobalte keeps a closing popover mounted
 until its animation ends.
+
+**Every other menu and picker pops.** The profile menu, the wedding switcher,
+the date and colour pickers, the seat menu and the module card carry
+`menu-pop`: a short scale-and-fade from the side of the trigger they opened on
+(`--kb-popper-content-transform-origin`, which Kobalte sets for popovers and
+menus alike), with no overshoot. It has no exit: these menus are worked from
+the keyboard, and a closing menu held mounted for an exit animation keeps
+focus inside it, so Kobalte's hand-back to the trigger falls to `<body>`. A new
+Kobalte popover or menu takes `menu-pop` unless it belongs to a checklist row.
+
+**A disclosure fades open and closes at once.** A `<details>` body drops 4px and
+fades in on `::details-content`; it closes instantly, because a fading body
+leaves its controls focusable in a box that is going away. The fade sits inside
+`prefers-reduced-motion: no-preference`: the global switch selects `*`, which
+reaches no pseudo-element.
+
+**A toggled box that is not in the top layer fades out in CSS alone.**
+`transition-behavior: allow-discrete` holds `display` until an opacity fade has
+run, and `@starting-style` gives the opening its from-state — the invite
+builder's section menu (`section-menu`) is the pattern. A dialog or popover in
+the top layer cannot do this in Safari or Firefox: leaving the top layer needs
+`overlay`, which is Chrome only, so `Modal` defers `close()` in script instead.
 
 **Focus.** One ring for the whole dashboard: 2px solid `--focus`, 2px offset,
 never animated, never removed — the shell is keyboard-driven. It deliberately
