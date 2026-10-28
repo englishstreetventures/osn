@@ -7,16 +7,14 @@ import { createSlidingPill } from "../lib/sliding-pill";
  *
  * Bare `<button>`s rather than `@cire/ui`'s `Button`, deliberately. These are
  * not actions — they are a `aria-current="page"` set with a single travelling
- * highlight, which is a tab bar. Wearing a button's border and uppercase
- * tracking would say "press me" twice on a control whose whole job is to say
- * "you are here".
+ * highlight, which is a tab bar. Wearing a button's own border and fill would
+ * say "press me" twice on a control whose whole job is to say "you are here".
+ * The labels are small caps by design, as a tab strip's are.
  *
- *
- * Before this they were two bare `<button>`s that turned gold when active,
- * sitting in a row beside "Sign out" — so "which view am I in" and "leave" were
- * the same kind of thing in the same place, told apart only by a colour. A
- * bordered strip with a single travelling highlight says the two are a choice
- * between each other, and the account action moved into the profile menu.
+ * A bordered strip with a single travelling highlight says the two are a choice
+ * between each other, and keeps "which view am I in" apart from "leave", which
+ * is in the profile menu: two views in a row beside a sign-out button would be
+ * the same kind of thing in the same place, told apart only by a colour.
  *
  * The highlight is one box that moves, not one per tab. Done per-tab it blinks
  * between positions and the label beside it jumps by the border's width; done as

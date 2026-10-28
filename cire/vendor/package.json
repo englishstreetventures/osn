@@ -14,9 +14,10 @@
     "build": "astro build && bun run ../../scripts/check-astro-fonts.ts dist && ../../scripts/guard-bundle-size.sh .",
     "preview": "astro preview",
     "typecheck": "bun ../../scripts/astro-typecheck.ts",
-    "test": "bunx --bun vitest",
+    "test": "bunx --bun vitest --project unit",
     "test:mutation": "bun ../../tools/stryker/src/cli.ts",
-    "test:run": "bunx --bun vitest run"
+    "test:run": "bunx --bun vitest run --project unit",
+    "test:browser": "bunx --bun vitest run --project browser"
   },
   "dependencies": {
     "@astrojs/solid-js": "^7.0.2",
@@ -40,7 +41,10 @@
     "@shared/typescript-config": "workspace:*",
     "@solidjs/testing-library": "^0.8.10",
     "@testing-library/jest-dom": "^7.0.1",
+    "@vitest/browser": "5.0.3",
+    "@vitest/browser-playwright": "5.0.3",
     "happy-dom": "^21.0.4",
+    "playwright": "^1.62.1",
     "typescript": "7.1.0-beta",
     "vite": "^8.3.3",
     "vite-plugin-solid": "^2.11.14",
