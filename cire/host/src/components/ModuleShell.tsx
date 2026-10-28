@@ -691,6 +691,8 @@ export default function ModuleShell(props: ModuleShellProps) {
                   <RsvpView
                     weddingId={props.weddingId}
                     canEdit={props.canEdit}
+                    canManage={props.canManage}
+                    weddingSlug={props.weddingSlug}
                     event={props.rsvpEvent}
                     onEvent={props.onRsvpEvent}
                   />
