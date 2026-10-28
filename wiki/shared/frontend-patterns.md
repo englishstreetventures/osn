@@ -440,6 +440,19 @@ computes to `hidden` (CSS Overflow 3 §3.1), so `overflow-x-clip` next to
 to `hidden` / `auto`. If a box must scroll on one axis, it is a scroll container,
 and the fix belongs at the cause rather than here.
 
+### An exit animation on a keyboard-driven menu loses the focus hand-back
+
+Kobalte keeps a closing popover or menu mounted until a `[data-closed]`
+animation with its own name has run. Focus stays inside the closing panel for
+that time, and when it unmounts the hand-back to the trigger falls to `<body>`:
+Escape from a menu leaves the organiser nowhere, and a dialog opened from the
+panel may not close. jsdom runs no animation, so only the browser tier sees it
+(`cire/host`'s `SeatingView` and `ModuleSidebar.keyboard` tests catch it).
+Animate a menu's opening only (`menu-pop`). The checklist row's
+`droplet-popover` keeps its exit and its keyboard browser test still passes, so
+the rule is to run a panel's keyboard test in the browser tier before giving it
+an exit, not to forbid one.
+
 ### A reveal needs a wrapper that outlives the content it reveals
 
 Animating a box open needs two states on **one** element, and an element that
