@@ -33,9 +33,10 @@ export type ControlSize = "sm" | "md";
  * makes `Field`'s error state visible on the control itself rather than only in
  * the message below it, so it is load-bearing rather than decorative.
  *
- * The corner is `rounded-ui-field`, not `Button`'s `rounded-ui-control`, so an
- * app can give its buttons pill ends and its text fields a softer square. An app
- * that maps no field radius gets its control radius here.
+ * The corner is the contract's `field` radius role (`--ui-radius-field`), not
+ * the `control` role `Button` takes, so an app can give its buttons pill ends
+ * and its text fields a softer square. An app that maps no field radius gets
+ * its control radius here.
  */
 const CONTROL_BASE =
   "base:border-ui-hairline-strong base:bg-ui-ground base:text-ui-ink " +
