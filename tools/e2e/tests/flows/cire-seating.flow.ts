@@ -29,9 +29,11 @@
  * seating chart.
  */
 
+import { resolve } from "node:path";
+
 import type { Page } from "@playwright/test";
 
-import { CIRE_ORGANISER, DB_FILES, ORIGINS } from "../../src/config";
+import { CIRE_ORGANISER, DB_FILES, ORIGINS, SCREENSHOT_DIR } from "../../src/config";
 import {
   expect,
   onSuiteClock,
@@ -173,6 +175,32 @@ async function guestEmailSteps(flow: Flow, page: Page): Promise<void> {
     await expect(hanaLine).toContainText("added by the guest");
     await expect(page.getByText("opted out", { exact: false })).toHaveCount(0);
   });
+
+  // The module's view bar holds under the top bar as the list scrolls. This
+  // wedding's list is short, so the window is made short enough to scroll it;
+  // the result is recorded as a sentence, not pixels, so a rerun matches.
+  const viewport = page.viewportSize();
+  const stuck = await flow.step("the view bar holds under the top bar on Households", async () => {
+    await page.setViewportSize({ width: 1280, height: 280 });
+    const bar = page.getByRole("region", { name: "Guests controls" });
+    await expect(bar).toBeVisible();
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    const gap = await page.evaluate(() => {
+      const top = document.querySelector("header")!.getBoundingClientRect().bottom;
+      const held = document.querySelector("[data-view-bar]")!.getBoundingClientRect().top;
+      const scrolled = window.scrollY > 0;
+      return scrolled ? Math.abs(held - top) : Number.POSITIVE_INFINITY;
+    });
+    await page.screenshot({
+      path: resolve(SCREENSHOT_DIR, "cire-seating--view-bar-stuck.png"),
+      animations: "disabled",
+    });
+    if (viewport) await page.setViewportSize(viewport);
+    return gap <= 1
+      ? "the view bar's top meets the top bar's foot"
+      : "the page did not scroll, or the bar moved off";
+  });
+  flow.check("the view bar sticks", "the view bar's top meets the top bar's foot", stuck);
 
   // The spreadsheet door holds Apply until the organiser ticks the
   // attestation, and a new preview starts unticked.

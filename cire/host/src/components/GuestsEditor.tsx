@@ -5,16 +5,22 @@ import { EmptyState } from "@shared/ui/ui/empty-state";
 import { Input } from "@shared/ui/ui/input";
 import { heldWhileClosing, Modal } from "@shared/ui/ui/modal";
 import { Notice } from "@shared/ui/ui/notice";
+import { Popover, PopoverContent } from "@shared/ui/ui/popover";
+import type { SafeProps } from "@shared/ui/ui/props";
 import { Table, Td, Th } from "@shared/ui/ui/table";
+import Plus from "lucide-solid/icons/plus";
 import {
+  type Accessor,
   createEffect,
   createMemo,
+  createSelector,
   createSignal,
   createUniqueId,
   For,
   onCleanup,
   onMount,
   Show,
+  splitProps,
 } from "solid-js";
 import { Portal } from "solid-js/web";
 
@@ -52,6 +58,7 @@ import {
   type OrganiserHouseholdRow,
 } from "../lib/households-store";
 import { registerUnsavedGuard } from "../lib/unsaved-guard";
+import { IconButton } from "./ActionTip";
 import ChangePreview, {
   type ApplyChangeBody,
   type ChangeChoice,
@@ -59,6 +66,32 @@ import ChangePreview, {
   type ClearedHalves,
 } from "./ChangePreview";
 import SectionIntro from "./SectionIntro";
+import { createCompact, holdUntilReady, ViewBar } from "./ViewBar";
+
+/** Below this panel width the bar's controls show their icons alone, and a
+ *  card's stuck header holds the household's name and nothing else. The same
+ *  line as the shell's sub-tabs (`ModuleShell.tsx`). */
+const NARROW_BAR_REM = 36;
+
+/** The editor table's fixed columns, in rem: names, nickname, email, one per
+ *  event, then the remove button. Shared by each card's table and its head
+ *  strip, so the two line up. */
+const COLUMNS = { first: 9, last: 9, nickname: 8, email: 14, event: 8, actions: 6.5 } as const;
+
+const tableWidth = (events: number) =>
+  `max(100%, ${
+    COLUMNS.first +
+    COLUMNS.last +
+    COLUMNS.nickname +
+    COLUMNS.email +
+    COLUMNS.actions +
+    COLUMNS.event * events
+  }rem)`;
+
+/** Where a focused field in a card's rows must stay below: the top bar, the
+ *  view bar, and the card's stuck header and head strip. */
+const ROWS_SCROLL_MARGIN =
+  "[&_:is(button,input,a)]:scroll-mt-[calc(var(--chrome-h)+var(--bar-h,0px)+var(--card-head-h)+var(--head-strip-h)+0.5rem)]";
 interface PreviewResponse {
   changeId: string;
   plan: ChangePlan;
@@ -84,9 +117,87 @@ interface PreviewResponse {
  * Field-invalid drafts can't be submitted — the Save button disables and errors
  * render inline next to the offending row.
  */
-export default function GuestsEditor(props: { weddingId: string }) {
+export default function GuestsEditor(props: {
+  weddingId: string;
+  /** Drawn alone, outside the module shell: whether to draw the narrow bar
+   *  and card headers. Inside the shell the panel's width decides. */
+  compact?: boolean;
+}) {
   const { authFetch } = useAuth();
   const store = createGuestEventDraft();
+  const { compact } = createCompact(
+    () => NARROW_BAR_REM,
+    () => props.compact ?? false,
+  );
+  const ready = holdUntilReady();
+  createEffect(() => {
+    if (store.loaded() || loadError()) ready();
+  });
+
+  // Each card's name field, by household key, so Add household can hand focus
+  // to the card it just added — which may be a long way down the page.
+  const nameFields = new Map<string, HTMLInputElement>();
+  function addHousehold() {
+    const key = store.addFamily();
+    nameFields.get(key)?.focus();
+  }
+
+  // Each card's head strip follows its table's sideways scroll. One listener
+  // for the whole editor, in the capture phase because `scroll` does not
+  // bubble; it finds the strip from the box that scrolled.
+  onMount(() => {
+    const follow = (event: Event) => {
+      const box = event.target;
+      if (!(box instanceof HTMLElement) || !box.matches("[data-edit-card] section")) return;
+      const strip = box
+        .closest("[data-edit-card]")
+        ?.querySelector<HTMLElement>("[data-head-strip]");
+      if (strip) strip.scrollLeft = box.scrollLeft;
+    };
+    document.addEventListener("scroll", follow, { capture: true, passive: true });
+    onCleanup(() => document.removeEventListener("scroll", follow, { capture: true }));
+  });
+
+  // Which event heads do not fit their column, read from the first card's
+  // strip: every strip has the same columns, so one answer serves all. Those
+  // heads become buttons that show the whole name.
+  const [clipped, setClipped] = createSignal<ReadonlySet<string>>(new Set());
+  let firstStrip: HTMLElement | undefined;
+  function measureHeads() {
+    const strip = document.querySelector<HTMLElement>("[data-edit-card] [data-head-strip]");
+    if (!strip) return;
+    const next = new Set<string>();
+    for (const label of strip.querySelectorAll<HTMLElement>("[data-event-head]")) {
+      if (label.scrollWidth > label.clientWidth + 1) next.add(label.dataset.eventHead!);
+    }
+    const prev = clipped();
+    if (next.size !== prev.size || [...next].some((k) => !prev.has(k))) setClipped(next);
+    if (strip !== firstStrip) {
+      firstStrip = strip;
+      headObserver?.disconnect();
+      headObserver = new ResizeObserver(measureHeads);
+      headObserver.observe(strip);
+    }
+  }
+  let headObserver: ResizeObserver | undefined;
+  onCleanup(() => headObserver?.disconnect());
+  // The words change width when the face arrives, the columns do not.
+  onMount(() => void document.fonts?.ready.then(measureHeads));
+
+  // One popover for every cut-short head in every card: a head is a plain
+  // button that opens it at itself, so a long event name on a 300-household
+  // draft mounts one popover, not one per card.
+  const [openHead, setOpenHead] = createSignal<{ el: HTMLElement; name: string } | null>(null);
+  const shownHead = heldWhileClosing(openHead);
+  const isOpenHead = createSelector<HTMLElement | undefined, HTMLElement | undefined>(
+    () => openHead()?.el,
+  );
+  function toggleHead(el: HTMLElement, name: string) {
+    setOpenHead((now) => (now?.el === el ? null : { el, name }));
+  }
+  // Whether the popover closed because the host went elsewhere — a press or
+  // focus outside — in which case focus stays where they took it.
+  let leftForElsewhere = false;
 
   const [loadError, setLoadError] = createSignal<string | null>(null);
   const [saveError, setSaveError] = createSignal<string | null>(null);
@@ -359,18 +470,27 @@ export default function GuestsEditor(props: { weddingId: string }) {
 
   return (
     <div class="flex flex-col gap-8 pb-24">
-      <SectionIntro
-        eyebrow="Guest list"
-        title="Edit households & guests"
-        description="Add households and guests, set who's invited to each event, and save. Every change is previewed before it's applied — you'll see exactly what will change."
-        actions={
-          <Show when={store.loaded()}>
-            <Button variant="outline" size="sm" onClick={store.addFamily}>
-              Add household
-            </Button>
+      <SectionIntro eyebrow="Guest list" title="Edit households & guests" />
+
+      {/* Add household, in the view bar beside the mode switch, so it is to
+          hand however far down the list the host is. */}
+      <Show when={store.loaded()}>
+        <ViewBar slot="end">
+          <Show
+            when={compact()}
+            fallback={
+              <Button variant="outline" size="sm" class="shrink-0" onClick={addHousehold}>
+                <Plus aria-hidden="true" strokeWidth={1.75} class="size-3.5" />
+                Add household
+              </Button>
+            }
+          >
+            <IconButton variant="outline" size="icon" label="Add household" onClick={addHousehold}>
+              <Plus aria-hidden="true" strokeWidth={1.75} class="size-4" />
+            </IconButton>
           </Show>
-        }
-      />
+        </ViewBar>
+      </Show>
 
       <Show when={loadError()}>
         <Notice tone="danger" alert>
@@ -403,7 +523,7 @@ export default function GuestsEditor(props: { weddingId: string }) {
               title="No households yet"
               description="Add a household to start building your guest list."
               action={
-                <Button variant="outline" size="sm" onClick={store.addFamily}>
+                <Button variant="outline" size="sm" onClick={addHousehold}>
                   Add household
                 </Button>
               }
@@ -412,18 +532,60 @@ export default function GuestsEditor(props: { weddingId: string }) {
         >
           <div class="flex flex-col gap-6">
             <For each={store.draft.families}>
-              {(family) => (
+              {(family, index) => (
                 <FamilyCard
                   family={family}
                   events={eventColumns()}
                   errorsByKey={errorsByKey()}
                   store={store}
+                  compact={compact}
+                  clipped={clipped}
+                  onHead={toggleHead}
+                  isOpenHead={isOpenHead}
+                  nameRef={(el) => {
+                    nameFields.set(family.key, el);
+                    onCleanup(() => nameFields.delete(family.key));
+                    if (index() === 0) queueMicrotask(measureHeads);
+                  }}
                 />
               )}
             </For>
           </div>
         </Show>
       </Show>
+
+      {/* The cut-short heads' one popover, at whichever head was pressed. It
+          goes when that head does — a card removed, or its column grown to
+          fit — rather than stay open over nothing. */}
+      <Popover
+        open={openHead() !== null}
+        onOpenChange={(open) => {
+          if (!open) setOpenHead(null);
+        }}
+        anchorRef={() => openHead()?.el}
+        getAnchorRect={(anchor) => {
+          if (anchor && !anchor.isConnected) queueMicrotask(() => setOpenHead(null));
+          return anchor?.getBoundingClientRect();
+        }}
+        placement="bottom"
+      >
+        <PopoverContent
+          aria-label={`Event: ${shownHead()?.name ?? ""}`}
+          onInteractOutside={(e) => {
+            // A second press on the open head closes it through its own click.
+            if (openHead()?.el.contains(e.target as Node)) e.preventDefault();
+            else leftForElsewhere = true;
+          }}
+          onCloseAutoFocus={(e) => {
+            e.preventDefault();
+            const head = shownHead()?.el;
+            if (!leftForElsewhere && head?.isConnected) head.focus({ preventScroll: true });
+            leftForElsewhere = false;
+          }}
+        >
+          {shownHead()?.name}
+        </PopoverContent>
+      </Popover>
 
       {/* Preview modal (the shared ChangePreview) — shown after a successful
           preview, gates the apply. */}
@@ -550,81 +712,245 @@ export default function GuestsEditor(props: { weddingId: string }) {
   );
 }
 
-/** One editable household card: name field + delete, then its guests as rows in
- *  a per-guest × per-event attendance matrix, plus an "Add guest" action. */
+/** The ground a card sits on — `bg-surface/30` over the page — as one opaque
+ *  paint, for the card's stuck header, which rows scroll beneath. */
+const CARD_GROUND =
+  "bg-bg bg-[image:linear-gradient(color-mix(in_oklab,var(--color-surface)_30%,transparent),color-mix(in_oklab,var(--color-surface)_30%,transparent))]";
+
+/** The column widths, one `<col>` each, for a card's table and its strip. */
+function EditorColumns(props: { events: { key: string }[] }) {
+  return (
+    <colgroup>
+      <col style={{ width: `${COLUMNS.first}rem` }} />
+      <col style={{ width: `${COLUMNS.last}rem` }} />
+      <col style={{ width: `${COLUMNS.nickname}rem` }} />
+      <col style={{ width: `${COLUMNS.email}rem` }} />
+      <For each={props.events}>{() => <col style={{ width: `${COLUMNS.event}rem` }} />}</For>
+      <col style={{ width: `${COLUMNS.actions}rem` }} />
+    </colgroup>
+  );
+}
+
+/** An event head cut short by its column: a button that opens the whole name
+ *  in the editor's one popover. Dotted underline, the portal's mark for "there
+ *  is more here". */
+function ClippedHead(
+  props: Omit<SafeProps<"button">, "type" | "onClick"> & {
+    name: string;
+    onHead: (el: HTMLElement, name: string) => void;
+    isOpenHead: (el: HTMLElement | undefined) => boolean;
+  },
+) {
+  const [own, rest] = splitProps(props, ["name", "onHead", "isOpenHead"]);
+  let el: HTMLButtonElement | undefined;
+  return (
+    <button
+      ref={el}
+      type="button"
+      {...rest}
+      aria-haspopup="dialog"
+      aria-expanded={own.isOpenHead(el)}
+      onClick={(e) => own.onHead(e.currentTarget, own.name)}
+      class="block w-full truncate uppercase underline decoration-dotted underline-offset-4"
+    >
+      {own.name}
+    </button>
+  );
+}
+
+const STRIP_HEAD =
+  "font-body text-gold-ink text-ui-xs tracking-ui-wider h-(--head-strip-h) px-4 py-0 align-middle font-normal whitespace-nowrap uppercase";
+
+/**
+ * One editable household card: its header — the name field, the claim code
+ * and delete, then the column heads — and its guests as rows in a per-guest ×
+ * per-event attendance matrix, plus an "Add guest" action.
+ *
+ * The header sticks under the view bar while the card is on screen and lets
+ * go at its end; it paints the card's ground opaque, so the rows pass beneath.
+ * Its column heads are a copy of the table's in a table of their own with the
+ * same columns, kept level with the rows as the table scrolls sideways (the
+ * editor's one scroll listener). The table's own heads stay for assistive
+ * technology, their words hidden and their row given no height.
+ */
 function FamilyCard(props: {
   family: DraftFamily;
   events: { key: string; name: string }[];
   errorsByKey: Map<string, string[]>;
   store: ReturnType<typeof createGuestEventDraft>;
+  compact: Accessor<boolean>;
+  clipped: Accessor<ReadonlySet<string>>;
+  onHead: (el: HTMLElement, name: string) => void;
+  isOpenHead: (el: HTMLElement | undefined) => boolean;
+  nameRef: (el: HTMLInputElement) => void;
 }) {
   const famErrors = () => props.errorsByKey.get(props.family.key) ?? [];
+  const width = () => tableWidth(props.events.length);
+  const eventName = (evt: { name: string }) => evt.name || "Untitled event";
+
+  const code = () => (
+    <Show
+      when={props.family.publicId}
+      fallback={
+        <span class="font-body text-gold/70 border-gold/30 text-ui-xs tracking-ui-widest shrink-0 rounded-sm border px-1.5 py-0.5 uppercase not-italic">
+          New — code minted on save
+        </span>
+      }
+    >
+      <span
+        class="text-text-muted text-ui-xs shrink-0 font-mono"
+        title="This household's claim code — deleting the household disables it."
+      >
+        {props.family.publicId}
+      </span>
+    </Show>
+  );
+
+  // Quiet, not danger: nothing is destroyed on this click. It marks the
+  // household for removal, and `ChangePreview` spells out the cost before
+  // anything is applied. A red button per card would shout louder than what
+  // the button does.
+  const remove = () => (
+    <Button
+      variant="quiet"
+      size="sm"
+      class="shrink-0"
+      onClick={() => props.store.removeFamily(props.family.key)}
+      title="Delete this household. Its claim code is disabled and any RSVPs are discarded — you'll confirm the impact before it's applied."
+    >
+      Delete household
+    </Button>
+  );
+
   return (
-    <div class="border-border bg-surface/30 flex flex-col gap-4 rounded-sm border p-4">
-      <div class="flex flex-wrap items-center justify-between gap-3">
-        <label class="flex flex-1 flex-col gap-1">
-          <span class="font-body text-text-muted text-ui-xs tracking-ui-widest uppercase">
-            Household name
-          </span>
-          <input
-            type="text"
-            value={props.family.familyName}
-            aria-label="Household name"
-            aria-invalid={famErrors().length > 0}
-            onInput={(e) => props.store.renameFamily(props.family.key, e.currentTarget.value)}
-            class="border-border bg-bg font-display text-text focus:border-gold text-ui-md rounded-sm border px-3 py-1.5 outline-none"
-          />
-        </label>
-        <div class="flex items-center gap-3">
-          <Show
-            when={props.family.publicId}
-            fallback={
-              <span class="font-body text-gold/70 border-gold/30 text-ui-xs tracking-ui-widest rounded-sm border px-1.5 py-0.5 uppercase not-italic">
-                New — code minted on save
-              </span>
-            }
-          >
+    <div
+      data-edit-card
+      class="border-border bg-surface/30 flex flex-col rounded-sm border px-4 pb-4"
+      style={{ "--edit-table-w": width() }}
+    >
+      <div
+        data-card-head
+        class={`border-border sticky top-[calc(var(--chrome-h)+var(--bar-h,0px))] z-10 -mx-4 border-b px-4 ${CARD_GROUND}`}
+      >
+        {/* One fixed-height row. On a narrow panel it holds the name alone,
+            its label carried by the field itself; the code and delete move
+            under the header. */}
+        <div class="flex h-(--card-head-h) items-center gap-3">
+          <Show when={!props.compact()}>
             <span
-              class="text-text-muted text-ui-xs font-mono"
-              title="This household's claim code — deleting the household disables it."
+              aria-hidden="true"
+              class="font-body text-text-muted text-ui-xs tracking-ui-widest shrink-0 uppercase"
             >
-              {props.family.publicId}
+              Household
             </span>
           </Show>
-          {/* Quiet, not danger: nothing is destroyed on this click. It marks the
-              household for removal, and `ChangePreview` spells out the cost
-              before anything is applied. A red button per card would shout
-              louder than what the button does. */}
-          <Button
-            variant="quiet"
+          <Input
+            ref={props.nameRef}
             size="sm"
-            onClick={() => props.store.removeFamily(props.family.key)}
-            title="Delete this household. Its claim code is disabled and any RSVPs are discarded — you'll confirm the impact before it's applied."
+            value={props.family.familyName}
+            aria-label="Household name"
+            placeholder="Household name"
+            aria-invalid={famErrors().length > 0}
+            onInput={(e) => props.store.renameFamily(props.family.key, e.currentTarget.value)}
+            class="min-w-0 flex-1"
+          />
+          <Show when={!props.compact()}>
+            {code()}
+            {remove()}
+          </Show>
+        </div>
+        {/* The column heads, for the eye; the table below names its own for
+            assistive technology, so the strip is no table to it and its words
+            are hidden. An event name too long for its column is cut short
+            here, and becomes a button that shows the whole name — by touch or
+            keyboard, not hover alone. Scrolled to match the table by the
+            editor. */}
+        <div data-head-strip class="-mx-4 overflow-hidden">
+          <table
+            role="presentation"
+            class="table-fixed border-separate border-spacing-0 text-left"
+            style={{ width: width() }}
           >
-            Delete household
-          </Button>
+            <EditorColumns events={props.events} />
+            <thead>
+              <tr>
+                <th class={STRIP_HEAD}>
+                  <span aria-hidden="true">First name</span>
+                </th>
+                <th class={STRIP_HEAD}>
+                  <span aria-hidden="true">Last name</span>
+                </th>
+                <th class={STRIP_HEAD}>
+                  <span aria-hidden="true">Nickname</span>
+                </th>
+                <th class={STRIP_HEAD}>
+                  <span aria-hidden="true">Email</span>
+                </th>
+                <For each={props.events}>
+                  {(evt) => (
+                    <th class={`${STRIP_HEAD} text-center`}>
+                      <Show
+                        when={props.clipped().has(evt.key)}
+                        fallback={
+                          <span aria-hidden="true" data-event-head={evt.key} class="block truncate">
+                            {eventName(evt)}
+                          </span>
+                        }
+                      >
+                        <ClippedHead
+                          data-event-head={evt.key}
+                          aria-label={`Event: ${eventName(evt)}`}
+                          name={eventName(evt)}
+                          onHead={props.onHead}
+                          isOpenHead={props.isOpenHead}
+                        />
+                      </Show>
+                    </th>
+                  )}
+                </For>
+                <th class={STRIP_HEAD} aria-hidden="true">
+                  {/* The remove buttons' column has no head. */}
+                </th>
+              </tr>
+            </thead>
+          </table>
         </div>
       </div>
 
-      <For each={famErrors()}>{(msg) => <p class="text-error text-ui-sm">{msg}</p>}</For>
+      <Show when={props.compact()}>
+        <div class="flex flex-wrap items-center justify-between gap-3 pt-3">
+          {code()}
+          {remove()}
+        </div>
+      </Show>
+
+      <For each={famErrors()}>{(msg) => <p class="text-error text-ui-sm pt-2">{msg}</p>}</For>
 
       {/* The shared `Table`, which also makes the sideways scroll reachable from
-          a keyboard — the bare `overflow-x-auto` div it replaces could only be
-          scrolled with a pointer, and this is the one table in the portal that
-          grows a column per event. */}
-      <Table label={`Guests in ${props.family.familyName || "this household"}`}>
+          a keyboard — this is the one table in the portal that grows a column
+          per event, so it scrolls in its own box at any width. */}
+      <Table
+        label={`Guests in ${props.family.familyName || "this household"}`}
+        frame="none"
+        class={`-mx-4 [&>table]:w-(--edit-table-w) [&>table]:table-fixed ${ROWS_SCROLL_MARGIN}`}
+      >
+        <EditorColumns events={props.events} />
+        {/* The real heads: in the table's layout, their words hidden and the
+            row given no height. The strip above is what the eye reads. */}
         <thead>
           <tr>
-            <Th>First name</Th>
-            <Th>Last name</Th>
-            <Th>Nickname</Th>
-            <Th>Email</Th>
+            <Th srOnly>First name</Th>
+            <Th srOnly>Last name</Th>
+            <Th srOnly>Nickname</Th>
+            <Th srOnly>Email</Th>
             <For each={props.events}>
-              {(evt) => <Th align="center">{evt.name || "Untitled event"}</Th>}
+              {(evt) => (
+                <Th align="center" srOnly>
+                  {eventName(evt)}
+                </Th>
+              )}
             </For>
-            <Th>
-              <span class="sr-only">Actions</span>
-            </Th>
+            <Th srOnly>Actions</Th>
           </tr>
         </thead>
         <tbody>
@@ -646,7 +972,7 @@ function FamilyCard(props: {
           keeps its claim code) until it is deleted on purpose, so say so rather
           than rendering a bare header row. */}
       <Show when={props.family.guests.length === 0}>
-        <p class="font-body text-text-muted text-ui-sm">
+        <p class="font-body text-text-muted text-ui-sm pt-3">
           No guests in this household yet — its invite code won’t show anyone.
         </p>
       </Show>
@@ -654,7 +980,7 @@ function FamilyCard(props: {
       <Button
         variant="outline"
         size="sm"
-        class="self-start"
+        class="mt-4 self-start"
         onClick={() => props.store.addGuest(props.family.key)}
       >
         Add guest

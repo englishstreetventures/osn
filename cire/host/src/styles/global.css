@@ -84,6 +84,16 @@
   --warn: oklch(80% 0.125 78);
   --error: oklch(68% 0.14 21);
 
+  /* Reply marks: a filled circle and a glyph (DESIGN.md §Status marks).
+     Attending is solid gold with `--on-gold` on it; Declined a deep muted red
+     with a light glyph, never a red border; Maybe a gold tint. Each glyph
+     clears 4.5:1 on its circle. No reply is a ring in `--text-faint`. */
+  --status-yes: oklch(75% 0.085 82);
+  --status-no: oklch(40% 0.1 22);
+  --status-no-ink: oklch(95% 0.015 22);
+  --status-maybe: oklch(36% 0.05 82);
+  --status-maybe-ink: oklch(84% 0.072 84);
+
   /* The focus ring is its own token rather than an alias of gold: gold is
      unreadable on the light ground and a focus indicator has a 3:1 floor. */
   --focus: oklch(75% 0.085 82);
@@ -132,6 +142,12 @@
     --warn: oklch(45% 0.105 62);
     --error: oklch(50% 0.15 25);
 
+    --status-yes: oklch(64% 0.095 78);
+    --status-no: oklch(47% 0.14 24);
+    --status-no-ink: oklch(97% 0.01 24);
+    --status-maybe: oklch(80% 0.08 82);
+    --status-maybe-ink: oklch(36% 0.07 74);
+
     --focus: oklch(38% 0.072 141);
 
     --inner-lip: inset 0 1px 0 oklch(100% 0 0 / 0.6);
@@ -172,6 +188,12 @@
   --warn: oklch(45% 0.105 62);
   --error: oklch(50% 0.15 25);
 
+  --status-yes: oklch(64% 0.095 78);
+  --status-no: oklch(47% 0.14 24);
+  --status-no-ink: oklch(97% 0.01 24);
+  --status-maybe: oklch(80% 0.08 82);
+  --status-maybe-ink: oklch(36% 0.07 74);
+
   --focus: oklch(38% 0.072 141);
 
   --inner-lip: inset 0 1px 0 oklch(100% 0 0 / 0.6);
@@ -206,6 +228,35 @@
     --dur-slow: calc(200ms * var(--motion-scale));
     --ui-modal-enter: var(--dur-slow);
     --ui-modal-exit: var(--dur-base);
+  }
+}
+
+/* ── The stuck stack ────────────────────────────────────────────────────────
+ * What holds at the top of the window as a long view scrolls, from the top
+ * down: the top bar, the module's view bar, a view's column heads or card
+ * header, and a household's bar. Each layer's `top` is the sum of the heights
+ * above it, so each one is written here or measured, never guessed.
+ *
+ * `--chrome-h` is the top bar with its hairline. It follows the `frame`
+ * container, the same condition as the bar's own breakpoint, so the wide value
+ * lives on `.chrome-scope` — the wrapper round the bar and `<main>`, and the
+ * boot bar — and inherits from there; `:root` holds the narrow value for
+ * anything outside one. `--bar-h` is measured: `ModuleShell` writes the view
+ * bar's height on the shell and removes it with the bar, so every use carries a
+ * `0px` fallback. The household bar, the editor's card header and the head
+ * strip are fixed rows, so their heights are constants here, and a focused
+ * control's scroll margin can sum them.
+ */
+:root {
+  --chrome-h: calc(3.5rem + 1px);
+  --hh-bar-h: 2.75rem;
+  --card-head-h: 2.75rem;
+  --head-strip-h: 2.125rem;
+}
+
+@container frame (min-width: 42rem) {
+  .chrome-scope {
+    --chrome-h: calc(4rem + 1px);
   }
 }
 
@@ -318,6 +369,11 @@
   --color-success: var(--success);
   --color-warn: var(--warn);
   --color-error: var(--error);
+  --color-status-yes: var(--status-yes);
+  --color-status-no: var(--status-no);
+  --color-status-no-ink: var(--status-no-ink);
+  --color-status-maybe: var(--status-maybe);
+  --color-status-maybe-ink: var(--status-maybe-ink);
   --color-focus: var(--focus);
 
   /* The shadcn semantic names — `--color-background`, `--color-primary` and
@@ -1082,9 +1138,7 @@
 @utility blank-avatar {
   /* `--text-faint` is translucent, and a face on a stack overlaps the one
      before it: laid over the page's own colour, the disc is opaque. */
-  background:
-    linear-gradient(var(--text-faint), var(--text-faint)),
-    var(--bg);
+  background: linear-gradient(var(--text-faint), var(--text-faint)), var(--bg);
   color: var(--bg);
 }
 

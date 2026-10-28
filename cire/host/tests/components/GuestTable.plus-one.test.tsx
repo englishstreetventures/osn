@@ -215,10 +215,26 @@ const switchFor = (name: string) =>
   screen.getByRole("switch", { name: `${name} may bring a plus-one` }) as HTMLInputElement;
 const householdGroup = (familyName: string) =>
   screen.getByRole("group", { name: `Plus-ones for the ${familyName} household` });
+/** The words a screen reader hears in `el`: its text, less what is
+ *  `aria-hidden` (the "+1 · Ada" the eye reads instead). */
+function heardText(el: Element): string {
+  const parts: string[] = [];
+  const walk = (node: Node) => {
+    if (node instanceof Element && node.getAttribute("aria-hidden") === "true") return;
+    if (node.nodeType === Node.TEXT_NODE) parts.push(node.textContent ?? "");
+    for (const child of node.childNodes) walk(child);
+  };
+  walk(el);
+  return parts.join(" ").replace(/\s+/g, " ").trim();
+}
+
 const guestRowNames = () =>
   screen
     .getAllByRole("row")
-    .map((row) => row.querySelector("td")?.textContent?.trim() ?? "")
+    .map((row) => {
+      const cell = row.querySelector("td");
+      return cell ? heardText(cell) : "";
+    })
     .filter((text) => text.length > 0);
 
 describe("GuestTable — plus-one permission", () => {
@@ -227,7 +243,9 @@ describe("GuestTable — plus-one permission", () => {
     expect(switchFor("Ada Sharma").checked).toBe(true);
     expect(switchFor("Bo Sharma").checked).toBe(false);
     expect(switchFor("Cy Jones").checked).toBe(true);
-    expect(screen.getByRole("columnheader", { name: "Plus-one" })).toBeTruthy();
+    // Each household is its own table with its own heads, so ask one of them.
+    const sharma = screen.getByRole("group", { name: "Sharma" });
+    expect(within(sharma).getByRole("columnheader", { name: "Plus-one" })).toBeTruthy();
   });
 
   it("lists a plus-one after the guest who brought them, named as theirs, with no switch", async () => {
@@ -235,6 +253,9 @@ describe("GuestTable — plus-one permission", () => {
     const names = guestRowNames();
     const adaAt = names.findIndex((n) => n.startsWith("Ada Sharma"));
     expect(names[adaAt + 1]).toMatch(/^Sam Lee\s+Plus-one of Ada Sharma$/);
+    // What the eye reads instead: "+1" and the inviter's first name.
+    const samRow = screen.getAllByRole("row").find((row) => row.textContent?.includes("Sam Lee"))!;
+    expect(samRow.querySelector("[aria-hidden=true]")?.textContent).toBe("+1 · Ada");
     expect(names[adaAt + 2]).toMatch(/^Bo Sharma/);
     expect(screen.queryByRole("switch", { name: /Sam Lee/ })).toBeNull();
   });
@@ -632,7 +653,15 @@ describe("GuestTable — plus-one permission", () => {
       .filter((g) => !g.plusOneOf)
       .map(({ plusOneAllowed: _a, plusOneOf: _o, ...rest }) => rest as OrganiserGuestRow);
     await mount();
-    expect(screen.queryByRole("columnheader", { name: "Plus-one" })).toBeNull();
+    // Neither the households' own heads nor the strip the eye reads above them.
+    expect(screen.queryAllByRole("columnheader", { name: "Plus-one" })).toHaveLength(0);
+    const strip = document.querySelector("[data-head-strip]");
+    expect(strip).not.toBeNull();
+    // The strip writes the column as "+1": neither form is there, and it
+    // heads three columns, not four.
+    expect(strip!.textContent).not.toContain("Plus-one");
+    expect(strip!.textContent).not.toContain("+1");
+    expect(strip!.querySelectorAll("th")).toHaveLength(3);
     expect(screen.queryAllByRole("switch")).toHaveLength(0);
     expect(screen.queryByRole("group", { name: /Plus-ones for the/ })).toBeNull();
   });

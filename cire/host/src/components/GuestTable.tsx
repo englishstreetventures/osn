@@ -1,7 +1,14 @@
 import Button from "@cire/ui/button";
+import { type MenuContextValue, useMenuContext } from "@kobalte/core/menu";
 import { tokeniseQuery, tokensPrefixName } from "@shared/db-utils/search";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "@shared/ui/ui/dropdown-menu";
 import { EmptyState } from "@shared/ui/ui/empty-state";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
@@ -9,8 +16,19 @@ import { heldWhileClosing, Modal } from "@shared/ui/ui/modal";
 import { Notice } from "@shared/ui/ui/notice";
 import { Switch } from "@shared/ui/ui/switch";
 import { Table, Td, Th } from "@shared/ui/ui/table";
+import Ban from "lucide-solid/icons/ban";
+import Copy from "lucide-solid/icons/copy";
+import Download from "lucide-solid/icons/download";
+import Ellipsis from "lucide-solid/icons/ellipsis";
+import Eye from "lucide-solid/icons/eye";
+import RotateCcw from "lucide-solid/icons/rotate-ccw";
+import Send from "lucide-solid/icons/send";
+import UserCheck from "lucide-solid/icons/user-check";
+import UserX from "lucide-solid/icons/user-x";
 import {
   createComputed,
+  createEffect,
+  on,
   createSelector,
   createSignal,
   createUniqueId,
@@ -53,7 +71,12 @@ import {
   supportsPlusOnes,
   withPermission,
 } from "../lib/plus-one-permission";
+import { plusOneShort } from "../lib/rsvp-filter";
+import { chromeFoot, scrollToResults } from "../lib/scroll-to-results";
+import { IconButton, TipNote } from "./ActionTip";
 import SectionIntro from "./SectionIntro";
+import { StatusMark } from "./StatusMark";
+import { createCompact, holdUntilReady, ViewBar } from "./ViewBar";
 
 interface FamilyMember {
   /** Identity for `reconcile`: the guest id. */
@@ -128,7 +151,7 @@ function GuestEmailLine(props: { member: FamilyMember }) {
   return (
     <Show when={props.member.email}>
       {(email) => (
-        <span class="text-text-muted text-ui-sm mt-0.5 block break-all">
+        <span class="text-text-muted text-ui-xs mt-0.5 block break-all">
           {email()}
           <span class="whitespace-nowrap">
             {" · "}
@@ -144,6 +167,17 @@ function GuestEmailLine(props: { member: FamilyMember }) {
       )}
     </Show>
   );
+}
+
+/**
+ * Hands out the menu a `DropdownMenu` root holds, from inside it. The narrow
+ * household list draws one menu for every household and opens it from plain
+ * buttons, so it needs the menu's own `open(focusStrategy)` — the call
+ * Kobalte's trigger makes — to put focus where a keyboard user expects it.
+ */
+function MenuHandle(props: { ref: (menu: MenuContextValue) => void }) {
+  props.ref(useMenuContext());
+  return null;
 }
 
 const fullName = (person: { firstName: string; lastName: string }) =>
@@ -225,7 +259,28 @@ interface GuestTableProps {
   /** The line pointing at the other places that shape the invite message, shown
    *  under the introduction. */
   inviteMessageLinks?: JSX.Element;
+  /** Drawn alone, outside the module shell: whether to draw the narrow layout.
+   *  Inside the shell the panel's width decides. */
+  compact?: boolean;
 }
+
+/**
+ * The narrowest panel the households' tables fit: the fixed Plus-one (7rem)
+ * and Code (11rem) columns, Events at a third, and room for a 12rem Guest column —
+ * about 46rem. Without the Plus-one column, 40rem. Narrower, the rows stack.
+ */
+const TABLE_MIN_REM = { plusOnes: 46, plain: 40 } as const;
+
+/** Where a focused control in a household's rows must stay below: the top bar,
+ *  the view bar, the head strip when there is one, and the household's bar,
+ *  and a rem more, because a switch's focusable input sits inside its label,
+ *  below the track's top edge. */
+const ROWS_SCROLL_MARGIN =
+  "[&_:is(button,input,a,[tabindex])]:scroll-mt-[calc(var(--chrome-h)+var(--bar-h,0px)+var(--heads-h,0px)+var(--hh-bar-h)+1rem)]";
+
+/** One row of a household's bar: its name and state, then what can be done. */
+const HOUSEHOLD_BAR =
+  "border-border bg-surface sticky top-[calc(var(--chrome-h)+var(--bar-h,0px)+var(--heads-h,0px))] z-5 flex h-(--hh-bar-h) items-center gap-3 border-b px-4 whitespace-nowrap";
 
 export default function GuestTable(props: GuestTableProps) {
   const { authFetch } = useAuth();
@@ -679,39 +734,418 @@ export default function GuestTable(props: GuestTableProps) {
 
   const hasGuests = () => families.length > 0;
 
+  // The narrow layout, from the width the module panel has (or, drawn alone,
+  // from the `compact` prop). One variant is drawn, never both.
+  const layout = createCompact(
+    () => (plusOnesShown() ? TABLE_MIN_REM.plusOnes : TABLE_MIN_REM.plain),
+    () => props.compact ?? false,
+  );
+  const compact = layout.compact;
+
+  // Hold the module panel open until the list is in, so a sub-tab change made
+  // deep in another list does not clamp the page meanwhile.
+  const ready = holdUntilReady();
+  createEffect(() => {
+    if (!loading()) ready();
+  });
+
+  // A search redraws the list once the debounce settles. If the host had
+  // scrolled into it, the page brings the list's top back to the foot of the
+  // stuck chrome; otherwise nothing moves, and focus stays in the field.
+  let results: HTMLDivElement | undefined;
+  createEffect(
+    on(
+      search,
+      () => {
+        if (results?.isConnected) scrollToResults(results, chromeFoot(results));
+      },
+      { defer: true },
+    ),
+  );
+
+  // The narrow layout's Deactivate asks in a dialog: a menu closes as soon as
+  // an item is chosen, so the wide bar's inline "Disable this code?" has
+  // nowhere to live.
+  const [confirmingDialog, setConfirmingDialog] = createSignal<FamilyGroup | null>(null);
+  const shownConfirm = heldWhileClosing(confirmingDialog);
+  const confirmTitleId = `deactivate-title-${createUniqueId()}`;
+
+  const countLine = () =>
+    `${guests().length} ${guests().length === 1 ? "guest" : "guests"} across ${families.length} ${
+      families.length === 1 ? "household" : "households"
+    }`;
+
+  /**
+   * The household's state, as a mark (`StatusMark`): Deactivated on the red
+   * circle, else Opened on the gold, else Sent on the tint. Its explanation —
+   * and, for Opened, the day — is a `TipNote`: hidden text for a screen
+   * reader, the shell's one panel on hover. On a narrow bar Deactivated says it
+   * in a word.
+   */
+  const householdBadge = (family: FamilyGroup) => (
+    <>
+      <Show when={isDeactivated(family)}>
+        <TipNote text="This household's code no longer opens the invite. Reactivate to restore it.">
+          <StatusMark
+            tone="no"
+            glyph={Ban}
+            label={compact() ? "Deactivated" : "Deactivated — code disabled"}
+            more={
+              <Show when={compact()}>
+                <span class="sr-only"> — code disabled</span>
+              </Show>
+            }
+          />
+        </TipNote>
+      </Show>
+      {/* Suppressed while deactivated — that is the only relevant state then.
+          "Opened" (a real guest claim) takes precedence over the copy-only
+          "Sent". */}
+      <Show when={!isDeactivated(family)}>
+        <Show
+          when={isOpened(family)}
+          fallback={
+            <Show when={isShared(family)}>
+              <TipNote text="You copied this household's invite message">
+                <StatusMark tone="maybe" glyph={Send} label="Sent" />
+              </TipNote>
+            </Show>
+          }
+        >
+          <TipNote
+            text={`A guest opened this invite (code used) on ${formatOpenedDate(
+              family.firstOpenedAt!,
+            )}`}
+          >
+            <StatusMark tone="yes" glyph={Eye} label="Opened" />
+          </TipNote>
+        </Show>
+      </Show>
+    </>
+  );
+
+  /** The four columns, shared by every household's table and the head strip,
+   *  so they line up. They follow whether the Plus-one column is shown. */
+  const colgroup = () => (
+    <colgroup>
+      <col />
+      <col class="w-1/3" />
+      <Show when={plusOnesShown()}>
+        <col class="w-28" />
+      </Show>
+      <col class="w-44" />
+    </colgroup>
+  );
+
+  /** The column heads: in words for a screen reader, the plus-one column as
+   *  "+1" for the eye (DESIGN.md §Names and meta lines). */
+  const HEADS = () =>
+    plusOnesShown() ? ["Guest", "Events", "Plus-one", "Code"] : ["Guest", "Events", "Code"];
+  const shownHead = (name: string) => (name === "Plus-one" ? "+1" : name);
+
+  /**
+   * The wide bar's actions: four icons, each named and with its name as a
+   * tooltip — Allow everyone, Allow no one, Copy message, Deactivate (or
+   * Reactivate). Deactivate's confirmation takes their place in the same
+   * row, so the bar never grows.
+   */
+  function wideActions(
+    family: FamilyGroup,
+    permission: () => { allowed: number; total: number },
+    householdScope: PlusOneScope,
+    plusOneControls: () => boolean,
+  ) {
+    return (
+      <div class="flex shrink-0 items-center gap-1">
+        <Show
+          when={props.canManage && !isDeactivated(family) && confirmingId() === family.familyId}
+          fallback={
+            <>
+              {/* Editors only: these write. A viewer reads each guest's
+                  switch instead. `aria-disabled`, never `disabled`: the button
+                  keeps focus through its own write and stays reachable when it
+                  would change nothing. */}
+              <Show when={plusOneControls()}>
+                <fieldset class="m-0 flex min-w-0 items-center gap-1 border-0 p-0">
+                  <legend class="sr-only">Plus-ones for the {family.familyName} household</legend>
+                  <span class="font-body text-text-muted text-ui-xs mr-1 shrink-0 font-mono">
+                    <span aria-hidden="true">
+                      +1 {permission().allowed}/{permission().total}
+                    </span>
+                    <span class="sr-only">
+                      Plus-ones: {permission().allowed} of {permission().total}
+                    </span>
+                  </span>
+                  <IconButton
+                    variant="quiet"
+                    size="icon"
+                    label="Allow everyone"
+                    aria-disabled={permission().allowed === permission().total}
+                    aria-busy={isBusy(busyKey(householdScope)) ? "true" : undefined}
+                    onClick={() => requestPermission(householdScope, true)}
+                  >
+                    <UserCheck aria-hidden="true" strokeWidth={1.75} class="size-4" />
+                  </IconButton>
+                  <IconButton
+                    variant="quiet"
+                    size="icon"
+                    label="Allow no one"
+                    aria-disabled={permission().allowed === 0}
+                    aria-busy={isBusy(busyKey(householdScope)) ? "true" : undefined}
+                    onClick={() => requestPermission(householdScope, false)}
+                  >
+                    <UserX aria-hidden="true" strokeWidth={1.75} class="size-4" />
+                  </IconButton>
+                </fieldset>
+              </Show>
+              <IconButton
+                variant="quiet"
+                size="icon"
+                label="Copy message"
+                disabled={!messageSettled()}
+                onClick={() => void copyMessage(family)}
+              >
+                <Copy aria-hidden="true" strokeWidth={1.75} class="size-4" />
+              </IconButton>
+              {/* Deactivate is confirm-gated (cuts off a live code);
+                  Reactivate is a direct restore. Owner-only — code management
+                  sits above editor writes. */}
+              <Show when={props.canManage}>
+                <Show
+                  when={isDeactivated(family)}
+                  fallback={
+                    <IconButton
+                      variant="quietDanger"
+                      size="icon"
+                      label="Deactivate"
+                      onClick={() => setConfirmingId(family.familyId)}
+                      disabled={togglingId() === family.familyId}
+                    >
+                      <Ban aria-hidden="true" strokeWidth={1.75} class="size-4" />
+                    </IconButton>
+                  }
+                >
+                  <IconButton
+                    variant="quiet"
+                    size="icon"
+                    label={togglingId() === family.familyId ? "Reactivating…" : "Reactivate"}
+                    onClick={() => void toggleDeactivated(family, false)}
+                    disabled={togglingId() === family.familyId}
+                  >
+                    <RotateCcw aria-hidden="true" strokeWidth={1.75} class="size-4" />
+                  </IconButton>
+                </Show>
+              </Show>
+            </>
+          }
+        >
+          <span class="font-body text-text-muted text-ui-xs tracking-ui-wide">
+            Disable this code?
+          </span>
+          <button
+            type="button"
+            onClick={() => void toggleDeactivated(family, true)}
+            disabled={togglingId() === family.familyId}
+            class="border-error bg-error font-body text-bg text-ui-xs tracking-ui-wider rounded-sm border px-2.5 py-1 uppercase transition duration-(--dur-fast) ease-(--ease-out) hover:opacity-90 disabled:opacity-40"
+          >
+            {togglingId() === family.familyId ? "Deactivating…" : "Confirm"}
+          </button>
+          <Button
+            variant="subtle"
+            size="sm"
+            type="button"
+            onClick={() => setConfirmingId(null)}
+            disabled={togglingId() === family.familyId}
+          >
+            Cancel
+          </Button>
+        </Show>
+      </div>
+    );
+  }
+
+  /**
+   * The narrow bar's actions: the same, in a "⋯" menu. One menu serves the
+   * whole list — a household's "⋯" is a plain button that opens it for that
+   * household — so 300 households mount one menu, not 300. It opens as
+   * Kobalte's own trigger opens one: a click opens it on the panel, the
+   * keyboard on its first item (its last for ArrowUp). It is placed against the
+   * pressed household's "⋯", found by id each time, so a list redrawn
+   * meanwhile still has it in the right place; and it closes once that "⋯" is
+   * no longer drawn — the household gone, or a search hiding it.
+   */
+  const [menuFamilyId, setMenuFamilyId] = createSignal<string | null>(null);
+  const [menuOpen, setMenuOpen] = createSignal(false);
+  const menuFamily = () => {
+    const id = menuFamilyId();
+    return id === null ? undefined : families.find((f) => f.familyId === id);
+  };
+  const isMenuFor = createSelector(() => (menuOpen() ? menuFamilyId() : null));
+  let householdMenu: MenuContextValue | undefined;
+  const actionsButton = (familyId: string) =>
+    document.querySelector<HTMLElement>(`[data-actions-for="${CSS.escape(familyId)}"]`);
+  createEffect(
+    on([visibleFamilies, menuOpen], () => {
+      const id = menuFamilyId();
+      if (!menuOpen() || id === null) return;
+      // After the list has redrawn for this change.
+      queueMicrotask(() => {
+        if (menuFamilyId() === id && !actionsButton(id)) householdMenu?.close();
+      });
+    }),
+  );
+
+  /** Open the menu for `family` — once the last one has finished leaving, so
+   *  its panel is mounted afresh at the new "⋯" and takes focus as it opens. */
+  function openMenu(family: FamilyGroup, focus: true | "first" | "last", frames = 12) {
+    const menu = householdMenu;
+    if (!menu) return;
+    if (!menu.isOpen() && menu.contentPresent() && frames > 0) {
+      requestAnimationFrame(() => openMenu(family, focus, frames - 1));
+      return;
+    }
+    setMenuFamilyId(family.familyId);
+    menu.open(focus);
+  }
+
+  function narrowActions(family: FamilyGroup) {
+    const open = (focus: true | "first" | "last") => openMenu(family, focus);
+    return (
+      <Button
+        variant="quiet"
+        size="icon"
+        type="button"
+        class="shrink-0"
+        aria-label={`Actions for ${family.familyName}`}
+        aria-haspopup="menu"
+        aria-expanded={isMenuFor(family.familyId)}
+        data-actions-for={family.familyId}
+        onClick={() => open(true)}
+        onKeyDown={(e: KeyboardEvent) => {
+          if (e.key === "Enter" || e.key === " " || e.key === "ArrowDown") {
+            e.preventDefault();
+            open("first");
+          } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            open("last");
+          }
+        }}
+      >
+        <Ellipsis aria-hidden="true" strokeWidth={1.75} class="size-4" />
+      </Button>
+    );
+  }
+
+  /** The chosen household's choices: its plus-ones, its message, its code. */
+  function menuItems(family: FamilyGroup) {
+    const permission = householdPermission(family.members);
+    const householdScope: PlusOneScope = { kind: "household", familyId: family.familyId };
+    const plusOneControls = plusOnesShown() && canEdit() && permission.total > 0;
+    return (
+      <>
+        <Show when={plusOneControls}>
+          <DropdownMenuItem
+            disabled={permission.allowed === permission.total}
+            onSelect={() => requestPermission(householdScope, true)}
+          >
+            Everyone may bring a +1
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={permission.allowed === 0}
+            onSelect={() => requestPermission(householdScope, false)}
+          >
+            No one may bring a +1
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+        </Show>
+        <DropdownMenuItem disabled={!messageSettled()} onSelect={() => void copyMessage(family)}>
+          Copy message
+        </DropdownMenuItem>
+        <Show when={props.canManage}>
+          <Show
+            when={isDeactivated(family)}
+            fallback={
+              <DropdownMenuItem
+                disabled={togglingId() === family.familyId}
+                onSelect={() => setConfirmingDialog(family)}
+              >
+                Deactivate
+              </DropdownMenuItem>
+            }
+          >
+            <DropdownMenuItem
+              disabled={togglingId() === family.familyId}
+              onSelect={() => void toggleDeactivated(family, false)}
+            >
+              Reactivate
+            </DropdownMenuItem>
+          </Show>
+        </Show>
+      </>
+    );
+  }
+
+  /** The one menu, drawn with the narrow list. */
+  const householdMenuView = () => (
+    <DropdownMenu
+      placement="bottom-end"
+      gutter={4}
+      getAnchorRect={() => {
+        const id = menuFamilyId();
+        return id === null ? undefined : actionsButton(id)?.getBoundingClientRect();
+      }}
+      onOpenChange={setMenuOpen}
+    >
+      <MenuHandle ref={(menu) => (householdMenu = menu)} />
+      <DropdownMenuContent
+        class="min-w-48"
+        aria-label={`Actions for ${menuFamily()?.familyName ?? "this household"}`}
+        // No trigger of Kobalte's to return to: focus goes back to the "⋯"
+        // that opened the menu, as it would to the trigger.
+        onCloseAutoFocus={(e) => {
+          e.preventDefault();
+          const id = menuFamilyId();
+          if (id !== null) actionsButton(id)?.focus({ preventScroll: true });
+        }}
+      >
+        <Show when={menuFamily()}>{(family) => menuItems(family())}</Show>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
   return (
-    <div class="flex flex-col gap-8">
+    <div
+      class="flex flex-col gap-8"
+      // Whether a head strip (its row and its hairline) sits between the view
+      // bar and each household's bar: the households' bars stick below it.
+      style={{ "--heads-h": compact() ? "0px" : "calc(var(--head-strip-h) + 1px)" }}
+    >
       {/* The pointer to where the message is written sits with the intro, not
           a whole section gap below it. */}
       <div class="flex flex-col gap-3">
         <SectionIntro
           eyebrow="Guest list"
           title="Households, invites & RSVPs"
-          description={
-            props.canManage
-              ? "Everyone you're inviting, grouped into households. Copy a household's invite message to send their link and code, and download replies any time."
-              : "Everyone you're inviting, grouped into households. Copy a household's invite message to send their link and code."
-          }
           actions={
             <Show when={props.canManage && !loading() && !error() && hasGuests()}>
-              <Button
+              <IconButton
                 variant="outline"
-                size="sm"
-                type="button"
+                size="icon"
+                label={exporting() === "guests" ? "Exporting guests…" : "Download guests (CSV)"}
                 onClick={() => void exportCsv("guests")}
                 disabled={exporting() !== null}
               >
-                {exporting() === "guests" ? "Exporting…" : "Download guests (CSV)"}
-              </Button>
-              <Button
+                <Download aria-hidden="true" strokeWidth={1.75} class="size-4" />
+              </IconButton>
+              <IconButton
                 variant="outline"
-                size="sm"
-                type="button"
+                size="icon"
+                label={exporting() === "rsvps" ? "Exporting RSVPs…" : "Download RSVPs (CSV)"}
                 onClick={() => void exportCsv("rsvps")}
                 disabled={exporting() !== null}
               >
-                {exporting() === "rsvps" ? "Exporting…" : "Download RSVPs (CSV)"}
-              </Button>
+                <Download aria-hidden="true" strokeWidth={1.75} class="size-4" />
+              </IconButton>
             </Show>
           }
         />
@@ -719,6 +1153,9 @@ export default function GuestTable(props: GuestTableProps) {
       </div>
 
       <Show when={loading()}>
+        <ViewBar slot="end">
+          <div class="bg-surface/60 h-7 w-64 max-w-full min-w-0 animate-pulse rounded-sm" />
+        </ViewBar>
         <div class="flex flex-col gap-3">
           <For each={[1, 2, 3, 4, 5]}>
             {() => <div class="bg-surface h-13 animate-pulse rounded-sm" />}
@@ -737,13 +1174,18 @@ export default function GuestTable(props: GuestTableProps) {
         />
       </Show>
 
-      <Show when={!loading() && !error() && hasGuests()}>
-        <div class="flex flex-wrap items-end justify-between gap-3">
-          <p class="font-body text-text-muted text-ui-sm">
-            {guests().length} {guests().length === 1 ? "guest" : "guests"} across {families.length}{" "}
-            {families.length === 1 ? "household" : "households"}
-          </p>
-          <Field label="Search guests" labelHidden class="w-full max-w-64">
+      <Show when={!loading() && !error() && hasGuests() && layout.known()}>
+        {/* The count and the search, lent to the view bar's first row. On a
+            narrow panel the count stays here, under the bar. */}
+        <ViewBar slot="end">
+          <Show when={!compact()}>
+            <p class="font-body text-text-muted text-ui-sm truncate">{countLine()}</p>
+          </Show>
+          <Field
+            label="Search guests"
+            labelHidden
+            class={compact() ? "min-w-0 flex-1" : "w-64 shrink-0"}
+          >
             {(field) => (
               <Input
                 {...field}
@@ -751,38 +1193,57 @@ export default function GuestTable(props: GuestTableProps) {
                 size="sm"
                 value={searchInput()}
                 onInput={(e) => handleSearchInput(e.currentTarget.value)}
-                placeholder="Search by name, household or code…"
+                placeholder={compact() ? "Search guests…" : "Search by name, household or code…"}
               />
             )}
           </Field>
-        </div>
-
-        <Show when={visibleFamilies().length === 0}>
-          <p class="font-body text-text-muted text-ui-sm italic">
-            No guests match “{search().trim()}”.
-          </p>
+        </ViewBar>
+        <Show when={compact()}>
+          <p class="font-body text-text-muted text-ui-sm">{countLine()}</p>
         </Show>
 
-        <Show when={visibleFamilies().length > 0}>
-          <Table label="Guests">
-            <thead>
-              <tr>
-                <Th>Guest Name</Th>
-                <Th>Events</Th>
-                <Show when={plusOnesShown()}>
-                  <Th>Plus-one</Th>
-                </Show>
-                <Th>Family Code</Th>
-              </tr>
-            </thead>
-            <tbody>
+        <div ref={results}>
+          <Show when={visibleFamilies().length === 0}>
+            <p class="font-body text-text-muted text-ui-sm italic">
+              No guests match “{search().trim()}”.
+            </p>
+          </Show>
+
+          <Show when={visibleFamilies().length > 0}>
+            <div class="border-border flex flex-col rounded-sm border">
+              {/* The column heads, once for the whole list, stuck under the
+                  view bar. A table of its own with the households' columns, so
+                  it lines up with every one of them; hidden from assistive
+                  technology, which reads each household table's own heads. */}
+              <Show when={!compact()}>
+                <div
+                  aria-hidden="true"
+                  data-head-strip
+                  class="border-border bg-bg sticky top-[calc(var(--chrome-h)+var(--bar-h,0px))] z-10 border-b"
+                >
+                  <table class="w-full table-fixed border-separate border-spacing-0 text-left">
+                    {colgroup()}
+                    <thead>
+                      <tr>
+                        <For each={HEADS()}>
+                          {(name) => (
+                            <th class="font-body text-gold-ink text-ui-xs tracking-ui-wider h-(--head-strip-h) px-4 py-0 align-middle font-normal whitespace-nowrap uppercase">
+                              {shownHead(name)}
+                            </th>
+                          )}
+                        </For>
+                      </tr>
+                    </thead>
+                  </table>
+                </div>
+              </Show>
               <For each={visibleFamilies()}>
                 {(family) => {
                   // Which of this household's members to show — reactive on
                   // `search()` and the household's own members, so a keystroke
                   // that leaves this household's own visibility unchanged (see
                   // `visibleFamilies` above) still updates its member rows
-                  // without the outer `<For>` remounting the whole row.
+                  // without the outer `<For>` remounting the whole household.
                   const visibleMembers = createMemo(() => {
                     const query = search().trim();
                     if (!query) return family.members;
@@ -803,235 +1264,255 @@ export default function GuestTable(props: GuestTableProps) {
                     const inviter = family.members.find((m) => m.guestId === member.plusOneOf);
                     return inviter ? fullName(inviter) : "";
                   };
-                  return (
-                    <>
-                      <tr>
-                        <td
-                          colspan={plusOnesShown() ? 4 : 3}
-                          class={`border-border bg-surface/50 border-b px-4 py-2 ${
-                            isDeactivated(family) ? "opacity-50" : ""
-                          }`}
-                        >
-                          <div class="flex flex-wrap items-center justify-between gap-3">
-                            <span class="font-display text-gold-dim text-ui-md flex items-center gap-2">
-                              {family.familyName}
-                              <Show when={isDeactivated(family)}>
-                                <span
-                                  class="font-body border-error/40 text-error text-ui-xs tracking-ui-widest rounded-sm border px-1.5 py-0.5 uppercase not-italic"
-                                  title="Deactivated — this household's code no longer opens the invite. Reactivate to restore it."
-                                >
-                                  Deactivated — code disabled
-                                </span>
-                              </Show>
-                              {/* Status badges are suppressed while deactivated —
-                                the "Deactivated" label is the only relevant state
-                                then. "Opened" (a real guest claim) otherwise takes
-                                precedence over the copy-only "Sent". */}
-                              <Show when={!isDeactivated(family)}>
-                                <Show
-                                  when={isOpened(family)}
-                                  fallback={
-                                    <Show when={isShared(family)}>
-                                      <span
-                                        class="font-body text-gold/80 border-gold/30 text-ui-xs tracking-ui-widest rounded-sm border px-1.5 py-0.5 uppercase not-italic"
-                                        title="Sent — you copied this family's invite message"
-                                      >
-                                        Sent
-                                      </span>
-                                    </Show>
-                                  }
-                                >
-                                  <span
-                                    class="font-body bg-gold text-bg text-ui-xs tracking-ui-widest rounded-sm px-1.5 py-0.5 uppercase not-italic"
-                                    title={`Opened — a guest opened this invite (code used) on ${formatOpenedDate(
-                                      family.firstOpenedAt!,
-                                    )}`}
-                                  >
-                                    Opened
-                                  </span>
-                                </Show>
-                              </Show>
-                            </span>
-                            <div class="flex flex-wrap items-center gap-2">
-                              {/* Editors only: these write. A viewer reads each
-                                  guest's switch instead. */}
-                              <Show when={plusOnesShown() && canEdit() && permission().total > 0}>
-                                <fieldset class="m-0 flex min-w-0 flex-wrap items-center gap-2 border-0 p-0">
-                                  <legend class="sr-only">
-                                    Plus-ones for the {family.familyName} household
-                                  </legend>
-                                  <span class="font-body text-text-muted text-ui-xs tracking-ui-wide">
-                                    Plus-ones: {permission().allowed} of {permission().total}
-                                  </span>
-                                  {/* `aria-disabled`, never `disabled`: the
-                                      button keeps focus through its own write
-                                      and stays reachable when it would change
-                                      nothing. */}
-                                  <Button
-                                    variant="quiet"
-                                    size="sm"
-                                    type="button"
-                                    aria-disabled={permission().allowed === permission().total}
-                                    aria-busy={isBusy(busyKey(householdScope)) ? "true" : undefined}
-                                    onClick={() => requestPermission(householdScope, true)}
-                                  >
-                                    Allow everyone
-                                  </Button>
-                                  <Button
-                                    variant="quiet"
-                                    size="sm"
-                                    type="button"
-                                    aria-disabled={permission().allowed === 0}
-                                    aria-busy={isBusy(busyKey(householdScope)) ? "true" : undefined}
-                                    onClick={() => requestPermission(householdScope, false)}
-                                  >
-                                    Allow no one
-                                  </Button>
-                                </fieldset>
-                              </Show>
-                              <Button
-                                variant="quiet"
-                                size="sm"
-                                type="button"
-                                disabled={!messageSettled()}
-                                onClick={() => void copyMessage(family)}
-                              >
-                                Copy message
-                              </Button>
-                              {/* Deactivate is confirm-gated (cuts off a live code);
-                                Reactivate is a direct restore. Owner-only —
-                                code management sits above editor writes. */}
-                              <Show when={props.canManage}>
-                                <Show
-                                  when={isDeactivated(family)}
-                                  fallback={
-                                    <Show
-                                      when={confirmingId() === family.familyId}
-                                      fallback={
-                                        <Button
-                                          variant="quietDanger"
-                                          size="sm"
-                                          type="button"
-                                          onClick={() => setConfirmingId(family.familyId)}
-                                          disabled={togglingId() === family.familyId}
-                                          title="Disable this household's code (e.g. a withdrawn invite). Reversible — their guests and RSVPs are kept."
-                                        >
-                                          Deactivate
-                                        </Button>
-                                      }
-                                    >
-                                      <span class="font-body text-text-muted text-ui-xs tracking-ui-wide">
-                                        Disable this code?
-                                      </span>
-                                      <button
-                                        type="button"
-                                        onClick={() => void toggleDeactivated(family, true)}
-                                        disabled={togglingId() === family.familyId}
-                                        class="border-error bg-error font-body text-bg text-ui-xs tracking-ui-wider rounded-sm border px-2.5 py-1 uppercase transition duration-(--dur-fast) ease-(--ease-out) hover:opacity-90 disabled:opacity-40"
-                                      >
-                                        {togglingId() === family.familyId
-                                          ? "Deactivating…"
-                                          : "Confirm"}
-                                      </button>
-                                      <Button
-                                        variant="subtle"
-                                        size="sm"
-                                        type="button"
-                                        onClick={() => setConfirmingId(null)}
-                                        disabled={togglingId() === family.familyId}
-                                      >
-                                        Cancel
-                                      </Button>
-                                    </Show>
-                                  }
-                                >
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    type="button"
-                                    onClick={() => void toggleDeactivated(family, false)}
-                                    disabled={togglingId() === family.familyId}
-
-                                    title="Re-enable this household's code — their guests and RSVPs were kept."
-                                  >
-                                    {togglingId() === family.familyId
-                                      ? "Reactivating…"
-                                      : "Reactivate"}
-                                  </Button>
-                                </Show>
-                              </Show>
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                      <For each={visibleMembers()}>
-                        {(member, index) => (
-                          <tr class="hover:[&>td]:bg-surface">
-                            <Td valign="middle" indent>
-                              {member.firstName} {member.lastName}
-                              <Show when={isPlusOne(member)}>
-                                {" "}
-                                <span class="font-body text-gold-ink border-gold/45 text-ui-xs tracking-ui-wide ml-1 inline-block rounded-sm border px-1.5 py-0.5 whitespace-nowrap">
-                                  Plus-one of {inviterName(member) || "another guest"}
-                                </span>
-                              </Show>
-                              <GuestEmailLine member={member} />
-                            </Td>
-                            <Td valign="middle">
-                              <div class="flex flex-wrap gap-1.5">
-                                <For each={member.events}>
-                                  {(eventId) => (
-                                    <span
-                                      class="bg-gold/10 text-gold text-ui-xs tracking-ui-wide inline-block rounded-sm px-2 py-0.5 uppercase"
-                                      title={eventId}
-                                    >
-                                      {eventNameById().get(eventId) ?? eventId}
-                                    </span>
-                                  )}
-                                </For>
-                                <Show when={member.events.length === 0}>
-                                  <span class="text-text-muted text-ui-sm">--</span>
-                                </Show>
-                              </div>
-                            </Td>
-                            <Show when={plusOnesShown()}>
-                              <Td valign="middle">
-                                {/* A plus-one cannot bring one, so their row
-                                    has no switch. */}
-                                <Show when={!isPlusOne(member)}>
-                                  <Switch
-                                    checked={member.plusOneAllowed === true}
-                                    label={`${fullName(member)} may bring a plus-one`}
-                                    labelHidden
-                                    readOnly={!canEdit()}
-                                    busy={
-                                      isBusy(`guest:${member.guestId}`) ||
-                                      isBusy(busyKey(householdScope))
-                                    }
-                                    onChange={(allowed) =>
-                                      requestPermission(
-                                        { kind: "guest", guestId: member.guestId },
-                                        allowed,
-                                      )
-                                    }
-                                  />
-                                </Show>
-                              </Td>
+                  const nameId = `household-${createUniqueId()}`;
+                  const plusOneControls = () =>
+                    plusOnesShown() && canEdit() && permission().total > 0;
+                  const plusOneSwitch = (member: FamilyMember, labelHidden: boolean) => (
+                    <Switch
+                      checked={member.plusOneAllowed === true}
+                      label={labelHidden ? `${fullName(member)} may bring a plus-one` : "+1"}
+                      labelHidden={labelHidden}
+                      aria-label={
+                        labelHidden ? undefined : `${fullName(member)} may bring a plus-one`
+                      }
+                      readOnly={!canEdit()}
+                      busy={isBusy(`guest:${member.guestId}`) || isBusy(busyKey(householdScope))}
+                      onChange={(allowed) =>
+                        requestPermission({ kind: "guest", guestId: member.guestId }, allowed)
+                      }
+                    />
+                  );
+                  /** The events a guest is invited to, as a quiet line of
+                   *  names with a dot between: each name whole, the line free
+                   *  to wrap between them. Nothing boxed that needs no box. */
+                  const eventChips = (member: FamilyMember) => (
+                    <p class="font-body text-text-muted text-ui-sm flex flex-wrap gap-x-1.5 gap-y-0.5">
+                      <For each={member.events}>
+                        {(eventId, i) => (
+                          <span class="whitespace-nowrap">
+                            <Show when={i() > 0}>
+                              <span aria-hidden="true" class="text-text-faint mr-1.5">
+                                ·
+                              </span>
                             </Show>
-                            <Td tone="muted" valign="middle" code>
-                              <Show when={index() === 0}>{family.publicId}</Show>
-                            </Td>
-                          </tr>
+                            {eventNameById().get(eventId) ?? eventId}
+                          </span>
                         )}
                       </For>
+                      <Show when={member.events.length === 0}>
+                        <span>--</span>
+                      </Show>
+                    </p>
+                  );
+                  /** A guest's name on one line, cut short; under it, muted,
+                   *  whose plus-one they are ("+1 · Kai" — the words in full
+                   *  for a screen reader) and their address. */
+                  const nameAndMeta = (member: FamilyMember) => (
+                    <>
+                      <span data-name class="text-text block truncate">
+                        {member.firstName} {member.lastName}
+                      </span>
+                      <Show when={isPlusOne(member)}>
+                        <span
+                          data-meta
+                          class="font-body text-gold-ink text-ui-xs mt-0.5 block truncate"
+                        >
+                          <span aria-hidden="true">
+                            {plusOneShort({ plusOneOfName: inviterName(member) })}
+                          </span>
+                          <span class="sr-only">
+                            Plus-one of {inviterName(member) || "another guest"}
+                          </span>
+                        </span>
+                      </Show>
+                      <GuestEmailLine member={member} />
                     </>
+                  );
+                  return (
+                    // A group named by its household, so a screen reader hears
+                    // whose rows these are; not a `fieldset`, which brings form
+                    // semantics and a `min-content` inline size the table
+                    // inside would be held to, nor a named `section`, which
+                    // would make 300 landmarks.
+                    <div
+                      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
+                      role="group"
+                      aria-labelledby={nameId}
+                      class="border-border border-b last:border-b-0"
+                    >
+                      {/* The household's bar: one fixed-height row, stuck
+                          under the head strip while the household is on
+                          screen, and gone with it. Opaque, so the rows
+                          passing under it never show through. */}
+                      <div class={HOUSEHOLD_BAR} data-household-bar>
+                        {/* A deactivated household's name recedes; its mark
+                            stays at full strength, so its word still reads. */}
+                        <div class="flex min-w-0 flex-1 items-center gap-3">
+                          <span
+                            id={nameId}
+                            class={`font-display text-ui-md min-w-12 truncate ${
+                              isDeactivated(family) ? "text-text-muted" : "text-text"
+                            }`}
+                          >
+                            {family.familyName}
+                          </span>
+                          {householdBadge(family)}
+                        </div>
+                        {/* The count, shortened to an icon and a fraction: the
+                            narrow bar holds the name, its state and this. */}
+                        <Show when={compact() && plusOneControls()}>
+                          <span class="font-body text-text-muted text-ui-xs flex shrink-0 items-center gap-1 font-mono">
+                            <span aria-hidden="true">
+                              +1 {permission().allowed}/{permission().total}
+                            </span>
+                            <span class="sr-only">
+                              Plus-ones: {permission().allowed} of {permission().total}
+                            </span>
+                          </span>
+                        </Show>
+                        <Show
+                          when={compact()}
+                          fallback={wideActions(
+                            family,
+                            permission,
+                            householdScope,
+                            plusOneControls,
+                          )}
+                        >
+                          {narrowActions(family)}
+                        </Show>
+                      </div>
+
+                      <Show
+                        when={compact()}
+                        fallback={
+                          <Table
+                            scroll="page"
+                            aria-labelledby={nameId}
+                            frame="none"
+                            class={`[&>table]:table-fixed ${ROWS_SCROLL_MARGIN}`}
+                          >
+                            {colgroup()}
+                            {/* The real heads, for assistive technology: kept
+                                in the table's layout, their words hidden and
+                                the row given no height. The head strip above
+                                is what the eye reads. */}
+                            <thead>
+                              <tr>
+                                <For each={HEADS()}>{(name) => <Th srOnly>{name}</Th>}</For>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              <For each={visibleMembers()}>
+                                {(member, index) => (
+                                  <tr class="hover:[&>td]:bg-surface">
+                                    <Td valign="middle">{nameAndMeta(member)}</Td>
+                                    <Td valign="middle">{eventChips(member)}</Td>
+                                    <Show when={plusOnesShown()}>
+                                      <Td valign="middle">
+                                        {/* A plus-one cannot bring one, so
+                                            their row has no switch. */}
+                                        <Show when={!isPlusOne(member)}>
+                                          {plusOneSwitch(member, true)}
+                                        </Show>
+                                      </Td>
+                                    </Show>
+                                    <Td tone="muted" valign="middle" code class="whitespace-nowrap">
+                                      <Show when={index() === 0}>{family.publicId}</Show>
+                                    </Td>
+                                  </tr>
+                                )}
+                              </For>
+                            </tbody>
+                          </Table>
+                        }
+                      >
+                        {/* Each guest a block on a narrow panel — name; email;
+                            events; their plus-one switch; the household's code
+                            once — so nothing scrolls sideways. */}
+                        <ul aria-labelledby={nameId} class={ROWS_SCROLL_MARGIN}>
+                          <For each={visibleMembers()}>
+                            {(member, index) => (
+                              <li class="border-border/40 flex flex-col gap-2 border-b px-4 py-3 last:border-b-0">
+                                <div class="font-body text-ui-base min-w-0">
+                                  {nameAndMeta(member)}
+                                </div>
+                                {eventChips(member)}
+                                <Show when={plusOnesShown() && !isPlusOne(member)}>
+                                  <div class="font-body text-text-muted text-ui-sm">
+                                    {plusOneSwitch(member, false)}
+                                  </div>
+                                </Show>
+                                <Show when={index() === 0}>
+                                  <p class="text-text-muted text-ui-sm tracking-ui-wide font-mono">
+                                    <span class="sr-only">Family code </span>
+                                    {family.publicId}
+                                  </p>
+                                </Show>
+                              </li>
+                            )}
+                          </For>
+                        </ul>
+                      </Show>
+                    </div>
                   );
                 }}
               </For>
-            </tbody>
-          </Table>
-        </Show>
+            </div>
+          </Show>
+        </div>
       </Show>
+
+      {/* The narrow layout's one household menu. */}
+      <Show when={compact()}>{householdMenuView()}</Show>
+
+      {/* The narrow layout's Deactivate confirmation. */}
+      <Modal
+        open={confirmingDialog() !== null}
+        onClose={() => setConfirmingDialog(null)}
+        labelledBy={confirmTitleId}
+        class="w-full max-w-md"
+      >
+        <Show when={shownConfirm()}>
+          {(family) => {
+            let cancel: HTMLButtonElement | undefined;
+            onMount(() => cancel?.focus());
+            return (
+              <div class="flex flex-col gap-4">
+                <p id={confirmTitleId} class="font-display text-text text-ui-md font-light">
+                  Disable {family().familyName}’s code?
+                </p>
+                <p class="font-body text-text-muted text-ui-sm leading-relaxed">
+                  Their link stops opening the invite. Their guests and replies are kept, and you
+                  can reactivate the code at any time.
+                </p>
+                <div class="flex flex-wrap justify-end gap-2">
+                  <Button
+                    ref={cancel}
+                    variant="quiet"
+                    type="button"
+                    autofocus
+                    onClick={() => setConfirmingDialog(null)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="danger"
+                    type="button"
+                    disabled={togglingId() === family().familyId}
+                    onClick={() => {
+                      const target = family();
+                      void toggleDeactivated(target, true).then(() => setConfirmingDialog(null));
+                    }}
+                  >
+                    {togglingId() === family().familyId ? "Deactivating…" : "Deactivate"}
+                  </Button>
+                </div>
+              </div>
+            );
+          }}
+        </Show>
+      </Modal>
 
       {/* Asks before a turn-off that deletes named plus-ones. `onClose` is the
           one place the pending removal is dropped: the dialog also closes on

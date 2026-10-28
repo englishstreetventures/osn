@@ -58,7 +58,7 @@
       "error",
       {
         "additionalTestBlockFunctions": ["it.effect", "effectIt.effect", "it.live"],
-        "assertFunctionNames": ["expect", "expectFailsWith", "assertNoAccountId"]
+        "assertFunctionNames": ["expect", "expectFailsWith", "assertNoAccountId", "expectPass"]
       }
     ],
 

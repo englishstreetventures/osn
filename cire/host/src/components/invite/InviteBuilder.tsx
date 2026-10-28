@@ -953,7 +953,9 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                 below `@4xl/builder` (where there's no room for the sticky side
                 preview), a button that opens the composed preview in a modal
                 instead. ── */}
-              <div class="border-border bg-bg/90 sticky top-0 z-20 -mx-6 flex items-center gap-2 border-b px-6 py-2 backdrop-blur">
+              {/* Under the top bar and the module's view bar, below the bar's
+                  layer, so the bar is never covered. */}
+              <div class="border-border bg-bg/90 sticky top-[calc(var(--chrome-h)+var(--bar-h,0px))] z-10 -mx-6 flex items-center gap-2 border-b px-6 py-2 backdrop-blur">
                 {/* No `relative` here on purpose: the open menu positions
                   against the STICKY BAR (already a positioned element, so it is
                   the containing block), which is wider than this nav column by
@@ -1553,7 +1555,10 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                   page is legible, which is the whole point of the pane. */}
                 <Show when={showPreviewPane()}>
                   <aside class="hidden w-80 shrink-0 @4xl/builder:block @6xl/builder:w-96">
-                    <div class="sticky top-12">
+                    {/* Under the stuck chrome and the section tabs, and no
+                        taller than the screen left below them, so its foot is
+                        never out of reach. */}
+                    <div class="sticky top-[calc(var(--chrome-h)+var(--bar-h,0px)+3rem)] max-h-[calc(100svh-var(--chrome-h)-var(--bar-h,0px)-3rem)] overflow-y-auto">
                       <PreviewPane
                         tokens={previewTokens()}
                         toneSurface={toneSurface}

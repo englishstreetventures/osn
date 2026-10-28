@@ -14,10 +14,14 @@ import "../../src/styles/global.css";
  *   `<section>`, so the rule reaches the `<table>` through `[&>table]`, and a
  *   descendant selector that stops matching fails silently;
  * - that the columns stay put while a search narrows the list;
- * - that every heading, badge, button and word still fits its column at desktop,
- *   tablet and phone width, for an editor (five columns) and a viewer (four) —
- *   a column no longer grows to fit a long name, so the name has to break;
- * - that a phone scrolls the region sideways rather than crushing the columns.
+ * - that every heading, badge, button and word still fits its column at desktop
+ *   and tablet width, for an editor (five columns) and a viewer (four) — a
+ *   column no longer grows to fit a long name, so the name has to break;
+ * - that the narrow layout a phone gets — stacked rows, no table — keeps every
+ *   word, badge and button inside its block, and never scrolls sideways.
+ *
+ * The view is drawn alone, so which layout it draws is its `compact` prop: the
+ * module shell decides it from the panel's width.
  *
  * The measurement that justified the change is at the bottom, opt-in.
  *
@@ -63,17 +67,21 @@ const PAYLOAD = {
 const FIRST_EVENT = PAYLOAD.events[0]!;
 const ROWS = FIRST_EVENT.guests.length + FIRST_EVENT.unresponded.length;
 
-async function renderList(canEdit = true) {
+async function renderList(canEdit = true, compact = false) {
   authFetch.mockResolvedValue(
     new Response(JSON.stringify(PAYLOAD), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     }),
   );
-  const view = render(() => <RsvpView weddingId="wed_1" canEdit={canEdit} />);
-  await vi.waitFor(() => expect(document.querySelectorAll("tbody > tr")).toHaveLength(ROWS), {
-    timeout: 5_000,
-  });
+  const view = render(() => <RsvpView weddingId="wed_1" canEdit={canEdit} compact={compact} />);
+  await vi.waitFor(
+    () =>
+      expect(document.querySelectorAll('tbody > tr, ul[aria-label^="Replies"] > li')).toHaveLength(
+        ROWS,
+      ),
+    { timeout: 5_000 },
+  );
   await document.fonts.ready;
   return view;
 }
@@ -123,7 +131,7 @@ function spills(table: HTMLTableElement): string[] {
   }
   for (const td of table.querySelectorAll<HTMLTableCellElement>("tbody td")) {
     if (td.scrollWidth > td.clientWidth) out.push(`cell "${td.textContent?.trim()}"`);
-    for (const piece of td.querySelectorAll("span.inline-block, button")) {
+    for (const piece of td.querySelectorAll("[data-provenance], [data-status], button")) {
       if (!inside(piece, td)) out.push(`"${piece.textContent?.trim()}" in its cell`);
     }
   }
@@ -140,9 +148,9 @@ describe("the replies table's layout", () => {
     expect(markers.length).toBeGreaterThan(30);
     expect(markers.some((text) => text.includes("Wolfeschlegelsteinhausenbergerdorff"))).toBe(true);
     expect(
-      [...document.querySelectorAll("tbody span.inline-block")].some(
-        // The visible word only: the badge also holds its hidden explanation.
-        (badge) => badge.firstChild?.textContent?.trim() === "Household-entered",
+      [...document.querySelectorAll("tbody [data-provenance]")].some(
+        // The icon's name: the badge also holds its hidden explanation.
+        (badge) => badge.textContent?.trim() === "Household-entered",
       ),
     ).toBe(true);
   });
@@ -173,7 +181,6 @@ describe("the replies table's layout", () => {
     for (const [width, height] of [
       [1280, 900],
       [768, 1024],
-      [414, 896],
     ] as const) {
       it(`fits every head, badge, button and word inside its column for ${who} at ${width}px`, async () => {
         await page.viewport(width, height);
@@ -182,15 +189,33 @@ describe("the replies table's layout", () => {
       });
     }
 
-    it(`scrolls sideways on a phone for ${who} rather than squeezing the columns`, async () => {
+    it(`fits every word, badge and button inside its block on a phone for ${who}`, async () => {
       await page.viewport(414, 896);
-      await renderList(canEdit);
-      const table = tables()[0]!;
-      const region = table.parentElement!;
-      expect(region.scrollWidth).toBeGreaterThan(region.clientWidth);
-      // The floor the column widths add up to: 45rem with the actions column,
-      // 37rem without it.
-      expect(table.getBoundingClientRect().width).toBe(canEdit ? 720 : 592);
+      await renderList(canEdit, true);
+      expect(tables()).toHaveLength(0);
+      const out: string[] = [];
+      for (const block of document.querySelectorAll<HTMLElement>(
+        'ul[aria-label^="Replies"] > li',
+      )) {
+        if (block.scrollWidth > block.clientWidth) out.push(`block "${block.textContent?.trim()}"`);
+        for (const piece of block.querySelectorAll("p, span.inline-block, button")) {
+          if (!inside(piece, block)) out.push(`"${piece.textContent?.trim()}" in its block`);
+        }
+      }
+      expect(out).toEqual([]);
+    });
+
+    it(`does not scroll sideways on a phone for ${who}`, async () => {
+      await page.viewport(414, 896);
+      await renderList(canEdit, true);
+      const list = document.querySelector<HTMLElement>('ul[aria-label^="Replies"]')!;
+      expect(list.scrollWidth).toBeLessThanOrEqual(list.clientWidth);
+      expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(innerWidth);
+      // The block keeps everything a row held: the button that records a
+      // reply is there for an editor, and for a viewer it is not.
+      expect(list.querySelectorAll("li button[aria-label*=' reply for ']").length).toBe(
+        canEdit ? ROWS : 0,
+      );
     });
   }
 });

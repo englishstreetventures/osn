@@ -17,7 +17,8 @@ the desk it was made on.**
 
 When a host moves between modules, sub-tabs, or steps of the invite builder, the
 panel does not unmount and remount. It keeps its box, animates its height to the
-new content, and cross-fades what is inside. Nothing in the chrome may jump.
+new content, and cross-fades what is inside. Nothing in the chrome may jump: the
+module's view bar animates its height with the panel's (§The stuck stack).
 
 Every motion decision below follows from this. Where a transition would need the
 frame to disappear and come back, the transition is wrong, not the frame.
@@ -90,6 +91,8 @@ be used as a class somewhere too, which means the invite preview works by luck;
 | `--gold-dim` | the same metal, fading out |
 | `--gold-ink` | gold as readable ink; **≥ 4.5:1** |
 | `--success` / `--warn` / `--error` | status; separate from the accent, as status colour always should be |
+| `--status-yes`, `--status-no`, `--status-maybe` | the fills of a status mark's circle (§Status marks); opaque |
+| `--status-no-ink`, `--status-maybe-ink` | the glyph on the red and tint circles; **≥ 4.5:1** on its circle |
 | `--focus` | the focus ring |
 | `--inner-lip`, `--elev-1`, `--elev-2` | depth |
 
@@ -467,7 +470,7 @@ by variant map, and the caller's own `class` is appended last.
 | `EmptyState` | A title, an optional line of prose, and the one thing to do about it. |
 | `Meter`, `meterPct` | A thin bar. Scaled by transform rather than resized — see the file. `meterPct` clamps at both ends and reads a zero or missing maximum as empty, not as a division by zero. |
 | `Stat` | A figure, then what it is, then an optional hint. |
-| `Table`, `Th`, `Td` | Every table in the portal as one set of parts. The wrapper scrolls so the page never does, and it is a named, focusable `<section>` so the columns past the right edge are reachable without a mouse. `label` is required. `Th` and `Td` take `pin` for a head row or first column held in view (§A table that keeps its heads in view). |
+| `Table`, `Th`, `Td` | Every table in the portal as one set of parts. By default the wrapper scrolls so the page never does, and it is a named, focusable `<section>` so the columns past the right edge are reachable without a mouse; `label` is required. `scroll="page"` clips instead and lets the page scroll, for a table whose head row sticks under the stuck stack (§A table that scrolls with the page). `frame="none"` drops the border for a table inside something that draws its edge. `Th` and `Td` take `pin` for a head row or first column held in view; `Th srOnly` keeps a head for assistive technology under a visible copy. |
 
 ### Who holds a task: faces, not names
 
@@ -715,70 +718,271 @@ turns every move of the design into a test edit.
 
 ### A badge that explains itself
 
-A short badge whose meaning is not obvious — the RSVP table's New, Host-entered,
-Host-updated, Household-entered and linked musubi — sits inside `@shared/ui`'s
-`Tooltip`. A screen reader hears the explanation once, as hidden text; a mouse
-user sees it on hover, in a panel on `--surface-raised` at `text-ui-xs`. The
-badge keeps its own colours and stays out of the tab order, so keyboard and
-touch users see the word alone. An explanation a host needs in order to act goes
-in visible text instead. Never a `title`: Chrome would hand a screen reader the
-words a second time. `wiki/shared/component-library.md` §`Tooltip` has the rest.
+A badge whose meaning is not obvious sits inside `@shared/ui`'s `Tooltip`. A
+screen reader hears the explanation once, as hidden text; a mouse user sees it
+on hover, in a panel on `--surface-raised` at `text-ui-xs`. The badge stays out
+of the tab order. An explanation a host needs in order to act goes in visible
+text instead. Never a `title`: Chrome would hand a screen reader the words a
+second time. `wiki/shared/component-library.md` §`Tooltip` has the rest.
+
+Where a badge repeats once per household or row inside the module shell — a
+household's Opened, Sent or Deactivated — it is a `TipNote` (`ActionTip.tsx`)
+instead: the same hidden text, and the shell's one panel on hover, so a list of
+300 builds no tooltip of its own per row.
+
+A badge stays out of the tab order, so a host on a phone or at the keyboard
+cannot hover it. Where the badges are icons with nothing written beside them —
+the RSVP meta line's provenance — one button in the view bar opens a key that
+names every one, with what it says: "What the reply icons mean", a quiet 28px
+`info` circle at the end of the bar's second row (on a phone, the search row),
+its panel the marks' own words. One stop for the page, not one per row.
+
+On a guest's meta line (§Names and meta lines) a provenance badge is an icon
+with nothing written beside it, at `--text-muted`, 14px, stroke 1.75: its name
+is hidden text inside it, its explanation the tooltip. Host-entered is
+`user-round-pen`, Host-updated `pencil-line`, Household-entered `users-round`,
+a linked musubi `link-2`. "New" stays a word — gold-ink, tiny caps, no box —
+because it says what to look at, and a dot would leave colour alone to say it.
+
+### Status marks
+
+Iconography carries the state (the owner's lead: Flighty). A state is a filled
+circle with a glyph, then its word in tiny caps — `text-ui-xs`, medium,
+`tracking-ui-wider` — with no outline, no box and no border round the word
+(`StatusMark.tsx`). The four tones:
+
+| Tone | Circle | Glyph | Word | Used for |
+|---|---|---|---|---|
+| `yes` | solid `--status-yes` (gold) | `--on-gold` | `--gold-ink` | Attending; a household's Opened (`eye`) |
+| `no` | deep muted red `--status-no` | `--status-no-ink` | `--error` | Declined (`x`); Deactivated (`ban`) |
+| `maybe` | gold tint `--status-maybe` | `--status-maybe-ink` | `--text-muted` | Maybe (`?`); a household's Sent (`send`) |
+| `none` | an empty 2px ring in `--text-faint` | — | `--text-muted` | No reply |
+
+Contrast, measured from the ramps (`GuestsMarks.browser.test.tsx` holds each
+glyph at 4.5:1 on its painted circle, in both themes, though a glyph owes 3:1;
+the words are contract inks):
+
+| Pair | Dark | Light |
+|---|---|---|
+| `--on-gold` on `--status-yes` | 8.54:1 | 4.87:1 |
+| `--status-no-ink` on `--status-no` | 8.33:1 | 6.71:1 |
+| `--status-maybe-ink` on `--status-maybe` | 6.66:1 | 5.86:1 |
+| `--gold-ink` on `--bg` (the Attending word) | 11.66:1 | 5.14:1 |
+| `--error` on `--bg` (the Declined word) | 6.22:1 | 4.60:1 |
+
+*Computed 2026-10-28 with `contrastOklch` (`@cire/theme`) from the values in `src/styles/global.css`; `GuestsMarks.browser.test.tsx` checks the painted words and glyphs in both themes.*
+
+The circle is 16px beside its word in a table cell, and 20px over it
+(`stacked`) in the fixed column that starts a phone row. Declined is never a red
+border: at 1px a red edge on either ground was the poorest contrast on the page.
+The circle alone (`StatusDot`, 14px) stands for its word on a chip that names
+it.
+
+### Names and meta lines
+
+A guest's name is one line: it ends in an ellipsis, never breaks mid-word, and
+never shares its line with a badge. Under it, a muted meta line at
+`text-ui-xs` holds what else there is — whose plus-one they are, what changed,
+who answered, how — each piece whole, the line itself cut short at its end
+(Luma's name and meta line; Airbnb's dot-separated meta).
+
+A plus-one is "+1" on screen, never "Plus-one": "+1 · Kai" on the meta line, the
+inviter's first name after the dot, in `--gold-ink`. The full words ("Plus-one
+of Kai Wolfeschlegelsteinhausenbergerdorff") are hidden text, so a screen reader
+and the search still have them. The households' column head is "+1", its
+hidden head "Plus-one"; a guest's switch on a phone is labelled "+1"; a
+household's count is "+1 1/2", its hidden words "Plus-ones: 1 of 2".
+
+A phone's RSVP row is three columns (Flighty): the reply's mark stacked over its
+word in a fixed 4.25rem column at the start, so the marks read down the list;
+the name, the household, the meta line and the dietary answer (a `utensils`
+icon, then the words, free to wrap at words) in the middle; the button at the
+end. A household's events are a quiet line of names with a dot between, not a
+row of boxes.
+
+### Chips
+
+A chip is a pill at the small search box's height (`h-7`), `text-ui-sm`, on
+`--surface` with no border, its count in the mono face in `--text-muted` beside
+its name. Chosen, it fills in the brand green (`--brand`, `--on-brand` on it,
+8.66:1): Wise's filter chips. A row of chips never wraps; it scrolls sideways
+(Wise). Pills, so they never read as part of a segmented control. Focused from
+the keyboard a chip wears the dashboard's one focus ring, never `outline-none`;
+the row keeps 4px of padding inside a matching negative margin, so its sideways
+scroll, which clips both ways, never cuts the ring.
+
+- **Event chips** pick the event on the RSVP page. They follow the module's
+  segmented sub-tabs on the view bar's first row after a hairline divider
+  (`data-bar-divider`), so the bar holds two groups that look like two: a
+  boxed segmented control, then free pills.
+- **Reply chips** filter the RSVP list and are its legend and counter at once
+  (Partiful): each carries its reply's `StatusDot` and its count. The chosen
+  one shows ⊗ (`circle-x`), and a second press clears it back to All. On a phone
+  they keep their dots and counts, their words hidden text, on a row of their
+  own under the search and the sort.
+
+**Grouping.** The RSVP list is not grouped under status headings (Apple
+Invites). The host sorts it by guest or household and searches it; a heading
+per status would split a household's replies across the page and fight the
+sort, and would be one more stuck layer. The reply chips already answer "who
+still owes a reply" in one tap, with the count on the chip, and the column of
+marks scans down the page.
 
 ### A tab strip inside a view
 
 A view that shows one of several things at a time — the RSVP page's events —
-picks it from a tab strip in the module sub-tabs' look: a hairline track on `--surface` at 30%, uppercase
-`text-ui-xs` labels at `tracking-ui-wider`, and one `bg-gold/12` pill that
-travels to the chosen tab (`createSlidingPill`). Same look, same keys: the
-arrows, Home and End move focus and Enter or Space chooses, because a panel
-that draws hundreds of rows is not instant, and choosing what you only passed
-over would draw it anyway.
+picks it from a row of event chips (§Chips), a `tablist` with the keys of the
+module sub-tabs: the arrows, Home and End move focus and Enter or Space
+chooses, because a panel that draws hundreds of rows is not instant, and
+choosing what you only passed over would draw it anyway.
 
-A strip that can outgrow its row scrolls sideways rather than wrapping, and
-brings a tab into view by scrolling itself, never the page. A count beside a
-tab's label sits in the mono face at normal tracking (`tracking-normal`).
-Anything a tab needs to say about what it holds — the RSVP page's "New" — is a
-word in the row badge's look, never a dot: colour does not carry a meaning
-alone. A tab whose name is a phrase (the event and its count) gets an
-`aria-label` in sentence case, since Chrome reads out the label's capitals; a
-one-word label can stay in capitals, as the module sub-tabs do
+The row scrolls sideways rather than wrapping, and brings a chip into view by
+scrolling itself, never the page. Anything a chip needs to say about what it
+holds — the RSVP page's "New" — is a word, never a dot: colour does not carry a
+meaning alone. A chip whose name is a phrase (the event and its count) gets an
+`aria-label` in sentence case
 ([frontend-patterns](../../wiki/shared/frontend-patterns.md) §Chrome exposes a
 `title` as a description).
 
-Ids carry a per-view prefix, so a strip nested in the module shell's tab panel
-never meets its `subtab-*` and `subpanel-*`.
+A view lends its chips to the module's view bar (§The stuck stack), after a
+divider beside the module's own sub-tabs, outside the module's tab panel. Ids
+carry a per-view prefix, so they never meet the shell's `subtab-*` and
+`subpanel-*`, and the chips keep `aria-controls` on the view's own panel.
 
-### A table that keeps its heads in view
+### The stuck stack
 
-A long table whose head row and first column must stay on screen — the RSVP
-table — scrolls in its own box. A sticky head can only stick to the box that
-scrolls, and `Table`'s box already scrolls
-([frontend-patterns](../../wiki/shared/frontend-patterns.md) §`position:
-sticky` resolves its offsets against the scrollport). On the box:
+A long view keeps what it is about on screen while its rows scroll by. The
+module title and its hint scroll away; under the top bar, layers hold at the
+top of the window, each one's top at the foot of the one above. On a laptop
+the whole stack, top bar included, is at most 220px; on a phone, 200px (both
+asserted in `GuestsStack.browser.test.tsx`).
 
-- `max-h-[calc(100svh-6rem)]` — a height to scroll within. The top bar is at
-  most 4rem and a hairline, so the whole box fits on screen under it at once.
-- `scroll-pt-12 scroll-ps-50` — scroll padding a little larger than the head
-  row and the 12rem Guest column, so a control that takes keyboard focus is
-  scrolled clear of the pinned cells instead of being left beneath them.
-- `isolate`, so the pinned cells' layers stay inside the box, and `relative`,
-  so hidden text inside it belongs to it.
+| Layer | `top` | z | Ground |
+|---|---|---|---|
+| 0 Top bar | 0 | 30 | `--bg` at 85%, blurred |
+| 1 View bar | `var(--chrome-h)` | 20 | `--bg`, hairline below |
+| 2 Column heads, or a card's header | `+ var(--bar-h, 0px)` | 10 | `--bg`; a card header paints the card's ground opaque |
+| 3 Household bar | `+ var(--heads-h, 0px)` | 5 | `--surface`, hairline below |
 
-`@shared/ui`'s `pin` variant on `Th` and `Td` (`top`, `top-start`, `start`)
-pins the cells; classes at the call site cannot, because a pinned cell paints
-the page ground so the rows passing under it never show through. That only
-reads right on a table set straight on the ground, not on a tinted card. The
-pinned column carries a full hairline on its end edge; that line is what says
-where the held column stops once the others slide beneath it. A row's hover
-fill still reaches its pinned cell.
+Every offset is a sum of heights the page already knows, never a guess:
 
-Pin a column only where the box can scroll sideways. Each pinned cell costs
-every scrolled frame, so the RSVP table's Guest cells drop back into flow once
-the module panel is wide enough for every column
-(`@min-[47rem]/panel:static`, `39rem` for a viewer's narrower table).
+- `--chrome-h` — the top bar with its hairline: `calc(3.5rem + 1px)`, and
+  `calc(4rem + 1px)` under `@container frame (min-width: 42rem)`, the bar's own
+  breakpoint. It lives on `.chrome-scope` — a `display: contents` wrapper round
+  the top bar and `<main>`, and the boot bar — so it follows the frame, not the
+  viewport. The top bar takes its height from it.
+- `--bar-h` — measured: `ModuleShell` writes the view bar's height on the shell
+  from a `ResizeObserver` and removes it with the bar, so every use carries a
+  `0px` fallback and a layer holds at the top bar's foot before the first
+  measure.
+- `--hh-bar-h`, `--card-head-h` (2.75rem) and `--head-strip-h` (2.125rem) —
+  the fixed rows. Each is one line, `whitespace-nowrap`, at that height.
+- `--heads-h` — set by a view that has a head strip (the strip and its
+  hairline), `0px` where it has none.
 
-The trade is that the table scrolls inside the page: a wheel over it moves the
-rows first and the page once the box reaches its end.
+A control that takes focus inside a view carries the stack's height above it
+as its `scroll-margin-top`, so the browser never leaves focus under a layer. A
+switch adds a rem: its focusable input sits inside its label, below the
+track's top edge.
+
+A stuck layer is the same box stuck or not: nothing in it changes size when it
+sticks, because Safari has no scroll anchoring to hide the jump. A shadow on
+`@container scroll-state(stuck: top)` would be an enhancement only; none is
+drawn.
+
+**The view bar.** One compact bar per module that has sub-tabs (Events,
+Vendors, Registry, Guests, Invite, Settings), between the title and the panel,
+outside the panel's animated frame. A `role="region"` named "<Module>
+controls" — one landmark, outside the module's tab panel, whose sub-tabs still
+control it. First row: the sub-tabs, icon and label, then whatever the open
+view lends the row (`<ViewBar slot="end">`); a second row draws only when a
+view fills it (`slot="row2"`). Below a 36rem panel the sub-tabs show their
+icons alone, their label each one's name and tooltip. The bar's height moves
+with the panel's, through `createAutoSize` on its own frame, so a change of
+view that adds or drops a row never jumps; a view that loads holds its rows'
+height with a placeholder the size of each. A module with one view has no bar.
+
+**What each Guests tab lends it.** RSVPs: a divider and the event chips in the
+first row; the slim search and the reply chips in the second; on a phone the
+search and the sort select in the second and the reply chips in a third.
+Households: the count and the search in the first row, and on a phone the
+search alone. Edit: a divider, the mode switch and Add household, icons alone
+below 36rem. "Showing n of m" and the tallies stay in the panel, under the bar.
+Measured with the third phone row, the phone RSVP stack is 185px of its 200.
+
+**One variant, chosen by the panel.** A view names the narrowest panel its wide
+layout fits — the RSVP table's columns and 7rem of Dietary, 45rem for an editor
+and 37rem for a viewer; the households' tables, 46rem (40rem without the
+Plus-one column) — and draws its narrow layout below it, coming back only a rem
+above it (`createCompact` in `ViewBar.tsx`). One variant is drawn, never both
+hidden by CSS. Narrow, guest rows stack as blocks and nothing scrolls sideways.
+
+**Households.** Each household is a `group` named by its household, with a
+table of its own under one head strip that sticks at layer 2. The strip is a
+table with the same `<colgroup>` (Guest, Events at a third, +1 7rem, Code
+11rem), hidden from assistive technology; each household table keeps its own
+heads, `Th srOnly`, in its layout with no height. The household bar holds at
+layer 3 while its household is on screen and lets go at its end: the name in
+`--text` (`--text-muted` once deactivated), its state as a status mark, "+1
+n/m", then four icon actions with their
+names as tooltips — Allow everyone, Allow no one, Copy message, Deactivate (or
+Reactivate). Deactivate's confirmation takes the icons' place in the same row.
+Narrow, the state is one word, and the
+actions sit behind a "⋯"; Deactivate there opens a confirmation dialog,
+since a menu closes on choosing. One menu serves the list: each "⋯" is a plain
+button that opens it for its own household, on its first item from the
+keyboard, and closing gives focus back to that "⋯". A "⋯" pressed while the
+last menu is still fading waits for it to go.
+
+**Edit.** A card's header — the name field, the claim code and Delete household,
+then the column heads — sticks at layer 2 inside its card and lets go at its
+end. It paints the card's `bg-surface/30` composited over `--bg` as one opaque
+ground. The editor table is fixed layout with explicit column widths, shared by
+the header's head strip, which follows the table's sideways scroll through one
+capture-phase listener for the whole editor. An event name too long for its
+8rem column is cut short with an ellipsis and becomes a button that opens the
+whole name, by touch or keyboard, in the editor's one popover. Narrow, the header holds the name alone, its
+label the field's own. Add household hands focus to the new card's name.
+
+**Moving within the stack.** A search, a reply filter, a sort or an event change
+made deep in a list brings the list's top back to the stack's foot, focus left
+in the field; made with the list already in view, it moves nothing
+(`lib/scroll-to-results.ts`). A sub-tab or module change made with the bar
+stuck puts the new panel's top at the foot, once, and holds the panel at least
+a screen tall until its view's data lands, so the page cannot clamp meanwhile.
+
+**Icon-only controls.** Every control that shows an icon instead of its words
+keeps its words as its accessible name and shows them in a tooltip on hover
+and on keyboard focus (`ActionTip.tsx`). The tooltip is for the eye only, and
+there is one for the whole page: each control carries its words as `data-tip`,
+and the shell's `TipLayer` draws a single panel beside whichever one the
+pointer rests on (after 300ms, at once within 300ms of the last) or the
+keyboard reaches (at once). A touch, a press, Escape, activating the control
+or its leaving the page closes it. A list of 300 households, four icons each,
+mounts no tooltip machinery until someone hovers.
+
+### A table that scrolls with the page
+
+A long table whose head row must stay on screen — the RSVP table, each
+household's table — scrolls with the page, `Table scroll="page"`: its box
+clips sideways instead of scrolling, so the document stays the scroller and
+the pinned head row sticks to the page under the call site's offset
+(`top-[calc(var(--chrome-h)+var(--bar-h,0px))]`, which wins over `pin`'s
+`top-0`). A clipped column is gone, so such a table is never drawn narrower
+than its columns: below that width the view draws its narrow layout instead.
+Page mode is no tab stop and no region; the table is named by its caption or
+`aria-labelledby`.
+
+`@shared/ui`'s `pin` variant on `Th` pins the cells; classes at the call site
+cannot, because a pinned cell paints the page ground so the rows passing under
+it never show through. That only reads right on a table set straight on the
+ground, not on a tinted card.
+
+The box-scrolling table (the default) stays for a table that must scroll
+sideways at any width — the guest editor, which grows a column per event —
+with `pin` on `Th` and `Td` (`top`, `top-start`, `start`) where its box also
+scrolls down. Pin a column only where the box can scroll sideways: each pinned
+cell costs every scrolled frame.
 
 ### A column head that sorts
 

@@ -297,10 +297,24 @@ swiped-in panel from it ([[cire-invite-designs#The event sheet]]).
 **The scrollport is the nearest box that scrolls on either axis.** A box with
 `overflow-x: auto` computes its `overflow-y` to `auto` as well (CSS Overflow 3
 §3.1), so it scrolls both ways, and a sticky cell inside it sticks to that box —
-never to the page beyond. `@shared/ui`'s `Table` wraps every table in such a
-box, so a table head marked `sticky top-0` stays put only if that box itself
-scrolls down: give it a height to scroll within. Three costs come with that,
-each measured on cire's RSVP table ([[cire-rsvp-table]]):
+never to the page beyond. `overflow-x: clip` is the way out: it scrolls
+nothing, so a sticky cell inside it sticks to the page. `@shared/ui`'s `Table`
+wraps every table in a scrolling box by default; `scroll="page"` clips instead,
+for a head row that sticks to the page under the app's own stuck chrome
+([[component-library]] §Table and its pinned cells, `cire/host/DESIGN.md`
+§The stuck stack).
+
+**A sticky row is held by its whole `<table>`, not by its `<tbody>`.** A row's
+containing block for sticking is the table, so a household's bar inside one
+`<tbody>` of a shared table would stay stuck past its household's last row.
+A layer that must let go at the end of its group lives in a box of its own —
+one table, or one wrapper, per group — and a heading shared by every group
+lives above them all.
+
+A box-scrolling table whose head row stays put needs the box to scroll down
+too: give it a height to scroll within. Three costs come with that, each
+measured on cire's RSVP table when it scrolled in its own box
+([[cire-rsvp-table]]):
 
 - **Focus can land under a sticky cell.** The browser scrolls a focused control
   into the scrollport, which still includes the area an opaque sticky cell
@@ -308,9 +322,14 @@ each measured on cire's RSVP table ([[cire-rsvp-table]]):
   (`scroll-pt-*`, `scroll-ps-*`) keeps focus clear of them.
 - **Every sticky cell costs every scrolled frame.** A column pinned on each of
   900 rows multiplies the main-thread time a scroll takes; pin it only where
-  the box can actually scroll that way.
+  the box can actually scroll that way. A sticky layer per group is cheaper
+  than it sounds: the host portal's Households tab, a view bar, a head strip
+  and 300 household bars stuck to the page, spends no more layout and style
+  time over a scroll through all 300 than with the layers forced static.
+
+  *Measured 2026-10-28 — `GuestsStack.browser.test.tsx` "records layout and style time over a scroll", Chrome `Performance.getMetrics` (`LayoutDuration` + `RecalcStyleDuration`), 203 steps of 400px at 1280×800, median of three: 65.7ms stuck, 65.3ms unstuck (an earlier run: 57.1ms, 58.2ms).*
 - **A wheel over the box moves its rows first**, and the page only once the box
-  reaches its end.
+  reaches its end — one reason cire's long tables scroll with the page.
 
 ### The top layer is above every `z-index`, and outside it everything is `inert`
 

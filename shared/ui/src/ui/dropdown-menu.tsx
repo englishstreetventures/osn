@@ -1,13 +1,12 @@
-import { DropdownMenu as KobalteDropdownMenu } from "@kobalte/core/dropdown-menu";
+import {
+  DropdownMenu as KobalteDropdownMenu,
+  type DropdownMenuContentOptions,
+} from "@kobalte/core/dropdown-menu";
 import type { PolymorphicProps } from "@kobalte/core/polymorphic";
 import { clsx } from "clsx";
-import {
-  splitProps,
-  type ComponentProps,
-  type JSX,
-  type ParentComponent,
-  type ValidComponent,
-} from "solid-js";
+import { splitProps, type JSX, type ParentComponent, type ValidComponent } from "solid-js";
+
+import type { SafeProps } from "./props";
 
 const DropdownMenu = KobalteDropdownMenu;
 
@@ -52,7 +51,13 @@ function DropdownMenuTrigger<T extends ValidComponent = "button">(
   );
 }
 
-const DropdownMenuContent: ParentComponent<ComponentProps<"div">> = (props) => {
+/**
+ * The panel. `onCloseAutoFocus` is Kobalte's: where focus goes as the menu
+ * closes, for a menu opened by something other than its own trigger.
+ */
+const DropdownMenuContent: ParentComponent<
+  SafeProps<"div"> & Pick<DropdownMenuContentOptions, "onCloseAutoFocus">
+> = (props) => {
   const [local, others] = splitProps(props, ["class"]);
   return (
     <KobalteDropdownMenu.Portal>
@@ -68,9 +73,14 @@ const DropdownMenuContent: ParentComponent<ComponentProps<"div">> = (props) => {
   );
 };
 
-const DropdownMenuItem: ParentComponent<ComponentProps<"div"> & { onSelect?: () => void }> = (
-  props,
-) => {
+/**
+ * One choice. `disabled` is Kobalte's: the item stays in the menu, marked
+ * `data-disabled`, and cannot be chosen — for a choice that would change
+ * nothing right now, rather than one the reader may never make.
+ */
+const DropdownMenuItem: ParentComponent<
+  SafeProps<"div"> & { onSelect?: () => void; disabled?: boolean }
+> = (props) => {
   const [local, others] = splitProps(props, ["class", "onSelect"]);
   return (
     <KobalteDropdownMenu.Item
@@ -101,7 +111,7 @@ const DROPDOWN_LABEL_TONE = {
 } satisfies Readonly<Record<"heading" | "identity", string>>;
 
 const DropdownMenuLabel: ParentComponent<
-  ComponentProps<"span"> & { tone?: keyof typeof DROPDOWN_LABEL_TONE }
+  SafeProps<"span"> & { tone?: keyof typeof DROPDOWN_LABEL_TONE }
 > = (props) => {
   const [local, others] = splitProps(props, ["class", "tone"]);
   return (
@@ -116,7 +126,7 @@ const DropdownMenuLabel: ParentComponent<
   );
 };
 
-const DropdownMenuSeparator: ParentComponent<ComponentProps<"hr">> = (props) => {
+const DropdownMenuSeparator: ParentComponent<SafeProps<"hr">> = (props) => {
   const [local, others] = splitProps(props, ["class"]);
   return (
     <KobalteDropdownMenu.Separator
