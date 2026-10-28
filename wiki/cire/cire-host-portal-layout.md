@@ -316,19 +316,21 @@ component was previously reading a container it did not live in.
   controls where it stands. A view chooses its narrow layout from the panel's
   width with `createCompact`, below the narrowest panel its wide layout fits
   and back only a rem above it, and draws one variant.
-- **RSVPs** (`RsvpView`) — one event at a time, from a tab strip the view lends
-  the view bar with the search and the reply chips; what the page does is in
-  [[cire-rsvp-table]]. The layout half:
+- **RSVPs** (`RsvpView`) — one event at a time, from a row of event chips the
+  view lends the view bar after a divider, with the search and the reply chips
+  under them; what the page does is in [[cire-rsvp-table]]. The layout half:
 
-  - The strip takes the module sub-tabs' look but scrolls sideways rather than
-    wrapping, and the strip scrolls a chosen or focused tab into view, never
-    the page.
+  - The chips are pills, not a second segmented control, so the bar holds two
+    groups that look like two (`cire/host/DESIGN.md` §Chips). Each chip row
+    scrolls sideways rather than wrapping, and scrolls a chosen or focused chip
+    into view, never the page.
   - The table scrolls **with the page** (`Table scroll="page"`) and its head row
     sticks under the view bar; the rule underneath is in [[frontend-patterns]]
     §`position: sticky` resolves its offsets against the scrollport.
-  - Below a 45rem panel (37rem for a viewer, whose table is narrower) the rows
-    stack as blocks and the sort and reply filter become selects: a
-    page-scrolling table is clipped, never scrolled, so it is never drawn
+  - Below a 45rem panel (37rem for a viewer, whose table is narrower) each row
+    becomes three columns — the reply's mark over its word, the name and its
+    lines, the button — the sort a select and the reply chips a row of their
+    own: a page-scrolling table is clipped, never scrolled, so it is never drawn
     narrower than its columns.
 - **Households** (`GuestTable`) — one group and one table per household under
   one head strip, each household's bar held while it is on screen; below a

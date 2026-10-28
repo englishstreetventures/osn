@@ -91,6 +91,8 @@ be used as a class somewhere too, which means the invite preview works by luck;
 | `--gold-dim` | the same metal, fading out |
 | `--gold-ink` | gold as readable ink; **≥ 4.5:1** |
 | `--success` / `--warn` / `--error` | status; separate from the accent, as status colour always should be |
+| `--status-yes`, `--status-no`, `--status-maybe` | the fills of a status mark's circle (§Status marks); opaque |
+| `--status-no-ink`, `--status-maybe-ink` | the glyph on the red and tint circles; **≥ 4.5:1** on its circle |
 | `--focus` | the focus ring |
 | `--inner-lip`, `--elev-1`, `--elev-2` | depth |
 
@@ -684,40 +686,120 @@ turns every move of the design into a test edit.
 
 ### A badge that explains itself
 
-A short badge whose meaning is not obvious — the RSVP table's New, Host-entered,
-Host-updated, Household-entered and linked musubi — sits inside `@shared/ui`'s
-`Tooltip`. A screen reader hears the explanation once, as hidden text; a mouse
-user sees it on hover, in a panel on `--surface-raised` at `text-ui-xs`. The
-badge keeps its own colours and stays out of the tab order, so keyboard and
-touch users see the word alone. An explanation a host needs in order to act goes
-in visible text instead. Never a `title`: Chrome would hand a screen reader the
-words a second time. `wiki/shared/component-library.md` §`Tooltip` has the rest.
+A badge whose meaning is not obvious sits inside `@shared/ui`'s `Tooltip`. A
+screen reader hears the explanation once, as hidden text; a mouse user sees it
+on hover, in a panel on `--surface-raised` at `text-ui-xs`. The badge stays out
+of the tab order. An explanation a host needs in order to act goes in visible
+text instead. Never a `title`: Chrome would hand a screen reader the words a
+second time. `wiki/shared/component-library.md` §`Tooltip` has the rest.
+
+On a guest's meta line (§Names and meta lines) a provenance badge is an icon
+with nothing written beside it, at `--text-muted`, 14px, stroke 1.75: its name
+is hidden text inside it, its explanation the tooltip. Host-entered is
+`user-round-pen`, Host-updated `pencil-line`, Household-entered `users-round`,
+a linked musubi `link-2`. "New" stays a word — gold-ink, tiny caps, no box —
+because it says what to look at, and a dot would leave colour alone to say it.
+
+### Status marks
+
+Iconography carries the state (the owner's lead: Flighty). A state is a filled
+circle with a glyph, then its word in tiny caps — `text-ui-xs`, medium,
+`tracking-ui-wider` — with no outline, no box and no border round the word
+(`StatusMark.tsx`). The four tones:
+
+| Tone | Circle | Glyph | Word | Used for |
+|---|---|---|---|---|
+| `yes` | solid `--status-yes` (gold) | `--on-gold` | `--gold-ink` | Attending; a household's Opened (`eye`) |
+| `no` | deep muted red `--status-no` | `--status-no-ink` | `--error` | Declined (`x`); Deactivated (`ban`) |
+| `maybe` | gold tint `--status-maybe` | `--status-maybe-ink` | `--text-muted` | Maybe (`?`); a household's Sent (`send`) |
+| `none` | an empty 2px ring in `--text-faint` | — | `--text-muted` | No reply |
+
+Contrast, measured from the ramps (`tests/styles/tokens.test.ts` asserts each
+glyph at 4.5:1 though a glyph owes 3:1; the words are contract inks):
+
+| Pair | Dark | Light |
+|---|---|---|
+| `--on-gold` on `--status-yes` | 8.54:1 | 4.87:1 |
+| `--status-no-ink` on `--status-no` | 8.33:1 | 6.71:1 |
+| `--status-maybe-ink` on `--status-maybe` | 6.66:1 | 5.86:1 |
+| `--gold-ink` on `--bg` (the Attending word) | 11.66:1 | 5.14:1 |
+| `--error` on `--bg` (the Declined word) | 6.22:1 | 4.60:1 |
+
+*Computed 2026-10-28 with `contrastOklch` (`@cire/theme`) from the values in `src/styles/global.css`; `GuestsMarks.browser.test.tsx` checks the painted words and glyphs in both themes.*
+
+The circle is 16px beside its word in a table cell, and 20px over it
+(`stacked`) in the fixed column that starts a phone row. Declined is never a red
+border: at 1px a red edge on either ground was the poorest contrast on the page.
+The circle alone (`StatusDot`, 14px) stands for its word on a chip that names
+it.
+
+### Names and meta lines
+
+A guest's name is one line: it ends in an ellipsis, never breaks mid-word, and
+never shares its line with a badge. Under it, a muted meta line at
+`text-ui-xs` holds what else there is — whose plus-one they are, what changed,
+who answered, how — each piece whole, the line itself cut short at its end
+(Luma's name and meta line; Airbnb's dot-separated meta).
+
+A plus-one is "+1" on screen, never "Plus-one": "+1 · Kai" on the meta line, the
+inviter's first name after the dot, in `--gold-ink`. The full words ("Plus-one
+of Kai Wolfeschlegelsteinhausenbergerdorff") are hidden text, so a screen reader
+and the search still have them. The households' column head is "+1", its
+hidden head "Plus-one"; a guest's switch on a phone is labelled "+1"; a
+household's count is "+1 1/2", its hidden words "Plus-ones: 1 of 2".
+
+A phone's RSVP row is three columns (Flighty): the reply's mark stacked over its
+word in a fixed 4.25rem column at the start, so the marks read down the list;
+the name, the household, the meta line and the dietary answer (a `utensils`
+icon, then the words, free to wrap at words) in the middle; the button at the
+end. A household's events are a quiet line of names with a dot between, not a
+row of boxes.
+
+### Chips
+
+A chip is a pill at the small search box's height (`h-7`), `text-ui-sm`, on
+`--surface` with no border, its count in the mono face in `--text-muted` beside
+its name. Chosen, it fills in the brand green (`--brand`, `--on-brand` on it,
+8.66:1): Wise's filter chips. A row of chips never wraps; it scrolls sideways
+(Wise). Pills, so they never read as part of a segmented control.
+
+- **Event chips** pick the event on the RSVP page. They follow the module's
+  segmented sub-tabs on the view bar's first row after a hairline divider
+  (`data-bar-divider`), so the bar holds two groups that look like two: a
+  boxed segmented control, then free pills.
+- **Reply chips** filter the RSVP list and are its legend and counter at once
+  (Partiful): each carries its reply's `StatusDot` and its count. The chosen
+  one shows ⊗ (`circle-x`), and a second press clears it back to All. On a phone
+  they keep their dots and counts, their words hidden text, on a row of their
+  own under the search and the sort.
+
+**Grouping.** The RSVP list is not grouped under status headings (Apple
+Invites). The host sorts it by guest or household and searches it; a heading
+per status would split a household's replies across the page and fight the
+sort, and would be one more stuck layer. The reply chips already answer "who
+still owes a reply" in one tap, with the count on the chip, and the column of
+marks scans down the page.
 
 ### A tab strip inside a view
 
 A view that shows one of several things at a time — the RSVP page's events —
-picks it from a tab strip in the module sub-tabs' look: a hairline track on `--surface` at 30%, uppercase
-`text-ui-xs` labels at `tracking-ui-wider`, and one `bg-gold/12` pill that
-travels to the chosen tab (`createSlidingPill`). Same look, same keys: the
-arrows, Home and End move focus and Enter or Space chooses, because a panel
-that draws hundreds of rows is not instant, and choosing what you only passed
-over would draw it anyway.
+picks it from a row of event chips (§Chips), a `tablist` with the keys of the
+module sub-tabs: the arrows, Home and End move focus and Enter or Space
+chooses, because a panel that draws hundreds of rows is not instant, and
+choosing what you only passed over would draw it anyway.
 
-A strip that can outgrow its row scrolls sideways rather than wrapping, and
-brings a tab into view by scrolling itself, never the page. A count beside a
-tab's label sits in the mono face at normal tracking (`tracking-normal`).
-Anything a tab needs to say about what it holds — the RSVP page's "New" — is a
-word in the row badge's look, never a dot: colour does not carry a meaning
-alone. A tab whose name is a phrase (the event and its count) gets an
-`aria-label` in sentence case, since Chrome reads out the label's capitals; a
-one-word label can stay in capitals, as the module sub-tabs do
+The row scrolls sideways rather than wrapping, and brings a chip into view by
+scrolling itself, never the page. Anything a chip needs to say about what it
+holds — the RSVP page's "New" — is a word, never a dot: colour does not carry a
+meaning alone. A chip whose name is a phrase (the event and its count) gets an
+`aria-label` in sentence case
 ([frontend-patterns](../../wiki/shared/frontend-patterns.md) §Chrome exposes a
 `title` as a description).
 
-A view lends its strip to the module's view bar (§The stuck stack), beside
-the module's own sub-tabs and outside the module's tab panel. Ids carry a
-per-view prefix, so the strip never meets the shell's `subtab-*` and
-`subpanel-*`, and its tabs keep `aria-controls` on the view's own panel.
+A view lends its chips to the module's view bar (§The stuck stack), after a
+divider beside the module's own sub-tabs, outside the module's tab panel. Ids
+carry a per-view prefix, so they never meet the shell's `subtab-*` and
+`subpanel-*`, and the chips keep `aria-controls` on the view's own panel.
 
 ### The stuck stack
 
@@ -772,12 +854,13 @@ with the panel's, through `createAutoSize` on its own frame, so a change of
 view that adds or drops a row never jumps; a view that loads holds its rows'
 height with a placeholder the size of each. A module with one view has no bar.
 
-**What each Guests tab lends it.** RSVPs: the event strip in the first row; the
-search and the reply chips (at `h-7`, the small search box's height) in the
-second, and on a phone the search, the reply filter and the sort as selects.
+**What each Guests tab lends it.** RSVPs: a divider and the event chips in the
+first row; the slim search and the reply chips in the second; on a phone the
+search and the sort select in the second and the reply chips in a third.
 Households: the count and the search in the first row, and on a phone the
-search alone. Edit: the mode switch and Add household, icons alone below
-36rem. "Showing n of m" and the tallies stay in the panel, under the bar.
+search alone. Edit: a divider, the mode switch and Add household, icons alone
+below 36rem. "Showing n of m" and the tallies stay in the panel, under the bar.
+Measured with the third phone row, the phone RSVP stack is 185px of its 200.
 
 **One variant, chosen by the panel.** A view names the narrowest panel its wide
 layout fits — the RSVP table's columns and 7rem of Dietary, 45rem for an editor
@@ -788,14 +871,15 @@ hidden by CSS. Narrow, guest rows stack as blocks and nothing scrolls sideways.
 
 **Households.** Each household is a `group` named by its household, with a
 table of its own under one head strip that sticks at layer 2. The strip is a
-table with the same `<colgroup>` (Guest, Events at a third, Plus-one 7rem, Code
+table with the same `<colgroup>` (Guest, Events at a third, +1 7rem, Code
 11rem), hidden from assistive technology; each household table keeps its own
 heads, `Th srOnly`, in its layout with no height. The household bar holds at
 layer 3 while its household is on screen and lets go at its end: the name in
-`--text`, its state, "Plus-ones: n of m", then four icon actions with their
+`--text` (`--text-muted` once deactivated), its state as a status mark, "+1
+n/m", then four icon actions with their
 names as tooltips — Allow everyone, Allow no one, Copy message, Deactivate (or
 Reactivate). Deactivate's confirmation takes the icons' place in the same row.
-Narrow, the count is an icon and a fraction, the state one word, and the
+Narrow, the state is one word, and the
 actions sit in one "⋯" menu; Deactivate there opens a confirmation dialog,
 since a menu closes on choosing.
 

@@ -27,12 +27,15 @@ guest.
 
 ## One event at a time
 
-A tab strip in the module's view bar, beside the sub-tabs and outside the
-module's tab panel, picks the event (`role="tablist"`, named "Events"). The arrows, Home and End move focus and Enter or Space chooses, as
-on the module sub-tabs: a 900-row event is not drawn in an instant, and every
-choice writes the address. Each tab's accessible name is an `aria-label` in
-sentence case — "Reception, 300 guests" — since the label itself is set in
-capitals. Its ids carry a per-view prefix (`rsvp-<id>-tab-<n>`,
+A row of event chips in the module's view bar, after a divider beside the
+sub-tabs and outside the module's tab panel, picks the event
+(`role="tablist"`, named "Events"). Each chip is a pill with its count muted
+beside the name; the chosen one fills in the brand green, so the chips read as
+a group apart from the segmented sub-tabs. The arrows, Home and End move focus
+and Enter or Space chooses, as on the module sub-tabs: a 900-row event is not
+drawn in an instant, and every choice writes the address. Each chip's
+accessible name is an `aria-label` in sentence case — "Reception, 300
+guests". Its ids carry a per-view prefix (`rsvp-<id>-tab-<n>`,
 `rsvp-<id>-panel`) and never meet the module shell's `subtab-*` and
 `subpanel-*`; each tab's `aria-controls` names the event's panel.
 
@@ -51,15 +54,19 @@ was open, because the switch replaced the history entry rather than adding one.
 ## The event's controls and panel
 
 The search box and the reply chips sit in the view bar's second row, under the
-event strip, so they stay to hand however far down the list the host is. They
+event chips, so they stay to hand however far down the list the host is. They
 filter every event; the table shows the event on screen, and each tab counts
 what they leave in its own event, so a search run on one event still says
 where else it finds guests. The search's name ("Search Reception guests") and
 placeholder, the chips' group name ("Filter Reception by reply") and the status
 line name the event the table shows, and the search names the event's panel
 through `aria-controls`. The chips count that event's rows whatever the search.
-The search, the chip and the sort stay when the event changes. On a panel too
-narrow for the table the chips and the sort are two selects instead.
+The search, the chip and the sort stay when the event changes. Each reply chip
+carries its reply's mark and its count, so the row is filter, legend and
+counter at once; the chosen one fills in green with ⊗, and a second press
+clears it back to All. The row never wraps; it scrolls sideways. On a panel too
+narrow for the table the sort is a select beside the search, and the reply
+chips, their words hidden behind their marks, take a row of their own.
 
 A search, a chip, a sort or another event made deep in the list brings the
 list's top back to the foot of the stuck chrome, and leaves focus where it was;
@@ -77,11 +84,21 @@ The panel, top to bottom:
    whatever is typed.
 3. **The table**, with a row per guest invited and a form under a row while a
    reply is recorded. It scrolls with the page, its head row stuck under the
-   view bar. On a narrow panel each guest is a block instead — name and
-   badges, household, reply and dietary answer, the button — with the form as
-   a block under it. An open form stays with its own event across a switch,
+   view bar. A guest's name holds one line and ends in an ellipsis; a muted
+   meta line under it says whose plus-one they are ("+1 · Kai"), what changed
+   ("New"), who answered, and how the reply was given, each provenance an icon
+   with its name and explanation in a tooltip. The Status column is a status
+   mark: a filled circle with a glyph and the reply in tiny caps
+   (`cire/host/DESIGN.md` §Status marks). On a narrow panel each guest is a
+   row of three instead — the mark over its word in a fixed column, the name,
+   household, meta line and dietary answer, the button — with the form as a
+   block under it. An open form stays with its own event across a switch,
    typed text and all, and shows again on return; a filter that hides its row
    still closes it.
+
+The list is not grouped under status headings: the host sorts it by guest or
+household, a heading per reply would split a household and fight the sort, and
+the reply chips already show who still owes a reply in one tap.
 
 **A tab says "New"** while its event holds a reply changed since the host last
 looked, whatever the search, and its accessible name adds "changed since you
