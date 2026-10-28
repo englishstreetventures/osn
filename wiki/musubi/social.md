@@ -16,7 +16,7 @@ related:
   - "[[identity-model]]"
   - "[[passkey-primary]]"
   - "[[rate-limiting]]"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-27
 ---
 
 # Social
@@ -152,6 +152,17 @@ and `deploy-osn-social-dev` records the deploy once its smoke check passes. The
 Worker serves deep links through its single-page not-found handling, not the
 `_redirects` file Pages reads ([[infrastructure-as-code#Sites]]). See
 [[production-deploy]] and [[dev-environment]].
+
+On production the musubi stack also serves the same build as the staged `osn-social`
+Worker on `next.musubi.social`, until the apex moves to it
+([[infrastructure-as-code#Production sites]]). Sign-in does not work there, by design:
+the session cookie is host-only on `id.musubi.social`, osn-api's CORS and WebAuthn
+accept only `https://musubi.social`, so only the `osn_has_session` marker reaches the
+staged host and its `/token` call is refused. Its smoke check asks static paths alone:
+`/`, a deep link, and `/.well-known/apple-app-site-association`, which must come back
+as `application/json`. That file sits in a dot-directory, so the release's build
+artifact keeps hidden files; without it iOS stops offering the app's passkeys on the
+site's host.
 
 The host is not cosmetic, on two counts.
 

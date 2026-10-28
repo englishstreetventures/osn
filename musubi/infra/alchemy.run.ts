@@ -3,26 +3,36 @@ import { dirname, join } from "node:path";
 
 import {
   apiWorker,
-  assertDevDeployTarget,
+  assertDeployTarget,
+  assertProductionScope,
   assertSiteBuiltFor,
   assertStackRetained,
   flattenMigrations,
+  hostsFor,
   origin,
-  readDevDomain,
+  PRODUCTION_SITE_MODES,
+  productionSiteKinds,
   refuseDotEnvFiles,
   requireSecrets,
   requireSeedValue,
   retainedD1,
   siteWorker,
   stackOptions,
-  stageHosts,
+  tierOf,
+  type SiteMode,
+  type SiteSurface,
 } from "@shared/infra";
 import * as Alchemy from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
 import { Data } from "effect";
 import * as Effect from "effect/Effect";
 
-import { musubiDeclaration, type BindingDescription } from "./src/declaration";
+import {
+  musubiDeclaration,
+  musubiProductionSites,
+  SITE_LOGICAL_IDS,
+  type BindingDescription,
+} from "./src/declaration";
 import { osnSeedSql } from "./src/seeds";
 
 /** osn/db's Drizzle migrations, flattened for Alchemy on every run. */
@@ -67,24 +77,68 @@ function writeSeed(path: string, sql: string): void {
 }
 
 /**
+ * The musubi stack on production: each site `modes` does not turn off,
+ * built for production and checked to be, under today's name. It reads no
+ * secret or seed value, writes no file, and declares neither osn-api nor
+ * its database; anything else declared fails the scope check before the
+ * plan.
+ */
+const musubiProductionStack = (input: {
+  readonly stage: string;
+  readonly workingDir: string;
+  readonly modes: Readonly<Record<SiteSurface, SiteMode>>;
+}) =>
+  Effect.gen(function* () {
+    const declared = musubiProductionSites({
+      modes: input.modes,
+      hosts: hostsFor(input.stage, {}),
+    });
+    for (const site of declared.prebuilt) {
+      assertSiteBuiltFor({ ...site, directory: join(input.workingDir, site.directory) });
+    }
+    const workers = [];
+    for (const [logicalId, site] of Object.entries(declared.sites)) {
+      workers.push(yield* siteWorker(logicalId, site));
+    }
+    assertStackRetained({ stage: input.stage, storage: [], workers });
+    assertProductionScope({
+      stage: input.stage,
+      resources: workers,
+      allowed: Object.keys(productionSiteKinds(SITE_LOGICAL_IDS, input.modes)),
+    });
+    return Object.fromEntries(
+      Object.entries(declared.sites).map(([logicalId, site]) => [logicalId, site.domain]),
+    );
+  });
+
+/**
  * The musubi stack: osn-api with its database and seed, musubi social and
  * musubi landing. Every value is read and checked, and each prebuilt site
  * is checked to be built for the stage's hosts, before anything is written
  * or declared, so a refused run writes nothing. Paths are relative to the
  * working directory, `musubi/infra`. `workingDir` names that directory to
  * the checks: the `.env` files Bun would load from it are refused, and the
- * site paths resolve from it.
+ * site paths resolve from it. On production it declares the sites alone,
+ * at `modes` (PRODUCTION_SITE_MODES unless a test passes its own).
  */
 export const musubiStack = (input: {
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly generatedDir: string;
   readonly workingDir: string;
+  readonly modes?: Readonly<Record<SiteSurface, SiteMode>>;
 }) =>
   Effect.gen(function* () {
     const { env, generatedDir } = input;
     refuseDotEnvFiles(input.workingDir);
-    const stage = assertDevDeployTarget(yield* Alchemy.Stage, env);
-    const hosts = stageHosts(readDevDomain(env), stage);
+    const stage = assertDeployTarget(yield* Alchemy.Stage, env);
+    if (tierOf(stage) === "production") {
+      return yield* musubiProductionStack({
+        stage,
+        workingDir: input.workingDir,
+        modes: input.modes ?? PRODUCTION_SITE_MODES,
+      });
+    }
+    const hosts = hostsFor(stage, env);
     const declared = musubiDeclaration({ stage, hosts, generatedDir });
     for (const site of declared.prebuilt) {
       assertSiteBuiltFor({ ...site, directory: join(input.workingDir, site.directory) });
@@ -108,8 +162,8 @@ export const musubiStack = (input: {
       bindings: toBindings(declared.osnApi.bindings, { DB: db }),
       secrets,
     });
-    const social = yield* siteWorker("MusubiSocial", declared.musubiSocial);
-    const landing = yield* siteWorker("MusubiLanding", declared.musubiLanding);
+    const social = yield* siteWorker(SITE_LOGICAL_IDS.osn_social, declared.musubiSocial);
+    const landing = yield* siteWorker(SITE_LOGICAL_IDS.musubi_landing, declared.musubiLanding);
     assertStackRetained({ stage, storage: [db], workers: [osnApi, social, landing] });
     return {
       osnApi: hosts.osnApi,

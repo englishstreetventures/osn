@@ -120,7 +120,7 @@ describe("the pulse stack, evaluated offline", () => {
     ).toEqual([["PulseLanding", "retain"]]);
   });
 
-  test.each(refusedTargets([]))(
+  test.each(refusedTargets([], "refused"))(
     "K12: $name refuses the run before it calls anything",
     async (target) => {
       const refused = await evaluatePulse({

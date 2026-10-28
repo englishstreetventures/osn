@@ -39,6 +39,7 @@ describe("TIER_ACCOUNTS", () => {
       "CLOUDFLARE_ACCOUNT_ID",
       "CLOUDFLARE_API_TOKEN",
       "CLOUDFLARE_API_TOKEN_DEV",
+      "CLOUDFLARE_PAGES_DNS_TOKEN",
     ]);
     expect(forbiddenCredentials("production")).toEqual([
       "CLOUDFLARE_API_TOKEN_DEV",
@@ -66,7 +67,15 @@ describe("TIER_ACCOUNTS", () => {
     expect(forbiddenCredentials("production")).toContain(
       "CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY",
     );
-    expect(requiredCredentials("production")).toEqual(accountSecrets("production"));
+  });
+
+  test("the Pages and DNS token is classified, required in production and forbidden in dev", () => {
+    // A flip release moves a site's domain off its Pages project with it.
+    expect(knownCredentials()).toContain("CLOUDFLARE_PAGES_DNS_TOKEN");
+    expect(requiredCredentials("production")).toEqual(
+      [...accountSecrets("production"), "CLOUDFLARE_PAGES_DNS_TOKEN"].toSorted(),
+    );
+    expect(forbiddenCredentials("dev")).toContain("CLOUDFLARE_PAGES_DNS_TOKEN");
   });
 });
 
@@ -88,8 +97,10 @@ describe("the credentials the workflows read", () => {
     expect(files).toEqual([]);
   });
 
-  test("production's Alchemy credentials are the ones the production release deploys with today", () => {
-    expect(cloudflareSecrets("production-release.yml")).toEqual([...accountSecrets("production")]);
+  test("the production release reads production's credentials and nothing else", () => {
+    expect(cloudflareSecrets("production-release.yml")).toEqual([
+      ...requiredCredentials("production"),
+    ]);
   });
 
   test("only alchemy-state.yml, deploy.yml and free-tier-ceiling-alert.yml reach the dev account", () => {

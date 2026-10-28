@@ -1,4 +1,4 @@
-import { tierSecrets } from "@shared/infra";
+import { tierSecrets, type SiteMode, type SiteSurface } from "@shared/infra";
 import * as Alchemy from "alchemy";
 
 import {
@@ -44,6 +44,19 @@ export function stackEnv(): Record<string, string | undefined> {
   };
 }
 
+/**
+ * Everything the production stack job's plan and deploy steps hold: the
+ * deploy target and the production credentials, with placeholder values.
+ * No Worker secret and no DEV_DOMAIN: the production stack reads neither.
+ */
+export function productionEnv(): Record<string, string | undefined> {
+  return {
+    OSN_DEPLOY_TIER: "production",
+    CLOUDFLARE_ACCOUNT_ID: "0".repeat(32),
+    CLOUDFLARE_API_TOKEN: "placeholder-token",
+  };
+}
+
 /** The prebuilt site directories the stack uploads, under `cire/`. */
 export const SITE_DIRECTORIES: readonly string[] = [
   "invites/dist/client",
@@ -67,6 +80,8 @@ export function evaluateCire(input: {
   readonly sites?: SiteFixtures;
   readonly entry?: string;
   readonly workingDirFiles?: readonly string[];
+  /** Production site modes in place of PRODUCTION_SITE_MODES. */
+  readonly modes?: Readonly<Record<SiteSurface, SiteMode>>;
 }): Promise<Evaluation> {
   return evaluateStack({
     stage: input.stage,
@@ -77,7 +92,7 @@ export function evaluateCire(input: {
       Alchemy.Stack(
         "cire",
         offlineStackOptions(),
-        cireStack({ env: input.env, generatedDir, workingDir }),
+        cireStack({ env: input.env, generatedDir, workingDir, modes: input.modes }),
       ),
   });
 }

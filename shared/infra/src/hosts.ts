@@ -1,6 +1,7 @@
 import { Data } from "effect";
 
-import { parseStage } from "./stage";
+import { PRODUCTION_HOSTS } from "./production-sites";
+import { parseStage, tierOf } from "./stage";
 import { refuseProductionTier } from "./target";
 
 /** Zones production serves from. A dev domain is never one of them or under one. */
@@ -110,6 +111,23 @@ export function stageHosts(domain: string, stage: string): StageHosts {
     });
   }
   return hosts;
+}
+
+/** Today's production hosts, as a stage's hosts; production-sites.ts holds them. */
+export const PRODUCTION_STAGE_HOSTS: StageHosts = PRODUCTION_HOSTS;
+
+/**
+ * The hosts `stage` serves: today's production hosts on the production tier,
+ * and on any other stage the hosts derived from the env's DEV_DOMAIN. A
+ * production run reads no DEV_DOMAIN.
+ */
+export function hostsFor(
+  stage: string,
+  env: Readonly<Record<string, string | undefined>>,
+): StageHosts {
+  return tierOf(stage) === "production"
+    ? PRODUCTION_STAGE_HOSTS
+    : stageHosts(readDevDomain(env), stage);
 }
 
 export const origin = (host: string): string => `https://${host}`;

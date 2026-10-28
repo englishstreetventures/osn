@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 
+import { ProductionNotAdoptedError } from "../src/production";
 import {
   AdoptedLocationHintError,
   ProductionSeedError,
@@ -19,7 +20,7 @@ describe("retainedD1Props", () => {
   } as const;
 
   test("declares only what adoption converges on production, and no creation-only setting", () => {
-    expect(retainedD1Props({ ...cireDb, migrations: null })).toEqual({
+    expect(retainedD1Props({ ...cireDb, migrations: null }, ["cire-db"])).toEqual({
       name: "cire-db",
       readReplication: { mode: "disabled" },
       jurisdiction: "default",
@@ -51,7 +52,9 @@ describe("retainedD1Props", () => {
   });
 
   test("adds migrations only once Alchemy is the database's migrator", () => {
-    expect(retainedD1Props({ ...cireDb, migrations: "../../cire/db/migrations" })).toEqual({
+    expect(
+      retainedD1Props({ ...cireDb, migrations: "../../cire/db/migrations" }, ["cire-db"]),
+    ).toEqual({
       name: "cire-db",
       readReplication: { mode: "disabled" },
       jurisdiction: "default",
@@ -88,17 +91,20 @@ describe("retainedBucketProps", () => {
 
   test("states every setting Alchemy would otherwise clear, and never empties the bucket", () => {
     expect(
-      retainedBucketProps({
-        name: "cire-assets",
-        stage: "production",
-        storageClass: "Standard",
-        jurisdiction: "default",
-        locationHint: null,
-        publicAccess: false,
-        lifecycleRules: [multipartAbort],
-        cors: [],
-        domains: [],
-      }),
+      retainedBucketProps(
+        {
+          name: "cire-assets",
+          stage: "production",
+          storageClass: "Standard",
+          jurisdiction: "default",
+          locationHint: null,
+          publicAccess: false,
+          lifecycleRules: [multipartAbort],
+          cors: [],
+          domains: [],
+        },
+        ["cire-assets"],
+      ),
     ).toEqual({
       name: "cire-assets",
       storageClass: "Standard",
@@ -124,7 +130,7 @@ describe("retainedBucketProps", () => {
   };
 
   test("leaves object locks unmanaged and sets no location hint on production", () => {
-    const props = retainedBucketProps(cireSheets);
+    const props = retainedBucketProps(cireSheets, ["cire-sheets"]);
     expect(props).not.toHaveProperty("locks");
     expect(props).not.toHaveProperty("locationHint");
     expect(() => retainedBucketProps({ ...cireSheets, locationHint: "oc" })).toThrow(
@@ -145,5 +151,41 @@ describe("retainedBucketProps", () => {
       locationHint: "oc",
       lifecycleRules: [multipartAbort],
     });
+  });
+});
+
+describe("production storage", () => {
+  test("BA2: a production database is refused until a step adopts it by name", () => {
+    const cireDb = {
+      name: "cire-db",
+      stage: "production",
+      readReplication: "auto",
+      jurisdiction: "default",
+      locationHint: null,
+      migrations: null,
+      importFiles: [],
+    } as const;
+    expect(() => retainedD1Props(cireDb)).toThrow(ProductionNotAdoptedError);
+    expect(() => retainedD1Props(cireDb, ["cire-db-dev"])).toThrow(ProductionNotAdoptedError);
+    expect(retainedD1Props(cireDb, ["cire-db"]).name).toBe("cire-db");
+    expect(retainedD1Props({ ...cireDb, name: "cire-db-dev", stage: "dev" }).name).toBe(
+      "cire-db-dev",
+    );
+  });
+
+  test("BA3: a production bucket is refused until a step adopts it by name", () => {
+    const cireAssets: RetainedBucketInput = {
+      name: "cire-assets",
+      stage: "production",
+      storageClass: "Standard",
+      jurisdiction: "default",
+      locationHint: null,
+      publicAccess: false,
+      lifecycleRules: [],
+      cors: [],
+      domains: [],
+    };
+    expect(() => retainedBucketProps(cireAssets)).toThrow(ProductionNotAdoptedError);
+    expect(retainedBucketProps(cireAssets, ["cire-assets"]).name).toBe("cire-assets");
   });
 });

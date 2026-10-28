@@ -2,6 +2,8 @@ import type * as Cloudflare from "alchemy/Cloudflare";
 import { Data, type Redacted } from "effect";
 
 import { PREBUILT_MODULE_RULES } from "./prebuilt";
+import { refuseUnadopted } from "./production";
+import { PRODUCTION_ADOPTIONS } from "./production-sites";
 import { SECRET_INVENTORY, tierSecrets, type WorkerKey } from "./secrets/inventory";
 import { tierOf, type Tier } from "./stage";
 
@@ -281,7 +283,15 @@ export const WORKER_BUNDLE_EXTERNAL: readonly string[] = [
   ...BUN_ONLY_MODULES,
 ];
 
-export function apiWorkerProps(input: ApiWorkerInput): Cloudflare.WorkerProps {
+/**
+ * The Worker's props. On production its name must be in `adoptions`
+ * (PRODUCTION_ADOPTIONS), checked after every other production rule, so a
+ * refused input names its own fault first.
+ */
+export function apiWorkerProps(
+  input: ApiWorkerInput,
+  adoptions: readonly string[] = PRODUCTION_ADOPTIONS,
+): Cloudflare.WorkerProps {
   checkDeclaredSecrets(input);
   const clashes = clashingNames([
     Object.keys(input.vars),
@@ -296,6 +306,11 @@ export function apiWorkerProps(input: ApiWorkerInput): Cloudflare.WorkerProps {
   }
   checkPlainBindings(input);
   checkProductionObservability(input);
+  const workersDev = {
+    enabled: input.workersDev,
+    previewsEnabled: previewsEnabled(input.name, input.stage, input.previewUrls),
+  };
+  refuseUnadopted(input.name, input.stage, adoptions);
   const { observability } = input;
   const props: Cloudflare.WorkerProps = {
     name: input.name,
@@ -304,10 +319,7 @@ export function apiWorkerProps(input: ApiWorkerInput): Cloudflare.WorkerProps {
     compatibility: { date: input.compatibility.date, flags: [...input.compatibility.flags] },
     domain: input.domain,
     crons: [...input.crons],
-    workersDev: {
-      enabled: input.workersDev,
-      previewsEnabled: previewsEnabled(input.name, input.stage, input.previewUrls),
-    },
+    workersDev,
     observability: {
       enabled: true,
       headSamplingRate: observability.headSamplingRate,

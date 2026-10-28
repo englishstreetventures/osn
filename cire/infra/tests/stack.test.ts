@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import {
   PREBUILT_MODULE_RULES,
   PrebuiltSourceMapError,
+  PRODUCTION_SITE_MODES,
   SiteBuildError,
   stageHosts,
 } from "@shared/infra";
@@ -13,16 +14,23 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { SURFACES, type SurfaceKey } from "../../../scripts/deploy-surfaces";
 import { listMigrations } from "../../../scripts/migration-files";
-import { devTarget } from "../../../scripts/smoke-check";
+import { devTarget, productionSiteTarget } from "../../../scripts/smoke-check";
 import { refusedTargets } from "../../../shared/infra/tests/support/refused-targets";
-import { cireDeclaration } from "../src/declaration";
+import {
+  cireDeclaration,
+  cireProductionSites,
+  PRODUCTION_RESOURCE_KINDS,
+  SITE_LOGICAL_IDS,
+} from "../src/declaration";
 import { ownerSeatSql, SeedInputError } from "../src/seeds";
 import {
   DEV_DOMAIN,
   evaluateCire,
   failureOf,
+  productionEnv,
   removeEvaluations,
   resourcesOf,
+  SITE_DIRECTORIES,
   stackEnv,
   type Evaluation,
   type SiteFixtures,
@@ -446,7 +454,7 @@ describe("the cire stack, evaluated offline", () => {
     expect(refused.fetches).toEqual([]);
   });
 
-  test.each(refusedTargets(["cire-api", "cire-invites"]))(
+  test.each(refusedTargets(["cire-api", "cire-invites"], "declared"))(
     "K12: $name refuses the run before it writes or calls anything",
     async (target) => {
       const refused = await evaluateCire({
@@ -495,6 +503,172 @@ describe("the cire stack, evaluated offline", () => {
         expect(failureOf(refused)).toMatchObject({ site: entry.site, missing: [lacking] });
         expect(existsSync(refused.generatedDir)).toBe(false);
       }
+    }
+  });
+});
+
+const PRODUCTION_SITES = ["CireHost", "CireVendor", "CireLanding"];
+
+describe("the cire stack on production", () => {
+  let production: Evaluation;
+
+  beforeAll(async () => {
+    production = await evaluateCire({ stage: "production", env: productionEnv() });
+  });
+
+  test("KP1: declares the staged sites alone, under today's production names, and nothing the guard does not know", () => {
+    const resources = resourcesOf(production);
+    expect(production.fetches).toEqual([]);
+    expect(Object.keys(resources).toSorted()).toEqual([...PRODUCTION_SITES].toSorted());
+    expect(
+      Object.fromEntries(
+        Object.entries(resources).map(([logicalId, resource]) => [
+          logicalId,
+          [resource.Type, resource.Props.name, resource.RemovalPolicy],
+        ]),
+      ),
+    ).toEqual({
+      CireHost: ["Cloudflare.Worker", "cire-host", "retain"],
+      CireVendor: ["Cloudflare.Worker", "cire-vendor", "retain"],
+      CireLanding: ["Cloudflare.Worker", "cire-landing", "retain"],
+    });
+    // The plan guard knows each one, as a Worker holding a domain.
+    expect(PRODUCTION_RESOURCE_KINDS).toEqual(
+      Object.fromEntries(PRODUCTION_SITES.map((logicalId) => [logicalId, "custom-domain"])),
+    );
+    for (const resource of Object.values(resources)) {
+      expect({ [resource.LogicalId]: typeof resource.Props.domain }).toEqual({
+        [resource.LogicalId]: "string",
+      });
+    }
+    expect(SITE_LOGICAL_IDS).toEqual({
+      cire_host: "CireHost",
+      cire_vendor: "CireVendor",
+      cire_landing: "CireLanding",
+    });
+  });
+
+  test("KP2: a staged site serves its spare host, a worker its production host, an off site nothing; no workers.dev or preview URL", async () => {
+    expect(
+      Object.fromEntries(
+        Object.entries(resourcesOf(production)).map(([id, resource]) => [
+          id,
+          resource.Props.domain,
+        ]),
+      ),
+    ).toEqual({
+      CireHost: "next-host.cireweddings.com",
+      CireVendor: "next-vendor.cireweddings.com",
+      CireLanding: "next.cireweddings.com",
+    });
+    const flipped = resourcesOf(
+      await evaluateCire({
+        stage: "production",
+        env: productionEnv(),
+        modes: { ...PRODUCTION_SITE_MODES, cire_vendor: "worker", cire_landing: "off" },
+      }),
+    );
+    expect(
+      Object.fromEntries(
+        Object.entries(flipped).map(([id, resource]) => [id, resource.Props.domain]),
+      ),
+    ).toEqual({ CireHost: "next-host.cireweddings.com", CireVendor: "vendor.cireweddings.com" });
+    for (const resource of Object.values(resourcesOf(production))) {
+      expect({ [resource.LogicalId]: resource.Props.workersDev }).toEqual({
+        [resource.LogicalId]: { enabled: false, previewsEnabled: false },
+      });
+      expect({ [resource.LogicalId]: resource.Props.observability }).toEqual({
+        [resource.LogicalId]: {
+          enabled: true,
+          redactQueryString: true,
+          logs: { enabled: true, invocationLogs: false },
+          traces: { enabled: false },
+          issues: { enabled: true },
+        },
+      });
+      expect(resource.Props.assets).toMatchObject({ notFoundHandling: "none" });
+    }
+  });
+
+  test("KP3: reads no Worker secret, seed value or DEV_DOMAIN, and writes nothing", async () => {
+    const env = productionEnv();
+    expect(Object.keys(env).toSorted()).toEqual([
+      "CLOUDFLARE_ACCOUNT_ID",
+      "CLOUDFLARE_API_TOKEN",
+      "OSN_DEPLOY_TIER",
+    ]);
+    resourcesOf(production);
+    expect(existsSync(production.generatedDir)).toBe(false);
+    // A dev env holding every cire secret and the dev domain declares the same.
+    const withDev = await evaluateCire({
+      stage: "production",
+      env: { ...stackEnv(), ...productionEnv(), CIRE_DEV_OWNER_PROFILE_ID: "usr_abc" },
+    });
+    expect(Object.keys(resourcesOf(withDev)).toSorted()).toEqual([...PRODUCTION_SITES].toSorted());
+    expect(existsSync(withDev.generatedDir)).toBe(false);
+  });
+
+  test("KP5: site output built for dev hosts, or none, refuses the run before it declares anything", async () => {
+    const devBuilt = Object.fromEntries(
+      SITE_DIRECTORIES.map((directory) => [
+        directory,
+        Object.values(stageHosts(DEV_DOMAIN, "dev")).map((host) => `https://${host}`),
+      ]),
+    );
+    for (const sites of [devBuilt, {}]) {
+      const refused = await evaluateCire({ stage: "production", env: productionEnv(), sites });
+      expect(failureOf(refused)).toBeInstanceOf(SiteBuildError);
+      expect(failureOf(refused)).toMatchObject({
+        site: "@cire/host",
+        missing: [
+          "https://api.cireweddings.com",
+          "https://musubi.social",
+          "https://invite.cireweddings.com",
+        ],
+      });
+      expect(refused.fetches).toEqual([]);
+    }
+    // Each site's build is checked for the production origins it bakes in.
+    expect(
+      cireProductionSites({ modes: PRODUCTION_SITE_MODES, hosts: stageHosts(DEV_DOMAIN, "dev") })
+        .prebuilt,
+    ).toEqual([
+      {
+        site: "@cire/host",
+        directory: "../host/dist",
+        origins: [
+          `https://api.cire.${DEV_DOMAIN}`,
+          `https://musubi.${DEV_DOMAIN}`,
+          `https://invite.cire.${DEV_DOMAIN}`,
+        ],
+      },
+      {
+        site: "@cire/vendor",
+        directory: "../vendor/dist",
+        origins: [`https://api.cire.${DEV_DOMAIN}`, `https://musubi.${DEV_DOMAIN}`],
+      },
+      {
+        site: "@cire/landing",
+        directory: "../landing/dist",
+        origins: [`https://cire.${DEV_DOMAIN}`, `https://host.cire.${DEV_DOMAIN}`],
+      },
+    ]);
+    // An off site's build is neither required nor checked.
+    expect(
+      cireProductionSites({
+        modes: { ...PRODUCTION_SITE_MODES, cire_host: "off" },
+        hosts: stageHosts(DEV_DOMAIN, "dev"),
+      }).prebuilt.map((site) => site.site),
+    ).toEqual(["@cire/vendor", "@cire/landing"]);
+  });
+
+  test("KP6: each production site's smoke target names the Worker the stack deploys for it", () => {
+    const resources = resourcesOf(production);
+    for (const [key, logicalId] of Object.entries(SITE_LOGICAL_IDS)) {
+      expect({ key, worker: productionSiteTarget(key as SurfaceKey)?.worker }).toEqual({
+        key,
+        worker: resources[logicalId]?.Props.name,
+      });
     }
   });
 });

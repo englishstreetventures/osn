@@ -6,13 +6,13 @@ related:
   - "[[cire-budget]]"
   - "[[cire-checklist-tasks]]"
   - "[[access-control]]"
-last-reviewed: 2026-10-26
+last-reviewed: 2026-10-27
 ---
 # Vendors — directory, CRM, and email-verification claim
 
 > **Tier gate:** the Vendor CRM routes (`/api/organiser/weddings/:weddingId/vendors/*`), the Directory browse/add routes (`/api/organiser/weddings/:weddingId/directory/*`) and the couple's enquiry routes (`/api/organiser/weddings/:weddingId/enquiries/*`) all require the wedding to be on the **Crimson** plan tier (`weddingTier(db, "crimson")`). Requests from a wedding below it receive `402 { "error": "payment_required", "tier": "crimson" }`. The gate sits after the role check — see [[cire-entitlements]]. A host can buy Crimson from the portal, at an upgrade-from-Gold price when the wedding is on Gold; see [[cire-upgrades]].
 
-The Vendors slice introduces a **three-tier principal model** (guests / organisers / vendors), a wedding-scoped **Vendor CRM** for organisers, a global **directory** of vendor profiles, and an **email-verification claim flow** that lets a vendor bind their directory listing to their OSN org. It landed in two slices — the backend foundation, CRM and claim backend first, then the `vendor.cireweddings.com` portal app (`cire/vendor`) with its CORS allowlist entry and deploy job. **Both are in**: `cire/vendor` builds and deploys as a Pages project from `.github/workflows/production-release.yml` (dev: `deploy.yml`), and `vendor.cireweddings.com` sits in cire-api's `WEB_ORIGIN` allowlist.
+The Vendors slice introduces a **three-tier principal model** (guests / organisers / vendors), a wedding-scoped **Vendor CRM** for organisers, a global **directory** of vendor profiles, and an **email-verification claim flow** that lets a vendor bind their directory listing to their OSN org. It landed in two slices — the backend foundation, CRM and claim backend first, then the `vendor.cireweddings.com` portal app (`cire/vendor`) with its CORS allowlist entry and deploy job. **Both are in**: `cire/vendor` builds and deploys as a Pages project from `.github/workflows/production-release.yml` (dev: `deploy.yml`), and `vendor.cireweddings.com` sits in cire-api's `WEB_ORIGIN` allowlist. Until that domain moves to a Worker, the cire stack also deploys the same production build to the staged `cire-vendor` Worker on `next-vendor.cireweddings.com` ([[infrastructure-as-code#Production sites]]).
 
 ---
 

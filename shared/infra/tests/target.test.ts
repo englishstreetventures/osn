@@ -5,10 +5,11 @@ import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
 import {
-  assertDevDeployTarget,
+  assertDeployTarget,
   DeployTargetError,
   DOT_ENV_FILES,
   refuseDotEnvFiles,
+  refuseProductionTier,
   StageNotDeclaredError,
 } from "../src/target";
 
@@ -37,47 +38,63 @@ function messageOf(run: () => unknown): string {
   return message;
 }
 
-describe("assertDevDeployTarget", () => {
+describe("assertDeployTarget", () => {
   test("T1: refuses a run with no OSN_DEPLOY_TIER", () => {
-    expect(() => assertDevDeployTarget("dev", { ...ok, OSN_DEPLOY_TIER: undefined })).toThrow(
+    expect(() => assertDeployTarget("dev", { ...ok, OSN_DEPLOY_TIER: undefined })).toThrow(
       DeployTargetError,
     );
     expect(
-      messageOf(() => assertDevDeployTarget("dev", { ...ok, OSN_DEPLOY_TIER: undefined })),
+      messageOf(() => assertDeployTarget("dev", { ...ok, OSN_DEPLOY_TIER: undefined })),
     ).toMatch(/OSN_DEPLOY_TIER/);
   });
 
   test("T2: refuses a run whose OSN_DEPLOY_TIER names the other tier", () => {
-    expect(() => assertDevDeployTarget("dev", { ...ok, OSN_DEPLOY_TIER: "production" })).toThrow(
+    expect(() => assertDeployTarget("dev", { ...ok, OSN_DEPLOY_TIER: "production" })).toThrow(
       DeployTargetError,
     );
     expect(
-      messageOf(() => assertDevDeployTarget("dev", { ...ok, OSN_DEPLOY_TIER: "production" })),
+      messageOf(() => assertDeployTarget("dev", { ...ok, OSN_DEPLOY_TIER: "production" })),
     ).toMatch(/OSN_DEPLOY_TIER/);
   });
 
-  test("T3: refuses a run missing either credential, which would fall back to a stored profile", () => {
-    for (const name of ["CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN"]) {
-      for (const blank of [undefined, "", "  "]) {
-        const env = { ...ok, [name]: blank };
-        expect(() => assertDevDeployTarget("dev", env)).toThrow(DeployTargetError);
-        // The message opens by naming the variable that is missing, not just any credential.
-        expect(messageOf(() => assertDevDeployTarget("dev", env))).toMatch(
-          new RegExp(`^${name} is unset`),
-        );
+  test("T3: refuses a run missing either credential, on either tier, which would fall back to a stored profile", () => {
+    for (const [stage, tier] of [
+      ["dev", "dev"],
+      ["production", "production"],
+    ] as const) {
+      for (const name of ["CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN"]) {
+        for (const blank of [undefined, "", "  "]) {
+          const env = { ...ok, OSN_DEPLOY_TIER: tier, [name]: blank };
+          expect(() => assertDeployTarget(stage, env)).toThrow(DeployTargetError);
+          // The message opens by naming the variable that is missing, not just any credential.
+          expect(messageOf(() => assertDeployTarget(stage, env))).toMatch(
+            new RegExp(`^${name} is unset`),
+          );
+        }
       }
     }
   });
 
-  test("T4: refuses every production stage until phase P3", () => {
-    expect(() =>
-      assertDevDeployTarget("production", { ...ok, OSN_DEPLOY_TIER: "production" }),
-    ).toThrow(StageNotDeclaredError);
-    expect(
-      messageOf(() =>
-        assertDevDeployTarget("production", { ...ok, OSN_DEPLOY_TIER: "production" }),
-      ),
-    ).toMatch(/P3/);
+  test("T4: a production stage runs only with OSN_DEPLOY_TIER naming production, and is the stack's own to scope", () => {
+    expect(assertDeployTarget("production", { ...ok, OSN_DEPLOY_TIER: "production" })).toBe(
+      "production",
+    );
+    for (const tier of [undefined, "dev", "prod"]) {
+      expect(() => assertDeployTarget("production", { ...ok, OSN_DEPLOY_TIER: tier })).toThrow(
+        DeployTargetError,
+      );
+      expect(
+        messageOf(() => assertDeployTarget("production", { ...ok, OSN_DEPLOY_TIER: tier })),
+      ).toMatch(/OSN_DEPLOY_TIER does not say production/);
+    }
+  });
+});
+
+describe("refuseProductionTier", () => {
+  test("T6: refuses the production stage for a declaration that does not cover it, naming the phase", () => {
+    expect(() => refuseProductionTier("production")).toThrow(StageNotDeclaredError);
+    expect(messageOf(() => refuseProductionTier("production"))).toMatch(/P3/);
+    for (const stage of ["dev", "pr-7"]) expect(() => refuseProductionTier(stage)).not.toThrow();
   });
 });
 

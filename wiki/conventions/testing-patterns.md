@@ -593,7 +593,7 @@ changed without one of the answers above.
 |---|---|---|
 | `@cire/host`, `@cire/invites`, `@cire/vendor`, `@cire/ui`, `@cire/landing`, `@cire/build-tools`, `@cire/invite-designs` | `@stryker-mutator/vitest-runner` | only the tests that cover the mutated line |
 | `@cire/api`, `@cire/db`, `@cire/dietary`, `@cire/theme` | Stryker's `command` runner | the whole command — `bun test`, or `@cire/api`'s `STRYKER_TESTS` |
-| `@cire/infra` | Stryker's `command` runner | the whole suite, `bunx --bun vitest run`, under Bun: its tests evaluate the stacks with Bun's platform layer and read SQLite through `bun:sqlite`, which the vitest runner cannot, since it runs tests under Node. Four mutants at a time with a 60-second timeout: one per core starves each run past Stryker's default timeout. The sandbox keeps `musubi/`, which the cross-stack test imports |
+| `@cire/infra` | Stryker's `command` runner | the whole suite, `bunx --bun vitest run`, under Bun: its tests evaluate the stacks with Bun's platform layer and read SQLite through `bun:sqlite`, which the vitest runner cannot, since it runs tests under Node. Four mutants at a time with a 60-second timeout: one per core starves each run past Stryker's default timeout. The sandbox keeps `musubi/`, whose declaration the cross-stack test imports, and `osn/`, whose `osn/api/wrangler.toml` it reads |
 
 What the configs depend on, and what breaks without it:
 

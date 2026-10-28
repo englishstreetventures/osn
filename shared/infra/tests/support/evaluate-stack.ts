@@ -18,7 +18,7 @@ import { layerNonInteractive } from "alchemy/Interaction";
 import { evalStack } from "alchemy/Stack";
 import { Cause, Effect, Exit, Layer } from "effect";
 
-import { origin, stageHosts } from "../../src/hosts";
+import { hostsFor, origin } from "../../src/hosts";
 
 /** The dev domain every stack evaluation runs under. */
 export const DEV_DOMAIN = "example.test";
@@ -39,10 +39,11 @@ export function removeEvaluations(): void {
 export type SiteFixtures = Readonly<Record<string, readonly string[]>>;
 
 /**
- * Every origin of the stage's hosts under the env's DEV_DOMAIN (or
- * DEV_DOMAIN) in each of `directories`, as a build for the stage would bake
- * in; none when the host layout refuses the stage or the domain, so the
- * evaluation reaches the stack's own refusal.
+ * Every origin of the stage's hosts in each of `directories`, as a build for
+ * the stage would bake in: today's production hosts on production, and
+ * otherwise the hosts under the env's DEV_DOMAIN (or DEV_DOMAIN). None when
+ * the host layout refuses the stage or the domain, so the evaluation reaches
+ * the stack's own refusal.
  */
 export function stageSites(
   directories: readonly string[],
@@ -50,7 +51,8 @@ export function stageSites(
   env: Readonly<Record<string, string | undefined>>,
 ): SiteFixtures {
   try {
-    const origins = Object.values(stageHosts(env.DEV_DOMAIN ?? DEV_DOMAIN, stage)).map(origin);
+    const hosts = hostsFor(stage, { DEV_DOMAIN: env.DEV_DOMAIN ?? DEV_DOMAIN });
+    const origins = Object.values(hosts).map(origin);
     return Object.fromEntries(directories.map((directory) => [directory, origins]));
   } catch {
     return {};

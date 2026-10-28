@@ -12,7 +12,7 @@ related:
   - "[[identity-model]]"
   - "[[oidc-provider]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-27
 ---
 
 # OSN and Musubi
@@ -83,12 +83,14 @@ so it is not Musubi's either, and sits under `shared/` for the same reason.
 
 The repository is still named `osn` (`englishstreetventures/osn`), the
 Cloudflare Pages projects are still `osn-social` and `osn-landing`, and the dev
-Worker is still `osn-social-dev`. Renaming a Pages project attached to a live
-apex is a deploy operation, not a rename.
+Worker is still `osn-social-dev`. The production Worker that will take the apex from
+the Pages project keeps the name `osn-social`
+([[infrastructure-as-code#Production sites]]). Renaming a Pages project attached to a
+live apex is a deploy operation, not a rename.
 
 > [!warning] `osn-social` is not `osn/social`
 > One character apart, different things. `osn-social` is a Cloudflare Pages
-> project and must not be renamed; `osn/social` was a filesystem path and is
+> project and a production Worker, and neither may be renamed; `osn/social` was a filesystem path and is
 > now `musubi/social`. Both appear within a few lines of each other in
 > `wiki/shared/production-deploy.md`. Never run a blind find-and-replace
 > across this vault.

@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, test } from "vitest";
 
-import { accountSecrets, TIER_ACCOUNTS } from "../src/accounts";
+import { accountSecrets, PAGES_DNS_CREDENTIALS, TIER_ACCOUNTS } from "../src/accounts";
 import { tierSecrets } from "../src/secrets/inventory";
 import { STACK_KEYS, STACK_STEP_SECRETS, STACK_WORKERS, type StackKey } from "../src/stacks";
 
@@ -335,5 +335,96 @@ describe("each cire site that retargets its CSP builds with the deploy tier hash
       const task = dry.tasks.find((candidate) => candidate.taskId === `${site}#build`);
       expect(names(task?.environmentVariables.configured ?? null)).toContain("OSN_DEPLOY_TIER");
     }
+  });
+});
+
+describe("PW3: production-release.yml hands each credential only to the steps that use it", () => {
+  const PRODUCTION = Bun.YAML.parse(
+    readFileSync(`${ROOT}.github/workflows/production-release.yml`, "utf8"),
+  ) as Workflow;
+  const productionJobs = Object.entries(PRODUCTION.jobs);
+  /** The jobs that run Alchemy: the plan job, and each stack's flip verify and deploy. */
+  const alchemyJobs = productionJobs.filter(
+    ([id]) => id === "alchemy-plan" || /^stack-[a-z]+-(production|verify)$/.test(id),
+  );
+  const isInstall = (step: Step) => /\bbun install\b/.test(step.run ?? "");
+
+  test("the Pages and DNS token reaches only the pages-domain steps, each before any install in its job", () => {
+    const readers = productionJobs.flatMap(([id, job]) =>
+      (job.steps ?? []).flatMap((step, at) =>
+        secretsRead(step).includes(PAGES_DNS_CREDENTIALS[0] ?? "") ? [{ id, step, at, job }] : [],
+      ),
+    );
+    expect(readers.map(({ id, step }) => `${id} ${step.id}`).toSorted()).toEqual([
+      "alchemy-plan domains",
+      "attach-pages-domain attach",
+      "flip-detach-cire detach",
+      "flip-detach-musubi detach",
+    ]);
+    for (const { id, step, at, job } of readers) {
+      // Every command the step runs is pages-domain.ts.
+      const commands = (step.run ?? "").split("\n").filter((line) => line.trim() !== "");
+      expect(commands.every((line) => line.startsWith("bun run scripts/pages-domain.ts "))).toBe(
+        true,
+      );
+      const install = (job.steps ?? []).findIndex(isInstall);
+      expect({ id, installsBefore: install > -1 && install < at }).toEqual({
+        id,
+        installsBefore: false,
+      });
+      // The narrow token travels with the account id alone.
+      expect(secretsRead(step)).toEqual(
+        ["CLOUDFLARE_ACCOUNT_ID", ...PAGES_DNS_CREDENTIALS].toSorted(),
+      );
+    }
+    // A detach or attach job installs nothing at all, so no dependency's code runs on its runner.
+    for (const [id, job] of productionJobs.filter(
+      ([name]) => name.startsWith("flip-detach-") || name === "attach-pages-domain",
+    )) {
+      expect({ id, installs: (job.steps ?? []).some(isInstall) }).toEqual({ id, installs: false });
+    }
+    for (const [, job] of productionJobs) {
+      expect(secretsRead(job.env)).not.toContain(PAGES_DNS_CREDENTIALS[0]);
+    }
+  });
+
+  test("in the Alchemy jobs, only the token, state, snapshot, custom-domain, plan, deploy, compare and smoke steps hold the production pair, and no job-level env holds a secret", () => {
+    expect(alchemyJobs.map(([id]) => id).toSorted()).toEqual([
+      "alchemy-plan",
+      "stack-cire-production",
+      "stack-cire-verify",
+      "stack-musubi-production",
+      "stack-musubi-verify",
+    ]);
+    const holds =
+      /^(token|state|snapshot(_[a-z]+)?|worker_domains(_[a-z]+)?|plan(_[a-z]+)?|deploy|deployments|smoke_[a-z_]+)$/;
+    const pair = accountSecrets("production");
+    for (const [id, job] of alchemyJobs) {
+      expect({ id, env: secretsRead(job.env) }).toEqual({ id, env: [] });
+      for (const step of job.steps ?? []) {
+        const read = secretsRead(step);
+        const expected =
+          step.id === "domains"
+            ? ["CLOUDFLARE_ACCOUNT_ID", ...PAGES_DNS_CREDENTIALS].toSorted()
+            : holds.test(step.id ?? "")
+              ? [...pair]
+              : [];
+        expect({ id, step: step.name ?? step.id, read }).toEqual({
+          id,
+          step: step.name ?? step.id,
+          read: expected,
+        });
+      }
+    }
+  });
+
+  test("the plan, build and sites jobs, the comparison and the record jobs read no secret", () => {
+    const quiet = productionJobs.filter(
+      ([id, job]) =>
+        ["plan", "build", "sites", "site-parity"].includes(id) ||
+        JSON.stringify(job).includes("production-records"),
+    );
+    expect(quiet.length).toBeGreaterThan(4);
+    for (const [id, job] of quiet) expect({ id, read: secretsRead(job) }).toEqual({ id, read: [] });
   });
 });

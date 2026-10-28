@@ -1,0 +1,79 @@
+$ DO_NOT_TRACK=1 bun alchemy deploy --stage dev --yes
+alchemy 2.0.0-beta.84 is available (you're on 2.0.0-beta.83). Run `bun add alchemy@2.0.0-beta.84` to upgrade.
+[14:49:57.651] INFO (#1): Deploy · dev
+[14:49:57.656] INFO (#1): Importing stack module
+[14:49:58.438] INFO (#33): Resolving stack services
+[14:49:58.531] INFO (#1): Loading stack state
+[14:49:58.534] INFO (#326): Cloudflare: using environment variables (CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN) instead of the profile.
+• Refreshing Cloudflare State Store credentials
+✓ Refreshing Cloudflare State Store credentials
+[14:50:05.289] INFO (#1): Computing plan
+[14:50:07.090] INFO (#1): Plan ready (9.4s)
+[14:50:07.092] INFO (#1): Plan: 2 to update
+[14:50:07.092] INFO (#1): [CireApi] noop
+[14:50:07.092] INFO (#1): [CireApi/ASSETS] noop
+[14:50:07.092] INFO (#1): [CireApi/CIRE_API_ARC_KEY_ID] noop
+[14:50:07.092] INFO (#1): [CireApi/CIRE_API_ARC_PRIVATE_KEY] noop
+[14:50:07.092] INFO (#1): [CireApi/CIRE_API_ORIGIN] noop
+[14:50:07.092] INFO (#1): [CireApi/CIRE_OIDC_CLIENT_ID] noop
+[14:50:07.092] INFO (#1): [CireApi/CIRE_OIDC_CLIENT_SECRET] noop
+[14:50:07.092] INFO (#1): [CireApi/CIRE_R2_RECONCILE_DISABLED] noop
+[14:50:07.092] INFO (#1): [CireApi/CLAIM_RATE_LIMITER] noop
+[14:50:07.092] INFO (#1): [CireApi/CLAIM_SESSION_RATE_LIMITER] noop
+[14:50:07.092] INFO (#1): [CireApi/DB] noop
+[14:50:07.092] INFO (#1): [CireApi/GROWTHBOOK_API_HOST] noop
+[14:50:07.092] INFO (#1): [CireApi/IMAGES] noop
+[14:50:07.092] INFO (#1): [CireApi/OSN_API_URL] noop
+[14:50:07.092] INFO (#1): [CireApi/OSN_AUDIENCE] noop
+[14:50:07.092] INFO (#1): [CireApi/OSN_ENV] noop
+[14:50:07.093] INFO (#1): [CireApi/OSN_ISSUER_URL] noop
+[14:50:07.093] INFO (#1): [CireApi/OSN_JWKS_URL] noop
+[14:50:07.093] INFO (#1): [CireApi/REALTIME_HUB] noop
+[14:50:07.093] INFO (#1): [CireApi/REGISTRY_GUEST_RATE_LIMITER] noop
+[14:50:07.093] INFO (#1): [CireApi/REGISTRY_IMAGE_RATE_LIMITER] noop
+[14:50:07.093] INFO (#1): [CireApi/REGISTRY_PREVIEW_RATE_LIMITER] noop
+[14:50:07.093] INFO (#1): [CireApi/REGISTRY_THUMB_RATE_LIMITER] noop
+[14:50:07.093] INFO (#1): [CireApi/SHEETS] noop
+[14:50:07.093] INFO (#1): [CireApi/STRIPE_PLATFORM_WEBHOOK_SECRET] noop
+[14:50:07.093] INFO (#1): [CireApi/STRIPE_SECRET_KEY] noop
+[14:50:07.093] INFO (#1): [CireApi/STRIPE_WEBHOOK_SECRET] noop
+[14:50:07.093] INFO (#1): [CireApi/WEB_ORIGIN] noop
+[14:50:07.093] INFO (#1): [CireAssets] noop
+[14:50:07.093] INFO (#1): [CireDb] noop
+[14:50:07.093] INFO (#1): [CireHost] update
+[14:50:07.093] INFO (#1): [CireInvites] update
+[14:50:07.093] INFO (#1): [CireLanding] noop
+[14:50:07.093] INFO (#1): [CireSheets] noop
+[14:50:07.094] INFO (#1): [CireVendor] noop
+[14:50:07.094] INFO (#1): 
+[14:50:07.353] INFO (#1747): [CireHost] updating
+[14:50:07.355] INFO (#1747): Cloudflare Worker reconcile: starting cire-host-dev
+[14:50:07.355] INFO (#1747): Cloudflare Worker reconcile: durable objects []
+[14:50:07.394] INFO (#1746): [CireInvites] updating
+[14:50:07.395] INFO (#1746): Cloudflare Worker reconcile: starting cire-invites-dev
+[14:50:07.395] INFO (#1746): Cloudflare Worker reconcile: durable objects []
+[14:50:07.687] INFO (#1746): Cloudflare Worker reconcile: existing durable object tags []
+[14:50:07.687] INFO (#1746): Cloudflare Worker reconcile: previous durable object tags []
+[14:50:07.693] INFO (#1746): Cloudflare Worker update: preparing bundle for cire-invites-dev
+[14:50:07.727] INFO (#1746): Cloudflare Worker update: uploading assets for cire-invites-dev
+[14:50:07.886] INFO (#1747): Cloudflare Worker reconcile: existing durable object tags []
+[14:50:07.886] INFO (#1747): Cloudflare Worker reconcile: previous durable object tags []
+[14:50:07.886] INFO (#1747): Cloudflare Worker update: preparing bundle for cire-host-dev
+[14:50:07.911] INFO (#1747): Cloudflare Worker update: uploading assets for cire-host-dev
+[14:50:09.521] INFO (#1746): [CireInvites] Uploaded 0 of 2 assets...
+[14:50:09.565] INFO (#1747): [CireHost] Uploaded 0 of 6 assets...
+[14:50:10.301] INFO (#1840): [CireInvites] Uploaded 1 of 2 assets...
+[14:50:10.691] INFO (#1844): [CireHost] Uploaded 2 of 6 assets...
+[14:50:10.844] INFO (#1845): [CireHost] Uploaded 4 of 6 assets...
+[14:50:10.900] INFO (#1846): [CireHost] Uploaded 6 of 6 assets...
+[14:50:10.901] INFO (#1747): Cloudflare Worker update: uploading script for cire-host-dev
+[14:50:10.902] INFO (#1747): Cloudflare Worker put: durable object reconciliation {"oldDoClassNameByLogicalId":{},"currentDoClassNameByLogicalId":{},"deletedClasses":[],"renamedClasses":[],"transferredClasses":[],"newSqliteClasses":[]}
+[14:50:11.023] INFO (#1841): [CireInvites] Uploaded 2 of 2 assets...
+[14:50:11.023] INFO (#1746): Cloudflare Worker update: uploading script for cire-invites-dev
+[14:50:11.023] INFO (#1746): Cloudflare Worker put: durable object reconciliation {"oldDoClassNameByLogicalId":{},"currentDoClassNameByLogicalId":{},"deletedClasses":[],"renamedClasses":[],"transferredClasses":[],"newSqliteClasses":[]}
+[14:50:15.602] INFO (#1747): [CireHost] updated — Reconciling custom domains (1) ... (8.2s)
+[14:50:27.465] INFO (#1746): [CireInvites] updated — Reconciling custom domains (1) ... (20.1s)
+[14:50:27.607] INFO (#1889): [CireHost] updated — Reconciling custom domains (1) ... (20.3s)
+[14:50:27.607] INFO (#1890): [CireInvites] updated — Reconciling custom domains (1) ... (20.2s)
+[14:50:27.833] INFO (#1): 
+[14:50:27.833] INFO (#1): Done: 2 succeeded (20.7s)

@@ -106,7 +106,7 @@ test("writes one output per surface and the plan summary, and exits 0", async ()
     const output = await readFile(files.output, "utf8");
     expect(output).toContain("osn_api=true\n");
     expect(output).toContain("cire_host=false\n");
-    expect(output.trim().split("\n").at(-1)).toBe("any=true");
+    expect(output).toContain("any=true\n");
     const summary = await readFile(files.summary, "utf8");
     expect(summary).toContain(`### Production release of [\`${b.slice(0, 7)}\`]`);
     expect(summary).toContain("osn/api/src/index.ts changed");
