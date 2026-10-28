@@ -1443,6 +1443,18 @@ describe("a production site the production stack deployed", () => {
     expect(result.posts).toHaveLength(1);
   });
 
+  test("a refused rollback names the version that served before, and never tells anyone to roll the stack's Worker back by hand", async () => {
+    const result = await smoke(["osn_social", "production"], SOCIAL(appFile("text/html", "<p>")), {
+      env: siteEnv(),
+      api: { rollback: apiError(SECRETS_CHANGED, "secrets have changed: X") },
+    });
+    expect(result.code).toBe(1);
+    expect(result.posts).toHaveLength(1);
+    expect(result.output).toContain("::error title=Rollback refused::");
+    expect(result.output).toContain("The version that served before this deploy is v-before.");
+    expect(result.output).not.toContain("wrangler rollback");
+  });
+
   test("SM2: without an https SMOKE_ORIGIN or a SMOKE_DEPLOYMENT it exits 2, asking nothing", async () => {
     for (const env of [
       { SMOKE_DEPLOYMENT: DEP_THIS_JOB },

@@ -216,6 +216,23 @@ describe("runSiteParity", () => {
     expect(JSON.parse(readFileSync(result.out, "utf8")).differing).toBe(2);
   });
 
+  test("SP2: a redirect to the host's own origin compares by its path, so the same path matches and another differs", async () => {
+    const sites = { ...SITES, "cire/landing/dist/_redirects": "/old /new 301\n" };
+    const toOwn = (pagesPath: string) =>
+      fakeHosts((url) => {
+        const { origin, pathname } = new URL(url);
+        if (pathname !== "/old") return undefined;
+        const path = origin === "https://cireweddings.com" ? pagesPath : "/new";
+        return new Response(null, { status: 301, headers: { location: `${origin}${path}` } });
+      });
+    const alike = await parity(["--stack", "cire"], toOwn("/new"), build(sites));
+    expect(alike.code).toBe(0);
+    expect(JSON.parse(readFileSync(alike.out, "utf8"))).toMatchObject({ differing: 0 });
+    const elsewhere = await parity(["--stack", "cire"], toOwn("/other"), build(sites));
+    expect(elsewhere.code).toBe(1);
+    expect(elsewhere.output).toContain("cire_landing /old: location differ");
+  });
+
   test("SP4: no stack, a stack with no production job, or no --out exits 2 before any request", async () => {
     for (const args of [[], ["--stack", "zap"], ["--stack", "pulse"], ["--stack"]]) {
       const hosts = fakeHosts();
