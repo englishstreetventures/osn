@@ -1873,7 +1873,9 @@ describe("EventSheet — the swipe's physics", () => {
       await tapAt(centre(target), 2);
       await sleep(40);
       expect(pressed).toBe(0);
-      expect(seen.every((e) => e.defaultPrevented)).toBe(true);
+      // The tap did fire a click, and it reached the window already stopped.
+      expect(seen).toHaveLength(1);
+      expect(seen[0]!.defaultPrevented).toBe(true);
     } finally {
       target.removeEventListener("click", press);
       window.removeEventListener("click", watch, true);
@@ -1924,6 +1926,90 @@ describe("EventSheet — the swipe's physics", () => {
     await settleSwipe();
     expect(wrapperOf("rsvp").hidden).toBe(false);
     expect(wrapperOf("details").hidden).toBe(true);
+  });
+
+  it("holds a fast flick at the form's rest rather than past it", async () => {
+    await openOn("details");
+    const width = rail().clientWidth;
+    const start = bodyOf("details");
+    // Over 7px/ms at the lift, past ω × the distance left: a critically damped
+    // spring from here would cross its target.
+    await touchDrag(start, { x: start.x - width * 0.6, y: start.y }, { ms: 30, steps: 6 });
+    const frames = await framesOf(wrapperOf("rsvp"));
+    expect(frames.length).toBeGreaterThan(1);
+    for (const f of frames) expect(f.x).toBeGreaterThanOrEqual(-0.5);
+    await settleSwipe();
+    expect(wrapperOf("rsvp").hidden).toBe(false);
+  });
+
+  it("closed mid-settle, hands focus back to the card button that opened it", async () => {
+    await openOn("details");
+    const width = rail().clientWidth;
+    const start = bodyOf("details");
+    await touchDrag(start, { x: start.x - width * 0.5, y: start.y }, { ms: 600 });
+    expect(rail().hasAttribute("data-settling")).toBe(true);
+    await userEvent.keyboard("{Escape}");
+    const deadline = performance.now() + 3000;
+    while (document.querySelector("dialog") && performance.now() < deadline) {
+      await new Promise(requestAnimationFrame);
+    }
+    expect(document.querySelector("dialog")).toBeNull();
+    expect(document.activeElement).toBe(cardButton("Event Details"));
+  });
+
+  it("lets a tap during a pull's spring back through, and does not catch it", async () => {
+    await openOn("details");
+    const start = bodyOf("details");
+    await touchDrag(start, { x: start.x + 120, y: start.y }, { ms: 300 });
+    expect(rail().hasAttribute("data-settling")).toBe(true);
+    const target = within(wrapperOf("details")).getAllByRole("button")[0]!;
+    let pressed = 0;
+    const press = () => pressed++;
+    target.addEventListener("click", press);
+    try {
+      await tapAt(centre(target));
+      await sleep(40);
+      expect(pressed).toBe(1);
+    } finally {
+      target.removeEventListener("click", press);
+    }
+    await settleSwipe();
+    expect(wrapperOf("details").style.transform).toBe("");
+  });
+
+  it("ignores a tap on the badge while a pull springs back", async () => {
+    await openOn("details");
+    const start = bodyOf("details");
+    await touchDrag(start, { x: start.x + 120, y: start.y }, { ms: 300 });
+    expect(rail().hasAttribute("data-settling")).toBe(true);
+    await tapAt(centre(badge("Give RSVP")));
+    await settleSwipe();
+    await settle();
+    expect(wrapperOf("details").hidden).toBe(false);
+    expect(dialog().querySelector('[data-panel="rsvp"]')).toBeNull();
+  });
+
+  it("does not catch a swipe springing in from past the form's rest", async () => {
+    await openOnWide("details");
+    const width = rail().clientWidth;
+    const start = bodyOf("details");
+    await touchDrag(start, { x: start.x - width - 120, y: start.y }, { ms: 800 });
+    expect(rail().hasAttribute("data-settling")).toBe(true);
+    const seen: MouseEvent[] = [];
+    const watch = (e: MouseEvent) => seen.push(e);
+    window.addEventListener("click", watch, true);
+    try {
+      await tapAt(bodyOf("rsvp"));
+      await sleep(40);
+      // Not caught: the settle runs on, and the tap's click is not stopped.
+      expect(seen.length).toBeGreaterThan(0);
+      expect(seen.every((e) => !e.defaultPrevented)).toBe(true);
+    } finally {
+      window.removeEventListener("click", watch, true);
+    }
+    await settleSwipe();
+    expect(wrapperOf("rsvp").hidden).toBe(false);
+    expect(wrapperOf("rsvp").style.transform).toBe("");
   });
 });
 
