@@ -1,0 +1,13 @@
+---
+type: llm
+weight: 2
+focus: { source: file, path: PR-BODY.md }
+---
+
+The file is a pull-request body. This check presumes the six sections `## Impact`, `## Summary`, `## Workspaces affected`, `## Issues`, `## Decisions`, `## Test plan` are all there.
+
+PASS if the six sections appear in exactly that order and a section with nothing to say says so rather than being left out.
+
+FAIL if the sections are out of order, a section is silently dropped, or the six are not all there.
+
+FAIL also if the file is missing or empty.

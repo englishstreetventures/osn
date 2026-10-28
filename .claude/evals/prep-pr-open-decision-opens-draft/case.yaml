@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: prep-pr-open-decision-opens-draft
+context:
+  scaffold_script: setup.sh

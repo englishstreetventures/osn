@@ -11,24 +11,27 @@
 #
 # The fixture plants the eight agent names with their one-line descriptions and
 # NOTHING ELSE — no model, no effort level. That is what a dispatcher has
-# without the skill, and it keeps both variants able to answer rather than
-# making the choice a test of whether the plugin was injected.
+# without the skill, and it keeps both arms able to answer rather than making
+# the choice a test of whether the plugin was loaded.
 set -euo pipefail
 
-# The fixture repo carries `.claude/commands/*.md` — verbatim copies of the
-# skills, which `exclude` in scenario.json does not actually strip. Delete
-# every copy. The plugin variant supplies `.claude/skills/` and
-# `.claude/agents/`, which nothing here touches.
-rm -rf .claude/commands .claude/projects .claude/evals .claude/tessl.json
-
-git config user.email "eval@example.invalid" 2>/dev/null || true
-git config user.name "Tessl Eval" 2>/dev/null || true
-
-if [ ! -d .git ]; then
-  git init -q
-  git config user.email "eval@example.invalid"
-  git config user.name "Tessl Eval"
+# `claude plugin eval --scaffold` runs this in a fresh, empty workspace. Refuse
+# anywhere else: every step below rewrites the repository it finds.
+if [ -n "$(ls -A)" ]; then
+  echo "setup.sh: the workspace is not empty; run only under claude plugin eval --scaffold" >&2
+  exit 1
 fi
+
+# The pinned commit, shallow, so the fetch fits the scaffold's time limit.
+git init -q
+git fetch -q --depth 1 https://github.com/englishstreetventures/osn.git 2de3a8376b5772acaa4ebe91a6c5f40fdc917108
+git checkout -q FETCH_HEAD
+git config user.email "eval@example.invalid"
+git config user.name "Claude Eval"
+
+# The checkout's own skills and agents would hand the no-plugin arm the
+# instructions under test. The plugin supplies them to the other arm.
+rm -rf .claude .agents
 
 cat > TASK-ISSUE.md <<'ISSUE'
 # englishstreetventures/osn — Pending verification needs a status colour
@@ -55,7 +58,7 @@ ISSUE
 
 # Name and one-line description only. Deliberately no model and no effort
 # level: the skill under test sends the agent to `.claude/agents/<name>.md` for
-# those, and only the plugin variant has that directory.
+# those, and only the plugin supplies that directory.
 cat > AGENTS-AVAILABLE.md <<'AGENTS'
 # Subagent definitions available in this repository
 
@@ -91,18 +94,6 @@ cat > AGENTS-AVAILABLE.md <<'AGENTS'
   reports what went red. Never merges, rebases, pushes or removes a worktree.
   Exists so slow polling does not sit in an expensive context.
 AGENTS
-
-# The harness injects the plugin as symlinks under `.claude/` and `.agents/`,
-# and only into the with-context variant. Left visible they show up as working
-# -tree changes in that variant alone, which the no-source-edits check then
-# scores against it. Ignore them in both variants so the guard measures the
-# agent, not the harness.
-#
-# `DISPATCH.md` is NOT excluded here. It is the deliverable, and hiding the one
-# file the judge reads behind an ignore rule is how a scenario ends up scoring
-# something other than the work.
-mkdir -p .git/info
-printf '.claude/\n.agents/\n' >> .git/info/exclude
 
 git add -A
 git diff --cached --quiet || git commit -qm "eval fixture: a status colour the design system lacks"

@@ -10,26 +10,30 @@
 # repeat the finding material.
 set -euo pipefail
 
-# The fixture repo carries `.claude/commands/*.md`, verbatim copies of the skills
-# under test. Delete every copy so the baseline cannot read the specification.
-# The plugin variant supplies `.claude/skills/`, which nothing here touches.
-rm -rf .claude/commands .claude/projects .claude/evals .claude/tessl.json
-
-git config user.email "eval@example.invalid" 2>/dev/null || true
-git config user.name "Tessl Eval" 2>/dev/null || true
-
-# A commit fixture may install the tree without its `.git`. Make sure there is a
-# repository, and fold any install-time drift into history before branching, so
-# it lands on the base and never inside the branch under review.
-if [ ! -d .git ]; then
-  git init -q
-  git config user.email "eval@example.invalid"
-  git config user.name "Tessl Eval"
+# `claude plugin eval --scaffold` runs this in a fresh, empty workspace. Refuse
+# anywhere else: every step below rewrites the repository it finds.
+if [ -n "$(ls -A)" ]; then
+  echo "setup.sh: the workspace is not empty; run only under claude plugin eval --scaffold" >&2
+  exit 1
 fi
 
-mkdir -p .git/info
-printf '.claude/\n.agents/\nBRIEF.md\nreview-findings.md\nPR-BODY.md\nPR-REPORT.md\n' >> .git/info/exclude
+# The pinned commit, shallow, so the fetch fits the scaffold's time limit.
+git init -q
+git fetch -q --depth 1 https://github.com/englishstreetventures/osn.git 06832a2c324de1f7a2ca420a07ac2a934eca8aab
+git checkout -q FETCH_HEAD
+git config user.email "eval@example.invalid"
+git config user.name "Claude Eval"
 
+# The checkout's own skills and agents would hand the no-plugin arm the
+# instructions under test. The plugin supplies them to the other arm.
+rm -rf .claude .agents
+
+# The brief, the reviewer's notes and the two deliverables stay out of
+# `git status`: none of them is a change to the branch.
+mkdir -p .git/info
+printf 'BRIEF.md\nreview-findings.md\nPR-BODY.md\nPR-REPORT.md\n' >> .git/info/exclude
+
+# Commit the removal on the base, so no branch cut below shows it in its diff.
 git add -A
 git diff --cached --quiet || git commit -qm "fixture: install state"
 
