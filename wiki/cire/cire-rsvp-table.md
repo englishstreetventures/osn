@@ -87,7 +87,10 @@ The panel, top to bottom:
    view bar. A guest's name holds one line and ends in an ellipsis; a muted
    meta line under it says whose plus-one they are ("+1 · Kai"), what changed
    ("New"), who answered, and how the reply was given, each provenance an icon
-   with its name and explanation in a tooltip. The Status column is a status
+   with its name and explanation in a tooltip. The icons take no focus, so one
+   button at the end of the view bar's controls, "What the reply icons mean",
+   opens a key naming every mark with what it says — the path a host on a phone
+   or at the keyboard has to the same words. The Status column is a status
    mark: a filled circle with a glyph and the reply in tiny caps
    (`cire/host/DESIGN.md` §Status marks). On a narrow panel each guest is a
    row of three instead — the mark over its word in a fixed column, the name,

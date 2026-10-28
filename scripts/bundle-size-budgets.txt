@@ -48,7 +48,7 @@
 # Blank lines and lines starting with # are ignored.
 
 cire/invites   worker  200900   # measured 190660
-cire/host      static  330902   # measured 319202
+cire/host      static  349476   # measured 337776
 cire/vendor    static  81644    # measured 77305
 cire/landing   static  176547   # measured 164847
 musubi/landing static  26865    # measured 15206

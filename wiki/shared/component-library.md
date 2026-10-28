@@ -134,7 +134,9 @@ spreads its rest props onto an element therefore type-checks
 `<Notice innerHTML={vendorName} />`, which reads at the call site like ordinary
 prop passing and is a script tag. `shared/ui/src/ui/props.ts` omits the three,
 so the mistake is a compile error. Anything that genuinely needs to write markup
-reaches for a bare element and says why.
+reaches for a bare element and says why. The menu's parts and `PopoverContent`
+are typed with it, and `shared/ui/tests/ui/markup-props.test.tsx` fails the
+type check if one of them takes markup again.
 
 ### `InfoPopover` — the form-field explainer
 
@@ -432,6 +434,31 @@ const visibleTabs = createMemo(() => tabs.filter((t) => t.show()));
 // Avoid — new array on every render, <For> diffs all items every time
 <For each={tabs.filter((t) => t.show())}>{...}</For>
 ```
+
+### One popup for a list, not one per row
+
+Each Kobalte `Tooltip`, `Popover` or `DropdownMenu` root builds its state, ids
+and positioning context when it mounts, opened or not. One per row of a long
+list — a tooltip on each household's four icons, a menu on each household's
+"⋯" — is hundreds of roots of which the reader can open one. Draw the rows'
+controls as plain buttons and mount the popup once:
+
+- **A menu**: one `DropdownMenu` with no `DropdownMenuTrigger`, placed with
+  `getAnchorRect` against whichever button was pressed. A child of the root
+  reads Kobalte's `useMenuContext()` (`@kobalte/core/menu`) and the buttons call
+  its `open("first")` from the keyboard, `open(true)` from a click, as Kobalte's
+  own trigger does, so focus lands where a keyboard user expects.
+  `DropdownMenuContent` takes `onCloseAutoFocus` to give focus back to that
+  button, and an `aria-label` to name the menu. The household list's "⋯"
+  (`cire/host/src/components/GuestTable.tsx`).
+- **A popover**: one `Popover` with `anchorRef` set to the pressed button, and
+  `PopoverContent`'s `onInteractOutside` (a second press on the open button is
+  not outside) and `onCloseAutoFocus` (focus back to it). The editor's cut-short
+  event heads (`GuestsEditor.tsx`).
+- **A tooltip**: cire's host portal draws one panel for the page from `data-tip`
+  attributes (`cire/host/src/components/ActionTip.tsx`).
+
+A list of a few rows needs none of this.
 
 ### Bundle size: the `base:` variant instead of a runtime merger
 

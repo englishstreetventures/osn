@@ -334,10 +334,14 @@ component was previously reading a container it did not live in.
     narrower than its columns.
 - **Households** (`GuestTable`) — one group and one table per household under
   one head strip, each household's bar held while it is on screen; below a
-  46rem panel the rows stack and the household's actions go into a "⋯" menu.
+  46rem panel the rows stack and the household's actions go behind a "⋯". One
+  menu serves the list, opened from whichever "⋯" was pressed, and the bar's
+  icons and state marks share the shell's one tooltip panel (`TipLayer` in
+  `ActionTip.tsx`), so 300 households mount no popup of their own.
 - **Edit** (`EditWorkspace`, `GuestsEditor`) — the mode switch and Add
   household sit in the view bar; each card's header sticks inside its card,
-  its column heads following the table's sideways scroll. Events → Edit shares
+  its column heads following the table's sideways scroll; a cut-short event
+  head opens its whole name in the editor's one popover. Events → Edit shares
   `EditWorkspace`, so its mode switch is in the bar too.
 - **Run sheet** (`RunSheetView`) — the view declares `@container/run-sheet`
   itself, because in a helper's seat there is no `panel` to measure. Each day's
@@ -634,6 +638,7 @@ What that leaves testable, and where it lives:
 | Which preview layer mounts, and that its crossover matches `@4xl/builder` | `InviteBuilder.test.tsx` — a stub `ResizeObserver` reporting a fixed content-box width; a reasonable cheap choice in the unit tier, since happy-dom runs no layout, not a workaround for a missing harness |
 | The RSVP view's event tabs (in the view bar beside the shell's sub-tabs, ids apart, keys, a strip of twelve), sort heads, the head row stuck under the bar, and the stacked rows on a phone | `RsvpView.events.browser.test.tsx`, real Chromium, with the real `ModuleShell` around it; screenshots in light and dark land in its gitignored `__screenshots__/` |
 | The collapsed rail: icons and toggle that do not move, collapsed icons at 3:1 and the tooltip's text at 4.5:1 in both themes, the tooltip's place and stacking, labels only on the collapsed rail, Chrome's names and descriptions, labels kept off a locked row's card and no dwell, the label fade only after a press, the slide only on a press, reduced motion, and the sheet ignoring the choice at 390 | `ModuleSidebar.collapse.browser.test.tsx`, real Chromium, real `ModuleShell`; clears `cire.host.rail` before and after each test, since the browser context is shared across files. Its frame-time measurement runs only with `VITE_RAIL_SLIDE_BENCH=1`. The toggle, the stored choice across a reload, a locked card opened and closed from the narrow rail and the rail sticking below the real top bar are in the `cire-checklist-starter` E2E flow |
-| The stuck stack on every Guests tab at 1280 and 390: layers meeting to the pixel inside the height limits, the household bar on screen, searches and sub-tab changes landing at the stack's foot, focus kept clear, no sideways scroll on a phone, each view's narrow line, the invite builder's tabs under the bar | `GuestsStack.browser.test.tsx`, 300 households in the real `ModuleShell`; a pass or fail per check in `cire/host/.vitest/guests-stack/results.json` |
+| The stuck stack on every Guests tab at 1280 and 390, under the real `TopBar`: layers meeting to the pixel inside the height limits, the household bar on screen, searches, reply filters, sorts, event and sub-tab changes landing at the stack's foot, the panel's hold letting go, `--bar-h` ahead of the bar's slide and gone with the bar, focus kept clear, an invite-message link's heading on screen, no sideways scroll on a phone, each view's narrow line, the invite builder's tabs under the bar, one tooltip and no per-household popup | `GuestsStack.browser.test.tsx`, 300 households in the real `ModuleShell`; a pass or fail per check in `cire/host/.vitest/guests-stack/results.json` |
+| The page's one tooltip: hover after its delay, the skip window, never for a touch or a tap, keyboard focus at once, closed by Escape, activation, a press, leaving or blur, gone with its control, in `<body>` over a sticky bar, `TipNote`'s hidden text | `ActionTip.browser.test.tsx`, real Chromium |
 | The run sheet's thread, and its `run-sheet` switch from two grid tracks to three | `RunSheetView.browser.test.tsx`, at 390 and 1280px |
 | The container queries themselves | `bun run --cwd cire/host test:browser` — a real-Chromium tier documented in `wiki/conventions/browser-tests.md`. Worked example: `cire/host/tests/components/PreviewInviteButton.browser.test.tsx`, which asserts the "Preview invite" label is clipped to `sr-only` at phone width and swaps to the written label once the `frame` container passes 42rem. |

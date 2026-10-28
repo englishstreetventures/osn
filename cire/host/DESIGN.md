@@ -693,6 +693,18 @@ of the tab order. An explanation a host needs in order to act goes in visible
 text instead. Never a `title`: Chrome would hand a screen reader the words a
 second time. `wiki/shared/component-library.md` §`Tooltip` has the rest.
 
+Where a badge repeats once per household or row inside the module shell — a
+household's Opened, Sent or Deactivated — it is a `TipNote` (`ActionTip.tsx`)
+instead: the same hidden text, and the shell's one panel on hover, so a list of
+300 builds no tooltip of its own per row.
+
+A badge stays out of the tab order, so a host on a phone or at the keyboard
+cannot hover it. Where the badges are icons with nothing written beside them —
+the RSVP meta line's provenance — one button in the view bar opens a key that
+names every one, with what it says: "What the reply icons mean", a quiet 28px
+`info` circle at the end of the bar's second row (on a phone, the search row),
+its panel the marks' own words. One stop for the page, not one per row.
+
 On a guest's meta line (§Names and meta lines) a provenance badge is an icon
 with nothing written beside it, at `--text-muted`, 14px, stroke 1.75: its name
 is hidden text inside it, its explanation the tooltip. Host-entered is
@@ -714,8 +726,9 @@ circle with a glyph, then its word in tiny caps — `text-ui-xs`, medium,
 | `maybe` | gold tint `--status-maybe` | `--status-maybe-ink` | `--text-muted` | Maybe (`?`); a household's Sent (`send`) |
 | `none` | an empty 2px ring in `--text-faint` | — | `--text-muted` | No reply |
 
-Contrast, measured from the ramps (`tests/styles/tokens.test.ts` asserts each
-glyph at 4.5:1 though a glyph owes 3:1; the words are contract inks):
+Contrast, measured from the ramps (`GuestsMarks.browser.test.tsx` holds each
+glyph at 4.5:1 on its painted circle, in both themes, though a glyph owes 3:1;
+the words are contract inks):
 
 | Pair | Dark | Light |
 |---|---|---|
@@ -761,7 +774,10 @@ A chip is a pill at the small search box's height (`h-7`), `text-ui-sm`, on
 `--surface` with no border, its count in the mono face in `--text-muted` beside
 its name. Chosen, it fills in the brand green (`--brand`, `--on-brand` on it,
 8.66:1): Wise's filter chips. A row of chips never wraps; it scrolls sideways
-(Wise). Pills, so they never read as part of a segmented control.
+(Wise). Pills, so they never read as part of a segmented control. Focused from
+the keyboard a chip wears the dashboard's one focus ring, never `outline-none`;
+the row keeps 4px of padding inside a matching negative margin, so its sideways
+scroll, which clips both ways, never cuts the ring.
 
 - **Event chips** pick the event on the RSVP page. They follow the module's
   segmented sub-tabs on the view bar's first row after a hairline divider
@@ -880,8 +896,11 @@ n/m", then four icon actions with their
 names as tooltips — Allow everyone, Allow no one, Copy message, Deactivate (or
 Reactivate). Deactivate's confirmation takes the icons' place in the same row.
 Narrow, the state is one word, and the
-actions sit in one "⋯" menu; Deactivate there opens a confirmation dialog,
-since a menu closes on choosing.
+actions sit behind a "⋯"; Deactivate there opens a confirmation dialog,
+since a menu closes on choosing. One menu serves the list: each "⋯" is a plain
+button that opens it for its own household, on its first item from the
+keyboard, and closing gives focus back to that "⋯". A "⋯" pressed while the
+last menu is still fading waits for it to go.
 
 **Edit.** A card's header — the name field, the claim code and Delete household,
 then the column heads — sticks at layer 2 inside its card and lets go at its
@@ -890,7 +909,7 @@ ground. The editor table is fixed layout with explicit column widths, shared by
 the header's head strip, which follows the table's sideways scroll through one
 capture-phase listener for the whole editor. An event name too long for its
 8rem column is cut short with an ellipsis and becomes a button that opens the
-whole name, by touch or keyboard. Narrow, the header holds the name alone, its
+whole name, by touch or keyboard, in the editor's one popover. Narrow, the header holds the name alone, its
 label the field's own. Add household hands focus to the new card's name.
 
 **Moving within the stack.** A search, a reply filter, a sort or an event change
@@ -902,8 +921,13 @@ a screen tall until its view's data lands, so the page cannot clamp meanwhile.
 
 **Icon-only controls.** Every control that shows an icon instead of its words
 keeps its words as its accessible name and shows them in a tooltip on hover
-and on keyboard focus (`ActionTip.tsx`). The tooltip is for the eye only:
-`@shared/ui`'s `Tooltip` is for a passive badge and takes no focus.
+and on keyboard focus (`ActionTip.tsx`). The tooltip is for the eye only, and
+there is one for the whole page: each control carries its words as `data-tip`,
+and the shell's `TipLayer` draws a single panel beside whichever one the
+pointer rests on (after 300ms, at once within 300ms of the last) or the
+keyboard reaches (at once). A touch, a press, Escape, activating the control
+or its leaving the page closes it. A list of 300 households, four icons each,
+mounts no tooltip machinery until someone hovers.
 
 ### A table that scrolls with the page
 
