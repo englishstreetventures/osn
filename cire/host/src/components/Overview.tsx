@@ -415,7 +415,7 @@ export default function Overview(props: {
       <Show
         when={agenda().length > 0}
         fallback={
-          <p class="font-body text-text-muted text-ui-sm leading-relaxed">
+          <p class="font-body text-text-muted text-ui-sm leading-ui-normal">
             Nothing scheduled yet — add events, payment due dates, or task deadlines.
           </p>
         }
@@ -435,18 +435,18 @@ export default function Overview(props: {
                   onClick={() => props.onNavigate(AGENDA_MODULE[item.kind])}
                   class="hover:bg-surface/40 flex w-full items-center gap-3 py-2 text-left transition-colors duration-(--dur-fast) ease-(--ease-out)"
                 >
-                  <span class="text-text-muted text-ui-sm w-14 shrink-0 font-mono tabular-nums">
+                  <span class="text-text-muted text-ui-sm font-ui-mono w-14 shrink-0 tabular-nums">
                     {fmtAgendaDate(item.date)}
                   </span>
                   <ModuleIcon icon={moduleDef(AGENDA_MODULE[item.kind]).icon} />
                   <span class="text-text text-ui-base grow truncate">{item.label}</span>
                   <Show when={item.overdue}>
-                    <span class="font-body text-error text-ui-xs shrink-0 tracking-wide uppercase">
+                    <span class="font-body text-error text-ui-xs tracking-ui-wide shrink-0 uppercase">
                       overdue
                     </span>
                   </Show>
                   <Show when={item.detail}>
-                    <span class="text-text-muted text-ui-sm shrink-0 font-mono tabular-nums">
+                    <span class="text-text-muted text-ui-sm font-ui-mono shrink-0 tabular-nums">
                       {item.detail}
                     </span>
                   </Show>
@@ -512,7 +512,7 @@ export default function Overview(props: {
                   when={weddingDate()}
                   fallback={
                     <>
-                      <p class="font-display text-text text-ui-lg leading-tight font-light">
+                      <p class="font-display text-text text-ui-lg leading-ui-tight font-light">
                         No date yet
                       </p>
                       <CardCtaButton onClick={() => props.onNavigate("settings", "wedding")}>
@@ -526,7 +526,7 @@ export default function Overview(props: {
                       <Show
                         when={countdown() !== null}
                         fallback={
-                          <p class="font-display text-text text-ui-lg leading-tight font-light">
+                          <p class="font-display text-text text-ui-lg leading-ui-tight font-light">
                             {formatWeddingDate(iso())}
                           </p>
                         }
@@ -539,14 +539,14 @@ export default function Overview(props: {
                           // dates read as words with no redundant numeral above them.
                           if (days === 0) {
                             return (
-                              <p class="font-display text-gold text-ui-xl leading-none font-light">
+                              <p class="font-display text-gold text-ui-xl leading-ui-none font-light">
                                 Today!
                               </p>
                             );
                           }
                           if (days === 1) {
                             return (
-                              <p class="font-display text-gold text-ui-xl leading-none font-light">
+                              <p class="font-display text-gold text-ui-xl leading-ui-none font-light">
                                 Tomorrow!
                               </p>
                             );
@@ -570,7 +570,7 @@ export default function Overview(props: {
                 <Show
                   when={data()?.rsvps && data()!.rsvps!.eventCount > 0}
                   fallback={
-                    <p class="font-body text-text-muted text-ui-sm leading-relaxed">
+                    <p class="font-body text-text-muted text-ui-sm leading-ui-normal">
                       Replies will roll up here once you have events and guests.
                     </p>
                   }
@@ -580,7 +580,7 @@ export default function Overview(props: {
                     return (
                       <>
                         <div class="flex items-baseline gap-2">
-                          <span class="font-display text-gold text-ui-xl leading-none tabular-nums">
+                          <span class="font-display text-gold text-ui-xl leading-ui-none tabular-nums">
                             {r.attending}
                           </span>
                           <span class="font-body text-text-muted text-ui-sm">
@@ -592,19 +592,19 @@ export default function Overview(props: {
                         <dl class="font-body text-text-muted text-ui-sm grid grid-cols-2 gap-x-4 gap-y-1">
                           <div class="flex justify-between gap-2">
                             <dt>Declined</dt>
-                            <dd class="text-text font-mono">{r.declined}</dd>
+                            <dd class="text-text font-ui-mono">{r.declined}</dd>
                           </div>
                           <div class="flex justify-between gap-2">
                             <dt>Maybe</dt>
-                            <dd class="text-text font-mono">{r.maybe}</dd>
+                            <dd class="text-text font-ui-mono">{r.maybe}</dd>
                           </div>
                           <div class="flex justify-between gap-2">
                             <dt>No reply</dt>
-                            <dd class="text-text font-mono">{r.noResponse}</dd>
+                            <dd class="text-text font-ui-mono">{r.noResponse}</dd>
                           </div>
                           <div class="flex justify-between gap-2">
                             <dt>Invited</dt>
-                            <dd class="text-text font-mono">{r.invited}</dd>
+                            <dd class="text-text font-ui-mono">{r.invited}</dd>
                           </div>
                         </dl>
                         <Show when={data()!.rsvpEvents.length > 0}>
@@ -613,7 +613,7 @@ export default function Overview(props: {
                               {(e) => (
                                 <li class="flex justify-between gap-2">
                                   <span class="truncate">{e.name}</span>
-                                  <span class="text-text font-mono tabular-nums">
+                                  <span class="text-text font-ui-mono tabular-nums">
                                     {e.attending} attending
                                   </span>
                                 </li>
@@ -651,16 +651,16 @@ export default function Overview(props: {
                 <dl class="font-body text-text-muted text-ui-sm flex flex-col gap-1.5">
                   <div class="flex justify-between gap-2">
                     <dt>Households</dt>
-                    <dd class="text-text font-mono">{householdCount()}</dd>
+                    <dd class="text-text font-ui-mono">{householdCount()}</dd>
                   </div>
                   <div class="flex justify-between gap-2">
                     <dt>Events</dt>
-                    <dd class="text-text font-mono">{eventCount()}</dd>
+                    <dd class="text-text font-ui-mono">{eventCount()}</dd>
                   </div>
                   <Show when={data()?.profile?.guestCountEstimate != null}>
                     <div class="flex justify-between gap-2">
                       <dt>Guest estimate</dt>
-                      <dd class="text-text font-mono">{data()!.profile!.guestCountEstimate}</dd>
+                      <dd class="text-text font-ui-mono">{data()!.profile!.guestCountEstimate}</dd>
                     </div>
                   </Show>
                 </dl>

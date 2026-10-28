@@ -164,7 +164,7 @@ export default function UpgradeDialog(props: UpgradeDialogProps) {
           <h3 class="font-display text-text text-ui-lg font-light">
             {entry()?.title ?? props.title}
           </h3>
-          <p class="text-text-muted text-ui-sm leading-snug">{entry()?.blurb ?? props.blurb}</p>
+          <p class="text-text-muted text-ui-sm leading-ui-snug">{entry()?.blurb ?? props.blurb}</p>
         </header>
 
         <Switch>
@@ -219,7 +219,7 @@ export default function UpgradeDialog(props: UpgradeDialogProps) {
           </Button>
         </div>
 
-        <p class="text-text-faint text-ui-xs leading-snug">
+        <p class="text-text-faint text-ui-xs leading-ui-snug">
           Payment is handled by Stripe. You will come back here once it is done.
         </p>
       </div>

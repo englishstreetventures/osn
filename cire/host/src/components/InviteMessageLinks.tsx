@@ -136,7 +136,7 @@ export default function InviteMessageLinks(props: InviteMessageLinksProps) {
   );
 
   return (
-    <p class="font-body text-text-muted text-ui-sm max-w-prose leading-relaxed">
+    <p class="font-body text-text-muted text-ui-sm leading-ui-normal max-w-prose">
       {SENTENCE[props.here](place)}
     </p>
   );

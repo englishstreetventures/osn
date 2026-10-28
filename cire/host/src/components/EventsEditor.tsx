@@ -664,7 +664,7 @@ function EventRowCard(props: {
       classList={{
         "border-error/50": props.hasError,
         // Lift the row being dragged clear of its neighbours.
-        "border-gold/60 bg-surface/80 z-10 shadow-lg": sortable.isActiveDraggable(),
+        "border-gold/60 bg-surface/80 z-10 shadow-(--elev-2)": sortable.isActiveDraggable(),
         // Animate the OTHER rows shifting aside, but never the dragged one —
         // that must track the pointer without easing. Only while a drag is live,
         // so the post-drop settle isn't double-animated.

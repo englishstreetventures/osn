@@ -175,6 +175,26 @@ Two rules in `@layer base`:
   clips descenders at the leading these headings use. Emphasis is carried by
   weight, gold and rules instead.
 
+**The steps.** Size, tracking and line height come from the contract's steps —
+`text-ui-*`, `tracking-ui-*` and `leading-ui-*`, set in `global.css` — never
+from Tailwind's own. A paragraph of prose takes `leading-ui-normal` (1.6) and a
+hint or a tight stack of lines `leading-ui-snug` (1.4); `leading-ui-relaxed`
+(1.75) is the `Notice` body's. Words or figures in Cormorant are never set at a
+line height of 1, because its descenders need the room. A display line that
+keeps to one line — the wordmark, a module's heading, the wedding switcher's
+name, the overview's countdown and counts — takes `leading-ui-none` (1.1); a
+title that can wrap — a section heading, a popover's title, a wedding's name in
+the list — takes `leading-ui-tight` (1.2). Where a display line is clipped, as
+the switcher's name is by `truncate`, 1.1 is still short of Cormorant's g, j, p
+and y, so the line keeps 2px of padding inside the clip. Tailwind's
+`leading-none` stays only on a glyph or a short label — a ✦, an avatar's
+initial, a status word, a run sheet flag — which is where
+`@shared/design-tokens` keeps it. The invite preview is the exception: it draws
+the guest site's lines at the guest site's own line heights. Text in a code face
+— an id or a claim code, a file name, the counts in the overview's and the RSVP
+page's summaries — takes `font-ui-mono`, the platform's monospace; the portal
+loads no mono family.
+
 ---
 
 ## 4. Shape, depth, motion
@@ -193,7 +213,7 @@ role is. Two sets of names carry it:
 | Role | Written as | Value | Paints |
 |---|---|---|---|
 | `control` | `rounded-ui-control` | 999px, a pill | every action `Button` (§7); a file input's button (`file:rounded-ui-control`); the invite preview's mock Respond and Event details |
-| `field` | `rounded-ui-field` | 14px | `Input`, `Select`, `Textarea` and a hand-written select or textarea; `Button`'s `tile` and `field` variants and its `swatch` size; a trigger shaped like a field (the date and colour pickers); a read-only value box and the copyable invite message; a framed picture or crop box; a block pressed to choose (the code-style and remint radio cards, an enquiry inbox row) |
+| `field` | `rounded-ui-field` | 14px | `Input`, `Select` and `Textarea`; `Button`'s `tile` and `field` variants and its `swatch` size; a trigger shaped like a field (the date and colour pickers); a read-only value box and the copyable invite message; a framed picture or crop box; a block pressed to choose (the code-style and remint radio cards, an enquiry inbox row) |
 | `lg` | `rounded-ui-lg` | 16px | `Card` and `cardClass`; the centred `Modal`; any bordered, padded block set on the page rather than inside another box — a form, a filter bar, a summary band, a panel, a list card with `py-3` or more, the guest editor's household card, the import's diff preview, the danger zone, the getting-started guide, a disclosure on the page (change history, the import guide, "Arrange tables"), a message bubble, the login card, the command palette; and the invite preview's hero title panel, gala code card and mock event card |
 | `md` | `rounded-md` | 10px | popovers, menus, tooltips and toasts: every Kobalte popover and dropdown menu, the rail tooltip and `ActionTip`'s panel, the module card, the co-host suggestion list, the two droplet popovers, the invite builder's narrow section menu; `--toast-radius` |
 | `sm` | `rounded-sm` | 6px | the small steps, below |
@@ -272,6 +292,13 @@ editor, nested in the list's frame, at 6px; "Save reply" a pill.
 **Depth.** `--inner-lip` is a single inner highlight along the top edge of a
 raised surface. It is the one trick that makes a flat card read as a lit object
 rather than a rectangle. `--elev-1` and `--elev-2` are the two drop shadows.
+`--elev-2` is what floats over the page: every popover and menu the portal
+draws on Kobalte directly, the command palette, the co-host suggestion list, the
+invite builder's narrow section menu, and a row lifted by a drag. A tooltip — `ActionTip`'s panel
+and the rail's tips — casts `shadow-md`, the shadow `@shared/ui`'s `Tooltip`,
+`Popover` and `DropdownMenu` paint, so a tooltip here matches the shared one
+beside it. Nothing paints `--elev-1` today, and nothing writes Tailwind's other
+shadow steps.
 
 **Motion.** Three durations and three easings, and **no animation library in
 this package by design**.
@@ -551,7 +578,8 @@ is given the house dark.
 ## 7. Components
 
 The parts every module is built from come from two packages: `@shared/ui`
-(`shared/ui/src/ui/`) and, for `Button` and `Card`, `@cire/ui` (`cire/ui/src/`).
+(`shared/ui/src/ui/`) and, for `Button`, `Card` and `Loading`, `@cire/ui`
+(`cire/ui/src/`).
 This package holds no copy of either. They are class-mapping components: they
 own a look and its variants, and almost no behaviour. A part that grows real
 behaviour takes its own file with it.
@@ -568,6 +596,8 @@ specificity, so a caller's plain utility — `w-full`, `self-start`, a `rounded-
 | --- | --- |
 | `Button`, `buttonClass` | Sixteen variants in four groups. **Boxed actions**, eight: `primary` (filled — the commit), `cta` (outlined, filled on hover — the guest site's call to action), `outline`, `quiet`, `quietDanger` (red only on hover), `choice` (one of several, marked by `aria-pressed` or `aria-checked`), `dashed` (an empty slot), `danger` (the confirm that destroys). **Blocks**, two: `tile` (the whole block is the control) and `field` (a trigger shaped like the field it stands in for). **Sheet chrome**, one: `chip`. **Borderless**, five: `link`, `subtle`, `touchLink`, `bare`, `bareDanger`. Five sizes: `sm`, `md`, `lg`, `swatch` (a frame round a picture) and `icon` (a 32px circle on a boxed variant, at least 24px square on a borderless one). **Corners:** the actions take `rounded-ui-control`, a pill; `tile`, `field` and the `swatch` size take `rounded-ui-field`, 14px; `chip` takes the `pill` step, so it stays round beside the round close button whatever `control` is. The borderless five take `control` as well, which only their focus ring shows. **Labels** show as written — sentence case, normal tracking, `font-medium` on a boxed size (below). `type="button"` is set **before** the spread, so a toolbar control inside a settings form does not submit it, and a caller who means `submit` can still say so; `aria-disabled` swallows the click as well as announcing it. `buttonClass` gives an `<a>` or a Kobalte trigger the same classes. |
 | `Card`, `cardClass`, `CardEyebrow`, `CardCta`, `CardCtaButton` | The raised surface at the 16px card corner, plus its furnishings: the gold eyebrow, the "go to the module" line at the foot, and that line as a button for a card that is not itself the control. `cardClass` is exported so a surface that has to be an `<a>` or a `<button>` gets the same look without wrapping. The `interactive` option adds the hover treatment — which is a promise that the whole rectangle is clickable, so a card that is not a control must not wear it. |
+| `Loading` | "This is on its way": one pulsing small-caps line with `role="status"`, for a list or a page still fetching. A lazy panel's fallback is `PanelLoading` instead, which holds the panel's height and does not pulse. |
+| `Chip` | A status word in a pill, small caps, in one of four tones. An enquiry's status wears the vendor portal's tones — open `pending`, quoted `accent`, closed `neutral` — so an enquiry reads alike from both ends. |
 | `Notice` | Four tones, at the 6px step. `danger`, `warn` and `success` each carry a distinct glyph plus a hidden word ("Error", "Warning", "Success"); `info` is unmarked, because nothing has happened. `alert` opts into `role="alert"` and is for a note that appeared **in answer to something** — a standing note that was on screen before the host arrived has nothing to interrupt anyone about. |
 | `EmptyState` | A title, an optional line of prose, and the one thing to do about it, in a dashed box at the 6px step. |
 | `Field`, `Fieldset`, `Input`, `Select`, `Textarea` | A small-caps label, the control, a hint and the errors, wired together by id. The controls take the 14px field corner and two sizes: `md` for a form (an `Input` 36px tall) and `sm` for a control in a table row or a view bar (28px). |
@@ -583,6 +613,16 @@ Small caps, `uppercase` with wide tracking, stay on what is not a button or link
 label: eyebrows (`CardEyebrow`), field labels and legends, table heads, badges,
 status words, key hints, and the tab strips — the module rail's rows, the
 segmented view tabs and the invite builder's section tabs.
+
+**Checkboxes and radios** are native inputs, named by the `<label>` round them
+or by `aria-label`, rather than `@shared/ui`'s `Checkbox` and `RadioGroup`. Those
+two are built on Kobalte, which on this portal costs about 5.8 KB gzip of the
+bundle guard's headroom (`scripts/bundle-size-budgets.txt`) — the trade
+`Switch` is native to avoid — and most of the portal's boxes need what neither
+part forwards to its input: a name from `aria-label` alone (a checklist task, a
+payment, a guest's attendance cell), `disabled`, or a label with a second line
+or a link in it. A native box also keeps one look across a fieldset that mixes
+the two, such as the budget line's "Count guests at".
 
 ### Who holds a task: faces, not names
 

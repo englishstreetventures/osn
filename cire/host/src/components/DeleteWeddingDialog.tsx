@@ -74,7 +74,7 @@ export default function DeleteWeddingDialog(props: {
       <h3 id="danger-zone-title" class="font-display text-text text-ui-md font-light">
         Delete this wedding
       </h3>
-      <p class="font-body text-text-muted text-ui-sm leading-relaxed">
+      <p class="font-body text-text-muted text-ui-sm leading-ui-normal">
         Guests lose the invite straight away. You or any other owner can restore it from your
         wedding list for 7 days; after that it is deleted for good, with its guests, replies and
         gifts.
@@ -92,7 +92,7 @@ export default function DeleteWeddingDialog(props: {
           }}
         >
           <p class="font-display text-text text-ui-md font-light">Delete this wedding?</p>
-          <ul class="font-body text-text-muted text-ui-sm flex list-disc flex-col gap-1 pl-5 leading-relaxed">
+          <ul class="font-body text-text-muted text-ui-sm leading-ui-normal flex list-disc flex-col gap-1 pl-5">
             <li>Every guest&apos;s invite link and code stop working at once.</li>
             <li>
               You or any other owner can restore it from your wedding list for 7 days, exactly as it

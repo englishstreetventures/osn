@@ -9,12 +9,14 @@ import DietaryPresets from "@cire/ui/dietary-presets-popover";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
 import { EmptyState } from "@shared/ui/ui/empty-state";
-import { Field } from "@shared/ui/ui/field";
+import { Field, Fieldset } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
 import { Popover, PopoverContent, PopoverTrigger } from "@shared/ui/ui/popover";
 import type { SafeProps } from "@shared/ui/ui/props";
+import { Select } from "@shared/ui/ui/select";
 import { Table, Td, Th } from "@shared/ui/ui/table";
+import { Textarea } from "@shared/ui/ui/textarea";
 import { Tooltip } from "@shared/ui/ui/tooltip";
 import ArrowDown from "lucide-solid/icons/arrow-down";
 import ArrowUp from "lucide-solid/icons/arrow-up";
@@ -138,7 +140,7 @@ const CHIP_IDLE = "bg-surface text-text hover:bg-surface-raised";
 const CHIP_CHOSEN = "bg-brand text-on-brand";
 /** A chip's count: muted beside an unchosen name, the chip's own ink on green. */
 const chipCount = (chosen: boolean) =>
-  `font-mono text-ui-xs ${chosen ? "text-on-brand" : "text-text-muted"}`;
+  `font-ui-mono text-ui-xs ${chosen ? "text-on-brand" : "text-text-muted"}`;
 
 /**
  * A row of chips that never wraps: it scrolls sideways under the finger. A
@@ -212,10 +214,6 @@ function provenanceIcon(p: Provenance) {
 function ReplyDot(props: { tone: MarkTone }) {
   return <StatusDot tone={props.tone} />;
 }
-
-/** The phone's sort and reply pickers: native selects, at the search box's height. */
-const SELECT_CLASS =
-  "border-border bg-bg text-text font-body text-ui-sm h-7 min-w-0 rounded-ui-field border px-2";
 
 /** What the sort select offers, in `RsvpSort` terms. */
 const SORT_CHOICES = [
@@ -894,7 +892,7 @@ export default function RsvpView(props: RsvpViewProps) {
         <Info aria-hidden="true" strokeWidth={1.75} class="size-4" />
       </PopoverTrigger>
       <PopoverContent aria-label={KEY_LABEL} class="w-72">
-        <ul class="font-body text-text-muted text-ui-sm flex flex-col gap-2.5 leading-snug">
+        <ul class="font-body text-text-muted text-ui-sm leading-ui-snug flex flex-col gap-2.5">
           <li class="flex items-start gap-2">
             <span class="text-gold-ink text-ui-xs tracking-ui-wider flex w-8 shrink-0 justify-center pt-0.5 font-medium uppercase">
               New
@@ -937,8 +935,10 @@ export default function RsvpView(props: RsvpViewProps) {
       <div class="flex w-full min-w-0 flex-col gap-2">
         <div class="flex min-w-0 items-center gap-2">
           {searchBox(section)}
-          <select
-            class={`${SELECT_CLASS} max-w-28`}
+          {/* At the search box's height, so the two read as one bar. */}
+          <Select
+            size="sm"
+            class="max-w-28 min-w-0"
             aria-label="Sort guests"
             value={sort() ? `${sort()!.key}:${sort()!.direction}` : ""}
             onChange={(e) =>
@@ -948,7 +948,7 @@ export default function RsvpView(props: RsvpViewProps) {
             <For each={SORT_CHOICES}>
               {(choice) => <option value={choice.value}>{choice.label}</option>}
             </For>
-          </select>
+          </Select>
           {replyKey()}
         </div>
         {replyChips(section)}
@@ -1139,23 +1139,23 @@ export default function RsvpView(props: RsvpViewProps) {
               <dl class="font-body text-text-muted text-ui-sm flex flex-wrap gap-x-4 gap-y-1">
                 <div class="flex items-center gap-1.5">
                   <dt class="text-gold tracking-ui-wider uppercase">Attending</dt>
-                  <dd class="text-text font-mono">{section().event.attending}</dd>
+                  <dd class="text-text font-ui-mono">{section().event.attending}</dd>
                 </div>
                 <div class="flex items-center gap-1.5">
                   <dt class="tracking-ui-wider uppercase">Declined</dt>
-                  <dd class="text-text font-mono">{section().event.declined}</dd>
+                  <dd class="text-text font-ui-mono">{section().event.declined}</dd>
                 </div>
                 <div class="flex items-center gap-1.5">
                   <dt class="tracking-ui-wider uppercase">Maybe</dt>
-                  <dd class="text-text font-mono">{section().event.maybe}</dd>
+                  <dd class="text-text font-ui-mono">{section().event.maybe}</dd>
                 </div>
                 <div class="flex items-center gap-1.5">
                   <dt class="tracking-ui-wider uppercase">No reply</dt>
-                  <dd class="text-text font-mono">{section().event.noResponse}</dd>
+                  <dd class="text-text font-ui-mono">{section().event.noResponse}</dd>
                 </div>
                 <div class="flex items-center gap-1.5">
                   <dt class="tracking-ui-wider uppercase">Invited</dt>
-                  <dd class="text-text font-mono">{section().event.invited}</dd>
+                  <dd class="text-text font-ui-mono">{section().event.invited}</dd>
                 </div>
               </dl>
 
@@ -1363,62 +1363,69 @@ export default function RsvpView(props: RsvpViewProps) {
           </span>
         </p>
 
-        <label class="font-body text-text-muted text-ui-sm tracking-ui-wide flex flex-col gap-1 uppercase">
-          Status
-          <select
-            class="border-border bg-bg text-text text-ui-base rounded-ui-field border px-2.5 py-1.5 normal-case"
-            value={formStatus()}
-            onChange={(e) => setFormStatus(e.currentTarget.value as RsvpStatus)}
-            disabled={saving()}
-          >
-            <option value="attending">Attending</option>
-            <option value="declined">Declined</option>
-            <option value="maybe">Maybe</option>
-          </select>
-        </label>
+        <Field label="Status">
+          {(field) => (
+            <Select
+              {...field}
+              value={formStatus()}
+              onChange={(e) => setFormStatus(e.currentTarget.value as RsvpStatus)}
+              disabled={saving()}
+            >
+              <option value="attending">Attending</option>
+              <option value="declined">Declined</option>
+              <option value="maybe">Maybe</option>
+            </Select>
+          )}
+        </Field>
 
-        <div class="font-body text-text-muted text-ui-sm tracking-ui-wide flex flex-col gap-1.5 uppercase">
-          Dietary requirements (optional)
-          <div class="normal-case">
-            {/* Inline on a narrow panel, where answering should be a tap,
-                behind a trigger on a wide one. The panel decides, not the
-                window: a narrow panel on a wide screen is still narrow. */}
-            <Show
-              when={compact()}
-              fallback={
-                <DietaryPresets
+        {/* The presets and the free text answer one question, so one legend
+            names both, lettered as the Status label above them. `min-w-0`
+            because a fieldset will not shrink below its content, and the
+            inline presets are one long row that scrolls inside the panel. */}
+        <Fieldset legend="Dietary requirements (optional)" class="min-w-0">
+          <div class="flex flex-col gap-3">
+            <div>
+              {/* Inline on a narrow panel, where answering should be a tap,
+                  behind a trigger on a wide one. The panel decides, not the
+                  window: a narrow panel on a wide screen is still narrow. */}
+              <Show
+                when={compact()}
+                fallback={
+                  <DietaryPresets
+                    value={formPresets()}
+                    onChange={setFormPresets}
+                    disabled={saving()}
+                    label={`Dietary requirements for ${guest.firstName} ${guest.lastName}`}
+                  />
+                }
+              >
+                <DietaryPresetsInline
                   value={formPresets()}
                   onChange={setFormPresets}
                   disabled={saving()}
                   label={`Dietary requirements for ${guest.firstName} ${guest.lastName}`}
                 />
-              }
-            >
-              <DietaryPresetsInline
-                value={formPresets()}
-                onChange={setFormPresets}
-                disabled={saving()}
-                label={`Dietary requirements for ${guest.firstName} ${guest.lastName}`}
-              />
-            </Show>
-          </div>
-        </div>
+              </Show>
+            </div>
 
-        {/* Free text for whatever the vocabulary has no key for. Always shown
-            here rather than behind an "Other" tick: an organiser is copying
-            down a reply someone gave on the phone, so the box has to be ready
-            for words they are already hearing. */}
-        <label class="font-body text-text-muted text-ui-sm tracking-ui-wide flex flex-col gap-1 uppercase">
-          Anything else
-          <textarea
-            class="border-border bg-bg text-text text-ui-base rounded-ui-field border px-2.5 py-1.5 normal-case"
-            rows={2}
-            maxlength={500}
-            value={formDietary()}
-            onInput={(e) => setFormDietary(e.currentTarget.value)}
-            disabled={saving()}
-          />
-        </label>
+            {/* Free text for whatever the vocabulary has no key for. Always
+                shown here rather than behind an "Other" tick: an organiser is
+                copying down a reply someone gave on the phone, so the box has
+                to be ready for words they are already hearing. */}
+            <Field label="Anything else">
+              {(field) => (
+                <Textarea
+                  {...field}
+                  rows={2}
+                  maxlength={500}
+                  value={formDietary()}
+                  onInput={(e) => setFormDietary(e.currentTarget.value)}
+                  disabled={saving()}
+                />
+              )}
+            </Field>
+          </div>
+        </Fieldset>
 
         <Show when={keeps()}>
           <p id={keepsId} class="font-body text-text-muted text-ui-sm">
@@ -1438,7 +1445,7 @@ export default function RsvpView(props: RsvpViewProps) {
           }
         >
           <div class="flex flex-col gap-1.5">
-            <label class="font-body text-text-muted text-ui-sm flex items-start gap-2.5 leading-relaxed normal-case">
+            <label class="font-body text-text-muted text-ui-sm leading-ui-normal flex items-start gap-2.5 normal-case">
               <input
                 type="checkbox"
                 class="accent-gold mt-0.5 h-4 w-4 shrink-0 cursor-pointer"
@@ -1455,7 +1462,7 @@ export default function RsvpView(props: RsvpViewProps) {
                 attests or of its accessible name; a new tab, so the form
                 keeps what was typed. */}
             <Show when={target.plusOne}>
-              <p class="font-body text-text-muted text-ui-sm pl-6.5 leading-relaxed">
+              <p class="font-body text-text-muted text-ui-sm leading-ui-normal pl-6.5">
                 Share our privacy notice with them:{" "}
                 <a
                   href={`${CIRE_MARKETING_URL}/privacy`}

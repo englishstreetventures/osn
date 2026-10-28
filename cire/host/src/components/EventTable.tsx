@@ -1,4 +1,5 @@
 import Button from "@cire/ui/button";
+import { cardClass } from "@cire/ui/card";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
 import { EmptyState } from "@shared/ui/ui/empty-state";
@@ -232,7 +233,7 @@ export default function EventTable(props: EventTableProps) {
               // CARD, not the panel. Querying the panel was already slightly
               // wrong; with two cards per row it would put two columns of
               // details into a half-width card.
-              <li class="border-border bg-surface/30 rounded-ui-lg @container/card flex flex-col gap-3 border p-5">
+              <li class={`${cardClass()} @container/card`}>
                 <header class="flex flex-col gap-1">
                   <span class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">
                     {event.slug}

@@ -484,7 +484,7 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
     }
   }
 
-  const hintClass = "font-body text-text-muted text-ui-sm leading-relaxed";
+  const hintClass = "font-body text-text-muted text-ui-sm leading-ui-normal";
 
   return (
     <div class="border-border bg-surface/30 rounded-ui-lg flex flex-col gap-6 border p-6">

@@ -437,7 +437,7 @@ export default function FaqEditor(props: FaqEditorProps) {
                         style={maybeTransformStyle(sortable.transform())}
                         class="border-border bg-surface/10 relative flex flex-col gap-2 rounded-sm border px-3 py-2"
                         classList={{
-                          "border-gold/60 bg-surface/80 z-10 shadow-lg":
+                          "border-gold/60 bg-surface/80 z-10 shadow-(--elev-2)":
                             sortable.isActiveDraggable(),
                           "transition-transform duration-(--dur-base) ease-(--ease-in-out)":
                             dndState.dragging() && !sortable.isActiveDraggable(),

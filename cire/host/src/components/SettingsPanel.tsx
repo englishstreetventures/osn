@@ -45,7 +45,7 @@ interface WeddingProfile {
  *  and the standing notes beside a DatePicker (which draws its own label). Every
  *  real input on this panel goes through `Field`. */
 const labelClass = "font-body text-text-muted text-ui-xs tracking-ui-wider uppercase";
-const hintClass = "font-body text-text-muted text-ui-sm leading-snug";
+const hintClass = "font-body text-text-muted text-ui-sm leading-ui-snug";
 
 /** The RSVP-by half of the settings PUT body — on its own it is the whole patch
  *  an editor co-host may send. */
@@ -460,7 +460,7 @@ export default function SettingsPanel(props: SettingsPanelProps) {
           aria-labelledby="plan-title"
           class="border-border flex flex-col gap-2 border-t pt-5"
         >
-          <h3 id="plan-title" class="font-display text-text text-ui-md leading-tight font-light">
+          <h3 id="plan-title" class="font-display text-text text-ui-md leading-ui-tight font-light">
             Plan
           </h3>
           <p class={hintClass}>This wedding is on {TIER_LABEL[props.tier]}.</p>

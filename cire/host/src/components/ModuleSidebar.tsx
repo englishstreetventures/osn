@@ -360,7 +360,7 @@ function LockedRow(props: {
             if (props.dwell) dwell.leave(event);
           }}
           onKeyDown={onCardKeyDown}
-          class="border-border bg-surface-raised menu-pop z-50 flex w-64 flex-col gap-2 rounded-md border p-3 shadow-lg outline-none"
+          class="border-border bg-surface-raised menu-pop z-50 flex w-64 flex-col gap-2 rounded-md border p-3 shadow-(--elev-2) outline-none"
         >
           {/* `gold-ink`, not `gold`: this is small text that has to be read,
               and gold has no contrast contract (`styles/global.css`). */}
@@ -369,10 +369,13 @@ function LockedRow(props: {
           </p>
           {/* Title and description name the card's `role="dialog"`; `as="p"`
               keeps a heading out of the end of `<body>`. */}
-          <Popover.Title as="p" class="font-display text-text text-ui-md leading-tight font-light">
+          <Popover.Title
+            as="p"
+            class="font-display text-text text-ui-md leading-ui-tight font-light"
+          >
             {lock().title}
           </Popover.Title>
-          <Popover.Description as="p" class="text-text-muted text-ui-sm leading-snug">
+          <Popover.Description as="p" class="text-text-muted text-ui-sm leading-ui-snug">
             {lock().blurb}
           </Popover.Description>
           <Button
@@ -661,7 +664,7 @@ export default function ModuleSidebar(props: {
                       enabled={railTips()}
                       label={mod.label}
                       detail={
-                        <span class="font-body text-text-muted text-ui-xs leading-snug">
+                        <span class="font-body text-text-muted text-ui-xs leading-ui-snug">
                           {mod.hint}
                         </span>
                       }
@@ -746,7 +749,7 @@ export default function ModuleSidebar(props: {
                 of its own. The name belongs on the element that owns the role. */}
             <Dialog.Content class="sheet-panel border-border bg-surface fixed inset-y-0 left-0 z-50 flex w-[min(19rem,86vw)] flex-col border-r">
               <div class="border-border flex items-center justify-between gap-4 border-b px-5 py-4">
-                <Dialog.Title class="font-display text-text text-ui-md leading-none font-light">
+                <Dialog.Title class="font-display text-text text-ui-md leading-ui-none font-light">
                   Wedding modules
                 </Dialog.Title>
                 <Dialog.CloseButton
@@ -773,7 +776,7 @@ export default function ModuleSidebar(props: {
                         />
                         <span class="flex min-w-0 flex-col gap-1">
                           <span class="truncate">{mod.label}</span>
-                          <span class="text-text-muted text-ui-xs leading-snug tracking-normal normal-case">
+                          <span class="text-text-muted text-ui-xs leading-ui-snug tracking-ui-normal normal-case">
                             {mod.hint}
                           </span>
                         </span>

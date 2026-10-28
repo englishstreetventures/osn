@@ -188,7 +188,7 @@ export default function ColorPicker(props: {
    * passes through its own three-digit prefix on the way in, so expanding on
    * blur silently rewrites the far more common case.
    *
-   * A discard SAYS SO (C-L3). Snapping the field back is visible to anyone
+   * A discard SAYS SO. Snapping the field back is visible to anyone
    * watching it and invisible to everyone else, so a discarded entry also sets
    * `aria-invalid` and posts a line naming what was kept — otherwise a screen
    * reader user leaves the field believing the colour they typed was applied.
@@ -230,7 +230,7 @@ export default function ColorPicker(props: {
             </Show>
           </Popover.Trigger>
           <Popover.Portal>
-            <Popover.Content class="border-border bg-surface-raised menu-pop z-50 flex w-56 flex-col gap-3 rounded-md border p-3 shadow-lg outline-none">
+            <Popover.Content class="border-border bg-surface-raised menu-pop z-50 flex w-56 flex-col gap-3 rounded-md border p-3 shadow-(--elev-2) outline-none">
               <ColorArea
                 colorSpace="hsb"
                 xChannel="saturation"

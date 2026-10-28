@@ -6,6 +6,7 @@ import {
   startSignIn,
   type RpAuthConfig,
 } from "@shared/rp-auth";
+import { Notice } from "@shared/ui/ui/notice";
 import { createSignal, onMount, Show } from "solid-js";
 
 import { CIRE_API_URL } from "../lib/osn";
@@ -91,15 +92,17 @@ export default function SignInPanel() {
 
   return (
     <div class="flex flex-col gap-6">
+      {/* `alert` because it appears in answer to something the host just did:
+          they came back from the issuer without a session. */}
       <Show when={error()}>
         {(message) => (
-          <p role="alert" class="border-border bg-bg text-text rounded-sm border px-4 py-3 text-sm">
+          <Notice tone="danger" alert>
             {message()}
-          </p>
+          </Notice>
         )}
       </Show>
 
-      <p class="text-muted-foreground text-sm leading-relaxed">
+      <p class="font-body text-text-muted text-ui-sm leading-ui-normal">
         Cire uses your musubi account to sign you in. Your passkey stays with musubi — Cire never
         sees it.
       </p>
@@ -108,7 +111,7 @@ export default function SignInPanel() {
         Continue with musubi
       </Button>
 
-      <p class="text-muted-foreground text-sm">
+      <p class="font-body text-text-muted text-ui-sm">
         No musubi account yet? You can create one on the next screen.
       </p>
     </div>

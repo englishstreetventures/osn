@@ -164,7 +164,7 @@ export default function CreateWeddingForm(props: {
                   />
                   <span class="font-body text-text text-ui-base">{option.label}</span>
                 </span>
-                <span class="font-body text-text-muted text-ui-sm pl-6 leading-snug">
+                <span class="font-body text-text-muted text-ui-sm leading-ui-snug pl-6">
                   {option.hint}
                 </span>
               </label>

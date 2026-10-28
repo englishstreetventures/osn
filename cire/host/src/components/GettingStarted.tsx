@@ -237,7 +237,7 @@ export default function GettingStarted(props: {
               </h2>
               <Show when={!allDone() && nextStep()}>
                 {(step) => (
-                  <p class="font-body text-text-muted text-ui-sm leading-relaxed">
+                  <p class="font-body text-text-muted text-ui-sm leading-ui-normal">
                     Next: <span class="text-text">{step().todo}</span>
                   </p>
                 )}
@@ -279,7 +279,7 @@ export default function GettingStarted(props: {
                       >
                         {step.label}
                       </span>
-                      <span class="font-body text-text-muted text-ui-sm leading-snug font-normal">
+                      <span class="font-body text-text-muted text-ui-sm leading-ui-snug font-normal">
                         {step.complete ? step.done : step.todo}
                       </span>
                     </span>

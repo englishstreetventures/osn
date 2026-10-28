@@ -83,7 +83,7 @@ export default function TopBar(props: {
           </span>
           <span
             aria-hidden="true"
-            class="font-display text-text text-ui-md tracking-ui-wide leading-none font-light"
+            class="font-display text-text text-ui-md tracking-ui-wide leading-ui-none font-light"
           >
             Cire
           </span>

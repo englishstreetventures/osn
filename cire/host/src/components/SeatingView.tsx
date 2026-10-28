@@ -593,7 +593,7 @@ function ArrangeRow(props: {
       ref={sortable.ref}
       style={maybeTransformStyle(sortable.transform())}
       class="bg-surface/30 flex items-center gap-2 rounded-sm px-2 py-1"
-      classList={{ "relative z-30 shadow-lg": sortable.isActiveDraggable() }}
+      classList={{ "relative z-30 shadow-(--elev-2)": sortable.isActiveDraggable() }}
     >
       <ReorderControls sortable={sortable} item={props.item} />
       <span class="font-body text-text text-ui-sm">{props.table.name}</span>
@@ -769,7 +769,7 @@ function GuestRow(props: {
       ref={item.ref}
       style={maybeTransformStyle(item.transform())}
       class="bg-surface flex items-center gap-2 rounded-sm px-2 py-1.5"
-      classList={{ "relative z-30 shadow-lg": item.isActiveDraggable() }}
+      classList={{ "relative z-30 shadow-(--elev-2)": item.isActiveDraggable() }}
     >
       <Show when={props.canEdit && !props.guest.withdrawn}>
         {/* Pointer only. The menu beside it is the keyboard path, so the
@@ -886,7 +886,7 @@ function GuestMenu(props: {
               {action()}
             </DropdownMenu.Trigger>
             <DropdownMenu.Portal>
-              <DropdownMenu.Content class="border-border bg-surface menu-pop z-50 max-h-80 min-w-56 overflow-y-auto rounded-md border p-1.5 shadow-lg outline-none">
+              <DropdownMenu.Content class="border-border bg-surface menu-pop z-50 max-h-80 min-w-56 overflow-y-auto rounded-md border p-1.5 shadow-(--elev-2) outline-none">
                 <DropdownMenu.RadioGroup
                   value={props.guest.tableId ?? NOT_SEATED}
                   onChange={(value) =>
