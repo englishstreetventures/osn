@@ -46,9 +46,14 @@ export interface RsvpDigestStopRouteOptions {
 
 const PATH = "/api/rsvp-digest/stop";
 
-/** Fixed pages, so nothing from the request is ever written into the HTML. */
+/**
+ * Fixed pages, so nothing from the request is ever written into the HTML. The
+ * button is a pill, as cire's buttons are, with side padding a step wider than
+ * a rectangle's for the round ends. The CSP's `style-src 'unsafe-inline'` is
+ * what lets this `<style>` block apply.
+ */
 const page = (title: string, body: string): string =>
-  `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${title}</title><style>body{font-family:system-ui,-apple-system,sans-serif;color:#0a0a0a;max-width:480px;margin:0 auto;padding:48px 24px;line-height:1.5}button{font:inherit;padding:10px 18px;border-radius:6px;border:1px solid #0a0a0a;background:#0a0a0a;color:#fff;cursor:pointer}p.muted{color:#666;font-size:14px}</style></head><body>${body}<p class="muted">Cire Weddings</p></body></html>`;
+  `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${title}</title><style>body{font-family:system-ui,-apple-system,sans-serif;color:#0a0a0a;max-width:480px;margin:0 auto;padding:48px 24px;line-height:1.5}button{font:inherit;padding:10px 22px;border-radius:999px;border:1px solid #0a0a0a;background:#0a0a0a;color:#fff;cursor:pointer}p.muted{color:#666;font-size:14px}</style></head><body>${body}<p class="muted">Cire Weddings</p></body></html>`;
 
 const CONFIRM = page(
   "Stop the daily RSVP summary",
