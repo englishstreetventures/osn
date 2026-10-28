@@ -1401,6 +1401,10 @@ then `musubi.social` (englishstreetventures/osn#1787). Before each:
   site's stack fails at `alchemy-plan`'s precheck until the flip runs, so the daily run
   never moves a domain; dispatch releases whose `surfaces` leave that stack's sites out
   meanwhile.
+- You hold the value of `CLOUDFLARE_PAGES_DNS_TOKEN`, or a token with the same scope
+  (Pages Edit on the account, DNS Edit on `cireweddings.com` and `musubi.social`). The
+  rollback below needs it, no workflow runs that step, and GitHub never shows a secret
+  again once set.
 
 **The flip release.** At low traffic, dispatch **Production release** with
 `flip: <site>` and `surfaces: <site>`. It runs only the site's stack, and asks four
@@ -1411,13 +1415,30 @@ approvals, one per job, in this order:
 2. `stack-<stack>-verify` — plans the stack again with the same force, and refuses unless
    the plan is still that one update and equals the plan approved in step 1. It deploys
    nothing and holds no Pages token. A refusal here ends the release with nothing moved.
-3. `flip-detach-<stack>` — on a fresh runner with nothing installed, the only job holding
-   `CLOUDFLARE_PAGES_DNS_TOKEN`: `pages-domain.ts check`, then `detach`, which takes the
-   host off the Pages project and deletes its CNAME. **The site is down from here** until
-   step 4's deploy attaches the domain, so approve step 4 at once.
-4. `stack-<stack>-production` — installs, checks the state store, deploys (which attaches
-   the domain to the Worker), and smoke-checks the site on its production host, rolling
-   back on failure. The record job then records the site in `production-records`.
+3. `flip-detach-<stack>` — on a fresh runner with nothing installed, the one deploy job
+   holding `CLOUDFLARE_PAGES_DNS_TOKEN` (`alchemy-plan`'s precheck reads with it too,
+   before its install): `pages-domain.ts check`, then `detach`, which takes the host off
+   the Pages project and deletes its CNAME. **The site is down from here** until step 4's
+   deploy attaches the domain, so approve step 4 at once: the outage is your wait plus
+   step 4's install, state store check, snapshot and plan, a few minutes. The approved
+   plan from step 1 is kept 7 days; step 4 refuses without it.
+4. `stack-<stack>-production` — installs, checks the state store, plans the stack once
+   more and runs the guard as in step 2, then deploys (which attaches the domain to the
+   Worker), and smoke-checks the site on its production host, rolling back on failure.
+   The record job then records the site in `production-records`. A guard refusal here
+   stops before the deploy and leaves the host on neither Pages nor the Worker: roll
+   back with `pages-domain.ts attach` (step 2 below; there is no Worker domain to
+   remove).
+
+**If `flip-detach-<stack>` fails**, its Pages domain delete or its CNAME delete failed,
+and the job names which. Run `bun run scripts/pages-domain.ts attach <site>`: it makes
+only what is missing, so it puts the host back on Pages from either half. Then dispatch
+the flip again.
+
+**Never re-run a failed step 4.** Once its deploy has run, the Worker may hold the domain
+already, so a re-plan shows the site's Worker as a noop, and the flip guard refuses any
+flip plan without that update. Fix forward with a release dispatched without `flip`, or
+roll back.
 
 **If step 4 fails or the site misbehaves**, roll back in this order:
 
@@ -1425,9 +1446,10 @@ approvals, one per job, in this order:
    Settings → Domains & Routes), or by merging a pull request that sets the mode back to
    `staged`, whose next release detaches it.
 2. `bun run scripts/pages-domain.ts attach <site>` with `CLOUDFLARE_ACCOUNT_ID` and
-   `CLOUDFLARE_PAGES_DNS_TOKEN`: it refuses while any DNS record for the host remains,
-   then puts the CNAME back and adds the domain to the Pages project. Pages re-validates
-   and issues the certificate, which takes minutes.
+   `CLOUDFLARE_PAGES_DNS_TOKEN`: it refuses while another Pages project lists the host or
+   the zone holds any record for it but its CNAME to `<project>.pages.dev`, then puts
+   back whichever of that CNAME and the Pages project's domain is missing. Pages
+   re-validates and issues the certificate, which takes minutes.
 3. Revert the flip pull request, so the mode is `staged` again and no release tries to
    attach the domain.
 
