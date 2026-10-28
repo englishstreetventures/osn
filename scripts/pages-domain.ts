@@ -25,8 +25,10 @@
  *     reads `pages` on the site's own project and the site is `worker`.
  *   bun run scripts/pages-domain.ts attach <surface>
  *     The rollback: puts the CNAME back and adds the host to the Pages
- *     project. Refused unless no Pages project lists the host and the zone
- *     holds no record for it (remove the Worker's custom domain first).
+ *     project, making only what is missing, so it also finishes a detach or
+ *     an attach that stopped part-way. Refused while another Pages project
+ *     lists the host or the zone holds any record for it but that CNAME
+ *     (remove the Worker's custom domain first).
  *
  * How the API shows a Worker's custom-domain record, `meta.origin_worker_id`
  * or a read-only AAAA to `100::`, is unverified until the dev-zone rehearsal
@@ -114,6 +116,9 @@ export function classify(
 
 class ApiError extends Error {}
 
+/** The most pages of Pages projects read before the listing gives up, failing. */
+const MAX_PROJECT_PAGES = 20;
+
 /** The few Cloudflare calls this makes, with the token; any failure throws ApiError naming the call. */
 function cloudflare(env: Readonly<Record<string, string | undefined>>, fetcher: typeof fetch) {
   const account = env.CLOUDFLARE_ACCOUNT_ID ?? "";
@@ -150,22 +155,38 @@ function cloudflare(env: Readonly<Record<string, string | undefined>>, fetcher: 
   const accountPath = `/accounts/${encodeURIComponent(account)}`;
   return {
     async projects(): Promise<PagesProject[]> {
-      // One page at a time, each read after the last, up to 20 pages.
+      // One page at a time, each read after the last. The list ends at
+      // `total_pages` when the answer gives it, else at the first page that
+      // holds no project. Anything that leaves the end unknown throws: an
+      // answer for another page than the one asked, or a list longer than
+      // MAX_PROJECT_PAGES pages, so a host on a page never read can never
+      // read as free.
       const readFrom = async (page: number): Promise<string[]> => {
+        if (page > MAX_PROJECT_PAGES) {
+          throw new ApiError(
+            `listing Pages projects: the list runs past ${MAX_PROJECT_PAGES} pages, so where a host is cannot be known`,
+          );
+        }
         const listed = await call(
           "GET",
           `${accountPath}/pages/projects?page=${page}`,
           "listing Pages projects",
         );
+        const answered = listed.result_info?.page;
+        if (typeof answered === "number" && answered !== page) {
+          throw new ApiError(
+            `listing Pages projects: asked for page ${page}, Cloudflare answered page ${answered}`,
+          );
+        }
         const result = Array.isArray(listed.result) ? (listed.result as { name?: unknown }[]) : [];
         const names = result.flatMap((project) =>
           typeof project.name === "string" ? [project.name] : [],
         );
         const total = listed.result_info?.total_pages;
-        const last = typeof total !== "number" || page >= total || page >= 20;
+        const last = typeof total === "number" ? page >= total : names.length === 0;
         return last ? names : [...names, ...(await readFrom(page + 1))];
       };
-      const names = await readFrom(1);
+      const names = [...new Set(await readFrom(1))];
       return Promise.all(
         names.map(async (name) => {
           const listed = await call(
@@ -389,20 +410,28 @@ export async function runPagesDomain(input: PagesDomainInput): Promise<number> {
       );
       return 0;
     }
-    if (state.kind === "pages" && state.project === project) {
-      out(`${host} is already on ${project}; nothing to do.\n`);
-      return 0;
-    }
-    if (state.kind !== "free" || records.length > 0) {
+    // attach also finishes a detach or an attach that stopped part-way: the
+    // host's own CNAME to the project, and the project listing the host, are
+    // each kept or made; anything else holding the host refuses.
+    const ownCname = (record: DnsRecord) =>
+      record.type === "CNAME" && record.content === pagesTarget(project);
+    const holders = projects.filter((held) => held.domains.includes(host)).map((held) => held.name);
+    if (holders.some((name) => name !== project) || !records.every(ownCname)) {
       error(
-        `${host} still has a DNS record or another owner; remove the Worker's custom domain for it first, then attach.`,
+        `${host} is on another Pages project or has a DNS record that is not its CNAME to ${pagesTarget(project)}; remove the Worker's custom domain for it first, then attach.`,
       );
       return 1;
     }
-    await api.createCname(zone, host, pagesTarget(project));
-    await api.addDomain(project, host);
+    const pointed = records.length > 0;
+    const listed = holders.includes(project);
+    if (pointed && listed) {
+      out(`${host} is already on ${project}; nothing to do.\n`);
+      return 0;
+    }
+    if (!pointed) await api.createCname(zone, host, pagesTarget(project));
+    if (!listed) await api.addDomain(project, host);
     out(
-      `Pointed ${host} at ${pagesTarget(project)} and added it to ${project}; Pages now validates it and issues its certificate.\n`,
+      `${pointed ? "Kept" : "Made"} ${host}'s CNAME to ${pagesTarget(project)} and ${listed ? "kept" : "added"} it on ${project}; Pages now validates it and issues its certificate.\n`,
     );
     return 0;
   } catch (failure) {
