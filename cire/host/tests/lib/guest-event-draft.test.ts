@@ -970,6 +970,68 @@ describe("validateDraft — event field rules (E6)", () => {
       dispose();
     });
   });
+
+  it("flags a zone the API cannot resolve, after the required-zone check", () => {
+    createRoot((dispose) => {
+      const store = loaded();
+      const key = store.draft.events[0]!.key;
+      const zoneErrors = () =>
+        validateDraft(store.draft)
+          .filter((e) => e.key === key && /timezone/i.test(e.message))
+          .map((e) => e.message);
+      for (const zone of ["AEST", "+10:00"]) {
+        store.updateEvent(key, { timezone: zone });
+        expect(zoneErrors()).toEqual(["Choose a timezone from the list."]);
+      }
+      store.updateEvent(key, { timezone: "" });
+      expect(zoneErrors()).toEqual(["Timezone is required."]);
+      for (const zone of [Intl.DateTimeFormat().resolvedOptions().timeZone, "australia/sydney"]) {
+        store.updateEvent(key, { timezone: zone });
+        expect(zoneErrors()).toEqual([]);
+      }
+      dispose();
+    });
+  });
+
+  it("asks for the time again when a stored Start or End has no usable offset", () => {
+    createRoot((dispose) => {
+      const store = loaded();
+      const key = store.draft.events[0]!.key;
+      const messages = () =>
+        validateDraft(store.draft)
+          .filter((e) => e.key === key)
+          .map((e) => e.message);
+      store.updateEvent(key, { startAt: "2026-11-14T15:00", endAt: "2026-11-14T17:00" });
+      expect(messages()).toEqual(["Re-enter the start time.", "Re-enter the end time."]);
+      for (const startAt of ["2026-11-14T15:00:00+99:99", "2026-11-14T15:00:00+24:00"]) {
+        store.updateEvent(key, { startAt, endAt: "whenever" });
+        expect(messages()).toEqual([
+          "Re-enter the start time.",
+          "End must be a valid date and time.",
+        ]);
+      }
+      // A stamped value passes in either offset spelling, a space after it
+      // included: the save trims it.
+      for (const startAt of ["2026-11-14T15:00:00+11:00 ", "2026-11-14T15:00:00+1100"]) {
+        store.updateEvent(key, { startAt, endAt: "2026-11-14T17:00:00+11:00" });
+        expect(messages()).toEqual([]);
+      }
+      dispose();
+    });
+  });
+
+  it("sends a Start and End trimmed, and an End of spaces as no end", () => {
+    createRoot((dispose) => {
+      const store = loaded();
+      const key = store.draft.events[0]!.key;
+      store.updateEvent(key, { startAt: " 2026-11-14T15:00:00+11:00 ", endAt: "   " });
+      expect(validateDraft(store.draft).filter((e) => e.key === key)).toEqual([]);
+      const [ceremony] = toDesiredState(store.draft).events;
+      expect(ceremony!.startAt).toBe("2026-11-14T15:00:00+11:00");
+      expect(ceremony!.endAt).toBe("");
+      dispose();
+    });
+  });
 });
 
 describe("createGuestEventDraft — deletions reach the wire", () => {

@@ -11,8 +11,13 @@
 //   cire/api/src/services/guest-event-validation.ts  (isBlank, normaliseName,
 //                                                       parseHttpUrl)
 //   cire/api/src/lib/event-time.ts                    (parseWallTime — the
-//                                                       Start/End cell shape)
-//   cire/api/src/schemas/import.ts                    (MAX_CELL_LENGTH)
+//                                                       Start/End cell shape;
+//                                                       isEventInstant — the
+//                                                       shape an editor save
+//                                                       stores)
+//   cire/api/src/schemas/import.ts                    (MAX_CELL_LENGTH, and
+//                                                       the event checks of
+//                                                       `ParsedEvent`)
 //   cire/api/src/services/spreadsheet.ts              (the required-name +
 //                                                       event field checks)
 //   cire/theme (isSafeCssColor)                        (the palette colour
@@ -63,6 +68,18 @@ export function isIsoTimestamp(value: string): boolean {
   const m = WALL_TIME_RE.exec(value.trim());
   if (!m) return false;
   return !Number.isNaN(Date.parse(`${m[1]}T${m[2]}:${m[3] ?? "00"}Z`));
+}
+
+/** The UTC offsets `isEventInstant` takes: `Z`, or `±HH:MM` (colon optional)
+ *  with hours 00–23 and minutes 00–59. */
+const INSTANT_OFFSET_RE = /(?:Z|[+-](?:[01]\d|2[0-3]):?[0-5]\d)$/;
+
+/** Mirror of `cire/api/src/lib/event-time.ts` `isEventInstant`, which a
+ *  schedule save's Start and End must pass: an {@link isIsoTimestamp} value
+ *  ending in a UTC offset. Surrounding spaces are allowed here because
+ *  `toDesiredState` trims them before the save. */
+export function isStoredTimestamp(value: string): boolean {
+  return isIsoTimestamp(value) && INSTANT_OFFSET_RE.test(value.trim());
 }
 
 /** Mirror of guest-event-validation.ts `parseHttpUrl` reduced to a predicate:

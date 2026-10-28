@@ -137,6 +137,15 @@ describe("OrganiserRsvpBody.dietaryAttestation", () => {
   });
 });
 
+describe("BulkRsvpBody.rsvps", () => {
+  it("refuses an empty batch and takes one reply", () => {
+    // The guest site never sends a save with no reply in it; the server holds
+    // the same rule rather than answering a no-op 200.
+    expect(dec(BulkRsvpBody, { rsvps: [] })._tag).toBe("Failure");
+    expect(dec(BulkRsvpBody, { rsvps: [base] })._tag).toBe("Success");
+  });
+});
+
 /**
  * `@cire/db` cannot import these constants, so its seed holds copies. A copy
  * that drifts seeds rows the live write path can no longer produce.

@@ -221,10 +221,17 @@ export default function GuestsEditor(props: { weddingId: string }) {
   // The draft's event list drives the attendance-matrix columns.
   const eventColumns = () => store.draft.events;
 
+  /**
+   * The draft errors a guests save waits on: all but an event's Start, End and
+   * timezone, which this save sends unchecked (`scheduleOnly`). An event's name
+   * still counts: attendance is linked by it.
+   */
+  const saveErrors = createMemo(() => store.errors().filter((e) => !e.scheduleOnly));
+
   /** Field errors indexed by the offending row's draft key, for inline display. */
   const errorsByKey = createMemo(() => {
     const map = new Map<string, string[]>();
-    for (const e of store.errors()) {
+    for (const e of saveErrors()) {
       const list = map.get(e.key) ?? [];
       list.push(e.message);
       map.set(e.key, list);
@@ -232,7 +239,7 @@ export default function GuestsEditor(props: { weddingId: string }) {
     return map;
   });
 
-  const hasErrors = () => store.errors().length > 0;
+  const hasErrors = () => saveErrors().length > 0;
 
   async function handleSave() {
     if (hasErrors() || !store.dirty()) return;
@@ -480,7 +487,7 @@ export default function GuestsEditor(props: { weddingId: string }) {
               <span class="font-body text-text-muted text-ui-sm">
                 <Show when={hasErrors()} fallback="You have unsaved changes.">
                   <span class="text-error">
-                    Fix {store.errors().length} {store.errors().length === 1 ? "error" : "errors"}{" "}
+                    Fix {saveErrors().length} {saveErrors().length === 1 ? "error" : "errors"}{" "}
                     before saving.
                   </span>
                 </Show>

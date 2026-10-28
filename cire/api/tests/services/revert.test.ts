@@ -222,7 +222,7 @@ describe("revertImport — before-image path (E3)", () => {
         const guestsCsv = yield* stateExportService.guestsCsv(BOOTSTRAP_WEDDING_ID, "full");
         const ev = yield* parseEventsCsv(eventsCsv);
         const fam = (yield* parseGuestsCsv(guestsCsv, ev)) as ParsedFamily[];
-        const renamed = fam.map((f) => ({ ...f, familyName: "Renamed In Place" }));
+        const renamed = fam.map((f) => Object.assign(f, { familyName: "Renamed In Place" }));
         yield* storeUpload(JSON.stringify({ events: ev, families: renamed }), "", "chg-2");
         const before = yield* captureBeforeImage("chg-2", BOOTSTRAP_WEDDING_ID, Date.now());
         const plan = yield* diffAgainstDb(ev, renamed, BOOTSTRAP_WEDDING_ID, {
@@ -917,8 +917,9 @@ describe("revertImport — a guests-scoped change restores the guest half only",
   it("does not run the upload guards over the events sheet it is not restoring", async () => {
     const { db, r2, layer } = scopedLayer();
     await applyChange(layer, "c0", SEED, 1_000);
-    // Values the events editor can store but an uploaded sheet may not carry: a
-    // fixed-offset zone and a description over the upload cell cap.
+    // Values a stored row can hold but an uploaded sheet may not carry, as a row
+    // saved before either door checked them can: a fixed-offset zone and a
+    // description over the cell cap.
     db.update(events)
       .set({ timezone: "UTC+10", dressCodeDescription: "x".repeat(10_050) })
       .where(eq(events.name, "Mehndi"))
@@ -1198,8 +1199,8 @@ describe("revertImport — scoped edge cases", () => {
   it("an events revert restores a zone the upload parser refuses, with the instant it had", async () => {
     const { db, layer } = scopedLayer();
     await applyChange(layer, "c0", SEED, 1_000);
-    // A value the events editor can store but an upload may not carry
-    // (englishstreetventures/osn#1220).
+    // A value a stored row can hold but an upload may not carry, as a row saved
+    // before the editor door checked zones can (englishstreetventures/osn#1220).
     db.update(events).set({ timezone: "UTC+10" }).where(eq(events.name, "Mehndi")).run();
     const before = db.select().from(events).where(eq(events.name, "Mehndi")).all()[0]!;
     await applyChange(layer, "c1", { eventsCsv: EVENTS_V1 }, 2_000);

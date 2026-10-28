@@ -30,8 +30,14 @@ import { Cause, Data, Effect, Option, Schema } from "effect";
 import { DbService, dbQuery } from "../db";
 import type { Db } from "../db";
 import { weddingIsLive } from "../db/live-wedding";
-import { ChangeScope, DesiredState } from "../schemas/import";
-import type { ImportPlan, ParsedEvent, ParsedFamily, Provenance } from "../schemas/import";
+import { DesiredState, GuestsScopeDesiredState } from "../schemas/import";
+import type {
+  ChangeScope,
+  ImportPlan,
+  ParsedEvent,
+  ParsedFamily,
+  Provenance,
+} from "../schemas/import";
 import { decodePalette, safeHttpUrl } from "./claim";
 import { tidyEditorEvent } from "./guest-event-validation";
 import { RECONCILE_GRACE_MS } from "./r2-reconcile";
@@ -79,6 +85,12 @@ export const CsvChangeBody = Schema.Struct({
 );
 export type CsvChangeBody = Schema.Schema.Type<typeof CsvChangeBody>;
 
+/** The two fields every editor body carries besides its draft and scope. */
+const editorContract = {
+  removeManual: Schema.Literal(true),
+  baseRevision: Schema.String,
+};
+
 /**
  * An editor draft-save: the whole DesiredState (ids present for existing rows,
  * absent for new ones) for the half of the wedding named by `scope`.
@@ -92,23 +104,45 @@ export type CsvChangeBody = Schema.Schema.Type<typeof CsvChangeBody>;
  *    rows it seeded the draft from. Preview refuses the draft when the head has
  *    moved since, because a row a co-host added after that load is absent from
  *    the draft for no reason the organiser chose, and would read as a removal.
+ *
+ * This body is a save that writes the schedule (`scope` `"events"`, or `"both"`,
+ * the default), so every event in it is held to `ParsedEvent`'s checks. A
+ * guests-only save is {@link GuestsChangeBody}.
  */
 export const DesiredStateChangeBody = Schema.Struct({
+  // Which half of the wedding this save is authoritative over. The events
+  // editor sends `"events"`; omitted, it defaults to `"both"`. Declared before
+  // the draft: fields decode in order and stop at the first refusal, so a
+  // guests body, which {@link ChangeBody} tries against this one first, is
+  // refused here before any of its draft is read.
+  scope: Schema.optional(Schema.Literals(["both", "events"])),
   desiredState: DesiredState,
-  // Which half of the wedding this save is authoritative over. Both editors
-  // send it (`"guests"`, `"events"`); omitted, it defaults to `"both"`.
-  scope: Schema.optional(ChangeScope),
-  removeManual: Schema.Literal(true),
-  baseRevision: Schema.String,
+  ...editorContract,
 });
 export type DesiredStateChangeBody = Schema.Schema.Type<typeof DesiredStateChangeBody>;
 
 /**
- * Either front door. `Schema.Union` tries each member in order; the two shapes
- * are disjoint (`desiredState` vs `eventsCsv`/`guestsCsv`), so a body decodes to
- * exactly one. A malformed body fails both and surfaces as the shared 400.
+ * A guests-only editor save, which the guests editor sends. It writes no event,
+ * so its events are held only to what the diff reads of them
+ * (`GuestsScopeDesiredState`): an event whose stored times or zone a schedule
+ * save would refuse does not block the guest list.
  */
-export const ChangeBody = Schema.Union([DesiredStateChangeBody, CsvChangeBody]);
+export const GuestsChangeBody = Schema.Struct({
+  // Before the draft, as in `DesiredStateChangeBody`: a schedule body that
+  // fails that member is refused here without its draft being read again.
+  scope: Schema.Literal("guests"),
+  desiredState: GuestsScopeDesiredState,
+  ...editorContract,
+});
+
+/**
+ * Any front door. `Schema.Union` tries each member in order. The editor bodies
+ * and the spreadsheet body are disjoint (`desiredState` vs
+ * `eventsCsv`/`guestsCsv`), and the two editor bodies by `scope`, so a body
+ * decodes to exactly one. A malformed body fails all three and surfaces as the
+ * shared 400.
+ */
+export const ChangeBody = Schema.Union([DesiredStateChangeBody, GuestsChangeBody, CsvChangeBody]);
 export type ChangeBody = Schema.Schema.Type<typeof ChangeBody>;
 
 /**

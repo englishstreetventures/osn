@@ -78,7 +78,7 @@ describe("isKnownTimeZone", () => {
     }
   });
 
-  it("is stable across repeated calls (P-C1: memoized, but must stay correct)", () => {
+  it("is stable across repeated calls (memoized, but must stay correct)", () => {
     // Not a call-count assertion (that would pin an implementation detail) —
     // this pins the OUTCOME the cache must never break: hammering the same
     // zone repeatedly, and interleaving a rejection between hits, can't flip
@@ -88,6 +88,26 @@ describe("isKnownTimeZone", () => {
       expect(isKnownTimeZone("Not/AZone")).toBe(false);
     }
     expect(zoneOffsetAt("Australia/Sydney", "2026-11-14", "15:00")).toBe("+11:00");
+  });
+
+  it("never lets a non-ASCII spelling share a real zone's cached answer", () => {
+    // The cache folds ASCII case only, as `Intl` does. A Unicode case fold
+    // would map the Kelvin sign (U+212A) to `k`, so this spelling, which
+    // `Intl` refuses, would read back a real spelling's cached `true`. The
+    // sign is written as an escape: normalising the file would turn the
+    // character itself into an ASCII `K`.
+    for (const real of ["Asia/Kolkata", "ASIA/KOLKATA", "Asia/kolkata"]) {
+      expect(isKnownTimeZone(real)).toBe(true);
+    }
+    expect(isKnownTimeZone("Asia/\u212Aolkata")).toBe(false);
+  });
+
+  it("never lets a refused spelling read a real zone's cached answer", () => {
+    // The cache key must stand for one zone. A fold that gave these the real
+    // zone's key would answer `true` for names `Intl` refuses.
+    expect(isKnownTimeZone("Asia/Kolkata")).toBe(true);
+    expect(isKnownTimeZone("Bsia/Kolkata")).toBe(false);
+    expect(isKnownTimeZone("asia/kolkatx")).toBe(false);
   });
 });
 

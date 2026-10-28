@@ -855,6 +855,22 @@ describe("an editor draft is bounded in events and households", () => {
     expect(atCap.status).toBe(200);
   });
 
+  it(`400s a guests save carrying more than ${MAX_EVENTS} events`, async () => {
+    const { app } = buildApp();
+    const schedule = Array.from({ length: MAX_EVENTS + 1 }, (_, i) => event(i));
+    const res = await editorPreview(app, {
+      desiredState: { events: schedule, families: [] },
+      scope: "guests",
+    });
+    expect(res.status).toBe(400);
+
+    const atCap = await editorPreview(app, {
+      desiredState: { events: schedule.slice(0, MAX_EVENTS), families: [] },
+      scope: "guests",
+    });
+    expect(atCap.status).toBe(200);
+  });
+
   it(`400s more than ${MAX_ROWS} households`, async () => {
     const { app } = buildApp();
     const households = Array.from({ length: MAX_ROWS + 1 }, (_, i) => ({
@@ -1461,6 +1477,131 @@ describe("POST /changes/preview + /apply — editor (DesiredState JSON) front do
       expect(res.status).toBe(400);
       expect(db.select().from(imports).all()).toHaveLength(0);
     });
+  });
+
+  // A schedule save stores its Start, End and timezone as sent, so they are
+  // held to what the sheet stores after its own checks: an instant whose text
+  // begins with its date, on a zone that resolves. A guests save writes no
+  // event, so it is held only to the name its attendance is linked by.
+  describe("an event's name, times and timezone", () => {
+    const event = desiredState.events[0]!;
+    const family = desiredState.families[0]!;
+    const withEvent = (patch: object) => ({ events: [{ ...event, ...patch }], families: [] });
+    const instant = "2026-11-14T15:00:00+11:00";
+
+    it.each([
+      ["a free-text start", { startAt: "1st Nov 2026" }],
+      ["a start of TBD", { startAt: "TBD" }],
+      ["a start with a date and no time", { startAt: "2026-11-01" }],
+      ["a start with a space before it", { startAt: ` ${instant}` }],
+      ["a start with a space after it", { startAt: `${instant} ` }],
+      ["a start with no offset", { startAt: "2026-11-14T15:00" }],
+      ["a start with seconds and no offset", { startAt: "2026-11-14T15:00:00" }],
+      [
+        "a start longer than a cell",
+        { startAt: `2026-11-14T15:00:00.${"1".repeat(10_000)}+11:00` },
+      ],
+      ["a start the clock does not have", { startAt: "2026-13-40T99:99+11:00" }],
+      ["a start with an offset of 24 hours", { startAt: "2026-11-14T15:00:00+24:00" }],
+      ["a start with an offset of 60 minutes", { startAt: "2026-11-14T15:00:00+10:60" }],
+      ["an end of TBD", { endAt: "TBD" }],
+      ["an end with a date and no time", { endAt: "2026-11-01" }],
+      ["an end of one space", { endAt: " " }],
+      ["an end with a space before it", { endAt: " 2026-11-14T17:00:00+11:00" }],
+      ["an end with no offset", { endAt: "2026-11-14T17:00" }],
+      ["a blank timezone", { timezone: "" }],
+      ["a timezone of spaces", { timezone: "  " }],
+      ["an abbreviation for a timezone", { timezone: "AEST" }],
+      ["a city for a timezone", { timezone: "Sydney" }],
+      ["a fixed offset for a timezone", { timezone: "+10:00" }],
+      ["a UTC offset for a timezone", { timezone: "UTC+10" }],
+      ["a blank name", { name: "" }],
+      ["a name of spaces", { name: "   " }],
+    ])("refuses %s, and stores nothing", async (_case, patch) => {
+      const { app, db } = buildApp();
+      const res = await editorPreview(app, { desiredState: withEvent(patch) });
+      expect(res.status).toBe(400);
+      expect(await jsonBody(res)).toEqual({ error: "Missing or invalid fields" });
+      expect(db.select().from(imports).all()).toHaveLength(0);
+    });
+
+    it.each([
+      ["a start with no seconds", { startAt: "2026-11-14T15:00+11:00" }],
+      ["an offset written without its colon", { startAt: "2026-11-14T15:00:00+1100" }],
+      ["a start in UTC", { startAt: "2026-11-14T04:00:00Z" }],
+      ["an end", { endAt: "2026-11-14T17:00:00+11:00" }],
+      ["a timezone in other letter case", { timezone: "australia/sydney" }],
+      // An upload stores these too: it takes the download's `'` guard back off.
+      ["a name starting with a plus sign", { name: "+1 Drinks" }],
+      ["a name starting with an equals sign", { name: "=Emptyhouse" }],
+      ["a name of 10,000 characters", { name: "x".repeat(10_000) }],
+    ])("takes %s", async (_case, patch) => {
+      const { app } = buildApp();
+      const res = await editorPreview(app, { desiredState: withEvent(patch) });
+      expect(res.status).toBe(200);
+    });
+
+    it("refuses at apply a stored schedule change that no longer passes", async () => {
+      const { app, db, r2 } = buildApp();
+      const preview = await editorPreview(app, { desiredState: withEvent({}), scope: "events" });
+      expect(preview.status).toBe(200);
+      const { changeId } = (await preview.json()) as { changeId: string };
+      const [row] = db.select().from(imports).where(eq(imports.id, changeId)).all();
+      const stored = JSON.parse(r2._store.get(row!.eventsR2Key)!) as {
+        events: Array<Record<string, unknown>>;
+      };
+      stored.events[0]!.startAt = "TBD";
+      await r2.put(row!.eventsR2Key, JSON.stringify(stored));
+
+      const res = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId });
+      expect(res.status).toBe(400);
+      expect(db.select().from(events).all()).toHaveLength(0);
+    });
+
+    it("takes a guests save whose event holds times and a zone it does not write", async () => {
+      const { app, db } = buildApp();
+      const draft = {
+        events: [{ ...event, startAt: "TBD", endAt: "soon", timezone: "AEST" }],
+        families: [{ ...family, guests: [{ ...family.guests[0]!, eventNames: [] }] }],
+      };
+      const preview = await editorPreview(app, { desiredState: draft, scope: "guests" });
+      expect(preview.status).toBe(200);
+      const { changeId } = (await preview.json()) as { changeId: string };
+      const applied = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId });
+      expect(applied.status).toBe(200);
+      expect(db.select().from(families).all()).toHaveLength(1);
+      expect(db.select().from(events).all()).toHaveLength(0);
+
+      // The same draft saved as a schedule change is refused.
+      const asSchedule = await editorPreview(app, { desiredState: draft, scope: "events" });
+      expect(asSchedule.status).toBe(400);
+    });
+
+    it("refuses a guests save carrying an event with no name", async () => {
+      const { app } = buildApp();
+      const res = await editorPreview(app, {
+        desiredState: { events: [{ ...event, name: "  " }], families: [] },
+        scope: "guests",
+      });
+      expect(res.status).toBe(400);
+    });
+
+    // A guests save holds these to the cell cap alone, so the cap is the
+    // whole check: at it the save is taken, one character over it refused.
+    it.each([["startAt"], ["endAt"], ["timezone"]])(
+      "holds a guests save's event %s to the cell cap",
+      async (field) => {
+        const { app, db } = buildApp();
+        const guestsSave = async (value: string) =>
+          editorPreview(app, {
+            desiredState: { events: [{ ...event, [field]: value }], families: [] },
+            scope: "guests",
+          });
+        expect((await guestsSave("x".repeat(10_001))).status).toBe(400);
+        expect(db.select().from(imports).all()).toHaveLength(0);
+        expect((await guestsSave("x".repeat(10_000))).status).toBe(200);
+      },
+    );
   });
 
   it("saves a HOUSEHOLD NAME edit — id-matched rename writes through, code + guests survive", async () => {
