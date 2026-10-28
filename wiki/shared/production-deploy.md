@@ -1144,7 +1144,11 @@ automatically once you attach them.
    `next-vendor.cireweddings.com`, `next.cireweddings.com`, `next.musubi.social`). No
    dashboard step; before the first release run `bun run scripts/pages-domain.ts check`
    with `CLOUDFLARE_PAGES_DNS_TOKEN` for each to confirm no Pages project or DNS record
-   holds it.
+   holds it. The token must reach the production account and exactly `cireweddings.com`
+   and `musubi.social`, and be able to list its account: `pages-domain.ts` refuses it
+   otherwise, before any other request, and `alchemy-plan`'s precheck then fails every
+   release that ships the musubi stack. A site turned on in another zone (pulse landing
+   on `pulse.events`) needs the token minted again with that zone, the same day.
 4. **Re-check the allowlists** once the domains resolve: the live guest, organiser,
    vendor and identity origins must exactly match cire-api `WEB_ORIGIN` and osn-api
    `OSN_CORS_ORIGIN`. `OSN_ORIGIN` is a shorter list on purpose — only `https://musubi.social`,
@@ -1169,11 +1173,16 @@ Nothing reaches production unattended, and nothing reaches it per merge.
   whose Worker serves its host, in the `production-records` Environment made by its
   record job — and diffs it against the release commit using the paths in
   `scripts/deploy-surfaces.ts`. A surface ships when anything it builds from differs;
-  for a site a production stack deploys, that includes the stack's `infra/` directory
-  and `shared/infra/`. A stack ships when one of its sites does and none is held back
-  or newer on production; naming one of its sites in `surfaces` names them all. Because the baseline is what production
-  runs, a release that was skipped, cancelled or rejected leaves nothing behind: the
-  next one finds the same gap.
+  for a site whose Worker serves its host, that includes its stack's `infra/` directory
+  and `shared/infra/`. A staged site's Pages job never ships for those: its build does
+  not depend on them. A stack ships when one of its sites does, or when its own paths
+  differ from the commit its stack job last deployed (its newest successful record in
+  `production`) and a dev run of its stack job deployed the same paths; and only when
+  none of its sites, nor that change, is held back or newer on production. Only a stack
+  one of whose sites the release asks for is considered, so `surfaces` that leave a
+  stack's sites out never ship it; naming one of its sites names them all. Because the
+  baseline is what production runs, a release that was skipped, cancelled or rejected
+  leaves nothing behind: the next one finds the same gap.
 - **Dev first.** A changed surface ships only when a recent successful dev record of it
   was built from the same content — its own paths and the shared ones. A dev record
   exists only when the surface's stack deployed and its smoke check passed.
@@ -1185,16 +1194,23 @@ Nothing reaches production unattended, and nothing reaches it per merge.
   cannot roll production back. A `force` dispatch can, and so can a failed smoke check
   (§5.0 item 7).
 - **One approval, or two.** `build` runs the install, build, tests and D1 tests on the
-  release commit, and `sites` builds each production site a shipping stack deploys or
-  whose Pages job ships. When a stack ships, `alchemy-plan` reaches the `production`
-  gate first (approval 1): it checks each worker site's domain, the token and the state
-  store, plans each shipping stack and runs the plan guard, writing names, kinds,
-  actions and counts to its summary ([[infrastructure-as-code#The plan guard]]). Then
+  release commit, and beside it `sites` builds each production site a shipping stack
+  deploys or whose Pages job ships. Each job that fetches those builds and holds a
+  credential downloads them outside its checkout, and a step holding no secret
+  (`scripts/production-sites-artifact.ts`) lets in only the site build directories,
+  refusing the whole artifact for any other entry or a link. When a stack ships,
+  `alchemy-plan` reaches the `production` gate first (approval 1): it checks each worker
+  site's domain, the token and the state store, reads each site Worker's live custom
+  domains, plans each shipping stack and runs the plan guard, writing names, kinds,
+  actions, counts and each site's added and removed hosts to its summary
+  ([[infrastructure-as-code#The plan guard]]). Then
   every other shipping job — the Wrangler API jobs, the Pages jobs and the stack jobs —
   reaches the gate at the same moment, and one review releases them all (approval 2).
   When no stack ships, `alchemy-plan` is skipped and that one review is all. A release
-  that moves a site's domain asks four, one per job (§5.7). A release
-  with nothing to ship skips `build` and asks for nothing.
+  that moves a site's domain asks four, one per job; one that puts it back on Pages
+  (`attach`) asks one; one that takes it off its Worker (`unflip`) asks the usual two
+  and one more for the attach job after it (§5.7). A release with nothing to ship skips
+  `build` and asks for nothing.
 - **A failure before the gate stops everything.** Every deploy job needs `alchemy-plan`
   to have passed or been skipped. A guard refusal, a failed site build, a state store
   left unreadable by an Alchemy bump (run the **Alchemy state store** workflow, tier
@@ -1215,8 +1231,10 @@ To release:
    there (§7), the sites included. What no machine checks is behaviour: walk
    [[dev-environment]] §6 for a passkey ceremony, an organiser sign-in and an RSVP.
 3. When a stack ships, `alchemy-plan` waits first. Approve it, then read its summary:
-   each stack's resources, their kinds and actions. Expect site Workers only; the guard
-   has already refused anything else.
+   each stack's resources, their kinds and actions, and each site's custom domains added
+   and removed. Expect site Workers only; the guard has already refused anything else,
+   and any production host leaving its Worker in a release not dispatched with `unflip`
+   naming that site.
 4. Wait until every other job the plan ships shows **Waiting**, then click **Review
    deployments**, tick `production` and approve. The review releases the jobs that were
    waiting when the dialog opened; a job that arrives later needs a review of its own. A
@@ -1238,6 +1256,8 @@ same surfaces again with whatever merged since.
 |---|---|
 | `surfaces` | Limit the release to these surface keys (the table in §5.0), comma or space separated. Empty means every surface. The rest stay where they are until a later release. |
 | `flip` | A site whose domain this release moves from its Pages project to its Worker, with `surfaces` naming that site alone (§5.7). |
+| `unflip` | A site set back to `staged` whose Worker this release lets give up its production host, with `surfaces` naming that site alone; the attach job then puts the host back on its Pages project (§5.7). |
+| `attach` | A site whose domain goes back on its Pages project, with every other input empty: the release runs that one job (§5.7). |
 | `force` | Ship those surfaces even if production already runs this commit's content, and skip the dev check. With `surfaces` empty it forces every surface, and rolls back any that runs a newer commit. For a change no path shows: a repo Variable baked into a build (`PUBLIC_TURNSTILE_SITEKEY`, `PUBLIC_GOOGLE_MAPS_EMBED_KEY`), a `.bun-version` or `bunfig.toml` change, or a hand-run `wrangler deploy`, `wrangler rollback` or Pages dashboard rollback — none of which leaves a Deployment record. |
 
 Approve or reject the waiting release **before** you dispatch one with inputs. A
@@ -1401,10 +1421,9 @@ then `musubi.social` (englishstreetventures/osn#1787). Before each:
   site's stack fails at `alchemy-plan`'s precheck until the flip runs, so the daily run
   never moves a domain; dispatch releases whose `surfaces` leave that stack's sites out
   meanwhile.
-- You hold the value of `CLOUDFLARE_PAGES_DNS_TOKEN`, or a token with the same scope
-  (Pages Edit on the account, DNS Edit on `cireweddings.com` and `musubi.social`). The
-  rollback below needs it, no workflow runs that step, and GitHub never shows a secret
-  again once set.
+
+No copy of `CLOUDFLARE_PAGES_DNS_TOKEN` is kept outside GitHub: the rollback below runs
+in the release workflow's own attach job.
 
 **The flip release.** At low traffic, dispatch **Production release** with
 `flip: <site>` and `surfaces: <site>`. It runs only the site's stack, and asks four
@@ -1415,10 +1434,12 @@ approvals, one per job, in this order:
 2. `stack-<stack>-verify` — plans the stack again with the same force, and refuses unless
    the plan is still that one update and equals the plan approved in step 1. It deploys
    nothing and holds no Pages token. A refusal here ends the release with nothing moved.
-3. `flip-detach-<stack>` — on a fresh runner with nothing installed, the one deploy job
-   holding `CLOUDFLARE_PAGES_DNS_TOKEN` (`alchemy-plan`'s precheck reads with it too,
-   before its install): `pages-domain.ts check`, then `detach`, which takes the host off
-   the Pages project and deletes its CNAME. **The site is down from here** until step 4's
+3. `flip-detach-<stack>` — on a fresh runner with nothing installed, one of the two jobs
+   holding `CLOUDFLARE_PAGES_DNS_TOKEN` with the attach job (`alchemy-plan`'s precheck
+   reads with it too, before its install): `pages-domain.ts detach` checks the token's
+   reach, reads and prints where the host is, refuses unless it is on the site's own
+   Pages project, then takes the host off the project and deletes its CNAME. **The site
+   is down from here** until step 4's
    deploy attaches the domain, so approve step 4 at once: the outage is your wait plus
    step 4's install, state store check, snapshot and plan, a few minutes. The approved
    plan from step 1 is kept 7 days; step 4 refuses without it.
@@ -1427,13 +1448,12 @@ approvals, one per job, in this order:
    Worker), and smoke-checks the site on its production host, rolling back on failure.
    The record job then records the site in `production-records`. A guard refusal here
    stops before the deploy and leaves the host on neither Pages nor the Worker: roll
-   back with `pages-domain.ts attach` (step 2 below; there is no Worker domain to
-   remove).
+   back with an attach release (step 2 below; there is no Worker domain to remove).
 
 **If `flip-detach-<stack>` fails**, its Pages domain delete or its CNAME delete failed,
-and the job names which. Run `bun run scripts/pages-domain.ts attach <site>`: it makes
-only what is missing, so it puts the host back on Pages from either half. Then dispatch
-the flip again.
+and the job names which. Dispatch an attach release (step 2 below): it makes only what
+is missing, so it puts the host back on Pages from either half. Then dispatch the flip
+again.
 
 **Never re-run a failed step 4.** Once its deploy has run, the Worker may hold the domain
 already, so a re-plan shows the site's Worker as a noop, and the flip guard refuses any
@@ -1442,16 +1462,29 @@ roll back.
 
 **If step 4 fails or the site misbehaves**, roll back in this order:
 
-1. Take the custom domain off the Worker: in the dashboard (Workers → the site's Worker →
-   Settings → Domains & Routes), or by merging a pull request that sets the mode back to
-   `staged`, whose next release detaches it.
-2. `bun run scripts/pages-domain.ts attach <site>` with `CLOUDFLARE_ACCOUNT_ID` and
-   `CLOUDFLARE_PAGES_DNS_TOKEN`: it refuses while another Pages project lists the host or
-   the zone holds any record for it but its CNAME to `<project>.pages.dev`, then puts
-   back whichever of that CNAME and the Pages project's domain is missing. Pages
-   re-validates and issues the certificate, which takes minutes.
-3. Revert the flip pull request, so the mode is `staged` again and no release tries to
-   attach the domain.
+1. Take the custom domain off the Worker. Fastest: the dashboard (Workers → the site's
+   Worker → Settings → Domains & Routes). Or merge a pull request that sets the mode back
+   to `staged` and dispatch **Production release** with `unflip: <site>` and
+   `surfaces: <site>`: the plan guard refuses a production host leaving its Worker in any
+   other release, and shows the removal for approval 1. Its stack job takes the host off
+   the Worker, and the attach job after it asks its own approval and does step 2, so
+   approve it at once: the site is down from that deploy until Pages validates the host.
+2. Dispatch **Production release** with `attach: <site>` and every other input empty. It
+   runs the plan job and `attach-pages-domain` alone, behind one approval, on a fresh
+   runner with nothing installed: `pages-domain.ts attach` checks the token's reach,
+   refuses while another Pages project lists the host or the zone holds any record that
+   could route it but its CNAME to `<project>.pages.dev` (TXT, MX and CAA records stay
+   and do not count), then puts back whichever of that CNAME and the Pages project's
+   domain is missing. Pages re-validates and issues the certificate, which takes minutes.
+3. Revert the flip pull request, if step 1 did not, so the mode is `staged` again and no
+   release tries to attach the domain. Until it merges, every release that ships the
+   site's stack fails `alchemy-plan`'s precheck (the host is on Pages while the mode says
+   `worker`); dispatch releases whose `surfaces` leave that stack's sites out.
+
+When GitHub Actions is down, or the attach job refuses the token, do step 2 in the
+dashboard instead: **Workers & Pages → the Pages project → Custom domains → Set up a
+custom domain** with the host, then in the zone's **DNS**, a proxied CNAME from the host
+to `<project>.pages.dev` if Pages did not make one.
 
 Each Pages project and its job keep deploying until `musubi.social` has moved and
 soaked, so the Pages copy a rollback returns to is current.
@@ -1728,7 +1761,7 @@ How it decides:
 | cire migrate scripts | `cire/db/package.json` (`db:migrate:local|prod`); the dev database: `cire/infra` |
 | cire seed (local; the dev tier imports it through the cire stack) | `cire/db/seed/dev-seed.sql`; `scripts/cire-db-seed.sh`; `cire/infra/src/declaration.ts` |
 | Dev deploys per push | `.github/workflows/deploy.yml` (`changes` → `stack-<stack>-dev` → `deploy-<surface>-dev`); the stacks under `*/infra/` ([[infrastructure-as-code]]) |
-| Production releases (daily or by hand; one approval, two when a stack ships) | `.github/workflows/production-release.yml` (`plan` → `build` → `sites` → `alchemy-plan` → `deploy-<surface>`, `stack-<stack>-production` → `record-<site>`, `site-parity`); planner `scripts/release-plan.ts`; surface map `scripts/deploy-surfaces.ts`; site modes `shared/infra/src/production-sites.ts`; plan guard `shared/infra/src/plan-guard.ts`; Pages domain moves `scripts/pages-domain.ts`; Pages comparison `scripts/site-parity.ts` |
+| Production releases (daily or by hand; one approval, two when a stack ships) | `.github/workflows/production-release.yml` (`plan` → `build` and `sites` side by side → `alchemy-plan` → `deploy-<surface>`, `stack-<stack>-production` → `record-<site>`, `site-parity`; `attach-pages-domain` for an attach or unflip release); planner `scripts/release-plan.ts`; surface map `scripts/deploy-surfaces.ts`; site modes `shared/infra/src/production-sites.ts`; plan guard `shared/infra/src/plan-guard.ts`; live custom domains `scripts/worker-deployments.ts domains`; site-build check `scripts/production-sites-artifact.ts`; Pages domain moves `scripts/pages-domain.ts`; Pages comparison `scripts/site-parity.ts` |
 
 ## Related
 
