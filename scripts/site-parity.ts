@@ -24,10 +24,20 @@
  * The report is the same for the same answers: keys in one order, paths and
  * headers sorted, no time.
  *
+ * Every request carries smoke-check's CI_USER_AGENT, since Cloudflare's Bot
+ * Fight Mode challenges Bun's own from a GitHub runner. An answer Cloudflare
+ * gives in a site's place — a challenge (`cf-mitigated`), an Access redirect,
+ * a 429; `judge()` in smoke-check.ts calls it `blocked` — compares nothing
+ * about the site. Such a path is asked again on both hosts once, RETRY_MS
+ * later; if either still answers so, the run refuses: the report's `refused`
+ * list names the site, the side and the path, and an error says the zone's
+ * configuration answered, not the site.
+ *
  * Imports only node built-ins and the repository's import-free files.
  *
  * Exit codes: 0 every answer matches; 1 a difference, or a host that did not
- * answer; 2 a usage error, before any request.
+ * answer; 2 a usage error, before any request; 3 Cloudflare answered in a
+ * site's place, whatever else differs.
  */
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -45,6 +55,7 @@ import {
   type SomeSites,
 } from "../shared/infra/src/production-sites";
 import { PRODUCTION_STACKS, surface } from "./deploy-surfaces";
+import { CI_USER_AGENT, judge } from "./smoke-check";
 
 /** Headers compared on every answer, beside those the build's `_headers` names. */
 export const ALWAYS_COMPARED: readonly string[] = [
@@ -57,6 +68,9 @@ export const ALWAYS_COMPARED: readonly string[] = [
 
 /** A path no site serves. */
 export const UNKNOWN_PATH = "/site-parity-no-such-page";
+
+/** How long a path Cloudflare answered in a site's place waits before it is asked again. */
+export const RETRY_MS = 2_000;
 
 /** musubi social routes in the browser, so a deep link must reach its shell. */
 const DEEP_LINKS: SomeSites<readonly string[]> = {
@@ -168,7 +182,9 @@ export type Observation =
       readonly location: string | null;
       readonly headers: Readonly<Record<string, string | null>>;
     }
-  | { readonly error: "no answer" };
+  | { readonly error: "no answer" }
+  /** Cloudflare answered in the site's place, and why. */
+  | { readonly blocked: string };
 
 /** One answer, with `origin` taken out of its Location so two hosts compare. */
 export async function observe(
@@ -177,12 +193,21 @@ export async function observe(
   path: string,
   headers: readonly string[],
 ): Promise<Observation> {
+  const url = `${origin}${path}`;
   try {
-    const response = await fetcher(`${origin}${path}`, {
+    const response = await fetcher(url, {
       redirect: "manual",
+      headers: { "user-agent": CI_USER_AGENT },
       signal: AbortSignal.timeout(15_000),
     });
     await response.arrayBuffer().catch(() => undefined);
+    // Only the status and headers decide it. The host is public, so a 401 or
+    // 403 without `cf-mitigated` is the site's own answer.
+    const outcome = judge({ url, expects: { kind: "page" } }, response, "", false);
+    if (outcome.kind === "blocked") {
+      // judge() words its reasons for a Worker; either side here is a site.
+      return { blocked: outcome.reason.replaceAll("the Worker", "the site") };
+    }
     const location = response.headers.get("location");
     return {
       status: response.status,
@@ -196,7 +221,7 @@ export async function observe(
 
 /** The fields two observations differ in: `status`, `location`, a header name, or `answer`. */
 export function differences(a: Observation, b: Observation): string[] {
-  if ("error" in a || "error" in b) return ["answer"];
+  if (!("status" in a) || !("status" in b)) return ["answer"];
   const fields: string[] = [];
   if (a.status !== b.status) fields.push("status");
   if (a.location !== b.location) fields.push("location");
@@ -213,6 +238,20 @@ export interface SiteParityInput {
   readonly out: (text: string) => void;
   /** The site modes, PRODUCTION_SITE_MODES unless a test passes its own. */
   readonly modes?: PerSite<SiteMode>;
+  /** Waits before a path is asked again: Bun.sleep unless a test passes its own. */
+  readonly sleep?: (ms: number) => Promise<void>;
+}
+
+/** The two hosts of a staged site: its Worker on the spare host, and its Pages project. */
+const SIDES = ["worker", "pages"] as const;
+const SIDE_NAMES = { worker: "Worker", pages: "Pages" } as const;
+
+/** A path Cloudflare answered in a site's place, on one side, after it was asked again. */
+export interface Refusal {
+  readonly site: SiteSurface;
+  readonly side: (typeof SIDES)[number];
+  readonly path: string;
+  readonly reason: string;
 }
 
 export async function runSiteParity(input: SiteParityInput): Promise<number> {
@@ -238,46 +277,77 @@ export async function runSiteParity(input: SiteParityInput): Promise<number> {
     (site) => surface(site).stack === stackKey && modes[site] === "staged",
   );
 
-  let differing = 0;
+  const sleep = input.sleep ?? ((ms: number) => Bun.sleep(ms));
   const sites = await Promise.all(
     staged.map(async (site) => {
       const directory = join(root, SITE_BUILDS[site].directory);
       const probes = siteProbes(site, directory);
       const worker = `https://${siteDomain(site, "staged") ?? ""}`;
       const pages = `https://${productionHost(site)}`;
+      const askBoth = (path: string) =>
+        Promise.all([
+          observe(input.fetch, worker, path, probes.headers),
+          observe(input.fetch, pages, path, probes.headers),
+        ]);
       const results = await Promise.all(
         probes.paths.map(async (path) => {
-          const [onWorker, onPages] = await Promise.all([
-            observe(input.fetch, worker, path, probes.headers),
-            observe(input.fetch, pages, path, probes.headers),
-          ]);
+          const first = await askBoth(path);
+          const [onWorker, onPages] = first.some((seen) => "blocked" in seen)
+            ? await sleep(RETRY_MS).then(() => askBoth(path))
+            : first;
           const differs = differences(onWorker, onPages);
           return { path, worker: onWorker, pages: onPages, differs };
         }),
       );
-      const differ = results.filter((result) => result.differs.length > 0);
-      differing += differ.length;
-      for (const result of differ) {
-        out(`${site} ${result.path}: ${result.differs.join(", ")} differ\n`);
-      }
       return { site, worker, pages, unmatched: probes.unmatched, probes: results };
     }),
   );
 
+  // Sites in map order, paths sorted, the Worker side before the Pages side.
+  const refused: Refusal[] = sites.flatMap(({ site, probes }) =>
+    probes.flatMap((result) =>
+      SIDES.flatMap((side) => {
+        const seen = result[side];
+        return "blocked" in seen ? [{ site, side, path: result.path, reason: seen.blocked }] : [];
+      }),
+    ),
+  );
+  // A refused path compared nothing, so it is never a difference too.
+  const differ = sites.flatMap(({ site, probes }) =>
+    probes
+      .filter((result) => result.differs.length > 0)
+      .filter((result) => !refused.some((one) => one.site === site && one.path === result.path))
+      .map((result) => ({ site, path: result.path, differs: result.differs })),
+  );
+  const differing = differ.length;
+
   mkdirSync(dirname(outFile), { recursive: true });
   // Every object is built with its keys in one order, and every list sorted
   // (paths, headers), so the same answers write the same bytes.
-  writeFileSync(outFile, `${JSON.stringify({ stack: stackKey, sites, differing }, null, 2)}\n`);
+  writeFileSync(
+    outFile,
+    `${JSON.stringify({ stack: stackKey, sites, differing, refused }, null, 2)}\n`,
+  );
   if (staged.length === 0) {
     out(`No ${stackKey} site is staged; nothing to compare.\n`);
     return 0;
+  }
+  for (const result of differ) {
+    out(`${result.site} ${result.path}: ${result.differs.join(", ")} differ\n`);
   }
   if (differing > 0) {
     out(
       `::warning::site-parity: ${differing} path${differing === 1 ? "" : "s"} answer differently on the staged Worker and on Pages; read the report before the site's flip.\n`,
     );
-    return 1;
   }
+  for (const one of refused) {
+    const host = sites.find((entry) => entry.site === one.site)?.[one.side] ?? "";
+    out(
+      `::error::site-parity: Cloudflare answered in the site's place for ${one.site} ${one.path} on the ${SIDE_NAMES[one.side]} side (${host}), when asked and again ${RETRY_MS / 1000} s later: ${one.reason}. That is the zone's configuration, such as Bot Fight Mode, not the site; nothing was compared.\n`,
+    );
+  }
+  if (refused.length > 0) return 3;
+  if (differing > 0) return 1;
   out(`Every path of the staged ${stackKey} sites answers as Pages does.\n`);
   return 0;
 }

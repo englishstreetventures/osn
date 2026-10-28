@@ -1,6 +1,7 @@
 // scripts/site-parity.ts asks a staged site's Worker (its spare host) and its
 // Pages project (the production host) the same paths and reports where they
 // differ. These drive it against built-site fixtures and an injected fetch.
+// Cloudflare answering in a site's place is refused, not compared.
 
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -14,8 +15,10 @@ import {
   redirectSources,
   runSiteParity,
   siteProbes,
+  RETRY_MS,
   UNKNOWN_PATH,
 } from "../site-parity";
+import { CI_USER_AGENT } from "../smoke-check";
 
 function build(files: Record<string, string>): string {
   const root = mkdtempSync(join(tmpdir(), "site-parity-"));
@@ -130,13 +133,19 @@ describe("runSiteParity", () => {
   };
 
   /** Each host answers alike, except where `differ` says. */
-  function fakeHosts(differ: (url: string) => Response | Error | undefined = () => undefined) {
+  function fakeHosts(
+    differ: (url: string, asked: number) => Response | Error | undefined = () => undefined,
+  ) {
     const calls: string[] = [];
+    /** The user agent each call sent, in call order. */
+    const agents: (string | null)[] = [];
     const fetch = async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input instanceof Request ? input.url : input);
+      const asked = calls.filter((call) => call === url).length;
       calls.push(url);
+      agents.push(new Headers(init?.headers).get("user-agent"));
       expect(init?.redirect).toBe("manual");
-      const special = differ(url);
+      const special = differ(url, asked);
       if (special instanceof Error) throw special;
       if (special !== undefined) return special;
       const { origin, pathname } = new URL(url);
@@ -155,19 +164,23 @@ describe("runSiteParity", () => {
         },
       });
     };
-    return { fetch: fetch as unknown as typeof globalThis.fetch, calls };
+    return { fetch: fetch as unknown as typeof globalThis.fetch, calls, agents };
   }
 
   async function parity(args: string[], hosts: ReturnType<typeof fakeHosts>, root = build(SITES)) {
     const lines: string[] = [];
+    const slept: number[] = [];
     const out = join(root, "report.json");
     const code = await runSiteParity({
       args: [...args, "--out", out],
       root,
       fetch: hosts.fetch,
       out: (text) => lines.push(text),
+      sleep: async (ms) => {
+        slept.push(ms);
+      },
     });
-    return { code, output: lines.join(""), out, root };
+    return { code, output: lines.join(""), out, root, slept };
   }
 
   test("SP2: every staged cire site, each asked on its spare host and its production host; alike answers pass, and the report repeats byte for byte", async () => {
@@ -231,6 +244,94 @@ describe("runSiteParity", () => {
     const elsewhere = await parity(["--stack", "cire"], toOwn("/other"), build(sites));
     expect(elsewhere.code).toBe(1);
     expect(elsewhere.output).toContain("cire_landing /old: location differ");
+  });
+
+  test("SP5: every probe, on the Worker side and the Pages side, sends the CI user agent", async () => {
+    const hosts = fakeHosts();
+    const result = await parity(["--stack", "cire"], hosts);
+    expect(result.code).toBe(0);
+    expect(hosts.calls.some((url) => url.startsWith("https://next-host.cireweddings.com/"))).toBe(
+      true,
+    );
+    expect(hosts.calls.some((url) => url.startsWith("https://host.cireweddings.com/"))).toBe(true);
+    expect(new Set(hosts.agents)).toEqual(new Set([CI_USER_AGENT]));
+  });
+
+  const challenge = () =>
+    new Response("<!doctype html><title>Just a moment...</title>", {
+      status: 403,
+      headers: { "content-type": "text/html; charset=UTF-8", "cf-mitigated": "challenge" },
+    });
+  const accessRedirect = () =>
+    new Response(null, {
+      status: 302,
+      headers: { location: "https://team.cloudflareaccess.com/cdn-cgi/access/login" },
+    });
+  const tooMany = () => new Response("rate limited", { status: 429 });
+
+  test.each([
+    [
+      "a challenge on the Worker side",
+      "https://next-host.cireweddings.com/",
+      challenge,
+      "worker",
+      "Cloudflare answered 403 in the site's place (cf-mitigated: challenge)",
+    ],
+    [
+      "a challenge on the Pages side",
+      "https://host.cireweddings.com/",
+      challenge,
+      "pages",
+      "Cloudflare answered 403 in the site's place (cf-mitigated: challenge)",
+    ],
+    [
+      "an Access redirect",
+      "https://host.cireweddings.com/",
+      accessRedirect,
+      "pages",
+      "Cloudflare Access answered (302 to https://team.cloudflareaccess.com), not the site",
+    ],
+    [
+      "a 429",
+      "https://next-host.cireweddings.com/",
+      tooMany,
+      "worker",
+      "answered 429: a rate limit or the account's daily request cap, not the site's code",
+    ],
+  ] as const)(
+    "SP6: %s that holds when asked again refuses the run: listed in `refused`, named in an error, exit 3",
+    async (_, blockedUrl, answer, side, reason) => {
+      const hosts = fakeHosts((url) => (url === blockedUrl ? answer() : undefined));
+      const result = await parity(["--stack", "cire"], hosts);
+      expect(result.code).toBe(3);
+      expect(hosts.calls.filter((url) => url === blockedUrl)).toHaveLength(2);
+      expect(result.slept).toEqual([RETRY_MS]);
+      const report = JSON.parse(readFileSync(result.out, "utf8"));
+      expect(report.refused).toEqual([{ site: "cire_host", side, path: "/", reason }]);
+      expect(report.differing).toBe(0);
+      expect(result.output).toContain(
+        `::error::site-parity: Cloudflare answered in the site's place for cire_host / on the ${side === "worker" ? "Worker" : "Pages"} side`,
+      );
+      expect(result.output).toContain("zone's configuration, such as Bot Fight Mode, not the site");
+      expect(result.output).not.toContain("answer differently");
+      expect(result.output).not.toContain("cire_host /: answer differ");
+    },
+  );
+
+  test("SP7: a challenge that clears when asked again 2 s later is compared as any answer", async () => {
+    const blockedUrl = "https://next-vendor.cireweddings.com/";
+    const hosts = fakeHosts((url, asked) =>
+      url === blockedUrl && asked === 0 ? challenge() : undefined,
+    );
+    const result = await parity(["--stack", "cire"], hosts);
+    expect(result.code).toBe(0);
+    expect(RETRY_MS).toBe(2_000);
+    expect(result.slept).toEqual([RETRY_MS]);
+    expect(hosts.calls.filter((url) => url === blockedUrl)).toHaveLength(2);
+    expect(JSON.parse(readFileSync(result.out, "utf8"))).toMatchObject({
+      differing: 0,
+      refused: [],
+    });
   });
 
   test("SP4: no stack, a stack with no production job, or no --out exits 2 before any request", async () => {
