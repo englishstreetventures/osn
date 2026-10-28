@@ -73,8 +73,8 @@ describe("flow sources", () => {
   // osn/api/src/routes/auth/limiters.ts). A Pulse sign-in, `signInToPulse`,
   // spends one `/authorize` too. All of it from the suite's one address, in
   // fixed windows, so a sign-in past the budget fails only on a fast machine.
-  // Six organiser sign-ins and two Pulse ones keep every window with room:
-  // 12 of the 15 redirect legs, 6 of the 10 dev logins, 8 of the 20 authorizes.
+  // Seven organiser sign-ins and two Pulse ones keep every window with room:
+  // 14 of the 15 redirect legs, 7 of the 10 dev logins, 9 of the 20 authorizes.
   test("the flows sign an organiser in no more often than the sign-in limits allow", () => {
     const dir = join(import.meta.dirname, "flows");
     const sources = readdirSync(dir).map((file) => readFileSync(join(dir, file), "utf8"));
@@ -83,8 +83,8 @@ describe("flow sources", () => {
     const signIns = count(/signInToCireHost\(|\/dev\/login\?/g);
     const pulseSignIns = count(/signInToPulse\(/g);
     expect(signIns).toBeGreaterThan(0);
-    expect(signIns).toBeLessThanOrEqual(6);
-    expect(signIns + pulseSignIns).toBeLessThanOrEqual(8);
+    expect(signIns).toBeLessThanOrEqual(7);
+    expect(signIns + pulseSignIns).toBeLessThanOrEqual(9);
   });
 
   // osn-api allows 5 sign-up begins a minute per client address
