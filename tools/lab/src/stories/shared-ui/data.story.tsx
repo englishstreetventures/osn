@@ -60,6 +60,38 @@ export const Guests = () => (
 );
 
 /**
+ * `scroll="page"`: the page scrolls, not the table. Scroll the preview and the
+ * head row holds at the top of the window (here at 0; an app with a sticky bar
+ * gives the heads its offset) while the rows pass under it. The frame clips
+ * rather than scrolls, so there is no tab stop and no region — the caption
+ * names the table — and a layout that uses it must never draw it narrower than
+ * its columns.
+ */
+export const ScrollsWithThePage = () => (
+  <Table scroll="page">
+    <caption class="sr-only">Guests, scrolling with the page</caption>
+    <thead>
+      <tr>
+        <Th pin="top">Name</Th>
+        <Th pin="top">Household</Th>
+        <Th pin="top">Reply</Th>
+      </tr>
+    </thead>
+    <tbody>
+      {Array.from({ length: 60 }, (_, i) => GUESTS[i % GUESTS.length]!).map((guest, i) => (
+        <tr>
+          <Td>
+            {guest.name} {i + 1}
+          </Td>
+          <Td>{guest.household}</Td>
+          <Td>{guest.reply}</Td>
+        </tr>
+      ))}
+    </tbody>
+  </Table>
+);
+
+/**
  * `numeric` is the column to look down. The figures are right-aligned and
  * tabular, so the digits line up and a column of money can be read as a column
  * rather than as four separate numbers.
