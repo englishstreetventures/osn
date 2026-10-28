@@ -1991,16 +1991,20 @@ describe("EventSheet — the swipe's physics", () => {
     const start = bodyOf("details");
     await touchDrag(start, { x: start.x + 120, y: start.y }, { ms: 300 });
     expect(rail().hasAttribute("data-settling")).toBe(true);
-    const target = within(wrapperOf("details")).getAllByRole("button")[0]!;
-    let pressed = 0;
-    const press = () => pressed++;
-    target.addEventListener("click", press);
+    // Captured at the window, ahead of the rail's own listener, and read after
+    // dispatch: a swallowed click still arrives here, marked prevented. The
+    // panel is still moving, so the click lands on whatever is under the
+    // finger then — not caught means it is not cancelled, wherever it lands.
+    const seen: MouseEvent[] = [];
+    const watch = (e: MouseEvent) => seen.push(e);
+    window.addEventListener("click", watch, true);
     try {
-      await tapAt(centre(target));
+      await tapAt(bodyOf("details"));
       await sleep(40);
-      expect(pressed).toBe(1);
+      expect(seen).toHaveLength(1);
+      expect(seen[0]!.defaultPrevented).toBe(false);
     } finally {
-      target.removeEventListener("click", press);
+      window.removeEventListener("click", watch, true);
     }
     await settleSwipe();
     expect(wrapperOf("details").style.transform).toBe("");
