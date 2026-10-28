@@ -27,6 +27,7 @@ import { describe, expect, test } from "bun:test";
 import {
   chmodSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -1570,11 +1571,12 @@ describe("PW7: the staged sites are compared with Pages after the stack jobs", (
     expect(upload?.with?.name).toBe("site-parity");
   });
 
-  test("each comparison passes its exit code on, and the last step fails the job on a comparison that compared nothing (2, 3), never on a difference (1)", () => {
+  test("each comparison passes its exit code on, and the last step fails the job on a comparison that compared nothing (2, 3, 4, no exit code, no report), never on a difference (1)", () => {
     const exitOf = (key: StackKey) => `PARITY_${key.toUpperCase()}_EXIT`;
+    const outcomeOf = (key: StackKey) => `PARITY_${key.toUpperCase()}_OUTCOME`;
     for (const s of PRODUCTION_STACKS) {
       const step = stepById(parity, `parity_${s.key}`)!;
-      for (const code of [0, 1, 2, 3]) {
+      for (const code of [0, 1, 2, 3, 4]) {
         const output = join(mkdtempSync(join(tmpdir(), "site-parity-output-")), "output");
         writeFileSync(output, "");
         const ran = runStep(step, { GITHUB_OUTPUT: output }, code);
@@ -1594,28 +1596,91 @@ describe("PW7: the staged sites are compared with Pages after the stack jobs", (
     expect(gate["continue-on-error"]).toBeUndefined();
     expect(gate.env).toEqual(
       Object.fromEntries(
-        PRODUCTION_STACKS.map((s) => [exitOf(s.key), `\${{ steps.parity_${s.key}.outputs.exit }}`]),
+        PRODUCTION_STACKS.flatMap((s) => [
+          [exitOf(s.key), `\${{ steps.parity_${s.key}.outputs.exit }}`],
+          [outcomeOf(s.key), `\${{ steps.parity_${s.key}.outcome }}`],
+        ]),
       ),
     );
-    const none = Object.fromEntries(PRODUCTION_STACKS.map((s) => [exitOf(s.key), ""]));
+    // Neither stack deployed: both comparisons skipped, so no exit code and no report.
+    const none = Object.fromEntries(
+      PRODUCTION_STACKS.flatMap((s) => [
+        [exitOf(s.key), ""],
+        [outcomeOf(s.key), "skipped"],
+      ]),
+    );
     expect(runStep(gate, none).exitCode).toBe(0);
+    /** The gate's run with a runner temp holding the reports of `reports` stacks. */
+    const gateRun = (env: Record<string, string>, reports: readonly StackKey[]) => {
+      const temp = mkdtempSync(join(tmpdir(), "site-parity-gate-"));
+      mkdirSync(join(temp, "site-parity"));
+      for (const key of reports) writeFileSync(join(temp, "site-parity", `${key}.json`), "{}\n");
+      return runStep(gate, { ...none, RUNNER_TEMP: temp, ...env });
+    };
     for (const s of PRODUCTION_STACKS) {
-      for (const code of ["0", "1"]) {
+      const ran = (outcome: string, exit: string) => ({
+        [outcomeOf(s.key)]: outcome,
+        [exitOf(s.key)]: exit,
+      });
+      // A step that exits non-zero under continue-on-error has outcome `failure`.
+      for (const [outcome, exit] of [
+        ["success", "0"],
+        ["failure", "1"],
+      ] as const) {
         expect({
           key: s.key,
-          code,
-          exit: runStep(gate, { ...none, [exitOf(s.key)]: code }).exitCode,
-        }).toEqual({ key: s.key, code, exit: 0 });
+          outcome,
+          exit,
+          gate: gateRun(ran(outcome, exit), [s.key]).exitCode,
+        }).toEqual({ key: s.key, outcome, exit, gate: 0 });
       }
-      const refused = runStep(gate, { ...none, [exitOf(s.key)]: "3" });
+      const refused = gateRun(ran("failure", "3"), [s.key]);
       expect({ key: s.key, exit: refused.exitCode }).toEqual({ key: s.key, exit: 1 });
       expect(refused.output).toContain("::error::Cloudflare answered in place of a staged site");
       expect(refused.bunCalls).toEqual([]);
       // A usage error exits before any request: the report holds nothing.
-      const usage = runStep(gate, { ...none, [exitOf(s.key)]: "2" });
+      const usage = gateRun(ran("failure", "2"), []);
       expect({ key: s.key, exit: usage.exitCode }).toEqual({ key: s.key, exit: 1 });
       expect(usage.output).toContain("::error::site-parity refused its arguments");
       expect(usage.bunCalls).toEqual([]);
+      // The script caught an error that stopped it.
+      const stopped = gateRun(ran("failure", "4"), []);
+      expect({ key: s.key, exit: stopped.exitCode }).toEqual({ key: s.key, exit: 1 });
+      expect(stopped.output).toContain("::error::site-parity stopped on an error");
+      // Ran, but never wrote its exit code (its timeout stopped it), or ended
+      // on a code the script never gives (a signal).
+      for (const [outcome, exit] of [
+        ["failure", ""],
+        ["cancelled", ""],
+        ["failure", "137"],
+        ["", ""],
+      ] as const) {
+        const cut = gateRun(ran(outcome, exit), [s.key]);
+        expect({ key: s.key, outcome, exit, gate: cut.exitCode }).toEqual({
+          key: s.key,
+          outcome,
+          exit,
+          gate: 1,
+        });
+        expect(cut.output).toContain(`::error::The ${s.key} comparison ran but did not finish`);
+      }
+      // Exited 0 or 1 but left no report: it stopped before the report, as
+      // when a module fails to load.
+      for (const [outcome, exit] of [
+        ["success", "0"],
+        ["failure", "1"],
+      ] as const) {
+        const bare = gateRun(ran(outcome, exit), []);
+        expect({ key: s.key, outcome, exit, gate: bare.exitCode }).toEqual({
+          key: s.key,
+          outcome,
+          exit,
+          gate: 1,
+        });
+        expect(bare.output).toContain(
+          `::error::The ${s.key} comparison exited ${exit} but left no report`,
+        );
+      }
     }
   });
 });
