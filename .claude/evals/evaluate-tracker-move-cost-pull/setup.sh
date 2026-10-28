@@ -13,31 +13,23 @@
 # how the evaluation reasons, not which way it lands.
 set -euo pipefail
 
-# Run only inside a fixture checkout. A `.git` file means a linked worktree,
-# whose config is shared with every other worktree; any other HEAD than the
-# pinned commit means a real clone. Either way the steps below would rewrite
-# someone's repository.
-if [ -f .git ]; then
-  echo "setup.sh: refusing to run in a linked worktree" >&2
-  exit 1
-fi
-if [ -d .git ] && [ "$(git rev-parse HEAD 2>/dev/null)" != "7eb6c184837c36be9c9985a9dd11810bbb000779" ]; then
-  echo "setup.sh: HEAD is not the pinned fixture commit" >&2
+# `claude plugin eval --scaffold` runs this in a fresh, empty workspace. Refuse
+# anywhere else: every step below rewrites the repository it finds.
+if [ -n "$(ls -A)" ]; then
+  echo "setup.sh: the workspace is not empty; run only under claude plugin eval --scaffold" >&2
   exit 1
 fi
 
-# The fixture repo carries copies of skills that `exclude` in scenario.json
-# does not strip. Delete them. The plugin variant supplies `.claude/skills/`.
-rm -rf .claude/commands .claude/projects .claude/evals .claude/tessl.json
+# The pinned commit, shallow, so the fetch fits the scaffold's time limit.
+git init -q
+git fetch -q --depth 1 https://github.com/englishstreetventures/osn.git 7eb6c184837c36be9c9985a9dd11810bbb000779
+git checkout -q FETCH_HEAD
+git config user.email "eval@example.invalid"
+git config user.name "Claude Eval"
 
-git config user.email "eval@example.invalid" 2>/dev/null || true
-git config user.name "Tessl Eval" 2>/dev/null || true
-
-if [ ! -d .git ]; then
-  git init -q
-  git config user.email "eval@example.invalid"
-  git config user.name "Tessl Eval"
-fi
+# The checkout's own skills and agents would hand the no-plugin arm the
+# instructions under test. The plugin supplies them to the other arm.
+rm -rf .claude .agents
 
 cat > OWNER-ASK.md <<'ASK'
 Evaluate moving our issue tracking from GitHub Issues to Jira. Planning on
@@ -74,13 +66,6 @@ cat > FACTS.md <<'FACTS'
 - A GitHub-to-Jira importer moves issues and comments but not Projects board
   fields. (Third-party blog, not checked.)
 FACTS
-
-# The harness injects the plugin as symlinks under `.claude/` and `.agents/`,
-# and only into the with-context variant. Ignore them in both variants so the
-# no-edits check measures the agent, not the harness. `EVALUATION.md` is the
-# deliverable and is NOT ignored.
-mkdir -p .git/info
-printf '.claude/\n.agents/\n' >> .git/info/exclude
 
 git add -A
 git diff --cached --quiet || git commit -qm "eval fixture: a tracker move with a heavy migration"
