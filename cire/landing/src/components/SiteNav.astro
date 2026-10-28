@@ -61,13 +61,13 @@ import { ORGANISER_URL, SITE_NAME } from '../lib/site'
   }
 
   .site-nav__wordmark {
-    font-family: var(--font-display, "Cormorant Garamond", Georgia, serif);
+    font-family: var(--font-display);
     font-size: 1.6rem;
     font-style: italic;
-    letter-spacing: 0.04em;
+    letter-spacing: var(--ui-tracking-wide);
     color: var(--color-gold);
     text-decoration: none;
-    line-height: 1;
+    line-height: var(--ui-leading-none);
   }
 
   /* An underlined text link, not a box, so it takes no button corner: a

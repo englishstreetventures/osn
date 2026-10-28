@@ -222,7 +222,7 @@ function DemoRsvpModal(props: DemoRsvpModalProps) {
         <h3 id={titleId} class="font-display text-text text-ui-xl mb-2 font-light italic">
           {shownEvent()?.name}
         </h3>
-        <output class="border-gold/40 bg-gold/5 text-gold text-ui-xs mb-6 block rounded-sm border px-3.5 py-2.5 leading-relaxed">
+        <output class="border-gold/40 bg-gold/5 text-gold text-ui-xs leading-ui-normal mb-6 block rounded-sm border px-3.5 py-2.5">
           Interactive preview. Your reply won&rsquo;t be saved.
         </output>
 
