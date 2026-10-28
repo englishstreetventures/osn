@@ -65,7 +65,7 @@ Work is tracked in GitHub Issues, never the wiki.
 ```bash
 bun run dev                  # every dev server; or dev:osn, dev:social, dev:pulse, dev:zap,
                              # dev:cire, dev:apis, dev:landing, dev:lab
-bun run build | check | lint | fmt
+bun run build | typecheck | lint | fmt
 bun run test                 # all packages
 bun run test:d1              # Miniflare D1 tier
 bun run test:browser         # real-Chromium tier
