@@ -1961,9 +1961,10 @@ describe("every Worker deploy is smoke-checked, and rolls back the Worker it dep
     }
     // A probe's bearer comes from the Environment, under its own name; a
     // check whose probes send none is given none.
-    expect(Object.keys(env).filter((name) => name === "INTERNAL_SERVICE_SECRET")).toEqual(
-      bearersOf(target.probes),
+    const bearerNames: string[] = Object.keys(env).filter(
+      (name) => name === "INTERNAL_SERVICE_SECRET",
     );
+    expect(bearerNames).toEqual(bearersOf(target.probes));
     for (const name of bearersOf(target.probes)) {
       expect(env[name]).toBe(`\${{ secrets.${name} }}`);
     }
