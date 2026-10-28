@@ -1561,16 +1561,57 @@ describe("PW7: the staged sites are compared with Pages after the stack jobs", (
     expect(JSON.stringify(parity)).not.toContain("secrets.");
     for (const s of PRODUCTION_STACKS) {
       const step = stepById(parity, `parity_${s.key}`);
-      expect(step?.run).toBe(
-        `bun run scripts/site-parity.ts --stack ${s.key} --out "$RUNNER_TEMP/site-parity/${s.key}.json"`,
-      );
       expect(step?.if).toBe(`needs.${s.production.id}.outputs.deployed == 'true'`);
       expect(step?.["continue-on-error"]).toBe(true);
     }
-    const upload = stepsOf(parity).at(-1);
+    const upload = stepsOf(parity).at(-2);
     expect(upload?.uses).toBe("actions/upload-artifact@v4");
     expect(upload?.if).toBe("${{ !cancelled() }}");
     expect(upload?.with?.name).toBe("site-parity");
+  });
+
+  test("each comparison passes its exit code on, and the last step fails the job on a refused comparison (3), never on a difference (1)", () => {
+    const exitOf = (key: StackKey) => `PARITY_${key.toUpperCase()}_EXIT`;
+    for (const s of PRODUCTION_STACKS) {
+      const step = stepById(parity, `parity_${s.key}`)!;
+      for (const code of [0, 1, 3]) {
+        const output = join(mkdtempSync(join(tmpdir(), "site-parity-output-")), "output");
+        writeFileSync(output, "");
+        const ran = runStep(step, { GITHUB_OUTPUT: output }, code);
+        expect({ key: s.key, code, exit: ran.exitCode }).toEqual({ key: s.key, code, exit: code });
+        expect(ran.bunCalls).toHaveLength(1);
+        expect(ran.bunCalls[0]).toMatch(
+          new RegExp(
+            `^run scripts/site-parity\\.ts --stack ${s.key} --out /\\S+/site-parity/${s.key}\\.json$`,
+          ),
+        );
+        expect(readFileSync(output, "utf8")).toBe(`exit=${code}\n`);
+      }
+    }
+
+    const gate = stepsOf(parity).at(-1)!;
+    expect(gate.if).toBe("${{ !cancelled() }}");
+    expect(gate["continue-on-error"]).toBeUndefined();
+    expect(gate.env).toEqual(
+      Object.fromEntries(
+        PRODUCTION_STACKS.map((s) => [exitOf(s.key), `\${{ steps.parity_${s.key}.outputs.exit }}`]),
+      ),
+    );
+    const none = Object.fromEntries(PRODUCTION_STACKS.map((s) => [exitOf(s.key), ""]));
+    expect(runStep(gate, none).exitCode).toBe(0);
+    for (const s of PRODUCTION_STACKS) {
+      for (const code of ["0", "1"]) {
+        expect({
+          key: s.key,
+          code,
+          exit: runStep(gate, { ...none, [exitOf(s.key)]: code }).exitCode,
+        }).toEqual({ key: s.key, code, exit: 0 });
+      }
+      const refused = runStep(gate, { ...none, [exitOf(s.key)]: "3" });
+      expect({ key: s.key, exit: refused.exitCode }).toEqual({ key: s.key, exit: 1 });
+      expect(refused.output).toContain("::error::");
+      expect(refused.bunCalls).toEqual([]);
+    }
   });
 });
 
