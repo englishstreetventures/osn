@@ -47,7 +47,7 @@ interface GuestEmailBoxProps {
 }
 
 const INPUT =
-  "border-text/55 bg-text/[0.045] font-body text-text focus:border-gold sm:text-ui-base rounded-ui-field mt-1.5 block w-full cursor-text border px-3 py-2.5 text-base transition-colors duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)] disabled:cursor-not-allowed disabled:opacity-50";
+  "border-text/55 bg-text/4.5 font-body text-text focus:border-gold sm:text-ui-base rounded-ui-field mt-1.5 block w-full cursor-text border px-3 py-2.5 text-base transition-colors duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ui-focus disabled:cursor-not-allowed disabled:opacity-50";
 
 const INVALID_ADDRESS = "That doesn’t look like one email address. Please check it.";
 /** After removing an address the hosts added: the API records the opt-out. */
@@ -206,7 +206,7 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
         id={headingId}
         ref={heading}
         tabIndex={-1}
-        class="font-display text-gold-ink text-ui-lg mb-1 leading-tight font-light italic focus:outline-none"
+        class="font-display text-gold-ink text-ui-lg leading-ui-tight mb-1 font-light italic focus:outline-none"
       >
         Wedding emails
       </h3>
@@ -256,7 +256,7 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
                 </p>
               </Show>
             </div>
-            <label class="font-body text-text-muted text-ui-sm flex items-start gap-2.5 leading-relaxed normal-case">
+            <label class="font-body text-text-muted text-ui-sm leading-ui-normal flex items-start gap-2.5 normal-case">
               <input
                 type="checkbox"
                 class="accent-gold mt-0.5 h-4 w-4 shrink-0 cursor-pointer"

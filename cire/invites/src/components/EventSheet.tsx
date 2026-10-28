@@ -85,7 +85,7 @@ function without(panels: ReadonlySet<EventPanel>, panel: EventPanel): ReadonlySe
  * (Chromium on Linux has none) that can be just before its comma.
  */
 const TITLE =
-  "font-display text-text text-ui-md min-[380px]:text-ui-lg wrap-break-word hyphens-auto leading-tight font-light italic";
+  "font-display text-text text-ui-md min-[380px]:text-ui-lg wrap-break-word hyphens-auto leading-ui-tight font-light italic";
 
 /**
  * One of the badge's two labels. Both sit in the same grid cell, so the badge

@@ -229,7 +229,7 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
             <legend class="font-body text-text-muted text-ui-sm mb-2">What it’s for</legend>
             <div class="flex flex-col gap-2">
               <label
-                class="font-body focus-within:ring-gold/60 rounded-ui-field flex cursor-pointer items-center gap-3 border px-4 py-3 transition-colors duration-(--dur-fast) ease-(--ease-out) focus-within:ring-2"
+                class="font-body rounded-ui-field focus-within:outline-ui-focus flex cursor-pointer items-center gap-3 border px-4 py-3 transition-colors duration-(--dur-fast) ease-(--ease-out) focus-within:outline-2 focus-within:outline-offset-2"
                 classList={{
                   "border-gold bg-gold/5": fundId() === null,
                   "border-border": fundId() !== null,
@@ -249,7 +249,7 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
                 {(fund) => (
                   <label
                     data-gift-money-fund={fund.id}
-                    class="font-body focus-within:ring-gold/60 rounded-ui-field flex cursor-pointer items-start gap-3 border px-4 py-3 transition-colors duration-(--dur-fast) ease-(--ease-out) focus-within:ring-2"
+                    class="font-body rounded-ui-field focus-within:outline-ui-focus flex cursor-pointer items-start gap-3 border px-4 py-3 transition-colors duration-(--dur-fast) ease-(--ease-out) focus-within:outline-2 focus-within:outline-offset-2"
                     classList={{
                       "border-gold bg-gold/5": fundId() === fund.id,
                       "border-border": fundId() !== fund.id,
@@ -275,7 +275,7 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
                       )}
                     </Show>
                     <span class="flex min-w-0 flex-col gap-1">
-                      <span class="font-display text-text text-ui-md leading-snug font-light break-words">
+                      <span class="font-display text-text text-ui-md leading-ui-snug font-light break-words">
                         {fund.title}
                       </span>
                       <Show when={fund.description}>
@@ -302,7 +302,7 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
             <For each={GIFT_AMOUNT_PRESETS_MINOR}>
               {(minor) => (
                 <label
-                  class="font-body focus-within:ring-gold/60 text-ui-sm rounded-ui-control cursor-pointer border px-4 py-2 transition-colors duration-(--dur-fast) ease-(--ease-out) focus-within:ring-2"
+                  class="font-body text-ui-sm rounded-ui-control focus-within:outline-ui-focus cursor-pointer border px-4 py-2 transition-colors duration-(--dur-fast) ease-(--ease-out) focus-within:outline-2 focus-within:outline-offset-2"
                   classList={{
                     "border-gold text-gold-ink bg-gold/5": preset() === minor,
                     "border-border text-text-muted": preset() !== minor,
@@ -326,7 +326,7 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
               )}
             </For>
             <label
-              class="font-body focus-within:ring-gold/60 text-ui-sm rounded-ui-control cursor-pointer border px-4 py-2 transition-colors duration-(--dur-fast) ease-(--ease-out) focus-within:ring-2"
+              class="font-body text-ui-sm rounded-ui-control focus-within:outline-ui-focus cursor-pointer border px-4 py-2 transition-colors duration-(--dur-fast) ease-(--ease-out) focus-within:outline-2 focus-within:outline-offset-2"
               classList={{
                 "border-gold text-gold-ink bg-gold/5": preset() === null,
                 "border-border text-text-muted": preset() !== null,
@@ -358,7 +358,7 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
               inputmode="decimal"
               value={customText()}
               onInput={(event) => setCustomText(event.currentTarget.value)}
-              class="border-border bg-text/[0.045] font-body text-text focus:border-gold text-ui-base rounded-ui-field mx-auto w-40 border px-3 py-2 text-center focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)]"
+              class="border-border bg-text/4.5 font-body text-text focus:border-gold text-ui-base rounded-ui-field focus-visible:outline-ui-focus mx-auto w-40 border px-3 py-2 text-center focus-visible:outline-2 focus-visible:outline-offset-2"
             />
           </label>
         </Show>
@@ -371,7 +371,7 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
               maxlength="120"
               value={displayName()}
               onInput={(event) => setDisplayName(event.currentTarget.value)}
-              class="border-border bg-text/[0.045] font-body text-text focus:border-gold text-ui-base rounded-ui-field w-full border px-3 py-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)]"
+              class="border-border bg-text/4.5 font-body text-text focus:border-gold text-ui-base rounded-ui-field focus-visible:outline-ui-focus w-full border px-3 py-2 focus-visible:outline-2 focus-visible:outline-offset-2"
             />
           </label>
           <label class="font-body text-text-muted text-ui-sm">
@@ -381,7 +381,7 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
               maxlength="400"
               value={message()}
               onInput={(event) => setMessage(event.currentTarget.value)}
-              class="border-border bg-text/[0.045] font-body text-text focus:border-gold text-ui-base rounded-ui-field w-full border px-3 py-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)]"
+              class="border-border bg-text/4.5 font-body text-text focus:border-gold text-ui-base rounded-ui-field focus-visible:outline-ui-focus w-full border px-3 py-2 focus-visible:outline-2 focus-visible:outline-offset-2"
             />
           </label>
         </div>
@@ -414,7 +414,7 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
           <Show when={status().includes("invite code")}>
             <a
               href={props.inviteHref}
-              class="font-body text-gold-ink focus-visible:ring-gold/60 text-ui-sm rounded-ui-control underline underline-offset-4 focus:outline-none focus-visible:ring-2"
+              class="font-body text-gold-ink text-ui-sm rounded-ui-control focus-visible:outline-ui-focus underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2"
             >
               Open the invitation
             </a>

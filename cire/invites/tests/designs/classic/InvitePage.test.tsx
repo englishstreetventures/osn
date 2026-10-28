@@ -861,7 +861,7 @@ describe("InvitePage", () => {
     });
   });
 
-  it("P-W2: a reset during the unlock choreography is not undone by its trailing setRevealed", async () => {
+  it("a reset during the unlock choreography is not undone by its trailing setRevealed", async () => {
     // `onFormHidden` makes the button visible at the end of step 1, then the
     // sequence runs on for ~200ms. A reset click in that gap must survive
     // handleClaimed's unconditional `finally { setRevealed(true) }` — the form

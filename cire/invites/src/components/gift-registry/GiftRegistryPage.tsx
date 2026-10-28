@@ -406,7 +406,7 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
               </p>
               <a
                 href={props.inviteHref}
-                class="font-body text-gold-ink focus-visible:ring-gold/60 text-ui-sm rounded-ui-control underline underline-offset-4 focus:outline-none focus-visible:ring-2"
+                class="font-body text-gold-ink text-ui-sm rounded-ui-control focus-visible:outline-ui-focus underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2"
               >
                 Back to the invitation
               </a>
@@ -463,7 +463,7 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
                 Your invite session has ended. Enter your invite code again on{" "}
                 <a
                   href={props.inviteHref}
-                  class="focus-visible:ring-gold/60 rounded-ui-control underline underline-offset-4 focus:outline-none focus-visible:ring-2"
+                  class="rounded-ui-control focus-visible:outline-ui-focus underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2"
                 >
                   the invitation
                 </a>{" "}

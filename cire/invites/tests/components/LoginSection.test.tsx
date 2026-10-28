@@ -1218,7 +1218,7 @@ describe("LoginSection code field", () => {
     // tone (ground / card / raised), so a fixed surface token would vanish on
     // the tone that matches it. Ink adapts to any palette in the right
     // direction — darkening a light scheme, lightening a dark one.
-    expect(cls).toContain("bg-text/[0.045]");
+    expect(cls).toContain("bg-text/4.5");
     expect(cls).toContain("border-text/55");
     // `border-border` is the same ink at 0.12 — the hairline this replaced, and
     // the reason the field read as flat page on a pale scheme.
@@ -1239,7 +1239,7 @@ describe("LoginSection code field", () => {
     // only input, and the ring is what keeps keyboard users oriented.
     const cls = codeInput().className;
     expect(cls).toContain("focus:border-gold");
-    expect(cls).toContain("focus-visible:outline-[var(--invite-focus)]");
+    expect(cls).toContain("focus-visible:outline-ui-focus");
   });
 });
 
