@@ -382,3 +382,50 @@ describe("end to end: a self-registered client completes the full flow", () => {
     expect(claims.aud).toBe(client.clientId);
   });
 });
+
+// Characterisation: pins the redirect-URI count rules. Duplicates collapse
+// before the count, so only distinct URIs count against the limit.
+describe("POST /oidc/clients: redirect URI count (characterisation)", () => {
+  const distinct = (n: number) =>
+    Array.from({ length: n }, (_, i) => `https://newrp.example.com/cb${i}`);
+
+  it("accepts nine copies of one URI because duplicates collapse before the count", async () => {
+    const h = setup();
+    const { accessToken } = await register(h, "dupes@example.com", "dupes_user");
+    const copies = Array.from({ length: 9 }, () => REDIRECT_URI);
+
+    const res = await createClient(h, accessToken, { redirect_uris: copies });
+
+    expect(res.status).toBe(201);
+  });
+
+  it("rejects nine distinct URIs, one over the limit of eight", async () => {
+    const h = setup();
+    const { accessToken } = await register(h, "nine@example.com", "nine_user");
+
+    const res = await createClient(h, accessToken, { redirect_uris: distinct(9) });
+
+    expect(res.status).toBe(400);
+    expect(JSON.stringify(await res.json())).toContain("between 1 and 8 redirect URIs");
+  });
+
+  it("rejects sixteen distinct URIs at the same validator limit", async () => {
+    const h = setup();
+    const { accessToken } = await register(h, "sixteen@example.com", "sixteen_user");
+
+    const res = await createClient(h, accessToken, { redirect_uris: distinct(16) });
+
+    expect(res.status).toBe(400);
+    expect(JSON.stringify(await res.json())).toContain("between 1 and 8 redirect URIs");
+  });
+
+  it("rejects seventeen URIs at the TypeBox body boundary, before the validator", async () => {
+    const h = setup();
+    const { accessToken } = await register(h, "seventeen@example.com", "seventeen_user");
+
+    const res = await createClient(h, accessToken, { redirect_uris: distinct(17) });
+
+    // TypeBox rejects the body shape with 422, before the validator runs.
+    expect(res.status).toBe(422);
+  });
+});

@@ -1761,3 +1761,114 @@ describe("GET /authorize with a restricted recovery session", () => {
     expect(loc.searchParams.get("code")).toBeNull();
   });
 });
+
+// Characterisation: pins what the authorization-code and scope decisions do
+// today, so any later change to those decisions shows up as a failing test.
+describe("POST /oidc/token: redemption decisions (characterisation)", () => {
+  const exchange = (h: Harness, code: string, overrides: Record<string, string> = {}) =>
+    h.app.handle(
+      tokenRequest({
+        grant_type: "authorization_code",
+        code,
+        redirect_uri: REDIRECT_URI,
+        code_verifier: VERIFIER,
+        client_id: "cid_rp",
+        ...overrides,
+      }),
+    );
+
+  it("rejects a code presented at exactly its expiry second", async () => {
+    const h = setup();
+    h.seedClient();
+    const code = await mintCode(h, "exp@example.com", "exp_user");
+    h.sqlite.run("UPDATE oauth_authorization_codes SET expires_at = ?", [
+      Math.floor(Date.now() / 1000),
+    ]);
+
+    const res = await exchange(h, code);
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string; error_description: string };
+    expect(body.error).toBe("invalid_grant");
+    expect(body.error_description).toBe("Invalid or expired code");
+  });
+
+  it("gives a wrong PKCE verifier its own description", async () => {
+    const h = setup();
+    h.seedClient();
+    const code = await mintCode(h, "pkce2@example.com", "pkce2_user");
+
+    const res = await exchange(h, code, {
+      code_verifier: "not-the-verifier-not-the-verifier-not-the-verifi",
+    });
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string; error_description: string };
+    expect(body.error).toBe("invalid_grant");
+    expect(body.error_description).toBe("PKCE verification failed");
+  });
+
+  it("rejects a code redeemed by a different client, even with valid PKCE", async () => {
+    const h = setup();
+    h.seedClient();
+    h.seedClient({ clientId: "cid_other", redirectUris: [REDIRECT_URI] });
+    const code = await mintCode(h, "cross@example.com", "cross_user");
+
+    const res = await exchange(h, code, { client_id: "cid_other" });
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string; error_description: string };
+    expect(body.error).toBe("invalid_grant");
+    expect(body.error_description).toBe("Code does not match this request");
+  });
+
+  it("narrows a requested scope to the client's allowed scopes", async () => {
+    const h = setup();
+    h.seedClient({ firstParty: true });
+    h.sqlite.run(
+      "UPDATE oauth_clients SET allowed_scopes = 'openid profile' WHERE client_id = 'cid_rp'",
+    );
+    const cookie = await signIn(h, "narrow@example.com", "narrow_user");
+    const authRes = await h.app.handle(
+      new Request(authorizeUrl({ ...goodParams, scope: "openid profile email" }), {
+        headers: { cookie },
+      }),
+    );
+    const code = new URL(authRes.headers.get("location")!).searchParams.get("code")!;
+
+    const res = await exchange(h, code);
+
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { scope: string }).scope).toBe("openid profile");
+  });
+
+  it("keeps the requested scope order and drops duplicate tokens", async () => {
+    const h = setup();
+    h.seedClient({ firstParty: true });
+    const cookie = await signIn(h, "order@example.com", "order_user");
+    const authRes = await h.app.handle(
+      new Request(authorizeUrl({ ...goodParams, scope: "profile openid openid email" }), {
+        headers: { cookie },
+      }),
+    );
+    const code = new URL(authRes.headers.get("location")!).searchParams.get("code")!;
+
+    const res = await exchange(h, code);
+
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { scope: string }).scope).toBe("profile openid email");
+  });
+
+  it("answers invalid_scope when openid is not requested", async () => {
+    const h = setup();
+    h.seedClient({ firstParty: true });
+    const cookie = await signIn(h, "noopenid@example.com", "noopenid_user");
+
+    const authRes = await h.app.handle(
+      new Request(authorizeUrl({ ...goodParams, scope: "profile" }), { headers: { cookie } }),
+    );
+
+    const location = new URL(authRes.headers.get("location")!);
+    expect(location.searchParams.get("error")).toBe("invalid_scope");
+  });
+});
