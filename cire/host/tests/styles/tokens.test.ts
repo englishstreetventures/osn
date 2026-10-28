@@ -138,6 +138,26 @@ describe.each([
   });
 });
 
+/**
+ * The reply marks: a filled circle with a glyph, then a word in caps
+ * (`cire/host/DESIGN.md` §Status marks). The word is a contract ink on the
+ * page and is measured by the harness above; the glyph on its circle is
+ * measured here, at the text floor though a glyph owes only 3:1, because at
+ * 10px a thin ✓ reads as text does.
+ */
+describe.each([
+  ["dark", DARK],
+  ["light", LIGHT],
+] as const)("%s ramp — the reply marks", (_name, tokens) => {
+  it.each([
+    ["on-gold", "status-yes"],
+    ["status-no-ink", "status-no"],
+    ["status-maybe-ink", "status-maybe"],
+  ] as const)("--%s on --%s clears 4.5:1", (fg, bg) => {
+    expect(ratio(tokens, fg, bg)).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
 describe("ramp shape", () => {
   it("declares the same tokens in both ramps", () => {
     // A token defined in dark and forgotten in light does not fail loudly — it
