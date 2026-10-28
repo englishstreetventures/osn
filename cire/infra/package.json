@@ -14,7 +14,10 @@
     "test:run": "bunx --bun vitest run",
     "test:mutation": "bun ../../tools/stryker/src/cli.ts",
     "plan:dev": "DO_NOT_TRACK=1 bun alchemy plan --stage dev",
-    "deploy:dev": "DO_NOT_TRACK=1 bun alchemy deploy --stage dev --yes"
+    "deploy:dev": "DO_NOT_TRACK=1 bun alchemy deploy --stage dev --yes",
+    "plan:production": "DO_NOT_TRACK=1 bun alchemy deploy --stage production --dry-run",
+    "deploy:production": "DO_NOT_TRACK=1 bun alchemy deploy --stage production --yes",
+    "plan:guard": "bun run scripts/plan-guard.ts"
   },
   "dependencies": {
     "@effect/platform-bun": "4.0.5",

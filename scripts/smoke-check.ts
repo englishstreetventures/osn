@@ -4,8 +4,9 @@
  * wrongly.
  *
  * Runs after every Worker deploy: in production-release.yml as the step after
- * each production Worker's `wrangler deploy`, and in deploy.yml (dev) once per
- * surface of a stack, after the Alchemy deploy of that stack:
+ * each production Worker's `wrangler deploy`, and once per site after each
+ * production stack's Alchemy deploy; in deploy.yml (dev) once per surface of
+ * a stack, after the Alchemy deploy of that stack:
  *
  *   bun run scripts/smoke-check.ts <surface> <tier>
  *
@@ -84,10 +85,12 @@
  *                       `deploy` entry names the version this job deployed.
  *                       Unset, as in a hand run, the newest deployment at the
  *                       first read is taken to be this job's.
- * Dev only, each required:
- *   SMOKE_ORIGIN        the https:// origin of the surface's dev host, with no
+ * A Worker a stack deploys (every dev surface, and each production site in
+ * SMOKE_TARGETS' `productionSite`), each required:
+ *   SMOKE_ORIGIN        the https:// origin of the surface's host, with no
  *                       path, query or trailing slash, from the stack job's
- *                       dev-hosts step.
+ *                       dev-hosts step on dev and its production-hosts step on
+ *                       production.
  *   SMOKE_MARKETING_ORIGIN
  *                       the cire marketing site's origin, which the guest
  *                       site's `/` redirects to (cire_invites only).
@@ -120,6 +123,8 @@ export type Expectation =
   | { readonly kind: "html" }
   /** 200, a body that parses to a JSON object. */
   | { readonly kind: "jsonObject" }
+  /** 200, served as `application/json`, a body that parses to a JSON object: a static JSON file. */
+  | { readonly kind: "jsonFile" }
   /**
    * Asked with no service token: a 301, 302, 303 or 307 to a
    * `*.cloudflareaccess.com` host, Cloudflare Access sending the caller to
@@ -164,9 +169,23 @@ export interface DevSmokeTarget {
   readonly needsMarketing: boolean;
 }
 
+/**
+ * A production site Worker the production stack deploys. Its host depends on
+ * the site's mode (shared/infra/src/production-sites.ts), so the stack job
+ * passes its origin, as on dev.
+ */
+export interface SiteSmokeTarget {
+  /** The Worker's production script name, which a rollback acts on. */
+  readonly worker: string;
+  readonly probes: (origin: string) => readonly Probe[];
+}
+
 interface SmokeTargets {
   readonly dev?: DevSmokeTarget;
+  /** A Worker production-release.yml deploys with Wrangler. */
   readonly production?: SmokeTarget;
+  /** A site Worker the production stack deploys. */
+  readonly productionSite?: SiteSmokeTarget;
 }
 
 const health = (origin: string): Probe => ({
@@ -201,6 +220,16 @@ const guestSite = (origin: string, marketing: string): readonly Probe[] => [
 const sitePage = (origin: string, path: string): Probe => ({
   url: `${origin}${path}`,
   expects: { kind: "html" },
+});
+
+/**
+ * musubi social's Apple app-site association file, which iOS reads to offer
+ * the app's passkeys on the site's host (osn/ios/project.yml). It is a hidden
+ * file in the build, so an upload that drops dot-directories loses it.
+ */
+const appleAssociation = (origin: string): Probe => ({
+  url: `${origin}/.well-known/apple-app-site-association`,
+  expects: { kind: "jsonFile" },
 });
 
 /** `/` asked with no service token, which Access must answer on a host it guards. */
@@ -282,6 +311,7 @@ export const SMOKE_TARGETS = {
     },
   },
   cire_host: {
+    productionSite: { worker: "cire-host", probes: (origin) => [sitePage(origin, "/")] },
     dev: {
       worker: "cire-host-dev",
       access: true,
@@ -290,6 +320,7 @@ export const SMOKE_TARGETS = {
     },
   },
   cire_vendor: {
+    productionSite: { worker: "cire-vendor", probes: (origin) => [sitePage(origin, "/")] },
     dev: {
       worker: "cire-vendor-dev",
       access: true,
@@ -298,6 +329,7 @@ export const SMOKE_TARGETS = {
     },
   },
   cire_landing: {
+    productionSite: { worker: "cire-landing", probes: (origin) => [sitePage(origin, "/")] },
     dev: {
       worker: "cire-landing-dev",
       access: true,
@@ -306,6 +338,14 @@ export const SMOKE_TARGETS = {
     },
   },
   osn_social: {
+    productionSite: {
+      worker: "osn-social",
+      probes: (origin) => [
+        sitePage(origin, "/"),
+        sitePage(origin, "/smoke-check-deep-link"),
+        appleAssociation(origin),
+      ],
+    },
     dev: {
       worker: "osn-social-dev",
       access: true,
@@ -315,6 +355,7 @@ export const SMOKE_TARGETS = {
     },
   },
   musubi_landing: {
+    productionSite: { worker: "musubi-landing", probes: (origin) => [sitePage(origin, "/")] },
     dev: {
       worker: "musubi-landing-dev",
       access: true,
@@ -323,6 +364,13 @@ export const SMOKE_TARGETS = {
     },
   },
   pulse_landing: {
+    productionSite: {
+      worker: "pulse-landing",
+      probes: (origin) => [
+        sitePage(origin, "/"),
+        { url: `${origin}/api/geo`, expects: { kind: "jsonObject" } },
+      ],
+    },
     dev: {
       worker: "pulse-landing-dev",
       access: true,
@@ -342,6 +390,12 @@ export type WorkerSurface = keyof typeof SMOKE_TARGETS;
 export function productionTarget(surface: SurfaceKey): SmokeTarget | undefined {
   const tiers: SmokeTargets = SMOKE_TARGETS[surface];
   return tiers.production;
+}
+
+/** The production site target for a surface, or undefined when no production stack deploys a site Worker for it. */
+export function productionSiteTarget(surface: SurfaceKey): SiteSmokeTarget | undefined {
+  const tiers: SmokeTargets = SMOKE_TARGETS[surface];
+  return tiers.productionSite;
 }
 
 /** The dev target for a surface, or undefined when dev deploys no Worker for it. */
@@ -531,6 +585,15 @@ export function judge(probe: Probe, response: Response, body: string, access: bo
     }
     case "jsonObject":
       return status === 200 && isJsonObject(body) ? PASS : wrong("200 with a JSON object");
+    case "jsonFile": {
+      const type = response.headers.get("content-type") ?? "";
+      return status === 200 && type.startsWith("application/json") && isJsonObject(body)
+        ? PASS
+        : {
+            kind: "wrong",
+            reason: `answered ${status} ${oneLine(type, 80) || "with no content type"}, expected 200 application/json holding a JSON object`,
+          };
+    }
   }
 }
 
@@ -977,13 +1040,39 @@ export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
   const badOrigin = (name: string): number =>
     usage(
       env[name] === undefined || env[name] === ""
-        ? `${name} is not set: the stack job passes each dev check its origin`
+        ? `${name} is not set: the stack job passes each check of a Worker it deploys its origin`
         : `${name} must be an https:// origin with no path, query or trailing slash, not '${oneLine(env[name] ?? "", 100)}'`,
     );
 
+  /** SMOKE_DEPLOYMENT, as the stack job's compare step wrote it; a usage error's exit code otherwise. */
+  const readDeployment = (): string | number => {
+    const value = env.SMOKE_DEPLOYMENT ?? "";
+    if (value !== "unchanged" && value !== "unknown" && !DEPLOYMENT_ID.test(value)) {
+      return usage(
+        `SMOKE_DEPLOYMENT must be the deployment id worker-deployments.ts compare wrote, 'unchanged' or 'unknown', not '${oneLine(value, 100)}'`,
+      );
+    }
+    return value;
+  };
+
   let checked: Checked;
   let deployment: string | undefined;
-  if (tier === "production") {
+  const site = tier === "production" ? productionSiteTarget(surface) : undefined;
+  if (site !== undefined) {
+    // A site Worker the production stack deployed, on the host its mode
+    // gives it; the stack job passes that origin and what its compare found.
+    const siteOrigin = origin("SMOKE_ORIGIN");
+    if (siteOrigin === undefined) return badOrigin("SMOKE_ORIGIN");
+    const found = readDeployment();
+    if (typeof found === "number") return found;
+    deployment = found;
+    checked = {
+      worker: site.worker,
+      probes: site.probes(siteOrigin),
+      access: false,
+      gate: undefined,
+    };
+  } else if (tier === "production") {
     const target = productionTarget(surface);
     if (target === undefined) return usage(`${surface} has no production Worker`);
     checked = {
@@ -1000,12 +1089,9 @@ export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
     const marketing = target.needsMarketing ? origin("SMOKE_MARKETING_ORIGIN") : undefined;
     if (target.needsMarketing && marketing === undefined)
       return badOrigin("SMOKE_MARKETING_ORIGIN");
-    deployment = env.SMOKE_DEPLOYMENT ?? "";
-    if (deployment !== "unchanged" && deployment !== "unknown" && !DEPLOYMENT_ID.test(deployment)) {
-      return usage(
-        `SMOKE_DEPLOYMENT must be the deployment id worker-deployments.ts compare wrote, 'unchanged' or 'unknown', not '${oneLine(deployment, 100)}'`,
-      );
-    }
+    const found = readDeployment();
+    if (typeof found === "number") return found;
+    deployment = found;
     checked = {
       worker: target.worker,
       probes: target.probes(
@@ -1200,14 +1286,15 @@ export async function runSmokeCheck(input: SmokeCheckInput): Promise<number> {
   const rollback = await rollBack(api, checked.worker, plan, rollbackMessage(env));
   // What the Worker runs now is not known here — a request that timed out may
   // still have landed — so the person is told what to check, and what served
-  // before this deploy when that is known. On dev a rollback by hand leaves the
+  // before this deploy when that is known. A rollback by hand of a Worker a
+  // stack deploys (every dev Worker, and the production sites) leaves the
   // stack's state naming code the Worker does not serve, which no later run
-  // would see, so only production is told how to make one.
+  // would see, so only a Worker Wrangler deploys is told how to make one.
   const lookFirst = `Check what ${checked.worker} serves (its Deployments tab) before acting.`;
   const byHand =
     plan?.ok !== true
       ? lookFirst
-      : tier === "production"
+      : deployment === undefined
         ? `${lookFirst} The version that served before this deploy is ${plan.version}; to restore it by hand, run \`bunx wrangler rollback ${plan.version}\` with the Worker's selector.`
         : `${lookFirst} The version that served before this deploy is ${plan.version}.`;
   if (rollback.kind === "refused") {

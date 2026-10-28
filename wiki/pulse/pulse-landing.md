@@ -11,7 +11,7 @@ related:
   - "[[cire-landing]]"
   - "[[venues]]"
   - "[[design-tokens]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-27
 ---
 
 # Pulse Landing
@@ -154,8 +154,9 @@ asks it for a JSON object after each dev deploy (above).
   nearest Cloudflare city; a region → capital/major-city table would let small
   towns route to their state's main city instead.
 - **Real domain** — `SITE` / `PUBLIC_APP_URL` are placeholders until the Pulse
-  marketing + app hosts are decided. No workflow deploys the site to
-  production; `deploy.yml` deploys it to dev as `pulse-landing-dev`. The
+  marketing + app hosts are decided (englishstreetventures/osn#1794). Its production
+  mode is `off` ([[infrastructure-as-code#Production sites]]), so no workflow deploys
+  the site to production; `deploy.yml` deploys it to dev as `pulse-landing-dev`. The
   `osn-pulse-landing` Pages project still serves an old preview build at
   `osn-pulse-landing.pages.dev`; a new one goes there only by a hand
   `wrangler pages deploy`.

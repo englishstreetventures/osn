@@ -12,7 +12,7 @@ related:
   - "[[social]]"
   - "[[pulse-landing]]"
   - "[[cire-landing]]"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-27
 ---
 
 # Musubi Landing
@@ -28,7 +28,19 @@ API calls.
 Same stack as [[cire-landing]]: **static Astro + SolidJS islands + Tailwind v4**
 (`output: "static"`, no Cloudflare adapter), Motion One available (`motion`) but
 the signature visuals use plain canvas + `requestAnimationFrame`. Builds to plain
-HTML (`astro build`), deployable to Cloudflare Pages like the other static sites.
+HTML (`astro build`), which a Worker serves from its static assets.
+
+## Deployment
+
+On production the musubi stack deploys it as the `musubi-landing` Worker on
+`https://www.musubi.social`, built in `production-release.yml`'s `sites` job with
+`SITE=https://www.musubi.social` and `PUBLIC_APP_URL=https://musubi.social`. Its
+Deployment record comes from the `record-musubi-landing` job, in the
+`production-records` Environment ([[infrastructure-as-code#Production sites]]). On dev
+the musubi stack in `deploy.yml` deploys it as `musubi-landing-dev`
+([[infrastructure-as-code#Sites]]). The `osn-landing` Pages project still serves an old
+preview build at `osn-landing.pages.dev`; no workflow deploys it, and the owner deletes
+it with the other Pages projects.
 
 - Fonts: **Space Grotesk** (display) + **Inter** (body), loaded with the same
   preload + `noscript` strategy as `cire/landing`.
@@ -91,8 +103,8 @@ under jsdom / SSR). No `console.*` anywhere (observability rule).
 
 | Var | Purpose | Dev default |
 |---|---|---|
-| `PUBLIC_APP_URL` | Primary CTA → the Musubi app (`@musubi/social`) | `http://localhost:1422` |
-| `SITE` | Canonical origin for SEO meta (placeholder `https://www.musubi.social`) | config default |
+| `PUBLIC_APP_URL` | Primary CTA → the Musubi app (`@musubi/social`); production `https://musubi.social` | `http://localhost:1422` |
+| `SITE` | Canonical origin for SEO meta; production `https://www.musubi.social` | config default |
 
 `public/_headers` ships a tight CSP: no external image host (`img-src 'self'
 data:`), Google Fonts allowed in `style-src` / `font-src`, immutable cache on
@@ -104,12 +116,4 @@ data:`), Google Fonts allowed in `style-src` / `font-src`, immutable cache on
 
 ## Deferred
 
-- **CI deploy** — no workflow deploys the site to production (cf. the
-  `deploy-cire-landing` job in `production-release.yml`); add one when a hosting
-  domain is chosen. On dev, the musubi stack in `deploy.yml` deploys it as
-  `musubi-landing-dev` ([[infrastructure-as-code#Sites]]). The
-  `osn-landing` Pages project already exists and still serves an old preview build
-  at `osn-landing.pages.dev`.
-- **Real domain** — `SITE` / `PUBLIC_APP_URL` use placeholders until Musubi's
-  marketing + app hosts are decided.
 - **Marketing depth** — pricing, deeper feature pages, SEO/blog content.

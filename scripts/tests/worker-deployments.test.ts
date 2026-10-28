@@ -20,6 +20,16 @@ const CREDENTIALS = { CLOUDFLARE_ACCOUNT_ID: ACCOUNT, CLOUDFLARE_API_TOKEN: TOKE
 const deploymentsUrl = (worker: string) =>
   `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT}/workers/scripts/${worker}/deployments`;
 
+const domainsUrl = (worker: string) =>
+  `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT}/workers/domains?service=${worker}`;
+const domainList = (worker: string, ...hosts: string[]) =>
+  json({
+    success: true,
+    errors: [],
+    messages: [],
+    result: hosts.map((hostname) => ({ hostname, service: worker, zone_name: "x" })),
+  });
+
 // Deployment ids in the form the Cloudflare deployments API returns them.
 const DEP_NEW = "0c9e2f4a-7b1d-4e3a-8c5f-6a2d9b1e0f73";
 const DEP_SAME = "3a7d1e9c-2b4f-4a6e-9d0c-8e1f5b2a7c46";
@@ -50,7 +60,10 @@ function fakeApi(answers: Record<string, Answer>) {
   const fetch = async (input: string | URL | Request) => {
     const url = String(input instanceof Request ? input.url : input);
     calls.push(url);
-    const answer = Object.entries(answers).find(([worker]) => url === deploymentsUrl(worker));
+    const answer = Object.entries(answers).find(
+      ([key]) =>
+        url === (key.startsWith("domains:") ? domainsUrl(key.slice(8)) : deploymentsUrl(key)),
+    );
     if (answer === undefined) throw new Error(`test fetched an unlisted URL: ${url}`);
     const value = answer[1]();
     if (value instanceof Error) throw value;
@@ -374,6 +387,165 @@ describe("usage", () => {
       expect(exitCode).toBe(2);
       expect(stdout).toContain("::error::worker-deployments:");
       expect(existsSync(join(snapshot, "..", "deployments.json"))).toBe(false);
+    });
+  });
+});
+
+describe("--tier production: the site Workers a production stack deploys", () => {
+  test("WD1: snapshots and compares the production site Workers by their production names", async () => {
+    await withFiles(async ({ snapshot, output }) => {
+      const before = await run(
+        ["snapshot", snapshot, "--tier", "production", "cire_host", "musubi_landing"],
+        {
+          "cire-host": () => listing([deployment(DEP_OLD, "2026-10-16T09:00:00Z")]),
+          "musubi-landing": NOT_FOUND,
+        },
+        { GITHUB_OUTPUT: output },
+      );
+      expect(before.code).toBe(0);
+      expect(JSON.parse((await readOr(snapshot)) ?? "")).toEqual({
+        cire_host: DEP_OLD,
+        musubi_landing: null,
+      });
+      expect(before.calls).toEqual([deploymentsUrl("cire-host"), deploymentsUrl("musubi-landing")]);
+
+      const after = await run(
+        ["compare", snapshot, "cire_host", "musubi_landing", "--tier", "production"],
+        {
+          "cire-host": () => listing([deployment(DEP_OLD, "2026-10-16T09:00:00Z")]),
+          "musubi-landing": () => listing([deployment(DEP_NEW, "2026-10-17T09:00:00Z")]),
+        },
+        { GITHUB_OUTPUT: output },
+      );
+      expect(after.code).toBe(0);
+      expect(await readOr(output)).toContain(
+        `cire_host_deployment=unchanged\nmusubi_landing_deployment=${DEP_NEW}\n`,
+      );
+    });
+  });
+
+  test("WD2: a surface with no production site Worker, or a tier that is neither, exits 2 before any request; dev keeps its own list", async () => {
+    await withFiles(async ({ snapshot }) => {
+      for (const args of [
+        ["snapshot", snapshot, "--tier", "production", "cire_api"],
+        ["snapshot", snapshot, "--tier", "staging", "cire_host"],
+        ["snapshot", snapshot, "cire_host", "--tier"],
+      ]) {
+        const refused = await run(args, {}, {});
+        expect({ args, code: refused.code, calls: refused.calls }).toEqual({
+          args,
+          code: 2,
+          calls: [],
+        });
+      }
+      const production = await run(
+        ["snapshot", snapshot, "--tier", "production", "cire_api"],
+        {},
+        {},
+      );
+      expect(production.output).toContain("is not a production site");
+      const dev = await run(["snapshot", snapshot, "cire_api"], { "cire-api-dev": NOT_FOUND }, {});
+      expect(dev.code).toBe(0);
+      expect(dev.calls).toEqual([deploymentsUrl("cire-api-dev")]);
+      expect(existsSync(snapshot)).toBe(true);
+    });
+  });
+});
+
+describe("domains: the custom domains each production site Worker holds now", () => {
+  test("WDD1: writes each site's hosts, sorted, its own Worker's alone", async () => {
+    await withFiles(async ({ snapshot: file }) => {
+      const read = await run(
+        ["domains", file, "--tier", "production", "cire_host", "musubi_landing"],
+        {
+          "domains:cire-host": () =>
+            json({
+              success: true,
+              errors: [],
+              result: [
+                { hostname: "next-host.cireweddings.com", service: "cire-host" },
+                { hostname: "elsewhere.cireweddings.com", service: "cire-vendor" },
+                { hostname: "a-host.cireweddings.com", service: "cire-host" },
+              ],
+            }),
+          "domains:musubi-landing": () => domainList("musubi-landing", "www.musubi.social"),
+        },
+        {},
+      );
+      expect(read.code).toBe(0);
+      expect(JSON.parse((await readOr(file)) ?? "")).toEqual({
+        cire_host: ["a-host.cireweddings.com", "next-host.cireweddings.com"],
+        musubi_landing: ["www.musubi.social"],
+      });
+      expect(read.calls).toEqual([domainsUrl("cire-host"), domainsUrl("musubi-landing")]);
+      expect(read.output).not.toContain(ACCOUNT);
+    });
+  });
+
+  test("WDD2: a Worker that does not exist yet, or holds no domain, holds none", async () => {
+    await withFiles(async ({ snapshot: file }) => {
+      const read = await run(
+        ["domains", file, "--tier", "production", "cire_host", "cire_vendor"],
+        {
+          "domains:cire-host": NOT_FOUND,
+          "domains:cire-vendor": () => domainList("cire-vendor"),
+        },
+        {},
+      );
+      expect(read.code).toBe(0);
+      expect(JSON.parse((await readOr(file)) ?? "")).toEqual({ cire_host: [], cire_vendor: [] });
+      expect(read.output).toContain("cire_host (cire-host): no custom domain");
+    });
+  });
+
+  test("WDD1: a read that keeps failing exits 1 and writes nothing, after 1 s and 2 s; a refusal is not asked again", async () => {
+    await withFiles(async ({ snapshot: file }) => {
+      const failing = await run(
+        ["domains", file, "--tier", "production", "cire_host"],
+        { "domains:cire-host": () => apiError(10_000, "server error", 503) },
+        {},
+      );
+      expect(failing.code).toBe(1);
+      expect(failing.sleeps).toEqual([1_000, 2_000]);
+      expect(failing.output).toContain("reading the custom domains of cire-host");
+      expect(existsSync(file)).toBe(false);
+      const refused = await run(
+        ["domains", file, "--tier", "production", "cire_host"],
+        { "domains:cire-host": () => apiError(10_000, "Authentication error", 403) },
+        {},
+      );
+      expect(refused.code).toBe(1);
+      expect(refused.sleeps).toEqual([]);
+      expect(existsSync(file)).toBe(false);
+      const passes = await run(
+        ["domains", file, "--tier", "production", "cire_host"],
+        {
+          "domains:cire-host": inTurn(
+            () => new Error("connection reset"),
+            () => domainList("cire-host", "next-host.cireweddings.com"),
+          ),
+        },
+        {},
+      );
+      expect(passes.code).toBe(0);
+      expect(passes.sleeps).toEqual([1_000]);
+    });
+  });
+
+  test("WDD1: domains reads production alone, and a dev surface or no tier is a usage error", async () => {
+    await withFiles(async ({ snapshot: file }) => {
+      for (const args of [
+        ["domains", file, "cire_host"],
+        ["domains", file, "--tier", "dev", "cire_host"],
+        ["domains", file, "--tier", "production", "cire_api"],
+      ]) {
+        const refused = await run(args, {}, {});
+        expect({ args, code: refused.code, calls: refused.calls }).toEqual({
+          args,
+          code: 2,
+          calls: [],
+        });
+      }
     });
   });
 });

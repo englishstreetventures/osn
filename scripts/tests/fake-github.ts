@@ -4,7 +4,10 @@
 // release-plan.cli.test.ts serves it over HTTP to the real script.
 
 import {
+  PRODUCTION_STACKS,
   PRODUCTION_SURFACES,
+  type StackKey,
+  STACKS,
   SURFACES,
   surface,
   type SurfaceKey,
@@ -17,7 +20,8 @@ export const TOKEN = "test-token";
 
 /** One job's Deployment record as GitHub keeps it. `states` newest first. */
 export interface FixtureRecord {
-  readonly environment: "production" | "dev";
+  /** `production-records` holds the records of the sites a production stack deploys. */
+  readonly environment: "production" | "production-records" | "dev";
   readonly sha: string;
   readonly job: string;
   readonly states: readonly string[];
@@ -153,18 +157,49 @@ export const prod = (key: SurfaceKey): string => {
 
 export const dev = (key: SurfaceKey): string => surface(key).dev.name;
 
-/** Every production (or dev) job of one run, all successful. */
-export function fullRun(
-  environment: "production" | "dev",
-  sha: string,
-  run: number,
-): FixtureRecord[] {
-  const surfaces = environment === "production" ? PRODUCTION_SURFACES : SURFACES;
-  return surfaces.map((s) => ({
-    environment,
+/** The Environment a surface's production record is in: its own job's, or its stack's record job's. */
+export const productionEnvironment = (key: SurfaceKey): "production" | "production-records" =>
+  surface(key).production?.kind === "stack" ? "production-records" : "production";
+
+/**
+ * Added to a run number for the `production-records` records of a full
+ * production run. In a release they share the stack job's run; here they get
+ * a run of their own, so a test that gives a dev run and a production run
+ * the same number still finds each record's run in the right workflow
+ * (only production-release.yml writes `production-records`).
+ */
+export const RECORD_RUN_OFFSET = 500_000;
+
+/** Every production (or dev) job of one run, all successful, each record in its own Environment. */
+export function fullRun(tier: "production" | "dev", sha: string, run: number): FixtureRecord[] {
+  const surfaces = tier === "production" ? PRODUCTION_SURFACES : SURFACES;
+  const states = ["success", "in_progress", "queued", "waiting"];
+  const own = surfaces.map((s): FixtureRecord => {
+    const environment = tier === "production" ? productionEnvironment(s.key) : "dev";
+    return {
+      environment,
+      sha,
+      run: environment === "production-records" ? run + RECORD_RUN_OFFSET : run,
+      job: tier === "production" ? prod(s.key) : dev(s.key),
+      states,
+    };
+  });
+  // Each stack's own job leaves a record too: in production its production
+  // job's, on dev its dev job's.
+  const stacks = (tier === "production" ? PRODUCTION_STACKS : STACKS).map((s): FixtureRecord => ({
+    environment: tier,
     sha,
     run,
-    job: environment === "production" ? prod(s.key) : dev(s.key),
-    states: ["success", "in_progress", "queued", "waiting"],
+    job: stackJob(s.key, tier),
+    states,
   }));
+  return [...own, ...stacks];
 }
+
+/** A stack's own job on `tier`, by name. */
+export const stackJob = (key: StackKey, tier: "production" | "dev"): string => {
+  const found = STACKS.find((s) => s.key === key);
+  const job = tier === "production" ? found?.production : found?.job;
+  if (job === undefined) throw new Error(`the ${key} stack has no ${tier} job`);
+  return job.name;
+};

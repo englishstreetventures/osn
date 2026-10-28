@@ -1,4 +1,4 @@
-import { tierSecrets } from "@shared/infra";
+import { tierSecrets, type SiteMode, type SiteSurface } from "@shared/infra";
 import * as Alchemy from "alchemy";
 
 import {
@@ -60,6 +60,20 @@ export function stackEnv(arcPublicJwk: string): Record<string, string | undefine
   };
 }
 
+/**
+ * Everything the production stack job's plan and deploy steps hold: the
+ * deploy target and the production credentials, with placeholder values.
+ * No Worker secret, seed value or DEV_DOMAIN: the production stack reads
+ * none of them.
+ */
+export function productionEnv(): Record<string, string | undefined> {
+  return {
+    OSN_DEPLOY_TIER: "production",
+    CLOUDFLARE_ACCOUNT_ID: "0".repeat(32),
+    CLOUDFLARE_API_TOKEN: "placeholder-token",
+  };
+}
+
 /** The prebuilt site directories the stack uploads, under `musubi/`. */
 export const SITE_DIRECTORIES: readonly string[] = ["social/dist", "landing/dist"];
 
@@ -72,6 +86,8 @@ export function evaluateMusubi(input: {
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly sites?: SiteFixtures;
   readonly workingDirFiles?: readonly string[];
+  /** Production site modes in place of PRODUCTION_SITE_MODES. */
+  readonly modes?: Readonly<Record<SiteSurface, SiteMode>>;
 }): Promise<Evaluation> {
   return evaluateStack({
     stage: input.stage,
@@ -81,7 +97,7 @@ export function evaluateMusubi(input: {
       Alchemy.Stack(
         "musubi",
         offlineStackOptions(),
-        musubiStack({ env: input.env, generatedDir, workingDir }),
+        musubiStack({ env: input.env, generatedDir, workingDir, modes: input.modes }),
       ),
   });
 }

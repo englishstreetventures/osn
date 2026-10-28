@@ -187,14 +187,18 @@ describe("cire-invites on production", () => {
       ownerSeat: false,
     });
     expect(declared.cireInvites.observability).toBe(GUEST_OBSERVABILITY);
-    const production = apiWorkerProps({
-      ...declared.cireInvites,
-      name: "cire-invites",
-      stage: "production",
-      domain: "invite.cireweddings.com",
-      secrets: {},
-      observability: GUEST_OBSERVABILITY,
-    }).observability;
+    // Adopted here as the step that adopts the guest Worker will list it.
+    const production = apiWorkerProps(
+      {
+        ...declared.cireInvites,
+        name: "cire-invites",
+        stage: "production",
+        domain: "invite.cireweddings.com",
+        secrets: {},
+        observability: GUEST_OBSERVABILITY,
+      },
+      ["cire-invites"],
+    ).observability;
     const live = invitesWrangler.observability;
     // `head_sampling_rate` absent means Cloudflare's default, 1.
     expect(production).toMatchObject({

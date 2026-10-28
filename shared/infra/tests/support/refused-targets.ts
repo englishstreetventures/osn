@@ -57,11 +57,62 @@ const target = (
 });
 
 /**
+ * The production-stage cases. A stack that declares production refuses a run
+ * whose target is wrong; one that does not refuses the stage itself, even
+ * with the production tier's target set.
+ */
+function productionTargets(production: "declared" | "refused"): readonly RefusedTarget[] {
+  const onProduction = { stage: "production" } as const;
+  if (production === "refused") {
+    return [
+      target(
+        "the production stage, which this stack does not declare",
+        "StageNotDeclaredError",
+        (env) => ({ ...env, OSN_DEPLOY_TIER: "production" }),
+        () => ({ stage: "production" }),
+        onProduction,
+      ),
+    ];
+  }
+  return [
+    target(
+      "the production stage with OSN_DEPLOY_TIER naming dev",
+      "DeployTargetError",
+      (env) => ({ ...env, OSN_DEPLOY_TIER: "dev" }),
+      () => ({ message: expect.stringMatching(/OSN_DEPLOY_TIER does not say production/) }),
+      onProduction,
+    ),
+    target(
+      "the production stage with CLOUDFLARE_API_TOKEN blank",
+      "DeployTargetError",
+      (env) => ({ ...env, OSN_DEPLOY_TIER: "production", CLOUDFLARE_API_TOKEN: "" }),
+      () => ({ message: expect.stringMatching(/^CLOUDFLARE_API_TOKEN is unset or blank/) }),
+      onProduction,
+    ),
+    target(
+      "a .env file in the stack's working directory on the production stage",
+      "DeployTargetError",
+      (env) => ({ ...env, OSN_DEPLOY_TIER: "production" }),
+      (evaluation) => ({
+        message: expect.stringMatching(
+          new RegExp(`^\\.env in ${escapeRegExp(evaluation.workingDir)} `),
+        ),
+      }),
+      { ...onProduction, workingDirFiles: [".env"] },
+    ),
+  ];
+}
+
+/**
  * Each refused deploy target, for a stack whose API Workers are `workers`
  * (one case per Worker that requires a secret on dev, with every required
- * secret blank).
+ * secret blank), and whose production stage is `production`: declared (its
+ * production sites) or refused.
  */
-export function refusedTargets(workers: readonly WorkerKey[]): readonly RefusedTarget[] {
+export function refusedTargets(
+  workers: readonly WorkerKey[],
+  production: "declared" | "refused",
+): readonly RefusedTarget[] {
   return [
     target("OSN_DEPLOY_TIER unset", "DeployTargetError", (env) => ({
       ...env,
@@ -89,13 +140,7 @@ export function refusedTargets(workers: readonly WorkerKey[]): readonly RefusedT
       (env) => ({ ...env, DEV_DOMAIN: "musubi.social" }),
       () => ({ domain: "musubi.social" }),
     ),
-    target(
-      "the production stage",
-      "StageNotDeclaredError",
-      (env) => env,
-      () => ({ stage: "production" }),
-      { stage: "production" },
-    ),
+    ...productionTargets(production),
     target(
       "a .env file in the stack's working directory",
       "DeployTargetError",

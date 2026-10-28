@@ -946,7 +946,7 @@ export default function GuestTable(props: GuestTableProps) {
             type="button"
             onClick={() => void toggleDeactivated(family, true)}
             disabled={togglingId() === family.familyId}
-            class="border-error bg-error font-body text-bg text-ui-xs tracking-ui-wider rounded-sm border px-2.5 py-1 uppercase transition hover:opacity-90 disabled:opacity-40"
+            class="border-error bg-error font-body text-bg text-ui-xs tracking-ui-wider rounded-sm border px-2.5 py-1 uppercase transition duration-(--dur-fast) ease-(--ease-out) hover:opacity-90 disabled:opacity-40"
           >
             {togglingId() === family.familyId ? "Deactivating…" : "Confirm"}
           </button>

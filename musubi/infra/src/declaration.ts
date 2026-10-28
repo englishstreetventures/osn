@@ -3,10 +3,16 @@ import { join } from "node:path";
 import {
   origin,
   physicalName,
+  PRODUCTION_SITE_MODES,
+  productionSiteKinds,
   refuseProductionTier,
+  siteDomain,
   type ApiWorkerInput,
   type PrebuiltSite,
+  type ResourceKind,
   type RetainedD1Input,
+  type SiteMode,
+  type SiteSurface,
   type SiteWorkerInput,
   type StageHosts,
 } from "@shared/infra";
@@ -62,11 +68,135 @@ const RATE_LIMITS: readonly {
   { name: "RL_AUTH_IP_60_60", namespaceId: 2105, limit: 60 },
 ];
 
+/** Each musubi site's logical id, which keys its state row on every stage, so it never changes. */
+export const SITE_LOGICAL_IDS = {
+  osn_social: "MusubiSocial",
+  musubi_landing: "MusubiLanding",
+} as const satisfies Readonly<Partial<Record<SiteSurface, string>>>;
+
+type MusubiSite = keyof typeof SITE_LOGICAL_IDS;
+
+const MUSUBI_SITES = Object.keys(SITE_LOGICAL_IDS) as readonly MusubiSite[];
+
+/**
+ * musubi social: the account app. The built `_redirects` sends every path to
+ * index.html for Pages; on a Worker the single-page fallback serves deep
+ * links instead.
+ */
+const socialSite = (stage: string, domain: string | null): SiteWorkerInput => ({
+  name: physicalName(
+    { base: "osn-social", dev: "osn-social-dev", production: "osn-social" },
+    stage,
+  ),
+  stage,
+  directory: SOCIAL_DIST,
+  redirectsFile: false,
+  entry: null,
+  domain,
+  workersDev: false,
+  // Off until per-pull-request previews (englishstreetventures/osn#1578):
+  // each version's preview URL is a public workers.dev host that no
+  // Access application covers.
+  previewUrls: false,
+  htmlHandling: "auto-trailing-slash",
+  notFoundHandling: "single-page-application",
+  issues: true,
+});
+
+/**
+ * musubi landing: the marketing site. It builds no 404.html (its pages are
+ * index, privacy and terms), so an unknown path is a plain 404, and ships no
+ * `_redirects`.
+ */
+const landingSite = (stage: string, domain: string | null): SiteWorkerInput => ({
+  name: physicalName(
+    { base: "musubi-landing", dev: "musubi-landing-dev", production: "musubi-landing" },
+    stage,
+  ),
+  stage,
+  directory: LANDING_DIST,
+  // A built `_redirects` would apply; the site ships none.
+  redirectsFile: true,
+  entry: null,
+  domain,
+  workersDev: false,
+  // Off until per-pull-request previews (englishstreetventures/osn#1578):
+  // each version's preview URL is a public workers.dev host that no
+  // Access application covers.
+  previewUrls: false,
+  htmlHandling: "auto-trailing-slash",
+  notFoundHandling: "none",
+  issues: true,
+});
+
+/**
+ * Each site's build output, and the origins its build bakes in: musubi
+ * social osn-api's (VITE_OSN_ISSUER_URL), musubi landing the app's
+ * (PUBLIC_APP_URL) and its own (SITE).
+ */
+interface MusubiSiteSpec {
+  readonly declare: (stage: string, domain: string | null) => SiteWorkerInput;
+  readonly prebuilt: (hosts: StageHosts) => PrebuiltSite;
+}
+
+const SITES = {
+  osn_social: {
+    declare: socialSite,
+    prebuilt: (hosts) => ({
+      site: "@musubi/social",
+      directory: SOCIAL_DIST,
+      origins: [origin(hosts.osnApi)],
+    }),
+  },
+  musubi_landing: {
+    declare: landingSite,
+    prebuilt: (hosts) => ({
+      site: "@musubi/landing",
+      directory: LANDING_DIST,
+      origins: [origin(hosts.musubiSocial), origin(hosts.musubiLanding)],
+    }),
+  },
+} satisfies Readonly<Record<MusubiSite, MusubiSiteSpec>>;
+
+/** Every resource the musubi stack declares on production, by logical id, with its kind for the plan guard. */
+export const PRODUCTION_RESOURCE_KINDS: Readonly<Record<string, ResourceKind>> =
+  productionSiteKinds(SITE_LOGICAL_IDS, PRODUCTION_SITE_MODES);
+
+/** The musubi stack on production: its sites, by logical id, and the build each uploads. */
+export interface MusubiProductionSites {
+  readonly sites: Readonly<Record<string, SiteWorkerInput>>;
+  readonly prebuilt: readonly PrebuiltSite[];
+}
+
+/**
+ * What the musubi stack declares on production: each site `modes` does not
+ * turn off, under today's production name, serving its spare host while
+ * staged and its production host as a worker. Every build is the
+ * production build and bakes in `hosts`, today's production hosts. No
+ * osn-api or database: those join the stack in a later step of phase P3.
+ * Pure.
+ */
+export function musubiProductionSites(input: {
+  readonly modes: Readonly<Record<SiteSurface, SiteMode>>;
+  readonly hosts: StageHosts;
+}): MusubiProductionSites {
+  const shipped = MUSUBI_SITES.filter((key) => input.modes[key] !== "off");
+  return {
+    sites: Object.fromEntries(
+      shipped.map((key) => [
+        SITE_LOGICAL_IDS[key],
+        SITES[key].declare("production", siteDomain(key, input.modes[key])),
+      ]),
+    ),
+    prebuilt: shipped.map((key) => SITES[key].prebuilt(input.hosts)),
+  };
+}
+
 /**
  * Every name, var, binding, domain and setting the musubi stack declares at
  * `stage`: osn-api and its database, musubi social and musubi landing. Pure;
- * every host comes from `hosts`. The production tier is refused until its
- * stack is declared.
+ * every host comes from `hosts`. The production tier is refused:
+ * `musubiProductionSites` declares it.
  */
 export function musubiDeclaration(input: {
   readonly stage: string;
@@ -159,60 +289,11 @@ export function musubiDeclaration(input: {
       migrations: join(generatedDir, "migrations", "osn-db"),
       importFiles: [osnSeed],
     },
-    musubiSocial: {
-      name: physicalName(
-        { base: "osn-social", dev: "osn-social-dev", production: "osn-social" },
-        stage,
-      ),
-      stage,
-      directory: SOCIAL_DIST,
-      // The built `_redirects` sends every path to index.html for Pages; on a
-      // Worker the single-page fallback below serves deep links instead.
-      redirectsFile: false,
-      entry: null,
-      domain: hosts.musubiSocial,
-      workersDev: false,
-      // Off until per-pull-request previews (englishstreetventures/osn#1578):
-      // each version's preview URL is a public workers.dev host that no
-      // Access application covers.
-      previewUrls: false,
-      htmlHandling: "auto-trailing-slash",
-      notFoundHandling: "single-page-application",
-      issues: true,
-    },
-    musubiLanding: {
-      name: physicalName(
-        { base: "musubi-landing", dev: "musubi-landing-dev", production: "musubi-landing" },
-        stage,
-      ),
-      stage,
-      directory: LANDING_DIST,
-      // A built `_redirects` would apply; the site ships none.
-      redirectsFile: true,
-      entry: null,
-      domain: hosts.musubiLanding,
-      workersDev: false,
-      // Off until per-pull-request previews (englishstreetventures/osn#1578):
-      // each version's preview URL is a public workers.dev host that no
-      // Access application covers.
-      previewUrls: false,
-      htmlHandling: "auto-trailing-slash",
-      // musubi/landing builds no 404.html (its pages are index, privacy and
-      // terms), so an unknown path is a plain 404.
-      notFoundHandling: "none",
-      issues: true,
-    },
+    musubiSocial: socialSite(stage, hosts.musubiSocial),
+    musubiLanding: landingSite(stage, hosts.musubiLanding),
     seeds: { osn: osnSeed },
-    // Each site's build bakes in what deploy.yml's build step sets: musubi
-    // social osn-api's origin (VITE_OSN_ISSUER_URL), musubi landing the app's
-    // (PUBLIC_APP_URL) and its own (SITE).
-    prebuilt: [
-      { site: "@musubi/social", directory: SOCIAL_DIST, origins: [origin(hosts.osnApi)] },
-      {
-        site: "@musubi/landing",
-        directory: LANDING_DIST,
-        origins: [app, origin(hosts.musubiLanding)],
-      },
-    ],
+    // Each site's build bakes in what deploy.yml's build step sets; SITES
+    // says what.
+    prebuilt: MUSUBI_SITES.map((key) => SITES[key].prebuilt(hosts)),
   };
 }

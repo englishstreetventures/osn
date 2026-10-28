@@ -579,7 +579,9 @@ hand-built `/api/organiser/weddings/${…}` outside `api.ts`.
 
 The organiser portal (`@cire/host`) and the vendor portal (`@cire/vendor`) are
 static Astro builds on Cloudflare Pages. Every response header they send comes
-from `public/_headers`, which Pages applies to every path. `astro dev` does
+from `public/_headers`, which Pages applies to every path, as do the Workers that
+serve the same builds on dev and, staged, on production
+([[infrastructure-as-code#Production sites]]). `astro dev` does
 not read that file, so the devloop runs with no CSP at all.
 
 **The committed file is the production policy.** Its `connect-src`, `img-src`,

@@ -109,7 +109,7 @@ describe("the zap stack, evaluated offline", () => {
     );
   });
 
-  test.each(refusedTargets(["zap-api"]))(
+  test.each(refusedTargets(["zap-api"], "refused"))(
     "K12: $name refuses the run before it writes or calls anything",
     async (target) => {
       const refused = await evaluateZap({

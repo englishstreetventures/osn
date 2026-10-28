@@ -423,7 +423,7 @@ export default function ImageCropModal(props: ImageCropModalProps) {
                 aria-pressed={preset() === p.id}
                 disabled={busy()}
                 onClick={() => choosePreset(p.id)}
-                class="font-body text-ui-xs tracking-ui-wider rounded-sm border px-3 py-1.5 uppercase transition disabled:opacity-40"
+                class="font-body text-ui-xs tracking-ui-wider rounded-sm border px-3 py-1.5 uppercase transition duration-(--dur-fast) ease-(--ease-out) disabled:opacity-40"
                 classList={{
                   "border-gold bg-gold text-bg": preset() === p.id,
                   "border-border text-text-muted hover:border-gold hover:text-gold bg-transparent":

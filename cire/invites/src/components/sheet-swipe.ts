@@ -48,12 +48,80 @@ export function beginsDrag(move: { dx: number; dy: number; panel: SwipePanel }):
   );
 }
 
-/** The panel's offset for a finger at `dx`: only toward the other panel, and never past it. */
-export function clampOffset(dx: number, panel: SwipePanel, width: number): number {
-  return towardOther(panel) < 0
-    ? Math.min(0, Math.max(-width, dx))
-    : Math.max(0, Math.min(width, dx));
+/**
+ * Whether a touch that has moved `dx`, `dy` is a sideways pull toward the side
+ * with no panel. It goes nowhere: the panel gives a little under the finger
+ * ({@link bandOffset}) and springs back, the way content dragged past its end
+ * does on iOS. It never leaves the panel, so it is allowed whether or not the
+ * other panel could be reached.
+ */
+export function beginsBand(move: { dx: number; dy: number; panel: SwipePanel }): boolean {
+  const { dx, dy, panel } = move;
+  return (
+    Math.abs(dx) > SLOP_PX && Math.abs(dx) > Math.abs(dy) && Math.sign(dx) === -towardOther(panel)
+  );
 }
+
+/** How much of a finger's travel past an edge a touch moves the panel at first. */
+const BAND_COEFFICIENT = 0.55;
+
+/**
+ * How far a panel moves for a finger `x` past its edge, on a view `d` long:
+ * `c·x·d / (d + c·x)`, UIKit's rubber band. It starts at `c` of the finger's
+ * travel and gives less the further the finger goes, never reaching `d`, so a
+ * pull past an edge is felt rather than stopped dead. Odd: the sign is the
+ * finger's.
+ */
+export function rubberBand(x: number, d: number, c = BAND_COEFFICIENT): number {
+  const pull = Math.abs(x);
+  return (Math.sign(x) * c * pull * d) / (d + c * pull);
+}
+
+/**
+ * How fast the panel moves per unit of finger at `x` past the edge — the
+ * rubber band's slope, `c / (1 + c·|x|/d)²`. A release from the band hands
+ * the spring the panel's speed, which is this share of the finger's.
+ */
+export function bandSlope(x: number, d: number, c = BAND_COEFFICIENT): number {
+  return c / (1 + (c * Math.abs(x)) / d) ** 2;
+}
+
+/**
+ * The panels' offset for a finger at `dx` in a swipe. Between where it
+ * started and the other panel's resting place the panels follow the finger
+ * exactly; past either end they move by {@link rubberBand} of the overshoot.
+ */
+export function clampOffset(dx: number, panel: SwipePanel, width: number): number {
+  const travel = dx * towardOther(panel);
+  if (travel < 0) return rubberBand(dx, width);
+  if (travel > width) return towardOther(panel) * (width + rubberBand(travel - width, width));
+  return dx;
+}
+
+/**
+ * The panel's offset for a finger at `dx` in a pull toward the side with no
+ * panel ({@link beginsBand}): the rubber band on that side, and 0 once the
+ * finger comes back past where it started — with no panel drawn in, there is
+ * nothing to show on the other side.
+ */
+export function bandOffset(dx: number, panel: SwipePanel, width: number): number {
+  return dx * towardOther(panel) < 0 ? rubberBand(dx, width) : 0;
+}
+
+/**
+ * The spring a released swipe settles on: a 0.3s response (stiffness
+ * `(2π/0.3)²`), critically damped so a page lands without bouncing, and at
+ * rest within a pixel. It starts at the finger's speed, which a fixed-length
+ * ease cannot. A full panel's width settles in about 0.4s, 95% of the way by
+ * about 0.23s.
+ */
+export const SETTLE_SPRING = {
+  stiffness: 439,
+  damping: 2 * Math.sqrt(439),
+  mass: 1,
+  restDelta: 1,
+  restSpeed: 30,
+} as const;
 
 /** Whether a drag released at `dx`, moving at `velocity` px/ms, carries on to the other panel. */
 export function shouldCommit(release: {

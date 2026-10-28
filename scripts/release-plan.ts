@@ -11,15 +11,18 @@
  * was skipped, cancelled or rejected leaves nothing behind: the next one sees
  * the same gap.
  *
- * Where the baseline comes from. Every job that declares
- * `environment: production` leaves a GitHub Deployment record for its commit,
- * and the record gains a `success` status when the job succeeds. The record
- * does not say which surface the job deployed, but its status links the job,
- * and the job's name does. So this reads the records newest first, keeps those
- * with a `success` status, and maps each job name back to a surface through
- * the map. The newest such record is what production runs: every production
- * job of one surface takes the same concurrency group without cancelling, so
- * they run in the order they were created, and a re-run makes a new record.
+ * Where the baseline comes from. Every job that declares an environment
+ * leaves a GitHub Deployment record for its commit, and the record gains a
+ * `success` status when the job succeeds. The record does not say which
+ * surface the job deployed, but its status links the job, and the job's name
+ * does. So this reads the records newest first, keeps those with a `success`
+ * status, and maps each job name back to a surface through the map. A
+ * surface with its own job (`job`) is read from the `production` Environment;
+ * a site its stack deploys (`stack`) from `production-records`, where the
+ * record job after the stack job leaves it. The newest such record is what
+ * production runs: every production job of one surface, and every run of one
+ * stack, takes the same concurrency group without cancelling, so they run in
+ * the order they were created, and a re-run makes a new record.
  *
  * A record is only a claim: anyone who can write Deployments can create one
  * and point its status at any job. So a record counts only when the job it
@@ -35,6 +38,24 @@
  * that contains the release commit — an older release re-run in full — the
  * surface is left alone unless the release is forced.
  *
+ * A production stack deploys every site it declares at once, so it ships
+ * when one of its sites ships, or when its own paths (its `infra/` directory
+ * and shared/infra/) changed since the commit its stack job last deployed —
+ * the newest successful record of that job in `production` — and dev has
+ * run its stack job at the same paths; and only when none of its sites, nor
+ * that change, is held back or newer on production. Otherwise its `stack`
+ * sites wait with it, while a staged site's own Pages job still ships. Only
+ * a stack one of whose sites the request names is asked about. Asking for
+ * one of a stack's sites asks for all of them.
+ *
+ * A flip release (FLIP names a site PRODUCTION_SITE_MODES serves from its
+ * Worker) moves that site's domain and nothing else: SURFACES must name only
+ * `stack` sites of the flip's stack, so no other job runs. An unflip release
+ * (UNFLIP names a site staged again) lets its Worker give up its production
+ * host, ships that site's stack alone, and once the stack ships hands the
+ * site to the attach job. An attach release (ATTACH) ships nothing: its one
+ * job puts the site's domain back on its Pages project.
+ *
  * Inputs, from the environment:
  *   GITHUB_TOKEN        read access to deployments and Actions runs and jobs
  *   GITHUB_REPOSITORY   owner/name
@@ -45,9 +66,17 @@
  *   FORCE               "true" ships the requested surfaces whatever the
  *                       diff and dev say — for a change no path rule sees
  *                       (a repo Variable, a hand-run wrangler deploy)
- * Writes `<key>=true|false` per surface and `any=true|false` to $GITHUB_OUTPUT
- * (stdout when unset), and a table of what ships and why to
- * $GITHUB_STEP_SUMMARY and stdout.
+ *   FLIP                a site whose domain this release moves to its Worker;
+ *                       empty for none
+ *   UNFLIP              a staged site whose Worker this release lets give up
+ *                       its production host; empty for none
+ *   ATTACH              a site whose domain this release puts back on its
+ *                       Pages project, with every other input empty
+ * Writes `<key>=true|false` per surface, `stack_<stack>=true|false` per
+ * production stack, `any`, `any_site` (a site build is needed), `any_stack`,
+ * `stacks` (the shipping stacks, space separated), `flip`, `unflip` and
+ * `attach` to $GITHUB_OUTPUT (stdout when unset), and a table of what ships
+ * and why to $GITHUB_STEP_SUMMARY and stdout.
  *
  * Read-only against GitHub. Any API error fails the run: a planner that
  * shipped everything whenever it could not read the records would hide the
@@ -61,11 +90,23 @@
 import { appendFileSync } from "node:fs";
 
 import {
+  PAGES_PROJECTS,
+  PRODUCTION_SITE_MODES,
+  SITE_SURFACES,
+  type SiteSurface,
+} from "../shared/infra/src/production-sites";
+import {
   changedFiles,
   changesContent,
   deployReason,
   isAncestor,
+  type Job,
+  PRODUCTION_STACKS,
   PRODUCTION_SURFACES,
+  stack,
+  stackDeployed,
+  type StackKey,
+  STACKS,
   surface,
   SURFACES,
   type Surface,
@@ -73,6 +114,13 @@ import {
   type Tier,
   WORKFLOW_FILE,
 } from "./deploy-surfaces";
+
+/**
+ * Where Deployment records are read: each tier's Environment, and
+ * `production-records`, which holds the records of the sites a production
+ * stack deploys. It has no reviewer, so its record jobs run unapproved.
+ */
+export type Environment = Tier | "production-records";
 
 // ── reading GitHub ──────────────────────────────────────────────────────────
 
@@ -110,7 +158,7 @@ export interface RunOrigin {
 /** The four REST reads the planner makes. A seam for the tests. */
 export interface DeploymentReader {
   /** One page of an environment's Deployment records, newest first. */
-  deployments(environment: Tier, page: number): Promise<readonly DeploymentRecord[]>;
+  deployments(environment: Environment, page: number): Promise<readonly DeploymentRecord[]>;
   statuses(deploymentId: number): Promise<readonly DeploymentStatus[]>;
   /** Job id → job, for every attempt of a run; empty when the run is gone. */
   jobs(runId: number): Promise<ReadonlyMap<number, RunJob>>;
@@ -119,18 +167,20 @@ export interface DeploymentReader {
 }
 
 /**
- * The workflow files whose runs deploy each tier. Production's list includes
- * deploy.yml because its runs carried the production jobs before
+ * The workflow files whose runs deploy each environment. Production's list
+ * includes deploy.yml because its runs carried the production jobs before
  * production-release.yml did: one of their records is still what production
- * runs for a surface no release has shipped since.
+ * runs for a surface no release has shipped since. Only production-release.yml
+ * has ever written `production-records`.
  */
 export const DEPLOYING_WORKFLOWS = {
   production: [WORKFLOW_FILE.production, WORKFLOW_FILE.dev],
+  "production-records": [WORKFLOW_FILE.production],
   dev: [WORKFLOW_FILE.dev],
-} as const satisfies Record<Tier, readonly string[]>;
+} as const satisfies Record<Environment, readonly string[]>;
 
 /** Whether a run is one that deploys `environment`: the workflow for it, on main, in this repository. */
-export function deploysTier(origin: RunOrigin | undefined, environment: Tier): boolean {
+export function deploysTier(origin: RunOrigin | undefined, environment: Environment): boolean {
   return (
     origin !== undefined &&
     DEPLOYING_WORKFLOWS[environment].some((path) => path === origin.path) &&
@@ -142,6 +192,15 @@ export function deploysTier(origin: RunOrigin | undefined, environment: Tier): b
 
 /** Records per page — the REST maximum. */
 export const PAGE_SIZE = 100;
+
+/**
+ * Records one walk reads at most, per Environment. 300 on every one: a walk
+ * of 1000 could spend the job token's hourly request budget in one run when
+ * a surface has no record in the window, and a surface whose last record
+ * falls out of it ships again (production) or is held back until dev deploys
+ * it again (dev).
+ */
+export const MAX_RECORDS = 300;
 
 function listOf(payload: unknown, what: string): readonly unknown[] {
   if (!Array.isArray(payload)) throw new TypeError(`GitHub API: expected a list of ${what}`);
@@ -279,55 +338,87 @@ export function restReader(options: {
 
 const JOB_LINK = /\/actions\/runs\/(\d+)\/job\/(\d+)/;
 
+/** A production stack's own record: the newest successful run of its stack job. */
+export type StackRecordKey = `stack_${StackKey}`;
+
+/** What a Deployment record can say a tier runs: a surface, or a stack as a whole. */
+export type RecordKey = SurfaceKey | StackRecordKey;
+
+export const stackRecordKey = (key: StackKey): StackRecordKey => `stack_${key}`;
+
+const isStackRecordKey = (key: RecordKey): key is StackRecordKey => key.startsWith("stack_");
+
+const stackOfRecord = (key: StackRecordKey): StackKey => key.slice("stack_".length) as StackKey;
+
 export interface DeployedCommits {
-  /** Per surface, the commit of its newest trusted successful record. */
-  readonly newest: ReadonlyMap<SurfaceKey, string>;
-  /** Per surface, the commit of its newest trusted successful record that `accept` took. */
-  readonly accepted: ReadonlyMap<SurfaceKey, string>;
+  /** Per key, the commit of its newest trusted successful record. */
+  readonly newest: ReadonlyMap<RecordKey, string>;
+  /** Per key, the commit of its newest trusted successful record that `accept` took. */
+  readonly accepted: ReadonlyMap<RecordKey, string>;
+}
+
+/** The job whose Deployment records in `environment` say what `s` runs there. */
+function recordJob(s: Surface, environment: Environment): Job | undefined {
+  if (environment === "dev") return s.dev;
+  const kind = environment === "production" ? "job" : "stack";
+  return s.production?.kind === kind ? s.production : undefined;
+}
+
+/**
+ * Each job whose records in `environment` the planner reads, by name: every
+ * surface's own, and each stack's job — in `production` its production job,
+ * whose success means the stack deployed and every site it serves passed
+ * its check, and in `dev` its dev job, which passes the same way.
+ */
+function recordJobs(environment: Environment): ReadonlyMap<string, RecordKey> {
+  const byName = new Map<string, RecordKey>();
+  for (const s of SURFACES) {
+    const job = recordJob(s, environment);
+    if (job !== undefined) byName.set(job.name, s.key);
+  }
+  if (environment === "production") {
+    for (const s of PRODUCTION_STACKS) byName.set(s.production.name, stackRecordKey(s.key));
+  }
+  if (environment === "dev") {
+    for (const s of STACKS) byName.set(s.job.name, stackRecordKey(s.key));
+  }
+  return byName;
 }
 
 /**
  * Walk `environment`'s Deployment records newest first, reading only those
- * with a `success` status that a wanted surface's job made, in a run that
- * deploys `environment` (`deploysTier`), at the commit the job ran on. Stops
- * once `accept` has taken a record for every wanted surface, or after
+ * with a `success` status that a wanted key's job made (`recordJobs`), in a
+ * run that deploys `environment` (`deploysTier`), at the commit the job ran
+ * on. Stops once `accept` has taken a record for every wanted key, or after
  * `maxRecords` records. Statuses are read `batch` records at a time, and the
  * jobs and origins of the runs in a batch together, each run once. Without
- * `accept`, the first such record per surface is taken.
+ * `accept`, the first such record per key is taken.
  *
  * With `accept`, a record is skipped before its statuses are read once every
- * surface still open has a newest record and `accept` refuses the record's
+ * key still open has a newest record and `accept` refuses the record's
  * commit for all of them: reading it could change neither answer. That keeps a
  * walk that finds no acceptable record — the dev gate holding a surface back —
  * from spending a status read on every record up to `maxRecords`.
  */
 export async function findDeployed(
   reader: DeploymentReader,
-  environment: Tier,
-  wanted: readonly SurfaceKey[],
+  environment: Environment,
+  wanted: readonly RecordKey[],
   options: {
-    readonly accept?: (key: SurfaceKey, sha: string) => boolean;
+    readonly accept?: (key: RecordKey, sha: string) => boolean;
     readonly maxRecords?: number;
     readonly batch?: number;
   } = {},
 ): Promise<DeployedCommits> {
-  // 300 on both tiers. A walk of 1000 could spend the job token's hourly
-  // request budget in one run when a surface has no record in the window; a
-  // dev surface whose last record falls out of it is held back until dev
-  // deploys it again.
-  const maxRecords = options.maxRecords ?? 300;
+  const maxRecords = options.maxRecords ?? MAX_RECORDS;
   const batch = options.batch ?? 10;
   const { accept } = options;
-  const newest = new Map<SurfaceKey, string>();
-  const accepted = new Map<SurfaceKey, string>();
+  const newest = new Map<RecordKey, string>();
+  const accepted = new Map<RecordKey, string>();
   const want = new Set(wanted);
   if (want.size === 0) return { newest, accepted };
 
-  const surfaceByJob = new Map<string, SurfaceKey>();
-  for (const s of SURFACES) {
-    const job = environment === "production" ? s.production : s.dev;
-    if (job !== undefined) surfaceByJob.set(job.name, s.key);
-  }
+  const surfaceByJob = recordJobs(environment);
   const jobsByRun = new Map<number, ReadonlyMap<number, RunJob>>();
   const origins = new Map<number, RunOrigin | undefined>();
 
@@ -405,17 +496,30 @@ export async function findDeployed(
 }
 
 /**
- * The commit each wanted surface last deployed successfully on `environment`:
- * its newest successful record. A surface missing from the answer has no such
- * record among the newest `maxRecords`.
+ * The commit each wanted key last deployed successfully on `tier`: its
+ * newest successful record. On production a `job` surface's record, and a
+ * stack's own, are in the `production` Environment, and a `stack` surface's
+ * in `production-records`; the two Environments are walked at once. A key
+ * missing from the answer has no such record among the newest `maxRecords`
+ * of its Environment.
  */
 export async function lastDeployed(
   reader: DeploymentReader,
-  environment: Tier,
-  wanted: readonly SurfaceKey[],
+  tier: Tier,
+  wanted: readonly RecordKey[],
   options: { readonly maxRecords?: number; readonly batch?: number } = {},
-): Promise<Map<SurfaceKey, string>> {
-  return new Map((await findDeployed(reader, environment, wanted, options)).accepted);
+): Promise<Map<RecordKey, string>> {
+  if (tier === "dev") return new Map((await findDeployed(reader, "dev", wanted, options)).accepted);
+  const recordedByStack = (key: RecordKey) =>
+    !isStackRecordKey(key) && surface(key).production?.kind === "stack";
+  const inProduction = wanted.filter(
+    (key) => isStackRecordKey(key) || surface(key).production?.kind === "job",
+  );
+  const [own, stacked] = await Promise.all([
+    findDeployed(reader, "production", inProduction, options),
+    findDeployed(reader, "production-records", wanted.filter(recordedByStack), options),
+  ]);
+  return new Map([...own.accepted, ...stacked.accepted]);
 }
 
 // ── deciding ────────────────────────────────────────────────────────────────
@@ -423,14 +527,125 @@ export async function lastDeployed(
 export interface ReleaseRequest {
   readonly surfaces: readonly SurfaceKey[];
   readonly force: boolean;
+  /** The site whose domain this release moves to its Worker, when one does. */
+  readonly flip?: SiteSurface;
+  /** The staged site whose Worker this release lets give up its production host, when one does. */
+  readonly unflip?: SiteSurface;
+  /** The site whose domain this release puts back on its Pages project, and does nothing else. */
+  readonly attach?: SiteSurface;
 }
 
-/** The dispatch inputs, as the workflow passes them. Throws on a bad value. */
+/** The sites a production stack deploys, `job` and `stack` kind both, in map order. */
+const stackSites = (key: StackKey): readonly SurfaceKey[] =>
+  PRODUCTION_SURFACES.filter((s) => s.stack === key && stackDeployed(s)).map((s) => s.key);
+
+/** The production stacks a request asks for: those one of whose sites it names. */
+export function requestedStacks(surfaces: readonly SurfaceKey[]): StackKey[] {
+  return PRODUCTION_STACKS.filter((s) =>
+    stackSites(s.key).some((key) => surfaces.includes(key)),
+  ).map((s) => s.key);
+}
+
+const isSite = (name: string): name is SiteSurface =>
+  PRODUCTION_SURFACES.some((s) => s.key === name && stackDeployed(s));
+
+/** The attach a release asks for, alone. Throws on a bad value or any other input. */
+function parseAttach(
+  attach: string,
+  others: { readonly names: readonly string[]; readonly force: boolean; readonly moves: string },
+): SiteSurface {
+  if (!isSite(attach) || PAGES_PROJECTS[attach] === undefined) {
+    const sites = SITE_SURFACES.filter((site) => PAGES_PROJECTS[site] !== undefined);
+    throw new Error(
+      `ATTACH names ${attach}, which is not a site with a Pages project. Use one of: ${sites.join(", ")}`,
+    );
+  }
+  if (others.names.length > 0 || others.force || others.moves !== "") {
+    throw new Error(
+      "An attach release puts one site's domain back on its Pages project and does nothing else: leave SURFACES, FORCE, FLIP and UNFLIP empty.",
+    );
+  }
+  return attach;
+}
+
+/** The unflip a release asks for, checked against SURFACES. Throws on a bad value. */
+function parseUnflip(unflip: string, names: readonly string[]): SiteSurface {
+  if (!isSite(unflip) || PRODUCTION_SITE_MODES[unflip] !== "staged") {
+    const staged = SITE_SURFACES.filter((site) => PRODUCTION_SITE_MODES[site] === "staged");
+    throw new Error(
+      `UNFLIP names ${unflip}, which is not a site PRODUCTION_SITE_MODES stages: a site leaves its production host only once its mode is staged again. Use one of: ${staged.join(", ") || "none"}`,
+    );
+  }
+  const own = surface(unflip).stack;
+  if (names.length === 0) {
+    throw new Error(
+      `An unflip release ships the ${own} stack alone: set SURFACES to ${unflip}, so no other job runs.`,
+    );
+  }
+  const others = names.filter((name) => !isSite(name) || surface(name).stack !== own);
+  if (others.length > 0) {
+    throw new Error(
+      `An unflip release ships the ${own} stack alone, and SURFACES also names ${others.join(", ")}. Set SURFACES to ${unflip}.`,
+    );
+  }
+  return unflip;
+}
+
+/** The flip a release asks for, checked against SURFACES. Throws on a bad value. */
+function parseFlip(flip: string, names: readonly string[]): SiteSurface {
+  const target = PRODUCTION_SURFACES.find((s) => s.key === flip);
+  if (target?.production.kind !== "stack" || !stackDeployed(target)) {
+    const sites = PRODUCTION_SURFACES.filter((s) => s.production.kind === "stack").map(
+      (s) => s.key,
+    );
+    throw new Error(
+      `FLIP names ${flip}, which is not a site PRODUCTION_SITE_MODES serves from its Worker. Use one of: ${sites.join(", ") || "none"}`,
+    );
+  }
+  if (names.length === 0) {
+    throw new Error(
+      `A flip release ships the ${target.stack} stack alone: set SURFACES to ${flip}, so no other job runs.`,
+    );
+  }
+  const others = names.filter((name) => {
+    const s = PRODUCTION_SURFACES.find((candidate) => candidate.key === name);
+    return s?.stack !== target.stack || s.production.kind !== "stack";
+  });
+  if (others.length > 0) {
+    throw new Error(
+      `A flip release ships the ${target.stack} stack alone, and SURFACES also names ${others.join(", ")}. Release those first, then flip with SURFACES set to ${flip}.`,
+    );
+  }
+  return target.key as SiteSurface;
+}
+
+/**
+ * The dispatch inputs, as the workflow passes them. Throws on a bad value.
+ * Naming a site a production stack deploys asks for every site that stack
+ * deploys, since the stack deploys them together; a flip release asks for
+ * its own sites alone, an unflip release for its own stack's sites, and an
+ * attach release for nothing.
+ */
 export function parseRequest(
   surfaces: string | undefined,
   force: string | undefined,
+  flip?: string,
+  moves: { readonly unflip?: string; readonly attach?: string } = {},
 ): ReleaseRequest {
   const names = (surfaces ?? "").split(/[\s,]+/).filter((name) => name !== "");
+  const attach = moves.attach ?? "";
+  const unflip = moves.unflip ?? "";
+  if (attach !== "") {
+    return {
+      surfaces: [],
+      force: false,
+      attach: parseAttach(attach, {
+        names,
+        force: force === "true",
+        moves: `${flip ?? ""}${unflip}`,
+      }),
+    };
+  }
   const keys = PRODUCTION_SURFACES.map((s) => s.key);
   const unknown = names.filter((name) => !keys.some((key) => key === name));
   if (unknown.length > 0) {
@@ -443,10 +658,23 @@ export function parseRequest(
     throw new Error(`FORCE must be true or false, not '${flag}'`);
   }
   const requested = [...new Set(names)] as SurfaceKey[];
-  return {
-    surfaces: requested.length > 0 ? requested : keys,
-    force: flag === "true",
-  };
+  if (flip !== undefined && flip !== "") {
+    if (unflip !== "") throw new Error("A release flips a site or unflips one, never both.");
+    return { surfaces: requested, force: flag === "true", flip: parseFlip(flip, requested) };
+  }
+  const expanded = new Set(
+    requested.flatMap((key) =>
+      stackDeployed(surface(key)) ? stackSites(surface(key).stack) : [key],
+    ),
+  );
+  const asked = requested.length > 0 ? keys.filter((key) => expanded.has(key)) : keys;
+  return unflip === ""
+    ? { surfaces: asked, force: flag === "true" }
+    : {
+        surfaces: asked,
+        force: flag === "true",
+        unflip: parseUnflip(unflip, requested),
+      };
 }
 
 export type PlanStatus =
@@ -479,7 +707,7 @@ const short = (sha: string) => sha.slice(0, 7);
 export function changedSurfaces(input: {
   readonly head: string;
   readonly request: ReleaseRequest;
-  readonly production: ReadonlyMap<SurfaceKey, string>;
+  readonly production: Pick<ReadonlyMap<SurfaceKey, string>, "get">;
   readonly diff: Diff;
   /** Whether `production` descends from the release commit. */
   readonly productionIsNewer: (production: string) => boolean;
@@ -576,12 +804,246 @@ export function applyDevGate(input: {
   });
 }
 
-/** `<key>=true|false` per surface, then `any`, as $GITHUB_OUTPUT takes them. */
-export function outputLines(decisions: readonly PlanDecision[]): string {
-  const ships = new Set(decisions.filter((d) => d.ship).map((d) => d.key));
+/** What a production stack's own paths say: whether they changed since its own last deploy. */
+export interface StackChange {
+  readonly key: StackKey;
+  readonly ship: boolean;
+  readonly status: PlanStatus;
+  /** The commit the stack's own job last deployed, when one was found. */
+  readonly production?: string;
+  readonly reason: string;
+}
+
+/**
+ * Whether each requested stack's own paths (its `infra/` directory and
+ * shared/infra/) differ from the commit its stack job last deployed. A
+ * staged site's Pages job no longer ships for them: the stack, not the
+ * site, is what they change. A stack none of whose sites the request names
+ * is not asked about, so a release whose surfaces leave a stack out never
+ * ships it.
+ */
+export function changedStacks(input: {
+  readonly head: string;
+  readonly request: ReleaseRequest;
+  readonly production: Pick<ReadonlyMap<RecordKey, string>, "get">;
+  readonly diff: Diff;
+  readonly productionIsNewer: (production: string) => boolean;
+}): StackChange[] {
+  const asked = requestedStacks(input.request.surfaces);
+  return PRODUCTION_STACKS.map((s): StackChange => {
+    const production = input.production.get(stackRecordKey(s.key));
+    const change = (ship: boolean, status: PlanStatus, reason: string): StackChange =>
+      production === undefined
+        ? { key: s.key, ship, status, reason }
+        : { key: s.key, ship, status, production, reason };
+    if (!asked.includes(s.key))
+      return change(false, "not requested", "none of its sites is asked for");
+    if (input.request.force) return change(true, "ships", "forced by the FORCE input");
+    if (production === undefined) {
+      return change(
+        true,
+        "ships",
+        `no successful ${s.key} stack deployment found in the recent records`,
+      );
+    }
+    if (production === input.head)
+      return change(false, "unchanged", `production already runs ${short(production)}`);
+    if (input.productionIsNewer(production)) {
+      return change(
+        false,
+        "production is newer",
+        `production runs ${short(production)}, which already contains this commit`,
+      );
+    }
+    const files = input.diff(production);
+    if (files === undefined) {
+      return change(
+        true,
+        "ships",
+        `cannot compare production's ${short(production)} with this commit`,
+      );
+    }
+    const own = files.filter((file) => s.paths.test(file));
+    if (own.length === 0) {
+      return change(
+        false,
+        "unchanged",
+        `nothing the stack deploys from changed since ${short(production)}`,
+      );
+    }
+    return change(
+      true,
+      "ships",
+      `${own[0]} changed${own.length > 1 ? `, and ${own.length - 1} more of its files` : ""}, which the ${s.key} stack deploys`,
+    );
+  });
+}
+
+/** Whether a commit whose files differ from the release commit's by `files` has the same stack paths. */
+export function sameStackContent(key: StackKey, files: readonly string[] | undefined): boolean {
+  return files !== undefined && !files.some((file) => stack(key).paths.test(file));
+}
+
+/** The stacks whose dev deployments the gate has to read. */
+export function stackDevGateWanted(
+  changes: readonly StackChange[],
+  force: boolean,
+): StackRecordKey[] {
+  if (force) return [];
+  return changes.filter((c) => c.ship).map((c) => stackRecordKey(c.key));
+}
+
+/**
+ * Hold back a stack whose own paths changed when no successful dev run of
+ * its stack job deployed the same stack paths, as a surface is held. A
+ * forced release passes untouched.
+ */
+export function applyStackDevGate(input: {
+  readonly changes: readonly StackChange[];
+  readonly dev: DeployedCommits;
+  readonly force: boolean;
+}): StackChange[] {
+  return input.changes.map((c): StackChange => {
+    if (input.force || !c.ship) return c;
+    const match = input.dev.accepted.get(stackRecordKey(c.key));
+    if (match !== undefined)
+      return { ...c, reason: `${c.reason}; dev ran this stack at ${short(match)}` };
+    const newest = input.dev.newest.get(stackRecordKey(c.key));
+    return {
+      ...c,
+      ship: false,
+      status: "held back",
+      reason: `${c.reason}; ${newest === undefined ? "no successful dev deployment of the stack found in the recent records" : `no recent dev deployment of the stack was built from these paths (dev's newest is ${short(newest)})`}, so it ships once dev has deployed it`,
+    };
+  });
+}
+
+export interface StackPlan {
+  readonly key: StackKey;
+  readonly ship: boolean;
+  readonly reason: string;
+  /** The commit the stack's own job last deployed, when one was found. */
+  readonly production?: string;
+}
+
+/** What a release does: each surface's decision, each production stack's, and its domain moves. */
+export interface ReleaseDecisions {
+  readonly decisions: readonly PlanDecision[];
+  readonly stacks: readonly StackPlan[];
+  readonly flip?: SiteSurface | undefined;
+  readonly unflip?: SiteSurface | undefined;
+  readonly attach?: SiteSurface | undefined;
+}
+
+/**
+ * Which production stacks ship. A stack deploys every site it declares, so
+ * it ships when one of them ships, or when its own paths changed
+ * (`changes`), and none of its sites, nor its own change, is held back or
+ * newer on production (unless forced). A stack that waits holds its `stack`
+ * sites back with it; a staged site's own Pages job ships regardless.
+ */
+export function stackPlans(
+  decisions: readonly PlanDecision[],
+  force: boolean,
+  changes: readonly StackChange[] = [],
+): ReleaseDecisions {
+  const held = new Map<SurfaceKey, string>();
+  const stacks = PRODUCTION_STACKS.map((s): StackPlan => {
+    const own = changes.find((c) => c.key === s.key);
+    const plan = (ship: boolean, reason: string): StackPlan =>
+      own?.production === undefined
+        ? { key: s.key, ship, reason }
+        : { key: s.key, ship, reason, production: own.production };
+    const sites = decisions.filter((d) => stackSites(s.key).includes(d.key));
+    const shipping = sites.filter((d) => d.ship);
+    if (shipping.length === 0 && own?.ship !== true) {
+      return plan(
+        false,
+        own?.status === "held back" || own?.status === "production is newer"
+          ? own.reason
+          : "none of its sites ships",
+      );
+    }
+    const blocking = force
+      ? []
+      : [
+          ...sites
+            .filter((d) => d.status === "held back" || d.status === "production is newer")
+            .map((d) => `${d.key} is ${d.status}`),
+          ...(own?.status === "held back"
+            ? [`its own change is held back (${own.reason})`]
+            : own?.status === "production is newer"
+              ? [`production runs a newer ${s.key} stack`]
+              : []),
+        ];
+    if (blocking.length === 0) {
+      const why = [
+        ...(shipping.length === 0
+          ? []
+          : [
+              `${shipping.map((d) => d.key).join(", ")} ${shipping.length === 1 ? "ships" : "ship"}`,
+            ]),
+        ...(own?.ship === true ? [own.reason] : []),
+      ];
+      return plan(true, why.join("; "));
+    }
+    const why = blocking.join(", ");
+    for (const d of shipping) {
+      if (surface(d.key).production?.kind === "stack") held.set(d.key, why);
+    }
+    return plan(false, `it deploys every site at once, and ${why}`);
+  });
+  return {
+    decisions: decisions.map((d): PlanDecision => {
+      const why = held.get(d.key);
+      return why === undefined
+        ? d
+        : {
+            ...d,
+            ship: false,
+            status: "held back",
+            reason: `${d.reason}; its stack waits, since ${why}`,
+          };
+    }),
+    stacks,
+  };
+}
+
+/**
+ * The site whose domain the attach job puts back on Pages: an attach
+ * release's own, or an unflip release's once its stack ships, so the host is
+ * back on Pages as soon as its Worker gives it up.
+ */
+export function attachOf(release: ReleaseDecisions): SiteSurface | undefined {
+  if (release.attach !== undefined) return release.attach;
+  const { unflip } = release;
+  if (unflip === undefined) return undefined;
+  const own = surface(unflip).stack;
+  return release.stacks.some((s) => s.key === own && s.ship) ? unflip : undefined;
+}
+
+/**
+ * `<key>=true|false` per surface, `stack_<stack>=true|false` per production
+ * stack, then `any`, `any_site`, `any_stack`, `stacks`, `flip`, `unflip` and
+ * `attach`, as $GITHUB_OUTPUT takes them. `any_site` says a site build is
+ * needed: a stack ships, or a staged site's own Pages job does.
+ */
+export function outputLines(release: ReleaseDecisions): string {
+  const ships = new Set(release.decisions.filter((d) => d.ship).map((d) => d.key));
+  const stacks = release.stacks.filter((s) => s.ship).map((s) => s.key);
+  const pagesSite = PRODUCTION_SURFACES.some(
+    (s) => ships.has(s.key) && stackDeployed(s) && s.production.kind === "job",
+  );
   return [
     ...PRODUCTION_SURFACES.map((s) => `${s.key}=${ships.has(s.key)}`),
-    `any=${ships.size > 0}`,
+    ...PRODUCTION_STACKS.map((s) => `stack_${s.key}=${stacks.includes(s.key)}`),
+    `any=${ships.size > 0 || stacks.length > 0}`,
+    `any_site=${stacks.length > 0 || pagesSite}`,
+    `any_stack=${stacks.length > 0}`,
+    `stacks=${stacks.join(" ")}`,
+    `flip=${release.flip ?? ""}`,
+    `unflip=${release.unflip ?? ""}`,
+    `attach=${attachOf(release) ?? ""}`,
     "",
   ].join("\n");
 }
@@ -600,9 +1062,10 @@ export function apiAheadOfHost(decisions: readonly PlanDecision[]): boolean {
 
 /** The table the approver reads on the run page before approving. */
 export function renderSummary(
-  decisions: readonly PlanDecision[],
+  release: ReleaseDecisions,
   context: { readonly head: string; readonly repository: string; readonly serverUrl: string },
 ): string {
+  const { decisions } = release;
   const repo = `${context.serverUrl}/${context.repository}`;
   const rows = decisions.map((d) => {
     const production =
@@ -612,6 +1075,46 @@ export function renderSummary(
     return `| \`${d.key}\` | ${production} | ${d.status} | ${d.reason} |`;
   });
   const shipping = decisions.filter((d) => d.ship).map((d) => `\`${d.key}\``);
+  const stacks = release.stacks.filter((s) => s.ship).map((s) => `the ${s.key} stack`);
+  const stackRows = release.stacks.map((s) => {
+    const production =
+      s.production === undefined
+        ? "—"
+        : `[\`${short(s.production)}\`](${repo}/commit/${s.production}) ([diff](${repo}/compare/${s.production}...${context.head}))`;
+    return `| ${s.key} stack | ${production} | ${s.ship ? "ships" : "waits"} | ${s.reason} |`;
+  });
+  const flip =
+    release.flip === undefined
+      ? []
+      : [
+          `> [!IMPORTANT]`,
+          `> Flip release: \`${release.flip}\`'s domain moves from its Pages project to its Worker, at low traffic.`,
+          "> Four approvals, one per job: the Alchemy plan, the verify job, the detach, then the deploy. The site is down from the detach until the deploy attaches its domain, so approve the deploy at once.",
+          "",
+        ];
+  const attach = attachOf(release);
+  const moves = [
+    ...(release.attach === undefined
+      ? []
+      : [
+          `> [!IMPORTANT]`,
+          `> Attach release: \`${release.attach}\`'s domain goes back on its Pages project, and nothing else ships. One approval: the attach job.`,
+          "",
+        ]),
+    ...(release.unflip === undefined
+      ? []
+      : [
+          `> [!IMPORTANT]`,
+          attach === undefined
+            ? `> Unflip release: \`${release.unflip}\`'s stack does not ship, so its Worker keeps its production host and nothing moves.`
+            : `> Unflip release: \`${release.unflip}\`'s Worker gives up its production host when its stack deploys; the attach job then puts the host back on its Pages project after an approval of its own. The site is down from that deploy until Pages validates the host, so approve the attach job at once.`,
+          "",
+        ]),
+  ];
+  const approvals =
+    stacks.length === 0
+      ? "Wait until every one of those jobs shows Waiting, then one approval releases them all."
+      : "First approve the Alchemy plan job and read its plan; then every other job reaches the gate together, and one second approval releases them all.";
   const warning = apiAheadOfHost(decisions)
     ? [
         "> [!WARNING]",
@@ -623,22 +1126,26 @@ export function renderSummary(
   return [
     `### Production release of [\`${short(context.head)}\`](${repo}/commit/${context.head})`,
     "",
-    shipping.length === 0
-      ? "Nothing to ship: production already runs everything this commit would deploy."
-      : `Ships ${shipping.join(", ")}. Wait until every one of those jobs shows Waiting, then one approval releases them all.`,
+    shipping.length === 0 && stacks.length === 0
+      ? release.attach === undefined
+        ? "Nothing to ship: production already runs everything this commit would deploy."
+        : "Ships nothing."
+      : `Ships ${[...shipping, ...stacks].join(", ")}. ${approvals}`,
     "",
+    ...flip,
+    ...moves,
     ...warning,
     "| Surface | Production runs | This release | Why |",
     "|---|---|---|---|",
     ...rows,
+    ...stackRows,
     "",
   ].join("\n");
 }
 
 // ── the plan job ────────────────────────────────────────────────────────────
 
-export interface ReleasePlan {
-  readonly decisions: readonly PlanDecision[];
+export interface ReleasePlan extends ReleaseDecisions {
   readonly outputs: string;
   readonly summary: string;
 }
@@ -664,7 +1171,10 @@ export async function runReleasePlan(options: {
   const head = env.GITHUB_SHA || revParse(options.cwd);
   if (!/^[0-9a-f]{40}$/.test(head))
     throw new Error(`the release commit must be a full SHA, not '${head}'`);
-  const request = parseRequest(env.SURFACES, env.FORCE);
+  const request = parseRequest(env.SURFACES, env.FORCE, env.FLIP, {
+    unflip: env.UNFLIP,
+    attach: env.ATTACH,
+  });
   const reader = restReader({
     fetch: options.fetch,
     token,
@@ -683,17 +1193,38 @@ export async function runReleasePlan(options: {
     return newer.get(commit) === true;
   };
 
-  const production = await lastDeployed(reader, "production", request.surfaces);
+  const production = await lastDeployed(reader, "production", [
+    ...request.surfaces,
+    ...requestedStacks(request.surfaces).map(stackRecordKey),
+  ]);
   const changed = changedSurfaces({ head, request, production, diff, productionIsNewer });
-  const dev = await findDeployed(reader, "dev", devGateWanted(changed, request.force), {
-    accept: (key, commit) => sameContent(surface(key), diff(commit)),
-  });
-  const decisions = applyDevGate({ decisions: changed, dev, diff, force: request.force });
+  const stackChanges = changedStacks({ head, request, production, diff, productionIsNewer });
+  const dev = await findDeployed(
+    reader,
+    "dev",
+    [...devGateWanted(changed, request.force), ...stackDevGateWanted(stackChanges, request.force)],
+    {
+      accept: (key, commit) =>
+        isStackRecordKey(key)
+          ? sameStackContent(stackOfRecord(key), diff(commit))
+          : sameContent(surface(key), diff(commit)),
+    },
+  );
+  const gated = applyDevGate({ decisions: changed, dev, diff, force: request.force });
+  const gatedStacks = applyStackDevGate({ changes: stackChanges, dev, force: request.force });
+  const { decisions, stacks } = stackPlans(gated, request.force, gatedStacks);
+  const release: ReleaseDecisions = {
+    decisions,
+    stacks,
+    flip: request.flip,
+    unflip: request.unflip,
+    attach: request.attach,
+  };
 
   return {
-    decisions,
-    outputs: outputLines(decisions),
-    summary: renderSummary(decisions, {
+    ...release,
+    outputs: outputLines(release),
+    summary: renderSummary(release, {
       head,
       repository,
       serverUrl: env.GITHUB_SERVER_URL || "https://github.com",

@@ -942,7 +942,7 @@ function CsvFormatHelp(props: { kind: ImportKind }) {
           keyboard path as well: Enter/Space on a focused summary IS a click. */}
       <summary
         onClick={() => setTouched(true)}
-        class="font-body text-text hover:text-gold text-ui-base flex cursor-pointer items-center gap-2 px-4 py-3 transition select-none"
+        class="font-body text-text hover:text-gold text-ui-base flex cursor-pointer items-center gap-2 px-4 py-3 transition duration-(--dur-fast) ease-(--ease-out) select-none"
       >
         <span class="text-gold inline-block transition-transform group-open:rotate-90" aria-hidden>
           ›

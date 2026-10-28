@@ -432,7 +432,7 @@ export default function Overview(props: {
                 <button
                   type="button"
                   onClick={() => props.onNavigate(AGENDA_MODULE[item.kind])}
-                  class="hover:bg-surface/40 flex w-full items-center gap-3 py-2 text-left transition-colors"
+                  class="hover:bg-surface/40 flex w-full items-center gap-3 py-2 text-left transition-colors duration-(--dur-fast) ease-(--ease-out)"
                 >
                   <span class="text-text-muted text-ui-sm w-14 shrink-0 font-mono tabular-nums">
                     {fmtAgendaDate(item.date)}

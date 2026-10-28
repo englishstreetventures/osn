@@ -3,6 +3,7 @@ import { Effect, Redacted } from "effect";
 import { describe, expect, test } from "vitest";
 
 import { apiWorker, retainedBucket, retainedD1, siteWorker } from "../src/declare";
+import { ProductionNotAdoptedError } from "../src/production";
 import { assertRetained, UnretainedResourceError } from "../src/removal";
 import { tierSecrets } from "../src/secrets/inventory";
 import { tierOf } from "../src/stage";
@@ -112,12 +113,17 @@ const bucket = (stage: string) =>
   });
 
 describe("declared resources", () => {
-  test.each(["dev", "production"])("Workers on %s are retained", async (stage) => {
-    expect(await declared(stage, api(stage))).toEqual({
+  test("Workers on dev are retained", async () => {
+    expect(await declared("dev", api("dev"))).toEqual({
       LogicalId: "CireApi",
       RemovalPolicy: "retain",
     });
-    expect((await declared(stage, site(stage))).RemovalPolicy).toBe("retain");
+    expect((await declared("dev", site("dev"))).RemovalPolicy).toBe("retain");
+  });
+
+  test("a site Worker on production is retained, and an API Worker there is refused until a step adopts it", async () => {
+    expect((await declared("production", site("production"))).RemovalPolicy).toBe("retain");
+    expect(() => api("production")).toThrow(ProductionNotAdoptedError);
   });
 
   test("Workers on an investigation stage are destroyed with it", async () => {

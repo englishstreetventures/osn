@@ -1,6 +1,8 @@
 import type * as Cloudflare from "alchemy/Cloudflare";
 import { Data } from "effect";
 
+import { refuseUnadopted } from "./production";
+import { PRODUCTION_ADOPTIONS } from "./production-sites";
 import { tierOf } from "./stage";
 
 export class ProductionSeedError extends Data.TaggedError("ProductionSeedError")<{
@@ -46,7 +48,11 @@ export interface RetainedD1Input {
   readonly importFiles: readonly string[];
 }
 
-export function retainedD1Props(input: RetainedD1Input): Cloudflare.D1.DatabaseProps {
+/** The database's props. On production its name must be in `adoptions`, checked after the other production rules. */
+export function retainedD1Props(
+  input: RetainedD1Input,
+  adoptions: readonly string[] = PRODUCTION_ADOPTIONS,
+): Cloudflare.D1.DatabaseProps {
   refuseAdoptedHint(input.name, input.stage, input.locationHint);
   if (input.importFiles.length > 0 && tierOf(input.stage) === "production") {
     throw new ProductionSeedError({
@@ -54,6 +60,7 @@ export function retainedD1Props(input: RetainedD1Input): Cloudflare.D1.DatabaseP
       message: `${input.name} is a production database, whose data is never seeded; declare no importFiles.`,
     });
   }
+  refuseUnadopted(input.name, input.stage, adoptions);
   const declared: Cloudflare.D1.DatabaseProps = {
     name: input.name,
     readReplication: { mode: input.readReplication },
@@ -88,8 +95,13 @@ export interface RetainedBucketInput {
   readonly domains: NonNullable<Cloudflare.R2.BucketProps["domains"]>;
 }
 
-export function retainedBucketProps(input: RetainedBucketInput): Cloudflare.R2.BucketProps {
+/** The bucket's props. On production its name must be in `adoptions`, checked after the other production rules. */
+export function retainedBucketProps(
+  input: RetainedBucketInput,
+  adoptions: readonly string[] = PRODUCTION_ADOPTIONS,
+): Cloudflare.R2.BucketProps {
   refuseAdoptedHint(input.name, input.stage, input.locationHint);
+  refuseUnadopted(input.name, input.stage, adoptions);
   const declared: Cloudflare.R2.BucketProps = {
     name: input.name,
     storageClass: input.storageClass,

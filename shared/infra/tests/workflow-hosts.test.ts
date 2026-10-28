@@ -1,8 +1,10 @@
-// Holds every workflow that reads a dev host to the dev-hosts command: every
-// `steps.hosts.outputs.<key>` a dev build, smoke check or probe reads is one
-// the command writes. GitHub expands an output nobody wrote to an empty
-// string, so a misspelt key builds a site against no API origin, fails a smoke
-// check, or probes nothing, with nothing pointing at the typo.
+// Holds every workflow that reads a host from a step to the command that
+// writes it: every `steps.hosts.outputs.<key>` a dev build, smoke check or
+// probe reads is one the dev-hosts command writes, and every one a production
+// stack job's smoke check reads is one production-hosts writes. GitHub expands
+// an output nobody wrote to an empty string, so a misspelt key builds a site
+// against no API origin, fails a smoke check, or probes nothing, with nothing
+// pointing at the typo.
 import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +13,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 
 import { devHostOutputs } from "../src/hosts";
+import { productionHostOutputs } from "../src/production-sites";
 
 interface Step {
   readonly id?: string;
@@ -38,22 +41,44 @@ const hostKeysRead = (fragment: unknown): string[] =>
 /** A domain the dev layout accepts; the keys do not depend on it. */
 const DOMAIN = "dev-zone.example";
 
-test("the workflows that read a dev host are the deploy and the cire latency probe", () => {
-  expect(READERS).toEqual(["cire-d1-latency-probe.yml", "deploy.yml"]);
+/** The step each reader runs to write the hosts it reads, and what it writes. */
+const DEV_HOSTS = {
+  run: "bun run --cwd shared/infra dev-hosts -- --stage dev",
+  env: { DEV_DOMAIN: "${{ vars.DEV_DOMAIN }}" },
+  outputs: () => devHostOutputs(DOMAIN, "dev"),
+};
+const HOST_STEPS: Readonly<Record<string, typeof DEV_HOSTS | ProductionHosts>> = {
+  "cire-d1-latency-probe.yml": DEV_HOSTS,
+  "deploy.yml": DEV_HOSTS,
+  "production-release.yml": {
+    run: "bun run --cwd shared/infra production-hosts",
+    env: undefined,
+    outputs: () => productionHostOutputs(),
+  },
+};
+interface ProductionHosts {
+  readonly run: string;
+  readonly env: undefined;
+  readonly outputs: () => ReadonlyMap<string, string>;
+}
+
+test("the workflows that read a host are the deploy, the cire latency probe and the production release", () => {
+  expect(READERS).toEqual(Object.keys(HOST_STEPS).toSorted());
 });
 
-describe.each(READERS)("the dev-hosts outputs %s reads", (file) => {
+describe.each(READERS)("the host outputs %s reads", (file) => {
   const TEXT = readFileSync(`${WORKFLOWS}${file}`, "utf8");
   const workflow = Bun.YAML.parse(TEXT) as Workflow;
+  const hosts = HOST_STEPS[file]!;
 
-  test("every one is a key devHostOutputs() writes", () => {
+  test("every one is a key its hosts command writes", () => {
     const read = [...new Set([...TEXT.matchAll(HOST_READ)].map((match) => match[1] ?? ""))];
     expect(read.length).toBeGreaterThan(0);
-    const written = new Set(devHostOutputs(DOMAIN, "dev").keys());
+    const written = new Set(hosts.outputs().keys());
     expect(read.filter((key) => !written.has(key)).toSorted()).toEqual([]);
   });
 
-  test("each job that reads one runs the dev-hosts step, for dev, before the first read", () => {
+  test("each job that reads one runs the hosts step before the first read", () => {
     const readers = Object.entries(workflow.jobs).filter(([, job]) => hostKeysRead(job).length > 0);
     expect(readers.length).toBeGreaterThan(0);
     for (const [id, job] of readers) {
@@ -65,16 +90,11 @@ describe.each(READERS)("the dev-hosts outputs %s reads", (file) => {
         run: steps[at]?.run,
         env: steps[at]?.env,
         readsAfter: at > -1 && firstRead > at,
-      }).toEqual({
-        id,
-        run: "bun run --cwd shared/infra dev-hosts -- --stage dev",
-        env: { DEV_DOMAIN: "${{ vars.DEV_DOMAIN }}" },
-        readsAfter: true,
-      });
+      }).toEqual({ id, run: hosts.run, env: hosts.env, readsAfter: true });
     }
   });
 
-  test("the dev-hosts step, run as the workflow runs it, writes every key the workflow reads", () => {
+  test("the hosts step, run as the workflow runs it, writes every key the workflow reads", () => {
     const step = Object.values(workflow.jobs)
       .flatMap((job) => job.steps ?? [])
       .find((candidate) => candidate.id === "hosts");
@@ -95,7 +115,7 @@ describe.each(READERS)("the dev-hosts outputs %s reads", (file) => {
           return [line.slice(0, at), line.slice(at + 1)];
         }),
     );
-    expect(written).toEqual(new Map(devHostOutputs(DOMAIN, "dev")));
+    expect(written).toEqual(new Map(hosts.outputs()));
     const read = [...new Set([...TEXT.matchAll(HOST_READ)].map((match) => match[1] ?? ""))];
     expect(read.filter((key) => !written.has(key))).toEqual([]);
   });

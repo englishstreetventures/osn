@@ -8,9 +8,16 @@
  * plan, warning when the log holds no plan line, so it never fails a deploy
  * that did not ask for the check. With it, it exits 1 unless the plan is
  * `no changes`. Exits 2 on bad arguments.
+ *
+ * It also reads the plan as the production plan guard does and warns, still
+ * exiting 0, at each fault the guard would refuse in its text alone (a line
+ * it cannot read, lines that disagree with the Plan line's counts), so a dev
+ * deploy after an Alchemy upgrade that changed the plan's format says so
+ * before a production release refuses its plan.
  */
 import { appendFileSync, readFileSync } from "node:fs";
 
+import { parsePlan, planTextFaults } from "../src/plan-guard";
 import { describePlan, summarisePlan } from "../src/plan-summary";
 import { STACK_KEYS, type StackKey } from "../src/stacks";
 
@@ -59,6 +66,13 @@ else appendFileSync(summaryFile, heading);
 
 if (summary.kind === "missing") {
   process.stdout.write(`::warning::${input.stack}: ${described}.\n`);
+}
+// Each fault is a fixed phrase and at most a resource's logical id, as the
+// guard prints it in a production run.
+for (const fault of planTextFaults(parsePlan(log))) {
+  process.stdout.write(
+    `::warning::${input.stack}: the production plan guard would refuse this plan's text: ${fault}. If Alchemy's output changed, fix parsePlan (shared/infra/src/plan-guard.ts) before a production release plans this stack.\n`,
+  );
 }
 if (input.expectNoChange && summary.kind !== "no-changes") {
   process.stdout.write(

@@ -608,12 +608,15 @@ Its motion is split, and the split is not arbitrary:
 | **Entry** | `@starting-style`, pure CSS | The browser takes the from-state when the element is first rendered. No JavaScript at all. Safari has had it since 17.5; older engines show the dialog immediately, which degrades rather than breaks. |
 | **Exit**  | JavaScript defers `close()` | `close()` drops a dialog out of the top layer _immediately_, so an exit transition has nothing left to paint.                                                                                          |
 
-**The CSS-only exit does not work cross-browser, and this is the thing to know
-before reaching for it.** The platform's own answer is the `overlay` property
-with `transition-behavior: allow-discrete`, which defers that removal so the
-transition can run. `overlay` is **Chrome and Edge only** — unsupported in
-Safari and Firefox. On cire's guest site, where most traffic is mobile Safari, a
-CSS-only exit means the dialog blinking away for nearly everyone who sees it.
+**A CSS-only exit from the top layer does not work cross-browser, and this is
+the thing to know before reaching for it.** The platform's own answer is the
+`overlay` property with `transition-behavior: allow-discrete`, which defers that
+removal so the transition can run. `overlay` is **Chrome and Edge only** —
+unsupported in Safari and Firefox. On cire's guest site, where most traffic is
+mobile Safari, a CSS-only exit means the dialog blinking away for nearly
+everyone who sees it. The limit is `overlay`, not `allow-discrete`: a box that
+is not in the top layer fades out of `display: none` in CSS alone in every
+current engine — [[frontend-patterns#Motion follows the input]].
 
 So `Modal` sets `data-closing`, lets its own stylesheet run the exit, and calls
 `close()` once the element's animations have finished. It waits on

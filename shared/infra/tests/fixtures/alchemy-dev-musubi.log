@@ -1,0 +1,47 @@
+$ DO_NOT_TRACK=1 bun alchemy deploy --stage dev --yes
+alchemy 2.0.0-beta.84 is available (you're on 2.0.0-beta.83). Run `bun add alchemy@2.0.0-beta.84` to upgrade.
+[11:53:47.394] INFO (#1): Deploy · dev
+[11:53:47.399] INFO (#1): Importing stack module
+[11:53:48.407] INFO (#33): Resolving stack services
+[11:53:48.458] INFO (#1): Loading stack state
+[11:53:48.464] INFO (#322): Cloudflare: using environment variables (CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN) instead of the profile.
+• Refreshing Cloudflare State Store credentials
+✓ Refreshing Cloudflare State Store credentials
+[11:53:51.667] INFO (#1): Computing plan
+[11:53:53.026] INFO (#1): Plan ready (5.6s)
+[11:53:53.027] INFO (#1): Plan: no changes
+[11:53:53.027] INFO (#1): [MusubiLanding] noop
+[11:53:53.028] INFO (#1): [MusubiSocial] noop
+[11:53:53.028] INFO (#1): [OsnApi] noop
+[11:53:53.028] INFO (#1): [OsnApi/CIRE_INTERNAL_REVOKE_URL] noop
+[11:53:53.028] INFO (#1): [OsnApi/CIRE_OIDC_CLIENT_ID] noop
+[11:53:53.028] INFO (#1): [OsnApi/DB] noop
+[11:53:53.028] INFO (#1): [OsnApi/DEV_LOGIN_RETURN_ORIGINS] noop
+[11:53:53.028] INFO (#1): [OsnApi/DEV_LOGIN_SECRET] noop
+[11:53:53.028] INFO (#1): [OsnApi/INTERNAL_SERVICE_SECRET] noop
+[11:53:53.028] INFO (#1): [OsnApi/OSN_AUTHORIZE_UI_URL] noop
+[11:53:53.028] INFO (#1): [OsnApi/OSN_COOKIE_DOMAIN] noop
+[11:53:53.028] INFO (#1): [OsnApi/OSN_CORS_ORIGIN] noop
+[11:53:53.028] INFO (#1): [OsnApi/OSN_EMAIL_FROM] noop
+[11:53:53.028] INFO (#1): [OsnApi/OSN_ENV] noop
+[11:53:53.028] INFO (#1): [OsnApi/OSN_ISSUER_URL] noop
+[11:53:53.028] INFO (#1): [OsnApi/OSN_JWT_PRIVATE_KEY] noop
+[11:53:53.028] INFO (#1): [OsnApi/OSN_JWT_PUBLIC_KEY] noop
+[11:53:53.028] INFO (#1): [OsnApi/OSN_ORIGIN] noop
+[11:53:53.028] INFO (#1): [OsnApi/OSN_PAIRWISE_SALT] noop
+[11:53:53.028] INFO (#1): [OsnApi/OSN_RP_ID] noop
+[11:53:53.028] INFO (#1): [OsnApi/OSN_RP_NAME] noop
+[11:53:53.028] INFO (#1): [OsnApi/OSN_SESSION_IP_PEPPER] noop
+[11:53:53.028] INFO (#1): [OsnApi/OSN_TOTP_ENCRYPTION_KEY] noop
+[11:53:53.028] INFO (#1): [OsnApi/RESEND_API_KEY] noop
+[11:53:53.028] INFO (#1): [OsnApi/RL_AUTH_IP_10_60] noop
+[11:53:53.028] INFO (#1): [OsnApi/RL_AUTH_IP_20_60] noop
+[11:53:53.028] INFO (#1): [OsnApi/RL_AUTH_IP_30_60] noop
+[11:53:53.028] INFO (#1): [OsnApi/RL_AUTH_IP_5_60] noop
+[11:53:53.031] INFO (#1): [OsnApi/RL_AUTH_IP_60_60] noop
+[11:53:53.031] INFO (#1): [OsnApi/UPSTASH_REDIS_REST_TOKEN] noop
+[11:53:53.031] INFO (#1): [OsnApi/UPSTASH_REDIS_REST_URL] noop
+[11:53:53.031] INFO (#1): [OsnDb] noop
+[11:53:53.031] INFO (#1): 
+[11:53:53.166] INFO (#1): 
+[11:53:53.166] INFO (#1): Done: 0 succeeded (135ms)

@@ -97,4 +97,22 @@ describe("prefers-reduced-motion", () => {
     expect(await ended).toBe(true);
     expect(getComputedStyle(el).scale).toBe("1");
   });
+
+  it("opens a disclosure's body with no fade — the `*` clamp cannot reach `::details-content`", async () => {
+    const { container } = render(() => (
+      <details>
+        <summary>Can we bring our children?</summary>
+        <p>Yes.</p>
+      </details>
+    ));
+    const details = container.querySelector("details")!;
+    const body = () => getComputedStyle(details, "::details-content");
+    details.open = true;
+    expect(body().animationName).toBe("details-in");
+
+    details.open = false;
+    await emulate({ reducedMotion: "reduce" });
+    details.open = true;
+    expect(body().animationName).toBe("none");
+  });
 });

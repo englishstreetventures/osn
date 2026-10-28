@@ -15,12 +15,16 @@ export class DeployTargetError extends Data.TaggedError("DeployTargetError")<{
   readonly message: string;
 }> {}
 
-/** Throws for a stage on the production tier, which no stack declares yet. */
+/**
+ * Throws for a stage on the production tier. For what a stack does not
+ * declare on production: each full dev declaration, and the stacks with no
+ * production resource yet.
+ */
 export function refuseProductionTier(stage: string): void {
   if (tierOf(stage) === "production") {
     throw new StageNotDeclaredError({
       stage,
-      message: `Stage '${stage}' is the production tier, which these stacks declare from phase P3 of englishstreetventures/osn#1490.`,
+      message: `Stage '${stage}' is the production tier, which this declaration does not cover: production resources join the stacks one step at a time in phase P3 of englishstreetventures/osn#1490.`,
     });
   }
 }
@@ -31,13 +35,13 @@ const CREDENTIALS: readonly string[] = ["CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API
  * The stage a stack may run at, refusing a run whose credentials could reach
  * another account: `OSN_DEPLOY_TIER` must name the stage's tier, and both
  * Cloudflare credentials must be set. Messages name variables, never values.
+ * What a stack declares on production is the stack's own to refuse.
  */
-export function assertDevDeployTarget(
+export function assertDeployTarget(
   stage: string,
   env: Readonly<Record<string, string | undefined>>,
 ): string {
   const valid = parseStage(stage);
-  refuseProductionTier(valid);
   const tier = tierOf(valid);
   if (env.OSN_DEPLOY_TIER !== tier) {
     throw new DeployTargetError({

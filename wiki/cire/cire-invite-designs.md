@@ -12,7 +12,7 @@ related:
   - "[[frontend-patterns]]"
   - "[[cire-rsvp-deadline]]"
   - "[[component-library]]"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-28
 ---
 # Invite design selector
 
@@ -418,13 +418,13 @@ event and the panel to open on.
     side by side, and never over the other. The property is written only through
     `setBadgeProgress`: as the badge is built, from the panel on screen (so a
     sheet opened on the form shows its words with no fade); on every switch;
-    and by the swipe, which writes the share of the panels' width the finger
-    has covered. Under the finger nothing eases (`data-dragging` turns the
-    transition off); at rest, on a press and at a swipe's settle — carried on
-    or sprung back — the words ease on `transition-badge-settle`, the panels'
-    own 280ms and curve, as inline `transform`s so one transition list covers
-    the opacity and the slide. Under reduced motion the global clamp makes it
-    instant.
+    and by the swipe and its spring, which write the share of the panels'
+    width they have covered on every frame, held between 0 and 1 so a pull
+    past either end moves the panels and not the words. Then nothing eases
+    (`data-dragging` turns the transition off); after a press the words ease
+    on `transition-badge-settle`, the panels' own 280ms and curve, as inline
+    `transform`s so one transition list covers the opacity and the slide.
+    Under reduced motion the global clamp makes it instant.
   - **Its states.** Shown on the form always, and on the details while the
     form can be reached. Disabled (40% opacity) on the form while a save is
     in flight and while the sheet closes itself on a saved reply. A tap on it
@@ -460,8 +460,20 @@ event and the panel to open on.
   sideways drag toward the other panel — the details sit on the start side,
   the form on the end side — with the other panel drawn beside it, `inert`
   until it lands. Let go past three tenths of the width, or after a flick,
-  and it carries on; otherwise it springs back. The thresholds are pure
-  functions in [`sheet-swipe.ts`](../../cire/invites/src/components/sheet-swipe.ts).
+  and it carries on; otherwise it springs back. Either way the panels ride a
+  critically damped spring (`SETTLE_SPRING`, 0.3s response, through
+  `motion`) that starts at the finger's speed, so a flick carries on and a
+  slow release does not jump; under reduced motion they land at once. Past
+  either end — back past where the drag began, or beyond the form's rest —
+  the panels follow the finger on iOS's rubber band, `c·x·d / (d + c·x)`
+  with `c = 0.55`, giving less the further it goes. A pull toward the side
+  with no panel moves the panel on screen on the same band and springs it
+  back; it mounts nothing. A touch on a settling swipe catches it: the panels
+  stop under the finger and follow it from there, and a catch that is only a
+  tap, a held finger or a scroll lets the settle go on to where it was going,
+  with that tap's click swallowed so it presses nothing on the moving panel.
+  The thresholds and the band are pure functions in
+  [`sheet-swipe.ts`](../../cire/invites/src/components/sheet-swipe.ts).
   The wrapper is `touch-action: pan-y pinch-zoom`, so vertical scroll and
   zoom stay the browser's. A mouse drag, a drag that starts in a text field,
   and a drag on a box that scrolls sideways of its own (the dietary chips, the
@@ -516,10 +528,10 @@ event and the panel to open on.
   of the card's buttons — over 280ms (`animate-panel-from-*` in
   `src/styles/global.css`). The panel the sheet opens on does not slide; it
   arrives with the sheet, and one that arrived by a swipe does not slide
-  again: it eases from where the finger let go to rest on
-  `transition-panel-settle`, the slide's own 280ms and curve, before the
-  switch. The badge's words move in step with both: with the finger during a
-  swipe, and on the same 280ms after a press or a release. Until the slide ends the arriving panel takes no
+  again: it springs from where the finger let go to rest, at the finger's
+  speed, before the switch. The badge's words move in step with both: with
+  the panels through a swipe and its spring, and on the same 280ms after a
+  press. Until the slide ends the arriving panel takes no
   pointer input, so the second tap of a double tap cannot land on a control it
   has not shown yet, and the panels' wrapper clips sideways overflow, which
   the sliding form's full-bleed action bar would otherwise cause. Outside a

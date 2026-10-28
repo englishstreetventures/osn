@@ -58,12 +58,15 @@ its value. Each run's summary prints every host under **Dev hosts**.
 | Cire marketing | `cire.<D>` | `cire-landing-dev` (cire) | `cireweddings.com` (apex) |
 | OSN identity API | `id.musubi.<D>` | `osn-api-dev` (musubi) | `id.musubi.social` |
 | OSN social / consent | `musubi.<D>` | `osn-social-dev` (musubi) | `musubi.social` |
-| Musubi marketing | `www.musubi.<D>` | `musubi-landing-dev` (musubi) | none |
+| Musubi marketing | `www.musubi.<D>` | `musubi-landing-dev` (musubi) | `www.musubi.social` |
 | Zap API | `zap.cire.<D>` | `zap-api-dev` (zap) | `zap.cireweddings.com` |
 | Pulse marketing | `pulse.<D>` | `pulse-landing-dev` (pulse) | none |
 
 Every dev surface is a Worker; the sites serve from Workers static assets, not
-Pages ([[infrastructure-as-code#Sites]]).
+Pages ([[infrastructure-as-code#Sites]]). On production the organiser, vendor, cire
+marketing and musubi social hosts are still Pages projects, each with a staged Worker
+on a spare host until its domain moves, and musubi marketing is a Worker
+([[infrastructure-as-code#Production sites]]).
 
 Backing resources, all in the dev account:
 
@@ -242,6 +245,16 @@ Permissions the dev deploy token holds, one line per thing the stack jobs call:
 | Account | `Secrets Store: Edit` | the Alchemy state store ([[infrastructure-as-code#State store]]) |
 | Account | `Account Settings: Read` | the account lookup on every call |
 | Zone (the dev zone) | `Zone: Read`, `DNS: Edit`, `Workers Routes: Edit` | each Worker's custom domain |
+
+Every production CI token — `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_PAGES_DNS_TOKEN`
+and `CLOUDFLARE_API_TOKEN_READONLY` — is an account API token, made under
+**Manage Account → Account API Tokens** on the production account, never under
+**My Profile**: it outlives any one person's membership and reaches only its own
+account, which `token:check` requires. An account API token answers
+`GET /accounts` with its one account, so `token:check` and `scripts/pages-domain.ts`'s
+reach check accept it unchanged.
+
+*Measured 2026-10-28 — `curl -H "Authorization: Bearer $T" https://api.cloudflare.com/client/v4/accounts` with an account API token: `success: true`, one result, `total_count` 1; `/accounts/<id>/tokens/verify` `active`. The `production` Environment's `CLOUDFLARE_API_TOKEN`, as an account API token, then passed `token:check` (Alchemy state store, run 40641704428) and deployed cire landing with Wrangler (Production release, run 40644019262).*
 
 The read-only token, `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY`, holds
 `Account Settings: Read`, `D1: Read` and `Account Analytics: Read` on the dev

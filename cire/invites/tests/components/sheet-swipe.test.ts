@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  bandOffset,
+  bandSlope,
+  beginsBand,
   beginsDrag,
   clampOffset,
   pastSlop,
+  rubberBand,
   shouldCommit,
   startsInside,
   velocityOf,
@@ -47,19 +51,87 @@ describe("pastSlop", () => {
   });
 });
 
-describe("clampOffset", () => {
-  it("never moves the panel away from its direction of travel", () => {
-    expect(clampOffset(30, "details", WIDTH)).toBe(0);
-    expect(clampOffset(-30, "rsvp", WIDTH)).toBe(0);
+describe("rubberBand", () => {
+  it("is 0 at the edge and odd about it", () => {
+    expect(rubberBand(0, 390)).toBe(0);
+    expect(rubberBand(-100, 390)).toBeCloseTo(-rubberBand(100, 390), 10);
   });
 
-  it("never moves the panel further than its own width", () => {
-    expect(clampOffset(-900, "details", WIDTH)).toBe(-WIDTH);
-    expect(clampOffset(900, "rsvp", WIDTH)).toBe(WIDTH);
+  it("moves 0.55·x·d / (d + 0.55·x) for a touch", () => {
+    expect(rubberBand(100, 390)).toBeCloseTo((0.55 * 100 * 390) / (390 + 55), 10);
+  });
+
+  it("moves less than the finger, and never as far as the view", () => {
+    for (const x of [1, 50, 390, 5000, 1e9]) {
+      expect(rubberBand(x, 390)).toBeLessThan(x);
+      expect(rubberBand(x, 390)).toBeLessThan(390);
+    }
+  });
+});
+
+describe("bandSlope", () => {
+  it("is the coefficient at the edge, and falls with distance", () => {
+    expect(bandSlope(0, 390)).toBeCloseTo(0.55, 10);
+    expect(bandSlope(100, 390)).toBeLessThan(bandSlope(10, 390));
+    expect(bandSlope(-100, 390)).toBeCloseTo(bandSlope(100, 390), 10);
+    expect(bandSlope(1e6, 390)).toBeGreaterThan(0);
+  });
+
+  it("is c / (1 + c·x/d)²", () => {
+    expect(bandSlope(100, 390)).toBeCloseTo(0.55 / (1 + 55 / 390) ** 2, 10);
+  });
+});
+
+describe("clampOffset", () => {
+  it("damps a reversal past the start, on the side with no panel", () => {
+    expect(clampOffset(80, "details", WIDTH)).toBeCloseTo(rubberBand(80, WIDTH), 10);
+    expect(clampOffset(80, "details", WIDTH)).toBeGreaterThan(0);
+    expect(clampOffset(-80, "rsvp", WIDTH)).toBeCloseTo(rubberBand(-80, WIDTH), 10);
+    expect(clampOffset(-80, "rsvp", WIDTH)).toBeLessThan(0);
+  });
+
+  it("damps a drag past the other panel's resting place", () => {
+    expect(clampOffset(-WIDTH - 120, "details", WIDTH)).toBeCloseTo(
+      -WIDTH - rubberBand(120, WIDTH),
+      10,
+    );
+    expect(clampOffset(WIDTH + 120, "rsvp", WIDTH)).toBeCloseTo(WIDTH + rubberBand(120, WIDTH), 10);
+    expect(Math.abs(clampOffset(-WIDTH - 120, "details", WIDTH))).toBeLessThan(WIDTH + 120);
   });
 
   it("passes an offset inside both bounds through", () => {
     expect(clampOffset(-120, "details", WIDTH)).toBe(-120);
+    expect(clampOffset(120, "rsvp", WIDTH)).toBe(120);
+  });
+});
+
+describe("bandOffset", () => {
+  it("damps a move toward the side with no panel", () => {
+    expect(bandOffset(80, "details", WIDTH)).toBeCloseTo(rubberBand(80, WIDTH), 10);
+    expect(bandOffset(-80, "rsvp", WIDTH)).toBeCloseTo(rubberBand(-80, WIDTH), 10);
+  });
+
+  it("stops at 0 when the finger comes back past where it started", () => {
+    expect(bandOffset(-120, "details", WIDTH)).toBe(0);
+    expect(bandOffset(120, "rsvp", WIDTH)).toBe(0);
+  });
+});
+
+describe("beginsBand", () => {
+  it("begins for a horizontal move toward the side with no panel", () => {
+    expect(beginsBand({ dx: 30, dy: 4, panel: "details" })).toBe(true);
+    expect(beginsBand({ dx: -30, dy: 4, panel: "rsvp" })).toBe(true);
+  });
+
+  it("refuses a vertical move, a move toward the other panel, and one inside the slop", () => {
+    expect(beginsBand({ dx: 12, dy: 40, panel: "details" })).toBe(false);
+    expect(beginsBand({ dx: -30, dy: 4, panel: "details" })).toBe(false);
+    expect(beginsBand({ dx: 8, dy: 0, panel: "details" })).toBe(false);
+  });
+
+  it("refuses a move of exactly the slop, and one exactly as wide as it is tall", () => {
+    expect(beginsBand({ dx: 10, dy: 0, panel: "details" })).toBe(false);
+    expect(beginsBand({ dx: 30, dy: 30, panel: "details" })).toBe(false);
   });
 });
 
@@ -84,6 +156,11 @@ describe("shouldCommit", () => {
   it("springs back from a flick under 24px, however fast", () => {
     expect(shouldCommit({ dx: -20, velocity: -2, width: WIDTH, panel: "details" })).toBe(false);
     expect(shouldCommit({ dx: -24, velocity: -2, width: WIDTH, panel: "details" })).toBe(false);
+  });
+
+  it("springs back from a drag on the side with no panel, however fast or far", () => {
+    expect(shouldCommit({ dx: 200, velocity: 5, width: WIDTH, panel: "details" })).toBe(false);
+    expect(shouldCommit({ dx: -200, velocity: -5, width: WIDTH, panel: "rsvp" })).toBe(false);
   });
 
   it("springs back from a flick at exactly the flick speed", () => {

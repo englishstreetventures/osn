@@ -130,7 +130,7 @@ export default function RemintPanel(props: RemintPanelProps) {
           <For each={STYLE_OPTIONS}>
             {(option) => (
               <label
-                class={`flex flex-1 cursor-pointer flex-col gap-1 rounded-sm border p-3 transition-colors ${
+                class={`flex flex-1 cursor-pointer flex-col gap-1 rounded-sm border p-3 transition-colors duration-(--dur-fast) ease-(--ease-out) ${
                   targetStyle() === option.value
                     ? "border-gold bg-gold/5"
                     : "border-border bg-bg hover:border-gold/50"

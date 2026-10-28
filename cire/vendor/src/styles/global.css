@@ -213,12 +213,24 @@
  * design. Every duration is `calc(… * var(--motion-scale))` so a reference
  * behaviour can be slowed to 0.1× and judged frame by frame. Nothing in the
  * app writes `--motion-scale`.
+ *
+ * The ladder follows the input, not the screen, as in `cire/host`: shorter
+ * with a fine pointer (a mouse or a trackpad, at a desk), the longer ladder on
+ * touch.
  */
 :root {
   --motion-scale: 1;
   --dur-fast: calc(120ms * var(--motion-scale));
   --dur-base: calc(200ms * var(--motion-scale));
   --dur-slow: calc(320ms * var(--motion-scale));
+}
+
+@media (pointer: fine) {
+  :root {
+    --dur-fast: calc(90ms * var(--motion-scale));
+    --dur-base: calc(150ms * var(--motion-scale));
+    --dur-slow: calc(200ms * var(--motion-scale));
+  }
 }
 
 /* ── Toast ──────────────────────────────────────────────────────────────────
@@ -611,4 +623,29 @@
 
 @utility panel-in {
   animation: panel-in var(--dur-base) var(--ease-out);
+}
+
+/* ── A menu or picker opening: menu-pop ─────────────────────────────────────
+ * The profile menu scales up a little from the side of its trigger and fades
+ * in, as in `cire/host`. Entry only: held mounted for an exit animation, a
+ * closing menu keeps focus inside it until it unmounts, and Kobalte's hand-back
+ * to the trigger falls to `<body>` instead.
+ *
+ * `--kb-popper-content-transform-origin` rather than the popover- or
+ * menu-specific property: Kobalte sets it on the floating element of both
+ * kinds.
+ */
+@keyframes menu-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+@utility menu-pop {
+  transform-origin: var(--kb-popper-content-transform-origin);
+
+  &[data-expanded] {
+    animation: menu-pop-in var(--dur-fast) var(--ease-out);
+  }
 }

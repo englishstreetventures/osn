@@ -270,10 +270,10 @@ export default function VendorApp() {
       <RequireAuth>
         <Dashboard />
       </RequireAuth>
-      {/* `topLayer` because this app's dialogs are `showModal()` dialogs
-          (`@shared/ui`'s `Modal`), which paint in the top layer — above every
-          stacking context, so no `z-index` on the toast container could reach
-          over one. See `ToasterProps.topLayer`. */}
+      {/* `topLayer` so a toast stays above any `showModal()` dialog
+          (`@shared/ui`'s `Modal`) this app opens: such a dialog paints in the
+          top layer, above every stacking context, where no `z-index` on the
+          toast container could reach over it. See `ToasterProps.topLayer`. */}
       <Toaster position="bottom-right" topLayer />
     </AuthProvider>
   );

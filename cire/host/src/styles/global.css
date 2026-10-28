@@ -203,15 +203,32 @@
 
 /* ── Motion ─────────────────────────────────────────────────────────────────
  * Three durations, two easings, no animation library in this package by
- * design. Every duration is `calc(… * var(--motion-scale))` so the fixtures
- * page can slow the whole app to 0.1× and the reference behaviours can be
- * judged frame by frame. Nothing in the app writes `--motion-scale`.
+ * design. Every duration is `calc(… * var(--motion-scale))` so a reference
+ * behaviour can be slowed to 0.1× and judged frame by frame. Nothing in the
+ * app writes `--motion-scale`.
+ *
+ * The ladder follows the input, not the screen. With a fine pointer — a mouse
+ * or a trackpad, at a desk — an organiser waits on every popover and panel
+ * before the next click, so the ladder is shorter. On touch the longer ladder
+ * stays: a phone is held, not worked at. `pointer: fine` describes the primary
+ * pointer, so a touch laptop driven by its trackpad gets the desk pace.
+ * `Modal` (`@shared/ui`) takes its own two durations from the same ladder.
  */
 :root {
   --motion-scale: 1;
   --dur-fast: calc(120ms * var(--motion-scale));
   --dur-base: calc(200ms * var(--motion-scale));
   --dur-slow: calc(320ms * var(--motion-scale));
+}
+
+@media (pointer: fine) {
+  :root {
+    --dur-fast: calc(90ms * var(--motion-scale));
+    --dur-base: calc(150ms * var(--motion-scale));
+    --dur-slow: calc(200ms * var(--motion-scale));
+    --ui-modal-enter: var(--dur-slow);
+    --ui-modal-exit: var(--dur-base);
+  }
 }
 
 /* ── The stuck stack ────────────────────────────────────────────────────────
@@ -926,6 +943,100 @@
 
 @utility tick-pop {
   animation: tick-pop var(--dur-base) var(--ease-spring);
+}
+
+/* ── A menu or picker opening: menu-pop ─────────────────────────────────────
+ * The plain Kobalte popovers and dropdown menus — the profile menu, the
+ * wedding switcher, the date and colour pickers — scale up a little from the
+ * side of the trigger they opened on and fade in. Short and with no
+ * overshoot: a menu is reached for many times a session, and the droplet's
+ * spring is kept for the checklist row it belongs to.
+ *
+ * Entry only. These are keyboard-driven, and Kobalte hands focus back to the
+ * trigger as the panel goes: held mounted for an exit animation, a closing
+ * menu keeps focus inside it until it unmounts, and focus then falls to
+ * `<body>` instead of the row the organiser was on. A menu that closes at
+ * once keeps that hand-back.
+ *
+ * `--kb-popper-content-transform-origin` rather than the popover- or
+ * menu-specific property: Kobalte sets it on the floating element of both
+ * kinds.
+ */
+@keyframes menu-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+@utility menu-pop {
+  transform-origin: var(--kb-popper-content-transform-origin);
+
+  &[data-expanded] {
+    animation: menu-pop-in var(--dur-fast) var(--ease-out);
+  }
+}
+
+/* ── A disclosure opening ───────────────────────────────────────────────────
+ * A `<details>` body fades and drops into place as it opens, so the rows that
+ * appear read as the summary's own. It closes at once: a fading body would
+ * leave its controls focusable in a box that is going away.
+ *
+ * Inside `no-preference` rather than undone by the reduced-motion block: that
+ * block selects `*`, which no pseudo-element matches, so it never reaches
+ * `::details-content`. An engine with no `::details-content` drops the rule
+ * and opens the body at once.
+ */
+@keyframes details-in {
+  from {
+    opacity: 0;
+    translate: 0 -4px;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  details[open]::details-content {
+    animation: details-in var(--dur-base) var(--ease-out);
+  }
+}
+
+/* ── The invite builder's section menu: in and out with no script ───────────
+ * Below `@3xl/builder` the section tablist is a menu dropped under its
+ * trigger, open while it carries `data-open` and `display: none` otherwise.
+ * `display` is discrete, so a plain transition would drop the menu the instant
+ * it closes; `allow-discrete` holds it at `grid` until the fade has run, and
+ * `@starting-style` gives the opening a from-state. Neither needs the top
+ * layer, so — unlike a dialog's exit, which needs `overlay` — this works in
+ * every current engine. One older than Chrome 117, Safari 17.4 or Firefox 129
+ * drops the `transition` declaration and toggles at once.
+ *
+ * Every rule sits inside the narrow container. From 48rem the tablist is the
+ * always-visible row, `data-open` is never set, and a closed state applied
+ * there would hide it. While it fades out the menu takes no tap.
+ */
+@utility section-menu {
+  @container builder (width < 48rem) {
+    display: none;
+    opacity: 0;
+    translate: 0 -4px;
+    pointer-events: none;
+    transition:
+      opacity var(--dur-fast) var(--ease-out),
+      translate var(--dur-fast) var(--ease-out),
+      display var(--dur-fast) allow-discrete;
+
+    &[data-open] {
+      display: grid;
+      opacity: 1;
+      translate: none;
+      pointer-events: auto;
+
+      @starting-style {
+        opacity: 0;
+        translate: 0 -4px;
+      }
+    }
+  }
 }
 
 /* ── The run sheet's thread ─────────────────────────────────────────────────

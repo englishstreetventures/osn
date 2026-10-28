@@ -3,27 +3,37 @@ import { dirname, join } from "node:path";
 
 import {
   apiWorker,
-  assertDevDeployTarget,
+  assertDeployTarget,
+  assertProductionScope,
   assertSiteBuiltFor,
   assertStackRetained,
   flattenMigrations,
+  hostsFor,
   planPrebuiltStage,
-  readDevDomain,
+  PRODUCTION_SITE_MODES,
+  productionSiteKinds,
   refuseDotEnvFiles,
   requireSecrets,
   retainedBucket,
   retainedD1,
   siteWorker,
   stackOptions,
-  stageHosts,
+  tierOf,
   writePrebuiltStage,
+  type SiteMode,
+  type SiteSurface,
 } from "@shared/infra";
 import * as Alchemy from "alchemy";
 import * as Cloudflare from "alchemy/Cloudflare";
 import { Data } from "effect";
 import * as Effect from "effect/Effect";
 
-import { cireDeclaration, type BindingDescription } from "./src/declaration";
+import {
+  cireDeclaration,
+  cireProductionSites,
+  SITE_LOGICAL_IDS,
+  type BindingDescription,
+} from "./src/declaration";
 import { ownerSeatSql } from "./src/seeds";
 
 /** cire/db's migrations, flattened for Alchemy on every run. */
@@ -85,6 +95,38 @@ function writeSeed(path: string, sql: string): void {
 }
 
 /**
+ * The cire stack on production: each site `modes` does not turn off, built
+ * for production and checked to be, under today's name. It reads no secret,
+ * writes no file, and declares no API Worker, database or bucket; anything
+ * else declared fails the scope check before the plan.
+ */
+const cireProductionStack = (input: {
+  readonly stage: string;
+  readonly workingDir: string;
+  readonly modes: Readonly<Record<SiteSurface, SiteMode>>;
+}) =>
+  Effect.gen(function* () {
+    const hosts = hostsFor(input.stage, {});
+    const declared = cireProductionSites({ modes: input.modes, hosts });
+    for (const site of declared.prebuilt) {
+      assertSiteBuiltFor({ ...site, directory: join(input.workingDir, site.directory) });
+    }
+    const workers = [];
+    for (const [logicalId, site] of Object.entries(declared.sites)) {
+      workers.push(yield* siteWorker(logicalId, site));
+    }
+    assertStackRetained({ stage: input.stage, storage: [], workers });
+    assertProductionScope({
+      stage: input.stage,
+      resources: workers,
+      allowed: Object.keys(productionSiteKinds(SITE_LOGICAL_IDS, input.modes)),
+    });
+    return Object.fromEntries(
+      Object.entries(declared.sites).map(([logicalId, site]) => [logicalId, site.domain]),
+    );
+  });
+
+/**
  * The cire stack: cire-api with its database, buckets and seeds,
  * cire-invites from its prebuilt Astro output, staged with its source maps,
  * and the host, vendor and landing sites. Every value is read and checked,
@@ -93,18 +135,27 @@ function writeSeed(path: string, sql: string): void {
  * declared, so a refused run writes nothing. Paths are relative to the
  * working directory, `cire/infra`. `workingDir` names that directory to the
  * checks: the `.env` files Bun would load from it are refused, and the site
- * paths resolve from it.
+ * paths resolve from it. On production it declares the sites alone, at
+ * `modes` (PRODUCTION_SITE_MODES unless a test passes its own).
  */
 export const cireStack = (input: {
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly generatedDir: string;
   readonly workingDir: string;
+  readonly modes?: Readonly<Record<SiteSurface, SiteMode>>;
 }) =>
   Effect.gen(function* () {
     const { env, generatedDir } = input;
     refuseDotEnvFiles(input.workingDir);
-    const stage = assertDevDeployTarget(yield* Alchemy.Stage, env);
-    const hosts = stageHosts(readDevDomain(env), stage);
+    const stage = assertDeployTarget(yield* Alchemy.Stage, env);
+    if (tierOf(stage) === "production") {
+      return yield* cireProductionStack({
+        stage,
+        workingDir: input.workingDir,
+        modes: input.modes ?? PRODUCTION_SITE_MODES,
+      });
+    }
+    const hosts = hostsFor(stage, env);
     // A GitHub variable, not a secret: the profile that owns the seeded wedding.
     const ownerSeat = ownerSeatSql(env.CIRE_DEV_OWNER_PROFILE_ID);
     const declared = cireDeclaration({
@@ -144,9 +195,9 @@ export const cireStack = (input: {
       ...declared.cireInvites,
       secrets: invitesSecrets,
     });
-    const host = yield* siteWorker("CireHost", declared.cireHost);
-    const vendor = yield* siteWorker("CireVendor", declared.cireVendor);
-    const landing = yield* siteWorker("CireLanding", declared.cireLanding);
+    const host = yield* siteWorker(SITE_LOGICAL_IDS.cire_host, declared.cireHost);
+    const vendor = yield* siteWorker(SITE_LOGICAL_IDS.cire_vendor, declared.cireVendor);
+    const landing = yield* siteWorker(SITE_LOGICAL_IDS.cire_landing, declared.cireLanding);
     assertStackRetained({
       stage,
       storage: [db, assets, sheets],

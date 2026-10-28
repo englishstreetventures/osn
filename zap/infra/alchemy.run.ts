@@ -1,10 +1,11 @@
 import {
   apiWorker,
-  assertDevDeployTarget,
+  assertDeployTarget,
   assertStackRetained,
   flattenMigrations,
   readDevDomain,
   refuseDotEnvFiles,
+  refuseProductionTier,
   requireSecrets,
   retainedD1,
   stackOptions,
@@ -53,7 +54,8 @@ function toBindings(
  * before anything is written or declared, so a refused run writes nothing.
  * Paths are relative to the working directory, `zap/infra`. `workingDir`
  * names that directory to the check that refuses the `.env` files Bun would
- * load from it.
+ * load from it. The production stage is refused until zap-api's adoption
+ * (step 2 of phase P3, englishstreetventures/osn#1490).
  */
 export const zapStack = (input: {
   readonly env: Readonly<Record<string, string | undefined>>;
@@ -63,7 +65,8 @@ export const zapStack = (input: {
   Effect.gen(function* () {
     const { env, generatedDir } = input;
     refuseDotEnvFiles(input.workingDir);
-    const stage = assertDevDeployTarget(yield* Alchemy.Stage, env);
+    const stage = assertDeployTarget(yield* Alchemy.Stage, env);
+    refuseProductionTier(stage);
     const hosts = stageHosts(readDevDomain(env), stage);
     const declared = zapDeclaration({ stage, hosts, generatedDir });
     const secrets = requireSecrets({ worker: "zap-api", stage, env });
