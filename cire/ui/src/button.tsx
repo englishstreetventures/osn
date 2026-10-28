@@ -25,9 +25,9 @@ import { splitProps } from "solid-js";
  * Actions take the `control` corner role, which cire's design draws as a pill
  * once an app maps it so. Labels show as written, at normal tracking, with a
  * medium weight on a boxed label so it stands apart from the text around it.
- * Nothing here transforms the label. The corner comes from a contract role rather than a size
- * step, so each app sets how round its buttons are once, in its stylesheet:
- * see {@link cornerFor}.
+ * Nothing here transforms the label. The corner comes from a contract role
+ * rather than a size step, so each app sets how round its buttons are once, in
+ * its stylesheet: see {@link cornerFor}.
  *
  * ## No haptic here
  *
