@@ -896,11 +896,14 @@ sets how round its buttons are once, in its stylesheet ([[design-tokens]]):
 | --------------------------------------- | ---------------------- |
 | size `swatch`, whatever the variant      | `base:rounded-ui-field` |
 | variant `tile` or `field`               | `base:rounded-ui-field` |
+| variant `chip`                          | `base:rounded-ui-pill` |
 | every other variant and size             | `base:rounded-ui-control` |
 
 A tile is a block, a field holds a value and a swatch frames a picture, so a
-pill would read as a lozenge around each. The borderless variants take
-`control` too; with no border and no fill, only their focus ring shows it.
+pill would read as a lozenge around each. `chip` takes the `pill` step rather
+than the `control` role: it sits beside a round close button and stays round
+whatever an app maps `control` to. The borderless variants take `control` too;
+with no border and no fill, only their focus ring shows it.
 Because no default corner is a plain utility, a caller's plain `rounded-*` in
 `class` wins rather than tying with it (§Class composition above).
 

@@ -206,7 +206,9 @@ const VARIANT = {
    * and an accent hairline, because it leads somewhere — `quiet`'s neutral ink
    * would make the way to the RSVP form the dimmest thing on the details.
    *
-   * The pill is {@link cornerFor}'s, the same as every other action's.
+   * Its pill is the `pill` step rather than the `control` role, which
+   * {@link cornerFor} picks for it: it must match the round close button
+   * beside it whatever an app decides its buttons look like.
    */
   chip:
     "base:border-ui-accent/40 base:bg-ui-surface base:text-ui-accent-ink " +
@@ -362,8 +364,10 @@ function sizingFor(variant: ButtonVariant, size: ButtonSize): string {
  * `tile`, a `field` and anything at the `swatch` size take the `field` role
  * instead — the text field's corner: a tile is a block, a field holds a value,
  * and a swatch frames a picture, so a pill would read as a lozenge around
- * each. The borderless variants take `control` too; with no border and no
- * fill, only their focus ring shows it.
+ * each. `chip` takes the `pill` step, since it is drawn as a sibling of a
+ * round close button and stays round whatever `control` is. The borderless
+ * variants take `control` too; with no border and no fill, only their focus
+ * ring shows it.
  *
  * Exactly one corner class, and never a plain one, so a caller's plain
  * `rounded-*` in `class` outranks it rather than tying with it.
@@ -372,6 +376,7 @@ function cornerFor(variant: ButtonVariant, size: ButtonSize): string {
   if (size === "swatch" || variant === "tile" || variant === "field") {
     return "base:rounded-ui-field";
   }
+  if (variant === "chip") return "base:rounded-ui-pill";
   return "base:rounded-ui-control";
 }
 
