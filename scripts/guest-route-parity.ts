@@ -41,6 +41,9 @@
  *                       the Access service token, both or neither, sent only to
  *                       PARITY_ORIGIN.
  *
+ * Every request to PARITY_ORIGIN carries smoke-check's CI_USER_AGENT:
+ * Cloudflare's Bot Fight Mode challenges Bun's own from a GitHub runner.
+ *
  * The report (`--out`) is the same for the same answers: sorted keys, no
  * port, no time, each side's own origin stripped from every value.
  *
@@ -63,7 +66,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, sep } from "node:path";
 
-import { judge } from "./smoke-check";
+import { CI_USER_AGENT, judge } from "./smoke-check";
 
 /** Where a run finds the guest site under a repository root. */
 const pathsUnder = (root: string) => {
@@ -855,7 +858,11 @@ export async function run(options: Options, context: RunContext): Promise<Report
   process.once("SIGTERM", stopOnSignal);
   process.once("SIGINT", stopOnSignal);
   try {
-    const alchemy: Side = { origin: options.origin, headers: options.access, edge: true };
+    const alchemy: Side = {
+      origin: options.origin,
+      headers: { "user-agent": CI_USER_AGENT, ...options.access },
+      edge: true,
+    };
     const wrangler: Side = { origin: reference.origin, headers: {}, edge: false };
     const results: ProbeResult[] = [];
     for (const path of probes) {
