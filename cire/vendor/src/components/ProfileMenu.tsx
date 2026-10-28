@@ -94,7 +94,7 @@ export default function ProfileMenu(props: {
       </DropdownMenu.Trigger>
 
       <DropdownMenu.Portal>
-        <DropdownMenu.Content class="border-border bg-surface menu-pop z-50 min-w-52 rounded-md border p-1.5 shadow-lg outline-none">
+        <DropdownMenu.Content class="border-border bg-surface menu-pop z-50 min-w-52 rounded-md border p-1.5 shadow-(--elev-2) outline-none">
           <div class="flex flex-col gap-0.5 px-3 pt-2 pb-2.5">
             <span class="font-body text-text text-ui-sm truncate">{name()}</span>
             <Show when={detail()}>

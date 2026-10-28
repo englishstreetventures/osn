@@ -80,7 +80,7 @@ export default function SignInPanel() {
         )}
       </Show>
 
-      <p class="font-body text-text-muted text-ui-base leading-relaxed">
+      <p class="font-body text-text-muted text-ui-base leading-ui-normal">
         Cire uses your musubi account to sign you in. Your passkey stays with musubi — Cire never
         sees it.
       </p>
@@ -89,7 +89,7 @@ export default function SignInPanel() {
         Continue with musubi
       </Button>
 
-      <p class="font-body text-text-muted text-ui-base leading-relaxed">
+      <p class="font-body text-text-muted text-ui-base leading-ui-normal">
         No musubi account yet? You can create one on the next screen.
       </p>
     </div>
