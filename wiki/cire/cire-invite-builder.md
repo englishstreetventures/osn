@@ -9,7 +9,7 @@ related:
   - "[[cire-development]]"
   - "[[drag-and-drop]]"
   - "[[cire-host-portal-layout]]"
-last-reviewed: 2026-10-28
+last-reviewed: 2026-10-29
 ---
 # Cire invite builder
 
@@ -1141,7 +1141,7 @@ design pack's islands call:
     default 0) sets how solid the panel behind the title block is, and
     `.blur` (0–20, default 0) a frosted-glass `backdrop-filter`. Opacity 0 ⇒ **no
     panel**, just the radial scrim (the original look); above 0 the title block
-    gets a translucent rounded panel painted
+    gets a translucent panel at the 16px card corner (`rounded-ui-lg`) painted
     `color-mix(in oklab, var(--invite-panel) <opacity>%, transparent)`, so the
     organiser's own scheme carries it. Both values are re-clamped in the island
     (`clampNum`) against a stale or malformed payload. (Future: auto
@@ -1382,7 +1382,7 @@ were never an option — the dashboard routes on `location.hash`, so a real
 it needed to be on every screen, and pinned the composed preview to a fixed
 scroll position an organiser had to scroll back up to see. Now `activeSection`
 (a signal in `InviteBuilder.tsx`) tracks which ONE section is showing; the nav
-pills set it instead of scrolling.
+tabs — small caps, at the 6px step — set it instead of scrolling.
 
 **A hidden section's label is faded and marked with an eye-off icon; the nav
 has no dots.** Together they mean "guests will not see this section", for
@@ -1469,9 +1469,9 @@ the static row they have always been, with `flex-wrap`, so a row that no longer
 fits wraps rather than scrolls.
 
 *Unverified for nine tabs. Measured with eight (four rows, no FAQ tab): the open
-grid was ≈206px tall on a 390px phone, and at the crossover the eight pills plus
+grid was ≈206px tall on a 390px phone, and at the crossover the eight tabs plus
 "Preview" fitted one line with room to spare. The FAQ tab adds a fifth grid row
-and one short pill; neither number has been re-measured.*
+and one short tab; neither number has been re-measured.*
 
 **One tablist, two presentations — not two tablists.** The narrow surface
 re-lays-out the SAME `role="tablist"` rather than rendering a second copy of the

@@ -23,7 +23,7 @@ packages:
   - "@cire/host"
   - "@pulse/web"
   - "@shared/ui"
-last-reviewed: 2026-10-28
+last-reviewed: 2026-10-29
 ---
 
 # Frontend Patterns
@@ -358,14 +358,9 @@ frame's animation cap sets `overflow: hidden`, `contain: layout paint` and a
 fresh transition it never finishes, forcing a synchronous
 `getBoundingClientRect()` per frame — the reflow the guard exists to prevent,
 arriving through the one axis it does not watch. `Textarea`'s `resize` prop
-(`cire/host` and `cire/vendor` `components/ui/Field.tsx`, default `"y"`) is
-the fix: opt a textarea out of user-resize when it sits inside an
-auto-sized frame. Passing `class="resize-none"` at a call site does **not**
-work — `Field.tsx` appends its own resize class after the caller's, so both
-land on the element and Tailwind resolves the conflict by the two utilities'
-order in the generated stylesheet, not by attribute order. Reach for a real
-prop, not a class override, whenever a component appends its own class after
-the caller's.
+(`@shared/ui`, [textarea.tsx](../../shared/ui/src/ui/textarea.tsx), default
+`"y"`) is the fix: pass `resize="none"` to a textarea that sits inside an
+auto-sized frame.
 
 ### `sr-only` is `position: absolute`, so a pill in a scroller needs a positioned parent
 
@@ -521,15 +516,17 @@ the screen is.
 
 | Input | Setting | Rule |
 |---|---|---|
-| Fine pointer — a mouse or a trackpad (`@media (pointer: fine)`) | A desk; the reader is working and waits on each motion before the next click | Shorter. Cire's organiser portals run 90 / 150 / 200ms here against 120 / 200 / 320ms on touch ([[cire-host-portal-layout]], `cire/host/DESIGN.md` §4) |
+| Fine pointer — a mouse or a trackpad (`@media (pointer: fine)`) | A desk; the reader is working and waits on each motion before the next click | Shorter. Every cire app runs 90 / 150 / 200ms here against 120 / 200 / 320ms on touch ([[cire-host-portal-layout]], `cire/host/DESIGN.md` §4) |
 | Touch | A phone in the hand; the reader is reading, not working | The longer ladder, and gestures that behave like the platform's own (below) |
 
 `pointer: fine` reads the *primary* pointer, so a touch laptop driven by its
 trackpad gets the desk pace. Switch the duration tokens under the query rather
 than writing a second set of utilities: every motion that already reads a
 `--dur-*` token follows the input for free, and one written as a literal or as
-Tailwind's bare `transition` (150ms) does not. A product whose desktop readers
-are not working — cire's guest site — keeps one ladder on every input.
+Tailwind's bare `transition` (150ms) does not. All four cire apps — the two
+portals, the guest site and the marketing site — carry the same ladder and the
+same `pointer: fine` block, and `cire/vendor/tests/styles/tokens.test.ts` fails
+if any copy differs.
 
 ### A gesture follows the finger, and the finger's speed outlives it
 
