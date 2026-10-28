@@ -323,6 +323,8 @@ export const CIRE_EVENT_EDIT = {
 
 /** Seeded cire guest: the first canonical family in `cire/db/seed/data/guests.ts`. */
 export const CIRE_GUEST = {
+  /** The sample wedding the family is invited to, which the dev profile owns. */
+  weddingId: "wed_bootstrap",
   slug: "cire-wedding",
   code: "TESTONE-IVY-AA11",
   guestName: "Ada",

@@ -25,7 +25,7 @@
  * events, and seating writes nothing it reads.
  *
  * The guest-email and RSVP steps share this flow's sign-in because `flows.test.ts` caps
- * organiser sign-ins at six. They run first, so the flow's screenshot is the
+ * organiser sign-ins at seven. They run first, so the flow's screenshot is the
  * seating chart.
  */
 

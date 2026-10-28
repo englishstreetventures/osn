@@ -1,0 +1,385 @@
+/**
+ * Cire's corners, measured and pictured: action buttons are pills, text fields
+ * take a 14px corner, and cards a 16px one, in the organiser portal and on the
+ * guest site in both invitation designs.
+ *
+ * The organiser signs in and opens the sample wedding: its overview, its guest
+ * list and its RSVP table. Then, in a second tab, the organiser opens Ada's
+ * invitation at a link carrying her household's code, which claims on load,
+ * and opens the RSVP sheet for the Reception, choosing Attending and ticking
+ * "Other" so the sheet shows its text field. Nothing is saved. The organiser
+ * then switches the wedding to the Gala design, and the guest tab reloads:
+ * the claim's cookie restores the session, so the second design costs no
+ * second claim. Last, the organiser switches the wedding back to Classic,
+ * leaving it as seeded; that switch runs when a Gala step fails too, so a flow
+ * after this one never opens the sample wedding on Gala.
+ *
+ * Each view is shot at a phone width and a desktop width, light and dark, into
+ * `screenshots/cire-soft-shapes/`. The portal follows the colour scheme (with
+ * no stored choice, `lib/theme.ts` puts the system's on `data-theme`); the
+ * guest site has no dark theme, so its dark shots show the same page as its
+ * light ones.
+ *
+ * Every corner is read from computed style: a pill is a radius of at least
+ * half the control's height, and more than 16px, so a 16px card corner on a
+ * 32px button does not pass for one.
+ *
+ * The claim goes out from `ORGANISER_ADDRESS`, so it spends the organiser's
+ * window of cire-api's claim limit, not the guests' (`flows.test.ts`).
+ */
+
+import { mkdirSync } from "node:fs";
+import { resolve } from "node:path";
+
+import type { Locator, Page } from "@playwright/test";
+
+import { CIRE_GUEST, ORIGINS, SCREENSHOT_DIR } from "../../src/config";
+import {
+  claimFromOrganiserAddress,
+  expect,
+  guestSitePaths,
+  signInToCireHost,
+  test,
+  type Flow,
+} from "../support/fixtures";
+
+const SHOTS = resolve(SCREENSHOT_DIR, "cire-soft-shapes");
+const WIDTHS = [
+  { width: 390, height: 844 },
+  { width: 1440, height: 900 },
+] as const;
+const SCHEMES = ["light", "dark"] as const;
+
+const { weddingId, slug, code, guestName } = CIRE_GUEST;
+const HOST = `${ORIGINS.cireHost}/#/w/${weddingId}`;
+const INVITE = `${ORIGINS.cireInvites}/cire/invite?slug=${slug}`;
+const CLAIM_URL = `${ORIGINS.cireApi}/api/claim`;
+const DESIGN_URL = `${ORIGINS.cireApi}/api/organiser/weddings/${weddingId}/invite/design`;
+/** The seeded Reception (`cire/db/seed/data/events.ts`), which no other flow answers for Ada. */
+const EVENT = "Reception";
+
+type Scheme = (typeof SCHEMES)[number];
+
+/** A control's top-left corner, its height and its label's case, from computed style and layout. */
+function corner(target: Locator): Promise<{ radius: string; height: number; transform: string }> {
+  return target.evaluate((el) => {
+    const style = getComputedStyle(el);
+    return {
+      radius: style.borderTopLeftRadius,
+      height: el.getBoundingClientRect().height,
+      transform: style.textTransform,
+    };
+  });
+}
+
+const PILL = "a pill";
+const BUTTON = `${PILL}, label as written`;
+
+/**
+ * {@link PILL} when the corner is at least half the height and over 16px; the
+ * corner and height read otherwise.
+ */
+async function pillShape(target: Locator): Promise<string> {
+  const { radius, height } = await corner(target);
+  const r = Number.parseFloat(radius);
+  return r >= height / 2 && r > 16 ? PILL : `${radius} on ${height}px`;
+}
+
+/** {@link BUTTON} when the control is a pill and nothing transforms its label. */
+async function buttonShape(target: Locator): Promise<string> {
+  const { transform } = await corner(target);
+  const label = transform === "none" ? "label as written" : `label ${transform}`;
+  return `${await pillShape(target)}, ${label}`;
+}
+
+async function radiusOf(target: Locator): Promise<string> {
+  return (await corner(target)).radius;
+}
+
+/**
+ * Shoots `view` at both widths, light and dark. `settle` runs after each change
+ * and waits for whatever says the page has taken it.
+ */
+async function shootAll(
+  page: Page,
+  view: string,
+  settle: (scheme: Scheme) => Promise<void>,
+): Promise<void> {
+  mkdirSync(SHOTS, { recursive: true });
+  // `astro dev` draws its own toolbar over the page; it is not the page.
+  await page.addStyleTag({ content: "astro-dev-toolbar { display: none !important; }" });
+  for (const size of WIDTHS) {
+    for (const colorScheme of SCHEMES) {
+      await page.setViewportSize(size);
+      await page.emulateMedia({ colorScheme });
+      // Off every control, so no shot catches a hover the last click left.
+      await page.mouse.move(0, 0);
+      await settle(colorScheme);
+      await page.screenshot({
+        path: resolve(SHOTS, `${view}-${size.width}-${colorScheme}.png`),
+        animations: "disabled",
+      });
+    }
+  }
+}
+
+/** The portal puts the scheme it resolved on `data-theme`; wait for it. */
+const hostTheme = (page: Page) => async (scheme: Scheme) => {
+  await expect(page.locator("html")).toHaveAttribute("data-theme", scheme);
+};
+
+/** Measures at each width in light, where the corners are read. */
+async function atEachWidth(page: Page, measure: (width: number) => Promise<void>): Promise<void> {
+  for (const size of WIDTHS) {
+    await page.setViewportSize(size);
+    await page.emulateMedia({ colorScheme: "light" });
+    await measure(size.width);
+  }
+}
+
+/**
+ * The invitation's views in one design: its top, with the household's email
+ * box; the Reception's card; then the Reception's RSVP sheet.
+ */
+async function inviteViews(flow: Flow, guest: Page, design: "classic" | "gala"): Promise<void> {
+  const card = guest
+    .getByRole("article")
+    .filter({ has: guest.getByRole("heading", { name: EVENT, exact: true }) });
+  const respond = card.getByRole("button", { name: "Respond", exact: true });
+  const sheet = guest.getByRole("dialog");
+
+  await flow.step(`${design}: shoot the top of the invitation and the ${EVENT} card`, async () => {
+    await expect(respond).toBeVisible();
+    await shootAll(guest, `invite-${design}-top`, async () => {
+      await guest.evaluate(() => window.scrollTo(0, 0));
+      await expect.poll(() => guest.evaluate(() => window.scrollY)).toBe(0);
+    });
+    await shootAll(guest, `invite-${design}`, async () => {
+      await card.scrollIntoViewIfNeeded();
+      await expect(card).toBeInViewport();
+    });
+  });
+  const email = guest.getByRole("textbox", { name: `Your email, ${guestName}` });
+  await atEachWidth(guest, async (width) => {
+    flow.check(`${design} at ${width}: the email field's corner`, "14px", await radiusOf(email));
+    flow.check(`${design} at ${width}: the event card's corner`, "16px", await radiusOf(card));
+    flow.check(
+      `${design} at ${width}: Respond's corner and label`,
+      BUTTON,
+      await buttonShape(respond),
+    );
+  });
+
+  await flow.step(`${design}: open the ${EVENT} RSVP sheet, Attending, Other`, async () => {
+    await respond.click();
+    await expect(sheet.getByRole("heading", { name: `Respond, ${EVENT}` })).toBeVisible();
+    const attending = sheet.getByRole("button", { name: "Attending", exact: true });
+    await attending.click();
+    await expect(attending).toHaveAttribute("aria-pressed", "true");
+    // The pill is the label; its checkbox is visually hidden under it.
+    const other = sheet.getByRole("checkbox", { name: "Other", exact: true });
+    await sheet
+      .locator("label")
+      .filter({ has: guest.getByRole("checkbox", { name: "Other", exact: true }) })
+      .click();
+    await expect(other).toBeChecked();
+    await expect(sheet.getByRole("textbox", { name: "Anything else" })).toBeVisible();
+  });
+
+  const field = sheet.getByRole("textbox", { name: "Anything else" });
+  const save = sheet.getByRole("button", { name: "Save", exact: true });
+  await atEachWidth(guest, async (width) => {
+    flow.check(
+      `${design} sheet at ${width}: the text field's corner`,
+      "14px",
+      await radiusOf(field),
+    );
+    flow.check(
+      `${design} sheet at ${width}: Save's corner and label`,
+      BUTTON,
+      await buttonShape(save),
+    );
+  });
+
+  await flow.step(`${design}: shoot the RSVP sheet`, async () => {
+    await shootAll(guest, `invite-${design}-rsvp`, async () => {
+      // The sheet's footer is sticky over its scrollport, so a field at the
+      // scrollport's foot counts as in view while the footer hides it.
+      await field.evaluate((el) => el.scrollIntoView({ block: "center" }));
+      await expect(field).toBeInViewport({ ratio: 1 });
+      await expect(save).toBeInViewport();
+    });
+  });
+}
+
+test("cire-soft-shapes", async ({ page, context, flow }) => {
+  await claimFromOrganiserAddress(context);
+  await signInToCireHost(flow, page);
+
+  // ── The portal ────────────────────────────────────────────────────────────
+  const guestsCard = page.getByText("Guests & events", { exact: true }).locator("xpath=..");
+  await flow.step("open the sample wedding's overview", async () => {
+    await page.goto(HOST);
+    await expect(guestsCard).toBeVisible({ timeout: 60_000 });
+  });
+  await atEachWidth(page, async (width) => {
+    flow.check(
+      `overview at ${width}: the Guests card's corner`,
+      "16px",
+      await radiusOf(guestsCard),
+    );
+  });
+
+  const preview = page.getByRole("button", { name: "Preview invite" });
+  /**
+   * Preview invite draws its label only where the bar is `@2xl/frame` wide; at
+   * a phone's width it draws a glyph and keeps the label for screen readers, so
+   * there the check reads its corner alone.
+   */
+  const checkPreview = async (view: string, width: number) => {
+    if (width === WIDTHS[0].width) {
+      flow.check(`${view} at ${width}: Preview invite's corner`, PILL, await pillShape(preview));
+    } else {
+      flow.check(
+        `${view} at ${width}: Preview invite's corner and label`,
+        BUTTON,
+        await buttonShape(preview),
+      );
+    }
+  };
+  const guestSearch = page.getByRole("searchbox", { name: "Search guests" });
+  await flow.step("open the guest list", async () => {
+    await page.getByRole("button", { name: "Open the guest list" }).click();
+    await expect(guestSearch).toBeVisible();
+  });
+  await atEachWidth(page, async (width) => {
+    await checkPreview("guest list", width);
+    flow.check(
+      `guest list at ${width}: the search field's corner`,
+      "14px",
+      await radiusOf(guestSearch),
+    );
+  });
+  await flow.step("shoot the guest list", () => shootAll(page, "host-guests", hostTheme(page)));
+
+  const rsvpSearch = page.getByRole("searchbox", { name: /^Search .+ guests$/ });
+  await flow.step("open the RSVP table", async () => {
+    await page.goto(`${HOST}/guests/rsvps`);
+    await expect(page.getByRole("tablist", { name: "Events" })).toBeVisible();
+    await expect(rsvpSearch).toBeVisible();
+  });
+  await atEachWidth(page, async (width) => {
+    await checkPreview("RSVP table", width);
+    flow.check(
+      `RSVP table at ${width}: the search field's corner`,
+      "14px",
+      await radiusOf(rsvpSearch),
+    );
+  });
+  await flow.step("shoot the RSVP table", () => shootAll(page, "host-rsvps", hostTheme(page)));
+
+  const design = (name: "Classic" | "Gala") =>
+    page
+      .getByRole("radiogroup", { name: "Invite design" })
+      .getByRole("radio", { name: new RegExp(`^${name}`) });
+  await flow.step("open the invite designs", async () => {
+    await page.goto(`${HOST}/invite/design`);
+    await expect(design("Classic")).toBeVisible({ timeout: 60_000 });
+  });
+  flow.check(
+    "the sample wedding starts on Classic",
+    "true",
+    (await design("Classic").getAttribute("aria-checked")) ?? "missing",
+  );
+
+  // ── The guest site, in Classic ───────────────────────────────────────────
+  const guest = await flow.newPage(context);
+  const served = guestSitePaths(guest);
+  const claimed = await flow.step(`open ${guestName}'s invitation from its link`, async () => {
+    const response = guest.waitForResponse(
+      (r) => r.url() === CLAIM_URL && r.request().method() === "POST",
+    );
+    await guest.goto(`${INVITE}&code=${code}`);
+    const status = (await response).status();
+    await expect(guest.getByText(`Answering as ${guestName}`)).toBeVisible();
+    return status;
+  });
+  flow.check(`claim with ${guestName}'s code`, 200, claimed);
+
+  await flow.step("decline optional storage", async () => {
+    // The consent prompt is an idle-hydrated island: wait for it rather than race it.
+    const prompt = guest.getByRole("dialog", { name: "Privacy choices" });
+    await expect(prompt).toBeVisible({ timeout: 60_000 });
+    await prompt.getByRole("button", { name: "Reject all" }).click();
+    await expect(prompt).toBeHidden();
+  });
+  /**
+   * Whether the guest site served one of `name`'s modules since request `from`.
+   * `astro dev` serves an island by its file path, so the path is matched
+   * anywhere in it.
+   */
+  const designModules = (name: string, from = 0) =>
+    served.slice(from).some((path) => path.includes(`/src/designs/${name}/`));
+  flow.check("Classic's modules served", true, designModules("classic"));
+  flow.check("Gala's modules not served", false, designModules("gala"));
+
+  await inviteViews(flow, guest, "classic");
+
+  // ── The guest site, in Gala ──────────────────────────────────────────────
+  const switchTo = async (name: "Classic" | "Gala") => {
+    const response = page.waitForResponse(
+      (r) => r.url() === DESIGN_URL && r.request().method() === "PUT",
+    );
+    await design(name).click();
+    const status = (await response).status();
+    await expect(design(name)).toHaveAttribute("aria-checked", "true");
+    return status;
+  };
+  const switchBack = async () =>
+    flow.check(
+      "the organiser switches the wedding back to Classic",
+      200,
+      await flow.step("switch back to Classic", () => switchTo("Classic")),
+    );
+
+  // The Gala half fails into `catch`, so the wedding goes back to Classic
+  // whichever step fails, and the step that failed is the error reported.
+  try {
+    flow.check(
+      "the organiser switches the wedding to Gala",
+      200,
+      await flow.step("switch to Gala", () => switchTo("Gala")),
+    );
+
+    const sinceReload = served.length;
+    const restored = await flow.step("reload the invitation", async () => {
+      const session = guest.waitForResponse(
+        (r) => r.url().startsWith(`${CLAIM_URL}/session`) && r.request().method() === "GET",
+      );
+      await guest.goto(INVITE);
+      const status = (await session).status();
+      await expect(guest.getByText(`Answering as ${guestName}`)).toBeVisible();
+      return status;
+    });
+    flow.check(`${guestName}'s session restored from the claim's cookie`, 200, restored);
+    flow.check("Gala's modules served", true, designModules("gala", sinceReload));
+    flow.check("Classic's modules not served", false, designModules("classic", sinceReload));
+
+    await inviteViews(flow, guest, "gala");
+  } catch (error) {
+    // A switch to Gala that never landed leaves Classic chosen, and pressing a
+    // chosen card sends nothing, so the restore would wait out its timeout.
+    const classicChosen = await design("Classic")
+      .getAttribute("aria-checked")
+      .catch(() => null);
+    if (classicChosen !== "true") await switchBack().catch(() => undefined);
+    throw error;
+  }
+
+  await switchBack();
+
+  // The flow's own screenshot: the Gala RSVP sheet on a phone, in light.
+  await guest.setViewportSize(WIDTHS[0]);
+  await guest.emulateMedia({ colorScheme: "light" });
+  flow.finalPage = guest;
+});
