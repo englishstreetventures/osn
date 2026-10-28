@@ -24,6 +24,7 @@
     "script": "dev:app"
   },
   "dependencies": {
+    "@cire/ui": "workspace:*",
     "@shared/color": "workspace:*",
     "@shared/design-tokens": "workspace:*",
     "@shared/ui": "workspace:*",
