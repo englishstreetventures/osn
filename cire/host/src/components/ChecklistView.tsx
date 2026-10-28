@@ -572,7 +572,7 @@ export default function ChecklistView(props: ChecklistViewProps) {
                                       style={maybeTransformStyle(sortable.transform())}
                                       class="border-border bg-surface/10 relative flex flex-wrap items-center gap-x-3 gap-y-2 rounded-sm border px-3 py-2"
                                       classList={{
-                                        "border-gold/60 bg-surface/80 z-10 shadow-lg":
+                                        "border-gold/60 bg-surface/80 z-10 shadow-(--elev-2)":
                                           sortable.isActiveDraggable(),
                                         "transition-transform duration-(--dur-base) ease-(--ease-in-out)":
                                           dndState.dragging() && !sortable.isActiveDraggable(),

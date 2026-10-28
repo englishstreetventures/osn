@@ -30,9 +30,13 @@ export default function WeddingSwitcher(props: {
     <DropdownMenu placement="bottom-start" gutter={8}>
       <DropdownMenu.Trigger
         aria-label="Switch wedding"
-        class="group hover:bg-surface/60 flex min-w-0 items-center gap-2 rounded-sm px-2 py-1.5 transition-colors duration-(--dur-fast) ease-(--ease-out)"
+        class="group hover:bg-surface/60 flex min-w-0 items-center gap-2 rounded-sm px-2 py-1 transition-colors duration-(--dur-fast) ease-(--ease-out)"
       >
-        <span class="font-display text-text text-ui-md min-w-0 truncate leading-none font-light">
+        {/* `truncate` clips at this box, and at this size Cormorant's g, j, p
+            and y reach about 4.7px below the baseline, past the 3.7px a 1.1
+            line leaves. The name keeps 2px of padding inside the clip, taken
+            from the trigger's own. */}
+        <span class="font-display text-text text-ui-md leading-ui-none min-w-0 truncate py-0.5 font-light">
           {props.current.displayName}
         </span>
         <span

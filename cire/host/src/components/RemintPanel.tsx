@@ -148,7 +148,7 @@ export default function RemintPanel(props: RemintPanelProps) {
                   />
                   <span class="font-body text-text text-ui-base">{option.label}</span>
                 </span>
-                <span class="font-body text-text-muted text-ui-sm pl-6 leading-snug">
+                <span class="font-body text-text-muted text-ui-sm leading-ui-snug pl-6">
                   {option.hint}
                 </span>
               </label>
@@ -171,7 +171,7 @@ export default function RemintPanel(props: RemintPanelProps) {
       <Show when={confirming()}>
         <div class="border-error/30 bg-error/5 flex flex-col gap-3 rounded-sm border p-4">
           <Show when={sharedCount() > 0}>
-            <p class="font-body text-error text-ui-base leading-relaxed">
+            <p class="font-body text-error text-ui-base leading-ui-normal">
               {sharedCount() === 1
                 ? "1 family has already been sent their code."
                 : `${sharedCount()} families have already been sent their codes.`}{" "}

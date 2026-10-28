@@ -77,7 +77,7 @@ export default function LeaveWedding(props: LeaveWeddingProps) {
         <h3 id="leave-wedding-heading" class="font-display text-text text-ui-md font-light">
           Leave this wedding
         </h3>
-        <p class="font-body text-text-muted text-ui-sm max-w-prose leading-relaxed">
+        <p class="font-body text-text-muted text-ui-sm leading-ui-normal max-w-prose">
           Give up your seat. The wedding leaves your list and any emails about it stop. An owner can
           add you back.
         </p>
@@ -102,7 +102,7 @@ export default function LeaveWedding(props: LeaveWeddingProps) {
       >
         <div class="flex flex-col gap-4">
           <p class="font-display text-text text-ui-md font-light">Leave this wedding?</p>
-          <p class="font-body text-text-muted text-ui-sm leading-relaxed">
+          <p class="font-body text-text-muted text-ui-sm leading-ui-normal">
             You lose access to it straight away. To come back, ask an owner to add you again.
           </p>
           <div class="flex flex-wrap justify-end gap-2">

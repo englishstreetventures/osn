@@ -464,7 +464,7 @@ export default function RunTimeEditor(props: RunTimeEditorProps) {
                         }}
                         onTime={setTime}
                       />
-                      <p class="font-body text-text-muted text-ui-xs leading-snug">
+                      <p class="font-body text-text-muted text-ui-xs leading-ui-snug">
                         {chosen()
                           ? `On ${eventName()}'s clock: ${describeTimeZone(chosen()!.event.timezone, date())}`
                           : "On the event's own clock."}
@@ -503,7 +503,10 @@ export default function RunTimeEditor(props: RunTimeEditorProps) {
                         )}
                       </Field>
                     </div>
-                    <p class="font-body text-text-muted text-ui-xs leading-snug" aria-live="polite">
+                    <p
+                      class="font-body text-text-muted text-ui-xs leading-ui-snug"
+                      aria-live="polite"
+                    >
                       {lands()
                         ? `${lands()}, on ${eventName()}'s clock`
                         : `Moves with ${eventName()}.`}

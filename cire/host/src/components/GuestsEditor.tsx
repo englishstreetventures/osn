@@ -798,7 +798,7 @@ function FamilyCard(props: {
       }
     >
       <span
-        class="text-text-muted text-ui-xs shrink-0 font-mono"
+        class="text-text-muted text-ui-xs font-ui-mono shrink-0"
         title="This household's claim code — deleting the household disables it."
       >
         {props.family.publicId}

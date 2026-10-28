@@ -1,4 +1,5 @@
 import Button from "@cire/ui/button";
+import Loading from "@cire/ui/loading";
 import { useAuth } from "@shared/rp-auth/solid";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
@@ -302,9 +303,7 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
 
       {/* Loading */}
       <Show when={loading() && listings().length === 0}>
-        <p role="status" class="text-text-muted text-ui-sm italic">
-          Loading vendors…
-        </p>
+        <Loading label="Loading vendors…" />
       </Show>
 
       {/* Empty state */}

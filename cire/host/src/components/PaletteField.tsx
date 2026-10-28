@@ -259,7 +259,7 @@ export default function PaletteField(props: {
       <Show when={adjusted().length > 0}>
         <p
           role="status"
-          class="border-gold-dim bg-gold/5 text-text text-ui-sm rounded-sm border px-3 py-2 leading-relaxed"
+          class="border-gold-dim bg-gold/5 text-text text-ui-sm leading-ui-normal rounded-sm border px-3 py-2"
         >
           Adjusted to stay readable:{" "}
           {adjusted()
@@ -285,7 +285,7 @@ export default function PaletteField(props: {
       <div
         role="status"
         classList={{
-          "flex flex-col gap-1 rounded-sm px-3 py-2 text-ui-sm leading-relaxed": true,
+          "flex flex-col gap-1 rounded-sm px-3 py-2 text-ui-sm leading-ui-normal": true,
           "border-error/40 bg-error/5 text-text border": warnings().length > 0,
         }}
       >

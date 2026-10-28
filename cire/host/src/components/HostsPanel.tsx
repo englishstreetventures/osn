@@ -992,7 +992,7 @@ export default function HostsPanel(props: HostsPanelProps) {
                 {(option) => (
                   <div class="border-border bg-bg flex flex-1 flex-col gap-1 rounded-sm border p-3">
                     <dt class="font-body text-text text-ui-base">{roleLabel(option)}</dt>
-                    <dd class="font-body text-text-muted text-ui-sm leading-snug">
+                    <dd class="font-body text-text-muted text-ui-sm leading-ui-snug">
                       {ROLE_COPY[option].summary}
                       {option === "helper" && helperNeedsGold()
                         ? " The run sheet comes with Gold."
@@ -1040,7 +1040,7 @@ export default function HostsPanel(props: HostsPanelProps) {
                     disabled={adding()}
                   />
                   <Show when={open() && suggestions().length > 0}>
-                    <div class="border-border bg-bg absolute top-full right-0 left-0 z-10 mt-1 overflow-hidden rounded-md border shadow-lg">
+                    <div class="border-border bg-bg absolute top-full right-0 left-0 z-10 mt-1 overflow-hidden rounded-md border shadow-(--elev-2)">
                       {/* Caption for the on-focus case only: with nothing typed the
                           list IS the organiser's connections, and saying so is what
                           makes an unprompted dropdown legible rather than startling. */}
@@ -1152,7 +1152,7 @@ export default function HostsPanel(props: HostsPanelProps) {
                       <span class="text-gold-dim">@{host.handle}</span>
                     ) : (
                       <span
-                        class="text-text-muted text-ui-sm tracking-ui-wide font-mono"
+                        class="text-text-muted text-ui-sm tracking-ui-wide font-ui-mono"
                         title="OSN profile id"
                       >
                         {host.osnProfileId}
@@ -1309,7 +1309,7 @@ export default function HostsPanel(props: HostsPanelProps) {
                       Make {nameOf(promotion().host)} {anArticleFor(promotion().to)}{" "}
                       {ROLE_COPY[promotion().to].label.toLowerCase()}?
                     </p>
-                    <p class="font-body text-text-muted text-ui-sm leading-relaxed">
+                    <p class="font-body text-text-muted text-ui-sm leading-ui-normal">
                       {ROLE_COPY[promotion().to].summary} You can change it back at any time.
                     </p>
                   </>
@@ -1318,7 +1318,7 @@ export default function HostsPanel(props: HostsPanelProps) {
                 <p class="font-display text-text text-ui-md font-light">
                   Step down to {ROLE_COPY[promotion().to].label.toLowerCase()}?
                 </p>
-                <p class="font-body text-text-muted text-ui-sm leading-relaxed">
+                <p class="font-body text-text-muted text-ui-sm leading-ui-normal">
                   You will stop being an owner of this wedding. {ROLE_COPY[promotion().to].summary}{" "}
                   Only another owner can make you an owner again.
                 </p>
@@ -1363,7 +1363,7 @@ export default function HostsPanel(props: HostsPanelProps) {
               <p class="font-display text-text text-ui-md font-light">
                 Show {nameOf(helper())} the whole run sheet?
               </p>
-              <p class="font-body text-text-muted text-ui-sm leading-relaxed">
+              <p class="font-body text-text-muted text-ui-sm leading-ui-normal">
                 They will see every task for the day and who is doing each one, not only their own.
                 They still won't see the guest list, the budget or the replies. You can change it
                 back at any time.
@@ -1402,7 +1402,7 @@ export default function HostsPanel(props: HostsPanelProps) {
           {(name) => (
             <div class="flex flex-col gap-4">
               <p class="font-display text-text text-ui-md font-light">Add @{name()} as an owner?</p>
-              <p class="font-body text-text-muted text-ui-sm leading-relaxed">
+              <p class="font-body text-text-muted text-ui-sm leading-ui-normal">
                 {ROLE_COPY.owner.summary} You can change it back at any time.
               </p>
               <div class="flex flex-wrap justify-end gap-2">

@@ -721,7 +721,7 @@ export default function ModuleShell(props: ModuleShellProps) {
               <h2
                 ref={heading}
                 tabindex="-1"
-                class="font-display text-text text-ui-lg leading-none font-light"
+                class="font-display text-text text-ui-lg leading-ui-none font-light"
               >
                 {moduleDef(module()).label}
               </h2>

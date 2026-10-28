@@ -235,7 +235,7 @@ export default function DatePicker(props: {
           </svg>
         </Popover.Trigger>
         <Popover.Portal>
-          <Popover.Content class="border-border bg-surface-raised menu-pop z-50 flex w-64 flex-col gap-3 rounded-md border p-3 shadow-lg outline-none">
+          <Popover.Content class="border-border bg-surface-raised menu-pop z-50 flex w-64 flex-col gap-3 rounded-md border p-3 shadow-(--elev-2) outline-none">
             {/* ── Month header: prev / label / next ─────────────────────── */}
             <div class="flex items-center justify-between gap-2">
               <Button

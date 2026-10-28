@@ -769,7 +769,7 @@
  * pulses and it stops on its own: a permanent pulse stops being a signal and
  * starts being noise, and the class is dropped the moment the box is touched.
  *
- * **The shadow is static; only `opacity` animates** (P-W1). Chromium composites
+ * **The shadow is static; only `opacity` animates**. Chromium composites
  * animations of `transform`, `opacity`, `filter` and `backdrop-filter` and
  * nothing else — an animated `box-shadow` runs on the main thread and re-paints
  * and re-rasters the element's whole visual rect every frame, with the

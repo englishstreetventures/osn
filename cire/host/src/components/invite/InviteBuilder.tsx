@@ -40,6 +40,7 @@ import {
   typographyVars,
 } from "@cire/theme";
 import Button from "@cire/ui/button";
+import Loading from "@cire/ui/loading";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
 import { Notice } from "@shared/ui/ui/notice";
@@ -969,14 +970,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
         </p>
       </header>
 
-      <Show
-        when={data()}
-        fallback={
-          <p class="font-body text-text-muted text-ui-base tracking-ui-wider animate-pulse uppercase">
-            Loading invite…
-          </p>
-        }
-      >
+      <Show when={data()} fallback={<Loading label="Loading invite…" />}>
         {(d) => {
           // Memoized once per render pass and shared by the sticky side pane
           // and the mobile modal — without this, the rare frame where
@@ -1068,7 +1062,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                     >
                       {activeIndex() + 1}/{NAV_SECTIONS.length}
                       <span
-                        class="text-gold text-ui-sm inline-block tracking-normal transition-transform duration-(--dur-fast) ease-(--ease-out)"
+                        class="text-gold text-ui-sm tracking-ui-normal inline-block transition-transform duration-(--dur-fast) ease-(--ease-out)"
                         classList={{ "rotate-180": sectionMenuOpen() }}
                       >
                         ▾
@@ -1089,7 +1083,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                     id={SECTION_MENU_ID}
                     role="tablist"
                     data-open={sectionMenuOpen() || undefined}
-                    class="section-menu border-border bg-bg absolute inset-x-6 top-full z-30 mt-1 max-h-[60vh] grid-cols-2 gap-1 overflow-y-auto rounded-md border p-2 shadow-lg @3xl/builder:static @3xl/builder:mt-0 @3xl/builder:flex @3xl/builder:max-h-none @3xl/builder:flex-wrap @3xl/builder:overflow-visible @3xl/builder:rounded-none @3xl/builder:border-0 @3xl/builder:bg-transparent @3xl/builder:p-0 @3xl/builder:shadow-none"
+                    class="section-menu border-border bg-bg absolute inset-x-6 top-full z-30 mt-1 max-h-[60vh] grid-cols-2 gap-1 overflow-y-auto rounded-md border p-2 shadow-(--elev-2) @3xl/builder:static @3xl/builder:mt-0 @3xl/builder:flex @3xl/builder:max-h-none @3xl/builder:flex-wrap @3xl/builder:overflow-visible @3xl/builder:rounded-none @3xl/builder:border-0 @3xl/builder:bg-transparent @3xl/builder:p-0 @3xl/builder:shadow-none"
                   >
                     <For each={[...NAV_SECTIONS]}>
                       {(item) => {

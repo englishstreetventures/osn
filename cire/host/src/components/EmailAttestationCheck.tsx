@@ -21,11 +21,11 @@ export default function EmailAttestationCheck(props: {
   disabled?: boolean;
 }) {
   return (
-    <div class="border-gold/30 bg-gold/[0.06] flex flex-col gap-1.5 rounded-sm border p-3">
+    <div class="border-gold/30 bg-gold/6 flex flex-col gap-1.5 rounded-sm border p-3">
       <p class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">
         {props.count === 1 ? "1 email address" : `${props.count} email addresses`}
       </p>
-      <label class="font-body text-text-muted text-ui-sm flex items-start gap-2.5 leading-relaxed normal-case">
+      <label class="font-body text-text-muted text-ui-sm leading-ui-normal flex items-start gap-2.5 normal-case">
         <input
           type="checkbox"
           class="accent-gold mt-0.5 h-4 w-4 shrink-0 cursor-pointer"
@@ -35,7 +35,7 @@ export default function EmailAttestationCheck(props: {
         />
         <span>{ORGANISER_EMAIL_ATTESTATION.text}</span>
       </label>
-      <p class="font-body text-text-muted text-ui-sm pl-6.5 leading-relaxed">
+      <p class="font-body text-text-muted text-ui-sm leading-ui-normal pl-6.5">
         The notice to share:{" "}
         <a
           href={`${CIRE_MARKETING_URL}/privacy/guests`}

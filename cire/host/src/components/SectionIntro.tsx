@@ -22,7 +22,7 @@ export default function SectionIntro(props: {
         <p class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">{props.eyebrow}</p>
         <h2 class="font-display text-text text-ui-lg font-light">{props.title}</h2>
         <Show when={props.description}>
-          <p class="font-body text-text-muted text-ui-sm max-w-prose leading-relaxed">
+          <p class="font-body text-text-muted text-ui-sm leading-ui-normal max-w-prose">
             {props.description}
           </p>
         </Show>
