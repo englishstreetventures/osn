@@ -459,10 +459,14 @@ describe("RsvpView", () => {
     authFetchMock.mockResolvedValueOnce(json(VIEW));
     render(() => <RsvpView weddingId="wed_a" canEdit canManage />);
     const button = await screen.findByRole("button", { name: "Download RSVPs (CSV)" });
+    // An icon, as the Households tab's downloads are: its name is its label,
+    // and the shell's tooltip shows the same words.
+    expect(button.textContent).toBe("");
+    expect(button.getAttribute("data-tip")).toBe("Download RSVPs (CSV)");
     let answer: (res: Response) => void = () => {};
     authFetchMock.mockReturnValueOnce(new Promise<Response>((resolve) => (answer = resolve)));
     fireEvent.click(button);
-    await waitFor(() => expect(button.textContent).toBe("Exporting…"));
+    await waitFor(() => expect(button.getAttribute("aria-label")).toBe("Exporting RSVPs…"));
     expect(button).toHaveProperty("disabled", true);
     fireEvent.click(button);
     const csvCalls = () => authFetchMock.mock.calls.filter((c) => String(c[0]).endsWith(".csv"));
@@ -477,7 +481,7 @@ describe("RsvpView", () => {
     // Content-Disposition does.
     await waitFor(() => expect(downloadBlobMock).toHaveBeenCalledTimes(1));
     expect(downloadBlobMock.mock.calls[0]![0]).toBe("cire-rsvps-wed_a.csv");
-    expect(button.textContent).toBe("Download RSVPs (CSV)");
+    expect(button.getAttribute("aria-label")).toBe("Download RSVPs (CSV)");
   });
 
   // Both ways a lapsed session shows: the API's 401, and the auth client's

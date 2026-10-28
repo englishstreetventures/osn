@@ -20,6 +20,7 @@ import ArrowDown from "lucide-solid/icons/arrow-down";
 import ArrowUp from "lucide-solid/icons/arrow-up";
 import ChevronsUpDown from "lucide-solid/icons/chevrons-up-down";
 import CircleX from "lucide-solid/icons/circle-x";
+import Download from "lucide-solid/icons/download";
 import Info from "lucide-solid/icons/info";
 import Link2 from "lucide-solid/icons/link-2";
 import PencilLine from "lucide-solid/icons/pencil-line";
@@ -65,6 +66,7 @@ import {
 } from "../lib/rsvp-filter";
 import { applySavedReply, isSavedReply } from "../lib/rsvp-save";
 import { chromeFoot, scrollToResults } from "../lib/scroll-to-results";
+import { IconButton } from "./ActionTip";
 import SectionIntro from "./SectionIntro";
 import { type MarkTone, StatusDot, StatusMark } from "./StatusMark";
 import { createCompact, holdUntilReady, ViewBar } from "./ViewBar";
@@ -1058,17 +1060,20 @@ export default function RsvpView(props: RsvpViewProps) {
       <SectionIntro
         eyebrow="RSVPs"
         title="Replies at a glance"
+        // Owner only, as the API's `weddingOwner()` gate is: an icon beside the
+        // title, named and with its name as the shell's tooltip, as the
+        // Households tab draws its own two downloads.
         actions={
           <Show when={props.canManage && !loading() && !error() && hasGuests()}>
-            <Button
+            <IconButton
               variant="outline"
-              size="sm"
-              type="button"
+              size="icon"
+              label={exporting() ? "Exporting RSVPs…" : "Download RSVPs (CSV)"}
               onClick={() => void exportRsvps()}
               disabled={exporting()}
             >
-              {exporting() ? "Exporting…" : "Download RSVPs (CSV)"}
-            </Button>
+              <Download aria-hidden="true" strokeWidth={1.75} class="size-4" />
+            </IconButton>
           </Show>
         }
       />
