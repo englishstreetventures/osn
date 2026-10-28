@@ -19,7 +19,7 @@ import type { JSX } from "solid-js";
 
 export type CardTone = "default" | "accent";
 
-const CARD_BASE = "base:flex base:flex-col base:gap-3 base:rounded-ui-sm base:border base:p-5";
+const CARD_BASE = "base:flex base:flex-col base:gap-3 base:rounded-ui-lg base:border base:p-5";
 
 const TONE = {
   default: "base:border-ui-hairline base:bg-ui-surface/30",

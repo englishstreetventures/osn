@@ -289,6 +289,20 @@ describe("Button — motion", () => {
 });
 
 describe("Card", () => {
+  it("a card takes the large corner", () => {
+    const variants = [
+      cardClass(),
+      cardClass({ tone: "default" }),
+      cardClass({ tone: "accent" }),
+      cardClass({ interactive: true }),
+      cardClass({ tone: "accent", interactive: true }),
+    ];
+    for (const cls of variants) {
+      expect(cls).toContain("base:rounded-ui-lg");
+      expect(cls.match(/rounded-/g)).toHaveLength(1);
+    }
+  });
+
   it("marks the accented card out from the ordinary one", () => {
     expect(cardClass({ tone: "accent" })).not.toBe(cardClass());
   });
