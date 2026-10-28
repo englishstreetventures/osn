@@ -13,6 +13,7 @@ import {
   PRODUCTION_STACKS,
   PRODUCTION_SURFACES,
   sharedPath,
+  stack,
   stackDeployed,
   type StackKey,
   STACKS,
@@ -208,16 +209,17 @@ describe("which surfaces a change redeploys", () => {
     );
   });
 
-  test("DS2: a change under cire/infra/ redeploys every cire dev surface, and on production only the sites the cire stack deploys", () => {
+  test("DS2: a change under cire/infra/ redeploys every cire dev surface, and on production ships no staged site's Pages job: the cire stack ships on its own record", () => {
     const file = "cire/infra/alchemy.run.ts";
     const sites: SurfaceKey[] = ["cire_host", "cire_vendor", "cire_landing"];
     expect(redeployed([file], "dev")).toEqual(["cire_api", "cire_invites", ...sites]);
     expect(stacksDeployed([file])).toEqual(["cire"]);
-    expect(redeployed([file], "production")).toEqual(sites);
-    expect(deployReason(surface("cire_host"), [file], "production")).toBe(
-      `${file} changed, which the cire stack deploys`,
-    );
-    expect(SURFACES.filter((s) => changesContent(s, file)).map((s) => s.key)).toEqual(sites);
+    // DS3: every cire site is staged, served by its Pages job from a build
+    // the stack's paths do not touch.
+    expect(redeployed([file], "production")).toEqual([]);
+    expect(deployReason(surface("cire_host"), [file], "production")).toBeUndefined();
+    expect(SURFACES.filter((s) => changesContent(s, file)).map((s) => s.key)).toEqual([]);
+    expect(stack("cire").paths.test(file)).toBe(true);
   });
 
   test("a change to musubi landing runs the musubi stack", () => {
@@ -226,22 +228,25 @@ describe("which surfaces a change redeploys", () => {
     expect(stacksDeployed([file])).toEqual(["musubi"]);
   });
 
-  test("DS2: a change under shared/infra/ runs every dev stack, and on production every site a production stack deploys, never an API Worker", () => {
+  test("DS2: a change under shared/infra/ runs every dev stack, and on production only the sites whose Worker serves their host, never a staged site's Pages job or an API Worker", () => {
     const file = "shared/infra/src/hosts.ts";
-    const sites: SurfaceKey[] = [
-      "cire_host",
-      "cire_vendor",
-      "cire_landing",
-      "osn_social",
-      "musubi_landing",
-    ];
+    const served: SurfaceKey[] = ["musubi_landing"];
     expect(stacksDeployed([file])).toEqual(EVERY_STACK);
     expect(redeployed([file], "dev")).toEqual(ALL);
-    expect(redeployed([file], "production")).toEqual(sites);
+    expect(redeployed([file], "production")).toEqual(served);
+    expect(deployReason(surface("musubi_landing"), [file], "production")).toBe(
+      `${file} changed, which the musubi stack deploys`,
+    );
     // DS3: the stack's paths are part of what production deploys for these alone.
     expect(PRODUCTION_SURFACES.filter((s) => changesContent(s, file)).map((s) => s.key)).toEqual(
-      sites,
+      served,
     );
+    for (const key of ["cire_host", "cire_vendor", "cire_landing", "osn_social"] as const) {
+      expect({ key, reason: deployReason(surface(key), [file], "production") }).toEqual({
+        key,
+        reason: undefined,
+      });
+    }
     for (const key of ["cire_api", "cire_invites", "osn_api", "zap_api"] as const) {
       expect({ key, reason: deployReason(surface(key), [file], "production") }).toEqual({
         key,

@@ -4,7 +4,10 @@
 // release-plan.cli.test.ts serves it over HTTP to the real script.
 
 import {
+  PRODUCTION_STACKS,
   PRODUCTION_SURFACES,
+  type StackKey,
+  STACKS,
   SURFACES,
   surface,
   type SurfaceKey,
@@ -170,14 +173,33 @@ export const RECORD_RUN_OFFSET = 500_000;
 /** Every production (or dev) job of one run, all successful, each record in its own Environment. */
 export function fullRun(tier: "production" | "dev", sha: string, run: number): FixtureRecord[] {
   const surfaces = tier === "production" ? PRODUCTION_SURFACES : SURFACES;
-  return surfaces.map((s) => {
+  const states = ["success", "in_progress", "queued", "waiting"];
+  const own = surfaces.map((s): FixtureRecord => {
     const environment = tier === "production" ? productionEnvironment(s.key) : "dev";
     return {
       environment,
       sha,
       run: environment === "production-records" ? run + RECORD_RUN_OFFSET : run,
       job: tier === "production" ? prod(s.key) : dev(s.key),
-      states: ["success", "in_progress", "queued", "waiting"],
+      states,
     };
   });
+  // Each stack's own job leaves a record too: in production its production
+  // job's, on dev its dev job's.
+  const stacks = (tier === "production" ? PRODUCTION_STACKS : STACKS).map((s): FixtureRecord => ({
+    environment: tier,
+    sha,
+    run,
+    job: stackJob(s.key, tier),
+    states,
+  }));
+  return [...own, ...stacks];
 }
+
+/** A stack's own job on `tier`, by name. */
+export const stackJob = (key: StackKey, tier: "production" | "dev"): string => {
+  const found = STACKS.find((s) => s.key === key);
+  const job = tier === "production" ? found?.production : found?.job;
+  if (job === undefined) throw new Error(`the ${key} stack has no ${tier} job`);
+  return job.name;
+};

@@ -12,9 +12,12 @@
  * On dev every surface belongs to one Alchemy stack (STACKS), and a stack job
  * deploys all of its surfaces at once. A stack's own paths (its `infra/`
  * directory, and shared/infra/) change how a stack deploys, not what any
- * surface is built from, so they redeploy every dev surface of the stack,
- * and on production every surface its production stack deploys: the sites
- * shared/infra/src/production-sites.ts does not turn off. Production ships
+ * surface is built from, so they redeploy every dev surface of the stack.
+ * On production they ship the production stack itself, which
+ * scripts/release-plan.ts compares with its own job's last deploy, and of
+ * its sites only those whose Worker serves their host (`stack`), whose
+ * record that job's deploy is; a staged site's Pages job serves a build
+ * they do not touch, so they never ship it. Production ships
  * only the surfaces with a production deploy (PRODUCTION_SURFACES): an API
  * Worker or a staged site its own job deploys (`job`), or a site whose
  * Worker serves its host, which its stack's production job deploys and a
@@ -358,10 +361,13 @@ export function sharedPath(file: string, tier: Tier): boolean {
   return SHARED_CONTENT.test(file) || file === WORKFLOW_FILE[tier] || file === SURFACE_MAP_FILE;
 }
 
+/** Whether production records `target` by its stack's deploy: a site whose Worker serves its host. */
+const stackRecorded = (target: Surface): boolean => target.production?.kind === "stack";
+
 /**
  * Whether `file` is part of what production deploys for `target`: its own
- * paths, the shared content, and for a surface a production stack deploys,
- * that stack's paths. Workflow files and this map are left out — they change
+ * paths, the shared content, and for a site whose Worker serves its host,
+ * its stack's paths. Workflow files and this map are left out — they change
  * how a surface deploys, not the code that deploys — so two commits that
  * differ only there deploy the same thing.
  */
@@ -369,7 +375,7 @@ export function changesContent(target: Surface, file: string): boolean {
   return (
     SHARED_CONTENT.test(file) ||
     target.paths.test(file) ||
-    (stackDeployed(target) && stack(target.stack).paths.test(file))
+    (stackRecorded(target) && stack(target.stack).paths.test(file))
   );
 }
 
@@ -387,7 +393,7 @@ export function deployReason(
       ? `${own[0]} changed`
       : `${own[0]} changed, and ${own.length - 1} more of its files`;
   }
-  const deploys = tier === "dev" || stackDeployed(target);
+  const deploys = tier === "dev" || stackRecorded(target);
   const infra = deploys ? files.find((file) => stack(target.stack).paths.test(file)) : undefined;
   if (infra !== undefined) return `${infra} changed, which the ${target.stack} stack deploys`;
   if (tier === "production") return undefined;
