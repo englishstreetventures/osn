@@ -559,7 +559,9 @@ cire/dietary/src/index.ts:224:7
 2. **Or name it equivalent.** Some mutants cannot change behaviour (a default
    that is overwritten on every path, a log message's wording). Leave it, and
    say why in the pull request; do not write a test that asserts a string only
-   to kill a mutant.
+   to kill a mutant. A guard is equivalent only while what makes it redundant
+   is pinned: a re-entry check behind a button that disables while it runs is
+   equivalent only if a test fails when the button stops disabling.
 3. **Or name the browser test that kills it.** The `@cire/host` and
    `@cire/invites` runs leave the browser tier out (below), so a mutant a
    `*.browser.test.tsx` already kills still reports as a survivor. Run that
@@ -569,7 +571,13 @@ cire/dietary/src/index.ts:224:7
    then edits both. A jsdom test is the answer only where no browser test
    reaches the behaviour: a path the browser tier's Chromium never takes, such
    as a browser without the popover API.
-4. **`NoCoverage` is worse than a survivor.** No test even ran the line.
+4. **Or name the E2E step that kills it.** Stryker never runs the E2E suite,
+   so code only a flow reaches reports as a survivor or `NoCoverage`. Apply
+   the mutant by hand, run that flow alone
+   (`bun run test:e2e -- --grep <flow>`), restore the file and check its hash,
+   then name the failing `flow.check` in the pull request beside the survivor.
+   Do not add a jsdom test for a path the flow already proves.
+5. **`NoCoverage` is worse than a survivor.** No test even ran the line.
    In a vitest package, a run that stops with `No tests were executed` is the
    same verdict for a whole file: Stryker runs only the tests that import the
    mutated file, and none does (`cire/landing/src/lib/site.ts`, used only by
@@ -577,7 +585,7 @@ cire/dietary/src/index.ts:224:7
 
 A score is not a target. Chasing 100% buys tests that assert log wording and
 class strings; what matters is that no survivor sits on a line your branch
-changed without one of the two answers above.
+changed without one of the answers above.
 
 ### How the runners differ
 
