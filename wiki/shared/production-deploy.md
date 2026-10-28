@@ -1419,9 +1419,15 @@ then `musubi.social` (englishstreetventures/osn#1787). Before each:
   ([[infrastructure-as-code#The guest route comparison]]), send smoke-check's CI user agent
   (`CI_USER_AGENT`), and a refused run — the `site-parity` job failing on exit 3, its
   report's `refused` list naming the site, side and path — means Cloudflare answered in
-  the site's place (zone configuration such as Bot Fight Mode), not the site. The job
-  also fails on exit 2, a usage error before any request, since its report then compares
-  nothing.
+  the site's place, not the site: a challenge, an Access redirect, a 429, or a 403
+  carrying Cloudflare's own error page (a block rule, or a fault in the host's DNS or
+  custom domain). A zone that serves its own page in place of Cloudflare's (a custom
+  error page, a custom block response) leaves nothing to tell it from the site's, so
+  check the zone has none before you trust a match. The job also fails whenever a
+  comparison compared nothing: exit 2 (a usage error, before any request), exit 4 (an
+  error stopped the script), a comparison step that ran but did not finish (no exit code
+  after its 5-minute timeout, or a code the script never gives), and an exit of 0 or 1
+  that left no report.
 - A pull request turns the site from `staged` to `worker` in
   `shared/infra/src/production-sites.ts`. Once it merges, every release that ships the
   site's stack fails at `alchemy-plan`'s precheck until the flip runs, so the daily run
