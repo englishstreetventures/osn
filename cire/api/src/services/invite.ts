@@ -467,11 +467,10 @@ function toCustomisation(
 ): InviteCustomisation {
   // Each slot's ?v= cache-buster is derived from THAT slot's own R2 key
   // (versionFromKey — mirrors the per-event image path in event-image.ts) —
-  // never the row's `updatedAt`/`imagesUpdatedAt`. A copy/colour save must not
-  // bust the guest image caches, and bumping one slot must not bust another's:
-  // a per-row version broke both, since it moved on every slot's write.
-  // Deriving from the key alone fixes both — the key only
-  // changes when THAT slot's bytes change.
+  // never the row's `updatedAt`/`imagesUpdatedAt`, which every slot shares and
+  // other saves move. So a copy or colour save keeps the guest image caches
+  // warm, and replacing one slot's image moves only that slot's URL: the key
+  // changes only when THAT slot's bytes change.
   return {
     hero: {
       title: c.heroTitle,
@@ -867,8 +866,8 @@ export const inviteService = {
       // parameterises the `hero-bg` transform) — fonts/colours are pure CSS.
       // Bump the IMAGE version (`imagesUpdatedAt`, the ?v= + transform cache
       // key) only then, so a colour/font-only save leaves the guest image
-      // caches warm instead of forcing fresh per-call-billed transforms
-      // A missing row counts as changed (first write seeds it).
+      // caches warm instead of forcing fresh per-call-billed transforms. A
+      // missing row counts as changed (first write seeds it).
       const [existing] = yield* dbQuery(() =>
         db
           .select({ heroBlur: weddingInviteCustomisations.heroBlur })
