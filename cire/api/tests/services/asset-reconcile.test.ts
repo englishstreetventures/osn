@@ -8,6 +8,7 @@ import { Effect } from "effect";
 
 import { DbService } from "../../src/db";
 import type { TestDb } from "../../src/db/setup";
+import { INVITE_IMAGE_SLOTS } from "../../src/schemas/invite";
 import {
   ASSET_LIST_LIMITS,
   ASSET_POSITION_KEY,
@@ -15,6 +16,11 @@ import {
   ASSETS_PREFIX,
   type AssetsBucket,
 } from "../../src/services/asset-reconcile";
+import { inviteService } from "../../src/services/invite";
+import {
+  type AssetsBucket as InviteAssetsBucket,
+  AssetsR2Service,
+} from "../../src/services/invite-assets";
 import {
   RECONCILE_DELETE_CAP,
   RECONCILE_GRACE_MS,
@@ -100,12 +106,11 @@ function createAssetsStub(
   };
 }
 
-/** Insert a wedding with a customisation row carrying per-slot image keys + an
- *  event with an event-image key. Returns the keys it referenced ("live"). */
+/** Insert a wedding with whichever of a customisation row (hero and story image
+ *  keys), an event image key and a registry item image key the options name. */
 function seedReferenced(opts: {
   hero?: string;
   story?: string;
-  footer?: string;
   eventKey?: string;
   registryKey?: string;
 }): Effect.Effect<void, never, DbService> {
@@ -121,13 +126,12 @@ function seedReferenced(opts: {
       updatedAt: now,
       owners: ["usr_test"],
     });
-    if (opts.hero || opts.story || opts.footer) {
+    if (opts.hero || opts.story) {
       db.insert(weddingInviteCustomisations)
         .values({
           weddingId,
           heroImageKey: opts.hero ?? null,
           storyImageKey: opts.story ?? null,
-          footerImageKey: opts.footer ?? null,
           updatedAt: now,
         })
         .run();
@@ -161,35 +165,26 @@ function seedReferenced(opts: {
   });
 }
 
+/** Every `<table>.<column>` in the schema whose column is named `*image_key`. */
+function imageKeyColumnsInSchema(): string[] {
+  const tables = (Object.values(cireSchema) as unknown[]).flatMap((v) =>
+    is(v, SQLiteTable) ? [v] : [],
+  );
+  return tables
+    .flatMap((table) => {
+      const config = getTableConfig(table);
+      return config.columns
+        .filter((c) => c.name.endsWith("image_key"))
+        .map((c) => `${config.name}.${c.name}`);
+    })
+    .toSorted();
+}
+
 describe("asset-reconcile constants", () => {
   it("grace window is 7 days and the cap is 500", () => {
     expect(RECONCILE_GRACE_MS).toBe(7 * 24 * 60 * 60 * 1000);
     expect(RECONCILE_DELETE_CAP).toBe(500);
     expect(ASSETS_PREFIX).toBe("assets/");
-  });
-
-  // The cases below seed every image-key column `loadReferencedKeys` reads.
-  // An image-key column added to the schema and not to that read would make
-  // its images look orphaned; this fails until both lists are updated.
-  it("knows every image-key column in the schema", () => {
-    const tables = (Object.values(cireSchema) as unknown[]).flatMap((v) =>
-      is(v, SQLiteTable) ? [v] : [],
-    );
-    const columns = tables
-      .flatMap((table) => {
-        const config = getTableConfig(table);
-        return config.columns
-          .filter((c) => c.name.endsWith("image_key"))
-          .map((c) => `${config.name}.${c.name}`);
-      })
-      .toSorted();
-    expect(columns).toEqual([
-      "events.event_image_key",
-      "registry_items.image_key",
-      "wedding_invite_customisations.footer_image_key",
-      "wedding_invite_customisations.hero_image_key",
-      "wedding_invite_customisations.story_image_key",
-    ]);
   });
 });
 
@@ -214,47 +209,94 @@ describe("assetReconcileService.reconcileOrphans", () => {
     ),
   );
 
-  // Every wedding-level image slot must be in `loadReferencedKeys`' select — a
-  // slot omitted there reads as unreferenced, so its images get swept once past
-  // the grace window. This is the regression guard for that.
+  // The live-key read names exactly the schema's image-key columns: every one,
+  // so none of their images can look orphaned, and no other column, so nothing
+  // that is not an R2 key joins the live set or the count of rows naming one.
   it(
-    "NEVER deletes a referenced key (hero, story, footer, or event image)",
+    "reads every image-key column in the schema, and no other column",
     withDb(
       Effect.gen(function* () {
-        yield* seedReferenced({
-          hero: "assets/wedB/hero-x",
-          story: "assets/wedB/story-y",
-          footer: "assets/wedB/footer-w",
-          eventKey: "assets/wedB/event-z",
-        });
+        yield* seedReferenced({ hero: "assets/wedS/hero-live" });
         const bucket = createAssetsStub([
-          { key: "assets/wedB/hero-x", uploaded: OLD },
-          { key: "assets/wedB/story-y", uploaded: OLD },
-          { key: "assets/wedB/footer-w", uploaded: OLD },
-          { key: "assets/wedB/event-z", uploaded: OLD },
+          { key: "assets/wedS/hero-live", uploaded: OLD },
+          { key: "assets/wedS/orphan", uploaded: OLD },
         ]);
+        const db = yield* DbService;
+        const statements = recordStatements(db as TestDb);
 
-        const deleted = yield* assetReconcileService.reconcileOrphans(bucket, NOW);
+        expect(yield* assetReconcileService.reconcileOrphans(bucket, NOW)).toBe(1);
 
-        expect(deleted).toBe(0);
-        expect(bucket.deleted.size).toBe(0);
-        expect(bucket.remaining().length).toBe(4);
+        const selects = statements.filter(({ sql }) =>
+          sql.trim().toLowerCase().startsWith("select"),
+        );
+        expect(selects).toHaveLength(1);
+        const named = new Set(
+          [...selects[0]!.sql.matchAll(/"(\w+)"\."(\w+)"/g)].map(([, t, c]) => `${t}.${c}`),
+        );
+        expect([...named].toSorted()).toEqual(imageKeyColumnsInSchema());
       }),
     ),
   );
 
-  // A footer image on a wedding with NO hero/story must still count as live.
+  // Every slot in `INVITE_IMAGE_SLOTS`, not a hand list: a slot whose key the
+  // read skipped would have its images deleted once past the grace window. Each
+  // image goes up through the upload path, one wedding per slot, so each is the
+  // only image its customisation row names.
   it(
-    "NEVER deletes a footer image that is the wedding's only invite asset",
+    "NEVER deletes an image uploaded to any invite slot",
     withDb(
       Effect.gen(function* () {
-        yield* seedReferenced({ footer: "assets/wedB2/footer-only" });
-        const bucket = createAssetsStub([{ key: "assets/wedB2/footer-only", uploaded: OLD }]);
+        const db = yield* DbService;
+        const uploaded: string[] = [];
+        const uploads: InviteAssetsBucket = {
+          put: (key) => {
+            uploaded.push(key);
+            return Promise.resolve();
+          },
+          get: () => null,
+          delete: () => Promise.resolve(),
+        };
+        for (const slot of INVITE_IMAGE_SLOTS) {
+          const weddingId = `wed_${slot}_${crypto.randomUUID()}`;
+          insertWedding(db, {
+            id: weddingId,
+            slug: `slug-${weddingId}`,
+            displayName: "Live Wedding",
+            owners: ["usr_test"],
+          });
+          yield* inviteService
+            .setImage(weddingId, `slug-${weddingId}`, slot, new ArrayBuffer(8), "image/png")
+            .pipe(Effect.provideService(AssetsR2Service, uploads));
+        }
+        expect(uploaded).toHaveLength(INVITE_IMAGE_SLOTS.length);
+        const orphan = "assets/wedU/orphan";
+        const bucket = createAssetsStub([
+          ...uploaded.map((key) => ({ key, uploaded: OLD })),
+          { key: orphan, uploaded: OLD },
+        ]);
 
         const deleted = yield* assetReconcileService.reconcileOrphans(bucket, NOW);
 
-        expect(deleted).toBe(0);
-        expect(bucket.remaining().length).toBe(1);
+        expect([...bucket.deleted]).toEqual([orphan]);
+        expect(deleted).toBe(1);
+      }),
+    ),
+  );
+
+  it(
+    "NEVER deletes a key referenced by an event",
+    withDb(
+      Effect.gen(function* () {
+        yield* seedReferenced({ eventKey: "assets/wedB/event-z" });
+        const bucket = createAssetsStub([
+          { key: "assets/wedB/event-z", uploaded: OLD },
+          { key: "assets/wedB/orphan", uploaded: OLD },
+        ]);
+
+        const deleted = yield* assetReconcileService.reconcileOrphans(bucket, NOW);
+
+        expect(deleted).toBe(1);
+        expect(bucket.remaining()).toEqual(["assets/wedB/event-z"]);
       }),
     ),
   );
