@@ -612,7 +612,7 @@ describe("RsvpView", () => {
     await waitFor(() => expect(screen.getByText("Bo Jones")).toBeTruthy());
 
     // The box names the event it searches.
-    expect(searchBox().getAttribute("placeholder")).toMatch(/^Search Ceremony by name/);
+    expect(searchBox().getAttribute("placeholder")).toMatch(/^Search Ceremony guests/);
     fireEvent.input(searchBox(), { target: { value: "jones" } });
     expect(screen.getByText("Bo Jones")).toBeTruthy();
     expect(screen.getByText("Cleo Jones")).toBeTruthy();

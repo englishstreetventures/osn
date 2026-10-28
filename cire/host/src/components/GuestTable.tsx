@@ -16,11 +16,14 @@ import { heldWhileClosing, Modal } from "@shared/ui/ui/modal";
 import { Notice } from "@shared/ui/ui/notice";
 import { Switch } from "@shared/ui/ui/switch";
 import { Table, Td, Th } from "@shared/ui/ui/table";
+import { Tooltip } from "@shared/ui/ui/tooltip";
 import Ban from "lucide-solid/icons/ban";
 import Copy from "lucide-solid/icons/copy";
 import Download from "lucide-solid/icons/download";
 import Ellipsis from "lucide-solid/icons/ellipsis";
+import Eye from "lucide-solid/icons/eye";
 import RotateCcw from "lucide-solid/icons/rotate-ccw";
+import Send from "lucide-solid/icons/send";
 import UserCheck from "lucide-solid/icons/user-check";
 import UserX from "lucide-solid/icons/user-x";
 import {
@@ -72,6 +75,7 @@ import {
 import { chromeFoot, scrollToResults } from "../lib/scroll-to-results";
 import { IconButton } from "./ActionTip";
 import SectionIntro from "./SectionIntro";
+import { StatusMark } from "./StatusMark";
 import { createCompact, holdUntilReady, ViewBar } from "./ViewBar";
 
 interface FamilyMember {
@@ -147,7 +151,7 @@ function GuestEmailLine(props: { member: FamilyMember }) {
   return (
     <Show when={props.member.email}>
       {(email) => (
-        <span class="text-text-muted text-ui-sm mt-0.5 block break-all">
+        <span class="text-text-muted text-ui-xs mt-0.5 block break-all">
           {email()}
           <span class="whitespace-nowrap">
             {" · "}
@@ -760,46 +764,49 @@ export default function GuestTable(props: GuestTableProps) {
       families.length === 1 ? "household" : "households"
     }`;
 
-  /** The household's state, in a word: deactivated, else opened, else sent. */
+  /**
+   * The household's state, as a mark (`StatusMark`): Deactivated on the red
+   * circle, else Opened on the gold, else Sent on the tint. Its explanation —
+   * and, for Opened, the day — is a `Tooltip`: hidden text for a screen
+   * reader, a panel on hover. On a narrow bar Deactivated says it in a word.
+   */
   const householdBadge = (family: FamilyGroup) => (
     <>
       <Show when={isDeactivated(family)}>
-        <span
-          class="font-body border-error/40 text-error text-ui-xs tracking-ui-widest shrink-0 rounded-sm border px-1.5 py-0.5 uppercase not-italic"
-          title="Deactivated — this household's code no longer opens the invite. Reactivate to restore it."
-        >
-          {/* The whole state on a wide bar; one word where the bar is narrow,
-              the rest kept for assistive technology. */}
-          <Show when={compact()} fallback="Deactivated — code disabled">
-            Deactivated<span class="sr-only"> — code disabled</span>
-          </Show>
-        </span>
+        <Tooltip text="This household's code no longer opens the invite. Reactivate to restore it.">
+          <StatusMark
+            tone="no"
+            glyph={Ban}
+            label={compact() ? "Deactivated" : "Deactivated — code disabled"}
+            more={
+              <Show when={compact()}>
+                <span class="sr-only"> — code disabled</span>
+              </Show>
+            }
+          />
+        </Tooltip>
       </Show>
-      {/* Status badges are suppressed while deactivated — the "Deactivated"
-          label is the only relevant state then. "Opened" (a real guest claim)
-          otherwise takes precedence over the copy-only "Sent". */}
+      {/* Suppressed while deactivated — that is the only relevant state then.
+          "Opened" (a real guest claim) takes precedence over the copy-only
+          "Sent". */}
       <Show when={!isDeactivated(family)}>
         <Show
           when={isOpened(family)}
           fallback={
             <Show when={isShared(family)}>
-              <span
-                class="font-body text-gold/80 border-gold/30 text-ui-xs tracking-ui-widest shrink-0 rounded-sm border px-1.5 py-0.5 uppercase not-italic"
-                title="Sent — you copied this family's invite message"
-              >
-                Sent
-              </span>
+              <Tooltip text="You copied this household's invite message">
+                <StatusMark tone="maybe" glyph={Send} label="Sent" />
+              </Tooltip>
             </Show>
           }
         >
-          <span
-            class="font-body bg-gold text-bg text-ui-xs tracking-ui-widest shrink-0 rounded-sm px-1.5 py-0.5 uppercase not-italic"
-            title={`Opened — a guest opened this invite (code used) on ${formatOpenedDate(
+          <Tooltip
+            text={`A guest opened this invite (code used) on ${formatOpenedDate(
               family.firstOpenedAt!,
             )}`}
           >
-            Opened
-          </span>
+            <StatusMark tone="yes" glyph={Eye} label="Opened" />
+          </Tooltip>
         </Show>
       </Show>
     </>
@@ -818,8 +825,11 @@ export default function GuestTable(props: GuestTableProps) {
     </colgroup>
   );
 
+  /** The column heads: in words for a screen reader, the plus-one column as
+   *  "+1" for the eye (DESIGN.md §Names and meta lines). */
   const HEADS = () =>
     plusOnesShown() ? ["Guest", "Events", "Plus-one", "Code"] : ["Guest", "Events", "Code"];
+  const shownHead = (name: string) => (name === "Plus-one" ? "+1" : name);
 
   /**
    * The wide bar's actions: four icons, each named and with its name as a
@@ -846,8 +856,13 @@ export default function GuestTable(props: GuestTableProps) {
               <Show when={plusOneControls()}>
                 <fieldset class="m-0 flex min-w-0 items-center gap-1 border-0 p-0">
                   <legend class="sr-only">Plus-ones for the {family.familyName} household</legend>
-                  <span class="font-body text-text-muted text-ui-xs tracking-ui-wide mr-1 shrink-0">
-                    Plus-ones: {permission().allowed} of {permission().total}
+                  <span class="font-body text-text-muted text-ui-xs mr-1 shrink-0 font-mono">
+                    <span aria-hidden="true">
+                      +1 {permission().allowed}/{permission().total}
+                    </span>
+                    <span class="sr-only">
+                      Plus-ones: {permission().allowed} of {permission().total}
+                    </span>
                   </span>
                   <IconButton
                     variant="quiet"
@@ -961,13 +976,13 @@ export default function GuestTable(props: GuestTableProps) {
               disabled={permission().allowed === permission().total}
               onSelect={() => requestPermission(householdScope, true)}
             >
-              Allow everyone a plus-one
+              Everyone may bring a +1
             </DropdownMenuItem>
             <DropdownMenuItem
               disabled={permission().allowed === 0}
               onSelect={() => requestPermission(householdScope, false)}
             >
-              Allow no one a plus-one
+              No one may bring a +1
             </DropdownMenuItem>
             <DropdownMenuSeparator />
           </Show>
@@ -1114,7 +1129,7 @@ export default function GuestTable(props: GuestTableProps) {
                         <For each={HEADS()}>
                           {(name) => (
                             <th class="font-body text-gold-ink text-ui-xs tracking-ui-wider h-(--head-strip-h) px-4 py-0 align-middle font-normal whitespace-nowrap uppercase">
-                              {name}
+                              {shownHead(name)}
                             </th>
                           )}
                         </For>
@@ -1156,7 +1171,7 @@ export default function GuestTable(props: GuestTableProps) {
                   const plusOneSwitch = (member: FamilyMember, labelHidden: boolean) => (
                     <Switch
                       checked={member.plusOneAllowed === true}
-                      label={labelHidden ? `${fullName(member)} may bring a plus-one` : "Plus-one"}
+                      label={labelHidden ? `${fullName(member)} may bring a plus-one` : "+1"}
                       labelHidden={labelHidden}
                       aria-label={
                         labelHidden ? undefined : `${fullName(member)} may bring a plus-one`
@@ -1168,30 +1183,53 @@ export default function GuestTable(props: GuestTableProps) {
                       }
                     />
                   );
+                  /** The events a guest is invited to, as a quiet line of
+                   *  names with a dot between: each name whole, the line free
+                   *  to wrap between them. Nothing boxed that needs no box. */
                   const eventChips = (member: FamilyMember) => (
-                    <div class="flex flex-wrap gap-1.5">
+                    <p class="font-body text-text-muted text-ui-sm flex flex-wrap gap-x-1.5 gap-y-0.5">
                       <For each={member.events}>
-                        {(eventId) => (
-                          <span
-                            class="bg-gold/10 text-gold text-ui-xs tracking-ui-wide inline-block rounded-sm px-2 py-0.5 uppercase"
-                            title={eventId}
-                          >
+                        {(eventId, i) => (
+                          <span class="whitespace-nowrap">
+                            <Show when={i() > 0}>
+                              <span aria-hidden="true" class="text-text-faint mr-1.5">
+                                ·
+                              </span>
+                            </Show>
                             {eventNameById().get(eventId) ?? eventId}
                           </span>
                         )}
                       </For>
                       <Show when={member.events.length === 0}>
-                        <span class="text-text-muted text-ui-sm">--</span>
+                        <span>--</span>
                       </Show>
-                    </div>
+                    </p>
                   );
-                  const plusOneBadge = (member: FamilyMember) => (
-                    <Show when={isPlusOne(member)}>
-                      {" "}
-                      <span class="font-body text-gold-ink border-gold/45 text-ui-xs tracking-ui-wide ml-1 inline-block max-w-full rounded-sm border px-1.5 py-0.5 wrap-break-word">
-                        Plus-one of {inviterName(member) || "another guest"}
+                  /** A guest's name on one line, cut short; under it, muted,
+                   *  whose plus-one they are ("+1 · Kai" — the words in full
+                   *  for a screen reader) and their address. */
+                  const nameAndMeta = (member: FamilyMember) => (
+                    <>
+                      <span data-name class="text-text block truncate">
+                        {member.firstName} {member.lastName}
                       </span>
-                    </Show>
+                      <Show when={isPlusOne(member)}>
+                        <span
+                          data-meta
+                          class="font-body text-gold-ink text-ui-xs mt-0.5 block truncate"
+                        >
+                          <span aria-hidden="true">
+                            {inviterName(member)
+                              ? `+1 · ${inviterName(member).split(/\s+/)[0]}`
+                              : "+1"}
+                          </span>
+                          <span class="sr-only">
+                            Plus-one of {inviterName(member) || "another guest"}
+                          </span>
+                        </span>
+                      </Show>
+                      <GuestEmailLine member={member} />
+                    </>
                   );
                   return (
                     // A group named by its household, so a screen reader hears
@@ -1210,14 +1248,14 @@ export default function GuestTable(props: GuestTableProps) {
                           screen, and gone with it. Opaque, so the rows
                           passing under it never show through. */}
                       <div class={HOUSEHOLD_BAR} data-household-bar>
-                        <div
-                          class={`flex min-w-0 flex-1 items-center gap-2 ${
-                            isDeactivated(family) ? "opacity-50" : ""
-                          }`}
-                        >
+                        {/* A deactivated household's name recedes; its mark
+                            stays at full strength, so its word still reads. */}
+                        <div class="flex min-w-0 flex-1 items-center gap-3">
                           <span
                             id={nameId}
-                            class="font-display text-text text-ui-md min-w-12 truncate"
+                            class={`font-display text-ui-md min-w-12 truncate ${
+                              isDeactivated(family) ? "text-text-muted" : "text-text"
+                            }`}
                           >
                             {family.familyName}
                           </span>
@@ -1227,9 +1265,8 @@ export default function GuestTable(props: GuestTableProps) {
                             narrow bar holds the name, its state and this. */}
                         <Show when={compact() && plusOneControls()}>
                           <span class="font-body text-text-muted text-ui-xs flex shrink-0 items-center gap-1 font-mono">
-                            <UserCheck aria-hidden="true" strokeWidth={1.75} class="size-3.5" />
                             <span aria-hidden="true">
-                              {permission().allowed}/{permission().total}
+                              +1 {permission().allowed}/{permission().total}
                             </span>
                             <span class="sr-only">
                               Plus-ones: {permission().allowed} of {permission().total}
@@ -1272,11 +1309,7 @@ export default function GuestTable(props: GuestTableProps) {
                               <For each={visibleMembers()}>
                                 {(member, index) => (
                                   <tr class="hover:[&>td]:bg-surface">
-                                    <Td valign="middle" class="wrap-break-word">
-                                      {member.firstName} {member.lastName}
-                                      {plusOneBadge(member)}
-                                      <GuestEmailLine member={member} />
-                                    </Td>
+                                    <Td valign="middle">{nameAndMeta(member)}</Td>
                                     <Td valign="middle">{eventChips(member)}</Td>
                                     <Show when={plusOnesShown()}>
                                       <Td valign="middle">
@@ -1304,11 +1337,9 @@ export default function GuestTable(props: GuestTableProps) {
                           <For each={visibleMembers()}>
                             {(member, index) => (
                               <li class="border-border/40 flex flex-col gap-2 border-b px-4 py-3 last:border-b-0">
-                                <p class="font-body text-text text-ui-base wrap-break-word">
-                                  {member.firstName} {member.lastName}
-                                  {plusOneBadge(member)}
-                                  <GuestEmailLine member={member} />
-                                </p>
+                                <div class="font-body text-ui-base min-w-0">
+                                  {nameAndMeta(member)}
+                                </div>
                                 {eventChips(member)}
                                 <Show when={plusOnesShown() && !isPlusOne(member)}>
                                   <div class="font-body text-text-muted text-ui-sm">

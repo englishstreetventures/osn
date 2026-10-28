@@ -17,6 +17,12 @@ import { Tooltip } from "@shared/ui/ui/tooltip";
 import ArrowDown from "lucide-solid/icons/arrow-down";
 import ArrowUp from "lucide-solid/icons/arrow-up";
 import ChevronsUpDown from "lucide-solid/icons/chevrons-up-down";
+import CircleX from "lucide-solid/icons/circle-x";
+import Link2 from "lucide-solid/icons/link-2";
+import PencilLine from "lucide-solid/icons/pencil-line";
+import UserRoundPen from "lucide-solid/icons/user-round-pen";
+import UsersRound from "lucide-solid/icons/users-round";
+import Utensils from "lucide-solid/icons/utensils";
 import {
   createEffect,
   createMemo,
@@ -42,6 +48,7 @@ import {
   mergeRows,
   nextSort,
   plusOneMarker,
+  plusOneShort,
   RSVP_FILTERS,
   type RsvpFilterEvent,
   type RsvpFilterKey,
@@ -55,8 +62,8 @@ import {
 } from "../lib/rsvp-filter";
 import { applySavedReply, isSavedReply } from "../lib/rsvp-save";
 import { chromeFoot, scrollToResults } from "../lib/scroll-to-results";
-import { createSlidingPill } from "../lib/sliding-pill";
 import SectionIntro from "./SectionIntro";
+import { type MarkTone, StatusDot, StatusMark } from "./StatusMark";
 import { createCompact, holdUntilReady, ViewBar } from "./ViewBar";
 
 interface RsvpViewProps {
@@ -94,15 +101,15 @@ interface RsvpViewEvent extends RsvpFilterEvent {
   noResponse: number;
 }
 
-/** Human label + badge styling per row status. "No reply" is deliberately the
- *  quiet one: it is the most common state early on, and a loud badge on every
- *  second row would drown the answers that did come in. */
+/** Each row status's word and mark (`StatusMark`). "No reply" is the quiet
+ *  one, an empty ring: it is the most common state early on, and a loud mark
+ *  on every second row would drown the answers that did come in. */
 const STATUS_META = {
-  attending: { label: "Attending", class: "bg-gold text-bg" },
-  declined: { label: "Declined", class: "border-error/40 text-error border" },
-  maybe: { label: "Maybe", class: "border-gold/40 text-gold border" },
-  none: { label: "No reply", class: "border-border text-text-muted border" },
-} satisfies Record<RsvpRowStatus, { label: string; class: string }>;
+  attending: { label: "Attending", tone: "yes" },
+  declined: { label: "Declined", tone: "no" },
+  maybe: { label: "Maybe", tone: "maybe" },
+  none: { label: "No reply", tone: "none" },
+} satisfies Record<RsvpRowStatus, { label: string; tone: MarkTone }>;
 
 /** The column head that sorts, by column. */
 const SORT_LABEL = {
@@ -112,13 +119,70 @@ const SORT_LABEL = {
 
 const SORT_ICON_CLASS = "size-3.5 shrink-0";
 
-// `h-7`, the height of the small search box beside them, so the bar's second
-// row is one height whether it holds the chips or, on a phone, two selects.
-const CHIP_CLASS =
-  "border-border hover:border-gold focus-visible:border-gold focus-visible:ring-gold/40 " +
-  "font-body text-text-muted aria-pressed:border-gold aria-pressed:text-gold " +
-  "flex h-7 items-center gap-1.5 rounded-sm border px-2.5 text-ui-sm tracking-ui-wide " +
-  "uppercase transition outline-none focus-visible:ring-2";
+/**
+ * A chip: an event to show, or a reply to filter by. A pill at the search
+ * box's height, on `--surface` with no border, its count muted beside its
+ * name; chosen, it fills in the brand green. Pills, so they read as a group
+ * apart from the module's segmented sub-tabs (DESIGN.md §Chips).
+ */
+const CHIP_BASE =
+  "font-body text-ui-sm flex h-7 shrink-0 items-center gap-1.5 rounded-full px-3 whitespace-nowrap " +
+  "transition-colors duration-(--dur-fast) ease-(--ease-out) outline-none";
+const CHIP_IDLE = "bg-surface text-text hover:bg-surface-raised";
+const CHIP_CHOSEN = "bg-brand text-on-brand";
+/** A chip's count: muted beside an unchosen name, the chip's own ink on green. */
+const chipCount = (chosen: boolean) =>
+  `font-mono text-ui-xs ${chosen ? "text-on-brand" : "text-text-muted"}`;
+
+/** A row of chips that never wraps: it scrolls sideways under the finger. */
+const CHIP_ROW = "flex min-w-0 flex-nowrap gap-1.5 overflow-x-auto [scrollbar-width:none]";
+
+/**
+ * How a reply was given, beside the name as an icon. Each icon's name and
+ * explanation are hidden text, the explanation also a hover panel
+ * (`Tooltip`); nothing is written beside it.
+ */
+const PROVENANCE = {
+  hostEntered: {
+    name: "Host-entered",
+    text: "Recorded by a host (phone/paper RSVP)",
+    icon: UserRoundPen,
+  },
+  hostUpdated: {
+    name: "Host-updated",
+    text: "A host last set this status. The dietary requirements are still the ones the guest or their household gave.",
+    icon: PencilLine,
+  },
+  household: {
+    name: "Household-entered",
+    text: "Given by the household that brought them, not by the plus-one. A host may have changed the status since; the dietary requirements are the household's.",
+    icon: UsersRound,
+  },
+  musubi: {
+    name: "linked musubi",
+    text: "Sent from a signed-in linked musubi account",
+    icon: Link2,
+  },
+} as const;
+
+type Provenance = (typeof PROVENANCE)[keyof typeof PROVENANCE];
+
+function provenanceIcon(p: Provenance) {
+  const Icon = p.icon;
+  return (
+    <Tooltip text={p.text}>
+      <span data-provenance class="text-text-muted inline-flex items-center whitespace-nowrap">
+        <Icon aria-hidden="true" strokeWidth={1.75} class="size-3.5" />
+        <span class="sr-only">{p.name}</span>
+      </span>
+    </Tooltip>
+  );
+}
+
+/** A reply's circle alone, for a chip that names its reply in words. */
+function ReplyDot(props: { tone: MarkTone }) {
+  return <StatusDot tone={props.tone} />;
+}
 
 /** The phone's sort and reply pickers: native selects, at the search box's height. */
 const SELECT_CLASS =
@@ -466,7 +530,6 @@ export default function RsvpView(props: RsvpViewProps) {
   // is a tab stop, and the arrow keys move focus between the rest.
   const tabRefs: HTMLButtonElement[] = [];
   const [strip, setStrip] = createSignal<HTMLElement>();
-  const pill = createSlidingPill(() => selected()?.event.id ?? "");
 
   /**
    * Scroll the strip, and only the strip, until a tab is wholly in it.
@@ -661,67 +724,106 @@ export default function RsvpView(props: RsvpViewProps) {
     }
   };
 
-  /** The event tab strip, lent to the view bar's first row. */
+  /**
+   * The event chips, lent to the view bar's first row after a divider. Pills
+   * on their own, not in a track, so they never read as more of the module's
+   * segmented sub-tabs beside them (DESIGN.md §Chips): the chosen one fills
+   * in the brand green, the rest carry their count muted. The row scrolls
+   * sideways rather than wrapping.
+   */
   const eventStrip = () => (
-    // One event at a time. The strip scrolls sideways rather than wrapping: a
-    // wedding with many events keeps one row of tabs.
-    <div
-      ref={(el) => {
-        setStrip(el);
-        pill.track(el);
-      }}
-      role="tablist"
-      aria-label="Events"
-      class="border-border bg-surface/30 relative mr-auto flex max-w-full min-w-0 [scrollbar-width:thin] gap-1 overflow-x-auto rounded-sm border p-1"
-    >
-      {/* The selection, as one box that travels — the module shell's strip,
-          reused. */}
-      <span
-        aria-hidden="true"
-        class="bg-gold/12 pointer-events-none absolute top-0 left-0 rounded-sm"
-        style={pill.style()}
-      />
-      <For each={sections()}>
-        {(section, index) => {
-          const isSelected = () => selected() === section;
-          const shown = () => section.visible().length;
-          // The tab's whole name, in sentence case. Chrome would carry the
-          // label's `uppercase` into a name read from the text, and put a
-          // space before each comma between the flex children.
-          const name = () =>
-            `${section.event.name}, ${shown()} ${
-              filtering() ? "matching" : shown() === 1 ? "guest" : "guests"
-            }${section.hasNew() ? ", changed since you last looked" : ""}`;
+    <>
+      <span data-bar-divider aria-hidden="true" class="bg-border h-5 w-px shrink-0" />
+      <div
+        ref={setStrip}
+        role="tablist"
+        aria-label="Events"
+        class={`${CHIP_ROW} relative mr-auto max-w-full`}
+      >
+        <For each={sections()}>
+          {(section, index) => {
+            const isSelected = () => selected() === section;
+            const shown = () => section.visible().length;
+            // The tab's whole name, in sentence case, with its count.
+            const name = () =>
+              `${section.event.name}, ${shown()} ${
+                filtering() ? "matching" : shown() === 1 ? "guest" : "guests"
+              }${section.hasNew() ? ", changed since you last looked" : ""}`;
+            return (
+              <button
+                ref={(el) => {
+                  tabRefs[index()] = el;
+                }}
+                type="button"
+                role="tab"
+                id={tabId(index())}
+                aria-controls={panelId}
+                aria-selected={isSelected()}
+                tabindex={isSelected() ? 0 : -1}
+                aria-label={name()}
+                onKeyDown={(event) => onTabKeyDown(event, index())}
+                onClick={() => selectEvent(section.event.id)}
+                class={`${CHIP_BASE} ${isSelected() ? CHIP_CHOSEN : CHIP_IDLE}`}
+              >
+                {section.event.name}
+                {/* The rows this tab would show: the whole list, or what the
+                    search and chip leave of it — so a search run on one event
+                    still says which others it would find guests in. */}
+                <span data-count class={chipCount(isSelected())}>
+                  {shown()}
+                </span>
+                {/* Opening the table marks every event's changes seen, so an
+                    event not on screen says it holds some, in a word. */}
+                <Show when={section.hasNew()}>
+                  <span
+                    class={`text-ui-xs tracking-ui-wider font-medium uppercase ${
+                      isSelected() ? "text-on-brand" : "text-gold-ink"
+                    }`}
+                  >
+                    New
+                  </span>
+                </Show>
+              </button>
+            );
+          }}
+        </For>
+      </div>
+    </>
+  );
+
+  /**
+   * The search and the reply chips, lent to the view bar's second row. They
+   * act on the event on screen, and say so: the search names the event's tab
+   * panel through `aria-controls`, and both name the event.
+   *
+   * The chips are filter, legend and counter at once: each carries its reply's
+   * mark and how many rows it holds. The chosen one fills in the brand green
+   * and shows ⊗; a second press clears it back to All. On a phone the marks
+   * stand for their words, which stay the chips' names, and the chips take a
+   * row of their own under the search and the sort.
+   */
+  const replyChips = (section: () => NonNullable<ReturnType<typeof selected>>) => (
+    <div role="group" aria-label={`Filter ${section().event.name} by reply`} class={CHIP_ROW}>
+      <For each={RSVP_FILTERS}>
+        {(chip) => {
+          const isChosen = () => filter() === chip.key;
+          const tone = chip.key === "all" ? undefined : STATUS_META[chip.key].tone;
           return (
             <button
-              ref={(el) => {
-                tabRefs[index()] = el;
-                pill.item(section.event.id)(el);
-              }}
               type="button"
-              role="tab"
-              id={tabId(index())}
-              aria-controls={panelId}
-              aria-selected={isSelected()}
-              tabindex={isSelected() ? 0 : -1}
-              aria-label={name()}
-              onKeyDown={(event) => onTabKeyDown(event, index())}
-              onClick={() => selectEvent(section.event.id)}
-              class={`font-body text-ui-xs tracking-ui-wider relative flex shrink-0 items-center gap-2 rounded-sm px-3.5 py-1.5 whitespace-nowrap uppercase transition-colors duration-(--dur-fast) ease-(--ease-out) ${
-                isSelected() ? "text-gold" : "text-text-muted hover:text-text hover:bg-surface/60"
+              aria-pressed={isChosen()}
+              onClick={() => setFilter(isChosen() && chip.key !== "all" ? "all" : chip.key)}
+              class={`${CHIP_BASE} focus-visible:ring-focus focus-visible:ring-2 ${
+                isChosen() ? CHIP_CHOSEN : CHIP_IDLE
               }`}
             >
-              {section.event.name}
-              {/* The rows this tab would show: the whole list, or what the
-                  search and chip leave of it — so a search run on one event
-                  still says which others it would find guests in. */}
-              <span class="text-text font-mono tracking-normal">{shown()}</span>
-              {/* Opening the table marks every event's changes seen, so an
-                  event not on screen says it holds some, in a word. */}
-              <Show when={section.hasNew()}>
-                <span class="bg-gold/15 text-gold tracking-ui-wider rounded-sm px-1.5 py-0.5">
-                  New
-                </span>
+              <Show when={tone}>{(t) => <ReplyDot tone={t()} />}</Show>
+              <span class={compact() && chip.key !== "all" ? "sr-only" : undefined}>
+                {chip.label}
+              </span>
+              <span class={chipCount(isChosen())}>{counts()[chip.key]}</span>
+              <Show when={isChosen() && chip.key !== "all"}>
+                <CircleX aria-hidden="true" strokeWidth={1.75} class="size-3.5 shrink-0" />
               </Show>
             </button>
           );
@@ -730,157 +832,129 @@ export default function RsvpView(props: RsvpViewProps) {
     </div>
   );
 
-  /**
-   * The search and the reply filter, lent to the view bar's second row. They
-   * act on the event on screen, and say so: the search names the event's tab
-   * panel through `aria-controls`, and both name the event.
-   */
-  const controls = (section: () => NonNullable<ReturnType<typeof selected>>) => (
-    <>
-      <Field
-        label={`Search ${section().event.name} guests`}
-        labelHidden
-        class={compact() ? "min-w-0 flex-1" : "min-w-40 flex-1"}
-      >
-        {(field) => (
-          <Input
-            {...field}
-            size="sm"
-            type="search"
-            aria-controls={panelId}
-            value={query()}
-            onInput={(e) => setQuery(e.currentTarget.value)}
-            placeholder={
-              compact()
-                ? "Search guests…"
-                : `Search ${section().event.name} by name, household, code or dietary note…`
-            }
-          />
-        )}
-      </Field>
-      <Show
-        when={compact()}
-        fallback={
-          <div
-            class="flex flex-wrap gap-2"
-            role="group"
-            aria-label={`Filter ${section().event.name} by reply`}
-          >
-            <For each={RSVP_FILTERS}>
-              {(chip) => (
-                <button
-                  type="button"
-                  class={CHIP_CLASS}
-                  aria-pressed={filter() === chip.key}
-                  onClick={() => setFilter(chip.key)}
-                >
-                  {chip.label}
-                  <span class="text-text text-ui-xs font-mono">{counts()[chip.key]}</span>
-                </button>
-              )}
-            </For>
-          </div>
-        }
-      >
-        {/* A phone has no head row to sort from and no room for five chips:
-            the same two choices, as selects. */}
-        <select
-          class={`${SELECT_CLASS} max-w-24`}
-          aria-label={`Filter ${section().event.name} by reply`}
-          value={filter()}
-          onChange={(e) => setFilter(e.currentTarget.value as RsvpFilterKey)}
-        >
-          <For each={RSVP_FILTERS}>
-            {(chip) => (
-              <option value={chip.key}>
-                {chip.label} ({counts()[chip.key]})
-              </option>
-            )}
-          </For>
-        </select>
-        <select
-          class={`${SELECT_CLASS} max-w-24`}
-          aria-label="Sort guests"
-          value={sort() ? `${sort()!.key}:${sort()!.direction}` : ""}
-          onChange={(e) =>
-            setSort(SORT_CHOICES.find((c) => c.value === e.currentTarget.value)?.sort ?? null)
-          }
-        >
-          <For each={SORT_CHOICES}>
-            {(choice) => <option value={choice.value}>{choice.label}</option>}
-          </For>
-        </select>
-      </Show>
-    </>
-  );
-
-  /** The badges after a guest's name, each explaining itself through
-   *  `Tooltip`: hidden text a screen reader gets once, and the same words in
-   *  a panel on hover. Never a `title`: beside the text, Chrome would hand it
-   *  to a screen reader a second time, as the badge's description. */
-  const badges = (row: RsvpRow, eventId: string) => (
-    <>
-      <Show when={isNewRow()(row.guestId, eventId)}>
-        {" "}
-        <Tooltip text="Changed by the guest since you last looked">
-          <span class="bg-gold/15 text-gold text-ui-xs tracking-ui-wider ml-1 inline-block rounded-sm px-1.5 py-0.5 uppercase">
-            New
-          </span>
-        </Tooltip>
-      </Show>
-      <Show when={row.consentSource === "organiser_attested"}>
-        {" "}
-        <Tooltip text="Recorded by a host (phone/paper RSVP)">
-          <span class="border-gold/40 text-gold text-ui-xs tracking-ui-wider ml-1 inline-block rounded-sm border px-1.5 py-0.5 uppercase">
-            Host-entered
-          </span>
-        </Tooltip>
-      </Show>
-      <Show when={row.statusRecordedByHost && row.consentSource !== "organiser_attested"}>
-        {" "}
-        <Tooltip text="A host last set this status. The dietary requirements are still the ones the guest or their household gave.">
-          <span class="border-gold/40 text-gold text-ui-xs tracking-ui-wider ml-1 inline-block rounded-sm border px-1.5 py-0.5 uppercase">
-            Host-updated
-          </span>
-        </Tooltip>
-      </Show>
-      <Show when={row.consentSource === "inviter_attested"}>
-        {" "}
-        <Tooltip text="Given by the household that brought them, not by the plus-one. A host may have changed the status since; the dietary requirements are the household's.">
-          <span class="border-border text-text-muted text-ui-xs tracking-ui-wider ml-1 inline-block rounded-sm border px-1.5 py-0.5 uppercase">
-            Household-entered
-          </span>
-        </Tooltip>
-      </Show>
-      <Show when={row.submittedBy}>
-        {(by) => (
-          <span class="font-body text-text-muted text-ui-xs mt-0.5 block">
-            Answered by {by().firstName}
-            <Show when={by().viaLink}>
-              {" "}
-              <Tooltip text="Sent from a signed-in linked musubi account">
-                <span class="border-border ml-0.5 inline-block rounded-sm border px-1 align-baseline uppercase">
-                  linked musubi
-                </span>
-              </Tooltip>
-            </Show>
-          </span>
-        )}
-      </Show>
-      {/* Its own line, and free to wrap: the column is fixed, and an
-          inviter's name is as long as any guest's. */}
-      <Show when={row.plusOneOf !== null}>
-        <span class="font-body text-gold-ink text-ui-xs mt-0.5 block">{plusOneMarker(row)}</span>
-      </Show>
-    </>
-  );
-
-  const statusBadge = (row: RsvpRow) => (
-    <span
-      class={`font-body text-ui-xs tracking-ui-widest inline-block rounded-sm px-1.5 py-0.5 uppercase ${STATUS_META[row.status].class}`}
+  const searchBox = (section: () => NonNullable<ReturnType<typeof selected>>) => (
+    <Field
+      label={`Search ${section().event.name} guests`}
+      labelHidden
+      class={compact() ? "min-w-0 flex-1" : "w-72 shrink-0"}
     >
-      {STATUS_META[row.status].label}
+      {(field) => (
+        <Input
+          {...field}
+          size="sm"
+          type="search"
+          aria-controls={panelId}
+          value={query()}
+          onInput={(e) => setQuery(e.currentTarget.value)}
+          placeholder={compact() ? "Search guests…" : `Search ${section().event.name} guests…`}
+        />
+      )}
+    </Field>
+  );
+
+  const controls = (section: () => NonNullable<ReturnType<typeof selected>>) => (
+    <Show
+      when={compact()}
+      fallback={
+        <>
+          {searchBox(section)}
+          {replyChips(section)}
+        </>
+      }
+    >
+      {/* A phone has no head row to sort from: the sort is a select beside
+          the search, and the chips take the line under them. */}
+      <div class="flex w-full min-w-0 flex-col gap-2">
+        <div class="flex min-w-0 items-center gap-2">
+          {searchBox(section)}
+          <select
+            class={`${SELECT_CLASS} max-w-28`}
+            aria-label="Sort guests"
+            value={sort() ? `${sort()!.key}:${sort()!.direction}` : ""}
+            onChange={(e) =>
+              setSort(SORT_CHOICES.find((c) => c.value === e.currentTarget.value)?.sort ?? null)
+            }
+          >
+            <For each={SORT_CHOICES}>
+              {(choice) => <option value={choice.value}>{choice.label}</option>}
+            </For>
+          </select>
+        </div>
+        {replyChips(section)}
+      </div>
+    </Show>
+  );
+
+  /**
+   * A guest's name: one line, cut short with an ellipsis, never broken
+   * mid-word. Everything else about them goes on the meta line under it.
+   */
+  const nameLine = (row: RsvpRow) => (
+    <span data-name class="text-text block truncate">
+      {row.firstName} {row.lastName}
     </span>
+  );
+
+  /**
+   * The muted line under a guest's name: whose plus-one they are, as "+1 ·
+   * Kai" (the full words are for a screen reader), what changed, who answered,
+   * and how the reply was given — each provenance an icon that explains itself
+   * through `Tooltip`: its name and its explanation are hidden text a screen
+   * reader gets once, and a mouse sees the explanation on hover. Never a
+   * `title`, which Chrome would read a second time as a description. Each
+   * piece stays whole; the line is cut short at its end, never wrapped.
+   */
+  const metaLine = (row: RsvpRow, eventId: string) => {
+    const isNew = () => isNewRow()(row.guestId, eventId);
+    const provenance =
+      row.consentSource === "organiser_attested"
+        ? PROVENANCE.hostEntered
+        : row.statusRecordedByHost
+          ? PROVENANCE.hostUpdated
+          : row.consentSource === "inviter_attested"
+            ? PROVENANCE.household
+            : null;
+    const household = row.consentSource === "inviter_attested" && row.statusRecordedByHost;
+    return (
+      <Show when={isNew() || row.plusOneOf !== null || provenance || household || row.submittedBy}>
+        <span
+          data-meta
+          class="font-body text-text-muted text-ui-xs mt-0.5 flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap"
+        >
+          <Show when={isNew()}>
+            <Tooltip text="Changed by the guest since you last looked">
+              <span class="text-gold-ink tracking-ui-wider font-medium uppercase">New</span>
+            </Tooltip>
+          </Show>
+          <Show when={row.plusOneOf !== null}>
+            <span class="text-gold-ink min-w-0 truncate">
+              <span aria-hidden="true">{plusOneShort(row)}</span>
+              <span class="sr-only">{plusOneMarker(row)}</span>
+            </span>
+          </Show>
+          <Show when={provenance}>{(p) => provenanceIcon(p())}</Show>
+          {/* A plus-one's reply a host has since changed carries both marks. */}
+          <Show when={household}>{provenanceIcon(PROVENANCE.household)}</Show>
+          <Show when={row.submittedBy}>
+            {(by) => (
+              <span class="flex min-w-0 items-center gap-1">
+                <span class="truncate">Answered by {by().firstName}</span>
+                <Show when={by().viaLink}>{provenanceIcon(PROVENANCE.musubi)}</Show>
+              </span>
+            )}
+          </Show>
+        </span>
+      </Show>
+    );
+  };
+
+  const statusMark = (row: RsvpRow, stacked = false) => (
+    <StatusMark
+      tone={STATUS_META[row.status].tone}
+      label={STATUS_META[row.status].label}
+      status={row.status}
+      stacked={stacked}
+    />
   );
 
   /** The whole dietary answer, presets and free text, rendered the way the
@@ -1106,17 +1180,17 @@ export default function RsvpView(props: RsvpViewProps) {
             {(row) => (
               <>
                 <tr class="hover:[&>td]:bg-surface">
-                  {/* The text columns break a word that will not fit: under
-                      fixed layout a long name no longer widens its column, it
-                      spills into the next one. */}
-                  <Td valign="middle" class="wrap-break-word">
-                    {row.firstName} {row.lastName}
-                    {badges(row, section().event.id)}
+                  {/* A name holds its line and ends in an ellipsis: under
+                      fixed layout it can no longer widen its column. The
+                      household and the dietary answer may wrap, at words. */}
+                  <Td valign="middle">
+                    {nameLine(row)}
+                    {metaLine(row, section().event.id)}
                   </Td>
-                  <Td tone="muted" valign="middle" class="wrap-break-word">
-                    {row.familyName}
+                  <Td tone="muted" valign="middle">
+                    <span class="block truncate">{row.familyName}</span>
                   </Td>
-                  <Td valign="middle">{statusBadge(row)}</Td>
+                  <Td valign="middle">{statusMark(row)}</Td>
                   <Td tone="muted" valign="middle" class="wrap-break-word">
                     {dietaryCell(row)}
                   </Td>
@@ -1138,9 +1212,12 @@ export default function RsvpView(props: RsvpViewProps) {
   }
 
   /**
-   * The narrow layout: each guest a block — name and badges; household; the
-   * reply and the dietary answer; the button — so nothing scrolls sideways
-   * on a phone. The editor opens as a block under the guest it edits.
+   * The narrow layout: each guest a row of three — the reply's mark, its word
+   * under it, in a fixed column at the start; the name on one line, cut short,
+   * with the household, whose plus-one and how they answered on a muted line
+   * under it and the dietary answer under that; the button at the end — so
+   * nothing scrolls sideways on a phone and a column of marks reads down the
+   * list. The editor opens as a block under the guest it edits.
    */
   function renderBlocks(section: () => NonNullable<ReturnType<typeof selected>>) {
     return (
@@ -1150,20 +1227,32 @@ export default function RsvpView(props: RsvpViewProps) {
       >
         <For each={section().visible()}>
           {(row) => (
-            <li class="border-border/40 flex flex-col gap-1.5 border-b px-4 py-3 last:border-b-0">
-              <div class="flex items-start justify-between gap-3">
-                <p class="font-body text-text text-ui-base min-w-0 wrap-break-word">
-                  {row.firstName} {row.lastName}
-                  {badges(row, section().event.id)}
-                </p>
+            <li class="border-border/40 flex flex-col gap-2 border-b px-3 py-3 last:border-b-0">
+              <div class="flex items-start gap-3">
+                <div class="flex w-17 shrink-0 justify-center pt-0.5">{statusMark(row, true)}</div>
+                <div class="font-body text-ui-base min-w-0 flex-1">
+                  {nameLine(row)}
+                  <span class="font-body text-text-muted text-ui-xs mt-0.5 block truncate">
+                    {row.familyName}
+                  </span>
+                  {metaLine(row, section().event.id)}
+                  <Show when={formatDietaryCell(row.dietaryPresets, row.dietary)}>
+                    {(cell) => (
+                      <span class="font-body text-text-muted text-ui-sm mt-1 flex items-start gap-1.5">
+                        <Utensils
+                          aria-hidden="true"
+                          strokeWidth={1.75}
+                          class="mt-0.5 size-3.5 shrink-0"
+                        />
+                        <span class="sr-only">Dietary: </span>
+                        <span class="min-w-0 wrap-break-word">{cell()}</span>
+                      </span>
+                    )}
+                  </Show>
+                </div>
                 <Show when={props.canEdit}>
                   <div class="-my-1 shrink-0">{replyButton(section().event.id, row)}</div>
                 </Show>
-              </div>
-              <p class="font-body text-text-muted text-ui-sm wrap-break-word">{row.familyName}</p>
-              <div class="font-body text-text-muted text-ui-sm flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                {statusBadge(row)}
-                <span class="min-w-0 wrap-break-word">{dietaryCell(row)}</span>
               </div>
               <Show when={props.canEdit && isEditing(section().event.id, row.guestId)}>
                 {renderEditorBlock()}

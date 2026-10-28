@@ -131,7 +131,7 @@ function spills(table: HTMLTableElement): string[] {
   }
   for (const td of table.querySelectorAll<HTMLTableCellElement>("tbody td")) {
     if (td.scrollWidth > td.clientWidth) out.push(`cell "${td.textContent?.trim()}"`);
-    for (const piece of td.querySelectorAll("span.inline-block, button")) {
+    for (const piece of td.querySelectorAll("[data-provenance], [data-status], button")) {
       if (!inside(piece, td)) out.push(`"${piece.textContent?.trim()}" in its cell`);
     }
   }
@@ -148,9 +148,9 @@ describe("the replies table's layout", () => {
     expect(markers.length).toBeGreaterThan(30);
     expect(markers.some((text) => text.includes("Wolfeschlegelsteinhausenbergerdorff"))).toBe(true);
     expect(
-      [...document.querySelectorAll("tbody span.inline-block")].some(
-        // The visible word only: the badge also holds its hidden explanation.
-        (badge) => badge.firstChild?.textContent?.trim() === "Household-entered",
+      [...document.querySelectorAll("tbody [data-provenance]")].some(
+        // The icon's name: the badge also holds its hidden explanation.
+        (badge) => badge.textContent?.trim() === "Household-entered",
       ),
     ).toBe(true);
   });

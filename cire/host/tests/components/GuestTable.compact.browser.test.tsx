@@ -122,7 +122,7 @@ async function closeMenu() {
 }
 
 /** What an editor may do to any household: its plus-ones, and the message. */
-const EDITOR_ITEMS = ["Allow everyone a plus-one", "Allow no one a plus-one", "Copy message"];
+const EDITOR_ITEMS = ["Everyone may bring a +1", "No one may bring a +1", "Copy message"];
 
 describe("a household's narrow menu", () => {
   it("offers a co-host no Deactivate and no Reactivate", async () => {

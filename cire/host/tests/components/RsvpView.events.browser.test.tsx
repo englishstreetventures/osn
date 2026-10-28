@@ -122,9 +122,9 @@ const head = (name: string) =>
 /** The surnames of the first `count` rows. The Guest cell draws
  *  `{firstName} {lastName}` as three text nodes, then its badges. */
 const surnames = (count: number) =>
-  [...document.querySelectorAll("tbody > tr > td:first-child")]
+  [...document.querySelectorAll("tbody > tr > td:first-child [data-name]")]
     .slice(0, count)
-    .map((td) => td.childNodes[2]?.textContent?.trim());
+    .map((name) => name.childNodes[2]?.textContent?.trim());
 
 /** What a utility class paints, read off a throwaway element. */
 function probe(className: string, property: "color" | "backgroundColor"): string {
@@ -283,17 +283,13 @@ describe("the RSVP page's event tabs", () => {
     await userEvent.keyboard("{ArrowRight}{Enter}");
     expect(reception!.getAttribute("aria-selected")).toBe("true");
     expect(chosen).toEqual(["evt_reception"]);
-    // What a sighted host sees of the choice: the pill sits on the chosen tab,
-    // and its label is in gold while the others are not.
-    const pill = strip().querySelector<HTMLElement>(":scope > span[aria-hidden]")!;
-    await vi.waitFor(() => {
-      const p = pill.getBoundingClientRect();
-      const t = reception!.getBoundingClientRect();
-      const gaps = [p.left - t.left, p.top - t.top, p.width - t.width, p.height - t.height];
-      expect(gaps.every((gap) => Math.abs(gap) <= 1)).toBe(true);
-    });
-    expect(getComputedStyle(reception!).color).toBe(probe("text-gold", "color"));
-    expect(getComputedStyle(ceremony!).color).not.toBe(probe("text-gold", "color"));
+    // What a sighted host sees of the choice: the chosen chip fills in the
+    // brand green, in its own ink, while the others stay on the surface.
+    expect(getComputedStyle(reception!).backgroundColor).toBe(probe("bg-brand", "backgroundColor"));
+    expect(getComputedStyle(reception!).color).toBe(probe("text-on-brand", "color"));
+    expect(getComputedStyle(ceremony!).backgroundColor).toBe(
+      probe("bg-surface", "backgroundColor"),
+    );
     await vi.waitFor(() =>
       expect(document.querySelectorAll("tbody > tr")).toHaveLength(rowsOf(THREE, 1)),
     );
@@ -497,11 +493,10 @@ describe("the RSVP table's stuck head row", () => {
     const list = screen.getByRole("list", { name: "Replies for Ceremony" });
     expect(list.scrollWidth).toBeLessThanOrEqual(list.clientWidth);
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(innerWidth);
-    // The sort and the reply filter are selects in the bar.
+    // The sort is a select in the bar; the reply filter its row of chips.
     expect(within(viewBar()).getByRole("combobox", { name: "Sort guests" })).toBeTruthy();
-    expect(
-      within(viewBar()).getByRole("combobox", { name: "Filter Ceremony by reply" }),
-    ).toBeTruthy();
+    const replies = within(viewBar()).getByRole("group", { name: "Filter Ceremony by reply" });
+    expect(within(replies).getAllByRole("button")).toHaveLength(5);
   });
 
   for (const theme of ["light", "dark"] as const) {

@@ -107,6 +107,9 @@ export default function EditWorkspace(props: {
           two-item group is under the threshold where roving focus earns its
           complexity. */}
       <ViewBar slot="end">
+        {/* A hairline sets the mode switch apart from the module's sections
+            beside it: two segmented controls, two groups. */}
+        <span data-bar-divider aria-hidden="true" class="bg-border h-5 w-px shrink-0" />
         <div
           role="radiogroup"
           aria-label="How do you want to edit?"
