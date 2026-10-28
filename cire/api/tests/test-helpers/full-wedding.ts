@@ -77,13 +77,33 @@ export function fullWeddingKeys(id: string): { sheets: string[]; assets: string[
   };
 }
 
-/** Every invite image slot's key column, in `INVITE_IMAGE_SLOTS` order. */
-const slotKeyColumns = sql.join(
-  INVITE_IMAGE_SLOTS.map((slot) =>
-    sql.identifier(weddingInviteCustomisations[SLOT_COLUMNS[slot].key].name),
-  ),
-  sql`, `,
-);
+/** A crop rectangle, as the crop columns store it. */
+const FULL_FRAME_CROP = JSON.stringify({ x: 0, y: 0, w: 1, h: 1 });
+
+/**
+ * The customisation row's slot columns and their values: each slot's R2 key,
+ * and a crop in each of its crop columns. The crop columns hold values too, so
+ * a purge that read one as a key would hand it to the reap and fail the purge
+ * tests' exact key lists.
+ */
+function slotCells(id: string): { columns: SQL; values: SQL } {
+  const keys = assetKeys(id).slots;
+  const columns: SQL[] = [];
+  const values: SQL[] = [];
+  for (const [i, slot] of INVITE_IMAGE_SLOTS.entries()) {
+    const cols = SLOT_COLUMNS[slot];
+    const cells: [keyof typeof weddingInviteCustomisations.$inferInsert, string][] = [
+      [cols.key, keys[i]!],
+      [cols.crop, FULL_FRAME_CROP],
+    ];
+    if (cols.cropMobile) cells.push([cols.cropMobile, FULL_FRAME_CROP]);
+    for (const [column, value] of cells) {
+      columns.push(sql`${sql.identifier(weddingInviteCustomisations[column].name)}`);
+      values.push(sql`${value}`);
+    }
+  }
+  return { columns: sql.join(columns, sql`, `), values: sql.join(values, sql`, `) };
+}
 
 /**
  * Insert statements for a wedding with one row in every one of
@@ -108,10 +128,7 @@ export function fullWeddingStatements(
   const deletedBy = deletedAt === null ? null : owner;
   const keys = fullWeddingKeys(id);
   const assets = assetKeys(id);
-  const slotKeys = sql.join(
-    assets.slots.map((key) => sql`${key}`),
-    sql`, `,
-  );
+  const slots = slotCells(id);
   const fam = `fam_${id}`;
   const guest = `gst_${id}`;
   const event = `evt_${id}`;
@@ -138,7 +155,7 @@ export function fullWeddingStatements(
     sql`INSERT INTO host_rsvp_notices (wedding_id, osn_profile_id, updated_at) VALUES (${id}, ${owner}, ${s})`,
     sql`INSERT INTO sessions (id, family_id, token, expires_at, created_at) VALUES (${`ses_${id}`}, ${fam}, ${`tok_${id}`}, ${s + 86_400}, ${s})`,
     sql`INSERT INTO guest_account_links (id, guest_id, family_id, wedding_id, osn_account_id, osn_profile_id, linked_at, updated_at) VALUES (${`gal_${id}`}, ${guest}, ${fam}, ${id}, 'acc_1', 'usr_guest', ${s}, ${s})`,
-    sql`INSERT INTO wedding_invite_customisations (wedding_id, updated_at, ${slotKeyColumns}) VALUES (${id}, ${s}, ${slotKeys})`,
+    sql`INSERT INTO wedding_invite_customisations (wedding_id, updated_at, story_heading, ${slots.columns}) VALUES (${id}, ${s}, 'Our story', ${slots.values})`,
     sql`INSERT INTO wedding_faqs (id, wedding_id, question, answer, created_at, updated_at) VALUES (${`faq_${id}`}, ${id}, 'Q', 'A', ${s}, ${s})`,
     sql`INSERT INTO imports (id, wedding_id, uploaded_at, format, events_r2_key, guests_r2_key, before_events_r2_key, before_guests_r2_key, summary, status) VALUES (${`imp_${id}`}, ${id}, ${s}, 'csv', ${keys.sheets[0]!}, ${keys.sheets[1]!}, ${keys.sheets[2]!}, ${keys.sheets[3]!}, '{}', 'applied')`,
     sql`INSERT INTO tasks (id, wedding_id, title, timeframe_bucket, created_at) VALUES (${`task_${id}`}, ${id}, 'Book', '12m', ${s})`,

@@ -65,10 +65,12 @@ import { CHECKLIST_TEMPLATES } from "../../src/lib/checklist-templates";
 import { decodeEnquiryCursor, type EnquiryCursor } from "../../src/lib/enquiry-page";
 import { isDirectoryDuplicate } from "../../src/routes/vendor-directory";
 import type { ImportPlan } from "../../src/schemas/import";
+import { INVITE_IMAGE_SLOTS } from "../../src/schemas/invite";
 import { FAQ_LIMITS } from "../../src/schemas/invite-faq";
 import { PLUS_ONE_NAME_MAX, PLUS_ONE_REMOVALS_MAX } from "../../src/schemas/plus-one";
 import { MAX_PLANS_PER_EVENT } from "../../src/schemas/seating";
 import { AccountLinkConflict, accountLinkService } from "../../src/services/account-link";
+import { type AssetsBucket, assetReconcileService } from "../../src/services/asset-reconcile";
 import {
   ChangeConflict,
   claimChanges,
@@ -87,7 +89,7 @@ import { giftExportService } from "../../src/services/gift-export";
 import { guestEmailService } from "../../src/services/guest-email";
 import { hostsService, MAX_HOSTS_PER_WEDDING } from "../../src/services/hosts";
 import { applyImport, diffAgainstDb } from "../../src/services/import";
-import { inviteService } from "../../src/services/invite";
+import { inviteService, SLOT_COLUMNS } from "../../src/services/invite";
 import { FaqLimitReached, inviteFaqService } from "../../src/services/invite-faq";
 import { maintenanceSweeps } from "../../src/services/maintenance-sweeps";
 import { organiserSessionService } from "../../src/services/organiser-session";
@@ -5535,6 +5537,49 @@ describe("cire/api over real D1 (Miniflare)", () => {
       };
 
       expect(await run(sheetReconcileService.reconcileOrphans(bucket, new Date(now)))).toBe(1);
+      expect([...stored].toSorted()).toEqual(live.toSorted());
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "reconciles cire-assets on D1: every invite slot's image is kept, an orphan beside them goes",
+    async () => {
+      // The live-key read names each slot's key column by the slot's name across
+      // three UNION ALL arms; D1 must answer it as bun:sqlite does.
+      const weddingId = `wed_d1_assets_${crypto.randomUUID()}`;
+      const now = new Date();
+      await db.insert(weddings).values({
+        id: weddingId,
+        slug: weddingId,
+        displayName: "Assets",
+        createdAt: now,
+        updatedAt: now,
+      });
+      const live = INVITE_IMAGE_SLOTS.map((slot) => `assets/${weddingId}/${slot}-1`);
+      const row: typeof weddingInviteCustomisations.$inferInsert = { weddingId, updatedAt: now };
+      for (const [i, slot] of INVITE_IMAGE_SLOTS.entries()) row[SLOT_COLUMNS[slot].key] = live[i]!;
+      await db.insert(weddingInviteCustomisations).values(row);
+      const orphan = `assets/${weddingId}/orphan`;
+
+      const uploaded = new Date(now.getTime() - RECONCILE_GRACE_MS - 60_000);
+      const stored = new Set([...live, orphan]);
+      const bucket: AssetsBucket = {
+        list: () =>
+          Promise.resolve({
+            objects: [...stored].toSorted().map((key) => ({ key, uploaded })),
+            truncated: false,
+          }),
+        delete: (keys) => {
+          for (const key of [keys].flat()) stored.delete(key);
+          return Promise.resolve();
+        },
+        head: (key) => Promise.resolve(stored.has(key) ? { key, uploaded } : null),
+        get: () => Promise.resolve(null),
+        put: () => Promise.resolve(),
+      };
+
+      expect(await run(assetReconcileService.reconcileOrphans(bucket, now))).toBe(1);
       expect([...stored].toSorted()).toEqual(live.toSorted());
     },
     MF_TIMEOUT_MS,
