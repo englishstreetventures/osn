@@ -43,7 +43,7 @@ Lefthook runs automatically on every commit:
 - **Secret scan** -- `scripts/secret-scan.sh staged`, advisory. CI scans the same commits and blocks the merge.
   The hook prints one line and passes when gitleaks 8.30.1 or later is not installed (`brew install gitleaks`).
   `--no-verify` skips it; the policy file it reads is `origin/main`'s `.gitleaks.toml`, so a local edit to that file does not change what it allows.
-  Known limit: a release commit pushed with `--no-verify` skips it, and a secret added while resolving a merge conflict is caught only when the squash commit reaches `main`.
+  Known limit: a release commit pushed with `--no-verify` skips it; CI scans that commit after the push.
 
 ### Pre-push (lefthook)
 

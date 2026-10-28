@@ -116,7 +116,7 @@ The big one. See [[access-control]] for the matrix.
 | Branch protection on `main` | GitHub | — |
 | Required PR review | GitHub | — |
 | Required status checks (lint, fmt, type-check, test) | Turbo + lefthook + CI | — |
-| Secret scanning on every pull request and every push to `main` | CI job `Secret scan` (`.github/workflows/ci.yml`), gitleaks 8.30.1 pinned by SHA-256; GitHub push protection on the public repository | Required-check status awaits an owner setting; provider patterns only for push protection |
+| Secret scanning on every pull request and every push to `main` | CI job `Secret scan` (`.github/workflows/ci.yml`), gitleaks 8.30.1 pinned by SHA-256; GitHub push protection on the public repository | The `CI` aggregate check requires it; a separate `Secret scan` entry in the ruleset awaits an owner setting. Push protection covers provider patterns only |
 | Changesets for every release | Yes — Changeset Check enforced | — |
 | Documented release runbook | — | One-page doc; covers rollback. |
 

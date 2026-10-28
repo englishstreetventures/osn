@@ -744,9 +744,20 @@ jobs:
       - name: Test the secret scan
         run: bash scripts/tests/secret-scan.test.sh
 
+      # The scanner that runs is main's copy once main has one, so a pull request
+      # cannot edit the gate it is checked by. The first pull request that adds the
+      # scanner runs its own copy, since main does not have one yet.
+      - name: Take the scanner from main
+        run: |
+          if git cat-file -e refs/remotes/origin/main:scripts/secret-scan.sh 2>/dev/null; then
+            git show refs/remotes/origin/main:scripts/secret-scan.sh > "$RUNNER_TEMP/secret-scan.sh"
+          else
+            cp scripts/secret-scan.sh "$RUNNER_TEMP/secret-scan.sh"
+          fi
+
       - name: Parse this change's policy file
         run: |
-          if [ -f .gitleaks.toml ]; then bash scripts/secret-scan.sh check-config .gitleaks.toml; fi
+          if [ -f .gitleaks.toml ]; then bash "$RUNNER_TEMP/secret-scan.sh" check-config .gitleaks.toml; fi
 
       - name: Scan this change
         env:
@@ -758,7 +769,7 @@ jobs:
           # group scans its merge commit against the first parent, which is the
           # base it lands on.
           if [ "$EVENT" = push ]; then BASE="$BEFORE"; else BASE=$(git rev-parse HEAD^1); fi
-          bash scripts/secret-scan.sh range "$BASE" HEAD
+          bash "$RUNNER_TEMP/secret-scan.sh" range "$BASE" HEAD
 
       - name: Upload the redacted report
         if: failure()

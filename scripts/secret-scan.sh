@@ -12,7 +12,7 @@ set -euo pipefail
 
 LEAK_EXIT=3
 MIN_VERSION=8.30.1
-POLICY_REF=origin/main
+POLICY_REF=refs/remotes/origin/main
 POLICY_PATH=.gitleaks.toml
 
 die() { echo "secret-scan: $*" >&2; exit 1; }
@@ -55,7 +55,7 @@ write_config() {
 run_scan() {
   local target=$1 cfg=$2
   shift 2
-  local rc=0
+  local rc=0 log="$TMP/gitleaks.log"
   (
     cd "$NEUTRAL"
     env -u GITLEAKS_CONFIG -u GITLEAKS_CONFIG_TOML \
@@ -63,9 +63,17 @@ run_scan() {
         --config "$cfg" -i "$TMP/no-ignore-here" --ignore-gitleaks-allow \
         --redact -v --no-banner --exit-code "$LEAK_EXIT" \
         -r "${SECRET_SCAN_REPORT:-$TMP/secret-scan.json}" --report-format json
-  ) || rc=$?
+  ) >"$log" 2>&1 || rc=$?
+  cat "$log"
   case "$rc" in
-    0) return 0 ;;
+    0)
+      # gitleaks exits 0 when its own git call fails, so a clean exit only counts
+      # when the log shows no failure.
+      if grep -q -e 'fatal:' -e 'ERR' "$log"; then
+        echo "secret-scan: gitleaks reported an error although it exited 0" >&2
+        return 1
+      fi
+      return 0 ;;
     "$LEAK_EXIT") echo "secret-scan: leaks found; the file, line and rule are above, the value is masked" >&2; return 2 ;;
     *) return 1 ;;
   esac
@@ -86,7 +94,7 @@ case "${1:-}" in
     head_sha=$(git rev-parse --verify --quiet "$head^{commit}") || die "head '$head' is not a commit in this checkout"
     write_config "$TMP/config.toml" || die "$POLICY_REF is not in this checkout; fetch it"
     git clone -q --bare --local . "$TMP/scan.git" || die "could not clone the checkout for scanning"
-    run_scan "$TMP/scan.git" "$TMP/config.toml" --log-opts "$base_sha..$head_sha"
+    run_scan "$TMP/scan.git" "$TMP/config.toml" --log-opts "--diff-merges=first-parent $base_sha..$head_sha"
     ;;
 
   staged)

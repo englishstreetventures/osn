@@ -244,6 +244,10 @@ grant in the matrix above. Expectations:
    protection is ruleset `13921406` on `englishstreetventures/osn` (active: pull request
    required, linear history, no deletion, no force-push, `CI` and
    `Require changeset` and `Migration history` as required status checks).
+   **Secret scanning:** the `Secret scan` job runs the scanner and reads the
+   policy from `origin/main`, so a pull request cannot switch its own scan off by
+   editing those files. It can still edit the workflow file that runs the job; the
+   same ruleset gap below leaves that to a reviewer.
    **Still open, and the honest state of the control:** that ruleset sets
    `required_approving_review_count: 0` and `require_code_owner_review: false`,
    because there is one maintainer and a review requirement nobody else can
