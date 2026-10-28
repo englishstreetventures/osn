@@ -13,6 +13,7 @@ import { render } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
 import { describe, expect, it } from "vitest";
 
+import { Button } from "../src/ui/button";
 import { Field, Fieldset } from "../src/ui/field";
 import { Input } from "../src/ui/input";
 import { Select } from "../src/ui/select";
@@ -108,6 +109,50 @@ describe("the control box", () => {
     const none = render(() => <Textarea resize="none" />);
     expect(getComputedStyle(y.getByRole("textbox")).resize).toBe("vertical");
     expect(getComputedStyle(none.getByRole("textbox")).resize).toBe("none");
+  });
+
+  it("gives fields the field radius and buttons the control radius", () => {
+    // A pill button beside a softly squared field: the two roles are separate
+    // tokens, so an app can set them apart. A field that read the control role
+    // would turn into a pill with its buttons.
+    const { getByRole, getByPlaceholderText } = render(() => (
+      <div style="--ui-radius-control: 999px; --ui-radius-field: 14px">
+        <Input placeholder="text" />
+        <Textarea placeholder="note" />
+        <Select>
+          <option>one</option>
+        </Select>
+        <Button>Save</Button>
+      </div>
+    ));
+
+    const fields = [
+      getByPlaceholderText("text"),
+      getByPlaceholderText("note"),
+      getByRole("combobox"),
+    ];
+    for (const field of fields) {
+      expect(getComputedStyle(field).borderTopLeftRadius).toBe("14px");
+    }
+
+    const button = getByRole("button");
+    const radius = Number.parseFloat(getComputedStyle(button).borderTopLeftRadius);
+    expect(radius).toBeGreaterThanOrEqual(button.getBoundingClientRect().height / 2 - 0.5);
+  });
+
+  it("lets a subtree that sets only the control radius reach the field radius", () => {
+    // The field role falls back to the control role, so an inner scope that
+    // overrides only control still moves its fields, rather than the fields
+    // keeping an outer value.
+    const { getByPlaceholderText } = render(() => (
+      <div style="--ui-radius-control: 8px">
+        <div style="--ui-radius-control: 3px">
+          <Input placeholder="inner" />
+        </div>
+      </div>
+    ));
+
+    expect(getComputedStyle(getByPlaceholderText("inner")).borderTopLeftRadius).toBe("3px");
   });
 });
 
