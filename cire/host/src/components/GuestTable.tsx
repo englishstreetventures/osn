@@ -1,4 +1,5 @@
 import Button from "@cire/ui/button";
+import { type MenuContextValue, useMenuContext } from "@kobalte/core/menu";
 import { tokeniseQuery, tokensPrefixName } from "@shared/db-utils/search";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
@@ -7,7 +8,6 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
-  DropdownMenuTrigger,
 } from "@shared/ui/ui/dropdown-menu";
 import { EmptyState } from "@shared/ui/ui/empty-state";
 import { Field } from "@shared/ui/ui/field";
@@ -16,7 +16,6 @@ import { heldWhileClosing, Modal } from "@shared/ui/ui/modal";
 import { Notice } from "@shared/ui/ui/notice";
 import { Switch } from "@shared/ui/ui/switch";
 import { Table, Td, Th } from "@shared/ui/ui/table";
-import { Tooltip } from "@shared/ui/ui/tooltip";
 import Ban from "lucide-solid/icons/ban";
 import Copy from "lucide-solid/icons/copy";
 import Download from "lucide-solid/icons/download";
@@ -72,8 +71,9 @@ import {
   supportsPlusOnes,
   withPermission,
 } from "../lib/plus-one-permission";
+import { plusOneShort } from "../lib/rsvp-filter";
 import { chromeFoot, scrollToResults } from "../lib/scroll-to-results";
-import { IconButton } from "./ActionTip";
+import { IconButton, TipNote } from "./ActionTip";
 import SectionIntro from "./SectionIntro";
 import { StatusMark } from "./StatusMark";
 import { createCompact, holdUntilReady, ViewBar } from "./ViewBar";
@@ -167,6 +167,17 @@ function GuestEmailLine(props: { member: FamilyMember }) {
       )}
     </Show>
   );
+}
+
+/**
+ * Hands out the menu a `DropdownMenu` root holds, from inside it. The narrow
+ * household list draws one menu for every household and opens it from plain
+ * buttons, so it needs the menu's own `open(focusStrategy)` — the call
+ * Kobalte's trigger makes — to put focus where a keyboard user expects it.
+ */
+function MenuHandle(props: { ref: (menu: MenuContextValue) => void }) {
+  props.ref(useMenuContext());
+  return null;
 }
 
 const fullName = (person: { firstName: string; lastName: string }) =>
@@ -767,13 +778,14 @@ export default function GuestTable(props: GuestTableProps) {
   /**
    * The household's state, as a mark (`StatusMark`): Deactivated on the red
    * circle, else Opened on the gold, else Sent on the tint. Its explanation —
-   * and, for Opened, the day — is a `Tooltip`: hidden text for a screen
-   * reader, a panel on hover. On a narrow bar Deactivated says it in a word.
+   * and, for Opened, the day — is a `TipNote`: hidden text for a screen
+   * reader, the shell's one panel on hover. On a narrow bar Deactivated says it
+   * in a word.
    */
   const householdBadge = (family: FamilyGroup) => (
     <>
       <Show when={isDeactivated(family)}>
-        <Tooltip text="This household's code no longer opens the invite. Reactivate to restore it.">
+        <TipNote text="This household's code no longer opens the invite. Reactivate to restore it.">
           <StatusMark
             tone="no"
             glyph={Ban}
@@ -784,7 +796,7 @@ export default function GuestTable(props: GuestTableProps) {
               </Show>
             }
           />
-        </Tooltip>
+        </TipNote>
       </Show>
       {/* Suppressed while deactivated — that is the only relevant state then.
           "Opened" (a real guest claim) takes precedence over the copy-only
@@ -794,19 +806,19 @@ export default function GuestTable(props: GuestTableProps) {
           when={isOpened(family)}
           fallback={
             <Show when={isShared(family)}>
-              <Tooltip text="You copied this household's invite message">
+              <TipNote text="You copied this household's invite message">
                 <StatusMark tone="maybe" glyph={Send} label="Sent" />
-              </Tooltip>
+              </TipNote>
             </Show>
           }
         >
-          <Tooltip
+          <TipNote
             text={`A guest opened this invite (code used) on ${formatOpenedDate(
               family.firstOpenedAt!,
             )}`}
           >
             <StatusMark tone="yes" glyph={Eye} label="Opened" />
-          </Tooltip>
+          </TipNote>
         </Show>
       </Show>
     </>
@@ -952,67 +964,154 @@ export default function GuestTable(props: GuestTableProps) {
     );
   }
 
-  /** The narrow bar's actions: the same, in one "⋯" menu. */
-  function narrowActions(
-    family: FamilyGroup,
-    permission: () => { allowed: number; total: number },
-    householdScope: PlusOneScope,
-    plusOneControls: () => boolean,
-  ) {
+  /**
+   * The narrow bar's actions: the same, in a "⋯" menu. One menu serves the
+   * whole list — a household's "⋯" is a plain button that opens it for that
+   * household — so 300 households mount one menu, not 300. It opens as
+   * Kobalte's own trigger opens one: a click opens it on the panel, the
+   * keyboard on its first item (its last for ArrowUp). It is placed against the
+   * pressed household's "⋯", found by id each time, so a list redrawn
+   * meanwhile still has it in the right place; and it closes once that "⋯" is
+   * no longer drawn — the household gone, or a search hiding it.
+   */
+  const [menuFamilyId, setMenuFamilyId] = createSignal<string | null>(null);
+  const [menuOpen, setMenuOpen] = createSignal(false);
+  const menuFamily = () => {
+    const id = menuFamilyId();
+    return id === null ? undefined : families.find((f) => f.familyId === id);
+  };
+  const isMenuFor = createSelector(() => (menuOpen() ? menuFamilyId() : null));
+  let householdMenu: MenuContextValue | undefined;
+  const actionsButton = (familyId: string) =>
+    document.querySelector<HTMLElement>(`[data-actions-for="${CSS.escape(familyId)}"]`);
+  createEffect(
+    on([visibleFamilies, menuOpen], () => {
+      const id = menuFamilyId();
+      if (!menuOpen() || id === null) return;
+      // After the list has redrawn for this change.
+      queueMicrotask(() => {
+        if (menuFamilyId() === id && !actionsButton(id)) householdMenu?.close();
+      });
+    }),
+  );
+
+  /** Open the menu for `family` — once the last one has finished leaving, so
+   *  its panel is mounted afresh at the new "⋯" and takes focus as it opens. */
+  function openMenu(family: FamilyGroup, focus: true | "first" | "last", frames = 12) {
+    const menu = householdMenu;
+    if (!menu) return;
+    if (!menu.isOpen() && menu.contentPresent() && frames > 0) {
+      requestAnimationFrame(() => openMenu(family, focus, frames - 1));
+      return;
+    }
+    setMenuFamilyId(family.familyId);
+    menu.open(focus);
+  }
+
+  function narrowActions(family: FamilyGroup) {
+    const open = (focus: true | "first" | "last") => openMenu(family, focus);
     return (
-      <DropdownMenu placement="bottom-end" gutter={4}>
-        <DropdownMenuTrigger
-          as={Button}
-          variant="quiet"
-          size="icon"
-          aria-label={`Actions for ${family.familyName}`}
-          class="shrink-0"
-        >
-          <Ellipsis aria-hidden="true" strokeWidth={1.75} class="size-4" />
-        </DropdownMenuTrigger>
-        <DropdownMenuContent class="min-w-48">
-          <Show when={plusOneControls()}>
-            <DropdownMenuItem
-              disabled={permission().allowed === permission().total}
-              onSelect={() => requestPermission(householdScope, true)}
-            >
-              Everyone may bring a +1
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={permission().allowed === 0}
-              onSelect={() => requestPermission(householdScope, false)}
-            >
-              No one may bring a +1
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-          </Show>
-          <DropdownMenuItem disabled={!messageSettled()} onSelect={() => void copyMessage(family)}>
-            Copy message
-          </DropdownMenuItem>
-          <Show when={props.canManage}>
-            <Show
-              when={isDeactivated(family)}
-              fallback={
-                <DropdownMenuItem
-                  disabled={togglingId() === family.familyId}
-                  onSelect={() => setConfirmingDialog(family)}
-                >
-                  Deactivate
-                </DropdownMenuItem>
-              }
-            >
-              <DropdownMenuItem
-                disabled={togglingId() === family.familyId}
-                onSelect={() => void toggleDeactivated(family, false)}
-              >
-                Reactivate
-              </DropdownMenuItem>
-            </Show>
-          </Show>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <Button
+        variant="quiet"
+        size="icon"
+        type="button"
+        class="shrink-0"
+        aria-label={`Actions for ${family.familyName}`}
+        aria-haspopup="menu"
+        aria-expanded={isMenuFor(family.familyId)}
+        data-actions-for={family.familyId}
+        onClick={() => open(true)}
+        onKeyDown={(e: KeyboardEvent) => {
+          if (e.key === "Enter" || e.key === " " || e.key === "ArrowDown") {
+            e.preventDefault();
+            open("first");
+          } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            open("last");
+          }
+        }}
+      >
+        <Ellipsis aria-hidden="true" strokeWidth={1.75} class="size-4" />
+      </Button>
     );
   }
+
+  /** The chosen household's choices: its plus-ones, its message, its code. */
+  function menuItems(family: FamilyGroup) {
+    const permission = householdPermission(family.members);
+    const householdScope: PlusOneScope = { kind: "household", familyId: family.familyId };
+    const plusOneControls = plusOnesShown() && canEdit() && permission.total > 0;
+    return (
+      <>
+        <Show when={plusOneControls}>
+          <DropdownMenuItem
+            disabled={permission.allowed === permission.total}
+            onSelect={() => requestPermission(householdScope, true)}
+          >
+            Everyone may bring a +1
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={permission.allowed === 0}
+            onSelect={() => requestPermission(householdScope, false)}
+          >
+            No one may bring a +1
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+        </Show>
+        <DropdownMenuItem disabled={!messageSettled()} onSelect={() => void copyMessage(family)}>
+          Copy message
+        </DropdownMenuItem>
+        <Show when={props.canManage}>
+          <Show
+            when={isDeactivated(family)}
+            fallback={
+              <DropdownMenuItem
+                disabled={togglingId() === family.familyId}
+                onSelect={() => setConfirmingDialog(family)}
+              >
+                Deactivate
+              </DropdownMenuItem>
+            }
+          >
+            <DropdownMenuItem
+              disabled={togglingId() === family.familyId}
+              onSelect={() => void toggleDeactivated(family, false)}
+            >
+              Reactivate
+            </DropdownMenuItem>
+          </Show>
+        </Show>
+      </>
+    );
+  }
+
+  /** The one menu, drawn with the narrow list. */
+  const householdMenuView = () => (
+    <DropdownMenu
+      placement="bottom-end"
+      gutter={4}
+      getAnchorRect={() => {
+        const id = menuFamilyId();
+        return id === null ? undefined : actionsButton(id)?.getBoundingClientRect();
+      }}
+      onOpenChange={setMenuOpen}
+    >
+      <MenuHandle ref={(menu) => (householdMenu = menu)} />
+      <DropdownMenuContent
+        class="min-w-48"
+        aria-label={`Actions for ${menuFamily()?.familyName ?? "this household"}`}
+        // No trigger of Kobalte's to return to: focus goes back to the "⋯"
+        // that opened the menu, as it would to the trigger.
+        onCloseAutoFocus={(e) => {
+          e.preventDefault();
+          const id = menuFamilyId();
+          if (id !== null) actionsButton(id)?.focus({ preventScroll: true });
+        }}
+      >
+        <Show when={menuFamily()}>{(family) => menuItems(family())}</Show>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 
   return (
     <div
@@ -1219,9 +1318,7 @@ export default function GuestTable(props: GuestTableProps) {
                           class="font-body text-gold-ink text-ui-xs mt-0.5 block truncate"
                         >
                           <span aria-hidden="true">
-                            {inviterName(member)
-                              ? `+1 · ${inviterName(member).split(/\s+/)[0]}`
-                              : "+1"}
+                            {plusOneShort({ plusOneOfName: inviterName(member) })}
                           </span>
                           <span class="sr-only">
                             Plus-one of {inviterName(member) || "another guest"}
@@ -1282,7 +1379,7 @@ export default function GuestTable(props: GuestTableProps) {
                             plusOneControls,
                           )}
                         >
-                          {narrowActions(family, permission, householdScope, plusOneControls)}
+                          {narrowActions(family)}
                         </Show>
                       </div>
 
@@ -1365,6 +1462,9 @@ export default function GuestTable(props: GuestTableProps) {
           </Show>
         </div>
       </Show>
+
+      {/* The narrow layout's one household menu. */}
+      <Show when={compact()}>{householdMenuView()}</Show>
 
       {/* The narrow layout's Deactivate confirmation. */}
       <Modal

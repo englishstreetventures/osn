@@ -127,7 +127,7 @@ export default function EditWorkspace(props: {
                    exactly the users who can't infer it from a two-word label.
                    The hint is visible text under the bar, and each control
                    points at its own. */
-                describedBy={hintId(m.id)}
+                aria-describedby={hintId(m.id)}
                 /* A real <input type="radio"> would be the tag for this, and
                    the lint rule is right in general. Not here: choosing a mode
                    can be REFUSED (an unsaved draft, confirm declined), and a

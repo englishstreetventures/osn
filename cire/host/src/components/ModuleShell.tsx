@@ -35,7 +35,7 @@ import { scrollDelta } from "../lib/scroll-to-results";
 import { createSlidingPill } from "../lib/sliding-pill";
 import type { PaidTier, Tier } from "../lib/tiers";
 import type { WeddingRole } from "../lib/wedding-roles";
-import { TipTrigger } from "./ActionTip";
+import { TipLayer, TipTrigger } from "./ActionTip";
 import BudgetView from "./BudgetView";
 import ChecklistView from "./ChecklistView";
 import EditWorkspace from "./EditWorkspace";
@@ -563,16 +563,28 @@ export default function ModuleShell(props: ModuleShellProps) {
       }
     }
 
+    // `--bar-h` is the height the bar settles at: its content's, which changes
+    // once when a view adds or drops a row, plus the hairline under it. Not the
+    // section's own box, which animates through every frame of the slide — each
+    // write restyles the whole shell, and the layers below need only the end.
+    // A write equal to the last is skipped.
     onMount(() => {
-      if (!bar) return;
+      const content = barContent;
+      if (!bar || !content) return;
+      const hairline = parseFloat(getComputedStyle(bar).borderBottomWidth) || 0;
+      let written: string | undefined;
       const write = () => {
-        if (bar) shellEl?.style.setProperty("--bar-h", `${bar.getBoundingClientRect().height}px`);
+        const value = `${content.getBoundingClientRect().height + hairline}px`;
+        if (value === written) return;
+        written = value;
+        shellEl?.style.setProperty("--bar-h", value);
       };
       write();
       const observer = new ResizeObserver(write);
-      observer.observe(bar, { box: "border-box" });
+      observer.observe(content, { box: "border-box" });
       onCleanup(() => {
         observer.disconnect();
+        written = undefined;
         shellEl?.style.removeProperty("--bar-h");
       });
     });
@@ -1004,6 +1016,9 @@ export default function ModuleShell(props: ModuleShellProps) {
           </ViewBarContext.Provider>
         </div>
       </div>
+      {/* The one tooltip panel for every icon-only control and explained badge
+          in the shell (`ActionTip.tsx`); it portals to <body>. */}
+      <TipLayer />
     </div>
   );
 }

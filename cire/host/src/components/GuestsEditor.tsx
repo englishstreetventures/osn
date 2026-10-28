@@ -5,7 +5,7 @@ import { EmptyState } from "@shared/ui/ui/empty-state";
 import { Input } from "@shared/ui/ui/input";
 import { heldWhileClosing, Modal } from "@shared/ui/ui/modal";
 import { Notice } from "@shared/ui/ui/notice";
-import { Popover, PopoverContent, PopoverTrigger } from "@shared/ui/ui/popover";
+import { Popover, PopoverContent } from "@shared/ui/ui/popover";
 import type { SafeProps } from "@shared/ui/ui/props";
 import { Table, Td, Th } from "@shared/ui/ui/table";
 import Plus from "lucide-solid/icons/plus";
@@ -13,12 +13,14 @@ import {
   type Accessor,
   createEffect,
   createMemo,
+  createSelector,
   createSignal,
   createUniqueId,
   For,
   onCleanup,
   onMount,
   Show,
+  splitProps,
 } from "solid-js";
 import { Portal } from "solid-js/web";
 
@@ -181,6 +183,21 @@ export default function GuestsEditor(props: {
   onCleanup(() => headObserver?.disconnect());
   // The words change width when the face arrives, the columns do not.
   onMount(() => void document.fonts?.ready.then(measureHeads));
+
+  // One popover for every cut-short head in every card: a head is a plain
+  // button that opens it at itself, so a long event name on a 300-household
+  // draft mounts one popover, not one per card.
+  const [openHead, setOpenHead] = createSignal<{ el: HTMLElement; name: string } | null>(null);
+  const shownHead = heldWhileClosing(openHead);
+  const isOpenHead = createSelector<HTMLElement | undefined, HTMLElement | undefined>(
+    () => openHead()?.el,
+  );
+  function toggleHead(el: HTMLElement, name: string) {
+    setOpenHead((now) => (now?.el === el ? null : { el, name }));
+  }
+  // Whether the popover closed because the host went elsewhere — a press or
+  // focus outside — in which case focus stays where they took it.
+  let leftForElsewhere = false;
 
   const [loadError, setLoadError] = createSignal<string | null>(null);
   const [saveError, setSaveError] = createSignal<string | null>(null);
@@ -523,6 +540,8 @@ export default function GuestsEditor(props: {
                   store={store}
                   compact={compact}
                   clipped={clipped}
+                  onHead={toggleHead}
+                  isOpenHead={isOpenHead}
                   nameRef={(el) => {
                     nameFields.set(family.key, el);
                     onCleanup(() => nameFields.delete(family.key));
@@ -534,6 +553,39 @@ export default function GuestsEditor(props: {
           </div>
         </Show>
       </Show>
+
+      {/* The cut-short heads' one popover, at whichever head was pressed. It
+          goes when that head does — a card removed, or its column grown to
+          fit — rather than stay open over nothing. */}
+      <Popover
+        open={openHead() !== null}
+        onOpenChange={(open) => {
+          if (!open) setOpenHead(null);
+        }}
+        anchorRef={() => openHead()?.el}
+        getAnchorRect={(anchor) => {
+          if (anchor && !anchor.isConnected) queueMicrotask(() => setOpenHead(null));
+          return anchor?.getBoundingClientRect();
+        }}
+        placement="bottom"
+      >
+        <PopoverContent
+          aria-label={`Event: ${shownHead()?.name ?? ""}`}
+          onInteractOutside={(e) => {
+            // A second press on the open head closes it through its own click.
+            if (openHead()?.el.contains(e.target as Node)) e.preventDefault();
+            else leftForElsewhere = true;
+          }}
+          onCloseAutoFocus={(e) => {
+            e.preventDefault();
+            const head = shownHead()?.el;
+            if (!leftForElsewhere && head?.isConnected) head.focus({ preventScroll: true });
+            leftForElsewhere = false;
+          }}
+        >
+          {shownHead()?.name}
+        </PopoverContent>
+      </Popover>
 
       {/* Preview modal (the shared ChangePreview) — shown after a successful
           preview, gates the apply. */}
@@ -679,15 +731,30 @@ function EditorColumns(props: { events: { key: string }[] }) {
   );
 }
 
-/** An event head cut short by its column: a button that opens the whole name.
- *  Dotted underline, the portal's mark for "there is more here". */
-function ClippedHead(props: SafeProps<"button">) {
+/** An event head cut short by its column: a button that opens the whole name
+ *  in the editor's one popover. Dotted underline, the portal's mark for "there
+ *  is more here". */
+function ClippedHead(
+  props: Omit<SafeProps<"button">, "type" | "onClick"> & {
+    name: string;
+    onHead: (el: HTMLElement, name: string) => void;
+    isOpenHead: (el: HTMLElement | undefined) => boolean;
+  },
+) {
+  const [own, rest] = splitProps(props, ["name", "onHead", "isOpenHead"]);
+  let el: HTMLButtonElement | undefined;
   return (
     <button
+      ref={el}
       type="button"
-      {...props}
+      {...rest}
+      aria-haspopup="dialog"
+      aria-expanded={own.isOpenHead(el)}
+      onClick={(e) => own.onHead(e.currentTarget, own.name)}
       class="block w-full truncate uppercase underline decoration-dotted underline-offset-4"
-    />
+    >
+      {own.name}
+    </button>
   );
 }
 
@@ -713,6 +780,8 @@ function FamilyCard(props: {
   store: ReturnType<typeof createGuestEventDraft>;
   compact: Accessor<boolean>;
   clipped: Accessor<ReadonlySet<string>>;
+  onHead: (el: HTMLElement, name: string) => void;
+  isOpenHead: (el: HTMLElement | undefined) => boolean;
   nameRef: (el: HTMLInputElement) => void;
 }) {
   const famErrors = () => props.errorsByKey.get(props.family.key) ?? [];
@@ -828,16 +897,13 @@ function FamilyCard(props: {
                           </span>
                         }
                       >
-                        <Popover placement="bottom">
-                          <PopoverTrigger
-                            as={ClippedHead}
-                            data-event-head={evt.key}
-                            aria-label={`Event: ${eventName(evt)}`}
-                          >
-                            {eventName(evt)}
-                          </PopoverTrigger>
-                          <PopoverContent>{eventName(evt)}</PopoverContent>
-                        </Popover>
+                        <ClippedHead
+                          data-event-head={evt.key}
+                          aria-label={`Event: ${eventName(evt)}`}
+                          name={eventName(evt)}
+                          onHead={props.onHead}
+                          isOpenHead={props.isOpenHead}
+                        />
                       </Show>
                     </th>
                   )}
