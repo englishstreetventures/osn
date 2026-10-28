@@ -533,11 +533,13 @@ asked for once more.
 A tab hidden for two ping intervals closes its socket, and shown again it
 reopens it, so a return can bring both the tab's own re-read and a
 reconnect. A reconnect within a second of the tab being shown
-(`RESUME_REOPEN_MS`) counts as the return's own: it sends no request while
-one started after the show has been applied, waits on one in flight (and on
-any newer one that overtakes it), and sends its own only if none of them is
-applied. What it can miss is a change committed between that request's query
-and the hub admitting the socket, under a second. A later reconnect, or one
+(`RESUME_REOPEN_MS`, timed on the monotonic clock, which a wall-clock step
+cannot shorten) counts as the return's own: it sends no request while one
+started after the show has been applied, waits on one in flight (and on any
+newer one that overtakes it) until it is 30 s old, when any trigger
+abandons it, and sends its own only if none of them is applied. What
+it can miss is a change committed between that request's query and the hub
+admitting the socket, under a second. A later reconnect, or one
 after a return too soon to re-read, sends its own request as above. So a
 return reads the list once when the socket reopens within the second; how
 often a real return does is not measured.
