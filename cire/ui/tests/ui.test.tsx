@@ -121,7 +121,7 @@ function corners(cls: string): string[] {
 }
 
 describe("Button — corners and case", () => {
-  it("every action variant is a pill", () => {
+  it("every action variant takes the control role, and chip the pill step", () => {
     // One corner class, from the `control` role, so an app decides how round
     // its buttons are once in its stylesheet. A second corner class would tie
     // with the first at zero specificity and leave the stylesheet's order to

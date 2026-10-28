@@ -22,10 +22,10 @@ import { splitProps } from "solid-js";
  *
  * ## Shape and case
  *
- * Actions are pills and labels are sentence case at normal tracking, with a
+ * Actions take the `control` corner role, which cire's design draws as a pill
+ * once an app maps it so. Labels show as written, at normal tracking, with a
  * medium weight on a boxed label so it stands apart from the text around it.
- * The label is written in sentence case at the call site; nothing here
- * transforms it. The corner comes from a contract role rather than a size
+ * Nothing here transforms the label. The corner comes from a contract role rather than a size
  * step, so each app sets how round its buttons are once, in its stylesheet:
  * see {@link cornerFor}.
  *
@@ -360,11 +360,11 @@ function sizingFor(variant: ButtonVariant, size: ButtonSize): string {
 /**
  * The one corner a variant and size take, always `base:`-prefixed.
  *
- * Actions take the `control` role, which each cire app maps to a pill. A
- * `tile`, a `field` and anything at the `swatch` size take the `field` role
- * instead — the text field's corner: a tile is a block, a field holds a value,
- * and a swatch frames a picture, so a pill would read as a lozenge around
- * each. `chip` takes the `pill` step, since it is drawn as a sibling of a
+ * Actions take the `control` role, which decides how round an app's buttons
+ * are. A `tile`, a `field` and anything at the `swatch` size take the `field`
+ * role instead — the text field's corner: a tile is a block, a field holds a
+ * value, and a swatch frames a picture, so a pill would read as a lozenge
+ * around each. `chip` takes the `pill` step, since it is drawn as a sibling of a
  * round close button and stays round whatever `control` is. The borderless
  * variants take `control` too; with no border and no fill, only their focus
  * ring shows it.
