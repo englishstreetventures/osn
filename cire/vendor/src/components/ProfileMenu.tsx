@@ -18,10 +18,10 @@ import AccountAvatar, { accountName, AVATAR_TRIGGER_CLASS } from "./AccountAvata
  * everything scoped to the person rather than to an organisation — appearance,
  * haptics, account, sign out.
  *
- * Sign out used to be a third bare button in a row beside "Listings" and
- * "Enquiries", which put "who am I" housekeeping on the same axis as "what am I
- * working on", one mis-click apart. An avatar menu splits the two and leaves the
- * bar for the work.
+ * Sign out lives here, not as a button in the bar beside "Listings" and
+ * "Enquiries": there it would put "who am I" housekeeping on the same axis as
+ * "what am I working on", one mis-click apart. The menu splits the two and
+ * leaves the bar for the work.
  *
  * ## Account management is a link out, not a view
  *
@@ -35,7 +35,7 @@ import AccountAvatar, { accountName, AVATAR_TRIGGER_CLASS } from "./AccountAvata
  */
 const itemClass =
   "font-body flex w-full cursor-pointer items-center rounded-sm px-3 py-2 text-ui-sm " +
-  "tracking-ui-wider uppercase outline-none transition-colors duration-(--dur-fast) " +
+  "outline-none transition-colors duration-(--dur-fast) ease-(--ease-out) " +
   "text-text-muted data-[highlighted]:bg-gold/10 data-[highlighted]:text-gold";
 
 /** The same row, plus room for the indicator column the settings rows carry. */
@@ -94,7 +94,7 @@ export default function ProfileMenu(props: {
       </DropdownMenu.Trigger>
 
       <DropdownMenu.Portal>
-        <DropdownMenu.Content class="border-border bg-surface menu-pop z-50 min-w-52 rounded-sm border p-1.5 shadow-lg outline-none">
+        <DropdownMenu.Content class="border-border bg-surface menu-pop z-50 min-w-52 rounded-md border p-1.5 shadow-lg outline-none">
           <div class="flex flex-col gap-0.5 px-3 pt-2 pb-2.5">
             <span class="font-body text-text text-ui-sm truncate">{name()}</span>
             <Show when={detail()}>
@@ -149,7 +149,7 @@ export default function ProfileMenu(props: {
               Haptics
               <span
                 aria-hidden="true"
-                class={`relative h-4 w-7 shrink-0 rounded-full transition-colors duration-(--dur-fast) ${
+                class={`relative h-4 w-7 shrink-0 rounded-full transition-colors duration-(--dur-fast) ease-(--ease-out) ${
                   hapticsEnabled() ? "bg-gold" : "bg-border"
                 }`}
               >
