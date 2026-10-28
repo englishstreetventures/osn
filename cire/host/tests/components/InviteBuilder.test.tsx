@@ -1654,6 +1654,14 @@ describe("InviteBuilder section menu (narrow containers)", () => {
     );
   });
 
+  /** What `root` draws that holds no words — which is what a status dot is,
+   *  whatever its class — leaving out the eye-off icon and its parts. Every
+   *  other mark on a trigger or a tab is a word, so this is empty. */
+  const wordlessMarks = (root: Element) =>
+    [...root.querySelectorAll("*")].filter(
+      (el) => !el.textContent?.trim() && !el.closest("[data-hidden-icon]"),
+    );
+
   it("fades the trigger's label and marks it with an eye-off icon while the section is hidden, live", async () => {
     await renderBuilder();
     // The label and its icon sit in one span, which carries the fade.
@@ -1661,8 +1669,8 @@ describe("InviteBuilder section menu (narrow containers)", () => {
     const faded = () => label().classList.contains("text-text-faint");
     const icon = () => trigger().querySelector("[data-hidden-icon]");
 
-    // No dot anywhere on the trigger.
-    expect(trigger().querySelector(".rounded-full")).toBeNull();
+    // No dot anywhere on the trigger: every mark on it is a word.
+    expect(wordlessMarks(trigger())).toEqual([]);
 
     // Design has no Shown/Hidden state at all — no fade, no icon.
     expect(faded()).toBe(false);
@@ -1674,7 +1682,8 @@ describe("InviteBuilder section menu (narrow containers)", () => {
     expect(icon()).not.toBeNull();
     // Decoration only: the trigger's `aria-label` carries the state.
     expect(icon()!.getAttribute("aria-hidden")).toBe("true");
-    expect(trigger().querySelector(".rounded-full")).toBeNull();
+    // The icon is the one wordless mark, and it is the eye-off, never a dot.
+    expect(wordlessMarks(trigger())).toEqual([]);
 
     // Both lift the instant an edit gives the section content — it's the whole
     // reason the trigger can be read instead of opened.
@@ -1689,8 +1698,8 @@ describe("InviteBuilder section menu (narrow containers)", () => {
     const icon = (name: string | RegExp) => tab(name).querySelector("[data-hidden-icon]");
     const has = (el: HTMLElement, cls: string) => el.classList.contains(cls);
 
-    // No dot in any tab.
-    expect(tablist().querySelector(".rounded-full")).toBeNull();
+    // No dot in any tab: every mark in the strip is a word or the eye-off.
+    expect(wordlessMarks(tablist())).toEqual([]);
 
     // Not selected, and hidden: faded, NOT the plain unselected ink, and marked
     // with the icon — the cue that is not colour — so "hidden" never reads as

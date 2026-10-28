@@ -1,4 +1,4 @@
-import Button from "@cire/ui/button";
+import Button, { buttonClass } from "@cire/ui/button";
 import { DropdownMenu } from "@kobalte/core/dropdown-menu";
 import { useAuth } from "@shared/rp-auth/solid";
 import {
@@ -481,7 +481,7 @@ export default function SeatingView(props: SeatingViewProps) {
                 </form>
 
                 <Show when={tables().length > 1}>
-                  <details class="border-border rounded-sm border px-4 py-3">
+                  <details class="border-border rounded-ui-lg border px-4 py-3">
                     <summary class="font-body text-text text-ui-sm cursor-pointer">
                       Arrange tables
                     </summary>
@@ -643,7 +643,7 @@ function Place(props: {
       aria-label={editing() ? props.title : undefined}
       data-table-id={props.table?.id}
       data-over={zone.isOver() ? "true" : "false"}
-      class={`border-border bg-surface/30 flex flex-col gap-3 rounded-sm border p-4 transition-colors duration-(--dur-fast) ${props.class ?? ""}`}
+      class={`border-border bg-surface/30 rounded-ui-lg flex flex-col gap-3 border p-4 transition-colors duration-(--dur-fast) ease-(--ease-out) ${props.class ?? ""}`}
       classList={{ "border-gold bg-gold/10": zone.isOver() }}
     >
       <Show
@@ -738,8 +738,9 @@ function Place(props: {
   );
 }
 
-const menuTriggerClass =
-  "font-body text-text-muted hover:text-gold-ink text-ui-xs tracking-ui-wider shrink-0 rounded-sm px-2 py-1 uppercase";
+/** A guest's "Seat" or "Move": a word that opens a menu, so `subtle`'s text
+ *  action, with padding kept so the word is a 24px target. */
+const menuTriggerClass = `${buttonClass({ variant: "subtle", size: "sm" })} shrink-0 px-2 py-1`;
 
 /** The keys a menu button opens on, as Kobalte's trigger takes them. */
 const MENU_OPEN_KEYS = new Set(["Enter", " ", "ArrowDown", "ArrowUp"]);
@@ -749,7 +750,7 @@ type MenuOpener = (trigger: HTMLElement) => void;
 
 const menuItemClass =
   "font-body text-text-muted text-ui-sm flex w-full cursor-pointer items-center justify-between gap-4 " +
-  "rounded-sm px-3 py-2 outline-none transition-colors duration-(--dur-fast) " +
+  "rounded-sm px-3 py-2 outline-none transition-colors duration-(--dur-fast) ease-(--ease-out) " +
   "data-[highlighted]:bg-gold/10 data-[highlighted]:text-text " +
   "data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50";
 
@@ -885,7 +886,7 @@ function GuestMenu(props: {
               {action()}
             </DropdownMenu.Trigger>
             <DropdownMenu.Portal>
-              <DropdownMenu.Content class="border-border bg-surface menu-pop z-50 max-h-80 min-w-56 overflow-y-auto rounded-sm border p-1.5 shadow-lg outline-none">
+              <DropdownMenu.Content class="border-border bg-surface menu-pop z-50 max-h-80 min-w-56 overflow-y-auto rounded-md border p-1.5 shadow-lg outline-none">
                 <DropdownMenu.RadioGroup
                   value={props.guest.tableId ?? NOT_SEATED}
                   onChange={(value) =>

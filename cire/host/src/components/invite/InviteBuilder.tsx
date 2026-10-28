@@ -913,7 +913,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
     // `watchBuilderWidth`.
     <section
       ref={watchBuilderWidth}
-      class="border-border bg-surface/30 @container/builder flex flex-col gap-8 rounded-sm border p-6"
+      class="border-border bg-surface/30 rounded-ui-lg @container/builder flex flex-col gap-8 border p-6"
     >
       <header class="flex flex-col gap-1">
         <p class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">Invite Builder</p>
@@ -1020,11 +1020,11 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                     </span>
                     <span
                       aria-hidden
-                      class="text-text-muted text-ui-xs tracking-ui-widest flex shrink-0 items-center gap-2 tabular-nums"
+                      class="text-text-muted text-ui-xs tracking-ui-widest flex shrink-0 items-center gap-2 font-normal tabular-nums"
                     >
                       {activeIndex() + 1}/{NAV_SECTIONS.length}
                       <span
-                        class="text-gold text-ui-sm inline-block tracking-normal transition-transform duration-(--dur-fast)"
+                        class="text-gold text-ui-sm inline-block tracking-normal transition-transform duration-(--dur-fast) ease-(--ease-out)"
                         classList={{ "rotate-180": sectionMenuOpen() }}
                       >
                         ▾
@@ -1045,7 +1045,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                     id={SECTION_MENU_ID}
                     role="tablist"
                     data-open={sectionMenuOpen() || undefined}
-                    class="section-menu border-border bg-bg absolute inset-x-6 top-full z-30 mt-1 max-h-[60vh] grid-cols-2 gap-1 overflow-y-auto rounded-sm border p-2 shadow-lg @3xl/builder:static @3xl/builder:mt-0 @3xl/builder:flex @3xl/builder:max-h-none @3xl/builder:flex-wrap @3xl/builder:overflow-visible @3xl/builder:rounded-none @3xl/builder:border-0 @3xl/builder:bg-transparent @3xl/builder:p-0 @3xl/builder:shadow-none"
+                    class="section-menu border-border bg-bg absolute inset-x-6 top-full z-30 mt-1 max-h-[60vh] grid-cols-2 gap-1 overflow-y-auto rounded-md border p-2 shadow-lg @3xl/builder:static @3xl/builder:mt-0 @3xl/builder:flex @3xl/builder:max-h-none @3xl/builder:flex-wrap @3xl/builder:overflow-visible @3xl/builder:rounded-none @3xl/builder:border-0 @3xl/builder:bg-transparent @3xl/builder:p-0 @3xl/builder:shadow-none"
                   >
                     <For each={[...NAV_SECTIONS]}>
                       {(item) => {
@@ -1379,7 +1379,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                         design={currentDesign()}
                         panel={designLayout(currentDesign()).welcome === "panel"}
                         eyebrow="Your Invitation"
-                        heading="Enter Your Code"
+                        heading="Enter your code"
                         body={sampleCopy(draft.welcomeMessage, DEFAULTS.welcomeMessage)}
                       />
                     </Show>
@@ -1593,7 +1593,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
               />
 
               {/* ── Save bar — sticky so it's reachable from any section ── */}
-              <div class="border-border bg-bg/90 sticky bottom-0 z-10 -mx-6 -mb-6 flex flex-col gap-3 rounded-b-sm border-t px-6 py-4 backdrop-blur">
+              <div class="border-border bg-bg/90 rounded-b-ui-lg sticky bottom-0 z-10 -mx-6 -mb-6 flex flex-col gap-3 border-t px-6 py-4 backdrop-blur">
                 <Show when={error()}>
                   <Notice tone="danger" alert>
                     {error()}

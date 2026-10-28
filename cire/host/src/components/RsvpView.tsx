@@ -215,7 +215,7 @@ function ReplyDot(props: { tone: MarkTone }) {
 
 /** The phone's sort and reply pickers: native selects, at the search box's height. */
 const SELECT_CLASS =
-  "border-border bg-bg text-text font-body text-ui-sm h-7 min-w-0 rounded-sm border px-2";
+  "border-border bg-bg text-text font-body text-ui-sm h-7 min-w-0 rounded-ui-field border px-2";
 
 /** What the sort select offers, in `RsvpSort` terms. */
 const SORT_CHOICES = [
@@ -1086,10 +1086,10 @@ export default function RsvpView(props: RsvpViewProps) {
         fallback={
           <>
             <ViewBar slot="end">
-              <div class="bg-surface/60 mr-auto h-9 w-56 max-w-full min-w-0 animate-pulse rounded-sm" />
+              <div class="bg-surface/60 mr-auto h-9 w-56 max-w-full min-w-0 animate-pulse rounded-full" />
             </ViewBar>
             <ViewBar slot="row2">
-              <div class="bg-surface/60 h-7 w-full animate-pulse rounded-sm" />
+              <div class="bg-surface/60 rounded-ui-field h-7 w-full animate-pulse" />
             </ViewBar>
           </>
         }
@@ -1366,7 +1366,7 @@ export default function RsvpView(props: RsvpViewProps) {
         <label class="font-body text-text-muted text-ui-sm tracking-ui-wide flex flex-col gap-1 uppercase">
           Status
           <select
-            class="border-border bg-bg text-text text-ui-base rounded-sm border px-2.5 py-1.5 normal-case"
+            class="border-border bg-bg text-text text-ui-base rounded-ui-field border px-2.5 py-1.5 normal-case"
             value={formStatus()}
             onChange={(e) => setFormStatus(e.currentTarget.value as RsvpStatus)}
             disabled={saving()}
@@ -1411,7 +1411,7 @@ export default function RsvpView(props: RsvpViewProps) {
         <label class="font-body text-text-muted text-ui-sm tracking-ui-wide flex flex-col gap-1 uppercase">
           Anything else
           <textarea
-            class="border-border bg-bg text-text text-ui-base rounded-sm border px-2.5 py-1.5 normal-case"
+            class="border-border bg-bg text-text text-ui-base rounded-ui-field border px-2.5 py-1.5 normal-case"
             rows={2}
             maxlength={500}
             value={formDietary()}
@@ -1477,9 +1477,8 @@ export default function RsvpView(props: RsvpViewProps) {
         </Show>
 
         <div class="flex items-center gap-2">
-          {/* Both at the default size, which they were not: Cancel was already a
-              `<Button>` at `md` and Save was hand-written at `px-3 py-1.5`, so
-              the two controls in this one row were different heights. */}
+          {/* Both at the default size, so the two controls in this row are one
+              height. */}
           <Button
             variant="primary"
             type="submit"

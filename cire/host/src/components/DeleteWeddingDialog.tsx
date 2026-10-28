@@ -69,7 +69,7 @@ export default function DeleteWeddingDialog(props: {
   return (
     <section
       aria-labelledby="danger-zone-title"
-      class="border-ui-danger/30 flex flex-col gap-3 rounded-sm border p-5"
+      class="border-ui-danger/30 rounded-ui-lg flex flex-col gap-3 border p-5"
     >
       <h3 id="danger-zone-title" class="font-display text-text text-ui-md font-light">
         Delete this wedding

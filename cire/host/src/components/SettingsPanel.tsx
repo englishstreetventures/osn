@@ -304,7 +304,7 @@ export default function SettingsPanel(props: SettingsPanelProps) {
   const disabled = () => readOnly() || saving();
 
   return (
-    <div class="border-border bg-surface/30 flex flex-col gap-6 rounded-sm border p-6">
+    <div class="border-border bg-surface/30 rounded-ui-lg flex flex-col gap-6 border p-6">
       <SectionIntro
         eyebrow="Settings"
         title="Wedding profile"
@@ -351,7 +351,7 @@ export default function SettingsPanel(props: SettingsPanelProps) {
 
             <div class="flex flex-col gap-1.5">
               <span class={labelClass}>Invite link</span>
-              <p class="font-body text-text border-border bg-bg/50 text-ui-base rounded-sm border px-3 py-2 opacity-70">
+              <p class="font-body text-text border-border bg-bg/50 text-ui-base rounded-ui-field border px-3 py-2 opacity-70">
                 {slug()}
               </p>
               <span class={hintClass}>

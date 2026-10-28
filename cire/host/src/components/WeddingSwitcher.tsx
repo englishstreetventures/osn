@@ -37,14 +37,14 @@ export default function WeddingSwitcher(props: {
         </span>
         <span
           aria-hidden="true"
-          class="text-text-faint group-hover:text-gold text-ui-xs shrink-0 transition-colors duration-(--dur-fast)"
+          class="text-text-faint group-hover:text-gold text-ui-xs shrink-0 transition-colors duration-(--dur-fast) ease-(--ease-out)"
         >
           ▾
         </span>
       </DropdownMenu.Trigger>
 
       <DropdownMenu.Portal>
-        <DropdownMenu.Content class="border-border bg-surface menu-pop z-50 max-h-[min(24rem,70vh)] min-w-64 overflow-y-auto rounded-sm border p-1.5 shadow-(--elev-2) outline-none">
+        <DropdownMenu.Content class="border-border bg-surface menu-pop z-50 max-h-[min(24rem,70vh)] min-w-64 overflow-y-auto rounded-md border p-1.5 shadow-(--elev-2) outline-none">
           <Show when={others().length > 0}>
             <p class="font-body text-text-faint text-ui-xs tracking-ui-widest px-3 pt-1.5 pb-2 uppercase">
               Switch to
@@ -52,7 +52,7 @@ export default function WeddingSwitcher(props: {
             <For each={others()}>
               {(wedding) => (
                 <DropdownMenu.Item
-                  class="font-body data-[highlighted]:bg-gold/10 flex w-full cursor-pointer flex-col items-start gap-0.5 rounded-sm px-3 py-2 transition-colors duration-(--dur-fast) outline-none"
+                  class="font-body data-[highlighted]:bg-gold/10 flex w-full cursor-pointer flex-col items-start gap-0.5 rounded-sm px-3 py-2 transition-colors duration-(--dur-fast) ease-(--ease-out) outline-none"
                   onSelect={() => props.onSelect(wedding)}
                 >
                   <span class="text-text text-ui-sm w-full truncate">{wedding.displayName}</span>
@@ -66,7 +66,7 @@ export default function WeddingSwitcher(props: {
           </Show>
 
           <DropdownMenu.Item
-            class="font-body text-text-muted data-[highlighted]:bg-gold/10 data-[highlighted]:text-gold text-ui-xs tracking-ui-wider flex w-full cursor-pointer items-center gap-2 rounded-sm px-3 py-2 uppercase transition-colors duration-(--dur-fast) outline-none"
+            class="font-body text-text-muted data-[highlighted]:bg-gold/10 data-[highlighted]:text-gold text-ui-sm flex w-full cursor-pointer items-center gap-2 rounded-sm px-3 py-2 transition-colors duration-(--dur-fast) ease-(--ease-out) outline-none"
             onSelect={() => props.onAll()}
           >
             <span aria-hidden="true">←</span>

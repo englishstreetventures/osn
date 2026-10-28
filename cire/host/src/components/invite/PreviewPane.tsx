@@ -126,7 +126,7 @@ export default function PreviewPane(props: PreviewPaneProps) {
           design={props.design}
           panel={layout().welcome === "panel"}
           eyebrow="Your Invitation"
-          heading="Enter Your Code"
+          heading="Enter your code"
           body={sampleCopy(props.welcome.message, DEFAULTS.welcomeMessage)}
         />
         <SectionSample

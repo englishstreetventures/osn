@@ -117,7 +117,7 @@ export default function RemintPanel(props: RemintPanelProps) {
   }
 
   return (
-    <div class="border-border bg-surface/30 flex flex-col gap-5 rounded-sm border p-6">
+    <div class="border-border bg-surface/30 rounded-ui-lg flex flex-col gap-5 border p-6">
       <SectionIntro
         eyebrow="Guest codes"
         title="Change the code style"
@@ -130,7 +130,7 @@ export default function RemintPanel(props: RemintPanelProps) {
           <For each={STYLE_OPTIONS}>
             {(option) => (
               <label
-                class={`flex flex-1 cursor-pointer flex-col gap-1 rounded-sm border p-3 transition-colors duration-(--dur-fast) ease-(--ease-out) ${
+                class={`rounded-ui-field flex flex-1 cursor-pointer flex-col gap-1 border p-3 transition-colors duration-(--dur-fast) ease-(--ease-out) ${
                   targetStyle() === option.value
                     ? "border-gold bg-gold/5"
                     : "border-border bg-bg hover:border-gold/50"

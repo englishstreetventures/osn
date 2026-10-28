@@ -119,7 +119,7 @@ export default function CreateWeddingForm(props: {
 
   return (
     <form
-      class="border-border bg-surface/30 flex flex-col gap-4 rounded-sm border p-6"
+      class="border-border bg-surface/30 rounded-ui-lg flex flex-col gap-4 border p-6"
       onSubmit={submit}
     >
       <div class="flex flex-col gap-1">
@@ -146,7 +146,7 @@ export default function CreateWeddingForm(props: {
           <For each={CODE_STYLE_OPTIONS}>
             {(option) => (
               <label
-                class={`flex flex-1 cursor-pointer flex-col gap-1 rounded-sm border p-3 transition-colors duration-(--dur-fast) ease-(--ease-out) ${
+                class={`rounded-ui-field flex flex-1 cursor-pointer flex-col gap-1 border p-3 transition-colors duration-(--dur-fast) ease-(--ease-out) ${
                   codeStyle() === option.value
                     ? "border-gold bg-gold/5"
                     : "border-border bg-bg hover:border-gold/50"

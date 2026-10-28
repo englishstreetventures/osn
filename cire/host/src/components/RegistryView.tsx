@@ -851,7 +851,7 @@ export default function RegistryView(props: RegistryViewProps) {
         <Show when={props.canEdit}>
           <form
             onSubmit={addItem}
-            class="border-border bg-surface/20 flex flex-wrap items-end gap-3 rounded-sm border p-4"
+            class="border-border bg-surface/20 rounded-ui-lg flex flex-wrap items-end gap-3 border p-4"
           >
             {/* A gift is a thing a household reserves; a cash fund is a named
                 purpose guests give money to. Each kind shows only its own
@@ -1034,7 +1034,7 @@ export default function RegistryView(props: RegistryViewProps) {
                               classList={{
                                 "border-gold/60 bg-surface/80 z-10 shadow-lg":
                                   sortable.isActiveDraggable(),
-                                "transition-transform":
+                                "transition-transform duration-(--dur-base) ease-(--ease-in-out)":
                                   dndState.dragging() && !sortable.isActiveDraggable(),
                               }}
                             >
@@ -1272,7 +1272,7 @@ export default function RegistryView(props: RegistryViewProps) {
             Rendered ONLY when a summary exists, i.e. only after the sweep. */}
         <Show when={summaryBand()}>
           {(band) => (
-            <div class="border-border bg-surface/20 flex flex-col gap-2 rounded-sm border p-4">
+            <div class="border-border bg-surface/20 rounded-ui-lg flex flex-col gap-2 border p-4">
               <span class="text-gold-dim font-body text-ui-xs tracking-ui-widest uppercase">
                 Your record of gifts
               </span>
@@ -1364,7 +1364,7 @@ export default function RegistryView(props: RegistryViewProps) {
                 snap().contributionsPrimaryMinor > 0 || snap().contributionsOtherCurrencyCount > 0
               }
             >
-              <div class="border-border bg-surface/20 flex flex-col gap-1 rounded-sm border p-4">
+              <div class="border-border bg-surface/20 rounded-ui-lg flex flex-col gap-1 border p-4">
                 <span class="text-gold-dim font-body text-ui-xs tracking-ui-widest uppercase">
                   Cash gifts
                 </span>

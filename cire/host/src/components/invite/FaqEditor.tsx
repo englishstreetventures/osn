@@ -439,7 +439,7 @@ export default function FaqEditor(props: FaqEditorProps) {
                         classList={{
                           "border-gold/60 bg-surface/80 z-10 shadow-lg":
                             sortable.isActiveDraggable(),
-                          "transition-transform":
+                          "transition-transform duration-(--dur-base) ease-(--ease-in-out)":
                             dndState.dragging() && !sortable.isActiveDraggable(),
                         }}
                       >

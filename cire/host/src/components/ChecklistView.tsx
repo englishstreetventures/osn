@@ -452,7 +452,7 @@ export default function ChecklistView(props: ChecklistViewProps) {
       <Show when={props.canEdit}>
         <form
           onSubmit={addTask}
-          class="border-border bg-surface/20 flex flex-wrap items-end gap-3 rounded-sm border p-4"
+          class="border-border bg-surface/20 rounded-ui-lg flex flex-wrap items-end gap-3 border p-4"
         >
           <Field label="Task" class="min-w-48 flex-1">
             {(field) => (
@@ -574,7 +574,7 @@ export default function ChecklistView(props: ChecklistViewProps) {
                                       classList={{
                                         "border-gold/60 bg-surface/80 z-10 shadow-lg":
                                           sortable.isActiveDraggable(),
-                                        "transition-transform":
+                                        "transition-transform duration-(--dur-base) ease-(--ease-in-out)":
                                           dndState.dragging() && !sortable.isActiveDraggable(),
                                       }}
                                     >

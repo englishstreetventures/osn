@@ -489,7 +489,7 @@ export default function BudgetView(props: BudgetViewProps) {
       </Show>
 
       {/* Summary — spent vs cap, owner cap editor. */}
-      <div class="border-border bg-surface/20 flex flex-wrap items-center justify-between gap-4 rounded-sm border p-4">
+      <div class="border-border bg-surface/20 rounded-ui-lg flex flex-wrap items-center justify-between gap-4 border p-4">
         <div class="flex flex-col gap-1">
           <span class="text-gold-dim font-body text-ui-xs tracking-ui-widest uppercase">
             Spent so far
@@ -558,7 +558,7 @@ export default function BudgetView(props: BudgetViewProps) {
       <Show when={props.canEdit}>
         <form
           onSubmit={addItem}
-          class="border-border bg-surface/20 flex flex-wrap items-end gap-3 rounded-sm border p-4"
+          class="border-border bg-surface/20 rounded-ui-lg flex flex-wrap items-end gap-3 border p-4"
         >
           <Field label="Category">
             {(field) => (
@@ -691,7 +691,7 @@ export default function BudgetView(props: BudgetViewProps) {
                                         classList={{
                                           "border-gold/60 bg-surface/80 z-10 shadow-lg":
                                             sortable.isActiveDraggable(),
-                                          "transition-transform":
+                                          "transition-transform duration-(--dur-base) ease-(--ease-in-out)":
                                             dndState.dragging() && !sortable.isActiveDraggable(),
                                         }}
                                       >

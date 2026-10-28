@@ -897,7 +897,7 @@
 
 @keyframes droplet-round {
   from {
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
   }
   to {
     border-radius: var(--radius-md);

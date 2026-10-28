@@ -69,12 +69,15 @@ export default function EnquiryInbox(props: EnquiryInboxProps) {
               const isOpen = () => props.selectedId != null && props.selectedId === item.id;
               return (
                 <li>
+                  {/* Raw: the whole row is the control and wraps its contents,
+                      which `tile` (centred, one line) does not; it takes the
+                      tile's corner. */}
                   <button
                     type="button"
                     ref={(el) => rowButtons.set(item.id, el)}
                     onClick={() => props.onOpen(item.id)}
                     aria-current={isOpen() ? "true" : undefined}
-                    class="flex w-full flex-wrap items-center gap-3 rounded-sm border px-3 py-2 text-left transition-colors duration-(--dur-fast) ease-(--ease-out)"
+                    class="rounded-ui-field flex w-full flex-wrap items-center gap-3 border px-3 py-2 text-left transition-colors duration-(--dur-fast) ease-(--ease-out)"
                     classList={{
                       "border-gold/50 bg-gold/5": isOpen(),
                       "border-border bg-surface/10 hover:bg-surface/20": !isOpen(),

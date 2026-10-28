@@ -211,7 +211,7 @@ export default function GettingStarted(props: {
       <Show when={!dismissed()}>
         <section
           aria-label="Getting started"
-          class="border-gold/25 from-surface/50 to-surface/20 relative flex flex-col gap-5 rounded-sm border bg-gradient-to-br p-6"
+          class="border-gold/25 from-surface/50 to-surface/20 rounded-ui-lg relative flex flex-col gap-5 border bg-gradient-to-br p-6"
         >
           {/* Dismiss (X) — top-right, so an organiser who doesn't want the guide
             can hide it; the choice persists per wedding in localStorage. */}
@@ -279,7 +279,7 @@ export default function GettingStarted(props: {
                       >
                         {step.label}
                       </span>
-                      <span class="font-body text-text-muted text-ui-sm leading-snug">
+                      <span class="font-body text-text-muted text-ui-sm leading-snug font-normal">
                         {step.complete ? step.done : step.todo}
                       </span>
                     </span>

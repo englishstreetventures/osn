@@ -437,7 +437,7 @@ export default function ImportPanel(props: {
                 accept=".csv,text/csv"
                 ref={fileInput}
                 onChange={(e) => selectFile(e.currentTarget.files?.[0] ?? null)}
-                class="font-body text-text file:border-border file:bg-bg file:font-body file:text-text hover:file:border-gold text-ui-sm file:text-ui-sm file:mr-3 file:rounded-sm file:border file:px-3 file:py-1.5"
+                class="font-body text-text file:border-border file:bg-bg file:font-body file:text-text hover:file:border-gold text-ui-sm file:text-ui-sm file:rounded-ui-control file:mr-3 file:border file:px-4 file:py-1.5 file:font-medium"
               />
             )}
           </Field>
@@ -483,7 +483,7 @@ export default function ImportPanel(props: {
 
       <Show when={preview()}>
         {(p) => (
-          <div class="border-border bg-bg/40 flex flex-col gap-4 rounded-sm border p-4">
+          <div class="border-border bg-bg/40 rounded-ui-lg flex flex-col gap-4 border p-4">
             <h3 class="font-display text-gold-ink text-ui-md">Diff preview</h3>
             {/* The reassurance under a destructive confirm is read off the
                 SERVER's echoed scope, not off what this panel believes it sent.
@@ -627,7 +627,7 @@ function FormattingTips(props: { children: JSX.Element }) {
     <details class="border-gold/25 bg-gold/[0.06] group/tips rounded-sm border">
       <summary class="font-display text-gold-ink text-ui-base flex cursor-pointer list-none items-center gap-2 p-3 select-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 [&::-webkit-details-marker]:hidden">
         <span
-          class="text-gold inline-block not-italic transition-transform group-open/tips:rotate-90"
+          class="text-gold inline-block not-italic transition-transform duration-(--dur-fast) ease-(--ease-out) group-open/tips:rotate-90"
           aria-hidden
         >
           ›
@@ -932,7 +932,7 @@ function CsvFormatHelp(props: { kind: ImportKind }) {
   return (
     <details
       open={firstTime}
-      class="border-border bg-bg/30 group rounded-sm border"
+      class="border-border bg-bg/30 group rounded-ui-lg border"
       classList={{ "attention-glow": firstTime && !touched() }}
     >
       {/* The summary's own click — NOT the details' `toggle` — is what counts as
@@ -944,7 +944,10 @@ function CsvFormatHelp(props: { kind: ImportKind }) {
         onClick={() => setTouched(true)}
         class="font-body text-text hover:text-gold text-ui-base flex cursor-pointer items-center gap-2 px-4 py-3 transition duration-(--dur-fast) ease-(--ease-out) select-none"
       >
-        <span class="text-gold inline-block transition-transform group-open:rotate-90" aria-hidden>
+        <span
+          class="text-gold inline-block transition-transform duration-(--dur-fast) ease-(--ease-out) group-open:rotate-90"
+          aria-hidden
+        >
           ›
         </span>
         How to structure your sheet — CSV format

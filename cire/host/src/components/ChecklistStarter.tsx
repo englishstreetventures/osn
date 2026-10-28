@@ -182,7 +182,7 @@ export default function ChecklistStarter(props: ChecklistStarterProps) {
             </Button>
           }
         >
-          <section class="border-border bg-surface/20 flex flex-col items-start gap-3 rounded-sm border p-4">
+          <section class="border-border bg-surface/20 rounded-ui-lg flex flex-col items-start gap-3 border p-4">
             <h3 class="font-display text-text text-ui-md font-light">
               Start from a suggested checklist
             </h3>

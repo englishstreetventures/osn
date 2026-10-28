@@ -236,7 +236,7 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
   return (
     <div class="flex flex-col gap-6">
       {/* Filter bar */}
-      <div class="border-border bg-surface/20 flex flex-wrap items-end gap-3 rounded-sm border p-4">
+      <div class="border-border bg-surface/20 rounded-ui-lg flex flex-wrap items-end gap-3 border p-4">
         <Field label="Category">
           {(field) => (
             <Select
@@ -319,7 +319,7 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
         <ul class="auto-grid items-start [--auto-grid-min:19rem]">
           <For each={listings()}>
             {(item) => (
-              <li class="border-border bg-surface/10 flex flex-col gap-3 rounded-sm border p-4">
+              <li class="border-border bg-surface/10 rounded-ui-lg flex flex-col gap-3 border p-4">
                 <div class="flex flex-col gap-1">
                   <span class="text-text text-ui-base font-medium">{item.name}</span>
 

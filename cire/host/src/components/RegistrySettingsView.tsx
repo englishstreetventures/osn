@@ -487,7 +487,7 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
   const hintClass = "font-body text-text-muted text-ui-sm leading-relaxed";
 
   return (
-    <div class="border-border bg-surface/30 flex flex-col gap-6 rounded-sm border p-6">
+    <div class="border-border bg-surface/30 rounded-ui-lg flex flex-col gap-6 border p-6">
       <SectionIntro
         eyebrow="Registry"
         title="Gift list settings"

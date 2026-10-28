@@ -67,6 +67,8 @@ export default function TopBar(props: {
     <header class="border-border bg-bg/85 sticky top-0 z-30 border-b backdrop-blur-md">
       <div class="page-frame flex h-[calc(var(--chrome-h)-1px)] items-center gap-2">
         {/* ── Identity + place ─────────────────────────────────────────────── */}
+        {/* Raw: the wordmark, with a hover wash and no frame, which no Button
+            variant draws. */}
         <button
           type="button"
           aria-label="Cire — all weddings"
@@ -75,7 +77,7 @@ export default function TopBar(props: {
         >
           <span
             aria-hidden="true"
-            class="text-gold group-hover:text-gold-ink text-ui-sm leading-none transition-colors duration-(--dur-fast)"
+            class="text-gold group-hover:text-gold-ink text-ui-sm leading-none transition-colors duration-(--dur-fast) ease-(--ease-out)"
           >
             ✦
           </span>

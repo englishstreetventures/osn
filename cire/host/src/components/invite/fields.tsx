@@ -406,10 +406,10 @@ export function SectionCard(props: {
 export function Disclosure(props: { summary: string; hint?: string; children: JSX.Element }) {
   return (
     <details class="border-border rounded-sm border">
-      <summary class="font-body text-text-muted hover:text-text text-ui-sm tracking-ui-wide cursor-pointer px-3 py-2 uppercase select-none">
+      <summary class="font-body text-text-muted hover:text-text text-ui-sm cursor-pointer px-3 py-2 select-none">
         {props.summary}
         <Show when={props.hint}>
-          <span class="text-text-muted/70 ml-2 normal-case italic">{props.hint}</span>
+          <span class="text-text-muted/70 ml-2 italic">{props.hint}</span>
         </Show>
       </summary>
       <div class="flex flex-col gap-4 px-3 pt-1 pb-3">{props.children}</div>
