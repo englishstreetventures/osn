@@ -1205,7 +1205,7 @@ describe("PW1: one production job per stack with a production deploy", () => {
       const deploy = stepById(job, "deploy");
       const approved = steps.find((step) => step.with?.name === "alchemy-plan");
       expect(approved?.with).toEqual({ name: "alchemy-plan", path: "${{ runner.temp }}/approved" });
-      // SR-1: nothing skips the re-plan or the guard, on a flip release or any
+      // Nothing skips the re-plan or the guard, on a flip release or any
       // other, and nothing lets the deploy run past a refusal.
       for (const step of [approved, plan, guard, deploy]) {
         expect({
@@ -1224,9 +1224,9 @@ describe("PW1: one production job per stack with a production deploy", () => {
       const unflipped = runStep(guard!, { FLIP: "" }).bunCalls;
       expect(unflipped).toHaveLength(1);
       expect(unflipped[0]).toMatch(new RegExp(`${guarded}$`));
-      const site = sites[0] ?? "";
-      expect(runStep(guard!, { FLIP: site }).bunCalls[0]).toMatch(
-        new RegExp(`${guarded} --flip ${site}$`),
+      const flipSite = sites[0] ?? "";
+      expect(runStep(guard!, { FLIP: flipSite }).bunCalls[0]).toMatch(
+        new RegExp(`${guarded} --flip ${flipSite}$`),
       );
       // A refusal fails the guard step, which is the one right before the deploy.
       expect(runStep(guard!, { FLIP: "" }, 1).exitCode).not.toBe(0);
@@ -1347,7 +1347,7 @@ describe("PW-F: a flip release verifies, then detaches, then deploys, each behin
       const job = verifyJob(key);
       expect(job.name).toBe(`Verify the ${key} flip plan`);
       expect(environmentOf(job)).toBe("production");
-      // SR-2: the stack job's group, never cancelling.
+      // The stack job's group, never cancelling.
       expect(job.concurrency).toEqual({
         group: `deploy-production-${key}`,
         "cancel-in-progress": false,
@@ -1387,7 +1387,7 @@ describe("PW-F: a flip release verifies, then detaches, then deploys, each behin
       const job = detachJob(key);
       expect(job.name).toBe(`Take the ${key} flip site's domain off Pages`);
       expect(environmentOf(job)).toBe("production");
-      // SR-2: the stack job's group, never cancelling.
+      // The stack job's group, never cancelling.
       expect(job.concurrency).toEqual({
         group: `deploy-production-${key}`,
         "cancel-in-progress": false,

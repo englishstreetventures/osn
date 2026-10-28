@@ -145,7 +145,7 @@ describe("parsePlan reads what Alchemy prints", () => {
       bindings: 28,
     },
   ])(
-    "T-S1: a real dev deploy log, $file, reads with no fault, up to the blank record before the apply",
+    "G15: a real dev deploy log, $file, reads with no fault, up to the blank record before the apply",
     (expected) => {
       const plan = parsePlan(fixture(expected.file));
       expect(plan.plan).toBe(expected.plan);
@@ -205,7 +205,7 @@ describe("parsePlan reads what Alchemy prints", () => {
   /** The plan as the production plan step logs it: each line one record, nothing after. */
   const printed = (plan: Plan) => pretty(...formatPlanLines(plan));
 
-  test("T-S1: every resource action, binding action and note the installed Alchemy prints reads back as itself", () => {
+  test("G15: every resource action, binding action and note the installed Alchemy prints reads back as itself", () => {
     const plan = parsePlan(
       printed(
         planOf({

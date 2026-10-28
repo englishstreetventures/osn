@@ -50,7 +50,7 @@ function guard(log: string) {
 }
 
 describe("plan:guard, the cire stack's production plan guard", () => {
-  test("T-S1: allows a plan of the cire sites alone, exiting 0 and keeping its record", () => {
+  test("G16: allows a plan of the cire sites alone, exiting 0 and keeping its record", () => {
     const result = guard(PRODUCTION_LOG);
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("The guard allows this plan.");
@@ -69,7 +69,7 @@ describe("plan:guard, the cire stack's production plan guard", () => {
     });
   }, 30_000);
 
-  test("T-S1: refuses a real dev plan, exiting 1 and naming every resource production does not declare", () => {
+  test("G16: refuses a real dev plan, exiting 1 and naming every resource production does not declare", () => {
     const result = guard(readFileSync(DEV_LOG, "utf8"));
     expect(result.exitCode).toBe(1);
     expect(result.stdout.split("\n").filter((line) => line.startsWith("::error::"))).toEqual(
