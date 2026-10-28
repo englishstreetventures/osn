@@ -457,7 +457,7 @@ describe("RsvpView", () => {
     authFetchMock.mockResolvedValueOnce(json(VIEW));
     render(() => <RsvpView weddingId="wed_a" canEdit canManage />);
     const button = await screen.findByRole("button", { name: "Download RSVPs (CSV)" });
-    let answer = (_: Response) => {};
+    let answer: (res: Response) => void = () => {};
     authFetchMock.mockReturnValueOnce(new Promise<Response>((resolve) => (answer = resolve)));
     fireEvent.click(button);
     await waitFor(() => expect(button.textContent).toBe("Exporting…"));
