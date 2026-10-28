@@ -132,9 +132,15 @@ async function menuOf(household: string): Promise<string[]> {
     .map((item) => item.textContent?.trim() ?? "");
 }
 
+/** Close the open menu, and wait for the page to come back: an open menu
+ *  hides the rest of the page from the accessibility tree, and a role query
+ *  with it, until it has gone. */
 async function closeMenu() {
   await userEvent.keyboard("{Escape}");
   await vi.waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+  await vi.waitFor(() =>
+    expect(screen.queryAllByRole("button", { name: /^Actions for / }).length).toBeGreaterThan(0),
+  );
 }
 
 /** What an editor may do to any household: its plus-ones, and the message. */
@@ -230,7 +236,11 @@ describe("the one household menu", () => {
 
   it("opens from the keyboard on its first item, and gives focus back on Escape", async () => {
     await mount(true);
-    actions("Sharma").focus();
+    // Held from here: while the menu is open the page is hidden from a role
+    // query.
+    const sharma = actions("Sharma");
+    const jones = actions("Jones");
+    sharma.focus();
     await userEvent.keyboard("{Enter}");
     const menu = await screen.findByRole("menu", { name: "Actions for Sharma" });
     await vi.waitFor(() =>
@@ -238,11 +248,11 @@ describe("the one household menu", () => {
         within(menu).getByRole("menuitem", { name: "Everyone may bring a +1" }),
       ),
     );
-    expect(actions("Sharma").getAttribute("aria-expanded")).toBe("true");
-    expect(actions("Jones").getAttribute("aria-expanded")).toBe("false");
+    expect(sharma.getAttribute("aria-expanded")).toBe("true");
+    expect(jones.getAttribute("aria-expanded")).toBe("false");
     await closeMenu();
-    expect(document.activeElement).toBe(actions("Sharma"));
-    expect(actions("Sharma").getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(sharma);
+    expect(sharma.getAttribute("aria-expanded")).toBe("false");
     // Space opens it on its first item too; ArrowUp on its last.
     await userEvent.keyboard(" ");
     const spaced = await screen.findByRole("menu");
@@ -264,10 +274,12 @@ describe("the one household menu", () => {
 
   it("closes when its household is no longer drawn", async () => {
     await mount(true);
+    // Found before the menu opens: an open menu hides the rest of the page
+    // from the accessibility tree, and a role query with it.
+    const search = screen.getByRole("searchbox", { name: "Search guests" }) as HTMLInputElement;
     await menuOf("Jones");
     // A search lands while the menu is open (the list's own data can change
     // under it the same way): Jones leaves the list, and its menu with it.
-    const search = screen.getByRole("searchbox", { name: "Search guests" }) as HTMLInputElement;
     search.value = "Sharma";
     search.dispatchEvent(new InputEvent("input", { bubbles: true }));
     await vi.waitFor(() => expect(screen.queryByText("Jones")).toBeNull());
@@ -276,9 +288,10 @@ describe("the one household menu", () => {
 
   it("opens beside the household pressed, for that household", async () => {
     await mount(true);
+    const jones = actions("Jones");
     await menuOf("Jones");
     const menu = screen.getByRole("menu", { name: "Actions for Jones" });
-    const button = actions("Jones").getBoundingClientRect();
+    const button = jones.getBoundingClientRect();
     const box = menu.getBoundingClientRect();
     // Just below Jones's "⋯", not Sharma's above it, and across it (Kobalte
     // keeps it a few pixels in from the window's edge).
@@ -286,7 +299,7 @@ describe("the one household menu", () => {
     expect(box.top - button.bottom).toBeLessThanOrEqual(12);
     expect(box.left < button.right && box.right > button.left).toBe(true);
     await closeMenu();
-    expect(document.activeElement).toBe(actions("Jones"));
+    expect(document.activeElement).toBe(jones);
   });
 
   it("mounts no menu or tooltip of Kobalte's per household", async () => {
