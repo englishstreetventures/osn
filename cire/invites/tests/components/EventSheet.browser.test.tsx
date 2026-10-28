@@ -1399,6 +1399,23 @@ async function framesOf(el: HTMLElement): Promise<{ t: number; x: number }[]> {
   return frames;
 }
 
+/**
+ * Lift a finger `touchDrag` left down (`end: "hold"`) after it has rested
+ * `ms`, so it lifts with no speed. A fast lift starts the browser's own fling,
+ * and Chromium spends the next tap on stopping that fling: it fires no click.
+ * Headless Chromium on Linux flings where it does not on macOS.
+ */
+async function liftAfterRest(ms = 150) {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+  const t = Math.max(touchClock(), lastTouchStamp + ms / 1000);
+  lastTouchStamp = t;
+  await cdp().send("Input.dispatchTouchEvent", {
+    type: "touchEnd",
+    touchPoints: [],
+    timestamp: t,
+  });
+}
+
 /** A finger that goes down at `at`, moves `jitter` px and lifts: a tap. */
 async function tapAt(at: Point, jitter = 0) {
   const session = cdp();
@@ -1940,7 +1957,8 @@ describe("EventSheet — the swipe's physics", () => {
     // Caught, then dragged back past where it began: the release springs out
     // of a rubber band, which no later touch can catch.
     const at = { x: start.x - width * 0.1, y: start.y };
-    await touchDrag(at, { x: at.x + width * 0.4, y: at.y }, { ms: 200 });
+    await touchDrag(at, { x: at.x + width * 0.4, y: at.y }, { ms: 200, end: "hold" });
+    await liftAfterRest();
     // Captured at the window, ahead of the rail's own listener, and read after
     // dispatch: a swallowed click still arrives here, marked prevented.
     const seen: MouseEvent[] = [];
@@ -2006,7 +2024,8 @@ describe("EventSheet — the swipe's physics", () => {
   it("lets a tap during a pull's spring back through, and does not catch it", async () => {
     await openOn("details");
     const start = bodyOf("details");
-    await touchDrag(start, { x: start.x + 120, y: start.y }, { ms: 300 });
+    await touchDrag(start, { x: start.x + 120, y: start.y }, { ms: 300, end: "hold" });
+    await liftAfterRest();
     expect(rail().hasAttribute("data-settling")).toBe(true);
     // Captured at the window, ahead of the rail's own listener, and read after
     // dispatch: a swallowed click still arrives here, marked prevented. The
