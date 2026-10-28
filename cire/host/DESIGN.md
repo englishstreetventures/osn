@@ -17,7 +17,8 @@ the desk it was made on.**
 
 When a host moves between modules, sub-tabs, or steps of the invite builder, the
 panel does not unmount and remount. It keeps its box, animates its height to the
-new content, and cross-fades what is inside. Nothing in the chrome may jump.
+new content, and cross-fades what is inside. Nothing in the chrome may jump: the
+module's view bar animates its height with the panel's (§The stuck stack).
 
 Every motion decision below follows from this. Where a transition would need the
 frame to disappear and come back, the transition is wrong, not the frame.
@@ -435,7 +436,7 @@ by variant map, and the caller's own `class` is appended last.
 | `EmptyState` | A title, an optional line of prose, and the one thing to do about it. |
 | `Meter`, `meterPct` | A thin bar. Scaled by transform rather than resized — see the file. `meterPct` clamps at both ends and reads a zero or missing maximum as empty, not as a division by zero. |
 | `Stat` | A figure, then what it is, then an optional hint. |
-| `Table`, `Th`, `Td` | Every table in the portal as one set of parts. The wrapper scrolls so the page never does, and it is a named, focusable `<section>` so the columns past the right edge are reachable without a mouse. `label` is required. `Th` and `Td` take `pin` for a head row or first column held in view (§A table that keeps its heads in view). |
+| `Table`, `Th`, `Td` | Every table in the portal as one set of parts. By default the wrapper scrolls so the page never does, and it is a named, focusable `<section>` so the columns past the right edge are reachable without a mouse; `label` is required. `scroll="page"` clips instead and lets the page scroll, for a table whose head row sticks under the stuck stack (§A table that scrolls with the page). `frame="none"` drops the border for a table inside something that draws its edge. `Th` and `Td` take `pin` for a head row or first column held in view; `Th srOnly` keeps a head for assistive technology under a visible copy. |
 
 ### Who holds a task: faces, not names
 
@@ -713,40 +714,135 @@ one-word label can stay in capitals, as the module sub-tabs do
 ([frontend-patterns](../../wiki/shared/frontend-patterns.md) §Chrome exposes a
 `title` as a description).
 
-Ids carry a per-view prefix, so a strip nested in the module shell's tab panel
-never meets its `subtab-*` and `subpanel-*`.
+A view lends its strip to the module's view bar (§The stuck stack), beside
+the module's own sub-tabs and outside the module's tab panel. Ids carry a
+per-view prefix, so the strip never meets the shell's `subtab-*` and
+`subpanel-*`, and its tabs keep `aria-controls` on the view's own panel.
 
-### A table that keeps its heads in view
+### The stuck stack
 
-A long table whose head row and first column must stay on screen — the RSVP
-table — scrolls in its own box. A sticky head can only stick to the box that
-scrolls, and `Table`'s box already scrolls
-([frontend-patterns](../../wiki/shared/frontend-patterns.md) §`position:
-sticky` resolves its offsets against the scrollport). On the box:
+A long view keeps what it is about on screen while its rows scroll by. The
+module title and its hint scroll away; under the top bar, layers hold at the
+top of the window, each one's top at the foot of the one above. On a laptop
+the whole stack, top bar included, is at most 220px; on a phone, 200px (both
+asserted in `GuestsStack.browser.test.tsx`).
 
-- `max-h-[calc(100svh-6rem)]` — a height to scroll within. The top bar is at
-  most 4rem and a hairline, so the whole box fits on screen under it at once.
-- `scroll-pt-12 scroll-ps-50` — scroll padding a little larger than the head
-  row and the 12rem Guest column, so a control that takes keyboard focus is
-  scrolled clear of the pinned cells instead of being left beneath them.
-- `isolate`, so the pinned cells' layers stay inside the box, and `relative`,
-  so hidden text inside it belongs to it.
+| Layer | `top` | z | Ground |
+|---|---|---|---|
+| 0 Top bar | 0 | 30 | `--bg` at 85%, blurred |
+| 1 View bar | `var(--chrome-h)` | 20 | `--bg`, hairline below |
+| 2 Column heads, or a card's header | `+ var(--bar-h, 0px)` | 10 | `--bg`; a card header paints the card's ground opaque |
+| 3 Household bar | `+ var(--heads-h, 0px)` | 5 | `--surface`, hairline below |
 
-`@shared/ui`'s `pin` variant on `Th` and `Td` (`top`, `top-start`, `start`)
-pins the cells; classes at the call site cannot, because a pinned cell paints
-the page ground so the rows passing under it never show through. That only
-reads right on a table set straight on the ground, not on a tinted card. The
-pinned column carries a full hairline on its end edge; that line is what says
-where the held column stops once the others slide beneath it. A row's hover
-fill still reaches its pinned cell.
+Every offset is a sum of heights the page already knows, never a guess:
 
-Pin a column only where the box can scroll sideways. Each pinned cell costs
-every scrolled frame, so the RSVP table's Guest cells drop back into flow once
-the module panel is wide enough for every column
-(`@min-[47rem]/panel:static`, `39rem` for a viewer's narrower table).
+- `--chrome-h` — the top bar with its hairline: `calc(3.5rem + 1px)`, and
+  `calc(4rem + 1px)` under `@container frame (min-width: 42rem)`, the bar's own
+  breakpoint. It lives on `.chrome-scope` — a `display: contents` wrapper round
+  the top bar and `<main>`, and the boot bar — so it follows the frame, not the
+  viewport. The top bar takes its height from it.
+- `--bar-h` — measured: `ModuleShell` writes the view bar's height on the shell
+  from a `ResizeObserver` and removes it with the bar, so every use carries a
+  `0px` fallback and a layer holds at the top bar's foot before the first
+  measure.
+- `--hh-bar-h`, `--card-head-h` (2.75rem) and `--head-strip-h` (2.125rem) —
+  the fixed rows. Each is one line, `whitespace-nowrap`, at that height.
+- `--heads-h` — set by a view that has a head strip (the strip and its
+  hairline), `0px` where it has none.
 
-The trade is that the table scrolls inside the page: a wheel over it moves the
-rows first and the page once the box reaches its end.
+A control that takes focus inside a view carries the stack's height above it
+as its `scroll-margin-top`, so the browser never leaves focus under a layer. A
+switch adds a rem: its focusable input sits inside its label, below the
+track's top edge.
+
+A stuck layer is the same box stuck or not: nothing in it changes size when it
+sticks, because Safari has no scroll anchoring to hide the jump. A shadow on
+`@container scroll-state(stuck: top)` would be an enhancement only; none is
+drawn.
+
+**The view bar.** One compact bar per module that has sub-tabs (Events,
+Vendors, Registry, Guests, Invite, Settings), between the title and the panel,
+outside the panel's animated frame. A `role="region"` named "<Module>
+controls" — one landmark, outside the module's tab panel, whose sub-tabs still
+control it. First row: the sub-tabs, icon and label, then whatever the open
+view lends the row (`<ViewBar slot="end">`); a second row draws only when a
+view fills it (`slot="row2"`). Below a 36rem panel the sub-tabs show their
+icons alone, their label each one's name and tooltip. The bar's height moves
+with the panel's, through `createAutoSize` on its own frame, so a change of
+view that adds or drops a row never jumps; a view that loads holds its rows'
+height with a placeholder the size of each. A module with one view has no bar.
+
+**What each Guests tab lends it.** RSVPs: the event strip in the first row; the
+search and the reply chips (at `h-7`, the small search box's height) in the
+second, and on a phone the search, the reply filter and the sort as selects.
+Households: the count and the search in the first row, and on a phone the
+search alone. Edit: the mode switch and Add household, icons alone below
+36rem. "Showing n of m" and the tallies stay in the panel, under the bar.
+
+**One variant, chosen by the panel.** A view names the narrowest panel its wide
+layout fits — the RSVP table's columns and 7rem of Dietary, 45rem for an editor
+and 37rem for a viewer; the households' tables, 46rem (40rem without the
+Plus-one column) — and draws its narrow layout below it, coming back only a rem
+above it (`createCompact` in `ViewBar.tsx`). One variant is drawn, never both
+hidden by CSS. Narrow, guest rows stack as blocks and nothing scrolls sideways.
+
+**Households.** Each household is a `group` named by its household, with a
+table of its own under one head strip that sticks at layer 2. The strip is a
+table with the same `<colgroup>` (Guest, Events at a third, Plus-one 7rem, Code
+11rem), hidden from assistive technology; each household table keeps its own
+heads, `Th srOnly`, in its layout with no height. The household bar holds at
+layer 3 while its household is on screen and lets go at its end: the name in
+`--text`, its state, "Plus-ones: n of m", then four icon actions with their
+names as tooltips — Allow everyone, Allow no one, Copy message, Deactivate (or
+Reactivate). Deactivate's confirmation takes the icons' place in the same row.
+Narrow, the count is an icon and a fraction, the state one word, and the
+actions sit in one "⋯" menu; Deactivate there opens a confirmation dialog,
+since a menu closes on choosing.
+
+**Edit.** A card's header — the name field, the claim code and Delete household,
+then the column heads — sticks at layer 2 inside its card and lets go at its
+end. It paints the card's `bg-surface/30` composited over `--bg` as one opaque
+ground. The editor table is fixed layout with explicit column widths, shared by
+the header's head strip, which follows the table's sideways scroll through one
+capture-phase listener for the whole editor. An event name too long for its
+8rem column is cut short with an ellipsis and becomes a button that opens the
+whole name, by touch or keyboard. Narrow, the header holds the name alone, its
+label the field's own. Add household hands focus to the new card's name.
+
+**Moving within the stack.** A search, a reply filter, a sort or an event change
+made deep in a list brings the list's top back to the stack's foot, focus left
+in the field; made with the list already in view, it moves nothing
+(`lib/scroll-to-results.ts`). A sub-tab or module change made with the bar
+stuck puts the new panel's top at the foot, once, and holds the panel at least
+a screen tall until its view's data lands, so the page cannot clamp meanwhile.
+
+**Icon-only controls.** Every control that shows an icon instead of its words
+keeps its words as its accessible name and shows them in a tooltip on hover
+and on keyboard focus (`ActionTip.tsx`). The tooltip is for the eye only:
+`@shared/ui`'s `Tooltip` is for a passive badge and takes no focus.
+
+### A table that scrolls with the page
+
+A long table whose head row must stay on screen — the RSVP table, each
+household's table — scrolls with the page, `Table scroll="page"`: its box
+clips sideways instead of scrolling, so the document stays the scroller and
+the pinned head row sticks to the page under the call site's offset
+(`top-[calc(var(--chrome-h)+var(--bar-h,0px))]`, which wins over `pin`'s
+`top-0`). A clipped column is gone, so such a table is never drawn narrower
+than its columns: below that width the view draws its narrow layout instead.
+Page mode is no tab stop and no region; the table is named by its caption or
+`aria-labelledby`.
+
+`@shared/ui`'s `pin` variant on `Th` pins the cells; classes at the call site
+cannot, because a pinned cell paints the page ground so the rows passing under
+it never show through. That only reads right on a table set straight on the
+ground, not on a tinted card.
+
+The box-scrolling table (the default) stays for a table that must scroll
+sideways at any width — the guest editor, which grows a column per event —
+with `pin` on `Th` and `Td` (`top`, `top-start`, `start`) where its box also
+scrolls down. Pin a column only where the box can scroll sideways: each pinned
+cell costs every scrolled frame.
 
 ### A column head that sorts
 

@@ -234,17 +234,47 @@ for a reader who asked for reduced motion.
 
 ### Table and its pinned cells
 
-`Table` is the scroll box, `Th` a column head, `Td` a cell. The box scrolls
-sideways so a wide table never takes the page with it, and it is a named,
-focusable region so its far columns are reachable from the keyboard.
+`Table` is the table's frame, `Th` a column head, `Td` a cell. It has two
+scroll modes.
 
-A sticky cell inside a `Table` sticks to its box, never to the page
-([[frontend-patterns]] §`position: sticky` resolves its offsets against the
-scrollport). For a long table whose head row and first column must stay on
+- **`scroll="box"`, the default** — the box scrolls sideways so a wide table
+  never takes the page with it, and it is a named, focusable region so its far
+  columns are reachable from the keyboard. `label` is required.
+- **`scroll="page"`** — the box clips sideways (`overflow-x: clip`), so the page
+  stays the scroller and a pinned head row sticks to the page under the call
+  site's offset. No tab stop and no region: the call site names the `<table>`
+  by its caption or `aria-label` / `aria-labelledby`, and must never draw it
+  narrower than its columns, since a clipped column is gone. Cire's RSVP and
+  household tables use it under the host portal's stuck stack
+  (`cire/host/DESIGN.md` §The stuck stack). A union type: `label` belongs to
+  box mode only.
+
+`frame="none"` drops the box's border and radius, for a table inside something
+that already draws its edge. `Th srOnly` keeps a head in the table for
+assistive technology — its words hidden, in sentence case, its row given no
+height — for a table whose visible heads are a copy held elsewhere.
+
+A sticky cell sticks to the nearest box that scrolls ([[frontend-patterns]]
+§`position: sticky` resolves its offsets against the scrollport). In page mode
+that is the document: pin the head row and give it the offset of whatever is
+stuck above it.
+
+```tsx
+<Table scroll="page" class="[&>table]:table-fixed">
+  <caption class="sr-only">RSVPs for Reception</caption>
+  <thead>
+    <tr>
+      <Th pin="top" class="top-[calc(var(--chrome-h)+var(--bar-h,0px))]">Guest</Th>
+      <Th pin="top" class="top-[calc(var(--chrome-h)+var(--bar-h,0px))]">Status</Th>
+    </tr>
+  </thead>
+  <tbody>…</tbody>
+</Table>
+```
+
+In box mode, for a long table whose head row and first column must stay on
 screen, the call site gives the box a height to scroll within and pins the
-cells. The sizes in angle brackets are the call site's: cire's RSVP table uses
-`6rem`, `scroll-pt-12` and `scroll-ps-50` (`cire/host/DESIGN.md` §A table that
-keeps its heads in view).
+cells:
 
 ```tsx
 <Table
@@ -291,7 +321,9 @@ classes alone would leave a transparent cell the rows show through.
 at the top and the first column at the start of a box scrolled both ways, each
 painted over what passes beneath, opaque over white and over black alike, with
 the full hairline at its end edge, and a plain cell left transparent and in
-flow. Its one user is cire's RSVP table ([[cire-rsvp-table]]).
+flow; and in page mode, the head row held to the page at the call site's
+offset rather than at 0, with no tab stop and no region. Its users are cire's
+RSVP table ([[cire-rsvp-table]]) and household tables, in page mode.
 
 ## Importing
 

@@ -7,7 +7,7 @@ related:
   - "[[cire-rsvp-changes]]"
   - "[[cire-plus-ones]]"
   - "[[component-library]]"
-last-reviewed: 2026-10-27
+last-reviewed: 2026-10-28
 ---
 # The RSVP table
 
@@ -27,14 +27,14 @@ guest.
 
 ## One event at a time
 
-A tab strip above the panel picks the event (`role="tablist"`, named
-"Events"). The arrows, Home and End move focus and Enter or Space chooses, as
+A tab strip in the module's view bar, beside the sub-tabs and outside the
+module's tab panel, picks the event (`role="tablist"`, named "Events"). The arrows, Home and End move focus and Enter or Space chooses, as
 on the module sub-tabs: a 900-row event is not drawn in an instant, and every
 choice writes the address. Each tab's accessible name is an `aria-label` in
 sentence case — "Reception, 300 guests" — since the label itself is set in
 capitals. Its ids carry a per-view prefix (`rsvp-<id>-tab-<n>`,
 `rsvp-<id>-panel`) and never meet the module shell's `subtab-*` and
-`subpanel-*`.
+`subpanel-*`; each tab's `aria-controls` names the event's panel.
 
 **The address names the event**: `#/w/<weddingId>/guests/rsvps/<eventId>`
 (`cire/host/src/lib/dashboard-route.ts`), so a reload or a shared link opens
@@ -48,24 +48,38 @@ goes to the shown event's own id. Leaving RSVPs through the rail or the
 sub-tabs and coming back opens the first event; Back returns to the one that
 was open, because the switch replaced the history entry rather than adding one.
 
-## The event's panel
+## The event's controls and panel
 
-Top to bottom:
+The search box and the reply chips sit in the view bar's second row, under the
+event strip, so they stay to hand however far down the list the host is. They
+filter every event; the table shows the event on screen, and each tab counts
+what they leave in its own event, so a search run on one event still says
+where else it finds guests. The search's name ("Search Reception guests") and
+placeholder, the chips' group name ("Filter Reception by reply") and the status
+line name the event the table shows, and the search names the event's panel
+through `aria-controls`. The chips count that event's rows whatever the search.
+The search, the chip and the sort stay when the event changes. On a panel too
+narrow for the table the chips and the sort are two selects instead.
+
+A search, a chip, a sort or another event made deep in the list brings the
+list's top back to the foot of the stuck chrome, and leaves focus where it was;
+made with the list in view, it moves nothing
+(`cire/host/src/lib/scroll-to-results.ts`).
+
+The panel, top to bottom:
 
 1. **The tally** — Attending, Declined, Maybe, No reply, Invited — the API's
    own numbers for the event. They are not the chips' counts: `invited` comes
    from the event's guest list, and a guest taken off the event after replying
    keeps a reply row.
-2. **The search box and reply chips.** They filter every event; the table shows
-   the event on screen, and each tab counts what they leave in its own event,
-   so a search run on one event still says where else it finds guests. The
-   placeholder ("Search Reception by name, household, code or dietary note…"),
-   the chips' group name ("Filter Reception by reply") and the status line
-   ("Showing 3 of 120 guests for Reception.") name the event the table shows.
-   The chips count that event's rows whatever the search. The search, the chip
-   and the sort stay when the event changes.
+2. **The status line** ("Showing 3 of 120 guests for Reception.") while a
+   search or chip is on; kept out of the stuck bar so the bar is one height
+   whatever is typed.
 3. **The table**, with a row per guest invited and a form under a row while a
-   reply is recorded. An open form stays with its own event across a switch,
+   reply is recorded. It scrolls with the page, its head row stuck under the
+   view bar. On a narrow panel each guest is a block instead — name and
+   badges, household, reply and dietary answer, the button — with the form as
+   a block under it. An open form stays with its own event across a switch,
    typed text and all, and shows again on return; a filter that hides its row
    still closes it.
 
@@ -98,5 +112,6 @@ keystroke, so typing never sorts.
 `cire/host/tests/lib/dashboard-route.test.ts` hold the sort and the address
 rules; `RsvpView.test.tsx` and `RsvpView.changes.test.tsx` the panel, the
 counts and the New marks in happy-dom; `RsvpView.events.browser.test.tsx` the
-tab list, keys, sorting and pinned table in real Chromium inside the real
-`ModuleShell` ([[browser-tests]]).
+tab list, keys, sorting and stuck head row in real Chromium inside the real
+`ModuleShell` ([[browser-tests]]); `GuestsStack.browser.test.tsx` the stuck
+stack, the search moves and the narrow line.

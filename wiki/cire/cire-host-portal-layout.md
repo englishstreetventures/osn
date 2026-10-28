@@ -144,8 +144,8 @@ component was previously reading a container it did not live in.
 
 - **Module rail** (`ModuleSidebar`) — `@2xl/shell` swaps the sheet trigger for the
   rail, and the rail is `sticky self-start` from the same threshold, at
-  `top-[calc(5.5rem+1px)]`: under the page's sticky top bar (4rem and its
-  hairline wherever the frame is wide enough for the rail) plus 1.5rem of air.
+  `top-[calc(var(--chrome-h)+1.5rem)]`: under the page's sticky top bar, whose
+  height is `--chrome-h`, plus 1.5rem of air.
   A smaller offset slides the rail's top rows under the bar once the page
   scrolls. Without `self-start` the flex row stretches it to the panel's height
   and there is nothing left to slide against. Widening to `w-56` at
@@ -306,27 +306,37 @@ component was previously reading a container it did not live in.
      deleting the entry) and PR #864 (stale-while-revalidate).
 - **Event cards** (`EventTable`) — cards flow in an `auto-grid`; each card is its
   own `@container/card` and its details grid switches at `@md/card`.
-- **RSVPs** (`RsvpView`) — one event at a time, from a tab strip nested in
-  the module shell's own tab panel; what the page does is in
+- **The view bar** (`ModuleShell`, `ViewBar.tsx`) — every module with sub-tabs
+  draws one compact bar under its title that sticks under the top bar: the
+  sub-tabs (icon and label, icons alone below a 36rem panel), then the controls
+  the open view lends it with `<ViewBar slot="end">` or `slot="row2"`. Under it
+  each long view's own layers stick — the whole stack, its offsets and its
+  limits (220px on a laptop, 200px on a phone) are `cire/host/DESIGN.md` §The
+  stuck stack. Rendered alone (a test, no shell) a `ViewBar` draws its
+  controls where it stands. A view chooses its narrow layout from the panel's
+  width with `createCompact`, below the narrowest panel its wide layout fits
+  and back only a rem above it, and draws one variant.
+- **RSVPs** (`RsvpView`) — one event at a time, from a tab strip the view lends
+  the view bar with the search and the reply chips; what the page does is in
   [[cire-rsvp-table]]. The layout half:
 
   - The strip takes the module sub-tabs' look but scrolls sideways rather than
     wrapping, and the strip scrolls a chosen or focused tab into view, never
     the page.
-  - The table scrolls **in its own box**, so its head row can stay in view, and
-    pins its head row with `@shared/ui`'s `pin` variant. Why a pinned head
-    needs the box, its height under the top bar and its scroll padding are in
-    `cire/host/DESIGN.md` §A table that keeps its heads in view; the rule
-    underneath is in [[frontend-patterns]] §`position: sticky` resolves its
-    offsets against the scrollport. A wheel over the table moves the rows
-    first and the page once the box reaches its end.
-  - The Guest column is pinned only while the panel is narrower than 47rem
-    (39rem for a viewer, whose table is narrower):
-    `@min-[47rem]/panel:static` puts its cells back in flow above that. Wider,
-    the table needs no sideways scroll, and 900 pinned cells would cost every
-    scrolled frame for a column that cannot slide.
-  - Switching event keeps the box and puts it back to its top-left; it is not
-    remounted.
+  - The table scrolls **with the page** (`Table scroll="page"`) and its head row
+    sticks under the view bar; the rule underneath is in [[frontend-patterns]]
+    §`position: sticky` resolves its offsets against the scrollport.
+  - Below a 45rem panel (37rem for a viewer, whose table is narrower) the rows
+    stack as blocks and the sort and reply filter become selects: a
+    page-scrolling table is clipped, never scrolled, so it is never drawn
+    narrower than its columns.
+- **Households** (`GuestTable`) — one group and one table per household under
+  one head strip, each household's bar held while it is on screen; below a
+  46rem panel the rows stack and the household's actions go into a "⋯" menu.
+- **Edit** (`EditWorkspace`, `GuestsEditor`) — the mode switch and Add
+  household sit in the view bar; each card's header sticks inside its card,
+  its column heads following the table's sideways scroll. Events → Edit shares
+  `EditWorkspace`, so its mode switch is in the bar too.
 - **Run sheet** (`RunSheetView`) — the view declares `@container/run-sheet`
   itself, because in a helper's seat there is no `panel` to measure. Each day's
   rows are grids on three lengths (`--rs-pad`, `--rs-time`, `--rs-gap`, in the
@@ -620,7 +630,8 @@ What that leaves testable, and where it lives:
 | DOM containment of grid siblings, and per-group reorder indices | `ChecklistView.test.tsx`, `BudgetView.test.tsx` |
 | Master-detail behaviour: draft-per-enquiry, no cross-thread messages, placeholder, `aria-current` cardinality, post-reply refresh | `EnquiriesView.test.tsx`, `EnquiryInbox.test.tsx` |
 | Which preview layer mounts, and that its crossover matches `@4xl/builder` | `InviteBuilder.test.tsx` — a stub `ResizeObserver` reporting a fixed content-box width; a reasonable cheap choice in the unit tier, since happy-dom runs no layout, not a workaround for a missing harness |
-| The RSVP view's event tabs (ids beside the shell's, keys, a strip of twelve), sort heads, the pinned head row at 1280 and Guest column at 390 (in flow at 1280), focus kept clear of the pinned cells, and the box fitting under the top bar | `RsvpView.events.browser.test.tsx`, real Chromium, with the real `ModuleShell` around it; screenshots in light and dark land in its gitignored `__screenshots__/` |
+| The RSVP view's event tabs (in the view bar beside the shell's sub-tabs, ids apart, keys, a strip of twelve), sort heads, the head row stuck under the bar, and the stacked rows on a phone | `RsvpView.events.browser.test.tsx`, real Chromium, with the real `ModuleShell` around it; screenshots in light and dark land in its gitignored `__screenshots__/` |
 | The collapsed rail: icons and toggle that do not move, collapsed icons at 3:1 and the tooltip's text at 4.5:1 in both themes, the tooltip's place and stacking, labels only on the collapsed rail, Chrome's names and descriptions, labels kept off a locked row's card and no dwell, the label fade only after a press, the slide only on a press, reduced motion, and the sheet ignoring the choice at 390 | `ModuleSidebar.collapse.browser.test.tsx`, real Chromium, real `ModuleShell`; clears `cire.host.rail` before and after each test, since the browser context is shared across files. Its frame-time measurement runs only with `VITE_RAIL_SLIDE_BENCH=1`. The toggle, the stored choice across a reload, a locked card opened and closed from the narrow rail and the rail sticking below the real top bar are in the `cire-checklist-starter` E2E flow |
+| The stuck stack on every Guests tab at 1280 and 390: layers meeting to the pixel inside the height limits, the household bar on screen, searches and sub-tab changes landing at the stack's foot, focus kept clear, no sideways scroll on a phone, each view's narrow line, the invite builder's tabs under the bar | `GuestsStack.browser.test.tsx`, 300 households in the real `ModuleShell`; a pass or fail per check in `cire/host/.vitest/guests-stack/results.json` |
 | The run sheet's thread, and its `run-sheet` switch from two grid tracks to three | `RunSheetView.browser.test.tsx`, at 390 and 1280px |
 | The container queries themselves | `bun run --cwd cire/host test:browser` — a real-Chromium tier documented in `wiki/conventions/browser-tests.md`. Worked example: `cire/host/tests/components/PreviewInviteButton.browser.test.tsx`, which asserts the "Preview invite" label is clipped to `sr-only` at phone width and swaps to the written label once the `frame` container passes 42rem. |

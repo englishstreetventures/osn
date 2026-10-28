@@ -12,7 +12,7 @@ related:
   - "[[cire-invite-designs]]"
   - "[[cire-rsvp-changes]]"
   - "[[cire-landing]]"
-last-reviewed: 2026-10-21
+last-reviewed: 2026-10-28
 ---
 # Cire plus-ones
 
@@ -120,7 +120,7 @@ The organiser portal sets the permission on the **Households** tab (`GuestTable`
 
 | Who | Sees |
 |---|---|
-| Owner or editor | A **Plus-one** column with a switch per guest, and per household "Plus-ones: N of M" with **Allow everyone** and **Allow no one** |
+| Owner or editor | A **Plus-one** column with a switch per guest, and on each household's bar "Plus-ones: N of M" with **Allow everyone** and **Allow no one** as icon buttons named by those words; on a narrow panel a switch labelled "Plus-one" in each guest's block, the count as an icon and a fraction, and the two as items in the household's "⋯" menu |
 | Viewer | The same switches, read-only (focusable and announced as read-only, at full contrast); no household buttons |
 
 - A plus-one's row sits straight after the guest who brought them (the organiser list arrives in `sort_order`, so the portal places them by the link), marked "Plus-one of <inviter's full name>", with no switch.
