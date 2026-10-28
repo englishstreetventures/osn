@@ -5,6 +5,7 @@ import {
   mergeRows,
   nextSort,
   plusOneMarker,
+  plusOneShort,
   type RsvpFilterEvent,
   type RsvpFilterInvitedGuest,
   RSVP_FILTERS,
@@ -207,6 +208,17 @@ describe("mergeRows — plus-ones", () => {
       "Plus-one of another guest",
       "Plus-one of another guest",
     ]);
+  });
+
+  it("shortens the marker to +1 and the inviter's first name for the eye", () => {
+    // The row shows "+1 · Bo"; the full marker above is what a screen reader
+    // and the search read. With no inviter named there is no name to show.
+    const rows = mergeRows(WITH_PLUS_ONES);
+    expect(rows.slice(1).map(plusOneShort)).toEqual(["+1 · Bo", "+1 · Dev", "+1", "+1"]);
+    expect(plusOneShort({ plusOneOfName: "  Maximilian-Alexander  Wolfe " })).toBe(
+      "+1 · Maximilian-Alexander",
+    );
+    expect(plusOneShort({ plusOneOfName: "" })).toBe("+1");
   });
 
   it("leaves an ordinary row's search text as it was", () => {

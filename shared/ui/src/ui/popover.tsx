@@ -1,6 +1,8 @@
-import { Popover as KobaltePopover } from "@kobalte/core/popover";
+import { Popover as KobaltePopover, type PopoverContentOptions } from "@kobalte/core/popover";
 import { clsx } from "clsx";
-import { splitProps, type ComponentProps, type ParentComponent } from "solid-js";
+import { splitProps, type ParentComponent } from "solid-js";
+
+import type { SafeProps } from "./props";
 
 const Popover = KobaltePopover;
 const PopoverTrigger = KobaltePopover.Trigger;
@@ -55,11 +57,16 @@ function portalMount(): HTMLElement | undefined {
   return modals.item(modals.length - 1) ?? undefined;
 }
 
+/**
+ * The panel. `onOpenAutoFocus`, `onCloseAutoFocus` and `onInteractOutside` are
+ * Kobalte's, for a popover anchored to something other than its own trigger:
+ * the caller then says which presses count as outside and where focus returns.
+ */
 const PopoverContent: ParentComponent<
-  ComponentProps<"div"> & {
-    onOpenAutoFocus?: (e: Event) => void;
-    padding?: keyof typeof POPOVER_PADDING;
-  }
+  SafeProps<"div"> &
+    Pick<PopoverContentOptions, "onOpenAutoFocus" | "onCloseAutoFocus" | "onInteractOutside"> & {
+      padding?: keyof typeof POPOVER_PADDING;
+    }
 > = (props) => {
   const [local, others] = splitProps(props, ["class", "onOpenAutoFocus", "padding"]);
   return (

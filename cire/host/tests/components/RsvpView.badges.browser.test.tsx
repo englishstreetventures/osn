@@ -86,7 +86,11 @@ const PAYLOAD = {
   ],
 };
 
-/** Each badge's visible word, and the explanation a screen reader gets with it. */
+/**
+ * Each badge's name, and the explanation a screen reader gets with it. "New"
+ * is a word on screen; the rest are icons, their names hidden text inside the
+ * icon (`[data-provenance]`), so the badge a pointer rests on is the icon.
+ */
 const BADGES = [
   ["New", "Changed by the guest since you last looked"],
   ["linked musubi", "Sent from a signed-in linked musubi account"],
@@ -180,12 +184,18 @@ const inTable = () => within(document.querySelector<HTMLElement>("tbody")!);
 /** The open panel, if any. It is `aria-hidden`, so a role query skips it. */
 const panel = () => document.querySelector<HTMLElement>('[role="tooltip"]');
 
+/** What a pointer rests on for a badge: the icon, or the word itself. */
+const badgeOf = (word: string): HTMLElement => {
+  const named = inTable().getByText(word);
+  return named.closest<HTMLElement>("[data-provenance]") ?? named;
+};
+
 /**
- * Hover a badge by its visible word and wait for its panel. Past the open
- * delay on a cold hover; at once within the skip window after another panel.
+ * Hover a badge by its name and wait for its panel. Past the open delay on a
+ * cold hover; at once within the skip window after another panel.
  */
 async function hoverBadge(word: string): Promise<HTMLElement> {
-  await userEvent.hover(inTable().getByText(word));
+  await userEvent.hover(badgeOf(word));
   const open = await vi.waitFor(
     () => {
       const found = panel();
@@ -239,7 +249,7 @@ describe("the RSVP table's badge explanations", () => {
       // Nothing is mounted until a pointer asks for it.
       expect(panel()).toBeNull();
       for (const [word, explanation] of BADGES) {
-        const badge = inTable().getByText(word);
+        const badge = badgeOf(word);
         // Hover only: a badge in every row must not add a tab stop to it.
         expect([word, badge.closest("td button, td a, td [tabindex]")]).toEqual([word, null]);
 
@@ -276,9 +286,16 @@ describe("the RSVP table's badge explanations", () => {
         const ratio = contrastRatio(composite([ground, color]), ground)!;
         expect([word, ratio >= WCAG_TEXT_MIN]).toEqual([word, true]);
 
+        // The window, not the whole page: the table scrolls with the page, so
+        // the page is 900 rows tall, and the hovered badge is what to see.
+        const frame = document.createElement("div");
+        frame.style.cssText = "position:fixed;inset:0;pointer-events:none";
+        document.body.append(frame);
         await page.screenshot({
           path: `__screenshots__/RsvpView.badges.browser.test.tsx/hover-${theme}-${word.toLowerCase().replace(/\W+/g, "-")}.png`,
+          element: frame,
         });
+        frame.remove();
         await moveAway();
       }
     },

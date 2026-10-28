@@ -69,7 +69,9 @@ const shot = (name: string) =>
   `__screenshots__/ModuleSidebar.collapse.browser.test.tsx/${name}.png`;
 
 /** The page around the shell: the frame container, a sticky top bar with the
- *  real one's classes, and the page measure. Gold by default, so Vendors is
+ *  real one's classes and its height from `--chrome-h`, both inside
+ *  `.chrome-scope` as `OrganiserApp` puts them, so the rail's offset under the
+ *  bar is the page's own; and the page measure. Gold by default, so Vendors is
  *  the one locked row. */
 function renderPage(guests = 12, tier: Tier = "gold") {
   const payload = { events: [eventPayload("evt_ceremony", "Ceremony", guestList(guests), 0)] };
@@ -83,40 +85,45 @@ function renderPage(guests = 12, tier: Tier = "gold") {
   const rows = payload.events[0]!.guests.length + payload.events[0]!.unresponded.length;
   render(() => (
     <div class="@container/frame">
-      <header
-        data-top-bar
-        class="border-border bg-bg/85 sticky top-0 z-30 border-b backdrop-blur-md"
-      >
-        <div class="page-frame flex h-14 items-center gap-2 @2xl/frame:h-16">
-          <span class="font-display text-text text-ui-md leading-none font-light">Cire</span>
-        </div>
-      </header>
-      <main class="page-frame @container/page flex flex-col gap-8 py-8 @2xl/frame:py-10">
-        <ModuleShell
-          weddingId="wed_1"
-          weddingName="Rosa & Viktor"
-          weddingSlug="rosa-and-viktor"
-          callerRole="owner"
-          canManage
-          canEdit
-          module="guests"
-          sub="rsvps"
-          onModule={() => {}}
-          onSub={() => {}}
-          rsvpEvent={undefined}
-          onRsvpEvent={() => {}}
-          tier={tier}
-          entitlements={[]}
-          guestCap={1000}
-        />
-      </main>
+      <div class="chrome-scope contents">
+        <header
+          data-top-bar
+          class="border-border bg-bg/85 sticky top-0 z-30 border-b backdrop-blur-md"
+        >
+          <div class="page-frame flex h-[calc(var(--chrome-h)-1px)] items-center gap-2">
+            <span class="font-display text-text text-ui-md leading-none font-light">Cire</span>
+          </div>
+        </header>
+        <main class="page-frame @container/page flex flex-col gap-8 py-8 @2xl/frame:py-10">
+          <ModuleShell
+            weddingId="wed_1"
+            weddingName="Rosa & Viktor"
+            weddingSlug="rosa-and-viktor"
+            callerRole="owner"
+            canManage
+            canEdit
+            module="guests"
+            sub="rsvps"
+            onModule={() => {}}
+            onSub={() => {}}
+            rsvpEvent={undefined}
+            onRsvpEvent={() => {}}
+            tier={tier}
+            entitlements={[]}
+            guestCap={1000}
+          />
+        </main>
+      </div>
     </div>
   ));
   return rows;
 }
 
+/** The rows the RSVP view draws: a table on a wide panel, a list of blocks
+ *  on a phone's. */
 async function ready(rows: number) {
-  await vi.waitFor(() => expect(document.querySelectorAll("tbody > tr")).toHaveLength(rows), {
+  const drawn = () => document.querySelectorAll('tbody > tr, ul[aria-label^="Replies"] > li');
+  await vi.waitFor(() => expect(drawn()).toHaveLength(rows), {
     timeout: 5_000,
   });
   await document.fonts.ready;

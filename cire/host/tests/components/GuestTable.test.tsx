@@ -681,6 +681,44 @@ describe("GuestTable", () => {
     expect(screen.queryByText(/Deactivated — code disabled/i)).toBeNull();
   });
 
+  /**
+   * Cutting a household's code off, or restoring it, is the owner's alone
+   * (the API gates both with `weddingOwner()`). A co-host is offered neither,
+   * on the wide bar or in the narrow layout's "⋯" menu, for an active
+   * household or one already deactivated.
+   */
+  describe("a co-host's household actions", () => {
+    function primeMixed() {
+      const mixed = [GUESTS[0], { ...GUESTS[1], deactivatedAt: 1_700_000_900_000 }];
+      authFetchMock
+        .mockResolvedValueOnce(json(mixed))
+        .mockResolvedValueOnce(json(EVENTS))
+        .mockResolvedValueOnce(json({ inviteMessage: null }));
+    }
+
+    it("offers no Deactivate or Reactivate on the wide bar", async () => {
+      primeMixed();
+      render(() => (
+        <GuestTable
+          weddingId="wed_a"
+          canManage={false}
+          canEdit
+          weddingName="Nadia & Sam"
+          weddingSlug="nadia-sam-abc123"
+        />
+      ));
+      await waitFor(() => expect(screen.getByText("Sharma")).toBeTruthy());
+      expect(screen.getByText(/Deactivated — code disabled/i)).toBeTruthy();
+      // The same bar still offers what a co-host may do.
+      expect(screen.getAllByRole("button", { name: "Copy message" })).toHaveLength(2);
+      expect(screen.queryByRole("button", { name: /deactivate/i })).toBeNull();
+      expect(screen.queryByRole("button", { name: /reactivate/i })).toBeNull();
+    });
+
+    // The narrow layout's menu is checked in `GuestTable.compact.browser.test.tsx`:
+    // happy-dom never finishes a closing menu, so the page stays hidden after.
+  });
+
   it("filters the list to a household matching the search text", async () => {
     primeLoad();
     render(() => (

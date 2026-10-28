@@ -9,7 +9,7 @@ related:
   - "[[review-findings]]"
   - "[[free-tier-limits]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-10-26
+last-reviewed: 2026-10-28
 ---
 
 # Guards with a threshold
@@ -226,7 +226,7 @@ the guard's warning regardless of how large or small the app's own baseline is:
 | App | Mode | Measured | Threshold |
 |---|---|---:|---:|
 | cire/invites | worker | 190660 B | 200900 B *(re-baselined, englishstreetventures/osn#1765 — see below)* |
-| cire/host | static | 319202 B | 330902 B *(re-baselined, englishstreetventures/osn#1396 — see below)* |
+| cire/host | static | 337953 B | 349653 B *(re-baselined, englishstreetventures/osn#1803 — see below)* |
 | cire/vendor | static | 77305 B | 81644 B |
 | cire/landing | static | 164847 B | 176547 B |
 | musubi/landing | static | 15206 B | 26865 B |
@@ -343,6 +343,27 @@ sums that over `OrganiserApp`'s chunk and every chunk it imports statically.
 fonts.google.com was refused in that session, so every build, `main`'s
 included, carried no font files; the guard reads only `dist/_astro/*.js` and
 `*.css`.*
+
+The Guests stuck stack and design pass (englishstreetventures/osn#1803) raised it
+again. `main` measured **323615 B** across 69 files, still under the 330902 B
+threshold but 4413 B past the 319202 B it was set from. The view bar every
+module with sub-tabs draws, the stuck layers on the three Guests tabs, their
+narrow layouts, the status marks, the event and reply chips, the icon-only
+controls and their one tooltip panel, the household list's one "⋯" menu, the
+editor's one popover and the RSVP reply key came to **337953 B** across 70
+files: **+14338 B**, no dependency added. The eager graph reaches the same
+Kobalte modules as `main` (dialog, menu, popover, popper, tooltip); the growth
+is the views' own code, about thirty `lucide-solid` icons and the stylesheet.
+The views stay eager, as on `main`, so the first load grew with them:
+`OrganiserApp`'s chunk 76927 B to **85990 B**, the first load 153896 B to
+**165420 B**. The threshold moved to measured + ~11.7 KB, **349653 B**.
+
+*Measured 2026-10-28 — `rm -rf cire/host/dist && bun run --cwd cire/host build`
+on `feat/cire-host-guests-sticky-stack` rebased onto `origin/main` 5f42aafa1 and
+on a fresh checkout of 5f42aafa1, reading the total the guard prints. Chunk and first-load sizes are
+gzip level 9 with no timestamp, summed over `OrganiserApp`'s chunk and every
+chunk it imports statically; the Kobalte modules read from the `use…Context`
+names in that set of files.*
 
 ### `cire/invites` re-baselined after the zod override
 

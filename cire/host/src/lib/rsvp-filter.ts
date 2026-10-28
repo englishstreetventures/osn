@@ -52,9 +52,18 @@ export interface ReplySubmitter {
 /** What a plus-one's marker says when the API names no inviter. */
 export const UNNAMED_INVITER = "another guest";
 
-/** The line a plus-one's row shows under their name. */
+/** Who brought a plus-one, in words: what a screen reader hears and the
+ *  search reads. */
 export function plusOneMarker(row: { plusOneOfName: string | null }): string {
   return `Plus-one of ${row.plusOneOfName ?? UNNAMED_INVITER}`;
+}
+
+/** The same, for the eye: "+1 · Kai", the inviter's first name, or a bare
+ *  "+1" when the API names no inviter. A plus-one is never written out on
+ *  screen (`cire/host/DESIGN.md` §Names and meta lines). */
+export function plusOneShort(row: { plusOneOfName: string | null }): string {
+  const first = row.plusOneOfName?.trim().split(/\s+/)[0];
+  return first ? `+1 · ${first}` : "+1";
 }
 
 /**

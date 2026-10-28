@@ -93,6 +93,16 @@
   --warn: oklch(80% 0.125 78);
   --error: oklch(68% 0.14 21);
 
+  /* Reply marks: a filled circle and a glyph (`cire/host/DESIGN.md` §Status marks).
+     Attending is solid gold with `--on-gold` on it; Declined a deep muted red
+     with a light glyph, never a red border; Maybe a gold tint. Each glyph
+     clears 4.5:1 on its circle. No reply is a ring in `--text-faint`. */
+  --status-yes: oklch(75% 0.085 82);
+  --status-no: oklch(40% 0.1 22);
+  --status-no-ink: oklch(95% 0.015 22);
+  --status-maybe: oklch(36% 0.05 82);
+  --status-maybe-ink: oklch(84% 0.072 84);
+
   /* The focus ring is its own token rather than an alias of gold: gold is
      unreadable on the light ground and a focus indicator has a 3:1 floor. */
   --focus: oklch(75% 0.085 82);
@@ -140,6 +150,11 @@
     --success: oklch(43% 0.115 148);
     --warn: oklch(45% 0.105 62);
     --error: oklch(50% 0.15 25);
+    --status-yes: oklch(64% 0.095 78);
+    --status-no: oklch(47% 0.14 24);
+    --status-no-ink: oklch(97% 0.01 24);
+    --status-maybe: oklch(80% 0.08 82);
+    --status-maybe-ink: oklch(36% 0.07 74);
 
     --focus: oklch(38% 0.072 141);
 
@@ -180,6 +195,11 @@
   --success: oklch(43% 0.115 148);
   --warn: oklch(45% 0.105 62);
   --error: oklch(50% 0.15 25);
+  --status-yes: oklch(64% 0.095 78);
+  --status-no: oklch(47% 0.14 24);
+  --status-no-ink: oklch(97% 0.01 24);
+  --status-maybe: oklch(80% 0.08 82);
+  --status-maybe-ink: oklch(36% 0.07 74);
 
   --focus: oklch(38% 0.072 141);
 
@@ -286,6 +306,11 @@
   --color-success: var(--success);
   --color-warn: var(--warn);
   --color-error: var(--error);
+  --color-status-yes: var(--status-yes);
+  --color-status-no: var(--status-no);
+  --color-status-no-ink: var(--status-no-ink);
+  --color-status-maybe: var(--status-maybe);
+  --color-status-maybe-ink: var(--status-maybe-ink);
   --color-focus: var(--focus);
 
   /* The shadcn semantic names — `--color-background`, `--color-primary` and

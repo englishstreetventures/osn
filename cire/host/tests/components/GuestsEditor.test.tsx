@@ -149,7 +149,7 @@ describe("GuestsEditor", () => {
     );
     // Guest name field + the event column header.
     expect(screen.getByDisplayValue("Ada")).toBeTruthy();
-    expect(screen.getByText("Ceremony")).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: "Ceremony" })).toBeTruthy();
     // The attendance checkbox for Ada × Ceremony is present + checked.
     const box = screen.getByRole("checkbox", { name: /Ada attends Ceremony/i });
     expect((box as HTMLInputElement).checked).toBe(true);
@@ -343,6 +343,21 @@ describe("GuestsEditor", () => {
     fireEvent.click(screen.getByRole("button", { name: /Add household/i }));
     // A new blank household field appears (the "New — code minted on save" badge).
     await waitFor(() => expect(screen.getByText(/code minted on save/i)).toBeTruthy());
+  });
+
+  it("takes focus to the new household's name, wherever the list was scrolled", async () => {
+    // Add household sits in the stuck view bar, so the card it adds can be a
+    // long way down the page; the name field is the first thing to fill in.
+    primeLoad();
+    render(() => <GuestsEditor weddingId="wed_a" />);
+    await waitFor(() => expect(screen.getByDisplayValue("Ada")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: /Add household/i }));
+    await waitFor(() => {
+      const names = screen.getAllByRole("textbox", { name: "Household name" });
+      expect(names).toHaveLength(2);
+      expect(document.activeElement).toBe(names[1]);
+    });
   });
 
   /**

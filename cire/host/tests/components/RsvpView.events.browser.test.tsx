@@ -1,37 +1,39 @@
-import { cleanup, render, screen, within } from "@solidjs/testing-library";
-import { createSignal } from "solid-js";
+import { cleanup, screen, within } from "@solidjs/testing-library";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { cdp, page, userEvent } from "vitest/browser";
 
 import "../../src/styles/global.css";
 
 /**
- * The RSVP page shows one event at a time, picked from a tab list inside the
- * module shell's own tab panel, and its table keeps the head row and the Guest
- * column in view while the table scrolls in its own box. What only a real
- * engine can answer:
+ * The RSVP page shows one event at a time, picked from a tab list the view
+ * lends the module shell's view bar, and its table scrolls with the page with
+ * its head row stuck under that bar. What only a real engine can answer:
  *
  * - that the event tabs and the shell's sub-tabs share a document without an id
- *   meeting another, and that Chrome exposes both as tab lists;
+ *   meeting another, sit together in the bar outside the module's tab panel,
+ *   and that Chrome exposes both as tab lists;
  * - that the keyboard moves through the event tabs and selects only on Enter or
- *   Space, and that Tab leaves the strip for the panel;
+ *   Space, and that Tab leaves the strip for the search beside it;
  * - that a strip of many events scrolls sideways on its own, brings a focused
  *   or deep-linked tab into view, and never moves the page while it does;
  * - that a sort head says its order in `aria-sort` and orders the rows;
- * - that the sticky head, Guest column and corner stay put and stay on top
- *   while the box scrolls, at desktop and phone width;
- * - that the box fits on screen under the top bar, which is the condition the
- *   owner set for a table that scrolls inside the page.
+ * - that the head row sticks under the view bar and stays on top while the page
+ *   scrolls, and that a phone draws stacked rows instead of a table, sorts
+ *   them from a select and records a reply in a block under the guest;
+ * - that a chip focused from the keyboard wears the focus ring, whole;
+ * - that the reply key opens from the keyboard and names every mark a guest's
+ *   meta line can carry.
  *
- * It renders the real `ModuleShell` on Guests → RSVPs, under a stand-in for
- * the page's sticky top bar with the same classes and heights. Screenshots land
- * in `__screenshots__/` beside this file (gitignored).
+ * The whole stack — every Guests tab, both sizes, focus, search and sub-tab
+ * moves — is measured in `GuestsStack.browser.test.tsx`. It renders the real
+ * `ModuleShell` on Guests → RSVPs through `test-support/organiser-page.tsx`.
+ * Screenshots land in `__screenshots__/` beside this file (gitignored).
  */
 
 const { authFetch } = vi.hoisted(() => ({ authFetch: vi.fn() }));
 vi.mock("@shared/rp-auth/solid", () => ({ useAuth: () => ({ authFetch }) }));
 vi.mock("@shared/toast", () => ({ toast: { success: () => {}, error: () => {}, info: () => {} } }));
-vi.mock("../../src/lib/haptics", () => ({ haptic: () => {} }));
+vi.mock("../../src/lib/haptics", () => ({ haptic: () => {}, hapticsAvailable: () => false }));
 vi.mock("../../src/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../src/lib/api")>()),
   apiUrl: (path: string) => `https://api.test${path}`,
@@ -48,7 +50,7 @@ vi.mock("../../src/lib/rsvp-changes", async (importOriginal) => ({
   markRsvpChangesSeen: async () => {},
 }));
 
-import ModuleShell from "../../src/components/ModuleShell";
+import { renderOrganiserPage, routeFetch, topBar } from "../test-support/organiser-page";
 import { eventPayload, guestList } from "../test-support/rsvp-guests";
 
 type Payload = { events: ReturnType<typeof eventPayload>[] };
@@ -82,58 +84,26 @@ const TWELVE: Payload = {
 const rowsOf = (payload: Payload, index = 0) =>
   payload.events[index]!.guests.length + payload.events[index]!.unresponded.length;
 
-/** What the page wraps the shell in: the frame container, a sticky top bar
- *  with the real one's classes, and the page measure. */
+/** The page on Guests → RSVPs, its RSVP read answering with `payload`. */
 function renderPage(
   payload: Payload,
   opts: { canEdit?: boolean; rsvpEvent?: string; onRsvpEvent?: (id: string) => void } = {},
 ) {
-  authFetch.mockImplementation(
-    async () =>
-      new Response(JSON.stringify(payload), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      }),
-  );
-  const [rsvpEvent, setRsvpEvent] = createSignal(opts.rsvpEvent);
-  return render(() => (
-    <div class="@container/frame">
-      <header
-        data-top-bar
-        class="border-border bg-bg/85 sticky top-0 z-30 border-b backdrop-blur-md"
-      >
-        <div class="page-frame flex h-14 items-center gap-2 @2xl/frame:h-16">
-          <span class="font-display text-text text-ui-md leading-none font-light">Cire</span>
-        </div>
-      </header>
-      <main class="page-frame @container/page flex flex-col gap-8 py-8 @2xl/frame:py-10">
-        <ModuleShell
-          weddingId="wed_1"
-          weddingName="Rosa & Viktor"
-          weddingSlug="rosa-and-viktor"
-          callerRole="owner"
-          canManage
-          canEdit={opts.canEdit ?? true}
-          module="guests"
-          sub="rsvps"
-          onModule={() => {}}
-          onSub={() => {}}
-          rsvpEvent={rsvpEvent()}
-          onRsvpEvent={(id) => {
-            setRsvpEvent(id);
-            opts.onRsvpEvent?.(id);
-          }}
-          tier="crimson"
-          entitlements={[]}
-          guestCap={1000}
-        />
-      </main>
-    </div>
-  ));
+  routeFetch(authFetch, { rsvps: payload });
+  return renderOrganiserPage({
+    module: "guests",
+    sub: "rsvps",
+    canEdit: opts.canEdit ?? true,
+    rsvpEvent: opts.rsvpEvent,
+    onRsvpEvent: opts.onRsvpEvent,
+  });
 }
 
+/** A guest row: a table row on a wide panel, a block on a narrow one. */
+const ROWS = 'tbody > tr, ul[aria-label^="Replies"] > li';
+
 async function ready(rows: number) {
-  await vi.waitFor(() => expect(document.querySelectorAll("tbody > tr")).toHaveLength(rows), {
+  await vi.waitFor(() => expect(document.querySelectorAll(ROWS)).toHaveLength(rows), {
     timeout: 5_000,
   });
   await document.fonts.ready;
@@ -147,8 +117,7 @@ const eventTab = (name: string) =>
 const strip = () => screen.getByRole("tablist", { name: "Events" });
 const eventPanel = () =>
   document.getElementById(strip().querySelector("[role=tab]")!.getAttribute("aria-controls")!)!;
-const box = () => document.querySelector("table")!.parentElement!;
-const topBar = () => document.querySelector<HTMLElement>("[data-top-bar]")!;
+const viewBar = () => document.querySelector<HTMLElement>("[data-view-bar]")!;
 const head = (name: string) =>
   [...document.querySelectorAll<HTMLTableCellElement>("thead th")].find((th) =>
     th.textContent?.trim().toLowerCase().startsWith(name.toLowerCase()),
@@ -156,9 +125,9 @@ const head = (name: string) =>
 /** The surnames of the first `count` rows. The Guest cell draws
  *  `{firstName} {lastName}` as three text nodes, then its badges. */
 const surnames = (count: number) =>
-  [...document.querySelectorAll("tbody > tr > td:first-child")]
+  [...document.querySelectorAll("tbody > tr > td:first-child [data-name]")]
     .slice(0, count)
-    .map((td) => td.childNodes[2]?.textContent?.trim());
+    .map((name) => name.childNodes[2]?.textContent?.trim());
 
 /** What a utility class paints, read off a throwaway element. */
 function probe(className: string, property: "color" | "backgroundColor"): string {
@@ -182,17 +151,6 @@ function expectOnTop(el: Element, what: string) {
     hit !== null && el.contains(hit),
     `${what} at (${Math.round(r.left)}, ${Math.round(r.top)}, ${Math.round(r.width)}x${Math.round(r.height)}) in a ${innerWidth}x${innerHeight} window is covered by ${found}`,
   ).toBe(true);
-}
-
-/** A row whose box sits wholly inside the scroll box, below its head row. */
-function visibleRow(): HTMLTableRowElement {
-  const outer = box().getBoundingClientRect();
-  // A head cell, not the <thead>: the cells stick, the row group scrolls away.
-  const headBottom = document.querySelector("thead th")!.getBoundingClientRect().bottom;
-  return [...document.querySelectorAll<HTMLTableRowElement>("tbody > tr")].find((tr) => {
-    const r = tr.getBoundingClientRect();
-    return r.top >= headBottom + 1 && r.bottom <= outer.bottom - 1;
-  })!;
 }
 
 beforeAll(() => {
@@ -235,18 +193,32 @@ async function accessibilityTree(): Promise<AXNode[]> {
 }
 
 describe("the RSVP page's event tabs", () => {
-  it("sit inside the module's tab panel, with ids that never meet the shell's", async () => {
+  it("sit in the module's view bar beside its sub-tabs, with ids that never meet the shell's", async () => {
     await page.viewport(1280, 800);
     renderPage(THREE);
     await ready(rowsOf(THREE));
 
-    // The shell's own strip and panel are there, and the event strip is inside
-    // that panel.
+    // The shell's own strip and panel are there. The event strip is in the
+    // view bar with it — a landmark named for the module — and outside the
+    // module's tab panel, which the sub-tabs still control.
     const views = screen.getByRole("tablist", { name: "Views" });
     const modulePanel = document.getElementById("subpanel-guests")!;
+    const bar = screen.getByRole("region", { name: "Guests controls" });
     expect(modulePanel.getAttribute("aria-labelledby")).toBe("subtab-guests-rsvps");
-    expect(modulePanel.contains(strip())).toBe(true);
+    expect(bar.contains(strip())).toBe(true);
+    expect(bar.contains(views)).toBe(true);
+    expect(modulePanel.contains(strip())).toBe(false);
     expect(views.contains(strip())).toBe(false);
+    for (const tab of within(views).getAllByRole("tab")) {
+      expect(tab.getAttribute("aria-controls")).toBe("subpanel-guests");
+    }
+    // The search beside the strip acts on the event on screen, and names its
+    // panel to say so.
+    expect(
+      screen
+        .getByRole("searchbox", { name: "Search Ceremony guests" })
+        .getAttribute("aria-controls"),
+    ).toBe(eventPanel().id);
 
     // No id repeats, and every reference names an element that exists.
     const ids = [...document.querySelectorAll("[id]")].map((el) => el.id);
@@ -314,17 +286,13 @@ describe("the RSVP page's event tabs", () => {
     await userEvent.keyboard("{ArrowRight}{Enter}");
     expect(reception!.getAttribute("aria-selected")).toBe("true");
     expect(chosen).toEqual(["evt_reception"]);
-    // What a sighted host sees of the choice: the pill sits on the chosen tab,
-    // and its label is in gold while the others are not.
-    const pill = strip().querySelector<HTMLElement>(":scope > span[aria-hidden]")!;
-    await vi.waitFor(() => {
-      const p = pill.getBoundingClientRect();
-      const t = reception!.getBoundingClientRect();
-      const gaps = [p.left - t.left, p.top - t.top, p.width - t.width, p.height - t.height];
-      expect(gaps.every((gap) => Math.abs(gap) <= 1)).toBe(true);
-    });
-    expect(getComputedStyle(reception!).color).toBe(probe("text-gold", "color"));
-    expect(getComputedStyle(ceremony!).color).not.toBe(probe("text-gold", "color"));
+    // What a sighted host sees of the choice: the chosen chip fills in the
+    // brand green, in its own ink, while the others stay on the surface.
+    expect(getComputedStyle(reception!).backgroundColor).toBe(probe("bg-brand", "backgroundColor"));
+    expect(getComputedStyle(reception!).color).toBe(probe("text-on-brand", "color"));
+    expect(getComputedStyle(ceremony!).backgroundColor).toBe(
+      probe("bg-surface", "backgroundColor"),
+    );
     await vi.waitFor(() =>
       expect(document.querySelectorAll("tbody > tr")).toHaveLength(rowsOf(THREE, 1)),
     );
@@ -335,10 +303,10 @@ describe("the RSVP page's event tabs", () => {
     expect(brunch!.getAttribute("aria-selected")).toBe("true");
     expect(chosen).toEqual(["evt_reception", "evt_brunch"]);
 
-    // Tab leaves the strip for the panel: its search box comes next.
+    // Tab leaves the strip for the search box beside it, in the same bar.
     await userEvent.tab();
     expect(document.activeElement).toBe(
-      within(eventPanel()).getByRole("searchbox", { name: "Search Farewell brunch guests" }),
+      within(viewBar()).getByRole("searchbox", { name: "Search Farewell brunch guests" }),
     );
   });
 
@@ -379,7 +347,9 @@ describe("the RSVP page's event tabs", () => {
   });
 
   it("brings a tab mid-strip just into view, and leaves the strip alone for one in view", async () => {
-    await page.viewport(390, 844);
+    // A small tablet: the strip shares the bar's row with the sub-tabs, and at
+    // this width it holds two tabs side by side while still overflowing.
+    await page.viewport(600, 844);
     renderPage(TWELVE, { rsvpEvent: "evt_5" });
     await ready(rowsOf(TWELVE, 5));
     const track = strip();
@@ -484,26 +454,7 @@ describe("the RSVP table's sort heads", () => {
   });
 });
 
-describe("the RSVP table's sticky head and Guest column", () => {
-  for (const [width, height] of [
-    [1280, 800],
-    [390, 844],
-  ] as const) {
-    it(`fits the whole box on screen under the top bar at ${width}px`, async () => {
-      await page.viewport(width, height);
-      renderPage(THREE);
-      await ready(rowsOf(THREE));
-      const bar = topBar().getBoundingClientRect().height;
-      expect(box().getBoundingClientRect().height).toBeLessThanOrEqual(innerHeight - bar);
-      // Scrolled so the box's top meets the bar's bottom edge, the box's own
-      // bottom is on screen: the whole table, head row included, at once.
-      // (Or as far as the page goes: the box is the last thing on it.)
-      window.scrollTo(0, box().getBoundingClientRect().top + scrollY - bar);
-      expect(box().getBoundingClientRect().top).toBeGreaterThanOrEqual(bar - 0.5);
-      expect(box().getBoundingClientRect().bottom).toBeLessThanOrEqual(innerHeight);
-    });
-  }
-
+describe("the RSVP table's stuck head row", () => {
   it("shows rows on a laptop's first screen, before any scroll", async () => {
     await page.viewport(1280, 800);
     renderPage(THREE);
@@ -512,120 +463,239 @@ describe("the RSVP table's sticky head and Guest column", () => {
     expect(firstRow.bottom).toBeLessThan(innerHeight);
   });
 
-  it("holds the head row at the top of the box while the rows scroll under it", async () => {
+  it("holds the head row under the view bar while the page scrolls the rows under it", async () => {
     await page.viewport(1280, 800);
     renderPage(THREE);
     await ready(rowsOf(THREE));
-    const scroller = box();
-    scroller.scrollTop = 2000;
-    expect(scroller.scrollTop).toBe(2000);
-    const top = scroller.getBoundingClientRect().top + scroller.clientTop;
+    window.scrollTo(0, 6000);
+    expect(window.scrollY).toBe(6000);
+    const foot = viewBar().getBoundingClientRect().bottom;
+    expect(viewBar().getBoundingClientRect().top).toBeCloseTo(
+      topBar().getBoundingClientRect().bottom,
+      0,
+    );
     for (const name of ["Guest", "Household", "Status", "Dietary"]) {
-      expect([name, Math.abs(head(name).getBoundingClientRect().top - top) < 1]).toEqual([
+      expect([name, Math.abs(head(name).getBoundingClientRect().top - foot) < 1]).toEqual([
         name,
         true,
       ]);
       expectOnTop(head(name), `the ${name} head`);
     }
-    // At this width the table needs no sideways scroll, so the Guest column
-    // is not pinned: 900 pinned cells would cost every scrolled frame for a
-    // column that cannot slide.
-    expect(scroller.scrollWidth).toBe(scroller.clientWidth);
-    expect(getComputedStyle(visibleRow().querySelector("td")!).position).toBe("static");
-
-    // Moving to another event puts the box back at its top.
-    await userEvent.click(eventTab("Reception"));
-    await vi.waitFor(() =>
-      expect(document.querySelectorAll("tbody > tr")).toHaveLength(rowsOf(THREE, 1)),
-    );
-    expect(box().scrollTop).toBe(0);
+    // The page is what scrolls: the table is clipped, never a scroll box.
+    const box = document.querySelector("table")!.parentElement!;
+    expect(getComputedStyle(box).overflowX).toBe("clip");
+    expect(box.scrollWidth).toBe(box.clientWidth);
+    expect(getComputedStyle(document.querySelector("tbody td")!).position).toBe("static");
   });
 
-  it("holds the Guest column at the box's left edge on a phone, under the corner", async () => {
+  it("draws stacked rows on a phone, with nothing to scroll sideways", async () => {
     await page.viewport(390, 844);
     renderPage(THREE);
     await ready(rowsOf(THREE));
-    // The page scrolled so the box is on screen under the bar, as a host would.
-    window.scrollTo(0, box().getBoundingClientRect().top + scrollY - topBar().offsetHeight);
-    const scroller = box();
-    scroller.scrollTop = 1200;
-    scroller.scrollLeft = 260;
-    expect(scroller.scrollLeft).toBe(260);
-    const left = scroller.getBoundingClientRect().left + scroller.clientLeft;
-
-    const row = visibleRow();
-    const [guest, household] = row.querySelectorAll("td");
-    expect(getComputedStyle(guest!).position).toBe("sticky");
-    expect(Math.abs(guest!.getBoundingClientRect().left - left)).toBeLessThan(1);
-    // The Household cell has slid under the Guest cell, which paints on top.
-    expect(household!.getBoundingClientRect().left).toBeLessThan(
-      guest!.getBoundingClientRect().right,
-    );
-    expectOnTop(guest!, "the Guest cell");
-    // The corner holds both ways and covers what passes beneath it.
-    expect(head("Guest").getBoundingClientRect().left).toBeCloseTo(left, 0);
-    expectOnTop(head("Guest"), "the corner");
-    expectOnTop(head("Dietary"), "the Dietary head");
-
-    // A row's hover fill reaches its pinned cell too.
-    const surface = probe("bg-surface", "backgroundColor");
-    await userEvent.hover(guest!);
-    expect(getComputedStyle(guest!).backgroundColor).toBe(surface);
-  });
-
-  it("keeps a focused control clear of the pinned head row and Guest column", async () => {
-    // Keyboard focus that lands under an opaque pinned cell is focus nobody
-    // can see. The box's scroll padding is what keeps it clear.
-    await page.viewport(390, 844);
-    renderPage(THREE);
-    await ready(rowsOf(THREE));
-    window.scrollTo(0, box().getBoundingClientRect().top + scrollY - topBar().offsetHeight);
-    const scroller = box();
-
-    // Rows scrolled well past an Edit button, then focus moves back to it.
-    const buttons = [...scroller.querySelectorAll<HTMLButtonElement>("tbody button")];
-    const target = buttons[30]!;
-    scroller.scrollTop =
-      target.getBoundingClientRect().top - scroller.getBoundingClientRect().top + 600;
-    scroller.scrollLeft = scroller.scrollWidth;
-    target.focus();
-    expect(document.activeElement).toBe(target);
-    expectOnTop(target, "the focused Edit button");
-
-    // The head row's second sort button, after the box has gone sideways.
-    scroller.scrollLeft = scroller.scrollWidth;
-    const household = within(head("Household")).getByRole("button", { name: "Household" });
-    household.focus();
-    expect(document.activeElement).toBe(household);
-    expectOnTop(household, "the focused Household sort button");
+    expect(document.querySelector("table")).toBeNull();
+    const list = screen.getByRole("list", { name: "Replies for Ceremony" });
+    expect(list.scrollWidth).toBeLessThanOrEqual(list.clientWidth);
+    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(innerWidth);
+    // The sort is a select in the bar; the reply filter its row of chips.
+    expect(within(viewBar()).getByRole("combobox", { name: "Sort guests" })).toBeTruthy();
+    const replies = within(viewBar()).getByRole("group", { name: "Filter Ceremony by reply" });
+    expect(within(replies).getAllByRole("button")).toHaveLength(5);
   });
 
   for (const theme of ["light", "dark"] as const) {
-    for (const [width, height] of [
-      [1280, 800],
-      [390, 844],
-    ] as const) {
-      it(`is drawn scrolled, in the ${theme} theme at ${width}px`, async () => {
-        document.documentElement.dataset.theme = theme;
-        await page.viewport(width, height);
-        renderPage(THREE);
-        await ready(rowsOf(THREE));
-        const dir = "__screenshots__/RsvpView.events.browser.test.tsx";
-        await page.screenshot({ path: `${dir}/${theme}-${width}-first-screen.png` });
-        await userEvent.click(within(head("Guest")).getByRole("button", { name: "Guest" }));
-        const bar = topBar().getBoundingClientRect().height;
-        window.scrollTo(0, box().getBoundingClientRect().top + scrollY - bar);
-        box().scrollTop = 1400;
-        box().scrollLeft = width === 390 ? 220 : 0;
-        // What the picture shows: the head row still at the top of the box,
-        // the rows sorted under it.
-        expect(head("Guest").getAttribute("aria-sort")).toBe("ascending");
-        expect(head("Guest").getBoundingClientRect().top).toBeCloseTo(
-          box().getBoundingClientRect().top + box().clientTop,
-          0,
-        );
-        await page.screenshot({ path: `${dir}/${theme}-${width}-table-scrolled.png` });
-      });
-    }
+    it(`is drawn scrolled and sorted, in the ${theme} theme at 1280px`, async () => {
+      document.documentElement.dataset.theme = theme;
+      await page.viewport(1280, 800);
+      renderPage(THREE);
+      await ready(rowsOf(THREE));
+      const dir = "__screenshots__/RsvpView.events.browser.test.tsx";
+      await screenshotWindow(`${dir}/${theme}-1280-first-screen.png`);
+      await userEvent.click(within(head("Guest")).getByRole("button", { name: "Guest" }));
+      expect(head("Guest").getAttribute("aria-sort")).toBe("ascending");
+      window.scrollTo(0, 4000);
+      // What the picture shows: the bar under the top bar, the head row under
+      // the bar, the rows sorted beneath.
+      expect(viewBar().getBoundingClientRect().top).toBeCloseTo(
+        topBar().getBoundingClientRect().bottom,
+        0,
+      );
+      expect(head("Guest").getBoundingClientRect().top).toBeCloseTo(
+        viewBar().getBoundingClientRect().bottom,
+        0,
+      );
+      await screenshotWindow(`${dir}/${theme}-1280-scrolled.png`);
+    });
+
+    it(`is drawn scrolled, in the ${theme} theme at 390px`, async () => {
+      document.documentElement.dataset.theme = theme;
+      await page.viewport(390, 844);
+      renderPage(THREE);
+      await ready(rowsOf(THREE));
+      const dir = "__screenshots__/RsvpView.events.browser.test.tsx";
+      await screenshotWindow(`${dir}/${theme}-390-first-screen.png`);
+      window.scrollTo(0, 4000);
+      expect(viewBar().getBoundingClientRect().top).toBeCloseTo(
+        topBar().getBoundingClientRect().bottom,
+        0,
+      );
+      await screenshotWindow(`${dir}/${theme}-390-scrolled.png`);
+    });
   }
 });
+
+describe("the RSVP page on a phone", () => {
+  /** Each stacked row's household, top to bottom. */
+  const households = () =>
+    [...document.querySelectorAll('ul[aria-label^="Replies"] > li [data-name] + span')].map(
+      (el) => el.textContent?.trim() ?? "",
+    );
+
+  it("sorts the stacked rows from the bar's select", async () => {
+    await page.viewport(390, 844);
+    renderPage(THREE);
+    await ready(rowsOf(THREE));
+    const select = within(viewBar()).getByRole("combobox", { name: "Sort guests" });
+    await userEvent.selectOptions(select, "household:descending");
+    await vi.waitFor(() => {
+      const names = households();
+      expect(names.length).toBe(rowsOf(THREE));
+      expect(names[0]!.localeCompare(names.at(-1)!)).toBeGreaterThan(0);
+    });
+    await userEvent.selectOptions(select, "household:ascending");
+    await vi.waitFor(() => {
+      const names = households();
+      expect(names[0]!.localeCompare(names.at(-1)!)).toBeLessThan(0);
+    });
+  });
+
+  it("records a reply in a block under the guest, dietary consent and all", async () => {
+    await page.viewport(390, 844);
+    renderPage(THREE);
+    await ready(rowsOf(THREE));
+    const record = screen.getAllByRole("button", { name: /^Record reply for / })[0]!;
+    const guest = record.getAttribute("aria-label")!.replace("Record reply for ", "");
+    const row = record.closest("li")!;
+    await userEvent.click(record);
+    // The editor opens inside the guest's own block, its picker inline.
+    const presets = await vi.waitFor(() =>
+      within(row).getByRole("group", { name: `Dietary requirements for ${guest}` }),
+    );
+    // The pill is the label; its checkbox is hidden under it.
+    await userEvent.click(within(presets).getByText("Vegetarian"));
+    expect(
+      (within(presets).getByRole("checkbox", { name: /Vegetarian/ }) as HTMLInputElement).checked,
+    ).toBe(true);
+    const puts = () =>
+      authFetch.mock.calls.filter(
+        ([, init]) => (init as RequestInit | undefined)?.method === "PUT",
+      );
+    // A preset is dietary data: saving it needs the consent box ticked.
+    await userEvent.click(within(row).getByRole("button", { name: /Save reply/ }));
+    await vi.waitFor(() =>
+      expect(within(row).getByText(/consented before storing dietary requirements/)).toBeTruthy(),
+    );
+    expect(puts()).toEqual([]);
+    await userEvent.click(within(row).getByRole("checkbox", { name: /consent/i }));
+    await userEvent.click(within(row).getByRole("button", { name: /Save reply/ }));
+    await vi.waitFor(() => expect(puts()).toHaveLength(1));
+    const [url, init] = puts()[0]!;
+    expect(String(url)).toMatch(/\/guests\/[^/]+\/rsvps\/evt_ceremony$/);
+    const body = JSON.parse(String((init as RequestInit).body)) as {
+      dietaryPresets: string[];
+      dietaryConsent: boolean;
+    };
+    expect(body.dietaryPresets).toEqual(["vegetarian"]);
+    expect(body.dietaryConsent).toBe(true);
+  });
+});
+
+describe("the chips' focus ring", () => {
+  /** Whether `el`'s ring — its outline, offset and width — lies inside `box`. */
+  function ringInside(el: Element, box: Element): boolean {
+    const style = getComputedStyle(el);
+    const reach = parseFloat(style.outlineOffset) + parseFloat(style.outlineWidth);
+    const r = el.getBoundingClientRect();
+    const b = box.getBoundingClientRect();
+    return (
+      r.top - reach >= b.top - 0.5 &&
+      r.bottom + reach <= b.bottom + 0.5 &&
+      r.left - reach >= b.left - 0.5
+    );
+  }
+
+  it("shows whole on an event chip and a reply chip reached from the keyboard", async () => {
+    await page.viewport(1280, 800);
+    renderPage(THREE);
+    await ready(rowsOf(THREE));
+    const [ceremony, reception] = eventTabs();
+    ceremony!.focus();
+    await userEvent.keyboard("{ArrowRight}");
+    expect(document.activeElement).toBe(reception);
+    expect(getComputedStyle(reception!).outlineStyle).toBe("solid");
+    expect(parseFloat(getComputedStyle(reception!).outlineWidth)).toBeGreaterThanOrEqual(2);
+    // Not cut by the strip, which scrolls sideways and so clips on both axes.
+    expect(ringInside(reception!, strip())).toBe(true);
+
+    const replies = within(viewBar()).getByRole("group", { name: /^Filter .* by reply$/ });
+    within(viewBar()).getByRole("searchbox").focus();
+    await userEvent.keyboard("{Tab}");
+    const chip = document.activeElement!;
+    expect(replies.contains(chip)).toBe(true);
+    expect(getComputedStyle(chip).outlineStyle).toBe("solid");
+    expect(ringInside(chip, replies)).toBe(true);
+  });
+});
+
+describe("the reply key", () => {
+  it("opens from the keyboard on every mark a meta line can carry, and gives focus back", async () => {
+    await page.viewport(1280, 800);
+    renderPage(THREE);
+    await ready(rowsOf(THREE));
+    const key = within(viewBar()).getByRole("button", { name: "What the reply icons mean" });
+    // One stop for the whole page: the marks in the rows are none.
+    expect(
+      document.querySelectorAll("tbody [data-provenance] button, tbody button[data-tip]"),
+    ).toHaveLength(0);
+    key.focus();
+    await userEvent.keyboard("{Enter}");
+    const dialog = await screen.findByRole("dialog", { name: "What the reply icons mean" });
+    for (const words of [
+      "Changed by the guest since you last looked",
+      "Host-entered",
+      "Recorded by a host (phone/paper RSVP)",
+      "Host-updated",
+      "Household-entered",
+      "linked musubi",
+      "Sent from a signed-in linked musubi account",
+    ]) {
+      expect([words, dialog.textContent?.includes(words)]).toEqual([words, true]);
+    }
+    await userEvent.keyboard("{Escape}");
+    await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(document.activeElement).toBe(key);
+  });
+
+  it("sits in the phone's search row at the search box's height", async () => {
+    await page.viewport(390, 844);
+    renderPage(THREE);
+    await ready(rowsOf(THREE));
+    const key = within(viewBar()).getByRole("button", { name: "What the reply icons mean" });
+    const search = within(viewBar()).getByRole("searchbox");
+    expect(
+      Math.abs(key.getBoundingClientRect().height - search.getBoundingClientRect().height),
+    ).toBeLessThanOrEqual(0.5);
+    expect(
+      Math.abs(key.getBoundingClientRect().top - search.getBoundingClientRect().top),
+    ).toBeLessThanOrEqual(0.5);
+  });
+});
+
+/** A picture of the window, not the whole page: an element screenshot of a
+ *  box fixed over the viewport. */
+async function screenshotWindow(path: string) {
+  const frame = document.createElement("div");
+  frame.style.cssText = "position:fixed;inset:0;pointer-events:none";
+  document.body.append(frame);
+  await page.screenshot({ path, element: frame });
+  frame.remove();
+}
