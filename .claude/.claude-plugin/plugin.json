@@ -1,0 +1,4 @@
+{
+  "name": "osn",
+  "description": "This repository's agent skills and subagent definitions, packaged so `claude plugin eval .claude` can measure them against the cases in .claude/evals/."
+}
