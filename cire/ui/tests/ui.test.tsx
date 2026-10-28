@@ -14,7 +14,10 @@ import { UsernameInput } from "../src/username-input";
  * test that has to be edited every time the design moves — it pins the current
  * answer, not the contract. So what is checked here is what a call site can
  * rely on: that the variants differ from each other, that props reach the DOM,
- * and that the accessibility wiring is there.
+ * and that the accessibility wiring is there. The one class a test does read is
+ * the corner: each component carries exactly one `base:`-prefixed corner, from
+ * the role the design spec gives it, so an app sets that role once and a
+ * caller's plain `rounded-*` still wins.
  *
  * They came from `cire/host` and `cire/vendor`, which each had a copy. The
  * components they cover are the ones that stayed cire's — everything else the
@@ -292,15 +295,11 @@ describe("Card", () => {
   it("a card takes the large corner", () => {
     const variants = [
       cardClass(),
-      cardClass({ tone: "default" }),
       cardClass({ tone: "accent" }),
       cardClass({ interactive: true }),
       cardClass({ tone: "accent", interactive: true }),
     ];
-    for (const cls of variants) {
-      expect(cls).toContain("base:rounded-ui-lg");
-      expect(cls.match(/rounded-/g)).toHaveLength(1);
-    }
+    for (const cls of variants) expect(corners(cls)).toEqual(["base:rounded-ui-lg"]);
   });
 
   it("marks the accented card out from the ordinary one", () => {
