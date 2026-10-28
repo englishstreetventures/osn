@@ -1924,17 +1924,21 @@ describe("EventSheet — the swipe's physics", () => {
     // of a rubber band, which no later touch can catch.
     const at = { x: start.x - width * 0.1, y: start.y };
     await touchDrag(at, { x: at.x + width * 0.4, y: at.y }, { ms: 200 });
-    const target = within(wrapperOf("details")).getAllByRole("button")[0]!;
-    let pressed = 0;
-    const press = () => pressed++;
-    target.addEventListener("click", press);
+    // Captured at the window, ahead of the rail's own listener, and read after
+    // dispatch: a swallowed click still arrives here, marked prevented.
+    const seen: MouseEvent[] = [];
+    const watch = (e: MouseEvent) => seen.push(e);
+    window.addEventListener("click", watch, true);
     try {
-      // Within 300ms of the lift: a timed swallow alone would eat this.
-      await tapAt(centre(target));
+      // Within 300ms of the lift, on the panel still springing back — so it
+      // lands on whatever is under the finger then, which is beside the
+      // point: a swallow timed alone would cancel it wherever it lands.
+      await tapAt(bodyOf("details"));
       await sleep(40);
-      expect(pressed).toBe(1);
+      expect(seen).toHaveLength(1);
+      expect(seen[0]!.defaultPrevented).toBe(false);
     } finally {
-      target.removeEventListener("click", press);
+      window.removeEventListener("click", watch, true);
     }
     await settleSwipe();
   });
