@@ -15,7 +15,7 @@ related:
   - "[[cire-entitlements]]"
   - "[[stripe-webhooks]]"
   - "[[infrastructure-as-code]]"
-last-reviewed: 2026-10-28
+last-reviewed: 2026-10-29
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -1415,7 +1415,11 @@ then `musubi.social` (englishstreetventures/osn#1787). Before each:
 - The site has run `staged` through at least one release, and the `site-parity` artifact
   of the latest release shows no difference a real path relies on (an unknown path's 404
   in place of Pages' 200, and Pages' `access-control-allow-origin: *`, are accepted
-  unless one does).
+  unless one does). Both comparisons, this one and the dev guest route comparison
+  ([[infrastructure-as-code#The guest route comparison]]), send smoke-check's CI user agent
+  (`CI_USER_AGENT`), and a refused run — the `site-parity` job failing on exit 3, its
+  report's `refused` list naming the site, side and path — means Cloudflare answered in
+  the site's place (zone configuration such as Bot Fight Mode), not the site.
 - A pull request turns the site from `staged` to `worker` in
   `shared/infra/src/production-sites.ts`. Once it merges, every release that ships the
   site's stack fails at `alchemy-plan`'s precheck until the flip runs, so the daily run
