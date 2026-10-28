@@ -74,7 +74,7 @@ test("agent instructions are never trivial, whatever their extension", () => {
   expect(classifyPath(".claude/skills/prep-pr/SKILL.md")).toBe("other");
   expect(classifyPath(".claude/skills/review-security/SKILL.md")).toBe("other");
   expect(classifyPath(".claude/agents/reviewer.md")).toBe("other");
-  expect(classifyPath(".claude/evals/prep-pr-finding-routing/task.md")).toBe("other");
+  expect(classifyPath(".claude/evals/prep-pr-finding-routing/prompt.md")).toBe("other");
   expect(classifyPath(".claude/metrics/chore-x.json")).toBe("other");
   expect(classifyPath(".agents/skills/webgpu-threejs-tsl/SKILL.md")).toBe("other");
   expect(classifyPath("tools/lab/.claude/settings.json")).toBe("other");

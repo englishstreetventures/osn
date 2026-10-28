@@ -188,9 +188,7 @@ jobs:
         run: bun run typecheck
 
       # `scripts/` is in no workspace, so `turbo typecheck` never reaches it and a
-      # type error there ships. One did: `skill-evals.ts` read an optional
-      # `scenario.path` unguarded, which crashed `ready`, `compare` and `record`
-      # on a payload the API really returns.
+      # type error there ships.
       #
       # It lives here rather than in `script-tests` because that job does no
       # `bun install` on purpose, and `scripts/tsconfig.json` inherits

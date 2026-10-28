@@ -1,6 +1,6 @@
 # The rest of the performance checklist
 
-The sections here are the ones this repository's eval scenarios do not
+The sections here are the ones this repository's eval cases do not
 exercise, so they are kept out of `SKILL.md` to hold it under the token budget
 a skill is read at. They are not less important — an unbounded read on a hot
 path is the worst thing in this file — they are simply not what a diff in this
