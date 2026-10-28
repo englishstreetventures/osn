@@ -15,7 +15,7 @@ const demoIsExternal = DEMO_INVITE_URL !== null
 const hero = IMAGES.hero
 ---
 <section
-  class="relative flex min-h-[100svh] flex-col items-center justify-center overflow-hidden px-6 pt-28 pb-20 text-center"
+  class="relative flex min-h-svh flex-col items-center justify-center overflow-hidden px-6 pt-28 pb-20 text-center"
   aria-label="Cire: invitations worthy of the moment"
 >
   {/* Candle-warm celebration photo, dimmed under a forest radial so type and the
@@ -31,7 +31,7 @@ const hero = IMAGES.hero
     />
     <div
       class="absolute inset-0"
-      style="background: radial-gradient(120% 90% at 50% 32%, oklch(19.96% 0.0331 147.34 / 0.55), oklch(19.96% 0.0331 147.34 / 0.97));"
+      style="background: radial-gradient(120% 90% at 50% 32%, color-mix(in oklch, var(--color-bg) 55%, transparent), color-mix(in oklch, var(--color-bg) 97%, transparent));"
     >
     </div>
   </div>
@@ -41,13 +41,13 @@ const hero = IMAGES.hero
     <WaxSeal3D client:load />
   </div>
 
-  <div class="letter-column max-w-[46rem]">
+  <div class="letter-column max-w-ui-xl">
     <p class="eyebrow mb-6">Bespoke digital wedding invitations</p>
     <h1 class="display text-text text-[clamp(2.6rem,8vw,5rem)] leading-ui-none">
       Invitations worthy of the moment
     </h1>
     <p
-      class="font-body text-text-muted mx-auto mt-7 max-w-[34rem] text-ui-md leading-ui-relaxed font-light"
+      class="font-body text-text-muted mx-auto mt-7 max-w-ui-md text-ui-md leading-ui-relaxed font-light"
     >
       A real invitation: tactile, animated, personal. And it counts every RSVP, so you never chase a
       reply.

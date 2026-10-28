@@ -103,7 +103,7 @@ export function WaxSeal3D() {
           z-index: -1;
           background: radial-gradient(
             circle,
-            oklch(74.99% 0.0854 82.08 / 0.32),
+            color-mix(in oklch, var(--color-gold) 32%, transparent),
             transparent 62%
           );
           pointer-events: none;
@@ -137,7 +137,7 @@ export function WaxSeal3D() {
           opacity: 0;
         }
         .seal-monogram {
-          font-family: var(--font-display, "Cormorant Garamond", Georgia, serif);
+          font-family: var(--font-display);
           font-size: clamp(5rem, 18vw, 8rem);
           font-style: italic;
           line-height: 1;

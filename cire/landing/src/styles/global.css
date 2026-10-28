@@ -250,7 +250,7 @@
   /* The one sanctioned eyebrow style. Used at most twice on the whole page. */
   .eyebrow {
     font-family: var(--font-body);
-    font-size: 0.72rem;
+    font-size: var(--ui-text-xs);
     letter-spacing: 0.28em;
     text-transform: uppercase;
     color: var(--color-gold);
@@ -376,7 +376,7 @@
 }
 
 .vine-heart {
-  fill: oklch(74.99% 0.0854 82.08 / 0.5);
+  fill: color-mix(in oklch, var(--color-gold) 50%, transparent);
 }
 
 /* Animated mode (JS hydrated): each strand draws only across its own window

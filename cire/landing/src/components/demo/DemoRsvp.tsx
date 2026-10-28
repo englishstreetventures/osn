@@ -226,7 +226,7 @@ function DemoRsvpModal(props: DemoRsvpModalProps) {
           {shownEvent()?.name}
         </h3>
         <p
-          class="border-gold/40 bg-gold/5 text-gold text-ui-xs mb-6 rounded-sm border px-3.5 py-2.5 leading-relaxed"
+          class="border-gold/40 bg-gold/5 text-gold text-ui-xs leading-ui-normal mb-6 rounded-sm border px-3.5 py-2.5"
           role="status"
         >
           Interactive preview. Your reply won&rsquo;t be saved.

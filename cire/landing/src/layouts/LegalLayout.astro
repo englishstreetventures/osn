@@ -31,7 +31,7 @@ const { title } = Astro.props
     <SiteFooter />
     <style is:global>
       .legal {
-        max-width: 46rem;
+        max-width: var(--ui-measure-xl, 46rem);
         margin: 0 auto;
         padding: 3.5rem 1.5rem 1rem;
       }
@@ -66,7 +66,7 @@ const { title } = Astro.props
       .legal .draft-banner strong {
         color: var(--color-gold);
         font-weight: 400;
-        letter-spacing: 0.04em;
+        letter-spacing: var(--ui-tracking-wide);
         text-transform: uppercase;
       }
 
@@ -74,7 +74,7 @@ const { title } = Astro.props
         font-family: var(--font-display);
         font-weight: 400;
         font-size: clamp(2rem, 5vw, 2.75rem);
-        line-height: 1.1;
+        line-height: var(--ui-leading-none);
         margin: 0 0 0.5rem;
       }
 
@@ -122,7 +122,7 @@ const { title } = Astro.props
         background: var(--color-gold-dim);
         border-radius: var(--radius-hair);
         padding: 0.05rem 0.3rem;
-        font-family: ui-monospace, "SF Mono", Menlo, monospace;
+        font-family: var(--ui-font-mono);
         font-size: 0.85em;
       }
     </style>
