@@ -46,6 +46,8 @@ const DEFAULT: readonly [number, number] = [414, 896];
 const ONE_LINE: readonly [number, number] = [700, 900];
 /** A phone at the Reflow floor: a 222px row against the same 243px need. */
 const WRAPPED: readonly [number, number] = [320, 900];
+/** Two-column card: a 272px text-half row against a 257px need (125.8 + 119.4 + 12 gap). */
+const DESKTOP: readonly [number, number] = [1280, 900];
 /** WCAG 2.2 Reflow's floor (1.4.10), and the width an iPhone SE reports. */
 const REFLOW: readonly [number, number] = [320, 900];
 
@@ -67,8 +69,18 @@ const baseEvent: EventSummary = {
 
 const noop = () => {};
 
-/** The card in classic's events column, with no picture: one column at every width. */
-function renderCard(rsvpClosed = false, responded = false) {
+/**
+ * The card in classic's events column.
+ *
+ * `withImage` is what puts the card into its two-column `md:grid-cols-2` shape,
+ * which is the only shape whose text half is narrow enough to wrap the row. The
+ * image is **not expected to load** — `/api` is a relative origin, so the request
+ * is same-origin against the test server and 404s there instead of costing a DNS
+ * lookup for a host that does not exist. Nothing measured here depends on it: the
+ * grid's columns are `minmax(0, 1fr)`, so they are sized by the card, not by the
+ * picture.
+ */
+function renderCard(withImage: boolean, rsvpClosed = false, responded = false) {
   return render(() => (
     // `px-6` is the events section's own mobile padding
     // (`designs/classic/InvitePage.tsx`), which is what decides how much width
@@ -77,7 +89,10 @@ function renderCard(rsvpClosed = false, responded = false) {
     <div class="px-6">
       <div class="max-w-column-xl mx-auto">
         <EventCard
-          event={baseEvent}
+          event={
+            withImage ? { ...baseEvent, imageUrl: "/invite/w/event/e/image?v=abc" } : baseEvent
+          }
+          apiUrl={withImage ? "/api" : undefined}
           onRespond={noop}
           onDetails={noop}
           rsvpClosed={rsvpClosed}
@@ -122,7 +137,7 @@ afterEach(async () => {
 describe("the event card's two actions, as painted", () => {
   it("puts Event Details on the left when they share a line", async () => {
     await page.viewport(...ONE_LINE);
-    const { container } = renderCard();
+    const { container } = renderCard(false);
     // The invite's faces are self-hosted, and a width taken against fallback
     // metrics is a different number.
     await document.fonts.ready;
@@ -136,9 +151,21 @@ describe("the event card's two actions, as painted", () => {
     expect(details.right).toBeLessThanOrEqual(respond.left);
   });
 
+  it("puts Event Details on the left when they share a line, in the two-column desktop card", async () => {
+    await page.viewport(...DESKTOP);
+    const { container } = renderCard(true);
+    await document.fonts.ready;
+
+    const { details, respond, rowWidth } = actions(container);
+    expect(details.top, `the row wrapped at ${rowWidth}px — this case wants one line`).toBe(
+      respond.top,
+    );
+    expect(details.right).toBeLessThanOrEqual(respond.left);
+  });
+
   it("puts Event Details on the line above when the row wraps", async () => {
     await page.viewport(...WRAPPED);
-    const { container } = renderCard();
+    const { container } = renderCard(false);
     await document.fonts.ready;
 
     const { details, respond, rowWidth } = actions(container);
@@ -176,7 +203,7 @@ describe("the answer button at the Reflow floor", () => {
     "shows the whole of $name at 320px inside the section's padding",
     async ({ closed, responded }) => {
       await page.viewport(...REFLOW);
-      const { container } = renderCard(closed, responded);
+      const { container } = renderCard(false, closed, responded);
       // The invite's faces are self-hosted, and a width taken against fallback
       // metrics is a different number.
       await document.fonts.ready;
@@ -257,7 +284,7 @@ describe("the answer button at the Reflow floor", () => {
 
   it("still clips the confirmation fill to the button's rounded box", async () => {
     await page.viewport(...REFLOW);
-    const { container } = renderCard();
+    const { container } = renderCard(false);
     await document.fonts.ready;
 
     const { respondEl } = actions(container);
