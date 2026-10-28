@@ -12,8 +12,11 @@
  *   bun run scripts/pages-domain.ts check <surface>...
  *     Prints, per site, where its production host is: `pages <project>`
  *     when exactly one Pages project lists it; `free` when none does and the
- *     zone holds no DNS record for it but a Worker's; anything else, or any
- *     API error, fails. Exit 0 when every host reads `pages` or `free`.
+ *     zone holds no record for it that could route it but a Worker's;
+ *     anything else, or any API error, fails. Exit 0 when every host reads
+ *     `pages` or `free`. TXT, MX and CAA records, and NS records at the zone
+ *     apex, route nothing, so they never decide where a host is: an apex
+ *     keeps its mail and verification records through a move.
  *   bun run scripts/pages-domain.ts precheck
  *     The release's check before any plan (FLIP, STACKS from the plan job):
  *     every `worker` site of a shipping stack must read `free`, except the
@@ -27,20 +30,35 @@
  *     The rollback: puts the CNAME back and adds the host to the Pages
  *     project, making only what is missing, so it also finishes a detach or
  *     an attach that stopped part-way. Refused while another Pages project
- *     lists the host or the zone holds any record for it but that CNAME
- *     (remove the Worker's custom domain first).
+ *     lists the host or the zone holds any routing record for it but that
+ *     CNAME (remove the Worker's custom domain first). The release workflow
+ *     runs it in its `attach-pages-domain` job, dispatched with `attach`.
+ *
+ * Before its first other request, every command that calls the API checks
+ * what the token reaches: `GET /accounts` must list exactly the account
+ * CLOUDFLARE_ACCOUNT_ID names, and `GET /zones` exactly the zones of the
+ * production hosts of the sites PRODUCTION_SITE_MODES does not turn off
+ * (cireweddings.com and musubi.social), each once, in that account, on one
+ * page. Anything else refuses before any read of a project or a record, and
+ * so before any write. The zone ids come from that listing.
  *
  * How the API shows a Worker's custom-domain record, `meta.origin_worker_id`
  * or a read-only AAAA to `100::`, is unverified until the dev-zone rehearsal
  * that precedes the first flip records Cloudflare's answers; a record that
  * matches neither fails the check, so the check fails closed.
  *
+ * Every request gives up after 15 s. A read is tried again after a network
+ * error, a timeout, a 429 or a 5xx, 1 s then 2 s later; a write is sent once.
+ *
  * Environment:
  *   CLOUDFLARE_ACCOUNT_ID       the production account.
  *   CLOUDFLARE_PAGES_DNS_TOKEN  a token holding Pages Edit on the account and
- *                               DNS Edit on the production zones, and nothing
- *                               else. Sent only to api.cloudflare.com. No
- *                               message carries it or the account id.
+ *                               DNS Edit on cireweddings.com and musubi.social,
+ *                               and nothing else, able to list its account.
+ *                               A site turned on in another zone needs the
+ *                               token minted again with that zone. Sent only
+ *                               to api.cloudflare.com. No message carries it
+ *                               or the account id.
  *   FLIP, STACKS                precheck only: the plan job's `flip` and
  *                               `stacks` outputs.
  *
@@ -90,6 +108,21 @@ export function isWorkerRecord(record: DnsRecord): boolean {
   return record.type === "AAAA" && record.content === "100::" && record.meta?.read_only === true;
 }
 
+/** Record types that route nothing, so they never decide where a host is. */
+const NOT_ROUTING: ReadonlySet<string> = new Set(["TXT", "MX", "CAA"]);
+
+/**
+ * Whether `record`, at `host`, decides where the host is: a Worker's record,
+ * or any record that could route the name (A, AAAA, CNAME, HTTPS, SVCB, an
+ * NS that delegates it, or a type this does not know). TXT, MX and CAA
+ * records, and the zone's own NS records at its apex, do not.
+ */
+export function decides(host: string, record: DnsRecord): boolean {
+  if (isWorkerRecord(record)) return true;
+  if (NOT_ROUTING.has(record.type)) return false;
+  return !(record.type === "NS" && host === zoneOf(host));
+}
+
 /** Where `host` is, from every Pages project's domains and the zone's records for it. */
 export function classify(
   host: string,
@@ -104,10 +137,11 @@ export function classify(
       reason: `${holders.length} Pages projects list it: ${holders.map((p) => p.name).join(", ")}`,
     };
   }
-  if (records.every(isWorkerRecord)) return { kind: "free" };
+  const deciding = records.filter((record) => decides(host, record));
+  if (deciding.every(isWorkerRecord)) return { kind: "free" };
   return {
     kind: "unclear",
-    reason: `no Pages project lists it, and the zone holds a ${records
+    reason: `no Pages project lists it, and the zone holds a ${deciding
       .filter((record) => !isWorkerRecord(record))
       .map((record) => record.type)
       .join(", ")} record for it that is not a Worker's`,
@@ -119,41 +153,129 @@ class ApiError extends Error {}
 /** The most pages of Pages projects read before the listing gives up, failing. */
 const MAX_PROJECT_PAGES = 20;
 
+/** How long one request may take before it counts as no answer. */
+export const REQUEST_TIMEOUT_MS = 15_000;
+
+/** The waits before a read's second and third attempts. */
+export const READ_RETRY_DELAYS_MS: readonly number[] = [1_000, 2_000];
+
+/** What the API answers, the fields this reads. */
+interface Answer {
+  readonly success?: unknown;
+  readonly result?: unknown;
+  readonly result_info?: {
+    readonly page?: unknown;
+    readonly total_pages?: unknown;
+    readonly total_count?: unknown;
+  };
+  readonly errors?: readonly { readonly code?: unknown }[];
+}
+
+type Attempt =
+  | { readonly ok: true; readonly answer: Answer }
+  | { readonly ok: false; readonly transient: boolean; readonly message: string };
+
 /** The few Cloudflare calls this makes, with the token; any failure throws ApiError naming the call. */
-function cloudflare(env: Readonly<Record<string, string | undefined>>, fetcher: typeof fetch) {
+function cloudflare(
+  env: Readonly<Record<string, string | undefined>>,
+  fetcher: typeof fetch,
+  sleep: (ms: number) => Promise<void>,
+) {
   const account = env.CLOUDFLARE_ACCOUNT_ID ?? "";
   const token = env.CLOUDFLARE_PAGES_DNS_TOKEN ?? "";
-  const call = async (method: string, path: string, what: string, body?: unknown) => {
+  const once = async (
+    method: string,
+    path: string,
+    what: string,
+    body: unknown,
+  ): Promise<Attempt> => {
     const headers = new Headers({ authorization: `Bearer ${token}` });
     if (body !== undefined) headers.set("content-type", "application/json");
     let response: Response;
+    let parsed: Answer | null;
     try {
       response = await fetcher(`${API}${path}`, {
         method,
         headers,
         body: body === undefined ? undefined : JSON.stringify(body),
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
+      parsed = (await response.json().catch(() => null)) as Answer | null;
     } catch {
-      throw new ApiError(`${what}: no answer`);
+      return { ok: false, transient: true, message: `${what}: no answer` };
     }
-    const parsed = (await response.json().catch(() => null)) as {
-      success?: unknown;
-      result?: unknown;
-      result_info?: { page?: unknown; total_pages?: unknown };
-      errors?: readonly { code?: unknown }[];
-    } | null;
-    if (!response.ok || parsed?.success !== true) {
-      const codes = (parsed?.errors ?? [])
-        .map((error) => error.code)
-        .filter((code) => typeof code === "number");
-      throw new ApiError(
-        `${what}: Cloudflare answered ${response.status}${codes.length > 0 ? ` (codes ${codes.join(", ")})` : ""}`,
-      );
-    }
-    return parsed;
+    if (response.ok && parsed?.success === true) return { ok: true, answer: parsed };
+    const codes = (parsed?.errors ?? [])
+      .map((error) => error.code)
+      .filter((code) => typeof code === "number");
+    return {
+      ok: false,
+      // A 200 whose body never arrived whole is as worth asking again as a 5xx.
+      transient:
+        response.status === 429 || response.status >= 500 || (response.ok && parsed === null),
+      message: `${what}: Cloudflare answered ${response.status}${codes.length > 0 ? ` (codes ${codes.join(", ")})` : ""}`,
+    };
+  };
+  // A read changes nothing, so it is tried again after an answer a later
+  // attempt could get past; a write is sent once, since sent twice it could
+  // act twice.
+  const call = async (method: string, path: string, what: string, body?: unknown) => {
+    const delays = method === "GET" ? READ_RETRY_DELAYS_MS : [];
+    const attemptFrom = async (index: number): Promise<Answer> => {
+      const attempt = await once(method, path, what, body);
+      if (attempt.ok) return attempt.answer;
+      const delay = delays[index];
+      if (!attempt.transient || delay === undefined) throw new ApiError(attempt.message);
+      await sleep(delay);
+      return attemptFrom(index + 1);
+    };
+    return attemptFrom(0);
   };
   const accountPath = `/accounts/${encodeURIComponent(account)}`;
   return {
+    /**
+     * The zones the token sees, by name, once it is shown to reach exactly
+     * the account and the `zones` named; throws ApiError otherwise.
+     */
+    async reach(zones: readonly string[]): Promise<ReadonlyMap<string, string>> {
+      const accounts = await call("GET", "/accounts?per_page=50", "listing the token's accounts");
+      const ids = Array.isArray(accounts.result)
+        ? (accounts.result as { id?: unknown }[]).map((listed) => listed.id)
+        : [];
+      const total =
+        typeof accounts.result_info?.total_count === "number"
+          ? accounts.result_info.total_count
+          : ids.length;
+      if (total !== 1 || ids.length !== 1) {
+        throw new ApiError(
+          `the token reaches ${total} accounts; it must reach exactly one, the one CLOUDFLARE_ACCOUNT_ID names`,
+        );
+      }
+      if (ids[0] !== account) {
+        throw new ApiError(
+          "the token reaches one account, but not the one CLOUDFLARE_ACCOUNT_ID names",
+        );
+      }
+      const listed = await call("GET", "/zones?per_page=50", "listing the token's zones");
+      const seen = Array.isArray(listed.result)
+        ? (listed.result as { id?: unknown; name?: unknown; account?: { id?: unknown } }[])
+        : [];
+      const names = seen.map((zone) => (typeof zone.name === "string" ? zone.name : "?"));
+      const pages = listed.result_info?.total_pages;
+      const count = listed.result_info?.total_count;
+      const wanted = [...zones].toSorted();
+      const exact =
+        (typeof pages !== "number" || pages <= 1) &&
+        (typeof count !== "number" || count === seen.length) &&
+        names.toSorted().join(" ") === wanted.join(" ") &&
+        seen.every((zone) => typeof zone.id === "string" && zone.account?.id === account);
+      if (!exact) {
+        throw new ApiError(
+          `the token sees the zones ${names.toSorted().join(", ") || "none"}${typeof count === "number" && count > seen.length ? ` and ${count - seen.length} more` : ""}; it must see exactly ${wanted.join(", ")}, each once, in the account CLOUDFLARE_ACCOUNT_ID names`,
+        );
+      }
+      return new Map(seen.map((zone) => [String(zone.name), String(zone.id)]));
+    },
     async projects(): Promise<PagesProject[]> {
       // One page at a time, each read after the last. The list ends at
       // `total_pages` when the answer gives it, else at the first page that
@@ -206,25 +328,10 @@ function cloudflare(env: Readonly<Record<string, string | undefined>>, fetcher: 
         }),
       );
     },
-    async zone(name: string): Promise<string> {
-      const listed = await call(
-        "GET",
-        `/zones?name=${encodeURIComponent(name)}`,
-        `finding the ${name} zone`,
-      );
-      const zones = Array.isArray(listed.result) ? (listed.result as { id?: unknown }[]) : [];
-      const [zone] = zones;
-      if (zones.length !== 1 || typeof zone?.id !== "string") {
-        throw new ApiError(
-          `finding the ${name} zone: the token sees ${zones.length} zones of that name`,
-        );
-      }
-      return zone.id;
-    },
     async records(zone: string, host: string): Promise<DnsRecord[]> {
       const listed = await call(
         "GET",
-        `/zones/${zone}/dns_records?name=${encodeURIComponent(host)}`,
+        `/zones/${encodeURIComponent(zone)}/dns_records?name=${encodeURIComponent(host)}`,
         `listing ${host}'s DNS records`,
       );
       return Array.isArray(listed.result) ? (listed.result as DnsRecord[]) : [];
@@ -232,11 +339,11 @@ function cloudflare(env: Readonly<Record<string, string | undefined>>, fetcher: 
     deleteRecord: (zone: string, id: string, host: string) =>
       call(
         "DELETE",
-        `/zones/${zone}/dns_records/${encodeURIComponent(id)}`,
+        `/zones/${encodeURIComponent(zone)}/dns_records/${encodeURIComponent(id)}`,
         `deleting ${host}'s CNAME`,
       ),
     createCname: (zone: string, host: string, target: string) =>
-      call("POST", `/zones/${zone}/dns_records`, `creating ${host}'s CNAME`, {
+      call("POST", `/zones/${encodeURIComponent(zone)}/dns_records`, `creating ${host}'s CNAME`, {
         type: "CNAME",
         name: host,
         content: target,
@@ -265,6 +372,8 @@ export interface PagesDomainInput {
   readonly out: (text: string) => void;
   /** The site modes, PRODUCTION_SITE_MODES unless a test passes its own. */
   readonly modes?: PerSite<SiteMode>;
+  /** How a read waits before trying again; a real wait unless a test passes its own. */
+  readonly sleep?: (ms: number) => Promise<void>;
 }
 
 const isSiteSurface = (value: string): value is SiteSurface =>
@@ -319,11 +428,27 @@ export async function runPagesDomain(input: PagesDomainInput): Promise<number> {
     return usage("set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_PAGES_DNS_TOKEN");
   }
 
-  const api = cloudflare(env, input.fetch);
+  const api = cloudflare(
+    env,
+    input.fetch,
+    input.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms))),
+  );
+  /** The zones of the production hosts of every site that is not off: all the token may see. */
+  const zoneNames = [
+    ...new Set(
+      SITE_SURFACES.filter((site) => modes[site] !== "off").map((site) =>
+        zoneOf(productionHost(site)),
+      ),
+    ),
+  ];
+  let zones: ReadonlyMap<string, string> = new Map();
   /** Where a site's host is, with its zone and records, read after the Pages projects. */
   const locate = async (site: SiteSurface, projects: readonly PagesProject[]): Promise<Located> => {
     const host = productionHost(site);
-    const zone = await api.zone(zoneOf(host));
+    const zone = zones.get(zoneOf(host));
+    if (zone === undefined) {
+      throw new ApiError(`the token sees no ${zoneOf(host)} zone, which ${site}'s host is in`);
+    }
     const records = await api.records(zone, host);
     return { site, host, zone, records, state: classify(host, projects, records) };
   };
@@ -342,6 +467,7 @@ export async function runPagesDomain(input: PagesDomainInput): Promise<number> {
         out("No worker site ships in this release; nothing to check.\n");
         return 0;
       }
+      zones = await api.reach(zoneNames);
       const projects = await api.projects();
       const read = await Promise.all(wanted.map((site) => locate(site, projects)));
       let refused = false;
@@ -366,6 +492,7 @@ export async function runPagesDomain(input: PagesDomainInput): Promise<number> {
       return refused ? 1 : 0;
     }
 
+    zones = await api.reach(zoneNames);
     const projects = await api.projects();
     const read = await Promise.all(sites.map((site) => locate(site, projects)));
     for (const { site, host, state } of read) {
@@ -416,13 +543,16 @@ export async function runPagesDomain(input: PagesDomainInput): Promise<number> {
     const ownCname = (record: DnsRecord) =>
       record.type === "CNAME" && record.content === pagesTarget(project);
     const holders = projects.filter((held) => held.domains.includes(host)).map((held) => held.name);
-    if (holders.some((name) => name !== project) || !records.every(ownCname)) {
+    const deciding = records.filter((record) => decides(host, record));
+    if (holders.some((name) => name !== project) || !deciding.every(ownCname)) {
       error(
         `${host} is on another Pages project or has a DNS record that is not its CNAME to ${pagesTarget(project)}; remove the Worker's custom domain for it first, then attach.`,
       );
       return 1;
     }
-    const pointed = records.length > 0;
+    // Only the site's own CNAME points the host at Pages: a TXT or MX record
+    // the apex keeps through a move is not one.
+    const pointed = deciding.some(ownCname);
     const listed = holders.includes(project);
     if (pointed && listed) {
       out(`${host} is already on ${project}; nothing to do.\n`);

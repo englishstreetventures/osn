@@ -55,9 +55,11 @@ export const DEV_READONLY_CREDENTIALS: readonly string[] = [
 /**
  * The `production` Environment's token for moving a site's custom domain
  * between its Pages project and its Worker: Pages Edit on the account and
- * DNS Edit on the production zones, nothing else. Only scripts/pages-domain.ts
- * reads it, in a step that runs before any install, so no dependency's code
- * ever holds it.
+ * DNS Edit on cireweddings.com and musubi.social, nothing else, and able to
+ * list its account. scripts/pages-domain.ts refuses it unless it reaches
+ * exactly that account and those zones. Only that script reads it, in a step
+ * that runs before any install or in a job that installs nothing, so no
+ * dependency's code ever holds it.
  */
 export const PAGES_DNS_CREDENTIALS: readonly string[] = ["CLOUDFLARE_PAGES_DNS_TOKEN"];
 

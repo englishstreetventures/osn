@@ -53,20 +53,56 @@ interface World {
   pageInfo?: "omit-total" | ((page: number, total: number) => Record<string, unknown>);
   /** Answers every page of the projects list with the first, as a server that ignores `?page`. */
   ignorePage?: boolean;
-  /** Zone ids the zones lookup answers per zone name, ZONE's one unless set. */
-  zones?: Record<string, string[]>;
+  /** What the token's zone listing answers: ZONE's two, in ACCOUNT, unless set. */
+  zones?: { id: string; name: string; account: { id: string } }[];
+  /** `result_info` of the zone listing, when set. */
+  zoneInfo?: Record<string, unknown>;
+  /** The account ids the token's account listing answers: ACCOUNT alone unless set. */
+  accounts?: string[];
+  /** Answers given in turn to `METHOD /path` (no query) before the usual one; an Error is a network failure. */
+  flaky?: Record<string, (Response | Error)[]>;
 }
 
+const ZONES = Object.entries(ZONE).map(([name, id]) => ({ id, name, account: { id: ACCOUNT } }));
+
 function fakeCloudflare(world: World) {
-  const calls: { method: string; url: string; body?: unknown; auth: string | null }[] = [];
+  const calls: {
+    method: string;
+    url: string;
+    body?: unknown;
+    auth: string | null;
+    signal: boolean;
+  }[] = [];
+  const flaky = Object.fromEntries(
+    Object.entries(world.flaky ?? {}).map(([key, answers]) => [key, [...answers]]),
+  );
   const fetch = async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input instanceof Request ? input.url : input);
     const method = init?.method ?? "GET";
     const body = typeof init?.body === "string" ? (JSON.parse(init.body) as unknown) : undefined;
-    calls.push({ method, url, body, auth: new Headers(init?.headers).get("authorization") });
+    calls.push({
+      method,
+      url,
+      body,
+      auth: new Headers(init?.headers).get("authorization"),
+      signal: init?.signal instanceof AbortSignal,
+    });
     const path = url.slice(API.length);
+    const next = flaky[`${method} ${path.split("?")[0]}`]?.shift();
+    if (next instanceof Error) throw next;
+    if (next !== undefined) return next;
     const failure = world.fail?.[`${method} ${path.split("?")[0]}`];
     if (failure !== undefined) return failure.clone();
+    if (method === "GET" && path === "/accounts?per_page=50") {
+      const ids = world.accounts ?? [ACCOUNT];
+      return ok(
+        ids.map((id) => ({ id })),
+        { total_count: ids.length },
+      );
+    }
+    if (method === "GET" && path === "/zones?per_page=50") {
+      return ok(world.zones ?? ZONES, world.zoneInfo);
+    }
     const projectsPath = `/accounts/${ACCOUNT}/pages/projects`;
     const listPage = new RegExp(`^${projectsPath}\\?page=(\\d+)$`).exec(path);
     if (method === "GET" && listPage !== null) {
@@ -89,14 +125,6 @@ function fakeCloudflare(world: World) {
     }
     if (method === "DELETE" && path.startsWith(`${projectsPath}/`)) return ok(null);
     if (method === "POST" && domains !== null) return ok({ name: (body as { name: string }).name });
-    const zone = /^\/zones\?name=(.+)$/.exec(path);
-    if (method === "GET" && zone !== null) {
-      const name = decodeURIComponent(zone[1] ?? "");
-      const listed = world.zones?.[name];
-      if (listed !== undefined) return ok(listed.map((id) => ({ id })));
-      const id = ZONE[name as keyof typeof ZONE];
-      return ok(id === undefined ? [] : [{ id }]);
-    }
     const records = /^\/zones\/[^/]+\/dns_records\?name=(.+)$/.exec(path);
     if (method === "GET" && records !== null) {
       return ok(world.records[decodeURIComponent(records[1] ?? "")] ?? []);
@@ -115,14 +143,18 @@ async function run(
 ) {
   const api = fakeCloudflare(world);
   const lines: string[] = [];
+  const sleeps: number[] = [];
   const code = await runPagesDomain({
     args,
     env: { ...ENV, ...env },
     fetch: api.fetch,
     out: (text) => lines.push(text),
     modes,
+    sleep: async (ms) => {
+      sleeps.push(ms);
+    },
   });
-  return { code, calls: api.calls, output: lines.join("") };
+  return { code, calls: api.calls, output: lines.join(""), sleeps };
 }
 
 /** Today: each Pages project holds its own host; www.musubi.social is empty. */
@@ -483,18 +515,6 @@ describe("detach and attach", () => {
     expect(nonGets(result.calls)).toEqual([]);
   });
 
-  test("PD4: a zone name the token sees twice fails before anything changes", async () => {
-    const result = await run(
-      ["detach", "cire_vendor"],
-      { ...TODAY, zones: { "cireweddings.com": ["zone-cire", "zone-cire-copy"] } },
-      {},
-      vendorFlipped,
-    );
-    expect(result.code).toBe(1);
-    expect(result.output).toContain("finding the cireweddings.com zone: the token sees 2 zones");
-    expect(nonGets(result.calls)).toEqual([]);
-  });
-
   test("PD7: attach refuses while the zone still holds a record for the host", async () => {
     const result = await run(["attach", "cire_host"], {
       projects: {},
@@ -527,5 +547,214 @@ describe("detach and attach", () => {
       ],
       [`/accounts/${ACCOUNT}/pages/projects/cire-host/domains`, { name: "host.cireweddings.com" }],
     ]);
+  });
+});
+
+describe("what the token reaches", () => {
+  const vendorFlipped = { ...PRODUCTION_SITE_MODES, cire_vendor: "worker" } as const;
+  const reads = (calls: { url: string }[]) => calls.map((call) => call.url.slice(API.length));
+  const other = { id: "fedcba9876543210fedcba9876543210", name: "x", account: { id: ACCOUNT } };
+
+  test("PD9: a token reaching anything but the account and the two zones refuses before any other request, and detach writes nothing", async () => {
+    const refusals: [string, Partial<World>, string, string[]][] = [
+      ["two accounts", { accounts: [ACCOUNT, other.id] }, "reaches 2 accounts", []],
+      ["another account", { accounts: [other.id] }, "not the one CLOUDFLARE_ACCOUNT_ID names", []],
+      [
+        "a third zone",
+        { zones: [...ZONES, { ...other, name: "pulse.events" }] },
+        "sees the zones cireweddings.com, musubi.social, pulse.events;",
+        ["/zones?per_page=50"],
+      ],
+      [
+        "a missing zone",
+        { zones: ZONES.slice(0, 1) },
+        "sees the zones cireweddings.com;",
+        ["/zones?per_page=50"],
+      ],
+      [
+        "a zone twice",
+        { zones: [...ZONES, { ...ZONES[0]!, id: "zone-cire-copy" }] },
+        "sees the zones cireweddings.com, cireweddings.com, musubi.social;",
+        ["/zones?per_page=50"],
+      ],
+      [
+        "a zone in another account",
+        { zones: [ZONES[0]!, { ...ZONES[1]!, account: { id: other.id } }] },
+        "in the account CLOUDFLARE_ACCOUNT_ID names",
+        ["/zones?per_page=50"],
+      ],
+      [
+        "a second page of zones",
+        { zoneInfo: { page: 1, total_pages: 2 } },
+        "sees the zones cireweddings.com, musubi.social;",
+        ["/zones?per_page=50"],
+      ],
+      [
+        "more zones than the page holds",
+        { zoneInfo: { page: 1, total_count: 51 } },
+        "and 49 more",
+        ["/zones?per_page=50"],
+      ],
+    ];
+    for (const [what, reach, message, after] of refusals) {
+      const result = await run(
+        ["detach", "cire_vendor"],
+        { ...TODAY, ...reach },
+        {},
+        vendorFlipped,
+      );
+      expect({ what, code: result.code, said: result.output.includes(message) }).toEqual({
+        what,
+        code: 1,
+        said: true,
+      });
+      expect({ what, reads: reads(result.calls) }).toEqual({
+        what,
+        reads: ["/accounts?per_page=50", ...after],
+      });
+      expect(result.output).not.toContain(ACCOUNT);
+      expect(result.output).not.toContain(other.id);
+    }
+  });
+
+  test("PD13: the zones are read once a run, from the token's own listing, however many sites", async () => {
+    const result = await run(["check", "cire_host", "cire_vendor", "cire_landing"], TODAY);
+    expect(result.code).toBe(0);
+    expect(reads(result.calls).filter((url) => url.startsWith("/zones?"))).toEqual([
+      "/zones?per_page=50",
+    ]);
+  });
+
+  test("PD12: every request gives up after a time", async () => {
+    const result = await run(["detach", "cire_vendor"], TODAY, {}, vendorFlipped);
+    expect(result.code).toBe(0);
+    expect(result.calls.length).toBeGreaterThan(4);
+    expect(result.calls.every((call) => call.signal)).toBe(true);
+  });
+
+  test("PD11: a read is tried again after a 429, a 5xx or no answer, 1 s then 2 s later, then fails", async () => {
+    const domains = `GET /accounts/${ACCOUNT}/pages/projects/cire-host/domains`;
+    const passes = await run(["check", "cire_host"], {
+      ...TODAY,
+      flaky: { [domains]: [failed(429, 10000), new Error("connection reset")] },
+    });
+    expect(passes.code).toBe(0);
+    expect(passes.sleeps).toEqual([1_000, 2_000]);
+    expect(passes.output).toContain("cire_host host.cireweddings.com pages cire-host");
+    const fails = await run(["check", "cire_host"], {
+      ...TODAY,
+      flaky: { [domains]: [failed(503, 0), failed(502, 0), failed(500, 0)] },
+    });
+    expect(fails.code).toBe(1);
+    expect(fails.sleeps).toEqual([1_000, 2_000]);
+    expect(fails.output).toContain("listing cire-host's domains: Cloudflare answered 500");
+    // A refusal is not asked again.
+    const refused = await run(["check", "cire_host"], {
+      ...TODAY,
+      flaky: { [domains]: [failed(403, 10000)] },
+    });
+    expect(refused.code).toBe(1);
+    expect(refused.sleeps).toEqual([]);
+  });
+
+  test("PD11: a write that fails is sent once", async () => {
+    const remove = `DELETE /accounts/${ACCOUNT}/pages/projects/cire-vendor/domains/vendor.cireweddings.com`;
+    const detach = await run(
+      ["detach", "cire_vendor"],
+      { ...TODAY, flaky: { [remove]: [failed(503, 0)] } },
+      {},
+      vendorFlipped,
+    );
+    expect(detach.code).toBe(1);
+    expect(detach.sleeps).toEqual([]);
+    expect(detach.calls.filter((call) => call.method === "DELETE")).toHaveLength(1);
+    const attach = await run(["attach", "cire_host"], {
+      projects: { "cire-host": [] },
+      records: {},
+      flaky: { "POST /zones/zone-cire/dns_records": [new Error("connection reset")] },
+    });
+    expect(attach.code).toBe(1);
+    expect(attach.sleeps).toEqual([]);
+    expect(attach.calls.filter((call) => call.method === "POST")).toHaveLength(1);
+  });
+});
+
+describe("records that route nothing", () => {
+  const apexRecords: DnsRecord[] = [
+    { id: "rec-txt", type: "TXT", content: "v=spf1 include:_spf.example.net ~all" },
+    { id: "rec-mx", type: "MX", content: "mx.example.net" },
+    { id: "rec-caa", type: "CAA", content: '0 issue "letsencrypt.org"' },
+    { id: "rec-ns", type: "NS", content: "ns1.example.net" },
+  ];
+
+  test("PD10: an apex's TXT, MX, CAA and NS records leave it free beside a Worker's record, and on Pages beside its CNAME", async () => {
+    expect(classify("musubi.social", [], [...apexRecords, WORKER])).toEqual({ kind: "free" });
+    expect(classify("musubi.social", [], apexRecords)).toEqual({ kind: "free" });
+    expect(
+      classify(
+        "musubi.social",
+        [{ name: "osn-social", domains: ["musubi.social"] }],
+        [...apexRecords, CNAME("osn-social")],
+      ),
+    ).toEqual({ kind: "pages", project: "osn-social" });
+    // A worker site on the apex reads free, so the precheck passes.
+    const socialWorker = { ...PRODUCTION_SITE_MODES, osn_social: "worker" } as const;
+    const precheck = await run(
+      ["precheck"],
+      {
+        ...TODAY,
+        projects: { ...TODAY.projects, "osn-social": ["osn-social.pages.dev"] },
+        records: { "musubi.social": [...apexRecords, WORKER] },
+      },
+      { STACKS: "musubi", FLIP: "" },
+      socialWorker,
+    );
+    expect(precheck.code).toBe(0);
+    expect(precheck.output).toContain("osn_social musubi.social free");
+    // An address record still decides.
+    const address: DnsRecord = { id: "a", type: "A", content: "192.0.2.1" };
+    expect(classify("musubi.social", [], [...apexRecords, address]).kind).toBe("unclear");
+  });
+
+  test("PD10: an NS below the apex delegates the name, and HTTPS or SVCB may route it: each reads unclear", () => {
+    for (const record of [
+      { id: "ns", type: "NS", content: "ns1.example.net" },
+      { id: "https", type: "HTTPS", content: '1 . alpn="h2"' },
+      { id: "svcb", type: "SVCB", content: "1 . port=443" },
+    ]) {
+      expect({ type: record.type, kind: classify("www.musubi.social", [], [record]).kind }).toEqual(
+        { type: record.type, kind: "unclear" },
+      );
+    }
+  });
+
+  test("PD10: attach on an apex holding TXT, MX and CAA makes its CNAME and adds the domain; beside its CNAME it adds the domain alone", async () => {
+    const records = apexRecords.filter((record) => record.type !== "NS");
+    const bare = await run(["attach", "osn_social"], {
+      projects: { "osn-social": ["osn-social.pages.dev"] },
+      records: { "musubi.social": records },
+    });
+    expect(bare.code).toBe(0);
+    expect(
+      bare.calls
+        .filter((call) => call.method === "POST")
+        .map((call) => [call.url.slice(API.length), call.body]),
+    ).toEqual([
+      [
+        "/zones/zone-musubi/dns_records",
+        { type: "CNAME", name: "musubi.social", content: "osn-social.pages.dev", proxied: true },
+      ],
+      [`/accounts/${ACCOUNT}/pages/projects/osn-social/domains`, { name: "musubi.social" }],
+    ]);
+    const pointed = await run(["attach", "osn_social"], {
+      projects: { "osn-social": ["osn-social.pages.dev"] },
+      records: { "musubi.social": [...records, CNAME("osn-social")] },
+    });
+    expect(pointed.code).toBe(0);
+    expect(
+      pointed.calls
+        .filter((call) => call.method === "POST")
+        .map((call) => call.url.slice(API.length)),
+    ).toEqual([`/accounts/${ACCOUNT}/pages/projects/osn-social/domains`]);
   });
 });

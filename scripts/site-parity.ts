@@ -127,7 +127,8 @@ export function fillPattern(pattern: string, files: readonly string[]): string |
           : part.replace(/[.+?^${}()|[\]\\]/g, "\\$&"),
     )
     .join("");
-  const match = files.find((file) => new RegExp(`^${escaped}$`).test(file));
+  const pathPattern = new RegExp(`^${escaped}$`);
+  const match = files.find((file) => pathPattern.test(file));
   return match?.replace(/\/index\.html$/, "/");
 }
 
