@@ -711,7 +711,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
     <>
       <Show when={props.closed}>
         <p
-          class="border-border bg-surface-raised text-text-muted text-ui-xs mb-6 rounded-sm border px-3.5 py-2.5 leading-relaxed"
+          class="border-border bg-surface-raised text-text-muted text-ui-xs leading-ui-normal mb-6 rounded-sm border px-3.5 py-2.5"
           // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- not `<output>`: that element is form-associated, and this is a notice about the wedding, not the result of anything the guest did.
           role="status"
         >
@@ -723,7 +723,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
 
       <Show when={props.preview}>
         <p
-          class="border-gold/40 bg-gold/5 text-gold-ink text-ui-xs mb-6 rounded-sm border px-3.5 py-2.5 leading-relaxed"
+          class="border-gold/40 bg-gold/5 text-gold-ink text-ui-xs leading-ui-normal mb-6 rounded-sm border px-3.5 py-2.5"
           // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- not `<output>`: that element is form-associated, and this is a notice about the wedding, not the result of anything the guest did.
           role="status"
         >
@@ -899,7 +899,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
             that is stored would misstate it. The line below says what is
             stored instead. */}
         <Show when={props.closed && dietaryOnFile()}>
-          <p class="font-body text-text-muted text-ui-sm leading-relaxed">
+          <p class="font-body text-text-muted text-ui-sm leading-ui-normal">
             Dietary requirements on file are shared with the caterers for this wedding. See our{" "}
             <a
               href="/privacy"
@@ -913,7 +913,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
           </p>
         </Show>
         <Show when={!props.closed && ownWithDietaryData().length > 0}>
-          <label class="font-body text-text-muted text-ui-sm flex items-start gap-2.5 leading-relaxed normal-case">
+          <label class="font-body text-text-muted text-ui-sm leading-ui-normal flex items-start gap-2.5 normal-case">
             <input
               type="checkbox"
               class="accent-gold mt-0.5 h-4 w-4 shrink-0 cursor-pointer"
@@ -943,7 +943,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
             agreed" — and is stored under its own version. Same rules as the
             box above, over its own people. */}
         <Show when={!props.closed && plusOnesWithDietaryData().length > 0}>
-          <label class="font-body text-text-muted text-ui-sm flex items-start gap-2.5 leading-relaxed normal-case">
+          <label class="font-body text-text-muted text-ui-sm leading-ui-normal flex items-start gap-2.5 normal-case">
             <input
               type="checkbox"
               class="accent-gold mt-0.5 h-4 w-4 shrink-0 cursor-pointer"

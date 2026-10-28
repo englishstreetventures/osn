@@ -140,12 +140,13 @@ export interface InviteClosingProps {
  * This is a SECTION OF THE INVITE, not part of the site footer:
  *   - `SiteFooter.astro` is site-wide chrome — the couple's title plus the legal
  *     links + privacy control. It renders on EVERY document (invite, /privacy,
- *     /terms, 404) and must always be there (compliance blocker C-H4).
+ *     /terms, 404) and must always be there: the privacy notice is linked
+ *     wherever guest data is collected.
  *   - This is invite content, rendered by `InvitePage` as the last thing above
  *     that footer, and — like the events list — only AFTER the guest has
  *     claimed their code, because it is addressed to the invited household.
  *
- * That gate is enforced at the API, not here (S-H1): `GET /api/invite/:slug` is
+ * That gate is enforced at the API, not here: `GET /api/invite/:slug` is
  * unauthenticated, so it REDACTS the closing section, and the content is
  * delivered in the claim response instead (`ClaimResult.closing`). The motif's
  * bytes are likewise session-gated and served `Cache-Control: private`. This
@@ -377,7 +378,7 @@ export function InviteClosing(props: InviteClosingProps) {
               // `whitespace-pre-line` honours the line breaks an organiser typed;
               // `break-words` stops a long unbroken line overflowing on a phone.
               // Not the muted grey — this is the couple speaking.
-              class="font-body text-text max-w-ui-md mx-auto text-[clamp(1rem,2vw,1.125rem)] leading-relaxed break-words whitespace-pre-line italic"
+              class="font-body text-text max-w-ui-md leading-ui-normal mx-auto text-[clamp(1rem,2vw,1.125rem)] break-words whitespace-pre-line italic"
               // Not a styling hook (the block above owns the spacing) — it
               // records that the couple's words follow their image, which the
               // tests pin so the two can't silently swap order.

@@ -172,14 +172,14 @@ describe("gala InvitePage", () => {
     const { getByPlaceholderText } = render(() => <InvitePage apiUrl="https://api.test" />);
     const cls = (getByPlaceholderText(/PATEL-JOY/) as HTMLInputElement).className;
 
-    expect(cls).toContain("bg-text/[0.045]");
+    expect(cls).toContain("bg-text/4.5");
     expect(cls).toContain("border-text/55");
     expect(cls).not.toContain("border-border");
     expect(cls).not.toContain("bg-transparent");
     // Classic asserts BOTH halves of the focus affordance, so gala must
     // too — a half-copied drift guard drifts.
     expect(cls).toContain("focus:border-gold");
-    expect(cls).toContain("focus-visible:outline-[var(--invite-focus)]");
+    expect(cls).toContain("focus-visible:outline-ui-focus");
     // A placeholder is not an accessible name, and it vanishes on input.
     expect((getByPlaceholderText(/PATEL-JOY/) as HTMLInputElement).getAttribute("aria-label")).toBe(
       "Invitation code",
@@ -741,7 +741,7 @@ describe("gala InvitePage", () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/api/invite/"))).toBe(false);
   });
 
-  it("auto-claims from a ?code= deep-link and strips the code from the URL (S-L1)", async () => {
+  it("auto-claims from a ?code= deep-link and strips the code from the URL", async () => {
     const previewClaim: ClaimResult = { ...claim, preview: true };
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(JSON.stringify(previewClaim), {

@@ -103,7 +103,7 @@ export function ConsentPlaceholder(props: { category: ConsentCategory; vendor: s
       {/* The purpose is written in the third person for the privacy notice
           ("Shows the couple's…"), so it follows "It" here rather than "would",
           which would need the bare verb. */}
-      <p class="font-body text-text-muted text-ui-sm leading-relaxed">
+      <p class="font-body text-text-muted text-ui-sm leading-ui-normal">
         <Show when={vendor()?.purpose} fallback={<>Content from {vendorName()} is switched off.</>}>
           {(purpose) => (
             <>
@@ -113,7 +113,7 @@ export function ConsentPlaceholder(props: { category: ConsentCategory; vendor: s
           )}
         </Show>
       </p>
-      <p class="font-body text-text-muted text-ui-xs mt-1.5 leading-relaxed">
+      <p class="font-body text-text-muted text-ui-xs leading-ui-normal mt-1.5">
         It's switched off until you allow it. It loads from {vendorName()}'s servers, which lets
         them see your IP address and browser.
       </p>

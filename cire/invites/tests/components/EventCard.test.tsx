@@ -56,7 +56,7 @@ describe("EventCard", () => {
     expect(buttons.map((b) => b.textContent)).toEqual(["Event details", "Respond"]);
   });
 
-  it("paints the date in the prose gold, not the metal (C-M2 / WCAG 1.4.3)", () => {
+  it("paints the date in the prose gold, not the metal (WCAG 1.4.3)", () => {
     const { getByText } = render(() => (
       <EventCard event={baseEvent} onRespond={noop} onDetails={noop} />
     ));

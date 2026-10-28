@@ -204,7 +204,7 @@ export function PulseAccountLink(props: PulseAccountLinkProps) {
     >
       <h3
         id="pulse-link-heading"
-        class="font-display text-gold-ink text-ui-lg mb-1 leading-tight font-light italic"
+        class="font-display text-gold-ink text-ui-lg leading-ui-tight mb-1 font-light italic"
       >
         Link your musubi account
       </h3>
