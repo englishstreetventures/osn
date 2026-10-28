@@ -302,6 +302,9 @@ test("cire-seating", async ({ page, flow }) => {
 
   const rsvps = await flow.step("download the RSVP sheet from the RSVPs page", async () => {
     await page.goto(`${ORIGINS.cireHost}/#/w/${weddingId}/guests/rsvps`);
+    // The Guests tab has a button of the same name; the event strip is the
+    // RSVPs page's alone.
+    await expect(page.getByRole("tablist", { name: "Events" })).toBeVisible();
     const download = page.waitForEvent("download");
     await page.getByRole("button", { name: "Download RSVPs (CSV)" }).click();
     const file = await download;

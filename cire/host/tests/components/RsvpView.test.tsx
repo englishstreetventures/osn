@@ -451,6 +451,33 @@ describe("RsvpView", () => {
     expect(screen.queryByRole("button", { name: /Download RSVPs/i })).toBeNull();
   });
 
+  // A second click while the first download runs would spend another call
+  // from the owner's export rate limit and save the file twice.
+  it("holds the RSVP download to one request while it runs, then names the file", async () => {
+    authFetchMock.mockResolvedValueOnce(json(VIEW));
+    render(() => <RsvpView weddingId="wed_a" canEdit canManage />);
+    const button = await screen.findByRole("button", { name: "Download RSVPs (CSV)" });
+    let answer = (_: Response) => {};
+    authFetchMock.mockReturnValueOnce(new Promise<Response>((resolve) => (answer = resolve)));
+    fireEvent.click(button);
+    await waitFor(() => expect(button.textContent).toBe("Exporting…"));
+    expect(button).toHaveProperty("disabled", true);
+    fireEvent.click(button);
+    const csvCalls = () => authFetchMock.mock.calls.filter((c) => String(c[0]).endsWith(".csv"));
+    expect(csvCalls().map((c) => String(c[0]))).toEqual([
+      "https://api.test/api/organiser/weddings/wed_a/rsvps.csv",
+    ]);
+
+    answer(
+      new Response("Family Code\r\n", { status: 200, headers: { "Content-Type": "text/csv" } }),
+    );
+    // No slug handed down: the wedding id names the file, as the API's own
+    // Content-Disposition does.
+    await waitFor(() => expect(downloadBlobMock).toHaveBeenCalledTimes(1));
+    expect(downloadBlobMock.mock.calls[0]![0]).toBe("cire-rsvps-wed_a.csv");
+    expect(button.textContent).toBe("Download RSVPs (CSV)");
+  });
+
   // Both ways a lapsed session shows: the API's 401, and the auth client's
   // refresh failing before any request goes out.
   it.each([
