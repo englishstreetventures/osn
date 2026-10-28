@@ -187,18 +187,25 @@ describe("GET /api/invite/:slug (public)", () => {
   });
 
   // Every guest page load runs this read, so the wedding and its customisation
-  // come back from one statement.
+  // come back from one statement, image links on the slug's public route.
   it("reads the wedding and its customisation in one statement", async () => {
     const { app, db } = buildApp();
     db.insert(weddingInviteCustomisations)
-      .values({ weddingId: BOOTSTRAP_WEDDING_ID, heroTitle: "Ana & Ben", updatedAt: new Date() })
+      .values({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        heroTitle: "Ana & Ben",
+        heroImageKey: `assets/${BOOTSTRAP_WEDDING_ID}/hero-1`,
+        updatedAt: new Date(),
+      })
       .run();
     const statements = recordStatements(db);
 
     const res = await appRequest(app, `/api/invite/${SLUG}`);
 
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { hero: { title: string } }).hero.title).toBe("Ana & Ben");
+    const body = (await res.json()) as { hero: { title: string; imageUrl: string } };
+    expect(body.hero.title).toBe("Ana & Ben");
+    expect(body.hero.imageUrl).toStartWith(`/api/invite/${SLUG}/image/hero?v=`);
     expect(statements).toHaveLength(1);
   });
 });
