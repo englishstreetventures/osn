@@ -113,19 +113,28 @@ interface ReturnTraffic {
   readonly opens: number;
   /** `GET` requests sent to `listUrl`. */
   readonly listReads: number;
+  /** Those of them the page has finished with: a failure or an error status
+   *  once it arrives, a success once its body has been read. */
+  readonly listSettled: number;
 }
 
 /**
  * Counts, in each document `page` loads, the push sockets that open and the
- * `GET` requests sent to `listUrl`, and exposes both as `__e2eReturnTraffic`.
- * Both are counted as the page acts, so an `evaluate` that reads them runs
- * after a socket's `open` handlers and after any request those handlers sent.
+ * `GET` requests sent to `listUrl`, and how many of those the page has
+ * finished with, and exposes them as `__e2eReturnTraffic`. All are counted as
+ * the page acts, so an `evaluate` that reads them runs after a socket's `open`
+ * handlers, and after whatever the page did once a read settled, any further
+ * request included.
  */
 async function countReturnTraffic(page: Page, listUrl: string): Promise<void> {
   await page.addInitScript(
     ({ path, url }) => {
       let opens = 0;
       let listReads = 0;
+      let listSettled = 0;
+      const settled = (): void => {
+        listSettled += 1;
+      };
       const dispatch = EventTarget.prototype.dispatchEvent;
       EventTarget.prototype.dispatchEvent = function (this: EventTarget, event: Event): boolean {
         if (
@@ -144,12 +153,29 @@ async function countReturnTraffic(page: Page, listUrl: string): Promise<void> {
         (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
           const request = input instanceof Request ? input : null;
           const method = (init?.method ?? request?.method ?? "GET").toUpperCase();
-          if ((request ? request.url : String(input)) === url && method === "GET") listReads += 1;
-          return send(input, init);
+          if ((request ? request.url : String(input)) !== url || method !== "GET") {
+            return send(input, init);
+          }
+          listReads += 1;
+          return send(input, init).then(
+            (response) => {
+              if (!response.ok) {
+                settled();
+                return response;
+              }
+              const body = response.json.bind(response);
+              response.json = () => body().finally(settled);
+              return response;
+            },
+            (error: unknown) => {
+              settled();
+              throw error;
+            },
+          );
         },
       );
       Object.defineProperty(globalThis, "__e2eReturnTraffic", {
-        get: (): ReturnTraffic => ({ opens, listReads }),
+        get: (): ReturnTraffic => ({ opens, listReads, listSettled }),
       });
     },
     { path: "/realtime/", url: listUrl },
@@ -277,7 +303,15 @@ test("cire-checklist-starter", async ({ page, flow }) => {
       Reflect.deleteProperty(document, "visibilityState");
       document.dispatchEvent(new Event("visibilitychange"));
     });
-    await expect.poll(async () => (await returnTraffic(page)).opens).toBe(hidden.after.opens + 1);
+    // The socket has reopened and every list read has settled, so the
+    // reconnect's choice, to rely on the return's read or to send its own, is
+    // already counted.
+    await expect
+      .poll(async () => {
+        const now = await returnTraffic(page);
+        return now.opens === hidden.after.opens + 1 && now.listSettled === now.listReads;
+      })
+      .toBe(true);
     return { after: await returnTraffic(page), topics: flow.realtimeTopics().length - topics };
   });
   flow.check("shown: the push socket reaches the stand-in again", 1, shown.topics);

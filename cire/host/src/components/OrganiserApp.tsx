@@ -433,14 +433,19 @@ function Dashboard() {
    * only if none of them lands.
    */
   async function recheckAfterReturn(): Promise<void> {
-    // The newest read is always `recheck`; each is waited on once.
-    let awaitedSeq = shownSeq;
-    while (recheck !== null && recheckSeq > awaitedSeq) {
-      awaitedSeq = recheckSeq;
-      await recheck.done;
-    }
+    await readsSince(shownSeq);
     if (appliedSeq > shownSeq) return;
     await recheckWeddings(Date.now());
+  }
+
+  /** Settles once no read started after read `seq` is in flight. The newest
+   *  read is always `recheck`, so each is waited on once, in turn. */
+  async function readsSince(seq: number): Promise<void> {
+    const inFlight = recheck;
+    if (inFlight === null || recheckSeq <= seq) return;
+    const newest = recheckSeq;
+    await inFlight.done;
+    await readsSince(newest);
   }
 
   onMount(() => {
