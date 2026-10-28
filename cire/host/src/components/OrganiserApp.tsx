@@ -327,8 +327,8 @@ function Dashboard() {
   // The `recheckSeq` of the read whose answer is the list on screen; 0 when
   // none is (no read has landed yet, or the list was written locally since).
   let appliedSeq = 0;
-  // When the tab was last shown (never, at first), and the newest read
-  // started before then.
+  // When the tab was last shown, on the monotonic clock (never, at first),
+  // and the newest read started before then.
   let shownAt = Number.NEGATIVE_INFINITY;
   let shownSeq = 0;
   const setWeddings = ((value: Parameters<Setter<WeddingSummary[] | null>>[0]) => {
@@ -419,10 +419,10 @@ function Dashboard() {
   }
 
   /** Whether a `reconnected` arriving now is the return's own: within
-   *  `RESUME_REOPEN_MS` of the tab being shown, by a clock not set back since. */
+   *  `RESUME_REOPEN_MS` of the tab being shown. Measured on the monotonic
+   *  clock, which a wall-clock step cannot shorten. */
   function reopenedForReturn(): boolean {
-    const gap = Date.now() - shownAt;
-    return gap >= 0 && gap <= RESUME_REOPEN_MS;
+    return performance.now() - shownAt <= RESUME_REOPEN_MS;
   }
 
   /**
@@ -438,20 +438,24 @@ function Dashboard() {
     await recheckWeddings(Date.now());
   }
 
-  /** Settles once no read started after read `seq` is in flight. The newest
+  /** Settles once no read started after read `seq` is in flight, or the one
+   *  in flight is old enough for `recheckWeddings` to abandon it. The newest
    *  read is always `recheck`, so each is waited on once, in turn. */
   async function readsSince(seq: number): Promise<void> {
     const inFlight = recheck;
     if (inFlight === null || recheckSeq <= seq) return;
     const newest = recheckSeq;
-    await inFlight.done;
+    const abandoned = new Promise<void>((resolve) =>
+      setTimeout(resolve, inFlight.startedAt + RECHECK_ABANDONED_AFTER_MS - Date.now()),
+    );
+    await Promise.race([inFlight.done, abandoned]);
     await readsSince(newest);
   }
 
   onMount(() => {
     const onVisibility = () => {
       if (document.visibilityState !== "visible") return;
-      shownAt = Date.now();
+      shownAt = performance.now();
       shownSeq = recheckSeq;
       recheckIfDue();
     };

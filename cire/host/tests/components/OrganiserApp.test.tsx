@@ -1957,12 +1957,22 @@ describe("OrganiserApp Dashboard", () => {
     // flight; any other reconnect reads, as one always does.
     const start = 1_900_000_000_000;
     const RETURN = 70_000;
-    let clock: { mockReturnValue(value: number): unknown; mockRestore(): void };
-    const at = (ms: number) => clock.mockReturnValue(start + ms);
+    type Clock = { mockReturnValue(value: number): unknown; mockRestore(): void };
+    let wall: Clock;
+    let monotonic: Clock;
+    /** `ms` into the test on both clocks, or on the wall clock alone when `real` differs. */
+    const at = (ms: number, real = ms) => {
+      wall.mockReturnValue(start + ms);
+      monotonic.mockReturnValue(real);
+    };
     beforeEach(() => {
-      clock = vi.spyOn(Date, "now").mockReturnValue(start);
+      wall = vi.spyOn(Date, "now").mockReturnValue(start);
+      monotonic = vi.spyOn(performance, "now").mockReturnValue(0);
     });
-    afterEach(() => clock.mockRestore());
+    afterEach(() => {
+      wall.mockRestore();
+      monotonic.mockRestore();
+    });
 
     const wedding = (tier: string) => [
       { id: "wed_a", slug: "a", displayName: "Alice & Bob", tier },
@@ -2104,16 +2114,41 @@ describe("OrganiserApp Dashboard", () => {
       await waitFor(() => expect(listCalls()).toBe(2));
     });
 
-    it("reads on a reconnect stamped before the return", async () => {
-      // The clock was set back between the show and the reconnect.
+    it("reads on a reconnect ten seconds after the return, the wall clock set back meanwhile", async () => {
       await openWedding();
       at(RETURN);
       show();
       await landed();
-      at(RETURN - 5_000);
+      at(RETURN + 500, RETURN + 10_000);
       expect(listCalls()).toBe(2);
       reconnect();
       await waitFor(() => expect(listCalls()).toBe(3));
+    });
+
+    it("reads on a reconnect whose joined read is still unanswered when abandoned", async () => {
+      const returned = heldList();
+      await openWedding((read) => (read === 2 ? returned.promise : onGold()));
+      vi.useFakeTimers({ toFake: ["setTimeout"] });
+      try {
+        at(RETURN);
+        show();
+        at(RETURN + 300);
+        expect(listCalls()).toBe(2);
+        reconnect();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(listCalls()).toBe(2);
+
+        // Thirty seconds after the return's read was sent, as any trigger would.
+        at(RETURN + 29_999);
+        await vi.advanceTimersByTimeAsync(29_699);
+        expect(listCalls()).toBe(2);
+        at(RETURN + 30_000);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(listCalls()).toBe(3);
+      } finally {
+        vi.useRealTimers();
+        returned.answer(listResponse(wedding("ivory")));
+      }
     });
 
     it("reads on a reconnect when the read in flight started before the return", async () => {
