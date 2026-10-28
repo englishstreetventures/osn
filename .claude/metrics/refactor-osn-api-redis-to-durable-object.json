@@ -1,11 +1,11 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "pr": {
     "number": 1788,
     "branch": "refactor/osn-api-redis-to-durable-object",
-    "base_sha": "b09d890ed00a46e0532d064b1ad8f9a14ba63f28",
-    "head_sha": "65774a5671823708eb2ba7ed55164bd0bc9f1347",
-    "generated_at": "2026-10-27T01:16:50.780Z",
+    "base_sha": "dea2314232bc8d4dfd417e02994440ebaad36a22",
+    "head_sha": "304a3eaba987585ad37c632a3ef60f217f4c3be7",
+    "generated_at": "2026-10-28T00:18:25.875Z",
     "merged_at": null,
     "phase": "at-open"
   },
@@ -24,35 +24,35 @@
     "issues": 8
   },
   "window": {
-    "sessions": 47,
+    "sessions": 70,
     "first_ts": "2026-10-26T09:07:33.226Z",
-    "last_ts": "2026-10-27T01:16:37.692Z",
-    "span_seconds": 58144,
-    "active_seconds": 22089,
+    "last_ts": "2026-10-28T00:18:13.608Z",
+    "span_seconds": 141040,
+    "active_seconds": 31705,
     "compactions": 0
   },
   "spend": {
-    "usd_equivalent": 354.39268919999944,
+    "usd_equivalent": 480.6027635999984,
     "tokens": {
-      "input": 4494,
-      "output": 1771834,
-      "thinking": 647394,
-      "cache_write_5m": 6824148,
-      "cache_write_1h": 802508,
-      "cache_read": 695993073
+      "input": 6456,
+      "output": 2399730,
+      "thinking": 866435,
+      "cache_write_5m": 9187906,
+      "cache_write_1h": 1966903,
+      "cache_read": 928704942
     },
     "by_model": {
       "claude-opus-5-5": {
         "tokens": {
-          "input": 4494,
-          "output": 1771834,
-          "thinking": 647394,
-          "cache_write_5m": 6824148,
-          "cache_write_1h": 802508,
-          "cache_read": 695993073
+          "input": 6404,
+          "output": 2388695,
+          "thinking": 865732,
+          "cache_write_5m": 9118520,
+          "cache_write_1h": 1966903,
+          "cache_read": 927252581
         },
-        "usd_equivalent": 354.39268919999944,
-        "messages": 2244
+        "usd_equivalent": 480.0283723999985,
+        "messages": 3204
       },
       "<synthetic>": {
         "tokens": {
@@ -64,70 +64,82 @@
           "cache_read": 0
         },
         "usd_equivalent": 0,
-        "messages": 4
+        "messages": 8
+      },
+      "claude-sonnet-5-5": {
+        "tokens": {
+          "input": 52,
+          "output": 11035,
+          "thinking": 703,
+          "cache_write_5m": 69386,
+          "cache_write_1h": 0,
+          "cache_read": 1452361
+        },
+        "usd_equivalent": 0.5743911999999999,
+        "messages": 26
       }
     },
     "by_actor": {
       "main": {
         "tokens": {
-          "input": 486,
-          "output": 176585,
-          "thinking": 57082,
-          "cache_write_5m": 913767,
-          "cache_write_1h": 802508,
-          "cache_read": 34893326
+          "input": 918,
+          "output": 291066,
+          "thinking": 88800,
+          "cache_write_5m": 1170724,
+          "cache_write_1h": 1966903,
+          "cache_read": 119754182
         },
-        "usd_equivalent": 28.47987340000001,
-        "messages": 244
+        "usd_equivalent": 75.31550879999993,
+        "messages": 468
       },
       "subagent": {
         "tokens": {
-          "input": 4008,
-          "output": 1595249,
-          "thinking": 590312,
-          "cache_write_5m": 5910381,
+          "input": 5538,
+          "output": 2108664,
+          "thinking": 777635,
+          "cache_write_5m": 8017182,
           "cache_write_1h": 0,
-          "cache_read": 661099747
+          "cache_read": 808950760
         },
-        "usd_equivalent": 325.9128157999996,
-        "messages": 2004
+        "usd_equivalent": 405.2872547999988,
+        "messages": 2770
       }
     },
     "effort": {
-      "medium": 328,
-      "xhigh": 1591,
-      "high": 325
+      "medium": 576,
+      "xhigh": 2087,
+      "high": 567
     },
     "unpriced_models": []
   },
   "diff": {
     "files": {
       "generated": 4,
-      "test": 76,
+      "test": 78,
       "docs": 43,
-      "config": 13,
-      "source": 96
+      "config": 14,
+      "source": 97
     },
     "loc": {
       "generated": {
-        "added": 57,
-        "deleted": 24
+        "added": 56,
+        "deleted": 32
       },
       "test": {
-        "added": 5789,
-        "deleted": 2287
+        "added": 6902,
+        "deleted": 2294
       },
       "docs": {
-        "added": 1058,
-        "deleted": 1322
+        "added": 1088,
+        "deleted": 1328
       },
       "config": {
-        "added": 174,
-        "deleted": 65
+        "added": 395,
+        "deleted": 66
       },
       "source": {
-        "added": 3674,
-        "deleted": 3652
+        "added": 4052,
+        "deleted": 3744
       }
     },
     "packages": [
@@ -148,59 +160,63 @@
       "tools/e2e"
     ],
     "touches_migration": true,
-    "commits": 45
+    "commits": 65
   },
   "interaction": {
-    "user_turns": 4,
+    "user_turns": 8,
     "corrective_turns": 1,
     "tokens_before_first_edit": 271499,
     "sessions_with_observed_edit": 1,
     "tool_calls": {
-      "Bash": 1897,
-      "Edit": 498,
-      "Read": 202,
-      "Write": 137,
-      "Grep": 55,
-      "StructuredOutput": 45,
-      "Skill": 14,
-      "Agent": 12,
-      "SubagentHandback": 12,
-      "SendMessage": 4,
+      "Bash": 2761,
+      "Edit": 629,
+      "Read": 308,
+      "Write": 184,
+      "Grep": 72,
+      "StructuredOutput": 68,
+      "Skill": 25,
+      "SubagentHandback": 20,
+      "Agent": 18,
+      "SendMessage": 12,
       "Glob": 4,
       "WebFetch": 4,
+      "ToolSearch": 3,
       "AskUserQuestion": 2,
-      "ToolSearch": 2,
-      "EnterWorktree": 1
+      "EnterWorktree": 1,
+      "ListAgents": 1
     },
     "edit_churn": {
-      "files_edited_3plus": 71,
-      "max_edits_one_file": 20
+      "files_edited_3plus": 82,
+      "max_edits_one_file": 33
     },
     "skills": {
       "stress-plan": 1,
       "pick-agent": 1,
-      "write-wiki": 3,
-      "obsidian:obsidian-markdown": 3,
+      "write-wiki": 5,
+      "obsidian:obsidian-markdown": 5,
       "prep-pr": 1,
-      "review-tests": 1,
-      "review-security": 1,
-      "review-performance": 1,
+      "review-tests": 2,
+      "review-security": 2,
+      "review-performance": 2,
       "write-pr": 1,
-      "retro": 1
+      "retro": 1,
+      "review-pr": 3,
+      "write-issue": 1
     },
     "subagents": {
       "Plan": 1,
       "attacker": 2,
-      "implementer": 6,
-      "reviewer": 3
+      "implementer": 7,
+      "reviewer": 7,
+      "mechanic": 1
     },
     "requests": {
-      "main": 242,
-      "subagent": 2002,
-      "with_tools": 2224,
-      "with_one_tool": 1796,
-      "context_median": 286540,
-      "context_p90": 598389
+      "main": 464,
+      "subagent": 2766,
+      "with_tools": 3192,
+      "with_one_tool": 2593,
+      "context_median": 258941,
+      "context_p90": 567417
     }
   },
   "review": {
