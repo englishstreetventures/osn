@@ -776,11 +776,17 @@ export function RsvpPanel(props: RsvpPanelProps) {
                     of the answer — colour alone, and nothing at all for a
                     stored "maybe", which the binary pair cannot show. The
                     answer on file is written out instead, in the box the pair
-                    would fill. */}
+                    would fill: a value rather than an action, so it takes a
+                    field's corner, not the pair's pill.
+
+                    The pair itself is raw rather than `Button` `choice`: it is
+                    disabled while the reply saves and through the "Saved"
+                    dwell, when the chosen answer has to stay legible, and
+                    `Button` fades a disabled control. */}
                 <Show
                   when={!props.closed}
                   fallback={
-                    <p class="font-body text-ui-sm tracking-ui-wide border-border text-text rounded-sm border px-3 py-2.5 text-center uppercase">
+                    <p class="font-body text-ui-sm border-border text-text rounded-ui-field border px-3 py-2.5 text-center">
                       {answerOnFile(guestId)}
                     </p>
                   }
@@ -788,7 +794,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
                   <div class="flex gap-2">
                     <button
                       type="button"
-                      class="font-body text-ui-sm tracking-ui-wide flex-1 cursor-pointer rounded-sm border px-3 py-2.5 uppercase transition-colors duration-200"
+                      class="font-body text-ui-sm tracking-ui-normal rounded-ui-control flex-1 cursor-pointer border px-4 py-2.5 font-medium transition-colors duration-(--dur-fast) ease-(--ease-out)"
                       classList={{
                         "border-gold text-gold-ink bg-gold/8":
                           responses()[guestId]?.attending === "attending",
@@ -803,7 +809,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
                     </button>
                     <button
                       type="button"
-                      class="font-body text-ui-sm tracking-ui-wide flex-1 cursor-pointer rounded-sm border px-3 py-2.5 uppercase transition-colors duration-200"
+                      class="font-body text-ui-sm tracking-ui-normal rounded-ui-control flex-1 cursor-pointer border px-4 py-2.5 font-medium transition-colors duration-(--dur-fast) ease-(--ease-out)"
                       classList={{
                         "border-gold text-gold-ink bg-gold/8":
                           responses()[guestId]?.attending === "declined",
@@ -862,7 +868,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
                         // utilities layer and would beat the base-layer
                         // `:focus-visible` ring, leaving a border tint as the
                         // only focus cue on the invite's main data-entry field.
-                        class="border-border font-body text-text placeholder:text-text-muted focus:border-gold sm:text-ui-base mt-1.5 block w-full rounded-sm border bg-transparent px-3 py-2.5 text-base transition-colors duration-200"
+                        class="border-border font-body text-text placeholder:text-text-muted focus:border-gold sm:text-ui-base rounded-ui-field mt-1.5 block w-full border bg-transparent px-3 py-2.5 text-base transition-colors duration-(--dur-fast) ease-(--ease-out)"
                         placeholder="e.g. no onion or garlic"
                         value={responses()[guestId]?.dietary ?? ""}
                         onInput={(e) => setDietary(guestId, e.currentTarget.value)}
@@ -1031,13 +1037,12 @@ export function RsvpPanel(props: RsvpPanelProps) {
           {/* No submit button once RSVPs are closed: a disabled Save invites a
               guest to keep clicking at a door that won't open. */}
           <Show when={!props.closed}>
-            {/* The animated confirmation — a fill sweep and a drawn tick —
-                used to live on this button. It moved to the events section's
+            {/* The fill sweep and drawn tick live on the events section's
                 Respond button (`onConfirmed` above, choreography in
                 `rsvp-responded.ts`), which is still on screen once this sheet
-                closes and this one is not. What stays here is the label swap
-                and the lock, so the sheet still visibly holds its result for
-                the dwell (`savedDwellMs`) rather than just vanishing. */}
+                closes and this one is not. This button keeps the label swap
+                and the lock, so the sheet visibly holds its result for the
+                dwell (`savedDwellMs`) rather than just vanishing. */}
             {/* Deliberately not `@cire/ui`'s `Button`.
                 That component fades anything carrying `aria-disabled`, on the
                 reading that the attribute marks a control someone cannot press
@@ -1047,7 +1052,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
                 keyed on `loading()` instead, which is the state that earns it. */}
             <button
               type="submit"
-              class="border-gold font-body text-gold-ink hover:bg-gold hover:text-on-gold disabled:hover:text-gold-ink text-ui-sm tracking-ui-wider flex-1 rounded-sm border bg-transparent px-4 py-3 uppercase transition-colors duration-200 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+              class="border-gold font-body text-gold-ink hover:bg-gold hover:text-on-gold disabled:hover:text-gold-ink text-ui-sm tracking-ui-normal rounded-ui-control flex-1 border bg-transparent px-5 py-3 font-medium transition-colors duration-(--dur-fast) ease-(--ease-out) disabled:cursor-not-allowed disabled:hover:bg-transparent"
               classList={{
                 "opacity-40": loading() || blockedByMember(),
                 "cursor-pointer": !saved(),

@@ -159,7 +159,7 @@ function MapEmbed(props: { venue: string | null; src: string }) {
   const title = () => `Map of ${props.venue ?? "the venue"}`;
 
   return (
-    <div class="border-border bg-bg mt-3 overflow-hidden rounded-md border">
+    <div class="border-border bg-bg rounded-ui-field mt-3 overflow-hidden border">
       <iframe
         src={props.src}
         title={title()}
@@ -193,7 +193,7 @@ function MapCard() {
   return (
     <div
       aria-hidden="true"
-      class="border-border relative mt-3 h-24 w-full overflow-hidden rounded-md border"
+      class="border-border rounded-ui-field relative mt-3 h-24 w-full overflow-hidden border"
       style={{
         "background-color": "var(--color-bg)",
         "background-image": [

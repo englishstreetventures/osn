@@ -104,7 +104,7 @@ export function createClaimCode(options: ClaimCodeOptions): ClaimCode {
     setError(null);
     // `submitCode` clears `loading` on every FAILURE branch but deliberately
     // not on success: the form is mid-fade-out by then, and flipping the button
-    // label from "Checking…" back to "Open Invitation" underneath that fade
+    // label from "Checking…" back to "Open invitation" underneath that fade
     // would flash. The flag therefore stays true once a claim succeeds — which
     // was unobservable while the form could never come back, and is exactly
     // what strands it now that it can. Without this line the restored form

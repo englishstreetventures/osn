@@ -34,17 +34,21 @@ describe("flow sources", () => {
   // fails in CI, in a flow nobody touched. Counted here, so the commit that
   // adds it goes red.
   //
-  // A flow claims by pressing "Open Invitation", or by opening the invitation
+  // A flow claims by pressing "Open invitation", or by opening the invitation
   // at a `code=` link, which claims on load (the organiser's "Preview invite").
   // A flow that calls `claimFromOrganiserAddress` sends its claims from the
   // organiser's own address and counts in that window instead. It may claim
   // only through a link: a press in a second, unrouted context would spend the
   // guests' window while being counted in the organiser's.
+  //
+  // The press is counted in any letter case: Playwright matches a role's name
+  // without regard to case, so `name: "Open Invitation"` presses the same
+  // button and spends the same claim.
   test("the flows claim no more invitation codes than cire-api allows in a minute, per address", () => {
     const dir = join(import.meta.dirname, "flows");
     const sources = readdirSync(dir).map((file) => readFileSync(join(dir, file), "utf8"));
     const count = (source: string, pattern: RegExp) => source.match(pattern)?.length ?? 0;
-    const press = /name: "Open Invitation" \}\)\.click\(/g;
+    const press = /name: "Open invitation" \}\)\.click\(/gi;
     const link = /[?&]code=/g;
     const fromOrganiser = (source: string) => source.includes("claimFromOrganiserAddress(");
 

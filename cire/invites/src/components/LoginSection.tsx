@@ -113,6 +113,13 @@ interface LayoutClasses {
   form: string;
   /** Width and centring for the preview chip, the RSVP-by line and the account link. */
   measure: string;
+  /**
+   * The corner of the household's own boxes: the plus-one prompt, the email
+   * box and the account link. On the band they sit on the page, so they take
+   * a card's corner. Inside the panel's card they take the small step, since
+   * an inner corner is the outer one less the room between them.
+   */
+  box: string;
 }
 
 const LAYOUTS = {
@@ -124,17 +131,19 @@ const LAYOUTS = {
     greeting: "text-gold",
     form: "max-w-column-2xs mx-auto",
     measure: "max-w-column-sm mx-auto",
+    box: "rounded-ui-lg",
   },
   panel: {
     section: "px-6 py-16 md:px-10 md:py-20",
     // The page's widest container, so the card's `md:mx-0` lands on the same
     // left edge as the events column below it.
     column: "max-w-column-4xl mx-auto",
-    card: "border-border max-w-column-xs mx-auto rounded-sm border px-7 py-10 md:mx-0",
+    card: "border-border rounded-ui-lg max-w-column-xs mx-auto border px-7 py-10 md:mx-0",
     headingSize: "text-[calc(clamp(1.5rem,4vw,2rem)*var(--invite-heading-scale,1))]",
     greeting: "text-gold-ink",
     form: "",
     measure: "",
+    box: "rounded-sm",
   },
 } satisfies Record<LoginSectionLayout, LayoutClasses>;
 
@@ -499,7 +508,7 @@ export function LoginSection(props: LoginSectionProps) {
         <p class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-3 uppercase">
           Your Invitation
         </p>
-        <h2 class={`${HEADING} text-text mb-5 ${layout().headingSize}`}>Enter Your Code</h2>
+        <h2 class={`${HEADING} text-text mb-5 ${layout().headingSize}`}>Enter your code</h2>
         <p class="text-text-muted text-ui-base leading-ui-normal mb-8 font-light">
           Enter the code from your invitation to see your events.
         </p>
@@ -535,7 +544,7 @@ export function LoginSection(props: LoginSectionProps) {
             // tones in a real browser. The fill stays deliberately faint
             // (~1.09:1): it only has to read as a well, the border is what the
             // standard governs.
-            class="border-text/55 bg-text/[0.045] font-body text-text placeholder:text-text-muted focus:border-gold tracking-ui-wider placeholder:tracking-ui-wide w-full cursor-text rounded-sm border px-4 py-3.5 text-center text-base uppercase transition-colors duration-200 placeholder:normal-case focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)] disabled:cursor-not-allowed disabled:opacity-50"
+            class="border-text/55 bg-text/[0.045] font-body text-text placeholder:text-text-muted focus:border-gold tracking-ui-wider placeholder:tracking-ui-wide rounded-ui-field w-full cursor-text border px-4 py-3.5 text-center text-base uppercase transition-colors duration-(--dur-fast) ease-(--ease-out) placeholder:normal-case focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)] disabled:cursor-not-allowed disabled:opacity-50"
             // A placeholder is not an accessible name — it is not exposed as
             // one, and it disappears the moment the guest types. Without this
             // the only control on the page is an unnamed edit field to a
@@ -577,7 +586,7 @@ export function LoginSection(props: LoginSectionProps) {
               (turnstileEnabled() && !claim.turnstileToken())
             }
           >
-            {claim.loading() ? "Checking…" : "Open Invitation"}
+            {claim.loading() ? "Checking…" : "Open invitation"}
           </Button>
         </form>
       </div>
@@ -666,7 +675,7 @@ export function LoginSection(props: LoginSectionProps) {
                 rsvps={props.result?.rsvps ?? []}
                 closed={props.rsvpDeadlineState === "closed"}
                 onChange={onChange()}
-                class={`mb-8 ${layout().measure}`}
+                class={`mb-8 ${layout().measure} ${layout().box}`}
               />
             </Suspense>
           )}
@@ -738,7 +747,7 @@ export function LoginSection(props: LoginSectionProps) {
                 email={props.result ? readMemberEmail(props.result) : null}
                 onChange={(email) => updateResult((result) => withMemberEmail(result, email))}
                 onMemberRequired={() => updateResult((result) => ({ ...result, member: null }))}
-                class={`mb-8 ${layout().measure}`}
+                class={`mb-8 ${layout().measure} ${layout().box}`}
               />
             </Suspense>
           )}
@@ -755,7 +764,7 @@ export function LoginSection(props: LoginSectionProps) {
                     onLinked={(id) => setLinked(id, true)}
                     onUnlinked={(id) => setLinked(id, false)}
                     onNotYou={() => void handleNotYou()}
-                    class={`mb-8 ${layout().measure}`}
+                    class={`mb-8 ${layout().measure} ${layout().box}`}
                   />
                 </Suspense>
               )}

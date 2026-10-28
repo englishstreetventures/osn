@@ -44,7 +44,7 @@ export function FaqList(props: { entries: readonly FaqEntry[]; class?: string })
               <span class="min-w-0">{entry.question}</span>
               <span
                 aria-hidden="true"
-                class="text-gold-ink shrink-0 text-2xl leading-none transition-transform duration-200 group-open:rotate-45"
+                class="text-gold-ink shrink-0 text-2xl leading-none transition-transform duration-(--dur-fast) ease-(--ease-out) group-open:rotate-45"
               >
                 +
               </span>

@@ -104,7 +104,7 @@ describe("LoginSection keeps account linking out of the first download", () => {
       <LoginSection apiUrl="http://x" result={null} onClaimed={() => {}} />
     ));
     fireEvent.input(getByLabelText("Invitation code"), { target: { value: "OKAFOR-LILY-AB12CD" } });
-    fireEvent.click(getByText("Open Invitation"));
+    fireEvent.click(getByText("Open invitation"));
     await waitFor(() => expect(loads).toEqual({ pulse: 1, auth: 0, authCore: 0, plusOne: 1 }));
   });
 

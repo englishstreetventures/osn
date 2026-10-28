@@ -215,7 +215,7 @@ interface Settle {
  * writer,
  * `setBadgeProgress`: as the badge is built, from the panel on screen, so a
  * sheet opened on the form does not fade its words in; on every switch, when
- * the words ease on the panels' 280ms (`transition-badge-settle`); and during a
+ * the words ease on the panels' `--dur-base` (`transition-badge-settle`); and during a
  * swipe and its settle, which write the panels' share of their width on every
  * frame with the easing off (`data-dragging`), held between 0 and 1, and at
  * rest the value there. Inline `transform`s rather than Tailwind's

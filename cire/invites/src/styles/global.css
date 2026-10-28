@@ -531,13 +531,14 @@
   /* An event sheet's panel arriving (`components/EventSheet`): it fades in
      while sliding the last 1.5rem from the side it lives on — the details from
      the start, the RSVP form from the end, the order of their buttons on the
-     card. Same curve as the sheet's own entry. A swipe settles on a spring
-     instead, started at the finger's speed (`SETTLE_SPRING`, `sheet-swipe.ts`).
+     card. A panel swap, so `--dur-base` on the house curve. A swipe settles on a
+     spring instead, started at the finger's speed (`SETTLE_SPRING`,
+     `sheet-swipe.ts`).
 
      Reduced motion needs no special case: the global clamp plays it out in
      0.01ms. */
-  --animate-panel-from-start: panel-from-start 280ms cubic-bezier(0.22, 1, 0.36, 1);
-  --animate-panel-from-end: panel-from-end 280ms cubic-bezier(0.22, 1, 0.36, 1);
+  --animate-panel-from-start: panel-from-start var(--dur-base) var(--ease-out);
+  --animate-panel-from-end: panel-from-end var(--dur-base) var(--ease-out);
 
   /* Content caps, in real pixels rather than on the spacing scale.
      This app steps its root font-size 16px → 17px at 1024px (the `@media`
@@ -618,8 +619,8 @@
    no easing. The reduced-motion clamp below reaches this too. */
 @utility transition-badge-settle {
   transition:
-    opacity 280ms cubic-bezier(0.22, 1, 0.36, 1),
-    transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
+    opacity var(--dur-base) var(--ease-out),
+    transform var(--dur-base) var(--ease-out);
 
   [data-dragging] & {
     transition: none;
@@ -890,7 +891,7 @@
 
 @media (prefers-reduced-motion: no-preference) {
   details[open]::details-content {
-    animation: details-in 200ms cubic-bezier(0.22, 1, 0.36, 1);
+    animation: details-in var(--dur-base) var(--ease-out);
   }
 }
 

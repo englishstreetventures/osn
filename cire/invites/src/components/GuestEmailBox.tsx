@@ -39,12 +39,15 @@ interface GuestEmailBoxProps {
   onChange: (email: MemberEmail | null) => void;
   /** The server holds no member, or another one: ask "Who are you?" again. */
   onMemberRequired: () => void;
-  /** Placement on the panel that hosts it. The box owns only its own surface. */
+  /**
+   * Placement and corner from the panel that hosts it. The box owns only its
+   * own surface; its corner depends on whether that panel is itself a card.
+   */
   class?: string;
 }
 
 const INPUT =
-  "border-text/55 bg-text/[0.045] font-body text-text focus:border-gold sm:text-ui-base mt-1.5 block w-full cursor-text rounded-sm border px-3 py-2.5 text-base transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)] disabled:cursor-not-allowed disabled:opacity-50";
+  "border-text/55 bg-text/[0.045] font-body text-text focus:border-gold sm:text-ui-base rounded-ui-field mt-1.5 block w-full cursor-text border px-3 py-2.5 text-base transition-colors duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)] disabled:cursor-not-allowed disabled:opacity-50";
 
 const INVALID_ADDRESS = "That doesn’t look like one email address. Please check it.";
 /** After removing an address the hosts added: the API records the opt-out. */
@@ -196,7 +199,7 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
 
   return (
     <section
-      class={`border-gold/30 bg-gold/5 rounded-sm border px-5 py-6 text-left ${props.class ?? ""}`}
+      class={`border-gold/30 bg-gold/5 border px-5 py-6 text-left ${props.class ?? ""}`}
       aria-labelledby={headingId}
     >
       <h3
