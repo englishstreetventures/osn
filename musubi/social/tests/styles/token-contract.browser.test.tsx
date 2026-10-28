@@ -20,6 +20,7 @@
  */
 
 import { Button } from "@shared/ui/ui/button";
+import { Input } from "@shared/ui/ui/input";
 import { render } from "@solidjs/testing-library";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 
@@ -155,6 +156,15 @@ describe("the contract reaches the pixel", () => {
     // assertion is "fully round", not a literal 999px.
     const height = getByRole("button").getBoundingClientRect().height;
     expect(radius).toBeGreaterThanOrEqual(height / 2 - 0.5);
+  });
+
+  it("gives a text field the control radius, since this app maps no field radius", () => {
+    // `rounded-ui-field` falls back to `--ui-radius-control`, and this app
+    // maps control alone, so an input keeps the corner its buttons have.
+    const { getByRole } = render(() => <Input aria-label="Name" />);
+    expect(getComputedStyle(getByRole("textbox")).borderTopLeftRadius).toBe(
+      token("--ui-radius-control"),
+    );
   });
 
   it("sizes a control from the contract's scale, not Tailwind's", () => {

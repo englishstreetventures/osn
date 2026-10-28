@@ -116,6 +116,17 @@ describe("tokens.css agrees with the exported token list", () => {
   it("uses `@theme inline`, which is what makes a nested theme scope work", () => {
     expect(CSS).toMatch(/@theme\s+inline\s*\{/);
   });
+
+  it("field falls back through control, not past it", () => {
+    // An app that maps only `--ui-radius-control` must see its text fields
+    // follow its buttons, and a subtree that scopes only `control` must reach
+    // `field` too. Skipping `control` in the chain would drop such an app's
+    // inputs to `md` — a corner change nobody asked for.
+    const declared = CSS.match(/--radius-ui-field:\s*([^;]+);/)?.[1].trim();
+    expect(declared).toBe(
+      "var(--ui-radius-field, var(--ui-radius-control, var(--ui-radius-md, 6px)))",
+    );
+  });
 });
 
 describe("contrastPairs", () => {
