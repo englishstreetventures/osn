@@ -1,4 +1,4 @@
-import { cleanup, render, screen, within } from "@solidjs/testing-library";
+import { cleanup, screen, within } from "@solidjs/testing-library";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { cdp, page, userEvent } from "vitest/browser";
 

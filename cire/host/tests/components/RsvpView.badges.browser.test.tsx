@@ -276,9 +276,16 @@ describe("the RSVP table's badge explanations", () => {
         const ratio = contrastRatio(composite([ground, color]), ground)!;
         expect([word, ratio >= WCAG_TEXT_MIN]).toEqual([word, true]);
 
+        // The window, not the whole page: the table scrolls with the page, so
+        // the page is 900 rows tall, and the hovered badge is what to see.
+        const frame = document.createElement("div");
+        frame.style.cssText = "position:fixed;inset:0;pointer-events:none";
+        document.body.append(frame);
         await page.screenshot({
           path: `__screenshots__/RsvpView.badges.browser.test.tsx/hover-${theme}-${word.toLowerCase().replace(/\W+/g, "-")}.png`,
+          element: frame,
         });
+        frame.remove();
         await moveAway();
       }
     },

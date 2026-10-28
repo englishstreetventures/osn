@@ -1194,7 +1194,13 @@ export default function GuestTable(props: GuestTableProps) {
                     </Show>
                   );
                   return (
+                    // A group named by its household, so a screen reader hears
+                    // whose rows these are; not a `fieldset`, which brings form
+                    // semantics and a `min-content` inline size the table
+                    // inside would be held to, nor a named `section`, which
+                    // would make 300 landmarks.
                     <div
+                      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
                       role="group"
                       aria-labelledby={nameId}
                       class="border-border border-b last:border-b-0"

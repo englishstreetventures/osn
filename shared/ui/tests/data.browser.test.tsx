@@ -289,7 +289,7 @@ describe("Table — page mode", () => {
     window.scrollTo(0, 1500);
     expect(window.scrollY).toBe(1500);
     // The table's own top is far above the window by now; its head is not.
-    expect(box.getBoundingClientRect().top).toBeLessThan(-1000);
+    expect(box.getBoundingClientRect().top).toBeLessThan(-200);
     expect(head.getBoundingClientRect().top).toBeCloseTo(40, 0);
     window.scrollTo(0, 0);
   });

@@ -526,7 +526,7 @@ export default function ModuleShell(props: ModuleShellProps) {
    */
   function ShellBar() {
     const size = createAutoSize();
-    let bar: HTMLDivElement | undefined;
+    let bar: HTMLElement | undefined;
 
     // Roving tabindex: only the selected tab is in the tab order, and the arrow
     // keys move focus between the rest. Refs are indexed by position in the
@@ -585,10 +585,9 @@ export default function ModuleShell(props: ModuleShellProps) {
     return (
       // One landmark, named for the module, outside the module's tab panel:
       // the sub-tabs still control the panel, and a view's controls here still
-      // name the part of the view they act on.
-      <div
+      // name the part of the view they act on. A named `<section>` is a region.
+      <section
         ref={bar}
-        role="region"
         aria-label={`${moduleDef(module()).label} controls`}
         data-view-bar
         class="border-border bg-bg sticky top-(--chrome-h) z-20 mb-6 border-b"
@@ -675,7 +674,7 @@ export default function ModuleShell(props: ModuleShellProps) {
             />
           </div>
         </div>
-      </div>
+      </section>
     );
   }
 

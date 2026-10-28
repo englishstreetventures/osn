@@ -842,7 +842,9 @@ function FamilyCard(props: {
                     </th>
                   )}
                 </For>
-                <th class={STRIP_HEAD} />
+                <th class={STRIP_HEAD} aria-hidden="true">
+                  {/* The remove buttons' column has no head. */}
+                </th>
               </tr>
             </thead>
           </table>
