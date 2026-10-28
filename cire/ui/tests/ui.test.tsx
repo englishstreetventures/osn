@@ -125,21 +125,22 @@ describe("Button — corners and case", () => {
     // One corner class, from the `control` role, so an app decides how round
     // its buttons are once in its stylesheet. A second corner class would tie
     // with the first at zero specificity and leave the stylesheet's order to
-    // pick between them.
-    const actions: readonly ButtonVariant[] = [
-      "primary",
-      "cta",
-      "outline",
-      "quiet",
-      "quietDanger",
-      "danger",
-      "choice",
-      "dashed",
-      "chip",
+    // pick between them. `chip` takes the `pill` step instead: it sits beside a
+    // round close button and stays round whatever `control` is.
+    const actions: readonly { variant: ButtonVariant; corner: string }[] = [
+      { variant: "primary", corner: "base:rounded-ui-control" },
+      { variant: "cta", corner: "base:rounded-ui-control" },
+      { variant: "outline", corner: "base:rounded-ui-control" },
+      { variant: "quiet", corner: "base:rounded-ui-control" },
+      { variant: "quietDanger", corner: "base:rounded-ui-control" },
+      { variant: "danger", corner: "base:rounded-ui-control" },
+      { variant: "choice", corner: "base:rounded-ui-control" },
+      { variant: "dashed", corner: "base:rounded-ui-control" },
+      { variant: "chip", corner: "base:rounded-ui-pill" },
     ];
     const wrong = actions
-      .map((variant) => ({ variant, found: corners(buttonClass({ variant })) }))
-      .filter(({ found }) => found.length !== 1 || found[0] !== "base:rounded-ui-control");
+      .map(({ variant, corner }) => ({ variant, corner, found: corners(buttonClass({ variant })) }))
+      .filter(({ corner, found }) => found.length !== 1 || found[0] !== corner);
     expect(wrong).toEqual([]);
   });
 
