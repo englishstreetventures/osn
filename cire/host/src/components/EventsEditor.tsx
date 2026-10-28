@@ -437,7 +437,7 @@ export default function EventsEditor(props: { weddingId: string }) {
       <Show when={!store.loaded() && !loadError()}>
         <div class="flex flex-col gap-3">
           <For each={[1, 2, 3]}>
-            {() => <div class="bg-surface h-18 animate-pulse rounded-sm" />}
+            {() => <div class="bg-surface rounded-ui-lg h-18 animate-pulse" />}
           </For>
         </div>
       </Show>
@@ -660,7 +660,7 @@ function EventRowCard(props: {
       // `maybeTransformStyle` sees a truthy function and paints
       // `translate3d(undefinedpx, …)`.
       style={maybeTransformStyle(sortable.transform())}
-      class="border-border bg-surface/30 flex flex-wrap items-center gap-3 rounded-sm border p-4"
+      class="border-border bg-surface/30 rounded-ui-lg flex flex-wrap items-center gap-3 border p-4"
       classList={{
         "border-error/50": props.hasError,
         // Lift the row being dragged clear of its neighbours.
@@ -668,7 +668,8 @@ function EventRowCard(props: {
         // Animate the OTHER rows shifting aside, but never the dragged one —
         // that must track the pointer without easing. Only while a drag is live,
         // so the post-drop settle isn't double-animated.
-        "transition-transform": dndState.dragging() && !sortable.isActiveDraggable(),
+        "transition-transform duration-(--dur-base) ease-(--ease-in-out)":
+          dndState.dragging() && !sortable.isActiveDraggable(),
       }}
     >
       {/* Re-order controls: a grip you drag, plus two activate-to-move buttons
@@ -1362,7 +1363,8 @@ function RunOfShowRow(props: {
       class="flex flex-col gap-1"
       classList={{
         "relative z-10": sortable.isActiveDraggable(),
-        "transition-transform": dndState.dragging() && !sortable.isActiveDraggable(),
+        "transition-transform duration-(--dur-base) ease-(--ease-in-out)":
+          dndState.dragging() && !sortable.isActiveDraggable(),
       }}
       // The row is left when focus moves to something outside it.
       onFocusOut={(e) => {

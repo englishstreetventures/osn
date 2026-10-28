@@ -1,3 +1,4 @@
+import Button from "@cire/ui/button";
 import {
   clearAuthError,
   readAuthError,
@@ -103,13 +104,9 @@ export default function SignInPanel() {
         sees it.
       </p>
 
-      <button
-        type="button"
-        onClick={signIn}
-        class="bg-gold text-on-gold w-full rounded-sm px-6 py-3 text-sm font-medium tracking-wide transition-opacity hover:opacity-90"
-      >
+      <Button variant="primary" size="lg" type="button" onClick={signIn} class="w-full">
         Continue with musubi
-      </button>
+      </Button>
 
       <p class="text-muted-foreground text-sm">
         No musubi account yet? You can create one on the next screen.

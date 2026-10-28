@@ -265,7 +265,7 @@ export default function VendorsView(props: VendorsViewProps) {
       <Show when={props.canEdit}>
         <form
           onSubmit={addVendor}
-          class="border-border bg-surface/20 flex flex-wrap items-end gap-3 rounded-sm border p-4"
+          class="border-border bg-surface/20 rounded-ui-lg flex flex-wrap items-end gap-3 border p-4"
         >
           <Field label="Vendor name" class="min-w-48 flex-1">
             {(field) => (

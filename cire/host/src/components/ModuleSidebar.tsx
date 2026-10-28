@@ -1,4 +1,4 @@
-import Button from "@cire/ui/button";
+import Button, { buttonClass } from "@cire/ui/button";
 import { Dialog } from "@kobalte/core/dialog";
 import { Popover } from "@kobalte/core/popover";
 import { Tooltip } from "@kobalte/core/tooltip";
@@ -134,7 +134,7 @@ function RailTip(props: {
         <Tooltip.Content
           aria-hidden="true"
           data-rail-tip=""
-          class="rail-tip border-border bg-surface-raised z-50 flex max-w-64 flex-col gap-0.5 rounded-sm border px-3 py-2 shadow-md"
+          class="rail-tip border-border bg-surface-raised z-50 flex max-w-64 flex-col gap-0.5 rounded-md border px-3 py-2 shadow-md"
         >
           <span class="font-body text-text text-ui-xs tracking-ui-wider uppercase">
             {props.label}
@@ -360,7 +360,7 @@ function LockedRow(props: {
             if (props.dwell) dwell.leave(event);
           }}
           onKeyDown={onCardKeyDown}
-          class="border-border bg-surface-raised menu-pop z-50 flex w-64 flex-col gap-2 rounded-sm border p-3 shadow-lg outline-none"
+          class="border-border bg-surface-raised menu-pop z-50 flex w-64 flex-col gap-2 rounded-md border p-3 shadow-lg outline-none"
         >
           {/* `gold-ink`, not `gold`: this is small text that has to be read,
               and gold has no contrast contract (`styles/global.css`). */}
@@ -751,7 +751,7 @@ export default function ModuleSidebar(props: {
                 </Dialog.Title>
                 <Dialog.CloseButton
                   aria-label="Close modules"
-                  class="text-text-muted hover:text-gold hover:border-gold-dim border-border text-ui-base flex h-8 w-8 shrink-0 items-center justify-center rounded-sm border transition-colors duration-(--dur-fast)"
+                  class={buttonClass({ variant: "quiet", size: "icon" })}
                 >
                   <span aria-hidden="true">✕</span>
                 </Dialog.CloseButton>

@@ -510,7 +510,7 @@ export default function GuestsEditor(props: {
       <Show when={!store.loaded() && !loadError()}>
         <div class="flex flex-col gap-3">
           <For each={[1, 2, 3]}>
-            {() => <div class="bg-surface h-20 animate-pulse rounded-sm" />}
+            {() => <div class="bg-surface rounded-ui-lg h-20 animate-pulse" />}
           </For>
         </div>
       </Show>
@@ -825,7 +825,7 @@ function FamilyCard(props: {
   return (
     <div
       data-edit-card
-      class="border-border bg-surface/30 flex flex-col rounded-sm border px-4 pb-4"
+      class="border-border bg-surface/30 rounded-ui-lg flex flex-col overflow-clip border px-4 pb-4"
       style={{ "--edit-table-w": width() }}
     >
       <div

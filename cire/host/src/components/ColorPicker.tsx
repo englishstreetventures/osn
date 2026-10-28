@@ -214,7 +214,7 @@ export default function ColorPicker(props: {
         <Popover gutter={8} placement="bottom-start">
           <Popover.Trigger
             aria-label={`${props.label} colour`}
-            class="border-border bg-bg hover:border-gold focus-visible:border-gold focus-visible:ring-gold/40 flex items-center gap-2 rounded-sm border px-2 py-1.5 transition duration-(--dur-fast) ease-(--ease-out) outline-none focus-visible:ring-2"
+            class="border-border bg-bg hover:border-gold focus-visible:border-gold focus-visible:ring-gold/40 rounded-ui-field flex items-center gap-2 border px-2 py-1.5 transition duration-(--dur-fast) ease-(--ease-out) outline-none focus-visible:ring-2"
           >
             <ColorSwatch
               value={display()}
@@ -230,7 +230,7 @@ export default function ColorPicker(props: {
             </Show>
           </Popover.Trigger>
           <Popover.Portal>
-            <Popover.Content class="border-border bg-surface-raised menu-pop z-50 flex w-56 flex-col gap-3 rounded-sm border p-3 shadow-lg outline-none">
+            <Popover.Content class="border-border bg-surface-raised menu-pop z-50 flex w-56 flex-col gap-3 rounded-md border p-3 shadow-lg outline-none">
               <ColorArea
                 colorSpace="hsb"
                 xChannel="saturation"

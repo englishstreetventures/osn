@@ -413,7 +413,7 @@ export default function RegistryImageField(props: {
               <img
                 src={src()}
                 alt=""
-                class="border-border h-20 w-20 rounded-sm border object-cover"
+                class="border-border rounded-ui-field h-20 w-20 border object-cover"
               />
             )}
           </Show>
@@ -472,7 +472,7 @@ export default function RegistryImageField(props: {
             if (file) void upload(file);
             e.currentTarget.value = "";
           }}
-          class="font-body text-text file:border-border file:bg-bg file:font-body file:text-text hover:file:border-gold text-ui-sm file:text-ui-sm file:mr-3 file:rounded-sm file:border file:px-3 file:py-1.5"
+          class="font-body text-text file:border-border file:bg-bg file:font-body file:text-text hover:file:border-gold text-ui-sm file:text-ui-sm file:rounded-ui-control file:mr-3 file:border file:px-4 file:py-1.5 file:font-medium"
         />
       </Show>
 
@@ -566,7 +566,9 @@ export default function RegistryImageField(props: {
                             decoding="async"
                             width={80}
                             height={80}
-                            class="h-20 w-20 object-cover"
+                            // The frame's 14px less its border and padding, to the
+                            // nearest step, so the picture's corner runs parallel.
+                            class="h-20 w-20 rounded-md object-cover"
                           />
                         )}
                       </Show>

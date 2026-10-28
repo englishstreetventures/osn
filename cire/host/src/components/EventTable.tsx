@@ -199,7 +199,7 @@ export default function EventTable(props: EventTableProps) {
       <Show when={loading()}>
         <div class="auto-grid [--auto-grid-min:26rem]">
           <For each={[1, 2, 3, 4]}>
-            {() => <div class="bg-surface h-35 animate-pulse rounded-sm" />}
+            {() => <div class="bg-surface rounded-ui-lg h-35 animate-pulse" />}
           </For>
         </div>
       </Show>
@@ -232,7 +232,7 @@ export default function EventTable(props: EventTableProps) {
               // CARD, not the panel. Querying the panel was already slightly
               // wrong; with two cards per row it would put two columns of
               // details into a half-width card.
-              <li class="border-border bg-surface/30 @container/card flex flex-col gap-3 rounded-sm border p-5">
+              <li class="border-border bg-surface/30 rounded-ui-lg @container/card flex flex-col gap-3 border p-5">
                 <header class="flex flex-col gap-1">
                   <span class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">
                     {event.slug}
@@ -312,7 +312,7 @@ export default function EventTable(props: EventTableProps) {
                               the shorthand would load a `url(…)` from any https
                               host the portal's `img-src` admits. */}
                           <span
-                            class="border-border inline-block h-3 w-3 rounded-sm border"
+                            class="border-border rounded-hair inline-block h-3 w-3 border"
                             style={{ "background-color": swatch.color }}
                           />
                           {swatch.name}
@@ -398,7 +398,7 @@ function EventImageField(props: {
               <img
                 src={url()}
                 alt=""
-                class="border-border h-28 w-full max-w-xs rounded-sm border object-cover"
+                class="border-border rounded-ui-field h-28 w-full max-w-xs border object-cover"
               />
             }
           >
@@ -407,7 +407,7 @@ function EventImageField(props: {
                 aria-label="Event image (cropped)"
                 // WYSIWYG with the guest event card: the box adopts the crop's true
                 // pixel aspect, the region scales uniformly inside it (no stretch).
-                class="border-border w-full max-w-xs overflow-hidden rounded-sm border"
+                class="border-border rounded-ui-field w-full max-w-xs overflow-hidden border"
                 style={{
                   ...style(),
                   "aspect-ratio": String(cropAspectRatio(props.crop, CROP_ASPECT.event)),
@@ -427,7 +427,7 @@ function EventImageField(props: {
             if (file) props.onSelect(file);
             e.currentTarget.value = "";
           }}
-          class="font-body text-text file:border-border file:bg-bg file:font-body file:text-text hover:file:border-gold text-ui-sm file:text-ui-sm file:mr-3 file:rounded-sm file:border file:px-3 file:py-1.5"
+          class="font-body text-text file:border-border file:bg-bg file:font-body file:text-text hover:file:border-gold text-ui-sm file:text-ui-sm file:rounded-ui-control file:mr-3 file:border file:px-4 file:py-1.5 file:font-medium"
         />
         <Show when={props.url}>
           <Button variant="link" type="button" onClick={() => setCropping(true)}>

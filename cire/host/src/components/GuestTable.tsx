@@ -942,14 +942,15 @@ export default function GuestTable(props: GuestTableProps) {
           <span class="font-body text-text-muted text-ui-xs tracking-ui-wide">
             Disable this code?
           </span>
-          <button
+          <Button
+            variant="danger"
+            size="sm"
             type="button"
             onClick={() => void toggleDeactivated(family, true)}
             disabled={togglingId() === family.familyId}
-            class="border-error bg-error font-body text-bg text-ui-xs tracking-ui-wider rounded-sm border px-2.5 py-1 uppercase transition duration-(--dur-fast) ease-(--ease-out) hover:opacity-90 disabled:opacity-40"
           >
             {togglingId() === family.familyId ? "Deactivating…" : "Confirm"}
-          </button>
+          </Button>
           <Button
             variant="subtle"
             size="sm"
@@ -1154,7 +1155,7 @@ export default function GuestTable(props: GuestTableProps) {
 
       <Show when={loading()}>
         <ViewBar slot="end">
-          <div class="bg-surface/60 h-7 w-64 max-w-full min-w-0 animate-pulse rounded-sm" />
+          <div class="bg-surface/60 rounded-ui-field h-7 w-64 max-w-full min-w-0 animate-pulse" />
         </ViewBar>
         <div class="flex flex-col gap-3">
           <For each={[1, 2, 3, 4, 5]}>

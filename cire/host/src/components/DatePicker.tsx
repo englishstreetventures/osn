@@ -196,7 +196,7 @@ export default function DatePicker(props: {
         <span class="font-body text-text-muted text-ui-xs tracking-ui-wider uppercase">
           {props.label}
         </span>
-        <p class="font-body text-text border-border bg-bg/50 text-ui-base rounded-sm border px-3 py-2 opacity-70">
+        <p class="font-body text-text border-border bg-bg/50 text-ui-base rounded-ui-field border px-3 py-2 opacity-70">
           <Show when={selected()} fallback={<span class="opacity-60">No date set</span>}>
             {(d) => formatLong(d())}
           </Show>
@@ -214,7 +214,7 @@ export default function DatePicker(props: {
         <Popover.Trigger
           aria-label={`${props.label}${selected() ? `: ${formatLong(selected()!)}` : ", no date set"}`}
           disabled={props.disabled}
-          class="border-border bg-bg font-body text-text hover:border-gold focus-visible:border-gold focus-visible:ring-gold/40 text-ui-base flex items-center justify-between gap-2 rounded-sm border px-3 py-2 text-left transition-colors duration-(--dur-fast) ease-(--ease-out) outline-none focus-visible:ring-2 disabled:opacity-40"
+          class="border-border bg-bg font-body text-text hover:border-gold focus-visible:border-gold focus-visible:ring-gold/40 text-ui-base rounded-ui-field flex items-center justify-between gap-2 border px-3 py-2 text-left transition-colors duration-(--dur-fast) ease-(--ease-out) outline-none focus-visible:ring-2 disabled:opacity-40"
         >
           <Show
             when={selected()}
@@ -235,7 +235,7 @@ export default function DatePicker(props: {
           </svg>
         </Popover.Trigger>
         <Popover.Portal>
-          <Popover.Content class="border-border bg-surface-raised menu-pop z-50 flex w-64 flex-col gap-3 rounded-sm border p-3 shadow-lg outline-none">
+          <Popover.Content class="border-border bg-surface-raised menu-pop z-50 flex w-64 flex-col gap-3 rounded-md border p-3 shadow-lg outline-none">
             {/* ── Month header: prev / label / next ─────────────────────── */}
             <div class="flex items-center justify-between gap-2">
               <Button
@@ -313,6 +313,8 @@ export default function DatePicker(props: {
                         };
                         const isToday = () => sameDay(startOfDay(new Date()), day);
                         const isFocused = () => focusedIso() === iso;
+                        // Raw: a grid cell with roving focus, which no Button
+                        // variant is. Its corner is a highlight's, not a control's.
                         return (
                           <button
                             type="button"

@@ -1040,7 +1040,7 @@ export default function HostsPanel(props: HostsPanelProps) {
                     disabled={adding()}
                   />
                   <Show when={open() && suggestions().length > 0}>
-                    <div class="border-border bg-bg absolute top-full right-0 left-0 z-10 mt-1 overflow-hidden rounded-sm border shadow-lg">
+                    <div class="border-border bg-bg absolute top-full right-0 left-0 z-10 mt-1 overflow-hidden rounded-md border shadow-lg">
                       {/* Caption for the on-focus case only: with nothing typed the
                           list IS the organiser's connections, and saying so is what
                           makes an unprompted dropdown legible rather than startling. */}
@@ -1111,7 +1111,9 @@ export default function HostsPanel(props: HostsPanelProps) {
 
       <Show when={loading()}>
         <div class="flex flex-col gap-3">
-          <For each={[1, 2]}>{() => <div class="bg-surface h-13 animate-pulse rounded-sm" />}</For>
+          <For each={[1, 2]}>
+            {() => <div class="bg-surface rounded-ui-lg h-13 animate-pulse" />}
+          </For>
         </div>
       </Show>
 
@@ -1139,7 +1141,7 @@ export default function HostsPanel(props: HostsPanelProps) {
                 // under the name and the controls: at phone width there is no
                 // room beside them for a second select at its full width.
                 <li
-                  class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-sm border px-4 py-3"
+                  class="rounded-ui-lg flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border px-4 py-3"
                   classList={{
                     "border-gold/40 bg-gold/5": host.role === "owner",
                     "border-border bg-surface/30": host.role !== "owner",

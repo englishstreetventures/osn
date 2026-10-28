@@ -185,7 +185,7 @@ function AssignPopover(props: TaskHoldersProps & { stack: (beforePlus: boolean) 
         <span
           data-assign-plus
           aria-hidden="true"
-          class="border-border-strong bg-bg text-text-muted group-hover:border-gold group-hover:text-text group-data-[expanded]:border-gold group-data-[expanded]:text-gold-ink ring-bg relative flex size-7 shrink-0 items-center justify-center rounded-full border-2 border-dotted ring-2 transition-colors duration-(--dur-fast)"
+          class="border-border-strong bg-bg text-text-muted group-hover:border-gold group-hover:text-text group-data-[expanded]:border-gold group-data-[expanded]:text-gold-ink ring-bg relative flex size-7 shrink-0 items-center justify-center rounded-full border-2 border-dotted ring-2 transition-colors duration-(--dur-fast) ease-(--ease-out)"
         >
           <svg
             viewBox="0 0 16 16"
@@ -353,7 +353,7 @@ function PeopleList(props: TaskHoldersProps) {
         </div>
       </Show>
       <Show when={searchable()}>
-        <div class="border-border focus-within:border-focus focus-within:ring-focus mx-3 mb-1 flex items-center gap-2 rounded-sm border px-2.5 focus-within:ring-1">
+        <div class="border-border focus-within:border-focus focus-within:ring-focus rounded-ui-field mx-3 mb-1 flex items-center gap-2 border px-2.5 focus-within:ring-1">
           <svg
             aria-hidden="true"
             viewBox="0 0 16 16"
@@ -430,14 +430,14 @@ function PeopleList(props: TaskHoldersProps) {
                 // The house ring stays on the search or the list and never
                 // reaches a person: a bar in the ring's colour marks the
                 // highlighted one instead, with gold ink on the name.
-                class="font-body relative flex cursor-pointer items-center gap-3 rounded-sm px-3 py-2 transition-colors duration-(--dur-fast) before:absolute before:inset-y-2 before:start-0 before:w-0.75 before:rounded-full"
+                class="font-body relative flex cursor-pointer items-center gap-3 rounded-sm px-3 py-2 transition-colors duration-(--dur-fast) ease-(--ease-out) before:absolute before:inset-y-2 before:start-0 before:w-0.75 before:rounded-full"
                 classList={{ "bg-gold/10 before:bg-focus": lit() }}
               >
                 <span
                   data-toggle
                   data-on={on() || undefined}
                   aria-hidden="true"
-                  class="flex size-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors duration-(--dur-fast)"
+                  class="flex size-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors duration-(--dur-fast) ease-(--ease-out)"
                   classList={{
                     "border-border-strong": !on(),
                     "border-brand bg-brand text-on-brand": on(),
