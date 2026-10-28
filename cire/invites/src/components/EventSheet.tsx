@@ -735,10 +735,12 @@ export function EventSheet(props: EventSheetProps) {
     const state = touch;
     if (!state || e.pointerId !== state.id) return;
     touch = null;
+    // However a catching touch ends — a tap, or a drag that fires no click —
+    // its swallow lapses after it, so it can never eat a later, real tap.
+    if (swallowArmed) lapseSwallow();
     if (state.state === "caught") {
       // Not a swipe after all — a tap, a held finger, or a scroll the browser
       // took: the settle goes on to where it was going, from here.
-      lapseSwallow();
       resumeCaught(state);
       return;
     }
