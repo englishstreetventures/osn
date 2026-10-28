@@ -139,11 +139,14 @@ describe("runSiteParity", () => {
     const calls: string[] = [];
     /** The user agent each call sent, in call order. */
     const agents: (string | null)[] = [];
+    /** The Accept header each call sent, in call order. */
+    const accepts: (string | null)[] = [];
     const fetch = async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input instanceof Request ? input.url : input);
       const asked = calls.filter((call) => call === url).length;
       calls.push(url);
       agents.push(new Headers(init?.headers).get("user-agent"));
+      accepts.push(new Headers(init?.headers).get("accept"));
       expect(init?.redirect).toBe("manual");
       const special = differ(url, asked);
       if (special instanceof Error) throw special;
@@ -164,7 +167,7 @@ describe("runSiteParity", () => {
         },
       });
     };
-    return { fetch: fetch as unknown as typeof globalThis.fetch, calls, agents };
+    return { fetch: fetch as unknown as typeof globalThis.fetch, calls, agents, accepts };
   }
 
   async function parity(args: string[], hosts: ReturnType<typeof fakeHosts>, root = build(SITES)) {
@@ -246,7 +249,7 @@ describe("runSiteParity", () => {
     expect(elsewhere.output).toContain("cire_landing /old: location differ");
   });
 
-  test("SP5: every probe, on the Worker side and the Pages side, sends the CI user agent", async () => {
+  test("SP5: every probe, on the Worker side and the Pages side, sends the CI user agent and accepts any type", async () => {
     const hosts = fakeHosts();
     const result = await parity(["--stack", "cire"], hosts);
     expect(result.code).toBe(0);
@@ -255,6 +258,8 @@ describe("runSiteParity", () => {
     );
     expect(hosts.calls.some((url) => url.startsWith("https://host.cireweddings.com/"))).toBe(true);
     expect(new Set(hosts.agents)).toEqual(new Set([CI_USER_AGENT]));
+    // Cloudflare answers `*/*` with its HTML error page, the one SP8 recognises.
+    expect(new Set(hosts.accepts)).toEqual(new Set(["*/*"]));
   });
 
   const challenge = () =>
@@ -267,7 +272,11 @@ describe("runSiteParity", () => {
       status: 302,
       headers: { location: "https://team.cloudflareaccess.com/cdn-cgi/access/login" },
     });
-  const tooMany = () => new Response("rate limited", { status: 429 });
+  const tooMany = (retryAfter?: string) =>
+    new Response("rate limited", {
+      status: 429,
+      headers: retryAfter === undefined ? {} : { "retry-after": retryAfter },
+    });
 
   test.each([
     [
@@ -276,6 +285,7 @@ describe("runSiteParity", () => {
       challenge,
       "worker",
       "Cloudflare answered 403 in the site's place (cf-mitigated: challenge)",
+      RETRY_MS,
     ],
     [
       "a challenge on the Pages side",
@@ -283,6 +293,7 @@ describe("runSiteParity", () => {
       challenge,
       "pages",
       "Cloudflare answered 403 in the site's place (cf-mitigated: challenge)",
+      RETRY_MS,
     ],
     [
       "an Access redirect",
@@ -290,22 +301,24 @@ describe("runSiteParity", () => {
       accessRedirect,
       "pages",
       "Cloudflare Access answered (302 to https://team.cloudflareaccess.com), not the site",
+      RETRY_MS,
     ],
     [
-      "a 429",
+      "a 429 that names no wait",
       "https://next-host.cireweddings.com/",
       tooMany,
       "worker",
       "answered 429: a rate limit or the account's daily request cap, not the site's code",
+      15_000,
     ],
   ] as const)(
     "SP6: %s that holds when asked again refuses the run: listed in `refused`, named in an error, exit 3",
-    async (_, blockedUrl, answer, side, reason) => {
+    async (_, blockedUrl, answer, side, reason, wait) => {
       const hosts = fakeHosts((url) => (url === blockedUrl ? answer() : undefined));
       const result = await parity(["--stack", "cire"], hosts);
       expect(result.code).toBe(3);
       expect(hosts.calls.filter((url) => url === blockedUrl)).toHaveLength(2);
-      expect(result.slept).toEqual([RETRY_MS]);
+      expect(result.slept).toEqual([wait]);
       const report = JSON.parse(readFileSync(result.out, "utf8"));
       expect(report.refused).toEqual([{ site: "cire_host", side, path: "/", reason }]);
       expect(report.differing).toBe(0);
@@ -315,6 +328,7 @@ describe("runSiteParity", () => {
           ? "::error::site-parity: Cloudflare answered in the site's place for cire_host / on the Worker side (https://next-host.cireweddings.com)"
           : "::error::site-parity: Cloudflare answered in the site's place for cire_host / on the Pages side (https://host.cireweddings.com)",
       );
+      expect(result.output).toContain(`, when asked and again ${wait / 1000} s later: ${reason}.`);
       expect(result.output).toContain("zone's configuration, such as Bot Fight Mode, not the site");
       expect(result.output).not.toContain("answer differently");
       expect(result.output).not.toContain("cire_host /: answer differ");
@@ -371,6 +385,234 @@ describe("runSiteParity", () => {
       refused: [],
     });
     expect(result.output).not.toContain("::error::");
+  });
+
+  // Cloudflare's own error pages, trimmed from pages Cloudflare served and
+  // kept as their markup reads; hosts, codes and Ray IDs are made up. The
+  // Block action of a WAF custom rule or bot protection answers the first;
+  // a 1xxx error (an IP Access rule, Zone Lockdown, a firewall rule's 1020)
+  // the second, in the newer template; a Worker that throws (1101) the third.
+  // None carries `cf-mitigated`.
+  const BLOCK_PAGE = `<!DOCTYPE html>
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en-US"> <!--<![endif]-->
+<head>
+<title>Attention Required! | Cloudflare</title>
+<meta charset="UTF-8" />
+<meta name="robots" content="noindex, nofollow" />
+<link rel="stylesheet" id="cf_styles-css" href="/cdn-cgi/styles/cf.errors.css" />
+</head>
+<body>
+  <div id="cf-wrapper">
+    <div class="cf-alert cf-alert-error cf-cookie-error" id="cookie-alert" data-translate="enable_cookies">Please enable cookies.</div>
+    <div id="cf-error-details" class="cf-error-details-wrapper">
+      <div class="cf-wrapper cf-header cf-error-overview">
+        <h1 data-translate="block_headline">Sorry, you have been blocked</h1>
+        <h2 class="cf-subheadline"><span data-translate="unable_to_access">You are unable to access</span> cireweddings.com</h2>
+      </div><!-- /.header -->
+      <div class="cf-error-footer cf-wrapper w-240 lg:w-full py-10 sm:py-4 sm:px-8 mx-auto text-center sm:text-left border-solid border-0 border-t border-gray-300">
+        <p class="text-13">
+          <span class="cf-footer-item sm:block sm:mb-1">Cloudflare Ray ID: <strong class="font-semibold">8d1f2e3a4b5c6d7e</strong></span>
+        </p>
+      </div><!-- /.error-footer -->
+    </div><!-- /#cf-error-details -->
+  </div><!-- /#cf-wrapper -->
+</body>
+</html>
+`;
+  const ERROR_1020_PAGE = `<!DOCTYPE html>
+<html class="no-js" lang="en-US">
+<head>
+<title>Access denied | next-host.cireweddings.com used Cloudflare to restrict access</title>
+<link rel="stylesheet" id="cf_styles-css" href="/cdn-cgi/styles/main.css" />
+</head>
+<body>
+<div id="cf-wrapper">
+    <div id="cf-error-details" class="p-0">
+        <header class="mx-auto pt-10 lg:pt-6 lg:px-8 w-240 lg:w-full mb-8">
+            <h1 class="inline-block sm:block sm:mb-2 font-light text-60 lg:text-4xl text-black-dark leading-tight mr-2">
+              <span class="inline-block">Access denied</span>
+              <span class="code-label">Error code 1020</span>
+            </h1>
+        </header>
+        <div class="cf-error-footer cf-wrapper w-240 lg:w-full py-10 sm:py-4 sm:px-8 mx-auto text-center sm:text-left border-solid border-0 border-t border-gray-300">
+          <p class="text-13">
+            <span class="cf-footer-item sm:block sm:mb-1">Cloudflare Ray ID: <strong class="font-semibold">8d1f2e3a4b5c6d7f</strong></span>
+          </p>
+        </div>
+    </div>
+</div>
+</body>
+</html>
+`;
+  const WORKER_THREW_PAGE = `<!DOCTYPE html>
+<html class="no-js" lang="en-US">
+<head><title>Worker threw exception | next-host.cireweddings.com | Cloudflare</title></head>
+<body>
+  <div id="cf-wrapper">
+    <div id="cf-error-details" class="cf-error-details-wrapper">
+      <div class="cf-wrapper cf-header cf-error-overview">
+        <h1>
+          <span class="cf-error-type" data-translate="error">Error</span>
+          <span class="cf-error-code">1101</span>
+        </h1>
+        <h2 class="cf-subheadline" data-translate="error_desc">Worker threw exception</h2>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
+`;
+  const PAGE_REASON =
+    "Cloudflare answered 403 with its own error page in the site's place (a block rule, or a fault in the host's DNS or custom domain)";
+
+  test.each([
+    ["the block page of a WAF custom rule or bot protection", BLOCK_PAGE],
+    ["the 1020 page of a firewall rule, an IP Access rule or Zone Lockdown", ERROR_1020_PAGE],
+  ] as const)(
+    "SP8: Cloudflare's own 403 page with no cf-mitigated, %s, on both hosts refuses the run, never two matching answers",
+    async (_, page) => {
+      const blocked = () =>
+        new Response(page, {
+          status: 403,
+          headers: {
+            "content-type": "text/html; charset=UTF-8",
+            "cache-control": "private, max-age=0, no-store, no-cache, must-revalidate",
+            server: "cloudflare",
+          },
+        });
+      const hosts = fakeHosts((url) =>
+        url === "https://next-host.cireweddings.com/" || url === "https://host.cireweddings.com/"
+          ? blocked()
+          : undefined,
+      );
+      const result = await parity(["--stack", "cire"], hosts);
+      expect(result.code).toBe(3);
+      expect(result.slept).toEqual([RETRY_MS]);
+      const report = JSON.parse(readFileSync(result.out, "utf8"));
+      expect(report.refused).toEqual([
+        { site: "cire_host", side: "worker", path: "/", reason: PAGE_REASON },
+        { site: "cire_host", side: "pages", path: "/", reason: PAGE_REASON },
+      ]);
+      expect(report.differing).toBe(0);
+      expect(result.output).toContain(
+        "::error::site-parity: Cloudflare answered in the site's place for cire_host / on the Worker side (https://next-host.cireweddings.com)",
+      );
+      expect(result.output).not.toContain("answers as Pages does");
+    },
+  );
+
+  test("SP8: Cloudflare's page on a status other than 403, a Worker that threw (1101, 500), is the site's own failure: a difference, never a refusal", async () => {
+    const hosts = fakeHosts((url) =>
+      url === "https://next-host.cireweddings.com/"
+        ? new Response(WORKER_THREW_PAGE, {
+            status: 500,
+            headers: { "content-type": "text/html; charset=UTF-8" },
+          })
+        : undefined,
+    );
+    const result = await parity(["--stack", "cire"], hosts);
+    expect(result.code).toBe(1);
+    expect(result.slept).toEqual([]);
+    expect(JSON.parse(readFileSync(result.out, "utf8"))).toMatchObject({
+      differing: 1,
+      refused: [],
+    });
+    expect(result.output).toContain("cire_host /: status, ");
+    expect(result.output).not.toContain("::error::");
+  });
+
+  test.each([
+    ["names 7 s", "7", 7_000],
+    ["names 120 s, past the 30 s cap", "120", 30_000],
+    ["names 0 s", "0", 0],
+    ["names no wait", undefined, 15_000],
+    ["names a negative wait", "-5", 15_000],
+    ["names a date, not seconds", "Thu, 29 Oct 2026 07:28:00 GMT", 15_000],
+  ] as const)(
+    "SP9: a 429 that %s is asked again after its Retry-After, at most 30 s, else after 15 s",
+    async (_, retryAfter, wait) => {
+      const blockedUrl = "https://next-host.cireweddings.com/";
+      const hosts = fakeHosts((url) => (url === blockedUrl ? tooMany(retryAfter) : undefined));
+      const result = await parity(["--stack", "cire"], hosts);
+      expect(result.code).toBe(3);
+      expect(result.slept).toEqual([wait]);
+      expect(hosts.calls.filter((url) => url === blockedUrl)).toHaveLength(2);
+      expect(result.output).toContain(
+        `cire_host / on the Worker side (https://next-host.cireweddings.com), when asked and again ${wait / 1000} s later: answered 429`,
+      );
+      // The wait is the run's, never the report's.
+      expect(readFileSync(result.out, "utf8")).not.toContain("retryAfter");
+    },
+  );
+
+  test("SP9: 429s are asked again one path at a time after the longest wait, beside a challenge's 2 s re-ask", async () => {
+    const holds = "https://next-host.cireweddings.com/";
+    const clears = "https://vendor.cireweddings.com/";
+    const challenged = "https://next.cireweddings.com/";
+    /** Both hosts of the two paths a 429 answered. */
+    const limited = new Set([
+      holds,
+      "https://host.cireweddings.com/",
+      "https://next-vendor.cireweddings.com/",
+      clears,
+    ]);
+    const base = fakeHosts((url, asked) =>
+      url === holds
+        ? tooMany("20")
+        : url === clears && asked === 0
+          ? tooMany()
+          : url === challenged && asked === 0
+            ? challenge()
+            : undefined,
+    );
+    // Counts the requests to the 429 paths in flight once each was asked already.
+    const asked = new Map<string, number>();
+    let inFlight = 0;
+    let most = 0;
+    const fetch = async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      const before = asked.get(url) ?? 0;
+      asked.set(url, before + 1);
+      const counted = limited.has(url) && before > 0;
+      if (counted) most = Math.max(most, ++inFlight);
+      try {
+        await Bun.sleep(1);
+        return await base.fetch(input, init);
+      } finally {
+        if (counted) inFlight -= 1;
+      }
+    };
+    const result = await parity(["--stack", "cire"], {
+      ...base,
+      fetch: fetch as unknown as typeof globalThis.fetch,
+    });
+    expect(result.code).toBe(3);
+    expect(result.slept.toSorted((a, b) => a - b)).toEqual([RETRY_MS, 20_000]);
+    expect(most).toBe(2);
+    for (const url of [holds, clears, challenged]) {
+      expect({ url, asked: asked.get(url) }).toEqual({ url, asked: 2 });
+    }
+    const report = JSON.parse(readFileSync(result.out, "utf8"));
+    expect(report.refused).toEqual([
+      {
+        site: "cire_host",
+        side: "worker",
+        path: "/",
+        reason:
+          "answered 429: a rate limit or the account's daily request cap, not the site's code",
+      },
+    ]);
+    expect(report.differing).toBe(0);
+    // Sites in map order and each site's paths sorted, whenever each was asked again.
+    expect(report.sites.map((site: { site: string }) => site.site)).toEqual([
+      "cire_host",
+      "cire_vendor",
+      "cire_landing",
+    ]);
+    for (const site of report.sites as { probes: { path: string }[] }[]) {
+      const paths = site.probes.map((probe) => probe.path);
+      expect(paths).toEqual(paths.toSorted());
+    }
   });
 
   test("SP7: a challenge that clears when asked again 2 s later is compared as any answer", async () => {
