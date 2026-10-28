@@ -1,9 +1,10 @@
 /**
- * `motion` is dead weight in the SSR Worker build. The two modules that
- * import it, `designs/gala/UnlockReveal.motion.ts` and
- * `designs/classic/UnlockReveal.motion.ts`, are only ever reached from a
- * SolidJS `onMount` prefetch hint or the post-claim reveal handler, both of
- * which are client-only and never run while the server renders HTML. But Vite's SSR
+ * `motion` is dead weight in the SSR Worker build. The modules that import it
+ * only call it in the browser: `designs/gala/UnlockReveal.motion.ts` and
+ * `designs/classic/UnlockReveal.motion.ts` from a SolidJS `onMount` prefetch
+ * hint or the post-claim reveal handler, and `components/EventSheet.tsx` from
+ * a touch's release, in a sheet the server never renders open. None of them
+ * runs while the server renders HTML. But Vite's SSR
  * build still walks and chunks every module reachable via `import()`, dynamic
  * imports included, so the whole library would ship in `dist/server` with
  * nothing there ever calling it.

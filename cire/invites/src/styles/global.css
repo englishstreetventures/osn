@@ -531,8 +531,8 @@
   /* An event sheet's panel arriving (`components/EventSheet`): it fades in
      while sliding the last 1.5rem from the side it lives on — the details from
      the start, the RSVP form from the end, the order of their buttons on the
-     card. Same curve as the sheet's own entry, and the swipe's settle
-     (`transition-panel-settle`) takes the same 280ms and curve.
+     card. Same curve as the sheet's own entry. A swipe settles on a spring
+     instead, started at the finger's speed (`SETTLE_SPRING`, `sheet-swipe.ts`).
 
      Reduced motion needs no special case: the global clamp plays it out in
      0.01ms. */
@@ -611,18 +611,10 @@
   }
 }
 
-/* The event sheet's panels finishing a swipe: from wherever the finger let go
-   to their resting places, on the panel slide's own duration and curve so a
-   swipe and a button press take the same time. EventSheet reads the duration
-   back, so the reduced-motion clamp below reaches it too. */
-@utility transition-panel-settle {
-  transition: transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-
 /* The event sheet's badge (`components/EventSheet`): its two labels moving
    through it like a ticker to the panel on screen, on the panels' own duration
-   and curve, so a press or a swipe's settle moves the words and the panels
-   together. Under a finger (`data-dragging` on the badge) they follow it with
+   and curve after a press. Under a finger and through a swipe's spring
+   (`data-dragging` on the badge) the sheet writes their place every frame, with
    no easing. The reduced-motion clamp below reaches this too. */
 @utility transition-badge-settle {
   transition:

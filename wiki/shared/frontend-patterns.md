@@ -474,9 +474,10 @@ duration list has no parentheses, so a plain split is exact there.
 
 Read the duration back rather than writing it twice. The reduced-motion clamp
 in a stylesheet does not reach a WAAPI animation or a script's timer, but a
-duration read from the clamped CSS carries the clamp's 0.01ms with it: cire's
-`EventSheet` reads its swipe-settle transition's duration (`cssTimeMs`) for the
-fallback timer that ends a settle which fires no `transitionend`.
+duration read from the clamped CSS carries the clamp's 0.01ms with it. A
+script animation with no CSS twin — a spring — has nothing to read back: check
+`matchMedia("(prefers-reduced-motion: reduce)")` and land it at once, as cire's
+`EventSheet` does for its swipe's settle.
 
 The fast tier cannot see either: jsdom computes no animation, so the value is
 empty and no tween runs.

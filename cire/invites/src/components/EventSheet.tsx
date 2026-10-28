@@ -1,4 +1,5 @@
 import Button from "@cire/ui/button";
+import { animate } from "motion";
 import {
   batch,
   createEffect,
@@ -15,9 +16,13 @@ import { DetailsPanel } from "./DetailsPanel";
 import { moveFocus, pressedByPointer } from "./quiet-focus";
 import { RsvpPanel, type RsvpPanelProps } from "./RsvpPanel";
 import {
+  bandOffset,
+  bandSlope,
+  beginsBand,
   beginsDrag,
   clampOffset,
   pastSlop,
+  SETTLE_SPRING,
   shouldCommit,
   startsInside,
   velocityOf,
@@ -53,18 +58,6 @@ export interface EventSheetProps extends RsvpData {
    */
   replied?: boolean;
   onClose: () => void;
-}
-
-/**
- * Seconds or milliseconds, as `getComputedStyle` writes a transition's
- * duration, in milliseconds. The first of a list; 0 for anything else. A
- * duration list holds no parentheses, so a plain split finds its first entry.
- */
-export function cssTimeMs(value: string): number {
-  const first = (value.split(",")[0] ?? "").trim();
-  const amount = Number.parseFloat(first);
-  if (!Number.isFinite(amount)) return 0;
-  return first.endsWith("ms") ? amount : amount * 1000;
 }
 
 /** The panel a guest leaving `panel` arrives on. */
@@ -107,14 +100,45 @@ const BADGE_LABEL =
 /** A touch on the panels, from the moment it goes down. */
 interface Touch {
   id: number;
+  /** Where the finger would have gone down for the panels to sit at `dx`. */
   x0: number;
   y0: number;
   samples: SwipeSample[];
-  /** Undecided inside the slop; then either the sheet's swipe, or not ours. */
-  state: "pending" | "dragging" | "refused";
-  /** The panels' offset, clamped (`clampOffset`). */
+  /**
+   * Undecided inside the slop; then the sheet's swipe, a pull toward the side
+   * with no panel (`banding`), or not ours. `caught` is a touch that landed on
+   * a settling swipe and stopped it, undecided until it leaves the slop.
+   */
+  state: "pending" | "dragging" | "banding" | "caught" | "refused";
+  /** The panels' offset (`clampOffset`, or `bandOffset` while banding). */
   dx: number;
   width: number;
+  /** A caught touch: where it went down, which the slop is measured from. */
+  catchX?: number;
+  catchY?: number;
+  /** A caught touch that moved off sideways is no swipe; it only resumes. */
+  held?: boolean;
+  /** A caught touch: where the settle it stopped was going. */
+  commit?: boolean;
+}
+
+/** What the swipe is doing, from a touch's slop to its settle. */
+type SwipePhase = "idle" | "dragging" | "banding" | "caught" | "springing";
+
+/** A settle in flight, and what to do when it lands. */
+interface Settle {
+  controls: ReturnType<typeof animate> | null;
+  /** The panels' offset at its last frame. */
+  x: number;
+  to: number;
+  /** A swipe's settle can be caught; a band's runs on. */
+  kind: "swipe" | "band";
+  /** A swipe's: whether it is carrying on to the other panel. */
+  commit: boolean;
+  /** Set when a catch takes it over: its completion must not run. */
+  dropped: boolean;
+  paint: (x: number) => void;
+  done: () => void;
 }
 
 /**
@@ -190,9 +214,9 @@ interface Touch {
  * `setBadgeProgress`: as the badge is built, from the panel on screen, so a
  * sheet opened on the form does not fade its words in; on every switch, when
  * the words ease on the panels' 280ms (`transition-badge-settle`); and during a
- * swipe, which writes the finger's share of the panels' width with the easing
- * off (`data-dragging`), and at its settle the value at rest, whether the
- * panels carry on or spring back. Inline `transform`s rather than Tailwind's
+ * swipe and its settle, which write the panels' share of their width on every
+ * frame with the easing off (`data-dragging`), held between 0 and 1, and at
+ * rest the value there. Inline `transform`s rather than Tailwind's
  * `translate-x-*`, which writes the separate `translate` property: one
  * transition list then covers the opacity and the slide.
  *
@@ -256,12 +280,30 @@ interface Touch {
  *   earlier swipe and the guest is now swiping it away.
  * - Both panels are `will-change: transform` while they move, so the drag
  *   moves two composited layers rather than repainting the sheet each frame.
- * - The badge's words move with the finger, by the share of the panels' width
- *   it has covered (see "The badge"), and ease to rest with them.
- * - Released, both panels ease to their resting places on
- *   `transition-panel-settle`, the slide's own duration and curve, read back
- *   from the computed style so the reduced-motion clamp reaches it. A
- *   committed swipe then switches exactly as the badge does, less the slide.
+ * - The badge's words move with the panels, by the share of their width they
+ *   have covered (see "The badge").
+ * - Past either end — back past where the drag started, or beyond the other
+ *   panel's rest — the panels follow the finger on a rubber band
+ *   (`rubberBand`): they give less the further it goes, as content dragged
+ *   past its end does on iOS, rather than stopping dead.
+ * - A sideways pull toward the side with no panel is a band of its own: the
+ *   panel on screen gives a little under the finger and springs back. It
+ *   draws nothing in — the other panel is never mounted for it, so a pull
+ *   loads no map or board the guest swiped away from.
+ * - Released, both panels spring to their resting places (`SETTLE_SPRING`,
+ *   through `motion`), starting at the speed the finger had, so a flick
+ *   carries on rather than braking and a slow release does not jump. A
+ *   spring is script, which no stylesheet clamp reaches: under reduced motion
+ *   the panels land at once. A committed swipe then switches exactly as the
+ *   badge does, less the slide.
+ * - A touch on a settling swipe catches it: the panels stop under the finger,
+ *   which drags on from there. A catch that turns out to be a tap, a held
+ *   finger or a vertical scroll lets the settle go on to where it was going.
+ *   The click such a tap fires is swallowed — it would land on whatever the
+ *   moving panel had under the finger — matched by time, not by pointer, as
+ *   Safari's `click` carries none. A band's settle, or a swipe's inside its
+ *   rubber band, is not caught: there the panels and the finger are not one to
+ *   one.
  */
 export function EventSheet(props: EventSheetProps) {
   const [own, rsvp] = splitProps(props, [
@@ -339,7 +381,7 @@ export function EventSheet(props: EventSheetProps) {
    * is always a touch.
    */
   function show(next: EventPanel, arrived = false, quietly = arrived) {
-    if (next === active() || (!arrived && gesture())) return;
+    if (next === active() || (!arrived && (gesture() || moving()))) return;
     const token = ++switchToken;
     const leaving = active();
 
@@ -377,13 +419,54 @@ export function EventSheet(props: EventSheetProps) {
   }
 
   let touch: Touch | null = null;
-  let settling = false;
-  let settleTimer: ReturnType<typeof setTimeout> | undefined;
+  const [phase, setPhase] = createSignal<SwipePhase>("idle");
+  /** A finger or a settle is moving the panels, or a caught touch holds them. */
+  const moving = () => phase() !== "idle";
+  let settle: Settle | null = null;
   let disposed = false;
+
+  // The click a catching tap would fire: it lands on whatever the moving panel
+  // had under the finger, which the guest never aimed at. Armed by the catch,
+  // spent by the next click, and lapsing 300ms after the touch ends — after a
+  // drag no click comes. Matched by time, never by pointer: Safari sends
+  // `click` as a plain `MouseEvent`, with no `pointerId`.
+  let swallowArmed = false;
+  let swallowToken = 0;
+  let swallowTimer: ReturnType<typeof setTimeout> | undefined;
+  function armSwallow() {
+    swallowToken++;
+    clearTimeout(swallowTimer);
+    swallowArmed = true;
+  }
+  function lapseSwallow() {
+    const token = swallowToken;
+    clearTimeout(swallowTimer);
+    swallowTimer = setTimeout(() => {
+      if (token === swallowToken) swallowArmed = false;
+    }, 300);
+  }
+  function swallowClick(e: MouseEvent) {
+    if (!swallowArmed) return;
+    swallowArmed = false;
+    clearTimeout(swallowTimer);
+    // Default too: a radio or a label still toggles, and a link still follows,
+    // when only the handlers are stopped.
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  }
+
   onCleanup(() => {
     disposed = true;
-    clearTimeout(settleTimer);
+    if (settle) {
+      settle.dropped = true;
+      settle.controls?.stop();
+    }
+    clearTimeout(swallowTimer);
+    rail?.removeEventListener("click", swallowClick, true);
   });
+
+  const reducedMotion = () =>
+    typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   /** Where the panel coming in sits, relative to the one on screen. */
   const incomingSide = (target: EventPanel) => (target === "rsvp" ? 1 : -1);
@@ -410,16 +493,131 @@ export function EventSheet(props: EventSheetProps) {
     }),
   );
 
-  /** Draw both panels, and the badge's words, for a finger at `dx`. */
-  function paint(dx: number, width: number) {
+  /**
+   * A painter for the swipe in progress: both panels, and the badge's words,
+   * for the panels at `dx`. Its elements are taken now, so a settle that
+   * outlives a change of `active()` keeps drawing the panels it started with.
+   */
+  function painter(width: number): ((dx: number) => void) | null {
+    const from = active();
     const target = gesture()?.target;
-    const current = wrappers[active()];
+    const current = wrappers[from];
     const incoming = target && wrappers[target];
-    if (!target || !current || !incoming) return;
-    current.style.transform = `translateX(${dx}px)`;
-    incoming.style.transform = `translateX(${dx + incomingSide(target) * width}px)`;
-    // Toward the form is toward the start (`dx < 0`), and the badge's 1.
-    setBadgeProgress(restOf(active()) - dx / width, true);
+    if (!target || !current || !incoming) return null;
+    const side = incomingSide(target);
+    return (dx) => {
+      current.style.transform = `translateX(${dx}px)`;
+      incoming.style.transform = `translateX(${dx + side * width}px)`;
+      // Toward the form is toward the start (`dx < 0`), and the badge's 1.
+      // Held inside its two rests: a pull past either end moves the panels,
+      // not the words.
+      setBadgeProgress(Math.min(1, Math.max(0, restOf(from) - dx / width)), true);
+    };
+  }
+
+  /**
+   * Spring the panels from `from` to `to`, starting at `velocity` px/ms, then
+   * run `done`. A critically damped spring can still pass its target when it
+   * starts fast enough toward it; once it has crossed, it is held there, so no
+   * empty rail shows beyond the panel's rest. Under reduced motion it lands at
+   * once — no stylesheet clamp reaches a scripted spring.
+   */
+  function spring(
+    kind: Settle["kind"],
+    commit: boolean,
+    from: number,
+    to: number,
+    velocity: number,
+    paint: (x: number) => void,
+    done: () => void,
+  ) {
+    const run: Settle = { controls: null, x: from, to, kind, commit, dropped: false, paint, done };
+    settle = run;
+    setPhase("springing");
+    rail?.setAttribute("data-settling", "");
+    const land = () => {
+      if (run.dropped || disposed) return;
+      settle = null;
+      rail?.removeAttribute("data-settling");
+      // Idle before `done`, so the commit's own `show` is not refused.
+      setPhase("idle");
+      done();
+    };
+    if (reducedMotion() || from === to) {
+      paint(to);
+      land();
+      return;
+    }
+    const toward = Math.sign(to - from);
+    let crossed = false;
+    run.controls = animate(from, to, {
+      type: "spring",
+      ...SETTLE_SPRING,
+      // motion takes units per second; the finger is measured per ms.
+      velocity: velocity * 1000,
+      onUpdate: (value: number) => {
+        if (run.dropped) return;
+        if (!crossed && Math.sign(to - value) === -toward) crossed = true;
+        run.x = crossed ? to : value;
+        paint(run.x);
+      },
+      onComplete: land,
+    });
+  }
+
+  /** Whether the panels at `dx` sit between their two rests on `panel`. */
+  const inTravel = (dx: number, panel: EventPanel, width: number) =>
+    clampOffset(dx, panel, width) === dx;
+
+  /**
+   * Stop a settling swipe where it is and hand it to the finger. Only a
+   * swipe's settle, and only between its two rests: inside a rubber band the
+   * finger and the panels are not one-to-one. Returns the offset it stopped
+   * at and where it was going, or null when there is nothing to catch.
+   */
+  function catchSettle(width: number): { x: number; commit: boolean } | null {
+    const run = settle;
+    if (!run || run.kind !== "swipe" || !inTravel(run.x, active(), width)) return null;
+    // `stop()` ticks to now, which can paint once more and can finish the
+    // spring: the frame is taken, the completion is not.
+    run.controls?.stop();
+    run.dropped = true;
+    settle = null;
+    rail?.removeAttribute("data-settling");
+    setPhase("caught");
+    return { x: run.x, commit: run.commit };
+  }
+
+  /** Spring the swipe from `dx` back to rest on its own panel, or on to the other. */
+  function settleSwipe(commit: boolean, dx: number, velocity: number, width: number) {
+    const target = gesture()?.target;
+    const paint = painter(width);
+    if (!target || !paint) return;
+    const current = wrappers[active()];
+    const incoming = wrappers[target];
+    const to = commit ? -incomingSide(target) * width : 0;
+    // Released inside a rubber band, the panels were moving at the band's
+    // share of the finger's speed.
+    const travel = dx * -incomingSide(target);
+    const over = travel < 0 ? travel : travel > width ? travel - width : 0;
+    const speed = over === 0 ? velocity : velocity * bandSlope(over, width);
+    spring("swipe", commit, dx, to, speed, paint, () => {
+      for (const el of [current, incoming]) {
+        if (!el) continue;
+        el.style.transform = "";
+        el.style.top = "";
+        el.style.minHeight = "";
+      }
+      if (commit && !rail?.closest("[data-closing]")) {
+        show(target, true);
+      } else {
+        batch(() => {
+          setGesture(null);
+          setQuiet((panels) => without(panels, target));
+        });
+      }
+      setBadgeProgress(restOf(active()), false);
+    });
   }
 
   function beginDrag(state: Touch) {
@@ -441,6 +639,7 @@ export function EventSheet(props: EventSheetProps) {
     // still long press can still select the address to copy it.
     window.getSelection()?.removeAllRanges();
     state.state = "dragging";
+    setPhase("dragging");
     const incoming = wrappers[target];
     if (!incoming) return;
     // Where it will rest, under the bar, wherever the panel on screen is
@@ -452,10 +651,30 @@ export function EventSheet(props: EventSheetProps) {
   }
 
   function onPointerDown(e: PointerEvent) {
-    if (e.pointerType !== "touch" || touch || settling || entering() !== null || zoomed()) {
+    if (e.pointerType !== "touch" || touch || entering() !== null || zoomed()) return;
+    if (!(e.target instanceof Element) || !rail) return;
+    const width = rail.clientWidth;
+    if (settle) {
+      // A band's settle runs on; a swipe's, between its rests, is caught.
+      const caught = catchSettle(width);
+      if (caught === null) return;
+      // No compatibility `mousedown`, so nothing under the finger takes focus.
+      e.preventDefault();
+      armSwallow();
+      touch = {
+        id: e.pointerId,
+        x0: e.clientX - caught.x,
+        y0: e.clientY,
+        samples: [{ x: e.clientX, t: e.timeStamp }],
+        state: "caught",
+        dx: caught.x,
+        width,
+        catchX: e.clientX,
+        catchY: e.clientY,
+        commit: caught.commit,
+      };
       return;
     }
-    if (!(e.target instanceof Element) || !rail) return;
     if (startsInside(e.target, rail, (el) => getComputedStyle(el))) return;
     touch = {
       id: e.pointerId,
@@ -464,7 +683,7 @@ export function EventSheet(props: EventSheetProps) {
       samples: [{ x: e.clientX, t: e.timeStamp }],
       state: "pending",
       dx: 0,
-      width: rail.clientWidth,
+      width,
     };
   }
 
@@ -473,81 +692,92 @@ export function EventSheet(props: EventSheetProps) {
     if (!state || e.pointerId !== state.id || state.state === "refused") return;
     const dx = e.clientX - state.x0;
     const dy = e.clientY - state.y0;
+    if (state.state === "caught") {
+      // The slop runs from where this finger went down, not from where the
+      // panels' offset puts it: a jitter is still a tap.
+      const sx = e.clientX - (state.catchX ?? e.clientX);
+      const sy = e.clientY - (state.catchY ?? e.clientY);
+      if (state.held || !pastSlop(sx, sy)) return;
+      if (Math.abs(sx) <= Math.abs(sy)) {
+        state.held = true;
+        return;
+      }
+      state.state = "dragging";
+      setPhase("dragging");
+      state.samples = [{ x: e.clientX, t: e.timeStamp }];
+    }
     if (state.state === "pending") {
       if (!pastSlop(dx, dy)) return;
-      if (!leavable() || !beginsDrag({ dx, dy, panel: active() })) {
+      if (beginsBand({ dx, dy, panel: active() })) {
+        window.getSelection()?.removeAllRanges();
+        state.state = "banding";
+        setPhase("banding");
+      } else if (leavable() && beginsDrag({ dx, dy, panel: active() })) {
+        beginDrag(state);
+      } else {
         state.state = "refused";
         return;
       }
-      beginDrag(state);
     }
     state.samples.push({ x: e.clientX, t: e.timeStamp });
     if (state.samples.length > 16) state.samples.shift();
+    if (state.state === "banding") {
+      state.dx = bandOffset(dx, active(), state.width);
+      const panel = wrappers[active()];
+      if (panel) panel.style.transform = `translateX(${state.dx}px)`;
+      return;
+    }
     state.dx = clampOffset(dx, active(), state.width);
-    paint(state.dx, state.width);
+    painter(state.width)?.(state.dx);
   }
 
   function onPointerEnd(e: PointerEvent) {
     const state = touch;
     if (!state || e.pointerId !== state.id) return;
     touch = null;
+    if (state.state === "caught") {
+      // Not a swipe after all — a tap, a held finger, or a scroll the browser
+      // took: the settle goes on to where it was going, from here.
+      lapseSwallow();
+      resumeCaught(state);
+      return;
+    }
+    if (state.state === "banding") {
+      const panel = wrappers[active()];
+      const raw = e.clientX - state.x0;
+      // Where the band has run back to 0 the panel is still; it has no speed
+      // to carry.
+      const speed =
+        state.dx === 0 ? 0 : velocityOf([...state.samples, { x: e.clientX, t: e.timeStamp }]);
+      spring(
+        "band",
+        false,
+        state.dx,
+        0,
+        speed * bandSlope(raw, state.width),
+        (x) => {
+          if (panel) panel.style.transform = `translateX(${x}px)`;
+        },
+        () => {
+          if (panel) panel.style.transform = "";
+        },
+      );
+      return;
+    }
     if (state.state !== "dragging") return;
     // Where and when the finger lifted: a finger that rested before lifting
     // is no flick, however fast it moved before it stopped.
     state.samples.push({ x: e.clientX, t: e.timeStamp });
+    const velocity = velocityOf(state.samples);
     const commit =
       e.type === "pointerup" &&
-      shouldCommit({
-        dx: state.dx,
-        velocity: velocityOf(state.samples),
-        width: state.width,
-        panel: active(),
-      });
-    settle(commit, state.width);
+      shouldCommit({ dx: state.dx, velocity, width: state.width, panel: active() });
+    settleSwipe(commit, state.dx, e.type === "pointerup" ? velocity : 0, state.width);
   }
 
-  /** Ease both panels to rest: on to the other panel, or back where they were. */
-  function settle(commit: boolean, width: number) {
-    const target = gesture()?.target;
-    const current = wrappers[active()];
-    const incoming = target && wrappers[target];
-    if (!target || !current || !incoming) return;
-    settling = true;
-
-    const moving = [current, incoming];
-    for (const el of moving) el.classList.add("transition-panel-settle");
-    const duration = cssTimeMs(getComputedStyle(incoming).transitionDuration);
-    const side = incomingSide(target);
-    current.style.transform = `translateX(${commit ? -side * width : 0}px)`;
-    incoming.style.transform = `translateX(${commit ? 0 : side * width}px)`;
-    setBadgeProgress(restOf(commit ? target : active()), false);
-
-    const onEnd = (e: TransitionEvent) => {
-      if (e.target === incoming && e.propertyName === "transform") finish();
-    };
-    function finish() {
-      clearTimeout(settleTimer);
-      incoming?.removeEventListener("transitionend", onEnd);
-      if (disposed || !settling) return;
-      settling = false;
-      for (const el of moving) {
-        el.classList.remove("transition-panel-settle");
-        el.style.transform = "";
-        el.style.top = "";
-        el.style.minHeight = "";
-      }
-      if (commit) {
-        show(target as EventPanel, true);
-      } else {
-        batch(() => {
-          setGesture(null);
-          setQuiet((panels) => without(panels, target as EventPanel));
-        });
-      }
-    }
-    incoming.addEventListener("transitionend", onEnd);
-    // A transition that has nowhere to go fires no `transitionend`.
-    settleTimer = setTimeout(finish, duration + 50);
+  /** A caught swipe that never became a drag: on to its target, from rest. */
+  function resumeCaught(state: Touch) {
+    settleSwipe(state.commit === true, state.dx, 0, state.width);
   }
 
   /**
@@ -559,8 +789,18 @@ export function EventSheet(props: EventSheetProps) {
    */
   function pressBadge(e: MouseEvent) {
     const byPointer = pressedByPointer(e);
-    if (byPointer && (entering() !== null || gesture() !== null)) return;
+    if (byPointer && (entering() !== null || gesture() !== null || moving())) return;
     show(otherPanel(active()), false, byPointer);
+  }
+
+  /**
+   * Keeps the rail, and listens on it, in the capture phase, for the click a
+   * catching tap would fire (`swallowClick`). A named function for the same
+   * reason as `holdBadge`.
+   */
+  function holdRail(el: HTMLDivElement) {
+    rail = el;
+    el.addEventListener("click", swallowClick, true);
   }
 
   /**
@@ -676,14 +916,14 @@ export function EventSheet(props: EventSheetProps) {
           `inset-x-6`. A column that grows to fill the scrollport, so the RSVP
           panel can too; see "One height". */}
       <div
-        ref={(el) => (rail = el)}
+        ref={holdRail}
         class="-mx-6 flex grow flex-col px-6"
         classList={{
           "touch-pan-y": !zoomed(),
           "touch-pinch-zoom": !zoomed(),
-          "overflow-x-clip": entering() !== null || gesture() !== null,
-          relative: gesture() !== null,
-          "select-none": gesture() !== null,
+          "overflow-x-clip": entering() !== null || gesture() !== null || moving(),
+          relative: gesture() !== null || moving(),
+          "select-none": gesture() !== null || moving(),
         }}
         // Bound on the element rather than delegated: Solid delegates pointer
         // events to `document`, where every pointer move on the page would
@@ -707,7 +947,7 @@ export function EventSheet(props: EventSheetProps) {
               "pointer-events-none": entering() === "details",
               absolute: gesture()?.target === "details",
               "inset-x-6": gesture()?.target === "details",
-              "will-change-transform": gesture() !== null,
+              "will-change-transform": gesture() !== null || moving(),
             }}
           >
             <DetailsPanel
@@ -732,7 +972,7 @@ export function EventSheet(props: EventSheetProps) {
               "pointer-events-none": entering() === "rsvp",
               absolute: gesture()?.target === "rsvp",
               "inset-x-6": gesture()?.target === "rsvp",
-              "will-change-transform": gesture() !== null,
+              "will-change-transform": gesture() !== null || moving(),
             }}
           >
             <RsvpPanel
