@@ -241,9 +241,12 @@ change — and a wider one than it looks:
   slot missing from the reconciler's read would not be a no-op: that read marks
   an object LIVE, so the slot's images would read as orphans and be swept after
   the grace window. The read selects only columns that hold an R2 key, and
-  reads them by slot name. Two tests pin it: one compares the columns the read
-  names with every `*_image_key` column in the schema, and one uploads an image
-  to every slot and checks the sweep keeps them all.
+  reads them by slot name. Tests pin it: one compares the columns the read
+  names with every column in the schema whose name ends in `image_key`; one
+  uploads an image to every slot and checks the sweep keeps them all; the D1
+  tier runs the same read on D1. The purge test's fixture seeds every slot and
+  fills the crop columns and the story heading too, so a purge that read a
+  column other than a key would reap a value that is not a key and fail.
 - `CROP_ASPECT` in `cire/host/src/lib/image-crop.ts` needs the slot's
   default editor shape (`footer` is 16∶9 — it renders as a full-bleed closing
   hero band, so it opens on the same wide frame the hero does).
@@ -1875,7 +1878,7 @@ cire/api uses `@shared/observability` (workerd-safe subpaths) — see
 `[[cire-workerd]]`. The invite-builder surface is instrumented with spans, the
 redacting logger, and metrics:
 
-- **Spans**: `cire.invite.{getForWedding,getForWeddingId,getForSlug,
+- **Spans**: `cire.invite.{getForWeddingId,getForSlug,sessionOwnsWedding,
   imageKeyForSlug,upsertText,upsertTheme,setDesign,setVisibility,setImage,
   removeImage,setCrop}` +
   `cire.invite.{storeAsset,fetchAsset,deleteAsset}` +
