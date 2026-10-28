@@ -251,11 +251,14 @@ describe("a guest's name", () => {
   }
 
   it("is the household list's too, on the narrowest phone", async () => {
-    // 320px, the reflow floor: the longest surname no longer fits its block.
+    // 320px, the reflow floor. Whether the fixture's longest surname overflows
+    // its block there depends on the platform's font metrics, so the name is
+    // doubled to overflow in any font.
     await page.viewport(320, 844);
     await households(true);
     const names = [...document.querySelectorAll<HTMLElement>("[data-name]")];
     const long = names.find((n) => n.textContent?.includes("Wolfeschlegel"))!;
+    long.textContent = `${long.textContent} ${long.textContent}`;
     expect(getComputedStyle(long).whiteSpace).toBe("nowrap");
     expect(getComputedStyle(long).textOverflow).toBe("ellipsis");
     expect(long.scrollWidth).toBeGreaterThan(long.clientWidth);
