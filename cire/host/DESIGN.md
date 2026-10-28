@@ -257,10 +257,10 @@ until its animation ends.
 the date and colour pickers, the seat menu and the module card carry
 `menu-pop`: a short scale-and-fade from the side of the trigger they opened on
 (`--kb-popper-content-transform-origin`, which Kobalte sets for popovers and
-menus alike), with no overshoot, and out again on keyframes of its own — Kobalte
-holds a closing panel only while an animation with a different name from the
-opening one runs. A new Kobalte popover or menu takes `menu-pop` unless it
-belongs to a checklist row.
+menus alike), with no overshoot. It has no exit: these menus are worked from
+the keyboard, and a closing menu held mounted for an exit animation keeps
+focus inside it, so Kobalte's hand-back to the trigger falls to `<body>`. A new
+Kobalte popover or menu takes `menu-pop` unless it belongs to a checklist row.
 
 **A disclosure fades open and closes at once.** A `<details>` body drops 4px and
 fades in on `::details-content`; it closes instantly, because a fading body

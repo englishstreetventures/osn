@@ -848,15 +848,19 @@
 /* ── A menu or picker opening: menu-pop ─────────────────────────────────────
  * The plain Kobalte popovers and dropdown menus — the profile menu, the
  * wedding switcher, the date and colour pickers — scale up a little from the
- * side of the trigger they opened on and fade in, then out the same way. Short
- * and with no overshoot: a menu is reached for many times a session, and the
- * droplet's spring is kept for the checklist row it belongs to.
+ * side of the trigger they opened on and fade in. Short and with no
+ * overshoot: a menu is reached for many times a session, and the droplet's
+ * spring is kept for the checklist row it belongs to.
+ *
+ * Entry only. These are keyboard-driven, and Kobalte hands focus back to the
+ * trigger as the panel goes: held mounted for an exit animation, a closing
+ * menu keeps focus inside it until it unmounts, and focus then falls to
+ * `<body>` instead of the row the organiser was on. A menu that closes at
+ * once keeps that hand-back.
  *
  * `--kb-popper-content-transform-origin` rather than the popover- or
  * menu-specific property: Kobalte sets it on the floating element of both
- * kinds. The exit has keyframes of its own, never the entry reversed: Kobalte
- * holds a closing panel mounted only while an animation with a different name
- * from the opening one runs.
+ * kinds.
  */
 @keyframes menu-pop-in {
   from {
@@ -865,21 +869,11 @@
   }
 }
 
-@keyframes menu-pop-out {
-  to {
-    opacity: 0;
-    transform: scale(0.98);
-  }
-}
-
 @utility menu-pop {
   transform-origin: var(--kb-popper-content-transform-origin);
 
   &[data-expanded] {
     animation: menu-pop-in var(--dur-fast) var(--ease-out);
-  }
-  &[data-closed] {
-    animation: menu-pop-out var(--dur-fast) var(--ease-in-out);
   }
 }
 
