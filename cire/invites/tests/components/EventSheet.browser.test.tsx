@@ -1257,6 +1257,20 @@ async function mouseClick(p: Point) {
   });
 }
 
+/** The last timestamp, in seconds, a touch helper has sent. */
+let lastTouchStamp = 0;
+
+/**
+ * The time, in seconds, to stamp the next touch sequence with: now, or just
+ * after the last stamp sent, whichever is later. `touchDrag` stamps its moves
+ * over the speed it is asked for, which runs ahead of the clock, so a touch
+ * sent straight after one would otherwise be stamped before it ended — and
+ * Chromium drops a sequence whose time runs backwards, firing no click.
+ */
+function touchClock(): number {
+  return Math.max(Date.now() / 1000, lastTouchStamp + 0.02);
+}
+
 /**
  * A finger from `from` to `to` over `ms`, in `steps` moves, through the
  * browser's real input pipeline — so `touch-action` and the browser's own
@@ -1274,7 +1288,8 @@ async function touchDrag(
   }: { ms?: number; steps?: number; end?: "lift" | "cancel" | "hold" } = {},
 ) {
   const session = cdp();
-  const t0 = Date.now() / 1000;
+  const t0 = touchClock();
+  lastTouchStamp = t0 + ms / 1000 + 0.01;
   const point = (p: Point) => ({ ...toTop(p), id: 1 });
   await session.send("Input.dispatchTouchEvent", {
     type: "touchStart",
@@ -1388,7 +1403,8 @@ async function framesOf(el: HTMLElement): Promise<{ t: number; x: number }[]> {
 async function tapAt(at: Point, jitter = 0) {
   const session = cdp();
   const p = toTop(at);
-  const t0 = Date.now() / 1000;
+  const t0 = touchClock();
+  lastTouchStamp = t0 + 0.05;
   await session.send("Input.dispatchTouchEvent", {
     type: "touchStart",
     touchPoints: [{ ...p, id: 1 }],
@@ -1489,7 +1505,8 @@ describe("EventSheet — swiping between the panels", () => {
     await openOn("details");
     const start = bodyOf("details");
     const session = cdp();
-    const t0 = Date.now() / 1000;
+    const t0 = touchClock();
+    lastTouchStamp = t0 + 1;
     const one = (x: number) => toTop({ x, y: start.y });
     const two = toTop({ x: start.x, y: start.y + 120 });
     await session.send("Input.dispatchTouchEvent", {
