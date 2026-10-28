@@ -1191,7 +1191,7 @@ describe("PW1: one production job per stack with a production deploy", () => {
   );
 
   test.each(PRODUCTION_STACKS.map((s) => [s.key] as const))(
-    "%s: snapshot, re-plan, guard against the approved plan, state check, deploy, compare, a check per site, then the verdict, in that order",
+    "%s: state check, snapshot, then on every release, a flip's included, re-plan and guard against the approved plan right before the deploy; then compare, a check per site and the verdict, in that order",
     (key) => {
       const job = productionStackJob(key);
       const sites = productionSitesOf(key);
@@ -1200,17 +1200,37 @@ describe("PW1: one production job per stack with a production deploy", () => {
       expect(stepById(job, "snapshot")?.run).toBe(
         `bun run scripts/worker-deployments.ts snapshot "$RUNNER_TEMP/deployments.json" --tier production ${sites.join(" ")}`,
       );
-      // On a flip release the verify job planned and guarded before the detach.
+      const plan = stepById(job, "plan");
       const guard = stepById(job, "guard");
-      expect(guard?.run).toContain(`--approved "$RUNNER_TEMP/approved/${key}.json"`);
-      expect(guard?.run).not.toContain("--flip");
-      expect(guard?.env).toBeUndefined();
+      const deploy = stepById(job, "deploy");
       const approved = steps.find((step) => step.with?.name === "alchemy-plan");
       expect(approved?.with).toEqual({ name: "alchemy-plan", path: "${{ runner.temp }}/approved" });
-      for (const step of [guard, stepById(job, "plan"), approved]) {
-        expect(step?.if).toBe("needs.plan.outputs.flip == ''");
+      // SR-1: nothing skips the re-plan or the guard, on a flip release or any
+      // other, and nothing lets the deploy run past a refusal.
+      for (const step of [approved, plan, guard, deploy]) {
+        expect({
+          step: step?.name,
+          if: step?.if,
+          continues: step?.["continue-on-error"],
+        }).toEqual({ step: step?.name, if: undefined, continues: undefined });
       }
-      const deploy = stepById(job, "deploy");
+      expect(plan?.["working-directory"]).toBe(`${key}/infra`);
+      expect(runStep(plan!, { FORCE: "" }).bunCalls).toEqual(["run plan:production"]);
+      expect(runStep(plan!, { FORCE: "yes" }).bunCalls).toEqual(["run plan:production --force"]);
+      expect(runStep(plan!, { FORCE: "" }, 3).exitCode).not.toBe(0);
+      expect(guard?.["working-directory"]).toBe(`${key}/infra`);
+      expect(guard?.env).toEqual({ FLIP: "${{ needs.plan.outputs.flip }}" });
+      const guarded = `^run plan:guard -- --log \\S+/plan/${key}\\.log --out \\S+/plan-guard/${key}\\.json --approved \\S+/approved/${key}\\.json`;
+      const unflipped = runStep(guard!, { FLIP: "" }).bunCalls;
+      expect(unflipped).toHaveLength(1);
+      expect(unflipped[0]).toMatch(new RegExp(`${guarded}$`));
+      const site = sites[0] ?? "";
+      expect(runStep(guard!, { FLIP: site }).bunCalls[0]).toMatch(
+        new RegExp(`${guarded} --flip ${site}$`),
+      );
+      // A refusal fails the guard step, which is the one right before the deploy.
+      expect(runStep(guard!, { FLIP: "" }, 1).exitCode).not.toBe(0);
+      expect(stepIndex(job, "deploy")).toBe(stepIndex(job, "guard") + 1);
       expect(deploy?.["working-directory"]).toBe(`${key}/infra`);
       expect(deploy?.env).toEqual({
         FORCE: "${{ steps.snapshot.outputs.force == 'true' && 'yes' || '' }}",
@@ -1223,7 +1243,7 @@ describe("PW1: one production job per stack with a production deploy", () => {
         "run deploy:production --force",
       ]);
       expect(runStep(deploy!, { FORCE: "" }, 3).exitCode).not.toBe(0);
-      expect(stepById(job, "plan")?.env?.FORCE).toBe(deploy?.env?.FORCE);
+      expect(plan?.env?.FORCE).toBe(deploy?.env?.FORCE);
       const compare = stepById(job, "deployments");
       expect(compare?.run).toBe(
         `bun run scripts/worker-deployments.ts compare "$RUNNER_TEMP/deployments.json" --tier production ${sites.join(" ")}`,
@@ -1233,10 +1253,10 @@ describe("PW1: one production job per stack with a production deploy", () => {
       const order = [
         "hosts",
         "token",
+        "state",
         "snapshot",
         "plan",
         "guard",
-        "state",
         "deploy",
         "deployments",
         ...sites.map((site) => `smoke_${site}`),
@@ -1327,6 +1347,11 @@ describe("PW-F: a flip release verifies, then detaches, then deploys, each behin
       const job = verifyJob(key);
       expect(job.name).toBe(`Verify the ${key} flip plan`);
       expect(environmentOf(job)).toBe("production");
+      // SR-2: the stack job's group, never cancelling.
+      expect(job.concurrency).toEqual({
+        group: `deploy-production-${key}`,
+        "cancel-in-progress": false,
+      });
       expect(needsOf(job).toSorted()).toEqual(GATE_NEEDS);
       const steps = stepsOf(job);
       expect(steps.some((step) => /\bdeploy:production\b/.test(step.run ?? ""))).toBe(false);
@@ -1362,6 +1387,11 @@ describe("PW-F: a flip release verifies, then detaches, then deploys, each behin
       const job = detachJob(key);
       expect(job.name).toBe(`Take the ${key} flip site's domain off Pages`);
       expect(environmentOf(job)).toBe("production");
+      // SR-2: the stack job's group, never cancelling.
+      expect(job.concurrency).toEqual({
+        group: `deploy-production-${key}`,
+        "cancel-in-progress": false,
+      });
       expect(needsOf(job).toSorted()).toEqual(["plan", `stack-${key}-verify`]);
       expect(job.env).toBeUndefined();
       const steps = stepsOf(job);
@@ -1793,6 +1823,28 @@ describe("every other workflow", () => {
     for (const path of otherWorkflows()) {
       const text = readFileSync(join(root, path), "utf8");
       expect(text).not.toMatch(/\bwrangler (versions )?deploy\b|cloudflare\/wrangler-action/);
+    }
+  });
+
+  // A newer job in a concurrency group cancels the one pending there. In a
+  // flip release that one can be the deploy that attaches a domain the detach
+  // has already taken off Pages, so no other workflow, dev's included, joins a
+  // production deploy group.
+  test("takes no production deploy group, nor does deploy.yml", () => {
+    const paths = [...otherWorkflows(), WORKFLOW_FILE.dev];
+    for (const path of paths) {
+      const workflow = load(path);
+      const groups = [
+        workflow.concurrency,
+        ...Object.values(workflow.jobs ?? {}).map((job) => job.concurrency),
+      ].flatMap((concurrency) => (concurrency === undefined ? [] : [String(concurrency.group)]));
+      expect({
+        path,
+        groups: groups.filter((group) => group.startsWith("deploy-production-")),
+      }).toEqual({
+        path,
+        groups: [],
+      });
     }
   });
 

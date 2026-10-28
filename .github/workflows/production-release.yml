@@ -15,7 +15,8 @@ name: Production release
 # domain, and its stack runs three jobs, each with its own approval:
 #
 #   alchemy-plan ──> stack-<stack>-verify ──> flip-detach-<stack> ──> stack-<stack>-production
-#   (approval 1)     (2: re-plan, guard)     (3: domain off Pages)    (4: deploy, attach)
+#   (approval 1)     (2: re-plan, guard)     (3: domain off Pages)    (4: re-plan, guard,
+#                                                                         deploy, attach)
 #
 # `sites` builds each production site a shipping stack deploys, or whose own
 # Pages job ships, once, with the values its build bakes in, and passes them
@@ -32,10 +33,12 @@ name: Production release
 #
 # Each stack job re-plans, refuses a plan the guard refuses or that differs
 # from the one approved at `alchemy-plan`, deploys, and smoke-checks each
-# site, rolling back what it deployed when a check fails. On a flip release
-# its verify job does the re-plan and the guard, before the detach. A record job per
-# site its Worker serves then leaves the site's Deployment record in the
-# `production-records` Environment, which has no reviewer.
+# site, rolling back what it deployed when a check fails. It re-plans and
+# guards on a flip release too, after the detach, holding the plan to the
+# flip; the verify job did the same before the detach, so a refusal there
+# moves nothing. A record job per site its Worker serves then leaves the
+# site's Deployment record in the `production-records` Environment, which
+# has no reviewer.
 #
 # `plan` runs scripts/release-plan.ts. For each surface it finds the commit
 # production last deployed (the GitHub Deployment records the jobs below
@@ -623,11 +626,12 @@ jobs:
   #     stack job its flip-detach job too; `!cancelled()` lets it run when
   #     `sites` or `alchemy-plan` was skipped because nothing needed it, and
   #     never when either failed;
-  #   - takes the group `deploy-production-<surface>` (a stack job
-  #     `deploy-production-<stack>`) without cancelling, so two production
-  #     deploys of one surface never overlap, and they run in the order they
-  #     were created, which is what lets the planner read the newest
-  #     successful record as what production runs.
+  #   - takes the group `deploy-production-<surface>` (a stack job, and its
+  #     verify and detach jobs, `deploy-production-<stack>`) without
+  #     cancelling, so two production deploys of one surface never overlap,
+  #     and they run in the order they were created, which is what lets the
+  #     planner read the newest successful record as what production runs.
+  #     No other workflow takes these groups.
 
   # ── cire API + D1 ────────────────────────────────────────────────────────
   # Migrations are applied to the REMOTE prod DB FIRST, then the Worker is
@@ -1259,8 +1263,10 @@ jobs:
   # and to the one approved at alchemy-plan, deploying nothing;
   # flip-detach-cire takes the domain and its CNAME off the Pages project on
   # a fresh runner with nothing installed, so the narrow Pages and DNS token
-  # reaches no dependency's code; then stack-cire-production deploys, which
-  # attaches the domain to the Worker. A refusal in the first detaches nothing.
+  # reaches no dependency's code; then stack-cire-production plans and guards
+  # once more, as on every release, and deploys, which attaches the domain to
+  # the Worker. A refusal in the first detaches nothing; one in the last
+  # leaves the host on neither, for `pages-domain.ts attach` to put back.
   # The site is unreachable from the detach until the deploy attaches it.
   stack-cire-verify:
     name: Verify the cire flip plan
@@ -1269,6 +1275,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: production
+    # The stack job's group: no other run touches the cire stack while a flip
+    # is under way. No other workflow may join it — a newer job in a group
+    # cancels the one pending there, which after the detach would be the
+    # deploy that attaches the domain.
+    concurrency:
+      group: deploy-production-cire
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
         with:
@@ -1362,6 +1375,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment: production
+    concurrency:
+      group: deploy-production-cire
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
         with:
@@ -1433,7 +1449,6 @@ jobs:
           path: .
 
       - name: Fetch the approved plans
-        if: needs.plan.outputs.flip == ''
         uses: actions/download-artifact@v4
         with:
           name: alchemy-plan
@@ -1451,6 +1466,20 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
+      # `deploy --yes` upgrades or bootstraps the state store without asking;
+      # this refuses one that is not as this Alchemy expects before the plan
+      # reads it. The plan itself runs without --yes, so it upgrades nothing.
+      - name: Check the production state store
+        id: state
+        run: |
+          bun run --cwd shared/infra state:check || {
+            echo "::error::The production Alchemy state store does not answer as this Alchemy expects. Run the Alchemy state store workflow, tier production, bootstrap, then check."
+            exit 1
+          }
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
       - name: Record each Worker's newest deployment
         id: snapshot
         run: bun run scripts/worker-deployments.ts snapshot "$RUNNER_TEMP/deployments.json" --tier production cire_host cire_vendor cire_landing
@@ -1458,12 +1487,12 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
-      # The plan approved at alchemy-plan may be hours old. Plan again, and
-      # deploy only what the guard allows and what equals the approved plan.
-      # A flip release did this in stack-<stack>-verify, before the detach.
+      # The plan approved at alchemy-plan may be hours old, and on a flip
+      # release the domain has left Pages since. Plan again, with the force
+      # the deploy uses, and deploy only what the guard allows and what equals
+      # the approved plan: on a flip, the flip site's update alone.
       - name: Plan the cire stack again
         id: plan
-        if: needs.plan.outputs.flip == ''
         working-directory: cire/infra
         run: |
           mkdir -p "$RUNNER_TEMP/plan"
@@ -1481,24 +1510,13 @@ jobs:
         if: ${{ failure() && steps.plan.outcome == 'failure' }}
         run: cat "$RUNNER_TEMP/plan/cire.log"
 
+      # The last step before the deploy: a refusal fails the job here.
       - name: Guard the plan, and hold it to the approved one
         id: guard
-        if: needs.plan.outputs.flip == ''
         working-directory: cire/infra
-        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/cire.log" --out "$RUNNER_TEMP/plan-guard/cire.json" --approved "$RUNNER_TEMP/approved/cire.json"
-
-      # `deploy --yes` upgrades or bootstraps the state store without asking;
-      # this refuses one that is not as the plan read it, right before.
-      - name: Check the production state store
-        id: state
-        run: |
-          bun run --cwd shared/infra state:check || {
-            echo "::error::The production Alchemy state store does not answer as this Alchemy expects. Run the Alchemy state store workflow, tier production, bootstrap, then check."
-            exit 1
-          }
+        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/cire.log" --out "$RUNNER_TEMP/plan-guard/cire.json" --approved "$RUNNER_TEMP/approved/cire.json" ${FLIP:+--flip "$FLIP"}
         env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          FLIP: ${{ needs.plan.outputs.flip }}
 
       # The stack refuses to deploy unless OSN_DEPLOY_TIER and both
       # credentials are set, and each site was built for production.
@@ -1584,8 +1602,10 @@ jobs:
   # and to the one approved at alchemy-plan, deploying nothing;
   # flip-detach-musubi takes the domain and its CNAME off the Pages project on
   # a fresh runner with nothing installed, so the narrow Pages and DNS token
-  # reaches no dependency's code; then stack-musubi-production deploys, which
-  # attaches the domain to the Worker. A refusal in the first detaches nothing.
+  # reaches no dependency's code; then stack-musubi-production plans and
+  # guards once more, as on every release, and deploys, which attaches the
+  # domain to the Worker. A refusal in the first detaches nothing; one in the
+  # last leaves the host on neither, for `pages-domain.ts attach` to put back.
   # The site is unreachable from the detach until the deploy attaches it.
   stack-musubi-verify:
     name: Verify the musubi flip plan
@@ -1594,6 +1614,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: production
+    # The stack job's group: no other run touches the musubi stack while a
+    # flip is under way. No other workflow may join it — a newer job in a
+    # group cancels the one pending there, which after the detach would be
+    # the deploy that attaches the domain.
+    concurrency:
+      group: deploy-production-musubi
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
         with:
@@ -1687,6 +1714,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment: production
+    concurrency:
+      group: deploy-production-musubi
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
         with:
@@ -1757,7 +1787,6 @@ jobs:
           path: .
 
       - name: Fetch the approved plans
-        if: needs.plan.outputs.flip == ''
         uses: actions/download-artifact@v4
         with:
           name: alchemy-plan
@@ -1775,6 +1804,20 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
+      # `deploy --yes` upgrades or bootstraps the state store without asking;
+      # this refuses one that is not as this Alchemy expects before the plan
+      # reads it. The plan itself runs without --yes, so it upgrades nothing.
+      - name: Check the production state store
+        id: state
+        run: |
+          bun run --cwd shared/infra state:check || {
+            echo "::error::The production Alchemy state store does not answer as this Alchemy expects. Run the Alchemy state store workflow, tier production, bootstrap, then check."
+            exit 1
+          }
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
       - name: Record each Worker's newest deployment
         id: snapshot
         run: bun run scripts/worker-deployments.ts snapshot "$RUNNER_TEMP/deployments.json" --tier production osn_social musubi_landing
@@ -1782,12 +1825,12 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
-      # The plan approved at alchemy-plan may be hours old. Plan again, and
-      # deploy only what the guard allows and what equals the approved plan.
-      # A flip release did this in stack-<stack>-verify, before the detach.
+      # The plan approved at alchemy-plan may be hours old, and on a flip
+      # release the domain has left Pages since. Plan again, with the force
+      # the deploy uses, and deploy only what the guard allows and what equals
+      # the approved plan: on a flip, the flip site's update alone.
       - name: Plan the musubi stack again
         id: plan
-        if: needs.plan.outputs.flip == ''
         working-directory: musubi/infra
         run: |
           mkdir -p "$RUNNER_TEMP/plan"
@@ -1805,24 +1848,13 @@ jobs:
         if: ${{ failure() && steps.plan.outcome == 'failure' }}
         run: cat "$RUNNER_TEMP/plan/musubi.log"
 
+      # The last step before the deploy: a refusal fails the job here.
       - name: Guard the plan, and hold it to the approved one
         id: guard
-        if: needs.plan.outputs.flip == ''
         working-directory: musubi/infra
-        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/musubi.log" --out "$RUNNER_TEMP/plan-guard/musubi.json" --approved "$RUNNER_TEMP/approved/musubi.json"
-
-      # `deploy --yes` upgrades or bootstraps the state store without asking;
-      # this refuses one that is not as the plan read it, right before.
-      - name: Check the production state store
-        id: state
-        run: |
-          bun run --cwd shared/infra state:check || {
-            echo "::error::The production Alchemy state store does not answer as this Alchemy expects. Run the Alchemy state store workflow, tier production, bootstrap, then check."
-            exit 1
-          }
+        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/musubi.log" --out "$RUNNER_TEMP/plan-guard/musubi.json" --approved "$RUNNER_TEMP/approved/musubi.json" ${FLIP:+--flip "$FLIP"}
         env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          FLIP: ${{ needs.plan.outputs.flip }}
 
       # The stack refuses to deploy unless OSN_DEPLOY_TIER and both
       # credentials are set, and each site was built for production.
