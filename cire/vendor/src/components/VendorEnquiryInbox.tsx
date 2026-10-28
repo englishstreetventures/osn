@@ -77,7 +77,7 @@ export default function VendorEnquiryInbox(props: VendorEnquiryInboxProps) {
     <div class="flex flex-col gap-4">
       <div class="flex flex-col gap-0.5">
         <p class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">Enquiries</p>
-        <h2 class="font-display text-text text-ui-lg leading-tight font-light">Your inbox</h2>
+        <h2 class="font-display text-text text-ui-lg leading-ui-tight font-light">Your inbox</h2>
       </div>
 
       <output class="sr-only">{announcement()}</output>
