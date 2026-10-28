@@ -42,7 +42,9 @@ runs `card -- --resolve-issue`, which asks `gh` for the pull request, names the
 issue the branch was cut for — the branch's `NEW-FEAT.md` when it names one of
 the pull request's links, else the first `Closes` line of the body — and
 declares the sum of the `complexity:` ratings of every issue in this
-repository the pull request closes. It commits the JSON with the branch. The
+repository the pull request closes or, when it links none here, of the tracker
+issues it closes; from a tracker issue it keeps that pair of labels and nothing
+else. It commits the JSON with the branch. The
 rules, and what they do to the comparison of spend against difficulty, are in
 `wiki/conventions/session-metrics.md` §Which issue a card names, and what it
 divides by.
@@ -118,9 +120,11 @@ right-skewed — median 3.6M tokens against a mean of 15.4M and a maximum of
 | `tests/render.test.ts`          | The `<details>` block — including that it contributes no `##` heading                                                                                                                                                        |
 | `tests/pr-metrics.test.ts`      | The pure functions, against synthetic records                                                                                                                                                                                |
 | `tests/pr-metrics.cli.test.ts`  | The real script as a subprocess, against a throwaway git repo and a fake `~/.claude/projects`                                                                                                                                |
-| `tests/dispatch-branch.test.ts` | `TASK-BRANCH:` marker resolution, the readers that consult it, and the dedupe                                                                                                                                                |
+| `tests/dispatch-branch.test.ts` | `TASK-BRANCH:` marker resolution, for `Agent` dispatches and for the agents a Workflow run starts, the readers that consult it, and the dedupe                                                                               |
 | `tests/backfill.test.ts`        | `backfill.ts` as a subprocess, against a stubbed `gh` on `PATH`                                                                                                                                                              |
+| `tests/issue-identity.test.ts`  | Which issue a card names and what it divides by: `selectIssues`, `issuesToRate`, `decideComplexity`, and the filter that keeps only a tracker issue's `complexity:` pair                                                     |
 | `tests/report.test.ts`          | The `report` subcommand's analyses                                                                                                                                                                                           |
+| `tests/queries-schema.test.ts`  | That `queries.sql` declares every field a card carries, with a type that holds its value. Needs no DuckDB                                                                                                                    |
 
 The CLI test earns its keep: subagent spend lives in a
 `<session-id>/subagents/*.jsonl` sibling of the main transcript, and a collector

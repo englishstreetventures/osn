@@ -8,7 +8,7 @@ related:
   - "[[cire-organiser]]"
   - "[[cire-entitlements]]"
   - "[[cire-rsvp-table]]"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-28
 ---
 # Host Portal Layout System
 
@@ -143,9 +143,28 @@ component was previously reading a container it did not live in.
 ## Layout switches worth knowing
 
 - **Module rail** (`ModuleSidebar`) — `@2xl/shell` swaps the sheet trigger for the
-  rail, and the rail is `sticky top-6 self-start` from the same threshold. Without
-  `self-start` the flex row stretches it to the panel's height and there is
-  nothing left to slide against. Widening to `w-56` at `@5xl/shell`.
+  rail, and the rail is `sticky self-start` from the same threshold, at
+  `top-[calc(5.5rem+1px)]`: under the page's sticky top bar (4rem and its
+  hairline wherever the frame is wide enough for the rail) plus 1.5rem of air.
+  A smaller offset slides the rail's top rows under the bar once the page
+  scrolls. Without `self-start` the flex row stretches it to the panel's height
+  and there is nothing left to slide against. Widening to `w-56` at
+  `@5xl/shell`.
+  A toggle at the rail's top, above Overview and a hairline, collapses it to
+  its icons (2.625rem, the row's own padding around the icon, so no icon moves)
+  and back. It stays in one place in both states, and it is first in the tab
+  order because it is first on screen. The width is two whole class sets swapped by a ternary, since a
+  collapsed width beside `w-52` would lose to the `@5xl/shell:w-56` variant, and
+  it slides over `--dur-base` on a press only; a step at `@5xl/shell` lands at
+  once. Collapsed, an icon is all a row shows, so it drops its 80% fade and the
+  active one turns `gold-ink`, to read at 3:1. The browser keeps the choice in `localStorage`
+  (`cire.host.rail`, `src/lib/rail-preference.ts`), read as the sidebar is
+  created so a collapsed page never slides on load; the sheet ignores it.
+  Collapsed, a row keeps its label as its accessible name — in flow at no
+  width, because `sr-only` would drop the label's line box and every row below
+  would rise — and shows it, with the module's hint, in a Kobalte tooltip on
+  hover after 300ms or at once on keyboard focus. `cire/host/DESIGN.md` §5 The
+  rail, collapsed holds the design and its trade-offs.
   A row for a module the wedding's tier does not include stays on both the rail
   and the sheet, faded to `text-text-faint` and inert: it navigates nowhere, and
   a press — click, tap, Enter or Space — opens a card (a Kobalte `Popover`)
@@ -153,10 +172,13 @@ component was previously reading a container it did not live in.
   it is small text that has to be read — with an **Upgrade to Gold** button.
   The row's accessible name carries the same words, so the lock is heard while
   tabbing. A press moves focus onto **Upgrade to Gold**, and Escape puts it back
-  on the row. On the rail only, a pointer resting on the row for three seconds
-  also opens the card, as a preview that takes no focus and closes once the
-  pointer has left the row and the card; once focus goes into it, it stays. The
-  sheet has no dwell, because an open card stands down the sheet's focus trap.
+  on the row. On the expanded rail only, a pointer resting on the row for three
+  seconds also opens the card, as a preview that takes no focus and closes once
+  the pointer has left the row and the card; once focus goes into it, it stays.
+  The sheet has no dwell, because an open card stands down the sheet's focus
+  trap, and neither does the collapsed rail, whose tooltip already names the
+  tier; there a press opens the card and a second press on the same row closes
+  it, and no tooltip shows while a card is open.
   The card portals out on both surfaces, because the sheet's nav scrolls and
   would clip it, so `LockedRow` puts it back in the tab order by hand: Tab on
   the open row enters the card, Shift+Tab from its first button returns to the
@@ -479,7 +501,8 @@ drops the rows. The re-read runs on:
   wedding is open, for every role — a helper's seat included
   (`surfacesFor().canListen`). A `members-changed` signal, a dropped socket, a
   reconnect and a stop each re-read the list at once, outside the
-  once-a-minute limit; a `tasks-changed` signal does not, since no task
+  once-a-minute limit, except a reconnect just after a return to the tab
+  (below); a `tasks-changed` signal does not, since no task
   changes who may open the wedding. A member removed or who left, and every
   member of a deleted wedding, gets the signal and then a 1008 close, so their
   tab re-reads and stops listening. A member narrowed to `helper` keeps the
@@ -506,6 +529,20 @@ or one without a list, changes nothing. The list is also written locally: a
 created wedding, a rename, or the upgrade return's own refresh. An answer
 that arrives after one of those local writes is thrown away and the list is
 asked for once more.
+
+A tab hidden for two ping intervals closes its socket, and shown again it
+reopens it, so a return can bring both the tab's own re-read and a
+reconnect. A reconnect within a second of the tab being shown
+(`RESUME_REOPEN_MS`, timed on the monotonic clock, which a wall-clock step
+cannot shorten) counts as the return's own: it sends no request while one
+started after the show has been applied, waits on one in flight (and on any
+newer one that overtakes it) until it is 30 s old, when any trigger
+abandons it, and sends its own only if none of them is applied. What
+it can miss is a change committed between that request's query and the hub
+admitting the socket, under a second. A later reconnect, or one
+after a return too soon to re-read, sends its own request as above. So a
+return reads the list once when the socket reopens within the second; how
+often a real return does is not measured.
 
 Push stops in a tab when no hub is bound on the tier, when the socket is
 blocked, after six failed attempts, or when the hub closes the socket with
@@ -584,5 +621,6 @@ What that leaves testable, and where it lives:
 | Master-detail behaviour: draft-per-enquiry, no cross-thread messages, placeholder, `aria-current` cardinality, post-reply refresh | `EnquiriesView.test.tsx`, `EnquiryInbox.test.tsx` |
 | Which preview layer mounts, and that its crossover matches `@4xl/builder` | `InviteBuilder.test.tsx` — a stub `ResizeObserver` reporting a fixed content-box width; a reasonable cheap choice in the unit tier, since happy-dom runs no layout, not a workaround for a missing harness |
 | The RSVP view's event tabs (ids beside the shell's, keys, a strip of twelve), sort heads, the pinned head row at 1280 and Guest column at 390 (in flow at 1280), focus kept clear of the pinned cells, and the box fitting under the top bar | `RsvpView.events.browser.test.tsx`, real Chromium, with the real `ModuleShell` around it; screenshots in light and dark land in its gitignored `__screenshots__/` |
+| The collapsed rail: icons and toggle that do not move, collapsed icons at 3:1 and the tooltip's text at 4.5:1 in both themes, the tooltip's place and stacking, labels only on the collapsed rail, Chrome's names and descriptions, labels kept off a locked row's card and no dwell, the label fade only after a press, the slide only on a press, reduced motion, and the sheet ignoring the choice at 390 | `ModuleSidebar.collapse.browser.test.tsx`, real Chromium, real `ModuleShell`; clears `cire.host.rail` before and after each test, since the browser context is shared across files. Its frame-time measurement runs only with `VITE_RAIL_SLIDE_BENCH=1`. The toggle, the stored choice across a reload, a locked card opened and closed from the narrow rail and the rail sticking below the real top bar are in the `cire-checklist-starter` E2E flow |
 | The run sheet's thread, and its `run-sheet` switch from two grid tracks to three | `RunSheetView.browser.test.tsx`, at 390 and 1280px |
 | The container queries themselves | `bun run --cwd cire/host test:browser` — a real-Chromium tier documented in `wiki/conventions/browser-tests.md`. Worked example: `cire/host/tests/components/PreviewInviteButton.browser.test.tsx`, which asserts the "Preview invite" label is clipped to `sr-only` at phone width and swaps to the written label once the `frame` container passes 42rem. |

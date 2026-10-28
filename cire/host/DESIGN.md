@@ -326,6 +326,105 @@ literal colours rather than tokens, since a ramp means nothing on paper. Each
 table is kept whole on a page where it fits. `SeatingView.browser.test.tsx`
 checks it under print media.
 
+### The rail, collapsed
+
+The module rail collapses to its icons from a toggle at its top, and back.
+Each choice, and what it was weighed against:
+
+- **An icon rail, not a hidden or off-canvas one.** Collapsed, the rail is
+  2.625rem: the row's own `px-3` around the 1.125rem icon, so no icon moves as
+  it narrows (§1). The active row keeps its icon, pill and bar, and locked rows
+  stay dimmer than the rest, so the organiser still sees where they are and
+  still reaches any module in one click. A rail hidden outright makes every
+  move two clicks and drops the "you are here" mark; an off-canvas drawer at
+  desktop is the phone's sheet, a modal per move.
+- **A collapsed icon reads at 3:1.** Collapsed, the icon is the only mark a row
+  shows, so it is held to the 3:1 WCAG asks of a graphic that identifies a
+  control: it drops the `opacity-80` fade it wears beside a label, and the
+  active one is `--gold-ink`, since `--gold` has no contrast contract (§2) and
+  falls short of 3:1 on the pill's wash in the light theme. A locked icon stays
+  in `--text-faint`, which clears 3:1 at full strength and still reads dimmer
+  than an idle one.
+- **Every row keeps its place.** A collapsed label stays in the row's flow at
+  no width, with the gap before it gone. `sr-only` would take the label's line
+  box, which is taller than the icon, out of the row, and every row below would
+  rise — Settings, the last, by about 17px.
+- **The toggle sits at the rail's top** — the owner's choice — above the first
+  module and a hairline, in the icons' column and outside the `<nav>`, which
+  holds the modules alone. It stays in that one place in both states, so after
+  a click it is still under the pointer and a second click undoes the first.
+  It is icon-only in both states (`panel-left-close`, `panel-left-open`), so it
+  never reads as one more module.
+- **The toggle comes first in the tab order.** Focus follows what is on screen
+  (WCAG 2.4.3 focus order, 1.3.2 meaningful sequence): a toggle drawn above the
+  modules but reached after them, by CSS `order` or a `tabindex`, would send
+  keyboard focus back up the rail. It is also the order a reader meets the
+  controls in — the control that changes the list, then the list. The cost is
+  one Tab stop before Overview on every keyboard pass through the rail; a
+  keyboard user who never collapses it pays that stop and nothing more.
+- **Its name changes with the state, and it keeps `aria-expanded`.** "Collapse
+  sidebar" and "Expand sidebar" are also the words its tooltip shows, so voice
+  control can say what it sees; `aria-expanded` is there because a screen
+  reader announces a changed state on a focused button where it often skips a
+  changed name. The cost: a screen reader hears both ("Expand sidebar,
+  collapsed").
+- **Labels move into a tooltip.** On the collapsed rail a row shows a Kobalte
+  tooltip 8px to the right of the rail: the label, then the module's hint in
+  `--text-muted`, or for a locked row "Included with <Tier>" in `--gold-ink`.
+  It is `--surface-raised` with a `--border` hairline, radius `sm`,
+  `shadow-md`, and `z-50`: Kobalte copies the content's `z-index` onto the
+  element it positions, and without one the tooltip paints under the top bar.
+  It opens after 300ms of hover, so a pointer crossing the rail opens nothing,
+  and at once on keyboard focus; never on touch. It is for the eye only:
+  `aria-hidden`, and nothing points at it. A collapsed row's name is still its
+  label and its description still its hint — a hidden copy it points at, where
+  the expanded row uses `title` — so a screen reader hears the same in both
+  states. `@shared/ui`'s `Tooltip` does not fit: its trigger is a span that
+  takes no focus.
+- **On the collapsed rail a locked card opens on a press and closes on the
+  next** — the owner's choice. On the expanded rail, a pointer resting three
+  seconds on a locked row also opens its card. Collapsed, the tooltip names the
+  tier after 300ms, and a card in the same place three seconds later would say
+  it again, so there is no dwell: a click, Enter or Space opens the card, a
+  second click on the same row closes it, and Escape closes it and puts focus
+  back on the row. No tooltip shows while any card is open.
+- **Motion.** On a press, the rail's `width` transitions over `--dur-base` with
+  `--ease-in-out`, something moving between two places. Only on a press: the
+  expanded width also steps at `@5xl/shell` (a resize, zoom, a scrollbar
+  arriving), and that lands at once, as everything else in the shell does, so
+  the transition is on the rail only while a press's slide runs. The labels
+  fade back in as it widens (`rail-label`, held for the first 40% by keyframe
+  percentage), and a tooltip arrives with a `--dur-fast` fade and a 4px slide
+  out of the rail (`rail-tip`) and leaves at once. The reduced-motion switch
+  stops all three. The panel reflows on every frame of the slide. Holding the
+  panel's width through the slide was rejected: expanding would push the held
+  content under the frame's edge and then snap, which §1 forbids.
+
+  Over a 300-guest RSVP table, the slide each way takes 24–25 frames, the
+  longest 9.4–21.9ms and the median 8.3ms.
+
+  *Measured 2026-10-28 — `VITE_RAIL_SLIDE_BENCH=1 bunx --bun vitest run --project browser tests/components/ModuleSidebar.collapse.browser.test.tsx -t "frame by frame" --reporter=verbose` in `cire/host`, headless Chromium on a 120Hz Mac, two runs*
+- **Remembered per browser.** `localStorage` key `cire.host.rail`, value
+  `collapsed` (`src/lib/rail-preference.ts`); expanding removes the key. It is
+  read as the sidebar is created, so a collapsed page paints collapsed and never
+  slides on load, and every storage failure reads as expanded. Per browser, not
+  per wedding: the choice is about the screen.
+- **The sheet ignores it.** Below `@2xl/shell` the sheet stands in for the rail
+  and shows every label; the toggle lives inside the rail, which is not laid out
+  there.
+- **No keyboard shortcut and no palette entry.** A single key or a chord risks
+  clashing with the browser and with screen readers, and the palette does not
+  know whether the rail or the sheet is showing.
+- **The rail sticks under the top bar**, at `top-[calc(5.5rem+1px)]`: the bar's
+  4rem and hairline at every width that has a rail, plus 1.5rem. A smaller
+  offset slides the rail's first rows under the bar once the page scrolls.
+
+`ModuleSidebar.collapse.browser.test.tsx` checks the places, the icon and
+tooltip ink, the tooltip, the names and the motion in Chromium; the
+`cire-checklist-starter` end-to-end flow checks the toggle, the stored choice
+across a reload, a locked card opened and closed from the narrow rail and the rail
+sticking below the real top bar.
+
 ---
 
 ## 6. Theme preference

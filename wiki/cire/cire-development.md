@@ -23,7 +23,7 @@ related:
   - "[[commands]]"
   - "[[bundle-size-guards]]"
   - "[[cire-registry]]"
-last-reviewed: 2026-10-27
+last-reviewed: 2026-10-28
 ---
 
 # Cire development guide
@@ -130,6 +130,17 @@ on one fluent Elysia chain. Where a new route goes:
 The two Stripe webhooks sit after the guard and skip it by exact path instead —
 [[cire-auth#CSRF origin guard]].
 
+**Every response the app builds carries `X-Content-Type-Options: nosniff`.**
+`createApp` sets it once with Elysia's `.headers()`, which starts each
+request's `set.headers` from it. So it reaches a handler's return, a gate's or
+limiter's refusal, the origin guard's 403, the CORS preflight and the error
+handler's 404 and 500. A `Response` a handler builds gets it too: Elysia copies
+the defaults onto it and keeps any value the `Response` already sets. A new
+route needs nothing for it. The Worker's own 503 (`misconfigured()` in
+`cire/api/src/index.ts`) is built before the app exists and sets the header
+itself. The realtime route answers before the app; its refusals have no body.
+`cire/api/tests/app.test.ts` checks one response of each kind.
+
 `createApp` returns `AnyElysia`. Nothing reads its route types, and the chain's
 inferred type names DTOs that the route modules do not export, which
 `declaration` (on in `shared/typescript-config/base.json`) refuses with TS4058.
@@ -150,7 +161,7 @@ Two type limits apply to the chain:
   `LSP` tool run `tsc` ([[agent-tooling#Code search]]), so they show the error
   while `typecheck` passes.
 
-`createApp` makes **64** chained calls.
+`createApp` makes **66** chained calls, counting `.headers`.
 
 *Measured 2026-10-27 on TypeScript 7.1.0-beta and Bun 1.4.4 — the chain's own mounts repeated or cut in a scratch copy of `createApp`, checked with `node_modules/.bin/tsc -p cire/api --noEmit` and `bun run --cwd cire/api typecheck`*
 
@@ -180,7 +191,15 @@ webhooks deliberately settle into a deleted wedding — see [[cire-auth]].
 
 Every organiser CSV export (`createOrganiserExportRoutes` in
 `cire/api/src/routes/organiser-weddings.ts`) is owner-only, rate-limited per
-user, and built with `serialiseCsv` (`cire/api/src/lib/csv.ts`). A new one
+user, and built with `serialiseCsv` (`cire/api/src/lib/csv.ts`). The exports
+share one per-user limiter (`exportLimiter`, 10 a minute). `gifts.csv`, the
+heaviest, sits in its own instance (`createOrganiserGiftExportRoutes`), where a
+tighter limiter (`giftExportLimiter`, 3 a minute) answers before the shared
+one: a gift download it refuses spends nothing from the shared allowance, and
+one it admits spends one of each, so an owner's exports stay at 10 a minute in
+all. Both count in memory, per Worker isolate. A new export joins the shared
+limiter; one that reads far more than the others adds a tighter limiter in
+front of it, the same way. A new one
 also needs a **row ceiling enforced in the read**, not after it: order in SQL
 and `LIMIT` at the ceiling plus one, then cut and log a warning when that extra
 row arrives. Workers Free allows 10 ms of CPU, and a ceiling applied to rows
@@ -548,7 +567,10 @@ parser resolves them as dot segments, so where a wedding id is read from a URL �
 the dashboard hash (`dashboard-route.ts`) and the upgrade return query
 (`upgrade-return.ts`) — `isDotSegment` refuses it. `parseRoute` drops the RSVP page's event id, also
 read from the hash, the same way, though that id only ever selects among the
-events the API returned and never reaches a request path. Ids further along the path
+events the API returned and never reaches a request path. A tab name from an old
+`#/weddings/<id>/<tab>` link picks a module only when it is one of the legacy
+alias table's own keys (`Object.hasOwn`); any other name, one every object
+inherits included, opens the wedding's default module. Ids further along the path
 (an item, a task, a payment) are encoded at the call site with
 `encodeURIComponent`. `tests/lib/wedding-path.contract.test.ts` fails on any
 hand-built `/api/organiser/weddings/${…}` outside `api.ts`.

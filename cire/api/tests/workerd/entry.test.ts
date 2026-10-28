@@ -61,6 +61,18 @@ describe("src/entry.ts on workerd", () => {
     expect(await res.text()).toBe("");
   });
 
+  // Under `bun test` the app runs Elysia's Bun adapter; on workerd it runs the
+  // web-standard one, which builds error answers and copies headers onto a
+  // handler's own Response in code of its own.
+  it.each([
+    ["the not-found answer", "/nope", 404],
+    ["a Response a handler builds", "/api/auth/oidc/start", 302],
+  ])("sends nosniff on %s", async (_name, path, status) => {
+    const res = await mf.dispatchFetch(`https://api.example.test${path}`, { redirect: "manual" });
+    expect(res.status).toBe(status);
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+  });
+
   it("runs the hub class it exports, with the whole module evaluated in its isolate", async () => {
     const hub = await mf.getDurableObjectNamespace("REALTIME_HUB");
     const stub = hub.get(hub.idFromName("cire:wedding:wed_1")) as unknown as HubStub;

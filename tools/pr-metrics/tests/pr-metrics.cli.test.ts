@@ -132,10 +132,32 @@ async function run(
             { type: "tool_use", name: "Edit", input: { file_path: "osn/api/src/auth.ts" } },
           ],
         }),
+        // Typed while the agent was working: the harness queues it.
+        record({
+          type: "attachment",
+          timestamp: "2026-09-07T10:01:15.000Z",
+          attachment: {
+            type: "queued_command",
+            prompt: "not like that",
+            commandMode: "prompt",
+            origin: { kind: "human" },
+          },
+        }),
+        // Queued by a sender the collector does not know: no turn, and a warning.
+        record({
+          type: "attachment",
+          timestamp: "2026-09-07T10:01:20.000Z",
+          attachment: {
+            type: "queued_command",
+            prompt: "sent from somewhere new",
+            origin: { kind: "remote-human" },
+          },
+        }),
+        // Typed once the agent had stopped: a new instruction, not an interruption.
         record({
           type: "user",
           timestamp: "2026-09-07T10:02:00.000Z",
-          message: { content: "not like that" },
+          message: { content: "now the docs" },
         }),
         // Machinery that also arrives as role user; must not count as a turn.
         record({
@@ -257,7 +279,7 @@ test("the CLI writes a card from a real repo and a real transcript", async () =>
   const { exitCode, card } = await run();
 
   expect(exitCode).toBe(0);
-  expect(card.schema_version).toBe(3);
+  expect(card.schema_version).toBe(4);
   expect(card.pr.number).toBe(908);
   expect(card.pr.branch).toBe(BRANCH);
   expect(card.pr.phase).toBe("at-open");
@@ -289,11 +311,19 @@ test("the CLI buckets the diff by path", async () => {
   expect(card.diff.commits).toBe(1);
 });
 
-test("the CLI separates the opening brief from a mid-flight correction", async () => {
+test("the CLI counts only the prompt sent mid-turn as corrective", async () => {
   const { card } = await run();
 
-  expect(card.interaction.user_turns).toBe(2);
+  expect(card.interaction.user_turns).toBe(3);
   expect(card.interaction.corrective_turns).toBe(1);
+});
+
+// A sender the allow-list does not know counts as no turn, which on its own
+// would read as "no interruptions". The warning is what makes it visible.
+test("the CLI names a queued record's unknown sender", async () => {
+  const { stderr } = await run();
+
+  expect(stderr).toContain("unknown sender (remote-human)");
 });
 
 test("the CLI charges pre-edit exploration to tokens_before_first_edit", async () => {
@@ -1074,13 +1104,19 @@ test("the SessionEnd hook still passes the flags this CLI relies on", async () =
  * and the fall-through then exits non-zero and fails loudly instead of quietly
  * going online.
  *
- * `labels` maps an issue number to what `gh issue view <n> --json labels`
- * prints; a number missing from it makes that call fail. The stub writes every
- * call it receives to a log, returned as `calls`.
+ * `labels` maps an issue number in this repository to what `gh issue view <n>
+ * --repo <this repository> --json labels` prints; a number missing from it makes
+ * that call fail. `trackerLabels` is the same for the private tracker, answered
+ * the way the one `gh api graphql` call against it is: every listed issue under
+ * its `i<n>` alias, `trackerUnreadable` ones as `null` with a non-zero exit, and
+ * `trackerRepository: null` as a repository the token cannot see. The stub
+ * writes every call it receives to a log, returned as `calls`.
  */
 interface ResolvingOptions {
   /** The pull request `gh pr list` returns; `null` lists none. */
   pull?: { body?: string; refs: { number: number; repo: string }[] } | null;
+  /** A pull request from a fork on the same branch name, listed first (newest). */
+  fork?: { body: string };
   labels?: Record<number, string[]>;
   /** Written to `NEW-FEAT.md` at the fixture's root. */
   newFeat?: string;
@@ -1089,11 +1125,15 @@ interface ResolvingOptions {
   repoView?: string | null;
   /** A branch the fixture checkout is switched to before the run. */
   checkout?: string;
+  trackerLabels?: Record<number, string[]>;
+  trackerUnreadable?: number[];
+  /** `null`: the tracker answers as a repository this token cannot see. */
+  trackerRepository?: null;
 }
 
 async function runResolving(
   options: ResolvingOptions,
-): Promise<{ card: Card; stderr: string; calls: string[] }> {
+): Promise<{ card: Card; cardText: string; stdout: string; stderr: string; calls: string[] }> {
   const dir = await mkdtemp(join(tmpdir(), "pr-metrics-resolve-"));
 
   try {
@@ -1118,12 +1158,23 @@ async function runResolving(
       options.pull === undefined
         ? { body: "", refs: [{ number: 1041, repo: "englishstreetventures/osn" }] }
         : options.pull;
-    const listing = JSON.stringify(
-      pull === null
+    const listing = JSON.stringify([
+      ...(options.fork === undefined
+        ? []
+        : [
+            {
+              number: 1047,
+              isCrossRepository: true,
+              body: options.fork.body,
+              closingIssuesReferences: [],
+            },
+          ]),
+      ...(pull === null
         ? []
         : [
             {
               number: 1046,
+              isCrossRepository: false,
               body: pull.body ?? "",
               closingIssuesReferences: pull.refs.map(({ number, repo }) => {
                 const [login, name] = repo.split("/");
@@ -1131,14 +1182,28 @@ async function runResolving(
                 return { number, repository: { name, owner: { login } } };
               }),
             },
-          ],
-    );
+          ]),
+    ]);
+    const repo = options.repoView ?? "englishstreetventures/osn";
     const issueCases = Object.entries(options.labels ?? {})
       .map(
         ([n, names]) =>
-          `  *"issue view ${n} "*) printf '%s' '${JSON.stringify({ labels: names.map((name) => ({ name })) })}' ;;`,
+          `  *"issue view ${n} --repo ${repo} "*) printf '%s' '${JSON.stringify({ labels: names.map((name) => ({ name })) })}' ;;`,
       )
       .join("\n");
+    const trackerIssues = Object.fromEntries([
+      ...Object.entries(options.trackerLabels ?? {}).map(([n, names]) => [
+        `i${n}`,
+        { labels: { nodes: names.map((name) => ({ name })) } },
+      ]),
+      ...(options.trackerUnreadable ?? []).map((n) => [`i${n}`, null]),
+    ]);
+    const trackerAnswer =
+      options.trackerRepository === null
+        ? `printf '%s' '{"data":{"repository":null},"errors":[{"type":"NOT_FOUND"}]}' ; exit 1`
+        : `printf '%s' '${JSON.stringify({ data: { repository: trackerIssues } })}' ; ${
+            (options.trackerUnreadable ?? []).length > 0 ? "exit 1" : "exit 0"
+          }`;
 
     const binDir = join(dir, "bin");
     await mkdir(binDir, { recursive: true });
@@ -1153,6 +1218,7 @@ case "$*" in
       : `printf '%s' '${options.repoView ?? "englishstreetventures/osn"}'`
   } ;;
   *"pr list"*) printf '%s' '${listing}' ;;
+  *"api graphql"*"osn-tracker"*) ${trackerAnswer} ;;
 ${issueCases}
   *) exit 1 ;;
 esac
@@ -1194,15 +1260,17 @@ esac
         },
       },
     );
-    const stderr = await new Response(proc.stderr).text();
+    const [stdout, stderr] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ]);
     await proc.exited;
 
-    const card = JSON.parse(
-      await Bun.file(join(dir, "out", "feat-metrics-cli-fixture.json")).text(),
-    ) as Card;
+    const cardText = await Bun.file(join(dir, "out", "feat-metrics-cli-fixture.json")).text();
+    const card = JSON.parse(cardText) as Card;
     const calls = (await Bun.file(log).text()).split("\n").filter(Boolean);
 
-    return { card, stderr, calls };
+    return { card, cardText, stdout, stderr, calls };
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -1222,21 +1290,189 @@ test("--resolve-issue recovers the pull request, issue and rating", async () => 
   expect(card.complexity).toEqual({ declared: 3, method: "confirmed", issues: 1 });
 });
 
-// The one that must not regress. Most of this repository's pull requests close
+// The one that must not regress. Many of this repository's pull requests close
 // a finding in the private `englishstreetventures/osn-tracker`, whose `severity:`/`area:`
 // labels must never reach a card committed to a public repository. A pull request
-// that closes only such an issue records no issue at all, and never asks for its
-// labels: a rating may exist there, and nobody looked.
-test("--resolve-issue records no issue for one that closes only a tracker issue", async () => {
-  const { card, calls } = await runResolving({
-    pull: { refs: [{ number: 1041, repo: "englishstreetventures/osn-tracker" }] },
-    labels: { 1041: ["severity:high", "area:security", "complexity:5"] },
+// that links no issue here takes its rating from the tracker issues it closes —
+// the `complexity:` pair and nothing else — and names no issue.
+const TRACKER = "englishstreetventures/osn-tracker";
+const FINDING_LABELS = ["severity:high", "area:security", "product:osn", "needs:decision"];
+const leaks = /severity:|area:|needs:|product:osn"/;
+
+test("--resolve-issue rates a tracker-only pull request and carries none of the tracker's other labels", async () => {
+  const { card, cardText, stdout, stderr, calls } = await runResolving({
+    pull: { body: `Closes ${TRACKER}#901041`, refs: [{ number: 901041, repo: TRACKER }] },
+    trackerLabels: { 901041: [...FINDING_LABELS, "complexity:5"] },
   });
 
   expect(card.issue.number).toBeNull();
-  expect(card.complexity).toEqual({ declared: null, method: "not-fetched", issues: 0 });
   expect(card.issue.labels).toEqual([]);
+  expect(card.complexity).toEqual({ declared: 5, method: "confirmed", issues: 1 });
+  expect(cardText).not.toMatch(leaks);
+  expect(stdout).not.toMatch(leaks);
+  expect(stderr).not.toMatch(leaks);
+  expect(calls.filter((call) => call.includes("api graphql"))).toHaveLength(1);
   expect(calls.filter((call) => call.includes("issue view"))).toEqual([]);
+});
+
+test("--resolve-issue sums the ratings of every tracker issue a tracker-only pull request closes", async () => {
+  const { card } = await runResolving({
+    pull: {
+      body: "",
+      refs: [
+        { number: 901041, repo: TRACKER },
+        { number: 901042, repo: TRACKER },
+      ],
+    },
+    trackerLabels: {
+      901041: ["severity:low", "complexity:3"],
+      901042: ["area:performance", "complexity:2", "complexity:unconfirmed"],
+    },
+  });
+
+  expect(card.complexity).toEqual({ declared: 5, method: "unconfirmed", issues: 2 });
+  expect(card.issue.labels).toEqual([]);
+});
+
+test.each([
+  ["a repository it cannot see", { trackerRepository: null }],
+  [
+    "an issue it cannot resolve",
+    { trackerUnreadable: [901042], trackerLabels: { 901041: ["complexity:3"] } },
+  ],
+] as [string, Partial<ResolvingOptions>][])(
+  "--resolve-issue records not-fetched when the token meets %s in the tracker",
+  async (_, tracker) => {
+    const { card, stderr } = await runResolving({
+      pull: {
+        body: "",
+        refs: [
+          { number: 901041, repo: TRACKER },
+          { number: 901042, repo: TRACKER },
+        ],
+      },
+      ...tracker,
+    });
+
+    expect(card.complexity).toEqual({ declared: null, method: "not-fetched", issues: 0 });
+    expect(stderr).toMatch(/could not read [12] issues? in another repository/);
+    expect(stderr).not.toContain("osn-tracker#");
+  },
+);
+
+// A warning is pasted into test plans and reports that become public, so it
+// counts another repository's issues and never names one beside what was read.
+test("--resolve-issue counts, and does not name, a tracker issue with no rating", async () => {
+  const { card, stderr } = await runResolving({
+    pull: {
+      body: "",
+      refs: [
+        { number: 901041, repo: TRACKER },
+        { number: 901042, repo: TRACKER },
+      ],
+    },
+    trackerLabels: { 901041: ["complexity:3"], 901042: ["severity:low"] },
+  });
+
+  expect(card.complexity).toEqual({ declared: null, method: "none", issues: 0 });
+  expect(stderr).toContain("no complexity: rating on 1 issue in another repository");
+  expect(stderr).not.toContain("osn-tracker#");
+});
+
+// `gh pr list --head` matches a branch name in any fork. Only a pull request
+// whose branch lives in this repository is the one a card describes, and only
+// its body decides which tracker issues are asked about.
+test("--resolve-issue ignores a pull request from a fork on the same branch name", async () => {
+  const { card, calls } = await runResolving({
+    pull: null,
+    fork: { body: `Closes ${TRACKER}#901099` },
+  });
+
+  expect(card.pr.number).toBeNull();
+  expect(calls.filter((call) => call.includes("api graphql"))).toEqual([]);
+});
+
+test("--resolve-issue takes this repository's pull request when a fork's is newer", async () => {
+  const { card, calls } = await runResolving({
+    pull: { body: `Closes ${TRACKER}#901041`, refs: [] },
+    fork: { body: `Closes ${TRACKER}#901099` },
+    trackerLabels: { 901041: ["complexity:2"] },
+  });
+
+  expect(card.pr.number).toBe(1046);
+  expect(card.complexity).toEqual({ declared: 2, method: "confirmed", issues: 1 });
+  expect(calls.filter((call) => call.includes("901099"))).toEqual([]);
+});
+
+// A stacked pull request has no closing references until it is retargeted to
+// `main`, so its body's tracker line is all there is to read.
+test("--resolve-issue rates an open pull request from a tracker line in its body alone", async () => {
+  const { card } = await runResolving({
+    pull: { body: `Closes ${TRACKER}#901041`, refs: [] },
+    trackerLabels: { 901041: ["complexity:2", "complexity:unconfirmed"] },
+  });
+
+  expect(card.complexity).toEqual({ declared: 2, method: "unconfirmed", issues: 1 });
+});
+
+// Beside an issue here the tracker issues are the branch's own review findings,
+// filed and fixed on it. They add nothing, so nothing is asked about them.
+test("--resolve-issue never asks the tracker about a pull request that closes an issue here", async () => {
+  const { card, cardText, calls } = await runResolving({
+    pull: {
+      body: `Closes #1041\nCloses ${TRACKER}#900619`,
+      refs: [
+        { number: 1041, repo: "englishstreetventures/osn" },
+        { number: 900619, repo: TRACKER },
+      ],
+    },
+    labels: { 1041: ["product:shared", "complexity:2"] },
+    trackerLabels: { 900619: [...FINDING_LABELS, "complexity:3"] },
+  });
+
+  expect(card.issue.number).toBe(1041);
+  expect(card.issue.labels).toEqual(["product:shared", "complexity:2"]);
+  expect(card.complexity).toEqual({ declared: 2, method: "confirmed", issues: 1 });
+  expect(cardText).not.toMatch(/severity:|area:/);
+  expect(calls.filter((call) => call.includes("api graphql"))).toEqual([]);
+});
+
+test("--resolve-issue never asks a third repository, and records not-fetched", async () => {
+  const { card, calls } = await runResolving({
+    pull: { body: "Closes someone/else#5", refs: [] },
+  });
+
+  expect(card.complexity).toEqual({ declared: null, method: "not-fetched", issues: 0 });
+  expect(calls.filter((call) => call.includes("someone") || call.includes("graphql"))).toEqual([]);
+});
+
+// A body anyone with write access can edit decides how many tracker issues are
+// asked about, and the `SessionEnd` hook that runs this has 60 seconds. A number
+// GraphQL cannot take as an `Int` would fail the whole call.
+test.each([
+  ["more than 50 tracker issues", Array.from({ length: 51 }, (_, i) => 902000 + i)],
+  ["a number GraphQL cannot take", [900005, 99_999_999_999]],
+])("--resolve-issue asks nothing for %s and records not-fetched", async (_, numbers) => {
+  const { card, calls } = await runResolving({
+    pull: { body: numbers.map((n) => `Closes ${TRACKER}#${n}`).join("\n"), refs: [] },
+    trackerLabels: Object.fromEntries(numbers.map((n) => [n, ["complexity:1"]])),
+  });
+
+  expect(card.complexity).toEqual({ declared: null, method: "not-fetched", issues: 0 });
+  expect(calls.filter((call) => call.includes("api graphql"))).toEqual([]);
+});
+
+// The cap and the `Int` bound are limits, not refusals: 50 tracker issues,
+// one of them numbered at GraphQL's largest `Int`, are still asked about.
+test("--resolve-issue asks about 50 tracker issues, the largest GraphQL Int among them", async () => {
+  const numbers = [...Array.from({ length: 49 }, (_, i) => 902000 + i), 2 ** 31 - 1];
+  const { card, calls } = await runResolving({
+    pull: { body: numbers.map((n) => `Closes ${TRACKER}#${n}`).join("\n"), refs: [] },
+    trackerLabels: Object.fromEntries(numbers.map((n) => [n, ["complexity:1"]])),
+  });
+
+  expect(calls.filter((call) => call.includes("api graphql"))).toHaveLength(1);
+  expect(card.complexity).toEqual({ declared: 50, method: "confirmed", issues: 50 });
 });
 
 // GitHub lists the issues a pull request closes by number, not by what the
@@ -1331,7 +1567,7 @@ test("--resolve-issue records none for a closed issue with no labels, and names 
   });
 
   expect(card.complexity).toEqual({ declared: null, method: "none", issues: 0 });
-  expect(stderr).toContain("#1041 carries no complexity");
+  expect(stderr).toContain("no complexity: rating on #1041");
 });
 
 test("--resolve-issue records lookup-failed when one closed issue's labels cannot be read", async () => {
@@ -1370,8 +1606,9 @@ test.each([
 // closes here. A number named by mistake has nothing read for it.
 test("--issue naming an issue the pull request does not close reads none of its labels", async () => {
   const { card, calls } = await runResolving({
-    pull: { refs: [{ number: 754, repo: "englishstreetventures/osn-tracker" }] },
+    pull: { refs: [{ number: 900754, repo: TRACKER }] },
     labels: { 1999: ["complexity:8"] },
+    trackerUnreadable: [900754],
     extraArgs: ["--issue", "1999"],
   });
 
@@ -1384,18 +1621,20 @@ test("--issue naming an issue the pull request does not close reads none of its 
 // A card is public. `--issue` with the number of another repository's issue
 // the pull request links is refused: the card names no issue.
 test("--issue naming the tracker issue the pull request closes records no issue", async () => {
-  const { card, calls, stderr } = await runResolving({
+  const { card, cardText, calls, stderr } = await runResolving({
     pull: {
-      body: "Closes englishstreetventures/osn-tracker#754",
-      refs: [{ number: 754, repo: "englishstreetventures/osn-tracker" }],
+      body: `Closes ${TRACKER}#900754`,
+      refs: [{ number: 900754, repo: TRACKER }],
     },
-    labels: { 754: ["complexity:3"] },
-    extraArgs: ["--issue", "754"],
+    labels: { 900754: ["product:osn-core", "complexity:8"] },
+    trackerLabels: { 900754: ["severity:high", "complexity:3"] },
+    extraArgs: ["--issue", "900754"],
   });
 
   expect(card.issue.number).toBeNull();
   expect(card.issue.labels).toEqual([]);
-  expect(card.complexity.method).toBe("not-fetched");
+  expect(card.complexity).toEqual({ declared: 3, method: "confirmed", issues: 1 });
+  expect(cardText).not.toMatch(/severity:/);
   expect(calls.filter((call) => call.includes("issue view"))).toEqual([]);
   expect(stderr).toContain("--issue");
 });

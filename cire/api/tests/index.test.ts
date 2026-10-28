@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it, spyOn } from "bun:test";
 import { weddingHosts, weddings } from "@cire/db";
 import { exportKeyToJwk, generateArcKeyPair } from "@shared/crypto/jwk";
 import { eq } from "drizzle-orm";
+import { Effect } from "effect";
 import { Miniflare } from "miniflare";
 
 import { probeRequests, type ProbeRequest } from "../scripts/d1-latency-probe";
@@ -13,6 +14,7 @@ import handler from "../src/index";
 import { CIRE_METRICS } from "../src/metrics";
 import * as osnBridge from "../src/services/osn-bridge";
 import { RECONCILE_STOP_KEY } from "../src/services/r2-reconcile";
+import { type GiftSummaryNotice, retentionService } from "../src/services/retention";
 import { jsonBody } from "./test-helpers";
 import { captureLogs } from "./test-helpers/capture-logs";
 import { ddlStatements } from "./test-helpers/ddl-statements";
@@ -247,6 +249,9 @@ describe("CLAIM_RATE_LIMITER fail-closed guard", () => {
     expect(await jsonBody(res)).toEqual({
       error: "Worker misconfigured: missing CLAIM_RATE_LIMITER binding",
     });
+    // The Worker builds this answer itself, outside the app's header.
+    expect(res.headers.get("content-type")).toBe("application/json");
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
   });
 
   it("also fail-closes 503 in the `dev` deployed tier when the binding is absent", async () => {
@@ -1163,6 +1168,96 @@ describe("D1 session routing at the entry points", () => {
     expect((await runCron(mail)).pending).toHaveLength(11);
     expect((await runCron({ ...arc, OSN_API_URL: mail.OSN_API_URL })).pending).toHaveLength(11);
   }, 30_000);
+
+  // The retention sweep mails its parting summaries only through a real
+  // transport to an address osn-api gives. Without either, it gets no notifier
+  // and sweeps silently; a log transport standing in would be mail nobody
+  // reads, recorded as the couple having been told.
+  const osnArc = async () => ({
+    OSN_API_URL: "https://osn.example.test",
+    CIRE_API_ARC_PRIVATE_KEY: await exportKeyToJwk((await generateArcKeyPair()).privateKey),
+    CIRE_API_ARC_KEY_ID: "kid_test",
+  });
+  /** Runs the cron and returns the notifier the retention sweep was handed. */
+  const cronNotifier = async (extraEnv: Record<string, unknown>) => {
+    const sweep = spyOn(retentionService, "sweepExpiredGuestData");
+    try {
+      await captureLogs(() => runCron(extraEnv));
+      // The sweep runs either way; only its third argument differs.
+      expect(sweep).toHaveBeenCalledTimes(1);
+      return sweep.mock.calls[0]?.[2];
+    } finally {
+      sweep.mockRestore();
+    }
+  };
+
+  it("gives the retention sweep a gift-summary notifier that mails through Resend, with a Resend key and osn-api's ARC settings", async () => {
+    const notify = await cronNotifier({ RESEND_API_KEY: "re_test", ...(await osnArc()) });
+    if (notify === undefined) throw new Error("the retention sweep was given no notifier");
+
+    const sent: unknown[] = [];
+    const fetchSpy = spyOn(globalThis, "fetch").mockImplementation(((
+      input: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (url === "https://osn.example.test/internal/accounts/emails") {
+        return Promise.resolve(
+          Response.json({ emails: [{ profile_id: "usr_owner", email: "owner@example.test" }] }),
+        );
+      }
+      if (url.startsWith("https://api.resend.com/")) {
+        // The batch endpoint takes an array of emails, the single one an email.
+        const body = JSON.parse(String(init?.body)) as { to: unknown } | { to: unknown }[];
+        sent.push(...(Array.isArray(body) ? body : [body]).map((email) => email.to));
+        return Promise.resolve(Response.json({ data: [{ id: "email_test" }] }));
+      }
+      return Promise.reject(new Error(`unexpected fetch ${url}`));
+    }) as typeof fetch);
+    const notice: GiftSummaryNotice = {
+      weddingId: "wed_notified",
+      weddingName: "Notified Wedding",
+      ownerOsnProfileIds: ["usr_owner"],
+      currency: "AUD",
+      finalEventOn: "2025-05-10",
+      summary: {
+        sweptOn: "2026-06-17",
+        firstGiftOn: "2025-05-11",
+        lastGiftOn: "2025-05-11",
+        claims: { reserved: 0, purchased: 0 },
+        contributions: {
+          count: 1,
+          totals: [{ currency: "AUD", amountMinor: 5_000, count: 1 }],
+          gifts: [{ on: "2025-05-11", amountMinor: 5_000, currency: "AUD" }],
+        },
+      },
+    };
+    try {
+      await captureLogs(() => Effect.runPromise(notify([notice])));
+    } finally {
+      fetchSpy.mockRestore();
+    }
+
+    // Delivery is a real send: the address osn-api gave, through Resend.
+    expect(sent).toEqual([["owner@example.test"]]);
+  }, 30_000);
+
+  it.each([
+    ["osn-api's ARC settings but no Resend key", {}, true],
+    ["a Resend key but no osn-api ARC settings", { RESEND_API_KEY: "re_test" }, false],
+    [
+      "osn-api's ARC settings and a Resend key whose RESEND_API_URL the deployed tier refuses",
+      { RESEND_API_KEY: "re_test", RESEND_API_URL: "http://localhost:4008" },
+      true,
+    ],
+  ])(
+    "gives the retention sweep no gift-summary notifier with %s",
+    async (_, mail, withArc) => {
+      const notify = await cronNotifier({ ...mail, ...(withArc ? await osnArc() : {}) });
+      expect(notify).toBeUndefined();
+    },
+    30_000,
+  );
 
   it("skips the RSVP digest when WEB_ORIGIN fails the boot check", async () => {
     // A cron-only isolate never runs the `fetch` check, and the digest builds

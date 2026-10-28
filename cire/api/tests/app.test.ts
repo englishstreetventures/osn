@@ -308,6 +308,64 @@ describe("unhandled errors", () => {
   });
 });
 
+// Every response the app builds carries `X-Content-Type-Options: nosniff`, so
+// a browser never treats a JSON or CSV body as script or markup. Each row
+// reaches a different place a response is built: a handler's return, a gate's
+// early return, the error handler, the CORS plugin's preflight, a Response a
+// handler builds itself. Each asserts its status first, so no row can pass on
+// another path's answer.
+describe("X-Content-Type-Options on every response the app builds", () => {
+  const generous = () => createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 });
+  const headerApp = (options: AppOptions = {}) =>
+    createApp(createDb(":memory:"), {
+      claimLimiter: generous(),
+      oidcStartLimiter: generous(),
+      oidcSessionLimiter: generous(),
+      ...options,
+    });
+  const claimPost = (origin = "http://localhost:4321"): RequestInit => ({
+    method: "POST",
+    headers: { Origin: origin, "Content-Type": "application/json" },
+    body: JSON.stringify({ publicId: "TESTONE-IVY-AA11" }),
+  });
+
+  it.each<[string, () => ReturnType<typeof createApp>, string, RequestInit, number]>([
+    ["a handler's JSON", () => headerApp(), "/api/auth/session", {}, 200],
+    ["a gate's refusal", () => headerApp(), "/api/organiser/weddings", {}, 401],
+    ["the not-found answer", () => headerApp(), "/nope", {}, 404],
+    ["an unhandled error", brokenClaimApp, "/api/claim", claimPost(), 500],
+    [
+      "the origin guard's refusal",
+      () => headerApp(),
+      "/api/claim",
+      claimPost("https://evil.example"),
+      403,
+    ],
+    [
+      "a CORS preflight",
+      () => headerApp(),
+      "/api/claim",
+      {
+        method: "OPTIONS",
+        headers: { Origin: "http://localhost:4321", "Access-Control-Request-Method": "POST" },
+      },
+      204,
+    ],
+    [
+      "a limiter's refusal",
+      () => headerApp({ claimLimiter: { check: () => false } }),
+      "/api/claim",
+      claimPost(),
+      429,
+    ],
+    ["a Response a handler builds", () => headerApp(), "/api/auth/oidc/start", {}, 302],
+  ])("%s", async (_name, build, path, init, status) => {
+    const res = await appRequest(build(), path, init);
+    expect(res.status).toBe(status);
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+  });
+});
+
 // The owner's rule for every route with a per-IP limiter: the limiter answers
 // first, so a refused request costs no organiser session lookup, no OSN token
 // verify (and so no JWKS fetch), no role-gate query and no guest session

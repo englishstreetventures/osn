@@ -853,7 +853,12 @@ A primitive, in `@shared/ui`:
 An auth view goes to `osn/auth-ui/src/<Name>.tsx` instead, with both a subpath
 export and a line in `osn/auth-ui/src/index.ts`, and a test in
 `osn/auth-ui/tests/`. cire chrome goes to `cire/ui/src/<name>.tsx`. If it is not
-obvious which of the three, [[osn-and-musubi]] decides it.
+obvious which of the three, [[osn-and-musubi]] decides it. Either gets lab
+stories under `tools/lab/src/stories/osn-auth-ui/` or `cire-ui/`, never beside
+the component ([[component-lab#Stories for auth and cire components]]).
+
+A new or changed component in any of the three ships in a pull request of its
+own, under the feature that uses it: [[stacked-prs#Frontend: one component per pull request]].
 
 ## Testing considerations
 

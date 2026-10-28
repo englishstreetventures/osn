@@ -46,6 +46,8 @@ import {
   metricWeddingPurgeBacklog,
   metricWeddingPurged,
 } from "../metrics";
+import { INVITE_IMAGE_SLOTS } from "../schemas/invite";
+import { SLOT_COLUMNS } from "./invite";
 import type { DeletableBucket } from "./r2-cleanup";
 import { reapR2Objects } from "./r2-cleanup";
 import { changeClaimLive } from "./wedding-lifecycle";
@@ -99,6 +101,15 @@ const keysOf = (rows: readonly KeyRow[]): string[] =>
   rows.flatMap((row) => Object.values(row).filter((k): k is string => !!k));
 
 /**
+ * Each invite image slot's key column, by slot, taken from `SLOT_COLUMNS` for
+ * every slot, so a slot added to `INVITE_IMAGE_SLOTS` is reaped with no edit
+ * here. Only key columns, so `keysOf` may take every value.
+ */
+const slotKeyFields = Object.fromEntries(
+  INVITE_IMAGE_SLOTS.map((slot) => [slot, weddingInviteCustomisations[SLOT_COLUMNS[slot].key]]),
+);
+
+/**
  * A preview never applied within this window is abandoned: the organiser's
  * portal flow previews and applies in one sitting, so 7 days is generous while
  * still bounding how long an orphaned sheet upload (guest PII) can linger.
@@ -138,11 +149,7 @@ function purgeOne(
             .from(imports)
             .where(eq(imports.weddingId, weddingId)),
           db
-            .select({
-              hero: weddingInviteCustomisations.heroImageKey,
-              story: weddingInviteCustomisations.storyImageKey,
-              footer: weddingInviteCustomisations.footerImageKey,
-            })
+            .select(slotKeyFields)
             .from(weddingInviteCustomisations)
             .where(eq(weddingInviteCustomisations.weddingId, weddingId)),
           db

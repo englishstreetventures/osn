@@ -13,13 +13,51 @@
 --
 -- Full schema and the reasoning behind it: wiki/conventions/session-metrics.md
 
--- `map_inference_threshold` reads an object with more than 20 distinct keys
--- across the cards as a MAP rather than a STRUCT. `tool_calls` is one: a card
--- can name both `Bash` and `bash`, and struct fields are case-insensitive, so
--- inferring a struct fails on a duplicate name.
+-- The card's shape is declared, not inferred. Five objects on a card are keyed
+-- by data rather than by schema — `spend.by_model`, `spend.effort` and
+-- `interaction.tool_calls`, `.skills` and `.subagents` — and one can hold two
+-- keys that differ only in case (`Bash` and `bash`). DuckDB's struct fields are
+-- case-insensitive, so inferring any of them as a STRUCT stops the script on a
+-- duplicate name, and how many keys it takes to infer a MAP instead depends on
+-- the DuckDB version and on which cards exist. Declared as MAPs, their keys are
+-- values and case never matters; `interaction.tool_calls.Bash` still reads one.
+--
+-- A field missing from a card reads NULL. A field the collector adds is not in
+-- the view until it is added here: `Card` in index.ts is the shape to follow,
+-- and tests/queries-schema.test.ts fails while the two disagree.
+CREATE OR REPLACE TYPE card_tokens AS STRUCT("input" BIGINT, output BIGINT, thinking BIGINT, cache_write_5m BIGINT, cache_write_1h BIGINT, cache_read BIGINT);
+CREATE OR REPLACE TYPE card_bucket AS STRUCT(tokens card_tokens, usd_equivalent DOUBLE, messages BIGINT);
+CREATE OR REPLACE TYPE card_lines AS STRUCT(added BIGINT, deleted BIGINT);
+
 CREATE OR REPLACE VIEW cards AS
-  SELECT * FROM read_json_auto('.claude/metrics/*.json', union_by_name := true,
-                               map_inference_threshold := 20);
+  SELECT * FROM read_json('.claude/metrics/*.json', columns := {
+    schema_version: 'BIGINT',
+    pr: 'STRUCT(number BIGINT, branch VARCHAR, base_sha VARCHAR, head_sha VARCHAR,
+                generated_at TIMESTAMPTZ, merged_at TIMESTAMPTZ, phase VARCHAR)',
+    issue: 'STRUCT(number BIGINT, "type" VARCHAR, labels VARCHAR[])',
+    complexity: 'STRUCT(declared BIGINT, "method" VARCHAR, issues BIGINT)',
+    "window": 'STRUCT(sessions BIGINT, first_ts TIMESTAMPTZ, last_ts TIMESTAMPTZ,
+                      span_seconds BIGINT, active_seconds BIGINT, compactions BIGINT)',
+    spend: 'STRUCT(usd_equivalent DOUBLE, tokens card_tokens,
+                   by_model MAP(VARCHAR, card_bucket),
+                   by_actor STRUCT(main card_bucket, subagent card_bucket),
+                   effort MAP(VARCHAR, BIGINT), unpriced_models VARCHAR[])',
+    diff: 'STRUCT(files STRUCT("generated" BIGINT, test BIGINT, docs BIGINT, config BIGINT, "source" BIGINT),
+                  loc STRUCT("generated" card_lines, test card_lines, docs card_lines,
+                             config card_lines, "source" card_lines),
+                  packages VARCHAR[], touches_migration BOOLEAN, commits BIGINT)',
+    interaction: 'STRUCT(user_turns BIGINT, corrective_turns BIGINT,
+                         tokens_before_first_edit BIGINT, sessions_with_observed_edit BIGINT,
+                         tool_calls MAP(VARCHAR, BIGINT),
+                         edit_churn STRUCT(files_edited_3plus BIGINT, max_edits_one_file BIGINT),
+                         skills MAP(VARCHAR, BIGINT), subagents MAP(VARCHAR, BIGINT),
+                         requests STRUCT(main BIGINT, subagent BIGINT, with_tools BIGINT,
+                                         with_one_tool BIGINT, context_median BIGINT,
+                                         context_p90 BIGINT))',
+    review: 'STRUCT(reports BIGINT, findings BIGINT, located BIGINT, acted_on BIGINT,
+                    paired BIGINT, acted_on_paired BIGINT, control_changed BIGINT,
+                    acted_on_by_test BIGINT, acted_on_paired_by_test BIGINT)'
+  });
 
 -- Merged pull requests. Filtered on merge status, deliberately NOT on
 -- `phase = 'at-merge'`: a remote session's container is destroyed when it ends,
@@ -46,7 +84,11 @@ CREATE OR REPLACE VIEW metrics AS
     diff.loc.source.added + diff.loc.source.deleted AS source_loc,
     diff.files.source                               AS source_files,
     interaction.user_turns                          AS turns,
-    interaction.corrective_turns                    AS corrections,
+    -- NULL before schema version 4, when the field counted every human turn
+    -- after the session's first tool call, and on a card with no human turn:
+    -- unknown, not zero. report.ts's toRow applies the same rule.
+    CASE WHEN schema_version >= 4 AND interaction.user_turns > 0
+         THEN interaction.corrective_turns END      AS corrections,
     "window".active_seconds                           AS active_s,
     spend.tokens.output
       + spend.tokens.cache_read
@@ -100,14 +142,15 @@ ORDER BY explore_pct DESC;
 --------------------------------------------------------------------------------
 -- 3. Are briefs getting clearer?
 --------------------------------------------------------------------------------
--- `corrections` counts turns that arrived after the agent had already started
--- work. This is the one number here that measures the person rather than the
--- model: one turn and a large spend is a clear brief; nine turns is a brief
--- that needed nine patches.
+-- `corrections` counts the prompts the person sent while the agent was still
+-- working. Some are status notes or added scope rather than corrections, so
+-- read them before blaming the brief. `v4_prs` is how many cards the median
+-- covers: a card before schema version 4, or with no human turn, reads NULL.
 
 SELECT date_trunc('month', at_ts) AS month,
        count(*)                AS prs,
        round(median(turns), 1)    AS median_turns,
+       count(corrections)         AS v4_prs,
        round(median(corrections), 1) AS median_corrections
 FROM metrics
 GROUP BY month
@@ -181,9 +224,9 @@ ORDER BY prs DESC;
 --------------------------------------------------------------------------------
 -- Cost is calls times context, since each call re-reads the context. Every
 -- card, merged or not: most cards with the field are still at-open. These two
--- queries read the raw JSON, because cards written before the fields existed
--- give `read_json_auto` nothing to infer a struct from. `--split-at` has no SQL
--- form: it asks git when a commit landed (`report.ts`).
+-- queries read the raw JSON, where a card written before a field existed reads
+-- it as NULL. `--split-at` has no SQL form: it asks git when a commit landed
+-- (`report.ts`).
 
 CREATE OR REPLACE VIEW raw AS
   SELECT json FROM read_json_objects('.claude/metrics/*.json');

@@ -84,9 +84,23 @@ vi.mock("../../src/components/ImportPanel", () => ({
     </div>
   ),
 }));
+// Surfaces the owner flag and the slug: the download is owner-only, and passing
+// `canEdit` where `canManage` belongs would type-check and offer an editor a
+// file the API refuses.
 vi.mock("../../src/components/RsvpView", () => ({
-  default: (p: { weddingId: string; event?: string; onEvent?: (eventId: string) => void }) => (
-    <div data-testid="rsvps" data-event={p.event ?? ""}>
+  default: (p: {
+    weddingId: string;
+    canManage?: boolean;
+    weddingSlug?: string;
+    event?: string;
+    onEvent?: (eventId: string) => void;
+  }) => (
+    <div
+      data-testid="rsvps"
+      data-event={p.event ?? ""}
+      data-can-manage={String(p.canManage)}
+      data-slug={p.weddingSlug ?? ""}
+    >
       {p.weddingId}
       <button onClick={() => p.onEvent?.("evt_9")}>rsvp-pick-event</button>
     </div>
@@ -398,6 +412,17 @@ describe("ModuleShell", () => {
     expect(onSub).toHaveBeenCalledWith("rsvps");
     expect(screen.getByTestId("rsvps")).toBeTruthy();
     expect(screen.queryByTestId("guests")).toBeNull();
+  });
+
+  it("hands the RSVP page the owner flag and the slug its download is named by", () => {
+    renderShell({ canManage: false, canEdit: true, module: "guests", sub: "rsvps" });
+    expect(screen.getByTestId("rsvps").getAttribute("data-can-manage")).toBe("false");
+    cleanup();
+
+    renderShell({ canManage: true, canEdit: true, module: "guests", sub: "rsvps" });
+    const page = screen.getByTestId("rsvps");
+    expect(page.getAttribute("data-can-manage")).toBe("true");
+    expect(page.getAttribute("data-slug")).toBe("r-and-v");
   });
 
   it("hands the builder the wedding's name and an owner's right to mark households sent", async () => {

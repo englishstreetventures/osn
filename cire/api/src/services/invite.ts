@@ -286,6 +286,23 @@ function heroVersionFromKey(key: string, heroBlur: number | null): string {
   return versionFromKey(`${key}#blur=${heroBlur ?? HERO_BLUR_DEFAULT}`);
 }
 
+type CustomisationInsert = typeof weddingInviteCustomisations.$inferInsert;
+type CustomisationColumn = keyof CustomisationInsert;
+
+/**
+ * The columns of `wedding_invite_customisations` one image slot is stored in:
+ * `<slot>ImageKey` holds the R2 object key, `<slot>ImageCrop` the crop
+ * rectangle, and `<slot>ImageCropMobile` the phone crop where the table has
+ * one. Each name must be the slot's own column and must exist on the table, so
+ * a misspelt column, another slot's column or a column the table lacks fails
+ * to compile, and no two slots can share a column.
+ */
+export interface SlotColumns<S extends InviteImageSlot> {
+  readonly key: `${S}ImageKey` & CustomisationColumn;
+  readonly crop: `${S}ImageCrop` & CustomisationColumn;
+  readonly cropMobile: (`${S}ImageCropMobile` & CustomisationColumn) | null;
+}
+
 /**
  * Which columns back each image slot. This is the ONE place the slot union maps
  * onto storage — every read/write below indexes this table rather than branching
@@ -294,11 +311,17 @@ function heroVersionFromKey(key: string, heroBlur: number | null): string {
  * migration 0050) would have silently made every one of those branches treat it
  * as the story slot — writing the footer's image into `story_image_key`.
  *
+ * Every entry is checked against the table by {@link SlotColumns}, so a slot
+ * added to `INVITE_IMAGE_SLOTS` fails to compile until it has an entry here and
+ * its columns exist. The asset reconciler (`asset-reconcile.ts`) and the
+ * wedding purge (`maintenance-sweeps.ts`) read every slot's `key` column from
+ * this map, so a new slot's images are kept live and reaped with no edit there.
+ *
  * `cropMobile` is hero-only (migration 0046): the hero is the one full-bleed
  * image rendered at both wide and tall viewport aspects, so it carries a second
  * rectangle. `null` for every other slot, whose single aspect needs one.
  */
-const SLOT_COLUMNS = {
+export const SLOT_COLUMNS = {
   hero: {
     key: "heroImageKey",
     crop: "heroImageCrop",
@@ -306,10 +329,20 @@ const SLOT_COLUMNS = {
   },
   story: { key: "storyImageKey", crop: "storyImageCrop", cropMobile: null },
   footer: { key: "footerImageKey", crop: "footerImageCrop", cropMobile: null },
-} as const satisfies Record<
-  InviteImageSlot,
-  { key: string; crop: string; cropMobile: string | null }
->;
+} as const satisfies { readonly [S in InviteImageSlot]: SlotColumns<S> };
+
+/** Every column an image slot is stored in, across all slots. */
+type SlotColumn = {
+  [S in InviteImageSlot]: NonNullable<SlotColumns<S>[keyof SlotColumns<S>]>;
+}[InviteImageSlot];
+
+/**
+ * A write to slot columns. Built by assignment (`write[column] = value`), never
+ * with a computed key: an object literal whose computed key is a union widens
+ * to an index signature and type-checks whatever the name, while an assignment
+ * checks the column name and the value's type.
+ */
+type SlotWrite = Partial<Pick<CustomisationInsert, SlotColumn>>;
 
 /**
  * A wedding's image keys and hero blur, as a LEFT JOIN onto
@@ -355,9 +388,12 @@ export function imageKeyFromRow(row: InviteImageKeys, slot: InviteImageSlot): Sl
  * fresh image invalidates the previous rectangle (it framed a different photo),
  * so the slot starts full-frame again. For the hero that means BOTH rectangles.
  */
-function cropResetsFor(slot: InviteImageSlot): Record<string, null> {
+function cropResetsFor(slot: InviteImageSlot): SlotWrite {
   const cols = SLOT_COLUMNS[slot];
-  return cols.cropMobile ? { [cols.crop]: null, [cols.cropMobile]: null } : { [cols.crop]: null };
+  const resets: SlotWrite = {};
+  resets[cols.crop] = null;
+  if (cols.cropMobile) resets[cols.cropMobile] = null;
+  return resets;
 }
 
 /** Trim, then collapse an all-whitespace/empty override to `null` (use default). */
@@ -431,11 +467,10 @@ function toCustomisation(
 ): InviteCustomisation {
   // Each slot's ?v= cache-buster is derived from THAT slot's own R2 key
   // (versionFromKey — mirrors the per-event image path in event-image.ts) —
-  // never the row's `updatedAt`/`imagesUpdatedAt`. A copy/colour save must not
-  // bust the guest image caches (WT-P-I1), and bumping one slot must not bust
-  // another's (P-I1): a per-row version broke both, since it moved on every
-  // slot's write. Deriving from the key alone fixes both — the key only
-  // changes when THAT slot's bytes change.
+  // never the row's `updatedAt`/`imagesUpdatedAt`, which every slot shares and
+  // other saves move. So a copy or colour save keeps the guest image caches
+  // warm, and replacing one slot's image moves only that slot's URL: the key
+  // changes only when THAT slot's bytes change.
   return {
     hero: {
       title: c.heroTitle,
@@ -565,28 +600,66 @@ function fromWritten(
   return row ? toCustomisation({ id: row.weddingId, slug }, row) : EMPTY;
 }
 
-export const inviteService = {
-  /** Customisation for an organiser-owned wedding (weddingId already authorised). */
-  getForWedding(
-    weddingId: string,
-    slug: string,
-  ): Effect.Effect<InviteCustomisation, never, DbService> {
-    return Effect.gen(function* () {
-      const db = yield* DbService;
-      const [row] = yield* dbQuery(() =>
-        db
-          .select()
-          .from(weddingInviteCustomisations)
-          .where(eq(weddingInviteCustomisations.weddingId, weddingId))
-          .all(),
-      );
-      return row ? toCustomisation({ id: weddingId, slug }, row) : EMPTY;
-    }).pipe(Effect.withSpan("cire.invite.getForWedding"));
-  },
+/**
+ * Every customisation column {@link toCustomisation} reads, for a select that
+ * LEFT JOINs `wedding_invite_customisations` onto `weddings`: a wedding with no
+ * customisation row reads every column as null, which maps to the defaults.
+ */
+const customisationColumns = {
+  heroTitle: weddingInviteCustomisations.heroTitle,
+  heroSubtitle: weddingInviteCustomisations.heroSubtitle,
+  storyEyebrow: weddingInviteCustomisations.storyEyebrow,
+  storyHeading: weddingInviteCustomisations.storyHeading,
+  storyBody: weddingInviteCustomisations.storyBody,
+  detailsEyebrow: weddingInviteCustomisations.detailsEyebrow,
+  detailsHeading: weddingInviteCustomisations.detailsHeading,
+  welcomeMessage: weddingInviteCustomisations.welcomeMessage,
+  registryEyebrow: weddingInviteCustomisations.registryEyebrow,
+  registryHeading: weddingInviteCustomisations.registryHeading,
+  registryBody: weddingInviteCustomisations.registryBody,
+  footerMessage: weddingInviteCustomisations.footerMessage,
+  heroImageKey: weddingInviteCustomisations.heroImageKey,
+  storyImageKey: weddingInviteCustomisations.storyImageKey,
+  footerImageKey: weddingInviteCustomisations.footerImageKey,
+  heroImageCrop: weddingInviteCustomisations.heroImageCrop,
+  heroImageCropMobile: weddingInviteCustomisations.heroImageCropMobile,
+  storyImageCrop: weddingInviteCustomisations.storyImageCrop,
+  footerImageCrop: weddingInviteCustomisations.footerImageCrop,
+  heroBlur: weddingInviteCustomisations.heroBlur,
+  heroTitleBackdropOpacity: weddingInviteCustomisations.heroTitleBackdropOpacity,
+  heroTitleBackdropBlur: weddingInviteCustomisations.heroTitleBackdropBlur,
+  themeHeadingFont: weddingInviteCustomisations.themeHeadingFont,
+  themeBodyFont: weddingInviteCustomisations.themeBodyFont,
+  themeHeadingSize: weddingInviteCustomisations.themeHeadingSize,
+  themeHeadingWeight: weddingInviteCustomisations.themeHeadingWeight,
+  themeHeadingStyle: weddingInviteCustomisations.themeHeadingStyle,
+  themeBodyWeight: weddingInviteCustomisations.themeBodyWeight,
+  themeBodyStyle: weddingInviteCustomisations.themeBodyStyle,
+  palettePreset: weddingInviteCustomisations.palettePreset,
+  paletteGround: weddingInviteCustomisations.paletteGround,
+  paletteCard: weddingInviteCustomisations.paletteCard,
+  paletteInk: weddingInviteCustomisations.paletteInk,
+  paletteGilt: weddingInviteCustomisations.paletteGilt,
+  paletteBloom: weddingInviteCustomisations.paletteBloom,
+  heroTone: weddingInviteCustomisations.heroTone,
+  storyTone: weddingInviteCustomisations.storyTone,
+  detailsTone: weddingInviteCustomisations.detailsTone,
+  welcomeTone: weddingInviteCustomisations.welcomeTone,
+  registryTone: weddingInviteCustomisations.registryTone,
+  heroVisible: weddingInviteCustomisations.heroVisible,
+  storyVisible: weddingInviteCustomisations.storyVisible,
+  footerVisible: weddingInviteCustomisations.footerVisible,
+  faqVisible: weddingInviteCustomisations.faqVisible,
+  inviteMessage: weddingInviteCustomisations.inviteMessage,
+  designId: weddingInviteCustomisations.designId,
+  updatedAt: weddingInviteCustomisations.updatedAt,
+  imagesUpdatedAt: weddingInviteCustomisations.imagesUpdatedAt,
+};
 
+export const inviteService = {
   /**
    * Customisation for an owned wedding (organiser GET). Single LEFT JOIN so the
-   * slug + customisation come back in one round-trip (IB-P-W3).
+   * slug + customisation come back in one round-trip.
    */
   getForWeddingId(
     weddingId: string,
@@ -595,57 +668,7 @@ export const inviteService = {
       const db = yield* DbService;
       const [row] = yield* dbQuery(() =>
         db
-          .select({
-            slug: weddings.slug,
-            heroTitle: weddingInviteCustomisations.heroTitle,
-            heroSubtitle: weddingInviteCustomisations.heroSubtitle,
-            storyEyebrow: weddingInviteCustomisations.storyEyebrow,
-            storyHeading: weddingInviteCustomisations.storyHeading,
-            storyBody: weddingInviteCustomisations.storyBody,
-            detailsEyebrow: weddingInviteCustomisations.detailsEyebrow,
-            detailsHeading: weddingInviteCustomisations.detailsHeading,
-            welcomeMessage: weddingInviteCustomisations.welcomeMessage,
-            registryEyebrow: weddingInviteCustomisations.registryEyebrow,
-            registryHeading: weddingInviteCustomisations.registryHeading,
-            registryBody: weddingInviteCustomisations.registryBody,
-            footerMessage: weddingInviteCustomisations.footerMessage,
-            heroImageKey: weddingInviteCustomisations.heroImageKey,
-            storyImageKey: weddingInviteCustomisations.storyImageKey,
-            footerImageKey: weddingInviteCustomisations.footerImageKey,
-            heroImageCrop: weddingInviteCustomisations.heroImageCrop,
-            heroImageCropMobile: weddingInviteCustomisations.heroImageCropMobile,
-            storyImageCrop: weddingInviteCustomisations.storyImageCrop,
-            footerImageCrop: weddingInviteCustomisations.footerImageCrop,
-            heroBlur: weddingInviteCustomisations.heroBlur,
-            heroTitleBackdropOpacity: weddingInviteCustomisations.heroTitleBackdropOpacity,
-            heroTitleBackdropBlur: weddingInviteCustomisations.heroTitleBackdropBlur,
-            themeHeadingFont: weddingInviteCustomisations.themeHeadingFont,
-            themeBodyFont: weddingInviteCustomisations.themeBodyFont,
-            themeHeadingSize: weddingInviteCustomisations.themeHeadingSize,
-            themeHeadingWeight: weddingInviteCustomisations.themeHeadingWeight,
-            themeHeadingStyle: weddingInviteCustomisations.themeHeadingStyle,
-            themeBodyWeight: weddingInviteCustomisations.themeBodyWeight,
-            themeBodyStyle: weddingInviteCustomisations.themeBodyStyle,
-            palettePreset: weddingInviteCustomisations.palettePreset,
-            paletteGround: weddingInviteCustomisations.paletteGround,
-            paletteCard: weddingInviteCustomisations.paletteCard,
-            paletteInk: weddingInviteCustomisations.paletteInk,
-            paletteGilt: weddingInviteCustomisations.paletteGilt,
-            paletteBloom: weddingInviteCustomisations.paletteBloom,
-            heroTone: weddingInviteCustomisations.heroTone,
-            storyTone: weddingInviteCustomisations.storyTone,
-            detailsTone: weddingInviteCustomisations.detailsTone,
-            welcomeTone: weddingInviteCustomisations.welcomeTone,
-            registryTone: weddingInviteCustomisations.registryTone,
-            heroVisible: weddingInviteCustomisations.heroVisible,
-            storyVisible: weddingInviteCustomisations.storyVisible,
-            footerVisible: weddingInviteCustomisations.footerVisible,
-            faqVisible: weddingInviteCustomisations.faqVisible,
-            inviteMessage: weddingInviteCustomisations.inviteMessage,
-            designId: weddingInviteCustomisations.designId,
-            updatedAt: weddingInviteCustomisations.updatedAt,
-            imagesUpdatedAt: weddingInviteCustomisations.imagesUpdatedAt,
-          })
+          .select({ slug: weddings.slug, ...customisationColumns })
           .from(weddings)
           .leftJoin(
             weddingInviteCustomisations,
@@ -680,17 +703,22 @@ export const inviteService = {
   getForSlug(slug: string): Effect.Effect<PublicInviteCustomisation, WeddingNotFound, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      const [wedding] = yield* dbQuery(() =>
+      // One statement on every guest page load: the wedding and its
+      // customisation come back together.
+      const [row] = yield* dbQuery(() =>
         db
-          .select({ id: weddings.id })
+          .select({ id: weddings.id, ...customisationColumns })
           .from(weddings)
+          .leftJoin(
+            weddingInviteCustomisations,
+            eq(weddingInviteCustomisations.weddingId, weddings.id),
+          )
           .where(and(eq(weddings.slug, slug), weddingIsLive))
           .all(),
       );
       // A soft-deleted wedding is answered as an unknown slug.
-      if (!wedding) return yield* Effect.fail(new WeddingNotFound({ slug }));
-      const full = yield* inviteService.getForWedding(wedding.id, slug);
-      return publicView(full);
+      if (!row) return yield* Effect.fail(new WeddingNotFound({ slug }));
+      return publicView(toCustomisation({ id: row.id, slug }, row));
     }).pipe(Effect.withSpan("cire.invite.getForSlug"));
   },
 
@@ -831,8 +859,8 @@ export const inviteService = {
       // parameterises the `hero-bg` transform) — fonts/colours are pure CSS.
       // Bump the IMAGE version (`imagesUpdatedAt`, the ?v= + transform cache
       // key) only then, so a colour/font-only save leaves the guest image
-      // caches warm instead of forcing fresh per-call-billed transforms
-      // (WT-P-I1). A missing row counts as changed (first write seeds it).
+      // caches warm instead of forcing fresh per-call-billed transforms. A
+      // missing row counts as changed (first write seeds it).
       const [existing] = yield* dbQuery(() =>
         db
           .select({ heroBlur: weddingInviteCustomisations.heroBlur })
@@ -890,8 +918,8 @@ export const inviteService = {
    * Set which design pack the wedding's invite renders as. The id has already
    * passed catalog + entitlement checks at the route boundary. Bumps
    * `updatedAt` only — NEVER `imagesUpdatedAt` — a design switch changes no
-   * stored image bytes, so the guest image transform caches stay warm
-   * (WT-P-I1). Answers with the customisation as written.
+   * stored image bytes, so the guest image transform caches stay warm.
+   * Answers with the customisation as written.
    */
   setDesign(
     weddingId: string,
@@ -989,21 +1017,16 @@ export const inviteService = {
       // A fresh image invalidates the previous crop (it framed a different photo),
       // so reset the slot's crop(s) to the full-frame default on every upload —
       // for the hero that means BOTH rectangles (desktop + the 0046 mobile one).
-      const cropResets = cropResetsFor(slot);
+      const write = cropResetsFor(slot);
+      write[keyColumn] = newKey;
 
       yield* dbQuery(() =>
         db
           .insert(weddingInviteCustomisations)
-          .values({
-            weddingId,
-            [keyColumn]: newKey,
-            ...cropResets,
-            updatedAt: now,
-            imagesUpdatedAt: now,
-          })
+          .values({ weddingId, ...write, updatedAt: now, imagesUpdatedAt: now })
           .onConflictDoUpdate({
             target: weddingInviteCustomisations.weddingId,
-            set: { [keyColumn]: newKey, ...cropResets, updatedAt: now, imagesUpdatedAt: now },
+            set: { ...write, updatedAt: now, imagesUpdatedAt: now },
           })
           .run(),
       );
@@ -1040,7 +1063,10 @@ export const inviteService = {
       const db = yield* DbService;
       const keyColumn = SLOT_COLUMNS[slot].key;
       const column = weddingInviteCustomisations[keyColumn];
-      const cropResets = cropResetsFor(slot);
+      // Clear the crop(s) alongside the key — the slot is back to its default,
+      // so a later re-upload starts full-frame, not with a stale crop.
+      const write = cropResetsFor(slot);
+      write[keyColumn] = null;
 
       const [existing] = yield* dbQuery(() =>
         db
@@ -1052,15 +1078,8 @@ export const inviteService = {
 
       const rows = yield* dbQuery(() =>
         db
-          // Clear the crop(s) alongside the key — the slot is back to its default,
-          // so a later re-upload starts full-frame, not with a stale crop.
           .update(weddingInviteCustomisations)
-          .set({
-            [keyColumn]: null,
-            ...cropResets,
-            updatedAt: new Date(),
-            imagesUpdatedAt: new Date(),
-          })
+          .set({ ...write, updatedAt: new Date(), imagesUpdatedAt: new Date() })
           .where(eq(weddingInviteCustomisations.weddingId, weddingId))
           .returning()
           .all(),
@@ -1105,16 +1124,17 @@ export const inviteService = {
       const cols = SLOT_COLUMNS[slot];
       // `mobile` is hero-only and the route has already rejected it elsewhere;
       // fall back to the slot's single rectangle if one ever slips through.
-      const keyColumn = screen === "mobile" ? (cols.cropMobile ?? cols.crop) : cols.crop;
-      const encoded = crop ? JSON.stringify(crop) : null;
+      const cropColumn = screen === "mobile" ? (cols.cropMobile ?? cols.crop) : cols.crop;
+      const write: SlotWrite = {};
+      write[cropColumn] = crop ? JSON.stringify(crop) : null;
       const now = new Date();
       const rows = yield* dbQuery(() =>
         db
           .insert(weddingInviteCustomisations)
-          .values({ weddingId, [keyColumn]: encoded, updatedAt: now, imagesUpdatedAt: now })
+          .values({ weddingId, ...write, updatedAt: now, imagesUpdatedAt: now })
           .onConflictDoUpdate({
             target: weddingInviteCustomisations.weddingId,
-            set: { [keyColumn]: encoded, updatedAt: now, imagesUpdatedAt: now },
+            set: { ...write, updatedAt: now, imagesUpdatedAt: now },
           })
           .returning()
           .all(),

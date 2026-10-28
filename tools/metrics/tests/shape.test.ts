@@ -47,7 +47,7 @@ function card(fixture: Fixture = {}): Card {
   const models = fixture.models ?? [["claude-opus-5", 10]];
 
   return {
-    schema_version: 1,
+    schema_version: 4,
     pr: {
       number: fixture.pr ?? 1,
       branch: `feat/pr-${fixture.pr ?? 1}`,
@@ -183,6 +183,14 @@ describe("correctionRate", () => {
 
   it("is unknown, not zero, when no human turn was recorded", () => {
     expect(correctionRate(toRow(card({ turns: 0, corrections: 0 })))).toBeNull();
+  });
+
+  // Before schema version 4 the count was every turn after the first tool
+  // call, not the prompts sent mid-turn; the two do not share a scale.
+  it("is unknown on a card written before schema version 4", () => {
+    const old = { ...card({ turns: 4, corrections: 3 }), schema_version: 3 };
+
+    expect(correctionRate(toRow(old))).toBeNull();
   });
 });
 

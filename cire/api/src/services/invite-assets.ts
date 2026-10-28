@@ -3,17 +3,19 @@ import { Context, Data, Effect } from "effect";
 import type { InviteImageSlot } from "../schemas/invite";
 
 /**
- * The label that namespaces an R2 image key. The two wedding-level invite slots
- * (`hero`/`story`) plus `event` (one optional image per event, keyed by event id
- * in `events.event_image_key`) and `registry` (one optional image per gift item,
- * keyed in `registry_items.image_key`). It only affects the readable key prefix
- * — the uuid suffix is what guarantees per-upload uniqueness — so a closed union
- * is enough; it never has to mirror an `:slot` route param like `InviteImageSlot`.
+ * The label that namespaces an R2 image key: each wedding-level invite slot
+ * (`InviteImageSlot`), plus `event` (one optional image per event, keyed by
+ * event id in `events.event_image_key`) and `registry` (one optional image per
+ * gift item, keyed in `registry_items.image_key`). It only affects the readable
+ * key prefix — the uuid suffix is what guarantees per-upload uniqueness — so a
+ * closed union is enough; it never has to mirror an `:slot` route param like
+ * `InviteImageSlot`.
  *
- * Adding a label means adding its key column to
- * `services/asset-reconcile.ts::loadReferencedKeys` in the same change. That set
- * is what marks an object LIVE; a label whose column is missing there looks
- * orphaned and gets swept once past the grace window.
+ * A slot's key column is read from `SLOT_COLUMNS` by
+ * `services/asset-reconcile.ts::loadReferencedKeys`, so a new slot needs no edit
+ * there. Any other label added here means adding its key column to that read in
+ * the same change. That set is what marks an object LIVE; a label whose column
+ * is missing there looks orphaned and gets swept once past the grace window.
  */
 export type AssetSlotLabel = InviteImageSlot | "event" | "registry";
 
@@ -28,7 +30,7 @@ export interface AssetObjectBody {
   // R2's `R2ObjectBody` exposes the unread object as a `ReadableStream` — the
   // serve path that returns the ORIGINAL bytes (no Images transform) streams this
   // straight into the `Response` rather than buffering the whole image in Worker
-  // memory (IB-P-I2). Optional so a minimal stub (or a non-R2 backend) that only
+  // memory. Optional so a minimal stub (or a non-R2 backend) that only
   // implements `arrayBuffer()` still satisfies the interface — the streaming
   // fetch falls back to buffering when it's absent.
   readonly body?: ReadableStream<Uint8Array> | null;
@@ -70,16 +72,14 @@ function assetKey(weddingId: string, slot: AssetSlotLabel): string {
 }
 
 /**
- * The `registry` slot's share of {@link assetKey}, written once (S-M1).
+ * The `registry` slot's share of {@link assetKey}, written once.
  *
- * A registry item's `image_key` is the one key a CLIENT names, so three separate
- * places have to agree on its shape: the schema that admits it, the service that
- * checks ownership, and the route that rebuilds a key from a URL segment. When
- * that shape lived in each of them, the loosest one won — a key of
- * `assets/<own-wedding>/hero-<uuid>` passed validation, so an editor could point
- * an item at their own wedding's INVITE hero and have deleting the item reap it.
- * Pinning the slot prefix here, beside the minting site, means a key can only
- * ever name an object this module minted for `registry`.
+ * A registry item's `image_key` is the one key a CLIENT names, so three places
+ * must agree on its shape: the schema that admits it, the service that checks
+ * ownership, and the route that rebuilds a key from a URL segment. All three
+ * match the patterns below, which pin the `registry-` prefix beside the minting
+ * site, so a key can only ever name an object this module minted for
+ * `registry`.
  */
 const REGISTRY_IMAGE_NAME_PATTERN = "registry-[A-Za-z0-9-]{1,64}";
 
@@ -153,7 +153,7 @@ export interface StreamedAsset {
 }
 
 /**
- * Fetch an image as a STREAM for the original-serve path (IB-P-I2). Returns R2's
+ * Fetch an image as a STREAM for the original-serve path. Returns R2's
  * `obj.body` `ReadableStream` directly so the bytes flow object→Response without a
  * full-image buffer in Worker memory. When the underlying object exposes no `body`
  * (a minimal test stub, or a non-R2 backend), it falls back to buffering via
@@ -283,7 +283,7 @@ export function createAssetsStub(): AssetsBucket & {
       if (!v) return null;
       return {
         arrayBuffer: () => Promise.resolve(v.bytes),
-        // Mirror R2's streaming `body` so the original-serve path (IB-P-I2) is
+        // Mirror R2's streaming `body` so the original-serve path is
         // exercised against the stub exactly as it is against R2 — each `get`
         // mints a fresh one-shot stream over the stored bytes.
         get body() {

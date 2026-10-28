@@ -17,7 +17,7 @@ related:
   - "[[cire-invite-designs]]"
   - "[[cire-host-portal-layout]]"
   - "[[cire-seating]]"
-last-reviewed: 2026-10-26
+last-reviewed: 2026-10-27
 ---
 # Plan tiers — what a wedding has paid for
 
@@ -181,9 +181,9 @@ guest surface never tells a caller which of those it is.
 A wedding whose tier no longer includes a module keeps that module's rows; it
 cannot read them through the module until it is back on the tier. The budget,
 the checklist and the seating chart hand them back as CSV instead, through the
-routes above: owner only, in the per-user-limited export group
-(`createOrganiserExportRoutes` in `cire/api/src/routes/organiser-weddings.ts`),
-like every CSV export. `cire/api/tests/routes/organiser-weddings.test.ts`
+routes above: owner only and limited per user, like every CSV export, in the
+shared export group (`createOrganiserExportRoutes` in
+`cire/api/src/routes/organiser-weddings.ts`). `cire/api/tests/routes/organiser-weddings.test.ts`
 downloads the budget and checklist files, and `cire/api/tests/routes/seating.test.ts`
 the seating file, for an Ivory wedding whose module reads answer 402, so a tier
 gate added to that group fails them.

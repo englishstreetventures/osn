@@ -29,6 +29,16 @@ vi.mock("../../src/lib/api", async () => {
   return organiserApiMock();
 });
 
+vi.mock("@shared/toast", async () => {
+  const { toastMock } = await import("../test-support/mocks");
+  return toastMock();
+});
+
+const downloadBlobMock = vi.fn();
+vi.mock("../../src/lib/download", () => ({
+  downloadBlob: (name: string, blob: Blob) => downloadBlobMock(name, blob),
+}));
+
 // The marketing site's origin, set apart from every default so a link built
 // from anything else shows.
 vi.mock("../../src/lib/osn", async (importOriginal) => ({
@@ -46,7 +56,7 @@ vi.mock("../../src/lib/rsvp-changes", async (importOriginal) => ({
 }));
 
 import RsvpView from "../../src/components/RsvpView";
-import { authFetchMock, redirectSpy, resetOrganiserMocks } from "../test-support/mocks";
+import { authFetchMock, redirectSpy, resetOrganiserMocks, toastError } from "../test-support/mocks";
 import { mockViewport } from "../test-support/viewport";
 
 /**
@@ -195,6 +205,7 @@ describe("RsvpView", () => {
   afterEach(() => {
     cleanup();
     resetOrganiserMocks();
+    downloadBlobMock.mockReset();
     restoreViewport();
     restoreViewport = () => {};
   });
@@ -413,6 +424,92 @@ describe("RsvpView", () => {
     // The no-reply row is still listed — a viewer may read it, not act on it.
     expect(screen.getByText("Cleo Jones")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^Record reply for/i })).toBeNull();
+  });
+
+  // The file leaves the portal, so only an owner is offered it; the API's
+  // owner gate refuses everyone else.
+  it("offers the RSVP download to no viewer or editor, and points a viewer at none", async () => {
+    authFetchMock.mockResolvedValueOnce(json(VIEW));
+    const { unmount } = render(() => <RsvpView weddingId="wed_a" />);
+    await waitFor(() => expect(screen.getByText("Bo Jones")).toBeTruthy());
+    expect(screen.queryByRole("button", { name: /Download RSVPs/i })).toBeNull();
+    expect(screen.queryByText(/download/i)).toBeNull();
+    unmount();
+
+    authFetchMock.mockResolvedValueOnce(json(VIEW));
+    render(() => <RsvpView weddingId="wed_a" canEdit canManage={false} />);
+    await waitFor(() => expect(screen.getByText("Bo Jones")).toBeTruthy());
+    expect(screen.queryByRole("button", { name: /Download RSVPs/i })).toBeNull();
+  });
+
+  it("offers an owner no RSVP download while no event invites anyone", async () => {
+    const empty = structuredClone(VIEW);
+    for (const event of empty.events) Object.assign(event, { invited: 0, guests: [] });
+    authFetchMock.mockResolvedValueOnce(json(empty));
+    render(() => <RsvpView weddingId="wed_a" canEdit canManage weddingSlug="nadia-sam" />);
+    await waitFor(() => expect(tab("Ceremony")).toBeTruthy());
+    expect(screen.queryByRole("button", { name: /Download RSVPs/i })).toBeNull();
+  });
+
+  // A second click while the first download runs would spend another call
+  // from the owner's export rate limit and save the file twice.
+  it("holds the RSVP download to one request while it runs, then names the file", async () => {
+    authFetchMock.mockResolvedValueOnce(json(VIEW));
+    render(() => <RsvpView weddingId="wed_a" canEdit canManage />);
+    const button = await screen.findByRole("button", { name: "Download RSVPs (CSV)" });
+    let answer: (res: Response) => void = () => {};
+    authFetchMock.mockReturnValueOnce(new Promise<Response>((resolve) => (answer = resolve)));
+    fireEvent.click(button);
+    await waitFor(() => expect(button.textContent).toBe("Exporting…"));
+    expect(button).toHaveProperty("disabled", true);
+    fireEvent.click(button);
+    const csvCalls = () => authFetchMock.mock.calls.filter((c) => String(c[0]).endsWith(".csv"));
+    expect(csvCalls().map((c) => String(c[0]))).toEqual([
+      "https://api.test/api/organiser/weddings/wed_a/rsvps.csv",
+    ]);
+
+    answer(
+      new Response("Family Code\r\n", { status: 200, headers: { "Content-Type": "text/csv" } }),
+    );
+    // No slug handed down: the wedding id names the file, as the API's own
+    // Content-Disposition does.
+    await waitFor(() => expect(downloadBlobMock).toHaveBeenCalledTimes(1));
+    expect(downloadBlobMock.mock.calls[0]![0]).toBe("cire-rsvps-wed_a.csv");
+    expect(button.textContent).toBe("Download RSVPs (CSV)");
+  });
+
+  // Both ways a lapsed session shows: the API's 401, and the auth client's
+  // refresh failing before any request goes out.
+  it.each([
+    [
+      "answers 401",
+      () => authFetchMock.mockResolvedValueOnce(json({ error: "unauthorised" }, 401)),
+    ],
+    ["cannot refresh", () => authFetchMock.mockRejectedValueOnce(new Error("AuthExpiredError"))],
+  ])("sends an owner whose session %s to sign in rather than download", async (_, lapse) => {
+    authFetchMock.mockResolvedValueOnce(json(VIEW));
+    render(() => <RsvpView weddingId="wed_a" canEdit canManage weddingSlug="nadia-sam" />);
+    const button = await screen.findByRole("button", { name: "Download RSVPs (CSV)" });
+    lapse();
+    fireEvent.click(button);
+    await waitFor(() => expect(redirectSpy).toHaveBeenCalled());
+    expect(downloadBlobMock).not.toHaveBeenCalled();
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it("saves no file when the RSVP download is refused, says so, and offers it again", async () => {
+    authFetchMock.mockResolvedValueOnce(json(VIEW));
+    render(() => <RsvpView weddingId="wed_a" canEdit canManage weddingSlug="nadia-sam" />);
+    const button = await screen.findByRole("button", { name: "Download RSVPs (CSV)" });
+    authFetchMock.mockResolvedValueOnce(json({ error: "forbidden" }, 403));
+    fireEvent.click(button);
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith("RSVP export failed. Try again."));
+    expect(downloadBlobMock).not.toHaveBeenCalled();
+    expect(redirectSpy).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Download RSVPs (CSV)" })).toHaveProperty(
+      "disabled",
+      false,
+    );
   });
 
   it("gives each replies table a fixed layout with one sized column per heading", async () => {

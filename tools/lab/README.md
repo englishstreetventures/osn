@@ -137,9 +137,14 @@ is.
 
 Two homes, both auto-discovered:
 
-- `tools/lab/src/stories/**` — spikes, throwaways, anything with no home yet.
-- next to a real component, anywhere in `osn/*`, `pulse/*`, `cire/*`, `zap/*` or
-  `shared/*` under `src/` — for a component that exists and wants a permanent
+- `tools/lab/src/stories/**` — spikes, throwaways, anything with no home yet,
+  and every UI-package component: `@shared/ui` in `stories/shared-ui/`,
+  `@osn/auth-ui` in `stories/osn-auth-ui/`, `@cire/ui` in `stories/cire-ui/`.
+  Their fixtures stay out of app source there, and out of cire's mutation run.
+  `wiki/conventions/component-lab.md` §Stories for auth and cire components has
+  the fixture and colour rules.
+- next to a real app component, anywhere in `osn/*`, `pulse/*`, `cire/*`, `zap/*`
+  or `shared/*` under `src/` — for a component that exists and wants a permanent
   bench.
 
 Adding a new workspace root means adding a line to the glob list in
@@ -228,8 +233,11 @@ block and the `base:` variant that every `@shared/ui` class is written against, 
 importing it is what makes those components render here exactly as they render
 in the app. A second copy would drift within a week.
 
-A story with its own design language (a cire invite, say) should import its own
-CSS at the top of the story file.
+A story never imports an app stylesheet. The lab imports every story module to
+build its sidebar, so a global `:root` block in one lands on every story. A
+story with its own design language (a cire component, say) sets the `--ui-*`
+contract inline on a wrapper, as `src/stories/design-system/theming.story.tsx`
+does.
 
 ## Limits
 

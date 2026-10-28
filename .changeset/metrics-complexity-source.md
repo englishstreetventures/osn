@@ -4,6 +4,5 @@
 
 Read `backfill`'s declared-complexity rating off the pull request's linked
 issue, not the pull request itself — this repository never puts a
-`complexity:` label on a pull request. Scoped to issues linked from
-englishstreetventures/osn; a tracker-linked issue is left exactly as before pending
-englishstreetventures/osn#1012.
+`complexity:` label on a pull request. A card's `issue.labels` come only from an
+issue in englishstreetventures/osn.

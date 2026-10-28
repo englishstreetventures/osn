@@ -3,7 +3,7 @@
  *
  * Invite images live in the `cire-assets` R2 bucket (binding `ASSETS`), keyed
  * `assets/<weddingId>/<slot>-<uuid>`. They are referenced by
- * `wedding_invite_customisations`' per-slot image keys (hero / story / footer),
+ * `wedding_invite_customisations`' image key column for each invite image slot,
  * `events.event_image_key` and `registry_items.image_key`. When a re-upload's or
  * remove's best-effort delete of the superseded object fails, nothing in D1
  * names that object any more and there is no R2 lifecycle rule. The retention
@@ -22,6 +22,8 @@ import { sql } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { DbService, dbQuery } from "../db";
+import { INVITE_IMAGE_SLOTS, type InviteImageSlot } from "../schemas/invite";
+import { SLOT_COLUMNS } from "./invite";
 import { r2PositionStore, reconcileOrphanObjects } from "./r2-reconcile";
 import type {
   ListLimits,
@@ -59,38 +61,52 @@ interface ReferencedKeys {
 }
 
 /**
+ * Each invite image slot's key column, aliased by the slot's name, in
+ * `INVITE_IMAGE_SLOTS` order. Taken from `SLOT_COLUMNS` for every slot, so a
+ * slot added to the union is read here with no edit: its images cannot look
+ * orphaned.
+ */
+const slotKeyColumns = sql.join(
+  INVITE_IMAGE_SLOTS.map(
+    (slot) =>
+      sql`${weddingInviteCustomisations[SLOT_COLUMNS[slot].key]} AS ${sql.identifier(slot)}`,
+  ),
+  sql`, `,
+);
+
+/** A `NULL` for each slot after the first, so every arm has one column per slot. */
+const otherSlots = sql.join(INVITE_IMAGE_SLOTS.slice(1).map(() => sql`, NULL`));
+
+/**
  * Build the set of R2 keys that ANY live DB row references — across ALL
  * weddings. The reconciliation only ever deletes keys NOT in this set, so this
  * read is the single source of truth for "what is live". It is also the
  * abort-on-uncertainty signal: a throw here aborts the run, and an empty set
  * leaves no live sample, which aborts it too.
  *
- * One statement of three arms:
- *  - every wedding-level image slot's key (one customisation row per wedding).
- *    It MUST list every column in `INVITE_IMAGE_SLOTS` — a slot missing here is
- *    not a no-op, it is data loss: this set is what marks an object LIVE, so an
- *    unlisted slot's images look orphaned and get swept once past the grace
- *    window. Adding an image slot means adding its key column to the first arm;
- *  - event image keys (one optional per event);
- *  - registry item images (one optional per gift item). These are copies of
- *    shop-page pictures the organiser picked, stored here rather than
- *    hotlinked, so they are live objects like any other, and omitting them
- *    would make the sweep delete every registry image a week after it was saved.
+ * One statement of three arms, each selecting only columns that hold an R2 key:
+ *  - every invite image slot's key column (one customisation row per wedding);
+ *  - event image keys (one optional per event), in the first column;
+ *  - registry item images (one optional per gift item), in the first column.
+ *    These are copies of shop-page pictures the organiser picked, stored here
+ *    rather than hotlinked, so they are live objects like any other, and
+ *    omitting them would make the sweep delete every registry image a week
+ *    after it was saved.
+ * The loop reads each row's columns by slot name, never by position or by
+ * taking every value, so a column added to the select for another reason is
+ * never mistaken for a key.
  */
 function loadReferencedKeys(): Effect.Effect<ReferencedKeys, never, DbService> {
   return Effect.gen(function* () {
     const db = yield* DbService;
     const rows = yield* dbQuery(() =>
-      db.all<{ a: string | null; b: string | null; c: string | null }>(sql`
-        SELECT ${weddingInviteCustomisations.heroImageKey} AS a,
-          ${weddingInviteCustomisations.storyImageKey} AS b,
-          ${weddingInviteCustomisations.footerImageKey} AS c
-        FROM ${weddingInviteCustomisations}
+      db.all<Record<InviteImageSlot, string | null>>(sql`
+        SELECT ${slotKeyColumns} FROM ${weddingInviteCustomisations}
         UNION ALL
-        SELECT ${events.eventImageKey}, NULL, NULL FROM ${events}
+        SELECT ${events.eventImageKey}${otherSlots} FROM ${events}
         WHERE ${events.eventImageKey} IS NOT NULL
         UNION ALL
-        SELECT ${registryItems.imageKey}, NULL, NULL FROM ${registryItems}
+        SELECT ${registryItems.imageKey}${otherSlots} FROM ${registryItems}
         WHERE ${registryItems.imageKey} IS NOT NULL`),
     );
 
@@ -100,7 +116,8 @@ function loadReferencedKeys(): Effect.Effect<ReferencedKeys, never, DbService> {
     let referencing = 0;
     for (const row of rows) {
       let names = false;
-      for (const key of [row.a, row.b, row.c]) {
+      for (const slot of INVITE_IMAGE_SLOTS) {
+        const key = row[slot];
         if (key) {
           keys.add(key);
           names = true;

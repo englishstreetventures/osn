@@ -12,7 +12,7 @@ related:
   - "[[cire-host-portal-layout]]"
   - "[[infrastructure-as-code]]"
 packages: ["@shared/realtime"]
-last-reviewed: 2026-10-23
+last-reviewed: 2026-10-28
 ---
 
 # Realtime push
@@ -134,7 +134,7 @@ When a cap closed a socket, the hub's 101 says which in the `x-realtime-capacity
 
 Nothing about access control depends on a signal arriving.
 
-For one change, a member who keeps access and is evicted gets three signals: the message, the eviction's `dropped`, and `reconnected`. A revoked member gets the message and `stopped`, or only `stopped` when their socket was past its maximum age. The others on the topic get the message. Each prompts a re-read. The message needs a fresh re-read, since a read already in flight may predate the change, and so does the reconnect, since a signal can be lost while the socket is down. The `dropped` carries no time of change, so a product can let it join a re-read already in flight: after an eviction, that is the message's re-read, which already postdates the change. cire does this.
+For one change, a member who keeps access and is evicted gets three signals: the message, the eviction's `dropped`, and `reconnected`. A revoked member gets the message and `stopped`, or only `stopped` when their socket was past its maximum age. The others on the topic get the message. Each prompts a re-read. The message needs a fresh re-read, since a read already in flight may predate the change, and so does the reconnect, since a signal can be lost while the socket is down. The `dropped` carries no time of change, so a product can let it join a re-read already in flight: after an eviction, that is the message's re-read, which already postdates the change. cire does this. A product can also let the `reconnected` that follows a return to a hidden tab rely on a re-read the return itself started, since that read began after the socket closed: cire does this for a reconnect within a second of the tab being shown, and what it can miss is a change committed between that read's query and the hub admitting the socket.
 
 ## Adopters
 
@@ -143,7 +143,7 @@ For one change, a member who keeps access and is evicted gets three signals: the
   - **Publish.** On `cire:wedding:<id>`, in the request's `waitUntil` ([services/realtime.ts](../../cire/api/src/services/realtime.ts)), and only when the write changed something:
     - `members-changed` after a seat is added, re-roled (the role moved), removed or left (a seat went), after a helper's run-sheet scope moves, and after the wedding is deleted (revoking every seat holder). A removal and a leave **revoke** that member, so their sockets close with 1008 and their tab stops. A role change revokes only a role that may not listen, which none is, so a member narrowed to `helper` keeps listening. A scope change, narrowing or widening, closes nobody.
     - `tasks-changed` after every checklist write that changed the checklist, a settings save that re-dated a seeded task included, and after a schedule change, applied or reverted, that created, updated or removed an event — which moves the time of every task linked to it, or changes a run of show the run sheet shows; one that changes a run of show alone is an update too — also when one fails part way. The list is in [[cire-checklist-tasks#Live refresh]].
-  - **Portal.** `Dashboard` listens on the open wedding for every seat, a helper's included. `members-changed` re-reads the wedding list and tells the views that show seats; `tasks-changed` tells the views that show tasks and reads no list; a reconnect does both. Both kinds mark the run sheet stale, a helper's included, and a mounted run sheet reads again on either ([[cire-run-sheet]]). A view's own write drops a re-read that may predate it, and the read goes again once the view's last write has ended. Signals that land while a task re-read is out cost one more read between them. When push stops, the portal reports the outcome to `POST /api/realtime/fallback`. See [[cire-host-portal-layout]].
+  - **Portal.** `Dashboard` listens on the open wedding for every seat, a helper's included. `members-changed` re-reads the wedding list and tells the views that show seats; `tasks-changed` tells the views that show tasks and reads no list; a reconnect does both, though one within a second of a return relies on the return's own list read instead of sending one. Both kinds mark the run sheet stale, a helper's included, and a mounted run sheet reads again on either ([[cire-run-sheet]]). A view's own write drops a re-read that may predate it, and the read goes again once the view's last write has ended. Signals that land while a task re-read is out cost one more read between them. When push stops, the portal reports the outcome to `POST /api/realtime/fallback`. See [[cire-host-portal-layout]].
 
 ## Observability
 

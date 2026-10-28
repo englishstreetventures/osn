@@ -23,4 +23,4 @@
 # One value, alone on the first non-comment, non-blank line — nothing else
 # in this file is read.
 
-691   # lowered by scripts/guard-lint-warnings.sh --lower-to, 2026-10-27
+682   # lowered by scripts/guard-lint-warnings.sh --lower-to, 2026-10-28

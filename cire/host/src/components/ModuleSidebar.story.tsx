@@ -56,7 +56,7 @@ export const meta = { title: "cire/host/ModuleSidebar", layout: "padded" as cons
  * The sheet needs nothing: its `@2xl/shell:hidden` has no competitor.
  */
 const RAIL_IN_LAB = `
-  .lab-shell nav[aria-label="Wedding modules"] { display: flex; }
+  .lab-shell [data-rail] { display: flex; }
 `;
 
 /** What the shell supplies. `@2xl/shell` is what swaps the rail for the sheet,
@@ -110,8 +110,10 @@ export const Rail = {
           navigates nowhere and clicking again closes the card — that is the whole response. From
           the keyboard, Enter lands on Upgrade, Tab moves on to the next row and Escape comes back.
           Raise the tier in the panel and the rows it includes go back to being ordinary nav
-          buttons. The rows will not look faded here: the lab does not resolve the portal's colour
-          ramp, so judge the fade in the portal itself.
+          buttons. The toggle above Overview collapses the rail to its icons: each row then shows
+          its label beside it on hover or focus, and a locked row opens its card on a press and
+          closes it on the next. The rows will not look faded here: the lab does not resolve the
+          portal's colour ramp, so judge the fade in the portal itself.
         </Guidance>
         <Shell width="60rem" wide>
           <ModuleSidebar

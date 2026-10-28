@@ -236,10 +236,12 @@ let cached:
   | { app: ReturnType<typeof createApp>; realtime: RealtimeRoute; dbBinding: D1Database }
   | undefined;
 
+// Built here, before the app exists, so it sets the `nosniff` the app adds to
+// everything else.
 const misconfigured = (detail: string) =>
   new Response(JSON.stringify({ error: `Worker misconfigured: ${detail}` }), {
     status: 503,
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "X-Content-Type-Options": "nosniff" },
   });
 
 // Is this a *deployed* tier (dev/staging/production) rather than `local`? Reuse
