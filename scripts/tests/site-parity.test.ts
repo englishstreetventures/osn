@@ -309,14 +309,69 @@ describe("runSiteParity", () => {
       const report = JSON.parse(readFileSync(result.out, "utf8"));
       expect(report.refused).toEqual([{ site: "cire_host", side, path: "/", reason }]);
       expect(report.differing).toBe(0);
+      // The refused side's own host, so the owner reads that zone's Security Events.
       expect(result.output).toContain(
-        `::error::site-parity: Cloudflare answered in the site's place for cire_host / on the ${side === "worker" ? "Worker" : "Pages"} side`,
+        side === "worker"
+          ? "::error::site-parity: Cloudflare answered in the site's place for cire_host / on the Worker side (https://next-host.cireweddings.com)"
+          : "::error::site-parity: Cloudflare answered in the site's place for cire_host / on the Pages side (https://host.cireweddings.com)",
       );
       expect(result.output).toContain("zone's configuration, such as Bot Fight Mode, not the site");
       expect(result.output).not.toContain("answer differently");
       expect(result.output).not.toContain("cire_host /: answer differ");
     },
   );
+
+  test("SP6: a refused path exits 3 whatever else differs, and another site's difference on the same path is still counted and named", async () => {
+    const blockedUrl = "https://next-host.cireweddings.com/";
+    const hosts = fakeHosts((url) =>
+      url === blockedUrl
+        ? challenge()
+        : url === "https://next-vendor.cireweddings.com/"
+          ? new Response("<!doctype html>", {
+              status: 200,
+              headers: {
+                "content-type": "text/html; charset=utf-8",
+                "access-control-allow-origin": "*",
+              },
+            })
+          : undefined,
+    );
+    const result = await parity(["--stack", "cire"], hosts);
+    expect(result.code).toBe(3);
+    const report = JSON.parse(readFileSync(result.out, "utf8"));
+    expect(report.refused).toEqual([
+      {
+        site: "cire_host",
+        side: "worker",
+        path: "/",
+        reason: "Cloudflare answered 403 in the site's place (cf-mitigated: challenge)",
+      },
+    ]);
+    expect(report.differing).toBe(1);
+    expect(result.output).toContain("cire_vendor /: access-control-allow-origin differ\n");
+    expect(result.output).toContain(
+      "::warning::site-parity: 1 path answer differently on the staged Worker and on Pages",
+    );
+    expect(result.output).not.toContain("cire_host /:");
+  });
+
+  test("SP6: a site's own 403, with no cf-mitigated, is compared as any answer, never refused", async () => {
+    const forbidden = () =>
+      new Response("forbidden", { status: 403, headers: { "content-type": "text/html" } });
+    const hosts = fakeHosts((url) =>
+      url === "https://next-host.cireweddings.com/" || url === "https://host.cireweddings.com/"
+        ? forbidden()
+        : undefined,
+    );
+    const result = await parity(["--stack", "cire"], hosts);
+    expect(result.code).toBe(0);
+    expect(result.slept).toEqual([]);
+    expect(JSON.parse(readFileSync(result.out, "utf8"))).toMatchObject({
+      differing: 0,
+      refused: [],
+    });
+    expect(result.output).not.toContain("::error::");
+  });
 
   test("SP7: a challenge that clears when asked again 2 s later is compared as any answer", async () => {
     const blockedUrl = "https://next-vendor.cireweddings.com/";
