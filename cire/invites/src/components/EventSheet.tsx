@@ -120,6 +120,8 @@ interface Touch {
   held?: boolean;
   /** A caught touch: where the settle it stopped was going. */
   commit?: boolean;
+  /** A drag's painter, built once when it begins (`painter`). */
+  paint?: (dx: number) => void;
 }
 
 /** What the swipe is doing, from a touch's slop to its settle. */
@@ -300,8 +302,10 @@ interface Settle {
  *   which drags on from there. A catch that turns out to be a tap, a held
  *   finger or a vertical scroll lets the settle go on to where it was going.
  *   The click such a tap fires is swallowed — it would land on whatever the
- *   moving panel had under the finger — matched by time, not by pointer, as
- *   Safari's `click` carries none. A band's settle, or a swipe's inside its
+ *   moving panel had under the finger — and only that click: the one within
+ *   300ms of the finger lifting and within the slop of where it lifted,
+ *   matched by time and place, not by pointer, as Safari's `click` carries
+ *   none. A catch that becomes a drag fires no click and swallows nothing. A band's settle, or a swipe's inside its
  *   rubber band, is not caught: there the panels and the finger are not one to
  *   one.
  */
@@ -426,29 +430,41 @@ export function EventSheet(props: EventSheetProps) {
   let disposed = false;
 
   // The click a catching tap would fire: it lands on whatever the moving panel
-  // had under the finger, which the guest never aimed at. Armed by the catch,
-  // spent by the next click, and lapsing 300ms after the touch ends — after a
-  // drag no click comes. Matched by time, never by pointer: Safari sends
-  // `click` as a plain `MouseEvent`, with no `pointerId`.
+  // had under the finger, which the guest never aimed at. Only that click is
+  // cancelled: the one that comes within 300ms of the catching finger lifting,
+  // within the slop of where it lifted. A tap anywhere else, or later, is a new
+  // aim and goes through. A catch that becomes a drag, or that the browser
+  // cancels, fires no click, so it disarms at once. Matched by time and place,
+  // never by pointer: Safari sends `click` as a plain `MouseEvent`, with no
+  // `pointerId`.
   let swallowArmed = false;
+  let swallowAt: { x: number; y: number } | null = null;
   let swallowToken = 0;
   let swallowTimer: ReturnType<typeof setTimeout> | undefined;
   function armSwallow() {
     swallowToken++;
     clearTimeout(swallowTimer);
     swallowArmed = true;
+    swallowAt = null;
   }
-  function lapseSwallow() {
+  function disarmSwallow() {
+    clearTimeout(swallowTimer);
+    swallowArmed = false;
+    swallowAt = null;
+  }
+  /** The catching finger has lifted at `x`, `y`: its click, if any, comes now. */
+  function awaitSwallowed(x: number, y: number) {
     const token = swallowToken;
+    swallowAt = { x, y };
     clearTimeout(swallowTimer);
     swallowTimer = setTimeout(() => {
-      if (token === swallowToken) swallowArmed = false;
+      if (token === swallowToken) disarmSwallow();
     }, 300);
   }
   function swallowClick(e: MouseEvent) {
-    if (!swallowArmed) return;
-    swallowArmed = false;
-    clearTimeout(swallowTimer);
+    if (!swallowArmed || !swallowAt) return;
+    if (pastSlop(e.clientX - swallowAt.x, e.clientY - swallowAt.y)) return;
+    disarmSwallow();
     // Default too: a radio or a label still toggles, and a link still follows,
     // when only the handlers are stopped.
     e.preventDefault();
@@ -549,19 +565,33 @@ export function EventSheet(props: EventSheetProps) {
       return;
     }
     const toward = Math.sign(to - from);
-    let crossed = false;
+    let finished = false;
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      land();
+    };
     run.controls = animate(from, to, {
       type: "spring",
       ...SETTLE_SPRING,
       // motion takes units per second; the finger is measured per ms.
       velocity: velocity * 1000,
       onUpdate: (value: number) => {
-        if (run.dropped) return;
-        if (!crossed && Math.sign(to - value) === -toward) crossed = true;
-        run.x = crossed ? to : value;
-        paint(run.x);
+        if (run.dropped || finished) return;
+        if (Math.sign(to - value) === -toward) {
+          // Crossed: the panel is at rest, so the settle is over now, not
+          // when the spring would have come back from beyond it.
+          run.x = to;
+          paint(to);
+          finished = true;
+          run.controls?.stop();
+          land();
+          return;
+        }
+        run.x = value;
+        paint(value);
       },
-      onComplete: land,
+      onComplete: finish,
     });
   }
 
@@ -640,6 +670,7 @@ export function EventSheet(props: EventSheetProps) {
     window.getSelection()?.removeAllRanges();
     state.state = "dragging";
     setPhase("dragging");
+    state.paint = painter(state.width) ?? undefined;
     const incoming = wrappers[target];
     if (!incoming) return;
     // Where it will rest, under the bar, wherever the panel on screen is
@@ -704,7 +735,10 @@ export function EventSheet(props: EventSheetProps) {
       }
       state.state = "dragging";
       setPhase("dragging");
+      state.paint = painter(state.width) ?? undefined;
       state.samples = [{ x: e.clientX, t: e.timeStamp }];
+      // A drag fires no click, so there is nothing left to swallow.
+      disarmSwallow();
     }
     if (state.state === "pending") {
       if (!pastSlop(dx, dy)) return;
@@ -728,17 +762,17 @@ export function EventSheet(props: EventSheetProps) {
       return;
     }
     state.dx = clampOffset(dx, active(), state.width);
-    painter(state.width)?.(state.dx);
+    state.paint?.(state.dx);
   }
 
   function onPointerEnd(e: PointerEvent) {
     const state = touch;
     if (!state || e.pointerId !== state.id) return;
     touch = null;
-    // However a catching touch ends — a tap, or a drag that fires no click —
-    // its swallow lapses after it, so it can never eat a later, real tap.
-    if (swallowArmed) lapseSwallow();
     if (state.state === "caught") {
+      // A lift fires the tap's click here and now; a cancel fires none.
+      if (e.type === "pointerup" && swallowArmed) awaitSwallowed(e.clientX, e.clientY);
+      else disarmSwallow();
       // Not a swipe after all — a tap, a held finger, or a scroll the browser
       // took: the settle goes on to where it was going, from here.
       resumeCaught(state);

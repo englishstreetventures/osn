@@ -1914,6 +1914,31 @@ describe("EventSheet — the swipe's physics", () => {
     }
   });
 
+  it("swallows nothing after a catch that became a drag, so the next tap goes through", async () => {
+    await openOn("details");
+    const width = rail().clientWidth;
+    const start = bodyOf("details");
+    await touchDrag(start, { x: start.x - width * 0.2, y: start.y }, { ms: 600 });
+    await sleep(60);
+    // Caught, then dragged back past where it began: the release springs out
+    // of a rubber band, which no later touch can catch.
+    const at = { x: start.x - width * 0.1, y: start.y };
+    await touchDrag(at, { x: at.x + width * 0.4, y: at.y }, { ms: 200 });
+    const target = within(wrapperOf("details")).getAllByRole("button")[0]!;
+    let pressed = 0;
+    const press = () => pressed++;
+    target.addEventListener("click", press);
+    try {
+      // Within 300ms of the lift: a timed swallow alone would eat this.
+      await tapAt(centre(target));
+      await sleep(40);
+      expect(pressed).toBe(1);
+    } finally {
+      target.removeEventListener("click", press);
+    }
+    await settleSwipe();
+  });
+
   it("lets a committed swipe land when a scroll starts on it mid-settle", async () => {
     await openOn("details", party);
     const width = rail().clientWidth;
