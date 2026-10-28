@@ -1,0 +1,18 @@
+# Policy for scripts/secret-scan.sh. CI reads this file from origin/main, never
+# from a pull request's checkout, so an entry takes effect for other pull requests
+# once it is merged.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Test fixtures confirmed by the owner (tracker 1180, E1)"
+paths = [
+  '''^cire/infra/tests/cross-stack\.test\.ts$''',
+  '''^cire/infra/tests/evaluate\.ts$''',
+  '''^musubi/infra/tests/evaluate\.ts$''',
+  '''^musubi/infra/tests/seeds\.test\.ts$''',
+  '''^shared/infra/tests/secrets/require\.test\.ts$''',
+  '''^tools/pr-metrics/tests/pr-metrics\.test\.ts$''',
+  '''^wiki/shared/production-deploy\.md$''',
+]

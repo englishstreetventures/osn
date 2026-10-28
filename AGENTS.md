@@ -58,7 +58,7 @@ Work is tracked in GitHub Issues, never the wiki.
 - **Deferrals** get an issue, and the code carries only the link: `// Bounded until englishstreetventures/osn#412 lands.` A settled choice with its reason can stay inline.
 - **Instruction files state the present.** This file, a `SKILL.md` or a wiki page says what to do now, never how it came to be; `git log` holds that. A reason that stops a mistake stays.
 - **House lint rules** (`house/*` in `tools/oxlint/house`) and why they exist: `wiki/conventions/house-lint-rules.md`. Agent skills, evals and vendored trees: `wiki/conventions/agent-tooling.md`.
-- Lefthook formats and lints staged files on commit and type-checks on push.
+- Lefthook formats and lints staged files on commit, runs the advisory secret scan on staged content, and type-checks on push. CI's `Secret scan` job is the gate.
 
 ## Commands
 

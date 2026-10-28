@@ -6,7 +6,7 @@ related:
   - "[[contributing]]"
   - "[[testing-patterns]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-10-26
+last-reviewed: 2026-10-29
 ---
 
 # CLI Commands Reference
@@ -63,7 +63,7 @@ bun run fmt:check        # Check formatting (used in CI)
 bun scripts/check-wikilinks.ts  # Every wikilink in wiki/ resolves; exit 1 lists the ones that do not
 ```
 
-Pre-commit hooks (via lefthook) automatically run oxlint + bun fmt on staged files. Pre-push hooks run the type checker.
+Pre-commit hooks (via lefthook) automatically run oxlint + bun fmt on staged files, and an advisory secret scan (`scripts/secret-scan.sh staged`). Pre-push hooks run the type checker.
 
 ## Database
 

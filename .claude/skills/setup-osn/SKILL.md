@@ -33,7 +33,7 @@ Never claim a gate passed that did not run here.
 
 ## Step 1 — Homebrew (macOS)
 
-`which brew`; if absent, install with the script at `https://brew.sh` and add its shellenv line to the shell profile.
+`which brew`; if absent, install with the script at `https://brew.sh` and add its shellenv line to the shell profile. Then `brew install gitleaks` (8.30.1 or later): the pre-commit secret scan runs it, and without it the hook prints one line and CI still gates.
 
 ## Step 2 — Bun at the pinned version
 
