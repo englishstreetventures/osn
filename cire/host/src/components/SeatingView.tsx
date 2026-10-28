@@ -885,7 +885,7 @@ function GuestMenu(props: {
               {action()}
             </DropdownMenu.Trigger>
             <DropdownMenu.Portal>
-              <DropdownMenu.Content class="border-border bg-surface z-50 max-h-80 min-w-56 overflow-y-auto rounded-sm border p-1.5 shadow-lg outline-none">
+              <DropdownMenu.Content class="border-border bg-surface menu-pop z-50 max-h-80 min-w-56 overflow-y-auto rounded-sm border p-1.5 shadow-lg outline-none">
                 <DropdownMenu.RadioGroup
                   value={props.guest.tableId ?? NOT_SEATED}
                   onChange={(value) =>

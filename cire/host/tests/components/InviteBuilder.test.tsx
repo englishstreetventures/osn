@@ -1733,11 +1733,11 @@ describe("InviteBuilder section menu (narrow containers)", () => {
 
     expect(trigger().getAttribute("aria-expanded")).toBe("false");
     expect(trigger().getAttribute("aria-controls")).toBe(tablist().id);
-    expect(tablist().classList.contains("hidden")).toBe(true);
+    expect(tablist().hasAttribute("data-open")).toBe(false);
 
     fireEvent.click(trigger());
     expect(trigger().getAttribute("aria-expanded")).toBe("true");
-    expect(tablist().classList.contains("hidden")).toBe(false);
+    expect(tablist().hasAttribute("data-open")).toBe(true);
 
     // Every tab reachable in one screen — the point of replacing the strip.
     expect(within(tablist()).getAllByRole("tab")).toHaveLength(9);

@@ -214,7 +214,7 @@ export default function DatePicker(props: {
         <Popover.Trigger
           aria-label={`${props.label}${selected() ? `: ${formatLong(selected()!)}` : ", no date set"}`}
           disabled={props.disabled}
-          class="border-border bg-bg font-body text-text hover:border-gold focus-visible:border-gold focus-visible:ring-gold/40 text-ui-base flex items-center justify-between gap-2 rounded-sm border px-3 py-2 text-left transition-colors outline-none focus-visible:ring-2 disabled:opacity-40"
+          class="border-border bg-bg font-body text-text hover:border-gold focus-visible:border-gold focus-visible:ring-gold/40 text-ui-base flex items-center justify-between gap-2 rounded-sm border px-3 py-2 text-left transition-colors duration-(--dur-fast) ease-(--ease-out) outline-none focus-visible:ring-2 disabled:opacity-40"
         >
           <Show
             when={selected()}
@@ -235,7 +235,7 @@ export default function DatePicker(props: {
           </svg>
         </Popover.Trigger>
         <Popover.Portal>
-          <Popover.Content class="border-border bg-surface-raised z-50 flex w-64 flex-col gap-3 rounded-sm border p-3 shadow-lg outline-none">
+          <Popover.Content class="border-border bg-surface-raised menu-pop z-50 flex w-64 flex-col gap-3 rounded-sm border p-3 shadow-lg outline-none">
             {/* ── Month header: prev / label / next ─────────────────────── */}
             <div class="flex items-center justify-between gap-2">
               <Button
@@ -324,7 +324,7 @@ export default function DatePicker(props: {
                             tabindex={isFocused() ? 0 : -1}
                             onClick={() => commit(day)}
                             classList={{
-                              "flex h-8 w-8 items-center justify-center rounded-sm text-ui-sm tabular-nums outline-none transition-colors focus-visible:ring-2 focus-visible:ring-gold/50": true,
+                              "flex h-8 w-8 items-center justify-center rounded-sm text-ui-sm tabular-nums outline-none transition-colors duration-(--dur-fast) ease-(--ease-out) focus-visible:ring-2 focus-visible:ring-gold/50": true,
                               "bg-gold text-bg font-medium": isSelected(),
                               "text-text hover:bg-gold/15": !isSelected() && inMonth(),
                               "text-text-muted opacity-40 hover:opacity-70":

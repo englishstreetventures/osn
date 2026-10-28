@@ -193,12 +193,24 @@
  * design. Every duration is `calc(… * var(--motion-scale))` so a reference
  * behaviour can be slowed to 0.1× and judged frame by frame. Nothing in the
  * app writes `--motion-scale`.
+ *
+ * The ladder follows the input, not the screen, as in `cire/host`: shorter
+ * with a fine pointer (a mouse or a trackpad, at a desk), the longer ladder on
+ * touch.
  */
 :root {
   --motion-scale: 1;
   --dur-fast: calc(120ms * var(--motion-scale));
   --dur-base: calc(200ms * var(--motion-scale));
   --dur-slow: calc(320ms * var(--motion-scale));
+}
+
+@media (pointer: fine) {
+  :root {
+    --dur-fast: calc(90ms * var(--motion-scale));
+    --dur-base: calc(150ms * var(--motion-scale));
+    --dur-slow: calc(200ms * var(--motion-scale));
+  }
 }
 
 /* ── Toast ──────────────────────────────────────────────────────────────────
@@ -586,4 +598,42 @@
 
 @utility panel-in {
   animation: panel-in var(--dur-base) var(--ease-out);
+}
+
+/* ── A menu or picker opening: menu-pop ─────────────────────────────────────
+ * The plain Kobalte popovers and dropdown menus — the profile menu, the
+ * wedding switcher, the date and colour pickers — scale up a little from the
+ * side of the trigger they opened on and fade in, then out the same way. Short
+ * and with no overshoot: a menu is reached for many times a session, and the
+ * droplet's spring is kept for the checklist row it belongs to.
+ *
+ * `--kb-popper-content-transform-origin` rather than the popover- or
+ * menu-specific property: Kobalte sets it on the floating element of both
+ * kinds. The exit has keyframes of its own, never the entry reversed: Kobalte
+ * holds a closing panel mounted only while an animation with a different name
+ * from the opening one runs.
+ */
+@keyframes menu-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+@keyframes menu-pop-out {
+  to {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+
+@utility menu-pop {
+  transform-origin: var(--kb-popper-content-transform-origin);
+
+  &[data-expanded] {
+    animation: menu-pop-in var(--dur-fast) var(--ease-out);
+  }
+  &[data-closed] {
+    animation: menu-pop-out var(--dur-fast) var(--ease-in-out);
+  }
 }

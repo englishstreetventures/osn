@@ -97,7 +97,7 @@ const CHIP_CLASS =
   "border-border hover:border-gold focus-visible:border-gold focus-visible:ring-gold/40 " +
   "font-body text-text-muted aria-pressed:border-gold aria-pressed:text-gold " +
   "flex items-center gap-1.5 rounded-sm border px-3 py-1.5 text-ui-sm tracking-ui-wide " +
-  "uppercase transition outline-none focus-visible:ring-2";
+  "uppercase transition duration-(--dur-fast) ease-(--ease-out) outline-none focus-visible:ring-2";
 
 /** Identifies the row being edited (event + guest) so only one form is open. */
 interface EditTarget {

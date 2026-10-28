@@ -1036,13 +1036,14 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                     opening it never shoves the form down. Narrow + closed:
                     `display: none` (the panels' `aria-labelledby` still resolves
                     against it — the accname spec follows hidden references).
+                    `section-menu` fades it between the two, in CSS alone.
                     From `@3xl/builder`, where the row has room to wrap: the
                     static row, always laid out, menu state irrelevant. */}
                   <div
                     id={SECTION_MENU_ID}
                     role="tablist"
-                    classList={{ hidden: !sectionMenuOpen(), grid: sectionMenuOpen() }}
-                    class="border-border bg-bg absolute inset-x-6 top-full z-30 mt-1 max-h-[60vh] grid-cols-2 gap-1 overflow-y-auto rounded-sm border p-2 shadow-lg @3xl/builder:static @3xl/builder:mt-0 @3xl/builder:flex @3xl/builder:max-h-none @3xl/builder:flex-wrap @3xl/builder:overflow-visible @3xl/builder:rounded-none @3xl/builder:border-0 @3xl/builder:bg-transparent @3xl/builder:p-0 @3xl/builder:shadow-none"
+                    data-open={sectionMenuOpen() || undefined}
+                    class="section-menu border-border bg-bg absolute inset-x-6 top-full z-30 mt-1 max-h-[60vh] grid-cols-2 gap-1 overflow-y-auto rounded-sm border p-2 shadow-lg @3xl/builder:static @3xl/builder:mt-0 @3xl/builder:flex @3xl/builder:max-h-none @3xl/builder:flex-wrap @3xl/builder:overflow-visible @3xl/builder:rounded-none @3xl/builder:border-0 @3xl/builder:bg-transparent @3xl/builder:p-0 @3xl/builder:shadow-none"
                   >
                     <For each={[...NAV_SECTIONS]}>
                       {(item) => {
@@ -1061,7 +1062,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                             onKeyDown={(e) => onSectionTabKeyDown(e, item.id)}
                             // `min-h-11` is a 44px touch target in the menu; the
                             // wide row keeps the compact pill it has always been.
-                            class={`font-body text-ui-xs tracking-ui-wider flex min-h-11 w-full shrink-0 items-center gap-1.5 rounded-sm px-3 py-2 text-left uppercase transition-colors @3xl/builder:min-h-0 @3xl/builder:w-auto @3xl/builder:px-2.5 @3xl/builder:py-1 ${sectionTabTone(
+                            class={`font-body text-ui-xs tracking-ui-wider flex min-h-11 w-full shrink-0 items-center gap-1.5 rounded-sm px-3 py-2 text-left uppercase transition-colors duration-(--dur-fast) ease-(--ease-out) @3xl/builder:min-h-0 @3xl/builder:w-auto @3xl/builder:px-2.5 @3xl/builder:py-1 ${sectionTabTone(
                               active(),
                               isHiddenState(state()),
                             )}`}

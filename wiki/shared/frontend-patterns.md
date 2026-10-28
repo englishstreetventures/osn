@@ -23,7 +23,7 @@ packages:
   - "@cire/host"
   - "@pulse/web"
   - "@shared/ui"
-last-reviewed: 2026-10-26
+last-reviewed: 2026-10-28
 ---
 
 # Frontend Patterns
@@ -480,6 +480,83 @@ fallback timer that ends a settle which fires no `transitionend`.
 
 The fast tier cannot see either: jsdom computes no animation, so the value is
 empty and no tween runs.
+
+## Motion follows the input
+
+How long a motion takes depends on what the reader is holding, not on how wide
+the screen is.
+
+| Input | Setting | Rule |
+|---|---|---|
+| Fine pointer — a mouse or a trackpad (`@media (pointer: fine)`) | A desk; the reader is working and waits on each motion before the next click | Shorter. Cire's organiser portals run 90 / 150 / 200ms here against 120 / 200 / 320ms on touch ([[cire-host-portal-layout]], `cire/host/DESIGN.md` §4) |
+| Touch | A phone in the hand; the reader is reading, not working | The longer ladder, and gestures that behave like the platform's own (below) |
+
+`pointer: fine` reads the *primary* pointer, so a touch laptop driven by its
+trackpad gets the desk pace. Switch the duration tokens under the query rather
+than writing a second set of utilities: every motion that already reads a
+`--dur-*` token follows the input for free, and one written as a literal or as
+Tailwind's bare `transition` (150ms) does not. A product whose desktop readers
+are not working — cire's guest site — keeps one ladder on every input.
+
+### A gesture follows the finger, and the finger's speed outlives it
+
+What iOS does, measured from UIKit (`blog.justinbuilds.mov/ios`) and what a
+hand-built gesture here copies:
+
+- **Past an edge, damp; never stop.** Content dragged past its end moves
+  `c·x·d / (d + c·x)` for a finger `x` past the edge on a view `d` long, with
+  `c = 0.55` for touch: 55% of the finger's travel at first, then less, never
+  more than `d`. A hard clamp reads as the gesture breaking.
+- **Release into a spring that starts at the finger's speed.** A fixed-length
+  ease starts at its curve's own speed, so a fast flick brakes on release and a
+  slow drag jumps forward. A spring given the release velocity carries on
+  smoothly. Critically damped for a page — a page should not bounce.
+- **Let a moving thing be caught.** A touch on content that is still settling
+  stops it where it is and hands it back to the finger; an ease restarted from
+  zero speed stalls for a frame instead.
+
+CSS cannot carry a velocity, so a spring that must is script — `motion`'s
+`animate(from, to, { type: "spring", velocity })`, with `velocity` in units per
+second. The reduced-motion clamp in a stylesheet does not reach it: check
+`matchMedia("(prefers-reduced-motion: reduce)")` and land at once.
+
+### A toggled box can fade out of `display: none` in CSS alone — outside the top layer
+
+`display` is discrete, so a transition on a box that goes to `display: none`
+normally has nothing left to paint. `transition-behavior: allow-discrete` on
+`display` holds the old value until the other transitions have run, and
+`@starting-style` gives the opening a from-state:
+
+```css
+.menu {
+  display: none;
+  opacity: 0;
+  transition: opacity 150ms, display 150ms allow-discrete;
+}
+.menu[data-open] {
+  display: grid;
+  opacity: 1;
+  @starting-style { opacity: 0; }
+}
+```
+
+Chrome 117, Safari 17.4 and Firefox 129 run it; an older engine drops the
+`transition` declaration and toggles at once, which degrades rather than
+breaks. Give the closed state `pointer-events: none`, or the fading box still
+takes a tap. Cire host's section menu (`section-menu`) is the working copy.
+
+This does **not** extend to a `<dialog>` or a `popover`. Leaving the top layer
+also needs `overlay` in the transition, and `overlay` is Chrome and Edge only —
+which is why `Modal` defers `close()` in script (its overlays section in
+[[component-library]]).
+
+### A pseudo-element escapes a `*` reduced-motion clamp
+
+Each app's reduced-motion block selects `*, *::before, *::after`, and no other
+pseudo-element matches it. An animation on `::details-content`, `::backdrop` or
+`::marker` keeps running for a reader who asked for none. Declare such an
+animation inside `@media (prefers-reduced-motion: no-preference)` instead of
+relying on the clamp to undo it.
 
 ## Server-rendered islands
 

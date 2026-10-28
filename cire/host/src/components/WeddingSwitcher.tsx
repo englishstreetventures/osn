@@ -44,7 +44,7 @@ export default function WeddingSwitcher(props: {
       </DropdownMenu.Trigger>
 
       <DropdownMenu.Portal>
-        <DropdownMenu.Content class="border-border bg-surface z-50 max-h-[min(24rem,70vh)] min-w-64 overflow-y-auto rounded-sm border p-1.5 shadow-(--elev-2) outline-none">
+        <DropdownMenu.Content class="border-border bg-surface menu-pop z-50 max-h-[min(24rem,70vh)] min-w-64 overflow-y-auto rounded-sm border p-1.5 shadow-(--elev-2) outline-none">
           <Show when={others().length > 0}>
             <p class="font-body text-text-faint text-ui-xs tracking-ui-widest px-3 pt-1.5 pb-2 uppercase">
               Switch to

@@ -230,7 +230,7 @@ function LockedRow(props: {
             if (props.dwell) dwell.leave(event);
           }}
           onKeyDown={onCardKeyDown}
-          class="border-border bg-surface-raised z-50 flex w-64 flex-col gap-2 rounded-sm border p-3 shadow-lg outline-none"
+          class="border-border bg-surface-raised menu-pop z-50 flex w-64 flex-col gap-2 rounded-sm border p-3 shadow-lg outline-none"
         >
           {/* `gold-ink`, not `gold`: this is small text that has to be read,
               and gold has no contrast contract (`styles/global.css`). */}

@@ -1,7 +1,7 @@
 import { contrastRatio, WCAG_TEXT_MIN, WCAG_UI_MIN } from "@cire/theme";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { commands, page, userEvent } from "vitest/browser";
+import { cdp, commands, page, userEvent } from "vitest/browser";
 
 import "../../src/styles/global.css";
 
@@ -650,6 +650,44 @@ describe("the popover's motion", () => {
           .animationDelay.split(", ")
           .every((d) => d === "0s"),
       ).toBe(true);
+    }
+  });
+});
+
+describe("the popover's pace follows the input", () => {
+  /** The longest animation on the open panel, in ms, as the engine times it. */
+  async function openingMs() {
+    answering(FOUR);
+    seedTasks([row({ id: "a", title: "Book venue" })]);
+    render(() => (
+      <div style={{ padding: "16px" }}>
+        <ChecklistView weddingId="wed_1" canEdit={true} />
+      </div>
+    ));
+    fireEvent.click(screen.getByRole("button", { name: "Assign people to Book venue" }));
+    const dialog = await screen.findByRole("dialog", { name: "Assign people" });
+    const ms = Math.max(
+      ...dialog.getAnimations().map((a) => Number(a.effect!.getComputedTiming().duration)),
+    );
+    await Promise.all(dialog.getAnimations({ subtree: true }).map((a) => a.finished));
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(dialog.isConnected).toBe(false));
+    cleanup();
+    return ms;
+  }
+
+  it("opens in 200ms with a mouse, and keeps 320ms on touch", async () => {
+    await page.viewport(1280, 800);
+    expect(matchMedia("(pointer: fine)").matches).toBe(true);
+    expect(await openingMs()).toBeLessThanOrEqual(200);
+
+    // Touch emulation is what flips the primary pointer to coarse in Chromium.
+    await cdp().send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
+    try {
+      expect(matchMedia("(pointer: coarse)").matches).toBe(true);
+      expect(await openingMs()).toBe(320);
+    } finally {
+      await cdp().send("Emulation.setTouchEmulationEnabled", { enabled: false });
     }
   });
 });
