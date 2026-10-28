@@ -7,9 +7,12 @@ name: Production release
 #
 # Shape of a run:
 #
-#   plan ──> build ──> sites ──> alchemy-plan ──> deploy-<surface>  (Wrangler APIs, Pages sites)
-#                                (approval 1)     stack-<stack>-production ──> record-<site>
-#                                                 (approval 2, together)       site-parity
+#   plan ──> build ──┬──> alchemy-plan ──> deploy-<surface>  (Wrangler APIs, Pages sites)
+#        └─> sites ──┘    (approval 1)     stack-<stack>-production ──> record-<site>
+#                                          (approval 2, together)       site-parity
+#
+# `build` and `sites` run side by side; `alchemy-plan` and every deploy job
+# need both.
 #
 # A flip release (`flip` names one site, `surfaces` that site alone) moves a
 # domain, and its stack runs three jobs, each with its own approval:
@@ -18,13 +21,23 @@ name: Production release
 #   (approval 1)     (2: re-plan, guard)     (3: domain off Pages)    (4: re-plan, guard,
 #                                                                         deploy, attach)
 #
+# Its rollback is a release dispatched with `attach` naming the site, which
+# runs the plan job and attach-pages-domain alone, behind one approval: the
+# site's domain goes back on its Pages project. A release dispatched with
+# `unflip` (the site set back to `staged`) ships the site's stack, whose
+# Worker gives up its production host, then runs the same attach job.
+#
 # `sites` builds each production site a shipping stack deploys, or whose own
 # Pages job ships, once, with the values its build bakes in, and passes them
-# on as the `production-sites` artifact. `alchemy-plan` (the `production`
+# on as the `production-sites` artifact. A job that holds a credential
+# downloads it outside its checkout and lets in only the site builds
+# (scripts/production-sites-artifact.ts). `alchemy-plan` (the `production`
 # Environment's first review) checks each worker site's domain before any
 # install, then plans each shipping stack and runs the plan guard, keeping
-# only the guard's record (names, kinds, actions). Every other job needs all
-# four, so they reach the gate together and one second review releases them.
+# only the guard's record (names, kinds, actions, and each site's
+# custom-domain change, read from the live Workers). Every other job needs
+# all four, so they reach the gate together and one second review releases
+# them.
 # When no stack ships, `alchemy-plan` is skipped and that is the only review.
 # Any job that fails stops every deploy job: a guard refusal, a site build,
 # a state store that needs bootstrapping after an Alchemy bump, or a merged
@@ -85,11 +98,16 @@ name: Production release
 # Environment also allows `main` alone; the plan job refuses any other ref
 # before the build starts. In the Alchemy jobs it reaches only the steps that
 # check the token, read the state store, snapshot or compare deployments,
-# plan, deploy and smoke-check; CLOUDFLARE_PAGES_DNS_TOKEN, which may move a
-# Pages domain, reaches only the pages-domain step, which runs before any
-# install. Every checkout sets `persist-credentials: false`: no step fetches
-# or pushes, so the job token never sits in .git/config while dependency code
-# runs. shared/infra/tests/workflow-secrets.test.ts holds this.
+# read the Workers' custom domains, plan, deploy and smoke-check, and in the
+# Pages jobs only the deploy step; CLOUDFLARE_PAGES_DNS_TOKEN, which may move
+# a Pages domain, reaches only the pages-domain steps: alchemy-plan's
+# precheck, before any install, and the detach and attach jobs, which install
+# nothing. The jobs that install a narrower tree than `sites` and hold a
+# credential (alchemy-plan, the stack, verify and Pages jobs) restore no
+# dependency cache, which jobs holding no secret also write. Every checkout
+# sets `persist-credentials: false`: no step fetches or pushes, so the job
+# token never sits in .git/config while dependency code runs.
+# shared/infra/tests/workflow-secrets.test.ts holds this.
 on:
   # 20:17 UTC — 07:17 in Sydney in summer time, 06:17 in winter, so the
   # release waits for approval at the start of the owner's day with the
@@ -111,6 +129,16 @@ on:
         default: false
       flip:
         description: "A site whose domain this release moves from its Pages project to its Worker, at low traffic: one PRODUCTION_SITE_MODES sets to worker. Set surfaces to that site alone. Empty for none."
+        type: string
+        required: false
+        default: ""
+      unflip:
+        description: "A site set back to staged whose Worker this release lets give up its production host; the attach job then puts the host back on its Pages project. Set surfaces to that site alone. Empty for none."
+        type: string
+        required: false
+        default: ""
+      attach:
+        description: "A site whose domain goes back on its Pages project, the rollback of a flip. The release runs that alone: leave every other input empty. Empty for none."
         type: string
         required: false
         default: ""
@@ -163,6 +191,8 @@ jobs:
       any_stack: ${{ steps.plan.outputs.any_stack }}
       stacks: ${{ steps.plan.outputs.stacks }}
       flip: ${{ steps.plan.outputs.flip }}
+      unflip: ${{ steps.plan.outputs.unflip }}
+      attach: ${{ steps.plan.outputs.attach }}
     steps:
       - name: Refuse any ref but main
         if: github.ref != 'refs/heads/main'
@@ -189,6 +219,8 @@ jobs:
           SURFACES: ${{ inputs.surfaces }}
           FORCE: ${{ inputs.force }}
           FLIP: ${{ inputs.flip }}
+          UNFLIP: ${{ inputs.unflip }}
+          ATTACH: ${{ inputs.attach }}
         run: bun run scripts/release-plan.ts
 
   # ── Gate ─────────────────────────────────────────────────────────────────
@@ -265,7 +297,7 @@ jobs:
   # build values are public, and nothing here can deploy.
   sites:
     name: Build the production sites
-    needs: [plan, build]
+    needs: [plan]
     if: needs.plan.outputs.any_site == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -293,20 +325,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bun-noinfra-
 
-      - name: Restore turbo cache
-        uses: actions/cache/restore@v4
-        with:
-          path: .turbo
-          key: ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-
-            ${{ runner.os }}-turbo-build-
-
       # turbo.json's `build` task hashes `PUBLIC_*`, `VITE_*` and `SITE`, and
-      # these differ from the `build` job's, so each build here is a turbo
-      # cache miss and really runs `astro build`. Restoring the font metadata
-      # keeps that from fetching fonts.google.com again; see ci.yml's
-      # `build-test` job for the key.
+      # these differ from the `build` job's, so no turbo cache could serve a
+      # build here and none is restored: each really runs `astro build`.
+      # Restoring the font metadata keeps that from fetching
+      # fonts.google.com again; see ci.yml's `build-test` job for the key.
       - name: Cache Astro font metadata
         uses: actions/cache@v4
         with:
@@ -490,16 +513,10 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_PAGES_DNS_TOKEN: ${{ secrets.CLOUDFLARE_PAGES_DNS_TOKEN }}
 
-      - name: Cache bun dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-bun-
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
+      # The two production stacks' trees, no other workspace's, and no
+      # cache: the cache is shared with jobs that hold no secret.
+      - name: Install the production stacks' dependencies
+        run: bun install --frozen-lockfile --filter @cire/infra --filter @musubi/infra
 
       # The stacks check each site's build for the production origins it
       # bakes in before they declare it.
@@ -507,7 +524,14 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: production-sites
-          path: .
+          path: ${{ runner.temp }}/production-sites
+
+      # Outside the checkout, and checked before any build reaches it: the
+      # sites job ran third-party build code with no secret, so only the
+      # site builds come in, never a file a later step runs.
+      - name: Check the built sites, then put them in place
+        id: place_sites
+        run: bun run scripts/production-sites-artifact.ts "$RUNNER_TEMP/production-sites"
 
       # The production token must reach the production account and no other.
       # Every step below that holds it runs only after this passes.
@@ -546,6 +570,25 @@ jobs:
         id: snapshot_musubi
         if: needs.plan.outputs.stack_musubi == 'true'
         run: bun run scripts/worker-deployments.ts snapshot "$RUNNER_TEMP/deployments-musubi.json" --tier production osn_social musubi_landing
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      # The custom domains each shipping stack's site Workers hold now: the
+      # guard shows and judges the change each plan makes to them, which
+      # its text does not.
+      - name: Read the cire site Workers' custom domains
+        id: worker_domains_cire
+        if: needs.plan.outputs.stack_cire == 'true'
+        run: bun run scripts/worker-deployments.ts domains "$RUNNER_TEMP/domains-cire.json" --tier production cire_host cire_vendor cire_landing
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      - name: Read the musubi site Workers' custom domains
+        id: worker_domains_musubi
+        if: needs.plan.outputs.stack_musubi == 'true'
+        run: bun run scripts/worker-deployments.ts domains "$RUNNER_TEMP/domains-musubi.json" --tier production osn_social musubi_landing
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -597,17 +640,19 @@ jobs:
         id: guard_cire
         if: needs.plan.outputs.stack_cire == 'true'
         working-directory: cire/infra
-        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/cire.log" --out "$RUNNER_TEMP/alchemy-plan/cire.json" ${FLIP:+--flip "$FLIP"}
+        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/cire.log" --out "$RUNNER_TEMP/alchemy-plan/cire.json" --domains "$RUNNER_TEMP/domains-cire.json" ${FLIP:+--flip "$FLIP"} ${UNFLIP:+--unflip "$UNFLIP"}
         env:
           FLIP: ${{ needs.plan.outputs.flip }}
+          UNFLIP: ${{ needs.plan.outputs.unflip }}
 
       - name: Guard the musubi plan
         id: guard_musubi
         if: needs.plan.outputs.stack_musubi == 'true'
         working-directory: musubi/infra
-        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/musubi.log" --out "$RUNNER_TEMP/alchemy-plan/musubi.json" ${FLIP:+--flip "$FLIP"}
+        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/musubi.log" --out "$RUNNER_TEMP/alchemy-plan/musubi.json" --domains "$RUNNER_TEMP/domains-musubi.json" ${FLIP:+--flip "$FLIP"} ${UNFLIP:+--unflip "$UNFLIP"}
         env:
           FLIP: ${{ needs.plan.outputs.flip }}
+          UNFLIP: ${{ needs.plan.outputs.unflip }}
 
       - name: Keep the approved plans
         uses: actions/upload-artifact@v4
@@ -878,9 +923,6 @@ jobs:
     concurrency:
       group: deploy-production-cire-host
       cancel-in-progress: false
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -890,30 +932,32 @@ jobs:
         with:
           bun-version-file: .bun-version
 
-      # Its own key: this job installs without the infra packages, so the
-      # key a full install restores is never one this job saved.
-      - name: Cache bun dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-noinfra-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-bun-noinfra-
-
-      # For the Wrangler the lockfile pins, which deploys the site.
-      - name: Install dependencies except the infra packages
-        run: bun install --frozen-lockfile --filter '!@*/infra'
+      # The root's tree alone, which pins the Wrangler that deploys the
+      # site; nothing else here reads node_modules. No cache: the cache is
+      # shared with jobs that hold no secret.
+      - name: Install the root's dependencies
+        run: bun install --frozen-lockfile --filter osn
 
       # The `sites` job's build, the one the stack's staged Worker serves.
       - name: Fetch the built site
         uses: actions/download-artifact@v4
         with:
           name: production-sites
-          path: .
+          path: ${{ runner.temp }}/production-sites
+
+      # Outside the checkout, and checked before any build reaches it: the
+      # sites job ran third-party build code with no secret, so only the
+      # site builds come in, never a file a later step runs.
+      - name: Check the built sites, then put them in place
+        id: place_sites
+        run: bun run scripts/production-sites-artifact.ts "$RUNNER_TEMP/production-sites"
 
       - name: Deploy cire/host to Cloudflare Pages
         run: bunx wrangler pages deploy dist --project-name cire-host
         working-directory: cire/host
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
   # ── cire vendor (Astro → Cloudflare Pages) ───────────────────────────────
   # The vendor self-service portal, in the `cire-vendor` Pages project with
@@ -928,9 +972,6 @@ jobs:
     concurrency:
       group: deploy-production-cire-vendor
       cancel-in-progress: false
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -940,30 +981,32 @@ jobs:
         with:
           bun-version-file: .bun-version
 
-      # Its own key: this job installs without the infra packages, so the
-      # key a full install restores is never one this job saved.
-      - name: Cache bun dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-noinfra-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-bun-noinfra-
-
-      # For the Wrangler the lockfile pins, which deploys the site.
-      - name: Install dependencies except the infra packages
-        run: bun install --frozen-lockfile --filter '!@*/infra'
+      # The root's tree alone, which pins the Wrangler that deploys the
+      # site; nothing else here reads node_modules. No cache: the cache is
+      # shared with jobs that hold no secret.
+      - name: Install the root's dependencies
+        run: bun install --frozen-lockfile --filter osn
 
       # The `sites` job's build, the one the stack's staged Worker serves.
       - name: Fetch the built site
         uses: actions/download-artifact@v4
         with:
           name: production-sites
-          path: .
+          path: ${{ runner.temp }}/production-sites
+
+      # Outside the checkout, and checked before any build reaches it: the
+      # sites job ran third-party build code with no secret, so only the
+      # site builds come in, never a file a later step runs.
+      - name: Check the built sites, then put them in place
+        id: place_sites
+        run: bun run scripts/production-sites-artifact.ts "$RUNNER_TEMP/production-sites"
 
       - name: Deploy cire/vendor to Cloudflare Pages
         run: bunx wrangler pages deploy dist --project-name cire-vendor
         working-directory: cire/vendor
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
   # ── cire landing (Astro → Cloudflare Pages) ──────────────────────────────
   # The marketing site on the apex cireweddings.com, in the `cire-landing`
@@ -979,9 +1022,6 @@ jobs:
     concurrency:
       group: deploy-production-cire-landing
       cancel-in-progress: false
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -991,30 +1031,32 @@ jobs:
         with:
           bun-version-file: .bun-version
 
-      # Its own key: this job installs without the infra packages, so the
-      # key a full install restores is never one this job saved.
-      - name: Cache bun dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-noinfra-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-bun-noinfra-
-
-      # For the Wrangler the lockfile pins, which deploys the site.
-      - name: Install dependencies except the infra packages
-        run: bun install --frozen-lockfile --filter '!@*/infra'
+      # The root's tree alone, which pins the Wrangler that deploys the
+      # site; nothing else here reads node_modules. No cache: the cache is
+      # shared with jobs that hold no secret.
+      - name: Install the root's dependencies
+        run: bun install --frozen-lockfile --filter osn
 
       # The `sites` job's build, the one the stack's staged Worker serves.
       - name: Fetch the built site
         uses: actions/download-artifact@v4
         with:
           name: production-sites
-          path: .
+          path: ${{ runner.temp }}/production-sites
+
+      # Outside the checkout, and checked before any build reaches it: the
+      # sites job ran third-party build code with no secret, so only the
+      # site builds come in, never a file a later step runs.
+      - name: Check the built sites, then put them in place
+        id: place_sites
+        run: bun run scripts/production-sites-artifact.ts "$RUNNER_TEMP/production-sites"
 
       - name: Deploy cire/landing to Cloudflare Pages
         run: bunx wrangler pages deploy dist --project-name cire-landing
         working-directory: cire/landing
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
   # ── osn/api (Worker + D1) ────────────────────────────────────────────────
   # osn-api (identity/auth) is a Cloudflare Worker with a custom-domain route
@@ -1138,9 +1180,6 @@ jobs:
     concurrency:
       group: deploy-production-osn-social
       cancel-in-progress: false
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -1150,26 +1189,25 @@ jobs:
         with:
           bun-version-file: .bun-version
 
-      # Its own key: this job installs without the infra packages, so the
-      # key a full install restores is never one this job saved.
-      - name: Cache bun dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-noinfra-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-bun-noinfra-
-
-      # For the Wrangler the lockfile pins, which deploys the site.
-      - name: Install dependencies except the infra packages
-        run: bun install --frozen-lockfile --filter '!@*/infra'
+      # The root's tree alone, which pins the Wrangler that deploys the
+      # site; nothing else here reads node_modules. No cache: the cache is
+      # shared with jobs that hold no secret.
+      - name: Install the root's dependencies
+        run: bun install --frozen-lockfile --filter osn
 
       # The `sites` job's build, the one the stack's staged Worker serves.
       - name: Fetch the built site
         uses: actions/download-artifact@v4
         with:
           name: production-sites
-          path: .
+          path: ${{ runner.temp }}/production-sites
+
+      # Outside the checkout, and checked before any build reaches it: the
+      # sites job ran third-party build code with no secret, so only the
+      # site builds come in, never a file a later step runs.
+      - name: Check the built sites, then put them in place
+        id: place_sites
+        run: bun run scripts/production-sites-artifact.ts "$RUNNER_TEMP/production-sites"
 
       # Idempotent: creates the project on the first run, no-ops after. The
       # helper swallows only "already exists" — a bad token or a rate limit
@@ -1177,10 +1215,16 @@ jobs:
       - name: Ensure the osn-social Pages project exists
         run: bash "$GITHUB_WORKSPACE/scripts/ensure-pages-project.sh" osn-social main
         working-directory: musubi/social
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
       - name: Deploy musubi/social to Cloudflare Pages
         run: bunx wrangler pages deploy dist --project-name osn-social --branch main --commit-dirty=true
         working-directory: musubi/social
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
   # ── zap/api (Worker + D1) ────────────────────────────────────────────────
   # Zap has no dev tier, so this job has no dev deploy to check against; the
@@ -1291,22 +1335,23 @@ jobs:
         with:
           bun-version-file: .bun-version
 
-      - name: Cache bun dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-bun-
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
+      # The cire stack's tree alone, and no cache: the cache is shared
+      # with jobs that hold no secret.
+      - name: Install the cire stack's dependencies
+        run: bun install --frozen-lockfile --filter @cire/infra
 
       - name: Fetch the built sites
         uses: actions/download-artifact@v4
         with:
           name: production-sites
-          path: .
+          path: ${{ runner.temp }}/production-sites
+
+      # Outside the checkout, and checked before any build reaches it: the
+      # sites job ran third-party build code with no secret, so only the
+      # site builds come in, never a file a later step runs.
+      - name: Check the built sites, then put them in place
+        id: place_sites
+        run: bun run scripts/production-sites-artifact.ts "$RUNNER_TEMP/production-sites"
 
       - name: Fetch the approved plans
         uses: actions/download-artifact@v4
@@ -1340,6 +1385,15 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
+      # The custom domains the site Workers hold now: the guard holds the
+      # domain change to the one approved, as it holds the plan.
+      - name: Read the cire site Workers' custom domains
+        id: worker_domains
+        run: bun run scripts/worker-deployments.ts domains "$RUNNER_TEMP/domains.json" --tier production cire_host cire_vendor cire_landing
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
       - name: Plan the cire stack again
         id: plan
         working-directory: cire/infra
@@ -1364,7 +1418,7 @@ jobs:
       - name: Guard the flip plan, and hold it to the approved one
         id: guard
         working-directory: cire/infra
-        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/cire.log" --out "$RUNNER_TEMP/plan-guard/cire.json" --approved "$RUNNER_TEMP/approved/cire.json" --flip "$FLIP"
+        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/cire.log" --out "$RUNNER_TEMP/plan-guard/cire.json" --domains "$RUNNER_TEMP/domains.json" --approved "$RUNNER_TEMP/approved/cire.json" --flip "$FLIP"
         env:
           FLIP: ${{ needs.plan.outputs.flip }}
 
@@ -1384,18 +1438,16 @@ jobs:
           persist-credentials: false
 
       # No install: pages-domain.ts imports only the repository's import-free
-      # files. `check` fails unless the host is on one Pages project; `detach`
-      # refuses unless that is the site's own project and the site is a
-      # worker site in this commit.
+      # files. `detach` checks the token's reach, reads where the host is and
+      # prints it, and refuses unless the host is on the site's own Pages
+      # project and the site is a worker site in this commit.
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
 
       - name: Take the flip site's domain and CNAME off its Pages project
         id: detach
-        run: |
-          bun run scripts/pages-domain.ts check "$FLIP"
-          bun run scripts/pages-domain.ts detach "$FLIP"
+        run: bun run scripts/pages-domain.ts detach "$FLIP"
         env:
           FLIP: ${{ needs.plan.outputs.flip }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -1431,22 +1483,23 @@ jobs:
         with:
           bun-version-file: .bun-version
 
-      - name: Cache bun dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-bun-
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
+      # The cire stack's tree alone, and no cache: the cache is shared
+      # with jobs that hold no secret.
+      - name: Install the cire stack's dependencies
+        run: bun install --frozen-lockfile --filter @cire/infra
 
       - name: Fetch the built sites
         uses: actions/download-artifact@v4
         with:
           name: production-sites
-          path: .
+          path: ${{ runner.temp }}/production-sites
+
+      # Outside the checkout, and checked before any build reaches it: the
+      # sites job ran third-party build code with no secret, so only the
+      # site builds come in, never a file a later step runs.
+      - name: Check the built sites, then put them in place
+        id: place_sites
+        run: bun run scripts/production-sites-artifact.ts "$RUNNER_TEMP/production-sites"
 
       - name: Fetch the approved plans
         uses: actions/download-artifact@v4
@@ -1487,6 +1540,15 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
+      # The custom domains the site Workers hold now: the guard holds the
+      # domain change to the one approved, as it holds the plan.
+      - name: Read the cire site Workers' custom domains
+        id: worker_domains
+        run: bun run scripts/worker-deployments.ts domains "$RUNNER_TEMP/domains.json" --tier production cire_host cire_vendor cire_landing
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
       # The plan approved at alchemy-plan may be hours old, and on a flip
       # release the domain has left Pages since. Plan again, with the force
       # the deploy uses, and deploy only what the guard allows and what equals
@@ -1514,9 +1576,10 @@ jobs:
       - name: Guard the plan, and hold it to the approved one
         id: guard
         working-directory: cire/infra
-        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/cire.log" --out "$RUNNER_TEMP/plan-guard/cire.json" --approved "$RUNNER_TEMP/approved/cire.json" ${FLIP:+--flip "$FLIP"}
+        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/cire.log" --out "$RUNNER_TEMP/plan-guard/cire.json" --domains "$RUNNER_TEMP/domains.json" --approved "$RUNNER_TEMP/approved/cire.json" ${FLIP:+--flip "$FLIP"} ${UNFLIP:+--unflip "$UNFLIP"}
         env:
           FLIP: ${{ needs.plan.outputs.flip }}
+          UNFLIP: ${{ needs.plan.outputs.unflip }}
 
       # The stack refuses to deploy unless OSN_DEPLOY_TIER and both
       # credentials are set, and each site was built for production.
@@ -1630,22 +1693,23 @@ jobs:
         with:
           bun-version-file: .bun-version
 
-      - name: Cache bun dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-bun-
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
+      # The musubi stack's tree alone, and no cache: the cache is shared
+      # with jobs that hold no secret.
+      - name: Install the musubi stack's dependencies
+        run: bun install --frozen-lockfile --filter @musubi/infra
 
       - name: Fetch the built sites
         uses: actions/download-artifact@v4
         with:
           name: production-sites
-          path: .
+          path: ${{ runner.temp }}/production-sites
+
+      # Outside the checkout, and checked before any build reaches it: the
+      # sites job ran third-party build code with no secret, so only the
+      # site builds come in, never a file a later step runs.
+      - name: Check the built sites, then put them in place
+        id: place_sites
+        run: bun run scripts/production-sites-artifact.ts "$RUNNER_TEMP/production-sites"
 
       - name: Fetch the approved plans
         uses: actions/download-artifact@v4
@@ -1679,6 +1743,15 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
+      # The custom domains the site Workers hold now: the guard holds the
+      # domain change to the one approved, as it holds the plan.
+      - name: Read the musubi site Workers' custom domains
+        id: worker_domains
+        run: bun run scripts/worker-deployments.ts domains "$RUNNER_TEMP/domains.json" --tier production osn_social musubi_landing
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
       - name: Plan the musubi stack again
         id: plan
         working-directory: musubi/infra
@@ -1703,7 +1776,7 @@ jobs:
       - name: Guard the flip plan, and hold it to the approved one
         id: guard
         working-directory: musubi/infra
-        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/musubi.log" --out "$RUNNER_TEMP/plan-guard/musubi.json" --approved "$RUNNER_TEMP/approved/musubi.json" --flip "$FLIP"
+        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/musubi.log" --out "$RUNNER_TEMP/plan-guard/musubi.json" --domains "$RUNNER_TEMP/domains.json" --approved "$RUNNER_TEMP/approved/musubi.json" --flip "$FLIP"
         env:
           FLIP: ${{ needs.plan.outputs.flip }}
 
@@ -1723,18 +1796,16 @@ jobs:
           persist-credentials: false
 
       # No install: pages-domain.ts imports only the repository's import-free
-      # files. `check` fails unless the host is on one Pages project; `detach`
-      # refuses unless that is the site's own project and the site is a
-      # worker site in this commit.
+      # files. `detach` checks the token's reach, reads where the host is and
+      # prints it, and refuses unless the host is on the site's own Pages
+      # project and the site is a worker site in this commit.
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
 
       - name: Take the flip site's domain and CNAME off its Pages project
         id: detach
-        run: |
-          bun run scripts/pages-domain.ts check "$FLIP"
-          bun run scripts/pages-domain.ts detach "$FLIP"
+        run: bun run scripts/pages-domain.ts detach "$FLIP"
         env:
           FLIP: ${{ needs.plan.outputs.flip }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -1769,22 +1840,23 @@ jobs:
         with:
           bun-version-file: .bun-version
 
-      - name: Cache bun dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-bun-
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
+      # The musubi stack's tree alone, and no cache: the cache is shared
+      # with jobs that hold no secret.
+      - name: Install the musubi stack's dependencies
+        run: bun install --frozen-lockfile --filter @musubi/infra
 
       - name: Fetch the built sites
         uses: actions/download-artifact@v4
         with:
           name: production-sites
-          path: .
+          path: ${{ runner.temp }}/production-sites
+
+      # Outside the checkout, and checked before any build reaches it: the
+      # sites job ran third-party build code with no secret, so only the
+      # site builds come in, never a file a later step runs.
+      - name: Check the built sites, then put them in place
+        id: place_sites
+        run: bun run scripts/production-sites-artifact.ts "$RUNNER_TEMP/production-sites"
 
       - name: Fetch the approved plans
         uses: actions/download-artifact@v4
@@ -1825,6 +1897,15 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
+      # The custom domains the site Workers hold now: the guard holds the
+      # domain change to the one approved, as it holds the plan.
+      - name: Read the musubi site Workers' custom domains
+        id: worker_domains
+        run: bun run scripts/worker-deployments.ts domains "$RUNNER_TEMP/domains.json" --tier production osn_social musubi_landing
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
       # The plan approved at alchemy-plan may be hours old, and on a flip
       # release the domain has left Pages since. Plan again, with the force
       # the deploy uses, and deploy only what the guard allows and what equals
@@ -1852,9 +1933,10 @@ jobs:
       - name: Guard the plan, and hold it to the approved one
         id: guard
         working-directory: musubi/infra
-        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/musubi.log" --out "$RUNNER_TEMP/plan-guard/musubi.json" --approved "$RUNNER_TEMP/approved/musubi.json" ${FLIP:+--flip "$FLIP"}
+        run: bun run plan:guard -- --log "$RUNNER_TEMP/plan/musubi.log" --out "$RUNNER_TEMP/plan-guard/musubi.json" --domains "$RUNNER_TEMP/domains.json" --approved "$RUNNER_TEMP/approved/musubi.json" ${FLIP:+--flip "$FLIP"} ${UNFLIP:+--unflip "$UNFLIP"}
         env:
           FLIP: ${{ needs.plan.outputs.flip }}
+          UNFLIP: ${{ needs.plan.outputs.unflip }}
 
       # The stack refuses to deploy unless OSN_DEPLOY_TIER and both
       # credentials are set, and each site was built for production.
@@ -1946,7 +2028,17 @@ jobs:
   # secret: both hosts are public.
   site-parity:
     name: Compare the staged sites with Pages
-    needs: [plan, sites, stack-cire-production, stack-musubi-production]
+    needs:
+      [
+        plan,
+        sites,
+        stack-cire-production,
+        stack-musubi-production,
+        deploy-cire-host,
+        deploy-cire-vendor,
+        deploy-cire-landing,
+        deploy-osn-social,
+      ]
     if: ${{ !cancelled() && needs.sites.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -1965,7 +2057,14 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: production-sites
-          path: .
+          path: ${{ runner.temp }}/production-sites
+
+      # Outside the checkout, and checked before any build reaches it: the
+      # sites job ran third-party build code with no secret, so only the
+      # site builds come in, never a file a later step runs.
+      - name: Check the built sites, then put them in place
+        id: place_sites
+        run: bun run scripts/production-sites-artifact.ts "$RUNNER_TEMP/production-sites"
 
       - name: Compare the staged cire sites
         id: parity_cire
@@ -1988,3 +2087,37 @@ jobs:
           name: site-parity
           path: ${{ runner.temp }}/site-parity/
           if-no-files-found: ignore
+
+  # ── A site's domain back on its Pages project ────────────────────────────
+  # The rollback of a flip, dispatched with `attach` naming the site, or run
+  # after the stack job of a release dispatched with `unflip`, once the site's
+  # Worker has given up its production host. A fresh runner with nothing
+  # installed, so the narrow Pages and DNS token reaches no dependency's
+  # code; it never leaves GitHub. `pages-domain.ts attach` checks the token's
+  # reach, then makes only what is missing, and refuses while the Worker or
+  # anything else still holds the host. Its own approval.
+  attach-pages-domain:
+    name: Put a site's domain back on its Pages project
+    needs: [plan, stack-cire-production, stack-musubi-production]
+    if: ${{ !cancelled() && needs.plan.outputs.attach != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # No install: pages-domain.ts imports only the repository's import-free
+      # files.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Put the site's domain and CNAME back on its Pages project
+        id: attach
+        run: bun run scripts/pages-domain.ts attach "$ATTACH"
+        env:
+          ATTACH: ${{ needs.plan.outputs.attach }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_PAGES_DNS_TOKEN: ${{ secrets.CLOUDFLARE_PAGES_DNS_TOKEN }}

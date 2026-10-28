@@ -357,6 +357,7 @@ describe("PW3: production-release.yml hands each credential only to the steps th
     );
     expect(readers.map(({ id, step }) => `${id} ${step.id}`).toSorted()).toEqual([
       "alchemy-plan domains",
+      "attach-pages-domain attach",
       "flip-detach-cire detach",
       "flip-detach-musubi detach",
     ]);
@@ -376,8 +377,10 @@ describe("PW3: production-release.yml hands each credential only to the steps th
         ["CLOUDFLARE_ACCOUNT_ID", ...PAGES_DNS_CREDENTIALS].toSorted(),
       );
     }
-    // A detach job installs nothing at all, so no dependency's code runs on its runner.
-    for (const [id, job] of productionJobs.filter(([name]) => name.startsWith("flip-detach-"))) {
+    // A detach or attach job installs nothing at all, so no dependency's code runs on its runner.
+    for (const [id, job] of productionJobs.filter(
+      ([name]) => name.startsWith("flip-detach-") || name === "attach-pages-domain",
+    )) {
       expect({ id, installs: (job.steps ?? []).some(isInstall) }).toEqual({ id, installs: false });
     }
     for (const [, job] of productionJobs) {
@@ -385,7 +388,7 @@ describe("PW3: production-release.yml hands each credential only to the steps th
     }
   });
 
-  test("in the Alchemy jobs, only the token, state, snapshot, plan, deploy, compare and smoke steps hold the production pair, and no job-level env holds a secret", () => {
+  test("in the Alchemy jobs, only the token, state, snapshot, custom-domain, plan, deploy, compare and smoke steps hold the production pair, and no job-level env holds a secret", () => {
     expect(alchemyJobs.map(([id]) => id).toSorted()).toEqual([
       "alchemy-plan",
       "stack-cire-production",
@@ -394,7 +397,7 @@ describe("PW3: production-release.yml hands each credential only to the steps th
       "stack-musubi-verify",
     ]);
     const holds =
-      /^(token|state|snapshot(_[a-z]+)?|plan(_[a-z]+)?|deploy|deployments|smoke_[a-z_]+)$/;
+      /^(token|state|snapshot(_[a-z]+)?|worker_domains(_[a-z]+)?|plan(_[a-z]+)?|deploy|deployments|smoke_[a-z_]+)$/;
     const pair = accountSecrets("production");
     for (const [id, job] of alchemyJobs) {
       expect({ id, env: secretsRead(job.env) }).toEqual({ id, env: [] });

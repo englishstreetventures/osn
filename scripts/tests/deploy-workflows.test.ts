@@ -52,6 +52,7 @@ import {
   SURFACES,
   WORKFLOW_FILE,
 } from "../deploy-surfaces";
+import { SITE_DIRECTORIES } from "../production-sites-artifact";
 import { MAX_RECORDS } from "../release-plan";
 import { devTarget, productionSiteTarget, productionTarget, SMOKE_TARGETS } from "../smoke-check";
 
@@ -750,15 +751,23 @@ describe("W2: one record job per dev surface", () => {
 });
 
 describe("production-release.yml", () => {
-  test("PW11: runs on a schedule and by hand, with the three inputs the planner reads", () => {
+  test("PW11: runs on a schedule and by hand, with the five inputs the planner reads", () => {
     expect(Object.keys(production.on).toSorted()).toEqual(["schedule", "workflow_dispatch"]);
     const dispatch = production.on.workflow_dispatch as {
       inputs: Record<string, { type: string; default?: unknown }>;
     };
-    expect(Object.keys(dispatch.inputs).toSorted()).toEqual(["flip", "force", "surfaces"]);
+    expect(Object.keys(dispatch.inputs).toSorted()).toEqual([
+      "attach",
+      "flip",
+      "force",
+      "surfaces",
+      "unflip",
+    ]);
     expect(dispatch.inputs.surfaces?.type).toBe("string");
     expect(dispatch.inputs.force?.type).toBe("boolean");
-    expect(dispatch.inputs.flip).toMatchObject({ type: "string", default: "" });
+    for (const name of ["flip", "unflip", "attach"]) {
+      expect(dispatch.inputs[name]).toMatchObject({ type: "string", default: "" });
+    }
   });
 
   test("PW10: every Alchemy run in it sends no telemetry", () => {
@@ -813,6 +822,8 @@ describe("production-release.yml", () => {
         "any_stack",
         "stacks",
         "flip",
+        "unflip",
+        "attach",
       ].toSorted(),
     );
     for (const key of Object.keys(outputs))
@@ -825,7 +836,7 @@ describe("production-release.yml", () => {
     expect(guard?.run).toContain("exit 1");
   });
 
-  test("the plan job runs the planner over full history, with the token and both inputs", () => {
+  test("the plan job runs the planner over full history, with the token and every input", () => {
     const plan = production.jobs.plan;
     expect(checkoutsOf(plan)[0]?.with?.["fetch-depth"]).toBe(0);
     const step = stepsOf(plan).find((s) => s.id === "plan");
@@ -835,6 +846,8 @@ describe("production-release.yml", () => {
       SURFACES: "${{ inputs.surfaces }}",
       FORCE: "${{ inputs.force }}",
       FLIP: "${{ inputs.flip }}",
+      UNFLIP: "${{ inputs.unflip }}",
+      ATTACH: "${{ inputs.attach }}",
     });
   });
 
@@ -872,6 +885,7 @@ describe("production-release.yml", () => {
       [
         ...ownJobSurfaces.map((s) => s.production.id),
         "alchemy-plan",
+        "attach-pages-domain",
         ...PRODUCTION_STACKS.flatMap((s) => [
           s.production.id,
           `stack-${s.key}-verify`,
@@ -893,21 +907,29 @@ describe("production-release.yml", () => {
     ).toEqual(["build", "plan", "site-parity", "sites"]);
   });
 
-  test("RP8: one release leaves at most 16 Deployment records, so the planner's window holds at least 18 releases", () => {
-    const flipOnly = (id: string) => /-verify$|^flip-detach-/.test(id);
-    const recording = [
-      ...jobsIn(production, "production"),
-      ...jobsIn(production, "production-records"),
-    ].map(([id]) => id);
-    // A release that is no flip runs every job but the verify and detach jobs;
-    // a flip runs alchemy-plan and its stack's verify, detach, stack and record jobs.
-    const release = recording.filter((id) => !flipOnly(id)).length;
-    const flip = Math.max(
-      ...PRODUCTION_STACKS.map((s) => 4 + recordSurfaces.filter((x) => x.stack === s.key).length),
-    );
-    const most = Math.max(release, flip);
-    expect(most).toBeLessThanOrEqual(16);
-    expect(Math.floor(MAX_RECORDS / most)).toBeGreaterThanOrEqual(18);
+  test("RP8: each Environment keeps its own window: a release leaves at most 11 records in production (27 releases) and 5 in production-records (60)", () => {
+    // Counted with one attempt per job: a re-run, or a rejected approval,
+    // leaves a record of its own.
+    const moveOnly = (id: string) => /-verify$|^flip-detach-|^attach-/.test(id);
+    const inProduction = jobsIn(production, "production").map(([id]) => id);
+    // A release that is no flip runs every production job but the verify,
+    // detach and attach jobs; a flip runs alchemy-plan and its stack's
+    // verify, detach and stack jobs; an attach the attach job alone; an
+    // unflip alchemy-plan, its stack's Pages and stack jobs and the attach job.
+    const release = inProduction.filter((id) => !moveOnly(id)).length;
+    const flip = 4;
+    const unflip = 1 + 3 + 1 + 1;
+    const most = Math.max(release, flip, unflip, 1);
+    expect(release).toBe(11);
+    expect(most).toBeLessThanOrEqual(11);
+    expect(Math.floor(MAX_RECORDS / most)).toBeGreaterThanOrEqual(27);
+    // One record job per site whose Worker serves its host: at most every
+    // site a production stack deploys.
+    const records = jobsIn(production, "production-records").length;
+    const sites = PRODUCTION_SURFACES.filter(stackDeployed).length;
+    expect(records).toBeLessThanOrEqual(sites);
+    expect(sites).toBeLessThanOrEqual(5);
+    expect(Math.floor(MAX_RECORDS / 5)).toBeGreaterThanOrEqual(60);
   });
 
   test.each(ownJobSurfaces.map((s) => [s.key, s] as const))(
@@ -983,8 +1005,9 @@ describe("PW4: the sites job builds each production site once", () => {
   // In map order, the order the job builds them.
   const sites = PRODUCTION_SURFACES.filter(stackDeployed).map((s) => s.key as SiteSurface);
 
-  test("needs plan and build, runs when a site build is needed, and holds no Environment or secret", () => {
-    expect(needsOf(sitesJob).toSorted()).toEqual(["build", "plan"]);
+  test("needs the plan alone, so it runs beside build, runs when a site build is needed, restores no turbo cache, and holds no Environment or secret", () => {
+    expect(needsOf(sitesJob)).toEqual(["plan"]);
+    expect(stepsOf(sitesJob).filter((step) => step.with?.path === ".turbo")).toEqual([]);
     expect(sitesJob.if).toBe("needs.plan.outputs.any_site == 'true'");
     expect(environmentOf(sitesJob)).toBeUndefined();
     expect(JSON.stringify(sitesJob)).not.toContain("secrets.");
@@ -1017,6 +1040,8 @@ describe("PW4: the sites job builds each production site once", () => {
       "retention-days": 7,
     });
     expect(steps.indexOf(upload!)).toBe(steps.length - 1);
+    // The builds a token-holding job lets in are the ones uploaded.
+    expect(SITE_DIRECTORIES).toEqual(sites.map((site) => SITE_BUILDS[site].directory));
   });
 
   test("musubi social's build is refused without the Turnstile sitekey, before it runs", () => {
@@ -1040,9 +1065,13 @@ describe("PW5: a staged site's Pages job deploys the sites job's build", () => {
       const steps = stepsOf(job);
       expect(buildsOf(job)).toEqual([]);
       const fetchAt = steps.findIndex((step) => step.uses === "actions/download-artifact@v4");
-      expect(steps[fetchAt]?.with).toEqual({ name: "production-sites", path: "." });
+      expect(steps[fetchAt]?.with).toEqual({
+        name: "production-sites",
+        path: "${{ runner.temp }}/production-sites",
+      });
       const install = steps.findIndex((step) => /\bbun install\b/.test(step.run ?? ""));
-      expect(steps[install]?.run).toBe("bun install --frozen-lockfile --filter '!@*/infra'");
+      // The root's tree, which pins Wrangler, and nothing else.
+      expect(steps[install]?.run).toBe("bun install --frozen-lockfile --filter osn");
       const deploys = steps.filter((step) => /\bwrangler pages deploy\b/.test(step.run ?? ""));
       expect(deploys).toHaveLength(1);
       expect(deploys[0]?.run).toStartWith(
@@ -1133,21 +1162,35 @@ describe("PW2: alchemy-plan, the first approval, plans each shipping stack and g
       expect(plan?.run).toContain(`> "$RUNNER_TEMP/plan/${s.key}.log" 2>&1`);
       expect(plan?.run).not.toContain("tee");
       expect(guard?.["working-directory"]).toBe(`${s.key}/infra`);
-      expect(guard?.env).toEqual({ FLIP: "${{ needs.plan.outputs.flip }}" });
-      const guarded = runStep(guard!, { FLIP: "" }).bunCalls;
+      expect(guard?.env).toEqual({
+        FLIP: "${{ needs.plan.outputs.flip }}",
+        UNFLIP: "${{ needs.plan.outputs.unflip }}",
+      });
+      const guarded = runStep(guard!, { FLIP: "", UNFLIP: "" }).bunCalls;
       expect(guarded).toHaveLength(1);
       expect(guarded[0]).toMatch(
         new RegExp(
-          `^run plan:guard -- --log \\S+/plan/${s.key}\\.log --out \\S+/alchemy-plan/${s.key}\\.json$`,
+          `^run plan:guard -- --log \\S+/plan/${s.key}\\.log --out \\S+/alchemy-plan/${s.key}\\.json --domains \\S+/domains-${s.key}\\.json$`,
         ),
       );
-      expect(runStep(guard!, { FLIP: "musubi_landing" }).bunCalls[0]).toEndWith(
+      expect(runStep(guard!, { FLIP: "musubi_landing", UNFLIP: "" }).bunCalls[0]).toEndWith(
         " --flip musubi_landing",
       );
+      expect(runStep(guard!, { FLIP: "", UNFLIP: "cire_vendor" }).bunCalls[0]).toEndWith(
+        `domains-${s.key}.json --unflip cire_vendor`,
+      );
+      // The live custom domains the guard judges, read with the production pair.
+      const domains = stepById(planJob, `worker_domains_${s.key}`);
+      expect(domains?.if).toBe(when);
+      expect(domains?.run).toBe(
+        `bun run scripts/worker-deployments.ts domains "$RUNNER_TEMP/domains-${s.key}.json" --tier production ${productionSitesOf(s.key).join(" ")}`,
+      );
+      expect(domains?.env).toEqual(PRODUCTION_CREDENTIALS);
       const order = [
         at("token"),
         at("state"),
         at(`snapshot_${s.key}`),
+        at(`worker_domains_${s.key}`),
         at(`plan_${s.key}`),
         at(`guard_${s.key}`),
       ];
@@ -1219,17 +1262,29 @@ describe("PW1: one production job per stack with a production deploy", () => {
       expect(runStep(plan!, { FORCE: "yes" }).bunCalls).toEqual(["run plan:production --force"]);
       expect(runStep(plan!, { FORCE: "" }, 3).exitCode).not.toBe(0);
       expect(guard?.["working-directory"]).toBe(`${key}/infra`);
-      expect(guard?.env).toEqual({ FLIP: "${{ needs.plan.outputs.flip }}" });
-      const guarded = `^run plan:guard -- --log \\S+/plan/${key}\\.log --out \\S+/plan-guard/${key}\\.json --approved \\S+/approved/${key}\\.json`;
-      const unflipped = runStep(guard!, { FLIP: "" }).bunCalls;
-      expect(unflipped).toHaveLength(1);
-      expect(unflipped[0]).toMatch(new RegExp(`${guarded}$`));
+      expect(guard?.env).toEqual({
+        FLIP: "${{ needs.plan.outputs.flip }}",
+        UNFLIP: "${{ needs.plan.outputs.unflip }}",
+      });
+      const guarded = `^run plan:guard -- --log \\S+/plan/${key}\\.log --out \\S+/plan-guard/${key}\\.json --domains \\S+/domains\\.json --approved \\S+/approved/${key}\\.json`;
+      const plain = runStep(guard!, { FLIP: "", UNFLIP: "" }).bunCalls;
+      expect(plain).toHaveLength(1);
+      expect(plain[0]).toMatch(new RegExp(`${guarded}$`));
       const flipSite = sites[0] ?? "";
-      expect(runStep(guard!, { FLIP: flipSite }).bunCalls[0]).toMatch(
+      expect(runStep(guard!, { FLIP: flipSite, UNFLIP: "" }).bunCalls[0]).toMatch(
         new RegExp(`${guarded} --flip ${flipSite}$`),
       );
+      expect(runStep(guard!, { FLIP: "", UNFLIP: flipSite }).bunCalls[0]).toMatch(
+        new RegExp(`${guarded} --unflip ${flipSite}$`),
+      );
+      const domains = stepById(job, "worker_domains");
+      expect(domains?.run).toBe(
+        `bun run scripts/worker-deployments.ts domains "$RUNNER_TEMP/domains.json" --tier production ${sites.join(" ")}`,
+      );
+      expect(domains?.env).toEqual(PRODUCTION_CREDENTIALS);
+      expect(domains?.if).toBeUndefined();
       // A refusal fails the guard step, which is the one right before the deploy.
-      expect(runStep(guard!, { FLIP: "" }, 1).exitCode).not.toBe(0);
+      expect(runStep(guard!, { FLIP: "", UNFLIP: "" }, 1).exitCode).not.toBe(0);
       expect(stepIndex(job, "deploy")).toBe(stepIndex(job, "guard") + 1);
       expect(deploy?.["working-directory"]).toBe(`${key}/infra`);
       expect(deploy?.env).toEqual({
@@ -1255,6 +1310,7 @@ describe("PW1: one production job per stack with a production deploy", () => {
         "token",
         "state",
         "snapshot",
+        "worker_domains",
         "plan",
         "guard",
         "deploy",
@@ -1356,8 +1412,12 @@ describe("PW-F: a flip release verifies, then detaches, then deploys, each behin
       const steps = stepsOf(job);
       expect(steps.some((step) => /\bdeploy:production\b/.test(step.run ?? ""))).toBe(false);
       expect(JSON.stringify(job)).not.toContain("CLOUDFLARE_PAGES_DNS_TOKEN");
-      const install = steps.findIndex((step) => step.run === "bun install --frozen-lockfile");
-      const order = ["token", "state", "snapshot", "plan", "guard"].map((id) => stepIndex(job, id));
+      const install = steps.findIndex(
+        (step) => step.run === `bun install --frozen-lockfile --filter @${key}/infra`,
+      );
+      const order = ["token", "state", "snapshot", "worker_domains", "plan", "guard"].map((id) =>
+        stepIndex(job, id),
+      );
       expect(install).toBeGreaterThan(-1);
       expect(order.every((at) => at > install)).toBe(true);
       expect(order).toEqual(order.toSorted((a, b) => a - b));
@@ -1370,7 +1430,7 @@ describe("PW-F: a flip release verifies, then detaches, then deploys, each behin
       const guard = stepById(job, "guard");
       expect(guard?.env).toEqual({ FLIP: "${{ needs.plan.outputs.flip }}" });
       expect(guard?.run).toBe(
-        `bun run plan:guard -- --log "$RUNNER_TEMP/plan/${key}.log" --out "$RUNNER_TEMP/plan-guard/${key}.json" --approved "$RUNNER_TEMP/approved/${key}.json" --flip "$FLIP"`,
+        `bun run plan:guard -- --log "$RUNNER_TEMP/plan/${key}.log" --out "$RUNNER_TEMP/plan-guard/${key}.json" --domains "$RUNNER_TEMP/domains.json" --approved "$RUNNER_TEMP/approved/${key}.json" --flip "$FLIP"`,
       );
       // It runs on a flip release of this stack alone.
       const flipOutputs = { flip: "x", [`stack_${key}`]: "true" };
@@ -1382,7 +1442,7 @@ describe("PW-F: a flip release verifies, then detaches, then deploys, each behin
   );
 
   test.each(PRODUCTION_STACKS.map((s) => [s.key] as const))(
-    "%s: the detach job installs nothing, holds the narrow token in one step alone, checks before it detaches, and runs only after the verify job passed",
+    "%s: the detach job installs nothing, holds the narrow token in one step alone, runs detach alone (which reads before it writes), and runs only after the verify job passed",
     (key) => {
       const job = detachJob(key);
       expect(job.name).toBe(`Take the ${key} flip site's domain off Pages`);
@@ -1408,14 +1468,9 @@ describe("PW-F: a flip release verifies, then detaches, then deploys, each behin
         CLOUDFLARE_PAGES_DNS_TOKEN: "${{ secrets.CLOUDFLARE_PAGES_DNS_TOKEN }}",
       });
       const moved = runStep(holding[0]!, { FLIP: "cire_vendor" });
-      expect(moved.bunCalls).toEqual([
-        "run scripts/pages-domain.ts check cire_vendor",
-        "run scripts/pages-domain.ts detach cire_vendor",
-      ]);
-      // A check that fails stops the job before the detach.
-      const refused = runStep(holding[0]!, { FLIP: "cire_vendor" }, 1);
-      expect(refused.exitCode).not.toBe(0);
-      expect(refused.bunCalls).toEqual(["run scripts/pages-domain.ts check cire_vendor"]);
+      expect(moved.bunCalls).toEqual(["run scripts/pages-domain.ts detach cire_vendor"]);
+      // A refusal fails the job.
+      expect(runStep(holding[0]!, { FLIP: "cire_vendor" }, 1).exitCode).not.toBe(0);
       // A verify that refused, or did not run, skips the detach.
       const flip = { flip: "x" };
       expect(runs(job, flip, { plan: "success", [`stack-${key}-verify`]: "success" })).toBe(true);
@@ -1448,7 +1503,7 @@ describe("PW-F: a flip release verifies, then detaches, then deploys, each behin
     },
   );
 
-  test("only alchemy-plan's precheck and the detach jobs name the Pages and DNS token, and none of them installs first", () => {
+  test("only alchemy-plan's precheck, the detach jobs and the attach job name the Pages and DNS token, and none of them installs first", () => {
     const naming = Object.entries(production.jobs).flatMap(([id, job]) =>
       stepsOf(job)
         .filter((step) => JSON.stringify(step).includes("CLOUDFLARE_PAGES_DNS_TOKEN"))
@@ -1457,6 +1512,7 @@ describe("PW-F: a flip release verifies, then detaches, then deploys, each behin
     expect(naming.toSorted()).toEqual(
       [
         "alchemy-plan domains",
+        "attach-pages-domain attach",
         ...PRODUCTION_STACKS.map((s) => `flip-detach-${s.key} detach`),
       ].toSorted(),
     );
@@ -1491,8 +1547,14 @@ describe("PW7: the staged sites are compared with Pages after the stack jobs", (
   const parity = production.jobs["site-parity"]!;
 
   test("needs the stack jobs, holds no Environment or secret, and keeps its report whatever it found", () => {
+    // The Pages jobs too, so the report never reads a Pages deploy still in flight.
     expect(needsOf(parity).toSorted()).toEqual(
-      ["plan", "sites", ...PRODUCTION_STACKS.map((s) => s.production.id)].toSorted(),
+      [
+        "plan",
+        "sites",
+        ...PRODUCTION_STACKS.map((s) => s.production.id),
+        ...ownJobSurfaces.filter(stackDeployed).map((s) => s.production.id),
+      ].toSorted(),
     );
     expect(parity.if).toBe("${{ !cancelled() && needs.sites.result == 'success' }}");
     expect(environmentOf(parity)).toBeUndefined();
@@ -1510,6 +1572,124 @@ describe("PW7: the staged sites are compared with Pages after the stack jobs", (
     expect(upload?.if).toBe("${{ !cancelled() }}");
     expect(upload?.with?.name).toBe("site-parity");
   });
+});
+
+describe("PW-A: a job that holds a credential lets in only the site builds of the sites job's artifact", () => {
+  const PLACE = 'bun run scripts/production-sites-artifact.ts "$RUNNER_TEMP/production-sites"';
+  const downloads = Object.entries(production.jobs).flatMap(([id, job]) =>
+    stepsOf(job).flatMap((step, at) =>
+      step.uses === "actions/download-artifact@v4" && step.with?.name === "production-sites"
+        ? [{ id, job, at }]
+        : [],
+    ),
+  );
+
+  test("every job that fetches the builds: alchemy-plan, the verify, stack and Pages jobs, and the comparison", () => {
+    expect(downloads.map(({ id }) => id).toSorted()).toEqual(
+      [
+        "alchemy-plan",
+        "site-parity",
+        ...PRODUCTION_STACKS.flatMap((s) => [s.production.id, `stack-${s.key}-verify`]),
+        ...ownJobSurfaces.filter(stackDeployed).map((s) => s.production.id),
+      ].toSorted(),
+    );
+  });
+
+  test.each(downloads.map(({ id, job, at }) => [id, job, at] as const))(
+    "%s: downloads outside the checkout, and the next step, holding no secret, checks it before anything else runs",
+    (_, job, at) => {
+      const steps = stepsOf(job);
+      expect(steps[at]?.with?.path).toBe("${{ runner.temp }}/production-sites");
+      const place = steps[at + 1];
+      expect(place?.run).toBe(PLACE);
+      expect(place?.env).toBeUndefined();
+      expect(place?.if).toBeUndefined();
+      expect(place?.["continue-on-error"]).toBeUndefined();
+      expect(place?.["working-directory"]).toBeUndefined();
+      expect(job.env).toBeUndefined();
+    },
+  );
+});
+
+describe("PW-B: a site's domain goes back on Pages in a job of its own", () => {
+  const attach = production.jobs["attach-pages-domain"]!;
+
+  test("runs when the plan names a site to attach, after any stack job, in the production Environment, installing nothing", () => {
+    expect(attach.name).toBe("Put a site's domain back on its Pages project");
+    expect(needsOf(attach).toSorted()).toEqual(
+      ["plan", ...PRODUCTION_STACKS.map((s) => s.production.id)].toSorted(),
+    );
+    expect(attach.if).toBe("${{ !cancelled() && needs.plan.outputs.attach != '' }}");
+    expect(environmentOf(attach)).toBe("production");
+    expect(attach.env).toBeUndefined();
+    const steps = stepsOf(attach);
+    expect(steps.flatMap((step) => (step.uses === undefined ? [] : [step.uses]))).toEqual([
+      "actions/checkout@v4",
+      "oven-sh/setup-bun@v2",
+    ]);
+    expect(steps.filter((step) => /\bbun install\b/.test(step.run ?? ""))).toEqual([]);
+    const holding = steps.filter((step) => JSON.stringify(step).includes("secrets."));
+    expect(holding.map((step) => step.id)).toEqual(["attach"]);
+    expect(holding[0]?.env).toEqual({
+      ATTACH: "${{ needs.plan.outputs.attach }}",
+      CLOUDFLARE_ACCOUNT_ID: "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}",
+      CLOUDFLARE_PAGES_DNS_TOKEN: "${{ secrets.CLOUDFLARE_PAGES_DNS_TOKEN }}",
+    });
+    const ran = runStep(holding[0]!, { ATTACH: "cire_vendor" });
+    expect(ran.bunCalls).toEqual(["run scripts/pages-domain.ts attach cire_vendor"]);
+    expect(runStep(holding[0]!, { ATTACH: "cire_vendor" }, 1).exitCode).not.toBe(0);
+    // An attach release ships nothing else; an unflip's runs after its stack job.
+    const done = { plan: "success" };
+    expect(runs(attach, { attach: "cire_vendor" }, done)).toBe(true);
+    expect(runs(attach, { attach: "" }, done)).toBe(false);
+    for (const stackResult of ["success", "failure", "skipped"]) {
+      expect({
+        stackResult,
+        runs: runs(
+          attach,
+          { attach: "cire_vendor" },
+          { ...done, "stack-cire-production": stackResult },
+        ),
+      }).toEqual({ stackResult, runs: true });
+    }
+  });
+});
+
+describe("PW-D: a job that holds a credential and installs a narrower tree than the sites job restores no dependency cache", () => {
+  // Jobs holding no secret write the shared cache; a narrower tree would
+  // take from it packages its own install never fetched.
+  const narrow = [
+    "alchemy-plan",
+    ...PRODUCTION_STACKS.flatMap((s) => [s.production.id, `stack-${s.key}-verify`]),
+    ...ownJobSurfaces.filter(stackDeployed).map((s) => s.production.id),
+  ];
+
+  test.each(narrow.map((id) => [id] as const))("%s", (id) => {
+    const job = production.jobs[id]!;
+    expect(stepsOf(job).filter((step) => step.with?.path === "~/.bun/install/cache")).toEqual([]);
+  });
+});
+
+describe("PW-F: a Pages job's credentials reach its deploy alone", () => {
+  test.each(ownJobSurfaces.filter(stackDeployed).map((s) => [s.key, s] as const))(
+    "%s: no job-level env; only the deploy step, and osn-social's project check, hold the pair",
+    (_, s) => {
+      const job = production.jobs[s.production.id]!;
+      expect(job.env).toBeUndefined();
+      const holding = stepsOf(job).filter((step) => JSON.stringify(step).includes("secrets."));
+      const ensure = 'bash "$GITHUB_WORKSPACE/scripts/ensure-pages-project.sh"';
+      expect(
+        holding.map((step) =>
+          step.run?.startsWith(ensure) === true
+            ? "ensure the project"
+            : step.run?.startsWith("bunx wrangler pages deploy ") === true
+              ? "deploy"
+              : step.run,
+        ),
+      ).toEqual(s.key === "osn_social" ? ["ensure the project", "deploy"] : ["deploy"]);
+      for (const step of holding) expect(step.env).toEqual(PRODUCTION_CREDENTIALS);
+    },
+  );
 });
 
 interface Manifest {
@@ -1685,6 +1865,17 @@ describe("every Worker deploy is smoke-checked, and rolls back the Worker it dep
   });
 });
 
+/**
+ * The narrower installs only production-release.yml runs: an Alchemy job's
+ * own stack trees, and a Pages job's root tree, which pins Wrangler.
+ */
+const PRODUCTION_ONLY_INSTALLS = [
+  "bun install --frozen-lockfile --filter @cire/infra --filter @musubi/infra",
+  "bun install --frozen-lockfile --filter @cire/infra",
+  "bun install --frozen-lockfile --filter @musubi/infra",
+  "bun install --frozen-lockfile --filter osn",
+];
+
 describe("installs", () => {
   test.each([WORKFLOW_FILE.dev, WORKFLOW_FILE.production])(
     "%s installs from the lockfile and never rewrites it",
@@ -1700,6 +1891,7 @@ describe("installs", () => {
         expect([
           "bun install --frozen-lockfile",
           "bun install --frozen-lockfile --filter '!@*/infra'",
+          ...(path === WORKFLOW_FILE.production ? PRODUCTION_ONLY_INSTALLS : []),
         ]).toContain(step.run ?? "");
       }
     },
