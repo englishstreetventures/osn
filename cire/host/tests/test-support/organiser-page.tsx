@@ -2,19 +2,23 @@ import { render } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
 import type { Mock } from "vitest";
 
+import type { WeddingSummary } from "../../src/components/CreateWeddingForm";
 import ModuleShell from "../../src/components/ModuleShell";
+import TopBar from "../../src/components/TopBar";
 import type { Module } from "../../src/lib/dashboard-route";
 
 /**
- * The organiser page as the browser tier draws it: the `frame` container, a
- * stand-in for the sticky top bar with the real one's classes and its height
- * from `--chrome-h`, both inside `.chrome-scope` as `OrganiserApp` puts them,
- * the page measure, and the real `ModuleShell`.
+ * The organiser page as the browser tier draws it: the `frame` container, the
+ * real `TopBar` and the page measure, both inside `.chrome-scope` as
+ * `OrganiserApp` puts them, and the real `ModuleShell`. The top bar is the
+ * real one so that every layer measured under it is measured against the bar
+ * a host sees, not a copy that takes its height from the same token.
  *
  * The module and sub-tab are signals the shell's own `onModule` and `onSub`
  * write, so a click on a sub-tab navigates as it does in the app. Requests are
  * answered by URL from `routes`; a route may be a function, so a test can hold
- * one back (a deferred promise) and release it by hand.
+ * one back (a deferred promise) and release it by hand, or answer with a
+ * `Response` of its own to fail it.
  *
  * The `vi.mock` blocks stay in each test file — a factory there cannot import
  * from here in the browser project — and the file hands its `authFetch` mock
@@ -42,8 +46,11 @@ const json = (body: unknown) =>
     headers: { "Content-Type": "application/json" },
   });
 
+/** A route's answer: its body as JSON, or a `Response` it built itself — a
+ *  failure, say. */
 async function answer(body: Body): Promise<Response> {
-  return json(typeof body === "function" ? await (body as () => unknown)() : body);
+  const value = typeof body === "function" ? await (body as () => unknown)() : body;
+  return value instanceof Response ? value : json(value);
 }
 
 /** Answer every request by its path. Anything unrouted gets `{}`. */
@@ -71,6 +78,27 @@ export interface PageOptions {
   onRsvpEvent?: (eventId: string) => void;
 }
 
+const WEDDING: WeddingSummary = {
+  id: "wed_1",
+  slug: "rosa-and-viktor",
+  displayName: "Rosa & Viktor",
+  role: "owner",
+  entitlements: [],
+  guestCap: 1000,
+};
+
+const SESSION = {
+  osnProfileId: "usr_1",
+  email: "rosa@example.com",
+  handle: "rosa",
+  displayName: "Rosa Host",
+  avatarUrl: null,
+  expiresAt: "2099-01-01T00:00:00Z",
+};
+
+/** The page's top bar: the real one, the first child of `.chrome-scope`. */
+export const topBar = () => document.querySelector<HTMLElement>(".chrome-scope > header")!;
+
 export interface OrganiserPage {
   unmount: () => void;
   container: HTMLElement;
@@ -88,14 +116,17 @@ export function renderOrganiserPage(opts: PageOptions): OrganiserPage {
   const result = render(() => (
     <div class="@container/frame">
       <div class="chrome-scope contents">
-        <header
-          data-top-bar
-          class="border-border bg-bg/85 sticky top-0 z-30 border-b backdrop-blur-md"
-        >
-          <div class="page-frame flex h-[calc(var(--chrome-h)-1px)] items-center gap-2">
-            <span class="font-display text-text text-ui-md leading-none font-light">Cire</span>
-          </div>
-        </header>
+        <TopBar
+          session={SESSION}
+          wedding={WEDDING}
+          weddings={[WEDDING]}
+          sectionLabel="All weddings"
+          onWedding={() => {}}
+          onAll={() => {}}
+          onSecurity={() => {}}
+          onSignOut={() => {}}
+          onOpenPalette={() => {}}
+        />
         <main class="page-frame @container/page flex flex-col gap-8 py-8 @2xl/frame:py-10">
           <ModuleShell
             weddingId="wed_1"

@@ -12,12 +12,15 @@ import { EmptyState } from "@shared/ui/ui/empty-state";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
+import { Popover, PopoverContent, PopoverTrigger } from "@shared/ui/ui/popover";
+import type { SafeProps } from "@shared/ui/ui/props";
 import { Table, Td, Th } from "@shared/ui/ui/table";
 import { Tooltip } from "@shared/ui/ui/tooltip";
 import ArrowDown from "lucide-solid/icons/arrow-down";
 import ArrowUp from "lucide-solid/icons/arrow-up";
 import ChevronsUpDown from "lucide-solid/icons/chevrons-up-down";
 import CircleX from "lucide-solid/icons/circle-x";
+import Info from "lucide-solid/icons/info";
 import Link2 from "lucide-solid/icons/link-2";
 import PencilLine from "lucide-solid/icons/pencil-line";
 import UserRoundPen from "lucide-solid/icons/user-round-pen";
@@ -123,19 +126,25 @@ const SORT_ICON_CLASS = "size-3.5 shrink-0";
  * A chip: an event to show, or a reply to filter by. A pill at the search
  * box's height, on `--surface` with no border, its count muted beside its
  * name; chosen, it fills in the brand green. Pills, so they read as a group
- * apart from the module's segmented sub-tabs (DESIGN.md §Chips).
+ * apart from the module's segmented sub-tabs (DESIGN.md §Chips). Focused from
+ * the keyboard it wears the dashboard's one focus ring (`global.css`).
  */
 const CHIP_BASE =
   "font-body text-ui-sm flex h-7 shrink-0 items-center gap-1.5 rounded-full px-3 whitespace-nowrap " +
-  "transition-colors duration-(--dur-fast) ease-(--ease-out) outline-none";
+  "transition-colors duration-(--dur-fast) ease-(--ease-out)";
 const CHIP_IDLE = "bg-surface text-text hover:bg-surface-raised";
 const CHIP_CHOSEN = "bg-brand text-on-brand";
 /** A chip's count: muted beside an unchosen name, the chip's own ink on green. */
 const chipCount = (chosen: boolean) =>
   `font-mono text-ui-xs ${chosen ? "text-on-brand" : "text-text-muted"}`;
 
-/** A row of chips that never wraps: it scrolls sideways under the finger. */
-const CHIP_ROW = "flex min-w-0 flex-nowrap gap-1.5 overflow-x-auto [scrollbar-width:none]";
+/**
+ * A row of chips that never wraps: it scrolls sideways under the finger. A
+ * scroller clips on both axes, so the row keeps 4px of padding all round — the
+ * focus ring's offset and width — inside a matching negative margin, and a
+ * focused chip's ring shows whole without the row taking more room.
+ */
+const CHIP_ROW = "-m-1 flex min-w-0 flex-nowrap gap-1.5 overflow-x-auto p-1 [scrollbar-width:none]";
 
 /**
  * How a reply was given, beside the name as an icon. Each icon's name and
@@ -166,6 +175,24 @@ const PROVENANCE = {
 } as const;
 
 type Provenance = (typeof PROVENANCE)[keyof typeof PROVENANCE];
+
+/** The reply key's button: a quiet round icon at the search box's height
+ *  (`h-7`), so the bar's row does not grow for it. */
+function KeyButton(props: SafeProps<"button">) {
+  return (
+    <button
+      type="button"
+      {...props}
+      class="text-text-muted hover:text-text hover:bg-surface ml-auto inline-flex size-7 shrink-0 items-center justify-center rounded-full transition-colors duration-(--dur-fast) ease-(--ease-out)"
+    />
+  );
+}
+
+/** What "New" on a guest's meta line says. */
+const NEW_TEXT = "Changed by the guest since you last looked";
+
+/** The reply key's name, which is also its button's. */
+const KEY_LABEL = "What the reply icons mean";
 
 function provenanceIcon(p: Provenance) {
   const Icon = p.icon;
@@ -813,9 +840,7 @@ export default function RsvpView(props: RsvpViewProps) {
               type="button"
               aria-pressed={isChosen()}
               onClick={() => setFilter(isChosen() && chip.key !== "all" ? "all" : chip.key)}
-              class={`${CHIP_BASE} focus-visible:ring-focus focus-visible:ring-2 ${
-                isChosen() ? CHIP_CHOSEN : CHIP_IDLE
-              }`}
+              class={`${CHIP_BASE} ${isChosen() ? CHIP_CHOSEN : CHIP_IDLE}`}
             >
               <Show when={tone}>{(t) => <ReplyDot tone={t()} />}</Show>
               <span class={compact() && chip.key !== "all" ? "sr-only" : undefined}>
@@ -852,6 +877,48 @@ export default function RsvpView(props: RsvpViewProps) {
     </Field>
   );
 
+  /**
+   * What the marks on a guest's meta line mean, for a host who cannot hover —
+   * on a phone, or from the keyboard. The icons themselves stay out of the tab
+   * order, one stop per row being far too many (DESIGN.md §A badge that
+   * explains itself); this one button in the bar opens a key naming each, with
+   * what it says. Its words are the marks' own (`PROVENANCE`, `NEW_TEXT`), so
+   * the key and the hover panels cannot drift apart, and its panel is drawn
+   * only while open, so a screen reader never meets the words twice.
+   */
+  const replyKey = () => (
+    <Popover placement="bottom-end" gutter={4}>
+      <PopoverTrigger as={KeyButton} aria-label={KEY_LABEL} data-tip={KEY_LABEL}>
+        <Info aria-hidden="true" strokeWidth={1.75} class="size-4" />
+      </PopoverTrigger>
+      <PopoverContent aria-label={KEY_LABEL} class="w-72">
+        <ul class="font-body text-text-muted text-ui-sm flex flex-col gap-2.5 leading-snug">
+          <li class="flex items-start gap-2">
+            <span class="text-gold-ink text-ui-xs tracking-ui-wider flex w-8 shrink-0 justify-center pt-0.5 font-medium uppercase">
+              New
+            </span>
+            <span>{NEW_TEXT}.</span>
+          </li>
+          <For each={Object.values(PROVENANCE)}>
+            {(p) => (
+              <li class="flex items-start gap-2">
+                <span class="flex w-8 shrink-0 justify-center pt-0.5">
+                  <p.icon aria-hidden="true" strokeWidth={1.75} class="size-3.5" />
+                </span>
+                <span>
+                  <span class="text-text inline-block font-medium first-letter:uppercase">
+                    {p.name}
+                  </span>{" "}
+                  — {p.text}.
+                </span>
+              </li>
+            )}
+          </For>
+        </ul>
+      </PopoverContent>
+    </Popover>
+  );
+
   const controls = (section: () => NonNullable<ReturnType<typeof selected>>) => (
     <Show
       when={compact()}
@@ -859,6 +926,7 @@ export default function RsvpView(props: RsvpViewProps) {
         <>
           {searchBox(section)}
           {replyChips(section)}
+          {replyKey()}
         </>
       }
     >
@@ -879,6 +947,7 @@ export default function RsvpView(props: RsvpViewProps) {
               {(choice) => <option value={choice.value}>{choice.label}</option>}
             </For>
           </select>
+          {replyKey()}
         </div>
         {replyChips(section)}
       </div>
@@ -900,7 +969,8 @@ export default function RsvpView(props: RsvpViewProps) {
    * Kai" (the full words are for a screen reader), what changed, who answered,
    * and how the reply was given — each provenance an icon that explains itself
    * through `Tooltip`: its name and its explanation are hidden text a screen
-   * reader gets once, and a mouse sees the explanation on hover. Never a
+   * reader gets once, and a mouse sees the explanation on hover; a host on a
+   * phone or a keyboard opens the bar's key (`replyKey`) instead. Never a
    * `title`, which Chrome would read a second time as a description. Each
    * piece stays whole; the line is cut short at its end, never wrapped.
    */
@@ -922,7 +992,7 @@ export default function RsvpView(props: RsvpViewProps) {
           class="font-body text-text-muted text-ui-xs mt-0.5 flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap"
         >
           <Show when={isNew()}>
-            <Tooltip text="Changed by the guest since you last looked">
+            <Tooltip text={NEW_TEXT}>
               <span class="text-gold-ink tracking-ui-wider font-medium uppercase">New</span>
             </Tooltip>
           </Show>

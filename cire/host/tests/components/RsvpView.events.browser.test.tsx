@@ -18,7 +18,11 @@ import "../../src/styles/global.css";
  *   or deep-linked tab into view, and never moves the page while it does;
  * - that a sort head says its order in `aria-sort` and orders the rows;
  * - that the head row sticks under the view bar and stays on top while the page
- *   scrolls, and that a phone draws stacked rows instead of a table.
+ *   scrolls, and that a phone draws stacked rows instead of a table, sorts
+ *   them from a select and records a reply in a block under the guest;
+ * - that a chip focused from the keyboard wears the focus ring, whole;
+ * - that the reply key opens from the keyboard and names every mark a guest's
+ *   meta line can carry.
  *
  * The whole stack — every Guests tab, both sizes, focus, search and sub-tab
  * moves — is measured in `GuestsStack.browser.test.tsx`. It renders the real
@@ -29,7 +33,7 @@ import "../../src/styles/global.css";
 const { authFetch } = vi.hoisted(() => ({ authFetch: vi.fn() }));
 vi.mock("@shared/rp-auth/solid", () => ({ useAuth: () => ({ authFetch }) }));
 vi.mock("@shared/toast", () => ({ toast: { success: () => {}, error: () => {}, info: () => {} } }));
-vi.mock("../../src/lib/haptics", () => ({ haptic: () => {} }));
+vi.mock("../../src/lib/haptics", () => ({ haptic: () => {}, hapticsAvailable: () => false }));
 vi.mock("../../src/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../src/lib/api")>()),
   apiUrl: (path: string) => `https://api.test${path}`,
@@ -46,7 +50,7 @@ vi.mock("../../src/lib/rsvp-changes", async (importOriginal) => ({
   markRsvpChangesSeen: async () => {},
 }));
 
-import { renderOrganiserPage, routeFetch } from "../test-support/organiser-page";
+import { renderOrganiserPage, routeFetch, topBar } from "../test-support/organiser-page";
 import { eventPayload, guestList } from "../test-support/rsvp-guests";
 
 type Payload = { events: ReturnType<typeof eventPayload>[] };
@@ -114,7 +118,6 @@ const strip = () => screen.getByRole("tablist", { name: "Events" });
 const eventPanel = () =>
   document.getElementById(strip().querySelector("[role=tab]")!.getAttribute("aria-controls")!)!;
 const viewBar = () => document.querySelector<HTMLElement>("[data-view-bar]")!;
-const topBar = () => document.querySelector<HTMLElement>("[data-top-bar]")!;
 const head = (name: string) =>
   [...document.querySelectorAll<HTMLTableCellElement>("thead th")].find((th) =>
     th.textContent?.trim().toLowerCase().startsWith(name.toLowerCase()),
@@ -538,6 +541,153 @@ describe("the RSVP table's stuck head row", () => {
       await screenshotWindow(`${dir}/${theme}-390-scrolled.png`);
     });
   }
+});
+
+describe("the RSVP page on a phone", () => {
+  /** Each stacked row's household, top to bottom. */
+  const households = () =>
+    [...document.querySelectorAll('ul[aria-label^="Replies"] > li [data-name] + span')].map(
+      (el) => el.textContent?.trim() ?? "",
+    );
+
+  it("sorts the stacked rows from the bar's select", async () => {
+    await page.viewport(390, 844);
+    renderPage(THREE);
+    await ready(rowsOf(THREE));
+    const select = within(viewBar()).getByRole("combobox", { name: "Sort guests" });
+    await userEvent.selectOptions(select, "household:descending");
+    await vi.waitFor(() => {
+      const names = households();
+      expect(names.length).toBe(rowsOf(THREE));
+      expect(names[0]!.localeCompare(names.at(-1)!)).toBeGreaterThan(0);
+    });
+    await userEvent.selectOptions(select, "household:ascending");
+    await vi.waitFor(() => {
+      const names = households();
+      expect(names[0]!.localeCompare(names.at(-1)!)).toBeLessThan(0);
+    });
+  });
+
+  it("records a reply in a block under the guest, dietary consent and all", async () => {
+    await page.viewport(390, 844);
+    renderPage(THREE);
+    await ready(rowsOf(THREE));
+    const record = screen.getAllByRole("button", { name: /^Record reply for / })[0]!;
+    const guest = record.getAttribute("aria-label")!.replace("Record reply for ", "");
+    const row = record.closest("li")!;
+    await userEvent.click(record);
+    // The editor opens inside the guest's own block, its picker inline.
+    const presets = await vi.waitFor(() =>
+      within(row).getByRole("group", { name: `Dietary requirements for ${guest}` }),
+    );
+    // The pill is the label; its checkbox is hidden under it.
+    await userEvent.click(within(presets).getByText("Vegetarian"));
+    expect(
+      (within(presets).getByRole("checkbox", { name: /Vegetarian/ }) as HTMLInputElement).checked,
+    ).toBe(true);
+    const puts = () =>
+      authFetch.mock.calls.filter(
+        ([, init]) => (init as RequestInit | undefined)?.method === "PUT",
+      );
+    // A preset is dietary data: saving it needs the consent box ticked.
+    await userEvent.click(within(row).getByRole("button", { name: /Save reply/ }));
+    await vi.waitFor(() =>
+      expect(within(row).getByText(/consented before storing dietary requirements/)).toBeTruthy(),
+    );
+    expect(puts()).toEqual([]);
+    await userEvent.click(within(row).getByRole("checkbox", { name: /consent/i }));
+    await userEvent.click(within(row).getByRole("button", { name: /Save reply/ }));
+    await vi.waitFor(() => expect(puts()).toHaveLength(1));
+    const [url, init] = puts()[0]!;
+    expect(String(url)).toMatch(/\/guests\/[^/]+\/rsvps\/evt_ceremony$/);
+    const body = JSON.parse(String((init as RequestInit).body)) as {
+      dietaryPresets: string[];
+      dietaryConsent: boolean;
+    };
+    expect(body.dietaryPresets).toEqual(["vegetarian"]);
+    expect(body.dietaryConsent).toBe(true);
+  });
+});
+
+describe("the chips' focus ring", () => {
+  /** Whether `el`'s ring — its outline, offset and width — lies inside `box`. */
+  function ringInside(el: Element, box: Element): boolean {
+    const style = getComputedStyle(el);
+    const reach = parseFloat(style.outlineOffset) + parseFloat(style.outlineWidth);
+    const r = el.getBoundingClientRect();
+    const b = box.getBoundingClientRect();
+    return (
+      r.top - reach >= b.top - 0.5 &&
+      r.bottom + reach <= b.bottom + 0.5 &&
+      r.left - reach >= b.left - 0.5
+    );
+  }
+
+  it("shows whole on an event chip and a reply chip reached from the keyboard", async () => {
+    await page.viewport(1280, 800);
+    renderPage(THREE);
+    await ready(rowsOf(THREE));
+    const [ceremony, reception] = eventTabs();
+    ceremony!.focus();
+    await userEvent.keyboard("{ArrowRight}");
+    expect(document.activeElement).toBe(reception);
+    expect(getComputedStyle(reception!).outlineStyle).toBe("solid");
+    expect(parseFloat(getComputedStyle(reception!).outlineWidth)).toBeGreaterThanOrEqual(2);
+    // Not cut by the strip, which scrolls sideways and so clips on both axes.
+    expect(ringInside(reception!, strip())).toBe(true);
+
+    const replies = within(viewBar()).getByRole("group", { name: /^Filter .* by reply$/ });
+    within(viewBar()).getByRole("searchbox").focus();
+    await userEvent.keyboard("{Tab}");
+    const chip = document.activeElement!;
+    expect(replies.contains(chip)).toBe(true);
+    expect(getComputedStyle(chip).outlineStyle).toBe("solid");
+    expect(ringInside(chip, replies)).toBe(true);
+  });
+});
+
+describe("the reply key", () => {
+  it("opens from the keyboard on every mark a meta line can carry, and gives focus back", async () => {
+    await page.viewport(1280, 800);
+    renderPage(THREE);
+    await ready(rowsOf(THREE));
+    const key = within(viewBar()).getByRole("button", { name: "What the reply icons mean" });
+    // One stop for the whole page: the marks in the rows are none.
+    expect(
+      document.querySelectorAll("tbody [data-provenance] button, tbody button[data-tip]"),
+    ).toHaveLength(0);
+    key.focus();
+    await userEvent.keyboard("{Enter}");
+    const dialog = await screen.findByRole("dialog", { name: "What the reply icons mean" });
+    for (const words of [
+      "Changed by the guest since you last looked",
+      "Host-entered",
+      "Recorded by a host (phone/paper RSVP)",
+      "Host-updated",
+      "Household-entered",
+      "linked musubi",
+      "Sent from a signed-in linked musubi account",
+    ]) {
+      expect([words, dialog.textContent?.includes(words)]).toEqual([words, true]);
+    }
+    await userEvent.keyboard("{Escape}");
+    await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(document.activeElement).toBe(key);
+  });
+
+  it("sits in the phone's search row at the search box's height", async () => {
+    await page.viewport(390, 844);
+    renderPage(THREE);
+    await ready(rowsOf(THREE));
+    const key = within(viewBar()).getByRole("button", { name: "What the reply icons mean" });
+    const search = within(viewBar()).getByRole("searchbox");
+    expect(
+      Math.abs(key.getBoundingClientRect().height - search.getBoundingClientRect().height),
+    ).toBeLessThanOrEqual(0.5);
+    expect(
+      Math.abs(key.getBoundingClientRect().top - search.getBoundingClientRect().top),
+    ).toBeLessThanOrEqual(0.5);
+  });
 });
 
 /** A picture of the window, not the whole page: an element screenshot of a
