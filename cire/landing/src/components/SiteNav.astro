@@ -38,9 +38,9 @@ import { ORGANISER_URL, SITE_NAME } from '../lib/site'
     z-index: 40;
     border-bottom: 1px solid transparent;
     transition:
-      background-color 0.3s var(--ease-out),
-      border-color 0.3s var(--ease-out),
-      backdrop-filter 0.3s var(--ease-out);
+      background-color var(--dur-slow) var(--ease-out),
+      border-color var(--dur-slow) var(--ease-out),
+      backdrop-filter var(--dur-slow) var(--ease-out);
   }
 
   .site-nav.is-scrolled {
@@ -70,18 +70,21 @@ import { ORGANISER_URL, SITE_NAME } from '../lib/site'
     line-height: 1;
   }
 
+  /* An underlined text link, not a box, so it takes no button corner: a
+     rounded corner on a box drawn only by its bottom border would curl the
+     underline's ends. Sentence case at the footer links' 0.875rem; lower
+     case any smaller reads too small beside the wordmark. */
   .site-nav__cta {
     font-family: var(--font-body);
-    font-size: 0.76rem;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
+    font-size: 0.875rem;
+    letter-spacing: var(--ui-tracking-normal);
     color: var(--color-text);
     text-decoration: none;
     padding: 0.45rem 0;
     border-bottom: 1px solid var(--color-gold-dim);
     transition:
-      color 0.2s var(--ease-out),
-      border-color 0.2s var(--ease-out);
+      color var(--dur-fast) var(--ease-out),
+      border-color var(--dur-fast) var(--ease-out);
   }
 
   .site-nav__cta:hover {
@@ -93,6 +96,6 @@ import { ORGANISER_URL, SITE_NAME } from '../lib/site'
   .site-nav__cta:focus-visible {
     outline: 2px solid var(--color-gold);
     outline-offset: 4px;
-    border-radius: 0.125rem;
+    border-radius: var(--radius-hair);
   }
 </style>
