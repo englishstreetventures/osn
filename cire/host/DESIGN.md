@@ -5,9 +5,11 @@ is implemented in `src/styles/global.css`; this file records the decisions and
 the contracts, so a change to a colour can be checked against what the colour was
 for.
 
-The guest site (`@cire/invites`) and the marketing site (`@cire/landing`) have their
-own look and do not share this one. **The invite is a printed thing; the portal is
-the desk it was made on.**
+The guest site (`@cire/invites`) and the marketing site (`@cire/landing`) have
+their own type and colour and do not share this look. **The invite is a printed
+thing; the portal is the desk it was made on.** All four cire apps — those two,
+this portal and the vendor portal — share one corner scale and one motion ladder
+(§4).
 
 ---
 
@@ -177,9 +179,95 @@ Two rules in `@layer base`:
 
 ## 4. Shape, depth, motion
 
-**Radius.** One scale, sharp end of the range: `hair` 2px, `sm` 4px, `md` 6px,
-`pill` 999px. The house look is stationery, not app-store chrome — nothing
-rounder than 6px except pills.
+**Radius.** Soft shapes, by the owner's choice (2026-10-28): smoother and less
+rigid, with pills for actions, 14px for fields and tiles and 16px for cards. A
+part paints a *role*, not a size, so the stylesheet decides once how round each
+role is. Two sets of names carry it:
+
+- the steps in `@theme` that the app's own `rounded-*` utilities read —
+  `--radius-hair`, `--radius-sm`, `--radius-md`, `--radius-pill`;
+- the contract's `--ui-radius-*` roles, which the `rounded-ui-*` utilities and
+  every `@shared/ui` and `@cire/ui` part read. `field` and `lg` exist only as
+  roles, so `rounded-ui-field` and `rounded-ui-lg` are the one way to paint them.
+
+| Role | Written as | Value | Paints |
+|---|---|---|---|
+| `control` | `rounded-ui-control` | 999px, a pill | every action `Button` (§7); a file input's button (`file:rounded-ui-control`); the invite preview's mock Respond and Event details |
+| `field` | `rounded-ui-field` | 14px | `Input`, `Select`, `Textarea` and a hand-written select or textarea; `Button`'s `tile` and `field` variants and its `swatch` size; a trigger shaped like a field (the date and colour pickers); a read-only value box and the copyable invite message; a framed picture or crop box; a block pressed to choose (the code-style and remint radio cards, an enquiry inbox row) |
+| `lg` | `rounded-ui-lg` | 16px | `Card` and `cardClass`; the centred `Modal`; any bordered, padded block set on the page rather than inside another box — a form, a filter bar, a summary band, a panel, a list card with `py-3` or more, the guest editor's household card, the import's diff preview, the danger zone, the getting-started guide, a disclosure on the page (change history, the import guide, "Arrange tables"), a message bubble, the login card, the command palette; and the invite preview's hero title panel, gala code card and mock event card |
+| `md` | `rounded-md` | 10px | popovers, menus, tooltips and toasts: every Kobalte popover and dropdown menu, the rail tooltip and `ActionTip`'s panel, the module card, the co-host suggestion list, the two droplet popovers, the invite builder's narrow section menu; `--toast-radius` |
+| `sm` | `rounded-sm` | 6px | the small steps, below |
+| `hair` | `rounded-hair` | 2px | colour swatch dots, an inline code mark, the run sheet's event diamond, the import guide's sample table |
+| `pill` | `rounded-full`, `rounded-ui-pill` | a pill or a circle | chips, flags and pill badges (the top bar's role, an enquiry's status, a task's time); `Button`'s `chip` variant; `Meter`'s track; and the round marks — avatars, status circles, the dotted + circle, switches |
+
+**The small steps.** A box keeps a small corner where a soft one would make it
+read as something else: a 14px checkbox looks like a mistake. `sm`, 6px, paints:
+
+- checkboxes (`@shared/ui`'s `Checkbox`);
+- notices (`Notice` and a hand-written one) and empty states (`EmptyState`
+  and a hand-written empty panel);
+- a badge with text that is not a pill — a dress code, a key hint (`kbd`),
+  "New" on an unsaved event or household, "Connected", a co-host's role, a
+  seated guest's reply;
+- a bordered box nested in a card, a modal or a frame — the change preview
+  inside the centred `Modal`, the RSVP reply editor in its table cell or phone
+  row, the colour area in its popover, a step card inside the import guide;
+- a compact row (`px-3 py-2`) of text and glyphs — a budget line, a checklist
+  task, a registry item, a seat, a vendor, an FAQ entry — and the run sheet's
+  bands and rows, whose coming-up wash is a table highlight;
+- a menu row's or a nav row's highlight — the command palette, the profile menu,
+  the wedding switcher, the seat menu, the holders list, the module rail's
+  rows, its sliding pill and its collapse toggle, the top bar's wordmark wash,
+  a date picker's day cell, a sortable column head;
+- the segmented view tabs — their track, sliding pill and tabs (`ModuleShell`,
+  `EditWorkspace`) — and the invite builder's section tabs.
+  `GuestsMarks.browser.test.tsx` holds a section tab short of a pill beside the
+  event chips, which are pills;
+- table frames, to match `Table`'s own frame (`base:rounded-ui-sm` in
+  `shared/ui/src/ui/table.tsx`): the guest list, the RSVP table, the phone's
+  stacked reply list and their skeletons. A 16px frame would need a corner role
+  for `Table`, since the shared `Table` also draws musubi's and pulse's tables;
+- the invite preview's frames (`PaletteField`, `PreviewPane`, `previews.tsx`).
+
+**Where the table does not decide a corner:**
+
+- **Nested boxes.** A box set inside another takes the outer corner less the
+  padding between them, to the nearest step. So a box in a 16px card or modal
+  is 6px, and the registry swatch's picture is `rounded-md` inside its 14px
+  frame with `p-1`.
+- **Skeletons** take the corner of what they stand in for.
+- **The invite preview** gives an element it mirrors the guest element's corner.
+- **A card holding a stuck head** clips with `overflow-clip`, never
+  `overflow-hidden` — the guest editor's household card. `hidden` makes the card
+  a scroll container, so its head would stick inside the card and scroll away
+  with it; `clip` cuts the corners and leaves the page as the scroller.
+  `GuestsStack.browser.test.tsx` fails "card header holds" with `hidden`.
+- **The small fields.** A 28px field (`Input` and `Select` at `size="sm"`) keeps
+  the 14px field corner, half its height, so it draws round ends: the RSVP and
+  guest-list search boxes, the RSVP sort select, the guest editor's name and
+  email inputs. A field at the default height shows straight sides.
+- **The event drawer** (`Modal presentation="drawer"`) and the module nav's
+  sheet are square: each runs to the window's edge.
+- Tailwind's other default steps (`rounded-xs`, `rounded-lg`, `rounded-xl`,
+  `rounded-2xl`) still generate and belong to no role. None is written in
+  `src/`; a corner that wants one takes a role utility instead.
+
+The scale is the same in all four cire apps, and so is `--toast-radius`
+(`md`, in the three that load `@shared/toast`). `cire/vendor`'s
+`tests/styles/tokens.test.ts` reads all four stylesheets and fails if a role or
+a step differs. The guest site and the marketing site add one role, `sheet`, at
+1.75rem, for their bottom sheets; the portals draw none. They give the steps the
+same kinds as here, and two more: a small panel the size of a notice at 6px (the
+gift page's "Send gifts to" box) and a legal page's inline placeholder at 2px.
+Their pages list every corner they paint
+([cire-invite-designs](../../wiki/cire/cire-invite-designs.md) §Corners, labels
+and motion; [cire-landing](../../wiki/cire/cire-landing.md) §Corners, labels and
+motion).
+
+`soft-shapes.browser.test.tsx` renders the RSVP page in Chromium at 390 and
+1280px, light and dark, and measures the computed corners: the search box at
+14px; the reply editor's select and textarea at 14px and short of a pill; the
+editor, nested in the list's frame, at 6px; "Save reply" a pill.
 
 **Depth.** `--inner-lip` is a single inner highlight along the top edge of a
 raised surface. It is the one trick that makes a flat card read as a lit object
@@ -214,7 +302,16 @@ gets the desk pace. `Modal` (`@shared/ui`) takes its two durations from the same
 ladder through `--ui-modal-enter` and `--ui-modal-exit`, set under the same
 query. A new motion reaches for a `--dur-*` token, never a literal or
 Tailwind's bare 150ms `transition`, so it follows the input with everything
-else.
+else. In `src/` the one kind written as its own duration is a pulse far longer
+than `--dur-slow`: the attention glow, `calc(2.6s * var(--motion-scale))`.
+
+**One ladder in all four cire apps.** The vendor portal, the guest site and the
+marketing site carry this ladder, its `pointer: fine` block and these easings,
+the `@supports` spring included; `cire/vendor`'s `tests/styles/tokens.test.ts`
+fails if any copy differs. The vendor portal renders no `Modal`, so it alone
+sets no `--ui-modal-*` timing. The guest site and the marketing site keep their
+own timing only for choreography longer than `--dur-slow`: an unlock reveal, a
+scroll reveal, a hero fade.
 
 Every duration is scaled by `--motion-scale`, so a reference behaviour can be
 slowed to 0.1× and judged frame by frame. Nothing in the app itself writes it.
@@ -244,8 +341,9 @@ strip the eye can see all of at once, and a sheet is a list.
 **The droplet.** A checklist row's popovers — the assign popover and the
 time editor — grow out of the control that opened them (`droplet-popover`,
 `droplet-popover-body`): a small round drop at the trigger springs out to the
-panel (`droplet-grow`, `--ease-spring`) while its corners square off
-(`droplet-round`, `--ease-out`), and the contents fade in once there is room.
+panel (`droplet-grow`, `--ease-spring`) while its corners settle from round to
+the popover's 10px (`droplet-round`, `--ease-out`), and the contents fade in
+once there is room.
 `transform-origin` is Kobalte's `--kb-popover-content-transform-origin`, the
 panel's corner at the trigger whichever side it opened on. The fade is timed by
 keyframe percentage, never by `animation-delay`: the reduced-motion switch zeroes
@@ -374,7 +472,7 @@ Each choice, and what it was weighed against:
 - **Labels move into a tooltip.** On the collapsed rail a row shows a Kobalte
   tooltip 8px to the right of the rail: the label, then the module's hint in
   `--text-muted`, or for a locked row "Included with <Tier>" in `--gold-ink`.
-  It is `--surface-raised` with a `--border` hairline, radius `sm`,
+  It is `--surface-raised` with a `--border` hairline, radius `md`,
   `shadow-md`, and `z-50`: Kobalte copies the content's `z-index` onto the
   element it positions, and without one the tooltip paints under the top bar.
   It opens after 300ms of hover, so a pointer crossing the rail opens nothing,
@@ -452,25 +550,39 @@ is given the house dark.
 
 ## 7. Components
 
-The parts every module is built from come from `@shared/ui`
-(`shared/ui/src/ui/`), with `Button` and `Card` from `@cire/ui`. They are
-class-mapping components: they own a look and its variants, and almost no
-behaviour. A part that grows real behaviour takes its own file with it.
+The parts every module is built from come from two packages: `@shared/ui`
+(`shared/ui/src/ui/`) and, for `Button` and `Card`, `@cire/ui` (`cire/ui/src/`).
+This package holds no copy of either. They are class-mapping components: they
+own a look and its variants, and almost no behaviour. A part that grows real
+behaviour takes its own file with it.
 
-There is no `clsx`, no `tailwind-merge` and no `cva` in this package. Classes are
-plain template literals, because Tailwind's scanner reads source as text and a
-class that is computed at runtime emits no CSS at all — silently. Composition is
-by variant map, and the caller's own `class` is appended last.
+There is no `clsx`, no `tailwind-merge` and no `cva` in this package or in
+`@cire/ui`. Classes are plain template literals, because Tailwind's scanner reads
+source as text and a class that is computed at runtime emits no CSS at all —
+silently. Composition is by variant map, and the caller's own `class` is
+appended last. A part's own classes are `base:`-prefixed, which gives them no
+specificity, so a caller's plain utility — `w-full`, `self-start`, a `rounded-*`
+— wins over the part's.
 
 | Part | What it is |
 | --- | --- |
-| `Button` | Four variants — `primary`, `outline`, `quiet`, `danger` — and three sizes, `sm`, `md`, `icon`. `type="button"` is set **before** the spread, so a toolbar control inside a settings form does not submit it, and a caller who means `submit` can still say so. |
-| `Card`, `cardClass`, `CardEyebrow`, `CardCta` | The raised surface, plus its two furnishings. `cardClass` is exported so a surface that has to be an `<a>` or a `<button>` gets the same look without wrapping. The `interactive` option adds the hover treatment — which is a promise that the whole rectangle is clickable, so a card that is not a control must not wear it. |
-| `Notice` | Four tones. Error, warn and success each carry a distinct glyph plus an `sr-only` word; `info` is unmarked, because nothing has happened. `alert` opts into `role="alert"` and is for a note that appeared **in answer to something** — a standing note that was on screen before the host arrived has nothing to interrupt anyone about. |
-| `EmptyState` | A title, an optional line of prose, and the one thing to do about it. |
+| `Button`, `buttonClass` | Sixteen variants in four groups. **Boxed actions**, eight: `primary` (filled — the commit), `cta` (outlined, filled on hover — the guest site's call to action), `outline`, `quiet`, `quietDanger` (red only on hover), `choice` (one of several, marked by `aria-pressed` or `aria-checked`), `dashed` (an empty slot), `danger` (the confirm that destroys). **Blocks**, two: `tile` (the whole block is the control) and `field` (a trigger shaped like the field it stands in for). **Sheet chrome**, one: `chip`. **Borderless**, five: `link`, `subtle`, `touchLink`, `bare`, `bareDanger`. Five sizes: `sm`, `md`, `lg`, `swatch` (a frame round a picture) and `icon` (a 32px circle on a boxed variant, at least 24px square on a borderless one). **Corners:** the actions take `rounded-ui-control`, a pill; `tile`, `field` and the `swatch` size take `rounded-ui-field`, 14px; `chip` takes the `pill` step, so it stays round beside the round close button whatever `control` is. The borderless five take `control` as well, which only their focus ring shows. **Labels** show as written — sentence case, normal tracking, `font-medium` on a boxed size (below). `type="button"` is set **before** the spread, so a toolbar control inside a settings form does not submit it, and a caller who means `submit` can still say so; `aria-disabled` swallows the click as well as announcing it. `buttonClass` gives an `<a>` or a Kobalte trigger the same classes. |
+| `Card`, `cardClass`, `CardEyebrow`, `CardCta`, `CardCtaButton` | The raised surface at the 16px card corner, plus its furnishings: the gold eyebrow, the "go to the module" line at the foot, and that line as a button for a card that is not itself the control. `cardClass` is exported so a surface that has to be an `<a>` or a `<button>` gets the same look without wrapping. The `interactive` option adds the hover treatment — which is a promise that the whole rectangle is clickable, so a card that is not a control must not wear it. |
+| `Notice` | Four tones, at the 6px step. `danger`, `warn` and `success` each carry a distinct glyph plus a hidden word ("Error", "Warning", "Success"); `info` is unmarked, because nothing has happened. `alert` opts into `role="alert"` and is for a note that appeared **in answer to something** — a standing note that was on screen before the host arrived has nothing to interrupt anyone about. |
+| `EmptyState` | A title, an optional line of prose, and the one thing to do about it, in a dashed box at the 6px step. |
+| `Field`, `Fieldset`, `Input`, `Select`, `Textarea` | A small-caps label, the control, a hint and the errors, wired together by id. The controls take the 14px field corner and two sizes: `md` for a form (an `Input` 36px tall) and `sm` for a control in a table row or a view bar (28px). |
 | `Meter`, `meterPct` | A thin bar. Scaled by transform rather than resized — see the file. `meterPct` clamps at both ends and reads a zero or missing maximum as empty, not as a division by zero. |
 | `Stat` | A figure, then what it is, then an optional hint. |
-| `Table`, `Th`, `Td` | Every table in the portal as one set of parts. By default the wrapper scrolls so the page never does, and it is a named, focusable `<section>` so the columns past the right edge are reachable without a mouse; `label` is required. `scroll="page"` clips instead and lets the page scroll, for a table whose head row sticks under the stuck stack (§A table that scrolls with the page). `frame="none"` drops the border for a table inside something that draws its edge. `Th` and `Td` take `pin` for a head row or first column held in view; `Th srOnly` keeps a head for assistive technology under a visible copy. |
+| `Table`, `Th`, `Td` | Every table in the portal as one set of parts, in a hairline frame at the 6px step. By default the wrapper scrolls so the page never does, and it is a named, focusable `<section>` so the columns past the right edge are reachable without a mouse; `label` is required. `scroll="page"` clips instead and lets the page scroll, for a table whose head row sticks under the stuck stack (§A table that scrolls with the page). `frame="none"` drops the border for a table inside something that draws its edge. `Th` and `Td` take `pin` for a head row or first column held in view; `Th srOnly` keeps a head for assistive technology under a visible copy. |
+
+**Labels.** A button's or a link's label is written in sentence case in the
+source — "Preview invite", "Save reply", "Open the guest list" — and shows as
+written: no `uppercase`, normal tracking, `font-medium` on a boxed `Button` and
+regular weight on a borderless one. A label that is a name keeps its capitals.
+Small caps, `uppercase` with wide tracking, stay on what is not a button or link
+label: eyebrows (`CardEyebrow`), field labels and legends, table heads, badges,
+status words, key hints, and the tab strips — the module rail's rows, the
+segmented view tabs and the invite builder's section tabs.
 
 ### Who holds a task: faces, not names
 
