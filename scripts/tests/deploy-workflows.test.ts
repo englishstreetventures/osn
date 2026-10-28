@@ -1570,11 +1570,11 @@ describe("PW7: the staged sites are compared with Pages after the stack jobs", (
     expect(upload?.with?.name).toBe("site-parity");
   });
 
-  test("each comparison passes its exit code on, and the last step fails the job on a refused comparison (3), never on a difference (1)", () => {
+  test("each comparison passes its exit code on, and the last step fails the job on a comparison that compared nothing (2, 3), never on a difference (1)", () => {
     const exitOf = (key: StackKey) => `PARITY_${key.toUpperCase()}_EXIT`;
     for (const s of PRODUCTION_STACKS) {
       const step = stepById(parity, `parity_${s.key}`)!;
-      for (const code of [0, 1, 3]) {
+      for (const code of [0, 1, 2, 3]) {
         const output = join(mkdtempSync(join(tmpdir(), "site-parity-output-")), "output");
         writeFileSync(output, "");
         const ran = runStep(step, { GITHUB_OUTPUT: output }, code);
@@ -1609,8 +1609,13 @@ describe("PW7: the staged sites are compared with Pages after the stack jobs", (
       }
       const refused = runStep(gate, { ...none, [exitOf(s.key)]: "3" });
       expect({ key: s.key, exit: refused.exitCode }).toEqual({ key: s.key, exit: 1 });
-      expect(refused.output).toContain("::error::");
+      expect(refused.output).toContain("::error::Cloudflare answered in place of a staged site");
       expect(refused.bunCalls).toEqual([]);
+      // A usage error exits before any request: the report holds nothing.
+      const usage = runStep(gate, { ...none, [exitOf(s.key)]: "2" });
+      expect({ key: s.key, exit: usage.exitCode }).toEqual({ key: s.key, exit: 1 });
+      expect(usage.output).toContain("::error::site-parity refused its arguments");
+      expect(usage.bunCalls).toEqual([]);
     }
   });
 });

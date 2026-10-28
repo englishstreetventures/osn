@@ -2026,8 +2026,9 @@ jobs:
   # report (scripts/site-parity.ts). The owner reads it before the site's
   # flip; a difference (exit 1) does not fail the job. Cloudflare answering
   # in a site's place (exit 3: a challenge, an Access redirect, a 429) does,
-  # in the last step: the report then compares nothing on that path. No
-  # Environment and no secret: both hosts are public.
+  # in the last step: the report then compares nothing on that path. So does
+  # a usage error (exit 2), which stops before any request. No Environment
+  # and no secret: both hosts are public.
   site-parity:
     name: Compare the staged sites with Pages
     needs:
@@ -2100,7 +2101,7 @@ jobs:
           path: ${{ runner.temp }}/site-parity/
           if-no-files-found: ignore
 
-      - name: Fail when Cloudflare answered in a site's place
+      - name: Fail when a comparison compared nothing
         if: ${{ !cancelled() }}
         env:
           PARITY_CIRE_EXIT: ${{ steps.parity_cire.outputs.exit }}
@@ -2108,6 +2109,10 @@ jobs:
         run: |
           if [ "$PARITY_CIRE_EXIT" = 3 ] || [ "$PARITY_MUSUBI_EXIT" = 3 ]; then
             echo "::error::Cloudflare answered in place of a staged site, so its comparison holds nothing; see the comparison steps above. This is the zone's configuration, such as Bot Fight Mode, not the site."
+            exit 1
+          fi
+          if [ "$PARITY_CIRE_EXIT" = 2 ] || [ "$PARITY_MUSUBI_EXIT" = 2 ]; then
+            echo "::error::site-parity refused its arguments, so it compared nothing; see the comparison steps above."
             exit 1
           fi
 
