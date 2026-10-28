@@ -341,7 +341,7 @@ component was previously reading a container it did not live in.
 - **Edit** (`EditWorkspace`, `GuestsEditor`) — the mode switch and Add
   household sit in the view bar; each card's header sticks inside its card,
   its column heads following the table's sideways scroll; a cut-short event
-  head opens its whole name in the editor's one popover. Events → Edit shares
+  head opens its whole name in the editor's one popover. The Events module's Edit tab shares
   `EditWorkspace`, so its mode switch is in the bar too.
 - **Run sheet** (`RunSheetView`) — the view declares `@container/run-sheet`
   itself, because in a helper's seat there is no `panel` to measure. Each day's
