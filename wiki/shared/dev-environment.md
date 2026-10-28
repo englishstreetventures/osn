@@ -10,7 +10,7 @@ related:
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-10-27
+last-reviewed: 2026-10-28
 ---
 
 # Dev environment (cire + OSN identity)
@@ -245,6 +245,16 @@ Permissions the dev deploy token holds, one line per thing the stack jobs call:
 | Account | `Secrets Store: Edit` | the Alchemy state store ([[infrastructure-as-code#State store]]) |
 | Account | `Account Settings: Read` | the account lookup on every call |
 | Zone (the dev zone) | `Zone: Read`, `DNS: Edit`, `Workers Routes: Edit` | each Worker's custom domain |
+
+Every production CI token — `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_PAGES_DNS_TOKEN`
+and `CLOUDFLARE_API_TOKEN_READONLY` — is an account API token, made under
+**Manage Account → Account API Tokens** on the production account, never under
+**My Profile**: it outlives any one person's membership and reaches only its own
+account, which `token:check` requires. An account API token answers
+`GET /accounts` with its one account, so `token:check` and `scripts/pages-domain.ts`'s
+reach check accept it unchanged.
+
+*Measured 2026-10-28 — `curl -H "Authorization: Bearer $T" https://api.cloudflare.com/client/v4/accounts` with an account API token: `success: true`, one result, `total_count` 1; `/accounts/<id>/tokens/verify` `active`. The `production` Environment's `CLOUDFLARE_API_TOKEN`, as an account API token, then passed `token:check` (Alchemy state store, run 40641704428) and deployed cire landing with Wrangler (Production release, run 40644019262).*
 
 The read-only token, `CLOUDFLARE_DEV_ACCOUNT_API_TOKEN_READONLY`, holds
 `Account Settings: Read`, `D1: Read` and `Account Analytics: Read` on the dev
