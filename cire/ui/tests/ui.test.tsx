@@ -4,7 +4,7 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it } from "vitest";
 
-import Button from "../src/button";
+import Button, { type ButtonVariant, buttonClass } from "../src/button";
 import { cardClass } from "../src/card";
 import Loading from "../src/loading";
 import { UsernameInput } from "../src/username-input";
@@ -92,18 +92,6 @@ describe("Button — the borderless variants", () => {
     expect(boxed).toEqual([]);
   });
 
-  it("does not shout, where a bordered button does", () => {
-    // Uppercase is the bordered house style. A text link reads as a sentence
-    // fragment — "Cancel", "View listing" — and shouting it makes it a button
-    // wearing a link's clothes.
-    const bordered = render(() => <Button variant="primary">Save</Button>);
-    expect(bordered.getByRole("button").className).toContain("uppercase");
-    bordered.unmount();
-
-    const link = render(() => <Button variant="link">View listing</Button>);
-    expect(link.getByRole("button").className).not.toContain("uppercase");
-  });
-
   it("underlines a link but never a glyph", () => {
     // `bare` is an arrow or a cross. There is no word to underline.
     const link = render(() => <Button variant="subtle">Cancel</Button>);
@@ -124,6 +112,95 @@ describe("Button — the borderless variants", () => {
     expect(cls).toContain("text-ui-ink-secondary");
     expect(cls).toContain("hover:text-ui-danger");
     expect(cls).not.toMatch(/base:text-ui-danger\b/);
+  });
+});
+
+/** Every class in the string that sets a corner. */
+function corners(cls: string): string[] {
+  return cls.split(/\s+/).filter((c) => c.includes("rounded-"));
+}
+
+describe("Button — corners and case", () => {
+  it("every action variant is a pill", () => {
+    // One corner class, from the `control` role, so an app decides how round
+    // its buttons are once in its stylesheet. A second corner class would tie
+    // with the first at zero specificity and leave the stylesheet's order to
+    // pick between them.
+    const actions: readonly ButtonVariant[] = [
+      "primary",
+      "cta",
+      "outline",
+      "quiet",
+      "quietDanger",
+      "danger",
+      "choice",
+      "dashed",
+      "chip",
+    ];
+    const wrong = actions
+      .map((variant) => ({ variant, found: corners(buttonClass({ variant })) }))
+      .filter(({ found }) => found.length !== 1 || found[0] !== "base:rounded-ui-control");
+    expect(wrong).toEqual([]);
+  });
+
+  it("tile, field and swatch take the field corner", () => {
+    // A block, a value and a framed picture are not actions: a pill tile reads
+    // as a lozenge, and a pill thumbnail crops its own picture.
+    const cases = [
+      { id: "tile", cls: buttonClass({ variant: "tile" }) },
+      { id: "field", cls: buttonClass({ variant: "field" }) },
+      { id: "choice/swatch", cls: buttonClass({ variant: "choice", size: "swatch" }) },
+    ];
+    const wrong = cases
+      .map(({ id, cls }) => ({ id, found: corners(cls) }))
+      .filter(({ found }) => found.length !== 1 || found[0] !== "base:rounded-ui-field");
+    expect(wrong).toEqual([]);
+  });
+
+  it("labels are sentence case", () => {
+    // The label is written in sentence case at the call site ("Event details")
+    // and the button shows it as written: no transform and no wide tracking,
+    // boxed or not. A boxed label takes a medium weight instead, which is what
+    // tells it from the body text around it.
+    const shouting = (["primary", "tile"] as const).flatMap((variant) =>
+      (["sm", "md", "lg", "icon"] as const)
+        .filter((size) => {
+          const cls = buttonClass({ variant, size });
+          return cls.includes("uppercase") || cls.includes("tracking-ui-wider");
+        })
+        .map((size) => `${variant}/${size}`),
+    );
+    expect(shouting).toEqual([]);
+
+    // Tracking is set, not inherited: a button inside a tracked eyebrow would
+    // otherwise spread its label to match.
+    const unset = (["primary", "tile"] as const).flatMap((variant) =>
+      (["sm", "md", "lg"] as const)
+        .filter((size) => {
+          const cls = buttonClass({ variant, size });
+          return !cls.includes("base:font-medium") || !cls.includes("base:tracking-ui-normal");
+        })
+        .map((size) => `${variant}/${size}`),
+    );
+    expect(unset).toEqual([]);
+
+    const link = render(() => <Button variant="link">View listing</Button>);
+    expect(link.getByRole("button").className).not.toContain("uppercase");
+  });
+
+  it("a caller's corner still wins", () => {
+    // `class` is appended with no merge step, so a caller's plain utility beats
+    // the variant's only because every default corner is a zero-specificity
+    // `base:` one. A plain default corner would tie with it instead.
+    const { getByRole } = render(() => (
+      <Button variant="chip" class="rounded-none">
+        x
+      </Button>
+    ));
+    const plain = corners(getByRole("button").className).filter(
+      (c) => c !== "rounded-none" && !c.startsWith("base:"),
+    );
+    expect(plain).toEqual([]);
   });
 });
 

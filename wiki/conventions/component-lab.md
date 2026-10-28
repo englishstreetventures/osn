@@ -77,6 +77,11 @@ The sidebar title comes from each file's `meta.title`, not from its path, so
 moving a story does not move its row. The other two component layers —
 `@osn/auth-ui` and `@cire/ui`, see [[component-library]] — get stories as each
 component is added or changed, under [[#Stories for auth and cire components]].
+So far, in `tools/lab/src/stories/cire-ui/`:
+
+| Sidebar title | File | Covers |
+| --- | --- | --- |
+| `cire/ui/Button` | `button.story.tsx` | Every variant at every size; `disabled`, `aria-disabled` and the chosen `choice`; each shape claim measured from the painted button (the 32px icon circle, the 14px field corner, a caller's corner winning); live playground |
 
 `shared/toast` and `shared/sortable` are benches rather than catalogues: they
 exist for the behaviour no test tier can reach. Their unit suites assert the
@@ -127,11 +132,14 @@ every file under a cire package's `src/`, never sees them.
   more. Add each workspace package a story imports with
   `bun add <package>@workspace:* --cwd tools/lab`, `@osn/client` included for a
   fixture.
-- **cire's colours.** Wrap the component in an element that sets the `--ui-*`
-  contract inline, one wrapper per ramp, as `design-system/theming.story.tsx`
-  does. That gives the `ui-*` utilities cire's light and dark values. Anything
-  outside the contract, such as cire's `font-body`, renders in the lab's
-  defaults: judge it in the app.
+- **cire's colours.** Wrap the component in an element whose `style` is
+  `cireStyle("dark")` or `cireStyle("light")`, from
+  `tools/lab/src/stories/cire-ui/cire-mapping.ts`: one wrapper per ramp. That
+  gives the `ui-*` utilities cire's light and dark colours, type steps,
+  tracking, leading and radius roles. `design-system/theming.story.tsx` reads
+  the same file, so the mapping is written once. Anything outside the contract,
+  such as cire's `font-body`, renders in the lab's defaults: judge it in the
+  app.
 - **A session.** Pass stub client objects as props where the component takes
   them: objects in the story file that return fixed data, never a real client.
   Every token a fixture carries is an obvious placeholder, such as
