@@ -209,7 +209,7 @@
 }
 
 /* ── Motion ─────────────────────────────────────────────────────────────────
- * Three durations, two easings, no animation library in this package by
+ * Three durations, three easings, no animation library in this package by
  * design. Every duration is `calc(… * var(--motion-scale))` so a reference
  * behaviour can be slowed to 0.1× and judged frame by frame. Nothing in the
  * app writes `--motion-scale`.
@@ -230,6 +230,50 @@
     --dur-fast: calc(90ms * var(--motion-scale));
     --dur-base: calc(150ms * var(--motion-scale));
     --dur-slow: calc(200ms * var(--motion-scale));
+  }
+}
+
+/* ── Spring easing ──────────────────────────────────────────────────────────
+ * A damped spring (damping ratio 0.62) sampled into `linear()`: it overshoots
+ * by 8% at about 40% of the run and settles. Chrome 113, Firefox 112 and
+ * Safari 17.2 have `linear()`; the browser floor (Chrome 111, Safari 16.4)
+ * does not, and an easing it cannot parse would void the whole `animation`
+ * declaration — so the token holds a cubic-bezier until this block replaces
+ * it. Unlayered, so it beats the theme layer that declared the fallback.
+ */
+@supports (animation-timing-function: linear(0, 1)) {
+  :root {
+    --ease-spring: linear(
+      0,
+      0.055,
+      0.186,
+      0.354,
+      0.527,
+      0.687,
+      0.821,
+      0.926,
+      1,
+      1.048,
+      1.074,
+      1.083,
+      1.081,
+      1.071,
+      1.057,
+      1.043,
+      1.029,
+      1.017,
+      1.008,
+      1.001,
+      0.997,
+      0.994,
+      0.993,
+      0.993,
+      0.994,
+      0.995,
+      0.996,
+      0.997,
+      1
+    );
   }
 }
 
@@ -280,15 +324,26 @@
   --font-display: var(--font-flair);
   --default-font-family: var(--font-body);
 
-  /* Corner radius — one scale, sharp end of the range. The house look is
-     stationery, not app-store chrome: nothing rounder than 6px except pills. */
+  /* Corner radius — the four steps cire writes, the same in every cire app:
+     `hair` 2px for focus marks and colour swatch dots, `sm` 6px for
+     checkboxes, notices, small badges and table highlights, `md` 10px for
+     popovers, menus, tooltips and toasts, `pill` for buttons. Fields (14px)
+     and cards (16px) have no step here: they take their corner from the
+     contract roles below, through `rounded-ui-field` and `rounded-ui-lg`.
+     Tailwind's other default steps still generate (`rounded-xs` 2px,
+     `rounded-lg` 8px, `rounded-xl` 12px, `rounded-2xl` 16px and up). They
+     belong to no role: a corner written with one belongs on a role utility. */
   --radius-hair: 2px;
-  --radius-sm: 4px;
-  --radius-md: 6px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
   --radius-pill: 999px;
 
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  /* Something landing with a little give: an overshoot of about 8% and one
+     settle. A one-overshoot curve here, for the engines on the floor that have
+     no `linear()`; the real spring is the `@supports` block above. */
+  --ease-spring: cubic-bezier(0.34, 1.32, 0.64, 1);
 
   /* Focus — one ring everywhere, never animated, always visible. */
   --focus-ring-width: 2px;
@@ -390,16 +445,18 @@
 
   --ui-focus: var(--focus);
 
-  /* No `lg`. The house rule is "nothing rounder than 6px except pills", so the
-   * contract's larger step resolves to the same 6px rather than importing a
-   * 10px corner this product does not use. */
+  /* The corner each role paints, the same in every cire app: buttons are
+   * pills; text fields, selects and the `tile`, `field` and `swatch` buttons
+   * 14px; cards and centred modals 16px. `field` and `lg` are written here
+   * rather than as `--radius-*` steps, so the role utilities are the one way to
+   * paint them — a step would add a `rounded-field` beside `rounded-ui-field`. */
   --ui-radius-hair: var(--radius-hair);
   --ui-radius-sm: var(--radius-sm);
   --ui-radius-md: var(--radius-md);
-  --ui-radius-lg: var(--radius-md);
+  --ui-radius-lg: 16px;
   --ui-radius-pill: var(--radius-pill);
-  /* Sharp, like every other control here: the house look is stationery. */
-  --ui-radius-control: var(--ui-radius-sm);
+  --ui-radius-control: var(--radius-pill);
+  --ui-radius-field: 14px;
 
   /* No mono family is loaded here — `tabular-nums` on the body face is what
    * lines figures up in a column. The stack is named anyway so a shared
