@@ -6,8 +6,8 @@ import "../../src/styles/global.css";
 
 /**
  * The stuck stack on the Guests module, at the size a wedding reaches: 300
- * households, five events, 900 guests, in the real `ModuleShell` under a
- * stand-in top bar (`test-support/organiser-page.tsx`).
+ * households, five events, 900 guests, in the real `ModuleShell` under the
+ * real `TopBar` (`test-support/organiser-page.tsx`).
  *
  * As the page scrolls, layers hold at the top of the window, each one's top at
  * the foot of the one above: the top bar, the module's view bar, then the
@@ -28,7 +28,18 @@ import "../../src/styles/global.css";
  * - each view goes narrow below the panel width its wide layout needs and no
  *   sooner, with every action still on screen and reachable either side;
  * - the invite builder's own sticky tabs sit under the bar, or under the top
- *   bar where a module has no bar.
+ *   bar where a module has no bar, and a module with no bar leaves no
+ *   `--bar-h` behind;
+ * - a reply filter, a sort or another event, chosen deep in the RSVP list,
+ *   brings it back to the foot as a search does;
+ * - the panel's hold lets go when the data lands, when it fails, and when the
+ *   host leaves first; `--bar-h` is written once per settled height, not on
+ *   every frame of the bar's slide;
+ * - an invite-message link followed from deep in a list lands its heading on
+ *   screen;
+ * - icon-only controls show their names in the page's one tooltip on keyboard
+ *   focus, and a household's mark its explanation on hover; no household
+ *   control or editor head mounts a popup of its own.
  *
  * Artifacts: a screenshot per tab, size and theme, scrolled, in `__screenshots__/`
  * beside this file; and `cire/host/.vitest/guests-stack/results.json`, one
@@ -39,7 +50,7 @@ import "../../src/styles/global.css";
 const { authFetch } = vi.hoisted(() => ({ authFetch: vi.fn() }));
 vi.mock("@shared/rp-auth/solid", () => ({ useAuth: () => ({ authFetch }) }));
 vi.mock("@shared/toast", () => ({ toast: { success: () => {}, error: () => {}, info: () => {} } }));
-vi.mock("../../src/lib/haptics", () => ({ haptic: () => {} }));
+vi.mock("../../src/lib/haptics", () => ({ haptic: () => {}, hapticsAvailable: () => false }));
 vi.mock("../../src/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../src/lib/api")>()),
   apiUrl: (path: string) => `https://api.test${path}`,
@@ -70,6 +81,7 @@ import {
   type PageRoutes,
   renderOrganiserPage,
   routeFetch,
+  topBar,
 } from "../test-support/organiser-page";
 
 const SIZES = [
@@ -118,6 +130,7 @@ beforeAll(() => {
   // Positions are what is read here; no transition may sit between a change
   // and its measurement.
   const style = document.createElement("style");
+  style.dataset.noTransitions = "";
   style.textContent = "*, *::before, *::after { transition: none !important; }";
   document.head.append(style);
 });
@@ -144,6 +157,8 @@ afterAll(async () => {
 });
 
 // ── Page helpers ─────────────────────────────────────────────────────────────
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 const frames = (n = 2) =>
   new Promise<void>((resolve) => {
     const step = (left: number) =>
@@ -172,7 +187,6 @@ async function loaded(sub: string) {
 }
 
 const rect = (el: Element) => el.getBoundingClientRect();
-const topBar = () => document.querySelector<HTMLElement>("[data-top-bar]")!;
 const viewBar = () => document.querySelector<HTMLElement>("[data-view-bar]")!;
 
 /** The one of `els` whose top sits at `y`, to the pixel. */
@@ -453,6 +467,96 @@ describe("the stuck stack on Guests", () => {
   });
 });
 
+// ── One popup for the page ───────────────────────────────────────────────────
+/** The page's one tooltip panel, if open. `aria-hidden`, so found by attribute. */
+const tipPanel = () => document.querySelector<HTMLElement>("[data-tip-panel]");
+
+describe("one popup for the page, not one per control", () => {
+  for (const [width, height] of SIZES) {
+    it(`Households at ${width}: no household control mounts a tooltip or menu of its own`, async () => {
+      await page.viewport(width, height);
+      render({ module: "guests", sub: "list" });
+      await loaded("list");
+      const bars = document.querySelectorAll("[data-household-bar]");
+      const controls = document.querySelectorAll("[data-household-bar] button");
+      expectPass(`roots ${width}: every household is drawn`, bars.length === 300);
+      expectPass(`roots ${width}: their controls are drawn`, controls.length >= 300);
+      // Kobalte's own triggers carry these attributes whatever their state.
+      expectPass(
+        `roots ${width}: no household control is a Kobalte trigger`,
+        document.querySelector(
+          "[data-household-bar] [data-closed], [data-household-bar] [data-expanded], [data-household-bar] [aria-haspopup='true']",
+        ) === null,
+      );
+      expectPass(`roots ${width}: no menu is open`, document.querySelector("[role=menu]") === null);
+    });
+  }
+
+  it("at 390: names each icon-only control in the tooltip on keyboard focus", async () => {
+    await page.viewport(390, 844);
+    render({ module: "guests", sub: "edit" });
+    await loaded("edit");
+    const add = within(viewBar()).getByRole("button", { name: "Add household" });
+    add.focus();
+    await vi.waitFor(() => expect(tipPanel()?.textContent).toBe("Add household"));
+    expectPass(
+      "tip 390: Add household's panel is for the eye only",
+      tipPanel()!.getAttribute("aria-hidden") === "true",
+    );
+    expectPass(
+      "tip 390: Add household is not described by it",
+      !add.hasAttribute("aria-describedby"),
+    );
+    const tab = within(viewBar()).getByRole("tab", { name: "RSVPs" });
+    tab.focus();
+    await vi.waitFor(() => expect(tipPanel()?.textContent).toBe("RSVPs"));
+    expectPass(
+      "tip 390: the icon-only sub-tab is not described by it",
+      !tab.hasAttribute("aria-describedby"),
+    );
+    // The mode switch keeps its own description, the hint under the bar.
+    const mode = within(viewBar()).getByRole("radio", { name: "Spreadsheet import" });
+    const hint = mode.getAttribute("aria-describedby");
+    mode.focus();
+    await vi.waitFor(() => expect(tipPanel()?.textContent).toBe("Spreadsheet import"));
+    expectPass(
+      "tip 390: the mode switch is described by its hint alone",
+      hint !== null &&
+        !hint.includes(" ") &&
+        mode.getAttribute("aria-describedby") === hint &&
+        document.getElementById(hint)?.textContent?.trim() !== "",
+    );
+  });
+
+  it("at 1280: shows no tooltip for a sub-tab whose words are on screen", async () => {
+    await page.viewport(1280, 800);
+    render({ module: "guests", sub: "list" });
+    await loaded("list");
+    within(viewBar()).getByRole("tab", { name: "RSVPs" }).focus();
+    await wait(400);
+    expectPass("tip 1280: a labelled sub-tab shows none", tipPanel() === null);
+  });
+
+  it("at 1280: explains a household's mark on hover", async () => {
+    await page.viewport(1280, 800);
+    render({ module: "guests", sub: "list" });
+    await loaded("list");
+    const opened = [
+      ...document.querySelectorAll<HTMLElement>("[data-household-bar] [data-tip]"),
+    ].find((el) => el.textContent?.includes("Opened"))!;
+    opened.scrollIntoView({ block: "center" });
+    await frames();
+    await userEvent.hover(opened);
+    await vi.waitFor(() =>
+      expect(tipPanel()?.textContent?.startsWith("A guest opened this invite")).toBe(true),
+    );
+    expectPass(
+      "mark 1280: the panel is painted above the mark",
+      rect(tipPanel()!).bottom <= rect(opened).top + 1,
+    );
+  });
+});
+
 // ── Searches and view changes ────────────────────────────────────────────────
 describe("moving within the stack", () => {
   const searchbox = () => within(viewBar()).getByRole("searchbox");
@@ -504,6 +608,43 @@ describe("moving within the stack", () => {
       rect(rows[0]!).top >= rect(document.querySelector("thead th")!).bottom - 1,
     );
   });
+
+  // The search is not the only thing that redraws the list: a reply filter, a
+  // sort and another event do too, and each is pressed deep in the list.
+  const TRIGGERS = [
+    ["the No reply chip", () => within(viewBar()).getByRole("button", { name: /^No reply/ })],
+    [
+      "the Guest head's sort",
+      () =>
+        within(document.querySelector<HTMLElement>("thead")!).getByRole("button", {
+          name: "Guest",
+        }),
+    ],
+    ["the second event", () => within(viewBar()).getAllByRole("tab", { name: /, \d+ guests/ })[1]!],
+  ] as const;
+  for (const [what, control] of TRIGGERS) {
+    it(`brings the list back to the foot for ${what}, focus kept`, async () => {
+      await page.viewport(1280, 800);
+      render({ module: "guests", sub: "rsvps" });
+      await loaded("rsvps");
+      window.scrollTo(0, document.documentElement.scrollHeight);
+      await frames();
+      const target = control();
+      await userEvent.click(target);
+      await frames();
+      const rows = document.querySelectorAll("tbody > tr");
+      const headFoot = rect(document.querySelector("thead th")!).bottom;
+      const first = rect(rows[0]!).top;
+      expectPass(`${what}: the first row is not under the stack`, first >= headFoot - 1);
+      // Where more than a screen of rows is left, the first sits at the foot.
+      expectPass(
+        `${what}: the first row sits at the stack's foot`,
+        rows.length <= 20 || Math.abs(first - headFoot) <= 1,
+        `${first} vs ${headFoot}, ${rows.length} rows`,
+      );
+      expectPass(`${what}: focus stays on the control pressed`, document.activeElement === target);
+    });
+  }
 
   it("brings a household search back to the foot, once the debounce settles", async () => {
     await page.viewport(390, 844);
@@ -565,6 +706,67 @@ describe("moving within the stack", () => {
       "sub-tab deep: the panel's top is still at the foot",
       Math.abs(rect(panel).top - foot()) <= 1,
     );
+    expectPass("sub-tab deep: the hold lets go once the data is in", panel.style.minHeight === "");
+  });
+
+  it("lets the panel go when the new view's read fails", async () => {
+    await page.viewport(1280, 800);
+    render(
+      { module: "guests", sub: "list" },
+      { ...FULL, rsvps: () => new Response("{}", { status: 500 }) },
+    );
+    await loaded("list");
+    await scrollMid("list");
+    await userEvent.click(within(viewBar()).getByRole("tab", { name: "RSVPs" }));
+    const panel = document.getElementById("subpanel-guests")!;
+    await vi.waitFor(() => expect(within(panel).getByText(/Could not load RSVPs/)).toBeTruthy());
+    await frames();
+    expectPass("hold failed: the panel is not held a screen tall", panel.style.minHeight === "");
+  });
+
+  it("lets the panel go when the host leaves before the data lands", async () => {
+    await page.viewport(1280, 800);
+    const never = new Promise<never>(() => {});
+    render({ module: "guests", sub: "list" }, { ...FULL, rsvps: () => never });
+    await loaded("list");
+    await scrollMid("list");
+    await userEvent.click(within(viewBar()).getByRole("tab", { name: "RSVPs" }));
+    await frames();
+    const panel = document.getElementById("subpanel-guests")!;
+    expectPass("hold left: held while RSVPs load", panel.style.minHeight !== "");
+    await userEvent.click(within(viewBar()).getByRole("tab", { name: "Households" }));
+    await loaded("list");
+    expectPass("hold left: let go with RSVPs gone", panel.style.minHeight === "");
+  });
+
+  // A short window, so the invite builder the link opens is long enough that
+  // the page is not simply clamped back to its top.
+  it("lands the heading an invite-message link opens on screen, from deep in a list", async () => {
+    await page.viewport(1280, 400);
+    render({ module: "guests", sub: "list" }, { ...FULL, customisation: EMPTY_CUSTOMISATION });
+    await loaded("list");
+    const link = screen.getByRole("button", { name: "Invite, Design, Message" });
+    // The links just under the view bar: the module's heading has gone under
+    // the top bar.
+    window.scrollTo(0, scrollY + rect(link).top - rect(viewBar()).bottom - 4);
+    await frames();
+    expectPass(
+      "link deep: the module's heading is under the top bar",
+      rect(screen.getByRole("heading", { level: 2, name: "Guests" })).bottom <=
+        rect(topBar()).bottom,
+    );
+    await userEvent.click(link);
+    await vi.waitFor(() => expect(document.activeElement?.tagName).toBe("H2"));
+    await vi.waitFor(() => screen.getByText("Save invite"), { timeout: 10_000 });
+    await frames();
+    const heading = document.activeElement as HTMLElement;
+    expectPass("link deep: the page moved rather than clamping to its top", scrollY > 0);
+    expectPass(
+      "link deep: the heading it lands on is below the top bar",
+      rect(heading).top >= rect(topBar()).bottom - 1,
+      `${rect(heading).top} vs ${rect(topBar()).bottom}`,
+    );
+    expectPass("link deep: the heading is painted", onTop(heading));
   });
 
   it("moves nothing on a sub-tab change made at the top", async () => {
@@ -600,6 +802,62 @@ describe("moving within the stack", () => {
       "bar-h: an unset --bar-h falls back to 0px",
       Math.abs(parseFloat(getComputedStyle(th).top) - rect(topBar()).height) <= 0.5,
     );
+  });
+
+  it("writes --bar-h once per settled height, ahead of the bar's slide", async () => {
+    await page.viewport(1280, 800);
+    const view = render({ module: "guests", sub: "list" });
+    await loaded("list");
+    const shell = viewBar().closest<HTMLElement>(".\\@container\\/shell")!;
+    const barH = () => parseFloat(shell.style.getPropertyValue("--bar-h"));
+    const hairline = parseFloat(getComputedStyle(viewBar()).borderBottomWidth);
+    const writes: string[] = [];
+    const set = shell.style.setProperty.bind(shell.style);
+    shell.style.setProperty = (name: string, value: string | null, priority?: string) => {
+      if (name === "--bar-h") writes.push(String(value));
+      set(name, value, priority);
+    };
+    // This case needs the slide itself: the file's transition kill is lifted.
+    const still = document.querySelector<HTMLStyleElement>("style[data-no-transitions]")!;
+    still.sheet!.disabled = true;
+    try {
+      view.setSub("rsvps");
+      // While the bar slides to its new height, the layers under it already
+      // hold at the height it is sliding to: --bar-h is the settled height,
+      // not the bar's height of the moment.
+      let midSlide = 0;
+      let ahead = 0;
+      for (let i = 0; i < 30; i += 1) {
+        await frames(1);
+        const frame = viewBar().firstElementChild as HTMLElement;
+        const settled = rect(frame.firstElementChild!).height + hairline;
+        if (frame.style.height !== "" && Math.abs(rect(viewBar()).height - settled) > 1) {
+          midSlide += 1;
+          if (Math.abs(barH() - settled) <= 0.5) ahead += 1;
+        }
+      }
+      expectPass("bar-h writes: the slide was seen", midSlide > 0);
+      expectPass(
+        "bar-h writes: mid-slide, --bar-h is already the settled height",
+        ahead === midSlide,
+        `${ahead} of ${midSlide}`,
+      );
+      await loaded("rsvps");
+      await wait(600);
+      // One write per height the bar settles at: the placeholder row while the
+      // replies load, then the loaded row, which is the same height today.
+      expectPass(
+        "bar-h writes: at most one per settled height",
+        writes.length >= 1 && writes.length <= 2,
+        writes.join(", "),
+      );
+      expectPass(
+        "bar-h writes: the last is the settled bar",
+        Math.abs(barH() - rect(viewBar()).height) <= 0.5,
+      );
+    } finally {
+      still.sheet!.disabled = false;
+    }
   });
 
   it("keeps the editor's head strip level with its table as it scrolls sideways", async () => {
@@ -648,11 +906,50 @@ describe("moving within the stack", () => {
       "event name: the whole name opens",
       panel.textContent?.includes("Sangeet night and welcome dinner") === true,
     );
+    expectPass(
+      "event name: the head says it is open",
+      button.getAttribute("aria-expanded") === "true",
+    );
     // The short name is no button.
     expectPass(
       "event name: a name that fits is plain",
       card.querySelector("[data-head-strip] button[aria-label='Event: Mehndi']") === null,
     );
+    // One popover for the editor: no head is a Kobalte trigger of its own.
+    expectPass(
+      "event name: no head mounts a popover of its own",
+      document.querySelector(
+        "[data-head-strip] [data-closed], [data-head-strip] [data-expanded]",
+      ) === null,
+    );
+    await userEvent.keyboard("{Escape}");
+    await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expectPass(
+      "event name: Escape gives focus back to the head",
+      document.activeElement === button,
+    );
+    expectPass(
+      "event name: the head says it is closed",
+      button.getAttribute("aria-expanded") === "false",
+    );
+    // Another card's head opens the same popover there.
+    const other = document
+      .querySelectorAll("[data-edit-card]")[1]!
+      .querySelector<HTMLButtonElement>(
+        "[data-head-strip] button[aria-label='Event: Sangeet night and welcome dinner']",
+      )!;
+    other.focus();
+    await userEvent.keyboard("{Enter}");
+    await screen.findByRole("dialog");
+    expectPass(
+      "event name: one popover at a time",
+      document.querySelectorAll("[role=dialog]").length === 1,
+    );
+    // Its head gone — the card redrawn, or the column grown to fit — the
+    // popover goes too, rather than stay open over nothing.
+    other.remove();
+    await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expectPass("event name: no popover outlives its head", screen.queryByRole("dialog") === null);
   });
 });
 
@@ -827,6 +1124,38 @@ describe("the invite builder under the stack", () => {
       Math.abs(rect(sectionTabs()).top - rect(topBar()).bottom) <= 1,
     );
   });
+
+  it("leaves no --bar-h behind on a move to a module with no bar", async () => {
+    await page.viewport(1280, 400);
+    const view = render(
+      { module: "guests", sub: "list", canManage: false },
+      { ...FULL, customisation: EMPTY_CUSTOMISATION },
+    );
+    await loaded("list");
+    const shell = viewBar().closest<HTMLElement>(".\\@container\\/shell")!;
+    expectPass(
+      "bar-h gone: set while Guests has its bar",
+      shell.style.getPropertyValue("--bar-h") !== "",
+    );
+    view.setModule("invite");
+    view.setSub("design");
+    await vi.waitFor(() => screen.getByText("Save invite"), { timeout: 10_000 });
+    await frames();
+    expectPass(
+      "bar-h gone: Invite draws no bar",
+      document.querySelector("[data-view-bar]") === null,
+    );
+    expectPass(
+      "bar-h gone: the property is removed",
+      shell.style.getPropertyValue("--bar-h") === "",
+    );
+    window.scrollTo(0, 2000);
+    await frames();
+    expectPass(
+      "bar-h gone: the section tabs hold at the top bar's foot",
+      Math.abs(rect(sectionTabs()).top - rect(topBar()).bottom) <= 1,
+    );
+  });
 });
 
 // ── What the stuck layers cost ───────────────────────────────────────────────
@@ -836,8 +1165,11 @@ describe("the invite builder under the stack", () => {
  * counters (`Performance.getMetrics`), which a headless run still keeps. The
  * numbers vary by machine, so they are printed and written beside the results,
  * not asserted; `NEW-FEAT.md` and the pull request carry what was measured.
+ * A measurement, not a test, so it runs only when asked:
+ * `VITE_GUESTS_STACK_BENCH=1 bun run --cwd cire/host test:browser
+ * tests/components/GuestsStack.browser.test.tsx`.
  */
-describe("the stuck layers' cost", () => {
+describe.runIf(import.meta.env.VITE_GUESTS_STACK_BENCH === "1")("the stuck layers' cost", () => {
   it("records layout and style time over a scroll, stuck and unstuck", async () => {
     await page.viewport(1280, 800);
     render({ module: "guests", sub: "list" });

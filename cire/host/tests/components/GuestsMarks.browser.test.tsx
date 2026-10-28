@@ -28,7 +28,7 @@ import "../../src/styles/global.css";
 const { authFetch } = vi.hoisted(() => ({ authFetch: vi.fn() }));
 vi.mock("@shared/rp-auth/solid", () => ({ useAuth: () => ({ authFetch }) }));
 vi.mock("@shared/toast", () => ({ toast: { success: () => {}, error: () => {}, info: () => {} } }));
-vi.mock("../../src/lib/haptics", () => ({ haptic: () => {} }));
+vi.mock("../../src/lib/haptics", () => ({ haptic: () => {}, hapticsAvailable: () => false }));
 vi.mock("../../src/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../src/lib/api")>()),
   apiUrl: (path: string) => `https://api.test${path}`,

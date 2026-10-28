@@ -18,7 +18,7 @@ import { type Component, type JSX, Show } from "solid-js";
  * | `none` | a ring in `--text-faint`, empty | — | `--text-muted` |
  *
  * Every glyph clears 4.5:1 on its circle and every word 4.5:1 on the page, in
- * both themes (`tests/styles/tokens.test.ts`, `GuestsMarks.browser.test.tsx`).
+ * both themes (`GuestsMarks.browser.test.tsx`).
  * `stacked` puts the word under the circle, for a narrow fixed column.
  */
 

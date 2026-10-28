@@ -1,5 +1,6 @@
+// oxlint-disable vitest/expect-expect -- a picture tool, not a test: it asserts nothing, and runs only when asked.
 import { cleanup } from "@solidjs/testing-library";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, it, vi } from "vitest";
 import { page } from "vitest/browser";
 
 import "../../src/styles/global.css";
@@ -9,14 +10,17 @@ import "../../src/styles/global.css";
  * 1280×800 and 390×844, in both themes, and close crops of the parts a design
  * pass is about — the status column, a row with the longest names, and the
  * view bar's two tab groups. Written to `__screenshots__/` beside this file
- * (gitignored). What must hold is asserted in `GuestsStack.browser.test.tsx`
- * and the view's own tests; this file only draws.
+ * (gitignored). What must hold is asserted in `GuestsStack.browser.test.tsx`,
+ * `GuestsMarks.browser.test.tsx` and the views' own tests; this file only
+ * draws, so it is no part of the browser tier's run. It draws when asked:
+ * `VITE_GUESTS_LOOK=1 bun run --cwd cire/host test:browser
+ * tests/components/GuestsLook.browser.test.tsx`.
  */
 
 const { authFetch } = vi.hoisted(() => ({ authFetch: vi.fn() }));
 vi.mock("@shared/rp-auth/solid", () => ({ useAuth: () => ({ authFetch }) }));
 vi.mock("@shared/toast", () => ({ toast: { success: () => {}, error: () => {}, info: () => {} } }));
-vi.mock("../../src/lib/haptics", () => ({ haptic: () => {} }));
+vi.mock("../../src/lib/haptics", () => ({ haptic: () => {}, hapticsAvailable: () => false }));
 vi.mock("../../src/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../src/lib/api")>()),
   apiUrl: (path: string) => `https://api.test${path}`,
@@ -120,7 +124,7 @@ async function bringUnderStack(el: Element) {
   await frames();
 }
 
-describe("the Guests views, drawn", () => {
+describe.runIf(import.meta.env.VITE_GUESTS_LOOK === "1")("the Guests views, drawn", () => {
   for (const [width, height] of SIZES) {
     for (const theme of THEMES) {
       for (const sub of ["rsvps", "list", "edit"]) {
@@ -129,7 +133,6 @@ describe("the Guests views, drawn", () => {
           window.scrollTo(0, Math.round(document.documentElement.scrollHeight / 3));
           await frames();
           await shot(`${sub}-${width}-${theme}-scrolled`);
-          expect(document.querySelector("[data-view-bar]")).not.toBeNull();
         });
       }
 
@@ -195,7 +198,6 @@ describe("the Guests views, drawn", () => {
           w: Math.min(innerWidth - Math.max(0, left), w),
           h: Math.min(innerHeight - top, bottom - top + 8),
         });
-        expect(long).toBeDefined();
       });
 
       it(`household crop at ${width}, ${theme}`, async () => {
@@ -214,7 +216,6 @@ describe("the Guests views, drawn", () => {
           w: Math.min(innerWidth, r.width + 16),
           h: Math.min(innerHeight - r.top + 8, r.height + 16),
         });
-        expect(long).toBeDefined();
       });
     }
   }
