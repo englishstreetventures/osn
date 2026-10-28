@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
 /**
  * The plan guard for the cire stack's production plan: `bun run plan:guard --
- * --log <alchemy log> --out <record.json> [--flip <surface>] [--approved <record.json>]`.
+ * --log <alchemy log> --out <record.json> --domains <live domains.json>
+ * [--flip <surface>] [--unflip <surface>] [--approved <record.json>]`.
  * `runPlanGuardCli` in @shared/infra holds the rules; this names the stack's
  * resources and sites.
  */

@@ -18,6 +18,7 @@ import {
   runPlanGuardCli,
   type ResourceKind,
 } from "../src/plan-guard";
+import { PRODUCTION_SITE_MODES, type SiteMode, type SiteSurface } from "../src/production-sites";
 
 const ESC = String.fromCharCode(27);
 
@@ -416,6 +417,8 @@ describe("the guard's record and summary", () => {
       ],
       bindings: [],
       flip: null,
+      domains: [],
+      unflip: null,
     });
     expect(record).not.toContain("INFO");
     expect(record).not.toContain("20:17");
@@ -449,8 +452,20 @@ describe("the guard's record and summary", () => {
 
 describe("runPlanGuardCli", () => {
   const dir = mkdtempSync(join(tmpdir(), "plan-guard-"));
-  const run = (argv: string[], log?: string) => {
+  const domainsFile = join(dir, "domains.json");
+  /** The hosts each staged site's Worker holds while nothing moves: its spare host. */
+  const STAGED_LIVE = {
+    cire_host: ["next-host.cireweddings.com"],
+    cire_vendor: ["next-vendor.cireweddings.com"],
+  };
+  const run = (
+    argv: string[],
+    log?: string,
+    live: unknown = STAGED_LIVE,
+    modes: Readonly<Record<SiteSurface, SiteMode>> = PRODUCTION_SITE_MODES,
+  ) => {
     if (log !== undefined) writeFileSync(join(dir, "plan.log"), log);
+    writeFileSync(domainsFile, typeof live === "string" ? live : JSON.stringify(live));
     const out: string[] = [];
     const code = runPlanGuardCli({
       stack: "cire",
@@ -459,10 +474,18 @@ describe("runPlanGuardCli", () => {
       argv,
       env: {},
       out: (text) => out.push(text),
+      modes,
     });
     return { code, out: out.join("") };
   };
-  const logArgs = ["--log", join(dir, "plan.log"), "--out", join(dir, "record.json")];
+  const logArgs = [
+    "--log",
+    join(dir, "plan.log"),
+    "--out",
+    join(dir, "record.json"),
+    "--domains",
+    domainsFile,
+  ];
 
   test("G12: a re-plan that differs from the approved record is refused; an equal one passes", () => {
     const approved = join(dir, "approved.json");
@@ -498,5 +521,119 @@ describe("runPlanGuardCli", () => {
     );
     expect(flipped.code).toBe(0);
     expect(JSON.parse(readFileSync(join(dir, "record.json"), "utf8")).flip).toBe("CireVendor");
+  });
+
+  const UPDATE = pretty("Plan: 1 to update", "[CireVendor] update", "[CireHost] noop");
+  const record = () => JSON.parse(readFileSync(join(dir, "record.json"), "utf8")) as unknown;
+  const vendorWorker = { ...PRODUCTION_SITE_MODES, cire_vendor: "worker" } as const;
+
+  test("GD1: no --domains is a usage error; an unreadable, malformed or partial file refuses", () => {
+    const bare = ["--log", join(dir, "plan.log"), "--out", join(dir, "record.json")];
+    expect(run(bare, UPDATE).code).toBe(2);
+    expect(run([...bare, "--domains"], UPDATE).code).toBe(2);
+    const missing = run([...bare, "--domains", join(dir, "nowhere.json")], UPDATE);
+    expect(missing.code).toBe(1);
+    expect(missing.out).toContain("the hosts cire_host's Worker holds now were not read");
+    for (const live of [
+      "not json",
+      "[]",
+      { ...STAGED_LIVE, cire_host: "next-host.cireweddings.com" },
+      { ...STAGED_LIVE, cire_host: [1] },
+    ]) {
+      const result = run(logArgs, UPDATE, live);
+      expect({ live, code: result.code }).toEqual({ live, code: 1 });
+      expect(result.out).toContain("cire_host's Worker holds now were not read");
+    }
+  });
+
+  test("GD5: a site of the stack missing from the file refuses", () => {
+    const result = run(logArgs, UPDATE, { cire_host: STAGED_LIVE.cire_host });
+    expect(result.code).toBe(1);
+    expect(result.out).toContain("the hosts cire_vendor's Worker holds now were not read");
+  });
+
+  test("GD2: the record and the summary name each site's added and removed hosts, the same every run", () => {
+    // A flip of cire_vendor: its Worker gives up its spare host and takes its production host.
+    const flip = run([...logArgs, "--flip", "cire_vendor"], UPDATE, STAGED_LIVE, vendorWorker);
+    expect(flip.code).toBe(0);
+    const first = readFileSync(join(dir, "record.json"), "utf8");
+    expect(record()).toMatchObject({
+      flip: "CireVendor",
+      domains: [
+        {
+          site: "cire_vendor",
+          added: ["vendor.cireweddings.com"],
+          removed: ["next-vendor.cireweddings.com"],
+        },
+      ],
+      unflip: null,
+    });
+    expect(flip.out).toContain(
+      "| `cire_vendor` | `vendor.cireweddings.com` | `next-vendor.cireweddings.com` |",
+    );
+    run([...logArgs, "--flip", "cire_vendor"], UPDATE, STAGED_LIVE, vendorWorker);
+    expect(readFileSync(join(dir, "record.json"), "utf8")).toBe(first);
+    // A first staged deploy: nothing to remove.
+    const fresh = run(logArgs, UPDATE, { cire_host: [], cire_vendor: [] });
+    expect(fresh.code).toBe(0);
+    expect(record()).toMatchObject({
+      domains: [
+        { site: "cire_host", added: ["next-host.cireweddings.com"], removed: [] },
+        { site: "cire_vendor", added: ["next-vendor.cireweddings.com"], removed: [] },
+      ],
+    });
+    const quiet = run(logArgs, UPDATE);
+    expect(quiet.out).toContain("No site's custom domains change.");
+  });
+
+  test("GD3: a Worker giving up its production host, or a host the code no longer names, refuses unless unflip names its site", () => {
+    // Set back from worker to staged: the Worker holds the production host.
+    const back = { cire_host: STAGED_LIVE.cire_host, cire_vendor: ["vendor.cireweddings.com"] };
+    const refused = run(logArgs, UPDATE, back);
+    expect(refused.code).toBe(1);
+    expect(refused.out).toContain(
+      "cire_vendor's Worker would give up vendor.cireweddings.com; only a release dispatched with unflip: cire_vendor takes a production host off its Worker",
+    );
+    const unflipped = run([...logArgs, "--unflip", "cire_vendor"], UPDATE, back);
+    expect(unflipped.code).toBe(0);
+    expect(record()).toMatchObject({
+      domains: [
+        {
+          site: "cire_vendor",
+          added: ["next-vendor.cireweddings.com"],
+          removed: ["vendor.cireweddings.com"],
+        },
+      ],
+      unflip: "cire_vendor",
+    });
+    // unflip names one site: another site's production host still refuses.
+    const hostBack = { ...back, cire_host: ["host.cireweddings.com"] };
+    const other = run([...logArgs, "--unflip", "cire_vendor"], UPDATE, hostBack);
+    expect(other.code).toBe(1);
+    expect(other.out).toContain("cire_host's Worker would give up host.cireweddings.com");
+    // A worker site whose host the code changed: the old host refuses too.
+    const moved = run(
+      logArgs,
+      UPDATE,
+      { ...STAGED_LIVE, cire_vendor: ["old.cireweddings.com"] },
+      vendorWorker,
+    );
+    expect(moved.code).toBe(1);
+    expect(moved.out).toContain("cire_vendor's Worker would give up old.cireweddings.com");
+    // --unflip naming a site outside the stack is a usage error.
+    expect(run([...logArgs, "--unflip", "osn_social"], UPDATE).code).toBe(2);
+  });
+
+  test("GD4: a re-plan whose domain change differs from the approved one is refused", () => {
+    const approved = join(dir, "approved-domains.json");
+    expect(run(logArgs, UPDATE).code).toBe(0);
+    writeFileSync(approved, readFileSync(join(dir, "record.json")));
+    expect(run([...logArgs, "--approved", approved], UPDATE).code).toBe(0);
+    const changed = run([...logArgs, "--approved", approved], UPDATE, {
+      ...STAGED_LIVE,
+      cire_host: [],
+    });
+    expect(changed.code).toBe(1);
+    expect(changed.out).toContain("not the one approved");
   });
 });

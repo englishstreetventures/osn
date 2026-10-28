@@ -27,15 +27,23 @@ const PRODUCTION_LOG = [
   "",
 ].join("\n");
 
+/**
+ * The hosts each site's Worker holds now, as the domains step reads them:
+ * each at the host its mode declares, so no domain changes.
+ */
+const LIVE_DOMAINS = { osn_social: ["next.musubi.social"], musubi_landing: ["www.musubi.social"] };
+
 /** Runs the entry over `log` as the workflow's guard step does, with no step summary file. */
 function guard(log: string) {
   const dir = mkdtempSync(join(tmpdir(), "musubi-plan-guard-"));
   try {
     const logFile = join(dir, "musubi.log");
     const out = join(dir, "plan-guard", "musubi.json");
+    const domains = join(dir, "domains.json");
     writeFileSync(logFile, log);
+    writeFileSync(domains, JSON.stringify(LIVE_DOMAINS));
     const result = Bun.spawnSync(
-      ["bun", "run", "plan:guard", "--", "--log", logFile, "--out", out],
+      ["bun", "run", "plan:guard", "--", "--log", logFile, "--out", out, "--domains", domains],
       { cwd: PACKAGE, env: { PATH: process.env.PATH } },
     );
     return {
@@ -64,6 +72,8 @@ describe("plan:guard, the musubi stack's production plan guard", () => {
       ],
       bindings: [],
       flip: null,
+      domains: [],
+      unflip: null,
     });
   }, 30_000);
 

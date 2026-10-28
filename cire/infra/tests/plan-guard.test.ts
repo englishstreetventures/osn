@@ -28,15 +28,27 @@ const PRODUCTION_LOG = [
   "",
 ].join("\n");
 
+/**
+ * The hosts each site's Worker holds now, as the domains step reads them:
+ * each at the host its mode declares, so no domain changes.
+ */
+const LIVE_DOMAINS = {
+  cire_host: ["next-host.cireweddings.com"],
+  cire_vendor: ["next-vendor.cireweddings.com"],
+  cire_landing: ["next.cireweddings.com"],
+};
+
 /** Runs the entry over `log` as the workflow's guard step does, with no step summary file. */
 function guard(log: string) {
   const dir = mkdtempSync(join(tmpdir(), "cire-plan-guard-"));
   try {
     const logFile = join(dir, "cire.log");
     const out = join(dir, "plan-guard", "cire.json");
+    const domains = join(dir, "domains.json");
     writeFileSync(logFile, log);
+    writeFileSync(domains, JSON.stringify(LIVE_DOMAINS));
     const result = Bun.spawnSync(
-      ["bun", "run", "plan:guard", "--", "--log", logFile, "--out", out],
+      ["bun", "run", "plan:guard", "--", "--log", logFile, "--out", out, "--domains", domains],
       { cwd: PACKAGE, env: { PATH: process.env.PATH } },
     );
     return {
@@ -66,6 +78,8 @@ describe("plan:guard, the cire stack's production plan guard", () => {
       ],
       bindings: [],
       flip: null,
+      domains: [],
+      unflip: null,
     });
   }, 30_000);
 
