@@ -25,6 +25,8 @@ git fetch -q --depth 1 https://github.com/englishstreetventures/osn.git 9ecd88aa
 git checkout -q FETCH_HEAD
 git config user.email "eval@example.invalid"
 git config user.name "Claude Eval"
+git config commit.gpgsign false
+git config tag.gpgsign false
 
 # The checkout's own skills and agents would hand the no-plugin arm the
 # instructions under test. The plugin supplies them to the other arm.
@@ -127,7 +129,7 @@ cat > .claude/metrics/feat-osn-passkey-clone-detection.json <<'CARD'
 {
   "schema_version": 1,
   "pr": {
-    "number": 1044,
+    "number": 9044,
     "branch": "feat/osn-passkey-clone-detection",
     "base_sha": "b5f9c8f0000000000000000000000000000000c3",
     "head_sha": "b5f9c8f0000000000000000000000000000000d4",
@@ -136,7 +138,7 @@ cat > .claude/metrics/feat-osn-passkey-clone-detection.json <<'CARD'
     "phase": "at-open"
   },
   "issue": {
-    "number": 1039,
+    "number": 9039,
     "type": "Feature",
     "labels": [
       "product:osn-core",
@@ -297,7 +299,7 @@ CARD
 # The brief. Untracked: it is what the session was handed, not repository
 # content.
 cat > ISSUE.md <<'ISSUE'
-# englishstreetventures/osn#1039 — Detect a cloned passkey from its signature counter
+# englishstreetventures/osn#9039 — Detect a cloned passkey from its signature counter
 
 **Type** Feature
 **Labels** `product:osn-core`, `area:security`, `complexity:5`

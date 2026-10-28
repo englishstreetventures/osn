@@ -25,6 +25,8 @@ git fetch -q --depth 1 https://github.com/englishstreetventures/osn.git 9ecd88aa
 git checkout -q FETCH_HEAD
 git config user.email "eval@example.invalid"
 git config user.name "Claude Eval"
+git config commit.gpgsign false
+git config tag.gpgsign false
 
 # The checkout's own skills and agents would hand the no-plugin arm the
 # instructions under test. The plugin supplies them to the other arm.
@@ -265,7 +267,7 @@ CARD
 # The issue the work was taken from. Untracked: it is the brief handed to the
 # session, not repository content — and it is where the rating actually lives.
 cat > ISSUE.md <<'ISSUE'
-# englishstreetventures/osn#1041 — Filter the organiser registry list by claim state
+# englishstreetventures/osn#9041 — Filter the organiser registry list by claim state
 
 **Type** Feature
 **Labels** `product:cire`, `complexity:1`

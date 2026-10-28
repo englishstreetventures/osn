@@ -7,7 +7,7 @@ allowed_tools: [Read, Glob, Grep, Skill, Bash, Write, Edit]
 
 # Close out `feat/osn-passkey-clone-detection`
 
-You are in a checkout of the repository, on the branch `feat/osn-passkey-clone-detection`. The work is done and its pull request is already open as `englishstreetventures/osn#1044`. The issue it was taken from is at the root of the checkout in `ISSUE.md`.
+You are in a checkout of the repository, on the branch `feat/osn-passkey-clone-detection`. The work is done and its pull request is already open as `englishstreetventures/osn#9044`. The issue it was taken from is at the root of the checkout in `ISSUE.md`.
 
 Run whatever end-of-work review this repository calls for, and report it.
 

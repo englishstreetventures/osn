@@ -23,6 +23,8 @@ git fetch -q --depth 1 https://github.com/englishstreetventures/osn.git 06832a2c
 git checkout -q FETCH_HEAD
 git config user.email "eval@example.invalid"
 git config user.name "Claude Eval"
+git config commit.gpgsign false
+git config tag.gpgsign false
 
 # The checkout's own skills and agents would hand the no-plugin arm the
 # instructions under test. The plugin supplies them to the other arm.
@@ -69,17 +71,17 @@ pushed and no pull request exists yet.
 
 ## Facts for the pull request
 
-1. **Public issue this closes:** `englishstreetventures/osn#1402`, "Cire API:
+1. **Public issue this closes:** `englishstreetventures/osn#9402`, "Cire API:
    shorten the guest session cookie to 14 days". The owner planned it. This
    branch does it.
-2. **Tracker finding this branch also fixes:** `englishstreetventures/osn-tracker#598`.
+2. **Tracker finding this branch also fixes:** `englishstreetventures/osn-tracker#8598`.
    The same change answers it. Its full text is in `review-findings.md`.
 3. **Tracker finding the review filed and this branch does not fix:**
-   `englishstreetventures/osn-tracker#601`. It stays open after the merge.
-4. **Epic this is one part of:** `englishstreetventures/osn#1380`, "Cire guest
+   `englishstreetventures/osn-tracker#8601`. It stays open after the merge.
+4. **Epic this is one part of:** `englishstreetventures/osn#9380`, "Cire guest
    sessions: harden the household lifecycle".
 5. **Owner's decision:** the owner chose 14 days, not 7, in the comments on
-   `englishstreetventures/osn#1402`. Record it under Decisions as decided by the
+   `englishstreetventures/osn#9402`. Record it under Decisions as decided by the
    owner.
 6. **Before the production release:** the secret `GUEST_SESSION_SIGNING_KEY_V2`
    must be set on the production `cire-api` Worker. Without it the Worker does
@@ -97,7 +99,7 @@ cat > review-findings.md <<'NOTE'
 Two findings from this pass are relevant to this branch. Both are filed on
 `englishstventures/osn-tracker` already.
 
-## osn-tracker#598 — S-M2
+## osn-tracker#8598 — S-M2
 
 Title: Guest session cookie lives for 30 days after a claim, long past the
 wedding it was issued for.
@@ -108,7 +110,7 @@ session for a month, on a shared device as often as not.
 
 Fixed on this branch.
 
-## osn-tracker#601 — S-M1
+## osn-tracker#8601 — S-M1
 
 Title: Claim-code comparison is not constant-time, so response timing narrows
 the code space.

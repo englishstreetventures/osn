@@ -67,6 +67,16 @@ const CREATED_BY_AGENT = new Set([
   "prep-pr-missing-test-written/cire/api/tests/lib/guest-note.test.ts",
 ]);
 const GRANTS = ["Bash", "Write", "Edit"];
+const PINNED_URL = "https://github.com/englishstreetventures/osn.git";
+const PINNED_FETCH = new RegExp(
+  `^git fetch -q --depth 1 ${PINNED_URL.replaceAll(".", "\\.")} [0-9a-f]{40}$`,
+);
+// `set -euo pipefail`, then only blank lines and comments, then the guard.
+const EMPTY_GUARD_FIRST =
+  /^set -euo pipefail\n(?:[ \t]*(?:#[^\n]*)?\n)*if \[ -n "\$\(ls -A\)" \]; then\n(?: +[^\n]*\n)*? +exit 1\nfi\n/m;
+// Right after the local identity, so no fixture commit is signed.
+const SIGNING_OFF =
+  /^git config user\.name [^\n]*\ngit config commit\.gpgsign false\ngit config tag\.gpgsign false\n/m;
 
 type Front = Record<string, unknown>;
 
@@ -196,7 +206,29 @@ test("every scaffold parses, guards an empty workspace and strips the plugin's i
     const check = parses[index];
     if (check && check.exitCode !== 0) wrong.push(`${name}: bash -n: ${check.stderr.trim()}`);
     const text = readFileSync(path, "utf8");
-    if (!/ls -A/.test(text)) wrong.push(`${name}: no empty-workspace guard`);
+    // Scaffolds run as the owner outside the sandbox, so the guard comes
+    // before every other command, and the only remote fetch is the pinned one.
+    if (!EMPTY_GUARD_FIRST.test(text)) {
+      wrong.push(
+        `${name}: the empty-workspace guard is not the first command after set -euo pipefail`,
+      );
+    }
+    const fetches = text
+      .split("\n")
+      .filter((line) => /\bgit\s+(?:-\S+\s+)*fetch\b/.test(line) && !/^\s*#/.test(line));
+    if (!PINNED_FETCH.test(fetches[0] ?? "")) {
+      wrong.push(`${name}: the first git fetch is not ${PINNED_URL} at a 40-hex commit`);
+    }
+    for (const line of fetches.slice(1)) {
+      if (!line.startsWith("git fetch -q origin "))
+        wrong.push(`${name}: git fetch from something other than origin after the pinned one`);
+    }
+    if (/\b(?:curl|wget)\b/.test(text.replace(/^\s*#.*$/gm, ""))) {
+      wrong.push(`${name}: scaffold calls curl or wget`);
+    }
+    if (!SIGNING_OFF.test(text)) {
+      wrong.push(`${name}: commit.gpgsign and tag.gpgsign are not turned off after the identity`);
+    }
     // All of .claude, or all but metrics/ where the case reads it.
     const wholeClaude = /^rm -rf \.claude \.agents$/m.test(text);
     const keepsMetrics =

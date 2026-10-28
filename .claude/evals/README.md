@@ -14,6 +14,11 @@ same either way is not steering anything.
   run the whole suite.
 - **Ask the owner first**, once they confirm the skill's changes are complete.
   An agent never starts a run on its own.
+- **Read the scaffolds before `--scaffold`.** A scaffold runs as you, outside
+  the sandbox. Read `git diff <last-run-ref> -- '.claude/evals/*/setup.sh'`,
+  where `<last-run-ref>` is the commit whose scaffolds you last ran or read,
+  and run nothing until every changed line makes sense. A first run reads the
+  scaffolds of the selected cases in full.
 - Nothing in CI runs these cases. CI does run `scripts/tests/eval-cases.test.ts`,
   which checks every case's shape, because `claude plugin validate` does not
   read the cases.
@@ -46,8 +51,17 @@ the only mapping there is, and it is what `--case` filters on;
 From the repository root, with the grants the table below gives:
 
 ```bash
-claude plugin eval .claude --case '<skill>-*' --scaffold --allow-tools <grants>
+claude plugin eval .claude --case '<skill>-*' --scaffold --allow-tools <grants> --disallow-tools 'Bash(gh:*)'
 ```
+
+- `--disallow-tools 'Bash(gh:*)'` takes `gh` away from every case but one. The
+  cases name fixture issue and pull request numbers (above the real ranges, so
+  a call that got through would find nothing), and nothing they test needs the
+  real `gh`. The exception is `orchestrate-parked-draft-waits-on-owner`: it
+  plants a stand-in `gh` at `.pr/bin/gh` and scores the calls the agent makes
+  to it, so that case runs without the flag. Every other `Bash` case also
+  carries a `ran-no-gh-write` grader that fails a run that tried an issue or
+  pull request write.
 
 - `--scaffold` runs each case's `setup.sh`. Without it every case starts in an
   empty directory and fails.
@@ -57,7 +71,7 @@ claude plugin eval .claude --case '<skill>-*' --scaffold --allow-tools <grants>
   with different grants separately. Only `orchestrate` has such a split:
 
   ```bash
-  claude plugin eval .claude --case 'orchestrate-open-issue-tally' --scaffold --allow-tools Write Edit
+  claude plugin eval .claude --case 'orchestrate-open-issue-tally' --scaffold --allow-tools Write Edit --disallow-tools 'Bash(gh:*)'
   claude plugin eval .claude --case 'orchestrate-parked-*' --scaffold --allow-tools Bash Write Edit
   ```
 
@@ -162,7 +176,9 @@ agent's sandbox, within 120 seconds, with only `PATH`, a temporary `HOME`,
 2. `git init`, then `git fetch --depth 1` of the pinned commit, and check out
    `FETCH_HEAD`. Pin a commit on `main`'s history. A shallow fetch takes seconds; history older than the pinned commit is not
    there to read.
-3. Set a local git identity. There is no global git config in the scaffold.
+3. Set a local git identity, then turn off `commit.gpgsign` and
+   `tag.gpgsign`, so a scaffold run by hand with your own global config signs
+   nothing. There is no global git config in the scaffold.
 4. `rm -rf .claude .agents`. The checkout's own skills and agents would hand
    the no-plugin arm the instructions under test; the plugin supplies them to
    the other arm. Keep a subdirectory only when the case reads it, as the

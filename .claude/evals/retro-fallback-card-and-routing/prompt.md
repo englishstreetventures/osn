@@ -7,7 +7,7 @@ allowed_tools: [Read, Glob, Grep, Skill, Bash, Write, Edit]
 
 # Close out `feat/cire-host-registry-filters`
 
-You are in a checkout of the repository, on the branch `feat/cire-host-registry-filters`. The work is done and its pull request is already open as `englishstreetventures/osn#1046`. The issue it was taken from is at the root of the checkout in `ISSUE.md`, including what the owner said about how the session went afterwards.
+You are in a checkout of the repository, on the branch `feat/cire-host-registry-filters`. The work is done and its pull request is already open as `englishstreetventures/osn#9046`. The issue it was taken from is at the root of the checkout in `ISSUE.md`, including what the owner said about how the session went afterwards.
 
 Run whatever end-of-work review this repository calls for, and report it.
 

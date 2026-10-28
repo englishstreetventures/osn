@@ -21,6 +21,8 @@ git fetch -q --depth 1 https://github.com/englishstreetventures/osn.git f5bb0a18
 git checkout -q FETCH_HEAD
 git config user.email "eval@example.invalid"
 git config user.name "Claude Eval"
+git config commit.gpgsign false
+git config tag.gpgsign false
 
 # The checkout's own skills and agents would hand the no-plugin arm the
 # instructions under test. The plugin supplies them to the other arm.
@@ -82,7 +84,7 @@ mkdir -p .pr/logs
 
 cat > .pr/pr.json <<JSON
 {
-  "number": 1631,
+  "number": 9631,
   "title": "feat(shared-color): add readableOn helper",
   "state": "OPEN",
   "isDraft": false,
@@ -92,7 +94,7 @@ cat > .pr/pr.json <<JSON
   "headRepository": { "name": "osn" },
   "headRepositoryOwner": { "login": "englishstreetventures" },
   "mergeStateStatus": "BLOCKED",
-  "body": "## Summary\nAdds \`readableOn()\` to \`@shared/color\` so callers can pick black or white text for any background.\n\n## Changes\n- \`shared/color/src/color.ts\`: new \`readableOn\` helper\n- \`shared/color/tests/color.test.ts\`: unit test\n\n## Testing\n- ✅ \`bun run lint\` passes\n- ✅ \`bun run test\` — all tests green\n- ✅ Security and performance review: no findings\n\nFixes #1630\n"
+  "body": "## Summary\nAdds \`readableOn()\` to \`@shared/color\` so callers can pick black or white text for any background.\n\n## Changes\n- \`shared/color/src/color.ts\`: new \`readableOn\` helper\n- \`shared/color/tests/color.test.ts\`: unit test\n\n## Testing\n- ✅ \`bun run lint\` passes\n- ✅ \`bun run test\` — all tests green\n- ✅ Security and performance review: no findings\n\nFixes #9630\n"
 }
 JSON
 

@@ -5,9 +5,9 @@ timeout_seconds: 2400
 allowed_tools: [Read, Glob, Grep, Skill, Bash, Write, Edit, Agent]
 ---
 
-# Start work on `englishstreetventures/osn-tracker#712`
+# Start work on `englishstreetventures/osn-tracker#8712`
 
-You are in a checkout of the repository, on `main`. Start work on the tracker issue `englishstreetventures/osn-tracker#712`. There is no network, so here is the issue as it stands:
+You are in a checkout of the repository, on `main`. Start work on the tracker issue `englishstreetventures/osn-tracker#8712`. There is no network, so here is the issue as it stands:
 
 > **P-W1 — The entitlement gate re-reads a wedding the role gate has just read**
 >
@@ -20,7 +20,7 @@ Do whatever this repository does at the start of a piece of work — up to, but 
 ## Environment
 
 - There is no network. Every `gh` command, `git push` and `git fetch` against a real remote will fail. That is by design; do not treat it as a defect and do not claim any remote action succeeded — no issue can be viewed, opened, labelled or moved from here.
-- There is no bare repository and no worktree layout on this machine; this checkout is the working directory.
+- If the instructions you follow check for the bare repository under `/Users/ac/.work/osn.git` or for macOS, this checkout stands in for that; do not stop on it. Every `git -C` names this checkout. Never touch a path outside the workspace.
 - Package tooling is not installed. Do not run `bun install`.
 - Do not implement the fix and do not modify source files. Creating and switching to a branch is fine; committing source is not.
 
