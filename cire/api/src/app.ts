@@ -60,6 +60,7 @@ import {
 } from "./routes/organiser-wedding-lifecycle";
 import {
   createOrganiserExportRoutes,
+  createOrganiserGiftExportRoutes,
   createOrganiserPreviewRoutes,
   createOrganiserRemintRoutes,
   createOrganiserWeddingCreateRoute,
@@ -179,6 +180,17 @@ const defaultRemintLimiter = createRateLimiter({ maxRequests: 30, windowMs: 60_0
  * Keys on `osnProfileId` (not IP) so each organiser has an independent bucket.
  */
 const defaultExportLimiter = createRateLimiter({ maxRequests: 10, windowMs: 60_000 });
+/**
+ * Default per-USER limiter for the gift-log download (`gifts.csv`), checked
+ * before the shared one above, which the download also spends. It is the
+ * heaviest export: one read of up to `MAX_GIFT_EXPORT_ROWS` + 1 gift rows
+ * across two tables, then the whole file serialised close to the Worker's CPU
+ * ceiling (`services/gift-export.ts`). Three a minute is more than an owner
+ * taking their own record needs, and a stuck retry loop on it spends at most
+ * three of the shared allowance. Keys on `osnProfileId`. Counts per isolate,
+ * as every in-memory limiter here does.
+ */
+const defaultGiftExportLimiter = createRateLimiter({ maxRequests: 3, windowMs: 60_000 });
 /**
  * Default per-USER limiter for the co-host add/remove endpoints, behind the
  * owner gate. It caps the ARC-sign + S2S handle-resolve amplifier on add (and
@@ -438,6 +450,8 @@ export interface AppOptions {
   accountLinkLimiter?: RateLimiterBackend;
   /** Override the CSV + JSON RSVP export per-user rate limiter (useful for testing). */
   exportLimiter?: RateLimiterBackend;
+  /** Override the gift-log download's own per-user rate limiter (useful for testing). */
+  giftExportLimiter?: RateLimiterBackend;
   /**
    * The realtime hub binding (`REALTIME_HUB`). Absent ⇒ host changes publish
    * nothing, and the Worker's `/realtime/*` answers 503. Most tests run that
@@ -792,6 +806,7 @@ export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
     claimSessionLimiter = defaultClaimSessionLimiter,
     accountLinkLimiter = defaultAccountLinkLimiter,
     exportLimiter = defaultExportLimiter,
+    giftExportLimiter = defaultGiftExportLimiter,
     inviteLimiter = defaultInviteLimiter,
     inviteDesigns,
     previewLimiter = defaultPreviewLimiter,
@@ -984,6 +999,14 @@ export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
     // `new Function`, which Cloudflare Workers forbids (no dynamic code
     // evaluation). The dynamic handler is plenty for this API's traffic.
     new Elysia({ aot: false })
+      // `nosniff` on every response the app builds, so a browser never reads a
+      // JSON or CSV body as script or markup. Elysia starts each request's
+      // `set.headers` from these, so the header reaches a handler's return, a
+      // gate's or limiter's refusal, the origin guard's 403, the CORS
+      // preflight, and the error handler's 404 and 500. A Response a handler
+      // builds gets it too: Elysia copies these onto it, keeping any value the
+      // Response already sets, so a route that sets its own never sends two.
+      .headers({ "x-content-type-options": "nosniff" })
       // Feature flags on the request context. Routes call
       // `await flags.forRequest({ id }).then(f => f.isOn("cire.some-flag"))`.
       // Decorated (not derived) — one provider per isolate; the per-request
@@ -1167,6 +1190,17 @@ export function createApp(db: Db, options: AppOptions = {}): AnyElysia {
       )
       .use(createOrganiserWeddingsRoutes(db, osnAuthOptions))
       .use(createOrganiserExportRoutes(db, osnAuthOptions, exportLimiter, options.effectDb))
+      // The gift-log download: its own tighter per-user limiter, then the
+      // shared export one.
+      .use(
+        createOrganiserGiftExportRoutes(
+          db,
+          osnAuthOptions,
+          giftExportLimiter,
+          exportLimiter,
+          options.effectDb,
+        ),
+      )
       .use(createOrganiserWeddingCreateRoute(db, osnAuthOptions, weddingCreateLimiter))
       .use(createOrganiserPreviewRoutes(db, osnAuthOptions, previewLimiter))
       .use(createOrganiserRemintRoutes(db, osnAuthOptions, remintLimiter))

@@ -11,7 +11,7 @@ related:
   - "[[cire-auth]]"
   - "[[d1-limits]]"
   - "[[realtime]]"
-last-reviewed: 2026-10-21
+last-reviewed: 2026-10-27
 ---
 # Checklist / Tasks
 
@@ -158,7 +158,7 @@ tasks read there would blank the whole snapshot. See [[cire-entitlements]].
 
 **Export (`tasks.csv`).** `GET /api/organiser/weddings/:weddingId/tasks.csv`
 hands the owner every task as a spreadsheet **at any tier**: it sits in the
-owner-only, per-user-limited export group beside `gifts.csv`, with no tier gate
+owner-only, per-user-limited export group, with no tier gate, like `gifts.csv`
 (see [[cire-entitlements]]). `planningExportService.tasksCsv`
 (`cire/api/src/services/planning-export.ts`) prints Timeframe (the bucket's
 label), Task, Status (`Open` or `Done`), Due, Completed At and Notes, in the

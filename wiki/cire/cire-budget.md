@@ -10,7 +10,7 @@ related:
   - "[[cire-host-portal-layout]]"
   - "[[cire-registry]]"
   - "[[cire-entitlements]]"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-27
 ---
 # Budget
 
@@ -94,7 +94,7 @@ Budget card — see [[cire-entitlements]].
 
 ### Downloading the budget
 
-`GET /api/organiser/weddings/:weddingId/budget.csv` hands the owner the whole budget as a spreadsheet **at any tier**: it sits in the owner-only, per-user-limited export group beside `gifts.csv`, with no tier gate, because a wedding below Gold keeps rows it can no longer open (see [[cire-entitlements]]). `planningExportService.budgetCsv` (`cire/api/src/services/planning-export.ts`) builds it from `budgetService.exportSnapshot`, which prices per-head lines exactly as the module's own read (`budgetService.get`) does, so an estimate is the figure the portal shows.
+`GET /api/organiser/weddings/:weddingId/budget.csv` hands the owner the whole budget as a spreadsheet **at any tier**: it sits in the owner-only, per-user-limited export group, with no tier gate, like `gifts.csv`, because a wedding below Gold keeps rows its tier does not open (see [[cire-entitlements]]). `planningExportService.budgetCsv` (`cire/api/src/services/planning-export.ts`) builds it from `budgetService.exportSnapshot`, which prices per-head lines exactly as the module's own read (`budgetService.get`) does, so an estimate is the figure the portal shows.
 
 - One row per line, in the portal's order (category in `SERVICE_CATEGORIES` order, then `sortOrder`), each followed by its payments (oldest first, ties by id). A **Kind** column says `Budget line` or `Payment`; a payment row repeats its line's category and item.
 - Columns: Kind, Category, Item, Estimate, Quoted, Actual, Price Per Guest, Guests, Payment, Amount, Due, Paid At, Currency, Notes. Category prints its label; money prints as a bare decimal in the wedding's currency (`minorToDecimal`); **Guests** is the headcount a per-head line priced.

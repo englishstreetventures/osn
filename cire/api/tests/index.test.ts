@@ -247,6 +247,9 @@ describe("CLAIM_RATE_LIMITER fail-closed guard", () => {
     expect(await jsonBody(res)).toEqual({
       error: "Worker misconfigured: missing CLAIM_RATE_LIMITER binding",
     });
+    // The Worker builds this answer itself, outside the app's header.
+    expect(res.headers.get("content-type")).toBe("application/json");
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
   });
 
   it("also fail-closes 503 in the `dev` deployed tier when the binding is absent", async () => {
