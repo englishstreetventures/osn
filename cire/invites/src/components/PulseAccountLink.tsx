@@ -58,15 +58,29 @@ interface PulseAccountLinkProps {
   class?: string;
 }
 
-/** The account's picture, or its initial when there is none or it will not load. */
+/** The URL itself when it is an absolute https URL, else null. */
+function httpsUrl(raw: string | null): string | null {
+  if (!raw) return null;
+  try {
+    return new URL(raw).protocol === "https:" ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The account's picture, or its initial when there is none, it is not an
+ * absolute https URL, or it will not load.
+ */
 function AccountPicture(props: { account: SignedInAccount }) {
   const [failed, setFailed] = createSignal(false);
+  const avatarUrl = () => httpsUrl(props.account.avatarUrl);
   const initial = () =>
     (props.account.displayName ?? props.account.handle ?? "?").trim().charAt(0).toUpperCase() ||
     "?";
   return (
     <Show
-      when={props.account.avatarUrl !== null && !failed()}
+      when={avatarUrl() !== null && !failed()}
       fallback={
         <span
           class="bg-gold/15 text-gold-ink font-display text-ui-md flex size-10 shrink-0 items-center justify-center rounded-full"
@@ -77,7 +91,7 @@ function AccountPicture(props: { account: SignedInAccount }) {
       }
     >
       <img
-        src={props.account.avatarUrl ?? undefined}
+        src={avatarUrl() ?? undefined}
         alt=""
         width="40"
         height="40"
