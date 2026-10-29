@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
  * underline colours on hover, so its focus ring shows the moment focus lands.
  * Tailwind's `transition-colors` also fades `outline-color`, so the ring would
  * fade in over the hover's duration. A focusable control names its properties
- * instead: `transition-[color,background-color,border-color,text-decoration-color]`.
+ * instead: `transition-ui-colors`, the utility that lists those four properties.
  *
  * Static: this reads each opening tag of a button, link, field or `Button`, of
  * any tag with a `tabindex`, and each `buttonClass(` call under `src/`, and

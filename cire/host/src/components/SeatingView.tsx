@@ -760,7 +760,7 @@ type MenuOpener = (trigger: HTMLElement) => void;
 
 const menuItemClass =
   "font-body text-text-muted text-ui-sm flex w-full cursor-pointer items-center justify-between gap-4 " +
-  "rounded-sm px-3 py-2 outline-none transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast) ease-(--ease-out) " +
+  "rounded-sm px-3 py-2 outline-none transition-ui-colors duration-(--dur-fast) ease-(--ease-out) " +
   "data-[highlighted]:bg-gold/10 data-[highlighted]:text-text " +
   "data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50";
 

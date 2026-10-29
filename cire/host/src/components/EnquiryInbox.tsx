@@ -80,7 +80,7 @@ export default function EnquiryInbox(props: EnquiryInboxProps) {
                     ref={(el) => rowButtons.set(item.id, el)}
                     onClick={() => props.onOpen(item.id)}
                     aria-current={isOpen() ? "true" : undefined}
-                    class="rounded-ui-field flex w-full flex-wrap items-center gap-3 border px-3 py-2 text-left transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast) ease-(--ease-out)"
+                    class="rounded-ui-field transition-ui-colors flex w-full flex-wrap items-center gap-3 border px-3 py-2 text-left duration-(--dur-fast) ease-(--ease-out)"
                     classList={{
                       "border-gold/50 bg-gold/5": isOpen(),
                       "border-border bg-surface/10 hover:bg-surface/20": !isOpen(),

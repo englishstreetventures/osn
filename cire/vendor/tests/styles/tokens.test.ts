@@ -295,6 +295,22 @@ describe("one shape and one pace across cire", () => {
     });
   });
 
+  it("every cire surface defines transition-ui-colors once, with the same body", () => {
+    const bodies = mapSurfaces((css) => utilityBodies(css, "transition-ui-colors"));
+    // A parse that found nothing would make every copy agree with it.
+    expect(bodies.host).toEqual([
+      "transition-property:color,background-color,border-color,text-decoration-color",
+      "transition-timing-function:var(--tw-ease,var(--default-transition-timing-function))",
+      "transition-duration:var(--tw-duration,var(--default-transition-duration))",
+    ]);
+    expect(bodies).toEqual({
+      host: bodies.host,
+      vendor: bodies.host,
+      invites: bodies.host,
+      landing: bodies.host,
+    });
+  });
+
   /**
    * The rules that draw an unchecked native checkbox or radio (host DESIGN.md
    * §4, "Checkboxes and radios"), comments dropped and whitespace collapsed, so
@@ -365,6 +381,22 @@ function readSheet(app: "host" | "invites" | "landing"): string {
   return readFileSync(
     fileURLToPath(new URL(`../../../${app}/src/styles/global.css`, import.meta.url)),
     "utf8",
+  );
+}
+
+/**
+ * The declarations of every `@utility <name>` block in a stylesheet, comments
+ * dropped and whitespace removed. A utility defined twice shows up as two
+ * blocks' worth of lines, so one copy differing or doubled is caught.
+ */
+function utilityBodies(css: string, name: string): string[] {
+  const text = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const re = new RegExp(`@utility ${name}\\s*\\{([^}]*)\\}`, "g");
+  return [...text.matchAll(re)].flatMap((m) =>
+    m[1]
+      .split(";")
+      .map((line) => line.replace(/\s+/g, ""))
+      .filter((line) => line !== ""),
   );
 }
 

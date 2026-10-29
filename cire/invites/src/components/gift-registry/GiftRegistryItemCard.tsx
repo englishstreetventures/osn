@@ -254,7 +254,7 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
               // handle back to this page.
               target="_blank"
               rel="noopener noreferrer"
-              class="font-body text-text-muted hover:text-gold-ink text-ui-sm rounded-ui-control focus-visible:outline-ui-focus self-start underline underline-offset-2 transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2"
+              class="font-body text-text-muted hover:text-gold-ink text-ui-sm rounded-ui-control focus-visible:outline-ui-focus transition-ui-colors self-start underline underline-offset-2 duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2"
             >
               View this gift
             </a>
@@ -338,7 +338,7 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
                   // naming an id that is not in the DOM describes nothing.
                   aria-describedby={quantityHint() ? quantityHintId : undefined}
                   onInput={(e) => setQuantityText(e.currentTarget.value)}
-                  class="border-text/55 bg-text/4.5 font-body text-text focus:border-gold text-ui-base rounded-ui-field tracking-ui-normal focus-visible:outline-ui-focus w-full border px-3 py-2 normal-case transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2"
+                  class="border-text/55 bg-text/4.5 font-body text-text focus:border-gold text-ui-base rounded-ui-field tracking-ui-normal focus-visible:outline-ui-focus transition-ui-colors w-full border px-3 py-2 normal-case duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2"
                 />
               </label>
               {/* OUTSIDE the label. The input is labelled by wrapping, so the
@@ -361,7 +361,7 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
                 value={displayName()}
                 onInput={(e) => setDisplayName(e.currentTarget.value)}
                 placeholder="The Ashworths"
-                class="border-text/55 bg-text/4.5 font-body text-text placeholder:text-text-muted focus:border-gold text-ui-base rounded-ui-field tracking-ui-normal focus-visible:outline-ui-focus w-full border px-3 py-2 normal-case transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2"
+                class="border-text/55 bg-text/4.5 font-body text-text placeholder:text-text-muted focus:border-gold text-ui-base rounded-ui-field tracking-ui-normal focus-visible:outline-ui-focus transition-ui-colors w-full border px-3 py-2 normal-case duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2"
               />
             </label>
 
@@ -372,7 +372,7 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
                 maxlength="500"
                 value={note()}
                 onInput={(e) => setNote(e.currentTarget.value)}
-                class="border-text/55 bg-text/4.5 font-body text-text placeholder:text-text-muted focus:border-gold text-ui-base rounded-ui-field tracking-ui-normal focus-visible:outline-ui-focus w-full resize-y border px-3 py-2 normal-case transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2"
+                class="border-text/55 bg-text/4.5 font-body text-text placeholder:text-text-muted focus:border-gold text-ui-base rounded-ui-field tracking-ui-normal focus-visible:outline-ui-focus transition-ui-colors w-full resize-y border px-3 py-2 normal-case duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2"
               />
             </label>
 

@@ -477,8 +477,9 @@ the top layer cannot do this in Safari or Firefox: leaving the top layer needs
 never animated, never removed — the shell is keyboard-driven. It deliberately
 sets no `border-radius`: the outline already follows whatever radius the element
 has, and setting one would square off pill-shaped controls for as long as they
-hold focus. A colour hover on anything that takes focus names its properties,
-`transition-[color,background-color,border-color,text-decoration-color]`, never
+hold focus. A colour hover on anything that takes focus takes
+`transition-ui-colors`, which names `color`, `background-color`, `border-color`
+and `text-decoration-color` and is defined in each cire app's stylesheet, never
 `transition-colors`: that one also fades `outline-color`, so the ring would
 arrive over the hover's duration.
 
