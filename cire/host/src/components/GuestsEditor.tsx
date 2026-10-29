@@ -38,6 +38,7 @@ import {
   eventsAccessor,
   invalidateEvents,
 } from "../lib/events-store";
+import { SMALL_FORM_FIELD_CLASS } from "../lib/form-field";
 import {
   createGuestEventDraft,
   type DraftFamily,
@@ -473,19 +474,27 @@ export default function GuestsEditor(props: {
       <SectionIntro eyebrow="Guest list" title="Edit households & guests" />
 
       {/* Add household, in the view bar beside the mode switch, so it is to
-          hand however far down the list the host is. */}
+          hand however far down the list the host is. 28px, the height of the
+          search box the Households tab puts in the same place: a bar's action
+          is the height of its filters (DESIGN.md §4, "The small fields"). */}
       <Show when={store.loaded()}>
         <ViewBar slot="end">
           <Show
             when={compact()}
             fallback={
-              <Button variant="outline" size="sm" class="shrink-0" onClick={addHousehold}>
+              <Button variant="outline" size="sm" class="h-7 shrink-0" onClick={addHousehold}>
                 <Plus aria-hidden="true" strokeWidth={1.75} class="size-3.5" />
                 Add household
               </Button>
             }
           >
-            <IconButton variant="outline" size="icon" label="Add household" onClick={addHousehold}>
+            <IconButton
+              variant="outline"
+              size="icon"
+              class="size-7"
+              label="Add household"
+              onClick={addHousehold}
+            >
               <Plus aria-hidden="true" strokeWidth={1.75} class="size-4" />
             </IconButton>
           </Show>
@@ -852,7 +861,7 @@ function FamilyCard(props: {
             placeholder="Household name"
             aria-invalid={famErrors().length > 0}
             onInput={(e) => props.store.renameFamily(props.family.key, e.currentTarget.value)}
-            class="min-w-0 flex-1"
+            class={`${SMALL_FORM_FIELD_CLASS} min-w-0 flex-1`}
           />
           <Show when={!props.compact()}>
             {code()}
@@ -1013,6 +1022,7 @@ function GuestEmailCell(props: {
         fallback={
           <Input
             size="sm"
+            class={SMALL_FORM_FIELD_CLASS}
             type="email"
             autocomplete="off"
             value={props.guest.email ?? ""}
@@ -1082,6 +1092,7 @@ function GuestRow(props: {
               `aria-label` carries the name instead. */}
           <Input
             size="sm"
+            class={SMALL_FORM_FIELD_CLASS}
             value={props.guest.firstName}
             aria-label="First name"
             aria-invalid={props.errors.length > 0}
@@ -1093,6 +1104,7 @@ function GuestRow(props: {
         <Td>
           <Input
             size="sm"
+            class={SMALL_FORM_FIELD_CLASS}
             value={props.guest.lastName}
             aria-label="Last name"
             onInput={(e) =>
@@ -1107,6 +1119,7 @@ function GuestRow(props: {
               placeholder already says the field is optional. */}
           <Input
             size="sm"
+            class={SMALL_FORM_FIELD_CLASS}
             value={props.guest.nickname ?? ""}
             aria-label="Nickname"
             placeholder="—"

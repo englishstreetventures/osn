@@ -42,6 +42,7 @@ import { Notice } from "@shared/ui/ui/notice";
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
+import { SMALL_FORM_FIELD_CLASS } from "../lib/form-field";
 import { haptic } from "../lib/haptics";
 /** Mirrors `MAX_IMAGE_BYTES` in `cire/api/src/services/invite-assets.ts`. Checked
  *  here only to spare the organiser a five-megabyte upload that ends in a 413 —
@@ -486,7 +487,7 @@ export default function RegistryImageField(props: {
               id={`${props.idPrefix}-shop-link`}
               size="sm"
               type="url"
-              class="min-w-64 flex-1"
+              class={`${SMALL_FORM_FIELD_CLASS} min-w-64 flex-1`}
               placeholder="https://…"
               value={url()}
               disabled={props.disabled || busy() !== null}
