@@ -116,9 +116,10 @@ interface LayoutClasses {
   /** Width and centring for the preview chip, the RSVP-by line and the account link. */
   measure: string;
   /**
-   * The row an error line sits in. On the band it centres the line's icon and
-   * words together, as the centred text they replace sat; in the panel the
-   * line keeps to the start.
+   * The row an error line sits in. On the band a one-line error centres its
+   * icon and words together, as the centred text it replaces sat; a longer one
+   * runs from the form's start, its words beside the icon, as wide as the
+   * field above it. In the panel the line keeps to the start.
    */
   line: string;
   /**
@@ -139,7 +140,7 @@ const LAYOUTS = {
     greeting: "text-gold",
     form: "max-w-column-2xs mx-auto",
     measure: "max-w-column-sm mx-auto",
-    line: "flex justify-center",
+    line: "flex justify-center text-left",
     box: "rounded-ui-lg",
   },
   panel: {
