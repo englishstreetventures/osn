@@ -29,6 +29,10 @@ pre-commit:
         - ".agents/**"
       run: bun fmt --no-script {staged_files}
       stage_fixed: true
+    secrets:
+      # Advisory on this machine: `--no-verify` skips it, and CI scans the same
+      # commits. The script prints one line and passes when gitleaks is missing.
+      run: bash scripts/secret-scan.sh staged
 
 pre-push:
   parallel: true
