@@ -758,6 +758,16 @@ differs. On the guest site each corner paints:
 | 2px, `--radius-hair` | a legal page's inline placeholder (`.placeholder`), about 16px tall, where 6px would draw a near-pill |
 | round, `rounded-full` | the sheet's close cross, the dress-code colour circles, avatars, the gift radio marks, the spinner, the map pin's shadow |
 
+- **Every text field is one height.** The code field, the email box, a
+  plus-one's names, "Anything else" and the gift page's amount, name, quantity
+  and "From" are `h-8.5` (`FORM_FIELD_CLASS`, `src/lib/form-field.ts`), with
+  `py-1` in place of each field's own vertical padding — the cire apps' one
+  form-field height (owner, 2026-10-29; `cire/host/DESIGN.md` §4, One
+  form-field height). That is 2.125rem: 34px at the 16px root and 36.125px from
+  1024px, where the root steps to 17px. A textarea keeps its rows.
+  `tests/components/form-fields.browser.test.tsx` measures each at 390 and
+  1440px against 2.125 times the root size, with the 14px corner short of a
+  pill.
 - **The household's boxes take their corner from the layout.** The plus-one
   prompt, the email box and the account link draw no corner of their own; the
   `box` field of `LoginSection`'s `LAYOUTS` sets it. On classic's band they sit

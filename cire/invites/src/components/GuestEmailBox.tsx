@@ -2,6 +2,7 @@ import { GUEST_EMAIL_CONSENT, parseGuestEmail } from "@cire/guest-email";
 import Button from "@cire/ui/button";
 import { createSignal, createUniqueId, Show } from "solid-js";
 
+import { FORM_FIELD_CLASS } from "../lib/form-field";
 import type { FamilyMember, MemberEmail } from "./types";
 import { readEmail } from "./utils";
 
@@ -46,8 +47,7 @@ interface GuestEmailBoxProps {
   class?: string;
 }
 
-const INPUT =
-  "border-text/55 bg-text/4.5 font-body text-text focus:border-gold sm:text-ui-base rounded-ui-field mt-1.5 block w-full cursor-text border px-3 py-2.5 text-base transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ui-focus disabled:cursor-not-allowed disabled:opacity-50";
+const INPUT = `border-text/55 bg-text/4.5 font-body text-text focus:border-gold sm:text-ui-base rounded-ui-field mt-1.5 block w-full cursor-text border px-3 ${FORM_FIELD_CLASS} text-base transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ui-focus disabled:cursor-not-allowed disabled:opacity-50`;
 
 const INVALID_ADDRESS = "That doesn’t look like one email address. Please check it.";
 /** After removing an address the hosts added: the API records the opt-out. */

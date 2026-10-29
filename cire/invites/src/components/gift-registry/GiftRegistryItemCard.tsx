@@ -1,6 +1,7 @@
 import Button from "@cire/ui/button";
 import { createEffect, createMemo, createSignal, createUniqueId, Show } from "solid-js";
 
+import { FORM_FIELD_CLASS } from "../../lib/form-field";
 import {
   formatGiftPrice,
   giftRegistryExternalHref,
@@ -338,7 +339,7 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
                   // naming an id that is not in the DOM describes nothing.
                   aria-describedby={quantityHint() ? quantityHintId : undefined}
                   onInput={(e) => setQuantityText(e.currentTarget.value)}
-                  class="border-text/55 bg-text/4.5 font-body text-text focus:border-gold text-ui-base rounded-ui-field tracking-ui-normal focus-visible:outline-ui-focus w-full border px-3 py-2 normal-case transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2"
+                  class={`border-text/55 bg-text/4.5 font-body text-text focus:border-gold text-ui-base rounded-ui-field tracking-ui-normal focus-visible:outline-ui-focus w-full border px-3 ${FORM_FIELD_CLASS} normal-case transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2`}
                 />
               </label>
               {/* OUTSIDE the label. The input is labelled by wrapping, so the
@@ -361,7 +362,7 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
                 value={displayName()}
                 onInput={(e) => setDisplayName(e.currentTarget.value)}
                 placeholder="The Ashworths"
-                class="border-text/55 bg-text/4.5 font-body text-text placeholder:text-text-muted focus:border-gold text-ui-base rounded-ui-field tracking-ui-normal focus-visible:outline-ui-focus w-full border px-3 py-2 normal-case transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2"
+                class={`border-text/55 bg-text/4.5 font-body text-text placeholder:text-text-muted focus:border-gold text-ui-base rounded-ui-field tracking-ui-normal focus-visible:outline-ui-focus w-full border px-3 ${FORM_FIELD_CLASS} normal-case transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2`}
               />
             </label>
 
