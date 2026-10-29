@@ -61,6 +61,8 @@ export interface RecoveryLockoutStore {
    * Record one failed attempt. Returns the running failure count within the
    * current window (so the caller can emit a `locked` metric on the attempt
    * that crosses the threshold), or `"unknown"` when it could not be recorded.
+   * The TOTP check calls it for every attempt, before it compares the code,
+   * and refuses unread any attempt whose count is over the threshold.
    */
   recordFailure(accountId: string): Promise<number | "unknown">;
   /** Clear the counter — called on a successful consume. Never rejects. */

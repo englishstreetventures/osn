@@ -195,21 +195,15 @@ export function createTotpModule(
   const lockoutKey = (accountId: string, scope: TotpLockoutScope): string =>
     scope === "step_up" ? accountId : `${scope}:${accountId}`;
 
-  const rejectCode = (accountId: string, scope: TotpLockoutScope, result: TotpVerifyResult) =>
+  /**
+   * Refuse a code that was compared and failed. `attempts` is the count this
+   * attempt took on the way in, so nothing more is written here.
+   */
+  const rejectCode = (scope: TotpLockoutScope, attempts: number, result: TotpVerifyResult) =>
     Effect.gen(function* () {
-      const failures = yield* Effect.promise(() =>
-        totpLockoutStore.recordFailure(lockoutKey(accountId, scope)),
-      );
-      // "locked" on the attempt that crosses the threshold, so the dashboard
+      // "locked" on the attempt that reaches the threshold, so the dashboard
       // separates a fat-fingered code from an account under a grinding attack.
-      metricTotpLockout(
-        failures === "unknown"
-          ? "unavailable"
-          : failures >= TOTP_LOCKOUT_THRESHOLD
-            ? "locked"
-            : "recorded",
-        scope,
-      );
+      metricTotpLockout(attempts >= TOTP_LOCKOUT_THRESHOLD ? "locked" : "recorded", scope);
       metricTotpVerified(result);
       return yield* Effect.fail(new AuthError({ message: GENERIC_CODE_FAILURE }));
     });
@@ -234,31 +228,36 @@ export function createTotpModule(
     Effect.gen(function* () {
       const ring = yield* keyRing();
 
-      // Fail-closed: an unreachable lockout counter for TOTP means no throttle
-      // at all behind a six-digit code, so an error here denies. See the
-      // posture note in `lib/recovery-lockout-store.ts`.
+      // Counted before the code is compared, in the one call that answers the
+      // count, as `guessEntry` does for the code ceremonies: attempts sent at
+      // once each take their own number, so at most TOTP_LOCKOUT_THRESHOLD
+      // codes are compared in a window, however many arrive together. Every
+      // attempt counts, a right code included; a right code clears the count
+      // once it has been accepted.
       //
-      // The lockout lookup and the credential query wait on nothing from each
-      // other, so they run side by side — on every branch, `burnTotpCheckCost`
-      // included, so each still costs the same.
+      // Fail-closed: a count the store could not make means no throttle at all
+      // behind a six-digit code, so it refuses. See the posture note in
+      // `lib/recovery-lockout-store.ts`.
+      //
+      // The count and the credential query wait on nothing from each other, so
+      // they run side by side — on every branch, `burnTotpCheckCost` included,
+      // so each still costs the same.
       const key = lockoutKey(accountId, scope);
-      const [lockout, credential] = yield* Effect.all(
-        [Effect.promise(() => totpLockoutStore.status(key)), confirmedCredential(accountId)],
+      const [attempts, credential] = yield* Effect.all(
+        [Effect.promise(() => totpLockoutStore.recordFailure(key)), confirmedCredential(accountId)],
         { concurrency: "unbounded" },
       );
-      if (lockout.status !== "open") {
-        // Refused without checking the code, at what a wrong code costs: the
-        // credential query, a verification against the dummy key, and the
-        // failure record — a refused attempt is a failed one. Otherwise a
-        // locked account, or a store fault, would answer a real account sooner
-        // than an identifier that names nobody (`burnTotpCheckCost`).
+      if (attempts === "unknown" || attempts > TOTP_LOCKOUT_THRESHOLD) {
+        // Refused without checking the code, at what a compared code costs: a
+        // verification against the dummy key. Otherwise a locked account, or a
+        // store fault, would answer a real account sooner than an identifier
+        // that names nobody (`burnTotpCheckCost`).
         yield* Effect.promise(() => verifyTotpCode({ secret: new Uint8Array(0), code }));
-        yield* Effect.promise(() => totpLockoutStore.recordFailure(key));
-        if (lockout.status === "locked") {
+        if (attempts === "unknown") {
+          metricTotpLockout("unavailable", scope);
+        } else {
           metricTotpLockout("locked", scope);
           metricTotpVerified("locked_out");
-        } else {
-          metricTotpLockout("unavailable", scope);
         }
         return yield* Effect.fail(new AuthError({ message: GENERIC_CODE_FAILURE }));
       }
@@ -293,8 +292,8 @@ export function createTotpModule(
       );
       if (!matched || !credential || !opened) {
         return yield* rejectCode(
-          accountId,
           scope,
+          attempts,
           credential ? (opened ? "invalid" : "unreadable") : "not_enrolled",
         );
       }
@@ -335,19 +334,18 @@ export function createTotpModule(
       if (!claimed) {
         // The code was arithmetically correct and already spent — a replay, and
         // the one rejection worth distinguishing on a dashboard.
-        return yield* rejectCode(accountId, scope, "replayed");
+        return yield* rejectCode(scope, attempts, "replayed");
       }
       // Counted only once the UPDATE actually changed the row: the loser of a
       // race writes no ciphertext, and a drain gauge that counted intents would
       // read high exactly when it matters.
       if (rekey) metricTotpRekeyed("ok");
 
-      // Clears the failed-attempt counter after the answer, and only when the
-      // lookup above counted a failure to clear; see `consumeRecoveryCode`.
-      if (lockout.failures > 0) {
-        yield* forkBackground(Effect.promise(() => totpLockoutStore.reset(key)));
-        metricTotpLockout("reset", scope);
-      }
+      // Clears the count after the answer, on every success: this attempt was
+      // counted on the way in, so without the reset a few right codes inside
+      // one window would lock the account.
+      yield* forkBackground(Effect.promise(() => totpLockoutStore.reset(key)));
+      metricTotpLockout("reset", scope);
       metricTotpVerified("ok");
     });
 
@@ -360,13 +358,14 @@ export function createTotpModule(
    * ADDRESS as readily as a handle, so a cheaper miss here is a way for a
    * stranger to learn whether an address has an OSN account at all.
    *
-   * It runs the same sequence the real check runs — the configuration check,
-   * the lockout lookup, the credential query, a verification against the dummy
-   * key, the failure record — against `probe`, the caller's
-   * probe key (`serverMac.probeKey`), which matches no account. The same operations, not
+   * It runs the same sequence a wrong code runs — the configuration check, the
+   * attempt count beside the credential query, a verification against the
+   * dummy key — against `probe`, the caller's probe key
+   * (`serverMac.probeKey`), which matches no account. The same operations, not
    * reads standing in for writes: a Durable Object write costs more than a
-   * read, and a stopwatch can tell. The two are next to each other on purpose:
-   * a round trip added to one belongs in the other.
+   * read, and a stopwatch can tell. The count it writes at the probe key
+   * expires with its window. The two are next to each other on purpose: a
+   * round trip added to one belongs in the other.
    */
   const burnTotpCheckCost = (
     code: string,
@@ -376,11 +375,10 @@ export function createTotpModule(
       yield* keyRing();
       const key = lockoutKey(probe, "recovery");
       yield* Effect.all(
-        [Effect.promise(() => totpLockoutStore.status(key)), confirmedCredential(probe)],
+        [Effect.promise(() => totpLockoutStore.recordFailure(key)), confirmedCredential(probe)],
         { concurrency: "unbounded", discard: true },
       );
       yield* Effect.promise(() => verifyTotpCode({ secret: new Uint8Array(0), code }));
-      yield* Effect.promise(() => totpLockoutStore.recordFailure(key));
     });
 
   /**

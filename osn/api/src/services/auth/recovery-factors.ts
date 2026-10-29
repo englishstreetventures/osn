@@ -666,8 +666,8 @@ export function createRecoveryFactorsModule(
    * the non-resolving branch a security property rather than a nicety: a
    * cheaper miss here lets an unauthenticated caller ask "does this address
    * have an OSN account", with no per-account cap in front of it. So that
-   * branch pays `burnTotpCheckCost` — the same lockout lookup, credential query
-   * and dummy-key verification a real unlocked account pays for.
+   * branch pays `burnTotpCheckCost` — the same attempt count, credential query
+   * and dummy-key verification a real account pays for.
    */
   const completeTotpRecovery = (
     identifier: string,
@@ -685,9 +685,9 @@ export function createRecoveryFactorsModule(
       if (!profile) {
         // Mirror the cost of the branch `checkTotpCode` would have taken —
         // written next to that function rather than here, so the two cannot
-        // drift. It runs the lockout lookup, the credential query and the
-        // dummy-key verification against a probe id; no counter is written,
-        // because a probe must not leave a lockout key behind.
+        // drift. It counts the attempt, runs the credential query and the
+        // dummy-key verification against the caller's probe key, which names
+        // no account; the count it leaves there expires with its window.
         yield* burnTotpCheckCost(code, serverMac.probeKey(normalised));
         return yield* Effect.fail(new AuthError({ message: GENERIC_FAILURE }));
       }

@@ -17,8 +17,10 @@ import { createTestLayer } from "../helpers/db";
  * lockout counter — runs in the background, registered with the request's
  * `waitUntil`, so the caller never waits a round trip for it. Each case holds
  * that one call until the answer is in, which an awaited cleanup would never
- * reach, then lets it go and checks it landed. A lockout whose counter read 0
- * on the way in has nothing to clear, so it makes no call at all.
+ * reach, then lets it go and checks it landed. A recovery code or an emailed
+ * recovery code whose counter read 0 on the way in has nothing to clear, so it
+ * makes no call at all. A TOTP check counts its own attempt before it compares
+ * the code, so a right code always clears the count.
  */
 
 let base: Awaited<ReturnType<typeof makeTestAuthConfig>>;
@@ -70,6 +72,7 @@ function harness(held: (store: string, op: CoordinationOp) => boolean = () => fa
     ...base,
     ceremonyStores: bundle.ceremonyStores,
     recoveryLockoutStore: bundle.recoveryLockoutStore,
+    recoveryOtpLockoutStore: bundle.recoveryOtpLockoutStore,
     totpLockoutStore: bundle.totpLockoutStore,
   });
   const email = makeLogEmailLive();
@@ -84,6 +87,14 @@ function harness(held: (store: string, op: CoordinationOp) => boolean = () => fa
     }
     throw new Error("no code mailed");
   };
+  /** The newest six-digit code, once a send has landed: some sends run after the answer. */
+  const mailedCode = Effect.gen(function* () {
+    for (let i = 0; i < 200; i++) {
+      if (email.recorded().some((sent) => /code is: \d{6}/.test(sent.text))) return code();
+      yield* Effect.sleep("5 millis");
+    }
+    throw new Error("no code mailed");
+  });
   /** Waits until `op` has reached the store. */
   const landed = (op: string) =>
     Effect.gen(function* () {
@@ -99,7 +110,17 @@ function harness(held: (store: string, op: CoordinationOp) => boolean = () => fa
       yield* Effect.sleep("50 millis");
       return !ops(from).includes(op);
     });
-  return { auth, bundle, layer, ops, code, landed, settledWithout, release: gate.release };
+  return {
+    auth,
+    bundle,
+    layer,
+    ops,
+    code,
+    mailedCode,
+    landed,
+    settledWithout,
+    release: gate.release,
+  };
 }
 
 /** An account with a confirmed TOTP credential, and the step its enrolment code used. */
@@ -182,6 +203,22 @@ describe("success paths answer without waiting on their cleanup", () => {
       ).toEqual({ status: "open", failures: 0 });
     }).pipe(Effect.provide(h.layer));
   });
+
+  it.live("TOTP step-up with no failures on record: the count its own attempt made", () => {
+    const h = harness((store, op) => store === "totp_lockout" && op === "remove");
+    return Effect.gen(function* () {
+      const { profile, next } = yield* withTotp(h.auth, "cleantotp0");
+      const done = yield* h.auth
+        .completeStepUpTotp(profile.accountId, next)
+        .pipe(Effect.timeout(ANSWER_WITHIN));
+      expect(done.stepUpToken).toBeTruthy();
+      h.release();
+      yield* h.landed("totp_lockout.remove");
+      expect(
+        yield* Effect.promise(() => h.bundle.totpLockoutStore.status(profile.accountId)),
+      ).toEqual({ status: "open", failures: 0 });
+    }).pipe(Effect.provide(h.layer));
+  });
 });
 
 describe("a lockout with no failures on record", () => {
@@ -194,17 +231,6 @@ describe("a lockout with no failures on record", () => {
       yield* h.auth.consumeRecoveryCode("cleanrc0", recoveryCodes[0]!);
       expect(h.ops(from)).toContain("recovery_lockout.count");
       expect(yield* h.settledWithout("recovery_lockout.remove", from)).toBe(true);
-    }).pipe(Effect.provide(h.layer));
-  });
-
-  it.live("TOTP step-up makes no reset call", () => {
-    const h = harness();
-    return Effect.gen(function* () {
-      const { profile, next } = yield* withTotp(h.auth, "cleantotp0");
-      const from = h.ops().length;
-      yield* h.auth.completeStepUpTotp(profile.accountId, next);
-      expect(h.ops(from)).toContain("totp_lockout.count");
-      expect(yield* h.settledWithout("totp_lockout.remove", from)).toBe(true);
     }).pipe(Effect.provide(h.layer));
   });
 });

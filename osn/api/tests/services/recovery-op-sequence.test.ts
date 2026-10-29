@@ -188,7 +188,8 @@ describe("POST /login/recovery/totp/complete", () => {
       // A handle, like the real one: a handle and an address resolve through
       // different lookups, whoever they name.
       const nobody = yield* h.record(h.auth.completeTotpRecovery("seqtnobody", "000000"));
-      expect(real.ops).toEqual(["totp_lockout.count", "totp_lockout.increment"]);
+      // One call each: the attempt is counted before its code is compared.
+      expect(real.ops).toEqual(["totp_lockout.increment"]);
       expect(nobody).toEqual(real);
     }).pipe(Effect.provide(h.layer));
   });

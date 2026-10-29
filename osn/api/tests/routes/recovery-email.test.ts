@@ -1092,18 +1092,17 @@ describe("recovery routes cost the same however a request ends", () => {
     // a handle or an email address" — so a cheap miss here lets a stranger ask
     // whether an EMAIL ADDRESS has an OSN account.
     //
-    // The old padding burned one read against `pendingRecoveryOtp`, a store
-    // this ceremony never otherwise touches, while a real account ran the
-    // lockout lookup, the credential query and the failure record. Both halves
+    // A real account counts the attempt and runs the credential query; the
+    // padding must do the same, at the probe key, and must not touch the
+    // pending-code store, which this ceremony never otherwise uses. Both halves
     // are asserted: the counts must match, and the pending-code store must not
     // be touched at all.
     //
-    // Goes red on: replacing `burnTotpCheckCost` with the old
-    // `burnProbeRead()` + bare verification, or dropping either lockout read
-    // or the credential query from it.
+    // Goes red on: dropping the count or the credential query from
+    // `burnTotpCheckCost`, or padding with a read of another store.
 
-    // (a) a real account with no authenticator — `confirmedCredential` misses,
-    //     the verification still runs, the failure is recorded.
+    // (a) a real account with no authenticator — the attempt is counted,
+    //     `confirmedCredential` misses, the verification still runs.
     const bareHarness = makeCountingApp();
     await bareHarness.seed("hp-tbare@example.com", "hptbare");
     const bare = await bareHarness.measure(() =>
@@ -1169,7 +1168,7 @@ describe("recovery routes cost the same however a request ends", () => {
       }),
     );
 
-    expect(shape(bare)).toEqual({ lockout: 2, credentials: 1, pendingRecoveryOtp: 0 });
+    expect(shape(bare)).toEqual({ lockout: 1, credentials: 1, pendingRecoveryOtp: 0 });
     expect(shape(enrolled)).toEqual(shape(bare));
     expect(shape(unknown)).toEqual(shape(bare));
     // Goes red on: refusing a locked account before the credential query.
@@ -1211,7 +1210,7 @@ describe("recovery routes cost the same when the lockout counter cannot be read"
 
   it("POST /login/recovery/totp/complete — a real account costs what nobody costs", async () => {
     // Goes red on: returning from the `"unknown"` branch of `checkTotpCode`
-    // before the credential query and the second lockout read.
+    // before the credential query.
     const realHarness = makeCountingApp({ lockoutsUnreachable: true });
     await realHarness.seed("hu-treal@example.com", "hutreal");
     const real = await realHarness.measure(() =>
@@ -1229,7 +1228,7 @@ describe("recovery routes cost the same when the lockout counter cannot be read"
       }),
     );
 
-    expect(real.totpLockout).toBe(2);
+    expect(real.totpLockout).toBe(1);
     expect(real.totpCredentials).toBe(1);
     expect(unknown.totpLockout).toBe(real.totpLockout);
     expect(unknown.totpCredentials).toBe(real.totpCredentials);
