@@ -14,8 +14,9 @@
     "build": "astro build && bun run ../../scripts/check-astro-fonts.ts dist && ../../scripts/guard-bundle-size.sh .",
     "preview": "astro preview --port 4323",
     "typecheck": "bun ../../scripts/astro-typecheck.ts",
-    "test": "vitest run",
+    "test": "vitest run --project package",
     "test:mutation": "bun ../../tools/stryker/src/cli.ts",
+    "test:repo": "vitest run --project repo",
     "test:run": "vitest run"
   },
   "dependencies": {
