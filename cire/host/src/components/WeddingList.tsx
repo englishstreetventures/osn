@@ -62,7 +62,9 @@ export default function WeddingList(props: {
                   size="lg"
                   type="button"
                   onClick={() => props.onSelect(wedding)}
-                  class="group relative flex w-full flex-col overflow-hidden text-left"
+                  // A long wedding name wraps inside the tile rather than
+                  // being cut off: `Button` holds a label to one line.
+                  class="group relative flex w-full flex-col overflow-hidden text-left whitespace-normal"
                 >
                   {/* A gold rule that draws down the left edge on hover — the
                       same marker vocabulary the module rail uses for "you are
