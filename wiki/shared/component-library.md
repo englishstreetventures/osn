@@ -135,8 +135,9 @@ spreads its rest props onto an element therefore type-checks
 prop passing and is a script tag. `shared/ui/src/ui/props.ts` omits the three,
 so the mistake is a compile error. Anything that genuinely needs to write markup
 reaches for a bare element and says why. The menu's parts and `PopoverContent`
-are typed with it, and `shared/ui/tests/ui/markup-props.test.tsx` fails the
-type check if one of them takes markup again.
+are typed with it; `Notice` and `Chip` go further and take an allow-list of
+props. `shared/ui/tests/ui/markup-props.test.tsx` fails the type check if any
+of them takes markup again.
 
 ### `InfoPopover` — the form-field explainer
 
@@ -196,6 +197,37 @@ no `size` and no `tone`, `Notice` renders the classes it rendered before it had
 either: `shared/ui/tests/ui/notice.test.tsx` pins that string, and
 `primitives.browser.test.tsx` holds the inline line boxless, `accent` off
 `info`, the icon on the first line and sized from the text step.
+
+### `Chip` — a state in a pill: two variants, two treatments
+
+`<Chip tone variant treatment>` names a state in a pill, in one of five
+tones — `neutral`, `success`, `pending`, `accent`, `danger` — named for their
+role, never a domain word. In [chip.tsx](../../shared/ui/src/ui/chip.tsx):
+
+| Option | Values | What each draws |
+| --- | --- | --- |
+| `variant` | `filled`, the default; `outline` | a tinted ground and no border; a 1px border at 40% of the tone (the hairline for `neutral`) and no ground, at the filled chip's height |
+| `treatment` | `caps`, the default; `tag` | a status word in small caps, held to one line; a label as written — sentence case, normal spacing, `px-2` — free to wrap |
+
+The filled tints are light on purpose: `success`, `pending` and `accent` at 8%,
+`danger` at 10%, `neutral` the surface at 60%. A chip's word is small text,
+held to 4.5:1 on what it sits on, and a stronger wash darkens the ground under a
+coloured word on a pale theme. `cire/host/tests/styles/chip-contrast.browser.test.tsx`
+measures every tone, variant and treatment on cire's page, a card's wash and the
+run sheet's coming-up row, in both themes; filled `danger` reads 4.01:1 on
+cire's pale page, so the portal draws `danger` outlined.
+
+An outline or a tag may lead with a mark — a dot, an icon — held 6px from its
+word; a filled small-caps chip holds its word alone. A `danger` chip with no
+`variant` is outlined.
+
+A chip is a label, and its word is the state, so it takes an allow-list rather
+than a span's props: an `id`, `aria-describedby`, `data-*` attributes, a layout
+`class` (appended last), and `role="status"` for a chip whose word changes under
+the reader. Nothing else reaches the `<span>`, typed or spread — no handler, no
+markup, no `aria-hidden`, `hidden` or `aria-label`, and no `title`: a badge that
+needs explaining sits in `Tooltip` (below). A chip that has to be pressed is a
+`Button`.
 
 ### `Tooltip` — a label that explains itself on hover
 
