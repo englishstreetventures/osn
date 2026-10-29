@@ -20,8 +20,13 @@ describe("slugifyDisplayName", () => {
     expect(slugifyDisplayName("")).toBe("wedding");
   });
 
-  it("caps the base slug length", () => {
-    const long = "a".repeat(200);
-    expect(slugifyDisplayName(long).length).toBeLessThanOrEqual(60);
+  it("cuts the base slug to 60 characters", () => {
+    expect(slugifyDisplayName("a".repeat(200))).toBe("a".repeat(60));
+  });
+
+  it("drops a hyphen the cut leaves at the end", () => {
+    // The 60th character is the separator, so the cut ends on a hyphen; left
+    // there, the guest link would read `…x--<suffix>`.
+    expect(slugifyDisplayName(`${"x".repeat(59)} y`)).toBe("x".repeat(59));
   });
 });
