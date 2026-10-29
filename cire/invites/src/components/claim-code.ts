@@ -16,6 +16,12 @@ export interface ClaimCode {
   setCode: (value: string) => void;
   loading: Accessor<boolean>;
   error: Accessor<string | null>;
+  /**
+   * True while `error` says the code itself was refused — not the challenge,
+   * the server or the network — so the code field can be marked wrong and
+   * named by the line.
+   */
+  codeRefused: Accessor<boolean>;
   turnstileToken: Accessor<string | null>;
   setTurnstileToken: (token: string | null) => void;
   handleSubmit: (e: Event) => void;
@@ -29,6 +35,9 @@ export interface ClaimCode {
   reset: () => void;
 }
 
+/** The one refusal that is about the code the guest typed. */
+const CODE_REFUSED = "That code doesn't look right. Check your invitation and try again.";
+
 /**
  * Headless claim-code submission primitive — the code entry field, the
  * Turnstile-gated POST to `/api/claim`, and the `?code=` deep-link auto-claim
@@ -40,6 +49,7 @@ export function createClaimCode(options: ClaimCodeOptions): ClaimCode {
   const [code, setCode] = createSignal("");
   const [loading, setLoading] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
+  const codeRefused = () => error() === CODE_REFUSED;
   // Turnstile token. `null` until the widget solves; only REQUIRED when a
   // sitekey is configured (`turnstileEnabled()`). When Turnstile is off, this
   // stays null and submit proceeds without it.
@@ -70,7 +80,7 @@ export function createClaimCode(options: ClaimCodeOptions): ClaimCode {
       });
 
       if (res.status === 401) {
-        setError("That code doesn't look right. Check your invitation and try again.");
+        setError(CODE_REFUSED);
         setLoading(false);
         return;
       }
@@ -144,6 +154,7 @@ export function createClaimCode(options: ClaimCodeOptions): ClaimCode {
     setCode,
     loading,
     error,
+    codeRefused,
     turnstileToken,
     setTurnstileToken,
     handleSubmit,

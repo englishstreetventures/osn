@@ -30,6 +30,7 @@ import UserRoundPen from "lucide-solid/icons/user-round-pen";
 import UsersRound from "lucide-solid/icons/users-round";
 import Utensils from "lucide-solid/icons/utensils";
 import {
+  batch,
   createEffect,
   createMemo,
   createSignal,
@@ -323,7 +324,15 @@ export default function RsvpView(props: RsvpViewProps) {
   const [formPresets, setFormPresets] = createSignal<readonly string[]>([]);
   const [formConsent, setFormConsent] = createSignal(false);
   const [saving, setSaving] = createSignal(false);
-  const [formError, setFormError] = createSignal<string | null>(null);
+  const [formError, setFormErrorText] = createSignal<string | null>(null);
+  // Whether the editor's error line refuses the consent box: the box is named
+  // by the line and marked wrong until the line next changes.
+  const [consentRefused, setConsentRefused] = createSignal(false);
+  const setFormError = (text: string | null, consent = false) =>
+    batch(() => {
+      setFormErrorText(text);
+      setConsentRefused(consent);
+    });
 
   /** Loads the RSVPs; true when the table has something real to show. */
   const load = async (): Promise<boolean> => {
@@ -679,6 +688,7 @@ export default function RsvpView(props: RsvpViewProps) {
       haptic("reject");
       setFormError(
         `Confirm ${target.plusOne ? "the plus-one" : "the guest"} consented before storing dietary requirements.`,
+        true,
       );
       return;
     }
@@ -1349,6 +1359,7 @@ export default function RsvpView(props: RsvpViewProps) {
     // Read with Save, so a keyboard or screen-reader user hears what a save
     // keeps where they decide, not only a sighted one.
     const keepsId = createUniqueId();
+    const errorId = createUniqueId();
     const keeps = () => storedDietary !== "" && !dietaryEdited(target);
     return (
       <form
@@ -1455,6 +1466,8 @@ export default function RsvpView(props: RsvpViewProps) {
                 checked={formConsent()}
                 onChange={(e) => setFormConsent(e.currentTarget.checked)}
                 disabled={saving()}
+                aria-describedby={consentRefused() ? errorId : undefined}
+                aria-invalid={consentRefused() ? "true" : undefined}
               />
               <span>{attestationFor(target).text}</span>
             </label>
@@ -1481,7 +1494,7 @@ export default function RsvpView(props: RsvpViewProps) {
         </Show>
 
         <Show when={formError()}>
-          <Notice size="inline" tone="danger" alert>
+          <Notice id={errorId} size="inline" tone="danger" alert>
             {formError()}
           </Notice>
         </Show>
