@@ -1,6 +1,4 @@
-import { Show, splitProps } from "solid-js";
-
-import type { SafeProps } from "./props";
+import { type JSX, Show } from "solid-js";
 
 /**
  * A block that says something went wrong, or right, or is about to.
@@ -8,20 +6,58 @@ import type { SafeProps } from "./props";
  * Written longhand at every call site before this, which is how one portal
  * ended up with three error blocks at three different paddings and two
  * different border opacities, and a fourth that was not tinted at all and so
- * did not read as an error. Four tones, all built the same way: a faint tinted
+ * did not read as an error. Five tones, all built the same way: a faint tinted
  * ground, a border of the same hue, and the text in it.
+ *
+ * ## Three sizes
+ *
+ * `md`, the default, is the box every app drew before the others existed.
+ * `sm` is the same box, compact, for a note beside a control or inside a
+ * sidebar. `inline` is no box at all — no border, no fill, no padding — for
+ * the error line under a field: the mark, the read word and the text, in the
+ * tone's ink. All three are a `<div>`, so none may sit inside a `<p>` or a
+ * `<label>`; a call site there moves the line out of the paragraph. An inline
+ * line about a field takes an `id` the field names in `aria-describedby`, so a
+ * screen reader hears it with the field and not only when it appears.
  *
  * ## The mark, not just the hue
  *
- * Three of the tones lead with a glyph, and the three glyphs are different
- * *shapes* rather than three colours of the same shape. Tone carried by hue
- * alone puts "saved" and "failed to save" in the same place in the same
- * rectangle, and `danger` and `warn` are the closest pair in most palettes —
- * exactly the pair red-green colour blindness collapses. The glyph is
- * `aria-hidden` and a word is read in its place, because "✕" is not a thing to
- * hear.
+ * Three of the tones lead with a circled icon, and the three icons are
+ * different *shapes* — a cross, an exclamation mark, a tick — rather than
+ * three colours of the same shape. Tone carried by hue alone puts "saved" and
+ * "failed to save" in the same place in the same rectangle, and `danger` and
+ * `warn` are the closest pair in most palettes — exactly the pair red-green
+ * colour blindness collapses. The icon is drawn here, inline, in
+ * `currentColor`, so it takes the tone's ink and needs no icon package. Its
+ * `width` and `height` are SVG attributes in `em`, so it follows the text step
+ * — the token scale has no step for "a little over the text's size" — and its
+ * slot is one line tall (`h-lh`), so a wrapped message keeps it centred on its
+ * first line. It is `aria-hidden` and a word is read in its place, because a
+ * drawn cross is not a thing to hear.
  *
- * `info` gets no mark. It is the standing-note tone: nothing has happened.
+ * `info` and `accent` get no mark. They are the standing-note tones: nothing
+ * has happened. `accent` is the same note in the app's accent, for a note an
+ * app wants to stand out; it paints `--ui-accent-ink`, the accent as readable
+ * ink, never the accent itself, which carries no contrast promise.
+ *
+ * `mark` lets an app draw its own mark in the same slot — an icon and the word
+ * read in its place — for a part of its own built on a tone that has none.
+ * It adds a mark to `info` or `accent`; a tone with a mark of its own keeps
+ * it, so an app can never swap "Error" for a softer word. A mark with no word
+ * is not drawn, since the icon would say what nothing reads, and its slot is
+ * `inert` as well as `aria-hidden`, so nothing in it can take focus.
+ *
+ * ## What reaches the element
+ *
+ * A notice's words are what it is for, so it takes an allow-list rather than a
+ * `<div>`'s props: an `id` (for a field's `aria-describedby` to name), its own
+ * `aria-describedby`, `data-*` attributes and a layout `class`, appended last.
+ * The role follows `alert`. Nothing else reaches the element, typed or spread
+ * from an untyped object: no markup, no handler, and nothing — `aria-hidden`,
+ * `hidden`, `inert`, `popover`, `aria-label`, a `title` — that would hide the
+ * words or "Error" from a screen reader, rename them, read them twice or turn
+ * an alert into a status. A tone or size outside the named sets — a cast value
+ * from data — draws `info` at `md` rather than failing to render.
  *
  * ## `alert`
  *
@@ -31,56 +67,157 @@ import type { SafeProps } from "./props";
  * *appears* in response to something the reader did.
  */
 
-export type NoticeTone = "danger" | "warn" | "success" | "info";
+export type NoticeTone = "danger" | "warn" | "success" | "info" | "accent";
 
-const BASE =
-  "base:font-ui-body base:flex base:items-start base:gap-2.5 base:rounded-ui-sm " +
-  "base:border base:p-4 base:text-ui-base base:leading-ui-relaxed";
+export type NoticeSize = "inline" | "sm" | "md";
 
-const TONE = {
-  danger: "base:border-ui-danger/20 base:bg-ui-danger/5 base:text-ui-danger",
-  warn: "base:border-ui-warn/20 base:bg-ui-warn/5 base:text-ui-warn",
-  success: "base:border-ui-success/20 base:bg-ui-success/5 base:text-ui-success",
-  info: "base:border-ui-hairline base:bg-ui-surface/30 base:text-ui-ink-secondary",
+const SIZE = {
+  inline:
+    "base:font-ui-body base:flex base:items-start base:gap-1.5 base:text-ui-sm base:leading-ui-snug",
+  sm:
+    "base:font-ui-body base:flex base:items-start base:gap-2 base:rounded-ui-sm " +
+    "base:border base:px-3 base:py-2 base:text-ui-sm base:leading-ui-normal",
+  md:
+    "base:font-ui-body base:flex base:items-start base:gap-2.5 base:rounded-ui-sm " +
+    "base:border base:p-4 base:text-ui-base base:leading-ui-relaxed",
+} satisfies Readonly<Record<NoticeSize, string>>;
+
+/** The box a tone draws at `sm` and `md`; `inline` draws none. */
+const BOX = {
+  danger: "base:border-ui-danger/20 base:bg-ui-danger/5",
+  warn: "base:border-ui-warn/20 base:bg-ui-warn/5",
+  success: "base:border-ui-success/20 base:bg-ui-success/5",
+  info: "base:border-ui-hairline base:bg-ui-surface/30",
+  accent: "base:border-ui-accent/40 base:bg-ui-accent/5",
 } satisfies Readonly<Record<NoticeTone, string>>;
 
-interface Mark {
-  /** Seen, never read. */
-  glyph: string;
+const INK = {
+  danger: "base:text-ui-danger",
+  warn: "base:text-ui-warn",
+  success: "base:text-ui-success",
+  info: "base:text-ui-ink-secondary",
+  accent: "base:text-ui-accent-ink",
+} satisfies Readonly<Record<NoticeTone, string>>;
+
+export interface NoticeMark {
+  /** Seen, never read. Drawn in `currentColor`, sized in `em`. */
+  icon: JSX.Element;
   /** Read, never seen. */
   word: string;
 }
 
-const MARK = {
-  danger: { glyph: "✕", word: "Error" },
-  warn: { glyph: "!", word: "Warning" },
-  success: { glyph: "✓", word: "Success" },
-  info: undefined,
-} satisfies Readonly<Record<NoticeTone, Mark | undefined>>;
+/** A circle, and the shape inside it that says which tone this is. */
+function Circled(props: { children: JSX.Element }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      width="1.15em"
+      height="1.15em"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    >
+      <circle cx="12" cy="12" r="10" />
+      {props.children}
+    </svg>
+  );
+}
 
-export type NoticeProps = SafeProps<"div"> & {
+/** Built on demand, so a notice that is never marked creates no SVG. */
+const MARK = {
+  danger: () => ({
+    icon: (
+      <Circled>
+        <path d="m15 9-6 6M9 9l6 6" />
+      </Circled>
+    ),
+    word: "Error",
+  }),
+  warn: () => ({
+    icon: (
+      <Circled>
+        <path d="M12 7.5v5M12 16.5h.01" />
+      </Circled>
+    ),
+    word: "Warning",
+  }),
+  success: () => ({
+    icon: (
+      <Circled>
+        <path d="m8 12.5 2.75 2.75L16 9.5" />
+      </Circled>
+    ),
+    word: "Success",
+  }),
+  info: undefined,
+  accent: undefined,
+} satisfies Readonly<Record<NoticeTone, (() => NoticeMark) | undefined>>;
+
+export type NoticeProps = {
   tone?: NoticeTone;
+  size?: NoticeSize;
   /** Announce it the moment it appears. See the note above. */
   alert?: boolean;
-};
+  /** An app's own mark, for a tone that has none. See the note above. */
+  mark?: NoticeMark;
+  /** Layout only: where the notice sits, never how it looks. */
+  class?: string;
+  id?: string;
+  "aria-describedby"?: string;
+  children?: JSX.Element;
+} & { [attribute: `data-${string}`]: string | boolean | undefined };
+
+type DataAttribute = `data-${string}`;
+
+/** A `data-*` attribute name: lower-case letters, digits and hyphens. */
+function isDataAttribute(key: string): key is DataAttribute {
+  return /^data-[a-z0-9-]+$/.test(key);
+}
 
 export function Notice(props: NoticeProps) {
-  const [own, rest] = splitProps(props, ["tone", "alert", "class", "children"]);
-  const mark = () => MARK[own.tone ?? "info"];
+  const data = () => {
+    const out: Partial<Record<DataAttribute, string | boolean>> = {};
+    for (const key of Object.keys(props)) {
+      if (!isDataAttribute(key)) continue;
+      const value = props[key];
+      if (typeof value === "string" || typeof value === "boolean") out[key] = value;
+    }
+    return out;
+  };
+  const tone = (): NoticeTone =>
+    props.tone && Object.hasOwn(INK, props.tone) ? props.tone : "info";
+  const size = (): NoticeSize =>
+    props.size && Object.hasOwn(SIZE, props.size) ? props.size : "md";
+  const mark = () => {
+    const m = MARK[tone()]?.() ?? props.mark;
+    return m?.word.trim() ? m : undefined;
+  };
+  const look = () =>
+    size() === "inline"
+      ? `${SIZE.inline} ${INK[tone()]}`
+      : `${SIZE[size()]} ${BOX[tone()]} ${INK[tone()]}`;
   return (
     <div
-      role={own.alert ? "alert" : undefined}
-      {...rest}
-      class={`${BASE} ${TONE[own.tone ?? "info"]}${own.class ? ` ${own.class}` : ""}`}
+      {...data()}
+      id={props.id}
+      aria-describedby={props["aria-describedby"]}
+      role={props.alert ? "alert" : undefined}
+      class={`${look()}${props.class ? ` ${props.class}` : ""}`}
     >
       <Show when={mark()}>
         {(m) => (
           <>
+            {/* One line tall, so the icon sits beside the first line however
+                many the words wrap to. */}
             <span
               aria-hidden="true"
-              class="base:w-3 base:shrink-0 base:select-none base:text-center base:leading-ui-relaxed"
+              inert
+              class="base:flex base:h-lh base:shrink-0 base:items-center"
             >
-              {m().glyph}
+              {m().icon}
             </span>
             <span class="base:sr-only">{m().word}: </span>
           </>
@@ -88,7 +225,7 @@ export function Notice(props: NoticeProps) {
       </Show>
       {/* Its own box, so a run of text and an inline element inside it stay one
           paragraph rather than becoming two flex items with a gap between them. */}
-      <div class="base:min-w-0">{own.children}</div>
+      <div class="base:min-w-0">{props.children}</div>
     </div>
   );
 }

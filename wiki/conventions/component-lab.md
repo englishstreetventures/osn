@@ -201,7 +201,10 @@ sets global CSS affects the chrome, and Dialog, DropdownMenu and Popover content
 portals into `document.body`, so an open one covers the whole lab window.
 `?bare` is the escape hatch, and is also what a screenshot tool should be
 pointed at; `?theme=dark` forces a theme, since a screenshot tool cannot click
-the toggle.
+the toggle. Even bare, a story scrolls inside the lab's own box, so a
+full-page shot stops at the window: grow the window to the story's scroll
+height before the shot. A story file created while the dev server runs gets
+no CSS for classes no other file uses until the server restarts.
 
 **Solid is deduped in the lab's Vite config.** Bun installs `solid-js` into each
 workspace's own `node_modules` rather than hoisting it, so a story imported from
