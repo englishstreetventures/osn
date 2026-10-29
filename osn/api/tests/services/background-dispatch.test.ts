@@ -40,7 +40,7 @@ describe("background work dispatch", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("routes all seventeen known background sites through forkBackground", () => {
+  it("routes all twenty known background sites through forkBackground", () => {
     // Counted rather than merely asserted absent, so deleting a send is as
     // loud as converting one back.
     const total = tsFilesUnder(SERVICES_DIR)
@@ -49,8 +49,9 @@ describe("background work dispatch", () => {
 
     // Ten notification sends, the registration code's send, the two lockout
     // audit rows, the two lockout resets after a success (recovery code,
-    // TOTP) and the two spent-entry deletes after a commit (registration,
-    // email change).
-    expect(total).toBe(17);
+    // TOTP), the two spent-entry deletes after a commit (registration, email
+    // change) and the three deletes of a decided or expired cross-device
+    // request.
+    expect(total).toBe(20);
   });
 });

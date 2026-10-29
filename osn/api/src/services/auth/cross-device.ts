@@ -74,6 +74,16 @@ export function createCrossDeviceModule(
       });
       return rowsChanged(deleted) === 1;
     });
+  /**
+   * Deletes the entry for `requestId`, for a caller to fork after its answer.
+   * The answer never depends on it — the entry expires with its TTL — so a
+   * delete that fails leaves the entry to that.
+   */
+  const tidyAway = (requestId: string) =>
+    storeCall(stores.crossDeviceRequests, "delete", () =>
+      stores.crossDeviceRequests.delete(requestId),
+    ).pipe(Effect.ignore);
+
   /** See {@link SecurityEventsModule.notifySecurityEventByAccountId}. */
   const notifyCrossDeviceLoginByAccountId = (accountId: string) =>
     securityEventsModule.notifySecurityEventByAccountId(
@@ -168,16 +178,12 @@ export function createCrossDeviceModule(
 
       // Check expiry
       if (Date.now() > entry.expiresAt) {
-        yield* storeCall(stores.crossDeviceRequests, "delete", () =>
-          stores.crossDeviceRequests.delete(requestId),
-        );
+        yield* forkBackground(tidyAway(requestId));
         return { status: "expired" as const };
       }
 
       if (entry.status === "rejected") {
-        yield* storeCall(stores.crossDeviceRequests, "delete", () =>
-          stores.crossDeviceRequests.delete(requestId),
-        );
+        yield* forkBackground(tidyAway(requestId));
         return { status: "rejected" as const };
       }
 
@@ -220,8 +226,11 @@ export function createCrossDeviceModule(
    * row too, and answers the store's error. Only the approval that lands
    * makes room under the session cap, so a lost race or a failed store call
    * signs no device out; until it does, the account holds one row over the
-   * cap for each approval in flight. Records a `cross_device_login` security
-   * event.
+   * cap for each approval in flight. The approval that lands records a
+   * `cross_device_login` security event beside its room-making, each run to
+   * its end whatever the other does, and sends the owner a notice either way:
+   * device B can sign in once the `swap` has landed. A failure of either is
+   * answered after both have finished.
    */
   const approveCrossDeviceLogin = (
     requestId: string,
@@ -230,8 +239,16 @@ export function createCrossDeviceModule(
     sessionMeta?: SessionMeta,
   ): Effect.Effect<void, AuthError | DatabaseError | CoordinationError, Db | EmailService> =>
     Effect.gen(function* () {
-      const entry = yield* storeCall(stores.crossDeviceRequests, "get", () =>
-        stores.crossDeviceRequests.get(requestId),
+      // The approver's default profile is the one device B signs in as. It is
+      // read beside the entry: the approver is known before the entry is.
+      const [entry, profile] = yield* Effect.all(
+        [
+          storeCall(stores.crossDeviceRequests, "get", () =>
+            stores.crossDeviceRequests.get(requestId),
+          ),
+          findDefaultProfile(accountId),
+        ],
+        { concurrency: "unbounded" },
       );
       if (!entry) {
         return yield* Effect.fail(new AuthError({ message: "Request not found or expired" }));
@@ -249,14 +266,10 @@ export function createCrossDeviceModule(
 
       // Check expiry
       if (Date.now() > entry.expiresAt) {
-        yield* storeCall(stores.crossDeviceRequests, "delete", () =>
-          stores.crossDeviceRequests.delete(requestId),
-        );
+        yield* forkBackground(tidyAway(requestId));
         return yield* Effect.fail(new AuthError({ message: "Request expired" }));
       }
 
-      // The approver's default profile is the one device B signs in as.
-      const profile = yield* findDefaultProfile(accountId);
       if (!profile) {
         return yield* Effect.fail(new AuthError({ message: "Profile not found" }));
       }
@@ -293,33 +306,43 @@ export function createCrossDeviceModule(
         yield* releaseSession(accountId, sessionId).pipe(Effect.ignore);
         return yield* Effect.fail(new AuthError({ message: "Request already processed" }));
       }
-      // The approval stands: its reservation now takes a place under the cap.
-      yield* makeRoomForReservation(accountId, requestId);
-
-      // Audit trail — security event + best-effort email notification.
+      // The approval stands: its reservation now takes a place under the cap,
+      // and the audit trail records it. Neither reads the other, so they run
+      // side by side, and each runs to its end: a failed eviction does not
+      // cost the security event, nor a failed insert the eviction.
       const { db } = yield* Db;
       const nowSec = Math.floor(Date.now() / 1000);
-      yield* Effect.tryPromise({
-        try: () =>
-          db.insert(securityEvents).values({
-            id: genId("sev_"),
-            accountId,
-            kind: "cross_device_login",
-            createdAt: nowSec,
-            uaLabel: sessionMeta?.uaLabel ?? null,
-            ipHash: sessionMeta?.ip ? hashIp(sessionMeta.ip) : null,
+      const [roomMade, recorded] = yield* Effect.all(
+        [
+          makeRoomForReservation(accountId, requestId),
+          Effect.tryPromise({
+            try: () =>
+              db.insert(securityEvents).values({
+                id: genId("sev_"),
+                accountId,
+                kind: "cross_device_login",
+                createdAt: nowSec,
+                uaLabel: sessionMeta?.uaLabel ?? null,
+                ipHash: sessionMeta?.ip ? hashIp(sessionMeta.ip) : null,
+              }),
+            catch: (cause) => new DatabaseError({ cause }),
           }),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
-      metricSecurityEventRecorded("cross_device_login");
+        ],
+        { concurrency: "unbounded", mode: "result" },
+      );
+      if (recorded._tag === "Success") metricSecurityEventRecorded("cross_device_login");
 
-      // Best-effort email notification (forked daemon, 10s timeout).
+      // Best-effort email notification (forked, 10s timeout), sent whenever
+      // the approval landed: device B can sign in from here on.
       yield* forkBackground(
         notifyCrossDeviceLoginByAccountId(accountId).pipe(
           Effect.timeout("10 seconds"),
           Effect.catch(() => Effect.void),
         ),
       );
+
+      if (roomMade._tag === "Failure") return yield* Effect.fail(roomMade.failure);
+      if (recorded._tag === "Failure") return yield* Effect.fail(recorded.failure);
     }).pipe(withCrossDeviceOp("approve"));
 
   /**

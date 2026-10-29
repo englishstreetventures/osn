@@ -4,7 +4,7 @@ import { Db } from "@osn/db/service";
 import type { CoordinationNamespace } from "@shared/coordination";
 import { makeLogEmailLive } from "@shared/email";
 import { and, eq } from "drizzle-orm";
-import { Effect, Layer } from "effect";
+import { Effect, Fiber, Layer } from "effect";
 import { beforeAll } from "vitest";
 
 import { createDurableCoordination } from "../../src/lib/coordination/durable";
@@ -14,7 +14,11 @@ import { deriveSessionBinding } from "../../src/services/auth/helpers";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { settle } from "../helpers/background";
 import { createFakeNamespace } from "../helpers/coordination-namespace";
-import { createTestLayer } from "../helpers/db";
+import {
+  createCapturingTestLayer,
+  createTestLayer,
+  createTestLayerWithSqlite,
+} from "../helpers/db";
 
 function makeAuth() {
   const email = makeLogEmailLive();
@@ -710,5 +714,138 @@ describe("cross-device login on the shared store", () => {
       const verified = yield* svc.verifyRefreshToken(poll.session.refreshToken);
       expect(verified).toMatchObject({ accountId: profile.accountId, sessionId: id });
     }).pipe(Effect.provide(layer));
+  });
+
+  it.live("an approval reads its request and the approver's default profile side by side", () => {
+    const fake = createFakeNamespace();
+    let holding = false;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const ns: CoordinationNamespace = {
+      getByName(name, options) {
+        const stub = fake.ns.getByName(name, options);
+        return {
+          ...stub,
+          read: () =>
+            holding && name.startsWith("cross_device:")
+              ? gate.then(() => stub.read())
+              : stub.read(),
+        };
+      },
+    };
+    const bundle = createDurableCoordination(ns, () => {});
+    const svc = createAuthService({ ...config, ceremonyStores: bundle.ceremonyStores });
+    const database = createCapturingTestLayer();
+    return Effect.gen(function* () {
+      const profile = yield* svc.registerProfile("cdl-sbs@example.com", "cdlsbs");
+      const { requestId, cdlSecret } = yield* svc.beginCrossDeviceLogin();
+      holding = true;
+      const from = database.captured.length;
+      const approval = yield* Effect.forkChild(
+        svc.approveCrossDeviceLogin(requestId, cdlSecret, profile.accountId),
+      );
+      let profileRead = false;
+      for (let i = 0; i < 100 && !profileRead; i++) {
+        profileRead = database.captured
+          .slice(from)
+          .some((statement) => statement.sql.includes('from "users"'));
+        if (!profileRead) yield* Effect.sleep("10 millis");
+      }
+      release();
+      yield* Fiber.join(approval);
+      expect(profileRead).toBe(true);
+    }).pipe(Effect.provide(database.layer));
+  });
+
+  describe("an answer that does not wait on tidying the entry away", () => {
+    /** Rewrites the request's entry as past its own expiry, while the store still holds it. */
+    const pastItsExpiry = (store: ReturnType<typeof harness>["store"], requestId: string) =>
+      Effect.promise(async () => {
+        const entry = await store.get(requestId);
+        await store.set(requestId, { ...entry!, expiresAt: Date.now() - 1_000 }, 60_000);
+      });
+    const failRemoves = (fake: ReturnType<typeof createFakeNamespace>) =>
+      fake.failWhen((call) => call.store === "cross_device" && call.op === "remove");
+
+    it.live(
+      "a poll of a rejected request answers rejected while the store cannot delete it",
+      () => {
+        const { svc, layer, fake } = harness();
+        return Effect.gen(function* () {
+          const { requestId, cdlSecret } = yield* svc.beginCrossDeviceLogin();
+          yield* svc.rejectCrossDeviceLogin(requestId, cdlSecret);
+          failRemoves(fake);
+          expect(yield* svc.getCrossDeviceLoginStatus(requestId, cdlSecret)).toEqual({
+            status: "rejected",
+          });
+        }).pipe(Effect.provide(layer));
+      },
+    );
+
+    it.live(
+      "a poll past the request's expiry answers expired while the store cannot delete it",
+      () => {
+        const { svc, layer, fake, store } = harness();
+        return Effect.gen(function* () {
+          const { requestId, cdlSecret } = yield* svc.beginCrossDeviceLogin();
+          yield* pastItsExpiry(store, requestId);
+          failRemoves(fake);
+          expect(yield* svc.getCrossDeviceLoginStatus(requestId, cdlSecret)).toEqual({
+            status: "expired",
+          });
+        }).pipe(Effect.provide(layer));
+      },
+    );
+
+    it.live(
+      "an approval past the request's expiry is refused while the store cannot delete it",
+      () => {
+        const { svc, layer, fake, store } = harness();
+        return Effect.gen(function* () {
+          const profile = yield* svc.registerProfile("cdl-late@example.com", "cdllate");
+          const { requestId, cdlSecret } = yield* svc.beginCrossDeviceLogin();
+          yield* pastItsExpiry(store, requestId);
+          failRemoves(fake);
+          const error = yield* Effect.flip(
+            svc.approveCrossDeviceLogin(requestId, cdlSecret, profile.accountId),
+          );
+          expect({ tag: error._tag, message: error.message }).toEqual({
+            tag: "AuthError",
+            message: "Request expired",
+          });
+        }).pipe(Effect.provide(layer));
+      },
+    );
+  });
+
+  it.live("an approval whose eviction fails still records its event and sends its notice", () => {
+    const fake = createFakeNamespace();
+    const bundle = createDurableCoordination(fake.ns, () => {});
+    const svc = createAuthService({ ...config, ceremonyStores: bundle.ceremonyStores });
+    const { layer: dbLayer, sqlite, email } = createTestLayerWithSqlite();
+    return Effect.gen(function* () {
+      const profile = yield* svc.registerProfile("cdl-evict-fail@example.com", "cdlevictfail");
+      yield* fillToCap(svc, profile);
+      const { requestId, cdlSecret } = yield* svc.beginCrossDeviceLogin();
+      // At the cap the approval's eviction deletes a row; nothing else in an
+      // approval that lands deletes one.
+      sqlite.run(`
+        CREATE TRIGGER refuse_session_eviction BEFORE DELETE ON sessions
+        BEGIN SELECT RAISE(ABORT, 'eviction refused'); END;
+      `);
+      const error = yield* Effect.flip(
+        svc.approveCrossDeviceLogin(requestId, cdlSecret, profile.accountId),
+      );
+      expect(error._tag).toBe("DatabaseError");
+      expect((yield* countRows(profile.accountId)).events).toBe(1);
+      let noticed = false;
+      for (let i = 0; i < 100 && !noticed; i++) {
+        noticed = email.recorded().some((sent) => sent.template === "cross-device-login");
+        if (!noticed) yield* Effect.sleep("10 millis");
+      }
+      expect(noticed).toBe(true);
+    }).pipe(Effect.provide(dbLayer));
   });
 });
