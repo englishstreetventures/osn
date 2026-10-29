@@ -26,7 +26,18 @@ import { Dynamic } from "solid-js/web";
 export type EyebrowTone = "accent" | "muted";
 
 /** The elements an eyebrow is written as today: a line, a word, a heading, a fieldset's legend, a term. */
-export type EyebrowElement = "p" | "span" | "h2" | "h3" | "legend" | "dt";
+const EYEBROW_ELEMENTS = ["p", "span", "h2", "h3", "legend", "dt"] as const;
+
+export type EyebrowElement = (typeof EYEBROW_ELEMENTS)[number];
+
+/**
+ * `as`, checked at run time as well as by its type, and `p` for anything else.
+ * `Dynamic` writes the tag name into the page as it is given, so a value cast
+ * to `EyebrowElement` from stored data must not reach it unchecked.
+ */
+function elementFor(as: EyebrowElement | undefined): EyebrowElement {
+  return EYEBROW_ELEMENTS.find((element) => element === as) ?? "p";
+}
 
 const EYEBROW_BASE = "base:font-ui-body base:text-ui-xs base:tracking-ui-widest base:uppercase";
 
@@ -51,7 +62,7 @@ export interface EyebrowProps {
 export default function Eyebrow(props: EyebrowProps): JSX.Element {
   return (
     <Dynamic
-      component={props.as ?? "p"}
+      component={elementFor(props.as)}
       id={props.id}
       class={`${eyebrowClass({ tone: props.tone })}${props.class ? ` ${props.class}` : ""}`}
     >
