@@ -1,5 +1,6 @@
 import Button from "@cire/ui/button";
 import Eyebrow from "@cire/ui/eyebrow";
+import { Notice } from "@shared/ui/ui/notice";
 import {
   createEffect,
   createMemo,
@@ -115,6 +116,12 @@ interface LayoutClasses {
   /** Width and centring for the preview chip, the RSVP-by line and the account link. */
   measure: string;
   /**
+   * The row an error line sits in. On the band it centres the line's icon and
+   * words together, as the centred text they replace sat; in the panel the
+   * line keeps to the start.
+   */
+  line: string;
+  /**
    * The corner of the household's own boxes: the plus-one prompt, the email
    * box and the account link. On the band they sit on the page, so they take
    * a card's corner. Inside the panel's card they take the small step, since
@@ -132,6 +139,7 @@ const LAYOUTS = {
     greeting: "text-gold",
     form: "max-w-column-2xs mx-auto",
     measure: "max-w-column-sm mx-auto",
+    line: "flex justify-center",
     box: "rounded-ui-lg",
   },
   panel: {
@@ -144,6 +152,7 @@ const LAYOUTS = {
     greeting: "text-gold-ink",
     form: "",
     measure: "",
+    line: "",
     box: "rounded-sm",
   },
 } satisfies Record<LoginSectionLayout, LayoutClasses>;
@@ -563,9 +572,11 @@ export function LoginSection(props: LoginSectionProps) {
             pattern="[A-Za-z0-9\-]+"
           />
           <Show when={claim.error()}>
-            <p class="font-body text-error text-ui-sm py-2" role="alert">
-              {claim.error()}
-            </p>
+            <div class={`my-2 ${layout().line}`}>
+              <Notice size="inline" tone="danger" alert>
+                {claim.error()}
+              </Notice>
+            </div>
           </Show>
           {/* Turnstile challenge — renders only when a sitekey is configured;
               otherwise this is nothing and the form is unchanged. */}
@@ -594,12 +605,11 @@ export function LoginSection(props: LoginSectionProps) {
           (a display swap, not a second panel). */}
       <div ref={props.welcomeRef} style={{ display: showWelcome() ? "" : "none" }}>
         <Show when={props.result?.preview}>
-          <p
-            class={`border-gold/40 bg-gold/5 text-gold-ink text-ui-sm tracking-ui-wider mb-6 rounded-sm border px-4 py-3 uppercase ${layout().measure}`}
-            role="status"
-          >
-            Preview mode. Every event is shown; try the RSVP, nothing you send is saved.
-          </p>
+          <div class={`mb-6 ${layout().measure}`} role="status">
+            <Notice size="sm" tone="accent">
+              Preview mode. Every event is shown; try the RSVP, nothing you send is saved.
+            </Notice>
+          </div>
         </Show>
         <Show
           when={isIndividual()}
@@ -705,33 +715,41 @@ export function LoginSection(props: LoginSectionProps) {
                   </For>
                 </div>
                 <Show when={memberError()}>
-                  <p class="text-error text-ui-sm mt-3" role="alert">
-                    {memberError()}
-                  </p>
+                  <div class={`mt-3 ${layout().line}`}>
+                    <Notice size="inline" tone="danger" alert>
+                      {memberError()}
+                    </Notice>
+                  </div>
                 </Show>
               </fieldset>
             }
           >
             {(m) => (
-              <p class={`text-text text-ui-sm mb-6 font-light ${layout().measure}`}>
-                Answering as {m().firstName}
-                <Show when={invited().length >= 2 || accountLink()?.signedIn}>
-                  {" · "}
-                  <Button
-                    variant="touchLink"
-                    type="button"
-                    disabled={clearing()}
-                    onClick={() => void handleNotYou()}
-                  >
-                    Not you?
-                  </Button>
-                </Show>
+              // The error line is a block of its own, so it sits under the
+              // paragraph rather than inside it.
+              <div class={`mb-6 ${layout().measure}`}>
+                <p class="text-text text-ui-sm font-light">
+                  Answering as {m().firstName}
+                  <Show when={invited().length >= 2 || accountLink()?.signedIn}>
+                    {" · "}
+                    <Button
+                      variant="touchLink"
+                      type="button"
+                      disabled={clearing()}
+                      onClick={() => void handleNotYou()}
+                    >
+                      Not you?
+                    </Button>
+                  </Show>
+                </p>
                 <Show when={notYouError()}>
-                  <span class="text-error mt-2 block" role="alert">
-                    {notYouError()}
-                  </span>
+                  <div class={`mt-2 ${layout().line}`}>
+                    <Notice size="inline" tone="danger" alert>
+                      {notYouError()}
+                    </Notice>
+                  </div>
                 </Show>
-              </p>
+              </div>
             )}
           </Show>
         </Show>
