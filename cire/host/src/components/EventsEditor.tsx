@@ -14,6 +14,7 @@ import {
   useDragDropContext,
 } from "@shared/sortable";
 import { toast } from "@shared/toast";
+import { Chip } from "@shared/ui/ui/chip";
 import { EmptyState } from "@shared/ui/ui/empty-state";
 import { Field, Fieldset } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
@@ -604,7 +605,9 @@ export default function EventsEditor(props: { weddingId: string }) {
               <div class="border-error/20 bg-error/5 text-error page-frame text-ui-sm flex flex-wrap items-center gap-3 border-t py-2">
                 {/* Announced: a refused apply closes the preview, and focus
                     returning to Save says nothing about why. */}
-                <p role="alert">{saveError()}</p>
+                <Notice size="inline" tone="danger" alert>
+                  {saveError()}
+                </Notice>
                 <Show when={stale()}>
                   <Button
                     variant="outline"
@@ -732,9 +735,9 @@ function EventRowCard(props: {
           <p class="text-error text-ui-sm">This event has errors — open it to fix them.</p>
         </Show>
         <Show when={props.event.id === null}>
-          <span class="font-body text-gold/70 border-gold/30 text-ui-xs tracking-ui-widest mt-1 inline-block rounded-sm border px-1.5 py-0.5 uppercase">
+          <Chip variant="outline" tone="accent" class="mt-1">
             New — saved on apply
-          </span>
+          </Chip>
         </Show>
       </div>
 

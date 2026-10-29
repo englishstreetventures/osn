@@ -3,6 +3,7 @@ import Eyebrow from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
 import { Modal } from "@shared/ui/ui/modal";
+import { Notice } from "@shared/ui/ui/notice";
 import { createEffect, createSignal, Match, Show, Switch } from "solid-js";
 
 import { navigateTo, redirectToLogin } from "../lib/api";
@@ -201,9 +202,9 @@ export default function UpgradeDialog(props: UpgradeDialogProps) {
         </Switch>
 
         <Show when={checkoutFailed()}>
-          <p role="alert" class="text-error text-ui-sm">
+          <Notice size="inline" tone="danger" alert>
             Could not start checkout. Please try again.
-          </p>
+          </Notice>
         </Show>
 
         <div class="flex items-center gap-3">

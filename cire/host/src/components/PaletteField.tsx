@@ -13,6 +13,7 @@ import {
   typographyVar,
 } from "@cire/theme";
 import Button from "@cire/ui/button";
+import { Notice } from "@shared/ui/ui/notice";
 import { createMemo, For, Index, Show } from "solid-js";
 
 import ColorPicker from "./ColorPicker";
@@ -257,17 +258,16 @@ export default function PaletteField(props: {
           this reports what was changed rather than asking the organiser to fix
           it themselves. */}
       <Show when={adjusted().length > 0}>
-        <p
-          role="status"
-          class="border-gold-dim bg-gold/5 text-text text-ui-sm leading-ui-normal rounded-sm border px-3 py-2"
-        >
-          Adjusted to stay readable:{" "}
-          {adjusted()
-            .map((a) => ROLES.find((r) => r.key === a.token)?.label.toLowerCase() ?? a.token)
-            .join(", ")}
-          . Your invite keeps the colours you picked; these were shifted just enough for the text to
-          stay legible.
-        </p>
+        <div role="status">
+          <Notice size="sm" tone="accent">
+            Adjusted to stay readable:{" "}
+            {adjusted()
+              .map((a) => ROLES.find((r) => r.key === a.token)?.label.toLowerCase() ?? a.token)
+              .join(", ")}
+            . Your invite keeps the colours you picked; these were shifted just enough for the text
+            to stay legible.
+          </Notice>
+        </div>
       </Show>
 
       {/* …and the pairs derivation deliberately leaves alone, which are the only
@@ -281,17 +281,14 @@ export default function PaletteField(props: {
           drag — so wrapping it would have mounted and unmounted the region (and
           reflowed the sidebar under it) at frame rate whenever a colour hovered
           on a contrast boundary. Mounted once, it announces on change and the
-          flip costs only its children. */}
-      <div
-        role="status"
-        classList={{
-          "flex flex-col gap-1 rounded-sm px-3 py-2 text-ui-sm leading-ui-normal": true,
-          "border-error/40 bg-error/5 text-text border": warnings().length > 0,
-        }}
-      >
+          flip costs only its children. The notice inside is a warning, not an
+          error: nothing is blocked. */}
+      <div role="status">
         <Show when={warnings().length > 0}>
-          <span class="font-body text-text tracking-ui-wide">Some colours are hard to read</span>
-          {/* `Index`, not `For`. `For` reconciles by item REFERENCE, and
+          <Notice size="sm" tone="warn">
+            <div class="flex flex-col gap-1">
+              <span>Some colours are hard to read</span>
+              {/* `Index`, not `For`. `For` reconciles by item REFERENCE, and
               `paletteContrastWarnings` allocates fresh objects from a token map
               whose identity changes every pointermove frame of a colour drag —
               so no row would ever match and all of them would be torn down and
@@ -299,29 +296,31 @@ export default function PaletteField(props: {
               list is a fixed set of positions drawn from a four-entry table
               while the CONTENTS move continuously, which is exactly what
               `Index` is for: rows survive and only the ratio text is patched. */}
-          <ul class="text-text-muted flex flex-col gap-0.5">
-            <Index each={warnings()}>
-              {(warning) => (
-                <li>
-                  {warning().message}{" "}
-                  {/* The numbers are the one part that moves per frame, and
+              <ul class="flex flex-col gap-0.5">
+                <Index each={warnings()}>
+                  {(warning) => (
+                    <li>
+                      {warning().message}{" "}
+                      {/* The numbers are the one part that moves per frame, and
                       `role="status"` is implicitly atomic — so leaving them in
                       the announced text re-reads the whole block on every
                       pointermove. Hidden from the accessibility tree, they stay
                       live for the eye while the announcement changes only when
                       the set of failing pairs does. The ratio is a diagnostic
                       for tuning a colour, not information the message lacks. */}
-                  <span class="tabular-nums" aria-hidden="true">
-                    ({warning().ratio}:1, needs {warning().required}:1)
-                  </span>
-                </li>
-              )}
-            </Index>
-          </ul>
-          <span class="text-text-muted">
-            Guests can still read the rest of the invite — try moving your card colour closer to the
-            page, or picking a lighter or darker accent.
-          </span>
+                      <span class="tabular-nums" aria-hidden="true">
+                        ({warning().ratio}:1, needs {warning().required}:1)
+                      </span>
+                    </li>
+                  )}
+                </Index>
+              </ul>
+              <span>
+                Guests can still read the rest of the invite — try moving your card colour closer to
+                the page, or picking a lighter or darker accent.
+              </span>
+            </div>
+          </Notice>
         </Show>
       </div>
     </div>

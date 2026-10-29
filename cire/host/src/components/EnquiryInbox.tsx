@@ -92,9 +92,7 @@ export default function EnquiryInbox(props: EnquiryInboxProps) {
                     </span>
 
                     {/* Category chip */}
-                    <span class="bg-surface/60 text-text-muted text-ui-xs rounded-full px-2 py-0.5">
-                      {categoryLabel(item.category)}
-                    </span>
+                    <Chip treatment="tag">{categoryLabel(item.category)}</Chip>
 
                     {/* Status chip */}
                     <Chip tone={STATUS_TONE[item.status]}>{STATUS_CHIP[item.status]}</Chip>
