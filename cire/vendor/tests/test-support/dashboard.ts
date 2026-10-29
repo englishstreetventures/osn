@@ -85,9 +85,10 @@ export const ENQUIRY = {
   status: "open",
   createdBy: "usr_couple",
   quotedMinor: null,
-  lastMessageAt: 3,
-  createdAt: 1,
-  updatedAt: 3,
+  // Two hours ago, so the row reads as an inbox does.
+  lastMessageAt: Date.now() - 2 * 60 * 60 * 1000,
+  createdAt: Date.now() - 3 * 60 * 60 * 1000,
+  updatedAt: Date.now() - 2 * 60 * 60 * 1000,
   vendorName: ORGS[0]!.name,
   category: "venue",
   weddingName: "Harbour Wedding",
@@ -108,7 +109,7 @@ export async function surfacesFetch(input: RequestInfo | URL): Promise<Response>
           id: "msg_harbour",
           senderProfileId: "usr_couple",
           body: "Is the barn free on the first Saturday of March?",
-          createdAt: 2,
+          createdAt: Date.now() - 2 * 60 * 60 * 1000,
         },
       ],
     });
