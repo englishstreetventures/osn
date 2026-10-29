@@ -37,6 +37,8 @@ describe("the menu's, the popover's and the chip's parts", () => {
         <PopoverContent innerHTML="<img src=x onerror=alert(1)>" />
         {/* @ts-expect-error — markup is not a chip's prop: its words are children. */}
         <Chip innerHTML="<img src=x onerror=alert(1)>">live</Chip>
+        {/* @ts-expect-error — nor is a title: a badge explains itself in a Tooltip. */}
+        <Chip title="Owners can change anything">Owner</Chip>
       </>
     );
     expect(typeof refused).toBe("function");

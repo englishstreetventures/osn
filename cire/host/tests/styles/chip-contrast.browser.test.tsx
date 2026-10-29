@@ -1,26 +1,33 @@
 import { contrastRatio, WCAG_TEXT_MIN } from "@cire/theme";
+import { cardClass } from "@cire/ui/card";
 import { Chip, type ChipTone, type ChipTreatment, type ChipVariant } from "@shared/ui/ui/chip";
 import { cleanup, render } from "@solidjs/testing-library";
+import type { JSX } from "solid-js";
 import { afterEach, describe, expect, it } from "vitest";
 
 import "../../src/styles/global.css";
 
 /**
- * Every `Chip` the portal can draw — each tone, filled and outlined, in small
- * caps and as a tag — holds its word to 4.5:1 on each ground a chip sits on
- * here, in both themes. A chip's word is small text, and a tint strong enough
- * to show on the pale theme darkens the ground under a coloured word: the
- * gold-dim accent fill measured 3.90:1 in light before its tint went to 8%
- * (owner, englishstreetventures/osn#1836). This is what stops a later fill, or
- * a later ramp, slipping back under the floor.
+ * Every `Chip` the portal draws — each tone, filled and outlined, in small caps
+ * and as a tag — holds its word to 4.5:1 on each ground a chip sits on here, in
+ * both themes. A chip's word is small text, and a tint strong enough to show on
+ * the pale theme darkens the ground under a coloured word: the gold-dim accent
+ * fill measured 3.90:1 in light before its tint went to 8% (owner,
+ * englishstreetventures/osn#1836). This is what stops a later fill, or a later
+ * ramp, slipping back under the floor.
  *
- * The grounds are the page and a card's wash (the surface at 30%), for every
- * chip, and the run sheet's coming-up row (gold at 8%) for the tones its flags
- * wear — accent, pending and neutral; red on that gold wash reads 4.29:1 in
- * light, and no flag is red. Each ground is painted from the stylesheet's own
- * tokens. `danger` is held to its outline: its filled 10% tint reads 4.01:1 on
- * the pale page with this red, so the one danger tag the portal draws ("No
- * longer available") is an outline, and no screen draws the filled one.
+ * The grounds are the page, `@cire/ui`'s card (its own classes, so a change to
+ * its wash is measured here), and a row on the run sheet's coming-up wash
+ * (`bg-gold/8`, the class `RunSheetView` paints; `RunSheetView.browser.test.tsx`
+ * measures its real rows). The coming-up row is measured for the tones its flags
+ * wear — accent, pending, neutral — since no flag is red, and red on that gold
+ * reads 4.29:1 in light.
+ *
+ * Filled `danger` is left out of the floor and held under it instead: its 10%
+ * tint reads 4.01:1 on the pale page with cire's red, and no wash of that red
+ * reaches 4.5:1, so the portal draws a danger chip outlined (owner, #1836). The
+ * last test fails if that ever stops being true, so the exclusion is looked at
+ * again.
  */
 
 const THEMES = ["light", "dark"] as const;
@@ -35,15 +42,15 @@ const VARIANTS = ["filled", "outline"] as const satisfies readonly ChipVariant[]
 const TREATMENTS = ["caps", "tag"] as const satisfies readonly ChipTreatment[];
 
 interface Ground {
-  layers: readonly string[];
+  wrap: (chip: JSX.Element) => JSX.Element;
   tones: readonly ChipTone[];
 }
 
 const GROUNDS = {
-  page: { layers: [], tones: TONES },
-  card: { layers: ["color-mix(in oklab, var(--surface) 30%, transparent)"], tones: TONES },
+  page: { wrap: (chip) => <div>{chip}</div>, tones: TONES },
+  card: { wrap: (chip) => <div class={cardClass()}>{chip}</div>, tones: TONES },
   "coming-up row": {
-    layers: ["color-mix(in oklab, var(--gold) 8%, transparent)"],
+    wrap: (chip) => <div class="bg-gold/8">{chip}</div>,
     tones: ["accent", "pending", "neutral"],
   },
 } as const satisfies Record<string, Ground>;
@@ -66,39 +73,45 @@ function composite(layers: readonly string[]): string {
   return `rgb(${r}, ${g}, ${b})`;
 }
 
-/** A token's colour as the engine resolves it under the current theme. */
-function resolved(css: string): string {
-  const probe = document.createElement("span");
-  probe.style.backgroundColor = css;
-  document.body.append(probe);
-  const colour = getComputedStyle(probe).backgroundColor;
-  probe.remove();
-  return colour;
+/** What `element` paints its word over: the page's ground, then every
+ *  background from the outermost ancestor in, its own last. */
+function backdropOf(element: Element): string {
+  const layers: string[] = [];
+  for (let node: Element | null = element; node; node = node.parentElement) {
+    layers.push(getComputedStyle(node).backgroundColor);
+  }
+  const ground = getComputedStyle(document.documentElement).getPropertyValue("--bg");
+  return composite([ground, ...layers.toReversed()]);
 }
 
-/** Filled danger is the one combination no screen draws; see the note above. */
-const DRAWN = (tone: ChipTone, variant: ChipVariant) =>
+/** The chip's word against what it is painted over. */
+function ratioOf(chip: Element): number {
+  const under = backdropOf(chip);
+  return contrastRatio(composite([under, getComputedStyle(chip).color]), under)!;
+}
+
+/** Filled danger is held under the floor instead; see the note above. */
+const FLOORED = (tone: ChipTone, variant: ChipVariant) =>
   !(tone === "danger" && variant === "filled");
 
 describe("Chip contrast on cire's grounds", () => {
   for (const theme of THEMES) {
-    for (const [groundName, { layers, tones }] of Object.entries(GROUNDS)) {
+    for (const [groundName, { wrap, tones }] of Object.entries(GROUNDS)) {
       it(`holds every chip's word to ${WCAG_TEXT_MIN}:1 on the ${groundName}, ${theme}`, () => {
         document.documentElement.dataset.theme = theme;
-        const ground = composite([resolved("var(--bg)"), ...layers.map(resolved)]);
         const short: string[] = [];
         for (const tone of tones) {
           for (const variant of VARIANTS) {
-            if (!DRAWN(tone, variant)) continue;
+            if (!FLOORED(tone, variant)) continue;
             for (const treatment of TREATMENTS) {
-              const { container, unmount } = render(() => (
-                <Chip tone={tone} variant={variant} treatment={treatment}>
-                  Word
-                </Chip>
-              ));
-              const style = getComputedStyle(container.firstElementChild!);
-              const under = composite([ground, style.backgroundColor]);
-              const ratio = contrastRatio(composite([under, style.color]), under)!;
+              const { container, unmount } = render(() =>
+                wrap(
+                  <Chip tone={tone} variant={variant} treatment={treatment}>
+                    Word
+                  </Chip>,
+                ),
+              );
+              const ratio = ratioOf(container.firstElementChild!.firstElementChild!);
               if (ratio < WCAG_TEXT_MIN) {
                 short.push(`${tone} ${variant} ${treatment}: ${ratio.toFixed(2)}`);
               }
@@ -111,12 +124,15 @@ describe("Chip contrast on cire's grounds", () => {
     }
   }
 
-  it("measures something: a tint known to fail does fail", () => {
-    // The gold-dim fill the accent chip wore before, in light, on the page.
+  it("still finds filled danger under the floor on the pale page, which is why no screen draws it", () => {
     document.documentElement.dataset.theme = "light";
-    const ground = resolved("var(--bg)");
-    const under = composite([ground, resolved("var(--gold-dim)")]);
-    const ink = resolved("var(--gold-ink)");
-    expect(contrastRatio(composite([under, ink]), under)!).toBeLessThan(WCAG_TEXT_MIN);
+    const { container } = render(() => (
+      <div>
+        <Chip tone="danger" treatment="tag">
+          No longer available
+        </Chip>
+      </div>
+    ));
+    expect(ratioOf(container.firstElementChild!.firstElementChild!)).toBeLessThan(WCAG_TEXT_MIN);
   });
 });
