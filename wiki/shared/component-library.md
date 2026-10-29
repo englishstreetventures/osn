@@ -44,7 +44,7 @@ product layer, and which one a component belongs in is decided by
 | -------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
 | `@shared/ui`   | `shared/ui/src/ui/`, `shared/ui/src/lib/` | The primitives — `Button`, `Card`, `Modal`, `Field`, `Table`, `Input`, `Select`, the rest — plus `clsx()`                                                                       | `@kobalte/core`, `clsx`, CVA                                            |
 | `@osn/auth-ui` | `osn/auth-ui/src/`                        | The auth views — `SignIn`, `Register`, `PasskeysView`, `StepUpDialog`, `TotpView`, `SessionsView`, `RecoveryCodesView`, `ChangeEmailForm`, the profile forms, `TurnstileWidget` | `@shared/ui`, `@osn/client`, `@shared/toast`, `@simplewebauthn/browser` |
-| `@cire/ui`     | `cire/ui/src/`                            | cire's house style — `Button`, `Card`, `Disclosure`, `Eyebrow`, `Loading`, `DietaryPresets`, `DietaryPresetsPopover`, `Reveal`, a combobox `UsernameInput` — and the guest-facing content both cire sites publish: the guest privacy notice (`guest-privacy-notice.astro`) and the consent registry it is built from | `@shared/ui`, `@shared/design-tokens`, `@shared/legal`                  |
+| `@cire/ui`     | `cire/ui/src/`                            | cire's house style — `Button`, `Card`, `Disclosure`, `Eyebrow`, `Loading`, `Note`, `DietaryPresets`, `DietaryPresetsPopover`, `Reveal`, a combobox `UsernameInput` — and the guest-facing content both cire sites publish: the guest privacy notice (`guest-privacy-notice.astro`) and the consent registry it is built from | `@shared/ui`, `@shared/design-tokens`, `@shared/legal`                  |
 
 [[osn-and-musubi]] §Where the UI packages landed is the canonical statement of
 _why_ the line falls there, and is not re-argued here. The short version is that
@@ -120,7 +120,7 @@ osn/auth-ui/src/
 └── ProfileOnboarding.tsx   ProfileSwitcher.tsx  SecurityEventsBanner.tsx  TurnstileWidget.tsx
 
 cire/ui/src/
-├── button.tsx  card.tsx  disclosure.tsx  eyebrow.tsx  loading.tsx
+├── button.tsx  card.tsx  disclosure.tsx  eyebrow.tsx  loading.tsx  note.tsx
 ├── dietary-presets.tsx     dietary-presets-popover.tsx
 ├── reveal.tsx              ← opens a block to its own height; the wrapper outlives the content
 └── username-input.tsx      ← a combobox-shaped input; see cire/ui/README.md for why it is not the shared one
@@ -197,7 +197,8 @@ and a layout `class` — and the role follows `alert`: nothing else reaches the
 element, typed or spread, so no call site can pass markup or a handler, hide
 "Error", rename the words or turn an alert into a status. A call site that needs
 a status region wraps the notice in one. `mark` draws an app's own icon
-and read word in the same slot, for a part built on a tone that has none. With
+and read word in the same slot, for a part built on a tone that has none —
+`@cire/ui`'s `Note`, the accent tone led by a ✦. With
 no `size` and no `tone`, `Notice` renders the classes it rendered before it had
 either: `shared/ui/tests/ui/notice.test.tsx` pins that string and an unfilled
 box's as the same less its one fill class, and `primitives.browser.test.tsx`
@@ -399,9 +400,9 @@ RSVP table ([[cire-rsvp-table]]) and household tables, in page mode.
 
 Each layer has its own specifier shape, and they do not agree on default versus
 named. `@shared/ui` exports a **named** binding per component. `@osn/auth-ui`
-exports a barrel _and_ a subpath per view. `@cire/ui` is mixed: its eight
+exports a barrel _and_ a subpath per view. `@cire/ui` is mixed: its nine
 components — `button`, `card`, `dietary-presets`, `dietary-presets-popover`,
-`disclosure`, `eyebrow`, `loading`, `reveal` — are **default** exports, while `username-input` is named,
+`disclosure`, `eyebrow`, `loading`, `note`, `reveal` — are **default** exports, while `username-input` is named,
 `card` carries named `cardClass` / `cardBoxClass` / `CardCta` / `CardCtaButton` beside its
 default, and `eyebrow` a named `eyebrowClass`. So a named `Button` import from `@cire/ui/button` resolves to nothing:
 
