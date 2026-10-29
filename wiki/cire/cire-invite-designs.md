@@ -768,6 +768,12 @@ differs. On the guest site each corner paints:
   `tests/components/form-fields.browser.test.tsx` measures each at 390 and
   1440px against 2.125 times the root size, with the 14px corner short of a
   pill.
+- **An unchecked checkbox or radio sits on its surface**: no fill, a 1px
+  `--ui-hairline-strong` edge, the native box's 13px and 2px corner (a radio
+  round), drawn in `global.css`'s base layer. A ticked one is the browser's own;
+  the RSVP sheet's, the email box's and the consent sheet's carry `accent-gold`,
+  so they fill gold (owner, 2026-10-29; `cire/host/DESIGN.md` §4, Checkboxes and
+  radios).
 - **The household's boxes take their corner from the layout.** The plus-one
   prompt, the email box and the account link draw no corner of their own; the
   `box` field of `LoginSection`'s `LAYOUTS` sets it. On classic's band they sit
