@@ -1,4 +1,5 @@
-import Card, { CardCtaButton, CardEyebrow } from "@cire/ui/card";
+import Card, { CardCtaButton } from "@cire/ui/card";
+import Eyebrow from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
 import { type Accessor, createSignal, For, Show } from "solid-js";
 
@@ -52,7 +53,7 @@ export default function RsvpChangesCard(props: {
     <Show when={changes()}>
       {(feed) => (
         <Card>
-          <CardEyebrow>RSVP changes since your last visit</CardEyebrow>
+          <Eyebrow>RSVP changes since your last visit</Eyebrow>
           <Show
             when={feed().households > 0}
             fallback={

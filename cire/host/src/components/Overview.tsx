@@ -1,4 +1,5 @@
-import Card, { CardCtaButton, CardEyebrow, cardClass } from "@cire/ui/card";
+import Card, { CardCtaButton, cardClass } from "@cire/ui/card";
+import Eyebrow from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
 import { Meter } from "@shared/ui/ui/meter";
 import { Stat } from "@shared/ui/ui/stat";
@@ -411,7 +412,7 @@ export default function Overview(props: {
 
   const WhatsNext = () => (
     <Card>
-      <CardEyebrow>What&rsquo;s next</CardEyebrow>
+      <Eyebrow>What&rsquo;s next</Eyebrow>
       <Show
         when={agenda().length > 0}
         fallback={
@@ -507,7 +508,7 @@ export default function Overview(props: {
             <div class="auto-grid [--auto-grid-min:15rem]">
               {/* ── Countdown ─────────────────────────────────────────────── */}
               <Card tone="accent">
-                <CardEyebrow>Countdown</CardEyebrow>
+                <Eyebrow>Countdown</Eyebrow>
                 <Show
                   when={weddingDate()}
                   fallback={
@@ -566,7 +567,7 @@ export default function Overview(props: {
 
               {/* ── RSVP totals ───────────────────────────────────────────── */}
               <Card>
-                <CardEyebrow>RSVPs</CardEyebrow>
+                <Eyebrow>RSVPs</Eyebrow>
                 <Show
                   when={data()?.rsvps && data()!.rsvps!.eventCount > 0}
                   fallback={
@@ -647,7 +648,7 @@ export default function Overview(props: {
 
               {/* ── Guests + events snapshot ─────────────────────────────── */}
               <Card>
-                <CardEyebrow>Guests &amp; events</CardEyebrow>
+                <Eyebrow>Guests &amp; events</Eyebrow>
                 <dl class="font-body text-text-muted text-ui-sm flex flex-col gap-1.5">
                   <div class="flex justify-between gap-2">
                     <dt>Households</dt>
@@ -677,7 +678,7 @@ export default function Overview(props: {
                   onClick={() => props.onNavigate("checklist")}
                   class={cardLinkClass}
                 >
-                  <CardEyebrow>Checklist</CardEyebrow>
+                  <Eyebrow>Checklist</Eyebrow>
                   <Show
                     when={taskCounts(props.weddingId)}
                     fallback={<p class="text-text-muted text-ui-sm">Loading your tasks…</p>}
@@ -714,7 +715,7 @@ export default function Overview(props: {
                   onClick={() => props.onNavigate("vendors")}
                   class={cardLinkClass}
                 >
-                  <CardEyebrow>Vendors</CardEyebrow>
+                  <Eyebrow>Vendors</Eyebrow>
                   <Show
                     when={vendorCountValue() !== null}
                     fallback={<p class="text-text-muted text-ui-sm">Loading your vendors…</p>}
@@ -742,7 +743,7 @@ export default function Overview(props: {
                   onClick={() => props.onNavigate("budget")}
                   class={cardLinkClass}
                 >
-                  <CardEyebrow>Budget</CardEyebrow>
+                  <Eyebrow>Budget</Eyebrow>
                   <Show
                     when={spentSoFarMemo() !== null}
                     fallback={<p class="text-text-muted text-ui-sm">Loading your budget…</p>}

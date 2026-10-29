@@ -1,6 +1,9 @@
 ---
 import { Font } from 'astro:assets'
 
+import { cardClass } from '@cire/ui/card'
+import { eyebrowClass } from '@cire/ui/eyebrow'
+
 import '../styles/global.css'
 import SignInPanel from '../components/SignInPanel'
 import { THEME_BOOT_SCRIPT } from '../lib/theme-boot'
@@ -26,14 +29,14 @@ import { THEME_BOOT_SCRIPT } from '../lib/theme-boot'
          sign-in card has one job and doesn't grow with the screen. -->
     <main class="page-frame py-24 [--page-max:30rem]">
       <header class="mb-8 flex flex-col gap-2 text-center">
-        <p class="font-body text-ui-xs uppercase tracking-ui-widest text-gold">
+        <p class={eyebrowClass()}>
           Cire · Host Dashboard
         </p>
         <h1 class="font-display text-[clamp(1.8rem,4vw,2.5rem)] font-light italic leading-ui-none text-text">
           Sign in
         </h1>
       </header>
-      <div class="rounded-ui-lg border border-border bg-surface p-8">
+      <div class={cardClass({ fill: 'opaque', padding: 'xl' })}>
         <SignInPanel client:only="solid-js" />
       </div>
     </main>

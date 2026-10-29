@@ -1,5 +1,6 @@
 /**
- * The portal's two field heights, and the height of a button beside a field.
+ * The portal's two field heights, the height of a button beside a field, and
+ * the card bar that holds a row of fields.
  *
  * A form field — any `Input` or `Select` that enters or edits a value, at
  * either size — is 34px, so the 14px field corner leaves a straight side and
@@ -18,6 +19,8 @@
  * stylesheet order.
  */
 
+import { cardClass } from "@cire/ui/card";
+
 /**
  * Give it to every `Input` and `Select` that enters or edits a value, before
  * any class of the call site's own. Height only: `shadcn/no-restyle` lets a
@@ -34,6 +37,13 @@ export const FORM_FIELD_CLASS = "h-8.5";
  * already; it takes the class too, so every filter carries one rule.
  */
 export const FILTER_FIELD_CLASS = "h-7";
+
+/**
+ * A bar of fields on a card, at the card's small step: an add form (an item, a
+ * task, a vendor, a gift) or a filter bar. The fields wrap in a row, aligned on
+ * their foot so a field with a hint and one without share a baseline.
+ */
+export const FIELD_BAR_CLASS = `${cardClass({ padding: "sm" })} flex-row flex-wrap items-end gap-3`;
 
 /**
  * Give it to a boxed `Button` (`primary`, `outline`, `quiet`, `danger`) in a row

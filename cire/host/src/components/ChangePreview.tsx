@@ -1,5 +1,6 @@
 import { ORGANISER_EMAIL_ATTESTATION } from "@cire/guest-email";
 import Button from "@cire/ui/button";
+import Eyebrow from "@cire/ui/eyebrow";
 import { Notice } from "@shared/ui/ui/notice";
 import { Table, Td, Th } from "@shared/ui/ui/table";
 import { createSignal, createUniqueId, For, Show } from "solid-js";
@@ -297,9 +298,7 @@ export default function ChangePreview(props: ChangePreviewProps) {
 
       <Show when={props.warnings.length > 0}>
         <div class="border-gold/30 bg-gold/6 flex flex-col gap-1.5 rounded-sm border p-3">
-          <p class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">
-            Before you apply
-          </p>
+          <Eyebrow>Before you apply</Eyebrow>
           {/* A real list with the platform's own markers, rather than a flex
               column with a `::before` glyph: a flex item is blockified and
               loses its `::marker`, and a bullet that is generated content is

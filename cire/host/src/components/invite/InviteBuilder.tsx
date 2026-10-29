@@ -39,6 +39,9 @@ import {
   typographyVars,
 } from "@cire/theme";
 import Button from "@cire/ui/button";
+import { cardClass } from "@cire/ui/card";
+import Disclosure from "@cire/ui/disclosure";
+import Eyebrow from "@cire/ui/eyebrow";
 import Loading from "@cire/ui/loading";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
@@ -68,7 +71,6 @@ import DesignPicker from "./DesignPicker";
 import FaqEditor from "./FaqEditor";
 import {
   ChoiceField,
-  Disclosure,
   FADED_LABEL,
   HiddenSectionIcon,
   isHiddenState,
@@ -112,6 +114,8 @@ import {
 import PreviewModal from "./PreviewModal";
 import PreviewPane, { type PreviewPaneProps } from "./PreviewPane";
 import { HeroPreview, SectionPreview } from "./previews";
+
+const BUILDER_CLASS = `${cardClass({ padding: "lg" })} @container/builder gap-8`;
 
 export { isDesignLocked } from "./model";
 
@@ -909,12 +913,9 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   return (
     // The ref measures the same box `@container/builder` does — see
     // `watchBuilderWidth`.
-    <section
-      ref={watchBuilderWidth}
-      class="border-border bg-surface/30 rounded-ui-lg @container/builder flex flex-col gap-8 border p-6"
-    >
+    <section ref={watchBuilderWidth} class={BUILDER_CLASS}>
       <header class="flex flex-col gap-1">
-        <p class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">Invite Builder</p>
+        <Eyebrow>Invite Builder</Eyebrow>
         <h2 class="font-display text-text text-ui-lg font-light">Customise your invite</h2>
         <p class="font-body text-text-muted text-ui-sm">
           Use the tabs below to move between sections of the guest invite, in the order guests see
@@ -1144,7 +1145,17 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                     />
                     {/* Most couples pick a preset and stop — the five fine
                       typography knobs stay one click away. */}
-                    <Disclosure summary="Fine-tune typography" hint="size, weight and italics">
+                    <Disclosure
+                      nested
+                      summary={
+                        <>
+                          Fine-tune typography
+                          <span class="text-text-muted/70 ml-2 italic">
+                            size, weight and italics
+                          </span>
+                        </>
+                      }
+                    >
                       <div class="auto-grid [--auto-grid-min:15rem]">
                         <ChoiceField
                           label="Heading size"
@@ -1248,34 +1259,49 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                       hint="Used behind the title panel and wherever the photo doesn't reach."
                       onChange={(v) => setDraft("tones", "hero", v)}
                     />
-                    <Disclosure summary="Hero display" hint="photo blur and the title panel">
-                      <SliderField
-                        label="Hero image blur"
-                        hint="0 is a sharp photo; higher is a softer, dreamier backdrop."
-                        min={HERO_BLUR_MIN}
-                        max={HERO_BLUR_MAX}
-                        value={draft.heroBlur}
-                        valueText={(v) => (v === 0 ? "0 — sharp photo" : `${v} — softer backdrop`)}
-                        onInput={(v) => setDraft("heroBlur", v)}
-                      />
-                      <SliderField
-                        label="Title backdrop opacity"
-                        hint="A panel behind the title so it reads over a busy photo. 0 is no panel."
-                        min={BACKDROP_OPACITY_MIN}
-                        max={BACKDROP_OPACITY_MAX}
-                        value={draft.titleBackdropOpacity}
-                        valueText={(v) => (v === 0 ? "0 — no panel" : `${v} percent opaque`)}
-                        onInput={(v) => setDraft("titleBackdropOpacity", v)}
-                      />
-                      <SliderField
-                        label="Title backdrop blur"
-                        hint="Frosts the photo behind the title panel (px)."
-                        min={BACKDROP_BLUR_MIN}
-                        max={BACKDROP_BLUR_MAX}
-                        value={draft.titleBackdropBlur}
-                        valueText={(v) => (v === 0 ? "0 — no frosting" : `${v} pixels of frost`)}
-                        onInput={(v) => setDraft("titleBackdropBlur", v)}
-                      />
+                    <Disclosure
+                      nested
+                      summary={
+                        <>
+                          Hero display
+                          <span class="text-text-muted/70 ml-2 italic">
+                            photo blur and the title panel
+                          </span>
+                        </>
+                      }
+                    >
+                      {/* The sliders keep the 16px rhythm the builder's fields use. */}
+                      <div class="flex flex-col gap-4">
+                        <SliderField
+                          label="Hero image blur"
+                          hint="0 is a sharp photo; higher is a softer, dreamier backdrop."
+                          min={HERO_BLUR_MIN}
+                          max={HERO_BLUR_MAX}
+                          value={draft.heroBlur}
+                          valueText={(v) =>
+                            v === 0 ? "0 — sharp photo" : `${v} — softer backdrop`
+                          }
+                          onInput={(v) => setDraft("heroBlur", v)}
+                        />
+                        <SliderField
+                          label="Title backdrop opacity"
+                          hint="A panel behind the title so it reads over a busy photo. 0 is no panel."
+                          min={BACKDROP_OPACITY_MIN}
+                          max={BACKDROP_OPACITY_MAX}
+                          value={draft.titleBackdropOpacity}
+                          valueText={(v) => (v === 0 ? "0 — no panel" : `${v} percent opaque`)}
+                          onInput={(v) => setDraft("titleBackdropOpacity", v)}
+                        />
+                        <SliderField
+                          label="Title backdrop blur"
+                          hint="Frosts the photo behind the title panel (px)."
+                          min={BACKDROP_BLUR_MIN}
+                          max={BACKDROP_BLUR_MAX}
+                          value={draft.titleBackdropBlur}
+                          valueText={(v) => (v === 0 ? "0 — no frosting" : `${v} pixels of frost`)}
+                          onInput={(v) => setDraft("titleBackdropBlur", v)}
+                        />
+                      </div>
                     </Disclosure>
                   </SectionCard>
 

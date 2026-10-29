@@ -1,4 +1,5 @@
 import Button from "@cire/ui/button";
+import Eyebrow from "@cire/ui/eyebrow";
 import { Modal } from "@shared/ui/ui/modal";
 import { Notice } from "@shared/ui/ui/notice";
 import Cropper from "cropperjs";
@@ -397,7 +398,7 @@ export default function ImageCropModal(props: ImageCropModalProps) {
       class="flex max-h-[90vh] w-full max-w-2xl flex-col gap-4 overflow-auto"
     >
       <header class="flex flex-col gap-1">
-        <p class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">Crop</p>
+        <Eyebrow>Crop</Eyebrow>
         <h3 class="font-display text-text text-ui-lg font-light">Choose what guests see</h3>
         <p class="font-body text-text-muted text-ui-sm">
           Drag to pan, drag a corner to zoom. Pick a shape below — guests see exactly this frame,

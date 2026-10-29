@@ -1023,29 +1023,6 @@
   }
 }
 
-/* ── A disclosure opening ───────────────────────────────────────────────────
- * A `<details>` body fades and drops into place as it opens, so the rows that
- * appear read as the summary's own. It closes at once: a fading body would
- * leave its controls focusable in a box that is going away.
- *
- * Inside `no-preference` rather than undone by the reduced-motion block: that
- * block selects `*`, which no pseudo-element matches, so it never reaches
- * `::details-content`. An engine with no `::details-content` drops the rule
- * and opens the body at once.
- */
-@keyframes details-in {
-  from {
-    opacity: 0;
-    translate: 0 -4px;
-  }
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  details[open]::details-content {
-    animation: details-in var(--dur-base) var(--ease-out);
-  }
-}
-
 /* ── The invite builder's section menu: in and out with no script ───────────
  * Below `@3xl/builder` the section tablist is a menu dropped under its
  * trigger, open while it carries `data-open` and `display: none` otherwise.

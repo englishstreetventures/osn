@@ -14,6 +14,7 @@
 
 import type { SectionState } from "@cire/theme";
 import Button from "@cire/ui/button";
+import Eyebrow from "@cire/ui/eyebrow";
 import { Input } from "@shared/ui/ui/input";
 import { Select } from "@shared/ui/ui/select";
 import { Textarea } from "@shared/ui/ui/textarea";
@@ -362,8 +363,12 @@ export function SectionCard(props: {
       aria-labelledby={`${props.id}-tab`}
       class="border-border flex flex-col gap-4 rounded-sm border p-4"
     >
-      <legend class="font-body text-gold-dim text-ui-xs tracking-ui-wider px-2 uppercase">
-        {props.legend}
+      {/* The legend's side padding opens the gap in the fieldset's border; the
+          label inside it is the eyebrow. */}
+      <legend class="px-2">
+        <Eyebrow as="span" tone="muted">
+          {props.legend}
+        </Eyebrow>
       </legend>
       <Show when={props.visibility !== undefined || props.onReset}>
         <div class="flex flex-wrap items-center justify-between gap-3">
@@ -402,24 +407,5 @@ export function SectionCard(props: {
       </Show>
       {props.children}
     </fieldset>
-  );
-}
-
-/**
- * A native-`details` progressive disclosure for secondary controls (the hero
- * display sliders, the fine typography options) — the happy path stays light
- * and the knobs remain one click away. Free keyboard + SR semantics.
- */
-export function Disclosure(props: { summary: string; hint?: string; children: JSX.Element }) {
-  return (
-    <details class="border-border rounded-sm border">
-      <summary class="font-body text-text-muted hover:text-text text-ui-sm cursor-pointer px-3 py-2 select-none">
-        {props.summary}
-        <Show when={props.hint}>
-          <span class="text-text-muted/70 ml-2 italic">{props.hint}</span>
-        </Show>
-      </summary>
-      <div class="flex flex-col gap-4 px-3 pt-1 pb-3">{props.children}</div>
-    </details>
   );
 }

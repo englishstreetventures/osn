@@ -1,4 +1,6 @@
 import Button from "@cire/ui/button";
+import { cardClass } from "@cire/ui/card";
+import Eyebrow from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
 import { Modal } from "@shared/ui/ui/modal";
@@ -10,6 +12,8 @@ import { TIMEFRAME_BUCKETS } from "../lib/checklist-buckets";
 import { haptic } from "../lib/haptics";
 import { toLocalDateKey } from "../lib/overview-agenda";
 import { readTaskRow, setFreshTasks, type TaskWire } from "../lib/tasks-store";
+
+const STARTER_CLASS = `${cardClass({ padding: "sm" })} items-start`;
 
 /** One template item as `GET …/tasks/templates/:id` previews it. */
 interface PreviewItem {
@@ -182,7 +186,7 @@ export default function ChecklistStarter(props: ChecklistStarterProps) {
             </Button>
           }
         >
-          <section class="border-border bg-surface/20 rounded-ui-lg flex flex-col items-start gap-3 border p-4">
+          <section class={STARTER_CLASS}>
             <h3 class="font-display text-text text-ui-md font-light">
               Start from a suggested checklist
             </h3>
@@ -242,9 +246,9 @@ export default function ChecklistStarter(props: ChecklistStarterProps) {
                   <For each={groups()}>
                     {(group) => (
                       <section class="flex flex-col gap-1">
-                        <h3 class="text-gold-dim font-body text-ui-xs tracking-ui-widest uppercase">
+                        <Eyebrow as="h3" tone="muted">
                           {group.label}
-                        </h3>
+                        </Eyebrow>
                         <ul class="flex flex-col">
                           <For each={group.items}>{row}</For>
                         </ul>
@@ -254,9 +258,9 @@ export default function ChecklistStarter(props: ChecklistStarterProps) {
                 </Show>
                 <Show when={removed().length > 0}>
                   <section class="flex flex-col gap-1">
-                    <h3 class="text-gold-dim font-body text-ui-xs tracking-ui-widest uppercase">
+                    <Eyebrow as="h3" tone="muted">
                       You removed these earlier
-                    </h3>
+                    </Eyebrow>
                     <ul class="flex flex-col">
                       <For each={removed()}>{row}</For>
                     </ul>
