@@ -497,9 +497,6 @@ const CHIP_TODAY =
 
 const CHIP_TONE_TODAY = {
   neutral: "base:bg-ui-surface/60 base:text-ui-ink-secondary",
-  success: "base:bg-ui-success/12 base:text-ui-success",
-  pending: "base:bg-ui-warn/12 base:text-ui-warn",
-  accent: "base:bg-ui-accent-soft base:text-ui-accent-ink",
 } as const;
 
 /** The apps' hand-written sentence-case tags, in the contract's names. */
@@ -513,19 +510,16 @@ const TAG_TODAY = {
 const CHIP_TONES = ["neutral", "success", "pending", "accent", "danger"] as const;
 
 describe("Chip variants, treatments and the danger tone", () => {
-  it.each(["neutral", "success", "pending", "accent"] as const)(
-    "draws the %s chip it always has when given no variant or treatment",
-    (tone) => {
-      const chip = inRow(() => <Chip tone={tone}>quoted</Chip>);
-      const now = chipLook(chip.el);
-      chip.unmount();
-      const today = inRow(() => (
-        <span class={`${CHIP_TODAY} ${CHIP_TONE_TODAY[tone]}`}>quoted</span>
-      ));
-      expect(now).toEqual(chipLook(today.el));
-      today.unmount();
-    },
-  );
+  it("draws the neutral chip it always has when given no variant or treatment", () => {
+    const chip = inRow(() => <Chip>draft</Chip>);
+    const now = chipLook(chip.el);
+    chip.unmount();
+    const today = inRow(() => (
+      <span class={`${CHIP_TODAY} ${CHIP_TONE_TODAY.neutral}`}>draft</span>
+    ));
+    expect(now).toEqual(chipLook(today.el));
+    today.unmount();
+  });
 
   it.each(["neutral", "danger"] as const)(
     "draws the %s tag as the apps' hand-written tags drew it",

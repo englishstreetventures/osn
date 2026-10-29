@@ -5,38 +5,29 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Chip } from "../../src/ui/chip";
 
 /**
- * `Chip` gaining variants must not move the chips the portals already draw, so
- * this reads the default class list by name, as `notice.test.tsx` does: a
- * different string is a different chip. The browser tier
- * (`primitives.browser.test.tsx`) checks the same default by its computed look.
+ * `Chip` gaining variants must not move the neutral chip the portals already
+ * draw, so this reads its default class list by name, as `notice.test.tsx`
+ * does. The other filled tones moved on purpose — to an 8% tint, so their words
+ * clear 4.5:1 on cire's pale theme (owner, englishstreetventures/osn#1836) —
+ * and `cire/host`'s `chip-contrast.browser.test.tsx` holds what they paint.
  */
 
 afterEach(cleanup);
 
-const BASE =
+const TODAY =
   "base:font-ui-body base:inline-flex base:shrink-0 base:items-center base:rounded-ui-pill " +
-  "base:px-2.5 base:py-0.5 base:text-ui-xs base:tracking-ui-wider base:whitespace-nowrap base:uppercase";
-
-/** Each tone's classes as they were before `Chip` had variants. */
-const TODAY = {
-  neutral: `${BASE} base:bg-ui-surface/60 base:text-ui-ink-secondary`,
-  success: `${BASE} base:bg-ui-success/12 base:text-ui-success`,
-  pending: `${BASE} base:bg-ui-warn/12 base:text-ui-warn`,
-  accent: `${BASE} base:bg-ui-accent-soft base:text-ui-accent-ink`,
-} as const;
+  "base:px-2.5 base:py-0.5 base:text-ui-xs base:tracking-ui-wider base:whitespace-nowrap base:uppercase " +
+  "base:bg-ui-surface/60 base:text-ui-ink-secondary";
 
 describe("Chip's default", () => {
-  it.each(["neutral", "success", "pending", "accent"] as const)(
-    "renders the %s classes it rendered before",
-    (tone) => {
-      const { container } = render(() => <Chip tone={tone}>live</Chip>);
-      expect(container.firstElementChild?.getAttribute("class")).toBe(TODAY[tone]);
-    },
-  );
+  it("renders the neutral classes it rendered before", () => {
+    const { container } = render(() => <Chip>draft</Chip>);
+    expect(container.firstElementChild?.getAttribute("class")).toBe(TODAY);
+  });
 
-  it("is `neutral` with no tone, and appends a caller's class last", () => {
+  it("appends a caller's class last", () => {
     const { container } = render(() => <Chip class="mt-1">draft</Chip>);
-    expect(container.firstElementChild?.getAttribute("class")).toBe(`${TODAY.neutral} mt-1`);
+    expect(container.firstElementChild?.getAttribute("class")).toBe(`${TODAY} mt-1`);
   });
 });
 
