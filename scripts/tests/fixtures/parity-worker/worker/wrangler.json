@@ -1,0 +1,10 @@
+{
+  "name": "guest-route-parity-fixture",
+  "main": "index.js",
+  "compatibility_date": "2026-09-01",
+  "assets": { "directory": "public" },
+  "vars": {
+    "API_ORIGIN": "http://127.0.0.1:1",
+    "OTHER_ORIGIN": "http://127.0.0.1:2"
+  }
+}

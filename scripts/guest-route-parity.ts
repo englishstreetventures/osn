@@ -9,40 +9,61 @@
  * stack. The build stays the same; what changes is how its modules, assets,
  * `_headers` and asset routing reach Cloudflare. This asks the dev guest host
  * (the stack's real upload of the build in `cire/invites/dist`) and
- * `wrangler dev` of that same build's generated config for every probe, and
- * compares what they answer: the status, the headers in COMPARED_HEADERS and,
- * for a page, its landmarks (title, language, robots, canonical and og:url,
- * h1s, scripts, stylesheets, islands); for any other body, its SHA-256.
+ * Wrangler's local runtime serving that same build's generated config for
+ * every probe, and compares what they answer: the status, the headers in
+ * COMPARED_HEADERS and, for a page, its landmarks (title, language, robots,
+ * canonical and og:url, h1s, scripts, stylesheets, islands); for any other
+ * body, its SHA-256.
  *
  * It refuses — exit 1, nothing compared as a match — when the build's own
- * route manifest holds a route no probe reaches, when Cloudflare answers in
- * the Worker's place on the dev host (`judge()` in smoke-check.ts calls it
- * `blocked`), and when the seeded wedding (`cire/db/seed/dev-seed.sql`) does
- * not render on either side: an invitation that never renders would match
- * itself everywhere and prove nothing. A probe that differs is asked once
- * more on both sides, and only a difference that holds is reported, so a
+ * route manifest holds a route no probe reaches, when the build does not call
+ * PARITY_API_ORIGIN, when Cloudflare answers in the Worker's place on the dev
+ * host (`judge()` in smoke-check.ts calls it `blocked`), when the seeded
+ * wedding (`cire/db/seed/dev-seed.sql`) does not render on either side, when
+ * the seeded probes ran and no call of the Wrangler side's Worker reached
+ * cire-api, and when one of those calls did not get the answer cire-api gives
+ * its probe (`expectedApiStatus()`): an invitation that never renders would
+ * match itself everywhere and prove nothing. A probe that differs is asked
+ * once more on both sides, and only a difference that holds is reported, so a
  * one-off blip in cire-api does not fail the run.
  *
- * Wrangler runs locally only: `wrangler dev` with `--local-upstream` so the
- * Worker sees its own origin, state and home in a temporary directory, no
- * `.env` file loaded, no Cloudflare credential and no Access token in its
- * environment, and telemetry off. Its one write under the build,
- * `dist/server/.wrangler`, is removed on exit.
+ * Wrangler runs locally only, on Node, started by
+ * scripts/guest-route-parity-reference.js through `unstable_startWorker`: the
+ * Worker sees its own origin, its state and home are in a temporary
+ * directory, no `.env` file is loaded, there is no Cloudflare credential and
+ * no Access token in its environment, and telemetry is off. Its one write
+ * under the build, `dist/server/.wrangler`, is removed on exit.
+ *
+ * Every call that Worker makes to PARITY_API_ORIGIN goes through a relay in
+ * this process, on loopback, which sends it on with CI_USER_AGENT in place of
+ * the Worker's user agent and records the answer; calls to any other origin
+ * go out from the child unchanged. The relay serves only requests carrying
+ * the run's random token, and never adds the Access token. The report's
+ * `cireApi` holds every relayed call, whether the Worker's own request carried
+ * a user agent, and a control pair: the seeded wedding asked of cire-api from
+ * this process once with Bun's own user agent and once with CI_USER_AGENT,
+ * which shows what the runner meets and never fails the run.
  *
  * Usage, from the repository root, after building cire/invites for the host:
  *
  *   PARITY_ORIGIN=https://invite.cire.<DEV_DOMAIN> \
+ *   PARITY_API_ORIGIN=https://api.cire.<DEV_DOMAIN> \
  *     bun run scripts/guest-route-parity.ts --out <report.json>
  *
  * Environment:
  *   PARITY_ORIGIN       the guest site's origin on the tier the stack deployed:
  *                       https, or http on a loopback host; no path.
+ *   PARITY_API_ORIGIN   the cire-api origin the build calls (its
+ *                       PUBLIC_API_URL): https, or http on a loopback host;
+ *                       no path.
  *   CF_ACCESS_CLIENT_ID, CF_ACCESS_CLIENT_SECRET
  *                       the Access service token, both or neither, sent only to
  *                       PARITY_ORIGIN.
  *
- * Every request to PARITY_ORIGIN carries smoke-check's CI_USER_AGENT:
- * Cloudflare's Bot Fight Mode challenges Bun's own from a GitHub runner.
+ * Every request this process sends to PARITY_ORIGIN and PARITY_API_ORIGIN
+ * carries smoke-check's CI_USER_AGENT, the control pair's first request
+ * aside: Cloudflare's Bot Fight Mode challenges Bun's own from a GitHub
+ * runner.
  *
  * The report (`--out`) is the same for the same answers: sorted keys, no
  * port, no time, each side's own origin stripped from every value.
@@ -52,7 +73,7 @@
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -66,9 +87,10 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, sep } from "node:path";
 
+import { RELAY_TOKEN_HEADER, WORKER_UA_HEADER } from "./guest-route-parity-reference.js";
 import { CI_USER_AGENT, judge } from "./smoke-check";
 
-/** Where a run finds the guest site under a repository root. */
+/** Where a run finds the guest site, and the reference child, under a repository root. */
 const pathsUnder = (root: string) => {
   const invites = join(root, "cire", "invites");
   return {
@@ -77,7 +99,7 @@ const pathsUnder = (root: string) => {
     client: join(invites, "dist", "client"),
     pages: join(invites, "src", "pages"),
     public: join(invites, "public"),
-    wrangler: join(invites, "node_modules", ".bin", "wrangler"),
+    child: join(root, "scripts", "guest-route-parity-reference.js"),
   };
 };
 
@@ -94,6 +116,30 @@ export const SEEDED_PROBES: readonly string[] = [
   `/cire/invite?slug=${GUEST_SEED.slug}`,
   `/cire/registry?slug=${GUEST_SEED.slug}`,
 ];
+
+/**
+ * The probes the slug route answers with a slug no wedding has: the unknown
+ * slug, and the files `.assetsignore` keeps out of the upload, which fall
+ * through to the route.
+ */
+export const UNKNOWN_SLUG_PROBES: readonly string[] = [
+  `/${UNKNOWN_SLUG}`,
+  "/wrangler.json",
+  "/.dev.vars",
+  "/.assetsignore",
+];
+
+/**
+ * What cire-api answers each probe's page when the seed is in place: the
+ * seeded wedding, and a 404 for a slug no wedding has
+ * (cire/api/src/routes/invite.ts). Both routes need no auth, no `Origin` and
+ * carry no rate limit.
+ */
+export function expectedApiStatus(probe: string): number | undefined {
+  if (SEEDED_PROBES.includes(probe)) return 200;
+  if (UNKNOWN_SLUG_PROBES.includes(probe)) return 404;
+  return undefined;
+}
 
 /** The headers compared on every probe: what the Worker, `_headers` and the asset layer set. */
 export const COMPARED_HEADERS: readonly string[] = [
@@ -150,6 +196,14 @@ export const EMULATION_ALLOWANCES: readonly EmulationAllowance[] = [
     edgeValue: "text/javascript",
     reason: CHARSET_DROPPED,
   },
+  {
+    header: "content-type",
+    paths: /\.txt$/,
+    localValue: "text/plain; charset=utf-8",
+    edgeValue: "text/plain",
+    reason:
+      "Cloudflare's edge serves this static file type without the charset Wrangler's local asset server adds (production's guest site, a Wrangler upload, 2026-10-29)",
+  },
 ];
 
 /** What a page shows, compared in place of its full markup. */
@@ -183,11 +237,45 @@ export interface ProbeResult {
   readonly allowed: readonly string[];
 }
 
+/** One call the Wrangler side's Worker made to cire-api, as the relay sent it on. */
+export interface RelayedCall {
+  readonly method: string;
+  /** The path and query, without the origin. */
+  readonly path: string;
+  /** cire-api's status; absent when it gave no answer. */
+  readonly status?: number;
+  /** Why Cloudflare answered in cire-api's place, when it did. */
+  readonly blocked?: string;
+  /** Why there was no answer, loopback ports removed. */
+  readonly error?: string;
+  /** Whether the Worker's own request carried a user agent before the relay set CI_USER_AGENT. */
+  readonly workerUserAgent: "present" | "absent";
+}
+
+/** A relayed call, with the probe it was made for and the status cire-api should have given it. */
+export interface RelayedRecord extends RelayedCall {
+  readonly probe: string;
+  readonly expected?: number;
+}
+
+/** One of the control pair: the seeded wedding asked of cire-api from this process. */
+export interface ControlCall {
+  /** `Bun's own`, or the user agent sent. */
+  readonly userAgent: string;
+  readonly status?: number;
+  readonly blocked?: string;
+  readonly error?: string;
+}
+
 export interface Report {
   readonly alchemy: string;
   readonly reference: string;
   readonly routes: readonly string[];
   readonly probes: readonly ProbeResult[];
+  readonly cireApi: {
+    readonly control: readonly ControlCall[];
+    readonly relayed: readonly RelayedRecord[];
+  };
   readonly refusals: readonly string[];
   readonly result: "match" | "differ" | "refused";
 }
@@ -258,35 +346,95 @@ export function uncoveredRoutes(
   return routes.filter((route) => !reached.has(route));
 }
 
-/** The first file under `clientDir/_astro` with each extension, by name. */
-function firstAsset(clientDir: string, extension: string): string[] {
-  const found = filesUnder(join(clientDir, "_astro")).find((file) => file.endsWith(extension));
-  return found === undefined ? [] : [`/_astro/${found}`];
+/** The files of a build's asset directory the upload reads and never serves. */
+const PLATFORM_FILES: ReadonlySet<string> = new Set(["_headers", "_redirects", ".assetsignore"]);
+
+/**
+ * Whether `.assetsignore` under `clientDir` keeps a file out of the upload,
+ * read as gitignore patterns: `*`, `**` and `?`; a trailing `/` for a
+ * directory; a leading or inner `/` anchoring the pattern to the directory.
+ * A `!` line is skipped, so a file it would bring back stays out.
+ */
+function assetsIgnored(clientDir: string): (file: string) => boolean {
+  const at = join(clientDir, ".assetsignore");
+  const lines = existsSync(at) ? readFileSync(at, "utf8").split("\n") : [];
+  const patterns = lines
+    .map((line) => line.trim())
+    .filter((line) => line !== "" && !line.startsWith("#") && !line.startsWith("!"))
+    .map((line) => {
+      const body = line.replace(/^\/+/, "").replace(/\/+$/, "");
+      const anchored = line.startsWith("/") || body.includes("/");
+      const glob = body
+        .split(/(\*\*|\*|\?)/)
+        .map((part) =>
+          part === "**"
+            ? ".*"
+            : part === "*"
+              ? "[^/]*"
+              : part === "?"
+                ? "[^/]"
+                : part.replaceAll(/[.+^${}()|[\]\\]/g, "\\$&"),
+        )
+        .join("");
+      return new RegExp(anchored ? `^${glob}$` : `(^|/)${glob}$`);
+    });
+  return (file) => {
+    const parts = file.split("/");
+    return parts.some((_, i) => {
+      const prefix = parts.slice(0, i + 1).join("/");
+      return patterns.some((pattern) => pattern.test(prefix));
+    });
+  };
 }
 
-/** Every path the comparison asks both sides for. */
+/** What the asset layer picks a file's content type by: its name after the last dot, if any. */
+function extensionOf(file: string): string {
+  const name = file.slice(file.lastIndexOf("/") + 1);
+  const dot = name.lastIndexOf(".");
+  return dot <= 0 ? "" : name.slice(dot + 1).toLowerCase();
+}
+
+/**
+ * The first file under `clientDir` of each extension, by name, so every
+ * content type the build's uploads carry is asked once. Never the platform's
+ * own files or one `.assetsignore` keeps out: probePaths() asks those by name.
+ */
+export function assetProbes(clientDir: string): readonly string[] {
+  const ignored = assetsIgnored(clientDir);
+  const seen = new Set<string>();
+  const picked: string[] = [];
+  for (const file of filesUnder(clientDir)) {
+    const extension = extensionOf(file);
+    if (PLATFORM_FILES.has(file) || ignored(file) || seen.has(extension)) continue;
+    seen.add(extension);
+    picked.push(`/${file}`);
+  }
+  return picked;
+}
+
+/** Every path the comparison asks both sides for, each once. */
 export function probePaths(clientDir: string, publicDir: string): readonly string[] {
   return [
-    "/",
-    ...SEEDED_PROBES,
-    "/cire/invite",
-    "/cire/registry",
-    `/${UNKNOWN_SLUG}`,
-    "/privacy",
-    "/privacy/",
-    "/privacy/index.html",
-    "/terms",
-    "/terms/",
-    "/_image",
-    "/_server-islands/route-parity-missing",
-    ...filesUnder(publicDir).map((file) => `/${file}`),
-    "/wrangler.json",
-    "/.dev.vars",
-    "/.assetsignore",
-    "/_astro/route-parity-missing.js",
-    ...firstAsset(clientDir, ".js"),
-    ...firstAsset(clientDir, ".css"),
-    ...firstAsset(clientDir, ".woff2"),
+    ...new Set([
+      "/",
+      ...SEEDED_PROBES,
+      "/cire/invite",
+      "/cire/registry",
+      `/${UNKNOWN_SLUG}`,
+      "/privacy",
+      "/privacy/",
+      "/privacy/index.html",
+      "/terms",
+      "/terms/",
+      "/_image",
+      "/_server-islands/route-parity-missing",
+      ...filesUnder(publicDir).map((file) => `/${file}`),
+      "/wrangler.json",
+      "/.dev.vars",
+      "/.assetsignore",
+      "/_astro/route-parity-missing.js",
+      ...assetProbes(clientDir),
+    ]),
   ];
 }
 
@@ -431,9 +579,18 @@ export async function observe(response: Response, ownOrigin: string): Promise<Ob
   };
 }
 
-/** Why Cloudflare answered in the Worker's place on the dev host, or undefined when the Worker answered. */
-export function blockedReason(url: string, response: Response, body: string): string | undefined {
-  const outcome = judge({ url, expects: { kind: "page" } }, response, body, true);
+/**
+ * Why Cloudflare answered in the Worker's place, or undefined when the Worker
+ * answered. `access` marks a host behind Cloudflare Access, as the dev guest
+ * host is and cire-api is not.
+ */
+export function blockedReason(
+  url: string,
+  response: Response,
+  body: string,
+  access = true,
+): string | undefined {
+  const outcome = judge({ url, expects: { kind: "page" } }, response, body, access);
   return outcome.kind === "blocked" ? outcome.reason : undefined;
 }
 
@@ -444,6 +601,203 @@ export function seedRendered(observation: Observation | undefined): boolean {
     observation.body.kind === "html" &&
     observation.body.landmarks.title.includes(GUEST_SEED.heroTitle)
   );
+}
+
+// ── the relay to cire-api ──────────────────────────────────────────────────
+
+/** A function shaped like `fetch`, for the relay's requests to cire-api. */
+export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
+
+/** The headers that belong to one connection and are never passed on. */
+const HOP_BY_HOP = ["connection", "keep-alive", "transfer-encoding"] as const;
+
+/** The statuses whose response carries no body. */
+const NULL_BODY: ReadonlySet<number> = new Set([101, 204, 205, 304]);
+
+/** `text` with every loopback port removed, so a report names no port of this run. */
+const withoutLoopbackPorts = (text: string): string =>
+  text.replaceAll(/(127\.0\.0\.1|localhost|\[::1\]):\d+/g, "$1");
+
+const messageOf = (error: unknown): string =>
+  (error instanceof Error ? error.message : String(error)).split("\n")[0] ?? "";
+
+/**
+ * Sends one call the Wrangler side's Worker made to cire-api on to
+ * `apiOrigin`, the path and query kept, and records what cire-api answered.
+ * The call goes out with CI_USER_AGENT in place of any user agent the Worker
+ * set, and without the child's two headers, `CF-Worker` (which would name a
+ * loopback host) or the Worker's `Host`; a body goes as bytes, so the request
+ * never carries both a length and chunked framing. A redirect is handed back,
+ * not followed. The answer reaches the Worker decoded, so it carries no
+ * `content-encoding`, no `content-length` and no hop-by-hop header. No answer
+ * is a 502 to the Worker, tried once.
+ */
+export async function relayRequest(
+  request: Request,
+  apiOrigin: string,
+  fetchImpl: FetchLike,
+  record: (call: RelayedCall) => void,
+): Promise<Response> {
+  const url = new URL(request.url);
+  const path = `${url.pathname}${url.search}`;
+  const target = `${apiOrigin}${path}`;
+  const { method } = request;
+  const workerUserAgent =
+    request.headers.get(WORKER_UA_HEADER) === "present" ? "present" : "absent";
+  const headers = new Headers(request.headers);
+  for (const name of [
+    WORKER_UA_HEADER,
+    RELAY_TOKEN_HEADER,
+    "cf-worker",
+    "host",
+    "content-length",
+    ...HOP_BY_HOP,
+  ]) {
+    headers.delete(name);
+  }
+  headers.set("user-agent", CI_USER_AGENT);
+  let response: Response;
+  let bytes: ArrayBuffer;
+  try {
+    const body = method === "GET" || method === "HEAD" ? undefined : await request.arrayBuffer();
+    response = await fetchImpl(target, {
+      method,
+      headers,
+      body,
+      redirect: "manual",
+      signal: AbortSignal.timeout(REQUEST_MS),
+    });
+    bytes = await response.arrayBuffer();
+  } catch (error) {
+    record({ method, path, error: withoutLoopbackPorts(messageOf(error)), workerUserAgent });
+    return new Response("cire-api gave the relay no answer", {
+      status: 502,
+      headers: { "content-type": "text/plain" },
+    });
+  }
+  record({
+    method,
+    path,
+    status: response.status,
+    blocked: blockedReason(target, response, "", false),
+    workerUserAgent,
+  });
+  const back = new Headers(response.headers);
+  for (const name of ["content-encoding", "content-length", ...HOP_BY_HOP]) back.delete(name);
+  return new Response(NULL_BODY.has(response.status) ? null : bytes, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: back,
+  });
+}
+
+/** Whether `given` is the run's relay token, compared in constant time. */
+function isToken(given: string | null, token: string): boolean {
+  if (given === null) return false;
+  const a = Buffer.from(given);
+  const b = Buffer.from(token);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+/** A running relay: the loopback port it listens on, and how to stop it. */
+export interface Relay {
+  readonly port: number;
+  readonly stop: () => void;
+}
+
+/**
+ * The relay, on a loopback port of its own: each request carrying `token` in
+ * RELAY_TOKEN_HEADER goes to relayRequest(), any other is refused 403 and
+ * sends nothing on, so no other process on the runner can use it.
+ */
+export function startRelay(
+  apiOrigin: string,
+  token: string,
+  fetchImpl: FetchLike,
+  record: (call: RelayedCall) => void,
+): Relay {
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    // Above REQUEST_MS, so a call cire-api is still answering is never cut.
+    idleTimeout: 30,
+    fetch: (request) =>
+      isToken(request.headers.get(RELAY_TOKEN_HEADER), token)
+        ? relayRequest(request, apiOrigin, fetchImpl, record)
+        : new Response("not the run's relay token", {
+            status: 403,
+            headers: { "content-type": "text/plain" },
+          }),
+  });
+  return { port: server.port ?? 0, stop: () => void server.stop(true) };
+}
+
+/** One refusal for each relayed call whose answer was not the one cire-api gives its probe. */
+export function relayRefusals(relayed: readonly RelayedRecord[]): readonly string[] {
+  return relayed.flatMap((call) => {
+    if (call.expected === undefined || call.status === call.expected) return [];
+    if (call.error !== undefined) {
+      return [
+        `${call.probe}: cire-api gave the Wrangler side's ${call.method} ${call.path} no answer (${call.error}); expected ${call.expected}.`,
+      ];
+    }
+    const blocked = call.blocked === undefined ? "" : ` (${call.blocked})`;
+    return [
+      `${call.probe}: cire-api answered the Wrangler side ${call.status}${blocked} for ${call.method} ${call.path}; expected ${call.expected}.`,
+    ];
+  });
+}
+
+/** What cire-api answered the relay for `probe`, for the seeded refusal. */
+function relayedAnswers(relayed: readonly RelayedRecord[], probe: string): string {
+  const answers = relayed
+    .filter((call) => call.probe === probe)
+    .map((call) =>
+      call.error === undefined
+        ? `${call.status}${call.blocked === undefined ? "" : ` (${call.blocked})`}`
+        : `no answer (${call.error})`,
+    );
+  return answers.length === 0 ? "no call" : answers.join(", ");
+}
+
+/**
+ * The control pair: the seeded wedding asked of cire-api from this process,
+ * once with Bun's own user agent and once with CI_USER_AGENT. It shows what
+ * the runner meets, and never fails the run.
+ */
+async function controlPair(apiOrigin: string, deadline: number): Promise<ControlCall[]> {
+  const url = `${apiOrigin}/api/invite/${GUEST_SEED.slug}`;
+  const one = async (
+    userAgent: string,
+    headers: Readonly<Record<string, string>>,
+  ): Promise<ControlCall> => {
+    try {
+      const response = await fetch(url, {
+        redirect: "manual",
+        headers,
+        signal: AbortSignal.timeout(Math.min(REQUEST_MS, remaining(deadline))),
+      });
+      await response.arrayBuffer();
+      return {
+        userAgent,
+        status: response.status,
+        blocked: blockedReason(url, response, "", false),
+      };
+    } catch (error) {
+      return { userAgent, error: withoutLoopbackPorts(messageOf(error)) };
+    }
+  };
+  // One after the other: cire-api sees two requests, not a burst.
+  const own = await one("Bun's own", {});
+  const ci = await one(CI_USER_AGENT, { "user-agent": CI_USER_AGENT });
+  return [own, ci];
+}
+
+/** Whether the build's server output calls `apiOrigin`: the Worker's cire-api origin is a literal in it. */
+function buildCalls(serverDir: string, apiOrigin: string): boolean {
+  return filesUnder(serverDir)
+    .filter((file) => /\.m?js$/.test(file))
+    .some((file) => readFileSync(join(serverDir, file), "utf8").includes(apiOrigin));
 }
 
 // ── comparing ──────────────────────────────────────────────────────────────
@@ -529,7 +883,7 @@ export function renderReport(report: Report): string {
   return `${json}\n`;
 }
 
-/** The environment `wrangler dev` runs with. */
+/** The environment the reference child, and the Wrangler it starts, run with. */
 export type ReferenceEnv = {
   readonly PATH?: string;
   readonly TMPDIR?: string;
@@ -537,16 +891,20 @@ export type ReferenceEnv = {
   readonly XDG_CONFIG_HOME: string;
   readonly DO_NOT_TRACK: "1";
   readonly WRANGLER_SEND_METRICS: "false";
+  /** The run's relay token: the relay serves no request without it. Not a Cloudflare credential. */
+  readonly PARITY_RELAY_TOKEN: string;
 };
 
 /**
- * What `wrangler dev` needs to start, telemetry off, and nothing else from
- * `env`. Its home is `home`, an empty directory of the run's own, so it finds
- * no `wrangler login` token or other configuration there either.
+ * What the reference needs to start, telemetry off, the run's relay token,
+ * and nothing else from `env`. Its home is `home`, an empty directory of the
+ * run's own, so it finds no `wrangler login` token or other configuration
+ * there either.
  */
 export function referenceEnv(
   env: Readonly<Record<string, string | undefined>>,
   home: string,
+  relayToken: string,
 ): ReferenceEnv {
   const kept = (name: "PATH" | "TMPDIR") => {
     const value = env[name];
@@ -559,6 +917,7 @@ export function referenceEnv(
     XDG_CONFIG_HOME: home,
     DO_NOT_TRACK: "1",
     WRANGLER_SEND_METRICS: "false",
+    PARITY_RELAY_TOKEN: relayToken,
   };
 }
 
@@ -570,7 +929,7 @@ export interface RunContext {
   readonly root: string;
   /** The run's whole budget. */
   readonly deadlineMs: number;
-  /** How long `wrangler dev` has to serve the build. */
+  /** How long the reference has to serve the build. */
   readonly readyMs: number;
 }
 
@@ -587,11 +946,36 @@ class UsageError extends Error {}
 
 export interface Options {
   readonly origin: string;
+  /** The cire-api origin the build calls; the relay sends the Wrangler side's calls there. */
+  readonly apiOrigin: string;
   readonly access: Readonly<Record<string, string>>;
   readonly out: string;
 }
 
 const LOOPBACK = new Set(["127.0.0.1", "localhost", "[::1]"]);
+
+/** `env[name]` as an origin: https, or http on a loopback host, with nothing after the host. */
+function originFrom(
+  env: Readonly<Record<string, string | undefined>>,
+  name: "PARITY_ORIGIN" | "PARITY_API_ORIGIN",
+  what: string,
+): string {
+  const raw = env[name] ?? "";
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new UsageError(`${name} must be ${what}; got '${raw}'.`);
+  }
+  const secure =
+    url.protocol === "https:" || (url.protocol === "http:" && LOOPBACK.has(url.hostname));
+  if (!secure || url.origin !== raw) {
+    throw new UsageError(
+      `${name} must be an https origin (http only on a loopback host) with nothing after the host; got '${raw}'.`,
+    );
+  }
+  return url.origin;
+}
 
 function parse(
   args: readonly string[],
@@ -603,20 +987,8 @@ function parse(
   if (out === undefined || out === "" || args.length !== 2) {
     throw new UsageError("usage: guest-route-parity.ts --out <report.json>");
   }
-  const raw = env.PARITY_ORIGIN ?? "";
-  let url: URL;
-  try {
-    url = new URL(raw);
-  } catch {
-    throw new UsageError(`PARITY_ORIGIN must be the guest site's origin; got '${raw}'.`);
-  }
-  const secure =
-    url.protocol === "https:" || (url.protocol === "http:" && LOOPBACK.has(url.hostname));
-  if (!secure || url.origin !== raw) {
-    throw new UsageError(
-      `PARITY_ORIGIN must be an https origin (http only on a loopback host) with nothing after the host; got '${raw}'.`,
-    );
-  }
+  const origin = originFrom(env, "PARITY_ORIGIN", "the guest site's origin");
+  const apiOrigin = originFrom(env, "PARITY_API_ORIGIN", "the cire-api origin the build calls");
   const id = env.CF_ACCESS_CLIENT_ID ?? "";
   const secret = env.CF_ACCESS_CLIENT_SECRET ?? "";
   if ((id === "") !== (secret === "")) {
@@ -632,7 +1004,7 @@ function parse(
   }
   const access: Record<string, string> =
     id === "" ? {} : { "CF-Access-Client-Id": id, "CF-Access-Client-Secret": secret };
-  return { origin: url.origin, access, out };
+  return { origin, apiOrigin, access, out };
 }
 
 function freePort(): Promise<number> {
@@ -731,10 +1103,23 @@ async function settle(
   return differs(path, first) && remaining(deadline) > 0 ? askBoth() : first;
 }
 
-/** `wrangler dev` of the build's generated config, started and answering, or a refusal. */
+/** The relay the reference sends its cire-api calls to, and what it takes to use it. */
+interface RelayHandle {
+  readonly port: number;
+  readonly token: string;
+  readonly apiOrigin: string;
+}
+
+/**
+ * Wrangler's runtime serving the build's generated config, started on Node by
+ * the reference child and answering, or a refusal. The child gets only ports,
+ * paths and the cire-api origin as arguments, and referenceEnv() as its
+ * environment.
+ */
 async function startReference(
   context: RunContext,
   deadline: number,
+  relay: RelayHandle,
 ): Promise<Reference | { readonly failure: string }> {
   const paths = pathsUnder(context.root);
   const port = await freePort();
@@ -754,28 +1139,25 @@ async function startReference(
   const log: string[] = [];
   let exited: number | null | undefined;
   const child: ChildProcess = spawn(
-    paths.wrangler,
+    "node",
     [
-      "dev",
+      paths.child,
       "--config",
       "dist/server/wrangler.json",
-      "--ip",
-      "127.0.0.1",
       "--port",
       String(port),
-      "--local-upstream",
-      `127.0.0.1:${port}`,
-      "--persist-to",
+      "--relay-port",
+      String(relay.port),
+      "--api-origin",
+      relay.apiOrigin,
+      "--persist",
       persist,
       "--env-file",
       envFile,
-      "--show-interactive-dev-session=false",
-      "--log-level",
-      "warn",
     ],
     {
       cwd: paths.invites,
-      env: referenceEnv(process.env, home),
+      env: referenceEnv(process.env, home, relay.token),
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
     },
@@ -806,7 +1188,7 @@ async function startReference(
     if (exited !== undefined) {
       stop();
       return {
-        failure: `wrangler dev exited (${exited}) before it served the build: ${log.slice(-5).join(" | ")}`,
+        failure: `the reference exited (${exited}) before it served the build: ${withoutLoopbackPorts(log.slice(-5).join(" | "))}`,
       };
     }
     // Polled one try at a time: each waits out the last and a short pause.
@@ -816,7 +1198,7 @@ async function startReference(
   }
   stop();
   return {
-    failure: `wrangler dev did not serve the build within ${context.readyMs / 1000} s: ${log.slice(-5).join(" | ")}`,
+    failure: `the reference did not serve the build within ${context.readyMs / 1000} s: ${withoutLoopbackPorts(log.slice(-5).join(" | "))}`,
   };
 }
 
@@ -826,10 +1208,14 @@ export async function run(options: Options, context: RunContext): Promise<Report
   const deadline = Date.now() + context.deadlineMs;
   const routes = routesInBuild(paths.server);
   const probes = probePaths(paths.client, paths.public);
+  const control: ControlCall[] = [];
+  const relayed: RelayedRecord[] = [];
   const base = {
     alchemy: `${options.origin} (the Alchemy upload)`,
-    reference: "wrangler dev --config cire/invites/dist/server/wrangler.json",
+    reference:
+      "unstable_startWorker of cire/invites/dist/server/wrangler.json on Node (scripts/guest-route-parity-reference.js)",
     routes,
+    cireApi: { control, relayed },
   };
   const refusals: string[] = [];
   if (routes.length === 0) {
@@ -845,14 +1231,35 @@ export async function run(options: Options, context: RunContext): Promise<Report
   for (const route of uncoveredRoutes(routes, probes)) {
     refusals.push(`No probe reaches the route ${route}; add one to probePaths().`);
   }
+  if (!buildCalls(paths.server, options.apiOrigin)) {
+    refusals.push(
+      `The build in cire/invites/dist/server does not hold PARITY_API_ORIGIN (${options.apiOrigin}); build it with PUBLIC_API_URL set to the origin the relay serves.`,
+    );
+  }
   if (refusals.length > 0) return { ...base, probes: [], refusals, result: "refused" };
 
-  const reference = await startReference(context, deadline);
+  control.push(...(await controlPair(options.apiOrigin, deadline)));
+  // The probe being asked, so each relayed call is recorded against the page that made it.
+  let current = "(before the first probe)";
+  const token = randomBytes(32).toString("hex");
+  const relay = startRelay(options.apiOrigin, token, fetch, (call) => {
+    relayed.push({ probe: current, expected: expectedApiStatus(current), ...call });
+  });
+  const reference = await startReference(context, deadline, {
+    port: relay.port,
+    token,
+    apiOrigin: options.apiOrigin,
+  });
   if ("failure" in reference) {
+    relay.stop();
     return { ...base, probes: [], refusals: [reference.failure], result: "refused" };
   }
-  const stopOnSignal = () => {
+  const stopAll = () => {
     reference.stop();
+    relay.stop();
+  };
+  const stopOnSignal = () => {
+    stopAll();
     process.exit(1);
   };
   process.once("SIGTERM", stopOnSignal);
@@ -871,7 +1278,9 @@ export async function run(options: Options, context: RunContext): Promise<Report
         break;
       }
       // One probe at a time: the dev host and cire-api see a trickle, not a
-      // burst, and the deadline can stop the run between probes.
+      // burst, the deadline can stop the run between probes, and every call
+      // the relay sees belongs to this probe.
+      current = path;
       // eslint-disable-next-line no-await-in-loop
       const [a, w] = await settle(path, alchemy, wrangler, deadline);
       for (const one of [a, w]) if ("failure" in one) refusals.push(one.failure);
@@ -886,19 +1295,33 @@ export async function run(options: Options, context: RunContext): Promise<Report
         allowed: both ? allowancesUsed(path, alchemyObservation, wranglerObservation) : [],
       });
     }
+    current = "(after the last probe)";
     for (const path of SEEDED_PROBES) {
       const result = results.find((one) => one.path === path);
-      for (const [side, observation] of [
-        ["the Alchemy upload", result?.alchemy],
-        ["Wrangler", result?.wrangler],
+      for (const [side, observation, answered] of [
+        ["the Alchemy upload", result?.alchemy, ""],
+        [
+          "Wrangler",
+          result?.wrangler,
+          ` (cire-api through the relay: ${relayedAnswers(relayed, path)})`,
+        ],
       ] as const) {
         if (!seedRendered(observation)) {
           refusals.push(
-            `${path}: the seeded wedding (title holding '${GUEST_SEED.heroTitle}') did not render on ${side}; re-seed it or check cire-api.`,
+            `${path}: the seeded wedding (title holding '${GUEST_SEED.heroTitle}') did not render on ${side}${answered}; re-seed it or check cire-api.`,
           );
         }
       }
     }
+    const seededRan = results.some(
+      (one) => SEEDED_PROBES.includes(one.path) && one.wrangler !== undefined,
+    );
+    if (seededRan && relayed.length === 0) {
+      refusals.push(
+        "The seeded probes ran, and no call from the Wrangler side reached cire-api through the relay: the Worker called no PARITY_API_ORIGIN, or the reference did not route its calls.",
+      );
+    }
+    refusals.push(...relayRefusals(relayed));
     const differ = results.some((one) => one.differences.length > 0);
     return {
       ...base,
@@ -909,7 +1332,7 @@ export async function run(options: Options, context: RunContext): Promise<Report
   } finally {
     process.off("SIGTERM", stopOnSignal);
     process.off("SIGINT", stopOnSignal);
-    reference.stop();
+    stopAll();
   }
 }
 

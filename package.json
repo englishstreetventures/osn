@@ -45,6 +45,7 @@
     "test:e2e": "bun run --cwd tools/e2e e2e",
     "test:e2e:repro": "bun run --cwd tools/e2e e2e:repro",
     "test:scripts": "bun test ./scripts/",
+    "test:scripts:wrangler": "bun test ./scripts/tests/guest-route-parity-wrangler.e2e.ts",
     "check:release-age-excludes": "bun run scripts/check-release-age-excludes.ts",
     "check:jest-dom-markers": "bash scripts/check-jest-dom-markers.sh",
     "check:alchemy-usage": "bun run scripts/check-alchemy-usage.ts",

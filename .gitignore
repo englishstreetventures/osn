@@ -291,6 +291,9 @@ stryker-setup-*.js
 # End-to-end suite output (`bun run test:e2e`): traces, screenshots, results.json, logs, state
 e2e-artifacts/
 
+# What the script tests that run real tools leave for a reviewer (`bun run test:scripts:wrangler`)
+test-artifacts/
+
 # Alchemy's local state and Worker bundles (`.alchemy/` under the directory a CLI run starts in)
 .alchemy/
 
