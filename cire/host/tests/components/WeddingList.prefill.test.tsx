@@ -78,6 +78,11 @@ describe("WeddingList, arriving with ?name=", () => {
     expect(new URLSearchParams(window.location.search).has("name")).toBe(false);
     expect(window.location.search).toBe("?keep=1");
     expect(window.location.hash).toBe("#/weddings");
+
+    // The same visit: cancelled, the form opens empty the next time.
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: /Create a wedding/i }));
+    expect(nameField()?.value).toBe("");
     first.unmount();
 
     renderList();
@@ -96,13 +101,30 @@ describe("WeddingList, arriving with ?name=", () => {
     arriveAt(`?name=${encodeURIComponent(`  ${"b".repeat(130)}`)}`);
     renderList();
     expect(nameField()?.value).toBe("b".repeat(120));
+
+    // A cut that lands just after a space leaves no trailing space behind.
+    cleanup();
+    arriveAt(`?name=${encodeURIComponent(`${"c".repeat(119)} de`)}`);
+    renderList();
+    expect(nameField()?.value).toBe("c".repeat(119));
   });
 
   it("strips control characters and direction overrides, for an organiser with no weddings yet", () => {
-    const sneaky = "Amara‮ & ⁦Sam⁩\u0007‏";
-    arriveAt(`?name=${encodeURIComponent(sneaky)}`);
+    // Built from code points: a direction override typed into source is
+    // invisible and reorders the line around it.
+    const [rlo, lri, pdi, rlm] = [0x202e, 0x2066, 0x2069, 0x200f].map((c) =>
+      String.fromCodePoint(c),
+    );
+    arriveAt(`?name=${encodeURIComponent(`Amara${rlo} & ${lri}Sam${pdi}\u0007${rlm}`)}`);
     renderList([]);
     expect(nameField()?.value).toBe("Amara & Sam");
+
+    // Nothing left once they are gone: no prefill, so the form stays shut for
+    // an organiser who has weddings.
+    cleanup();
+    arriveAt(`?name=${encodeURIComponent(`${rlo}\u0007 ${rlm}`)}`);
+    renderList();
+    expect(nameField()).toBeNull();
   });
 
   it("puts markup in the field as text, never as HTML", () => {
@@ -132,5 +154,10 @@ describe("WeddingList, arriving with ?name=", () => {
     const [, init] = authFetchMock.mock.calls[0]!;
     expect((init as RequestInit).method).toBe("POST");
     expect(JSON.parse(String((init as RequestInit).body)).displayName).toBe("Amara & Sam");
+
+    // Created: the form closes, and the next wedding starts with an empty field.
+    await waitFor(() => expect(nameField()).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: /Create a wedding/i }));
+    expect(nameField()?.value).toBe("");
   });
 });

@@ -14,8 +14,12 @@ export const NAME_PARAM = "name";
  * the direction marks (U+200E, U+200F, U+061C). A name never needs one, and a
  * crafted link could use them to make the field read differently from what it
  * sends.
+ *
+ * Built from a string of escapes rather than a regex literal: the formatter
+ * writes a literal's `\u` escapes out as the characters themselves, and a
+ * direction override typed into source is invisible and reorders the line.
  */
-const UNWANTED = /[\p{Cc}‪-‮⁦-⁩‎‏؜]/gu;
+const UNWANTED = new RegExp("[\\p{Cc}\\u202a-\\u202e\\u2066-\\u2069\\u200e\\u200f\\u061c]", "gu");
 
 /**
  * The name to prefill, or `null` when the query carries none worth using.

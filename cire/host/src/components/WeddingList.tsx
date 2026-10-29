@@ -33,10 +33,9 @@ export default function WeddingList(props: {
   /** The wedding can no longer be restored; drop it from the list. */
   onRestoreExpired?: (weddingId: string) => void;
 }) {
-  const arrivedWith =
-    typeof window === "undefined"
-      ? null
-      : readNamePrefill(window.location.search, MAX_DISPLAY_NAME);
+  // The portal renders client-only (`client:only` in pages/index.astro), so
+  // the address is always there to read.
+  const arrivedWith = readNamePrefill(window.location.search, MAX_DISPLAY_NAME);
   // Spent by the first form it fills: a second "Create a wedding" opens empty.
   const [prefill, setPrefill] = createSignal(arrivedWith);
   const [creating, setCreating] = createSignal(arrivedWith !== null);
