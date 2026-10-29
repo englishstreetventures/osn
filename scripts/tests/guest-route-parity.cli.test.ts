@@ -1,6 +1,6 @@
 // The `import.meta.main` block of scripts/guest-route-parity.ts: what reaches
 // the reference child, what each side is asked, what the report says and the
-// exit code (NEW-FEAT.md PF10–PF16, PF21–PF28, PF33).
+// exit code (NEW-FEAT.md PF10–PF16, PF21–PF28, PF33, PF38–PF40, PF46).
 //
 // Each test copies the script, the smoke check it takes `judge()` from and the
 // Node child that starts the reference, byte for byte, into a temporary tree
@@ -28,7 +28,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { createServer } from "node:net";
+import { connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -137,6 +137,8 @@ type StandIn =
   | "serve"
   /** Serves the stored answers and never asks cire-api. */
   | "serve-without-cire-api"
+  /** Serves, asking cire-api, and its DevEnv emits an error event once it is ready. */
+  | "error-after-ready"
   /** `unstable_startWorker` throws, as Wrangler does for a config it refuses. */
   | "throw"
   /** `ready` rejects. */
@@ -165,6 +167,7 @@ const ASKS = {
   "/cire/invite?slug=cire-wedding": ["POST", "cire-wedding"],
   "/cire/registry?slug=cire-wedding": ["POST", "cire-wedding"],
   "/route-parity-no-such-wedding": ["GET", "route-parity-no-such-wedding"],
+  "/_headers": ["GET", "_headers"],
   "/wrangler.json": ["GET", "wrangler.json"],
   "/.dev.vars": ["GET", ".dev.vars"],
   "/.assetsignore": ["GET", ".assetsignore"],
@@ -177,7 +180,7 @@ const idle = () => setTimeout(() => {}, 30_000);
 
 exports.unstable_startWorker = async (options) => {
   const logged = JSON.parse(JSON.stringify(options, (_key, value) => (typeof value === "function" ? "[function]" : value)));
-  writeFileSync(join(state, "call.json"), JSON.stringify({ cwd: process.cwd(), pid: process.pid, options: logged, env: process.env }));
+  writeFileSync(join(state, "call.json"), JSON.stringify({ cwd: process.cwd(), pid: process.pid, argv: process.argv, options: logged, env: process.env }));
   writeFileSync(join(state, "reference.pid"), String(process.pid));
   writeFileSync(join(state, "env-file.txt"), readFileSync(options.envFiles[0], "utf8"));
   const raw = new EventEmitter();
@@ -218,7 +221,7 @@ exports.unstable_startWorker = async (options) => {
     seen[path] = count + 1;
     let chosen = answers[path + "#" + count] ?? answers[path];
     const asks = ASKS[path];
-    if (mode === "serve" && asks !== undefined) {
+    if ((mode === "serve" || mode === "error-after-ready") && asks !== undefined) {
       const seeded = asks[1] === "cire-wedding";
       const status = await ask(asks);
       if (status !== (seeded ? 200 : 404)) chosen = seeded ? SHELL : { status: 500, headers: { "content-type": "text/plain" }, body: "cire-api failed" };
@@ -237,6 +240,9 @@ exports.unstable_startWorker = async (options) => {
   };
   const server = createServer((req, res) => void answer(req, res));
   await new Promise((done) => server.listen(options.dev.server.port, options.dev.server.hostname, done));
+  if (mode === "error-after-ready") {
+    setTimeout(() => raw.emit("error", { type: "error", source: "StandInController", reason: "stand-in runtime hiccup" }), 20);
+  }
   return { raw, ready: Promise.resolve() };
 };
 `;
@@ -254,6 +260,8 @@ function tree(
     /** The cire-api origin the build calls. */
     readonly apiOrigin?: string;
     readonly standIn?: StandIn;
+    /** What the build's dist/client/.assetsignore holds; no file when undefined. */
+    readonly assetsIgnore?: string;
   } = {},
 ): Tree {
   const dir = mkdtempSync(join(root, "tree-"));
@@ -283,6 +291,9 @@ function tree(
       join(invites, "dist", "server", "entry.mjs"),
       `export const API_URL = ${JSON.stringify(options.apiOrigin ?? UNUSED_API)};\n`,
     );
+    if (options.assetsIgnore !== undefined) {
+      writeFileSync(join(invites, "dist", "client", ".assetsignore"), options.assetsIgnore);
+    }
   }
   const state = join(dir, "state");
   mkdirSync(state);
@@ -340,13 +351,22 @@ interface ApiRequest {
  * A fake cire-api: the seeded wedding by its path and by the query route's
  * POST, 404 for any other slug, and Bot Fight Mode's challenge for any request
  * without the CI user agent — or for every request, when `challenge` is set.
+ * `busy` answers 503 to the CI-agent requests for its path whose count, from
+ * 1, it lists; the first such request for the seeded wedding's path is the
+ * control pair's.
  */
-function fakeApi(options: { readonly challenge?: boolean } = {}): {
+function fakeApi(
+  options: {
+    readonly challenge?: boolean;
+    readonly busy?: { readonly path: string; readonly at: readonly number[] };
+  } = {},
+): {
   readonly origin: string;
   readonly seen: ApiRequest[];
   readonly stop: () => void;
 } {
   const seen: ApiRequest[] = [];
+  let busyCount = 0;
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
@@ -364,6 +384,12 @@ function fakeApi(options: { readonly challenge?: boolean } = {}): {
           status: 403,
           headers: { "cf-mitigated": "challenge", "content-type": "text/html" },
         });
+      }
+      if (options.busy !== undefined && url.pathname === options.busy.path) {
+        busyCount += 1;
+        if (options.busy.at.includes(busyCount)) {
+          return new Response("busy", { status: 503, headers: { "content-type": "text/plain" } });
+        }
       }
       const slug =
         url.pathname === "/api/invite/resolve"
@@ -414,6 +440,7 @@ async function runParity(
 
 interface RelayedRecord {
   readonly probe: string;
+  readonly try: number;
   readonly expected?: number;
   readonly method: string;
   readonly path: string;
@@ -444,6 +471,7 @@ const report = (t: Tree) => JSON.parse(readFileSync(reportPath(t), "utf8")) as W
 interface Call {
   readonly cwd: string;
   readonly pid: number;
+  readonly argv: readonly string[];
   readonly env: Readonly<Record<string, string>>;
   readonly options: {
     readonly config: string;
@@ -465,12 +493,13 @@ async function working(
   answers: Answers = ANSWERS,
   options: {
     readonly challenge?: boolean;
+    readonly busy?: { readonly path: string; readonly at: readonly number[] };
     readonly standIn?: StandIn;
     readonly devAnswers?: Answers;
     readonly extraHeaders?: Readonly<Record<string, string>>;
   } = {},
 ) {
-  const api = fakeApi({ challenge: options.challenge });
+  const api = fakeApi({ challenge: options.challenge, busy: options.busy });
   const t = tree({ apiOrigin: api.origin, standIn: options.standIn });
   writeFileSync(join(t.state, "reference.json"), JSON.stringify(answers));
   const host = await devHost(t, options.devAnswers ?? answers, options.extraHeaders);
@@ -496,6 +525,24 @@ async function referenceGone(t: Tree): Promise<boolean> {
     await Bun.sleep(50);
   }
   return false;
+}
+
+/** The relay's port, as the run gave it to the reference child. */
+function relayPortOf(t: Tree): number {
+  const { argv } = callOf(t);
+  return Number(argv[argv.indexOf("--relay-port") + 1]);
+}
+
+/** Whether anything accepts a connection on loopback `port`. */
+function listening(port: number): Promise<boolean> {
+  return new Promise((resolveListening) => {
+    const socket = connect(port, "127.0.0.1");
+    socket.once("connect", () => {
+      socket.destroy();
+      resolveListening(true);
+    });
+    socket.once("error", () => resolveListening(false));
+  });
 }
 
 describe.concurrent("guest-route-parity.ts", () => {
@@ -608,8 +655,10 @@ describe.concurrent("guest-route-parity.ts", () => {
       expect(one.status).toBe(one.expected);
       expect(one.workerUserAgent).toBe("absent");
     }
+    expect(relayed.every((one) => one.try === 1)).toBe(true);
     expect(relayed[0]).toEqual({
       probe: "/cire-wedding",
+      try: 1,
       expected: 200,
       method: "GET",
       path: "/api/invite/cire-wedding",
@@ -644,8 +693,10 @@ describe.concurrent("guest-route-parity.ts", () => {
     const seededRefusal = written.refusals.find(
       (line) => line.startsWith("/cire-wedding: the seeded wedding") && line.includes("Wrangler"),
     );
+    const challenged =
+      "403 (Cloudflare answered 403 in the Worker's place (cf-mitigated: challenge))";
     expect(seededRefusal).toContain(
-      "cire-api through the relay: 403 (Cloudflare answered 403 in the Worker's place (cf-mitigated: challenge))",
+      `cire-api through the relay: try 1 ${challenged}, try 2 ${challenged}`,
     );
     const seeded = written.cireApi.relayed.filter((one) => one.expected === 200);
     expect(seeded.length).toBeGreaterThanOrEqual(SEEDED_PROBES.length);
@@ -773,6 +824,91 @@ describe.concurrent("guest-route-parity.ts", () => {
     }
   });
 
+  /** The relayed calls `written` holds for `probe`, as try, status and expected status. */
+  const triesOf = (written: WrittenReport, probe: string) =>
+    written.cireApi.relayed
+      .filter((one) => one.probe === probe)
+      .map((one) => ({ try: one.try, status: one.status, expected: one.expected }));
+
+  test("PF38: a relayed call cire-api fails once and answers when the page is asked again does not refuse the run, and the report keeps both tries", async () => {
+    // The control pair's CI-agent request is the first for this path; the
+    // first relayed one, for /cire-wedding, is the second.
+    const { t, api, host, env } = await working(ANSWERS, {
+      busy: { path: "/api/invite/cire-wedding", at: [2] },
+    });
+    let stdout = "";
+    try {
+      const result = await runParity(t, env);
+      stdout = result.stdout;
+      expect(result.exitCode).toBe(0);
+    } finally {
+      host.stop();
+      api.stop();
+    }
+    expect(stdout).toContain("guest route parity: match");
+    const written = report(t);
+    expect(written.result).toBe("match");
+    expect(written.refusals).toEqual([]);
+    expect(triesOf(written, "/cire-wedding")).toEqual([
+      { try: 1, status: 503, expected: 200 },
+      { try: 2, status: 200, expected: 200 },
+    ]);
+  });
+
+  test("PF39: a relayed call cire-api fails on both tries refuses the run once, on the try kept, and the seeded refusal names both", async () => {
+    const { t, api, host, env } = await working(ANSWERS, {
+      busy: { path: "/api/invite/cire-wedding", at: [2, 3] },
+    });
+    try {
+      const { exitCode } = await runParity(t, env);
+      expect(exitCode).toBe(1);
+    } finally {
+      host.stop();
+      api.stop();
+    }
+    const written = report(t);
+    expect(written.result).toBe("refused");
+    expect(triesOf(written, "/cire-wedding")).toEqual([
+      { try: 1, status: 503, expected: 200 },
+      { try: 2, status: 503, expected: 200 },
+    ]);
+    expect(
+      written.refusals.filter((line) => line.includes("cire-api answered the Wrangler side")),
+    ).toEqual([
+      "/cire-wedding: cire-api answered the Wrangler side 503 for GET /api/invite/cire-wedding; expected 200.",
+    ]);
+    const seeded = written.refusals.find(
+      (line) => line.startsWith("/cire-wedding: the seeded wedding") && line.includes("Wrangler"),
+    );
+    expect(seeded).toContain("cire-api through the relay: try 1 503, try 2 503");
+  });
+
+  test("PF40: an error event from the reference after it is ready is logged, and the reference keeps serving", async () => {
+    const { t, api, host, env } = await working(ANSWERS, { standIn: "error-after-ready" });
+    try {
+      const { exitCode, stdout } = await runParity(t, env);
+      expect(stdout).toContain("guest route parity: match");
+      expect(exitCode).toBe(0);
+    } finally {
+      host.stop();
+      api.stop();
+    }
+    expect(report(t).result).toBe("match");
+  });
+
+  test("PF46: a .assetsignore line the script does not read refuses the run before the reference starts, naming it", async () => {
+    const t = tree({ assetsIgnore: "wrangler.json\n.dev.vars\n*.map\n" });
+    const { exitCode, stdout } = await runParity(t, {
+      PARITY_ORIGIN: "https://invite.cire.example.test",
+      PARITY_API_ORIGIN: UNUSED_API,
+    });
+    expect(stdout).toContain("'*.map'");
+    expect(stdout).toContain(".assetsignore");
+    expect(exitCode).toBe(1);
+    expect(existsSync(join(t.state, "call.json"))).toBe(false);
+    expect(report(t).result).toBe("refused");
+  });
+
   test("PF12: a seeded wedding that renders only the built-in shell on both sides refuses the run", async () => {
     const shell: Answer = {
       headers: { "content-type": "text/html" },
@@ -843,6 +979,8 @@ describe.concurrent("guest-route-parity.ts", () => {
       api.stop();
     }
     expect(await referenceGone(t)).toBe(true);
+    // The relay the run started for the reference is closed with it.
+    expect(await listening(relayPortOf(t))).toBe(false);
   });
 
   test("PF16: a run that passes its deadline stops probing and still returns a refused report", async () => {
@@ -867,6 +1005,7 @@ describe.concurrent("guest-route-parity.ts", () => {
       api.stop();
     }
     expect(await referenceGone(t)).toBe(true);
+    expect(await listening(relayPortOf(t))).toBe(false);
   });
 
   test.each([

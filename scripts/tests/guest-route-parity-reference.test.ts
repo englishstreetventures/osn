@@ -1,10 +1,16 @@
-// Where scripts/guest-route-parity-reference.js sends each call the Worker
-// makes, one test per way it can go wrong (NEW-FEAT.md PF18, PF19, PF32).
-// Logic only, under Bun: which origin goes where and which headers are added.
-// What depends on the runtime — Miniflare's own Request class, Node's fetch
-// and a streamed body — runs for real in guest-route-parity-wrangler.e2e.ts.
+// scripts/guest-route-parity-reference.js, one test per way it can go wrong
+// (NEW-FEAT.md PF18, PF19, PF32, PF42, PF43). Where it sends each call the
+// Worker makes is logic, tested under Bun: which origin goes where and which
+// headers are added. Its command line runs on Node, as the comparison starts
+// it, from an empty directory, so no wrangler is in reach. What depends on the
+// runtime — Miniflare's own Request class, Node's fetch and a streamed body —
+// runs for real in guest-route-parity-wrangler.e2e.ts.
 
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import {
   makeForward,
@@ -105,5 +111,70 @@ describe("the reference's outbound calls", () => {
     expect(sent[1]?.init.duplex).toBe("half");
     expect(sent[1]?.init.redirect).toBe("manual");
     expect(await new Response(sent[1]?.init.body).text()).toBe(body);
+  });
+});
+
+const CHILD = join(import.meta.dir, "..", "guest-route-parity-reference.js");
+
+/** A directory of this file's own: the child finds no wrangler from it. */
+const empty = realpathSync(mkdtempSync(join(tmpdir(), "guest-route-parity-reference-")));
+// Node itself stops (exit 9) on an `--env-file` path that does not exist,
+// even one after the script's name, so the env file the run passes is real.
+writeFileSync(join(empty, "empty.env"), "");
+
+afterAll(() => {
+  rmSync(empty, { recursive: true, force: true });
+});
+
+/** The child run on Node from the empty directory, as `script`, with `args` and `env`. */
+function child(
+  script: string,
+  args: readonly string[],
+  env: Readonly<Record<string, string>> = {},
+): { readonly status: number | null; readonly stderr: string } {
+  const result = spawnSync("node", [script, ...args], {
+    cwd: empty,
+    env: { PATH: process.env.PATH ?? "", ...env },
+    encoding: "utf8",
+    timeout: 20_000,
+  });
+  return { status: result.status, stderr: result.stderr };
+}
+
+/** Every argument the comparison passes. */
+const ARGS = [
+  "--port",
+  "4000",
+  "--relay-port",
+  "4001",
+  "--api-origin",
+  API,
+  "--persist",
+  "state",
+  "--env-file",
+  "empty.env",
+];
+
+describe("the reference's command line", () => {
+  test.each([
+    [
+      "no --relay-port",
+      ARGS.filter((_, i) => i !== 2 && i !== 3),
+      { PARITY_RELAY_TOKEN: "run-token" },
+    ],
+    ["no PARITY_RELAY_TOKEN", ARGS, {}],
+  ] as const)("PF42: %s is a usage error, exit 2, before wrangler is loaded", (_, args, env) => {
+    const { status, stderr } = child(CHILD, args, env);
+    expect(status).toBe(2);
+    expect(stderr).toContain("usage:");
+  });
+
+  test("PF43: Node started on a symlink to the child runs it", () => {
+    const link = join(empty, "linked-reference.js");
+    symlinkSync(CHILD, link);
+    // No arguments: the child's own usage error shows its main ran.
+    const { status, stderr } = child(link, []);
+    expect(status).toBe(2);
+    expect(stderr).toContain("usage:");
   });
 });

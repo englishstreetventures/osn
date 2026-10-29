@@ -1,11 +1,11 @@
 // The comparison rules of scripts/guest-route-parity.ts and the relay that
 // carries the Wrangler side's calls to cire-api, one test per way they can
 // fail (NEW-FEAT.md, PF1–PF13, PF15, PF17, PF20, PF21, PF29–PF31, PF36,
-// PF37). The run itself — the reference started, both sides probed, the
-// report written — is in guest-route-parity.cli.test.ts.
+// PF37, PF41, PF45). The run itself — the reference started, both sides
+// probed, the report written — is in guest-route-parity.cli.test.ts.
 
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -18,6 +18,7 @@ import {
   expectedApiStatus,
   GUEST_SEED,
   observe,
+  PLATFORM_FILES,
   probePaths,
   referenceEnv,
   relayRefusals,
@@ -32,6 +33,7 @@ import {
   startRelay,
   uncoveredRoutes,
   UNKNOWN_SLUG_PROBES,
+  unreadAssetsIgnoreLines,
   type FetchLike,
   type Observation,
   type RelayedCall,
@@ -120,6 +122,8 @@ describe("routes and probes", () => {
     const client = tree({
       "_astro/b.js": "",
       "_astro/a.js": "",
+      // The asset layer reads an extension in any case: one probe for both.
+      "_astro/c.JS": "",
       "_astro/z.css": "",
       "_astro/y.css": "",
       "_astro/f.woff2": "",
@@ -132,6 +136,8 @@ describe("routes and probes", () => {
       ".assetsignore": "wrangler.json\n.dev.vars\n# a comment\nprivate/\n",
       "wrangler.json": "{}",
       ".dev.vars": "SECRET=x\n",
+      // A name in `.assetsignore` matches at any depth, as gitignore reads it.
+      "nested/wrangler.json": "{}",
       "private/a.txt": "",
       "private/b.json": "{}",
     });
@@ -153,6 +159,31 @@ describe("routes and probes", () => {
     expect(probes).not.toContain("/private/b.json");
     // A file both public/ and the build hold is asked once.
     expect(new Set(probes).size).toBe(probes.length);
+    // A trailing `/` names a directory only: a file of that name stays.
+    expect(
+      assetProbes(tree({ ".assetsignore": "cache/\n", "cache/a.json": "{}", "data/cache": "" })),
+    ).toEqual(["/data/cache"]);
+  });
+
+  test("PF29: a .assetsignore line this script does not read as Wrangler does is named, so the run can refuse it", () => {
+    const client = tree({
+      ".assetsignore":
+        "wrangler.json\n.dev.vars\n# a comment\n\nprivate/\n*.map\n!keep.txt\n/top.txt\na/b\nwhat?\n[ab].txt\nback\\slash\n",
+    });
+    expect(unreadAssetsIgnoreLines(client)).toEqual([
+      "*.map",
+      "!keep.txt",
+      "/top.txt",
+      "a/b",
+      "what?",
+      "[ab].txt",
+      "back\\slash",
+    ]);
+    // What the guest build's plugin writes, and no file at all.
+    expect(
+      unreadAssetsIgnoreLines(tree({ ".assetsignore": "wrangler.json\n.dev.vars\n" })),
+    ).toEqual([]);
+    expect(unreadAssetsIgnoreLines(tree({}))).toEqual([]);
   });
 });
 
@@ -379,20 +410,50 @@ describe("refusals", () => {
     });
   });
 
-  test("PF31: cire-api's expected answer is 200 for each seeded probe and 404 for each probe of a slug no wedding has; a relayed answer that differs is reported", () => {
-    expect(SEEDED_PROBES.map(expectedApiStatus)).toEqual([200, 200, 200, 200]);
-    expect(UNKNOWN_SLUG_PROBES).toEqual([
-      "/route-parity-no-such-wedding",
-      "/wrangler.json",
-      "/.dev.vars",
-      "/.assetsignore",
+  test("PF31: the probes that ask cire-api for a slug are the seeded probes and the unknown-slug probes, found from the pages, not listed", () => {
+    // A page asks cire-api when it loads an invitation: by its `[slug]`
+    // segment, or by the `slug` its query carries.
+    const asking = readdirSync(PAGES, { recursive: true, encoding: "utf8" })
+      .filter((file) => file.endsWith(".astro"))
+      .map((file) => ({ file, source: readFileSync(join(PAGES, file), "utf8") }))
+      .filter(({ source }) => /\bfetchInvite(ForQueryRoute)?\(/.test(source))
+      .map(({ file, source }) => ({
+        route: `/${file.replace(/\.astro$/, "").replace(/(^|\/)index$/, "")}`,
+        byQuery: source.includes("searchParams.get('slug')"),
+      }));
+    const routes = [...routesFromPages(PAGES), ...BUILT_IN_ROUTES];
+    for (const { route } of asking) expect(routes).toContain(route);
+    expect(asking.filter((one) => one.byQuery).length).toBeGreaterThan(0);
+    expect(asking.filter((one) => !one.byQuery).length).toBeGreaterThan(0);
+    // The upload serves every public/ file but the platform's own, which fall through to the Worker.
+    const served = new Set(
+      readdirSync(PUBLIC, { recursive: true, encoding: "utf8" })
+        .filter((file) => !PLATFORM_FILES.has(file))
+        .map((file) => `/${file}`),
+    );
+    const asks = (probe: string): boolean => {
+      if (served.has(probe)) return false;
+      const its = asking.find((one) => one.route === routeFor(probe, routes));
+      if (its === undefined) return false;
+      return !its.byQuery || (new URL(probe, OWN).searchParams.get("slug") ?? "") !== "";
+    };
+    const askingProbes = probePaths(tree({}), PUBLIC).filter(asks);
+    expect(askingProbes.filter((probe) => SEEDED_PROBES.includes(probe))).toEqual([
+      ...SEEDED_PROBES,
     ]);
-    expect(UNKNOWN_SLUG_PROBES.map(expectedApiStatus)).toEqual([404, 404, 404, 404]);
+    expect(askingProbes.filter((probe) => !SEEDED_PROBES.includes(probe))).toEqual([
+      ...UNKNOWN_SLUG_PROBES,
+    ]);
+    expect(UNKNOWN_SLUG_PROBES).toContain("/_headers");
+    expect(SEEDED_PROBES.map(expectedApiStatus)).toEqual(SEEDED_PROBES.map(() => 200));
+    expect(UNKNOWN_SLUG_PROBES.map(expectedApiStatus)).toEqual(UNKNOWN_SLUG_PROBES.map(() => 404));
     expect(expectedApiStatus("/privacy/")).toBeUndefined();
-    const probes = probePaths(tree({}), PUBLIC);
-    for (const path of [...SEEDED_PROBES, ...UNKNOWN_SLUG_PROBES]) expect(probes).toContain(path);
+  });
+
+  test("PF31: a relayed answer that is not cire-api's answer for its probe is reported", () => {
     const call = (probe: string, status: number | undefined, extra: Partial<RelayedCall> = {}) => ({
       probe,
+      try: 1 as const,
       expected: expectedApiStatus(probe),
       method: "GET",
       path: "/api/invite/x",
@@ -552,6 +613,48 @@ describe("the relay", () => {
     });
   });
 
+  test("PF20: the headers of one connection, and a stale length, are passed on neither to cire-api nor back to the Worker", async () => {
+    const HOP = ["connection", "keep-alive", "transfer-encoding"];
+    const answer = () =>
+      new Response(JSON.stringify({ slug: "cire-wedding" }), {
+        headers: {
+          "content-type": "application/json",
+          connection: "close",
+          "keep-alive": "timeout=5",
+          "transfer-encoding": "chunked",
+        },
+      });
+    for (const name of HOP)
+      expect({ [name]: answer().headers.has(name) }).toEqual({ [name]: true });
+    const api = upstream(answer);
+    const body = JSON.stringify({ slug: "cire-wedding" });
+    const request = new Request("http://127.0.0.1:4444/api/invite/resolve", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        connection: "close",
+        "keep-alive": "timeout=5",
+        "transfer-encoding": "chunked",
+        "content-length": "999",
+      },
+      body,
+    });
+    for (const name of [...HOP, "content-length"]) {
+      expect({ [name]: request.headers.has(name) }).toEqual({ [name]: true });
+    }
+    const response = await relayRequest(request, API, api.fetchImpl, () => {});
+    const sent = new Headers(api.sent[0]?.init.headers);
+    for (const name of [...HOP, "content-length"]) {
+      expect({ [name]: sent.get(name) }).toEqual({ [name]: null });
+    }
+    expect(sent.get("content-type")).toBe("application/json");
+    expect(new TextDecoder().decode(api.sent[0]?.init.body as ArrayBuffer)).toBe(body);
+    for (const name of HOP) {
+      expect({ [name]: response.headers.get(name) }).toEqual({ [name]: null });
+    }
+    expect(await response.json()).toEqual({ slug: "cire-wedding" });
+  });
+
   test("PF21: cire-api refusing the connection answers the Worker 502, once, and the record names the error without a loopback port", async () => {
     const port = await closedPort();
     let tries = 0;
@@ -581,6 +684,41 @@ describe("the relay", () => {
       (one) => calls.push(one),
     );
     expect(calls[1]?.error).toBe("connect ECONNREFUSED 127.0.0.1");
+    // And by its other loopback names.
+    for (const host of ["localhost", "[::1]"]) {
+      // eslint-disable-next-line no-await-in-loop
+      await relayRequest(
+        new Request("http://127.0.0.1:4444/api/invite/cire-wedding"),
+        `http://127.0.0.1:${port}`,
+        () => Promise.reject(new TypeError(`connect ECONNREFUSED ${host}:${port}`)),
+        (one) => calls.push(one),
+      );
+      expect(calls.at(-1)?.error).toBe(`connect ECONNREFUSED ${host}`);
+    }
+  });
+
+  test("PF41: a cire-api that never answers is given up on at the relay's limit: the Worker gets a 502 and the record says it timed out", async () => {
+    const never: FetchLike = (_url, init) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+      });
+    const calls: RelayedCall[] = [];
+    const response = await relayRequest(
+      new Request("http://127.0.0.1:4444/api/invite/cire-wedding"),
+      API,
+      never,
+      (one) => calls.push(one),
+      50,
+    );
+    expect(response.status).toBe(502);
+    expect(calls).toEqual([
+      {
+        method: "GET",
+        path: "/api/invite/cire-wedding",
+        error: "The operation timed out.",
+        workerUserAgent: "absent",
+      },
+    ]);
   });
 
   test("PF36: a compressed answer reaches the Worker decoded, with no content-encoding and no stale content-length", async () => {
@@ -613,17 +751,64 @@ describe("the relay", () => {
 
   test("PF37: a request to the relay without the run's token is refused 403 and sends nothing upstream", async () => {
     const api = upstream();
-    const relay = startRelay(API, "run-token", api.fetchImpl, () => {});
+    const relay = startRelay(API, "run-token", api.fetchImpl, () => () => {});
     try {
       const at = `http://127.0.0.1:${relay.port}/api/invite/cire-wedding`;
       const without = await fetch(at);
       expect(without.status).toBe(403);
       const wrong = await fetch(at, { headers: { [RELAY_TOKEN_HEADER]: "another" } });
       expect(wrong.status).toBe(403);
+      // The right length, one byte off: only comparing the bytes refuses it.
+      const near = await fetch(at, { headers: { [RELAY_TOKEN_HEADER]: "run-tokem" } });
+      expect(near.status).toBe(403);
       expect(api.sent).toHaveLength(0);
       const right = await fetch(at, { headers: { [RELAY_TOKEN_HEADER]: "run-token" } });
       expect(right.status).toBe(200);
       expect(api.sent).toHaveLength(1);
+    } finally {
+      relay.stop();
+    }
+  });
+
+  test("PF45: the relay records each call against what begin() gave when the call arrived, not when cire-api answered", async () => {
+    let probe = "/first";
+    let arrived: () => void = () => {};
+    const inFlight = new Promise<void>((resolve) => {
+      arrived = resolve;
+    });
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const slow: FetchLike = async () => {
+      arrived();
+      await gate;
+      return Response.json({ ok: true });
+    };
+    const records: { readonly probe: string; readonly call: RelayedCall }[] = [];
+    const relay = startRelay(API, "run-token", slow, () => {
+      const at = probe;
+      return (call) => records.push({ probe: at, call });
+    });
+    try {
+      const pending = fetch(`http://127.0.0.1:${relay.port}/api/invite/cire-wedding`, {
+        headers: { [RELAY_TOKEN_HEADER]: "run-token" },
+      });
+      await inFlight;
+      probe = "/second";
+      release();
+      expect((await pending).status).toBe(200);
+      expect(records).toEqual([
+        {
+          probe: "/first",
+          call: {
+            method: "GET",
+            path: "/api/invite/cire-wedding",
+            status: 200,
+            workerUserAgent: "absent",
+          },
+        },
+      ]);
     } finally {
       relay.stop();
     }

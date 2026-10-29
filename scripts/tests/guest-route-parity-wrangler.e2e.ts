@@ -6,6 +6,10 @@
 // path a Worker's subrequest takes through workerd, Miniflare's outbound
 // service, Node's fetch and the relay to cire-api.
 //
+// It also holds the relay's one test that must wait out seconds (PF44, 13 s):
+// `bun run test:scripts` runs its files one after another, so that wait there
+// would hold up every script test.
+//
 // Named `.e2e.ts` so `bun test ./scripts/` (the Scripts job, which installs
 // nothing) skips it; `bun run test:scripts:wrangler` runs it in CI's Build &
 // Test job, which has the install and Node. It fails, never skips, when
@@ -31,6 +35,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { referenceEnv, startRelay, type RelayedCall } from "../guest-route-parity";
+import { RELAY_TOKEN_HEADER } from "../guest-route-parity-reference.js";
 import { CI_USER_AGENT } from "../smoke-check";
 
 const ROOT = join(import.meta.dir, "..", "..");
@@ -241,7 +246,7 @@ describe("the reference on real Wrangler", () => {
         api.origin,
         token,
         (url, init) => fetch(url, init),
-        (call) => relayed.push(call),
+        () => (call) => relayed.push(call),
       );
       stops.push(relay.stop);
       const hadWrangler = existsSync(join(INVITES, ".wrangler"));
@@ -285,6 +290,9 @@ describe("the reference on real Wrangler", () => {
         "GET /api/invite/cire-wedding?from=get 200",
         "POST /api/invite/resolve?from=post 200",
       ]);
+      // The Worker's GET sets no user agent and its POST sets one: workerd's
+      // own requests, as Miniflare hands them to the child.
+      expect(relayed.map((one) => one.workerUserAgent)).toEqual(["absent", "present"]);
       expect(existsSync(join(INVITES, ".wrangler"))).toBe(hadWrangler);
     },
     TEST_MS,
@@ -300,7 +308,7 @@ describe("the reference on real Wrangler", () => {
         api.origin,
         token,
         (url, init) => fetch(url, init),
-        () => {},
+        () => () => {},
       );
       stops.push(relay.stop);
       const reference = await child(scratch, config, { port: relay.port, token }, api.origin);
@@ -320,5 +328,48 @@ describe("the reference on real Wrangler", () => {
       expect(api.seen).toEqual([]);
     },
     TEST_MS,
+  );
+});
+
+/**
+ * How long cire-api takes to answer in PF44: past the 12 s by which Bun's
+ * default idle timeout (10 s, counted in 4 s ticks) has cut a connection with
+ * no answer yet, and short of the 28 s before the relay's own can.
+ */
+const SLOW_ANSWER_MS = 13_000;
+
+describe("the relay, over the time Bun's default idle timeout allows", () => {
+  test(
+    "PF44: a cire-api answer that takes longer than Bun's default idle timeout still reaches the Worker, and is recorded",
+    async () => {
+      const relayed: RelayedCall[] = [];
+      const token = randomBytes(24).toString("hex");
+      const relay = startRelay(
+        "https://api.cire.example.test",
+        token,
+        async () => {
+          await Bun.sleep(SLOW_ANSWER_MS);
+          return Response.json({ slug: "cire-wedding" });
+        },
+        () => (call) => relayed.push(call),
+        // The relay's own limit, out of the way: only its idle timeout is under test.
+        SLOW_ANSWER_MS + 7_000,
+      );
+      stops.push(relay.stop);
+      const response = await fetch(`http://127.0.0.1:${relay.port}/api/invite/cire-wedding`, {
+        headers: { [RELAY_TOKEN_HEADER]: token },
+      });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ slug: "cire-wedding" });
+      expect(relayed).toEqual([
+        {
+          method: "GET",
+          path: "/api/invite/cire-wedding",
+          status: 200,
+          workerUserAgent: "absent",
+        },
+      ]);
+    },
+    SLOW_ANSWER_MS + 17_000,
   );
 });

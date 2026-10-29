@@ -17,15 +17,19 @@
  *
  * It refuses — exit 1, nothing compared as a match — when the build's own
  * route manifest holds a route no probe reaches, when the build does not call
- * PARITY_API_ORIGIN, when Cloudflare answers in the Worker's place on the dev
- * host (`judge()` in smoke-check.ts calls it `blocked`), when the seeded
- * wedding (`cire/db/seed/dev-seed.sql`) does not render on either side, when
- * the seeded probes ran and no call of the Wrangler side's Worker reached
- * cire-api, and when one of those calls did not get the answer cire-api gives
- * its probe (`expectedApiStatus()`): an invitation that never renders would
- * match itself everywhere and prove nothing. A probe that differs is asked
- * once more on both sides, and only a difference that holds is reported, so a
- * one-off blip in cire-api does not fail the run.
+ * PARITY_API_ORIGIN, when its `.assetsignore` holds a line this script does
+ * not read (unreadAssetsIgnoreLines()), when Cloudflare answers in the
+ * Worker's place on the dev host (`judge()` in smoke-check.ts calls it
+ * `blocked`), when the seeded wedding (`cire/db/seed/dev-seed.sql`) does not
+ * render on either side, when the seeded probes ran and no call of the
+ * Wrangler side's Worker reached cire-api, and when one of those calls did not
+ * get the answer cire-api gives its probe (`expectedApiStatus()`): an
+ * invitation that never renders would match itself everywhere and prove
+ * nothing. A probe that differs is asked once more on both sides, and only the
+ * second answers count: neither a difference nor a relayed call's miss that
+ * does not hold on the second try is reported, so a one-off blip in cire-api
+ * does not fail the run. The report keeps the relayed calls of both tries,
+ * each marked with its try.
  *
  * Wrangler runs locally only, on Node, started by
  * scripts/guest-route-parity-reference.js through `unstable_startWorker`: the
@@ -38,11 +42,15 @@
  * this process, on loopback, which sends it on with CI_USER_AGENT in place of
  * the Worker's user agent and records the answer; calls to any other origin
  * go out from the child unchanged. The relay serves only requests carrying
- * the run's random token, and never adds the Access token. The report's
- * `cireApi` holds every relayed call, whether the Worker's own request carried
- * a user agent, and a control pair: the seeded wedding asked of cire-api from
- * this process once with Bun's own user agent and once with CI_USER_AGENT,
- * which shows what the runner meets and never fails the run.
+ * the run's random token, and never adds the Access token. It gives cire-api
+ * RELAY_MS to answer, less than the REQUEST_MS the page is given, so the
+ * Worker has cire-api's answer or a 502 before the page is given up on; and
+ * it records each call against the probe and try being asked when the call
+ * arrived. The report's `cireApi` holds every relayed call, whether the
+ * Worker's own request carried a user agent, and a control pair: the seeded
+ * wedding asked of cire-api from this process once with Bun's own user agent
+ * and once with CI_USER_AGENT, which shows what the runner meets and never
+ * fails the run.
  *
  * Usage, from the repository root, after building cire/invites for the host:
  *
@@ -119,11 +127,13 @@ export const SEEDED_PROBES: readonly string[] = [
 
 /**
  * The probes the slug route answers with a slug no wedding has: the unknown
- * slug, and the files `.assetsignore` keeps out of the upload, which fall
- * through to the route.
+ * slug, and the files the upload leaves out — `public/_headers`, which the
+ * asset layer reads and never serves, and what `.assetsignore` keeps out —
+ * which fall through to the route. In probe order.
  */
 export const UNKNOWN_SLUG_PROBES: readonly string[] = [
   `/${UNKNOWN_SLUG}`,
+  "/_headers",
   "/wrangler.json",
   "/.dev.vars",
   "/.assetsignore",
@@ -252,9 +262,14 @@ export interface RelayedCall {
   readonly workerUserAgent: "present" | "absent";
 }
 
-/** A relayed call, with the probe it was made for and the status cire-api should have given it. */
+/**
+ * A relayed call, with the probe and the try it was made for, and the status
+ * cire-api should have given it. Only the calls of the try settle() kept count.
+ */
 export interface RelayedRecord extends RelayedCall {
   readonly probe: string;
+  /** 1, or 2 for the probe asked again because the first answers differed. */
+  readonly try: 1 | 2;
   readonly expected?: number;
 }
 
@@ -347,43 +362,51 @@ export function uncoveredRoutes(
 }
 
 /** The files of a build's asset directory the upload reads and never serves. */
-const PLATFORM_FILES: ReadonlySet<string> = new Set(["_headers", "_redirects", ".assetsignore"]);
+export const PLATFORM_FILES: ReadonlySet<string> = new Set([
+  "_headers",
+  "_redirects",
+  ".assetsignore",
+]);
+
+/** The lines of `.assetsignore` under `clientDir` that say something: not blank, not a `#` comment. */
+function assetsIgnoreLines(clientDir: string): readonly string[] {
+  const at = join(clientDir, ".assetsignore");
+  if (!existsSync(at)) return [];
+  return readFileSync(at, "utf8")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line !== "" && !line.startsWith("#"));
+}
+
+/** Whether this script reads `line` as both uploads do: a name, or a directory's name and a `/`. */
+const readable = (line: string): boolean => /^[^!/*?[\\][^/*?[\\]*\/?$/.test(line);
 
 /**
- * Whether `.assetsignore` under `clientDir` keeps a file out of the upload,
- * read as gitignore patterns: `*`, `**` and `?`; a trailing `/` for a
- * directory; a leading or inner `/` anchoring the pattern to the directory.
- * A `!` line is skipped, so a file it would bring back stays out.
+ * The lines of `.assetsignore` under `clientDir` this script does not read.
+ * The guest build's file is written by @cloudflare/vite-plugin: whatever
+ * `public/.assetsignore` holds (cire/invites has none), then `wrangler.json`
+ * and `.dev.vars`. Both uploads read it as gitignore patterns; this script
+ * reads a name, matched against every name in a file's path, and a name
+ * with a trailing `/`, matched against its directories only. Any other line
+ * — a glob, a `!`, a leading or inner `/`, an escape — is one it does not
+ * read, and run() refuses the build that holds it.
  */
+export function unreadAssetsIgnoreLines(clientDir: string): readonly string[] {
+  return assetsIgnoreLines(clientDir).filter((line) => !readable(line));
+}
+
+/** Whether a line of `.assetsignore` under `clientDir` this script reads keeps a file out of the upload. */
 function assetsIgnored(clientDir: string): (file: string) => boolean {
-  const at = join(clientDir, ".assetsignore");
-  const lines = existsSync(at) ? readFileSync(at, "utf8").split("\n") : [];
-  const patterns = lines
-    .map((line) => line.trim())
-    .filter((line) => line !== "" && !line.startsWith("#") && !line.startsWith("!"))
-    .map((line) => {
-      const body = line.replace(/^\/+/, "").replace(/\/+$/, "");
-      const anchored = line.startsWith("/") || body.includes("/");
-      const glob = body
-        .split(/(\*\*|\*|\?)/)
-        .map((part) =>
-          part === "**"
-            ? ".*"
-            : part === "*"
-              ? "[^/]*"
-              : part === "?"
-                ? "[^/]"
-                : part.replaceAll(/[.+^${}()|[\]\\]/g, "\\$&"),
-        )
-        .join("");
-      return new RegExp(anchored ? `^${glob}$` : `(^|/)${glob}$`);
-    });
+  const lines = assetsIgnoreLines(clientDir).filter(readable);
+  const names = new Set(lines.filter((line) => !line.endsWith("/")));
+  const directories = new Set(
+    lines.filter((line) => line.endsWith("/")).map((line) => line.slice(0, -1)),
+  );
   return (file) => {
     const parts = file.split("/");
-    return parts.some((_, i) => {
-      const prefix = parts.slice(0, i + 1).join("/");
-      return patterns.some((pattern) => pattern.test(prefix));
-    });
+    return parts.some(
+      (part, i) => names.has(part) || (i < parts.length - 1 && directories.has(part)),
+    );
   };
 }
 
@@ -614,6 +637,13 @@ const HOP_BY_HOP = ["connection", "keep-alive", "transfer-encoding"] as const;
 /** The statuses whose response carries no body. */
 const NULL_BODY: ReadonlySet<number> = new Set([101, 204, 205, 304]);
 
+/**
+ * How long the relay gives cire-api to answer one call: less than the
+ * REQUEST_MS a page is given, so the Worker has cire-api's answer or the
+ * relay's 502, and renders, before the page is given up on.
+ */
+const RELAY_MS = 10_000;
+
 /** `text` with every loopback port removed, so a report names no port of this run. */
 const withoutLoopbackPorts = (text: string): string =>
   text.replaceAll(/(127\.0\.0\.1|localhost|\[::1\]):\d+/g, "$1");
@@ -630,13 +660,14 @@ const messageOf = (error: unknown): string =>
  * never carries both a length and chunked framing. A redirect is handed back,
  * not followed. The answer reaches the Worker decoded, so it carries no
  * `content-encoding`, no `content-length` and no hop-by-hop header. No answer
- * is a 502 to the Worker, tried once.
+ * within `timeoutMs` is a 502 to the Worker, tried once.
  */
 export async function relayRequest(
   request: Request,
   apiOrigin: string,
   fetchImpl: FetchLike,
   record: (call: RelayedCall) => void,
+  timeoutMs = RELAY_MS,
 ): Promise<Response> {
   const url = new URL(request.url);
   const path = `${url.pathname}${url.search}`;
@@ -665,7 +696,7 @@ export async function relayRequest(
       headers,
       body,
       redirect: "manual",
-      signal: AbortSignal.timeout(REQUEST_MS),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     bytes = await response.arrayBuffer();
   } catch (error) {
@@ -708,22 +739,28 @@ export interface Relay {
 /**
  * The relay, on a loopback port of its own: each request carrying `token` in
  * RELAY_TOKEN_HEADER goes to relayRequest(), any other is refused 403 and
- * sends nothing on, so no other process on the runner can use it.
+ * sends nothing on, so no other process on the runner can use it. `begin`
+ * runs as each call arrives and returns where that call is recorded, so a
+ * call is recorded against what was being asked when it came, however long
+ * cire-api takes. cire-api gets `timeoutMs` to answer each call.
  */
 export function startRelay(
   apiOrigin: string,
   token: string,
   fetchImpl: FetchLike,
-  record: (call: RelayedCall) => void,
+  begin: () => (call: RelayedCall) => void,
+  timeoutMs = RELAY_MS,
 ): Relay {
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
-    // Above REQUEST_MS, so a call cire-api is still answering is never cut.
+    // Above RELAY_MS, so the relay's answer, cire-api's or its 502, always
+    // reaches the Worker: Bun's default, 10 s, counted in 4 s ticks, cuts a
+    // connection with no answer yet within 12 s.
     idleTimeout: 30,
     fetch: (request) =>
       isToken(request.headers.get(RELAY_TOKEN_HEADER), token)
-        ? relayRequest(request, apiOrigin, fetchImpl, record)
+        ? relayRequest(request, apiOrigin, fetchImpl, begin(), timeoutMs)
         : new Response("not the run's relay token", {
             status: 403,
             headers: { "content-type": "text/plain" },
@@ -748,14 +785,17 @@ export function relayRefusals(relayed: readonly RelayedRecord[]): readonly strin
   });
 }
 
-/** What cire-api answered the relay for `probe`, for the seeded refusal. */
+/** What cire-api answered the relay for `probe` on each try, for the seeded refusal. */
 function relayedAnswers(relayed: readonly RelayedRecord[], probe: string): string {
   const answers = relayed
     .filter((call) => call.probe === probe)
-    .map((call) =>
-      call.error === undefined
-        ? `${call.status}${call.blocked === undefined ? "" : ` (${call.blocked})`}`
-        : `no answer (${call.error})`,
+    .map(
+      (call) =>
+        `try ${call.try} ${
+          call.error === undefined
+            ? `${call.status}${call.blocked === undefined ? "" : ` (${call.blocked})`}`
+            : `no answer (${call.error})`
+        }`,
     );
   return answers.length === 0 ? "no call" : answers.join(", ");
 }
@@ -1090,17 +1130,24 @@ function differs(path: string, [a, w]: Pair): boolean {
   return compare(path, a.observation, w.observation).length > 0;
 }
 
-/** Both sides' answers to `path`, asked again once when they differ. */
+/**
+ * Both sides' answers to `path`, asked again once when they differ, and the
+ * try they are: the second whenever there is one. `onTry` runs before each.
+ */
 async function settle(
   path: string,
   alchemy: Side,
   wrangler: Side,
   deadline: number,
-): Promise<Pair> {
-  const askBoth = () =>
-    Promise.all([look(alchemy, path, deadline), look(wrangler, path, deadline)] as const);
-  const first = await askBoth();
-  return differs(path, first) && remaining(deadline) > 0 ? askBoth() : first;
+  onTry: (attempt: 1 | 2) => void,
+): Promise<{ readonly pair: Pair; readonly kept: 1 | 2 }> {
+  const askBoth = (attempt: 1 | 2) => {
+    onTry(attempt);
+    return Promise.all([look(alchemy, path, deadline), look(wrangler, path, deadline)] as const);
+  };
+  const first = await askBoth(1);
+  if (!differs(path, first) || remaining(deadline) === 0) return { pair: first, kept: 1 };
+  return { pair: await askBoth(2), kept: 2 };
 }
 
 /** The relay the reference sends its cire-api calls to, and what it takes to use it. */
@@ -1127,7 +1174,8 @@ async function startReference(
   // The run's own directory: wrangler's state, its home, and the one env
   // file it is pointed at, which is empty, so it loads no `.env`,
   // `.env.local` or `.dev.vars` from the build or the package. (A path that
-  // does not exist stops wrangler before it starts.)
+  // does not exist stops the child before it starts: Node itself checks an
+  // `--env-file` argument, even one after the script's name.)
   const scratch = mkdtempSync(join(tmpdir(), "guest-route-parity-"));
   const persist = join(scratch, "state");
   const home = join(scratch, "home");
@@ -1231,6 +1279,11 @@ export async function run(options: Options, context: RunContext): Promise<Report
   for (const route of uncoveredRoutes(routes, probes)) {
     refusals.push(`No probe reaches the route ${route}; add one to probePaths().`);
   }
+  for (const line of unreadAssetsIgnoreLines(paths.client)) {
+    refusals.push(
+      `The build's dist/client/.assetsignore holds '${line}', which this script does not read as the uploads do (a glob, a '!', a leading or inner '/', an escape); teach assetsIgnored() to read it.`,
+    );
+  }
   if (!buildCalls(paths.server, options.apiOrigin)) {
     refusals.push(
       `The build in cire/invites/dist/server does not hold PARITY_API_ORIGIN (${options.apiOrigin}); build it with PUBLIC_API_URL set to the origin the relay serves.`,
@@ -1239,11 +1292,19 @@ export async function run(options: Options, context: RunContext): Promise<Report
   if (refusals.length > 0) return { ...base, probes: [], refusals, result: "refused" };
 
   control.push(...(await controlPair(options.apiOrigin, deadline)));
-  // The probe being asked, so each relayed call is recorded against the page that made it.
+  // The probe and try being asked, so each relayed call is recorded against
+  // the page and try that made it, as it arrives.
   let current = "(before the first probe)";
+  let attempt: 1 | 2 = 1;
+  /** The try settle() kept for each probe asked. */
+  const kept = new Map<string, 1 | 2>();
   const token = randomBytes(32).toString("hex");
-  const relay = startRelay(options.apiOrigin, token, fetch, (call) => {
-    relayed.push({ probe: current, expected: expectedApiStatus(current), ...call });
+  const relay = startRelay(options.apiOrigin, token, fetch, () => {
+    const probe = current;
+    const at = attempt;
+    return (call) => {
+      relayed.push({ probe, try: at, expected: expectedApiStatus(probe), ...call });
+    };
   });
   const reference = await startReference(context, deadline, {
     port: relay.port,
@@ -1282,7 +1343,11 @@ export async function run(options: Options, context: RunContext): Promise<Report
       // the relay sees belongs to this probe.
       current = path;
       // eslint-disable-next-line no-await-in-loop
-      const [a, w] = await settle(path, alchemy, wrangler, deadline);
+      const settled = await settle(path, alchemy, wrangler, deadline, (one) => {
+        attempt = one;
+      });
+      kept.set(path, settled.kept);
+      const [a, w] = settled.pair;
       for (const one of [a, w]) if ("failure" in one) refusals.push(one.failure);
       const alchemyObservation = "observation" in a ? a.observation : undefined;
       const wranglerObservation = "observation" in w ? w.observation : undefined;
@@ -1296,6 +1361,7 @@ export async function run(options: Options, context: RunContext): Promise<Report
       });
     }
     current = "(after the last probe)";
+    attempt = 1;
     for (const path of SEEDED_PROBES) {
       const result = results.find((one) => one.path === path);
       for (const [side, observation, answered] of [
@@ -1321,7 +1387,9 @@ export async function run(options: Options, context: RunContext): Promise<Report
         "The seeded probes ran, and no call from the Wrangler side reached cire-api through the relay: the Worker called no PARITY_API_ORIGIN, or the reference did not route its calls.",
       );
     }
-    refusals.push(...relayRefusals(relayed));
+    // Only the try settle() kept counts: a miss that held on the second try
+    // is refused, one the second try did not repeat is not.
+    refusals.push(...relayRefusals(relayed.filter((call) => kept.get(call.probe) === call.try)));
     const differ = results.some((one) => one.differences.length > 0);
     return {
       ...base,
