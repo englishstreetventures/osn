@@ -51,8 +51,8 @@ Mirrors `cire/host`: **static Astro + SolidJS islands + Tailwind v4**
 `wrangler pages deploy dist`. **Motion is CSS alone**: transitions and one
 keyframe animation, no motion library. `motion` and `three` are not
 dependencies, and the bundle guard's threshold (`scripts/bundle-size-budgets.txt`)
-sits at the measured build plus the usual headroom, so adding either fails the
-build. The reduced-motion block in `src/styles/global.css` snaps every
+sits at the measured build plus the usual headroom, so adding either trips the
+guard's over-budget warning ([[bundle-size-guards]]). The reduced-motion block in `src/styles/global.css` snaps every
 transition and animation off; the demo sheet's `Modal` (`@shared/ui`) checks the
 same media query itself. `html` sets `color-scheme: dark`, so the browser's own
 controls and scrollbars match the one dark palette, and `scroll-padding-top:
