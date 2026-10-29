@@ -1,6 +1,6 @@
 import Button from "@cire/ui/button";
 import Disclosure from "@cire/ui/disclosure";
-import Eyebrow from "@cire/ui/eyebrow";
+import { eyebrowClass } from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
 import { Notice } from "@shared/ui/ui/notice";
 import { createSignal, For, Show } from "solid-js";
@@ -10,6 +10,13 @@ import { invalidateEvents } from "../lib/events-store";
 import { invalidateGuests } from "../lib/guests-store";
 import { invalidateHouseholds } from "../lib/households-store";
 import { scheduleChanged } from "../lib/schedule-changed";
+
+/**
+ * A row's label, drawn once per row: the eyebrow's classes on a plain element,
+ * without `Eyebrow`'s run-time choice of tag.
+ */
+const ROW_LABEL_CLASS = eyebrowClass();
+
 /**
  * One row of the change list as returned by
  * `GET /api/organiser/weddings/:weddingId/changes/list` (the E4 endpoint).
@@ -274,7 +281,7 @@ export default function ChangeHistory(props: { weddingId: string }) {
                 return (
                   <li class="border-border bg-surface/30 flex flex-col gap-2 rounded-sm border p-4 @lg/panel:flex-row @lg/panel:items-center @lg/panel:justify-between">
                     <div class="flex flex-col gap-1">
-                      <Eyebrow as="span">{KIND_LABEL[entry.kind] ?? "Change"}</Eyebrow>
+                      <span class={ROW_LABEL_CLASS}>{KIND_LABEL[entry.kind] ?? "Change"}</span>
                       <span class="font-body text-text text-ui-base">
                         {formatDate(entry.uploadedAt)}
                       </span>
