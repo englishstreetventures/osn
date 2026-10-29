@@ -447,11 +447,17 @@ export function guestSitePaths(page: Page): readonly string[] {
  * `/authorize`, which hands the first-party portal a code with no screen, and
  * cire-api's callback, which exchanges it and sets `cire_org_session`.
  *
+ * With `arriveAt`, the portal root with a query the portal reads and drops
+ * (`/?name=…`), the page first opens that address signed out, as a link from
+ * elsewhere would, and the sign-in starts from the `/login?returnTo=` the
+ * portal sends it to. It checks that `returnTo` is that address; the callback
+ * lands on it, and the portal leaves it for the wedding list.
+ *
  * Each call spends two of cire-api's OIDC redirect legs (15 a minute per
  * address), one `/dev/login` (10) and one osn-api `/authorize` (20);
  * `tests/flows.test.ts` caps how many flows may call it.
  */
-export async function signInToCireHost(flow: Flow, page: Page): Promise<void> {
+export async function signInToCireHost(flow: Flow, page: Page, arriveAt?: string): Promise<void> {
   const authorizePages: string[] = [];
   page.on("framenavigated", (frame) => {
     if (frame === page.mainFrame() && frame.url().startsWith(`${ORIGINS.musubi}/authorize`)) {
@@ -472,12 +478,27 @@ export async function signInToCireHost(flow: Flow, page: Page): Promise<void> {
   // The flows share one database, so the check is this sign-in's own row: one
   // more for the dev profile than before it.
   const sessionsBefore = organiserSessions();
-  await flow.step("organiser: sign in to the portal with musubi", async () => {
-    await page.goto(`${ORIGINS.cireHost}/login`);
+  const returnTo = await flow.step("organiser: sign in to the portal with musubi", async () => {
+    let carried: string | null = null;
+    if (arriveAt === undefined) {
+      await page.goto(`${ORIGINS.cireHost}/login`);
+    } else {
+      await page.goto(`${ORIGINS.cireHost}${arriveAt}`);
+      await page.waitForURL((url) => url.origin === ORIGINS.cireHost && url.pathname === "/login");
+      carried = new URL(page.url()).searchParams.get("returnTo");
+    }
     await page.getByRole("button", { name: "Continue with musubi" }).click();
     // The portal lands on `/` and rewrites the empty hash to its wedding list.
     await expect(page).toHaveURL(`${ORIGINS.cireHost}/#/weddings`);
+    return carried;
   });
+  if (arriveAt !== undefined) {
+    flow.check(
+      "organiser: signed out, the portal sends the address on to sign-in",
+      arriveAt,
+      returnTo ?? "no returnTo",
+    );
+  }
 
   flow.check("organiser: musubi /authorize page not shown", 0, authorizePages.length);
   const cookie = await cookieNamed(page.context(), ORIGINS.cireApi, "cire_org_session");
