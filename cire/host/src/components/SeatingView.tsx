@@ -396,6 +396,7 @@ export default function SeatingView(props: SeatingViewProps) {
             {(field) => (
               <Select
                 {...field}
+                size="sm"
                 onChange={(e) => setEventId(e.currentTarget.value)}
                 class="min-w-56"
               >
@@ -412,12 +413,15 @@ export default function SeatingView(props: SeatingViewProps) {
               </Select>
             )}
           </Field>
+          {/* The event picker is a filter — which chart to show — so it is a 28px
+              pill, and the bar's actions beside it are its height (DESIGN.md
+              §4, "One form-field height"). */}
           <div class="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" onClick={() => window.print()}>
+            <Button variant="outline" size="sm" class="h-7" onClick={() => window.print()}>
               Print
             </Button>
             <Show when={props.canManage}>
-              <Button variant="outline" size="sm" onClick={() => void downloadCsv()}>
+              <Button variant="outline" size="sm" class="h-7" onClick={() => void downloadCsv()}>
                 Download seating CSV
               </Button>
             </Show>

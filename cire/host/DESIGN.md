@@ -308,25 +308,26 @@ with the 14px corner; buttons beside them match. Filters stay 28px pills."):
   or under it on a narrow panel) and Add guest at the card's foot. A
   borderless button (`link`, `subtle`, `bare`) draws no box and keeps its
   size; so does a button stacked under the fields rather than beside them.
-- **A filter in a view bar is 28px** — `size="sm"` alone — so the 14px corner is
-  half its height and rounds its ends: the guest-list and RSVP search boxes and
-  the RSVP sort select. The chips and the reply key beside them are 28px too
-  (`h-7`, `size-7`). The bar's action is the same height: Add household is
-  `Button size="sm"` with `h-7`, since `size="sm"` alone is 31px, and its icon
-  form on a narrow panel is `size-7`.
+- **A filter is 28px** — `size="sm"` alone — so the 14px corner is half its
+  height and rounds its ends: the guest-list and RSVP search boxes, the RSVP
+  sort select, the vendor directory's Category, Keyword and Location, and the
+  seating chart's Event select (which chart to show). The chips and the reply
+  key beside them are 28px too (`h-7`, `size-7`). A bar's action is the same
+  height: Add household, Clear filters, Print and Download seating CSV are
+  `Button size="sm"` with `h-7`, since `size="sm"` alone is 31px, and Add
+  household's icon form on a narrow panel is `size-7`.
 
 Why: a pill reads as a search box. That is right for a filter, which is one,
 and wrong for a field that holds a value, which should look like the form field
 it is; one height for every form field keeps a form's rows level wherever it
 sits. The owner chose from the heights side by side.
 
-Not yet on the rule, and why: the vendor directory's filter panel (Category,
-Keyword, Location and Clear filters, labelled fields at 36px) and the seating
-chart's Event select (which chart to show, beside Print) are filters that are
-not in a view bar, left at 36px for the owner to place; the dietary picker's
+The rule is the portals' — this one and `cire/vendor`. The guest site is not a
+portal and keeps its fields' own heights, so a guest's tap target does not
+shrink (owner, 2026-10-29). Not yet on the rule, and why: the dietary picker's
 trigger in the reply editor is `@cire/ui`'s `field`-variant button and keeps
-its height until a shared 34px size exists; the command palette's and the task
-holders' search boxes draw no box of their own.
+its height until a shared 34px size exists (englishstreetventures/osn#1842); the command palette's and
+the task holders' search boxes draw no box of their own.
 
 **Checkboxes and radios: the checked box is the browser's, the unchecked one
 sits on its surface.** A checked or indeterminate native box keeps the

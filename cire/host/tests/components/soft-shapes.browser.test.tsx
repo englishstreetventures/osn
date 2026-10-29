@@ -9,8 +9,10 @@ import "../../src/styles/global.css";
  * is the 14px `field` corner, an action button is a pill, and a field is one of
  * two heights by what it does (DESIGN.md §4, "One form-field height").
  *
- * - A filter in a view bar — the RSVP search box and, on a phone, its sort
- *   select — is 28px, so the 14px corner is half its height: a pill.
+ * - A filter — the RSVP search box and, on a phone, its sort select, the vendor
+ *   directory's category, keyword and location, the seating chart's event — is
+ *   28px, so the 14px corner is half its height: a pill. The button beside a
+ *   filter — Clear filters, Print, Download seating CSV — is 28px too.
  * - A form field — any field that enters or edits a value, at either size — is
  *   34px, so the same corner leaves a straight side. A button in a row with one
  *   is 34px too: the budget's Add item, Add payment and the budget's own Save
@@ -44,10 +46,13 @@ vi.mock("../../src/lib/rsvp-changes", async (importOriginal) => ({
 }));
 
 import BudgetView from "../../src/components/BudgetView";
+import DirectoryBrowseView from "../../src/components/DirectoryBrowseView";
 import HostsPanel from "../../src/components/HostsPanel";
 import RegistryView from "../../src/components/RegistryView";
 import RsvpView from "../../src/components/RsvpView";
+import SeatingView from "../../src/components/SeatingView";
 import { __resetBudgetCache } from "../../src/lib/budget-store";
+import { __resetEventsCache, setCachedEvents } from "../../src/lib/events-store";
 import { __resetHostsCache } from "../../src/lib/hosts-store";
 import { __resetRegistryCache } from "../../src/lib/registry-store";
 import { eventPayload, guestList } from "../test-support/rsvp-guests";
@@ -138,6 +143,7 @@ afterEach(() => {
   __resetBudgetCache();
   __resetRegistryCache();
   __resetHostsCache();
+  __resetEventsCache();
   delete document.documentElement.dataset.theme;
 });
 
@@ -404,6 +410,91 @@ describe("the co-host form", () => {
       ).toEqual([]);
       handle.scrollIntoView({ block: "center" });
       await page.screenshot({ path: shot(`hosts-add-${viewport.name}`) });
+    });
+  }
+});
+
+/** Each filter that is not the 28px pill, and each button beside one that is not 28px. */
+function filterMisfits(filters: Record<string, Element>, actions: Record<string, Element> = {}) {
+  const off: object[] = [];
+  for (const [name, el] of Object.entries(filters)) {
+    const measured = shape(name, el);
+    const { height, corner: radius, pill } = measured;
+    if (height !== FILTER.height || radius !== FILTER.corner || pill !== FILTER.pill) {
+      off.push(measured);
+    }
+  }
+  for (const [name, el] of Object.entries(actions)) {
+    const height = Math.round(el.getBoundingClientRect().height * 100) / 100;
+    if (height !== FILTER.height) off.push({ name, height });
+  }
+  return off;
+}
+
+const SEATING_CHART = {
+  event: { id: "e_rec", name: "Reception" },
+  tables: [{ id: "t1", name: "Table 1", capacity: 8, sortOrder: 0 }],
+  guests: [],
+};
+
+describe("the filters outside a view bar", () => {
+  for (const viewport of VIEWPORTS) {
+    it(`draw the directory's and the seating chart's filters as 28px pills, ${viewport.name}px`, async () => {
+      await page.viewport(viewport.width, viewport.height);
+      authFetch.mockResolvedValue(json({ listings: [], total: 0 }));
+      render(() => <DirectoryBrowseView weddingId="wed_1" canEdit />);
+      const category = await screen.findByRole("combobox", { name: "Category" });
+      await document.fonts.ready;
+      expect(
+        filterMisfits(
+          {
+            category,
+            keyword: screen.getByRole("textbox", { name: "Keyword" }),
+            location: screen.getByRole("textbox", { name: "Location" }),
+          },
+          { "Clear filters": screen.getByRole("button", { name: "Clear filters" }) },
+        ),
+      ).toEqual([]);
+      await page.screenshot({ path: shot(`directory-filters-${viewport.name}`) });
+      cleanup();
+
+      setCachedEvents("wed_1", [
+        {
+          id: "e_rec",
+          name: "Reception",
+          slug: "reception",
+          sortOrder: 0,
+          startAt: "2027-03-01T18:00",
+          endAt: "",
+          timezone: "UTC",
+          address: null,
+          description: "",
+          dressCodeDescription: null,
+          dressCodePalette: null,
+          pinterestUrl: null,
+          mapsUrl: null,
+          imageUrl: null,
+          imageCrop: null,
+        },
+      ]);
+      authFetch.mockResolvedValue(json(SEATING_CHART));
+      render(() => (
+        <div class="bg-bg text-text @container/panel min-h-screen p-6">
+          <SeatingView weddingId="wed_1" weddingSlug="ada-and-bo" canEdit canManage />
+        </div>
+      ));
+      const event = await screen.findByRole("combobox", { name: "Event" });
+      await screen.findByRole("region", { name: "Table 1" });
+      expect(
+        filterMisfits(
+          { event },
+          {
+            Print: screen.getByRole("button", { name: "Print" }),
+            "Download seating CSV": screen.getByRole("button", { name: "Download seating CSV" }),
+          },
+        ),
+      ).toEqual([]);
+      await page.screenshot({ path: shot(`seating-filter-${viewport.name}`) });
     });
   }
 });
