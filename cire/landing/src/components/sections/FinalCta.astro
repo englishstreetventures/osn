@@ -29,6 +29,7 @@ import { ORGANISER_URL } from '../../lib/site'
         <label for="claim-names" class="claim__label">Your names</label>
         <input
           id="claim-names"
+          name="names"
           type="text"
           class="claim__input"
           maxlength={MAX_NAME_LENGTH}
@@ -161,6 +162,7 @@ import { ORGANISER_URL } from '../../lib/site'
   }
 
   .closing__title {
+    text-wrap: balance;
     margin: 0;
     color: var(--color-text);
     font-size: clamp(2.2rem, 6vw, 4rem);
