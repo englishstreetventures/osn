@@ -252,7 +252,7 @@ function DemoRsvpModal(props: DemoRsvpModalProps) {
                   <div class="flex gap-2">
                     <button
                       type="button"
-                      class="font-body text-ui-sm tracking-ui-normal rounded-ui-control focus-visible:outline-ui-focus flex-1 cursor-pointer border px-4 py-2.5 font-medium transition-colors duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2"
+                      class="font-body text-ui-sm tracking-ui-normal rounded-ui-control focus-visible:outline-ui-focus flex-1 cursor-pointer border px-4 py-2.5 font-medium transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2"
                       classList={{
                         "border-gold text-gold bg-gold/8":
                           responses()[guestId]?.attending === "attending",
@@ -266,7 +266,7 @@ function DemoRsvpModal(props: DemoRsvpModalProps) {
                     </button>
                     <button
                       type="button"
-                      class="font-body text-ui-sm tracking-ui-normal rounded-ui-control focus-visible:outline-ui-focus flex-1 cursor-pointer border px-4 py-2.5 font-medium transition-colors duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2"
+                      class="font-body text-ui-sm tracking-ui-normal rounded-ui-control focus-visible:outline-ui-focus flex-1 cursor-pointer border px-4 py-2.5 font-medium transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2"
                       classList={{
                         "border-gold text-gold bg-gold/8":
                           responses()[guestId]?.attending === "declined",
@@ -298,7 +298,7 @@ function DemoRsvpModal(props: DemoRsvpModalProps) {
                         Anything else
                         <input
                           type="text"
-                          class="border-border font-body text-text placeholder:text-text-muted focus:border-gold sm:text-ui-base rounded-ui-field focus-visible:outline-ui-focus mt-1.5 block w-full border bg-transparent px-3 py-2.5 text-base transition-colors duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2"
+                          class="border-border font-body text-text placeholder:text-text-muted focus:border-gold sm:text-ui-base rounded-ui-field focus-visible:outline-ui-focus mt-1.5 block w-full border bg-transparent px-3 py-2.5 text-base transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2"
                           placeholder="e.g. no onion or garlic"
                           value={responses()[guestId]?.dietary ?? ""}
                           onInput={(e) => setDietary(guestId, e.currentTarget.value)}
