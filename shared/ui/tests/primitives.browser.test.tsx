@@ -14,9 +14,10 @@
  */
 
 import { render } from "@solidjs/testing-library";
+import type { JSX } from "solid-js";
 import { describe, expect, it } from "vitest";
 
-import { Chip } from "../src/ui/chip";
+import { Chip, type ChipTone, type ChipTreatment, type ChipVariant } from "../src/ui/chip";
 import { EmptyState } from "../src/ui/empty-state";
 import { Notice, type NoticeSize, type NoticeTone } from "../src/ui/notice";
 import { Stat } from "../src/ui/stat";
@@ -418,7 +419,7 @@ describe("Notice sizes and the accent tone", () => {
 
 describe("Chip", () => {
   it("paints a distinct ground for every tone", () => {
-    const grounds = (["neutral", "success", "pending", "accent"] as const).map((tone) => {
+    const grounds = (["neutral", "success", "pending", "accent", "danger"] as const).map((tone) => {
       const { container, unmount } = render(() => <Chip tone={tone}>state</Chip>);
       const bg = painted(container.firstElementChild!, "backgroundColor");
       expect(bg).not.toBe(TRANSPARENT);
@@ -431,6 +432,192 @@ describe("Chip", () => {
   it("always carries its state as text, so the hue is never the only carrier", () => {
     const { container } = render(() => <Chip tone="success">live</Chip>);
     expect(container.textContent?.trim()).toBe("live");
+  });
+});
+
+/** Every computed property a chip's look is made of. */
+const CHIP_LOOK = [
+  "paddingTop",
+  "paddingLeft",
+  "borderTopWidth",
+  "borderTopColor",
+  "borderTopLeftRadius",
+  "backgroundColor",
+  "color",
+  "fontSize",
+  "letterSpacing",
+  "textTransform",
+  "height",
+] as const;
+
+function chipLook(el: Element): Record<(typeof CHIP_LOOK)[number], string> {
+  const style = getComputedStyle(el);
+  return Object.fromEntries(CHIP_LOOK.map((p) => [p, style[p]])) as Record<
+    (typeof CHIP_LOOK)[number],
+    string
+  >;
+}
+
+/** Renders inside a flex row, as every chip and tag in the apps sits. */
+function inRow(node: () => JSX.Element): { el: Element; unmount: () => void } {
+  const { container, unmount } = render(() => <div class="flex items-start">{node()}</div>);
+  return { el: container.firstElementChild!.firstElementChild!, unmount };
+}
+
+/** The chip as it was before it had variants: the class list, word for word. */
+const CHIP_TODAY =
+  "base:font-ui-body base:inline-flex base:shrink-0 base:items-center base:rounded-ui-pill " +
+  "base:px-2.5 base:py-0.5 base:text-ui-xs base:tracking-ui-wider base:whitespace-nowrap base:uppercase";
+
+const CHIP_TONE_TODAY = {
+  neutral: "base:bg-ui-surface/60 base:text-ui-ink-secondary",
+  success: "base:bg-ui-success/12 base:text-ui-success",
+  pending: "base:bg-ui-warn/12 base:text-ui-warn",
+  accent: "base:bg-ui-accent-soft base:text-ui-accent-ink",
+} as const;
+
+/** The apps' hand-written sentence-case tags, in the contract's names. */
+const TAG_TODAY = {
+  neutral:
+    "base:bg-ui-surface/60 base:text-ui-ink-secondary base:text-ui-xs base:rounded-ui-pill base:px-2 base:py-0.5",
+  danger:
+    "base:bg-ui-danger/10 base:text-ui-danger base:text-ui-xs base:rounded-ui-pill base:px-2 base:py-0.5",
+} as const;
+
+const CHIP_TONES = ["neutral", "success", "pending", "accent", "danger"] as const;
+
+describe("Chip variants, treatments and the danger tone", () => {
+  it.each(["neutral", "success", "pending", "accent"] as const)(
+    "draws the %s chip it always has when given no variant or treatment",
+    (tone) => {
+      const chip = inRow(() => <Chip tone={tone}>quoted</Chip>);
+      const now = chipLook(chip.el);
+      chip.unmount();
+      const today = inRow(() => (
+        <span class={`${CHIP_TODAY} ${CHIP_TONE_TODAY[tone]}`}>quoted</span>
+      ));
+      expect(now).toEqual(chipLook(today.el));
+      today.unmount();
+    },
+  );
+
+  it.each(["neutral", "danger"] as const)(
+    "draws the %s tag as the apps' hand-written tags drew it",
+    (tone) => {
+      const tag = inRow(() => (
+        <Chip tone={tone} treatment="tag">
+          Hair and makeup
+        </Chip>
+      ));
+      const now = chipLook(tag.el);
+      tag.unmount();
+      const today = inRow(() => <span class={TAG_TODAY[tone]}>Hair and makeup</span>);
+      expect(now).toEqual(chipLook(today.el));
+      today.unmount();
+    },
+  );
+
+  it.each(CHIP_TONES)(
+    "outlines the %s chip: a 1px border of its own, no fill, the filled chip's height",
+    (tone) => {
+      const outline = inRow(() => (
+        <Chip tone={tone} variant="outline">
+          Connected
+        </Chip>
+      ));
+      const o = chipLook(outline.el);
+      outline.unmount();
+      const filled = inRow(() => <Chip tone={tone}>Connected</Chip>);
+      const f = chipLook(filled.el);
+      filled.unmount();
+
+      expect(o.borderTopWidth).toBe("1px");
+      expect(o.backgroundColor).toBe(TRANSPARENT);
+      expect(o.color).toBe(f.color);
+      // A border with no colour of its own falls back to the ink, which is
+      // exactly what an unemitted utility looks like.
+      expect(o.borderTopColor).not.toBe(o.color);
+      expect(o.height).toBe(f.height);
+    },
+  );
+
+  it("outlines the neutral chip in the hairline", () => {
+    const { container } = render(() => <Chip variant="outline">No reply</Chip>);
+    expect(painted(container.firstElementChild!, "borderTopColor")).toBe(
+      tokenColour("--ui-hairline"),
+    );
+  });
+
+  it("paints danger in an ink of its own, apart from pending and accent", () => {
+    const inks = (["danger", "pending", "accent"] as const).map((tone) => {
+      const { container, unmount } = render(() => <Chip tone={tone}>state</Chip>);
+      const c = painted(container.firstElementChild!, "color");
+      unmount();
+      return c;
+    });
+    expect(new Set(inks).size).toBe(3);
+  });
+
+  it.each([
+    ["outline", "caps"],
+    ["filled", "tag"],
+    ["outline", "tag"],
+  ] as const)("spaces a mark from its word on a %s %s chip", (variant, treatment) => {
+    const { container } = render(() => (
+      <Chip variant={variant} treatment={treatment} tone="accent">
+        <span data-testid="dot" style={{ display: "inline-block", width: "6px", height: "6px" }} />
+        <span data-testid="word">Shown</span>
+      </Chip>
+    ));
+    const dot = container.querySelector("[data-testid='dot']")!.getBoundingClientRect();
+    const word = container.querySelector("[data-testid='word']")!.getBoundingClientRect();
+    expect(word.left - dot.right).toBeGreaterThanOrEqual(5);
+  });
+
+  it("passes a role, data attributes, an id and a layout class through", () => {
+    const { container } = render(() => (
+      <Chip
+        tone="accent"
+        variant="outline"
+        role="alert"
+        id="section-state"
+        data-segment-badge=""
+        data-state="shown"
+        class="w-fit"
+      >
+        Shown
+      </Chip>
+    ));
+    const chip = container.firstElementChild!;
+    expect(chip.getAttribute("role")).toBe("alert");
+    expect(chip.id).toBe("section-state");
+    expect(chip.hasAttribute("data-segment-badge")).toBe(true);
+    expect(chip.getAttribute("data-state")).toBe("shown");
+    expect(chip.getAttribute("class")?.endsWith(" w-fit")).toBe(true);
+  });
+
+  it("drops a title a caller spreads, since a badge explains itself in a Tooltip", () => {
+    const spread: Record<string, string> = { title: "Owners can change anything" };
+    const { container } = render(() => (
+      <Chip tone="accent" {...spread}>
+        Owner
+      </Chip>
+    ));
+    expect(container.firstElementChild!.hasAttribute("title")).toBe(false);
+  });
+
+  it("draws the default chip for a tone, variant or treatment outside the named sets", () => {
+    const bad = "__proto__";
+    const odd = inRow(() => (
+      <Chip tone={bad as ChipTone} variant={bad as ChipVariant} treatment={bad as ChipTreatment}>
+        state
+      </Chip>
+    ));
+    const got = chipLook(odd.el);
+    odd.unmount();
+    const plain = inRow(() => <Chip>state</Chip>);
+    expect(got).toEqual(chipLook(plain.el));
+    plain.unmount();
   });
 });
 

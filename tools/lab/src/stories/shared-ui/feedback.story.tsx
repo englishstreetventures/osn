@@ -1,5 +1,5 @@
 import { Button } from "@shared/ui/ui/button";
-import { Chip, type ChipTone } from "@shared/ui/ui/chip";
+import { Chip, type ChipTone, type ChipTreatment, type ChipVariant } from "@shared/ui/ui/chip";
 import { EmptyState } from "@shared/ui/ui/empty-state";
 import { Input } from "@shared/ui/ui/input";
 import { Notice, type NoticeSize, type NoticeTone } from "@shared/ui/ui/notice";
@@ -175,15 +175,153 @@ export const Chips = () => (
   </div>
 );
 
+const CHIP_TONES = [
+  "neutral",
+  "success",
+  "pending",
+  "accent",
+  "danger",
+] as const satisfies readonly ChipTone[];
+
+const CHIP_WORD = {
+  neutral: "No reply",
+  success: "Live",
+  pending: "Awaiting",
+  accent: "Connected",
+  danger: "Declined",
+} satisfies Record<ChipTone, string>;
+
+/**
+ * Every tone outlined: a 1px border at 40% of the tone (the hairline for
+ * `neutral`) and no ground, at the filled chip's height — the filled row under
+ * it is there for scale.
+ */
+export const ChipOutline = () => (
+  <div class="flex flex-col gap-3">
+    <div class="flex flex-wrap items-center gap-2">
+      <For each={CHIP_TONES}>
+        {(tone) => (
+          <Chip tone={tone} variant="outline">
+            {CHIP_WORD[tone]}
+          </Chip>
+        )}
+      </For>
+    </div>
+    <div class="flex flex-wrap items-center gap-2">
+      <For each={CHIP_TONES}>{(tone) => <Chip tone={tone}>{CHIP_WORD[tone]}</Chip>}</For>
+    </div>
+  </div>
+);
+
+/**
+ * The `tag` treatment: a label as written, in sentence case at normal spacing —
+ * a vendor's category, "Cash fund", a gift no longer available — filled and
+ * outlined.
+ */
+export const ChipTag = () => (
+  <div class="flex flex-col gap-3">
+    <div class="flex flex-wrap items-center gap-2">
+      <Chip treatment="tag">Hair and makeup</Chip>
+      <Chip treatment="tag">Cash fund</Chip>
+      <Chip treatment="tag" tone="danger">
+        No longer available
+      </Chip>
+      <Chip treatment="tag" tone="accent">
+        You
+      </Chip>
+      <Chip treatment="tag" tone="pending">
+        Coming up
+      </Chip>
+    </div>
+    <div class="flex flex-wrap items-center gap-2">
+      <Chip treatment="tag" variant="outline">
+        Done
+      </Chip>
+      <Chip treatment="tag" variant="outline" tone="pending">
+        Event removed
+      </Chip>
+    </div>
+  </div>
+);
+
+/** An outline or a tag leading with a mark — a dot, a glyph — held 6px from its word. */
+export const ChipWithMark = () => (
+  <div class="flex flex-wrap items-center gap-2">
+    <Chip tone="accent" variant="outline">
+      <span aria-hidden="true" class="bg-ui-accent inline-block size-1.5 rounded-full" />
+      Shown
+    </Chip>
+    <Chip variant="outline">
+      <span aria-hidden="true" class="bg-ui-ink-tertiary inline-block size-1.5 rounded-full" />
+      Hidden
+    </Chip>
+    <Chip treatment="tag" variant="outline">
+      <span aria-hidden="true">✓</span>
+      Done
+    </Chip>
+  </div>
+);
+
+function ChipRamp(props: { theme: CireTheme }) {
+  return (
+    <div
+      class="rounded-ui-lg border-ui-hairline bg-ui-ground text-ui-ink flex min-w-0 flex-1 basis-80 flex-col gap-3 border p-5"
+      style={cireStyle(props.theme)}
+    >
+      <span class="text-ui-xs tracking-ui-widest text-ui-ink-secondary uppercase">
+        cire · {props.theme}
+      </span>
+      <For each={["filled", "outline"] as const satisfies readonly ChipVariant[]}>
+        {(variant) => (
+          <For each={["caps", "tag"] as const satisfies readonly ChipTreatment[]}>
+            {(treatment) => (
+              <div class="flex flex-wrap items-center gap-2">
+                <For each={CHIP_TONES}>
+                  {(tone) => (
+                    <Chip tone={tone} variant={variant} treatment={treatment}>
+                      {CHIP_WORD[tone]}
+                    </Chip>
+                  )}
+                </For>
+              </div>
+            )}
+          </For>
+        )}
+      </For>
+    </div>
+  );
+}
+
+/**
+ * Every tone, variant and treatment under cire's mapping, both ramps: the host
+ * portal's colours, type steps and pill corner.
+ */
+export const ChipsInCire = () => (
+  <div class="flex flex-wrap items-start gap-6">
+    <ChipRamp theme="dark" />
+    <ChipRamp theme="light" />
+  </div>
+);
+
 interface ChipArgs extends StoryArgs {
   label: string;
   tone: ChipTone;
+  variant: ChipVariant;
+  treatment: ChipTreatment;
 }
 
 export const ChipPlayground: Story<ChipArgs> = {
-  args: { label: "quoted", tone: "accent" },
-  controls: { tone: { kind: "select", options: ["neutral", "success", "pending", "accent"] } },
-  render: (args) => <Chip tone={args.tone}>{args.label}</Chip>,
+  args: { label: "quoted", tone: "accent", variant: "filled", treatment: "caps" },
+  controls: {
+    tone: { kind: "select", options: CHIP_TONES },
+    variant: { kind: "select", options: ["filled", "outline"] },
+    treatment: { kind: "select", options: ["caps", "tag"] },
+  },
+  render: (args) => (
+    <Chip tone={args.tone} variant={args.variant} treatment={args.treatment}>
+      {args.label}
+    </Chip>
+  ),
 };
 
 /**
