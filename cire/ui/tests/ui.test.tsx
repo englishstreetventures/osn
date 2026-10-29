@@ -240,6 +240,54 @@ describe("Button — the variants that carry state or fill", () => {
   });
 });
 
+/** Every variant, as a record so a variant added to the type and not here fails to compile. */
+const EVERY_VARIANT = Object.keys({
+  primary: true,
+  cta: true,
+  outline: true,
+  quiet: true,
+  quietDanger: true,
+  choice: true,
+  tile: true,
+  dashed: true,
+  field: true,
+  danger: true,
+  chip: true,
+  link: true,
+  subtle: true,
+  touchLink: true,
+  bare: true,
+  bareDanger: true,
+} satisfies Record<ButtonVariant, true>) as ButtonVariant[];
+
+describe("Button — motion", () => {
+  it("fades only what a hover changes, so the focus ring shows at once", () => {
+    // Tailwind's `transition-colors` includes `outline-color`, which would fade
+    // the focus ring in over the hover's duration. The ring must show the
+    // moment focus lands, so the transition names its properties instead.
+    const wrong = EVERY_VARIANT.filter((variant) => {
+      const cls = buttonClass({ variant }).split(/\s+/);
+      return (
+        cls.includes("base:transition-colors") ||
+        !cls.includes("base:transition-[color,background-color,border-color,text-decoration-color]")
+      );
+    });
+    expect(wrong).toEqual([]);
+  });
+
+  it("takes its hover duration from the app's motion token", () => {
+    // A literal duration ignores the app's ladder, which is shorter under a
+    // fine pointer. The fallback is for an app that declares no ladder.
+    const wrong = EVERY_VARIANT.filter((variant) => {
+      const durations = buttonClass({ variant })
+        .split(/\s+/)
+        .filter((c) => c.includes("duration-"));
+      return durations.length !== 1 || durations[0] !== "base:duration-(--dur-fast,100ms)";
+    });
+    expect(wrong).toEqual([]);
+  });
+});
+
 describe("Card", () => {
   it("marks the accented card out from the ordinary one", () => {
     expect(cardClass({ tone: "accent" })).not.toBe(cardClass());
