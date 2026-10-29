@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import EnquiryThread from "../../src/components/EnquiryThread";
 import type { EnquiryListItem, EnquiryMessage } from "../../src/lib/enquiries-store";
+import { chipLook } from "../test-support/chip-look";
 
 // Stub the toast package so toast.error doesn't throw in tests.
 const toastError = vi.fn();
@@ -68,6 +69,15 @@ describe("EnquiryThread", () => {
     const theirsBubble = screen.getByText("Hi there").closest("[data-mine]");
     expect(mineBubble).toHaveAttribute("data-mine", "true");
     expect(theirsBubble).toHaveAttribute("data-mine", "false");
+  });
+
+  it("tags the vendor's name with its category's name, in sentence case", () => {
+    render(() => <EnquiryThread {...base} />);
+    expect(chipLook(screen.getByText("Florals"))).toEqual({
+      tone: "neutral",
+      variant: "filled",
+      treatment: "tag",
+    });
   });
 
   it("sends a reply and clears the box", async () => {

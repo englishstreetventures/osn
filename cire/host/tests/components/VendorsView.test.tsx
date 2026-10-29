@@ -1,10 +1,11 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library";
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import VendorsView from "../../src/components/VendorsView";
 import { __resetVendorsCache, setCachedVendors, type VendorRow } from "../../src/lib/vendors-store";
+import { chipLook } from "../test-support/chip-look";
 
 const authFetch = vi.fn();
 vi.mock("@shared/rp-auth/solid", () => ({ useAuth: () => ({ authFetch }) }));
@@ -50,6 +51,20 @@ describe("VendorsView", () => {
     expect(screen.getByRole("heading", { name: "Booked" })).toBeInTheDocument();
     // No "Contacted" heading since there are no vendors in that status.
     expect(screen.queryByRole("heading", { name: "Contacted" })).not.toBeInTheDocument();
+  });
+
+  it("tags each vendor with its category's name, in sentence case", async () => {
+    setCachedVendors("wed_1", [
+      vendor({ id: "a", name: "Florist Co", status: "researching" }),
+      vendor({ id: "b", name: "Photo Studio", status: "booked", category: "photography" }),
+    ]);
+    render(() => <VendorsView weddingId="wed_1" canEdit={true} canManage={true} />);
+    // Within each vendor's row: the add form's category select names them too.
+    const tagOf = async (name: string, word: string) =>
+      chipLook(within((await screen.findByText(name)).closest("li")!).getByText(word));
+    const tag = { tone: "neutral", variant: "filled", treatment: "tag" };
+    expect(await tagOf("Florist Co", "Florals")).toEqual(tag);
+    expect(await tagOf("Photo Studio", "Photography")).toEqual(tag);
   });
 
   it("hides the add-vendor form for a viewer (read-only)", async () => {

@@ -3,11 +3,13 @@ import Button from "@cire/ui/button";
 import DietaryPresets from "@cire/ui/dietary-presets";
 import Reveal from "@cire/ui/reveal";
 import { toast } from "@shared/toast";
+import { Notice } from "@shared/ui/ui/notice";
 import {
   batch,
   createEffect,
   createMemo,
   createSignal,
+  createUniqueId,
   onCleanup,
   Show,
   For,
@@ -147,6 +149,9 @@ async function failureCode(res: Response): Promise<string | undefined> {
   const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
   return typeof body?.error === "string" ? body.error : undefined;
 }
+
+/** The sheet's two consent boxes; see `createConsentBox`. */
+type ConsentBoxName = "consent" | "attestation";
 
 /**
  * One consent checkbox: its state, and the rule for when it may open ticked.
@@ -342,7 +347,17 @@ export function RsvpPanel(props: RsvpPanelProps) {
     return inviter ? `${inviter.firstName}'s guest` : "Guest";
   };
 
-  const [error, setError] = createSignal<string | null>(null);
+  const [error, setErrorText] = createSignal<string | null>(null);
+  // The consent box the error line refuses, when it refuses one: that box is
+  // named by the line and marked wrong until the line next changes.
+  const [refusedBox, setRefusedBox] = createSignal<ConsentBoxName>();
+  const setError = (text: string | null, box?: ConsentBoxName) =>
+    batch(() => {
+      setErrorText(text);
+      setRefusedBox(box);
+    });
+  const errorId = createUniqueId();
+  const refuses = (box: ConsentBoxName) => refusedBox() === box;
   const [loading, setLoading] = createSignal(false);
   // Terminal success state: the reply is recorded, the Save button is filling
   // gold behind a drawn tick, and the sheet is counting down to closing itself.
@@ -543,12 +558,15 @@ export function RsvpPanel(props: RsvpPanelProps) {
     // enforces this with a 422 — see
     // `wiki/compliance/dpia/cire-guest-data.md`.)
     if (ownWithDietaryData().length > 0 && !consent.checked()) {
-      setError("Please tick the box to let us store your dietary requirements.");
+      setError("Please tick the box to let us store your dietary requirements.", "consent");
       return;
     }
     if (plusOnesWithDietaryData().length > 0 && !attestation.checked()) {
       const names = formatNames(plusOnesWithDietaryData().map((m) => m.firstName));
-      setError(`Please confirm that ${names} agreed to their dietary requirements being stored.`);
+      setError(
+        `Please confirm that ${names} agreed to their dietary requirements being stored.`,
+        "attestation",
+      );
       return;
     }
 
@@ -710,25 +728,29 @@ export function RsvpPanel(props: RsvpPanelProps) {
   return (
     <>
       <Show when={props.closed}>
-        <p
-          class="border-border bg-surface-raised text-text-muted text-ui-xs leading-ui-normal mb-6 rounded-sm border px-3.5 py-2.5"
+        <div
+          class="mb-6"
           // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- not `<output>`: that element is form-associated, and this is a notice about the wedding, not the result of anything the guest did.
           role="status"
         >
-          {props.closedOn ? `RSVPs closed on ${props.closedOn}.` : "RSVPs have closed."} This is
-          your household&apos;s reply as it stands — please contact the couple directly if anything
-          needs to change.
-        </p>
+          <Notice size="sm" tone="info">
+            {props.closedOn ? `RSVPs closed on ${props.closedOn}.` : "RSVPs have closed."} This is
+            your household&apos;s reply as it stands — please contact the couple directly if
+            anything needs to change.
+          </Notice>
+        </div>
       </Show>
 
       <Show when={props.preview}>
-        <p
-          class="border-gold/40 bg-gold/5 text-gold-ink text-ui-xs leading-ui-normal mb-6 rounded-sm border px-3.5 py-2.5"
+        <div
+          class="mb-6"
           // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- not `<output>`: that element is form-associated, and this is a notice about the wedding, not the result of anything the guest did.
           role="status"
         >
-          Preview — try the RSVP as a guest would. Nothing you send here is saved.
-        </p>
+          <Notice size="sm" tone="accent">
+            Preview — try the RSVP as a guest would. Nothing you send here is saved.
+          </Notice>
+        </div>
       </Show>
 
       <form class="flex grow flex-col gap-5" onSubmit={handleSubmit}>
@@ -920,6 +942,8 @@ export function RsvpPanel(props: RsvpPanelProps) {
               checked={consent.checked()}
               onChange={(e) => consent.setChecked(e.currentTarget.checked)}
               disabled={locked()}
+              aria-describedby={refuses("consent") ? errorId : undefined}
+              aria-invalid={refuses("consent") ? "true" : undefined}
             />
             <span>
               I agree to the dietary requirements above — for{" "}
@@ -950,6 +974,8 @@ export function RsvpPanel(props: RsvpPanelProps) {
               checked={attestation.checked()}
               onChange={(e) => attestation.setChecked(e.currentTarget.checked)}
               disabled={locked()}
+              aria-describedby={refuses("attestation") ? errorId : undefined}
+              aria-invalid={refuses("attestation") ? "true" : undefined}
             />
             <span>
               {PLUS_ONE_DIETARY_ATTESTATION.text(
@@ -970,9 +996,9 @@ export function RsvpPanel(props: RsvpPanelProps) {
         </Show>
 
         <Show when={error()}>
-          <p class="font-body text-error text-ui-sm py-1" role="alert">
+          <Notice id={errorId} size="inline" tone="danger" alert class="my-1">
             {error()}
-          </p>
+          </Notice>
         </Show>
 
         {/* The confirmation, spoken. The visible cue is a label swap on a

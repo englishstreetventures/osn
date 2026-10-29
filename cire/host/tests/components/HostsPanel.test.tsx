@@ -57,6 +57,7 @@ import {
   hasCachedTasks,
   type TaskRow,
 } from "../../src/lib/tasks-store";
+import { chipLook } from "../test-support/chip-look";
 import {
   activeProfileIdMock,
   authFetchMock,
@@ -136,6 +137,39 @@ describe("HostsPanel", () => {
     expect(within(rows[0]!).getByText("@alice")).toBeTruthy();
     expect(within(rows[0]!).getByText("Owner")).toBeTruthy();
     expect(within(rows[1]!).getByText("@bob")).toBeTruthy();
+  });
+
+  it("fills the owner's role badge, outlines every other, and explains each one", async () => {
+    authFetchMock.mockResolvedValueOnce(
+      json({
+        hosts: [
+          { osnProfileId: "usr_bob", handle: "bob", role: "editor", createdAt: 1 },
+          { osnProfileId: "usr_alice", handle: "alice", role: "owner", createdAt: 2 },
+        ],
+      }),
+    );
+    // A viewer, so no row has a role select whose options repeat the words.
+    render(() => <HostsPanel weddingId="wed_a" callerRole="viewer" />);
+    await waitFor(() => expect(screen.getByText("@alice")).toBeTruthy());
+    const rows = screen.getAllByRole("listitem");
+    const owner = within(rows[0]!).getByText("Owner");
+    const editor = within(rows[1]!).getByText("Editor");
+
+    // Both in the accent; the fill is what sets the owner apart.
+    expect(chipLook(owner)).toEqual({ tone: "accent", variant: "filled", treatment: "caps" });
+    expect(chipLook(editor)).toEqual({ tone: "accent", variant: "outline", treatment: "caps" });
+
+    // The role's explanation: the shell's tip panel reads `data-tip`, and a
+    // screen reader hears the hidden copy beside the word.
+    const explanation = (badge: HTMLElement) => {
+      const tip = badge.closest<HTMLElement>("[data-tip]");
+      return { tip: tip?.dataset.tip, read: tip?.querySelector(".sr-only")?.textContent };
+    };
+    const ownerSummary =
+      "Runs the wedding, as an equal of any other owner: who helps, claim codes, settings, billing, downloads, and deleting it.";
+    expect(explanation(owner)).toEqual({ tip: ownerSummary, read: ownerSummary });
+    const editorSummary = "Can change guests, events and the invite.";
+    expect(explanation(editor)).toEqual({ tip: editorSummary, read: editorSummary });
   });
 
   it("falls back to an owner's profile id when the handle can't be resolved", async () => {

@@ -1,5 +1,6 @@
 import Button from "@cire/ui/button";
 import { createAuthFetch, isAuthExpired, startSignIn } from "@shared/rp-auth";
+import { Notice } from "@shared/ui/ui/notice";
 import { createSignal, Match, Show, Switch } from "solid-js";
 
 import type { AccountLinkState, FamilyMember, SignedInAccount } from "./types";
@@ -296,9 +297,9 @@ export function PulseAccountLink(props: PulseAccountLinkProps) {
       </Switch>
 
       <Show when={error()}>
-        <p class="text-error text-ui-sm mt-3" role="alert">
+        <Notice size="inline" tone="danger" alert class="mt-3">
           {error()}
-        </p>
+        </Notice>
       </Show>
     </section>
   );

@@ -144,6 +144,27 @@ describe("PerHeadPanel", () => {
     expect(onSave).not.toHaveBeenCalled();
   });
 
+  // The line sits below the event choice, so the price box names it while it
+  // is the price's; the event choice's refusal is not the price's.
+  it("names the price box by its refusal, and only by its own", () => {
+    panel(line({ unitPriceMinor: null, headcount: null }));
+    const price = screen.getByLabelText(/Price per head/);
+    expect(price).not.toHaveAttribute("aria-describedby");
+    expect(price).not.toHaveAttribute("aria-invalid");
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Enter a price per head");
+    expect(price).toHaveAccessibleDescription(/Enter a price per head of zero or more\./);
+    expect(price).toHaveAttribute("aria-invalid", "true");
+
+    fireEvent.input(price, { target: { value: "10" } });
+    fireEvent.click(screen.getByLabelText("Only these events"));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Tick at least one event");
+    expect(price).not.toHaveAttribute("aria-describedby");
+    expect(price).not.toHaveAttribute("aria-invalid");
+  });
+
   it("refuses a price that rounds to zero cents, and keeps a price of 0", () => {
     const { onSave } = panel(line());
     const price = screen.getByLabelText(/Price per head/);

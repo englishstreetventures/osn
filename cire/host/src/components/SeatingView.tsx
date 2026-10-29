@@ -14,6 +14,7 @@ import {
   maybeTransformStyle,
   SortableProvider,
 } from "@shared/sortable";
+import { Chip, type ChipTone } from "@shared/ui/ui/chip";
 import { EmptyState } from "@shared/ui/ui/empty-state";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
@@ -58,12 +59,12 @@ const PLACE_CLASS = `${cardClass({ padding: "sm" })} transition-ui-colors durati
 const NOT_SEATED = "not-seated";
 
 /** A word on every badge, so the colour never carries the meaning alone. */
-const BADGE_CLASS = {
-  Declined: "border-error/40 text-error",
-  "Invite withdrawn": "border-error/40 text-error",
-  Maybe: "border-gold/40 text-gold-ink",
-  "No reply": "border-border text-text-muted",
-} as const satisfies Record<RsvpBadge, string>;
+const BADGE_TONE = {
+  Declined: "danger",
+  "Invite withdrawn": "danger",
+  Maybe: "accent",
+  "No reply": "neutral",
+} as const satisfies Record<RsvpBadge, ChipTone>;
 
 interface SeatingViewProps {
   weddingId: string;
@@ -799,12 +800,9 @@ function GuestRow(props: {
       <span class="font-body text-text text-ui-sm min-w-0 flex-1 truncate">{name()}</span>
       <Show when={badge()}>
         {(word) => (
-          <span
-            data-rsvp-badge
-            class={`font-body text-ui-xs tracking-ui-wide shrink-0 rounded-sm border px-1.5 py-0.5 uppercase ${BADGE_CLASS[word()]}`}
-          >
+          <Chip variant="outline" tone={BADGE_TONE[word()]} data-rsvp-badge>
             {word()}
-          </span>
+          </Chip>
         )}
       </Show>
       <Show when={props.canEdit}>

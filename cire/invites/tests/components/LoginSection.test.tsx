@@ -16,6 +16,7 @@ import type {
   RsvpDeadline,
   RsvpSummary,
 } from "../../src/components/types";
+import { description } from "../test-support/described";
 
 // The account-link panel is stubbed file-wide. Its own behaviour is covered in
 // PulseAccountLink.test.tsx; what this file asserts is where the panel puts it,
@@ -454,6 +455,18 @@ describe("LoginSection returning household", () => {
     expect(returningHousehold()).toBe(false);
   });
 
+  it("tells an organiser previewing that nothing is saved, in a status region", () => {
+    const { getByText } = render(() => (
+      <LoginSection
+        apiUrl="http://x"
+        result={{ ...household([chidi, ada], someReplies), preview: true }}
+        onClaimed={noop}
+      />
+    ));
+    const note = getByText(/^Preview mode\. Every event is shown/);
+    expect(note.closest("[role='status']")).not.toBeNull();
+  });
+
   it("keeps a first visit a first visit after the household's first reply", () => {
     // The page writes every save back into the same claim result. The greeting
     // is about how the invite opened, so a reply given now does not turn it.
@@ -837,6 +850,32 @@ describe("LoginSection claim", () => {
     await findByRole("alert");
     expect(onClaimed).not.toHaveBeenCalled();
     expect(document.cookie).not.toContain("cire_claimed=1");
+  });
+
+  // The error line sits below the field, so a guest back in the box hears why
+  // the code was refused only if the box names the line. A failure that is not
+  // the code's — the server, the network — leaves the box unmarked.
+  it("names the code field by a refused code, and only by that", async () => {
+    const { getByLabelText, getByText, findByRole } = render(() => (
+      <LoginSection apiUrl="https://api.test" result={null} onClaimed={noop} />
+    ));
+    const field = getByLabelText("Invitation code");
+    expect(field.hasAttribute("aria-describedby")).toBe(false);
+    expect(field.hasAttribute("aria-invalid")).toBe(false);
+
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 401 }));
+    fireEvent.input(field, { target: { value: "WRONG-CODE" } });
+    fireEvent.click(getByText("Open invitation"));
+    const refused = await findByRole("alert");
+    expect(refused.textContent).toMatch(/That code doesn't look right/);
+    expect(description(field)).toMatch(/That code doesn't look right/);
+    expect(field.getAttribute("aria-invalid")).toBe("true");
+
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 500 }));
+    fireEvent.click(getByText("Open invitation"));
+    await waitFor(() => expect(getByText("Something went wrong. Please try again.")).toBeTruthy());
+    expect(field.hasAttribute("aria-describedby")).toBe(false);
+    expect(field.hasAttribute("aria-invalid")).toBe(false);
   });
 
   /**

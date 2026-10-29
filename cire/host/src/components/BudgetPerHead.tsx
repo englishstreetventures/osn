@@ -2,7 +2,8 @@ import Button from "@cire/ui/button";
 import Eyebrow from "@cire/ui/eyebrow";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
-import { createSignal, For, Show } from "solid-js";
+import { Notice } from "@shared/ui/ui/notice";
+import { createSignal, createUniqueId, For, Show } from "solid-js";
 
 import type { BudgetEvent, BudgetItemRow } from "../lib/budget-store";
 import { FORM_FIELD_CLASS } from "../lib/form-field";
@@ -94,7 +95,11 @@ export function PerHeadPanel(props: {
   const [everyEvent, setEveryEvent] = createSignal(props.item.eventIds == null);
   const [picked, setPicked] = createSignal<ReadonlySet<string>>(new Set(props.item.eventIds ?? []));
   const [eventsChanged, setEventsChanged] = createSignal(false);
-  const [error, setError] = createSignal<string | null>(null);
+  // What the line under the form says, and whether it is about the price: the
+  // price box is named by the line and marked wrong only then.
+  const [error, setError] = createSignal<{ text: string; price: boolean } | null>(null);
+  const errorId = createUniqueId();
+  const priceRefused = () => error()?.price === true;
   const scopeName = `per-head-scope-${props.item.id}`;
 
   const chooseEvery = (every: boolean) => {
@@ -113,10 +118,12 @@ export function PerHeadPanel(props: {
     e.preventDefault();
     const unitPriceMinor = parseMinor(price(), props.currency);
     if (unitPriceMinor === null) {
-      setError(
-        belowSmallestUnitError(price(), props.currency) ??
+      setError({
+        text:
+          belowSmallestUnitError(price(), props.currency) ??
           "Enter a price per head of zero or more.",
-      );
+        price: true,
+      });
       return;
     }
     const change: PerHeadChange = { unitPriceMinor };
@@ -126,7 +133,7 @@ export function PerHeadPanel(props: {
         // In the wedding's own order, and only events that still exist.
         const ids = props.events.filter((ev) => picked().has(ev.id)).map((ev) => ev.id);
         if (ids.length === 0) {
-          setError("Tick at least one event, or count every event.");
+          setError({ text: "Tick at least one event, or count every event.", price: false });
           return;
         }
         change.eventIds = ids;
@@ -146,6 +153,11 @@ export function PerHeadPanel(props: {
         {(field) => (
           <Input
             {...field}
+            // Named by the line under the form while it is the price's. An
+            // `undefined` after the spread keeps the field's own value, so
+            // otherwise the field's wiring stands.
+            aria-describedby={priceRefused() ? errorId : undefined}
+            aria-invalid={priceRefused() ? "true" : undefined}
             size="sm"
             class={FORM_FIELD_CLASS}
             type="number"
@@ -200,9 +212,11 @@ export function PerHeadPanel(props: {
         preview household are not counted.
       </p>
       <Show when={error()}>
-        <p class="text-error text-ui-sm" role="alert">
-          {error()}
-        </p>
+        {(line) => (
+          <Notice id={errorId} size="inline" tone="danger" alert>
+            {line().text}
+          </Notice>
+        )}
       </Show>
       <div class="flex flex-wrap gap-2">
         <Button type="submit" variant="primary" size="sm">

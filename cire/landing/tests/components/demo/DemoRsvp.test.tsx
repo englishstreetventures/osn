@@ -56,6 +56,17 @@ describe("DemoRsvp", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it("closes the sheet on Cancel", async () => {
+    const { getAllByText, getByText, queryByText } = render(() => <DemoRsvp />);
+
+    fireEvent.click(getAllByText("Respond")[0]!);
+    await waitFor(() => expect(getByText("Send RSVP")).toBeTruthy());
+
+    fireEvent.click(getByText("Cancel"));
+    // The dialog stays mounted to animate its exit; the form inside it goes.
+    await waitFor(() => expect(queryByText("Send RSVP")).toBeNull());
+  });
+
   it("offers the dietary picker only to a member marked attending", async () => {
     // The demo is the only place a stranger meets this control, and it mirrors
     // the real sheet: a guest who is not coming is never asked what they eat,

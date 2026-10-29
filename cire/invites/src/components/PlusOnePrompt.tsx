@@ -1,4 +1,5 @@
 import Button from "@cire/ui/button";
+import { Notice } from "@shared/ui/ui/notice";
 import { createMemo, createSignal, createUniqueId, For, onCleanup, Show } from "solid-js";
 
 import { invitedMembers } from "./plus-one";
@@ -61,6 +62,8 @@ const INPUT =
   "border-text/55 bg-text/4.5 font-body text-text focus:border-gold sm:text-ui-base rounded-ui-field mt-1.5 block w-full cursor-text border px-3 py-2.5 text-base transition-ui-colors duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ui-focus disabled:cursor-not-allowed disabled:opacity-50";
 
 const LABEL = "font-body text-text-muted text-ui-sm block";
+
+const FIRST_NAME_MISSING = "Please enter your guest's first name.";
 
 export function PlusOnePrompt(props: PlusOnePromptProps) {
   const headingId = createUniqueId();
@@ -199,6 +202,7 @@ function fullName(member: Pick<FamilyMember, "firstName" | "lastName">): string 
 function PlusOneRow(props: PlusOneRowProps) {
   const firstId = createUniqueId();
   const lastId = createUniqueId();
+  const errorId = createUniqueId();
 
   const [mode, setMode] = createSignal<Mode>("view");
   const [first, setFirst] = createSignal("");
@@ -206,6 +210,9 @@ function PlusOneRow(props: PlusOneRowProps) {
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [notice, setNotice] = createSignal<string | null>(null);
+  // The one message on the error line that is about the first-name box; the
+  // server's refusals do not say which name they mean.
+  const firstRefused = () => error() === FIRST_NAME_MISSING;
 
   let firstInput: HTMLInputElement | undefined;
   let changeButton: HTMLButtonElement | undefined;
@@ -269,7 +276,7 @@ function PlusOneRow(props: PlusOneRowProps) {
     const firstName = first().trim();
     const lastName = last().trim();
     if (!firstName) {
-      setError("Please enter your guest's first name.");
+      setError(FIRST_NAME_MISSING);
       firstInput?.focus();
       return;
     }
@@ -449,6 +456,8 @@ function PlusOneRow(props: PlusOneRowProps) {
               autocomplete="off"
               spellcheck={false}
               disabled={busy()}
+              aria-describedby={firstRefused() ? errorId : undefined}
+              aria-invalid={firstRefused() ? "true" : undefined}
             />
           </div>
           <div>
@@ -494,9 +503,9 @@ function PlusOneRow(props: PlusOneRowProps) {
       </Show>
 
       <Show when={error()}>
-        <p class="text-error text-ui-sm mt-2" role="alert">
+        <Notice id={errorId} size="inline" tone="danger" alert class="mt-2">
           {error()}
-        </p>
+        </Notice>
       </Show>
       <output class="text-text-muted text-ui-sm mt-2 block font-light empty:hidden">
         {notice() ?? ""}

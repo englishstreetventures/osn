@@ -12,7 +12,7 @@ related:
   - "[[frontend-patterns]]"
   - "[[cire-rsvp-deadline]]"
   - "[[component-library]]"
-last-reviewed: 2026-10-29
+last-reviewed: 2026-10-30
 ---
 # Invite design selector
 
@@ -308,11 +308,11 @@ least one has, `hasAnyHouseholdReply`; plus-ones excluded, any status) and
   over the card is a pair no derivation measures, so no gold fill on the
   invite eases its opacity under a label.
 - **The "RSVPs closed" badge** sits after the `<h3>` in a shared row
-  (`flex-wrap items-baseline`), never inside the heading, in the closed
-  notice's treatment: `border-border text-text-muted rounded-sm border` (the
-  6px step a text badge takes), the `text-ui-xs` uppercase micro-label,
-  `whitespace-nowrap`, no tint. At 320px a long name pushes it onto its own
-  line rather than past the card's edge.
+  (`flex-wrap items-baseline`), never inside the heading: `@shared/ui`'s
+  `Chip`, outlined in the neutral tone — a hairline and muted ink, no tint, as
+  the closed notice wears — a pill in small caps at `text-ui-xs`, held to one
+  line. At 320px a long name pushes it onto its own line rather than past the
+  card's edge.
 - **No inert button.** Closed with no reply, the answer button unmounts; when
   it held focus, focus moves to Event details.
 
@@ -754,9 +754,9 @@ differs. On the guest site each corner paints:
 | 16px, `rounded-ui-lg` | the event card, gala's code-entry card, both packs' hero title panel, the gift money panel and the gift item card, whose `overflow-hidden` clips its picture to the corner |
 | 1.75rem, `rounded-t-ui-sheet` | the top corners of a bottom sheet (`Modal presentation="sheet"`) |
 | 10px, `rounded-md` | the link menu |
-| 6px, `rounded-sm` | notices — closed, preview mode, the RSVP deadline, "You reserved…", the gift page's payment, signed-out and preview notices, a legal page's draft banner and owner note — and the blocked-content placeholders (`MoodboardBlock`, `ConsentPlaceholder`); the "RSVPs closed" badge; the link menu's rows; a box nested in a modal (the RSVP sheet's member fieldsets, the consent sheet's switch rows) or in a card (the household boxes inside gala's card); the gift page's "Send gifts to" address box |
+| 6px, `rounded-sm` | notices — closed, preview mode, the RSVP deadline, "You reserved…", the gift page's payment, signed-out and preview notices, a legal page's draft banner and owner note — and the blocked-content placeholders (`MoodboardBlock`, `ConsentPlaceholder`); the link menu's rows; a box nested in a modal (the RSVP sheet's member fieldsets, the consent sheet's switch rows) or in a card (the household boxes inside gala's card); the gift page's "Send gifts to" address box |
 | 2px, `--radius-hair` | a legal page's inline placeholder (`.placeholder`), about 16px tall, where 6px would draw a near-pill |
-| round, `rounded-full` | the sheet's close cross, the dress-code colour circles, avatars, the gift radio marks, the spinner, the map pin's shadow |
+| round, `rounded-full` | the "RSVPs closed" badge (`Chip`); the sheet's close cross, the dress-code colour circles, avatars, the gift radio marks, the spinner, the map pin's shadow |
 
 - **Fields keep this site's own heights.** The portals' one form-field height
   (34px, `cire/host/DESIGN.md` §4) does not reach the guest site, which is not a
@@ -789,7 +789,7 @@ footer's "Privacy Notice" and "Privacy Choices", the names of the legal
 document and of the control the guest privacy notice quotes by name
 (`cire/ui/src/guest-privacy-notice.astro`). Small caps stay on what is not a
 label: eyebrows, the details panel's section heads, field labels, the "RSVPs
-closed" badge, the account link's status word, the preview-mode notice, the
+closed" badge, the account link's status word, the
 gift list's header row and the code field's typed value. Headings keep each
 design's own case. The eyebrows and the details panel's section heads are
 `@cire/ui`'s `Eyebrow` (an `.astro` page's `eyebrowClass`), in the couple's own

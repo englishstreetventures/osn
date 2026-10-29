@@ -5,6 +5,7 @@ import DietaryPresets from "@cire/ui/dietary-presets";
 import Eyebrow, { eyebrowClass } from "@cire/ui/eyebrow";
 import Reveal from "@cire/ui/reveal";
 import { heldWhileClosing } from "@shared/ui/ui/modal";
+import { Notice } from "@shared/ui/ui/notice";
 import { createEffect, createMemo, createSignal, createUniqueId, For, on, Show } from "solid-js";
 
 import { DemoModal } from "./DemoModal";
@@ -234,12 +235,11 @@ function DemoRsvpModal(props: DemoRsvpModalProps) {
         <h3 id={titleId} class="font-display text-text text-ui-xl mb-2 font-light italic">
           {shownEvent()?.name}
         </h3>
-        <p
-          class="border-gold/40 bg-gold/5 text-gold text-ui-xs leading-ui-normal mb-6 rounded-sm border px-3.5 py-2.5"
-          role="status"
-        >
-          Interactive preview. Your reply won&rsquo;t be saved.
-        </p>
+        <div class="mb-6" role="status">
+          <Notice size="sm" tone="accent">
+            Interactive preview. Your reply won&rsquo;t be saved.
+          </Notice>
+        </div>
 
         <form class="flex flex-col gap-5" onSubmit={handleSubmit}>
           <For each={eventMembers()}>
@@ -321,19 +321,22 @@ function DemoRsvpModal(props: DemoRsvpModalProps) {
             }}
           </For>
 
-          <Show when={error()}>
-            <p class="font-body text-error text-ui-sm py-1" role="alert">
-              {error()}
-            </p>
-          </Show>
-
-          <div class="border-border bg-surface sticky bottom-0 -mx-6 -mb-[max(2.5rem,env(safe-area-inset-bottom))] flex gap-3 border-t px-6 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:-mb-10 md:pb-4">
-            <Button variant="quiet" class="flex-1" onClick={() => props.onClose()}>
-              Cancel
-            </Button>
-            <Button type="submit" variant="cta" class="flex-1">
-              Send RSVP
-            </Button>
+          {/* The error line rides in the sticky bar, over the buttons it is
+              about: a line before the bar would sit under it on a short sheet. */}
+          <div class="border-border bg-surface sticky bottom-0 -mx-6 -mb-[max(2.5rem,env(safe-area-inset-bottom))] flex flex-col gap-3 border-t px-6 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:-mb-10 md:pb-4">
+            <Show when={error()}>
+              <Notice size="inline" tone="danger" alert>
+                {error()}
+              </Notice>
+            </Show>
+            <div class="flex gap-3">
+              <Button variant="quiet" class="flex-1" onClick={() => props.onClose()}>
+                Cancel
+              </Button>
+              <Button type="submit" variant="cta" class="flex-1">
+                Send RSVP
+              </Button>
+            </div>
           </div>
         </form>
       </Show>
