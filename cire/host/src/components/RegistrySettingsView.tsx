@@ -8,6 +8,7 @@ import { Textarea } from "@shared/ui/ui/textarea";
 import { batch, createMemo, createSignal, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
+import { FORM_FIELD_CLASS } from "../lib/form-field";
 import { haptic } from "../lib/haptics";
 import {
   claimStripeCheck,
@@ -695,6 +696,7 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
               {(field) => (
                 <Input
                   {...field}
+                  class={FORM_FIELD_CLASS}
                   value={headline()}
                   maxLength={120}
                   autocomplete="off"
@@ -744,6 +746,7 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
               {(field) => (
                 <Input
                   {...field}
+                  class={FORM_FIELD_CLASS}
                   type="date"
                   value={shippingVisibleFrom()}
                   onInput={(event) => setShippingVisibleFrom(event.currentTarget.value)}

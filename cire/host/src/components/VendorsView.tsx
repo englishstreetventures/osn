@@ -7,7 +7,7 @@ import { Select } from "@shared/ui/ui/select";
 import { createMemo, createSignal, For, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
-import { SMALL_FORM_FIELD_CLASS } from "../lib/form-field";
+import { FORM_ACTION_CLASS, FORM_FIELD_CLASS } from "../lib/form-field";
 import { haptic } from "../lib/haptics";
 import { formatMinor } from "../lib/money";
 import { categoryLabel, SERVICE_CATEGORIES, type ServiceCategory } from "../lib/service-categories";
@@ -272,6 +272,7 @@ export default function VendorsView(props: VendorsViewProps) {
             {(field) => (
               <Input
                 {...field}
+                class={FORM_FIELD_CLASS}
                 value={newName()}
                 onInput={(e) => setNewName(e.currentTarget.value)}
                 placeholder="Florist, photographer…"
@@ -282,6 +283,7 @@ export default function VendorsView(props: VendorsViewProps) {
             {(field) => (
               <Select
                 {...field}
+                class={FORM_FIELD_CLASS}
                 value={newCategory()}
                 onChange={(e) => setNewCategory(e.currentTarget.value as ServiceCategory)}
               >
@@ -295,6 +297,7 @@ export default function VendorsView(props: VendorsViewProps) {
             {(field) => (
               <Select
                 {...field}
+                class={FORM_FIELD_CLASS}
                 value={newStatus()}
                 onChange={(e) => setNewStatus(e.currentTarget.value as VendorStatus)}
               >
@@ -306,6 +309,7 @@ export default function VendorsView(props: VendorsViewProps) {
             {(field) => (
               <Input
                 {...field}
+                class={FORM_FIELD_CLASS}
                 value={newContact()}
                 onInput={(e) => setNewContact(e.currentTarget.value)}
                 placeholder="Jane Smith"
@@ -316,6 +320,7 @@ export default function VendorsView(props: VendorsViewProps) {
             {(field) => (
               <Input
                 {...field}
+                class={FORM_FIELD_CLASS}
                 type="email"
                 value={newEmail()}
                 onInput={(e) => setNewEmail(e.currentTarget.value)}
@@ -327,6 +332,7 @@ export default function VendorsView(props: VendorsViewProps) {
             {(field) => (
               <Input
                 {...field}
+                class={FORM_FIELD_CLASS}
                 type="number"
                 min="0"
                 step="0.01"
@@ -336,7 +342,7 @@ export default function VendorsView(props: VendorsViewProps) {
               />
             )}
           </Field>
-          <Button type="submit" variant="primary">
+          <Button class={FORM_ACTION_CLASS} type="submit" variant="primary">
             Add vendor
           </Button>
         </form>
@@ -384,7 +390,7 @@ export default function VendorsView(props: VendorsViewProps) {
                             {/* Status picker */}
                             <Select
                               size="sm"
-                              class={SMALL_FORM_FIELD_CLASS}
+                              class={FORM_FIELD_CLASS}
                               aria-label={`Status for ${v.name}`}
                               value={v.status}
                               onChange={(e) =>
@@ -443,7 +449,7 @@ export default function VendorsView(props: VendorsViewProps) {
                                     <Input
                                       {...field}
                                       size="sm"
-                                      class={SMALL_FORM_FIELD_CLASS}
+                                      class={FORM_FIELD_CLASS}
                                       type="email"
                                       value={listEmail()}
                                       onInput={(e) => setListEmail(e.currentTarget.value)}
@@ -453,6 +459,7 @@ export default function VendorsView(props: VendorsViewProps) {
                                 </Field>
                                 <div class="flex items-end gap-2">
                                   <Button
+                                    class={FORM_ACTION_CLASS}
                                     type="submit"
                                     variant="primary"
                                     size="sm"
@@ -460,7 +467,12 @@ export default function VendorsView(props: VendorsViewProps) {
                                   >
                                     {listingLoading() ? "Listing…" : "List + invite"}
                                   </Button>
-                                  <Button variant="quiet" size="sm" onClick={closeListing}>
+                                  <Button
+                                    class={FORM_ACTION_CLASS}
+                                    variant="quiet"
+                                    size="sm"
+                                    onClick={closeListing}
+                                  >
                                     Cancel
                                   </Button>
                                 </div>
