@@ -192,6 +192,44 @@
       transition-duration: 0.001ms !important;
     }
   }
+
+  /* An unchecked checkbox or radio sits on its surface: no fill of its own and
+     the strong hairline for an edge, where the browser's white box stood out
+     from every ground. A checked one is the browser's own, filled and ticked,
+     because that reads as a form control (owner, 2026-10-29;
+     cire/host/DESIGN.md §4).
+     The box is the native one's size and corner — 13px, a 2px corner, a radio
+     round — so ticking changes neither; a size class at the call site sizes
+     both states. Only the edge fades, so the focus ring below lands at once. */
+  input[type="checkbox"]:not(:checked, :indeterminate),
+  input[type="radio"]:not(:checked) {
+    appearance: none;
+    width: 13px;
+    height: 13px;
+    border: 1px solid var(--ui-hairline-strong);
+    border-radius: 2px;
+    background-color: transparent;
+    transition: border-color var(--dur-fast) var(--ease-out);
+  }
+  input[type="radio"]:not(:checked) {
+    border-radius: 50%;
+  }
+  input[type="checkbox"]:not(:checked, :indeterminate, :disabled):hover,
+  input[type="radio"]:not(:checked, :disabled):hover {
+    border-color: var(--ui-ink-secondary);
+  }
+  input[type="checkbox"]:not(:checked, :indeterminate):disabled,
+  input[type="radio"]:not(:checked):disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  /* This site has no page-wide focus ring, so the boxes take the app's own,
+     which the calls to action draw too. Never animated. */
+  input[type="checkbox"]:focus-visible,
+  input[type="radio"]:focus-visible {
+    outline: 2px solid var(--ui-focus);
+    outline-offset: 2px;
+  }
 }
 
 /* Scroll-reveal primitive used by the static section components: an element with

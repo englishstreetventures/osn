@@ -82,7 +82,12 @@ The page paints the corner roles of the four cire apps, at the same values
 (`cire/host/DESIGN.md` §4), and carries the same motion ladder;
 `cire/vendor/tests/styles/tokens.test.ts` reads this site's
 `src/styles/global.css` and fails if a role, a step or a line of the ladder
-differs. It loads no `@shared/toast`, so it sets no `--toast-radius`.
+differs. It loads no `@shared/toast`, so it sets no `--toast-radius`. Its base
+layer carries the portals' checkbox rule — an unchecked native checkbox or
+radio has no fill and a strong hairline edge, a checked one stays the
+browser's own (`cire/host/DESIGN.md` §4, Checkboxes and radios) — plus a
+`--ui-focus` ring on both, since the page has no ring of its own. No native box
+renders on the page today; the demo's dietary choices are `@cire/ui` chips.
 
 | What | Corner | Label | Motion |
 |---|---|---|---|
