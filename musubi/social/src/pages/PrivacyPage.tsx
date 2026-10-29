@@ -31,7 +31,7 @@ export function PrivacyPage(): JSX.Element {
   return (
     <LegalDocument
       title="Privacy Notice"
-      updated="2026-10-27"
+      updated="2026-10-30"
       draft={draftPending(LEGAL_ENTITY.regulator)}
     >
       <p>
@@ -114,11 +114,12 @@ export function PrivacyPage(): JSX.Element {
 
       <h2>Where it is stored</h2>
       <p>
-        In <strong>Oceania</strong>. The databases and the supporting infrastructure are hosted by
-        Cloudflare in its Oceania region, and the service is operated from Australia; some technical
-        records are processed by providers elsewhere. If you are in the EEA or the UK, this means
-        your information is transferred outside that area. Ask us and we will tell you what
-        protections apply.
+        In <strong>Oceania</strong>. The databases are hosted by Cloudflare in its Oceania region.
+        Cloudflare keeps the short-lived state behind sign-in and rate limiting there too where it
+        can, and counts per-minute rate limits wherever in its network a request arrives. The
+        service is operated from Australia, and some technical records are processed by providers
+        elsewhere. If you are in the EEA or the UK, this means your information is transferred
+        outside that area. Ask us and we will tell you what protections apply.
       </p>
 
       <h2>How long we keep it</h2>

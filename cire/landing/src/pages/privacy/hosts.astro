@@ -25,7 +25,7 @@ const draft = draftPending(LEGAL_ENTITY.merchantOfRecord, LEGAL_ENTITY.accountDa
 
   <h1>Privacy Notice for Hosts</h1>
   <PrivacyNav current="hosts" />
-  <p class="meta">Last updated: 2026-10-27</p>
+  <p class="meta">Last updated: 2026-10-30</p>
 
   <p>
     This notice explains how <span class={ph(LEGAL_ENTITY.name)}>{LEGAL_ENTITY.name}</span>, trading as Cire
@@ -116,12 +116,14 @@ const draft = draftPending(LEGAL_ENTITY.merchantOfRecord, LEGAL_ENTITY.accountDa
   </ul>
   <p>
     We also disclose information where the law requires it. Our primary region is
-    <strong>Oceania</strong>: our databases and the infrastructure supporting the service&rsquo;s
-    security are hosted by Cloudflare in its Oceania region, and we operate from Australia. Some
-    technical records &mdash; email delivery, service telemetry, payment processing &mdash; are
-    handled by providers outside it. If you are in the EEA or the UK, that means your information
-    is transferred out of that area to Oceania and elsewhere; ask us and we will tell you what
-    protections apply to that transfer.
+    <strong>Oceania</strong>: our databases are hosted by Cloudflare in its Oceania region, and we
+    operate from Australia. The infrastructure supporting the service&rsquo;s security runs on
+    Cloudflare&rsquo;s network: Cloudflare keeps sign-in state in Oceania where it can, and counts
+    rate limits wherever in its network a request arrives. Some technical records &mdash; email
+    delivery, service telemetry, payment processing &mdash; are handled by providers outside
+    Oceania. If you are in the EEA or the UK, that means your information is transferred out of
+    that area to Oceania and elsewhere; ask us and we will tell you what protections apply to that
+    transfer.
   </p>
 
   <h2>How long we keep it</h2>
