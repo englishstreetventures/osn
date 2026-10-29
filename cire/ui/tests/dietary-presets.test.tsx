@@ -312,3 +312,23 @@ describe("the pill's containing block", () => {
     for (const label of labels) expect(label.className.split(/\s+/)).toContain("relative");
   });
 });
+
+describe("the pill's motion", () => {
+  it("fades only its colours, on the app's hover token", () => {
+    // A literal duration ignores the app's ladder, which is shorter under a
+    // fine pointer. The fallback is for a page that declares no ladder.
+    const { container } = render(() => <DietaryPresets value={[]} onChange={() => {}} />);
+    const labels = [...container.querySelectorAll("label")];
+    expect(labels.length).toBeGreaterThan(0);
+    const wrong = labels.filter((label) => {
+      const timing = label.className
+        .split(/\s+/)
+        .filter((c) => c.includes("transition") || c.includes("duration-"));
+      return (
+        timing.join(" ") !==
+        "transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast,100ms)"
+      );
+    });
+    expect(wrong).toEqual([]);
+  });
+});
