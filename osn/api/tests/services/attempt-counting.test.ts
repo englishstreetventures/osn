@@ -11,6 +11,7 @@ import { createAuthService } from "../../src/services/auth";
 import { MAX_OTP_ATTEMPTS, TOTP_MAX_ENROLL_ATTEMPTS } from "../../src/services/auth/constants";
 import { createDefaultCeremonyStores, type CeremonyStores } from "../../src/services/auth/stores";
 import { makeTestAuthConfig } from "../helpers/auth-config";
+import { settle } from "../helpers/background";
 import { createFakeNamespace } from "../helpers/coordination-namespace";
 import { createTestLayerWithSqlite } from "../helpers/db";
 
@@ -302,7 +303,7 @@ describe.each(Object.entries(bundles))("attempt counting on the %s bundle", (_na
     const mail = capture();
     const auth = createAuthService({ ...base, ...bundle() });
     return Effect.gen(function* () {
-      yield* auth.beginRegistration("att-reg@example.com", "attreg", "1990-01-01");
+      yield* settle(auth.beginRegistration("att-reg@example.com", "attreg", "1990-01-01"));
       const right = mail.latest();
 
       yield* Effect.all(
@@ -315,7 +316,7 @@ describe.each(Object.entries(bundles))("attempt counting on the %s bundle", (_na
       const late = yield* Effect.flip(auth.completeRegistration("att-reg@example.com", right));
       expect(late._tag).toBe("AuthError");
 
-      yield* auth.beginRegistration("att-reg@example.com", "attreg", "1990-01-01");
+      yield* settle(auth.beginRegistration("att-reg@example.com", "attreg", "1990-01-01"));
       const done = yield* auth.completeRegistration("att-reg@example.com", mail.latest());
       expect(done.handle).toBe("attreg");
     }).pipe(Effect.provide(mail.layer));

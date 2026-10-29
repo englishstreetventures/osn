@@ -24,6 +24,7 @@ import { renderAuthorizeErrorPage } from "../../src/routes/auth/oidc";
 import { createAuthService, type AuthConfig } from "../../src/services/auth";
 import { createDefaultCeremonyStores } from "../../src/services/auth/stores";
 import { makeTestAuthConfig } from "../helpers/auth-config";
+import { settledHandle } from "../helpers/background";
 import { createFakeNamespace } from "../helpers/coordination-namespace";
 import { createTestLayerWithSqlite } from "../helpers/db";
 // Wrapped factory (trust XFF under app.handle). See helpers/routes.
@@ -118,7 +119,8 @@ async function register(
   email: string,
   handle: string,
 ): Promise<{ cookie: string; accessToken: string }> {
-  await h.app.handle(
+  await settledHandle(
+    h.app,
     new Request("http://localhost/register/begin", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

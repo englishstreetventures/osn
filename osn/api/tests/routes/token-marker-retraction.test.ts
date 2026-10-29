@@ -8,6 +8,7 @@ import { createTokenRoutes } from "../../src/routes/auth/tokens";
 import { AuthError, DatabaseError } from "../../src/services/auth/errors";
 import { hashSessionToken } from "../../src/services/auth/helpers";
 import { makeTestAuthConfig } from "../helpers/auth-config";
+import { settledHandle } from "../helpers/background";
 import { createTestLayerWithSqlite } from "../helpers/db";
 // Wrapped factory (trust XFF under app.handle). See helpers/routes.
 import { createAuthRoutes } from "../helpers/routes";
@@ -104,7 +105,8 @@ describe("POST /token marker retraction (S-M2)", () => {
     const { layer, sqlite, email } = createTestLayerWithSqlite();
     const app = createAuthRoutes(await makeTestAuthConfig(), layer);
     const registerEmail = "rotation-write@example.com";
-    await app.handle(
+    await settledHandle(
+      app,
       new Request("http://localhost/register/begin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

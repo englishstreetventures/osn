@@ -20,6 +20,7 @@ import {
   type CireOrganiserRevokeConfig,
 } from "../../src/services/cire-organiser-revoke";
 import { makeTestAuthConfig } from "../helpers/auth-config";
+import { settledHandle } from "../helpers/background";
 import { createTestLayerWithSqlite } from "../helpers/db";
 // Wrapped factory (trust XFF under app.handle). See helpers/routes.
 import { createAuthRoutes } from "../helpers/routes";
@@ -106,7 +107,8 @@ function setup(cire: CireOrganiserRevokeConfig = CONFIGURED) {
 
   /** Registers an account; returns its cookie, access token, account id and profile id. */
   async function register(emailAddress: string, handle: string) {
-    await app.handle(
+    await settledHandle(
+      app,
       new Request("http://localhost/register/begin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

@@ -14,6 +14,8 @@ import { makeLogEmailLive } from "@shared/email";
 import { Effect, Layer } from "effect";
 import { beforeAll, vi } from "vitest";
 
+import { settle } from "../helpers/background";
+
 // Registration's verifier is stubbed so an account can hold a passkey: a unit
 // test cannot produce a real attestation.
 vi.mock("@simplewebauthn/server", async (importOriginal) => {
@@ -180,12 +182,14 @@ describe("POST /register/begin, twice at once for one address", () => {
     const auth = createAuthService({ ...base, ceremonyStores: bundle.ceremonyStores });
     const email = makeLogEmailLive();
     return Effect.gen(function* () {
-      const both = yield* Effect.all(
-        [
-          auth.beginRegistration("seq-twice@example.com", "seqtwice", "1990-01-01"),
-          auth.beginRegistration("seq-twice@example.com", "seqtwice", "1990-01-01"),
-        ],
-        { concurrency: "unbounded" },
+      const both = yield* settle(
+        Effect.all(
+          [
+            auth.beginRegistration("seq-twice@example.com", "seqtwice", "1990-01-01"),
+            auth.beginRegistration("seq-twice@example.com", "seqtwice", "1990-01-01"),
+          ],
+          { concurrency: "unbounded" },
+        ),
       );
       expect(both).toEqual([{ sent: true }, { sent: true }]);
       expect(email.recorded()).toHaveLength(1);

@@ -221,7 +221,8 @@ export function createRegistrationModule(
    *  - Always returns `{ sent: true }` regardless of whether the email or
    *    handle is already taken, and whether or not the code's email went out,
    *    so neither the status nor the body says whether an address has an
-   *    account.
+   *    account. Every branch answers after the one store call: the code's
+   *    send runs after the answer, so the time to answer does not say either.
    *    The "is this handle free?" question is answered separately by the
    *    public `/handle/:handle` endpoint, which is the appropriate channel
    *    and can be rate-limited independently.
@@ -351,28 +352,34 @@ export function createRegistrationModule(
       // The EmailService layer decides where the code goes: the in-memory
       // recorder locally and in tests, Resend in every deployed tier.
       //
+      // The send runs after the answer, forked with a timeout as
+      // `beginEmailRecovery` forks its own. Awaiting it would make this branch
+      // answer a Resend round trip later than the taken and pending branches,
+      // which make the same one store call and return: the response time would
+      // say whether the address has an account, whatever the body says.
+      // `forkBackground` registers the fibre with the request's `waitUntil`,
+      // so the send still runs on workerd once the response is out.
+      //
       // A send that fails — refused, unreachable, or slower than ten seconds —
-      // answers as a sent one does, so neither the status nor the body depends
-      // on whether the address is free. It first settles this request's pending
-      // entry (`settleFailedSend`): gone when nothing was sent, so "Resend code"
-      // sends a new code; held for a minute when the code may still arrive. The
-      // transport has already logged why the send failed.
+      // settles this request's pending entry (`settleFailedSend`): gone when
+      // nothing was sent, so "Resend code" sends a new code; held for a minute
+      // when the code may still arrive. The transport has already logged why
+      // the send failed.
       const emailSvc = yield* EmailService;
-      const sent = yield* emailSvc
-        .send({
-          template: "otp-registration",
-          to: normalisedEmail,
-          data: { code, ttlMinutes: otpTtl / 60, instanceName: config.instanceName },
-        })
-        .pipe(
-          Effect.timeout("10 seconds"),
-          Effect.as(true),
-          Effect.catch((error) =>
-            settleFailedSend(normalisedEmail, codeHash, deliveryOf(error)).pipe(Effect.as(false)),
+      yield* forkBackground(
+        emailSvc
+          .send({
+            template: "otp-registration",
+            to: normalisedEmail,
+            data: { code, ttlMinutes: otpTtl / 60, instanceName: config.instanceName },
+          })
+          .pipe(
+            Effect.timeout("10 seconds"),
+            Effect.tap(() => Effect.sync(() => metricAuthOtpSent("registration"))),
+            Effect.catch((error) => settleFailedSend(normalisedEmail, codeHash, deliveryOf(error))),
           ),
-        );
+      );
 
-      if (sent) metricAuthOtpSent("registration");
       return { sent: true };
     }).pipe(withAuthRegister("begin"));
 

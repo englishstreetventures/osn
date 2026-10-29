@@ -8,6 +8,7 @@ import { beforeAll } from "vitest";
 import { createDurableCoordination } from "../../src/lib/coordination/durable";
 import { createAuthService } from "../../src/services/auth";
 import { makeTestAuthConfig } from "../helpers/auth-config";
+import { settle } from "../helpers/background";
 import { createFakeNamespace } from "../helpers/coordination-namespace";
 import { createTestLayer } from "../helpers/db";
 
@@ -142,7 +143,7 @@ describe("success paths answer without waiting on their cleanup", () => {
   it.live("registration complete: the spent entry's delete", () => {
     const h = harness((store, op) => store === "pending_registration" && op === "remove");
     return Effect.gen(function* () {
-      yield* h.auth.beginRegistration("clean-reg@example.com", "cleanreg", "1990-01-01");
+      yield* settle(h.auth.beginRegistration("clean-reg@example.com", "cleanreg", "1990-01-01"));
       const done = yield* h.auth
         .completeRegistration("clean-reg@example.com", h.code())
         .pipe(Effect.timeout(ANSWER_WITHIN));

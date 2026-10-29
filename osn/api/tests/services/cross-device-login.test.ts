@@ -11,6 +11,7 @@ import { createDurableCoordination } from "../../src/lib/coordination/durable";
 import { createAuthService } from "../../src/services/auth";
 import { MAX_SESSIONS_PER_ACCOUNT } from "../../src/services/auth/constants";
 import { makeTestAuthConfig } from "../helpers/auth-config";
+import { settle } from "../helpers/background";
 import { createFakeNamespace } from "../helpers/coordination-namespace";
 import { createTestLayer } from "../helpers/db";
 
@@ -84,7 +85,7 @@ describe("cross-device login", () => {
     const { svc, captured, layer } = makeAuth();
     return Effect.gen(function* () {
       // Register a user first
-      yield* svc.beginRegistration("cdl@example.com", "cdl_user", "1990-01-01");
+      yield* settle(svc.beginRegistration("cdl@example.com", "cdl_user", "1990-01-01"));
       yield* svc.completeRegistration("cdl@example.com", captured.code!, {
         uaLabel: "Device A",
       });
@@ -128,7 +129,7 @@ describe("cross-device login", () => {
   it.effect("approved session is consumed on first poll (one-time)", () => {
     const { svc, captured, layer } = makeAuth();
     return Effect.gen(function* () {
-      yield* svc.beginRegistration("cdl2@example.com", "cdl_user2", "1990-01-01");
+      yield* settle(svc.beginRegistration("cdl2@example.com", "cdl_user2", "1990-01-01"));
       yield* svc.completeRegistration("cdl2@example.com", captured.code!, {});
       const profile = yield* svc.findProfileByEmail("cdl2@example.com");
 
@@ -159,7 +160,7 @@ describe("cross-device login", () => {
   it.effect("approve rejects wrong secret", () => {
     const { svc, captured, layer } = makeAuth();
     return Effect.gen(function* () {
-      yield* svc.beginRegistration("cdl3@example.com", "cdl_user3", "1990-01-01");
+      yield* settle(svc.beginRegistration("cdl3@example.com", "cdl_user3", "1990-01-01"));
       yield* svc.completeRegistration("cdl3@example.com", captured.code!, {});
       const profile = yield* svc.findProfileByEmail("cdl3@example.com");
 
@@ -175,7 +176,7 @@ describe("cross-device login", () => {
   it.effect("approve fails on already-approved request", () => {
     const { svc, captured, layer } = makeAuth();
     return Effect.gen(function* () {
-      yield* svc.beginRegistration("cdl4@example.com", "cdl_user4", "1990-01-01");
+      yield* settle(svc.beginRegistration("cdl4@example.com", "cdl_user4", "1990-01-01"));
       yield* svc.completeRegistration("cdl4@example.com", captured.code!, {});
       const profile = yield* svc.findProfileByEmail("cdl4@example.com");
 
