@@ -42,7 +42,7 @@ const TRIGGER_CLASS = `${buttonClass({ variant: "touchLink", size: "md" })} min-
  * link it lands on, and an item filled for a pointer's focus reads as chosen.
  */
 const ITEM_CLASS =
-  "font-body text-text-muted hover:bg-gold hover:text-on-gold focus-visible:bg-gold focus-visible:text-on-gold active:bg-gold active:text-on-gold text-ui-sm tracking-ui-normal flex min-h-11 items-center rounded-sm px-3 transition-colors duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-none";
+  "font-body text-text-muted hover:bg-gold hover:text-on-gold focus-visible:bg-gold focus-visible:text-on-gold active:bg-gold active:text-on-gold text-ui-sm tracking-ui-normal flex min-h-11 items-center rounded-sm px-3 transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-none";
 
 /** The menu's `min-w-56`, for placing it before it has been measured. */
 const MENU_WIDTH = 224;

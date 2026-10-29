@@ -58,7 +58,7 @@ const NAME_MAX = 100;
  * (WCAG 2.1 SC 1.4.11). 16px on phones, so iOS does not zoom on focus.
  */
 const INPUT =
-  "border-text/55 bg-text/4.5 font-body text-text focus:border-gold sm:text-ui-base rounded-ui-field mt-1.5 block w-full cursor-text border px-3 py-2.5 text-base transition-colors duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ui-focus disabled:cursor-not-allowed disabled:opacity-50";
+  "border-text/55 bg-text/4.5 font-body text-text focus:border-gold sm:text-ui-base rounded-ui-field mt-1.5 block w-full cursor-text border px-3 py-2.5 text-base transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ui-focus disabled:cursor-not-allowed disabled:opacity-50";
 
 const LABEL = "font-body text-text-muted text-ui-sm block";
 
