@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { isSurfaceKey } from "../deploy-surfaces";
 import {
   annotation,
+  CI_USER_AGENT,
   type Deployment,
   deployedVersion,
   devRestorePlan,
@@ -445,7 +446,7 @@ describe("probeOnce", () => {
     timeoutMs,
   });
 
-  test("never follows a redirect, sends the extra headers, and bounds the request", async () => {
+  test("never follows a redirect, sends the CI user agent and the extra headers, and bounds the request", async () => {
     const http = fakeFetch({ "https://id.musubi.social/health": HEALTHY });
     const outcome = await probeOnce(HEALTH, {
       ...options(http.fetch),
@@ -454,8 +455,14 @@ describe("probeOnce", () => {
     expect(outcome).toEqual({ kind: "pass" });
     const init = http.calls[0]?.init;
     expect(init?.redirect).toBe("manual");
+    expect(new Headers(init?.headers).get("user-agent")).toBe(CI_USER_AGENT);
     expect(new Headers(init?.headers).get("cf-access-client-id")).toBe("id");
     expect(init?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  test("the CI user agent is not Bun's own, which Bot Fight Mode challenges from a GitHub runner", () => {
+    expect(CI_USER_AGENT).not.toBe("");
+    expect(CI_USER_AGENT).not.toMatch(/^Bun\//);
   });
 
   test("no answer at all is unreachable, not wrong", async () => {

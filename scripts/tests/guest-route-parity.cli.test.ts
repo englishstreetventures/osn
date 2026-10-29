@@ -27,7 +27,8 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { run } from "../guest-route-parity";
+import { run, SEEDED_PROBES } from "../guest-route-parity";
+import { CI_USER_AGENT } from "../smoke-check";
 
 const SCRIPTS = join(import.meta.dir, "..");
 const INVITES = join(SCRIPTS, "..", "cire", "invites");
@@ -94,7 +95,7 @@ afterAll(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-/** Serves `answers` in Bun, recording each request's path and Access headers. */
+/** Serves `answers` in Bun, recording each request's path, Access client id and user agent. */
 const SERVER = `
 const [answersFile, portFile, logFile] = process.argv.slice(2);
 const { appendFileSync, readFileSync, writeFileSync } = await import("node:fs");
@@ -107,7 +108,7 @@ const server = Bun.serve({
     const answers = JSON.parse(readFileSync(answersFile, "utf8"));
     const seen = Number((globalThis.seen ??= {})[path] ?? 0);
     globalThis.seen[path] = seen + 1;
-    appendFileSync(logFile, JSON.stringify({ path, id: request.headers.get("cf-access-client-id") }) + "\\n");
+    appendFileSync(logFile, JSON.stringify({ path, id: request.headers.get("cf-access-client-id"), ua: request.headers.get("user-agent") }) + "\\n");
     const answer = answers[path + "#" + seen] ?? answers[path];
     if (answer === undefined) return new Response("not found", { status: 404, headers: { "content-type": "text/plain" } });
     const extra = JSON.parse(process.env.EXTRA_HEADERS ?? "{}");
@@ -298,6 +299,28 @@ describe.concurrent("guest-route-parity.ts", () => {
     expect(asked.every((line) => JSON.parse(line).id === "access-id")).toBe(true);
     const local = readFileSync(join(t.state, "reference.log"), "utf8").trim().split("\n");
     expect(local.every((line) => JSON.parse(line).id === null)).toBe(true);
+  });
+
+  test("every probe of the dev host sends the CI user agent beside the Access headers", async () => {
+    const t = tree();
+    writeFileSync(join(t.state, "reference.json"), JSON.stringify(ANSWERS));
+    const host = await devHost(t, ANSWERS);
+    try {
+      const { exitCode } = await runParity(t, { PARITY_ORIGIN: host.origin, ...ACCESS });
+      expect(exitCode).toBe(0);
+    } finally {
+      host.stop();
+    }
+    const asked = readFileSync(join(t.state, "dev.log"), "utf8")
+      .trim()
+      .split("\n")
+      .map(
+        (line) => JSON.parse(line) as { readonly id: string | null; readonly ua: string | null },
+      );
+    expect(asked.length).toBeGreaterThan(SEEDED_PROBES.length);
+    expect(new Set(asked.map((one) => `${one.ua} ${one.id}`))).toEqual(
+      new Set([`${CI_USER_AGENT} access-id`]),
+    );
   });
 
   test("a header that differs on the dev host is reported, and the run exits 1", async () => {

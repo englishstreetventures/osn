@@ -31,11 +31,15 @@
  * of `wrangler.toml`, which the cire stack gives the dev Worker as well
  * (`cire/infra/tests/parity.test.ts` holds the two equal).
  *
- * Imports only Bun and web built-ins, so CI runs it with `bun --no-install`.
- * Output goes to stdout and, on GitHub Actions, to the step summary.
+ * Imports only Bun and web built-ins, and the user agent from
+ * scripts/smoke-check.ts, which imports only node:fs; so CI runs it with
+ * `bun --no-install`. Output goes to stdout and, on GitHub Actions, to the
+ * step summary.
  *
  * @see wiki/shared/d1-read-replication.md — where the results are recorded.
  */
+
+import { CI_USER_AGENT } from "../../../scripts/smoke-check";
 
 export const MIN_SAMPLES = 25;
 export const MAX_SAMPLES = 100;
@@ -236,12 +240,16 @@ export function parseSampleCount(raw: string | undefined): number {
   return count;
 }
 
-/** The two requests the probe times. */
+/**
+ * The two requests the probe times, each with smoke-check's CI user agent:
+ * Cloudflare's Bot Fight Mode challenges Bun's own from a GitHub runner.
+ */
 export function probeRequests(origin: string, token: string): ProbePair {
   const url = `${origin}${PROBE_PATH}`;
+  const agent = { "user-agent": CI_USER_AGENT };
   return {
-    control: { url, headers: {} },
-    query: { url, headers: { cookie: `${SESSION_COOKIE}=${token}` } },
+    control: { url, headers: agent },
+    query: { url, headers: { ...agent, cookie: `${SESSION_COOKIE}=${token}` } },
   };
 }
 

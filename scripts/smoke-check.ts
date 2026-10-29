@@ -598,6 +598,15 @@ export function judge(probe: Probe, response: Response, body: string, access: bo
 }
 
 /**
+ * The user agent every check of a deployed host sends: this one, and
+ * scripts/site-parity.ts, scripts/guest-route-parity.ts and
+ * cire/api/scripts/d1-latency-probe.ts. Cloudflare's Bot Fight Mode answers a
+ * request from a GitHub runner that carries Bun's own (`Bun/<version>`) with
+ * a challenge in the Worker's place; it lets this one through.
+ */
+export const CI_USER_AGENT = "osn-smoke-check";
+
+/**
  * Ask once. Never follows a redirect: a login page is not the Worker. A body
  * cut off part-way counts as no answer, the same as a connection that drops.
  */
@@ -613,7 +622,7 @@ export async function probeOnce(
   try {
     const response = await options.fetch(probe.url, {
       redirect: "manual",
-      headers: { "user-agent": "osn-smoke-check", ...options.headers },
+      headers: { "user-agent": CI_USER_AGENT, ...options.headers },
       signal: AbortSignal.timeout(options.timeoutMs),
     });
     return judge(probe, response, await response.text(), options.access);

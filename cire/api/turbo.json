@@ -2,16 +2,18 @@
   "$schema": "https://turbo.build/schema.json",
   "extends": ["//"],
   "tasks": {
-    // tests/scripts/d1-latency-probe.test.ts reads two files outside this
-    // package: the probe's workflow, and @shared/infra's hosts.ts, whose
-    // PRODUCTION_ZONES the probe repeats. Named here, a change to either
+    // tests/scripts/d1-latency-probe.test.ts reads three files outside this
+    // package: the probe's workflow, @shared/infra's hosts.ts, whose
+    // PRODUCTION_ZONES the probe repeats, and scripts/smoke-check.ts, whose
+    // CI_USER_AGENT the probe sends. Named here, a change to any of them
     // re-runs the suite rather than replaying a cached green.
     "test": {
       "inputs": [
         "$TURBO_DEFAULT$",
         "!**/*.md",
         "$TURBO_ROOT$/shared/infra/src/hosts.ts",
-        "$TURBO_ROOT$/.github/workflows/cire-d1-latency-probe.yml"
+        "$TURBO_ROOT$/.github/workflows/cire-d1-latency-probe.yml",
+        "$TURBO_ROOT$/scripts/smoke-check.ts"
       ]
     }
   }
