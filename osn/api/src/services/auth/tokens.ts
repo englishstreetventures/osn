@@ -6,7 +6,7 @@
 import { rotatedSessions, sessions } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { commitBatch, rowsChanged } from "@shared/db-utils";
-import { and, desc, eq, gt, inArray, isNotNull, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNotNull, lte, ne, sql } from "drizzle-orm";
 import { Clock, Effect } from "effect";
 
 import { ROTATION_RACE_MESSAGE } from "../../lib/grant-failure";
@@ -211,16 +211,14 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
       : Math.max(1, Math.min(accessTokenTtl, restrictedUntil - nowSec));
 
   /**
-   * Makes room for one more `sessions` row on `accountId`. At the cap it
-   * deletes the least recently used rows, leaving one fewer than
-   * MAX_SESSIONS_PER_ACCOUNT, so the insert that follows leaves the account
-   * at the cap. Every path that inserts a session row calls it first.
-   *
-   * A stolen credential can never hold more than the cap's worth of sessions
-   * open, and an account with many devices loses its least recently used
-   * session instead of failing the new sign-in.
+   * At the cap, deletes the least recently used `sessions` rows on
+   * `accountId`, leaving one fewer than MAX_SESSIONS_PER_ACCOUNT of them. Rows
+   * in `exceptFamilyId`, when it is not null, are neither counted nor deleted.
    */
-  const makeRoomForSession = (accountId: string): Effect.Effect<void, DatabaseError, Db> =>
+  const evictLeastRecentlyUsed = (
+    accountId: string,
+    exceptFamilyId: string | null,
+  ): Effect.Effect<void, DatabaseError, Db> =>
     Effect.gen(function* () {
       const { db } = yield* Db;
       yield* Effect.tryPromise({
@@ -228,7 +226,11 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
           const rows = await db
             .select({ id: sessions.id, lastUsedAt: sessions.lastUsedAt })
             .from(sessions)
-            .where(eq(sessions.accountId, accountId))
+            .where(
+              exceptFamilyId === null
+                ? eq(sessions.accountId, accountId)
+                : and(eq(sessions.accountId, accountId), ne(sessions.familyId, exceptFamilyId)),
+            )
             .orderBy(desc(sessions.lastUsedAt))
             .limit(MAX_SESSIONS_PER_ACCOUNT + 1);
           if (rows.length >= MAX_SESSIONS_PER_ACCOUNT) {
@@ -242,18 +244,37 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
     });
 
   /**
-   * Inserts a `sessions` row for `accountId`, live until `expiresAtSec`, whose
-   * token nobody holds: the token it hashes is dropped here, so the row can
-   * never be presented. It holds a place that any revocation removes, and
-   * answers the row's id. It counts against the session cap like any other row.
+   * Makes room for one more `sessions` row on `accountId`. At the cap it
+   * deletes the least recently used rows, leaving one fewer than
+   * MAX_SESSIONS_PER_ACCOUNT, so the insert that follows leaves the account
+   * at the cap. Every new session — `issueTokens` and a restricted recovery
+   * session — calls it first; rotation replaces the row it deletes, and a
+   * reservation makes room only once it is to stand
+   * ({@link makeRoomForReservation}).
+   *
+   * A stolen credential can never hold more than the cap's worth of sessions
+   * open, and an account with many devices loses its least recently used
+   * session instead of failing the new sign-in.
+   */
+  const makeRoomForSession = (accountId: string): Effect.Effect<void, DatabaseError, Db> =>
+    evictLeastRecentlyUsed(accountId, null);
+
+  /**
+   * Inserts a `sessions` row for `accountId` in family `familyId`, live until
+   * `expiresAtSec`, whose token nobody holds: the token it hashes is dropped
+   * here, so the row can never be presented. It holds a place that any
+   * revocation removes, and answers the row's id. It counts against the
+   * session cap like any other row, but evicts nothing: until the caller runs
+   * {@link makeRoomForReservation}, the account holds one row over the cap
+   * for each reservation in flight.
    */
   const reserveSession = (
     accountId: string,
+    familyId: string,
     expiresAtSec: number,
     sessionMeta: SessionMeta | undefined,
   ): Effect.Effect<string, DatabaseError, Db> =>
     Effect.gen(function* () {
-      yield* makeRoomForSession(accountId);
       const { db } = yield* Db;
       const id = hashSessionToken(generateSessionToken());
       const nowSec = Math.floor(Date.now() / 1000);
@@ -262,7 +283,7 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
           db.insert(sessions).values({
             id,
             accountId,
-            familyId: genId("sfam_"),
+            familyId,
             expiresAt: expiresAtSec,
             createdAt: nowSec,
             authenticatedAt: nowSec,
@@ -274,6 +295,20 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
       });
       return id;
     });
+
+  /**
+   * Brings an account holding a reservation in `familyId` back to the cap,
+   * once that reservation is to stand. At the cap it deletes the least
+   * recently used rows outside the family, leaving one fewer than
+   * MAX_SESSIONS_PER_ACCOUNT of them, so with the one reservation the account
+   * holds the cap. The family's other reservations are left out of the count:
+   * each is released by the call that made it, and counting one would evict a
+   * session for a row about to go.
+   */
+  const makeRoomForReservation = (
+    accountId: string,
+    familyId: string,
+  ): Effect.Effect<void, DatabaseError, Db> => evictLeastRecentlyUsed(accountId, familyId);
 
   /**
    * Full token issuance: creates a server-side session row and returns an
@@ -929,6 +964,7 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
     issueTokens,
     issueRecoverySession,
     reserveSession,
+    makeRoomForReservation,
     verifyRefreshToken,
     refreshTokens,
     verifyAccessToken,

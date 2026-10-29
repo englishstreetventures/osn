@@ -45,7 +45,7 @@ export function createCrossDeviceModule(
 ) {
   const { stores, hashIp } = ctx;
   const { findDefaultProfile, findProfileById } = profiles;
-  const { issueTokens, reserveSession } = tokens;
+  const { issueTokens, makeRoomForReservation, reserveSession } = tokens;
 
   /**
    * Deletes the reserved row `id` while it is live, and answers whether this
@@ -230,7 +230,11 @@ export function createCrossDeviceModule(
    * mints the session. The approval replaces the pending entry it read in one
    * `swap`, so of two decisions at once (two approvals, or an approval and a
    * rejection) exactly one lands; the other releases its reserved row and
-   * answers "already processed". Records a `cross_device_login` security
+   * answers "already processed". An approval whose `swap` fails releases its
+   * row too, and answers the store's error. Only the approval that lands
+   * makes room under the session cap, so a lost race or a failed store call
+   * signs no device out; until it does, the account holds one row over the
+   * cap for each approval in flight. Records a `cross_device_login` security
    * event.
    */
   const approveCrossDeviceLogin = (
@@ -272,11 +276,15 @@ export function createCrossDeviceModule(
       }
 
       // Device B's session row is reserved before the approval lands, so a
-      // poll never finds an approval without one.
-      const sessionId = yield* reserveSession(accountId, Math.ceil(entry.expiresAt / 1000), {
-        uaLabel: entry.uaLabel,
-        ip: null,
-      });
+      // poll never finds an approval without one. Every approval of this
+      // request reserves its row in one family, the request's id, so the
+      // winner's room-making leaves out a racing loser's row.
+      const sessionId = yield* reserveSession(
+        accountId,
+        requestId,
+        Math.ceil(entry.expiresAt / 1000),
+        { uaLabel: entry.uaLabel, ip: null },
+      );
 
       // Replaces exactly the pending entry read above, with the remaining TTL
       // so it still expires on schedule.
@@ -299,6 +307,8 @@ export function createCrossDeviceModule(
         yield* releaseSession(accountId, sessionId).pipe(Effect.ignore);
         return yield* Effect.fail(new AuthError({ message: "Request already processed" }));
       }
+      // The approval stands: its reservation now takes a place under the cap.
+      yield* makeRoomForReservation(accountId, requestId);
 
       // Audit trail — security event + best-effort email notification.
       const { db } = yield* Db;

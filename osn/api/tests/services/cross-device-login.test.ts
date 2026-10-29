@@ -229,9 +229,31 @@ describe("cross-device login on the shared store", () => {
     },
   });
 
-  function harness() {
+  /**
+   * Every `swap` waits a read's delay before it runs, so two approvals that
+   * read together have both reserved their rows before either decides; a
+   * `swap` that answers false answers a further read's delay late, so the
+   * winner's writes land while the loser's reserved row is still there.
+   */
+  const heldSwaps = (ns: CoordinationNamespace): CoordinationNamespace => ({
+    getByName(name, options) {
+      const stub = ns.getByName(name, options);
+      return {
+        ...stub,
+        swap: async (expected, value, ttlMs) => {
+          await new Promise((resolve) => setTimeout(resolve, READ_DELAY_MS));
+          const swapped = await stub.swap(expected, value, ttlMs);
+          if (!swapped) await new Promise((resolve) => setTimeout(resolve, READ_DELAY_MS));
+          return swapped;
+        },
+      };
+    },
+  });
+
+  function harness(holdSwaps = false) {
     const fake = createFakeNamespace();
-    const bundle = createDurableCoordination(slowReads(fake.ns), () => {});
+    const ns = slowReads(fake.ns);
+    const bundle = createDurableCoordination(holdSwaps ? heldSwaps(ns) : ns, () => {});
     const svc = createAuthService({ ...config, ceremonyStores: bundle.ceremonyStores });
     const layer = Layer.merge(createTestLayer(), makeLogEmailLive().layer);
     return { svc, layer, fake, store: bundle.ceremonyStores.crossDeviceRequests };
@@ -493,6 +515,48 @@ describe("cross-device login on the shared store", () => {
       const poll = yield* svc.getCrossDeviceLoginStatus(requestId, cdlSecret);
       expect(poll.status).toBe("approved");
       expect((yield* countRows(profile.accountId)).sessions).toBe(MAX_SESSIONS_PER_ACCOUNT);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.live(
+    "of two approvals at once at the session cap, only the winner evicts, and only one session",
+    () => {
+      const { svc, layer } = harness(true);
+      return Effect.gen(function* () {
+        const profile = yield* svc.registerProfile("cdl-cap-race@example.com", "cdlcaprace");
+        const { seeded, oldest } = yield* fillToCap(svc, profile);
+        const { requestId, cdlSecret } = yield* svc.beginCrossDeviceLogin();
+
+        const approve = Effect.result(
+          svc.approveCrossDeviceLogin(requestId, cdlSecret, profile.accountId),
+        );
+        const approvals = yield* Effect.all([approve, approve], { concurrency: "unbounded" });
+        expect(successes(approvals)).toBe(1);
+
+        const ids = yield* sessionIds(profile.accountId);
+        expect(ids).toHaveLength(MAX_SESSIONS_PER_ACCOUNT);
+        expect(seeded.filter((id) => !ids.includes(id))).toEqual([oldest]);
+
+        const poll = yield* svc.getCrossDeviceLoginStatus(requestId, cdlSecret);
+        expect(poll.status).toBe("approved");
+        expect((yield* countRows(profile.accountId)).sessions).toBe(MAX_SESSIONS_PER_ACCOUNT);
+      }).pipe(Effect.provide(layer));
+    },
+  );
+
+  it.live("an approval whose swap fails at the session cap evicts nothing", () => {
+    const { svc, layer, fake } = harness();
+    return Effect.gen(function* () {
+      const profile = yield* svc.registerProfile("cdl-cap-fail@example.com", "cdlcapfail");
+      const { seeded } = yield* fillToCap(svc, profile);
+      const { requestId, cdlSecret } = yield* svc.beginCrossDeviceLogin();
+
+      failSwaps(fake);
+      const error = yield* Effect.flip(
+        svc.approveCrossDeviceLogin(requestId, cdlSecret, profile.accountId),
+      );
+      expect(error._tag).toBe("CoordinationError");
+      expect((yield* sessionIds(profile.accountId)).toSorted()).toEqual(seeded.toSorted());
     }).pipe(Effect.provide(layer));
   });
 
