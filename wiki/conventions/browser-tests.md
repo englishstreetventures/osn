@@ -11,7 +11,7 @@ packages:
   - "@musubi/social"
   - "@pulse/web"
   - "@shared/ui"
-last-reviewed: 2026-10-28
+last-reviewed: 2026-10-29
 ---
 
 # Browser Tests
@@ -597,8 +597,8 @@ say so.
 `--virtual-time-budget` fast-forwards timers and `requestAnimationFrame`, so a
 lazy scene or a fade-in has finished by the time the frame is taken. Vary
 `--window-size` for the phone case (390×844). The same command renders WebGL
-through SwiftShader, which is how [[cire-landing]]'s wax seal is checked — at
-`https://cire.localhost`, the landing site's own host.
+through SwiftShader, for a page that draws with it. [[cire-landing]] is screenshot
+by its own end-to-end flow instead (`cire-landing-home`), at 390 and 1280 px.
 
 **A still frame cannot see an animation bug.** #742 was a single frame, and a
 one-frame flash is invisible both to jsdom and to any assertion made after the

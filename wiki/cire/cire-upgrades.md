@@ -9,7 +9,7 @@ related:
   - "[[cire-auth]]"
   - "[[cire-host-portal-layout]]"
   - "[[cire-development]]"
-last-reviewed: 2026-10-27
+last-reviewed: 2026-10-29
 ---
 
 # Self-serve upgrades — buying a plan tier
@@ -135,9 +135,12 @@ both use one upgrade service, which exists only with a Stripe client
 
 ## Pricing
 
-No money amount is stored in this repository. A catalogue entry names a
-**Stripe Price id** supplied per deployment, and the amount is read back from
-Stripe. The title and blurb for each tier are product copy that ships with the
+cire-api stores no money amount. A catalogue entry names a **Stripe Price
+id** supplied per deployment, and the amount is read back from Stripe, so what a
+host is charged is always Stripe's. The marketing site publishes the offer as
+text in `cire/landing/src/lib/plans.ts` (Gold A$79, Crimson A$149, A$70 from Gold
+to Crimson), checked by hand against these Prices before a release: change a
+Price, change that file ([[cire-landing#Pricing]]). The title and blurb for each tier are product copy that ships with the
 release (`COPY` in `cire/api/src/services/upgrade-catalogue.ts`).
 
 | Move | Var |

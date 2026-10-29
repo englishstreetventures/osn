@@ -14,7 +14,10 @@ related:
   - "[[cire-consent]]"
   - "[[cire-plus-ones]]"
   - "[[testing-patterns]]"
-last-reviewed: 2026-10-28
+  - "[[cire-entitlements]]"
+  - "[[cire-upgrades]]"
+  - "[[cire-organiser]]"
+last-reviewed: 2026-10-29
 ---
 
 # Cire Landing
@@ -45,27 +48,23 @@ packages deploy and scale on their own.
 
 Mirrors `cire/host`: **static Astro + SolidJS islands + Tailwind v4**
 (`output: "static"`, no Cloudflare adapter), deployed to Cloudflare Pages with
-`wrangler pages deploy dist`. Motion via Motion One (`motion`), animation logic
-isolated in `*.motion.ts` files (the cire convention).
+`wrangler pages deploy dist`. **Motion is CSS alone**: transitions and one
+keyframe animation, no motion library. `motion` and `three` are not
+dependencies, and the bundle guard's threshold (`scripts/bundle-size-budgets.txt`)
+sits at the measured build plus the usual headroom, so adding either fails the
+build. The reduced-motion block in `src/styles/global.css` snaps every
+transition and animation off; the demo sheet's `Modal` (`@shared/ui`) checks the
+same media query itself.
 
-The hero seal is the one exception to the Motion-One rule: it is a real **3D
-object rendered with Three.js** (`three`, core only — no addons). Three.js is
-heavy (~515 KB), so it stays **off the critical path**: `WaxSeal3D.tsx`
-renders a flat CSS-disc poster server-side, then `import()`s the scene module
-(`waxSealScene.ts`) on `requestIdleCallback` and cross-fades the WebGL canvas in
-over the poster. The chunk is never `modulepreload`ed. The poster hides **only
-after the scene's first frame paints** — an import/context/first-frame failure
-leaves the poster, never an empty hero. No WebGL → poster stands in;
-`prefers-reduced-motion` → the scene loads in **still mode** (one frame, no
-settle/lean, repaint on resize only — reduced motion means no motion, not no
-3D). Three.js and Motion One never share a component tree.
-
-**Macrostructure: "The Unfolding Letter"** (redesign 2026-07-22). The page reads
-top to bottom like opening and reading a single invitation. Display headings are
-**roman** (`.display` in `global.css`) — italic stays on the wordmark logotype
-and inside running body copy only (an all-italic heading is a reliable sign of
-AI-written design). The whole page uses two eyebrows (hero + "See it live"). All
-visible copy avoids the em-dash.
+**Macrostructure: "The invitation is the page"** (owner, 2026-10-29). The first
+screen is a finished invitation, and the page sells the product by showing it
+from both sides: what a guest holds, and what the couple run it from. Display
+headings are **roman** (`.display` in `global.css`): italic stays on the
+wordmark logotype, the seal's monogram and inside running body copy only. The
+whole page uses two eyebrows (hero + "See it live"). No visible copy uses the
+em-dash or the word "premium" (Classic and Gala are free;
+`tools/e2e/tests/flows/cire-landing-home.flow.ts` checks both over every text
+node, hidden states included).
 
 **Brand parity is deliberate**: `src/styles/global.css` keeps
 the `@theme` token block **byte-identical** to `cire/invites/src/styles/global.css`
@@ -77,47 +76,149 @@ in the other.**
 
 ## Page structure (`src/pages/index.astro`)
 
-Composed as `Hero.astro` + seven section components under `components/sections/`.
+`SiteNav`, then one `<main>` holding the sections below, then `SiteFooter`.
+Each section is a component under `components/sections/`; the drawings of the
+product are under `components/mock/` ([[#Product views]]).
 
-1. **Hero** (`sections/Hero.astro` + `WaxSeal3D.tsx` + `waxSealScene.ts`) — a
-   **real 3D wax seal** rests at the top of the sealed letter, built as a
-   **stamping simulation**: each mount pours a random wax puddle (`pourWax()` —
-   silhouette harmonics + run-out tongues) and presses a perfect-circle die into
-   it, so every visitor's seal differs a little. The die carries a laurel wreath
-   + italic "C" (canvas bump map, paired with a canvas **roughness map** so the
-   pressed design reads burnished against the matte field) on a waxy
-   `MeshPhysicalMaterial`, lit by a warm gold key against a cool forest fill. It
-   is **ambient** — it never breaks — and it **never rotates on its own**: it
-   rests in a fixed pose, leans toward the pointer, and settles on load. The rAF
-   loop **sleeps at steady state** (woken by pointer/resize/visibility), so a
-   static seal costs zero GPU. Shaders compile via `compileAsync` before the
-   first frame. The seal is **decorative only**: the eyebrow, headline, subtext
-   and both CTAs are server-rendered siblings, always painted, keyboard-operable
-   with a real focus ring — so no JS / no WebGL / reduced motion still reads and
-   works (the old `WaxSealHero` hid all hero content behind `display:none` until
-   JS opened it; this does not).
-2. **Promise** (`sections/Promise.astro`) — "the letter unfolds": the editorial
-   "paper vs soulless e-invite vs Cire" passage in a narrow column.
-3. **Features** (`sections/Features.astro`) — read *down* the card, not five
-   identical alternating rows: two lead image/text splits (the opening, the RSVP)
-   then a three-item text index of the rest. Every feature is something cire
-   actually ships. See [[cire]].
-4. **How it works** (`sections/HowItWorks.astro`) — three steps as a vertical
-   numbered sequence (design → share one link → watch RSVPs), not a 3-column grid.
-5. **See it live** (`demo/DemoRsvp.tsx`) — a real, in-page interactive invitation
-   whose RSVP is a deliberate **no-op** (see below). `client:visible`.
-6. **Craft / trust** — privacy-first, guests need no account, your data is yours.
-7. **Testimonials** (`sections/Testimonials.astro`) — **fully designed but hidden**
-   behind `SHOW_TESTIMONIALS = false`; renders nothing until we have real,
-   permissioned quotes. We don't fabricate social proof.
-8. **FAQ** — native `<details>` accordion, works with zero JS.
-9. **Final CTA + footer** — repeats the primary CTA; `SiteFooter.astro` is a
-   sign-off statement (a small wax mark echoing the hero seal) carrying the
-   `/privacy` + `/terms` + `/refunds` links (the legal pages are review drafts).
+| # | Section (id) | Component | What it does |
+|---|---|---|---|
+| 1 | Hero (`#hero`) | `Hero.astro` | Eyebrow, the h1 "Invitations worthy of the moment", a 16-word subhead, "Create your invitation" and "See a live invite". Under them a fan of five phones: the middle one is the sample wedding's invitation, the four around it dashed "?" silhouettes. Four chips switch the middle phone between **Sealed**, **Opened**, **RSVP** and **On the day** |
+| 2 | See it live (`#see-it-live`) | `SeeItLive.astro` + `demo/DemoRsvp.tsx` | The working no-op RSVP ([[#Interactive no-op RSVP demo]]). `client:visible` |
+| 3 | Journey (`#journey`) | `Journey.astro` | Five tabs (Invite, RSVP, Seating, On the day, Gifts); each shows the guest's phone beside the couple's dashboard. Seating, On the day and Gifts carry "Included in Gold" |
+| 4 | Pricing (`#pricing`) | `Pricing.astro` | The three plans ([[#Pricing]]) |
+| 5 | Craft / trust | `Craft.astro` | Privacy-first, guests need no account, your data is yours. The site's one photograph |
+| 6 | Testimonials | `Testimonials.astro` | **Designed but hidden** behind `SHOW_TESTIMONIALS = false`; renders nothing until there are real, permissioned quotes. We don't fabricate social proof |
+| 7 | FAQ (`#faq`) | `Faq.astro` | Native `<details>`, works with zero JS. Its cost answer gives the plan prices |
+| 8 | Closing (`#cta`) | `FinalCta.astro` | The one-to-one message a guest receives (the portal's three-line message, its link and the household's code) and the "Your names" field ([[#The claim field]]) |
+
+Every organiser link (nav, hero, the three plans, the closing field, the
+footer) points at `ORGANISER_URL` and reads "Create your invitation", or "Create
+an invitation" in the footer. The footer's section links go to `/#journey`,
+`/#pricing` and `/#faq`.
 
 A minimal fixed masthead (`SiteNav.astro`) — wordmark + the one primary CTA —
 sits over the hero and gains a hairline + blurred wash once scrolled (toggled by
 an `IntersectionObserver` sentinel, no per-frame scroll handler).
+
+### Chips and tabs without script
+
+The hero's chips and the journey's tabs are native radios in a `<fieldset>`
+with a visually hidden `<legend>` ("Show the invitation", "Choose a step").
+The radios come first in the fieldset, so CSS sibling selectors do the work:
+`#hs-opened:checked ~ .stage [data-state='opened']` shows a screen and
+`#hs-opened:focus-visible ~ .chips [for='hs-opened']` draws the 2px gold focus
+ring, offset 4px, on its chip. No island and no `:has()`, which Firefox 114–120
+on the browser floor lacks. They switch with JavaScript off, and the arrow keys
+move between them as between any radios.
+
+- **A fieldset, not `role="radiogroup"`.** The group has to hold the phones as
+  well as the radios, so the radios can sit before them, and a radiogroup may
+  own only radios.
+- **The hidden radios sit where their labels are** (the chips' row, the tab
+  bar). Clicking a label focuses its radio, and the browser scrolls a focused
+  element into view; a radio parked elsewhere would jump the page.
+- **All states share one grid cell**, so switching never moves the page.
+  Inactive ones are `opacity: 0; visibility: hidden`; the change is a 0.45s
+  opacity and 0.5rem rise, and `transition: none` under reduced motion.
+- **Chips are at least 44px tall.** At 390px the four fit on one row by
+  dropping their tracking to 0.08em.
+
+## Product views
+
+The page shows the product as drawings in landing tokens, never screenshots: a
+drawing cannot drift from the brand when the portal's own look changes, and it
+carries only synthetic data.
+
+- **The sample wedding.** Amara & Sam, Saturday 20 March 2027, Byron Bay: the
+  ceremony at Cliffside Chapel, the reception at The Glasshouse (the demo RSVP's
+  two events). The hero, journey and closing follow one household, the Okafors
+  (Chidi and Ngozi), whose code is `AMR-7Q2K` and whose link is
+  `invite.cireweddings.com/cire/invite?slug=amara-sam-4c1e9a`. Every dashboard
+  drawing says "Sample wedding".
+- **`PhoneFrame.astro`** draws a phone; `variant="placeholder"` is a dashed
+  silhouette with a "?" and no screen, never captioned. Its corners are
+  `0.15 × --phone-w`: the house cap of 6px is for controls and panels, and a
+  phone's corners are part of its outline. Width comes from the parent through
+  `--phone-w`, because under Astro's attribute scoping a parent's class cannot
+  style a child component's root; a parent positions a wrapper of its own.
+- **`InviteScreen.astro`** draws one guest screen (`sealed`, `opened`, `rsvp`,
+  `replied`, `on-the-day`, `gifts`), in the guest site's own words where it has
+  them ("Open Invitation", "Send RSVP"). The phone's screen is a size container
+  and the type is set in `cqi`, so the screen scales with the phone at every
+  breakpoint. Buttons and fields are `<span>`s: nothing on the page offers a
+  press that does nothing.
+- **`SealMark.astro`** is the CSS wax seal (a gold disc, unevenly round, with a
+  monogram), sized by `--seal-size`.
+- **Hidden from assistive technology.** Every phone is `aria-hidden`; the hero's
+  `<figure>` carries a visually hidden caption for the chosen state, the
+  closing thread one for the message, and the journey's views visible captions
+  ("What a guest sees", "What you see").
+- **Seating is the organiser's.** The guest phone on the Seating tab shows the
+  household's reply, never a table: guests do not see the plan ([[cire-seating]]).
+- **The link preview is text only.** The guest site sets no `og:*` tags, so the
+  closing thread draws a plain card (host, names, "You're Invited") rather than
+  an image.
+
+**The fan.** The hero's `overflow-x: clip` keeps the outer phones from panning
+the page.
+
+| Width | Middle phone | Neighbours | Outer pair |
+|---|---|---|---|
+| < 640px | 10rem × 20rem | scale 0.82, ±62%, leaning in 5°, opacity 0.55 | not drawn |
+| 640–1023px | 12.5rem wide | scale 0.84, ±66%, fanning out 5°, opacity 0.6 | scale 0.7, ±118%, 9°, opacity 0.35 |
+| ≥ 1024px | 13.5rem wide | scale 0.86, ±72%, 6° | scale 0.72, ±132%, 10° |
+
+At 390 × 844 the primary call to action sits above the fold and the middle
+phone inside the screen; the flow checks both. The fan opens once on arrival
+from a closed stack (0.9s, inside `prefers-reduced-motion: no-preference`).
+
+## Pricing
+
+`src/lib/plans.ts` holds the offer, and `Pricing.astro` renders it: Ivory free
+for up to 100 guests, Gold A$79 for 500, Crimson A$149 for 1,000, each paid
+once per wedding; a wedding on Gold moves to Crimson for A$70. Each plan lists
+what it adds ([[cire-entitlements]]); Classic and Gala are free, so no plan
+promises designs. Every plan's call to action is the same "Create your
+invitation": a couple starts on Ivory and upgrades from the dashboard
+([[cire-upgrades]]). Gold is the raised card, with the gold-filled button.
+
+- **Guest caps and the tier list are tested.** `tests/lib/plans.test.ts` reads
+  `TIERS` and `TIER_GUEST_CAP` out of `cire/api/src/services/tiers.ts` and fails
+  when a cap, a tier or their order differs, or when it can no longer find them.
+- **Prices are not.** What a host is charged is the Stripe Price the deployment
+  configures, read back from Stripe; the amounts here are the published offer,
+  checked by hand against those Prices before a release. Change a Price, change
+  `plans.ts`.
+- **Legal pages lag.** `/terms` and `/refunds` do not describe these tiers yet;
+  englishstreetventures/osn#1317 holds that decision.
+
+## The claim field
+
+The closing section's "Your names" field previews the link Cire would make and
+carries the names to the organiser portal.
+
+- **The preview** reads `invite.cireweddings.com/cire/invite?slug=<slug>-······`.
+  The slug comes from `slugPreview` in `src/lib/slug-preview.ts`, a copy of
+  cire-api's `slugifyDisplayName` (`cire/api/src/lib/slug.ts`); the six dots
+  are the suffix Cire adds. Empty, it shows `wedding-······`, as the API would.
+  It is written with `textContent` and only ever shows the slug (`[a-z0-9-]`):
+  the names themselves are echoed nowhere.
+- **The call to action is a link**, `ORGANISER_URL/?name=<the trimmed names,
+  encodeURIComponent>`, never a form: the CSP's `form-action 'self'` refuses a
+  submit to another origin. Enter in the field follows it. The field's
+  `maxlength` is 120, the API's limit.
+- **Without JavaScript** the field does nothing and the link opens the portal
+  with no name.
+- **In the portal**, `WeddingList` reads `?name=`, opens the create form with
+  the names in its field and drops the parameter from the address
+  ([[cire-organiser#Arriving from the marketing site]]). A signed-out visitor keeps it
+  through `/login?returnTo=`.
+- **Held to the API by a test.** `tests/lib/slug-preview.test.ts` imports
+  `cire/api/src/lib/slug.ts` and compares the two rules on a corpus of names
+  (ampersands, accents, emoji, repeated spaces, punctuation, a 120-character
+  name), and holds the field's cap, the API's and the portal's
+  `MAX_DISPLAY_NAME` equal. A slug the couple choose themselves needs an API and
+  schema change and is not offered.
 
 ## Privacy pages
 
@@ -177,17 +278,19 @@ site's, prints, and screenshots each page at 390 and 1280 px.
 
 ## Interactive no-op RSVP demo
 
-The "See it live" section renders a working invitation in miniature. Guests can
-pick events, toggle attendance per person, type a dietary note and "Send RSVP" —
-everything is interactive, but **nothing leaves the browser**: a valid submit
-shows a confirmation panel making the no-op explicit, and never calls any API
-(`DemoRsvp.test.tsx` asserts `fetch` is never invoked). This lets the page *show*
-the product instead of describing it.
+The "See it live" section, straight under the hero, renders a working
+invitation in miniature for the sample wedding. Visitors can pick events, toggle
+attendance per person, type a dietary note and "Send RSVP" — everything is
+interactive, but **nothing leaves the browser**: a valid submit shows a
+confirmation panel making the no-op explicit, and never calls any API.
+`DemoRsvp.test.tsx` asserts `fetch` is never invoked, and gates merges; the
+`cire-landing-home` flow also sends a reply in a real browser and records every
+`fetch`, XHR, beacon and event-source request it makes, which must be none. This
+lets the page *show* the product instead of describing it.
 
-The **same no-op treatment** was applied to the organiser **host preview** in
-`cire/invites`: the RSVP there used to be greyed out (`disabled` in preview mode).
-It is now fully interactive, with submit short-circuited to a no-op and a "Nothing
-you send here is saved" banner (`RsvpPanel`'s `preview` prop). A host can now walk
+The organiser's **host preview** in `cire/invites` gets the same treatment: its
+RSVP is fully interactive, with submit short-circuited to a no-op and a "Nothing
+you send here is saved" banner (`RsvpPanel`'s `preview` prop), so a host can walk
 the exact guest RSVP flow without adding rows to their own RSVP data.
 
 ## Generative vine backdrop
@@ -219,23 +322,27 @@ you scroll past them**.
 
 ## Imagery
 
-Photography is **hotlinked from Unsplash's CDN** (`images.unsplash.com`) — the
-build never downloads the assets; the visitor's browser loads them directly,
-which is how Unsplash intends hosted images to be used. Every image is composed
-in `src/lib/site.ts` (`IMAGES` map + `unsplash()` helper) so swapping in the
-brand's / couple's own art is a one-line change. Each `<img>` paints over a gold
+The site carries **one photograph**, in the craft section; the product is shown
+as drawings ([[#Product views]]). It is **hotlinked from Unsplash's CDN**
+(`images.unsplash.com`) — the build never downloads it; the visitor's browser
+loads it directly, which is how Unsplash intends hosted images to be used. It is
+composed in `src/lib/site.ts` (`IMAGES.craft` + `unsplash()` helper) so swapping
+in the brand's own art is a one-line change. The `<img>` paints over a gold
 gradient (`Figure.astro`) so a slow or blocked load never leaves an empty hole,
-and each image shows the required photo credit. The CSP in `public/_headers`
-allow-lists `images.unsplash.com` for `img-src`.
+and shows the required photo credit. The CSP in `public/_headers` allow-lists
+`images.unsplash.com` for `img-src`.
 
 ## Configuration (`src/lib/site.ts`, all build-time `PUBLIC_*`)
 
-- `PUBLIC_ORGANISER_URL` — target of the primary "Create your invitation" CTA.
-  Dev default is the local organiser (`http://localhost:4322`); end-state prod is
-  `https://host.cireweddings.com`. **Held in one place, so the apex cutover is
-  one env change and not a search through the code.**
-- `PUBLIC_DEMO_INVITE_URL` — optional. When set, "See a live invite" links to a
-  real seeded invitation; unset, it scrolls to the in-page interactive demo.
+- `PUBLIC_ORGANISER_URL` — target of every organiser link: the nav, the hero,
+  the three plans, the closing field (with `/?name=` when the couple typed their
+  names) and the footer. Dev default is the local organiser
+  (`http://localhost:4322`); end-state prod is `https://host.cireweddings.com`.
+  **Held in one place, so the apex cutover is one env change and not a search
+  through the code.**
+- `PUBLIC_DEMO_INVITE_URL` — optional, read by the hero only. When set, "See a
+  live invite" links to a real seeded invitation; unset, it scrolls to the
+  in-page interactive demo.
 - `SITE` — canonical origin for SEO meta (`astro.config` `site`).
 
 ## Deploy + the domain migration
@@ -297,26 +404,42 @@ is built ([[cire-registry]]). Tracked, not yet built:
 
 - **Wedding-management platform** — budget, vendors, seating, schedule/timeline,
   guest communications — built out from the organiser portal (`host.cireweddings.com`).
-- **Marketing depth** — pricing page, real testimonials (flip `SHOW_TESTIMONIALS`
-  once permissioned), case studies, blog/SEO content.
+- **Marketing depth** — real testimonials (flip `SHOW_TESTIMONIALS` once
+  permissioned), case studies, blog/SEO content. Pricing is built
+  ([[#Pricing]]).
 
 The data model is already multi-tenant (`weddings` root), so growing into a
 platform is a product decision, not a migration — see [[cire]].
 
 ## Deferred
 
-- **Wax-seal fidelity** — the hero seal is a real 3D object (`waxSealScene.ts`)
-  built **procedurally** (stamping simulation + canvas bump/roughness maps). A
-  sculpted GLTF seal (Blender, with a proper normal + roughness bake) would read
-  richer still; deferred until there is an asset pipeline for it. Swap point is
-  `makeSealMesh()` — the lighting, pointer lean and PE fallback all stay. The
-  seal is now visually verified: headless Chrome renders WebGL, so screenshot
-  `bun run dev:cire-landing` at `https://cire.localhost`
-  (`--headless=new --screenshot --virtual-time-budget`) when tuning `bumpScale` /
-  lights / pour parameters. The recipe is in [[browser-tests]] § Driving the
-  whole app by hand. (`dev:landing` is `@musubi/landing`, a different site.)
-- **Real photography** — imagery is still hotlinked Unsplash placeholders
-  (`lib/site.ts` `IMAGES`); swap for the brand's own art when it exists.
+- **Real photography** — the craft image is still a hotlinked Unsplash
+  placeholder (`lib/site.ts` `IMAGES`); swap for the brand's own art when it
+  exists.
+- **More designs in the fan** — the hero's four "?" phones stand where designs
+  Cire has not made yet would go. Each becomes a real screen only when that
+  design exists.
+
+## Tests
+
+- **The page, end to end:** `tools/e2e/tests/flows/cire-landing-home.flow.ts`
+  (`bun run test:e2e -- --grep cire-landing-home`). It checks the section order,
+  that no copy carries an em-dash or "premium", that every in-page link lands
+  and every organiser link is the portal (or the claim link), the claim field's
+  preview and link, the chips by mouse and arrow keys, the demo sending nothing,
+  the journey tabs, the plans' prices and caps, the page with JavaScript off
+  and under reduced motion, and the layout at 390 and 768 px. It never follows a
+  link into the portal, whose API calls would make `results.json` differ
+  between runs. Screenshots land in `e2e-artifacts/screenshots/cire-landing-home/`.
+- **The `repo` project.** `tests/lib/plans.test.ts`, `tests/lib/slug-preview.test.ts`
+  and `tests/styles/design-token-contract.test.ts` read files in other packages.
+  They run as the vitest `repo` project (`test:repo`), which
+  `cire/landing/turbo.json` reruns when those files change; `test` runs the rest
+  ([[testing-patterns#Tests that read files outside their package]]).
+  `test:run` runs both.
+- **To look at it**, run `CLAUDECODE= bun run dev:cire-landing` (or
+  `PORT=<port> bun run --cwd cire/landing dev:app` beside a running E2E stack,
+  which holds 4323). `dev:landing` is `@musubi/landing`, a different site.
 
 ## Related
 

@@ -6,7 +6,8 @@ related:
   - "[[cire-checklist-tasks]]"
   - "[[cire-budget]]"
   - "[[cire-platform-plan]]"
-last-reviewed: 2026-08-21
+  - "[[cire-landing]]"
+last-reviewed: 2026-10-29
 ---
 # Organiser Overview
 
@@ -43,3 +44,31 @@ Pure + unit-tested. `now` is injected. All dates normalised to a local
 ms-epoch) so the agenda never disagrees with the Countdown across timezones.
 Excludes: past events, paid payments, done tasks, undated payments/tasks.
 Deterministic tie-break: same date → event < payment < task → label.
+
+## The wedding list
+
+Before a wedding is open, the portal shows `WeddingList`
+(`cire/host/src/components/WeddingList.tsx`): the organiser's weddings to open,
+the ones they deleted and can still restore, and the create form. With no
+weddings the form shows at once; otherwise it opens behind "+ Create a wedding".
+
+### Arriving from the marketing site
+
+cireweddings.com's closing field links here as `/?name=<the couple's names>`
+([[cire-landing#The claim field]]). `WeddingList` opens the create form with the
+names in its field, even for an organiser who already has weddings, and drops
+`name` from the address at once, so a reload or a second wedding starts empty.
+The value comes from a link anyone can write, so `lib/name-prefill.ts`:
+
+- strips control characters and the characters that reorder text around them
+  (U+202A–202E, U+2066–2069, U+200E, U+200F, U+061C), then trims;
+- cuts it to 120 UTF-16 units, the length cire-api's `MAX_DISPLAY_NAME` check
+  counts, never splitting a character;
+- only fills the field. Nothing submits until the organiser presses "Create
+  wedding", and the name is shown nowhere else.
+
+A signed-out visitor keeps the parameter through sign-in: `RequireAuth` sends
+them to `/login?returnTo=/?name=…`, and `SignInPanel` returns them to that path,
+as it does any same-origin path. Tests: `WeddingList.prefill.test.tsx` and
+`SignInPanel.test.tsx` in `cire/host/tests/components/`. No end-to-end flow
+drives the whole path, from the marketing site through sign-in to the form.
