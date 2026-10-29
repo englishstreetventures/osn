@@ -712,6 +712,19 @@ describe("PR1: the cire stack job compares the guest site's routes with Wrangler
   });
 });
 
+/** The two script test files that `bun test ./scripts/` skips, each run by a root script of its own. */
+const WRANGLER_TEST = "scripts/tests/guest-route-parity-wrangler.e2e.ts";
+const RELAY_IDLE_TEST = "scripts/tests/guest-route-parity-relay-idle.slow.ts";
+/** The names `bun test` picks up: `*.test.*`, `*_test.*`, `*.spec.*` and `*_spec.*`. */
+const BUN_TEST_NAME = /[._](test|spec)\.[cm]?[jt]sx?$/;
+
+const rootScripts = (): Readonly<Record<string, string>> =>
+  (
+    JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as {
+      readonly scripts: Readonly<Record<string, string>>;
+    }
+  ).scripts;
+
 describe("PR2: ci.yml's Build & Test job runs the guest route comparison's reference on real Wrangler, and keeps its logs", () => {
   const RUN = "bun run test:scripts:wrangler";
   const steps = stepsOf(load(".github/workflows/ci.yml").jobs["build-test"]);
@@ -737,17 +750,43 @@ describe("PR2: ci.yml's Build & Test job runs the guest route comparison's refer
   });
 
   test("the root script runs the real-Wrangler test file, which the Scripts job's `bun test ./scripts/` does not pick up", () => {
-    const scripts = (
-      JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as {
-        readonly scripts: Readonly<Record<string, string>>;
-      }
-    ).scripts;
-    const file = "scripts/tests/guest-route-parity-wrangler.e2e.ts";
-    expect(scripts["test:scripts:wrangler"]).toBe(`bun test ./${file}`);
-    expect(existsSync(join(root, file))).toBe(true);
+    const scripts = rootScripts();
+    expect(scripts["test:scripts:wrangler"]).toBe(`bun test ./${WRANGLER_TEST}`);
+    expect(existsSync(join(root, WRANGLER_TEST))).toBe(true);
     expect(scripts["test:scripts"]).toBe("bun test ./scripts/");
-    // `bun test` picks up only `*.test.*`, `*_test.*`, `*.spec.*` and `*_spec.*` names.
-    expect(file).not.toMatch(/[._](test|spec)\.[cm]?[jt]sx?$/);
+    expect(WRANGLER_TEST).not.toMatch(BUN_TEST_NAME);
+  });
+});
+
+describe("PR2: ci.yml's Scripts job runs the relay's idle-timeout test, which needs no install, apart from `bun test ./scripts/`", () => {
+  const RUN = "bun run test:scripts:relay-idle";
+  const steps = stepsOf(load(".github/workflows/ci.yml").jobs["script-tests"]);
+  const at = steps.findIndex((step) => step.run === RUN);
+
+  test("a step of its own runs it after Bun is set up, under a time limit, and fails the job when it fails", () => {
+    expect(at).toBeGreaterThan(-1);
+    const step = steps[at];
+    expect(step?.["timeout-minutes"]).toBeNumber();
+    expect(step?.if).toBeUndefined();
+    expect(step?.["continue-on-error"]).toBeUndefined();
+    const bun = steps.findIndex((one) => one.uses?.startsWith("oven-sh/setup-bun@") === true);
+    expect(bun).toBeGreaterThan(-1);
+    expect(at).toBeGreaterThan(bun);
+  });
+
+  test("the root script runs the idle-timeout test file, which `bun test ./scripts/` does not pick up", () => {
+    expect(rootScripts()["test:scripts:relay-idle"]).toBe(`bun test ./${RELAY_IDLE_TEST}`);
+    expect(existsSync(join(root, RELAY_IDLE_TEST))).toBe(true);
+    expect(RELAY_IDLE_TEST).not.toMatch(BUN_TEST_NAME);
+  });
+
+  test("neither file run by name can skip, mark or single out a test, so each fails rather than skips", () => {
+    for (const file of [WRANGLER_TEST, RELAY_IDLE_TEST]) {
+      const source = readFileSync(join(root, file), "utf8");
+      expect({ [file]: source.match(/\.(skip|todo|skipIf|if|only)\b/g) ?? [] }).toEqual({
+        [file]: [],
+      });
+    }
   });
 });
 
