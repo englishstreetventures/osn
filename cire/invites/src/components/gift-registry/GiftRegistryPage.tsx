@@ -1,4 +1,5 @@
 import { buttonClass } from "@cire/ui/button";
+import Eyebrow from "@cire/ui/eyebrow";
 import { Toaster } from "@shared/toast";
 import {
   createMemo,
@@ -492,9 +493,9 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
                   data-gift-shipping
                   class="border-border max-w-ui-md mx-auto mb-8 rounded-sm border px-4 py-3 text-center"
                 >
-                  <p class="font-body text-text-muted text-ui-xs tracking-ui-widest mb-1 uppercase">
+                  <Eyebrow tone="muted" class="mb-1">
                     Send gifts to
-                  </p>
+                  </Eyebrow>
                   <p class="font-body text-text text-ui-base leading-ui-normal break-words whitespace-pre-line">
                     {address()}
                   </p>
@@ -588,10 +589,10 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
                             where their grouping starts. Absent when they grouped
                             nothing, since one unlabelled shelf is just a list. */}
                         <Show when={showShelfLabels()}>
-                          <h2 class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-6 flex items-center gap-4 uppercase">
-                            <span>{group().category ?? "More gifts"}</span>
+                          <div class="mb-6 flex items-center gap-4">
+                            <Eyebrow as="h2">{group().category ?? "More gifts"}</Eyebrow>
                             <span class="border-border h-px flex-1 border-t" aria-hidden="true" />
-                          </h2>
+                          </div>
                         </Show>
                         {/* `items-start`, so a card is its own height. Stretching the row
                             instead would hand a gift with no picture the height of
