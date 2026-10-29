@@ -236,12 +236,15 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
 
   return (
     <div class="flex flex-col gap-6">
-      {/* Filter bar */}
+      {/* Filter bar. Filters are 28px pills, and the bar's one action is their
+          height: `size="sm"` alone is 31px (DESIGN.md §4, "One form-field
+          height"). */}
       <div class="border-border bg-surface/20 rounded-ui-lg flex flex-wrap items-end gap-3 border p-4">
         <Field label="Category">
           {(field) => (
             <Select
               {...field}
+              size="sm"
               value={category()}
               onChange={(e) => {
                 setCategory(e.currentTarget.value);
@@ -258,6 +261,7 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
           {(field) => (
             <Input
               {...field}
+              size="sm"
               value={q()}
               onInput={(e) => {
                 setQ(e.currentTarget.value);
@@ -272,6 +276,7 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
           {(field) => (
             <Input
               {...field}
+              size="sm"
               value={location()}
               onInput={(e) => {
                 setLocation(e.currentTarget.value);
@@ -282,7 +287,7 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
           )}
         </Field>
 
-        <Button variant="quiet" onClick={clearFilters}>
+        <Button variant="quiet" size="sm" class="h-7" onClick={clearFilters}>
           Clear filters
         </Button>
       </div>
