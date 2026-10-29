@@ -32,6 +32,8 @@ import { hasGuestPolicy, hasRunOfShow, hasText } from "../lib/invite-emptiness";
 import SectionIntro from "./SectionIntro";
 const ImageCropModal = lazy(() => import("./ImageCropModal"));
 
+const EVENT_CARD_CLASS = `${cardClass()} @container/card`;
+
 interface EventTableProps {
   weddingId: string;
   /** URL slug of the wedding — embedded in the events CSV download filename. */
@@ -233,7 +235,7 @@ export default function EventTable(props: EventTableProps) {
               // CARD, not the panel. Querying the panel was already slightly
               // wrong; with two cards per row it would put two columns of
               // details into a half-width card.
-              <li class={`${cardClass()} @container/card`}>
+              <li class={EVENT_CARD_CLASS}>
                 <header class="flex flex-col gap-1">
                   <span class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">
                     {event.slug}
