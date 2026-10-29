@@ -1,5 +1,5 @@
 import { it, expect, describe } from "@effect/vitest";
-import type { CoordinationNamespace, CoordinationOp } from "@shared/coordination";
+import type { CoordinationNamespace } from "@shared/coordination";
 import { base32Decode, deriveTotpCode } from "@shared/crypto/totp";
 import { makeLogEmailLive } from "@shared/email";
 import { Effect, Fiber, Layer } from "effect";
