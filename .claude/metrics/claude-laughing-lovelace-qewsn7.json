@@ -1,0 +1,170 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": null,
+    "branch": "claude/laughing-lovelace-qewsn7",
+    "base_sha": "482a1b92435c4548d2827989ee953359d8116b2a",
+    "head_sha": "482a1b92435c4548d2827989ee953359d8116b2a",
+    "generated_at": "2026-10-29T03:38:09.990Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": null,
+    "type": null,
+    "labels": []
+  },
+  "complexity": {
+    "declared": null,
+    "method": "none",
+    "issues": 0
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-10-29T03:08:16.406Z",
+    "last_ts": "2026-10-29T03:33:13.105Z",
+    "span_seconds": 1497,
+    "active_seconds": 1249,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 5.312016999999997,
+    "tokens": {
+      "input": 110,
+      "output": 59379,
+      "thinking": 19312,
+      "cache_write_5m": 88192,
+      "cache_write_1h": 161812,
+      "cache_read": 7157343
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 84,
+          "output": 47985,
+          "thinking": 18840,
+          "cache_write_5m": 0,
+          "cache_write_1h": 161812,
+          "cache_read": 6457722
+        },
+        "usd_equivalent": 4.837620799999998,
+        "messages": 42
+      },
+      "claude-sonnet-5-5": {
+        "tokens": {
+          "input": 26,
+          "output": 11394,
+          "thinking": 472,
+          "cache_write_5m": 88192,
+          "cache_write_1h": 0,
+          "cache_read": 699621
+        },
+        "usd_equivalent": 0.4743962,
+        "messages": 13
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 84,
+          "output": 47985,
+          "thinking": 18840,
+          "cache_write_5m": 0,
+          "cache_write_1h": 161812,
+          "cache_read": 6457722
+        },
+        "usd_equivalent": 4.837620799999998,
+        "messages": 42
+      },
+      "subagent": {
+        "tokens": {
+          "input": 26,
+          "output": 11394,
+          "thinking": 472,
+          "cache_write_5m": 88192,
+          "cache_write_1h": 0,
+          "cache_read": 699621
+        },
+        "usd_equivalent": 0.4743962,
+        "messages": 13
+      }
+    },
+    "effort": {
+      "medium": 42,
+      "low": 13
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 0,
+      "test": 0,
+      "docs": 0,
+      "config": 0,
+      "source": 0
+    },
+    "loc": {
+      "generated": {
+        "added": 0,
+        "deleted": 0
+      },
+      "test": {
+        "added": 0,
+        "deleted": 0
+      },
+      "docs": {
+        "added": 0,
+        "deleted": 0
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 0,
+        "deleted": 0
+      }
+    },
+    "packages": [],
+    "touches_migration": false,
+    "commits": 0
+  },
+  "interaction": {
+    "user_turns": 2,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": 171013,
+    "sessions_with_observed_edit": 1,
+    "tool_calls": {
+      "Bash": 44,
+      "Read": 12,
+      "WebSearch": 5,
+      "ToolSearch": 2,
+      "SendUserFile": 2,
+      "Skill": 1,
+      "Agent": 1,
+      "SubagentHandback": 1,
+      "AskUserQuestion": 1,
+      "mcp__Google_Drive__search_files": 1,
+      "Write": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 0,
+      "max_edits_one_file": 1
+    },
+    "skills": {
+      "anthropic-skills:docx": 1
+    },
+    "subagents": {
+      "explorer": 1
+    },
+    "requests": {
+      "main": 42,
+      "subagent": 13,
+      "with_tools": 53,
+      "with_one_tool": 39,
+      "context_median": 133636,
+      "context_p90": 208898
+    }
+  },
+  "review": null
+}
