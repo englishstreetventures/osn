@@ -243,7 +243,7 @@ grant in the matrix above. Expectations:
    `/tools/oxlint/**`. Branch
    protection is ruleset `13921406` on `englishstreetventures/osn` (active: pull request
    required, linear history, no deletion, no force-push, `CI` and
-   `Require changeset` and `Migration history` as required status checks).
+   `Require changeset`, `Migration history` and `Secret scan` as required status checks).
    **Secret scanning:** the `Secret scan` job runs the scanner and reads the
    policy from `origin/main`, so a pull request cannot switch its own scan off by
    editing those files. It can still edit the workflow file that runs the job; the
