@@ -403,7 +403,11 @@ describe("Notice sizes and the accent tone", () => {
 describe("Chip", () => {
   it("paints a distinct ground for every tone", () => {
     const grounds = (["neutral", "success", "pending", "accent", "danger"] as const).map((tone) => {
-      const { container, unmount } = render(() => <Chip tone={tone}>state</Chip>);
+      const { container, unmount } = render(() => (
+        <Chip tone={tone} variant="filled">
+          state
+        </Chip>
+      ));
       const bg = painted(container.firstElementChild!, "backgroundColor");
       expect(bg).not.toBe(TRANSPARENT);
       unmount();
@@ -464,7 +468,7 @@ describe("Chip variants, treatments and the danger tone", () => {
     "draws the %s tag as the apps' hand-written tags drew it",
     (tone) => {
       const tag = inRow(() => (
-        <Chip tone={tone} treatment="tag">
+        <Chip tone={tone} variant="filled" treatment="tag">
           Hair and makeup
         </Chip>
       ));
@@ -487,7 +491,7 @@ describe("Chip variants, treatments and the danger tone", () => {
       const o = chipLook(outline.el);
       outline.unmount();
       const filled = inRow(() => (
-        <Chip tone={tone} treatment={treatment}>
+        <Chip tone={tone} variant="filled" treatment={treatment}>
           Connected
         </Chip>
       ));
@@ -570,7 +574,8 @@ describe("Chip variants, treatments and the danger tone", () => {
       <Chip
         tone="accent"
         variant="outline"
-        role="alert"
+        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- status is the one role a chip takes; this checks it reaches the span.
+        role="status"
         id="section-state"
         data-segment-badge=""
         data-state="shown"
@@ -580,21 +585,57 @@ describe("Chip variants, treatments and the danger tone", () => {
       </Chip>
     ));
     const chip = container.firstElementChild!;
-    expect(chip.getAttribute("role")).toBe("alert");
+    expect(chip.getAttribute("role")).toBe("status");
     expect(chip.id).toBe("section-state");
     expect(chip.hasAttribute("data-segment-badge")).toBe(true);
     expect(chip.getAttribute("data-state")).toBe("shown");
     expect(chip.classList.contains("w-fit")).toBe(true);
   });
 
-  it("drops a title a caller spreads, since a badge explains itself in a Tooltip", () => {
-    const spread: Record<string, string> = { title: "Owners can change anything" };
+  it("lets nothing past its allow-list reach the element, however it is spread", () => {
+    // A spread skips the type check, so the allow-list is held at run time:
+    // markup, an inline handler, a title, and anything that would hide or
+    // replace the word for assistive technology stay off the span.
+    const spread: Record<string, unknown> = {
+      innerHTML: "<img src=x>",
+      "attr:onclick": "alert(1)",
+      "prop:outerHTML": "<b>x</b>",
+      onClick: () => undefined,
+      title: "Owners can change anything",
+      "aria-hidden": "true",
+      "aria-label": "Editor",
+      hidden: true,
+      tabIndex: 0,
+      role: "button",
+      "data-state": "owner",
+    };
     const { container } = render(() => (
       <Chip tone="accent" {...spread}>
         Owner
       </Chip>
     ));
-    expect(container.firstElementChild!.hasAttribute("title")).toBe(false);
+    const chip = container.firstElementChild!;
+    expect(chip.textContent).toBe("Owner");
+    expect(chip.querySelector("img, b")).toBeNull();
+    for (const name of [
+      "onclick",
+      "title",
+      "aria-hidden",
+      "aria-label",
+      "hidden",
+      "tabindex",
+      "role",
+    ]) {
+      expect(chip.hasAttribute(name)).toBe(false);
+    }
+    expect(chip.getAttribute("data-state")).toBe("owner");
+  });
+
+  it("outlines a danger chip when no variant is asked for", () => {
+    const { container } = render(() => <Chip tone="danger">Declined</Chip>);
+    const chip = container.firstElementChild!;
+    expect(painted(chip, "backgroundColor")).toBe(TRANSPARENT);
+    expect(getComputedStyle(chip).borderTopWidth).toBe("1px");
   });
 
   it("draws the default chip for a tone, variant or treatment outside the named sets", () => {
