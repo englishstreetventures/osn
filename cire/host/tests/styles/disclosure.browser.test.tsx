@@ -73,7 +73,7 @@ describe("the Disclosure part", () => {
     const { container } = render(() => (
       <>
         <Disclosure summary="How to structure your sheet" open>
-          <Disclosure summary="Formatting tips" class="rounded-sm">
+          <Disclosure summary="Formatting tips" nested>
             Inside
           </Disclosure>
         </Disclosure>
@@ -93,6 +93,19 @@ describe("the Disclosure part", () => {
       "45deg",
       "none",
     ]);
+  });
+
+  it("gives a nested card the small corner and one on the page the large", () => {
+    const { container } = render(() => (
+      <Disclosure summary="How to structure your sheet" open>
+        <Disclosure summary="Formatting tips" nested>
+          Inside
+        </Disclosure>
+      </Disclosure>
+    ));
+    const [outer, inner] = container.querySelectorAll("details");
+    const corner = (el: Element) => getComputedStyle(el).borderTopLeftRadius;
+    expect([corner(outer!), corner(inner!)]).toEqual(["16px", "6px"]);
   });
 
   it("paints the marker in the app's readable gold", () => {

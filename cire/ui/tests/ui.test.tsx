@@ -474,6 +474,18 @@ describe("cardBoxClass", () => {
     expect(leaks).toEqual([]);
   });
 
+  it("takes the small corner when nested, and changes nothing else", () => {
+    // A bordered box set inside a card, a modal or a frame.
+    const wrong = everyBox().filter(({ fill, tone, cls }) => {
+      const nested = cardBoxClass({ fill, tone, nested: true });
+      return (
+        corners(nested).join() !== "base:rounded-ui-sm" ||
+        nested.replace("base:rounded-ui-sm", "base:rounded-ui-lg") !== cls
+      );
+    });
+    expect(wrong).toEqual([]);
+  });
+
   it("with no options is the ordinary card's box", () => {
     expect(cardBoxClass()).toBe(cardBoxClass({ fill: "wash", tone: "default" }));
   });
