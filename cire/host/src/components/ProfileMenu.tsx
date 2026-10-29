@@ -25,7 +25,7 @@ import {
  */
 const itemClass =
   "font-body flex w-full cursor-pointer items-center rounded-sm px-3 py-2 text-ui-sm " +
-  "outline-none transition-colors duration-(--dur-fast) ease-(--ease-out) " +
+  "outline-none transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast) ease-(--ease-out) " +
   "text-text-muted data-[highlighted]:bg-gold/10 data-[highlighted]:text-gold";
 
 /** The same row, plus room for the indicator column the settings rows carry. */
@@ -85,7 +85,7 @@ export default function ProfileMenu(props: {
     <DropdownMenu placement="bottom-end" gutter={8}>
       <DropdownMenu.Trigger
         aria-label="Account menu"
-        class="border-border bg-surface/40 hover:border-gold-dim flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border transition-colors duration-(--dur-fast) ease-(--ease-out)"
+        class="border-border bg-surface/40 hover:border-gold-dim flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast) ease-(--ease-out)"
       >
         <Show
           when={avatarUrl()}

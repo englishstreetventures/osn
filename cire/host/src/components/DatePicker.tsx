@@ -214,7 +214,7 @@ export default function DatePicker(props: {
         <Popover.Trigger
           aria-label={`${props.label}${selected() ? `: ${formatLong(selected()!)}` : ", no date set"}`}
           disabled={props.disabled}
-          class="border-border bg-bg font-body text-text hover:border-gold focus-visible:border-gold focus-visible:ring-gold/40 text-ui-base rounded-ui-field flex items-center justify-between gap-2 border px-3 py-2 text-left transition-colors duration-(--dur-fast) ease-(--ease-out) outline-none focus-visible:ring-2 disabled:opacity-40"
+          class="border-border bg-bg font-body text-text hover:border-gold focus-visible:border-gold focus-visible:ring-gold/40 text-ui-base rounded-ui-field flex items-center justify-between gap-2 border px-3 py-2 text-left transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast) ease-(--ease-out) outline-none focus-visible:ring-2 disabled:opacity-40"
         >
           <Show
             when={selected()}
@@ -326,7 +326,7 @@ export default function DatePicker(props: {
                             tabindex={isFocused() ? 0 : -1}
                             onClick={() => commit(day)}
                             classList={{
-                              "flex h-8 w-8 items-center justify-center rounded-sm text-ui-sm tabular-nums outline-none transition-colors duration-(--dur-fast) ease-(--ease-out) focus-visible:ring-2 focus-visible:ring-gold/50": true,
+                              "flex h-8 w-8 items-center justify-center rounded-sm text-ui-sm tabular-nums outline-none transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast) ease-(--ease-out) focus-visible:ring-2 focus-visible:ring-gold/50": true,
                               "bg-gold text-bg font-medium": isSelected(),
                               "text-text hover:bg-gold/15": !isSelected() && inMonth(),
                               "text-text-muted opacity-40 hover:opacity-70":
