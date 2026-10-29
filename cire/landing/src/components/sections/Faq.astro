@@ -1,6 +1,19 @@
 ---
 // Honest answers to the questions couples actually ask. Native <details> so it
 // works with zero JS and is accessible by default. Roman summaries.
+//
+// The cost answer is built from `lib/plans.ts`, the same offer the pricing
+// section renders, so the page cannot state two prices for one plan.
+import { GOLD_TO_CRIMSON_PRICE, PLANS, type Plan } from '../../lib/plans'
+
+const planLine = (plan: Plan) =>
+  `${plan.name} is ${plan.price === 0 ? 'free' : `A$${plan.price}`} for up to ${plan.guestCap.toLocaleString('en-AU')} guests`
+const planLines = PLANS.map(planLine)
+const costAnswer =
+  `${planLines.slice(0, -1).join(', ')} and ${planLines.at(-1)}. ` +
+  'Each paid plan is one payment for your wedding, never a subscription. ' +
+  `Start free and upgrade from your dashboard when you need more; from Gold, Crimson is A$${GOLD_TO_CRIMSON_PRICE}.`
+
 const faqs = [
   {
     q: 'Do my guests need an account or an app?',
@@ -24,7 +37,7 @@ const faqs = [
   },
   {
     q: 'What does it cost?',
-    a: 'Ivory is free for up to 100 guests. Gold is A$79 and Crimson A$149, each paid once for your wedding and never a subscription. Start free, and upgrade from your dashboard if you need more.',
+    a: costAnswer,
   },
 ] as const
 ---
