@@ -400,9 +400,12 @@ else. In `src/` the one kind written as its own duration is a pulse far longer
 than `--dur-slow`: the attention glow, `calc(2.6s * var(--motion-scale))`.
 
 **One ladder in all four cire apps.** The vendor portal, the guest site and the
-marketing site carry this ladder, its `pointer: fine` block and these easings,
-the `@supports` spring included; `cire/vendor`'s `tests/styles/tokens.test.ts`
-fails if any copy differs. The vendor portal renders no `Modal`, so it alone
+marketing site carry this ladder, its `pointer: fine` block and the two easings
+`--ease-out` and `--ease-in-out`; `cire/vendor`'s `tests/styles/tokens.test.ts`
+fails if any copy differs. The spring is host's alone, because only host's
+animations read it: the other three declare neither the token nor the
+`@supports` block, and the test fails if one gains a copy. The vendor portal
+renders no `Modal`, so it alone
 sets no `--ui-modal-*` timing. The guest site and the marketing site keep their
 own timing only for choreography longer than `--dur-slow`: an unlock reveal, a
 scroll reveal, a hero fade.
