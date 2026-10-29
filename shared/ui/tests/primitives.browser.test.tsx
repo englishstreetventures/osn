@@ -18,7 +18,7 @@ import { describe, expect, it } from "vitest";
 
 import { Chip } from "../src/ui/chip";
 import { EmptyState } from "../src/ui/empty-state";
-import { Notice } from "../src/ui/notice";
+import { Notice, type NoticeSize, type NoticeTone } from "../src/ui/notice";
 import { Stat } from "../src/ui/stat";
 import { Table, Td } from "../src/ui/table";
 
@@ -311,6 +311,58 @@ describe("Notice sizes and the accent tone", () => {
     expect(container.querySelector("[aria-hidden='true'] svg circle")).not.toBeNull();
     expect(container.textContent).toContain("Error:");
     expect(container.textContent).not.toContain("Note:");
+  });
+
+  it("draws info at md for a tone or size outside the named sets, rather than failing", () => {
+    // A value cast from data can be any string, `__proto__` included, which a
+    // plain lookup would answer with a function to call.
+    for (const bad of ["__proto__", "constructor", "loud"]) {
+      const odd = render(() => (
+        <Notice tone={bad as NoticeTone} size={bad as NoticeSize}>
+          body
+        </Notice>
+      ));
+      const got = look(odd.container.firstElementChild!);
+      expect(odd.container.textContent).toBe("body");
+      odd.unmount();
+      const info = render(() => <Notice>body</Notice>);
+      expect(got).toEqual(look(info.container.firstElementChild!));
+      info.unmount();
+    }
+  });
+
+  it("keeps its role and its words in the accessibility tree whatever a caller spreads", () => {
+    const spread: Record<string, string> = {
+      role: "status",
+      "aria-hidden": "true",
+      "aria-live": "off",
+      hidden: "",
+    };
+    const { container } = render(() => (
+      <Notice tone="danger" alert {...spread}>
+        Could not save
+      </Notice>
+    ));
+    const box = container.firstElementChild!;
+    expect(box.getAttribute("role")).toBe("alert");
+    expect(box.hasAttribute("aria-hidden")).toBe(false);
+    expect(box.hasAttribute("aria-live")).toBe(false);
+    expect(box.hasAttribute("hidden")).toBe(false);
+  });
+
+  it("makes the icon slot inert, and draws no mark whose word is empty", () => {
+    const marked = render(() => <Notice tone="warn">Check this</Notice>);
+    expect(marked.container.querySelector("[aria-hidden='true']")?.hasAttribute("inert")).toBe(
+      true,
+    );
+    marked.unmount();
+
+    const wordless = render(() => (
+      <Notice tone="info" mark={{ icon: <svg viewBox="0 0 24 24" />, word: " " }}>
+        Preview: nothing is saved.
+      </Notice>
+    ));
+    expect(wordless.container.querySelector("[aria-hidden='true']")).toBeNull();
   });
 });
 

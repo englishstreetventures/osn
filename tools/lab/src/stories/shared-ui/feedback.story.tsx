@@ -98,11 +98,20 @@ export const NoticeSizes = () => (
   </div>
 );
 
-/** The inline size where it lives: under the field it is about. */
+/**
+ * The inline size where it lives: under the field it is about, named by the
+ * field's `aria-describedby`, so a screen reader hears it with the field and
+ * not only when it appears.
+ */
 export const NoticeInline = () => (
   <div class="flex max-w-sm flex-col gap-1.5">
-    <Input value="tia@example" aria-label="Email" aria-invalid="true" />
-    <Notice size="inline" tone="danger" alert>
+    <Input
+      value="tia@example"
+      aria-label="Email"
+      aria-invalid="true"
+      aria-describedby="notice-inline-email-error"
+    />
+    <Notice id="notice-inline-email-error" size="inline" tone="danger" alert>
       Enter a valid email address.
     </Notice>
   </div>

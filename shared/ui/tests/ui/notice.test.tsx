@@ -41,3 +41,17 @@ describe("Notice's default size", () => {
     expect(container.firstElementChild?.getAttribute("class")).toBe(`${TODAY.info} mt-4`);
   });
 });
+
+describe("Notice's props", () => {
+  it("leaves the role and the hiding attributes to the component", () => {
+    // Type checks, not runtime: `bun run typecheck` fails if either becomes a
+    // prop a caller may set. TSX never checks a hyphenated attribute such as
+    // `aria-hidden` against the props, so those two are held at run time by
+    // the browser test "keeps its role and its words in the accessibility tree".
+    // @ts-expect-error — the role follows `alert`.
+    void (<Notice role="status">x</Notice>);
+    // @ts-expect-error — a notice that should not show is not rendered.
+    void (<Notice hidden>x</Notice>);
+    expect(true).toBe(true);
+  });
+});
