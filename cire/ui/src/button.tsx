@@ -4,11 +4,11 @@ import { splitProps } from "solid-js";
 /**
  * cire's button.
  *
- * Every control in both portals was already one of four shapes — a solid gold
- * commit, a gold-outlined secondary, a neutral-outlined quiet action, and a
- * destructive one — written out longhand at each of the ~40 call sites, which
- * is why three had drifted to a different padding and two to a different
- * tracking. This is those four, named.
+ * Sixteen variants, each named for the job a control does, so a call site
+ * names the job rather than writing out its classes. Eleven draw a box:
+ * `primary`, `cta`, `outline`, `quiet`, `quietDanger`, `choice`, `tile`,
+ * `dashed`, `field`, `danger` and `chip`. Five draw none: `link`, `subtle`,
+ * `touchLink`, `bare` and `bareDanger` (see {@link BORDERLESS}).
  *
  * ## Why this is not `@shared/ui`'s Button
  *
@@ -69,7 +69,13 @@ export type ButtonSize = "sm" | "md" | "lg" | "swatch" | "icon";
 const BASE =
   "base:font-ui-body base:inline-flex base:items-center base:justify-center base:gap-2 " +
   "base:border base:whitespace-nowrap " +
-  "base:transition-colors base:duration-100 base:ease-out " +
+  // Only what a hover changes. Tailwind's `transition-colors` also fades
+  // `outline-color`, which would bring the focus ring in over the hover's
+  // duration rather than the moment focus lands. The duration is the app's
+  // `--dur-fast`, so it follows the app's motion ladder; the fallback is for an
+  // app that declares no ladder.
+  "base:transition-[color,background-color,border-color,text-decoration-color] " +
+  "base:duration-(--dur-fast,100ms) base:ease-out " +
   // Its own focus ring, from the contract's own token. A library component
   // cannot assume its host declares a blanket `:focus-visible` rule: the two
   // portals and `@cire/invites` do, `@cire/landing` does not, and the nine
@@ -215,7 +221,7 @@ const VARIANT = {
     "base:hover:border-ui-accent",
 
   /*
-   * The four borderless ones.
+   * The borderless ones: these four, and `bareDanger` after them.
    *
    * Counted across `cire/host`: 9 accent text links, 17 muted ones and 25 glyph
    * buttons — 51 of that app's 98 raw `<button>` elements, each written out by
