@@ -73,6 +73,25 @@ describe("Note", () => {
     expect(container.textContent).toContain("Note:");
   });
 
+  it("lets no markup, handler or hiding attribute through to the element", () => {
+    const spread: Record<string, unknown> = {
+      innerHTML: "<img src=x>",
+      "prop:innerHTML": "<img src=x>",
+      onClick: () => undefined,
+      inert: true,
+      "aria-hidden": "true",
+      "aria-label": "Fine",
+      title: "Note",
+    };
+    const { container } = render(() => <Note {...spread}>words</Note>);
+    const box = container.firstElementChild!;
+    expect(box.querySelector("img")).toBeNull();
+    for (const name of ["onclick", "inert", "aria-hidden", "aria-label", "title"]) {
+      expect(box.hasAttribute(name)).toBe(false);
+    }
+    expect(container.textContent).toContain("Note:");
+  });
+
   it("announces itself only when asked", () => {
     const quiet = render(() => <Note>standing</Note>);
     expect(quiet.container.firstElementChild?.getAttribute("role")).toBeNull();
