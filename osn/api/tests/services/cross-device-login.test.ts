@@ -234,8 +234,56 @@ describe("cross-device login on the shared store", () => {
     const bundle = createDurableCoordination(slowReads(fake.ns), () => {});
     const svc = createAuthService({ ...config, ceremonyStores: bundle.ceremonyStores });
     const layer = Layer.merge(createTestLayer(), makeLogEmailLive().layer);
-    return { svc, layer, store: bundle.ceremonyStores.crossDeviceRequests };
+    return { svc, layer, fake, store: bundle.ceremonyStores.crossDeviceRequests };
   }
+
+  /** While set, every `swap` on the cross-device store rejects, as an unreachable object does. */
+  const failSwaps = (fake: ReturnType<typeof createFakeNamespace>) =>
+    fake.failWhen((call) => call.store === "cross_device" && call.op === "swap");
+
+  const sessionIds = (accountId: string) =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const rows = yield* Effect.promise(() =>
+        db.select({ id: sessions.id }).from(sessions).where(eq(sessions.accountId, accountId)),
+      );
+      return rows.map((row) => row.id);
+    });
+
+  /**
+   * Signs `profile` in on MAX_SESSIONS_PER_ACCOUNT devices, and makes one of
+   * them the least recently used by a clear margin. Answers every session's
+   * id and that one's.
+   */
+  const fillToCap = (
+    svc: ReturnType<typeof createAuthService>,
+    profile: {
+      readonly id: string;
+      readonly accountId: string;
+      readonly email: string;
+      readonly handle: string;
+      readonly displayName: string | null;
+    },
+  ) =>
+    Effect.gen(function* () {
+      const seeded: string[] = [];
+      for (let i = 0; i < MAX_SESSIONS_PER_ACCOUNT; i++) {
+        const tokens = yield* svc.issueTokens(
+          profile.id,
+          profile.accountId,
+          profile.email,
+          profile.handle,
+          profile.displayName,
+        );
+        seeded.push(svc.hashSessionToken(tokens.refreshToken));
+      }
+      const { db } = yield* Db;
+      const oldest = seeded[7]!;
+      yield* Effect.promise(() =>
+        db.update(sessions).set({ lastUsedAt: 1 }).where(eq(sessions.id, oldest)),
+      );
+      return { seeded, oldest };
+    });
 
   const countRows = (accountId: string) =>
     Effect.gen(function* () {
@@ -433,32 +481,12 @@ describe("cross-device login on the shared store", () => {
     const { svc, layer } = harness();
     return Effect.gen(function* () {
       const profile = yield* svc.registerProfile("cdl-cap@example.com", "cdlcap");
-      const issued: string[] = [];
-      for (let i = 0; i < MAX_SESSIONS_PER_ACCOUNT; i++) {
-        const tokens = yield* svc.issueTokens(
-          profile.id,
-          profile.accountId,
-          profile.email,
-          profile.handle,
-          profile.displayName,
-        );
-        issued.push(svc.hashSessionToken(tokens.refreshToken));
-      }
-      const { db } = yield* Db;
-      const oldest = issued[7]!;
-      yield* Effect.promise(() =>
-        db.update(sessions).set({ lastUsedAt: 1 }).where(eq(sessions.id, oldest)),
-      );
+      const { oldest } = yield* fillToCap(svc, profile);
 
       const { requestId, cdlSecret } = yield* svc.beginCrossDeviceLogin();
       yield* svc.approveCrossDeviceLogin(requestId, cdlSecret, profile.accountId);
 
-      const ids = (yield* Effect.promise(() =>
-        db
-          .select({ id: sessions.id })
-          .from(sessions)
-          .where(eq(sessions.accountId, profile.accountId)),
-      )).map((row) => row.id);
+      const ids = yield* sessionIds(profile.accountId);
       expect(ids).toHaveLength(MAX_SESSIONS_PER_ACCOUNT);
       expect(ids).not.toContain(oldest);
 
@@ -508,6 +536,25 @@ describe("cross-device login on the shared store", () => {
       const poll = yield* svc.getCrossDeviceLoginStatus(requestId, cdlSecret);
       expect(poll.status).toBe("approved");
       expect(yield* countRows(profile.accountId)).toEqual({ sessions: 1, events: 1 });
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.live("an approval whose swap fails releases the row it reserved and records nothing", () => {
+    const { svc, layer, fake } = harness();
+    return Effect.gen(function* () {
+      const profile = yield* svc.registerProfile("cdl-swapfail@example.com", "cdlswapfail");
+      const { requestId, cdlSecret } = yield* svc.beginCrossDeviceLogin();
+
+      failSwaps(fake);
+      const error = yield* Effect.flip(
+        svc.approveCrossDeviceLogin(requestId, cdlSecret, profile.accountId),
+      );
+      expect(error._tag).toBe("CoordinationError");
+      expect(yield* countRows(profile.accountId)).toEqual({ sessions: 0, events: 0 });
+
+      fake.failWhen(null);
+      const poll = yield* svc.getCrossDeviceLoginStatus(requestId, cdlSecret);
+      expect(poll.status).toBe("pending");
     }).pipe(Effect.provide(layer));
   });
 
