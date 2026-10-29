@@ -241,10 +241,9 @@ with the changes that file's comment names. That file is still the one the
 guard reads; this table only mirrors it.*
 
 `cire/landing` carries no animation or 3D library: its hero seal is CSS and
-its motion is CSS transitions. Its threshold followed the build down when
-`three` left the package (164,847 → 40,725 bytes gzip), as it did when `motion`
-left before it, so the headroom stays smaller than the mistake the guard exists
-to catch rather than banking the gap.
+its motion is CSS transitions. Its threshold follows the build down whenever a
+dependency leaves the package, so the headroom stays smaller than the mistake
+the guard exists to catch rather than banking the gap.
 
 *Measured 2026-10-29 — `bun run --cwd cire/landing build`, which ends with
 `guard-bundle-size.sh .` printing `cire/landing dist/_astro gzip total: 40725

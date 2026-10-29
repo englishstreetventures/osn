@@ -188,7 +188,7 @@ so the page cannot quote two prices for one plan.
 
 - **Guest caps and the tier list are tested.** `tests/lib/plans.test.ts` reads
   `TIERS` and `TIER_GUEST_CAP` out of `cire/api/src/services/tiers.ts` and fails
-  when a cap, a tier or their order differs, or when it can no longer find them.
+  when a cap, a tier or their order differs, or when it cannot find them.
 - **Prices are not.** What a host is charged is the Stripe Price the deployment
   configures, read back from Stripe; the amounts here are the published offer,
   checked by hand against those Prices before a release. Change a Price, change
