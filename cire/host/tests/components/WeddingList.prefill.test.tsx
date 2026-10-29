@@ -5,9 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 /**
  * The marketing site's closing field sends a couple here as `/?name=<their
  * names>`, so the create form opens with the names already in it. The name is
- * read from a link anyone can write, so what reaches the field is trimmed,
- * stripped of control and direction-override characters, and cut to the
- * length cire-api accepts. It only ever fills the field: nothing submits until
+ * read from a link anyone can write, so what reaches the field is stripped of
+ * control, direction and invisible characters, has each run of whitespace made
+ * one space, is trimmed, and is cut to the length cire-api accepts. It only
+ * ever fills the field: nothing submits until
  * the organiser presses the button, and the parameter is gone from the address
  * once read, so a reload or a second wedding starts empty.
  *
@@ -123,6 +124,67 @@ describe("WeddingList, arriving with ?name=", () => {
     // an organiser who has weddings.
     cleanup();
     arriveAt(`?name=${encodeURIComponent(`${rlo}\u0007 ${rlm}`)}`);
+    renderList();
+    expect(nameField()).toBeNull();
+  });
+
+  it("collapses padding to one space, so a tail past the field's edge shows beside the names", () => {
+    // 121 UTF-16 units as sent; 32 once the run of spaces is one. Collapsed
+    // after the cut instead, the tail would be cut short.
+    arriveAt(`?name=${encodeURIComponent(`Amara & Sam${" ".repeat(90)}RSVP at evil.example`)}`);
+    renderList();
+    expect(nameField()?.value).toBe("Amara & Sam RSVP at evil.example");
+  });
+
+  it("turns every other kind of space and line break into one space", () => {
+    const [nbsp, ideographic, lineSep, paraSep, bel] = [0xa0, 0x3000, 0x2028, 0x2029, 0x07].map(
+      (c) => String.fromCodePoint(c),
+    );
+    const cases: Array<[string, string]> = [
+      [`Amara${nbsp}${nbsp}${nbsp}&${ideographic}Sam`, "Amara & Sam"],
+      [`Amara${lineSep}&${paraSep}Sam`, "Amara & Sam"],
+      ["Amara\t&\nSam", "Amara & Sam"],
+      ["Amara\r\n&  \r\nSam", "Amara & Sam"],
+      // A control between two spaces goes, and leaves one space, not two.
+      [`Amara ${bel} & Sam`, "Amara & Sam"],
+    ];
+    for (const [sent, shown] of cases) {
+      cleanup();
+      arriveAt(`?name=${encodeURIComponent(sent)}`);
+      renderList();
+      expect(nameField()?.value).toBe(shown);
+    }
+  });
+
+  it("strips zero-width and other invisible format characters", () => {
+    // Each one, and both ends of each range: soft hyphen, Mongolian vowel
+    // separator, zero-width space, word joiner to invisible plus, byte-order
+    // mark, the interlinear annotation marks, and the tag characters.
+    const invisible = [
+      0xad, 0x180e, 0x200b, 0x2060, 0x2064, 0xfeff, 0xfff9, 0xfffb, 0xe0000, 0xe0041, 0xe007f,
+    ];
+    for (const code of invisible) {
+      cleanup();
+      const c = String.fromCodePoint(code);
+      arriveAt(`?name=${encodeURIComponent(`Am${c}ara & S${c}am${c}`)}`);
+      renderList();
+      expect(nameField()?.value, `U+${code.toString(16).toUpperCase()}`).toBe("Amara & Sam");
+    }
+  });
+
+  it("keeps the joiners a name needs: an emoji sequence and a Persian name", () => {
+    const zwj = String.fromCodePoint(0x200d);
+    const zwnj = String.fromCodePoint(0x200c);
+    const couple = ["👩", "❤️", "👨"].join(zwj);
+    const persian = `می${zwnj}خواهم`;
+    arriveAt(`?name=${encodeURIComponent(`Amara & Sam ${couple} ${persian}`)}`);
+    renderList();
+    expect(nameField()?.value).toBe(`Amara & Sam ${couple} ${persian}`);
+  });
+
+  it("opens nothing for a name made only of invisible characters and spaces", () => {
+    const [zwsp, wj, bom] = [0x200b, 0x2060, 0xfeff].map((c) => String.fromCodePoint(c));
+    arriveAt(`?name=${encodeURIComponent(` ${zwsp}${wj} ${bom}${zwsp} `)}`);
     renderList();
     expect(nameField()).toBeNull();
   });
