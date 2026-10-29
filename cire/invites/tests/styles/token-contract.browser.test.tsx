@@ -37,7 +37,7 @@ const token = (name: string) =>
   getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
 beforeAll(() => {
-  // Every `@cire/ui` component carries `transition-colors`, so a hover-state
+  // Every `@cire/ui` component fades its colours, so a hover-state
   // read taken immediately after a class change returns the PRE-transition
   // colour. Removing the variable is the point; how the app animates is a
   // question for a test about animation.
