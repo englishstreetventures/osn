@@ -108,6 +108,65 @@ describe("the Disclosure part", () => {
     expect([corner(outer!), corner(inner!)]).toEqual(["16px", "6px"]);
   });
 
+  it("times the fade and the turn on the app's own steps and easing", () => {
+    // Read from the host's tokens, so a lost class, a renamed token or a
+    // build that drops one fails here. The portal is slowed threefold so no
+    // step can match Tailwind's own default duration by chance.
+    const root = document.documentElement.style;
+    root.setProperty("--motion-scale", "3");
+    onTestFinished(() => root.removeProperty("--motion-scale"));
+    const probe = document.createElement("span");
+    document.body.append(probe);
+    onTestFinished(() => probe.remove());
+    probe.style.transitionDuration = "var(--dur-fast)";
+    probe.style.transitionTimingFunction = "var(--ease-out)";
+    const fast = getComputedStyle(probe).transitionDuration;
+    const easeOut = getComputedStyle(probe).transitionTimingFunction;
+    probe.style.transitionDuration = "var(--dur-base)";
+    const base = getComputedStyle(probe).transitionDuration;
+
+    const { container } = render(() => (
+      <Disclosure summary="Change history" open>
+        x
+      </Disclosure>
+    ));
+    const details = container.querySelector("details")!;
+    const marker = getComputedStyle(markerOf(details));
+    expect([
+      marker.transitionProperty,
+      marker.transitionDuration,
+      marker.transitionTimingFunction,
+    ]).toEqual(["rotate", fast, easeOut]);
+    expect([body(details).transitionDuration, body(details).transitionTimingFunction]).toEqual([
+      base,
+      easeOut,
+    ]);
+    expect(fast).not.toBe(base);
+  });
+
+  it("wraps a long unbroken summary inside its row, the marker still in it", () => {
+    // An organiser can write a word longer than the row: a venue, a link.
+    const long = "Wherecanweparkifthecarparkbehindthehallisalreadyfullbysix";
+    const { container } = render(() => (
+      <div style={{ width: "360px" }}>
+        <Disclosure summary={long}>x</Disclosure>
+        <Disclosure tone="rule" summary={long}>
+          x
+        </Disclosure>
+      </div>
+    ));
+    const [card, rule] = container.querySelectorAll("details");
+    for (const details of [card!, rule!]) {
+      const summary = details.querySelector("summary")!;
+      expect(summary.scrollWidth).toBeLessThanOrEqual(summary.clientWidth);
+    }
+    const ruleMarker = markerOf(rule!) as HTMLElement;
+    const ruleSummary = rule!.querySelector("summary")!;
+    expect(ruleMarker.offsetLeft + ruleMarker.offsetWidth).toBe(
+      ruleSummary.offsetLeft + ruleSummary.offsetWidth,
+    );
+  });
+
   it("paints the marker in the app's readable gold", () => {
     const { container } = render(() => (
       <>
