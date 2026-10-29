@@ -68,12 +68,13 @@ interface AnimatedModalProps {
 /**
  * The sheet's ×, opaque in the sheet's surface wherever it sits: content
  * passes underneath it as the sheet scrolls, in the corner and on the frosted
- * bar alike.
+ * bar alike. A raw button rather than `Button`: the borderless variants are
+ * transparent, and this one must hide what scrolls beneath it.
  */
 function CloseButton(props: { onClick: () => void }) {
   return (
     <button
-      class="text-text-muted hover:text-text focus-visible:ring-gold/60 bg-surface flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-full border-none text-2xl leading-none transition-colors focus-visible:ring-2 focus-visible:outline-none"
+      class="text-text-muted hover:text-text bg-surface focus-visible:outline-ui-focus transition-ui-colors flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-full border-none text-2xl leading-none duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2"
       onClick={() => props.onClick()}
       aria-label="Close"
     >

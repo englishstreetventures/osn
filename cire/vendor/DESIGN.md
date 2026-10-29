@@ -21,16 +21,32 @@ import would make Tailwind scan the other package's source for classes, which
 costs a build and couples the two scanners.
 
 Copies drift, so the copy is asserted:
-`tests/styles/tokens.test.ts` reads *both* stylesheets and fails if any token in
-either ramp differs. A deliberate divergence goes there as an exception with a
-reason, not as a silently different green.
+`tests/styles/tokens.test.ts` reads the host portal's stylesheet beside this
+one and fails if any token in either ramp differs. A deliberate divergence goes
+there as an exception with a reason, not as a silently different green.
 
 The same file also carries the host portal's own contract — every text pair over
 4.5:1, every UI pair over 3:1, translucent tokens composited over their real
 ground before measuring, and the two hand-duplicated light blocks held equal.
 
+It also holds all four cire apps — this portal, the host portal, the guest site
+and the marketing site — to one corner scale and one motion ladder. It reads
+each app's `src/styles/global.css` and fails if a corner role (`control` 999px,
+`field` 14px, `lg` 16px, `md` 10px, `sm` 6px, `hair` 2px, `pill` 999px), a
+`--radius-*` step, `--toast-radius` (10px wherever `@shared/toast` loads) or a
+line of the `--dur-*` ladder, its `pointer: fine` block or the easings differs,
+or if the base-layer rules that draw an unchecked native checkbox or radio
+(host §4, Checkboxes and radios) differ in any app.
+The one gap is by design: this portal renders no `Modal`, so it sets no
+`--ui-modal-*` timing. `turbo.json` names the other three stylesheets as the
+test task's inputs, so a change to any of them re-runs this suite rather than
+replaying a cached pass. What each corner paints is host §4.
+
 `src/lib/` carries three verbatim ports: `theme.ts` / `theme-boot.ts`,
 `auto-size.ts`, `sliding-pill.ts`. They are generic and have their own tests.
+`form-field.ts` holds the host's `FORM_FIELD_CLASS` (`h-8.5`): every form field
+here is 34px, as host §4 ("One form-field height") sets. This portal has no
+button in a row with a field, so it carries no `FORM_ACTION_CLASS`.
 
 ---
 
@@ -77,6 +93,12 @@ destinations is chrome for chrome's sake, and it was deliberately **not**
 ported. `ViewTabs` uses the same `createSlidingPill` the host portal's tab
 strips use.
 
+The strip is a pill track — track, sliding highlight and tabs all `rounded-pill`
+— with small-caps labels, as a tab strip's are. The host portal's segmented
+view tabs are 6px, because they sit in a view bar beside pill-shaped chips, and
+the 6px box is what tells a segmented control from a chip there. This
+strip has no chips beside it, so the pill reads as one control.
+
 Nor is the strip an ARIA `tablist`. The tab pattern promises a panel that is a
 sibling of the strip plus roving arrow-key focus, and neither is true — these
 swap the whole page and push history. Two buttons, with `aria-current` naming
@@ -94,23 +116,38 @@ anchor to `PUBLIC_OSN_ACCOUNT_URL`, `target="_blank"` and `rel="noopener"`.
 
 ## Components
 
-`src/components/ui/` is a **subset** of the host portal's set, plus two.
+This portal holds no parts of its own: every part comes from the two packages
+the host portal draws on (host §7).
 
-Ported, contract-identical: `Button` (+ `buttonClass`), `Card` (+ `cardClass`,
-`CardEyebrow`), `Notice`, `EmptyState`, `Field` (+ `Input`, `Textarea`,
-`Select`, `Fieldset`), `props.ts`.
+- Shared with the host portal: `Button`, `buttonClass`, `Card`, `cardClass` and
+  `CardEyebrow` from `@cire/ui`; `Notice`, `EmptyState`, `Field`, `Fieldset`,
+  `Input`, `Textarea` and `Select` from `@shared/ui`.
 
-**Not ported:** `Meter`, `Stat`, `Table`, `CardCta`. No surface here has a bar, a
-headline figure or a table. An unused primitive is a thing to keep in sync for
-nothing; port one when a surface needs it, and take its test with it.
+**Not used here:** `Meter`, `Stat`, `Table`, `CardCta`. No surface here has a bar,
+a headline figure or a table.
 
-**Added here:**
+**Used here and not in the host portal:**
 
-| Part | Why |
-| --- | --- |
-| `Chip` | A pill naming a state — a listing that is live or a draft, an enquiry open/quoted/closed. Two call sites that had drifted to different sizes, and both reached for the raw Tailwind palette (`text-blue-400`, `text-green-400`) — fixed sRGB that does not move when the theme flips. The tones are ramp tokens. The host portal writes its role badge longhand in `TopBar`; this is the shape it would take if it adopted one. |
-| `Loading` | `<p role="status" class="… animate-pulse …">`, written out on five surfaces — five chances to forget the role, and a spinner nobody announces is a blank screen. `status`, not `alert`: something starting to load is not urgent. |
-| `Checkbox` (in `Field.tsx`) | A checkbox and its word as one clickable row, for the service-category grid. The label wraps the control rather than pointing at it by id — the one place nesting is better, since the whole row is the hit target and a `for`/`id` pair would need an id invented per category key. |
+| Part | Where | Why |
+| --- | --- | --- |
+| `Chip`, `ChipTone` | `shared/ui/src/ui/chip.tsx` | A pill naming a state — a listing that is live or a draft, an enquiry open, quoted or closed. The tones are ramp tokens, never the raw Tailwind palette, so the chip moves when the theme flips. Its word is a badge, so it stays in small caps. The host portal writes its role badge longhand in `TopBar`; this is the shape it would take if it adopted one. |
+| `Loading` | `cire/ui/src/loading.tsx` | `<p role="status">` with a pulse, for a surface waiting on its data, so no surface can forget the role: a spinner nobody announces is a blank screen. `status`, not `alert`: something starting to load is not urgent. Its words are a status line, so they stay in small caps. |
+| `Checkbox` | `shared/ui/src/ui/checkbox.tsx` | A Kobalte checkbox and its word as one clickable row, for the service-category grid. It takes its word as `label` and draws its box at the 6px step. |
+
+**Corners here** follow host §4. The small steps this portal writes itself: the
+profile menu at 10px (a menu); at 6px its rows' highlight, the wordmark's hover
+wash (a nav highlight) and the quote form nested in the enquiry thread's card.
+The login card and the thread's message bubbles take the 16px card corner. The
+round marks — the avatar, the haptics switch — are `rounded-full`.
+
+`tests/components/soft-shapes.browser.test.tsx` renders the dashboard's listing
+editor in Chromium at 390 and 1440px, light and dark, and measures the computed
+corners: "Save listing" and "← All organisations" pills, every text field and
+select in the listing editor 34px at 14px, short of a pill, the description
+textarea 14px, the editor card 16px, the
+listing's status chip a pill, a category checkbox's box 6px. It writes each
+screenshot to `e2e-artifacts/cire-soft-shapes/vendor/`. `bun run --cwd cire/vendor
+test:browser` runs it; `test:run` runs the unit project alone.
 
 Both house rules from the host portal apply unchanged: anything spread onto an
 element takes `SafeProps` (so `innerHTML` cannot reach a primitive), and colour

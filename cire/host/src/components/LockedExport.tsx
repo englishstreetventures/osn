@@ -108,7 +108,7 @@ export default function LockedExport(props: {
   return (
     <Show when={probe.offered(props.spec)}>
       <div class="border-border mt-1 flex flex-col gap-2 border-t pt-3">
-        <p id={sentenceId} class="text-text-muted text-ui-sm leading-snug">
+        <p id={sentenceId} class="text-text-muted text-ui-sm leading-ui-snug">
           {sentence()}
         </p>
         {/* Described by the sentence, so a screen reader hears which file

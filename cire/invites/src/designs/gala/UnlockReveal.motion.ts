@@ -18,7 +18,7 @@ const STEP_TIMEOUT_MS = 1000;
 // The card entrance, in one place: the stagger is built from these AND the cap
 // that bounds it is derived from them, so the two cannot drift. A nine-event
 // invite already runs 1.09s of stagger, which the flat `STEP_TIMEOUT_MS` would
-// have called finished with cards still moving (P-I3).
+// have called finished with cards still moving.
 const CARD_DURATION_S = 0.35;
 const CARD_STAGGER_S = 0.08;
 const CARD_STAGGER_START_S = 0.1;
@@ -172,7 +172,7 @@ export async function unlockRevealSequence(
   // that wait — and run the layout beat ALONGSIDE it rather than after it: the
   // beat only gives the section a moment in the layout, which has nothing to do
   // with when the card chunk lands, so serialising them stacked two waits on
-  // the one path that can least afford it (P-I1).
+  // the one path that can least afford it.
   eventsSection.style.display = "";
   await Promise.all([
     hooks?.waitForEvents?.() ?? Promise.resolve(),
@@ -194,7 +194,7 @@ export async function unlockRevealSequence(
   // to base styles on finish — is written once they have settled.
   // Queried AFTER both waits, never before them: a chunk that resolves inside
   // that window renders cards this loop would otherwise miss, and a missed card
-  // is one that arrives at full opacity while its siblings stagger (P-I2).
+  // is one that arrives at full opacity while its siblings stagger.
   const cards = [...eventsSection.querySelectorAll<HTMLElement>("[data-event-card]")];
   for (const card of cards) card.style.opacity = "0";
 

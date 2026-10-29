@@ -87,12 +87,12 @@ test("cire-registry-claimed", async ({ page, context, flow }) => {
     // takes it.
     await expect(async () => {
       await page.getByLabel("Invitation code").fill(CIRE_GIFT_LIST.code);
-      await expect(page.getByRole("button", { name: "Open Invitation" })).toBeEnabled({
+      await expect(page.getByRole("button", { name: "Open invitation" })).toBeEnabled({
         timeout: 1_000,
       });
     }).toPass({ timeout: 60_000 });
     const response = responseTo(page, "POST", CLAIM_URL);
-    await page.getByRole("button", { name: "Open Invitation" }).click();
+    await page.getByRole("button", { name: "Open invitation" }).click();
     const status = (await response).status();
     await expect(page.getByText(CIRE_GIFT_LIST.guestName).first()).toBeVisible();
     return status;

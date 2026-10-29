@@ -275,7 +275,7 @@ export default function InviteHeader(props: InviteHeaderProps) {
             <div
               class="flex max-w-full flex-col items-center gap-4"
               classList={{
-                "rounded-2xl px-[clamp(1.5rem,6vw,4rem)] py-[clamp(1.25rem,5vw,3rem)]":
+                "rounded-ui-lg px-[clamp(1.5rem,6vw,4rem)] py-[clamp(1.25rem,5vw,3rem)]":
                   showTitleBackdrop(),
               }}
               style={
@@ -382,7 +382,7 @@ export default function InviteHeader(props: InviteHeaderProps) {
                         sizes="(min-width: 768px) 480px, 100vw"
                         alt=""
                         // Hidden below md — the photo is not even laid out on mobile.
-                        class="border-border hidden max-h-105 w-full rounded-sm border object-cover md:block"
+                        class="border-border rounded-ui-field hidden max-h-105 w-full border object-cover md:block"
                       />
                     }
                   >
@@ -394,7 +394,7 @@ export default function InviteHeader(props: InviteHeaderProps) {
                         // it with no distortion and no empty bars. A legacy crop (no
                         // dims) falls back to the story default 3∶2. Hidden below md,
                         // like the <img> path.
-                        class="border-border hidden max-h-105 w-full overflow-hidden rounded-sm border md:block"
+                        class="border-border rounded-ui-field hidden max-h-105 w-full overflow-hidden border md:block"
                         style={{
                           ...style(),
                           "aspect-ratio": String(

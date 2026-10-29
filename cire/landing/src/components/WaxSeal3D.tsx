@@ -103,11 +103,13 @@ export function WaxSeal3D() {
           z-index: -1;
           background: radial-gradient(
             circle,
-            oklch(74.99% 0.0854 82.08 / 0.32),
+            color-mix(in oklch, var(--color-gold) 32%, transparent),
             transparent 62%
           );
           pointer-events: none;
         }
+        /* The poster-to-scene cross-fade keeps written durations: it is the
+           hero's choreography, slower than the motion ladder's longest step. */
         .seal-poster,
         .seal-canvas {
           position: absolute;
@@ -129,13 +131,13 @@ export function WaxSeal3D() {
             inset 0 3px 6px oklch(95% 0.05 82 / 0.5),
             inset 0 -6px 12px oklch(40% 0.06 60 / 0.6),
             0 14px 40px oklch(0% 0 0 / 0.45);
-          transition: opacity 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+          transition: opacity 0.6s var(--ease-out);
         }
         .seal-poster.is-hidden {
           opacity: 0;
         }
         .seal-monogram {
-          font-family: var(--font-display, "Cormorant Garamond", Georgia, serif);
+          font-family: var(--font-display);
           font-size: clamp(5rem, 18vw, 8rem);
           font-style: italic;
           line-height: 1;
@@ -144,7 +146,7 @@ export function WaxSeal3D() {
         }
         .seal-canvas {
           opacity: 0;
-          transition: opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+          transition: opacity 0.7s var(--ease-out);
         }
         .seal-canvas.is-live {
           opacity: 1;

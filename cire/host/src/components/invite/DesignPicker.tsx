@@ -98,9 +98,11 @@ export default function DesignPicker(props: {
             const checked = () => props.currentId === design.id;
             return (
               <div
-                class="border-border flex flex-col items-start gap-2 rounded-sm border px-4 py-3"
+                class="border-border rounded-ui-lg flex flex-col items-start gap-2 border px-4 py-3"
                 classList={{ "border-gold": checked() }}
               >
+                {/* Raw: one radio of a roving-focus group, unframed inside the
+                    card that holds it beside its preview link. */}
                 <button
                   type="button"
                   role="radio"
@@ -130,7 +132,7 @@ export default function DesignPicker(props: {
                     href={props.previewHref(design.id)}
                     target="_blank"
                     rel="noopener"
-                    class="font-body text-gold-dim text-ui-xs tracking-ui-wider uppercase underline-offset-4 hover:underline"
+                    class="font-body text-gold-dim text-ui-xs underline-offset-4 hover:underline"
                   >
                     Preview live
                   </a>

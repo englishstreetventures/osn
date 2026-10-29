@@ -39,12 +39,15 @@ interface GuestEmailBoxProps {
   onChange: (email: MemberEmail | null) => void;
   /** The server holds no member, or another one: ask "Who are you?" again. */
   onMemberRequired: () => void;
-  /** Placement on the panel that hosts it. The box owns only its own surface. */
+  /**
+   * Placement and corner from the panel that hosts it. The box owns only its
+   * own surface; its corner depends on whether that panel is itself a card.
+   */
   class?: string;
 }
 
 const INPUT =
-  "border-text/55 bg-text/[0.045] font-body text-text focus:border-gold sm:text-ui-base mt-1.5 block w-full cursor-text rounded-sm border px-3 py-2.5 text-base transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)] disabled:cursor-not-allowed disabled:opacity-50";
+  "border-text/55 bg-text/4.5 font-body text-text focus:border-gold sm:text-ui-base rounded-ui-field mt-1.5 block w-full cursor-text border px-3 py-2.5 text-base transition-ui-colors duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ui-focus disabled:cursor-not-allowed disabled:opacity-50";
 
 const INVALID_ADDRESS = "That doesn’t look like one email address. Please check it.";
 /** After removing an address the hosts added: the API records the opt-out. */
@@ -196,14 +199,14 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
 
   return (
     <section
-      class={`border-gold/30 bg-gold/5 rounded-sm border px-5 py-6 text-left ${props.class ?? ""}`}
+      class={`border-gold/30 bg-gold/5 border px-5 py-6 text-left ${props.class ?? ""}`}
       aria-labelledby={headingId}
     >
       <h3
         id={headingId}
         ref={heading}
         tabIndex={-1}
-        class="font-display text-gold-ink text-ui-lg mb-1 leading-tight font-light italic focus:outline-none"
+        class="font-display text-gold-ink text-ui-lg leading-ui-tight mb-1 font-light italic focus:outline-none"
       >
         Wedding emails
       </h3>
@@ -253,10 +256,10 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
                 </p>
               </Show>
             </div>
-            <label class="font-body text-text-muted text-ui-sm flex items-start gap-2.5 leading-relaxed normal-case">
+            <label class="font-body text-text-muted text-ui-sm leading-ui-normal flex items-start gap-2.5 normal-case">
               <input
                 type="checkbox"
-                class="accent-gold mt-0.5 h-4 w-4 shrink-0 cursor-pointer"
+                class="mt-0.5 h-4 w-4 shrink-0 cursor-pointer"
                 checked={consent()}
                 onChange={(e) => setConsent(e.currentTarget.checked)}
                 disabled={busy()}

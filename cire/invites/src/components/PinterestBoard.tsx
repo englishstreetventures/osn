@@ -302,7 +302,7 @@ function MoodboardBlock(props: { url: string; state: BlockState; onShow?: () => 
   const noteId = createUniqueId();
 
   return (
-    <div class="border-border rounded-md border px-4 py-4">
+    <div class="border-border rounded-sm border px-4 py-4">
       <p class="font-body text-text-muted text-ui-sm leading-ui-normal">
         {BLOCK_LEAD[props.state]}
       </p>

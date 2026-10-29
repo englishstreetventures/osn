@@ -10,6 +10,7 @@ import { createEffect, createMemo, createSignal, createUniqueId, For, on, Show }
 import { redirectToLogin } from "../lib/api";
 import { splitIso } from "../lib/event-datetime";
 import type { EventRow } from "../lib/events-store";
+import { FORM_FIELD_CLASS } from "../lib/form-field";
 import { haptic } from "../lib/haptics";
 import { type ZonedTime, zonedTime } from "../lib/run-sheet-display";
 import { type RunTimePatch, type RunTimeRefusal, saveTaskRunTime } from "../lib/run-time-write";
@@ -88,7 +89,7 @@ function shownTime(task: TaskRow): ZonedTime | null {
  *  is the boundary of an unfilled control, so `--border-strong`, and gold on
  *  hover and while its popover is open. */
 const SLOT =
-  "border-border-strong bg-bg text-text-muted hover:border-gold hover:text-text data-[expanded]:border-gold data-[expanded]:text-gold-ink flex size-7 shrink-0 items-center justify-center rounded-full border-2 border-dotted transition-colors duration-(--dur-fast) disabled:opacity-40";
+  "border-border-strong bg-bg text-text-muted hover:border-gold hover:text-text data-[expanded]:border-gold data-[expanded]:text-gold-ink flex size-7 shrink-0 items-center justify-center rounded-full border-2 border-dotted transition-ui-colors duration-(--dur-fast) ease-(--ease-out) disabled:opacity-40";
 /** A time: a pill holding a clock and the time. */
 const PILL =
   "font-body text-ui-xs inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border px-2.5 font-medium whitespace-nowrap tabular-nums";
@@ -97,7 +98,7 @@ const PILL_INK = "border-border-strong text-text";
 const PILL_INK_REMOVED = "border-warn/60 text-warn";
 /** The pill as a control. */
 const PILL_CONTROL =
-  "hover:border-gold data-[expanded]:border-gold transition-colors duration-(--dur-fast) disabled:opacity-40";
+  "hover:border-gold data-[expanded]:border-gold transition-ui-colors duration-(--dur-fast) ease-(--ease-out) disabled:opacity-40";
 
 /** What the trigger and the read-only chip both show: a glyph, the time, and
  *  what a screen reader needs to know which task's time it is. The time is
@@ -359,6 +360,7 @@ export default function RunTimeEditor(props: RunTimeEditorProps) {
               {(field) => (
                 <Select
                   {...field}
+                  class={FORM_FIELD_CLASS}
                   value={eventId()}
                   onChange={(e) => pickEvent(e.currentTarget.value)}
                 >
@@ -414,6 +416,7 @@ export default function RunTimeEditor(props: RunTimeEditorProps) {
                     {(field) => (
                       <Select
                         {...field}
+                        class={FORM_FIELD_CLASS}
                         value={zone()}
                         onChange={(e) => {
                           zoneTouched = true;
@@ -464,7 +467,7 @@ export default function RunTimeEditor(props: RunTimeEditorProps) {
                         }}
                         onTime={setTime}
                       />
-                      <p class="font-body text-text-muted text-ui-xs leading-snug">
+                      <p class="font-body text-text-muted text-ui-xs leading-ui-snug">
                         {chosen()
                           ? `On ${eventName()}'s clock: ${describeTimeZone(chosen()!.event.timezone, date())}`
                           : "On the event's own clock."}
@@ -478,6 +481,7 @@ export default function RunTimeEditor(props: RunTimeEditorProps) {
                         {(field) => (
                           <Input
                             {...field}
+                            class={FORM_FIELD_CLASS}
                             type="number"
                             inputMode="numeric"
                             min="0"
@@ -492,6 +496,7 @@ export default function RunTimeEditor(props: RunTimeEditorProps) {
                         {(field) => (
                           <Select
                             {...field}
+                            class={FORM_FIELD_CLASS}
                             value={direction()}
                             onChange={(e) =>
                               setDirection(e.currentTarget.value === "after" ? "after" : "before")
@@ -503,7 +508,10 @@ export default function RunTimeEditor(props: RunTimeEditorProps) {
                         )}
                       </Field>
                     </div>
-                    <p class="font-body text-text-muted text-ui-xs leading-snug" aria-live="polite">
+                    <p
+                      class="font-body text-text-muted text-ui-xs leading-ui-snug"
+                      aria-live="polite"
+                    >
                       {lands()
                         ? `${lands()}, on ${eventName()}'s clock`
                         : `Moves with ${eventName()}.`}
@@ -563,6 +571,7 @@ function DateAndTime(props: {
         {(field) => (
           <Input
             {...field}
+            class={FORM_FIELD_CLASS}
             type="date"
             value={props.date}
             onInput={(e) => props.onDate(e.currentTarget.value)}
@@ -573,6 +582,7 @@ function DateAndTime(props: {
         {(field) => (
           <Input
             {...field}
+            class={FORM_FIELD_CLASS}
             type="time"
             value={props.time}
             onInput={(e) => props.onTime(e.currentTarget.value)}

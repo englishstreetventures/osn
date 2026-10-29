@@ -38,6 +38,7 @@ import {
   eventsAccessor,
   invalidateEvents,
 } from "../lib/events-store";
+import { FORM_ACTION_CLASS, FORM_FIELD_CLASS } from "../lib/form-field";
 import {
   createGuestEventDraft,
   type DraftFamily,
@@ -473,19 +474,27 @@ export default function GuestsEditor(props: {
       <SectionIntro eyebrow="Guest list" title="Edit households & guests" />
 
       {/* Add household, in the view bar beside the mode switch, so it is to
-          hand however far down the list the host is. */}
+          hand however far down the list the host is. 28px, the height of the
+          search box the Households tab puts in the same place: a bar's action
+          is the height of its filters (DESIGN.md §4, "One form-field height"). */}
       <Show when={store.loaded()}>
         <ViewBar slot="end">
           <Show
             when={compact()}
             fallback={
-              <Button variant="outline" size="sm" class="shrink-0" onClick={addHousehold}>
+              <Button variant="outline" size="sm" class="h-7 shrink-0" onClick={addHousehold}>
                 <Plus aria-hidden="true" strokeWidth={1.75} class="size-3.5" />
                 Add household
               </Button>
             }
           >
-            <IconButton variant="outline" size="icon" label="Add household" onClick={addHousehold}>
+            <IconButton
+              variant="outline"
+              size="icon"
+              class="size-7"
+              label="Add household"
+              onClick={addHousehold}
+            >
               <Plus aria-hidden="true" strokeWidth={1.75} class="size-4" />
             </IconButton>
           </Show>
@@ -510,7 +519,7 @@ export default function GuestsEditor(props: {
       <Show when={!store.loaded() && !loadError()}>
         <div class="flex flex-col gap-3">
           <For each={[1, 2, 3]}>
-            {() => <div class="bg-surface h-20 animate-pulse rounded-sm" />}
+            {() => <div class="bg-surface rounded-ui-lg h-20 animate-pulse" />}
           </For>
         </div>
       </Show>
@@ -798,7 +807,7 @@ function FamilyCard(props: {
       }
     >
       <span
-        class="text-text-muted text-ui-xs shrink-0 font-mono"
+        class="text-text-muted text-ui-xs font-ui-mono shrink-0"
         title="This household's claim code — deleting the household disables it."
       >
         {props.family.publicId}
@@ -814,7 +823,7 @@ function FamilyCard(props: {
     <Button
       variant="quiet"
       size="sm"
-      class="shrink-0"
+      class={`${FORM_ACTION_CLASS} shrink-0`}
       onClick={() => props.store.removeFamily(props.family.key)}
       title="Delete this household. Its claim code is disabled and any RSVPs are discarded — you'll confirm the impact before it's applied."
     >
@@ -825,7 +834,7 @@ function FamilyCard(props: {
   return (
     <div
       data-edit-card
-      class="border-border bg-surface/30 flex flex-col rounded-sm border px-4 pb-4"
+      class="border-border bg-surface/30 rounded-ui-lg flex flex-col overflow-clip border px-4 pb-4"
       style={{ "--edit-table-w": width() }}
     >
       <div
@@ -852,7 +861,7 @@ function FamilyCard(props: {
             placeholder="Household name"
             aria-invalid={famErrors().length > 0}
             onInput={(e) => props.store.renameFamily(props.family.key, e.currentTarget.value)}
-            class="min-w-0 flex-1"
+            class={`${FORM_FIELD_CLASS} min-w-0 flex-1`}
           />
           <Show when={!props.compact()}>
             {code()}
@@ -980,7 +989,7 @@ function FamilyCard(props: {
       <Button
         variant="outline"
         size="sm"
-        class="mt-4 self-start"
+        class={`${FORM_ACTION_CLASS} mt-4 self-start`}
         onClick={() => props.store.addGuest(props.family.key)}
       >
         Add guest
@@ -1013,6 +1022,7 @@ function GuestEmailCell(props: {
         fallback={
           <Input
             size="sm"
+            class={FORM_FIELD_CLASS}
             type="email"
             autocomplete="off"
             value={props.guest.email ?? ""}
@@ -1082,6 +1092,7 @@ function GuestRow(props: {
               `aria-label` carries the name instead. */}
           <Input
             size="sm"
+            class={FORM_FIELD_CLASS}
             value={props.guest.firstName}
             aria-label="First name"
             aria-invalid={props.errors.length > 0}
@@ -1093,6 +1104,7 @@ function GuestRow(props: {
         <Td>
           <Input
             size="sm"
+            class={FORM_FIELD_CLASS}
             value={props.guest.lastName}
             aria-label="Last name"
             onInput={(e) =>
@@ -1107,6 +1119,7 @@ function GuestRow(props: {
               placeholder already says the field is optional. */}
           <Input
             size="sm"
+            class={FORM_FIELD_CLASS}
             value={props.guest.nickname ?? ""}
             aria-label="Nickname"
             placeholder="—"
@@ -1133,7 +1146,7 @@ function GuestRow(props: {
                 checked={props.guest.eventKeys.includes(evt.key)}
                 aria-label={`${props.guest.firstName || "Guest"} attends ${evt.name || "event"}`}
                 onChange={() => props.store.toggleAttendance(props.guest.key, evt.key)}
-                class="accent-gold h-4 w-4 cursor-pointer"
+                class="h-4 w-4 cursor-pointer"
               />
             </Td>
           )}

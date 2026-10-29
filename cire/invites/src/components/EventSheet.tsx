@@ -85,7 +85,7 @@ function without(panels: ReadonlySet<EventPanel>, panel: EventPanel): ReadonlySe
  * (Chromium on Linux has none) that can be just before its comma.
  */
 const TITLE =
-  "font-display text-text text-ui-md min-[380px]:text-ui-lg wrap-break-word hyphens-auto leading-tight font-light italic";
+  "font-display text-text text-ui-md min-[380px]:text-ui-lg wrap-break-word hyphens-auto leading-ui-tight font-light italic";
 
 /**
  * One of the badge's two labels. Both sit in the same grid cell, so the badge
@@ -215,7 +215,7 @@ interface Settle {
  * writer,
  * `setBadgeProgress`: as the badge is built, from the panel on screen, so a
  * sheet opened on the form does not fade its words in; on every switch, when
- * the words ease on the panels' 280ms (`transition-badge-settle`); and during a
+ * the words ease on the panels' `--dur-base` (`transition-badge-settle`); and during a
  * swipe and its settle, which write the panels' share of their width on every
  * frame with the easing off (`data-dragging`), held between 0 and 1, and at
  * rest the value there. Inline `transform`s rather than Tailwind's

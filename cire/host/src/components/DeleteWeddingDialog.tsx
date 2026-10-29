@@ -6,6 +6,7 @@ import { Modal } from "@shared/ui/ui/modal";
 import { createSignal, Show } from "solid-js";
 
 import { isAuthExpired, redirectToLogin } from "../lib/api";
+import { FORM_FIELD_CLASS } from "../lib/form-field";
 import { deleteWedding } from "../lib/wedding-lifecycle";
 
 /**
@@ -69,12 +70,12 @@ export default function DeleteWeddingDialog(props: {
   return (
     <section
       aria-labelledby="danger-zone-title"
-      class="border-ui-danger/30 flex flex-col gap-3 rounded-sm border p-5"
+      class="border-ui-danger/30 rounded-ui-lg flex flex-col gap-3 border p-5"
     >
       <h3 id="danger-zone-title" class="font-display text-text text-ui-md font-light">
         Delete this wedding
       </h3>
-      <p class="font-body text-text-muted text-ui-sm leading-relaxed">
+      <p class="font-body text-text-muted text-ui-sm leading-ui-normal">
         Guests lose the invite straight away. You or any other owner can restore it from your
         wedding list for 7 days; after that it is deleted for good, with its guests, replies and
         gifts.
@@ -92,7 +93,7 @@ export default function DeleteWeddingDialog(props: {
           }}
         >
           <p class="font-display text-text text-ui-md font-light">Delete this wedding?</p>
-          <ul class="font-body text-text-muted text-ui-sm flex list-disc flex-col gap-1 pl-5 leading-relaxed">
+          <ul class="font-body text-text-muted text-ui-sm leading-ui-normal flex list-disc flex-col gap-1 pl-5">
             <li>Every guest&apos;s invite link and code stop working at once.</li>
             <li>
               You or any other owner can restore it from your wedding list for 7 days, exactly as it
@@ -118,6 +119,7 @@ export default function DeleteWeddingDialog(props: {
             {(field) => (
               <Input
                 {...field}
+                class={FORM_FIELD_CLASS}
                 value={typed()}
                 autocomplete="off"
                 spellcheck={false}

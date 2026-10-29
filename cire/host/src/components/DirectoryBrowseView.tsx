@@ -1,4 +1,5 @@
 import Button from "@cire/ui/button";
+import Loading from "@cire/ui/loading";
 import { useAuth } from "@shared/rp-auth/solid";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
@@ -9,6 +10,7 @@ import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
+import { FILTER_FIELD_CLASS } from "../lib/form-field";
 import { haptic } from "../lib/haptics";
 import { categoryLabel, SERVICE_CATEGORIES } from "../lib/service-categories";
 import { invalidateVendors, upsertCachedVendor, type VendorRow } from "../lib/vendors-store";
@@ -235,12 +237,16 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
 
   return (
     <div class="flex flex-col gap-6">
-      {/* Filter bar */}
-      <div class="border-border bg-surface/20 flex flex-wrap items-end gap-3 rounded-sm border p-4">
+      {/* Filter bar. Filters are 28px pills (`FILTER_FIELD_CLASS`), and the
+          bar's one action is their height: a `Button` at `size="sm"` alone is
+          31px (DESIGN.md §4, "One form-field height"). */}
+      <div class="border-border bg-surface/20 rounded-ui-lg flex flex-wrap items-end gap-3 border p-4">
         <Field label="Category">
           {(field) => (
             <Select
               {...field}
+              size="sm"
+              class={FILTER_FIELD_CLASS}
               value={category()}
               onChange={(e) => {
                 setCategory(e.currentTarget.value);
@@ -257,6 +263,8 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
           {(field) => (
             <Input
               {...field}
+              size="sm"
+              class={FILTER_FIELD_CLASS}
               value={q()}
               onInput={(e) => {
                 setQ(e.currentTarget.value);
@@ -271,6 +279,8 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
           {(field) => (
             <Input
               {...field}
+              size="sm"
+              class={FILTER_FIELD_CLASS}
               value={location()}
               onInput={(e) => {
                 setLocation(e.currentTarget.value);
@@ -281,7 +291,7 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
           )}
         </Field>
 
-        <Button variant="quiet" onClick={clearFilters}>
+        <Button variant="quiet" size="sm" class="h-7" onClick={clearFilters}>
           Clear filters
         </Button>
       </div>
@@ -302,9 +312,7 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
 
       {/* Loading */}
       <Show when={loading() && listings().length === 0}>
-        <p role="status" class="text-text-muted text-ui-sm italic">
-          Loading vendors…
-        </p>
+        <Loading label="Loading vendors…" />
       </Show>
 
       {/* Empty state */}
@@ -319,7 +327,7 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
         <ul class="auto-grid items-start [--auto-grid-min:19rem]">
           <For each={listings()}>
             {(item) => (
-              <li class="border-border bg-surface/10 flex flex-col gap-3 rounded-sm border p-4">
+              <li class="border-border bg-surface/10 rounded-ui-lg flex flex-col gap-3 border p-4">
                 <div class="flex flex-col gap-1">
                   <span class="text-text text-ui-base font-medium">{item.name}</span>
 

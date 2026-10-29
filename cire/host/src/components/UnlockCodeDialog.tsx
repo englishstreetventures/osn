@@ -6,6 +6,7 @@ import { Modal } from "@shared/ui/ui/modal";
 import { createSignal, Show } from "solid-js";
 
 import { isAuthExpired, redirectToLogin } from "../lib/api";
+import { FORM_FIELD_CLASS } from "../lib/form-field";
 import type { PaidTier } from "../lib/tiers";
 import { redeemUnlockCode } from "../lib/unlock-code";
 
@@ -80,7 +81,7 @@ export default function UnlockCodeDialog(props: {
           }}
         >
           <p class="font-display text-text text-ui-md font-light">Have a code?</p>
-          <p class="font-body text-text-muted text-ui-sm leading-relaxed">
+          <p class="font-body text-text-muted text-ui-sm leading-ui-normal">
             If someone gave you a code for Gold or Crimson, enter it here. It moves this wedding to
             that plan, with nothing to pay.
           </p>
@@ -88,6 +89,7 @@ export default function UnlockCodeDialog(props: {
             {(field) => (
               <Input
                 {...field}
+                class={FORM_FIELD_CLASS}
                 name="unlockCode"
                 value={code()}
                 autocomplete="off"

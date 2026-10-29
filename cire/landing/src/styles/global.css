@@ -46,11 +46,59 @@
   --font-display: var(--font-cormorant);
   --font-body: var(--font-lato);
   --default-font-family: var(--font-body);
+}
 
-  /* Landing-only additions (not part of the shared cire/invites brand block above —
-     colour + font tokens stay byte-identical; these are motion + rhythm helpers
-     the marketing site needs and the app does not). Named easings so no rule
-     falls back to the browser default `ease`. */
+/* ── Motion ─────────────────────────────────────────────────────────────────
+ * The portals' ladder, value for value: three durations, two easings, no
+ * animation library. The spring easing is `cire/host`'s alone: it declares one
+ * only where an animation reads it. Every duration is `calc(… * var(--motion-scale))` so a
+ * reference behaviour can be slowed to 0.1× and judged frame by frame. Nothing
+ * in the app writes `--motion-scale`.
+ *
+ * The ladder follows the input, not the screen, as in `cire/host`: shorter
+ * with a fine pointer (a mouse or a trackpad, at a desk), the longer ladder on
+ * touch. `Modal` (`@shared/ui`), which the demo opens, takes its own two
+ * durations from the same ladder, under the same query.
+ */
+:root {
+  --motion-scale: 1;
+  --dur-fast: calc(120ms * var(--motion-scale));
+  --dur-base: calc(200ms * var(--motion-scale));
+  --dur-slow: calc(320ms * var(--motion-scale));
+}
+
+@media (pointer: fine) {
+  :root {
+    --dur-fast: calc(90ms * var(--motion-scale));
+    --dur-base: calc(150ms * var(--motion-scale));
+    --dur-slow: calc(200ms * var(--motion-scale));
+    --ui-modal-enter: var(--dur-slow);
+    --ui-modal-exit: var(--dur-base);
+  }
+}
+
+/* ── Corners and easings ────────────────────────────────────────────────────
+ * The same scale and curves as the two portals. `static`, unlike the brand
+ * block above: a plain `@theme` emits only the variables it sees a utility
+ * read, and these are also read through `var()`, by the contract mapping and
+ * by hand-written rules, so they are emitted whether or not a class spells
+ * them.
+ */
+@theme static {
+  /* Corner radius — the four steps cire writes, the same in every cire app:
+     `hair` 2px for focus marks and colour swatch dots, `sm` 6px for
+     checkboxes, notices, small badges and table highlights, `md` 10px for
+     popovers, menus, tooltips and toasts, `pill` for buttons. Fields (14px)
+     and cards (16px) have no step here: they take their corner from the
+     contract roles below, through `rounded-ui-field` and `rounded-ui-lg`.
+     Tailwind's other default steps still generate (`rounded-xs` 2px,
+     `rounded-lg` 8px, `rounded-xl` 12px, `rounded-2xl` 16px and up). They
+     belong to no role: a corner written with one belongs on a role utility. */
+  --radius-hair: 2px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-pill: 999px;
+
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
 }
@@ -97,20 +145,67 @@
       transition-duration: 0.001ms !important;
     }
   }
+
+  /* An unchecked checkbox or radio sits on its surface: no fill of its own and
+     the strong hairline for an edge, where the browser's white box stood out
+     from every ground. A checked one is the browser's own, filled and ticked,
+     because that reads as a form control (owner, 2026-10-29;
+     cire/host/DESIGN.md §4).
+     The box is the native one's size and corner — 13px, a 2px corner, a radio
+     round — so ticking changes neither; a size class at the call site sizes
+     both states. Only the edge fades, so the focus ring below lands at once. */
+  input[type="checkbox"]:not(:checked, :indeterminate),
+  input[type="radio"]:not(:checked) {
+    appearance: none;
+    width: 13px;
+    height: 13px;
+    border: 1px solid var(--ui-hairline-strong);
+    border-radius: 2px;
+    background-color: transparent;
+    transition: border-color var(--dur-fast) var(--ease-out);
+  }
+  input[type="radio"]:not(:checked) {
+    border-radius: 50%;
+  }
+  input[type="checkbox"]:not(:checked, :indeterminate, :disabled):hover,
+  input[type="radio"]:not(:checked, :disabled):hover {
+    border-color: var(--ui-ink-secondary);
+  }
+  input[type="checkbox"]:not(:checked, :indeterminate):disabled,
+  input[type="radio"]:not(:checked):disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  /* This site has no page-wide focus ring, so the boxes take the app's own,
+     which the calls to action draw too. Never animated. */
+  input[type="checkbox"]:focus-visible,
+  input[type="radio"]:focus-visible {
+    outline: 2px solid var(--ui-focus);
+    outline-offset: 2px;
+  }
+}
+
+/* Fades a control's colours but never its outline, so a focus ring lands at once. */
+@utility transition-ui-colors {
+  transition-property: color, background-color, border-color, text-decoration-color;
+  transition-timing-function: var(--tw-ease, var(--default-transition-timing-function));
+  transition-duration: var(--tw-duration, var(--default-transition-duration));
 }
 
 /* Scroll-reveal primitive used by the static section components: an element with
    `data-reveal` starts dimmed + nudged down; the IntersectionObserver in
    BaseLayout adds `data-revealed` when it scrolls into view. No-JS / reduced
    motion: the reveal still lands visible (the observer sets it, and reduced
-   motion zeroes the transition). */
+   motion zeroes the transition). The 0.7s is a written duration on purpose:
+   a section settling into place as it scrolls in is choreography, slower than
+   the ladder's longest step, which is sized for controls and panels. */
 @layer utilities {
   [data-reveal] {
     opacity: 0;
     transform: translateY(1.5rem);
     transition:
-      opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1),
-      transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+      opacity 0.7s var(--ease-out),
+      transform 0.7s var(--ease-out);
     will-change: opacity, transform;
   }
 
@@ -153,28 +248,35 @@
   /* The one sanctioned eyebrow style. Used at most twice on the whole page. */
   .eyebrow {
     font-family: var(--font-body);
-    font-size: 0.72rem;
+    font-size: var(--ui-text-xs);
     letter-spacing: 0.28em;
     text-transform: uppercase;
     color: var(--color-gold);
   }
 
   /* Shared CTA voice — a gold-filled primary and a hairline-outlined secondary,
-     both with a proper, instantly-visible focus ring (never animated). */
+     both with a proper, instantly-visible focus ring (never animated).
+
+     Pills, as every cire button is, with a sentence-case label set as `Button`'s
+     `lg` sets one: the same type step, normal tracking, the medium weight (this
+     site loads no Lato 500, so this rule and `Button`'s `font-medium` both
+     draw the 400 face). The side padding is wider than a rectangle of this
+     height would need, because each round end takes half the height out of
+     the room beside the label. */
   .cta-primary,
   .cta-ghost {
     font-family: var(--font-body);
-    font-size: 0.84rem;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    padding: 0.95rem 1.9rem;
-    border-radius: 0.125rem;
+    font-size: var(--ui-text-base);
+    font-weight: 500;
+    letter-spacing: var(--ui-tracking-normal);
+    padding: 0.95rem 2.25rem;
+    border-radius: var(--ui-radius-control);
     border: 1px solid transparent;
     transition:
-      color 0.2s var(--ease-out),
-      background-color 0.2s var(--ease-out),
-      border-color 0.2s var(--ease-out),
-      transform 0.12s var(--ease-out);
+      color var(--dur-fast) var(--ease-out),
+      background-color var(--dur-fast) var(--ease-out),
+      border-color var(--dur-fast) var(--ease-out),
+      transform var(--dur-fast) var(--ease-out);
   }
   .cta-primary {
     background: var(--color-gold);
@@ -272,7 +374,7 @@
 }
 
 .vine-heart {
-  fill: oklch(74.99% 0.0854 82.08 / 0.5);
+  fill: color-mix(in oklch, var(--color-gold) 50%, transparent);
 }
 
 /* Animated mode (JS hydrated): each strand draws only across its own window
@@ -346,17 +448,21 @@
 
   --ui-focus: var(--color-gold);
 
-  /* No `lg`. The house rule is "nothing rounder than 6px except pills". */
-  --ui-radius-hair: 2px;
-  --ui-radius-sm: 4px;
-  --ui-radius-md: 6px;
-  --ui-radius-lg: 6px;
-  --ui-radius-pill: 999px;
-  /* Sharp, like every other control here: the house look is stationery. */
-  --ui-radius-control: var(--ui-radius-sm);
-  /* The exception the house rule allows for, and the only one. A bottom sheet
-     is not a card: its top corners are the grip the thumb reads as "drag me",
-     and at a card's 6px there is nothing there to read. */
+  /* The corner each role paints, the same in every cire app: buttons are
+     pills; text fields, selects and the `tile`, `field` and `swatch` buttons
+     14px; cards and centred modals 16px. `field` and `lg` are written here
+     rather than as `--radius-*` steps, so the role utilities are the one way to
+     paint them — a step would add a `rounded-field` beside `rounded-ui-field`. */
+  --ui-radius-hair: var(--radius-hair);
+  --ui-radius-sm: var(--radius-sm);
+  --ui-radius-md: var(--radius-md);
+  --ui-radius-lg: 16px;
+  --ui-radius-pill: var(--radius-pill);
+  --ui-radius-control: var(--radius-pill);
+  --ui-radius-field: 14px;
+  /* The one role that differs from the portals, which present no sheet. A
+     bottom sheet's top corners are the grip the thumb reads as "drag me", so
+     they are rounder than a card's 16px. */
   --ui-radius-sheet: 1.75rem;
 
   --ui-font-body: var(--font-body);

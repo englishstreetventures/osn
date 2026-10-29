@@ -1,7 +1,7 @@
 ---
 // Site-wide footer. Links to the legal pages so the privacy notice + terms are
-// reachable from every page (compliance blocker C-H4: privacy notice must be
-// published and linked at point of collection).
+// reachable from every page (the privacy notice must be published and linked
+// at the point of collection).
 //
 // It also carries the standing "Privacy choices" control. Consent has to be as
 // easy to withdraw as it was to give, and the banner is by definition gone once
@@ -51,20 +51,20 @@ const version = sha ? sha.slice(0, 7) : 'local'
   .site-footer {
     padding: 2rem 1.5rem 2.5rem;
     text-align: center;
-    font-family: var(--font-body, "Lato", system-ui, sans-serif);
+    font-family: var(--font-body);
     font-size: 0.8125rem;
-    color: var(--color-text-muted, rgba(255, 255, 255, 0.5));
+    color: var(--color-text-muted);
   }
 
   .site-footer .closing {
     margin: 0 0 1.25rem;
-    font-family: var(--font-display, 'Cormorant Garamond', Georgia, serif);
+    font-family: var(--font-display);
     font-size: clamp(1.25rem, 3vw, 1.75rem);
     font-weight: 300;
-    line-height: 1.2;
+    line-height: var(--ui-leading-tight);
     /* pb reserve: a descender in a name (Jyoti, Peggy) must keep its tail. */
     padding-bottom: 0.15em;
-    color: var(--color-gold-ink, oklch(74.99% 0.0854 82.08));
+    color: var(--color-gold-ink);
   }
 
   .site-footer nav {
@@ -77,12 +77,14 @@ const version = sha ? sha.slice(0, 7) : 'local'
     color: inherit;
     text-decoration: none;
     border-bottom: 1px solid transparent;
-    transition: color 0.2s ease, border-color 0.2s ease;
+    transition:
+      color var(--dur-fast) var(--ease-out),
+      border-color var(--dur-fast) var(--ease-out);
   }
 
   .site-footer a:hover,
   .site-footer a:focus-visible {
-    color: var(--color-gold-ink, oklch(74.99% 0.0854 82.08));
+    color: var(--color-gold-ink);
     border-bottom-color: currentColor;
   }
 
@@ -101,13 +103,13 @@ const version = sha ? sha.slice(0, 7) : 'local'
     padding: 0;
     cursor: pointer;
     transition:
-      color 0.2s ease,
-      border-color 0.2s ease;
+      color var(--dur-fast) var(--ease-out),
+      border-color var(--dur-fast) var(--ease-out);
   }
 
   .site-footer :global(.consent-link:hover),
   .site-footer :global(.consent-link:focus-visible) {
-    color: var(--color-gold-ink, oklch(74.99% 0.0854 82.08));
+    color: var(--color-gold-ink);
     border-bottom-color: currentColor;
   }
 

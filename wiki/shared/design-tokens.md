@@ -11,7 +11,7 @@ related:
   - "[[browser-tests]]"
   - "[[toast]]"
   - "[[osn-and-musubi]]"
-last-reviewed: 2026-10-28
+last-reviewed: 2026-10-29
 ---
 
 # Design tokens — `@shared/design-tokens` and the `ui-*` contract
@@ -135,8 +135,11 @@ value rather than one from the package: `control` to `md`, `sheet` to `lg`.
 | `field`   | not mapped: a pill   | not mapped: `--radius`           | 14px                                     |
 | `sheet`   | not mapped: its `lg` | not mapped: its `lg`             | 1.75rem on the guest and marketing sites |
 
-cire's sized steps are 2px `hair`, 6px `sm`, 10px `md` and 16px `lg`, the same
-in all four of its stylesheets (englishstreetventures/osn#1821).
+cire's sized steps are 2px `hair`, 6px `sm`, 10px `md`, 16px `lg` and 999px
+`pill`, and its `--toast-radius` is `md`. All four cire stylesheets carry the
+same values: `cire/vendor/tests/styles/tokens.test.ts` reads each one and fails
+if a role or a step differs. What each step paints in cire is
+`cire/host/DESIGN.md` §4.
 
 Two names are worth reading twice. **`ground-deep` is not "darker"** — it is
 what the page recedes _to_, behind a sticky bar or under a scrim, and on a dark

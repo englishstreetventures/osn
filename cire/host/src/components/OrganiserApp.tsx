@@ -1,3 +1,4 @@
+import Loading from "@cire/ui/loading";
 import type { SignalKind } from "@shared/realtime";
 import type { SignalEvent } from "@shared/realtime/client";
 import { useTopic } from "@shared/realtime/solid";
@@ -119,14 +120,6 @@ const withKnownRole = (wedding: WeddingSummary): WeddingSummary => ({
   ...wedding,
   role: normaliseWeddingRole(wedding.role),
 });
-
-function Loading(props: { label: string }) {
-  return (
-    <p class="font-body text-text-muted text-ui-base tracking-ui-wider animate-pulse uppercase">
-      {props.label}
-    </p>
-  );
-}
 
 /**
  * Gate: session() is undefined while the SDK restores the session, null
@@ -278,7 +271,7 @@ function RunSheetSeat(props: { weddingId: string; wedding: WeddingSummary; onLef
             reads as the same page an owner opens. */}
         <header class="flex flex-col gap-4">
           <div class="flex min-w-0 flex-col gap-1">
-            <h2 class="font-display text-text text-ui-lg leading-none font-light">
+            <h2 class="font-display text-text text-ui-lg leading-ui-none font-light">
               {moduleDef("run-sheet").label}
             </h2>
             <p class="font-body text-text-muted text-ui-sm">{moduleDef("run-sheet").hint}</p>

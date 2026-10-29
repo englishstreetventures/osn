@@ -12,10 +12,16 @@ import { animate, stagger } from "motion";
 /** Longest we wait on one animation before the reveal proceeds without it. */
 const STEP_TIMEOUT_MS = 1000;
 
+/**
+ * The house settle curve, `--ease-out` in `styles/global.css`, written out:
+ * `motion` takes a cubic-bezier as four numbers, not a CSS variable.
+ */
+const EASE_OUT = [0.22, 1, 0.36, 1] as const;
+
 // The card entrance, in one place: the stagger is built from these AND the cap
 // that bounds it is derived from them, so the two cannot drift. A five-event
 // invite already runs 1.08s of stagger, which the flat `STEP_TIMEOUT_MS` would
-// have called finished with cards still moving (P-I3).
+// have called finished with cards still moving.
 const CARD_DURATION_S = 0.45;
 const CARD_STAGGER_S = 0.12;
 const CARD_STAGGER_START_S = 0.15;
@@ -154,7 +160,7 @@ export async function unlockRevealSequence(
     animate(
       welcomeEl,
       { opacity: [0, 1], transform: ["translateY(16px)", "translateY(0)"] },
-      { duration: 0.5, ease: [0.22, 1, 0.36, 1] },
+      { duration: 0.5, ease: EASE_OUT },
     ),
   );
 
@@ -178,7 +184,7 @@ export async function unlockRevealSequence(
   // that wait — and run the layout beat ALONGSIDE it rather than after it: the
   // beat only gives the section a moment in the layout, which has nothing to do
   // with when the card chunk lands, so serialising them stacked two waits on
-  // the one path that can least afford it (P-I1).
+  // the one path that can least afford it.
   eventsSection.style.display = "";
   await Promise.all([
     hooks?.waitForEvents?.() ?? Promise.resolve(),
@@ -200,7 +206,7 @@ export async function unlockRevealSequence(
   // v12 reverts to base styles on finish — is written once they have settled.
   // Queried AFTER both waits, never before them: a chunk that resolves inside
   // that window renders cards this loop would otherwise miss, and a missed card
-  // is one that arrives at full opacity while its siblings stagger (P-I2).
+  // is one that arrives at full opacity while its siblings stagger.
   const cards = [...eventsSection.querySelectorAll<HTMLElement>("[data-event-card]")];
   for (const card of cards) card.style.opacity = "0";
 
@@ -210,7 +216,7 @@ export async function unlockRevealSequence(
         animate(
           eventsSection,
           { opacity: [0, 1], transform: ["translateY(32px)", "translateY(0)"] },
-          { duration: 0.5, ease: [0.22, 1, 0.36, 1] },
+          { duration: 0.5, ease: EASE_OUT },
         ),
       ),
       cards.length > 0
@@ -221,7 +227,7 @@ export async function unlockRevealSequence(
                 { opacity: [0, 1], transform: ["translateY(24px)", "translateY(0)"] },
                 {
                   duration: CARD_DURATION_S,
-                  ease: [0.22, 1, 0.36, 1],
+                  ease: EASE_OUT,
                   delay: stagger(CARD_STAGGER_S, { startDelay: CARD_STAGGER_START_S }),
                 },
               ),

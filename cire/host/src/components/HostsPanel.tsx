@@ -10,6 +10,7 @@ import { Select } from "@shared/ui/ui/select";
 import { createEffect, createSignal, For, on, onCleanup, onMount, Show, untrack } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
+import { FORM_ACTION_CLASS, FORM_FIELD_CLASS } from "../lib/form-field";
 import { haptic } from "../lib/haptics";
 import { type HostSeat, invalidateHosts, setFreshHosts } from "../lib/hosts-store";
 import { useMembersChanged } from "../lib/members-changed";
@@ -992,7 +993,7 @@ export default function HostsPanel(props: HostsPanelProps) {
                 {(option) => (
                   <div class="border-border bg-bg flex flex-1 flex-col gap-1 rounded-sm border p-3">
                     <dt class="font-body text-text text-ui-base">{roleLabel(option)}</dt>
-                    <dd class="font-body text-text-muted text-ui-sm leading-snug">
+                    <dd class="font-body text-text-muted text-ui-sm leading-ui-snug">
                       {ROLE_COPY[option].summary}
                       {option === "helper" && helperNeedsGold()
                         ? " The run sheet comes with Gold."
@@ -1015,8 +1016,13 @@ export default function HostsPanel(props: HostsPanelProps) {
                     the organiser types. The manual type-and-submit path is
                     preserved — the dropdown is additive and never required. */}
                 <div class="relative min-w-48 flex-1">
+                  {/* `UsernameInput` puts `class` on its wrapper and fixes its
+                      inner `Input`'s own, so the form-field height reaches the
+                      box through the wrapper: this is FORM_FIELD_CLASS, written
+                      out because Tailwind reads class names whole. */}
                   <UsernameInput
                     {...field}
+                    class="[&>input]:h-8.5"
                     name="osnHandle"
                     value={handle()}
                     maxLength={64}
@@ -1040,7 +1046,7 @@ export default function HostsPanel(props: HostsPanelProps) {
                     disabled={adding()}
                   />
                   <Show when={open() && suggestions().length > 0}>
-                    <div class="border-border bg-bg absolute top-full right-0 left-0 z-10 mt-1 overflow-hidden rounded-sm border shadow-lg">
+                    <div class="border-border bg-bg absolute top-full right-0 left-0 z-10 mt-1 overflow-hidden rounded-md border shadow-(--elev-2)">
                       {/* Caption for the on-focus case only: with nothing typed the
                           list IS the organiser's connections, and saying so is what
                           makes an unprompted dropdown legible rather than startling. */}
@@ -1100,7 +1106,12 @@ export default function HostsPanel(props: HostsPanelProps) {
                     </div>
                   </Show>
                 </div>
-                <Button type="submit" variant="primary" disabled={adding()}>
+                <Button
+                  class={FORM_ACTION_CLASS}
+                  type="submit"
+                  variant="primary"
+                  disabled={adding()}
+                >
                   {adding() ? "Adding…" : canAddSecondOwner() ? "Add as owner" : "Add host"}
                 </Button>
               </div>
@@ -1111,7 +1122,9 @@ export default function HostsPanel(props: HostsPanelProps) {
 
       <Show when={loading()}>
         <div class="flex flex-col gap-3">
-          <For each={[1, 2]}>{() => <div class="bg-surface h-13 animate-pulse rounded-sm" />}</For>
+          <For each={[1, 2]}>
+            {() => <div class="bg-surface rounded-ui-lg h-13 animate-pulse" />}
+          </For>
         </div>
       </Show>
 
@@ -1139,7 +1152,7 @@ export default function HostsPanel(props: HostsPanelProps) {
                 // under the name and the controls: at phone width there is no
                 // room beside them for a second select at its full width.
                 <li
-                  class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-sm border px-4 py-3"
+                  class="rounded-ui-lg flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border px-4 py-3"
                   classList={{
                     "border-gold/40 bg-gold/5": host.role === "owner",
                     "border-border bg-surface/30": host.role !== "owner",
@@ -1150,7 +1163,7 @@ export default function HostsPanel(props: HostsPanelProps) {
                       <span class="text-gold-dim">@{host.handle}</span>
                     ) : (
                       <span
-                        class="text-text-muted text-ui-sm tracking-ui-wide font-mono"
+                        class="text-text-muted text-ui-sm tracking-ui-wide font-ui-mono"
                         title="OSN profile id"
                       >
                         {host.osnProfileId}
@@ -1201,6 +1214,7 @@ export default function HostsPanel(props: HostsPanelProps) {
                           undo it. */}
                       <Select
                         size="sm"
+                        class={FORM_FIELD_CLASS}
                         value={pendingRoleFor(host) ?? host.role}
                         disabled={roleBusyId() === host.osnProfileId}
                         aria-label={
@@ -1247,7 +1261,7 @@ export default function HostsPanel(props: HostsPanelProps) {
                             out: see `selectScope`. */}
                         <Select
                           size="sm"
-                          class="w-auto"
+                          class={`${FORM_FIELD_CLASS} w-auto`}
                           value={scopeShownFor(host)}
                           aria-busy={scopeWrites().has(host.osnProfileId) ? "true" : undefined}
                           aria-label={`What ${nameOf(host)} sees on the run sheet`}
@@ -1307,7 +1321,7 @@ export default function HostsPanel(props: HostsPanelProps) {
                       Make {nameOf(promotion().host)} {anArticleFor(promotion().to)}{" "}
                       {ROLE_COPY[promotion().to].label.toLowerCase()}?
                     </p>
-                    <p class="font-body text-text-muted text-ui-sm leading-relaxed">
+                    <p class="font-body text-text-muted text-ui-sm leading-ui-normal">
                       {ROLE_COPY[promotion().to].summary} You can change it back at any time.
                     </p>
                   </>
@@ -1316,7 +1330,7 @@ export default function HostsPanel(props: HostsPanelProps) {
                 <p class="font-display text-text text-ui-md font-light">
                   Step down to {ROLE_COPY[promotion().to].label.toLowerCase()}?
                 </p>
-                <p class="font-body text-text-muted text-ui-sm leading-relaxed">
+                <p class="font-body text-text-muted text-ui-sm leading-ui-normal">
                   You will stop being an owner of this wedding. {ROLE_COPY[promotion().to].summary}{" "}
                   Only another owner can make you an owner again.
                 </p>
@@ -1361,7 +1375,7 @@ export default function HostsPanel(props: HostsPanelProps) {
               <p class="font-display text-text text-ui-md font-light">
                 Show {nameOf(helper())} the whole run sheet?
               </p>
-              <p class="font-body text-text-muted text-ui-sm leading-relaxed">
+              <p class="font-body text-text-muted text-ui-sm leading-ui-normal">
                 They will see every task for the day and who is doing each one, not only their own.
                 They still won't see the guest list, the budget or the replies. You can change it
                 back at any time.
@@ -1400,7 +1414,7 @@ export default function HostsPanel(props: HostsPanelProps) {
           {(name) => (
             <div class="flex flex-col gap-4">
               <p class="font-display text-text text-ui-md font-light">Add @{name()} as an owner?</p>
-              <p class="font-body text-text-muted text-ui-sm leading-relaxed">
+              <p class="font-body text-text-muted text-ui-sm leading-ui-normal">
                 {ROLE_COPY.owner.summary} You can change it back at any time.
               </p>
               <div class="flex flex-wrap justify-end gap-2">

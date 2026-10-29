@@ -172,7 +172,7 @@ export function HeroSample(props: {
           tinted by the scheme's derived panel colour. Painted only when opacity
           > 0 (mirrors the guest behaviour). */}
       <div
-        class={`relative flex rounded-xl px-6 py-4 ${
+        class={`rounded-ui-lg relative flex px-6 py-4 ${
           layout().heroAnchor === "center" ? "items-center justify-center" : "items-start"
         }`}
         style={
@@ -392,7 +392,9 @@ export function SectionSample(props: {
         class={`flex flex-1 flex-col justify-center gap-1.5 ${
           leftAligned() ? "items-start text-left" : "items-center text-center"
         } ${
-          props.panel && layout().welcome === "panel" ? "m-4 max-w-44 rounded-sm border p-3" : "p-4"
+          props.panel && layout().welcome === "panel"
+            ? "rounded-ui-lg m-4 max-w-44 border p-3"
+            : "p-4"
         }`}
         style={
           props.panel && layout().welcome === "panel"
@@ -446,7 +448,7 @@ export function SectionSample(props: {
         <Show when={props.card}>
           {(card) => (
             <div
-              class="mt-1 flex w-full max-w-56 flex-col gap-1 rounded-sm border p-2 text-left"
+              class="rounded-ui-lg mt-1 flex w-full max-w-56 flex-col gap-1 border p-2 text-left"
               style={{
                 "background-color": "var(--color-surface)",
                 "border-color": "var(--color-border)",
@@ -459,7 +461,7 @@ export function SectionSample(props: {
                 {card().meta}
               </span>
               <span
-                class="text-ui-xs w-fit rounded-sm px-1.5 py-0.5"
+                class="text-ui-xs rounded-ui-control w-fit px-2 py-0.5"
                 style={{ "background-color": "var(--color-gold)", color: "var(--color-on-gold)" }}
               >
                 Respond

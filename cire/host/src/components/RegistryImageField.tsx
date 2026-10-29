@@ -42,6 +42,7 @@ import { Notice } from "@shared/ui/ui/notice";
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
+import { FORM_ACTION_CLASS, FORM_FIELD_CLASS } from "../lib/form-field";
 import { haptic } from "../lib/haptics";
 /** Mirrors `MAX_IMAGE_BYTES` in `cire/api/src/services/invite-assets.ts`. Checked
  *  here only to spare the organiser a five-megabyte upload that ends in a 413 —
@@ -413,7 +414,7 @@ export default function RegistryImageField(props: {
               <img
                 src={src()}
                 alt=""
-                class="border-border h-20 w-20 rounded-sm border object-cover"
+                class="border-border rounded-ui-field h-20 w-20 border object-cover"
               />
             )}
           </Show>
@@ -472,7 +473,7 @@ export default function RegistryImageField(props: {
             if (file) void upload(file);
             e.currentTarget.value = "";
           }}
-          class="font-body text-text file:border-border file:bg-bg file:font-body file:text-text hover:file:border-gold text-ui-sm file:text-ui-sm file:mr-3 file:rounded-sm file:border file:px-3 file:py-1.5"
+          class="font-body text-text file:border-border file:bg-bg file:font-body file:text-text hover:file:border-gold text-ui-sm file:text-ui-sm file:rounded-ui-control file:mr-3 file:border file:px-4 file:py-1.5 file:font-medium"
         />
       </Show>
 
@@ -486,13 +487,14 @@ export default function RegistryImageField(props: {
               id={`${props.idPrefix}-shop-link`}
               size="sm"
               type="url"
-              class="min-w-64 flex-1"
+              class={`${FORM_FIELD_CLASS} min-w-64 flex-1`}
               placeholder="https://…"
               value={url()}
               disabled={props.disabled || busy() !== null}
               onInput={(e) => setUrl(e.currentTarget.value)}
             />
             <Button
+              class={FORM_ACTION_CLASS}
               size="sm"
               variant="outline"
               disabled={props.disabled || busy() !== null || url().trim() === ""}
@@ -566,7 +568,9 @@ export default function RegistryImageField(props: {
                             decoding="async"
                             width={80}
                             height={80}
-                            class="h-20 w-20 object-cover"
+                            // The frame's 14px less its border and padding, to the
+                            // nearest step, so the picture's corner runs parallel.
+                            class="h-20 w-20 rounded-md object-cover"
                           />
                         )}
                       </Show>

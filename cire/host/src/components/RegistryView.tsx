@@ -20,6 +20,7 @@ import { createMemo, createSignal, For, onMount, Show, untrack } from "solid-js"
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { downloadBlob } from "../lib/download";
+import { FORM_FIELD_CLASS } from "../lib/form-field";
 import { haptic } from "../lib/haptics";
 import {
   belowSmallestUnitError,
@@ -851,7 +852,7 @@ export default function RegistryView(props: RegistryViewProps) {
         <Show when={props.canEdit}>
           <form
             onSubmit={addItem}
-            class="border-border bg-surface/20 flex flex-wrap items-end gap-3 rounded-sm border p-4"
+            class="border-border bg-surface/20 rounded-ui-lg flex flex-wrap items-end gap-3 border p-4"
           >
             {/* A gift is a thing a household reserves; a cash fund is a named
                 purpose guests give money to. Each kind shows only its own
@@ -887,6 +888,7 @@ export default function RegistryView(props: RegistryViewProps) {
                     {(field) => (
                       <Input
                         {...field}
+                        class={FORM_FIELD_CLASS}
                         value={newTitle()}
                         onInput={(e) => setNewTitle(e.currentTarget.value)}
                         placeholder="Copper pan, a good bottle of something…"
@@ -897,6 +899,7 @@ export default function RegistryView(props: RegistryViewProps) {
                     {(field) => (
                       <Input
                         {...field}
+                        class={FORM_FIELD_CLASS}
                         type="number"
                         min="0"
                         // `any`, not `0.01`: how many decimals a price may carry is a
@@ -914,6 +917,7 @@ export default function RegistryView(props: RegistryViewProps) {
                     {(field) => (
                       <Input
                         {...field}
+                        class={FORM_FIELD_CLASS}
                         type="number"
                         min={MIN_QUANTITY}
                         max={MAX_QUANTITY}
@@ -927,6 +931,7 @@ export default function RegistryView(props: RegistryViewProps) {
                     {(field) => (
                       <Input
                         {...field}
+                        class={FORM_FIELD_CLASS}
                         type="url"
                         value={newUrl()}
                         onInput={(e) => setNewUrl(e.currentTarget.value)}
@@ -941,6 +946,7 @@ export default function RegistryView(props: RegistryViewProps) {
                 {(field) => (
                   <Input
                     {...field}
+                    class={FORM_FIELD_CLASS}
                     value={newTitle()}
                     onInput={(e) => setNewTitle(e.currentTarget.value)}
                     placeholder="Honeymoon, a house deposit…"
@@ -953,6 +959,7 @@ export default function RegistryView(props: RegistryViewProps) {
                 {(field) => (
                   <Input
                     {...field}
+                    class={FORM_FIELD_CLASS}
                     type="number"
                     min="0"
                     // `any`, for the same reason as the price: the currency
@@ -1032,9 +1039,9 @@ export default function RegistryView(props: RegistryViewProps) {
                               style={maybeTransformStyle(sortable.transform())}
                               class="border-border bg-surface/10 relative flex flex-col gap-2 rounded-sm border px-3 py-2"
                               classList={{
-                                "border-gold/60 bg-surface/80 z-10 shadow-lg":
+                                "border-gold/60 bg-surface/80 z-10 shadow-(--elev-2)":
                                   sortable.isActiveDraggable(),
-                                "transition-transform":
+                                "transition-transform duration-(--dur-base) ease-(--ease-in-out)":
                                   dndState.dragging() && !sortable.isActiveDraggable(),
                               }}
                             >
@@ -1141,6 +1148,7 @@ export default function RegistryView(props: RegistryViewProps) {
                                       <Input
                                         {...field}
                                         size="sm"
+                                        class={FORM_FIELD_CLASS}
                                         value={editTitle()}
                                         onInput={(e) => setEditTitle(e.currentTarget.value)}
                                       />
@@ -1153,6 +1161,7 @@ export default function RegistryView(props: RegistryViewProps) {
                                         <Input
                                           {...field}
                                           size="sm"
+                                          class={FORM_FIELD_CLASS}
                                           type="number"
                                           min="0"
                                           step="any"
@@ -1168,6 +1177,7 @@ export default function RegistryView(props: RegistryViewProps) {
                                         <Input
                                           {...field}
                                           size="sm"
+                                          class={FORM_FIELD_CLASS}
                                           type="number"
                                           min="0"
                                           step="any"
@@ -1181,6 +1191,7 @@ export default function RegistryView(props: RegistryViewProps) {
                                         <Input
                                           {...field}
                                           size="sm"
+                                          class={FORM_FIELD_CLASS}
                                           type="number"
                                           min={MIN_QUANTITY}
                                           max={MAX_QUANTITY}
@@ -1195,6 +1206,7 @@ export default function RegistryView(props: RegistryViewProps) {
                                         <Input
                                           {...field}
                                           size="sm"
+                                          class={FORM_FIELD_CLASS}
                                           value={editCategory()}
                                           onInput={(e) => setEditCategory(e.currentTarget.value)}
                                           placeholder="Kitchen"
@@ -1206,6 +1218,7 @@ export default function RegistryView(props: RegistryViewProps) {
                                         <Input
                                           {...field}
                                           size="sm"
+                                          class={FORM_FIELD_CLASS}
                                           type="url"
                                           value={editUrl()}
                                           onInput={(e) => setEditUrl(e.currentTarget.value)}
@@ -1272,7 +1285,7 @@ export default function RegistryView(props: RegistryViewProps) {
             Rendered ONLY when a summary exists, i.e. only after the sweep. */}
         <Show when={summaryBand()}>
           {(band) => (
-            <div class="border-border bg-surface/20 flex flex-col gap-2 rounded-sm border p-4">
+            <div class="border-border bg-surface/20 rounded-ui-lg flex flex-col gap-2 border p-4">
               <span class="text-gold-dim font-body text-ui-xs tracking-ui-widest uppercase">
                 Your record of gifts
               </span>
@@ -1364,7 +1377,7 @@ export default function RegistryView(props: RegistryViewProps) {
                 snap().contributionsPrimaryMinor > 0 || snap().contributionsOtherCurrencyCount > 0
               }
             >
-              <div class="border-border bg-surface/20 flex flex-col gap-1 rounded-sm border p-4">
+              <div class="border-border bg-surface/20 rounded-ui-lg flex flex-col gap-1 border p-4">
                 <span class="text-gold-dim font-body text-ui-xs tracking-ui-widest uppercase">
                   Cash gifts
                 </span>

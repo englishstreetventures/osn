@@ -39,6 +39,7 @@ import {
   typographyVars,
 } from "@cire/theme";
 import Button from "@cire/ui/button";
+import Loading from "@cire/ui/loading";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
 import { Notice } from "@shared/ui/ui/notice";
@@ -186,9 +187,8 @@ function rootFontPx(): number {
 
 /** The builder's sections, in guest scroll order (+ the two non-page cards).
  *  Ids double as the fieldset ids. The nav row above the form is a real tab
- *  switcher — one section shown at a time — rather than the vertical stack of
- *  every card the builder used to be, with a scroll-jump nav bolted to the
- *  top of it. */
+ *  switcher: one section shows at a time, not a vertical stack of every card
+ *  with a scroll-jump nav above it. */
 const NAV_SECTIONS = [
   { id: "invite-design", label: "Design" },
   { id: "invite-look", label: "Look" },
@@ -274,7 +274,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   // server-acknowledged snapshot — a copy-only save must not bump the theme
   // row's `updatedAt` (it doubles as the guest image-cache version, so a
   // gratuitous bump busts the per-variant transform cache and makes guests
-  // re-download the hero for zero visual change — P-W1, see
+  // re-download the hero for zero visual change, see
   // [[free-tier-limits]]).
   const textDirty = createMemo(
     () => seeded() && JSON.stringify(textPayload(draft)) !== savedText(),
@@ -295,7 +295,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   });
   // The beforeunload listener exists ONLY while dirty — a persistently
   // registered one makes the page ineligible for the back/forward cache in
-  // Firefox/Safari even with a clean form (P-I3).
+  // Firefox/Safari even with a clean form.
   createEffect(() => {
     if (!isDirty() && !faqPending()) return;
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -313,7 +313,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   // colour-picker DRAG (pointermove) — without a memo each frame ran the full
   // derivation once per reader. The seeds + adjustments memos are shared with
   // PaletteField via props, so the whole builder derives exactly once per
-  // frame (P-W1).
+  // frame.
   const paletteSeeds = createMemo(() => resolvedSeeds(draft.palette));
   const seedAdjustments = createMemo(() => paletteAdjustments(paletteSeeds()));
   const previewTokens = createMemo((): Record<string, string> => {
@@ -338,13 +338,11 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   });
 
   /**
-   * Which preview layer to mount (perf P-I1). Both layers used to be mounted at
-   * all times with a container query hiding one, so the hidden layer still took
-   * every token write on every keystroke and colour-drag frame — five `style`
-   * spreads of ~25 custom properties, landing on subtrees that render nothing.
-   * That was cheap while the composed pane was unreachable (the old 1100px page
-   * cap kept the builder below `@4xl`); now that the pane is the wide default,
-   * the waste moved to whichever layer is idle.
+   * Which preview layer to mount. Only the matching layer is mounted: a layer
+   * hidden by a container query would still take every token write on every
+   * keystroke and colour-drag frame (five `style` spreads of ~25 custom
+   * properties, landing on subtrees that render nothing), and the composed
+   * pane is the wide default, so the idle layer is never free.
    *
    * Measured off the builder container itself, exactly like the module nav's
    * rail/sheet swap: a `ResizeObserver`'s `contentRect` IS the content box a
@@ -913,7 +911,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
     // `watchBuilderWidth`.
     <section
       ref={watchBuilderWidth}
-      class="border-border bg-surface/30 @container/builder flex flex-col gap-8 rounded-sm border p-6"
+      class="border-border bg-surface/30 rounded-ui-lg @container/builder flex flex-col gap-8 border p-6"
     >
       <header class="flex flex-col gap-1">
         <p class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">Invite Builder</p>
@@ -925,17 +923,10 @@ export default function InviteBuilder(props: InviteBuilderProps) {
         </p>
       </header>
 
-      <Show
-        when={data()}
-        fallback={
-          <p class="font-body text-text-muted text-ui-base tracking-ui-wider animate-pulse uppercase">
-            Loading invite…
-          </p>
-        }
-      >
+      <Show when={data()} fallback={<Loading label="Loading invite…" />}>
         {(d) => {
           // Memoized once per render pass and shared by the sticky side pane
-          // and the mobile modal (P-I1) — without this, the rare frame where
+          // and the mobile modal — without this, the rare frame where
           // both are mounted (the initial "unknown" preview-layer measurement,
           // or resizing to wide while the modal is left open) has each
           // consumer independently re-deriving every slot.
@@ -1020,11 +1011,11 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                     </span>
                     <span
                       aria-hidden
-                      class="text-text-muted text-ui-xs tracking-ui-widest flex shrink-0 items-center gap-2 tabular-nums"
+                      class="text-text-muted text-ui-xs tracking-ui-widest flex shrink-0 items-center gap-2 font-normal tabular-nums"
                     >
                       {activeIndex() + 1}/{NAV_SECTIONS.length}
                       <span
-                        class="text-gold text-ui-sm inline-block tracking-normal transition-transform duration-(--dur-fast)"
+                        class="text-gold text-ui-sm tracking-ui-normal inline-block transition-transform duration-(--dur-fast) ease-(--ease-out)"
                         classList={{ "rotate-180": sectionMenuOpen() }}
                       >
                         ▾
@@ -1045,7 +1036,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                     id={SECTION_MENU_ID}
                     role="tablist"
                     data-open={sectionMenuOpen() || undefined}
-                    class="section-menu border-border bg-bg absolute inset-x-6 top-full z-30 mt-1 max-h-[60vh] grid-cols-2 gap-1 overflow-y-auto rounded-sm border p-2 shadow-lg @3xl/builder:static @3xl/builder:mt-0 @3xl/builder:flex @3xl/builder:max-h-none @3xl/builder:flex-wrap @3xl/builder:overflow-visible @3xl/builder:rounded-none @3xl/builder:border-0 @3xl/builder:bg-transparent @3xl/builder:p-0 @3xl/builder:shadow-none"
+                    class="section-menu border-border bg-bg absolute inset-x-6 top-full z-30 mt-1 max-h-[60vh] grid-cols-2 gap-1 overflow-y-auto rounded-md border p-2 shadow-(--elev-2) @3xl/builder:static @3xl/builder:mt-0 @3xl/builder:flex @3xl/builder:max-h-none @3xl/builder:flex-wrap @3xl/builder:overflow-visible @3xl/builder:rounded-none @3xl/builder:border-0 @3xl/builder:bg-transparent @3xl/builder:p-0 @3xl/builder:shadow-none"
                   >
                     <For each={[...NAV_SECTIONS]}>
                       {(item) => {
@@ -1064,7 +1055,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                             onKeyDown={(e) => onSectionTabKeyDown(e, item.id)}
                             // `min-h-11` is a 44px touch target in the menu; the
                             // wide row keeps the compact pill it has always been.
-                            class={`font-body text-ui-xs tracking-ui-wider flex min-h-11 w-full shrink-0 items-center gap-1.5 rounded-sm px-3 py-2 text-left uppercase transition-colors duration-(--dur-fast) ease-(--ease-out) @3xl/builder:min-h-0 @3xl/builder:w-auto @3xl/builder:px-2.5 @3xl/builder:py-1 ${sectionTabTone(
+                            class={`font-body text-ui-xs tracking-ui-wider transition-ui-colors flex min-h-11 w-full shrink-0 items-center gap-1.5 rounded-sm px-3 py-2 text-left uppercase duration-(--dur-fast) ease-(--ease-out) @3xl/builder:min-h-0 @3xl/builder:w-auto @3xl/builder:px-2.5 @3xl/builder:py-1 ${sectionTabTone(
                               active(),
                               isHiddenState(state()),
                             )}`}
@@ -1208,7 +1199,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                       on small screens a preview below the sliders scrolls out
                       of view exactly when it's needed. Mounted only when this
                       layer is the visible one (see `previewLayer`) AND this is
-                      the active tab (P-I2) — a hidden tab's inline preview
+                      the active tab — a hidden tab's inline preview
                       would otherwise still re-render on every token edit for
                       no one to see. */}
                     <Show when={showInlinePreviews() && activeSection() === "invite-hero"}>
@@ -1379,7 +1370,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                         design={currentDesign()}
                         panel={designLayout(currentDesign()).welcome === "panel"}
                         eyebrow="Your Invitation"
-                        heading="Enter Your Code"
+                        heading="Enter your code"
                         body={sampleCopy(draft.welcomeMessage, DEFAULTS.welcomeMessage)}
                       />
                     </Show>
@@ -1593,7 +1584,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
               />
 
               {/* ── Save bar — sticky so it's reachable from any section ── */}
-              <div class="border-border bg-bg/90 sticky bottom-0 z-10 -mx-6 -mb-6 flex flex-col gap-3 rounded-b-sm border-t px-6 py-4 backdrop-blur">
+              <div class="border-border bg-bg/90 rounded-b-ui-lg sticky bottom-0 z-10 -mx-6 -mb-6 flex flex-col gap-3 border-t px-6 py-4 backdrop-blur">
                 <Show when={error()}>
                   <Notice tone="danger" alert>
                     {error()}

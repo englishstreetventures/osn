@@ -39,7 +39,10 @@ interface PlusOnePromptProps {
   closed: boolean;
   /** Apply a change to the page's claim result. */
   onChange: (update: (result: ClaimResult) => ClaimResult) => void;
-  /** Placement from the panel that hosts it. */
+  /**
+   * Placement and corner from the panel that hosts it: the corner depends on
+   * whether that panel is itself a card.
+   */
   class?: string;
 }
 
@@ -55,7 +58,7 @@ const NAME_MAX = 100;
  * (WCAG 2.1 SC 1.4.11). 16px on phones, so iOS does not zoom on focus.
  */
 const INPUT =
-  "border-text/55 bg-text/[0.045] font-body text-text focus:border-gold sm:text-ui-base mt-1.5 block w-full cursor-text rounded-sm border px-3 py-2.5 text-base transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)] disabled:cursor-not-allowed disabled:opacity-50";
+  "border-text/55 bg-text/4.5 font-body text-text focus:border-gold sm:text-ui-base rounded-ui-field mt-1.5 block w-full cursor-text border px-3 py-2.5 text-base transition-ui-colors duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ui-focus disabled:cursor-not-allowed disabled:opacity-50";
 
 const LABEL = "font-body text-text-muted text-ui-sm block";
 
@@ -110,7 +113,7 @@ export function PlusOnePrompt(props: PlusOnePromptProps) {
           long word, and every line here that carries one must still wrap
           inside the narrow panel card on a phone. */}
       <section
-        class={`border-gold/30 bg-gold/5 rounded-sm border px-5 py-6 text-left wrap-anywhere ${props.class ?? ""}`}
+        class={`border-gold/30 bg-gold/5 border px-5 py-6 text-left wrap-anywhere ${props.class ?? ""}`}
         aria-labelledby={headingId}
       >
         <h3
@@ -118,7 +121,7 @@ export function PlusOnePrompt(props: PlusOnePromptProps) {
           ref={heading}
           // Focusable by script only: where focus lands when a row goes.
           tabIndex={-1}
-          class="font-display text-gold-ink text-ui-lg mb-1 leading-tight font-light italic"
+          class="font-display text-gold-ink text-ui-lg leading-ui-tight mb-1 font-light italic"
         >
           {props.closed ? (rows().length === 1 ? "Your guest" : "Your guests") : "Bringing a guest"}
         </h3>

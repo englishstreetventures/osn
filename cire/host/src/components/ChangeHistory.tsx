@@ -244,10 +244,10 @@ export default function ChangeHistory(props: { weddingId: string }) {
   }
 
   return (
-    <details class="border-border bg-bg/30 group/history rounded-sm border" onToggle={onToggle}>
+    <details class="border-border bg-bg/30 group/history rounded-ui-lg border" onToggle={onToggle}>
       <summary class="font-body text-text hover:text-gold text-ui-base flex cursor-pointer items-center gap-2 px-4 py-3 transition duration-(--dur-fast) ease-(--ease-out) select-none [&::-webkit-details-marker]:hidden">
         <span
-          class="text-gold inline-block transition-transform group-open/history:rotate-90"
+          class="text-gold inline-block transition-transform duration-(--dur-fast) ease-(--ease-out) group-open/history:rotate-90"
           aria-hidden
         >
           ›

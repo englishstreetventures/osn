@@ -6,6 +6,7 @@ import { Notice } from "@shared/ui/ui/notice";
 import { createSignal, For, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { FORM_FIELD_CLASS } from "../lib/form-field";
 import { haptic } from "../lib/haptics";
 import type { Tier } from "../lib/tiers";
 import type { WeddingRole } from "../lib/wedding-roles";
@@ -119,7 +120,7 @@ export default function CreateWeddingForm(props: {
 
   return (
     <form
-      class="border-border bg-surface/30 flex flex-col gap-4 rounded-sm border p-6"
+      class="border-border bg-surface/30 rounded-ui-lg flex flex-col gap-4 border p-6"
       onSubmit={submit}
     >
       <div class="flex flex-col gap-1">
@@ -131,6 +132,7 @@ export default function CreateWeddingForm(props: {
         {(field) => (
           <Input
             {...field}
+            class={FORM_FIELD_CLASS}
             value={name()}
             maxLength={MAX_DISPLAY_NAME}
             placeholder="e.g. Nadia &amp; Sam"
@@ -146,7 +148,7 @@ export default function CreateWeddingForm(props: {
           <For each={CODE_STYLE_OPTIONS}>
             {(option) => (
               <label
-                class={`flex flex-1 cursor-pointer flex-col gap-1 rounded-sm border p-3 transition-colors duration-(--dur-fast) ease-(--ease-out) ${
+                class={`rounded-ui-field flex flex-1 cursor-pointer flex-col gap-1 border p-3 transition-colors duration-(--dur-fast) ease-(--ease-out) ${
                   codeStyle() === option.value
                     ? "border-gold bg-gold/5"
                     : "border-border bg-bg hover:border-gold/50"
@@ -160,11 +162,10 @@ export default function CreateWeddingForm(props: {
                     checked={codeStyle() === option.value}
                     disabled={busy()}
                     onChange={() => setCodeStyle(option.value)}
-                    class="accent-gold"
                   />
                   <span class="font-body text-text text-ui-base">{option.label}</span>
                 </span>
-                <span class="font-body text-text-muted text-ui-sm pl-6 leading-snug">
+                <span class="font-body text-text-muted text-ui-sm leading-ui-snug pl-6">
                   {option.hint}
                 </span>
               </label>

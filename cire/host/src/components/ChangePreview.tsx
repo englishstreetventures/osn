@@ -296,7 +296,7 @@ export default function ChangePreview(props: ChangePreviewProps) {
       </Show>
 
       <Show when={props.warnings.length > 0}>
-        <div class="border-gold/30 bg-gold/[0.06] flex flex-col gap-1.5 rounded-sm border p-3">
+        <div class="border-gold/30 bg-gold/6 flex flex-col gap-1.5 rounded-sm border p-3">
           <p class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">
             Before you apply
           </p>

@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
  * customisation seeds the controls, and the single "Save invite" action
  * dirty-checks each half and PUTs only what changed — the text body, the theme
  * body, or both in order (a copy-only save must not bump the theme row's
- * `updatedAt`, which doubles as the guest image-cache version — P-W1).
+ * `updatedAt`, which doubles as the guest image-cache version).
  */
 
 vi.mock("@shared/rp-auth/solid", async () => {
@@ -297,7 +297,7 @@ describe("InviteBuilder theme", () => {
 
     // Clean form ⇒ the button is disabled and the bar reports saved state — a
     // gratuitous save must not bump `updatedAt` (it would bust the guest
-    // image-transform caches for zero change, P-W1).
+    // image-transform caches for zero change).
     const save = screen.getByText("Save invite") as HTMLButtonElement;
     expect(save.disabled).toBe(true);
     screen.getByText("All changes saved");
@@ -330,7 +330,7 @@ describe("InviteBuilder theme", () => {
 
     render(() => <InviteBuilder {...WEDDING} />);
     await waitFor(() => screen.getByText("Save invite"));
-    // The inline preview only mounts on its own tab (P-I2).
+    // The inline preview only mounts on its own tab.
     await openSection("Welcome");
 
     // The section fieldset carries its legend AND a live preview card.
@@ -361,7 +361,7 @@ describe("InviteBuilder theme", () => {
 
     render(() => <InviteBuilder {...WEDDING} />);
     await waitFor(() => screen.getByText("Save invite"));
-    // The Hero inline preview only mounts on its own tab (P-I2); "Fog" (the
+    // The Hero inline preview only mounts on its own tab; "Fog" (the
     // Look section's preset picker) is clickable regardless of active tab.
     await openSection(/^Hero/);
 
@@ -603,7 +603,7 @@ describe("InviteBuilder theme", () => {
     await waitFor(() => screen.getByText("Save invite"));
 
     // Each guest-page section has its own labelled preview card — but only
-    // one is mounted at a time now (P-I2), one tab per section.
+    // one is mounted at a time now, one tab per section.
     await openSection(/^Our Story/);
     screen.getByLabelText("Our Story preview");
 
@@ -623,7 +623,7 @@ describe("InviteBuilder theme", () => {
     expect(authFetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("reports which seeds it adjusted for a self-defeating scheme (WT-C-L1)", async () => {
+  it("reports which seeds it adjusted for a self-defeating scheme", async () => {
     // Loaded with text ≈ page: the invite would be near-unreadable. Contrast is
     // now ENFORCED in the derivation rather than merely warned about, so the
     // builder reports what it moved instead of asking the organiser to fix it.
@@ -800,7 +800,7 @@ describe("InviteBuilder theme", () => {
     await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
     expect(sentBody("/text").footerMessage).toBe("Looking forward to celebrating with you");
     // Copy-only edit: the theme half stays untouched so the guest image caches
-    // aren't busted for nothing (P-W1).
+    // aren't busted for nothing.
     expect(sentBody("/theme")).toBeNull();
   });
 
@@ -1086,7 +1086,7 @@ describe("design selector", () => {
     // Gala: left-aligned copy, the events hairline, and the inset code-entry
     // panel — the last of which flows through PreviewPane's own
     // `panel={layout().welcome === "panel"}` wiring, not just the sample's.
-    // The miniature used to be pixel-identical either side of this click.
+    // The miniature must differ on either side of this click.
     await waitFor(() =>
       expect(screen.getAllByTestId("preview-design")[0]!.textContent).toContain("Gala"),
     );
@@ -1595,10 +1595,9 @@ describe("InviteBuilder UX guards", () => {
 
 /**
  * The narrow-container section menu (2026-07-30). Below `@3xl/builder` the
- * tabs can't share a line, and the row used to be a horizontally scrolling
- * strip with Closing and Message parked off the right edge. They now collapse
- * behind a trigger naming the current section and open as a grid that shows
- * every tab at once.
+ * tabs can't share a line, so a horizontally scrolling strip would park
+ * Closing and Message off the right edge. They collapse behind a trigger
+ * naming the current section and open as a grid that shows every tab at once.
  *
  * ONE tablist serves both surfaces (a per-surface copy would give every panel
  * two `aria-labelledby` candidates), so what these tests assert is the
@@ -1654,6 +1653,14 @@ describe("InviteBuilder section menu (narrow containers)", () => {
     );
   });
 
+  /** What `root` draws that holds no words — which is what a status dot is,
+   *  whatever its class — leaving out the eye-off icon and its parts. Every
+   *  other mark on a trigger or a tab is a word, so this is empty. */
+  const wordlessMarks = (root: Element) =>
+    [...root.querySelectorAll("*")].filter(
+      (el) => !el.textContent?.trim() && !el.closest("[data-hidden-icon]"),
+    );
+
   it("fades the trigger's label and marks it with an eye-off icon while the section is hidden, live", async () => {
     await renderBuilder();
     // The label and its icon sit in one span, which carries the fade.
@@ -1661,8 +1668,8 @@ describe("InviteBuilder section menu (narrow containers)", () => {
     const faded = () => label().classList.contains("text-text-faint");
     const icon = () => trigger().querySelector("[data-hidden-icon]");
 
-    // No dot anywhere on the trigger.
-    expect(trigger().querySelector(".rounded-full")).toBeNull();
+    // No dot anywhere on the trigger: every mark on it is a word.
+    expect(wordlessMarks(trigger())).toEqual([]);
 
     // Design has no Shown/Hidden state at all — no fade, no icon.
     expect(faded()).toBe(false);
@@ -1674,7 +1681,8 @@ describe("InviteBuilder section menu (narrow containers)", () => {
     expect(icon()).not.toBeNull();
     // Decoration only: the trigger's `aria-label` carries the state.
     expect(icon()!.getAttribute("aria-hidden")).toBe("true");
-    expect(trigger().querySelector(".rounded-full")).toBeNull();
+    // The icon is the one wordless mark, and it is the eye-off, never a dot.
+    expect(wordlessMarks(trigger())).toEqual([]);
 
     // Both lift the instant an edit gives the section content — it's the whole
     // reason the trigger can be read instead of opened.
@@ -1689,8 +1697,8 @@ describe("InviteBuilder section menu (narrow containers)", () => {
     const icon = (name: string | RegExp) => tab(name).querySelector("[data-hidden-icon]");
     const has = (el: HTMLElement, cls: string) => el.classList.contains(cls);
 
-    // No dot in any tab.
-    expect(tablist().querySelector(".rounded-full")).toBeNull();
+    // No dot in any tab: every mark in the strip is a word or the eye-off.
+    expect(wordlessMarks(tablist())).toEqual([]);
 
     // Not selected, and hidden: faded, NOT the plain unselected ink, and marked
     // with the icon — the cue that is not colour — so "hidden" never reads as
@@ -1957,10 +1965,10 @@ describe("InviteBuilder section menu (narrow containers)", () => {
 });
 
 /**
- * Which preview layer is MOUNTED (perf P-I1). Both layers used to be mounted at
- * every width with a container query hiding one, so the idle layer still took
- * every token write on every keystroke and colour drag. The builder now measures
- * its own container and mounts only the matching layer.
+ * Which preview layer is MOUNTED. Mounting both at every width with a
+ * container query hiding one would leave the idle layer taking every token
+ * write on every keystroke and colour drag. The builder measures its own
+ * container and mounts only the matching layer.
  *
  * happy-dom runs no layout, so a real `ResizeObserver` would never report a
  * width — these tests supply one that reports the width under test, which is the
@@ -2022,7 +2030,7 @@ describe("InviteBuilder preview layer", () => {
     // Design (the default tab) has no inline preview at all.
     expect(inlinePreviewCount()).toBe(0);
 
-    // Switching tabs mounts exactly the active section's preview (P-I2) — a
+    // Switching tabs mounts exactly the active section's preview — a
     // hidden tab's inline preview is unmounted, not merely hidden, so it
     // isn't re-rendering on every keystroke for no one to see.
     await openSection(/^Hero/);
@@ -2107,7 +2115,7 @@ describe("InviteBuilder preview layer", () => {
     // No ResizeObserver (and a 0-width report means `display: none`, not narrow)
     // — unmounting a layer we can't measure could leave the organiser with no
     // preview at all, so the CSS classes stay in charge and both are mounted.
-    // The inline layer is additionally gated to the active tab (P-I2), so
+    // The inline layer is additionally gated to the active tab, so
     // switch to one that carries a preview to exercise the overlap.
     vi.stubGlobal("ResizeObserver", undefined);
     await renderBuilder();

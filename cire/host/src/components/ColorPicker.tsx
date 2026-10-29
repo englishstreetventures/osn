@@ -7,6 +7,9 @@ import { type Color, parseColor } from "@kobalte/core/colors";
 import { Popover } from "@kobalte/core/popover";
 import { Input } from "@shared/ui/ui/input";
 import { createEffect, createSignal, createUniqueId, Show } from "solid-js";
+
+import { FORM_FIELD_CLASS } from "../lib/form-field";
+
 /**
  * The colour a picker shows when nothing is set and the caller names no
  * fallback. Callers that know the real default — the scheme editor, which knows
@@ -188,7 +191,7 @@ export default function ColorPicker(props: {
    * passes through its own three-digit prefix on the way in, so expanding on
    * blur silently rewrites the far more common case.
    *
-   * A discard SAYS SO (C-L3). Snapping the field back is visible to anyone
+   * A discard SAYS SO. Snapping the field back is visible to anyone
    * watching it and invisible to everyone else, so a discarded entry also sets
    * `aria-invalid` and posts a line naming what was kept — otherwise a screen
    * reader user leaves the field believing the colour they typed was applied.
@@ -214,7 +217,7 @@ export default function ColorPicker(props: {
         <Popover gutter={8} placement="bottom-start">
           <Popover.Trigger
             aria-label={`${props.label} colour`}
-            class="border-border bg-bg hover:border-gold focus-visible:border-gold focus-visible:ring-gold/40 flex items-center gap-2 rounded-sm border px-2 py-1.5 transition duration-(--dur-fast) ease-(--ease-out) outline-none focus-visible:ring-2"
+            class="border-border bg-bg hover:border-gold focus-visible:border-gold focus-visible:ring-gold/40 rounded-ui-field flex items-center gap-2 border px-2 py-1.5 transition duration-(--dur-fast) ease-(--ease-out) outline-none focus-visible:ring-2"
           >
             <ColorSwatch
               value={display()}
@@ -230,7 +233,7 @@ export default function ColorPicker(props: {
             </Show>
           </Popover.Trigger>
           <Popover.Portal>
-            <Popover.Content class="border-border bg-surface-raised menu-pop z-50 flex w-56 flex-col gap-3 rounded-sm border p-3 shadow-lg outline-none">
+            <Popover.Content class="border-border bg-surface-raised menu-pop z-50 flex w-56 flex-col gap-3 rounded-md border p-3 shadow-(--elev-2) outline-none">
               <ColorArea
                 colorSpace="hsb"
                 xChannel="saturation"
@@ -274,6 +277,7 @@ export default function ColorPicker(props: {
                     error `Field` would announce. */}
                 <Input
                   size="sm"
+                  class={FORM_FIELD_CLASS}
                   id={hexId}
                   value={hexText()}
                   onInput={(e) => onHexInput(e.currentTarget)}

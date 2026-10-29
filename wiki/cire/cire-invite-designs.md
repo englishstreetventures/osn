@@ -12,7 +12,7 @@ related:
   - "[[frontend-patterns]]"
   - "[[cire-rsvp-deadline]]"
   - "[[component-library]]"
-last-reviewed: 2026-10-28
+last-reviewed: 2026-10-29
 ---
 # Invite design selector
 
@@ -281,7 +281,7 @@ server HTML, and fails when the catalog gains a pack it does not list.
 ## Event card states
 
 [`EventCard`](../../cire/invites/src/components/EventCard.tsx) has two
-buttons: Event Details, always, and the answer button, whose label, fill and
+buttons: Event details, always, and the answer button, whose label, fill and
 presence follow the household's replies and the RSVP deadline
 ([[cire-rsvp-deadline]]). Both packs pass the same three facts: `responded`
 (every invited member has a reply, `hasHouseholdResponded`), `replied` (at
@@ -309,11 +309,12 @@ least one has, `hasAnyHouseholdReply`; plus-ones excluded, any status) and
   invite eases its opacity under a label.
 - **The "RSVPs closed" badge** sits after the `<h3>` in a shared row
   (`flex-wrap items-baseline`), never inside the heading, in the closed
-  notice's treatment: `border-border text-text-muted rounded-sm border`, the
-  `text-ui-xs` uppercase micro-label, `whitespace-nowrap`, no tint. At 320px a
-  long name pushes it onto its own line rather than past the card's edge.
+  notice's treatment: `border-border text-text-muted rounded-sm border` (the
+  6px step a text badge takes), the `text-ui-xs` uppercase micro-label,
+  `whitespace-nowrap`, no tint. At 320px a long name pushes it onto its own
+  line rather than past the card's edge.
 - **No inert button.** Closed with no reply, the answer button unmounts; when
-  it held focus, focus moves to Event Details.
+  it held focus, focus moves to Event details.
 
 Every gold button on the invite writes its label in `--color-on-gold`: the
 hand-written fills (`text-on-gold`, including the hover and focus states that
@@ -330,7 +331,7 @@ on every preset, at rest and on hover).
 
 ## The event sheet
 
-Each event card has two buttons, Event Details and the answer button
+Each event card has two buttons, Event details and the answer button
 ([[#Event card states]]). Both open one dialog, [`EventSheet`](../../cire/invites/src/components/EventSheet.tsx),
 holding two panels: [`DetailsPanel`](../../cire/invites/src/components/DetailsPanel.tsx)
 (the key facts, then the occasion — [[#The details panel]]) and
@@ -398,9 +399,10 @@ event and the panel to open on.
   your RSVP →" on the details past the deadline, for a household with a reply
   on file), each arrow pointing the way the guest can also swipe. It is one
   `Button` of `@cire/ui`'s `chip` variant ([[component-library]], cire's
-  `Button`): a pill matching the round close button, `rounded-full`, an accent
-  hairline, the opaque surface fill, the `text-ui-xs` tracked uppercase of the
-  invite's labels in the prose gold, 44px tall (`min-h-11`).
+  `Button`): a pill matching the round close button (the `pill` step,
+  `rounded-ui-pill`, whatever `control` is), an accent hairline, the opaque
+  surface fill, a sentence-case label at `text-ui-xs` and medium weight in
+  `--color-gold-ink`, 44px tall (`min-h-11`).
   - **Two labels in one button.** Both labels sit stacked in one grid cell,
     so the badge is always as wide as the wider of them ("← See details" on
     an open invite, "View your RSVP →" past the deadline) and never changes
@@ -422,7 +424,8 @@ event and the panel to open on.
     width they have covered on every frame, held between 0 and 1 so a pull
     past either end moves the panels and not the words. Then nothing eases
     (`data-dragging` turns the transition off); after a press the words ease
-    on `transition-badge-settle`, the panels' own 280ms and curve, as inline
+    on `transition-badge-settle`, the panels' own `--dur-base` and
+    `--ease-out`, as inline
     `transform`s so one transition list covers the opacity and the slide.
     Under reduced motion the global clamp makes it instant.
   - **Its states.** Shown on the form always, and on the details while the
@@ -525,13 +528,14 @@ event and the panel to open on.
   names its build.
 - **Motion.** The arriving panel fades in while sliding the last 1.5rem from
   its own side — the details from the start, the form from the end, the order
-  of the card's buttons — over 280ms (`animate-panel-from-*` in
+  of the card's buttons — over `--dur-base` on `--ease-out` (200ms on touch,
+  150ms with a fine pointer; `animate-panel-from-*` in
   `src/styles/global.css`). The panel the sheet opens on does not slide; it
   arrives with the sheet, and one that arrived by a swipe does not slide
   again: it springs from where the finger let go to rest, at the finger's
   speed, before the switch. The badge's words move in step with both: with
-  the panels through a swipe and its spring, and on the same 280ms after a
-  press. Until the slide ends the arriving panel takes no
+  the panels through a swipe and its spring, and on the same `--dur-base`
+  after a press. Until the slide ends the arriving panel takes no
   pointer input, so the second tap of a double tap cannot land on a control it
   has not shown yet, and the panels' wrapper clips sideways overflow, which
   the sliding form's full-bleed action bar would otherwise cause. Outside a
@@ -582,7 +586,7 @@ on screen, the details scrolled 200px under the bar, the badge's words
 part-way under a held swipe, with screenshots of both panels, the scrolled
 bar and the mid-swipe), both packs' `InvitePage.test.tsx` (which panel each
 button opens, on every open) and `InvitePage.browser.test.tsx` (the round
-trip in each pack, ending with focus on Event Details).
+trip in each pack, ending with focus on Event details).
 
 ### The details panel
 
@@ -734,6 +738,75 @@ reads them in the preview's sheet — the blocks in order, the run of show in
 time order, no "Plus-ones welcome" for the organiser's own household — its
 claim response and its `.ics` file, and in the sheet of a household allowed a
 plus-one, which is told plus-ones are welcome.
+
+## Corners, labels and motion
+
+Every design paints the corner roles of the four cire apps, at the same values
+as the portals (`cire/host/DESIGN.md` §4);
+`cire/vendor/tests/styles/tokens.test.ts` reads this site's
+`src/styles/global.css` and fails if a role, a step or the motion ladder
+differs. On the guest site each corner paints:
+
+| Corner | Paints |
+|---|---|
+| pill, `rounded-ui-control` | Respond, the RSVP sheet's Attending / Not attending pair and Save, every `@cire/ui` `Button` action, the gift amount choices, and the focus ring of a hand-written text link, to match the ring `Button`'s borderless variants draw |
+| 14px, `rounded-ui-field` | every input and textarea (the code field, email, a plus-one's name, "Anything else", the gift fields); a framed picture and its crop box (the event photo, both packs' story photo, the map embed and drawn map card, the gift teaser and fund thumbnails); a gift fund row; the answer on file past the deadline, a value box standing where the answer pair would be |
+| 16px, `rounded-ui-lg` | the event card, gala's code-entry card, both packs' hero title panel, the gift money panel and the gift item card, whose `overflow-hidden` clips its picture to the corner |
+| 1.75rem, `rounded-t-ui-sheet` | the top corners of a bottom sheet (`Modal presentation="sheet"`) |
+| 10px, `rounded-md` | the link menu |
+| 6px, `rounded-sm` | notices — closed, preview mode, the RSVP deadline, "You reserved…", the gift page's payment, signed-out and preview notices, a legal page's draft banner and owner note — and the blocked-content placeholders (`MoodboardBlock`, `ConsentPlaceholder`); the "RSVPs closed" badge; the link menu's rows; a box nested in a modal (the RSVP sheet's member fieldsets, the consent sheet's switch rows) or in a card (the household boxes inside gala's card); the gift page's "Send gifts to" address box |
+| 2px, `--radius-hair` | a legal page's inline placeholder (`.placeholder`), about 16px tall, where 6px would draw a near-pill |
+| round, `rounded-full` | the sheet's close cross, the dress-code colour circles, avatars, the gift radio marks, the spinner, the map pin's shadow |
+
+- **Fields keep this site's own heights.** The portals' one form-field height
+  (34px, `cire/host/DESIGN.md` §4) does not reach the guest site, which is not a
+  portal (owner, 2026-10-29): each field stays at the height its padding gives
+  it, so a guest's tap target does not shrink.
+- **An unchecked checkbox or radio sits on its surface**: no fill, a 1px
+  `--ui-hairline-strong` edge, the native box's 13px and 2px corner (a radio
+  round), drawn in `global.css`'s base layer. A ticked one is the browser's own,
+  blue with a white tick: no box carries an `accent-*` class, and
+  `tests/styles/checkbox-accent.test.ts` fails on one (owner, 2026-10-29;
+  `cire/host/DESIGN.md` §4, Checkboxes and radios).
+- **The household's boxes take their corner from the layout.** The plus-one
+  prompt, the email box and the account link draw no corner of their own; the
+  `box` field of `LoginSection`'s `LAYOUTS` sets it. On classic's band they sit
+  on the page and take the card corner, `rounded-ui-lg`. Inside gala's 16px
+  card they take `rounded-sm`: a box inside another takes the outer corner less
+  the padding between them, to the nearest step.
+- **The owner note** on a legal page is square on its ruled side
+  (`0 var(--radius-sm) var(--radius-sm) 0`), so the 2px rule stays straight.
+- **The closing band image is square.** It runs edge to edge below 1536px and
+  has no frame.
+
+**Labels.** A button's or a link's label is sentence case in the source —
+"Event details", "Respond", "RSVP given", "Open invitation", "Attending",
+"Save choices", "See the gift list", "Back to the invitation" — and shows as
+written, at normal tracking, with a medium weight on a boxed label. Lato loads
+300, 400 and 700 only, so the medium weight draws the 400 face. Proper names
+keep their capitals: "Google Calendar", "Apple Maps", "musubi", and the
+footer's "Privacy Notice" and "Privacy Choices", the names of the legal
+document and of the control the guest privacy notice quotes by name
+(`cire/ui/src/guest-privacy-notice.astro`). Small caps stay on what is not a
+label: eyebrows, the details panel's section heads, field labels, the "RSVPs
+closed" badge, the account link's status word, the preview-mode notice, the
+gift list's header row and the code field's typed value. Headings keep each
+design's own case.
+
+**Motion.** The site carries the portals' ladder: `--dur-fast`, `--dur-base`
+and `--dur-slow`, shorter under `pointer: fine`, and the house easings, so
+Tailwind's `ease-out` class reads the house curve. A hover, a focus or a press
+runs on `--dur-fast` and `--ease-out`; the sheet's panel swap, the badge's
+words after a press, Respond's label ink following the bloom fill and the FAQ
+body's arrival run on `--dur-base`. Choreography longer than `--dur-slow` keeps
+its own timing:
+
+- the bloom fill, 500ms (`SWEEP_DURATION_MS` in `rsvp-responded.ts`);
+- the tick, 340ms after 180ms (`TICK_DURATION_MS`, `TICK_DELAY_MS`);
+- the hero scroll cue's fade, delay and drift, and its 500ms fade on the first
+  scroll;
+- the hero backdrop's 700ms fade-in and the closing band's 500ms width;
+- each pack's unlock reveal (`UnlockReveal.motion.ts`, Motion One).
 
 ## Edges in mobile Safari
 

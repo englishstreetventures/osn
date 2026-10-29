@@ -30,6 +30,7 @@ import {
   revalidateBudget,
   setCachedBudget,
 } from "../lib/budget-store";
+import { FORM_ACTION_CLASS, FORM_FIELD_CLASS } from "../lib/form-field";
 import { haptic } from "../lib/haptics";
 import { belowSmallestUnitError, formatMinor, minorToInput, parseMinor } from "../lib/money";
 import { categoryLabel, SERVICE_CATEGORIES, type ServiceCategory } from "../lib/service-categories";
@@ -489,7 +490,7 @@ export default function BudgetView(props: BudgetViewProps) {
       </Show>
 
       {/* Summary — spent vs cap, owner cap editor. */}
-      <div class="border-border bg-surface/20 flex flex-wrap items-center justify-between gap-4 rounded-sm border p-4">
+      <div class="border-border bg-surface/20 rounded-ui-lg flex flex-wrap items-center justify-between gap-4 border p-4">
         <div class="flex flex-col gap-1">
           <span class="text-gold-dim font-body text-ui-xs tracking-ui-widest uppercase">
             Spent so far
@@ -535,6 +536,7 @@ export default function BudgetView(props: BudgetViewProps) {
                 {(field) => (
                   <Input
                     {...field}
+                    class={FORM_FIELD_CLASS}
                     type="number"
                     min="0"
                     step={MONEY_STEP}
@@ -543,10 +545,10 @@ export default function BudgetView(props: BudgetViewProps) {
                   />
                 )}
               </Field>
-              <Button variant="primary" onClick={saveCap}>
+              <Button class={FORM_ACTION_CLASS} variant="primary" onClick={saveCap}>
                 Save
               </Button>
-              <Button variant="quiet" onClick={() => setCapDraft(null)}>
+              <Button class={FORM_ACTION_CLASS} variant="quiet" onClick={() => setCapDraft(null)}>
                 Cancel
               </Button>
             </div>
@@ -558,12 +560,13 @@ export default function BudgetView(props: BudgetViewProps) {
       <Show when={props.canEdit}>
         <form
           onSubmit={addItem}
-          class="border-border bg-surface/20 flex flex-wrap items-end gap-3 rounded-sm border p-4"
+          class="border-border bg-surface/20 rounded-ui-lg flex flex-wrap items-end gap-3 border p-4"
         >
           <Field label="Category">
             {(field) => (
               <Select
                 {...field}
+                class={FORM_FIELD_CLASS}
                 value={newCategory()}
                 onChange={(e) => setNewCategory(e.currentTarget.value as ServiceCategory)}
               >
@@ -577,6 +580,7 @@ export default function BudgetView(props: BudgetViewProps) {
             {(field) => (
               <Input
                 {...field}
+                class={FORM_FIELD_CLASS}
                 value={newName()}
                 onInput={(e) => setNewName(e.currentTarget.value)}
                 placeholder="Caterer, venue, band…"
@@ -600,6 +604,7 @@ export default function BudgetView(props: BudgetViewProps) {
             {(field) => (
               <Input
                 {...field}
+                class={FORM_FIELD_CLASS}
                 type="number"
                 min="0"
                 step={MONEY_STEP}
@@ -608,7 +613,7 @@ export default function BudgetView(props: BudgetViewProps) {
               />
             )}
           </Field>
-          <Button type="submit" variant="primary">
+          <Button class={FORM_ACTION_CLASS} type="submit" variant="primary">
             Add item
           </Button>
         </form>
@@ -689,9 +694,9 @@ export default function BudgetView(props: BudgetViewProps) {
                                         style={maybeTransformStyle(sortable.transform())}
                                         class="border-border bg-surface/10 relative flex flex-col gap-2 rounded-sm border px-3 py-2"
                                         classList={{
-                                          "border-gold/60 bg-surface/80 z-10 shadow-lg":
+                                          "border-gold/60 bg-surface/80 z-10 shadow-(--elev-2)":
                                             sortable.isActiveDraggable(),
-                                          "transition-transform":
+                                          "transition-transform duration-(--dur-base) ease-(--ease-in-out)":
                                             dndState.dragging() && !sortable.isActiveDraggable(),
                                         }}
                                       >
@@ -845,6 +850,7 @@ function MoneyCell(props: {
       >
         <Input
           size="sm"
+          class={FORM_FIELD_CLASS}
           type="number"
           min="0"
           step={MONEY_STEP}
@@ -918,6 +924,7 @@ function PaymentPanel(props: {
               <Input
                 {...field}
                 size="sm"
+                class={FORM_FIELD_CLASS}
                 value={label()}
                 onInput={(e) => setLabel(e.currentTarget.value)}
                 placeholder="Deposit"
@@ -929,6 +936,7 @@ function PaymentPanel(props: {
               <Input
                 {...field}
                 size="sm"
+                class={FORM_FIELD_CLASS}
                 type="number"
                 min="0"
                 step={MONEY_STEP}
@@ -943,13 +951,14 @@ function PaymentPanel(props: {
               <Input
                 {...field}
                 size="sm"
+                class={FORM_FIELD_CLASS}
                 type="date"
                 value={due()}
                 onInput={(e) => setDue(e.currentTarget.value)}
               />
             )}
           </Field>
-          <Button type="submit" variant="outline" size="sm">
+          <Button class={FORM_ACTION_CLASS} type="submit" variant="outline" size="sm">
             Add payment
           </Button>
         </form>

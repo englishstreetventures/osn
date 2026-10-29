@@ -1,3 +1,4 @@
+import Button from "@cire/ui/button";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
 import { Modal } from "@shared/ui/ui/modal";
@@ -163,7 +164,7 @@ export default function UpgradeDialog(props: UpgradeDialogProps) {
           <h3 class="font-display text-text text-ui-lg font-light">
             {entry()?.title ?? props.title}
           </h3>
-          <p class="text-text-muted text-ui-sm leading-snug">{entry()?.blurb ?? props.blurb}</p>
+          <p class="text-text-muted text-ui-sm leading-ui-snug">{entry()?.blurb ?? props.blurb}</p>
         </header>
 
         <Switch>
@@ -205,25 +206,20 @@ export default function UpgradeDialog(props: UpgradeDialogProps) {
         </Show>
 
         <div class="flex items-center gap-3">
-          <button
+          <Button
+            variant="primary"
             type="button"
             disabled={submitting() || entry() === null || held()}
             onClick={() => void handleBuy()}
-            class="bg-gold text-bg tracking-ui-wider text-ui-sm rounded-sm px-4 py-1.5 uppercase disabled:opacity-60"
           >
             {submitting() ? "Opening checkout…" : "Continue to payment"}
-          </button>
-          <button
-            type="button"
-            autofocus
-            onClick={dismiss}
-            class="text-text-muted hover:text-text text-ui-sm"
-          >
+          </Button>
+          <Button variant="subtle" type="button" autofocus onClick={dismiss}>
             Cancel
-          </button>
+          </Button>
         </div>
 
-        <p class="text-text-faint text-ui-xs leading-snug">
+        <p class="text-text-faint text-ui-xs leading-ui-snug">
           Payment is handled by Stripe. You will come back here once it is done.
         </p>
       </div>

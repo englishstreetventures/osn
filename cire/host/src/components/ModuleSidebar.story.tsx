@@ -74,7 +74,9 @@ function Shell(props: { width: string; wide?: boolean; children: JSX.Element }) 
  *  having to find this file. */
 function Guidance(props: { children: JSX.Element }) {
   return (
-    <p class="font-body text-text-muted text-ui-sm max-w-prose leading-relaxed">{props.children}</p>
+    <p class="font-body text-text-muted text-ui-sm leading-ui-normal max-w-prose">
+      {props.children}
+    </p>
   );
 }
 

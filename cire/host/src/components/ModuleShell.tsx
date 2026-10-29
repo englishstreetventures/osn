@@ -653,7 +653,7 @@ export default function ModuleShell(props: ModuleShellProps) {
                       onPointerEnter={() => warmPanel(module(), subTab.id)}
                       onFocus={() => warmPanel(module(), subTab.id)}
                       onClick={() => props.onSub(subTab.id)}
-                      class={`font-body text-ui-xs tracking-ui-wider relative flex items-center gap-2 rounded-sm py-1.5 whitespace-nowrap uppercase transition-colors duration-(--dur-fast) ease-(--ease-out) ${
+                      class={`font-body text-ui-xs tracking-ui-wider transition-ui-colors relative flex items-center gap-2 rounded-sm py-1.5 whitespace-nowrap uppercase duration-(--dur-fast) ease-(--ease-out) ${
                         iconTabs() ? "px-3.5" : "px-3"
                       } ${
                         active() === subTab.id
@@ -721,7 +721,7 @@ export default function ModuleShell(props: ModuleShellProps) {
               <h2
                 ref={heading}
                 tabindex="-1"
-                class="font-display text-text text-ui-lg leading-none font-light"
+                class="font-display text-text text-ui-lg leading-ui-none font-light"
               >
                 {moduleDef(module()).label}
               </h2>

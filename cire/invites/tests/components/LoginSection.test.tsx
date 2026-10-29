@@ -278,7 +278,7 @@ describe("LoginSection returning household", () => {
 
   /** The welcome half's greeting — every `h2` but the code form's. */
   const greeting = (container: HTMLElement) =>
-    [...container.querySelectorAll("h2")].find((h) => h.textContent !== "Enter Your Code");
+    [...container.querySelectorAll("h2")].find((h) => h.textContent !== "Enter your code");
 
   afterEach(() => {
     setReturningHousehold(false);
@@ -753,7 +753,7 @@ describe("LoginSection sign-out control", () => {
 
     expect(turnstile.reset).toHaveBeenCalledTimes(1);
     fireEvent.input(getByLabelText("Invitation code"), { target: { value: "PATEL-JOY-RK97" } });
-    const submit = getByText("Open Invitation") as HTMLButtonElement;
+    const submit = getByText("Open invitation") as HTMLButtonElement;
     // The spent token is gone with the old claim…
     expect(submit.disabled).toBe(true);
     // …and the fresh challenge is what lets the guest submit again.
@@ -788,13 +788,40 @@ describe("LoginSection claim", () => {
     fireEvent.input(getByLabelText("Invitation code"), {
       target: { value: "OKAFOR-LILY-AB12CD" },
     });
-    fireEvent.click(getByText("Open Invitation"));
+    fireEvent.click(getByText("Open invitation"));
 
     await waitFor(() => expect(onClaimed).toHaveBeenCalledTimes(1));
     window.removeEventListener(CLAIM_SESSION_EVENT, listener);
     expect(onClaimed.mock.calls[0]![0]).toEqual(claimed);
     expect(document.cookie).toContain("cire_claimed=1");
     expect(claimedBeforeAnnounce).toEqual([1]);
+  });
+
+  it("names the button Checking… and disables it while the code is checked", async () => {
+    const claimed = result([member("Chidi")]);
+    let settle: (response: Response) => void = noop;
+    fetchMock.mockReturnValue(new Promise<Response>((resolve) => (settle = resolve)));
+    const onClaimed = vi.fn();
+    const { getByLabelText, getByText, getByRole } = render(() => (
+      <LoginSection apiUrl="https://api.test" result={null} onClaimed={onClaimed} />
+    ));
+
+    fireEvent.input(getByLabelText("Invitation code"), {
+      target: { value: "OKAFOR-LILY-AB12CD" },
+    });
+    fireEvent.click(getByText("Open invitation"));
+
+    const checking = await waitFor(() => getByRole("button", { name: "Checking…" }));
+    expect((checking as HTMLButtonElement).disabled).toBe(true);
+    expect(onClaimed).not.toHaveBeenCalled();
+
+    settle(
+      new Response(JSON.stringify(claimed), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    await waitFor(() => expect(onClaimed).toHaveBeenCalledTimes(1));
   });
 
   it("writes no hint when the claim fails", async () => {
@@ -805,7 +832,7 @@ describe("LoginSection claim", () => {
     ));
 
     fireEvent.input(getByLabelText("Invitation code"), { target: { value: "WRONG-CODE" } });
-    fireEvent.click(getByText("Open Invitation"));
+    fireEvent.click(getByText("Open invitation"));
 
     await findByRole("alert");
     expect(onClaimed).not.toHaveBeenCalled();
@@ -858,7 +885,7 @@ describe("LoginSection claim", () => {
     fireEvent.input(getByLabelText("Invitation code"), {
       target: { value: "OKAFOR-LILY-AB12CD" },
     });
-    fireEvent.click(getByText("Open Invitation"));
+    fireEvent.click(getByText("Open invitation"));
 
     await waitFor(() => expect(onClaimed).toHaveBeenCalledTimes(1));
     expect(document.cookie).toContain(c.hint);
@@ -875,27 +902,37 @@ describe("LoginSection layout", () => {
     );
   }
 
+  /**
+   * Every box drawn by hand inside `root`: a descendant with a whole border of
+   * its own. `Button` draws its frame through `base:` utilities, so the submit
+   * is not one of them.
+   */
+  function boxes(root: HTMLElement): HTMLElement[] {
+    return [...root.querySelectorAll<HTMLElement>("*")].filter((el) =>
+      el.classList.contains("border"),
+    );
+  }
+
   it("band: paints the tone across the whole section, on a centred column", () => {
     // Classic's shape, and the default — a pack that passes no layout gets a
     // working panel with no markup of its own.
-    const { container, getByText } = render(() => (
+    const { container, getByText, getByLabelText } = render(() => (
       <LoginSection apiUrl="http://x" result={null} onClaimed={noop} themeVars={surface} />
     ));
-    const section = getByText("Enter Your Code").closest("section") as HTMLElement;
+    const section = getByText("Enter your code").closest("section") as HTMLElement;
 
     expect(painted(container)).toEqual([section]);
     expect(section.style.getPropertyValue("--invite-section-bg")).toBe("var(--color-surface)");
     expect(section.className).toContain("border-b");
-    expect(getByText("Enter Your Code").closest(".text-center")).not.toBeNull();
-    // No inset card inside the band (the field and the preview chip draw their
-    // own borders; neither is a `div`).
-    expect(section.querySelector("div.rounded-sm.border")).toBeNull();
+    expect(getByText("Enter your code").closest(".text-center")).not.toBeNull();
+    // No inset card inside the band: the code field is the only box in it.
+    expect(boxes(section)).toEqual([getByLabelText("Invitation code")]);
   });
 
   it("panel: paints only a bordered card, centred on phones and flush left from md", () => {
     // Gala's shape. The tone belongs to the card, not the section around it:
     // painting the section would turn the inset card back into a band.
-    const { container, getByText } = render(() => (
+    const { container, getByText, getByLabelText } = render(() => (
       <LoginSection
         apiUrl="http://x"
         result={null}
@@ -904,17 +941,22 @@ describe("LoginSection layout", () => {
         layout="panel"
       />
     ));
-    const section = getByText("Enter Your Code").closest("section") as HTMLElement;
+    const section = getByText("Enter your code").closest("section") as HTMLElement;
     const [card] = painted(container);
 
     expect(painted(container)).toHaveLength(1);
     expect(card).not.toBe(section);
     expect(section.contains(card!)).toBe(true);
     expect(card!.style.getPropertyValue("--invite-section-bg")).toBe("var(--color-surface)");
+    // The card's corner is a card's, the one the organiser's preview draws for
+    // this panel; inside it the code field is the only other box.
     const classes = card!.className.split(/\s+/);
-    expect(classes).toEqual(expect.arrayContaining(["border", "max-w-column-xs", "md:mx-0"]));
+    expect(classes).toEqual(
+      expect.arrayContaining(["border", "rounded-ui-lg", "max-w-column-xs", "md:mx-0"]),
+    );
+    expect(boxes(section)).toEqual([card, getByLabelText("Invitation code")]);
     // Left-aligned copy, against the band's centred column.
-    expect(getByText("Enter Your Code").closest(".text-center")).toBeNull();
+    expect(getByText("Enter your code").closest(".text-center")).toBeNull();
   });
 
   it.each<LoginSectionLayout>(["band", "panel"])(
@@ -1203,7 +1245,7 @@ describe("LoginSection code field", () => {
     // tone (ground / card / raised), so a fixed surface token would vanish on
     // the tone that matches it. Ink adapts to any palette in the right
     // direction — darkening a light scheme, lightening a dark one.
-    expect(cls).toContain("bg-text/[0.045]");
+    expect(cls).toContain("bg-text/4.5");
     expect(cls).toContain("border-text/55");
     // `border-border` is the same ink at 0.12 — the hairline this replaced, and
     // the reason the field read as flat page on a pale scheme.
@@ -1224,7 +1266,7 @@ describe("LoginSection code field", () => {
     // only input, and the ring is what keeps keyboard users oriented.
     const cls = codeInput().className;
     expect(cls).toContain("focus:border-gold");
-    expect(cls).toContain("focus-visible:outline-[var(--invite-focus)]");
+    expect(cls).toContain("focus-visible:outline-ui-focus");
   });
 });
 

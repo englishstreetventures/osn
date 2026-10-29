@@ -19,6 +19,8 @@ import { Select } from "@shared/ui/ui/select";
 import { Textarea } from "@shared/ui/ui/textarea";
 import EyeOff from "lucide-solid/icons/eye-off";
 import { createUniqueId, For, type JSX, Show } from "solid-js";
+
+import { FORM_FIELD_CLASS } from "../../lib/form-field";
 const LABEL_CLASS = "font-body text-text-muted text-ui-sm";
 
 /**
@@ -66,6 +68,7 @@ export function TextField(props: {
         </Show>
       </span>
       <Input
+        class={FORM_FIELD_CLASS}
         id={id}
         placeholder={props.placeholder}
         value={props.value}
@@ -127,7 +130,11 @@ export function ChoiceField(props: {
   return (
     <label class="flex flex-col gap-1.5">
       <span class={LABEL_CLASS}>{props.label}</span>
-      <Select value={props.value} onChange={(e) => props.onChange(e.currentTarget.value)}>
+      <Select
+        class={FORM_FIELD_CLASS}
+        value={props.value}
+        onChange={(e) => props.onChange(e.currentTarget.value)}
+      >
         <For each={props.options}>{(opt) => <option value={opt.value}>{opt.label}</option>}</For>
       </Select>
     </label>
@@ -371,7 +378,7 @@ export function SectionCard(props: {
                   <input
                     type="checkbox"
                     data-visibility-switch
-                    class="accent-gold h-4 w-4 shrink-0 cursor-pointer"
+                    class="h-4 w-4 shrink-0 cursor-pointer"
                     checked={visibility().visible}
                     onChange={(e) => visibility().onChange(e.currentTarget.checked)}
                   />
@@ -406,10 +413,10 @@ export function SectionCard(props: {
 export function Disclosure(props: { summary: string; hint?: string; children: JSX.Element }) {
   return (
     <details class="border-border rounded-sm border">
-      <summary class="font-body text-text-muted hover:text-text text-ui-sm tracking-ui-wide cursor-pointer px-3 py-2 uppercase select-none">
+      <summary class="font-body text-text-muted hover:text-text text-ui-sm cursor-pointer px-3 py-2 select-none">
         {props.summary}
         <Show when={props.hint}>
-          <span class="text-text-muted/70 ml-2 normal-case italic">{props.hint}</span>
+          <span class="text-text-muted/70 ml-2 italic">{props.hint}</span>
         </Show>
       </summary>
       <div class="flex flex-col gap-4 px-3 pt-1 pb-3">{props.children}</div>

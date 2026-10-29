@@ -101,8 +101,8 @@ test("cire-rsvp", async ({ page, context, flow }) => {
 
   await flow.step("enter the family code", async () => {
     await page.getByLabel("Invitation code").fill(CIRE_GUEST.code);
-    await expect(page.getByRole("button", { name: "Open Invitation" })).toBeEnabled();
-    await page.getByRole("button", { name: "Open Invitation" }).click();
+    await expect(page.getByRole("button", { name: "Open invitation" })).toBeEnabled();
+    await page.getByRole("button", { name: "Open invitation" }).click();
     await expect(page.getByText(CIRE_GUEST.guestName).first()).toBeVisible();
   });
 
@@ -162,7 +162,7 @@ test("cire-rsvp", async ({ page, context, flow }) => {
     await page
       .getByRole("article")
       .filter({ has: page.getByRole("heading", { name: "Catholic Ceremony" }) })
-      .getByRole("button", { name: "Event Details" })
+      .getByRole("button", { name: "Event details" })
       .click();
     await expect(sheet.getByRole("heading", { name: /^Details.*Catholic Ceremony/ })).toBeVisible();
     await expect(giveRsvp).toBeVisible();

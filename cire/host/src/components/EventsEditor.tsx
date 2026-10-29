@@ -56,6 +56,7 @@ import {
   eventsAccessor,
   invalidateEvents,
 } from "../lib/events-store";
+import { FORM_FIELD_CLASS } from "../lib/form-field";
 import {
   createGuestEventDraft,
   type DraftEvent,
@@ -437,7 +438,7 @@ export default function EventsEditor(props: { weddingId: string }) {
       <Show when={!store.loaded() && !loadError()}>
         <div class="flex flex-col gap-3">
           <For each={[1, 2, 3]}>
-            {() => <div class="bg-surface h-18 animate-pulse rounded-sm" />}
+            {() => <div class="bg-surface rounded-ui-lg h-18 animate-pulse" />}
           </For>
         </div>
       </Show>
@@ -660,15 +661,16 @@ function EventRowCard(props: {
       // `maybeTransformStyle` sees a truthy function and paints
       // `translate3d(undefinedpx, …)`.
       style={maybeTransformStyle(sortable.transform())}
-      class="border-border bg-surface/30 flex flex-wrap items-center gap-3 rounded-sm border p-4"
+      class="border-border bg-surface/30 rounded-ui-lg flex flex-wrap items-center gap-3 border p-4"
       classList={{
         "border-error/50": props.hasError,
         // Lift the row being dragged clear of its neighbours.
-        "border-gold/60 bg-surface/80 z-10 shadow-lg": sortable.isActiveDraggable(),
+        "border-gold/60 bg-surface/80 z-10 shadow-(--elev-2)": sortable.isActiveDraggable(),
         // Animate the OTHER rows shifting aside, but never the dragged one —
         // that must track the pointer without easing. Only while a drag is live,
         // so the post-drop settle isn't double-animated.
-        "transition-transform": dndState.dragging() && !sortable.isActiveDraggable(),
+        "transition-transform duration-(--dur-base) ease-(--ease-in-out)":
+          dndState.dragging() && !sortable.isActiveDraggable(),
       }}
     >
       {/* Re-order controls: a grip you drag, plus two activate-to-move buttons
@@ -882,6 +884,7 @@ function EventDrawer(props: {
           {(field) => (
             <Input
               {...field}
+              class={FORM_FIELD_CLASS}
               value={props.event.name}
               onInput={(e) => props.onPatch({ name: e.currentTarget.value })}
             />
@@ -898,6 +901,7 @@ function EventDrawer(props: {
           {(field) => (
             <Select
               {...field}
+              class={FORM_FIELD_CLASS}
               value={props.event.timezone}
               onChange={(e) => setTimezone(e.currentTarget.value)}
             >
@@ -932,6 +936,7 @@ function EventDrawer(props: {
               {(field) => (
                 <Input
                   {...field}
+                  class={FORM_FIELD_CLASS}
                   type="time"
                   value={start().time}
                   aria-label="Start time"
@@ -954,6 +959,7 @@ function EventDrawer(props: {
               {(field) => (
                 <Input
                   {...field}
+                  class={FORM_FIELD_CLASS}
                   type="time"
                   value={end().time}
                   aria-label="End time"
@@ -972,6 +978,7 @@ function EventDrawer(props: {
           {(field) => (
             <Input
               {...field}
+              class={FORM_FIELD_CLASS}
               value={props.event.venueName ?? ""}
               placeholder="The Grounds of Alexandria"
               onInput={(e) =>
@@ -987,6 +994,7 @@ function EventDrawer(props: {
           {(field) => (
             <Input
               {...field}
+              class={FORM_FIELD_CLASS}
               value={props.event.address ?? ""}
               onInput={(e) =>
                 props.onPatch({
@@ -1028,6 +1036,7 @@ function EventDrawer(props: {
                 {(field) => (
                   <Select
                     {...field}
+                    class={FORM_FIELD_CLASS}
                     value={props.event.childrenPolicy ?? ""}
                     onChange={(e) =>
                       props.onPatch({ childrenPolicy: childrenPolicyOf(e.currentTarget.value) })
@@ -1043,6 +1052,7 @@ function EventDrawer(props: {
                 {(field) => (
                   <Select
                     {...field}
+                    class={FORM_FIELD_CLASS}
                     value={props.event.plusOnePolicy ?? ""}
                     onChange={(e) =>
                       props.onPatch({ plusOnePolicy: plusOnePolicyOf(e.currentTarget.value) })
@@ -1127,6 +1137,7 @@ function EventDrawer(props: {
                   {(field) => (
                     <Input
                       {...field}
+                      class={FORM_FIELD_CLASS}
                       data-swatch-name
                       value={swatch.name}
                       placeholder="Blush"
@@ -1166,6 +1177,7 @@ function EventDrawer(props: {
           {(field) => (
             <Input
               {...field}
+              class={FORM_FIELD_CLASS}
               type="url"
               value={props.event.pinterestUrl ?? ""}
               placeholder="https://www.pinterest.com/…"
@@ -1182,6 +1194,7 @@ function EventDrawer(props: {
           {(field) => (
             <Input
               {...field}
+              class={FORM_FIELD_CLASS}
               type="url"
               value={props.event.mapsUrl ?? ""}
               placeholder="https://maps.google.com/…"
@@ -1362,7 +1375,8 @@ function RunOfShowRow(props: {
       class="flex flex-col gap-1"
       classList={{
         "relative z-10": sortable.isActiveDraggable(),
-        "transition-transform": dndState.dragging() && !sortable.isActiveDraggable(),
+        "transition-transform duration-(--dur-base) ease-(--ease-in-out)":
+          dndState.dragging() && !sortable.isActiveDraggable(),
       }}
       // The row is left when focus moves to something outside it.
       onFocusOut={(e) => {
@@ -1409,6 +1423,7 @@ function RunOfShowRow(props: {
             {(field) => (
               <Input
                 {...field}
+                class={FORM_FIELD_CLASS}
                 // The after-midnight line describes the time it is about.
                 aria-describedby={
                   [field["aria-describedby"], props.afterMidnight ? hintId : undefined]
@@ -1430,6 +1445,7 @@ function RunOfShowRow(props: {
             {(field) => (
               <Input
                 {...field}
+                class={FORM_FIELD_CLASS}
                 data-ros-name
                 value={props.item.label}
                 maxLength={MAX_RUN_OF_SHOW_LABEL}

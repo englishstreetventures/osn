@@ -68,13 +68,13 @@ export default function WeddingList(props: {
                     aria-hidden="true"
                     class="bg-gold absolute inset-y-0 left-0 w-0.5 origin-top scale-y-0 transition-transform duration-(--dur-base) ease-(--ease-out) group-hover:scale-y-100"
                   />
-                  <span class="font-body text-gold text-ui-xs tracking-ui-ultra uppercase">
+                  <span class="font-body text-gold text-ui-xs tracking-ui-ultra font-normal uppercase">
                     {wedding.slug}
                   </span>
-                  <span class="font-display text-text text-ui-lg leading-tight font-light">
+                  <span class="font-display text-text text-ui-lg leading-ui-tight font-light">
                     {wedding.displayName}
                   </span>
-                  <span class="font-body text-text-muted group-hover:text-gold text-ui-xs tracking-ui-widest mt-2 flex items-center gap-2 uppercase transition-colors duration-(--dur-base)">
+                  <span class="font-body text-text-muted group-hover:text-gold text-ui-sm mt-2 flex items-center gap-2 transition-colors duration-(--dur-base) ease-(--ease-out)">
                     Open dashboard
                     <span
                       aria-hidden="true"
@@ -165,7 +165,7 @@ function RecentlyDeleted(props: {
       <ul class="flex flex-col gap-2">
         <For each={props.deleted}>
           {(wedding) => (
-            <li class="border-border flex flex-wrap items-center justify-between gap-3 rounded-sm border px-4 py-3">
+            <li class="border-border rounded-ui-lg flex flex-wrap items-center justify-between gap-3 border px-4 py-3">
               <span class="flex flex-col">
                 <span class="font-display text-text text-ui-md font-light">
                   {wedding.displayName}
