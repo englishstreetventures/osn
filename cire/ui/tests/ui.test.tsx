@@ -2,10 +2,17 @@ import { Field } from "@shared/ui/ui/field";
 import "@testing-library/jest-dom/vitest";
 // @vitest-environment happy-dom
 import { cleanup, render, screen } from "@solidjs/testing-library";
+import type { JSX } from "solid-js";
 import { afterEach, describe, expect, it } from "vitest";
 
 import Button, { type ButtonVariant, buttonClass } from "../src/button";
-import { CardCta, cardClass } from "../src/card";
+import Card, {
+  CardCta,
+  type CardFill,
+  type CardPadding,
+  type CardTone,
+  cardClass,
+} from "../src/card";
 import Loading from "../src/loading";
 import { UsernameInput } from "../src/username-input";
 
@@ -14,10 +21,21 @@ import { UsernameInput } from "../src/username-input";
  * test that has to be edited every time the design moves — it pins the current
  * answer, not the contract. So what is checked here is what a call site can
  * rely on: that the variants differ from each other, that props reach the DOM,
- * and that the accessibility wiring is there. The one class a test does read is
- * the corner: each component carries exactly one `base:`-prefixed corner, from
- * the role the design spec gives it, so an app sets that role once and a
- * caller's plain `rounded-*` still wins.
+ * and that the accessibility wiring is there.
+ *
+ * A test reads a class only where the class is the contract:
+ *
+ * - **The corner.** Each component carries exactly one `base:`-prefixed corner,
+ *   from the role the design spec gives it, so an app sets that role once and a
+ *   caller's plain `rounded-*` still wins.
+ * - **One of each step.** A card carries exactly one padding and one border
+ *   colour. Two classes for one property tie at zero specificity, and the
+ *   stylesheet's order would choose between them.
+ * - **Timing.** A transition names only what its hover changes, on the app's
+ *   `--dur-*` token, so the focus ring lands at once and the ladder follows the
+ *   input.
+ * - **The card with no options.** Every card drawn before the steps existed
+ *   calls it, so its string is pinned: a change to it moves every one of them.
  *
  * They came from `cire/host` and `cire/vendor`, which each had a copy. The
  * components they cover are the ones that stayed cire's — everything else the
@@ -291,25 +309,152 @@ describe("Button — motion", () => {
   });
 });
 
+const EVERY_PADDING = Object.keys({
+  sm: true,
+  md: true,
+  lg: true,
+  xl: true,
+} satisfies Record<CardPadding, true>) as CardPadding[];
+
+const EVERY_FILL = Object.keys({
+  wash: true,
+  well: true,
+  opaque: true,
+  none: true,
+} satisfies Record<CardFill, true>) as CardFill[];
+
+const EVERY_TONE = Object.keys({
+  default: true,
+  accent: true,
+  danger: true,
+} satisfies Record<CardTone, true>) as CardTone[];
+
+/** Every card `cardClass` can draw: each padding × fill × tone, plus the interactive ones. */
+function everyCard(): string[] {
+  const cards: string[] = [];
+  for (const padding of EVERY_PADDING) {
+    for (const fill of EVERY_FILL) {
+      for (const tone of EVERY_TONE) cards.push(cardClass({ padding, fill, tone }));
+    }
+    for (const tone of ["default", "accent"] as const) {
+      cards.push(cardClass({ padding, tone, interactive: true }));
+    }
+  }
+  return cards;
+}
+
+/** Every class in the string that sets a padding. */
+function paddings(cls: string): string[] {
+  return cls.split(/\s+/).filter((c) => /^base:p[xytrbl]?-/.test(c));
+}
+
+/** Every class in the string that colours the border at rest. */
+function borderColours(cls: string): string[] {
+  return cls.split(/\s+/).filter((c) => c.startsWith("base:border-ui-"));
+}
+
 describe("Card", () => {
   it("a card takes the large corner", () => {
-    const variants = [
-      cardClass(),
-      cardClass({ tone: "accent" }),
-      cardClass({ interactive: true }),
-      cardClass({ tone: "accent", interactive: true }),
-    ];
-    for (const cls of variants) expect(corners(cls)).toEqual(["base:rounded-ui-lg"]);
+    const wrong = everyCard().filter((cls) => {
+      const found = corners(cls);
+      return found.length !== 1 || found[0] !== "base:rounded-ui-lg";
+    });
+    expect(wrong).toEqual([]);
   });
 
-  it("marks the accented card out from the ordinary one", () => {
-    expect(cardClass({ tone: "accent" })).not.toBe(cardClass());
+  it("a card with no options is the card every existing call site draws", () => {
+    // Pinned on purpose: the cards on the host's Overview, the vendor's inbox
+    // and the rest call `cardClass()` or `<Card>` with no options, and adding
+    // the steps must not move one of them.
+    expect(cardClass()).toBe(
+      "base:flex base:flex-col base:gap-3 base:rounded-ui-lg base:border base:p-5 " +
+        "base:border-ui-hairline base:bg-ui-surface/30",
+    );
+    expect(cardClass({ padding: "md", fill: "wash", tone: "default" })).toBe(cardClass());
+  });
+
+  it("each padding step is its own, and every card has exactly one", () => {
+    // One padding class, so a step never ties with a second one at zero
+    // specificity and leaves the stylesheet's order to choose.
+    expect(new Set(EVERY_PADDING.map((padding) => cardClass({ padding }))).size).toBe(4);
+    expect(EVERY_PADDING.filter((padding) => cardClass({ padding }) === cardClass())).toEqual([
+      "md",
+    ]);
+    expect(everyCard().filter((cls) => paddings(cls).length !== 1)).toEqual([]);
+  });
+
+  it("each fill is its own", () => {
+    expect(new Set(EVERY_FILL.map((fill) => cardClass({ fill }))).size).toBe(4);
+    expect(EVERY_FILL.filter((fill) => cardClass({ fill }) === cardClass())).toEqual(["wash"]);
+  });
+
+  it("a card with no fill is the ordinary card without its ground", () => {
+    // `none` is for a card set on something that already has a ground — a row
+    // in a list, a box inside a panel. It keeps the border, corner and padding.
+    expect(cardClass({ fill: "none" }).split(" ")).toEqual(
+      cardClass()
+        .split(" ")
+        .filter((c) => !c.includes("bg-")),
+    );
+  });
+
+  it("each tone is its own, and every card has exactly one border colour", () => {
+    expect(new Set(EVERY_TONE.map((tone) => cardClass({ tone }))).size).toBe(3);
+    expect(everyCard().filter((cls) => borderColours(cls).length !== 1)).toEqual([]);
   });
 
   it("adds nothing for a card that is not a control", () => {
     // The hover treatment is a promise that the whole rectangle is clickable.
     expect(cardClass()).not.toContain("hover:");
     expect(cardClass({ interactive: true })).toContain("hover:");
+  });
+
+  it("refuses a hover on a card whose fill or tone has none", () => {
+    // The interactive hover lifts the wash and turns the border gold: no other
+    // fill has a lifted step, and a danger card is never the control itself.
+    // These lines are checked by the type-check, not by this run.
+    expect(cardClass({ fill: "wash", tone: "accent", interactive: true })).toContain("hover:");
+    // @ts-expect-error — no hover for the well fill
+    cardClass({ fill: "well", interactive: true });
+    // @ts-expect-error — no hover for the opaque fill
+    cardClass({ fill: "opaque", interactive: true });
+    // @ts-expect-error — no hover for a card with no fill
+    cardClass({ fill: "none", interactive: true });
+    // @ts-expect-error — a danger card is never the control
+    cardClass({ tone: "danger", interactive: true });
+  });
+});
+
+describe("Card — the component", () => {
+  it("draws the same card `cardClass` does, for every option it takes", () => {
+    // A prop the component forgets to pass on draws the default card instead.
+    const wrong: string[] = [];
+    const check = (name: string, card: () => JSX.Element, expected: string) => {
+      const { container, unmount } = render(card);
+      if ((container.firstElementChild as HTMLElement).className !== expected) wrong.push(name);
+      unmount();
+    };
+    for (const padding of EVERY_PADDING) {
+      check(`padding ${padding}`, () => <Card padding={padding}>x</Card>, cardClass({ padding }));
+    }
+    for (const fill of EVERY_FILL) {
+      check(`fill ${fill}`, () => <Card fill={fill}>x</Card>, cardClass({ fill }));
+    }
+    for (const tone of EVERY_TONE) {
+      check(`tone ${tone}`, () => <Card tone={tone}>x</Card>, cardClass({ tone }));
+    }
+    expect(wrong).toEqual([]);
+  });
+
+  it("keeps the caller's own classes after its own", () => {
+    const { container } = render(() => (
+      <Card padding="lg" class="gap-6">
+        x
+      </Card>
+    ));
+    expect((container.firstElementChild as HTMLElement).className).toBe(
+      `${cardClass({ padding: "lg" })} gap-6`,
+    );
   });
 });
 
@@ -328,7 +473,7 @@ describe("Card — motion", () => {
       const cls = cardClass({ tone, interactive: true }).split(/\s+/);
       expect(cls.filter((c) => c.includes("transition") || c.includes("duration-"))).toEqual([
         "base:transition-[color,background-color,border-color,text-decoration-color]",
-        "base:duration-(--dur-fast,200ms)",
+        "base:duration-(--dur-fast,100ms)",
       ]);
     }
   });
