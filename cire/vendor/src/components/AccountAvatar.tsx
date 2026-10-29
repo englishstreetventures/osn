@@ -17,7 +17,7 @@ import { createSignal, Show } from "solid-js";
 /** The trigger's box. Worn by the real trigger and by the placeholder alike. */
 export const AVATAR_TRIGGER_CLASS =
   "border-border bg-surface/40 hover:border-gold-dim flex h-9 w-9 shrink-0 items-center " +
-  "justify-center overflow-hidden rounded-full border transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast) ease-(--ease-out)";
+  "justify-center overflow-hidden rounded-full border transition-ui-colors duration-(--dur-fast) ease-(--ease-out)";
 
 /** Best available name for the account: display name → handle → email. */
 export function accountName(session: RpSession | null | undefined): string {

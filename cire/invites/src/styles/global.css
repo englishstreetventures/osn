@@ -612,6 +612,13 @@
   }
 }
 
+/* Fades a control's colours but never its outline, so a focus ring lands at once. */
+@utility transition-ui-colors {
+  transition-property: color, background-color, border-color, text-decoration-color;
+  transition-timing-function: var(--tw-ease, var(--default-transition-timing-function));
+  transition-duration: var(--tw-duration, var(--default-transition-duration));
+}
+
 /* The event sheet's badge (`components/EventSheet`): its two labels moving
    through it like a ticker to the panel on screen, on the panels' own duration
    and curve after a press. Under a finger and through a swipe's spring

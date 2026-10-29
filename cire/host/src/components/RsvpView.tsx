@@ -136,7 +136,7 @@ const SORT_ICON_CLASS = "size-3.5 shrink-0";
  */
 const CHIP_BASE =
   "font-body text-ui-sm flex h-7 shrink-0 items-center gap-1.5 rounded-full px-3 whitespace-nowrap " +
-  "transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast) ease-(--ease-out)";
+  "transition-ui-colors duration-(--dur-fast) ease-(--ease-out)";
 const CHIP_IDLE = "bg-surface text-text hover:bg-surface-raised";
 const CHIP_CHOSEN = "bg-brand text-on-brand";
 /** A chip's count: muted beside an unchosen name, the chip's own ink on green. */
@@ -188,7 +188,7 @@ function KeyButton(props: SafeProps<"button">) {
     <button
       type="button"
       {...props}
-      class="text-text-muted hover:text-text hover:bg-surface ml-auto inline-flex size-7 shrink-0 items-center justify-center rounded-full transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast) ease-(--ease-out)"
+      class="text-text-muted hover:text-text hover:bg-surface transition-ui-colors ml-auto inline-flex size-7 shrink-0 items-center justify-center rounded-full duration-(--dur-fast) ease-(--ease-out)"
     />
   );
 }
@@ -639,7 +639,7 @@ export default function RsvpView(props: RsvpViewProps) {
       type="button"
       onClick={() => setSort(nextSort(sort(), key))}
       // `uppercase` again: a button does not inherit the head's transform.
-      class="hover:text-text -mx-1 inline-flex items-center gap-1.5 rounded-sm px-1 uppercase transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast) ease-(--ease-out)"
+      class="hover:text-text transition-ui-colors -mx-1 inline-flex items-center gap-1.5 rounded-sm px-1 uppercase duration-(--dur-fast) ease-(--ease-out)"
     >
       {SORT_LABEL[key]}
       <Show

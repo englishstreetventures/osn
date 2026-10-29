@@ -653,7 +653,7 @@ export default function ModuleShell(props: ModuleShellProps) {
                       onPointerEnter={() => warmPanel(module(), subTab.id)}
                       onFocus={() => warmPanel(module(), subTab.id)}
                       onClick={() => props.onSub(subTab.id)}
-                      class={`font-body text-ui-xs tracking-ui-wider relative flex items-center gap-2 rounded-sm py-1.5 whitespace-nowrap uppercase transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast) ease-(--ease-out) ${
+                      class={`font-body text-ui-xs tracking-ui-wider transition-ui-colors relative flex items-center gap-2 rounded-sm py-1.5 whitespace-nowrap uppercase duration-(--dur-fast) ease-(--ease-out) ${
                         iconTabs() ? "px-3.5" : "px-3"
                       } ${
                         active() === subTab.id

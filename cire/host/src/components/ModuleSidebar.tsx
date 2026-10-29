@@ -37,7 +37,7 @@ import UpgradeDialog from "./UpgradeDialog";
  *  between icon and label is each surface's own: the collapsed rail has none. */
 const rowBase =
   "font-body flex w-full items-center rounded-sm text-left tracking-ui-wider uppercase " +
-  "transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast) ease-(--ease-out)";
+  "transition-ui-colors duration-(--dur-fast) ease-(--ease-out)";
 
 const rowIdle = "text-text-muted hover:text-text hover:bg-surface/50";
 
@@ -591,7 +591,7 @@ export default function ModuleSidebar(props: {
               aria-expanded={!collapsed()}
               aria-controls={navId}
               onClick={toggleRail}
-              class={`${rowIdle} flex w-fit items-center rounded-sm px-3 py-2 transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast) ease-(--ease-out)`}
+              class={`${rowIdle} transition-ui-colors flex w-fit items-center rounded-sm px-3 py-2 duration-(--dur-fast) ease-(--ease-out)`}
             >
               <ModuleIcon icon={collapsed() ? PanelLeftOpen : PanelLeftClose} class="opacity-80" />
             </Tooltip.Trigger>

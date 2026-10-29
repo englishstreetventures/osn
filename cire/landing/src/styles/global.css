@@ -185,6 +185,13 @@
   }
 }
 
+/* Fades a control's colours but never its outline, so a focus ring lands at once. */
+@utility transition-ui-colors {
+  transition-property: color, background-color, border-color, text-decoration-color;
+  transition-timing-function: var(--tw-ease, var(--default-transition-timing-function));
+  transition-duration: var(--tw-duration, var(--default-transition-duration));
+}
+
 /* Scroll-reveal primitive used by the static section components: an element with
    `data-reveal` starts dimmed + nudged down; the IntersectionObserver in
    BaseLayout adds `data-revealed` when it scrolls into view. No-JS / reduced
