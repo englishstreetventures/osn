@@ -892,8 +892,9 @@ describe("RsvpView", () => {
 
     // Unticked, the save is refused before any PUT.
     fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
-    await waitFor(() =>
-      expect(screen.getByText(/Confirm the guest consented before storing/i)).toBeTruthy(),
+    // An alert, so a screen reader hears the refusal the moment it appears.
+    expect((await screen.findByRole("alert")).textContent).toMatch(
+      /Confirm the guest consented before storing/i,
     );
     expect(authFetchMock).toHaveBeenCalledTimes(1);
 
@@ -1413,8 +1414,8 @@ describe("RsvpView — plus-ones", () => {
     expect(consent.checked).toBe(false);
 
     fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
-    await waitFor(() =>
-      expect(screen.getByText(/Confirm the plus-one consented before storing/i)).toBeTruthy(),
+    expect((await screen.findByRole("alert")).textContent).toMatch(
+      /Confirm the plus-one consented before storing/i,
     );
     expect(authFetchMock).toHaveBeenCalledTimes(1);
 

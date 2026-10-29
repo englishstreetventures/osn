@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import EnquiryInbox from "../../src/components/EnquiryInbox";
 import type { EnquiryListItem } from "../../src/lib/enquiries-store";
+import { chipLook } from "../test-support/chip-look";
 
 const item = (o: Partial<EnquiryListItem> = {}): EnquiryListItem => ({
   id: "enq_1",
@@ -35,6 +36,12 @@ describe("EnquiryInbox", () => {
     render(() => <EnquiryInbox items={[item()]} currency="AUD" onOpen={onOpen} />);
     expect(screen.getByText("Blue Roses")).toBeInTheDocument();
     expect(screen.getByText("Florals")).toBeInTheDocument();
+    // The category is a tag, its name as written: no small caps.
+    expect(chipLook(screen.getByText("Florals"))).toEqual({
+      tone: "neutral",
+      variant: "filled",
+      treatment: "tag",
+    });
     expect(screen.getByText(/\$2,500\.00/)).toBeInTheDocument();
     fireEvent.click(screen.getByText("Blue Roses"));
     expect(onOpen).toHaveBeenCalledWith("enq_1");

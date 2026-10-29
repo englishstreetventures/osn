@@ -15,6 +15,7 @@ import {
   type RegistrySnapshot,
   setCachedRegistry,
 } from "../../src/lib/registry-store";
+import { chipLook } from "../test-support/chip-look";
 import { toastError, toastSuccess } from "../test-support/mocks";
 
 const authFetch = vi.fn();
@@ -953,6 +954,20 @@ describe("RegistryView — gifts received", () => {
     expect(screen.getByText("Received")).toBeInTheDocument();
     for (const raw of ["reserved", "purchased", "released", "pending", "succeeded"]) {
       expect(screen.queryByText(raw)).not.toBeInTheDocument();
+    }
+    // A gift that is no longer coming is a danger tag, outlined; one still
+    // under way or in hand is a plain filled tag.
+    expect(chipLook(screen.getByText("No longer coming"))).toEqual({
+      tone: "danger",
+      variant: "outline",
+      treatment: "tag",
+    });
+    for (const kept of ["Promised", "Bought", "Not cleared yet", "Received"]) {
+      expect(chipLook(screen.getByText(kept))).toEqual({
+        tone: "neutral",
+        variant: "filled",
+        treatment: "tag",
+      });
     }
   });
 
