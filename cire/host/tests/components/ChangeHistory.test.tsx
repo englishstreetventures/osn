@@ -107,6 +107,36 @@ function openHistory() {
 }
 
 describe("ChangeHistory", () => {
+  it("loads the list once, however often the disclosure is opened", async () => {
+    authFetchMock.mockResolvedValueOnce(
+      jsonResponse({ imports: [IMPORT_APPLIED], nextCursor: null }),
+    );
+
+    render(() => <ChangeHistory weddingId="wed_a" />);
+    openHistory();
+    await waitFor(() => expect(document.body.textContent).toContain("+12 guests"));
+
+    const details = document.querySelector("details") as HTMLDetailsElement;
+    details.open = false;
+    fireEvent(details, new Event("toggle"));
+    openHistory();
+
+    expect(authFetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("labels an entry of a kind it does not know as a change", async () => {
+    authFetchMock.mockResolvedValueOnce(
+      jsonResponse({ imports: [{ ...IMPORT_APPLIED, kind: "merge" }], nextCursor: null }),
+    );
+
+    render(() => <ChangeHistory weddingId="wed_a" />);
+    openHistory();
+
+    await waitFor(() => expect(document.body.textContent).toContain("+12 guests"));
+    // The entry's first line is its label.
+    expect(document.querySelector("li span")?.textContent).toBe("Change");
+  });
+
   it("fetches from changes/list and labels entries by kind", async () => {
     authFetchMock.mockResolvedValueOnce(
       jsonResponse({ imports: [IMPORT_APPLIED, EDITOR_APPLIED], nextCursor: null }),
