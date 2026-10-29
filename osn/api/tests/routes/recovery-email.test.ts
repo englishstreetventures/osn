@@ -1083,7 +1083,8 @@ describe("recovery routes cost the same however a request ends", () => {
     expect(shape(unknown)).toEqual(shape(wrong));
     expect(shape(empty)).toEqual(shape(wrong));
     expect(shape(locked)).toEqual(shape(wrong));
-    expect(shape(ok)).toEqual({ pending: 2, lockout: 2 });
+    // The right code: the lookup counted no failures, so there is no reset.
+    expect(shape(ok)).toEqual({ pending: 2, lockout: 1 });
   });
 
   it("POST /login/recovery/totp/complete — an unknown identifier costs what a real account costs", async () => {

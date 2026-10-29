@@ -233,4 +233,17 @@ describe("a lockout with no failures on record", () => {
       expect(yield* h.settledWithout("recovery_lockout.remove", from)).toBe(true);
     }).pipe(Effect.provide(h.layer));
   });
+
+  it.live("emailed recovery code sign-in makes no reset call", () => {
+    const h = harness();
+    return Effect.gen(function* () {
+      yield* h.auth.registerProfile("clean-er0@example.com", "cleaner0");
+      yield* h.auth.beginEmailRecovery("clean-er0@example.com");
+      const code = yield* h.mailedCode;
+      const from = h.ops().length;
+      yield* h.auth.completeEmailRecovery("clean-er0@example.com", code);
+      expect(h.ops(from)).toContain("recovery_otp_lockout.count");
+      expect(yield* h.settledWithout("recovery_otp_lockout.remove", from)).toBe(true);
+    }).pipe(Effect.provide(h.layer));
+  });
 });
