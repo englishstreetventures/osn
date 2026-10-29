@@ -80,16 +80,22 @@ const CIRE_COLOR = {
   },
 } as const satisfies Record<CireTheme, Record<ColorToken, string>>;
 
-/** The same in both of cire's themes: the house is stationery, not app-store chrome. */
+/**
+ * cire's radius roles, the same in both themes (englishstreetventures/osn#1821):
+ * pill buttons, 14px text fields, 16px cards, and the 2, 6 and 10px steps for
+ * the small marks — a checkbox or a tooltip stays small-cornered.
+ */
 const CIRE_RADIUS = {
   "--ui-radius-hair": "2px",
-  "--ui-radius-sm": "4px",
-  "--ui-radius-md": "6px",
-  "--ui-radius-lg": "6px",
+  "--ui-radius-sm": "6px",
+  "--ui-radius-md": "10px",
+  "--ui-radius-lg": "16px",
   "--ui-radius-pill": "999px",
-  "--ui-radius-control": "4px",
-  /* The one place the stationery house is round: a sheet's grip is measured
-     against the screen edge it is pulled from, not against a card's corner. */
+  "--ui-radius-control": "999px",
+  /* Apart from `control`: a pill text field reads as a search box. */
+  "--ui-radius-field": "14px",
+  /* A sheet's grip is measured against the screen edge it is pulled from, not
+     against a card's corner. */
   "--ui-radius-sheet": "28px",
 } as const satisfies Record<RadiusToken, string>;
 
@@ -289,8 +295,9 @@ export const SideBySide: Story<SideBySideArgs> = {
           <Rule>
             The same <Mono>Button</Mono>, <Mono>Card</Mono>, <Mono>Chip</Mono> and{" "}
             <Mono>Notice</Mono> imports render in each column. The type scale moves too — cire's{" "}
-            <Mono>sm</Mono> is 0.82rem where musubi's is 13px — and so does the control radius: pill
-            on the page, 4px in cire, 6px unmapped. Flip the toggle: only the page column changes,
+            <Mono>sm</Mono> is 0.82rem where musubi's is 13px — and so do the radius roles: on the
+            page the button and the field are both pills, in cire the button is a pill and the field
+            a 14px square, and unmapped both are 6px. Flip the toggle: only the page column changes,
             unless <Mono>cireTheme</Mono> is set to follow.
           </Rule>
         </Section>

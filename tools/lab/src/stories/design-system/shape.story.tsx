@@ -38,9 +38,11 @@ interface RadiusArgs extends StoryArgs {
 }
 
 /**
- * Five sized steps and one role. `control` is not a size: how round a button
- * is turns out to be an app-level decision independent of how round a card is
- * — musubi's house style is pill CTAs, cire's a sharp 4px, pulse between them.
+ * Five sized steps and three roles. `control`, `field` and `sheet` are not
+ * sizes: how round a button is turns out to be an app-level decision
+ * independent of how round a card is — musubi's house style is pill CTAs — and
+ * a text field's corner is independent again, because an app can want pill
+ * buttons without pill fields.
  */
 export const Radius: Story<RadiusArgs> = {
   args: { step: 2 },
@@ -53,32 +55,37 @@ export const Radius: Story<RadiusArgs> = {
         intro={
           <>
             <Mono>hair</Mono> is a 2px softening that reads as "not a raw rectangle";{" "}
-            <Mono>pill</Mono> is fully round. Everything between is the app's house style — cire
-            maps <Mono>lg</Mono> to the same 6px as <Mono>md</Mono>, because nothing there is
-            rounder than 6px except a pill.
+            <Mono>pill</Mono> is fully round. Everything between is the app's house style. The three
+            roles — <Mono>control</Mono>, <Mono>field</Mono> and <Mono>sheet</Mono> — each fall back
+            to a sized step, so an app with no opinion gets its own.
           </>
         }
       >
-        <Section title="The scale, and the role" eyebrow={`${RADIUS_TOKENS.length} tokens`}>
+        <Section title="The scale, and the roles" eyebrow={`${RADIUS_TOKENS.length} tokens`}>
           <div class="flex flex-wrap gap-4">
             <For each={RADIUS_TOKENS}>{(token) => <RadiusBox token={token} />}</For>
           </div>
         </Section>
-        <Section title="Why control is a role" eyebrow="a button and a card, independently round">
+        <Section
+          title="Why control and field are roles"
+          eyebrow="a button, a field and a card, independently round"
+        >
           <Rule>
             A shared control that picked one of the sized steps would be overridden at every call
             site in at least one app — which is exactly what{" "}
-            <Mono>{'<Button class="rounded-pill">'}</Mono> ×16 in musubi was. It defaults to{" "}
-            <Mono>md</Mono> rather than to a literal, so an app with no opinion gets its own mid
-            radius and not this package's.
+            <Mono>{'<Button class="rounded-pill">'}</Mono> ×16 in musubi was. <Mono>control</Mono>{" "}
+            defaults to <Mono>md</Mono> rather than to a literal, so an app with no opinion gets its
+            own mid radius and not this package's. <Mono>field</Mono> is the text input's corner and
+            falls back to <Mono>control</Mono>: this page maps no field radius, so its input is a
+            pill like its button.
           </Rule>
           <div class="flex flex-wrap items-start gap-6">
             <div class="flex flex-col gap-3">
               <div class="flex items-center gap-3">
                 <Button>rounded-ui-control</Button>
-                <Input class="w-44" placeholder="rounded-ui-control" />
+                <Input class="w-44" placeholder="rounded-ui-field" />
               </div>
-              <Mono muted>--ui-radius-control</Mono>
+              <Mono muted>--ui-radius-control · --ui-radius-field</Mono>
             </div>
             <div class="flex flex-col gap-3">
               <Card class="w-64">
