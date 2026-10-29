@@ -224,8 +224,10 @@ export function Notice(props: NoticeProps) {
         )}
       </Show>
       {/* Its own box, so a run of text and an inline element inside it stay one
-          paragraph rather than becoming two flex items with a gap between them. */}
-      <div class="base:min-w-0">{props.children}</div>
+          paragraph rather than becoming two flex items with a gap between them.
+          It fills the row, so a notice in a centred column centres its words
+          as the line it stands in for did. */}
+      <div class="base:min-w-0 base:flex-1">{props.children}</div>
     </div>
   );
 }
