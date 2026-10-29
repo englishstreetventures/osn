@@ -293,8 +293,9 @@ with the 14px corner; buttons beside them match. Filters stay 28px pills."):
   the budget's add form, money cells, payment form and price per head, the
   registry's add form and inline editor, a co-host's handle, role and run-sheet
   scope, a vendor's status and listing email, the event drawer, the run-time
-  popover and the colour picker's hex value. The shared sizes are 28px (`sm`)
-  and 36px (`md`; an `md` `Select` has no height of its own and draws 37px), so
+  popover and the colour picker's hex value. A shared `Input` is 28px at `sm`
+  and 36px at `md`; a shared `Select` has no height of its own at either size
+  (an `md` one draws 37px, an `sm` one 28px or 27px by the platform's font), so
   the call site sets it — height only, since `shadcn/no-restyle` lets a call
   site size a shared part but not pad it; the engine centres the text.
   `UsernameInput` takes it through its wrapper (`[&>input]:h-8.5`), since it
@@ -308,10 +309,13 @@ with the 14px corner; buttons beside them match. Filters stay 28px pills."):
   or under it on a narrow panel) and Add guest at the card's foot. A
   borderless button (`link`, `subtle`, `bare`) draws no box and keeps its
   size; so does a button stacked under the fields rather than beside them.
-- **A filter is 28px** — `size="sm"` alone — so the 14px corner is half its
-  height and rounds its ends: the guest-list and RSVP search boxes, the RSVP
-  sort select, the vendor directory's Category, Keyword and Location, and the
-  seating chart's Event select (which chart to show). The chips and the reply
+- **A filter is 28px** — `size="sm"` plus `FILTER_FIELD_CLASS` (`h-7`) — so
+  the 14px corner is half its height and rounds its ends: the guest-list and
+  RSVP search boxes, the RSVP sort select, the vendor directory's Category,
+  Keyword and Location, and the seating chart's Event select (which chart to
+  show). An `sm` `Select` without it takes its padding plus the font's line,
+  and Linux's font draws it at 27px; every filter carries the class, an `Input`
+  as well, so one rule covers them. The chips and the reply
   key beside them are 28px too (`h-7`, `size-7`). A bar's action is the same
   height: Add household, Clear filters, Print and Download seating CSV are
   `Button size="sm"` with `h-7`, since `size="sm"` alone is 31px, and Add
@@ -346,9 +350,13 @@ checked box's `appearance: auto`, the same size both ways and a tick that
 moves nothing, in light and dark; `tests/styles/checkbox-accent.test.ts` reads
 every native checkbox and radio in `src/` and fails on an `accent-*` class.
 
-`soft-shapes.browser.test.tsx` renders the RSVP page, the budget, the registry
-and the co-host form in Chromium at 390 and 1280px, and measures the computed
-shapes: the search box, and on a phone the sort select, 28px with round ends;
+`soft-shapes.browser.test.tsx` renders the RSVP page, the budget, the registry,
+the co-host form, the vendor directory and the seating chart in Chromium at 390
+and 1280px, and measures the computed shapes: the search box, and on a phone the
+sort select, 28px with round ends; the directory's three filters and the
+seating chart's Event select 28px pills, with Clear filters, Print and Download
+seating CSV 28px; every filter 28px again under a font with a 2em line, so no
+filter's height comes from the platform's font;
 the reply editor's status select 34px, and it and the textarea at 14px and
 short of a pill; the editor, nested in the list's frame, at 6px; "Save reply" a
 pill; the budget's total, add form, money cell, payment fields and price per
@@ -674,7 +682,7 @@ specificity, so a caller's plain utility — `w-full`, `self-start`, a `rounded-
 | `Chip` | A status word in a pill, small caps, in one of four tones. An enquiry's status wears the vendor portal's tones — open `pending`, quoted `accent`, closed `neutral` — so an enquiry reads alike from both ends. |
 | `Notice` | Four tones, at the 6px step. `danger`, `warn` and `success` each carry a distinct glyph plus a hidden word ("Error", "Warning", "Success"); `info` is unmarked, because nothing has happened. `alert` opts into `role="alert"` and is for a note that appeared **in answer to something** — a standing note that was on screen before the host arrived has nothing to interrupt anyone about. |
 | `EmptyState` | A title, an optional line of prose, and the one thing to do about it, in a dashed box at the 6px step. |
-| `Field`, `Fieldset`, `Input`, `Select`, `Textarea` | A small-caps label, the control, a hint and the errors, wired together by id. The controls take the 14px field corner and two sizes, `md` (an `Input` 36px) and `sm` (28px). A form field at either size takes `FORM_FIELD_CLASS` and is 34px; a filter in a view bar is `sm` alone, 28px (§4, One form-field height). |
+| `Field`, `Fieldset`, `Input`, `Select`, `Textarea` | A small-caps label, the control, a hint and the errors, wired together by id. The controls take the 14px field corner and two sizes, `md` and `sm`: an `Input` is 36px and 28px, a `Select` has no height of its own. A form field at either size takes `FORM_FIELD_CLASS` and is 34px; a filter is `sm` with `FILTER_FIELD_CLASS`, 28px (§4, One form-field height). |
 | `Meter`, `meterPct` | A thin bar. Scaled by transform rather than resized — see the file. `meterPct` clamps at both ends and reads a zero or missing maximum as empty, not as a division by zero. |
 | `Stat` | A figure, then what it is, then an optional hint. |
 | `Table`, `Th`, `Td` | Every table in the portal as one set of parts, in a hairline frame at the 6px step. By default the wrapper scrolls so the page never does, and it is a named, focusable `<section>` so the columns past the right edge are reachable without a mouse; `label` is required. `scroll="page"` clips instead and lets the page scroll, for a table whose head row sticks under the stuck stack (§A table that scrolls with the page). `frame="none"` drops the border for a table inside something that draws its edge. `Th` and `Td` take `pin` for a head row or first column held in view; `Th srOnly` keeps a head for assistive technology under a visible copy. |

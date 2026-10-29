@@ -10,6 +10,7 @@ import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
+import { FILTER_FIELD_CLASS } from "../lib/form-field";
 import { haptic } from "../lib/haptics";
 import { categoryLabel, SERVICE_CATEGORIES } from "../lib/service-categories";
 import { invalidateVendors, upsertCachedVendor, type VendorRow } from "../lib/vendors-store";
@@ -236,15 +237,16 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
 
   return (
     <div class="flex flex-col gap-6">
-      {/* Filter bar. Filters are 28px pills, and the bar's one action is their
-          height: `size="sm"` alone is 31px (DESIGN.md §4, "One form-field
-          height"). */}
+      {/* Filter bar. Filters are 28px pills (`FILTER_FIELD_CLASS`), and the
+          bar's one action is their height: a `Button` at `size="sm"` alone is
+          31px (DESIGN.md §4, "One form-field height"). */}
       <div class="border-border bg-surface/20 rounded-ui-lg flex flex-wrap items-end gap-3 border p-4">
         <Field label="Category">
           {(field) => (
             <Select
               {...field}
               size="sm"
+              class={FILTER_FIELD_CLASS}
               value={category()}
               onChange={(e) => {
                 setCategory(e.currentTarget.value);
@@ -262,6 +264,7 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
             <Input
               {...field}
               size="sm"
+              class={FILTER_FIELD_CLASS}
               value={q()}
               onInput={(e) => {
                 setQ(e.currentTarget.value);
@@ -277,6 +280,7 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
             <Input
               {...field}
               size="sm"
+              class={FILTER_FIELD_CLASS}
               value={location()}
               onInput={(e) => {
                 setLocation(e.currentTarget.value);

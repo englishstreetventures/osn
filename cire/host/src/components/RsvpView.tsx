@@ -46,7 +46,7 @@ import { createStore, reconcile } from "solid-js/store";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { downloadBlob } from "../lib/download";
-import { FORM_FIELD_CLASS } from "../lib/form-field";
+import { FILTER_FIELD_CLASS, FORM_FIELD_CLASS } from "../lib/form-field";
 import { haptic } from "../lib/haptics";
 import { CIRE_MARKETING_URL } from "../lib/osn";
 import { fetchRsvpChangeRows, markRsvpChangesSeen, newRowCheck } from "../lib/rsvp-changes";
@@ -868,6 +868,7 @@ export default function RsvpView(props: RsvpViewProps) {
         <Input
           {...field}
           size="sm"
+          class={FILTER_FIELD_CLASS}
           type="search"
           aria-controls={panelId}
           value={query()}
@@ -939,7 +940,7 @@ export default function RsvpView(props: RsvpViewProps) {
           {/* At the search box's height, so the two read as one bar. */}
           <Select
             size="sm"
-            class="max-w-28 min-w-0"
+            class={`${FILTER_FIELD_CLASS} max-w-28 min-w-0`}
             aria-label="Sort guests"
             value={sort() ? `${sort()!.key}:${sort()!.direction}` : ""}
             onChange={(e) =>

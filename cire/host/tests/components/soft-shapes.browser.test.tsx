@@ -17,6 +17,10 @@ import "../../src/styles/global.css";
  *   34px, so the same corner leaves a straight side. A button in a row with one
  *   is 34px too: the budget's Add item, Add payment and the budget's own Save
  *   and Cancel, the registry's Find pictures, the co-host form's Add host.
+ * - Every one of those heights is the call site's own, not the font's: an `sm`
+ *   `Select` without one takes its padding plus the font's line, 28px on macOS
+ *   and 27px on Linux, so the filters are measured again under a font with a
+ *   tall line, where only a height of their own holds them at 28px.
  *
  * The corners come from the host stylesheet's role map (`--ui-radius-field`,
  * `--ui-radius-control`), which no unit test resolves: happy-dom computes no
@@ -26,7 +30,8 @@ import "../../src/styles/global.css";
  * Each case leaves screenshots under `__screenshots__/` beside this file
  * (gitignored), at a phone's width and a laptop's, light and dark: the RSVP bar
  * with the search box it measures, the reply editor open, the budget's fields,
- * the registry's add form and inline editor, and the co-host form.
+ * the registry's add form and inline editor, the co-host form, the directory's
+ * and the seating chart's filters, and those filters under the tall line.
  */
 
 const { authFetch } = vi.hoisted(() => ({ authFetch: vi.fn() }));
@@ -437,64 +442,132 @@ const SEATING_CHART = {
   guests: [],
 };
 
+/** The vendor directory, with its filter bar's three filters and its Clear filters. */
+async function renderDirectory() {
+  authFetch.mockResolvedValue(json({ listings: [], total: 0 }));
+  render(() => <DirectoryBrowseView weddingId="wed_1" canEdit />);
+  const category = await screen.findByRole("combobox", { name: "Category" });
+  await document.fonts.ready;
+  return {
+    filters: {
+      category,
+      keyword: screen.getByRole("textbox", { name: "Keyword" }),
+      location: screen.getByRole("textbox", { name: "Location" }),
+    },
+    actions: { "Clear filters": screen.getByRole("button", { name: "Clear filters" }) },
+  };
+}
+
+/** The seating chart, with its Event select and the two buttons beside it. */
+async function renderSeating() {
+  setCachedEvents("wed_1", [
+    {
+      id: "e_rec",
+      name: "Reception",
+      slug: "reception",
+      sortOrder: 0,
+      startAt: "2027-03-01T18:00",
+      endAt: "",
+      timezone: "UTC",
+      address: null,
+      description: "",
+      dressCodeDescription: null,
+      dressCodePalette: null,
+      pinterestUrl: null,
+      mapsUrl: null,
+      imageUrl: null,
+      imageCrop: null,
+    },
+  ]);
+  authFetch.mockResolvedValue(json(SEATING_CHART));
+  render(() => (
+    <div class="bg-bg text-text @container/panel min-h-screen p-6">
+      <SeatingView weddingId="wed_1" weddingSlug="ada-and-bo" canEdit canManage />
+    </div>
+  ));
+  const event = await screen.findByRole("combobox", { name: "Event" });
+  await screen.findByRole("region", { name: "Table 1" });
+  return {
+    filters: { event },
+    actions: {
+      Print: screen.getByRole("button", { name: "Print" }),
+      "Download seating CSV": screen.getByRole("button", { name: "Download seating CSV" }),
+    },
+  };
+}
+
 describe("the filters outside a view bar", () => {
   for (const viewport of VIEWPORTS) {
     it(`draw the directory's and the seating chart's filters as 28px pills, ${viewport.name}px`, async () => {
       await page.viewport(viewport.width, viewport.height);
-      authFetch.mockResolvedValue(json({ listings: [], total: 0 }));
-      render(() => <DirectoryBrowseView weddingId="wed_1" canEdit />);
-      const category = await screen.findByRole("combobox", { name: "Category" });
-      await document.fonts.ready;
-      expect(
-        filterMisfits(
-          {
-            category,
-            keyword: screen.getByRole("textbox", { name: "Keyword" }),
-            location: screen.getByRole("textbox", { name: "Location" }),
-          },
-          { "Clear filters": screen.getByRole("button", { name: "Clear filters" }) },
-        ),
-      ).toEqual([]);
+      const directory = await renderDirectory();
+      expect(filterMisfits(directory.filters, directory.actions)).toEqual([]);
       await page.screenshot({ path: shot(`directory-filters-${viewport.name}`) });
       cleanup();
 
-      setCachedEvents("wed_1", [
-        {
-          id: "e_rec",
-          name: "Reception",
-          slug: "reception",
-          sortOrder: 0,
-          startAt: "2027-03-01T18:00",
-          endAt: "",
-          timezone: "UTC",
-          address: null,
-          description: "",
-          dressCodeDescription: null,
-          dressCodePalette: null,
-          pinterestUrl: null,
-          mapsUrl: null,
-          imageUrl: null,
-          imageCrop: null,
-        },
-      ]);
-      authFetch.mockResolvedValue(json(SEATING_CHART));
-      render(() => (
-        <div class="bg-bg text-text @container/panel min-h-screen p-6">
-          <SeatingView weddingId="wed_1" weddingSlug="ada-and-bo" canEdit canManage />
-        </div>
-      ));
-      const event = await screen.findByRole("combobox", { name: "Event" });
-      await screen.findByRole("region", { name: "Table 1" });
-      expect(
-        filterMisfits(
-          { event },
-          {
-            Print: screen.getByRole("button", { name: "Print" }),
-            "Download seating CSV": screen.getByRole("button", { name: "Download seating CSV" }),
-          },
-        ),
-      ).toEqual([]);
+      const seating = await renderSeating();
+      expect(filterMisfits(seating.filters, seating.actions)).toEqual([]);
       await page.screenshot({ path: shot(`seating-filter-${viewport.name}`) });
     });
   }
+});
+
+/**
+ * A face whose normal line is far taller than any platform's sans: whichever of
+ * Arial, Helvetica, Liberation Sans and DejaVu Sans the machine has, with its
+ * ascent and descent overridden to a 2em line. Forced onto every field and
+ * button, it stands in for a platform whose line metrics differ from this
+ * one's — Linux draws a `size="sm"` `Select` that takes its height from its
+ * padding and the font's line at 27px where macOS draws 28px.
+ */
+const TALL_FACE = "Tall line";
+const TALL_FONT_CSS = `
+@font-face {
+  font-family: "${TALL_FACE}";
+  src: local("Arial"), local("Helvetica"), local("Liberation Sans"), local("DejaVu Sans");
+  ascent-override: 150%;
+  descent-override: 50%;
+  line-gap-override: 0%;
+}
+.tall-line select, .tall-line input, .tall-line button {
+  font-family: "${TALL_FACE}" !important;
+}
+`;
+
+describe("a filter's height", () => {
+  afterEach(() => {
+    document.getElementById("tall-line")?.remove();
+    document.documentElement.classList.remove("tall-line");
+  });
+
+  it("is its own, not the font's: every filter is 28px under a font with a tall line, 390px", async () => {
+    await page.viewport(390, 1100);
+    const style = document.createElement("style");
+    style.id = "tall-line";
+    style.textContent = TALL_FONT_CSS;
+    document.head.append(style);
+    document.documentElement.classList.add("tall-line");
+    // The face must load, or the case would measure the platform's own line and
+    // pass whether or not a filter has a height of its own.
+    expect(await document.fonts.load(`13px "${TALL_FACE}"`)).not.toEqual([]);
+
+    await renderRsvps(true);
+    expect(
+      filterMisfits({
+        search: document.querySelector('input[type="search"]')!,
+        sort: screen.getByRole("combobox", { name: "Sort guests" }),
+      }),
+    ).toEqual([]);
+    await page.screenshot({ path: shot("rsvp-bar-tall-line-390") });
+    cleanup();
+
+    const directory = await renderDirectory();
+    expect(filterMisfits(directory.filters, directory.actions)).toEqual([]);
+    await page.screenshot({ path: shot("directory-filters-tall-line-390") });
+    cleanup();
+
+    const seating = await renderSeating();
+    expect(filterMisfits(seating.filters, seating.actions)).toEqual([]);
+    await page.screenshot({ path: shot("seating-filter-tall-line-390") });
+  });
 });
