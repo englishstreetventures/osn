@@ -1042,6 +1042,7 @@ describe("a failure the Worker did not cause", () => {
     const result = await smoke(["osn_api", "production"], {
       "https://id.musubi.social/health": UNREACHABLE,
       "https://id.musubi.social/.well-known/jwks.json": UNREACHABLE,
+      "https://id.musubi.social/health/coordination": UNREACHABLE,
     });
     expect(result.code).toBe(1);
     expect(result.posts).toEqual([]);
@@ -1053,6 +1054,7 @@ describe("a failure the Worker did not cause", () => {
     const result = await smoke(["osn_api", "production"], {
       "https://id.musubi.social/health": timedOut,
       "https://id.musubi.social/.well-known/jwks.json": timedOut,
+      "https://id.musubi.social/health/coordination": timedOut,
     });
     expect(result.code).toBe(1);
     expect(result.posts).toEqual([]);
@@ -1065,9 +1067,25 @@ describe("a failure the Worker did not cause", () => {
     const result = await smoke(["osn_api", "production"], {
       "https://id.musubi.social/health": capped,
       "https://id.musubi.social/.well-known/jwks.json": capped,
+      "https://id.musubi.social/health/coordination": capped,
     });
     expect(result.code).toBe(1);
     expect(result.posts).toEqual([]);
+  });
+
+  test("a bot challenge to the coordination probe alone fails the step without a rollback", async () => {
+    const challenge = () =>
+      new Response("<html>Just a moment...</html>", {
+        status: 403,
+        headers: { "cf-mitigated": "challenge", "content-type": "text/html" },
+      });
+    const result = await smoke(["osn_api", "production"], {
+      ...OSN_PROD,
+      "https://id.musubi.social/health/coordination": challenge,
+    });
+    expect(result.code).toBe(1);
+    expect(result.posts).toEqual([]);
+    expect(result.output).toContain("cf-mitigated");
   });
 
   test("Cloudflare Access answering fails the step without a rollback", async () => {
@@ -1090,6 +1108,7 @@ describe("a failure the Worker did not cause", () => {
     const result = await smoke(["osn_api", "production"], {
       "https://id.musubi.social/health": MISCONFIGURED,
       "https://id.musubi.social/.well-known/jwks.json": UNREACHABLE,
+      "https://id.musubi.social/health/coordination": UNREACHABLE,
     });
     expect(result.code).toBe(1);
     expect(result.posts).toHaveLength(1);
@@ -1100,6 +1119,7 @@ describe("a failure the Worker did not cause", () => {
     const fadesOut = await smoke(["osn_api", "production"], {
       "https://id.musubi.social/health": (call) => (call <= 6 ? MISCONFIGURED() : UNREACHABLE()),
       "https://id.musubi.social/.well-known/jwks.json": UNREACHABLE,
+      "https://id.musubi.social/health/coordination": UNREACHABLE,
     });
     expect(fadesOut.code).toBe(1);
     expect(fadesOut.posts).toEqual([]);
@@ -1108,6 +1128,7 @@ describe("a failure the Worker did not cause", () => {
     const turnsWrong = await smoke(["osn_api", "production"], {
       "https://id.musubi.social/health": (call) => (call <= 6 ? UNREACHABLE() : MISCONFIGURED()),
       "https://id.musubi.social/.well-known/jwks.json": UNREACHABLE,
+      "https://id.musubi.social/health/coordination": UNREACHABLE,
     });
     expect(turnsWrong.code).toBe(1);
     expect(turnsWrong.posts).toHaveLength(1);
@@ -1630,13 +1651,15 @@ describe("the coordination probe's bearer", () => {
   const authorizationOf = (init: RequestInit | undefined) =>
     new Headers(init?.headers).get("authorization");
 
-  test("goes to the coordination probe alone, and never into the output", async () => {
+  test("goes to the coordination probe alone, beside the CI user agent, and never into the output", async () => {
     const result = await smoke(["osn_api", "production"], OSN_PROD);
     expect(result.code).toBe(0);
+    expect(fetchesOf(result, COORDINATION)).toBeGreaterThan(0);
     for (const call of result.calls) {
       expect(authorizationOf(call.init)).toBe(
         call.url === COORDINATION ? `Bearer ${SMOKE_SECRET}` : null,
       );
+      expect(new Headers(call.init?.headers).get("user-agent")).toBe(CI_USER_AGENT);
     }
     expect(result.output).not.toContain(SMOKE_SECRET);
   });
