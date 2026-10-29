@@ -90,7 +90,7 @@ product are under `components/mock/` ([[#Product views]]).
 | 4 | Pricing (`#pricing`) | `Pricing.astro` | The three plans ([[#Pricing]]) |
 | 5 | Craft / trust | `Craft.astro` | Privacy-first, guests need no account, your data is yours. The site's one photograph |
 | 6 | Testimonials | `Testimonials.astro` | **Designed but hidden** behind `SHOW_TESTIMONIALS = false`; renders nothing until there are real, permissioned quotes. We don't fabricate social proof |
-| 7 | FAQ (`#faq`) | `Faq.astro` | Native `<details>`, works with zero JS. Its cost answer gives the plan prices |
+| 7 | FAQ (`#faq`) | `Faq.astro` | Native `<details>`, works with zero JS. Its cost answer is built from `src/lib/plans.ts`, so it gives each plan's price and guest cap as the cards do |
 | 8 | Closing (`#cta`) | `FinalCta.astro` | The one-to-one message a guest receives (the portal's three-line message, its link and the household's code) and the "Your names" field ([[#The claim field]]) |
 
 Every organiser link (nav, hero, the three plans, the closing field, the
@@ -182,7 +182,9 @@ once per wedding; a wedding on Gold moves to Crimson for A$70. Each plan lists
 what it adds ([[cire-entitlements]]); Classic and Gala are free, so no plan
 promises designs. Every plan's call to action is the same "Create your
 invitation": a couple starts on Ivory and upgrades from the dashboard
-([[cire-upgrades]]). Gold is the raised card, with the gold-filled button.
+([[cire-upgrades]]). Gold is the raised card, with the gold-filled button. The
+FAQ's cost answer is built from the same `PLANS` and `GOLD_TO_CRIMSON_PRICE`,
+so the page cannot quote two prices for one plan.
 
 - **Guest caps and the tier list are tested.** `tests/lib/plans.test.ts` reads
   `TIERS` and `TIER_GUEST_CAP` out of `cire/api/src/services/tiers.ts` and fails
@@ -214,7 +216,8 @@ carries the names to the organiser portal.
 - **In the portal**, `WeddingList` reads `?name=`, opens the create form with
   the names in its field and drops the parameter from the address
   ([[cire-organiser#Arriving from the marketing site]]). A signed-out visitor keeps it
-  through `/login?returnTo=`.
+  through `/login?returnTo=`; the `cire-checklist-starter` flow signs in from
+  that address and finds the names in the form.
 - **Held to the API by a test.** `tests/lib/slug-preview.test.ts` imports
   `cire/api/src/lib/slug.ts` and compares the two rules on a corpus of names
   (ampersands, accents, emoji, repeated spaces, punctuation, a 120-character
@@ -325,14 +328,25 @@ you scroll past them**.
 ## Imagery
 
 The site carries **one photograph**, in the craft section; the product is shown
-as drawings ([[#Product views]]). It is **hotlinked from Unsplash's CDN**
-(`images.unsplash.com`) — the build never downloads it; the visitor's browser
-loads it directly, which is how Unsplash intends hosted images to be used. It is
-composed in `src/lib/site.ts` (`IMAGES.craft` + `unsplash()` helper) so swapping
-in the brand's own art is a one-line change. The `<img>` paints over a gold
-gradient (`Figure.astro`) so a slow or blocked load never leaves an empty hole,
-and shows the required photo credit. The CSP in `public/_headers` allow-lists
-`images.unsplash.com` for `img-src`.
+as drawings ([[#Product views]]). It is **self-hosted**: two WebP files, 800 and
+1,600 px wide, in `public/images/`, listed in `src/lib/site.ts` (`IMAGES.craft`)
+and served by `Figure.astro` as a `srcset`. No visitor's browser asks another
+host for it, so no image host learns a visitor's IP address or user agent; the
+fonts are self-hosted for the same reason (`astro.config.mjs`).
+
+- **Licence.** It is an Unsplash photo, used under the Unsplash License, which
+  allows downloading, copying and serving it, commercially and without
+  attribution, but not selling unmodified copies or compiling a competing
+  service. The credit, "Photo: Jonathan Borba / Unsplash", shows on hover.
+- **CSP.** `img-src 'self' data:` in `public/_headers`;
+  `tests/self-hosted-images.test.ts` fails if another origin is added.
+  `astro dev`, which the E2E stack runs, applies no `_headers`, so the
+  `cire-landing-home` flow checks the photo loads from the landing's own origin.
+- **Cache.** `/images/*` is `public, max-age=86400`: the file names carry no
+  content hash, so a replaced image reaches every browser within a day.
+- **Placeholder.** Swap the files and `IMAGES.craft` for the brand's own art
+  when it exists. The `<img>` paints over a gold gradient so a slow or failed
+  load never leaves an empty hole.
 
 ## Configuration (`src/lib/site.ts`, all build-time `PUBLIC_*`)
 
@@ -415,7 +429,7 @@ platform is a product decision, not a migration — see [[cire]].
 
 ## Deferred
 
-- **Real photography** — the craft image is still a hotlinked Unsplash
+- **Real photography** — the craft image is still a self-hosted Unsplash
   placeholder (`lib/site.ts` `IMAGES`); swap for the brand's own art when it
   exists.
 - **More designs in the fan** — the hero's four "?" phones stand where designs
@@ -427,12 +441,19 @@ platform is a product decision, not a migration — see [[cire]].
 - **The page, end to end:** `tools/e2e/tests/flows/cire-landing-home.flow.ts`
   (`bun run test:e2e -- --grep cire-landing-home`). It checks the section order,
   that no copy carries an em-dash or "premium", that every in-page link lands
-  and every organiser link is the portal (or the claim link), the claim field's
-  preview and link, the chips by mouse and arrow keys, the demo sending nothing,
-  the journey tabs, the plans' prices and caps, the page with JavaScript off
-  and under reduced motion, and the layout at 390 and 768 px. It never follows a
-  link into the portal, whose API calls would make `results.json` differ
-  between runs. Screenshots land in `e2e-artifacts/screenshots/cire-landing-home/`.
+  and every organiser link is the portal (or the claim link), with the nav's,
+  the hero's, each plan's and the footer's checked by name; the claim field's
+  preview and link, for a name, a name with spaces around it and only spaces,
+  its 120-character cap, and Enter following the link; each hero state by
+  mouse and arrow keys and by the caption a screen reader hears; the demo
+  sending nothing; the journey tabs; the plans' prices and caps, and the FAQ
+  giving each plan the same; the craft photo loading from the site's own
+  origin; the page with JavaScript off and under reduced motion; and the layout
+  at 390 and 768 px. It never loads the portal, whose API calls would make
+  `results.json` differ between runs: Enter in the claim field lands on a page
+  the flow serves at the portal's address. The portal's half is
+  `cire-checklist-starter`'s ([[cire-organiser#Arriving from the marketing site]]).
+  Screenshots land in `e2e-artifacts/screenshots/cire-landing-home/`.
 - **The `repo` project.** `tests/lib/plans.test.ts`, `tests/lib/slug-preview.test.ts`
   and `tests/styles/design-token-contract.test.ts` read files in other packages.
   They run as the vitest `repo` project (`test:repo`), which

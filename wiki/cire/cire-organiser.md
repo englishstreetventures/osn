@@ -60,15 +60,31 @@ names in its field, even for an organiser who already has weddings, and drops
 `name` from the address at once, so a reload or a second wedding starts empty.
 The value comes from a link anyone can write, so `lib/name-prefill.ts`:
 
-- strips control characters and the characters that reorder text around them
-  (U+202A–202E, U+2066–2069, U+200E, U+200F, U+061C), then trims;
+- strips the control characters other than whitespace, the characters that
+  reorder text around them (U+202A–202E, U+2066–2069, U+200E, U+200F, U+061C)
+  and the ones that draw nothing (U+00AD, U+180E, U+200B, U+2060–2064, U+FEFF,
+  U+FFF9–FFFB, the tag characters U+E0000–E007F). The zero-width joiner and
+  non-joiner stay, for emoji sequences and Persian and Indic names; a
+  subdivision flag such as England's, built from tag characters, arrives as a
+  plain black flag;
+- turns each run of whitespace, line breaks and Unicode spaces included, into
+  one space, so padding cannot push text past the field's edge, then trims;
 - cuts it to 120 UTF-16 units, the length cire-api's `MAX_DISPLAY_NAME` check
   counts, never splitting a character;
 - only fills the field. Nothing submits until the organiser presses "Create
   wedding", and the name is shown nowhere else.
 
+Letters that draw as blank space, such as the Hangul filler (U+3164), pass: no
+character class removes them without refusing real names. The organiser
+reading the field before pressing "Create wedding" is what catches a name that
+is not theirs.
+
 A signed-out visitor keeps the parameter through sign-in: `RequireAuth` sends
 them to `/login?returnTo=/?name=…`, and `SignInPanel` returns them to that path,
 as it does any same-origin path. Tests: `WeddingList.prefill.test.tsx` and
-`SignInPanel.test.tsx` in `cire/host/tests/components/`. No end-to-end flow
-drives the whole path, from the marketing site through sign-in to the form.
+`SignInPanel.test.tsx` in `cire/host/tests/components/`, and the
+`cire-checklist-starter` E2E flow, which arrives at `/?name=Amara%20%26%20Sam`
+signed out, signs in from the `/login?returnTo=` it is sent to, finds the names
+in the form and gone from the address, and cancels with nothing sent. The
+marketing site's half, the link itself, is `cire-landing-home`'s
+([[cire-landing#Tests]]).
