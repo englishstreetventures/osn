@@ -223,10 +223,16 @@ run sheet's coming-up row, in both themes; filled `danger` reads 4.01:1 on
 cire's pale page, so the portal draws `danger` outlined.
 
 An outline or a tag may lead with a mark — a dot, an icon — held 6px from its
-word; a filled small-caps chip holds its word alone. `Chip` spreads the rest of
-a `<span>`'s safe props (a `role`, `data-*`, an `id`) and takes a caller's
-layout class last. It takes no `title`: a badge that needs explaining sits in
-`Tooltip` (below), and a `title` spread onto it is dropped.
+word; a filled small-caps chip holds its word alone. A `danger` chip with no
+`variant` is outlined.
+
+A chip is a label, and its word is the state, so it takes an allow-list rather
+than a span's props: an `id`, `aria-describedby`, `data-*` attributes, a layout
+`class` (appended last), and `role="status"` for a chip whose word changes under
+the reader. Nothing else reaches the `<span>`, typed or spread — no handler, no
+markup, no `aria-hidden`, `hidden` or `aria-label`, and no `title`: a badge that
+needs explaining sits in `Tooltip` (below). A chip that has to be pressed is a
+`Button`.
 
 ### `Tooltip` — a label that explains itself on hover
 
