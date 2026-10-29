@@ -58,6 +58,9 @@ const [failedAvatarUrl, setFailedAvatarUrl] = createSignal<string | null>(null);
  * `alt=""` is correct — whatever wraps this carries the accessible name
  * ("Account menu"), so the image itself is decorative and naming it twice would
  * make a screen reader say it twice.
+ *
+ * `referrerpolicy="no-referrer"`: the image's host learns the vendor's address
+ * from the request, never which portal page drew it.
  */
 export default function AccountAvatar(props: { session: RpSession | null | undefined }) {
   const initial = () => accountName(props.session).charAt(0).toUpperCase();
@@ -78,6 +81,7 @@ export default function AccountAvatar(props: { session: RpSession | null | undef
         <img
           src={url()}
           alt=""
+          referrerpolicy="no-referrer"
           onError={() => setFailedAvatarUrl(url())}
           class="h-full w-full rounded-full object-cover"
         />

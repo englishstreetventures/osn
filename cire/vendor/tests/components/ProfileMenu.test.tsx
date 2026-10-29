@@ -90,6 +90,19 @@ describe("ProfileMenu", () => {
     }
   });
 
+  it("asks for the avatar image without saying which page asked", () => {
+    // The image's host learns the vendor's address from the request, and
+    // nothing more: no Referer names the portal page it was drawn on.
+    render(() => (
+      <ProfileMenu
+        session={{ ...SESSION, avatarUrl: "https://avatars.test/referrer.png" }}
+        onSignOut={() => {}}
+      />
+    ));
+    const img = screen.getByRole("button", { name: /account menu/i }).querySelector("img");
+    expect(img).toHaveAttribute("referrerpolicy", "no-referrer");
+  });
+
   it("names the signed-in account, so two accounts can be told apart", async () => {
     render(() => <ProfileMenu session={SESSION} onSignOut={() => {}} />);
     openMenu();
