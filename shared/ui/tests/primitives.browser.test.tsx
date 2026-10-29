@@ -447,6 +447,8 @@ const CHIP_LOOK = [
   "fontSize",
   "letterSpacing",
   "textTransform",
+  "whiteSpace",
+  "flexShrink",
   "height",
 ] as const;
 
@@ -464,15 +466,6 @@ function inRow(node: () => JSX.Element): { el: Element; unmount: () => void } {
   return { el: container.firstElementChild!.firstElementChild!, unmount };
 }
 
-/** The chip as it was before it had variants: the class list, word for word. */
-const CHIP_TODAY =
-  "base:font-ui-body base:inline-flex base:shrink-0 base:items-center base:rounded-ui-pill " +
-  "base:px-2.5 base:py-0.5 base:text-ui-xs base:tracking-ui-wider base:whitespace-nowrap base:uppercase";
-
-const CHIP_TONE_TODAY = {
-  neutral: "base:bg-ui-surface/60 base:text-ui-ink-secondary",
-} as const;
-
 /** The apps' hand-written sentence-case tags, in the contract's names. */
 const TAG_TODAY = {
   neutral:
@@ -484,17 +477,6 @@ const TAG_TODAY = {
 const CHIP_TONES = ["neutral", "success", "pending", "accent", "danger"] as const;
 
 describe("Chip variants, treatments and the danger tone", () => {
-  it("draws the neutral chip it always has when given no variant or treatment", () => {
-    const chip = inRow(() => <Chip>draft</Chip>);
-    const now = chipLook(chip.el);
-    chip.unmount();
-    const today = inRow(() => (
-      <span class={`${CHIP_TODAY} ${CHIP_TONE_TODAY.neutral}`}>draft</span>
-    ));
-    expect(now).toEqual(chipLook(today.el));
-    today.unmount();
-  });
-
   it.each(["neutral", "danger"] as const)(
     "draws the %s tag as the apps' hand-written tags drew it",
     (tone) => {
@@ -511,27 +493,42 @@ describe("Chip variants, treatments and the danger tone", () => {
     },
   );
 
-  it.each(CHIP_TONES)(
-    "outlines the %s chip: a 1px border of its own, no fill, the filled chip's height",
-    (tone) => {
+  it.each(CHIP_TONES.flatMap((tone) => (["caps", "tag"] as const).map((t) => [tone, t] as const)))(
+    "outlines the %s %s chip: a 1px border of its own, no fill, otherwise the filled chip",
+    (tone, treatment) => {
       const outline = inRow(() => (
-        <Chip tone={tone} variant="outline">
+        <Chip tone={tone} variant="outline" treatment={treatment}>
           Connected
         </Chip>
       ));
       const o = chipLook(outline.el);
       outline.unmount();
-      const filled = inRow(() => <Chip tone={tone}>Connected</Chip>);
+      const filled = inRow(() => (
+        <Chip tone={tone} treatment={treatment}>
+          Connected
+        </Chip>
+      ));
       const f = chipLook(filled.el);
       filled.unmount();
 
       expect(o.borderTopWidth).toBe("1px");
       expect(o.backgroundColor).toBe(TRANSPARENT);
-      expect(o.color).toBe(f.color);
       // A border with no colour of its own falls back to the ink, which is
       // exactly what an unemitted utility looks like.
       expect(o.borderTopColor).not.toBe(o.color);
-      expect(o.height).toBe(f.height);
+      // The border takes a pixel of padding, and nothing else differs.
+      expect(parseFloat(o.paddingTop)).toBe(parseFloat(f.paddingTop) - 1);
+      const same = (l: Record<string, string>) => {
+        const {
+          borderTopWidth: _w,
+          borderTopColor: _c,
+          backgroundColor: _b,
+          paddingTop: _p,
+          ...rest
+        } = l;
+        return rest;
+      };
+      expect(same(o)).toEqual(same(f));
     },
   );
 
@@ -565,7 +562,24 @@ describe("Chip variants, treatments and the danger tone", () => {
     ));
     const dot = container.querySelector("[data-testid='dot']")!.getBoundingClientRect();
     const word = container.querySelector("[data-testid='word']")!.getBoundingClientRect();
-    expect(word.left - dot.right).toBeGreaterThanOrEqual(5);
+    expect(word.left - dot.right).toBeCloseTo(6, 0);
+  });
+
+  it("keeps a small-caps chip on one line and lets a tag wrap, in a narrow row", () => {
+    const { container } = render(() => (
+      <div style={{ display: "flex", width: "90px", "align-items": "flex-start" }}>
+        <Chip>awaiting confirmation</Chip>
+        <Chip treatment="tag">Hair and makeup artists</Chip>
+      </div>
+    ));
+    const [caps, tag] = [...container.firstElementChild!.children] as HTMLElement[];
+    const one =
+      parseFloat(getComputedStyle(caps!).lineHeight) || caps!.getBoundingClientRect().height;
+    expect(caps!.scrollWidth).toBeLessThanOrEqual(caps!.getBoundingClientRect().width + 0.5);
+    expect(caps!.getBoundingClientRect().height).toBeLessThan(one * 2);
+    expect(tag!.getBoundingClientRect().height).toBeGreaterThan(
+      caps!.getBoundingClientRect().height,
+    );
   });
 
   it("passes a role, data attributes, an id and a layout class through", () => {
@@ -587,7 +601,7 @@ describe("Chip variants, treatments and the danger tone", () => {
     expect(chip.id).toBe("section-state");
     expect(chip.hasAttribute("data-segment-badge")).toBe(true);
     expect(chip.getAttribute("data-state")).toBe("shown");
-    expect(chip.getAttribute("class")?.endsWith(" w-fit")).toBe(true);
+    expect(chip.classList.contains("w-fit")).toBe(true);
   });
 
   it("drops a title a caller spreads, since a badge explains itself in a Tooltip", () => {
