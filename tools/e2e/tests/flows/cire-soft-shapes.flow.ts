@@ -59,6 +59,7 @@ import { resolve } from "node:path";
 import type { Locator, Page } from "@playwright/test";
 
 import { CIRE_GUEST, ORIGINS, SCREENSHOT_DIR } from "../../src/config";
+import { builderFeedback, landingFeedback } from "../support/cire-feedback";
 import {
   addGuestFaq,
   builderSurfaces,
@@ -384,6 +385,7 @@ test("cire-soft-shapes", async ({ page, context, flow }) => {
     (await design("Classic").getAttribute("aria-checked")) ?? "missing",
   );
   await builderSurfaces(flow, page, design);
+  await builderFeedback(flow, page);
 
   // ── The marketing site ───────────────────────────────────────────────────
   // No claim and no sign-in: the page is public, and its demo sends nothing.
@@ -453,6 +455,7 @@ test("cire-soft-shapes", async ({ page, context, flow }) => {
       await expect(demoField.first()).toBeInViewport();
     }),
   );
+  await landingFeedback(flow, landing, demo);
   await landing.close();
 
   // ── The guest site, in Classic ───────────────────────────────────────────
