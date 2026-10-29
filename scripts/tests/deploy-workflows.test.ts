@@ -712,6 +712,45 @@ describe("PR1: the cire stack job compares the guest site's routes with Wrangler
   });
 });
 
+describe("PR2: ci.yml's Build & Test job runs the guest route comparison's reference on real Wrangler, and keeps its logs", () => {
+  const RUN = "bun run test:scripts:wrangler";
+  const steps = stepsOf(load(".github/workflows/ci.yml").jobs["build-test"]);
+  const at = steps.findIndex((step) => step.run === RUN);
+
+  test("a step of its own runs it, under a time limit, and fails the job when it fails", () => {
+    expect(at).toBeGreaterThan(-1);
+    const step = steps[at];
+    expect(step?.["timeout-minutes"]).toBeNumber();
+    expect(step?.if).toBeUndefined();
+    expect(step?.["continue-on-error"]).toBeUndefined();
+    // After the install: it loads the wrangler cire/invites resolves.
+    expect(at).toBeGreaterThan(
+      steps.findIndex((one) => one.run === "bun install --frozen-lockfile"),
+    );
+  });
+
+  test("the step after it keeps test-artifacts/ whether the test passed or not", () => {
+    const upload = steps[at + 1];
+    expect(upload?.uses).toBe("actions/upload-artifact@v4");
+    expect(upload?.if).toBe("${{ !cancelled() }}");
+    expect(upload?.with?.path).toBe("test-artifacts/");
+  });
+
+  test("the root script runs the real-Wrangler test file, which the Scripts job's `bun test ./scripts/` does not pick up", () => {
+    const scripts = (
+      JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as {
+        readonly scripts: Readonly<Record<string, string>>;
+      }
+    ).scripts;
+    const file = "scripts/tests/guest-route-parity-wrangler.e2e.ts";
+    expect(scripts["test:scripts:wrangler"]).toBe(`bun test ./${file}`);
+    expect(existsSync(join(root, file))).toBe(true);
+    expect(scripts["test:scripts"]).toBe("bun test ./scripts/");
+    // `bun test` picks up only `*.test.*`, `*_test.*`, `*.spec.*` and `*_spec.*` names.
+    expect(file).not.toMatch(/[._](test|spec)\.[cm]?[jt]sx?$/);
+  });
+});
+
 describe("W2: one record job per dev surface", () => {
   test.each(STACKS.map((s) => [s.key] as const))(
     "%s: the stack job reports whether it deployed, and each surface's check",
