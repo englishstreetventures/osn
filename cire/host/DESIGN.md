@@ -328,6 +328,22 @@ trigger in the reply editor is `@cire/ui`'s `field`-variant button and keeps
 its height until a shared 34px size exists; the command palette's and the task
 holders' search boxes draw no box of their own.
 
+**Checkboxes and radios: the checked box is the browser's, the unchecked one
+sits on its surface.** A checked or indeterminate native box keeps the
+browser's own fill and tick on purpose: it reads as a form control. An
+unchecked one is drawn, in `global.css`'s base layer, with no fill and a 1px
+`--ui-hairline-strong` edge (`--ui-ink-secondary` on hover), at the native
+box's 13px and 2px corner (a radio round), so ticking moves nothing; disabled,
+it fades to 0.4. Only the edge fades, on `--dur-fast`. Why: the browser's white
+unchecked box stood out from every ground (owner, 2026-10-29). The boxes that
+already carry `accent-gold` — in the guest editor, the RSVP editor, the email
+attestation, the RSVP changes card and the invite builder, and the code-style
+radios when creating a wedding or re-minting codes — fill gold rather than
+blue; `@shared/ui`'s `Checkbox` draws its own box and is untouched.
+`tests/styles/checkboxes.browser.test.tsx` holds the unchecked look, the
+checked box's `appearance: auto`, the same size both ways and a tick that
+moves nothing, in light and dark.
+
 `soft-shapes.browser.test.tsx` renders the RSVP page, the budget, the registry
 and the co-host form in Chromium at 390 and 1280px, and measures the computed
 shapes: the search box, and on a phone the sort select, 28px with round ends;
