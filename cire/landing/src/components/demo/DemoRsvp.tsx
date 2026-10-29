@@ -2,12 +2,15 @@ import type { DietaryPreset } from "@cire/dietary";
 import Button from "@cire/ui/button";
 import { cardClass } from "@cire/ui/card";
 import DietaryPresets from "@cire/ui/dietary-presets";
-import Eyebrow from "@cire/ui/eyebrow";
+import Eyebrow, { eyebrowClass } from "@cire/ui/eyebrow";
 import Reveal from "@cire/ui/reveal";
 import { heldWhileClosing } from "@shared/ui/ui/modal";
 import { createEffect, createMemo, createSignal, createUniqueId, For, on, Show } from "solid-js";
 
 import { DemoModal } from "./DemoModal";
+
+/** An event's date, drawn once per event: the eyebrow's classes on a plain line. */
+const EVENT_DATE_CLASS = `${eyebrowClass()} mb-1`;
 
 /** An event in the demo, the guest site's event card in miniature. Its rows
  *  space themselves with their own margins, as the guest card's do. */
@@ -90,7 +93,7 @@ export function DemoRsvp() {
             {(event) => (
               <article class={EVENT_CARD_CLASS}>
                 <h4 class="font-display text-text mb-1 text-xl font-normal italic">{event.name}</h4>
-                <Eyebrow class="mb-1">{event.date}</Eyebrow>
+                <p class={EVENT_DATE_CLASS}>{event.date}</p>
                 <p class="font-body text-text-muted text-ui-sm mb-2">{event.location}</p>
                 <p class="font-body text-text-muted text-ui-sm leading-ui-normal mb-4 font-light">
                   {event.description}

@@ -1,6 +1,6 @@
 import Button from "@cire/ui/button";
 import { cardClass } from "@cire/ui/card";
-import Eyebrow from "@cire/ui/eyebrow";
+import { eyebrowClass } from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
 import { EmptyState } from "@shared/ui/ui/empty-state";
@@ -31,6 +31,13 @@ import {
 } from "../lib/image-crop";
 import { hasGuestPolicy, hasRunOfShow, hasText } from "../lib/invite-emptiness";
 import SectionIntro from "./SectionIntro";
+
+/**
+ * A row's label, drawn once per row: the eyebrow's classes on a plain element,
+ * without `Eyebrow`'s run-time choice of tag.
+ */
+const ROW_LABEL_CLASS = eyebrowClass();
+
 const ImageCropModal = lazy(() => import("./ImageCropModal"));
 
 const EVENT_CARD_CLASS = `${cardClass()} @container/card`;
@@ -238,7 +245,7 @@ export default function EventTable(props: EventTableProps) {
               // details into a half-width card.
               <li class={EVENT_CARD_CLASS}>
                 <header class="flex flex-col gap-1">
-                  <Eyebrow as="span">{event.slug}</Eyebrow>
+                  <span class={ROW_LABEL_CLASS}>{event.slug}</span>
                   <h3 class="font-display text-text text-ui-lg font-light">{event.name}</h3>
                   <p class="font-body text-text-muted text-ui-sm">
                     {formatEventWhen(event.startAt, event.endAt, event.timezone)} · {event.timezone}

@@ -1,5 +1,5 @@
 import { buttonClass } from "@cire/ui/button";
-import Eyebrow from "@cire/ui/eyebrow";
+import Eyebrow, { eyebrowClass } from "@cire/ui/eyebrow";
 import { Toaster } from "@shared/toast";
 import {
   createMemo,
@@ -41,6 +41,12 @@ import {
 import { Z_CLASS } from "../../lib/z-index";
 import { CLAIM_SESSION_EVENT, hasClaimedHint } from "../claim-session";
 import { GiftRegistryItemCard } from "./GiftRegistryItemCard";
+
+/**
+ * A shelf's label, drawn once per shelf: the eyebrow's classes on a plain
+ * heading, without `Eyebrow`'s run-time choice of tag.
+ */
+const SHELF_LABEL_CLASS = eyebrowClass();
 
 /**
  * The money panel is a whole second surface — its own amount field, its own
@@ -590,7 +596,7 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
                             nothing, since one unlabelled shelf is just a list. */}
                         <Show when={showShelfLabels()}>
                           <div class="mb-6 flex items-center gap-4">
-                            <Eyebrow as="h2">{group().category ?? "More gifts"}</Eyebrow>
+                            <h2 class={SHELF_LABEL_CLASS}>{group().category ?? "More gifts"}</h2>
                             <span class="border-border h-px flex-1 border-t" aria-hidden="true" />
                           </div>
                         </Show>
