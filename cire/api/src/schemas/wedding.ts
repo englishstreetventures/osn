@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 
-import { MAX_DISPLAY_NAME } from "../services/weddings";
+import { MAX_DISPLAY_NAME } from "../lib/slug";
 
 /**
  * Claim-code tier (mirrors `weddings.code_style`). Validated server-side against

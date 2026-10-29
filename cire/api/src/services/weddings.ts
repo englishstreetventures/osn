@@ -4,6 +4,7 @@ import { Data, Effect } from "effect";
 
 import { commitBatch, DbService, dbQuery } from "../db";
 import { epochSeconds, RESTORE_WINDOW_S, restoreUntil } from "../db/live-wedding";
+import { slugifyDisplayName } from "../lib/slug";
 import { metricWeddingCreated } from "../metrics";
 import type { CodeStyle } from "./family-code";
 import { normaliseHostRole } from "./hosts";
@@ -54,27 +55,6 @@ export class WeddingCreateError extends Data.TaggedError("WeddingCreateError")<{
   readonly reason: string;
   readonly cause?: unknown;
 }> {}
-
-/** Max display-name length accepted from the organiser portal. */
-export const MAX_DISPLAY_NAME = 120;
-
-/**
- * Derive a URL-safe base slug from a display name: lowercase, ASCII-ish, words
- * joined by single hyphens. Empty input (e.g. an all-emoji name) falls back to
- * `"wedding"` so we always have something to suffix.
- */
-export function slugifyDisplayName(displayName: string): string {
-  const base = displayName
-    .normalize("NFKD")
-    // Drop combining marks left by NFKD so "José" → "jose", not "jose<mark>".
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 60)
-    .replace(/-+$/g, "");
-  return base.length > 0 ? base : "wedding";
-}
 
 /** New wedding id: `wed_<uuid-hex>`. Matches the codebase's `crypto.randomUUID`
  *  id convention (no ulid dependency); `wed_bootstrap` stays reserved. */

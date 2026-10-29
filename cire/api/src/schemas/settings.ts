@@ -1,7 +1,7 @@
 import { Schema, SchemaTransformation } from "effect";
 
 import { canonicalTimeZone } from "../lib/rsvp-deadline";
-import { MAX_DISPLAY_NAME } from "../services/weddings";
+import { MAX_DISPLAY_NAME } from "../lib/slug";
 
 /** Trim then require non-empty — same idiom as `CreateWeddingBody.displayName`. */
 const trimmed = (max: number) => Schema.Trim.check(Schema.isMinLength(1), Schema.isMaxLength(max));
