@@ -42,6 +42,7 @@ import {
   type RunSheetPerson,
   type RunSheetTaskItem,
 } from "../../src/lib/run-sheet-store";
+import { chipLook } from "../test-support/chip-look";
 
 const SYDNEY = "Australia/Sydney";
 /** 1:10 pm on the day, Sydney: twenty minutes before the celebrant is met. */
@@ -239,6 +240,24 @@ const json = (body: unknown, status = 200) =>
 const rowOf = (itemId: string) =>
   document.querySelector<HTMLElement>(`[data-run-sheet-item="${itemId}"]`)!;
 
+/** Each flag's word and look, as a host should see it. */
+const FLAG_LOOK = {
+  you: { word: "You", look: { tone: "accent", variant: "filled", treatment: "tag" } },
+  soon: { word: "Coming up", look: { tone: "pending", variant: "filled", treatment: "tag" } },
+  done: { word: "Done", look: { tone: "neutral", variant: "outline", treatment: "tag" } },
+  removed: {
+    word: "Event removed",
+    look: { tone: "pending", variant: "outline", treatment: "tag" },
+  },
+} as const;
+
+/** A flag expected on a row, as the owner's case reads it back. */
+const flagged = (row: string, flag: keyof typeof FLAG_LOOK) => ({
+  row,
+  flag,
+  ...FLAG_LOOK[flag],
+});
+
 const contains = (outer: DOMRect, inner: DOMRect) =>
   inner.left >= outer.left - 0.5 &&
   inner.right <= outer.right + 0.5 &&
@@ -332,6 +351,12 @@ async function show(sheet: RunSheet, props: { canEdit: boolean; helper: boolean 
 function expectLaidOut(width: number) {
   // No sideways scroll anywhere on the page.
   expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
+  // Every sheet laid out here carries flags, and the loop below finds them by
+  // `data-flag`: with none found it would check no flag and still pass.
+  expect(
+    document.querySelectorAll("[data-run-sheet] [data-flag]").length,
+    "flags on the sheet",
+  ).toBeGreaterThan(0);
   const wide = width >= 1000;
   for (const ol of document.querySelectorAll<HTMLElement>("ol.run-sheet-day")) {
     const box = ol.getBoundingClientRect();
@@ -448,6 +473,28 @@ describe("the run sheet, painted", () => {
         expect(within(rowOf("greet")).getByText("Coming up")).toBeTruthy();
         expect(within(rowOf("rings")).getByText("You")).toBeTruthy();
         expect(within(rowOf("cake")).getByText("Event removed")).toBeTruthy();
+        // Every flag on the sheet, by row, with its look: the two about the
+        // reader and about now are filled, the two states outlined, so the
+        // warm "Coming up" and "Event removed" differ by fill as well as word.
+        expect(
+          [...document.querySelectorAll<HTMLElement>("[data-run-sheet] [data-flag]")].map(
+            (flag) => ({
+              row: flag.closest<HTMLElement>("[data-run-sheet-item]")!.dataset.runSheetItem,
+              flag: flag.dataset.flag,
+              word: flag.textContent,
+              look: chipLook(flag),
+            }),
+          ),
+        ).toEqual([
+          flagged("hair", "you"),
+          flagged("hair", "done"),
+          flagged("greet", "soon"),
+          flagged("rings", "you"),
+          flagged("cake", "removed"),
+          flagged("dance", "you"),
+          flagged("nani", "you"),
+          flagged("guestbook", "done"),
+        ]);
         expect(
           getComputedStyle(within(rowOf("hair")).getByText("Hair and makeup for the bridal party"))
             .textDecorationLine,

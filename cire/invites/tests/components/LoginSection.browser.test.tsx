@@ -1,6 +1,6 @@
-import { cleanup, render } from "@solidjs/testing-library";
+import { cleanup, render, within } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 
 import "../../src/styles/global.css";
 import { LoginSection, type LoginSectionLayout } from "../../src/components/LoginSection";
@@ -120,27 +120,69 @@ const middle = (el: Element) => {
   return (r.left + r.right) / 2;
 };
 
-describe("LoginSection — its error line keeps the column's alignment", () => {
-  /** Renders a layout, presses "Not you?" with sign-out failing, and measures. */
+/**
+ * Three error lines a guest can meet in the panel: the claim code's, on the
+ * form before a claim; the member choice's, under "Who are you?"; and "Not
+ * you?"'s, once a member is chosen. Each answers a request, failed here with
+ * `fetch` stubbed to a status that says so.
+ */
+const ERROR_LINES = [
+  {
+    name: "the claim code's",
+    result: null,
+    // A 500, whose message fits on one line of the band's form.
+    status: 500,
+    message: "Something went wrong. Please try again.",
+    async trigger(view: ReturnType<typeof render>) {
+      await userEvent.fill(view.getByLabelText("Invitation code"), "WRONG-CODE");
+      await userEvent.click(view.getByRole("button", { name: "Open invitation" }));
+    },
+  },
+  {
+    name: "the member choice's",
+    result: { ...household, member: null },
+    status: 500,
+    message: "Couldn't save that. Please try again.",
+    async trigger(view: ReturnType<typeof render>) {
+      await userEvent.click(await view.findByRole("button", { name: "Bo" }));
+    },
+  },
+  {
+    name: "“Not you?”'s",
+    result: household,
+    status: 503,
+    message: "Couldn't sign you out. Please try again.",
+    async trigger(view: ReturnType<typeof render>) {
+      // The one beside "Answering as": once its chunk has loaded, the account
+      // link draws a second "Not you?", and the two would both match.
+      const answering = (await view.findByText(/^Answering as/)).closest("p")!;
+      within(answering).getByRole("button", { name: "Not you?" }).click();
+    },
+  },
+] as const;
+
+describe.each(ERROR_LINES)("LoginSection — $name error line keeps the column's alignment", (c) => {
+  /** Renders a layout, sets off the error with its request failing, and measures. */
   async function errorLine(layout: LoginSectionLayout) {
     await page.viewport(1024, 900);
     vi.stubGlobal(
       "fetch",
-      vi.fn(() => Promise.resolve(new Response(null, { status: 503 }))),
+      vi.fn(() => Promise.resolve(new Response(null, { status: c.status }))),
     );
     const view = render(() => (
       <LoginSection
         apiUrl="https://api.test"
-        result={household}
+        result={c.result}
         onClaimed={() => {}}
         onSignOut={() => {}}
         onMemberChange={() => {}}
         layout={layout}
       />
     ));
-    (await view.findByRole("button", { name: "Not you?" })).click();
+    await c.trigger(view);
     const alert = await view.findByRole("alert");
     return {
+      text: alert.textContent,
       line: alert.getBoundingClientRect(),
       row: alert.parentElement!.getBoundingClientRect(),
       icon: alert.querySelector("svg")!.getBoundingClientRect(),
@@ -149,7 +191,8 @@ describe("LoginSection — its error line keeps the column's alignment", () => {
   }
 
   it("centres the error line's icon and words together on the band", async () => {
-    const { line, row, middle: mid } = await errorLine("band");
+    const { text, line, row, middle: mid } = await errorLine("band");
+    expect(text).toBe(`Error: ${c.message}`);
     // The line hugs its icon and words, and sits in the middle of the row.
     expect(line.width).toBeGreaterThan(0);
     expect(row.width).toBeGreaterThan(line.width + 40);
@@ -157,7 +200,8 @@ describe("LoginSection — its error line keeps the column's alignment", () => {
   });
 
   it("starts the error line at the column's edge in the panel", async () => {
-    const { line, row, icon } = await errorLine("panel");
+    const { text, line, row, icon } = await errorLine("panel");
+    expect(text).toBe(`Error: ${c.message}`);
     expect(line.width).toBeGreaterThan(0);
     expect(icon.left - row.left).toBeLessThan(2);
   });

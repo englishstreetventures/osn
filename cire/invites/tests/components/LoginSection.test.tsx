@@ -454,6 +454,18 @@ describe("LoginSection returning household", () => {
     expect(returningHousehold()).toBe(false);
   });
 
+  it("tells an organiser previewing that nothing is saved, in a status region", () => {
+    const { getByText } = render(() => (
+      <LoginSection
+        apiUrl="http://x"
+        result={{ ...household([chidi, ada], someReplies), preview: true }}
+        onClaimed={noop}
+      />
+    ));
+    const note = getByText(/^Preview mode\. Every event is shown/);
+    expect(note.closest("[role='status']")).not.toBeNull();
+  });
+
   it("keeps a first visit a first visit after the household's first reply", () => {
     // The page writes every save back into the same claim result. The greeting
     // is about how the invite opened, so a reply given now does not turn it.

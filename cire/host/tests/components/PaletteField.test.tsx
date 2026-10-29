@@ -123,6 +123,14 @@ describe("PaletteField", () => {
 
     const notice = await waitFor(() => screen.getByText(/Adjusted to stay readable/));
     expect(notice.textContent).toContain("ink");
+    // The whole sentence, so a lost space or separator shows. The unset gilt
+    // and bloom come from the default preset, and on a grey page they fail
+    // too, so the note names three seeds and the ", " between them.
+    expect(notice.textContent).toBe(
+      "Adjusted to stay readable: ink, gilt, bloom. Your invite keeps the colours you picked; these were shifted just enough for the text to stay legible.",
+    );
+    // A note that was on screen when the reader arrived: a status region.
+    expect(notice.closest("[role='status']")).not.toBeNull();
   });
 
   /**
@@ -165,6 +173,8 @@ describe("PaletteField", () => {
     // The measured ratio and the bar it missed, so the warning is checkable
     // rather than a bare verdict.
     expect(notice.textContent).toMatch(/\d+(\.\d+)?:1, needs 3:1/);
+    // The message and its numbers stay two words apart.
+    expect(notice.textContent).toMatch(/on event cards\. \(\d+(\.\d+)?:1, needs 3:1\)/);
   });
 
   it("keeps the live region mounted and the per-frame numbers out of it", async () => {
