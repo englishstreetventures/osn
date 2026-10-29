@@ -3,9 +3,9 @@
   "pr": {
     "number": 1870,
     "branch": "feat/cire-feedback-chip",
-    "base_sha": "dbcf2219335ec5b6d0a9e3bc35b3badf88eb9146",
-    "head_sha": "2de1983386b348228fa49af8709878fb9048d800",
-    "generated_at": "2026-10-29T13:42:18.778Z",
+    "base_sha": "1a03629e215e652f42edb96dba56f845c4f8edb4",
+    "head_sha": "beac72b76dc57707b35d88375aafbab4f294f5c1",
+    "generated_at": "2026-10-29T18:11:02.640Z",
     "merged_at": null,
     "phase": "at-open"
   },
@@ -20,49 +20,49 @@
     "issues": 0
   },
   "window": {
-    "sessions": 5,
+    "sessions": 6,
     "first_ts": "2026-10-29T12:48:31.142Z",
-    "last_ts": "2026-10-29T13:32:01.434Z",
-    "span_seconds": 2610,
-    "active_seconds": 1966,
+    "last_ts": "2026-10-29T13:42:34.647Z",
+    "span_seconds": 3244,
+    "active_seconds": 1970,
     "compactions": 0
   },
   "spend": {
-    "usd_equivalent": 8.9927136,
+    "usd_equivalent": 9.0504368,
     "tokens": {
-      "input": 300,
-      "output": 138666,
-      "thinking": 75784,
-      "cache_write_5m": 456350,
+      "input": 304,
+      "output": 138889,
+      "thinking": 75837,
+      "cache_write_5m": 466244,
       "cache_write_1h": 0,
-      "cache_read": 9841109
+      "cache_read": 9850552
     },
     "by_model": {
       "claude-opus-5-5": {
         "tokens": {
-          "input": 300,
-          "output": 138666,
-          "thinking": 75784,
-          "cache_write_5m": 456350,
+          "input": 304,
+          "output": 138889,
+          "thinking": 75837,
+          "cache_write_5m": 466244,
           "cache_write_1h": 0,
-          "cache_read": 9841109
+          "cache_read": 9850552
         },
-        "usd_equivalent": 8.9927136,
-        "messages": 150
+        "usd_equivalent": 9.0504368,
+        "messages": 152
       }
     },
     "by_actor": {
       "main": {
         "tokens": {
-          "input": 16,
-          "output": 2855,
-          "thinking": 1836,
-          "cache_write_5m": 58545,
+          "input": 20,
+          "output": 3078,
+          "thinking": 1889,
+          "cache_write_5m": 68439,
           "cache_write_1h": 0,
-          "cache_read": 69338
+          "cache_read": 78781
         },
-        "usd_equivalent": 0.37762419999999997,
-        "messages": 8
+        "usd_equivalent": 0.43534739999999994,
+        "messages": 10
       },
       "subagent": {
         "tokens": {
@@ -78,7 +78,7 @@
       }
     },
     "effort": {
-      "medium": 8,
+      "medium": 10,
       "high": 111,
       "xhigh": 31
     },
@@ -89,7 +89,7 @@
       "generated": 3,
       "test": 4,
       "docs": 2,
-      "config": 0,
+      "config": 1,
       "source": 2
     },
     "loc": {
@@ -103,10 +103,10 @@
       },
       "docs": {
         "added": 35,
-        "deleted": 4
+        "deleted": 3
       },
       "config": {
-        "added": 0,
+        "added": 167,
         "deleted": 0
       },
       "source": {
@@ -120,7 +120,7 @@
       "tools/lab"
     ],
     "touches_migration": false,
-    "commits": 4
+    "commits": 6
   },
   "interaction": {
     "user_turns": 0,
@@ -129,9 +129,9 @@
     "sessions_with_observed_edit": 0,
     "tool_calls": {
       "Bash": 139,
+      "Read": 5,
+      "StructuredOutput": 5,
       "SubagentHandback": 4,
-      "Read": 4,
-      "StructuredOutput": 4,
       "Skill": 2,
       "Grep": 1
     },
@@ -145,11 +145,11 @@
     },
     "subagents": {},
     "requests": {
-      "main": 8,
+      "main": 10,
       "subagent": 142,
-      "with_tools": 150,
-      "with_one_tool": 146,
-      "context_median": 67028,
+      "with_tools": 152,
+      "with_one_tool": 148,
+      "context_median": 66547,
       "context_p90": 104402
     }
   },
