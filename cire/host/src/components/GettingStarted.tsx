@@ -266,7 +266,7 @@ export default function GettingStarted(props: {
                     type="button"
                     onClick={() => props.onJump(step.tab)}
                     data-complete={step.complete ? "true" : "false"}
-                    // A step's line wraps inside its tile and starts at its left
+                    // Each step wraps inside its tile and starts at the left
                     // edge: `Button` holds a label to one centred line.
                     class="group flex w-full items-start justify-start text-left whitespace-normal"
                   >
