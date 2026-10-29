@@ -313,11 +313,11 @@ Wrangler runs on the runner only, on Node, started by [`scripts/guest-route-pari
 
 ```mermaid
 flowchart LR
-  P[guest-route-parity.ts, Bun] -->|probes, CI agent, Access token| D[dev guest host]
-  P -->|probes| W[Wrangler runtime, Node child]
-  W -->|calls to PARITY_API_ORIGIN, run token| R[relay in the Bun process]
-  R -->|CI agent| A[cire-api on dev]
-  W -->|other origins, as sent| O[elsewhere]
+  P[guest-route-parity.ts, Bun] ==>|probes, CI agent, Access token| D[dev guest host]
+  P ==>|probes| W[Wrangler runtime, Node child]
+  W ==>|calls to PARITY_API_ORIGIN, run token| R[relay in the Bun process]
+  R ==>|CI agent| A[cire-api on dev]
+  W ==>|other origins, as sent| O[elsewhere]
 ```
 
 It refuses the run, exit 1, when:
