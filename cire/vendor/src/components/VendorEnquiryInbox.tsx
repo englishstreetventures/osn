@@ -50,6 +50,8 @@ interface VendorEnquiryInboxProps {
 }
 
 // Module-scoped so the formatter is built once, not on every mount/view-switch.
+const ROW_CLASS = `${cardClass({ interactive: true })} w-full gap-1.5 p-4`;
+
 const aud = new Intl.NumberFormat(undefined, { style: "currency", currency: "AUD" });
 
 export default function VendorEnquiryInbox(props: VendorEnquiryInboxProps) {
@@ -111,7 +113,7 @@ export default function VendorEnquiryInbox(props: VendorEnquiryInboxProps) {
                   type="button"
                   ref={(el) => rowButtons.set(item.id, el)}
                   onClick={() => props.onOpen(item.id)}
-                  class={`${cardClass({ interactive: true })} w-full gap-1.5 p-4`}
+                  class={ROW_CLASS}
                   aria-label={`${item.weddingName} – ${categoryLabel(item.category)}`}
                 >
                   <div class="flex items-center justify-between gap-3">
