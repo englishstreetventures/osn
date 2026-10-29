@@ -1,6 +1,6 @@
 // The comparison rules of scripts/guest-route-parity.ts and the relay that
 // carries the Wrangler side's calls to cire-api, one test per way they can
-// fail (NEW-FEAT.md, PF1–PF13, PF15, PF17, PF20, PF21, PF29–PF31, PF36,
+// fail (NEW-FEAT.md, PF1–PF13, PF15, PF17, PF20, PF21, PF25, PF29–PF31, PF36,
 // PF37, PF41, PF45). The run itself — the reference started, both sides
 // probed, the report written — is in guest-route-parity.cli.test.ts.
 
@@ -20,13 +20,13 @@ import {
   observe,
   PLATFORM_FILES,
   probePaths,
+  readBuild,
   referenceEnv,
   relayRefusals,
   relayRequest,
   renderReport,
   routeFor,
   routesFromPages,
-  routesInBuild,
   SEEDED_PROBES,
   seedRendered,
   blockedReason,
@@ -76,10 +76,18 @@ describe("routes and probes", () => {
       "chunks/other.js": '{"route":"/brand-new"}',
       "entry.mjs.map": '{"route":"/from-a-map"}',
     });
-    const routes = routesInBuild(server);
+    const { routes } = readBuild(server, API);
     expect(routes).toEqual(["/", "/[slug]", "/brand-new"]);
-    expect(routesInBuild(tree({ "entry.mjs": "export default {}" }))).toEqual([]);
+    expect(readBuild(tree({ "entry.mjs": "export default {}" }), API).routes).toEqual([]);
     expect(uncoveredRoutes(routes, ["/", `/${GUEST_SEED.slug}`])).toEqual(["/brand-new"]);
+  });
+
+  test("PF25: the same read says whether any server script, routes or none, names the cire-api origin; a source map does not count", () => {
+    const routes = { "chunks/entrypoints_X.mjs": '{"route":"/"}' };
+    const calls = tree({ ...routes, "chunks/api.js": `const API_URL = ${JSON.stringify(API)};` });
+    expect(readBuild(calls, API)).toEqual({ routes: ["/"], callsApi: true });
+    expect(readBuild(tree({ ...routes, "chunks/api.js.map": API }), API).callsApi).toBe(false);
+    expect(readBuild(tree(routes), API).callsApi).toBe(false);
   });
 
   test("PF1: a probe reaches the route Astro would answer it with, a static route before a dynamic one", () => {

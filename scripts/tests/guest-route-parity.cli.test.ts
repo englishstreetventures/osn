@@ -1,6 +1,6 @@
 // The `import.meta.main` block of scripts/guest-route-parity.ts: what reaches
 // the reference child, what each side is asked, what the report says and the
-// exit code (NEW-FEAT.md PF10–PF16, PF21–PF28, PF33, PF38–PF40, PF46).
+// exit code (NEW-FEAT.md PF10–PF16, PF21–PF28, PF33, PF38–PF40, PF46, PF47).
 //
 // Each test copies the script, the smoke check it takes `judge()` from and the
 // Node child that starts the reference, byte for byte, into a temporary tree
@@ -354,19 +354,31 @@ interface ApiRequest {
  * `busy` answers 503 to the CI-agent requests for its path whose count, from
  * 1, it lists; the first such request for the seeded wedding's path is the
  * control pair's.
+ *
+ * `holdOwn` holds the answer to each request without the CI agent — only the
+ * control pair's first sends none, since the relay always sets it — until
+ * `referenceStarted()` is true and either a CI-agent request arrives or
+ * HOLD_MS pass, at most HOLD_CAP_MS; it then answers as usual if the
+ * reference had started, and 503 if not. `held` records, for each, whether
+ * the reference had started and whether a CI-agent request arrived while it
+ * waited.
  */
 function fakeApi(
   options: {
     readonly challenge?: boolean;
     readonly busy?: { readonly path: string; readonly at: readonly number[] };
+    readonly holdOwn?: { readonly referenceStarted: () => boolean };
   } = {},
 ): {
   readonly origin: string;
   readonly seen: ApiRequest[];
+  readonly held: { readonly started: boolean; readonly overlapped: boolean }[];
   readonly stop: () => void;
 } {
   const seen: ApiRequest[] = [];
+  const held: { readonly started: boolean; readonly overlapped: boolean }[] = [];
   let busyCount = 0;
+  let ciAgentCalls = 0;
   const server = Bun.serve({
     hostname: "127.0.0.1",
     port: 0,
@@ -379,7 +391,27 @@ function fakeApi(
         body,
         headers: Object.fromEntries(request.headers),
       });
-      if (options.challenge === true || request.headers.get("user-agent") !== CI_USER_AGENT) {
+      const ciAgent = request.headers.get("user-agent") === CI_USER_AGENT;
+      if (ciAgent) ciAgentCalls += 1;
+      if (options.holdOwn !== undefined && !ciAgent) {
+        const { referenceStarted } = options.holdOwn;
+        const callsBefore = ciAgentCalls;
+        const from = Date.now();
+        const overlapped = () => ciAgentCalls > callsBefore;
+        while (
+          Date.now() - from < HOLD_CAP_MS &&
+          !(referenceStarted() && (overlapped() || Date.now() - from >= HOLD_MS))
+        ) {
+          // Polled until the hold ends.
+          // eslint-disable-next-line no-await-in-loop
+          await Bun.sleep(20);
+        }
+        held.push({ started: referenceStarted(), overlapped: overlapped() });
+        if (!referenceStarted()) {
+          return new Response("held: the reference never started", { status: 503 });
+        }
+      }
+      if (options.challenge === true || !ciAgent) {
         return new Response("<html>challenge</html>", {
           status: 403,
           headers: { "cf-mitigated": "challenge", "content-type": "text/html" },
@@ -402,8 +434,27 @@ function fakeApi(
   });
   const stop = () => void server.stop(true);
   started.push({ kill: stop });
-  return { origin: `http://127.0.0.1:${server.port}`, seen, stop };
+  return { origin: `http://127.0.0.1:${server.port}`, seen, held, stop };
 }
+
+/**
+ * How long `holdOwn` holds the control pair's first answer once the reference
+ * has started: longer than the stand-in takes to serve and be probed, so a
+ * probe that did not wait for the pair reaches cire-api within it.
+ */
+const HOLD_MS = 2_000;
+/** The longest it holds: under the 12 s by which Bun's default idle timeout cuts a request with no answer. */
+const HOLD_CAP_MS = 8_000;
+
+/** The control pair, as the fake cire-api answers it: Bun's own agent challenged, the CI agent let through. */
+const CONTROL_PAIR = [
+  {
+    userAgent: "Bun's own",
+    status: 403,
+    blocked: "Cloudflare answered 403 in the Worker's place (cf-mitigated: challenge)",
+  },
+  { userAgent: CI_USER_AGENT, status: 200 },
+];
 
 /** A loopback port nothing listens on. */
 function closedPort(): Promise<number> {
@@ -641,14 +692,7 @@ describe.concurrent("guest-route-parity.ts", () => {
     }
     expect(second).toBe(first);
     const { cireApi } = JSON.parse(first) as WrittenReport;
-    expect(cireApi.control).toEqual([
-      {
-        userAgent: "Bun's own",
-        status: 403,
-        blocked: "Cloudflare answered 403 in the Worker's place (cf-mitigated: challenge)",
-      },
-      { userAgent: CI_USER_AGENT, status: 200 },
-    ]);
+    expect(cireApi.control).toEqual(CONTROL_PAIR);
     const relayed = cireApi.relayed;
     expect(relayed.map((one) => one.probe)).toEqual([...SEEDED_PROBES, ...UNKNOWN_SLUG_PROBES]);
     for (const one of relayed) {
@@ -883,6 +927,33 @@ describe.concurrent("guest-route-parity.ts", () => {
     expect(seeded).toContain("cire-api through the relay: try 1 503, try 2 503");
   });
 
+  test("PF47: the control pair is asked while the reference starts, and answered before the first probe reaches cire-api", async () => {
+    let state = "";
+    const api = fakeApi({
+      holdOwn: { referenceStarted: () => existsSync(join(state, "call.json")) },
+    });
+    const t = tree({ apiOrigin: api.origin });
+    state = t.state;
+    writeFileSync(join(t.state, "reference.json"), JSON.stringify(ANSWERS));
+    const host = await devHost(t, ANSWERS);
+    let exitCode: number | undefined;
+    try {
+      exitCode = (await runParity(t, { PARITY_ORIGIN: host.origin, PARITY_API_ORIGIN: api.origin }))
+        .exitCode;
+    } finally {
+      host.stop();
+      api.stop();
+    }
+    // Its first answer, held, came once the reference had started (the stand-in
+    // writes call.json as it starts), and no relayed call reached cire-api while
+    // it waited.
+    expect(api.held).toEqual([{ started: true, overlapped: false }]);
+    const written = report(t);
+    expect(written.cireApi.control).toEqual(CONTROL_PAIR);
+    expect(written.result).toBe("match");
+    expect(exitCode).toBe(0);
+  });
+
   test("PF40: an error event from the reference after it is ready is logged, and the reference keeps serving", async () => {
     const { t, api, host, env } = await working(ANSWERS, { standIn: "error-after-ready" });
     try {
@@ -975,6 +1046,8 @@ describe.concurrent("guest-route-parity.ts", () => {
       );
       expect(result.result).toBe("refused");
       expect(result.refusals[0]).toContain("the reference did not serve the build within 1.5 s");
+      // The control pair, asked while the reference started, is in the report all the same.
+      expect(result.cireApi.control).toEqual(CONTROL_PAIR);
     } finally {
       api.stop();
     }

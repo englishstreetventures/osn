@@ -305,15 +305,25 @@ function filesUnder(dir: string): string[] {
     .toSorted();
 }
 
-/** Every route the build's own manifest lists: each `"route":"…"` in its server scripts. */
-export function routesInBuild(serverDir: string): readonly string[] {
+/** What the build's server scripts hold. */
+export interface BuildRead {
+  /** Every route the build's own manifest lists: each `"route":"…"`. */
+  readonly routes: readonly string[];
+  /** Whether any script names the cire-api origin, as the Worker's is a literal in it. */
+  readonly callsApi: boolean;
+}
+
+/** The build's server scripts, each read once, for its routes and whether it calls `apiOrigin`. */
+export function readBuild(serverDir: string, apiOrigin: string): BuildRead {
   const routes = new Set<string>();
+  let callsApi = false;
   for (const file of filesUnder(serverDir)) {
     if (!/\.m?js$/.test(file)) continue;
     const text = readFileSync(join(serverDir, file), "utf8");
     for (const match of text.matchAll(/"route":"([^"]+)"/g)) routes.add(match[1]!);
+    callsApi ||= text.includes(apiOrigin);
   }
-  return [...routes].toSorted();
+  return { routes: [...routes].toSorted(), callsApi };
 }
 
 /** The route each page file under `pagesDir` defines, as Astro writes it in its manifest. */
@@ -833,13 +843,6 @@ async function controlPair(apiOrigin: string, deadline: number): Promise<Control
   return [own, ci];
 }
 
-/** Whether the build's server output calls `apiOrigin`: the Worker's cire-api origin is a literal in it. */
-function buildCalls(serverDir: string, apiOrigin: string): boolean {
-  return filesUnder(serverDir)
-    .filter((file) => /\.m?js$/.test(file))
-    .some((file) => readFileSync(join(serverDir, file), "utf8").includes(apiOrigin));
-}
-
 // ── comparing ──────────────────────────────────────────────────────────────
 
 const allowanceFor = (
@@ -1254,7 +1257,7 @@ async function startReference(
 export async function run(options: Options, context: RunContext): Promise<Report> {
   const paths = pathsUnder(context.root);
   const deadline = Date.now() + context.deadlineMs;
-  const routes = routesInBuild(paths.server);
+  const { routes, callsApi } = readBuild(paths.server, options.apiOrigin);
   const probes = probePaths(paths.client, paths.public);
   const control: ControlCall[] = [];
   const relayed: RelayedRecord[] = [];
@@ -1284,14 +1287,17 @@ export async function run(options: Options, context: RunContext): Promise<Report
       `The build's dist/client/.assetsignore holds '${line}', which this script does not read as the uploads do (a glob, a '!', a leading or inner '/', an escape); teach assetsIgnored() to read it.`,
     );
   }
-  if (!buildCalls(paths.server, options.apiOrigin)) {
+  if (!callsApi) {
     refusals.push(
       `The build in cire/invites/dist/server does not hold PARITY_API_ORIGIN (${options.apiOrigin}); build it with PUBLIC_API_URL set to the origin the relay serves.`,
     );
   }
   if (refusals.length > 0) return { ...base, probes: [], refusals, result: "refused" };
 
-  control.push(...(await controlPair(options.apiOrigin, deadline)));
+  // Asked while the reference starts, which takes longer, and awaited before
+  // the first probe, so cire-api sees the pair before any relayed call. It
+  // never rejects: each of its calls records its own error.
+  const controlled = controlPair(options.apiOrigin, deadline);
   // The probe and try being asked, so each relayed call is recorded against
   // the page and try that made it, as it arrives.
   let current = "(before the first probe)";
@@ -1313,6 +1319,7 @@ export async function run(options: Options, context: RunContext): Promise<Report
   });
   if ("failure" in reference) {
     relay.stop();
+    control.push(...(await controlled));
     return { ...base, probes: [], refusals: [reference.failure], result: "refused" };
   }
   const stopAll = () => {
@@ -1326,6 +1333,7 @@ export async function run(options: Options, context: RunContext): Promise<Report
   process.once("SIGTERM", stopOnSignal);
   process.once("SIGINT", stopOnSignal);
   try {
+    control.push(...(await controlled));
     const alchemy: Side = {
       origin: options.origin,
       headers: { "user-agent": CI_USER_AGENT, ...options.access },
