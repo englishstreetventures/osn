@@ -1,5 +1,6 @@
 import Button from "@cire/ui/button";
 import { cardClass } from "@cire/ui/card";
+import Eyebrow from "@cire/ui/eyebrow";
 import Loading from "@cire/ui/loading";
 import { Chip, type ChipTone } from "@shared/ui/ui/chip";
 import { EmptyState } from "@shared/ui/ui/empty-state";
@@ -50,7 +51,7 @@ interface VendorEnquiryInboxProps {
 }
 
 // Module-scoped so the formatter is built once, not on every mount/view-switch.
-const ROW_CLASS = `${cardClass({ interactive: true })} w-full gap-1.5 p-4`;
+const ROW_CLASS = `${cardClass({ interactive: true, padding: "sm" })} w-full gap-1.5`;
 
 const aud = new Intl.NumberFormat(undefined, { style: "currency", currency: "AUD" });
 
@@ -78,7 +79,7 @@ export default function VendorEnquiryInbox(props: VendorEnquiryInboxProps) {
   return (
     <div class="flex flex-col gap-4">
       <div class="flex flex-col gap-0.5">
-        <p class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">Enquiries</p>
+        <Eyebrow>Enquiries</Eyebrow>
         <h2 class="font-display text-text text-ui-lg leading-ui-tight font-light">Your inbox</h2>
       </div>
 

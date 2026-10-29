@@ -74,3 +74,44 @@ export async function dashboardFetch(input: RequestInfo | URL): Promise<Response
   if (pathname === "/api/vendor/enquiries") return json({ enquiries: [], nextCursor: null });
   return new Response(JSON.stringify({ error: "not_found" }), { status: 404 });
 }
+
+/** One open enquiry from a couple, as the vendor inbox lists it. */
+export const ENQUIRY = {
+  id: "enq_harbour",
+  weddingId: "wed_harbour",
+  directoryVendorId: "dv_rosewood",
+  vendorId: ORGS[0]!.id,
+  zapChatId: null,
+  status: "open",
+  createdBy: "usr_couple",
+  quotedMinor: null,
+  lastMessageAt: 3,
+  createdAt: 1,
+  updatedAt: 3,
+  vendorName: ORGS[0]!.name,
+  category: "venue",
+  weddingName: "Harbour Wedding",
+} as const;
+
+/**
+ * The same dashboard with one enquiry in the inbox and a message in its
+ * thread, for the inbox row and the quote form. Its own stand-in, so the
+ * dashboard's other pictures keep their empty inbox.
+ */
+export async function surfacesFetch(input: RequestInfo | URL): Promise<Response> {
+  const { pathname } = new URL(String(input));
+  if (pathname === "/api/vendor/enquiries") return json({ enquiries: [ENQUIRY], nextCursor: null });
+  if (pathname === `/api/vendor/enquiries/${ENQUIRY.id}/messages`) {
+    return json({
+      messages: [
+        {
+          id: "msg_harbour",
+          senderProfileId: "usr_couple",
+          body: "Is the barn free on the first Saturday of March?",
+          createdAt: 2,
+        },
+      ],
+    });
+  }
+  return dashboardFetch(input);
+}
