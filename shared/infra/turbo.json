@@ -3,9 +3,10 @@
   "extends": ["//"],
   "tasks": {
     // The `package` project reads only this package's files; the `repo`
-    // project (vitest.config.ts) also reads the Worker sources, the lockfile,
-    // the root turbo.json, the cire packages' own turbo.json and the
-    // workflows, so only it reruns when one of those changes.
+    // project (vitest.config.ts) also reads the Worker sources, the lockfile
+    // (which pins the wrangler and alchemy it reads), the root turbo.json,
+    // the cire packages' own turbo.json, the workflows and the asset sites'
+    // public directories, so only it reruns when one of those changes.
     "test": {
       "dependsOn": ["^build", "test:repo"]
     },
@@ -21,7 +22,14 @@
         "$TURBO_ROOT$/bun.lock",
         "$TURBO_ROOT$/turbo.json",
         "$TURBO_ROOT$/cire/*/turbo.json",
-        "$TURBO_ROOT$/.github/workflows/**"
+        "$TURBO_ROOT$/.github/workflows/**",
+        "$TURBO_ROOT$/cire/host/public/**",
+        "$TURBO_ROOT$/cire/vendor/public/**",
+        "$TURBO_ROOT$/cire/landing/public/**",
+        "$TURBO_ROOT$/cire/invites/public/**",
+        "$TURBO_ROOT$/musubi/social/public/**",
+        "$TURBO_ROOT$/musubi/landing/public/**",
+        "$TURBO_ROOT$/pulse/landing/public/**"
       ]
     }
   }
