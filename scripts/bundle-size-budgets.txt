@@ -41,7 +41,7 @@
 # `cire/landing` went the other way, twice, and so its threshold moved. Converting
 # its demo sheet to `@shared/ui`'s `Modal` deleted the one module importing
 # `motion` (185,383 -> 164,847 bytes), and replacing the Three.js hero seal with a
-# CSS one removed `three` (164,847 -> 40,641). Leaving the old ceiling in place
+# CSS one removed `three` (164,847 -> 40,725). Leaving the old ceiling in place
 # would have banked a gap larger than the mistake this guard exists to catch, so
 # each time the threshold followed the measurement down to measured + ~11.7 KB.
 #
@@ -50,6 +50,6 @@
 cire/invites   worker  200900   # measured 190660
 cire/host      static  349653   # measured 337953
 cire/vendor    static  81644    # measured 77305
-cire/landing   static  52341    # measured 40641
+cire/landing   static  52425    # measured 40725
 musubi/landing static  26865    # measured 15206
 pulse/landing  static  28366    # measured 16683

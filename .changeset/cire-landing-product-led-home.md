@@ -17,7 +17,7 @@ receives and a "Your names" field that previews the couple's link.
 `@cire/landing`: the chips and tabs are radios switched by CSS, so they work
 without JavaScript. The product is drawn in the site's tokens with synthetic
 data, with no screenshots. The Three.js seal, `three` and `@types/three` are
-gone, and the bundle threshold drops to 52,341 bytes. The published plans and
+gone, and the bundle threshold drops to 52,425 bytes. The published plans and
 the slug preview are held to cire-api by tests that run as a new `repo` vitest
 project (`test:repo`). The FAQ's cost answer gives the prices; the footer
 links `#journey` and `#pricing`.
