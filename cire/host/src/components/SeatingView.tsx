@@ -1,4 +1,6 @@
 import Button, { buttonClass } from "@cire/ui/button";
+import { cardClass } from "@cire/ui/card";
+import Disclosure from "@cire/ui/disclosure";
 import { DropdownMenu } from "@kobalte/core/dropdown-menu";
 import { useAuth } from "@shared/rp-auth/solid";
 import {
@@ -49,6 +51,8 @@ import {
 } from "../lib/seating-api";
 import { sameButOrder } from "../lib/sortable-rows";
 import ReorderControls from "./ReorderControls";
+
+const PLACE_CLASS = `${cardClass({ padding: "sm" })} transition-ui-colors duration-(--dur-fast) ease-(--ease-out)`;
 
 /** The drop zone that unseats a guest dropped on it. Table ids are `stb_…`. */
 const NOT_SEATED = "not-seated";
@@ -486,14 +490,11 @@ export default function SeatingView(props: SeatingViewProps) {
                 </form>
 
                 <Show when={tables().length > 1}>
-                  <details class="border-border rounded-ui-lg border px-4 py-3">
-                    <summary class="font-body text-text text-ui-sm cursor-pointer">
-                      Arrange tables
-                    </summary>
+                  <Disclosure summary="Arrange tables">
                     <DragDropProvider {...arrange.dragHandlers} collisionDetector={closestCenter}>
                       <DragDropSensors />
                       <p {...arrange.hintProps()}>{arrange.hintText}</p>
-                      <ol class="mt-3 flex flex-col gap-1">
+                      <ol class="flex flex-col gap-1">
                         <SortableProvider ids={tableIds()}>
                           <For each={tableIds()}>
                             {(id, index) => (
@@ -511,7 +512,7 @@ export default function SeatingView(props: SeatingViewProps) {
                       </ol>
                       <p {...arrange.liveRegionProps()}>{arrange.announcement()}</p>
                     </DragDropProvider>
-                  </details>
+                  </Disclosure>
                 </Show>
               </Show>
 
@@ -648,7 +649,7 @@ function Place(props: {
       aria-label={editing() ? props.title : undefined}
       data-table-id={props.table?.id}
       data-over={zone.isOver() ? "true" : "false"}
-      class={`border-border bg-surface/30 rounded-ui-lg flex flex-col gap-3 border p-4 transition-colors duration-(--dur-fast) ease-(--ease-out) ${props.class ?? ""}`}
+      class={`${PLACE_CLASS} ${props.class ?? ""}`}
       classList={{ "border-gold bg-gold/10": zone.isOver() }}
     >
       <Show

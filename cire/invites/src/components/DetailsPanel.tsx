@@ -1,3 +1,4 @@
+import Eyebrow from "@cire/ui/eyebrow";
 import { createMemo, createSignal, For, onMount, Show, type JSX } from "solid-js";
 
 import { AddToCalendar } from "./AddToCalendar";
@@ -52,9 +53,9 @@ export interface DetailsPanelProps {
 function Section(props: { label: string; children: JSX.Element }) {
   return (
     <section>
-      <h3 class="font-body text-gold-ink text-ui-xs tracking-ui-ultra mb-3 font-normal uppercase">
+      <Eyebrow as="h3" class="mb-3">
         {props.label}
-      </h3>
+      </Eyebrow>
       {props.children}
     </section>
   );

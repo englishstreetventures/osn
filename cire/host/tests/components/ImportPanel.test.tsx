@@ -163,11 +163,13 @@ describe("ImportPanel — CSV format help", () => {
     [...document.querySelectorAll("details")].find((d) =>
       /csv format/i.test(d.querySelector("summary")?.textContent ?? ""),
     )!;
+  /** The guide's wrapper, which carries the glow. */
+  const helpGlow = () => helpDetails().parentElement!;
 
   it("opens itself — and glows — the FIRST time an organiser meets it", () => {
     render(() => <ImportPanel weddingId="wed_a" kind="guests" />);
     expect(helpDetails().open).toBe(true);
-    expect(helpDetails().className).toContain("attention-glow");
+    expect(helpGlow().className).toContain("attention-glow");
   });
 
   it("starts collapsed and quiet on every visit after that", () => {
@@ -177,13 +179,13 @@ describe("ImportPanel — CSV format help", () => {
     // …so the second panel — either sheet, the bit is shared — starts closed.
     render(() => <ImportPanel weddingId="wed_a" kind="events" />);
     expect(helpDetails().open).toBe(false);
-    expect(helpDetails().className).not.toContain("attention-glow");
+    expect(helpGlow().className).not.toContain("attention-glow");
   });
 
   it("drops the glow as soon as the disclosure is touched", () => {
     render(() => <ImportPanel weddingId="wed_a" kind="guests" />);
     fireEvent.click(helpDetails().querySelector("summary")!);
-    expect(helpDetails().className).not.toContain("attention-glow");
+    expect(helpGlow().className).not.toContain("attention-glow");
   });
 
   it("does not mistake its own opening for a touch", () => {
@@ -192,7 +194,7 @@ describe("ImportPanel — CSV format help", () => {
     // added, and the one cue the guide has would never paint.
     render(() => <ImportPanel weddingId="wed_a" kind="guests" />);
     fireEvent(helpDetails(), new Event("toggle"));
-    expect(helpDetails().className).toContain("attention-glow");
+    expect(helpGlow().className).toContain("attention-glow");
   });
 
   it("renders the key exactly once", () => {

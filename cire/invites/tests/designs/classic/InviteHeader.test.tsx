@@ -367,6 +367,8 @@ describe("InviteHeader render", () => {
     ));
 
     await waitFor(() => expect(getByText(/Every love story is beautiful/)).toBeTruthy());
+    // No eyebrow of the couple's own: the section's label is the neutral one.
+    expect(getByText("Our Story")).toBeTruthy();
     expect(queryByText(/three and a half years/)).toBeNull();
     expect(queryByText(/Alex/)).toBeNull();
   });

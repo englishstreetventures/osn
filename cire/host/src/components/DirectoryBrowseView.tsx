@@ -1,4 +1,5 @@
 import Button from "@cire/ui/button";
+import { cardClass } from "@cire/ui/card";
 import Loading from "@cire/ui/loading";
 import { useAuth } from "@shared/rp-auth/solid";
 import { Field } from "@shared/ui/ui/field";
@@ -10,11 +11,14 @@ import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
-import { FILTER_FIELD_CLASS } from "../lib/form-field";
+import { FIELD_BAR_CLASS, FILTER_FIELD_CLASS } from "../lib/form-field";
 import { haptic } from "../lib/haptics";
 import { categoryLabel, SERVICE_CATEGORIES } from "../lib/service-categories";
 import { invalidateVendors, upsertCachedVendor, type VendorRow } from "../lib/vendors-store";
 import EnquireDialog from "./EnquireDialog";
+
+const LISTING_CLASS = cardClass({ padding: "sm" });
+
 interface BrowseListing {
   id: string;
   name: string;
@@ -240,7 +244,7 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
       {/* Filter bar. Filters are 28px pills (`FILTER_FIELD_CLASS`), and the
           bar's one action is their height: a `Button` at `size="sm"` alone is
           31px (DESIGN.md §4, "One form-field height"). */}
-      <div class="border-border bg-surface/20 rounded-ui-lg flex flex-wrap items-end gap-3 border p-4">
+      <div class={FIELD_BAR_CLASS}>
         <Field label="Category">
           {(field) => (
             <Select
@@ -327,7 +331,7 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
         <ul class="auto-grid items-start [--auto-grid-min:19rem]">
           <For each={listings()}>
             {(item) => (
-              <li class="border-border bg-surface/10 rounded-ui-lg flex flex-col gap-3 border p-4">
+              <li class={LISTING_CLASS}>
                 <div class="flex flex-col gap-1">
                   <span class="text-text text-ui-base font-medium">{item.name}</span>
 

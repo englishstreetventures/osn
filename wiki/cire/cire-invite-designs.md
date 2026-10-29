@@ -791,7 +791,12 @@ document and of the control the guest privacy notice quotes by name
 label: eyebrows, the details panel's section heads, field labels, the "RSVPs
 closed" badge, the account link's status word, the preview-mode notice, the
 gift list's header row and the code field's typed value. Headings keep each
-design's own case.
+design's own case. The eyebrows and the details panel's section heads are
+`@cire/ui`'s `Eyebrow` (an `.astro` page's `eyebrowClass`), in the couple's own
+readable gold and at their body weight, since the palette sits on `<html>`.
+The FAQ's questions are its `Disclosure` in the rule tone: each entry draws the
+rule under it, the trailing `+` turns into × at the question's own size, and
+classic draws one rule above the first.
 
 **Motion.** The site carries the portals' ladder: `--dur-fast`, `--dur-base`
 and `--dur-slow`, shorter under `pointer: fine`, and the house easings, so

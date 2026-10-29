@@ -176,10 +176,13 @@
     opacity: 0.4;
     cursor: not-allowed;
   }
-  /* This site has no page-wide focus ring, so the boxes take the app's own,
-     which the calls to action draw too. Never animated. */
+  /* This site has no page-wide focus ring, so the boxes and a disclosure's
+     summary (the FAQ's questions) take the app's own, which the calls to
+     action draw too: 2px, set 2px off, never animated, and no corner of its
+     own, so it follows the element's. */
   input[type="checkbox"]:focus-visible,
-  input[type="radio"]:focus-visible {
+  input[type="radio"]:focus-visible,
+  summary:focus-visible {
     outline: 2px solid var(--ui-focus);
     outline-offset: 2px;
   }
@@ -243,15 +246,6 @@
     letter-spacing: -0.005em;
     /* Long words in a large serif must break rather than force a scrollbar. */
     overflow-wrap: anywhere;
-  }
-
-  /* The one sanctioned eyebrow style. Used at most twice on the whole page. */
-  .eyebrow {
-    font-family: var(--font-body);
-    font-size: var(--ui-text-xs);
-    letter-spacing: 0.28em;
-    text-transform: uppercase;
-    color: var(--color-gold);
   }
 
   /* Shared CTA voice — a gold-filled primary and a hairline-outlined secondary,

@@ -1,4 +1,6 @@
 import Button from "@cire/ui/button";
+import { cardClass } from "@cire/ui/card";
+import Eyebrow from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
 import {
   closestCenter,
@@ -20,7 +22,7 @@ import { createMemo, createSignal, For, onMount, Show, untrack } from "solid-js"
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { downloadBlob } from "../lib/download";
-import { FORM_FIELD_CLASS } from "../lib/form-field";
+import { FIELD_BAR_CLASS, FORM_FIELD_CLASS } from "../lib/form-field";
 import { haptic } from "../lib/haptics";
 import {
   belowSmallestUnitError,
@@ -45,6 +47,10 @@ import {
 import { sameButOrder } from "../lib/sortable-rows";
 import RegistryImageField from "./RegistryImageField";
 import ReorderControls from "./ReorderControls";
+
+const RECORD_CLASS = `${cardClass({ padding: "sm" })} gap-2`;
+const CASH_CLASS = `${cardClass({ padding: "sm" })} gap-1`;
+
 interface RegistryViewProps {
   weddingId: string;
   /** Which sub-view this instance is: the gift list the couple authors, or the
@@ -850,17 +856,14 @@ export default function RegistryView(props: RegistryViewProps) {
       {/* ── The gift list ─────────────────────────────────────────────────── */}
       <Show when={props.view === "list"}>
         <Show when={props.canEdit}>
-          <form
-            onSubmit={addItem}
-            class="border-border bg-surface/20 rounded-ui-lg flex flex-wrap items-end gap-3 border p-4"
-          >
+          <form onSubmit={addItem} class={FIELD_BAR_CLASS}>
             {/* A gift is a thing a household reserves; a cash fund is a named
                 purpose guests give money to. Each kind shows only its own
                 fields, so nothing typed here can belong to the other. */}
             <fieldset class="flex w-full flex-wrap gap-x-5 gap-y-1 border-0 p-0">
-              <legend class="text-gold-dim font-body text-ui-xs tracking-ui-widest mb-1 uppercase">
+              <Eyebrow as="legend" tone="muted" class="mb-1">
                 Add
-              </legend>
+              </Eyebrow>
               <label class="text-text text-ui-sm flex items-center gap-2">
                 <input
                   type="radio"
@@ -1285,10 +1288,10 @@ export default function RegistryView(props: RegistryViewProps) {
             Rendered ONLY when a summary exists, i.e. only after the sweep. */}
         <Show when={summaryBand()}>
           {(band) => (
-            <div class="border-border bg-surface/20 rounded-ui-lg flex flex-col gap-2 border p-4">
-              <span class="text-gold-dim font-body text-ui-xs tracking-ui-widest uppercase">
+            <div class={RECORD_CLASS}>
+              <Eyebrow as="span" tone="muted">
                 Your record of gifts
-              </span>
+              </Eyebrow>
               <p class="text-text-muted text-ui-sm">
                 On {band().sweptOn}, a year after your wedding, we deleted your guests' details —
                 who gave each gift, and the notes they wrote. We kept the amount and the day of each
@@ -1377,10 +1380,10 @@ export default function RegistryView(props: RegistryViewProps) {
                 snap().contributionsPrimaryMinor > 0 || snap().contributionsOtherCurrencyCount > 0
               }
             >
-              <div class="border-border bg-surface/20 rounded-ui-lg flex flex-col gap-1 border p-4">
-                <span class="text-gold-dim font-body text-ui-xs tracking-ui-widest uppercase">
+              <div class={CASH_CLASS}>
+                <Eyebrow as="span" tone="muted">
                   Cash gifts
-                </span>
+                </Eyebrow>
                 <span class="text-text text-ui-md">
                   {formatMinor(snap().contributionsPrimaryMinor, snap().currency)}
                 </span>

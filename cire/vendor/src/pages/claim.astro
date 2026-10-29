@@ -1,6 +1,8 @@
 ---
 import { Font } from 'astro:assets'
 
+import { eyebrowClass } from '@cire/ui/eyebrow'
+
 import '../styles/global.css'
 import ClaimApp from '../components/ClaimApp'
 import { THEME_BOOT_SCRIPT } from '../lib/theme-boot'
@@ -18,7 +20,7 @@ import { THEME_BOOT_SCRIPT } from '../lib/theme-boot'
   <body class="@container/frame">
     <main class="page-frame py-16 [--page-max:40rem]">
       <header class="mb-8 flex flex-col gap-1.5">
-        <p class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">Vendor Portal</p>
+        <p class={eyebrowClass()}>Vendor Portal</p>
         <h1 class="font-display text-text text-[clamp(1.9rem,5cqi,2.8rem)] leading-ui-none font-light">
           Claim your listing
         </h1>

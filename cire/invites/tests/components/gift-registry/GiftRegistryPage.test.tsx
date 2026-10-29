@@ -482,7 +482,12 @@ describe("the couple's shelves", () => {
       "",
     ]);
     expect(shelves[0]?.querySelectorAll("[data-gift-item]")).toHaveLength(2);
-    expect(container.textContent).toContain("More gifts");
+    // Each shelf leads with its own label; the ungrouped one with "More gifts".
+    expect(shelves.map((shelf) => shelf.querySelector("h2")?.textContent)).toEqual([
+      "Kitchen",
+      "Bedroom",
+      "More gifts",
+    ]);
   });
 
   it("labels nothing when the couple grouped nothing", async () => {

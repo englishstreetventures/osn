@@ -209,6 +209,8 @@ describe("gala InviteHeader render", () => {
     // anywhere in the story section's markup.
     const storySection = img.closest("section") as HTMLElement;
     expect(storySection.innerHTML).not.toMatch(/\bhidden md:block\b/);
+    // No eyebrow of the couple's own: the section's label is the neutral one.
+    expect(storySection.textContent).toContain("Our Story");
   });
 
   it("fetches nothing when the route's payload is in `initial`", async () => {

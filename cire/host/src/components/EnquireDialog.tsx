@@ -1,4 +1,5 @@
 import Button from "@cire/ui/button";
+import Eyebrow from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
 import { Field } from "@shared/ui/ui/field";
@@ -83,7 +84,7 @@ export default function EnquireDialog(props: EnquireDialogProps) {
       class="flex w-full max-w-lg flex-col gap-4"
     >
       <header class="flex flex-col gap-1">
-        <p class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">Enquiry</p>
+        <Eyebrow>Enquiry</Eyebrow>
         <h3 id={titleId} class="font-display text-text text-ui-lg font-light">
           Enquire with {props.vendorName}
         </h3>

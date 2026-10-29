@@ -1,4 +1,5 @@
 import Button from "@cire/ui/button";
+import { cardClass } from "@cire/ui/card";
 import { useAuth } from "@shared/rp-auth/solid";
 import {
   closestCenter,
@@ -78,6 +79,9 @@ import ChangePreview, {
 import ColorPicker from "./ColorPicker";
 import DatePicker from "./DatePicker";
 import SectionIntro from "./SectionIntro";
+
+const EVENT_ROW_CLASS = `${cardClass({ padding: "sm" })} flex-row flex-wrap items-center`;
+
 interface PreviewResponse {
   changeId: string;
   plan: ChangePlan;
@@ -661,7 +665,7 @@ function EventRowCard(props: {
       // `maybeTransformStyle` sees a truthy function and paints
       // `translate3d(undefinedpx, …)`.
       style={maybeTransformStyle(sortable.transform())}
-      class="border-border bg-surface/30 rounded-ui-lg flex flex-wrap items-center gap-3 border p-4"
+      class={EVENT_ROW_CLASS}
       classList={{
         "border-error/50": props.hasError,
         // Lift the row being dragged clear of its neighbours.

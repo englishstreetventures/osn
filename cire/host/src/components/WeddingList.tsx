@@ -1,4 +1,6 @@
 import Button from "@cire/ui/button";
+import { cardClass } from "@cire/ui/card";
+import { eyebrowClass } from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
 import { Notice } from "@shared/ui/ui/notice";
 import { createSignal, For, Show } from "solid-js";
@@ -9,6 +11,14 @@ import CreateWeddingForm, {
   type DeletedWeddingSummary,
   type WeddingSummary,
 } from "./CreateWeddingForm";
+
+/**
+ * A row's label, drawn once per row: the eyebrow's classes on a plain element,
+ * without `Eyebrow`'s run-time choice of tag.
+ */
+const ROW_LABEL_CLASS = eyebrowClass();
+
+const DELETED_ROW_CLASS = `${cardClass({ padding: "sm", fill: "none" })} flex-row flex-wrap items-center justify-between`;
 
 /**
  * Landing view for the organiser portal: lists every wedding the signed-in
@@ -58,7 +68,9 @@ export default function WeddingList(props: {
                   size="lg"
                   type="button"
                   onClick={() => props.onSelect(wedding)}
-                  class="group relative flex w-full flex-col overflow-hidden text-left"
+                  // A long wedding name wraps inside the tile rather than
+                  // being cut off: `Button` holds a label to one line.
+                  class="group relative flex w-full flex-col overflow-hidden text-left whitespace-normal"
                 >
                   {/* A gold rule that draws down the left edge on hover — the
                       same marker vocabulary the module rail uses for "you are
@@ -68,9 +80,7 @@ export default function WeddingList(props: {
                     aria-hidden="true"
                     class="bg-gold absolute inset-y-0 left-0 w-0.5 origin-top scale-y-0 transition-transform duration-(--dur-base) ease-(--ease-out) group-hover:scale-y-100"
                   />
-                  <span class="font-body text-gold text-ui-xs tracking-ui-ultra font-normal uppercase">
-                    {wedding.slug}
-                  </span>
+                  <span class={ROW_LABEL_CLASS}>{wedding.slug}</span>
                   <span class="font-display text-text text-ui-lg leading-ui-tight font-light">
                     {wedding.displayName}
                   </span>
@@ -165,7 +175,7 @@ function RecentlyDeleted(props: {
       <ul class="flex flex-col gap-2">
         <For each={props.deleted}>
           {(wedding) => (
-            <li class="border-border rounded-ui-lg flex flex-wrap items-center justify-between gap-3 border px-4 py-3">
+            <li class={DELETED_ROW_CLASS}>
               <span class="flex flex-col">
                 <span class="font-display text-text text-ui-md font-light">
                   {wedding.displayName}

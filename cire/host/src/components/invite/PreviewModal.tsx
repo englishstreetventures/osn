@@ -20,6 +20,7 @@
  */
 
 import Button from "@cire/ui/button";
+import Eyebrow from "@cire/ui/eyebrow";
 import { Modal } from "@shared/ui/ui/modal";
 
 import PreviewPane, { type PreviewPaneProps } from "./PreviewPane";
@@ -40,7 +41,7 @@ export default function PreviewModal(
       class="flex max-w-sm flex-col gap-4"
     >
       <div class="flex items-center justify-between gap-2">
-        <p class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">Live preview</p>
+        <Eyebrow>Live preview</Eyebrow>
         <Button variant="bare" type="button" onClick={props.onClose}>
           Close
         </Button>

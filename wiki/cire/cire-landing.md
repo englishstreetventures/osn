@@ -86,7 +86,9 @@ differs. It loads no `@shared/toast`, so it sets no `--toast-radius`. Its base
 layer carries the portals' checkbox rule — an unchecked native checkbox or
 radio has no fill and a strong hairline edge, a checked one stays the
 browser's own (`cire/host/DESIGN.md` §4, Checkboxes and radios) — plus a
-`--ui-focus` ring on both, since the page has no ring of its own. No native box
+`--ui-focus` ring on both and on a disclosure's `<summary>` (the FAQ's
+questions), since the page has no ring of its own: 2px, set 2px off, never
+animated, and no corner of its own. No native box
 renders on the page today; the demo's dietary choices are `@cire/ui` chips.
 
 | What | Corner | Label | Motion |
@@ -96,10 +98,13 @@ renders on the page today; the demo's dietary choices are `@cire/ui` chips.
 | The photos (`Figure.astro`) | the 14px field corner, as a framed picture takes; the credit badge 6px, a text badge set in from the frame | — | the credit's fade on `--dur-fast` |
 | The demo invitation (`DemoRsvp.tsx`) | its frame and its two event cards 16px, as the guest event card is; the preview notice and member fieldset 6px, as in the guest sheet; Attending / Not attending pills | sentence case | the pair and the field on `--dur-fast` |
 | Legal pages (`LegalLayout.astro`) | the draft banner 6px, a notice; an inline placeholder 2px, about 16px tall, where 6px would draw a near-pill | "← Back to Cire" sentence case; the privacy tab row small caps (§Privacy pages) | — |
-| Focus rings (`SiteNav.astro`, `SiteFooter.astro`, `PrivacyNav.astro`, the FAQ summary) | `var(--radius-hair)`, 2px; a CTA's ring sets none and follows the pill | — | — |
+| Focus rings (`SiteNav.astro`, `SiteFooter.astro`, `PrivacyNav.astro`) | `var(--radius-hair)`, 2px; a CTA's ring sets none and follows the pill; the FAQ's question takes the base layer's ring (below) | — | — |
 
 Kept in small caps: eyebrows, the demo's eyebrows, the privacy tab row, the
-draft banner's "Draft" and the "Anything else" field label. The footer's
+draft banner's "Draft" and the "Anything else" field label. The eyebrows are
+`@cire/ui`'s (`eyebrowClass` on the hero and "See it live", `Eyebrow` in the
+demo), at the one letter-spacing every cire label uses (0.16em); the page
+keeps no eyebrow rule of its own. The footer's
 "Privacy Notice" keeps its capitals, as the name of the document. The page's
 own choreography keeps literal timings longer than `--dur-slow`: the scroll
 reveal (`[data-reveal]`, 0.7s) and the seal's poster and canvas cross-fade
@@ -140,7 +145,9 @@ Composed as `Hero.astro` + seven section components under `components/sections/`
 7. **Testimonials** (`sections/Testimonials.astro`) — **fully designed but hidden**
    behind `SHOW_TESTIMONIALS = false`; renders nothing until we have real,
    permissioned quotes. We don't fabricate social proof.
-8. **FAQ** — native `<details>` accordion, works with zero JS.
+8. **FAQ** — `@cire/ui`'s `Disclosure` in its rule tone, which Astro renders to
+   static HTML with no island: a native `<details>` accordion that works with
+   zero JS.
 9. **Final CTA + footer** — repeats the primary CTA; `SiteFooter.astro` is a
    sign-off statement (a small wax mark echoing the hero seal) carrying the
    `/privacy` + `/terms` + `/refunds` links (the legal pages are review drafts).

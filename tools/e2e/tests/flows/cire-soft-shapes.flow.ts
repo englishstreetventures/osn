@@ -40,6 +40,15 @@
  * its contents and that its "Anything else" field takes the 14px corner. Both
  * views are shot, the top of the page and the open sheet.
  *
+ * Along the way it runs the surfaces checks (`../support/cire-surfaces.ts`):
+ * the cards, small-caps labels and disclosures every cire app takes from
+ * `@cire/ui`, read from computed style and shot into `screenshots/cire-surfaces/`
+ * — on the overview, the settings, the import panel, a fresh Gold wedding's
+ * overview and budget, the Gold seating wedding's chart, the invite builder,
+ * the marketing site's FAQ and demo, and the guest FAQ in both designs. The
+ * guest FAQ needs entries the stack's seed does not have, so the organiser adds
+ * two through the API before the guest tab opens and removes them at the end.
+ *
  * The claim goes out from `ORGANISER_ADDRESS`, so it spends the organiser's
  * window of cire-api's claim limit, not the guests' (`flows.test.ts`).
  */
@@ -50,6 +59,16 @@ import { resolve } from "node:path";
 import type { Locator, Page } from "@playwright/test";
 
 import { CIRE_GUEST, ORIGINS, SCREENSHOT_DIR } from "../../src/config";
+import {
+  addGuestFaq,
+  builderSurfaces,
+  guestFaqSurfaces,
+  hostSurfaces,
+  landingSurfaces,
+  loginSurfaces,
+  overviewSurfaces,
+  removeGuestFaq,
+} from "../support/cire-surfaces";
 import {
   claimFromOrganiserAddress,
   expect,
@@ -245,6 +264,7 @@ async function inviteViews(flow: Flow, guest: Page, design: "classic" | "gala"):
 
 test("cire-soft-shapes", async ({ page, context, flow }) => {
   await claimFromOrganiserAddress(context);
+  await loginSurfaces(flow, page);
   await signInToCireHost(flow, page);
 
   // ── The portal ────────────────────────────────────────────────────────────
@@ -260,6 +280,7 @@ test("cire-soft-shapes", async ({ page, context, flow }) => {
       await radiusOf(guestsCard),
     );
   });
+  await overviewSurfaces(flow, page);
 
   const preview = page.getByRole("button", { name: "Preview invite" });
   /**
@@ -347,6 +368,8 @@ test("cire-soft-shapes", async ({ page, context, flow }) => {
   });
   await flow.step("shoot the RSVP table", () => shootAll(page, "host-rsvps", hostTheme(page)));
 
+  await hostSurfaces(flow, page);
+
   const design = (name: "Classic" | "Gala") =>
     page
       .getByRole("radiogroup", { name: "Invite design" })
@@ -360,6 +383,7 @@ test("cire-soft-shapes", async ({ page, context, flow }) => {
     "true",
     (await design("Classic").getAttribute("aria-checked")) ?? "missing",
   );
+  await builderSurfaces(flow, page, design);
 
   // ── The marketing site ───────────────────────────────────────────────────
   // No claim and no sign-in: the page is public, and its demo sends nothing.
@@ -389,6 +413,7 @@ test("cire-soft-shapes", async ({ page, context, flow }) => {
       await expect.poll(() => landing.evaluate(() => window.scrollY)).toBe(0);
     }),
   );
+  await landingSurfaces(flow, landing);
 
   const demoRespond = landing.getByRole("article").first().getByRole("button", {
     name: "Respond",
@@ -431,90 +456,101 @@ test("cire-soft-shapes", async ({ page, context, flow }) => {
   await landing.close();
 
   // ── The guest site, in Classic ───────────────────────────────────────────
+  const faqIds = await addGuestFaq(flow, page);
   const guest = await flow.newPage(context);
-  const served = guestSitePaths(guest);
-  const claimed = await flow.step(`open ${guestName}'s invitation from its link`, async () => {
-    const response = guest.waitForResponse(
-      (r) => r.url() === CLAIM_URL && r.request().method() === "POST",
-    );
-    await guest.goto(`${INVITE}&code=${code}`);
-    const status = (await response).status();
-    await expect(guest.getByText(`Answering as ${guestName}`)).toBeVisible();
-    return status;
-  });
-  flow.check(`claim with ${guestName}'s code`, 200, claimed);
-
-  await flow.step("decline optional storage", async () => {
-    // The consent prompt is an idle-hydrated island: wait for it rather than race it.
-    const prompt = guest.getByRole("dialog", { name: "Privacy choices" });
-    await expect(prompt).toBeVisible({ timeout: 60_000 });
-    await prompt.getByRole("button", { name: "Reject all" }).click();
-    await expect(prompt).toBeHidden();
-  });
-  /**
-   * Whether the guest site served one of `name`'s modules since request `from`.
-   * `astro dev` serves an island by its file path, so the path is matched
-   * anywhere in it.
-   */
-  const designModules = (name: string, from = 0) =>
-    served.slice(from).some((path) => path.includes(`/src/designs/${name}/`));
-  flow.check("Classic's modules served", true, designModules("classic"));
-  flow.check("Gala's modules not served", false, designModules("gala"));
-
-  await inviteViews(flow, guest, "classic");
-
-  // ── The guest site, in Gala ──────────────────────────────────────────────
-  const switchTo = async (name: "Classic" | "Gala") => {
-    const response = page.waitForResponse(
-      (r) => r.url() === DESIGN_URL && r.request().method() === "PUT",
-    );
-    await design(name).click();
-    const status = (await response).status();
-    await expect(design(name)).toHaveAttribute("aria-checked", "true");
-    return status;
-  };
-  const switchBack = async () =>
-    flow.check(
-      "the organiser switches the wedding back to Classic",
-      200,
-      await flow.step("switch back to Classic", () => switchTo("Classic")),
-    );
-
-  // The Gala half fails into `catch`, so the wedding goes back to Classic
-  // whichever step fails, and the step that failed is the error reported.
+  // The two FAQ entries come off however the guest steps end, so a failure
+  // here leaves the sample wedding with no FAQ, as it was seeded.
   try {
-    flow.check(
-      "the organiser switches the wedding to Gala",
-      200,
-      await flow.step("switch to Gala", () => switchTo("Gala")),
-    );
-
-    const sinceReload = served.length;
-    const restored = await flow.step("reload the invitation", async () => {
-      const session = guest.waitForResponse(
-        (r) => r.url().startsWith(`${CLAIM_URL}/session`) && r.request().method() === "GET",
+    const served = guestSitePaths(guest);
+    const claimed = await flow.step(`open ${guestName}'s invitation from its link`, async () => {
+      const response = guest.waitForResponse(
+        (r) => r.url() === CLAIM_URL && r.request().method() === "POST",
       );
-      await guest.goto(INVITE);
-      const status = (await session).status();
+      await guest.goto(`${INVITE}&code=${code}`);
+      const status = (await response).status();
       await expect(guest.getByText(`Answering as ${guestName}`)).toBeVisible();
       return status;
     });
-    flow.check(`${guestName}'s session restored from the claim's cookie`, 200, restored);
-    flow.check("Gala's modules served", true, designModules("gala", sinceReload));
-    flow.check("Classic's modules not served", false, designModules("classic", sinceReload));
+    flow.check(`claim with ${guestName}'s code`, 200, claimed);
 
-    await inviteViews(flow, guest, "gala");
+    await flow.step("decline optional storage", async () => {
+      // The consent prompt is an idle-hydrated island: wait for it rather than race it.
+      const prompt = guest.getByRole("dialog", { name: "Privacy choices" });
+      await expect(prompt).toBeVisible({ timeout: 60_000 });
+      await prompt.getByRole("button", { name: "Reject all" }).click();
+      await expect(prompt).toBeHidden();
+    });
+    /**
+     * Whether the guest site served one of `name`'s modules since request `from`.
+     * `astro dev` serves an island by its file path, so the path is matched
+     * anywhere in it.
+     */
+    const designModules = (name: string, from = 0) =>
+      served.slice(from).some((path) => path.includes(`/src/designs/${name}/`));
+    flow.check("Classic's modules served", true, designModules("classic"));
+    flow.check("Gala's modules not served", false, designModules("gala"));
+
+    await guestFaqSurfaces(flow, guest, "classic");
+    await inviteViews(flow, guest, "classic");
+
+    // ── The guest site, in Gala ──────────────────────────────────────────────
+    const switchTo = async (name: "Classic" | "Gala") => {
+      const response = page.waitForResponse(
+        (r) => r.url() === DESIGN_URL && r.request().method() === "PUT",
+      );
+      await design(name).click();
+      const status = (await response).status();
+      await expect(design(name)).toHaveAttribute("aria-checked", "true");
+      return status;
+    };
+    const switchBack = async () =>
+      flow.check(
+        "the organiser switches the wedding back to Classic",
+        200,
+        await flow.step("switch back to Classic", () => switchTo("Classic")),
+      );
+
+    // The Gala half fails into `catch`, so the wedding goes back to Classic
+    // whichever step fails, and the step that failed is the error reported.
+    try {
+      flow.check(
+        "the organiser switches the wedding to Gala",
+        200,
+        await flow.step("switch to Gala", () => switchTo("Gala")),
+      );
+
+      const sinceReload = served.length;
+      const restored = await flow.step("reload the invitation", async () => {
+        const session = guest.waitForResponse(
+          (r) => r.url().startsWith(`${CLAIM_URL}/session`) && r.request().method() === "GET",
+        );
+        await guest.goto(INVITE);
+        const status = (await session).status();
+        await expect(guest.getByText(`Answering as ${guestName}`)).toBeVisible();
+        return status;
+      });
+      flow.check(`${guestName}'s session restored from the claim's cookie`, 200, restored);
+      flow.check("Gala's modules served", true, designModules("gala", sinceReload));
+      flow.check("Classic's modules not served", false, designModules("classic", sinceReload));
+
+      await guestFaqSurfaces(flow, guest, "gala");
+      await inviteViews(flow, guest, "gala");
+    } catch (error) {
+      // A switch to Gala that never landed leaves Classic chosen, and pressing a
+      // chosen card sends nothing, so the restore would wait out its timeout.
+      const classicChosen = await design("Classic")
+        .getAttribute("aria-checked")
+        .catch(() => null);
+      if (classicChosen !== "true") await switchBack().catch(() => undefined);
+      throw error;
+    }
+
+    await switchBack();
   } catch (error) {
-    // A switch to Gala that never landed leaves Classic chosen, and pressing a
-    // chosen card sends nothing, so the restore would wait out its timeout.
-    const classicChosen = await design("Classic")
-      .getAttribute("aria-checked")
-      .catch(() => null);
-    if (classicChosen !== "true") await switchBack().catch(() => undefined);
+    await removeGuestFaq(flow, page, faqIds).catch(() => undefined);
     throw error;
   }
-
-  await switchBack();
+  await removeGuestFaq(flow, page, faqIds);
 
   // The flow's own screenshot: the Gala RSVP sheet on a phone, in light.
   await guest.setViewportSize(WIDTHS[0]);

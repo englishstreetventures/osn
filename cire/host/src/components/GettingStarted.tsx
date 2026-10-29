@@ -1,10 +1,15 @@
 import Button from "@cire/ui/button";
+import { cardClass } from "@cire/ui/card";
+import Eyebrow from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
 import { Meter } from "@shared/ui/ui/meter";
 import { createMemo, createResource, createSignal, For, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { isHeroEmpty, isStoryEmpty } from "../lib/invite-emptiness";
+
+const GUIDE_CLASS = `${cardClass({ tone: "accent", padding: "lg" })} relative gap-5`;
+
 /** localStorage key for "this organiser dismissed the getting-started checklist
  *  for this wedding". Per-wedding so dismissing one wedding's guide leaves the
  *  others intact. */
@@ -209,10 +214,7 @@ export default function GettingStarted(props: {
       </Show>
 
       <Show when={!dismissed()}>
-        <section
-          aria-label="Getting started"
-          class="border-gold/25 from-surface/50 to-surface/20 rounded-ui-lg relative flex flex-col gap-5 border bg-gradient-to-br p-6"
-        >
+        <section aria-label="Getting started" class={GUIDE_CLASS}>
           {/* Dismiss (X) — top-right, so an organiser who doesn't want the guide
             can hide it; the choice persists per wedding in localStorage. */}
           <Button
@@ -229,9 +231,7 @@ export default function GettingStarted(props: {
 
           <div class="flex flex-wrap items-end justify-between gap-x-6 gap-y-2 pr-8">
             <div class="flex flex-col gap-1">
-              <p class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">
-                {allDone() ? "You're all set" : "Getting started"}
-              </p>
+              <Eyebrow>{allDone() ? "You're all set" : "Getting started"}</Eyebrow>
               <h2 class="font-display text-text text-ui-lg font-light">
                 {allDone() ? "Everything's ready for your guests" : "Four steps to your invite"}
               </h2>
@@ -266,7 +266,9 @@ export default function GettingStarted(props: {
                     type="button"
                     onClick={() => props.onJump(step.tab)}
                     data-complete={step.complete ? "true" : "false"}
-                    class="group flex w-full items-start text-left"
+                    // Each step wraps inside its tile and starts at the left
+                    // edge: `Button` holds a label to one centred line.
+                    class="group flex w-full items-start justify-start text-left whitespace-normal"
                   >
                     <StepMarker n={i() + 1} complete={step.complete} />
                     <span class="flex flex-col gap-0.5">

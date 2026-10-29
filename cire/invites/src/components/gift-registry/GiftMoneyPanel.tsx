@@ -1,4 +1,5 @@
 import Button from "@cire/ui/button";
+import Eyebrow from "@cire/ui/eyebrow";
 import { toast, type ToastOptions } from "@shared/toast";
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 
@@ -214,7 +215,7 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
       data-gift-money
       class="border-border rounded-ui-lg max-w-ui-md mx-auto mb-10 border px-5 py-6 text-center"
     >
-      <p class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-2 uppercase">Give money</p>
+      <Eyebrow class="mb-2">Give money</Eyebrow>
       <p class="font-body text-text-muted text-ui-base leading-ui-normal mb-5">
         Straight to the couple, whether or not anything is left on the list.
       </p>

@@ -1,4 +1,5 @@
 import Button from "@cire/ui/button";
+import Eyebrow from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
 import { Modal } from "@shared/ui/ui/modal";
@@ -160,7 +161,7 @@ export default function UpgradeDialog(props: UpgradeDialogProps) {
     >
       <div class="flex flex-col gap-4">
         <header class="flex flex-col gap-1">
-          <p class="font-body text-gold text-ui-xs tracking-ui-ultra uppercase">{eyebrow()}</p>
+          <Eyebrow>{eyebrow()}</Eyebrow>
           <h3 class="font-display text-text text-ui-lg font-light">
             {entry()?.title ?? props.title}
           </h3>

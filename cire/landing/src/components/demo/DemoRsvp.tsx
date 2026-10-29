@@ -1,11 +1,20 @@
 import type { DietaryPreset } from "@cire/dietary";
 import Button from "@cire/ui/button";
+import { cardClass } from "@cire/ui/card";
 import DietaryPresets from "@cire/ui/dietary-presets";
+import Eyebrow, { eyebrowClass } from "@cire/ui/eyebrow";
 import Reveal from "@cire/ui/reveal";
 import { heldWhileClosing } from "@shared/ui/ui/modal";
 import { createEffect, createMemo, createSignal, createUniqueId, For, on, Show } from "solid-js";
 
 import { DemoModal } from "./DemoModal";
+
+/** An event's date, drawn once per event: the eyebrow's classes on a plain line. */
+const EVENT_DATE_CLASS = `${eyebrowClass()} mb-1`;
+
+/** An event in the demo, the guest site's event card in miniature. Its rows
+ *  space themselves with their own margins, as the guest card's do. */
+const EVENT_CARD_CLASS = `${cardClass({ fill: "opaque" })} gap-0`;
 
 // A self-contained, no-backend preview of a Cire invitation. Everything is
 // interactive — you can pick events, toggle attendance, type a dietary note and
@@ -65,15 +74,13 @@ export function DemoRsvp() {
     <div class="border-border bg-surface-raised rounded-ui-lg mx-auto max-w-160 overflow-hidden border shadow-2xl">
       {/* An honest frame header — a plain label, not imitation browser chrome. */}
       <div class="border-border flex items-center justify-center border-b px-4 py-3">
-        <span class="font-body text-text-muted text-ui-xs tracking-ui-widest uppercase">
+        <Eyebrow as="span" tone="muted">
           A live Cire invitation
-        </span>
+        </Eyebrow>
       </div>
 
       <div class="px-6 py-10 text-center md:px-10">
-        <p class="font-body text-gold text-ui-xs tracking-ui-ultra mb-3 uppercase">
-          Together with their families
-        </p>
+        <Eyebrow class="mb-3">Together with their families</Eyebrow>
         <h3 class="font-display text-text leading-ui-none mb-2 text-[clamp(2rem,6vw,2.75rem)] font-light italic">
           Amara &amp; Sam
         </h3>
@@ -84,16 +91,18 @@ export function DemoRsvp() {
         <div class="flex flex-col gap-4 text-left">
           <For each={DEMO_EVENTS}>
             {(event) => (
-              <article class="border-border bg-surface rounded-ui-lg border px-5 py-5">
+              <article class={EVENT_CARD_CLASS}>
                 <h4 class="font-display text-text mb-1 text-xl font-normal italic">{event.name}</h4>
-                <p class="font-body text-gold text-ui-xs tracking-ui-wider mb-1 uppercase">
-                  {event.date}
-                </p>
+                <p class={EVENT_DATE_CLASS}>{event.date}</p>
                 <p class="font-body text-text-muted text-ui-sm mb-2">{event.location}</p>
                 <p class="font-body text-text-muted text-ui-sm leading-ui-normal mb-4 font-light">
                   {event.description}
                 </p>
-                <Button variant="cta" class="min-h-11" onClick={() => setRsvpEvent(event)}>
+                <Button
+                  variant="cta"
+                  class="min-h-11 self-start"
+                  onClick={() => setRsvpEvent(event)}
+                >
                   Respond
                 </Button>
               </article>
@@ -207,7 +216,7 @@ function DemoRsvpModal(props: DemoRsvpModalProps) {
         when={!submitted()}
         fallback={
           <div class="py-6 text-center">
-            <p class="font-body text-gold text-ui-xs tracking-ui-widest mb-3 uppercase">Preview</p>
+            <Eyebrow class="mb-3">Preview</Eyebrow>
             <h3 class="font-display text-text text-ui-xl mb-4 font-light italic">
               That&rsquo;s the feeling.
             </h3>
@@ -221,7 +230,7 @@ function DemoRsvpModal(props: DemoRsvpModalProps) {
           </div>
         }
       >
-        <p class="font-body text-gold text-ui-xs tracking-ui-widest mb-3 uppercase">Respond</p>
+        <Eyebrow class="mb-3">Respond</Eyebrow>
         <h3 id={titleId} class="font-display text-text text-ui-xl mb-2 font-light italic">
           {shownEvent()?.name}
         </h3>

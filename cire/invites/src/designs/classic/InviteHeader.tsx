@@ -1,3 +1,4 @@
+import Eyebrow from "@cire/ui/eyebrow";
 import { createEffect, Show } from "solid-js";
 
 import { createHeroBackdrop } from "../../components/hero-backdrop";
@@ -408,9 +409,7 @@ export default function InviteHeader(props: InviteHeaderProps) {
               }}
             </Show>
             <div>
-              <p class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-3 uppercase">
-                {story()?.eyebrow ?? "Our Story"}
-              </p>
+              <Eyebrow class="mb-3">{story()?.eyebrow ?? "Our Story"}</Eyebrow>
               <h2 class="font-display text-text leading-ui-none mb-5 text-[calc(clamp(2rem,5vw,3rem)*var(--invite-heading-scale,1))] [font-weight:var(--invite-heading-weight,300)] [font-style:var(--invite-heading-style,normal)]">
                 {story()?.heading ?? "How It All Began"}
               </h2>

@@ -1,4 +1,5 @@
 import Button from "@cire/ui/button";
+import { cardClass } from "@cire/ui/card";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
 import { Field } from "@shared/ui/ui/field";
@@ -18,6 +19,9 @@ import DeleteWeddingDialog from "./DeleteWeddingDialog";
 import LockedModuleDownloads from "./LockedModuleDownloads";
 import SectionIntro from "./SectionIntro";
 import UnlockCodeDialog from "./UnlockCodeDialog";
+
+const PANEL_CLASS = `${cardClass({ padding: "lg" })} gap-6`;
+
 /** The wedding profile as the settings API reads/writes it. Location is
  *  deliberately absent — an event's place is its venue name and free-text
  *  `address`, shown on the invite; the wedding holds one MAIN currency +
@@ -305,7 +309,7 @@ export default function SettingsPanel(props: SettingsPanelProps) {
   const disabled = () => readOnly() || saving();
 
   return (
-    <div class="border-border bg-surface/30 rounded-ui-lg flex flex-col gap-6 border p-6">
+    <div class={PANEL_CLASS}>
       <SectionIntro
         eyebrow="Settings"
         title="Wedding profile"

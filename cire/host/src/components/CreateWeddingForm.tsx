@@ -1,4 +1,6 @@
 import Button from "@cire/ui/button";
+import { cardClass } from "@cire/ui/card";
+import Eyebrow from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
 import { Field, Fieldset } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
@@ -10,6 +12,9 @@ import { FORM_FIELD_CLASS } from "../lib/form-field";
 import { haptic } from "../lib/haptics";
 import type { Tier } from "../lib/tiers";
 import type { WeddingRole } from "../lib/wedding-roles";
+
+const FORM_CLASS = `${cardClass({ padding: "lg" })} gap-4`;
+
 export interface WeddingSummary {
   id: string;
   slug: string;
@@ -119,12 +124,9 @@ export default function CreateWeddingForm(props: {
   }
 
   return (
-    <form
-      class="border-border bg-surface/30 rounded-ui-lg flex flex-col gap-4 border p-6"
-      onSubmit={submit}
-    >
+    <form class={FORM_CLASS} onSubmit={submit}>
       <div class="flex flex-col gap-1">
-        <p class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">New wedding</p>
+        <Eyebrow>New wedding</Eyebrow>
         <h2 class="font-display text-text text-ui-lg font-light">Start a new celebration</h2>
       </div>
 

@@ -119,9 +119,10 @@ anchor to `PUBLIC_OSN_ACCOUNT_URL`, `target="_blank"` and `rel="noopener"`.
 This portal holds no parts of its own: every part comes from the two packages
 the host portal draws on (host §7).
 
-- Shared with the host portal: `Button`, `buttonClass`, `Card`, `cardClass` and
-  `CardEyebrow` from `@cire/ui`; `Notice`, `EmptyState`, `Field`, `Fieldset`,
-  `Input`, `Textarea` and `Select` from `@shared/ui`.
+- Shared with the host portal: `Button`, `buttonClass`, `Card`, `cardClass`,
+  `cardBoxClass`, `Eyebrow` and `eyebrowClass` from `@cire/ui`; `Notice`,
+  `EmptyState`, `Field`, `Fieldset`, `Input`, `Textarea` and `Select` from
+  `@shared/ui`.
 
 **Not used here:** `Meter`, `Stat`, `Table`, `CardCta`. No surface here has a bar,
 a headline figure or a table.
@@ -135,10 +136,21 @@ a headline figure or a table.
 | `Checkbox` | `shared/ui/src/ui/checkbox.tsx` | A Kobalte checkbox and its word as one clickable row, for the service-category grid. It takes its word as `label` and draws its box at the 6px step. |
 
 **Corners here** follow host §4. The small steps this portal writes itself: the
-profile menu at 10px (a menu); at 6px its rows' highlight, the wordmark's hover
-wash (a nav highlight) and the quote form nested in the enquiry thread's card.
-The login card and the thread's message bubbles take the 16px card corner. The
-round marks — the avatar, the haptics switch — are `rounded-full`.
+profile menu at 10px (a menu); at 6px its rows' highlight and the wordmark's
+hover wash (a nav highlight). The quote form nested in the enquiry thread's
+card is 6px too, drawn from the card's box (`cardBoxClass({ fill: "none",
+nested: true })`) with its own 16px padding. The login card and the thread's
+message bubbles take the 16px card corner. The round marks — the avatar, the
+haptics switch — are `rounded-full`.
+
+**Cards here** take a step of `cardClass` (host §7): an enquiry in the inbox is
+the interactive card at `sm`, and the sign-in card is `xl` on the wash with the
+`lip` (`LOGIN_CARD_CLASS`, `src/lib/login-card.ts`). Every label that leads a
+card or a section is `Eyebrow`, and the two `.astro` pages' is `eyebrowClass`.
+`tests/components/surfaces.browser.test.tsx` draws the inbox row, the quote form
+and the sign-in card in Chromium at 390 and 1440px, light and dark, measures
+each box and the quote form's label, and writes each picture to
+`e2e-artifacts/cire-surfaces/vendor/`.
 
 `tests/components/soft-shapes.browser.test.tsx` renders the dashboard's listing
 editor in Chromium at 390 and 1440px, light and dark, and measures the computed

@@ -61,6 +61,19 @@ describe("FaqList", () => {
     expect(items[1]!.querySelector("p")!.textContent).toBe("To the ceremony.");
   });
 
+  it("draws organiser-written markup in a question or an answer as text", () => {
+    // Couples and co-hosts write these, and every guest who has claimed reads
+    // them; the shared Disclosure must insert them as text, never parse them.
+    const markup = '<img src="x" onerror="window.__faqScript = 1">';
+    const { container } = render(() => (
+      <FaqList entries={[{ question: markup, answer: markup }]} />
+    ));
+    expect(container.querySelector("img")).toBeNull();
+    const item = container.querySelector("details")!;
+    expect(item.querySelector("summary")!.textContent).toContain(markup);
+    expect(item.querySelector("p")!.textContent).toBe(markup);
+  });
+
   it("puts no heading inside a summary", () => {
     const { container } = render(() => <FaqList entries={entries} />);
     expect(container.querySelector("summary h1, summary h2, summary h3, summary h4")).toBeNull();

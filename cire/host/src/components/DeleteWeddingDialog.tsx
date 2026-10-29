@@ -1,4 +1,5 @@
 import Button from "@cire/ui/button";
+import { cardClass } from "@cire/ui/card";
 import { useAuth } from "@shared/rp-auth/solid";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
@@ -8,6 +9,8 @@ import { createSignal, Show } from "solid-js";
 import { isAuthExpired, redirectToLogin } from "../lib/api";
 import { FORM_FIELD_CLASS } from "../lib/form-field";
 import { deleteWedding } from "../lib/wedding-lifecycle";
+
+const DANGER_ZONE_CLASS = cardClass({ tone: "danger", fill: "none" });
 
 /**
  * The danger zone at the foot of Settings: an owner deletes the wedding.
@@ -68,10 +71,7 @@ export default function DeleteWeddingDialog(props: {
   }
 
   return (
-    <section
-      aria-labelledby="danger-zone-title"
-      class="border-ui-danger/30 rounded-ui-lg flex flex-col gap-3 border p-5"
-    >
+    <section aria-labelledby="danger-zone-title" class={DANGER_ZONE_CLASS}>
       <h3 id="danger-zone-title" class="font-display text-text text-ui-md font-light">
         Delete this wedding
       </h3>
