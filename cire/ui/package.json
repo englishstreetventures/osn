@@ -15,6 +15,7 @@
     "./consent-vendors": "./src/consent-vendors.ts",
     "./dietary-presets": "./src/dietary-presets.tsx",
     "./dietary-presets-popover": "./src/dietary-presets-popover.tsx",
+    "./eyebrow": "./src/eyebrow.tsx",
     "./guest-privacy-notice.astro": "./src/guest-privacy-notice.astro",
     "./loading": "./src/loading.tsx",
     "./reveal": "./src/reveal.tsx",
