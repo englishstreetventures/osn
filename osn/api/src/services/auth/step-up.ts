@@ -41,12 +41,14 @@ import {
   MAX_OTP_ATTEMPTS,
   PASSKEY_LAST_USED_COALESCE_MS,
   RECOVERY_COOLDOWN_MS,
+  STEP_UP_CLAIM_MARGIN_MS,
 } from "./constants";
 import type { AuthContext } from "./context";
 import { AuthError, type CoordinationError, DatabaseError } from "./errors";
 import {
   genOtpCode,
   hashSessionToken,
+  JWT_CLOCK_TOLERANCE_S,
   logDevOtp,
   signJwt,
   type StepUpTokenClaims,
@@ -402,9 +404,16 @@ export function createStepUpModule(ctx: AuthContext) {
 
       // Single use across every isolate: the guard is shared, the first
       // consumer wins, and every later presentation, from any isolate, lands
-      // on the jti-already-consumed branch.
+      // on the jti-already-consumed branch. The claim lasts the token's whole
+      // life, the verifier's clock tolerance past `exp` and a margin besides,
+      // counted from now, so it outlives every moment the token still
+      // verifies, whatever the verifying isolate's clock or the store's says.
       const consumed = yield* Effect.tryPromise({
-        try: () => jtiStore.consume(jti, stepUpTokenTtl * 1000),
+        try: () =>
+          jtiStore.consume(
+            jti,
+            (stepUpTokenTtl + JWT_CLOCK_TOLERANCE_S) * 1000 + STEP_UP_CLAIM_MARGIN_MS,
+          ),
         catch: () => new AuthError({ message: "Step-up token could not be verified" }),
       });
       if (!consumed) {

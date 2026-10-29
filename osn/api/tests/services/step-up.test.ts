@@ -230,6 +230,51 @@ describe("step-up OTP ceremony", () => {
   );
 });
 
+// The verifier accepts a token for a clock tolerance past its `exp`, so the
+// claim on its id must still stand then, or a used token verifies again.
+describe("a used step-up token stays used for as long as it verifies", () => {
+  const guards = [
+    ["the in-memory guard", () => ({})],
+    [
+      "the coordination store's guard",
+      () => ({ stepUpJtiStore: createDurableJtiStore(createFakeNamespace().ns, () => {}) }),
+    ],
+  ] as const;
+
+  for (const [name, guard] of guards) {
+    it.effect(`${name}: presented again just inside the tolerance past exp, it is refused`, () => {
+      const svc = createAuthService({ ...config, ...guard() });
+      return Effect.gen(function* () {
+        vi.useFakeTimers({ toFake: ["Date"] });
+        const profile = yield* svc.registerProfile(
+          `su-late-${name.length}@example.com`,
+          `sulate${name.length}`,
+        );
+        const token = yield* svc.issueStepUpToken(
+          profile.accountId,
+          "passkey",
+          "recovery_generate",
+        );
+        yield* svc.verifyStepUpForRecoveryGenerate(profile.accountId, token);
+
+        const { exp } = JSON.parse(
+          Buffer.from(token.split(".")[1]!, "base64url").toString("utf8"),
+        ) as { exp: number };
+        vi.setSystemTime((exp + 29) * 1000);
+        const again = yield* Effect.result(
+          svc.verifyStepUpForRecoveryGenerate(profile.accountId, token),
+        );
+        expect(again._tag === "Failure" ? again.failure.message : "accepted again").toBe(
+          "Step-up token already used",
+        );
+      }).pipe(
+        Effect.provide(createTestLayer()),
+        Effect.ensuring(Effect.sync(() => vi.useRealTimers())),
+      );
+    });
+  }
+});
+
 // Account deletion is the highest-stakes step-up consumer (Flow A —
 // full account erasure) and had no direct coverage. It shares the recovery
 // AMR allow-list, so pin both directions of the confused-deputy guard.

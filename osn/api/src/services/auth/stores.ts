@@ -266,8 +266,9 @@ export interface StepUpJtiStore {
   /**
    * Returns `true` if the jti was consumed for the FIRST time (allow the
    * step-up verification to proceed). Returns `false` on replay (deny).
-   * `ttlMs` must be at least as long as the step-up token TTL so replay
-   * entries survive the token's own lifetime.
+   * `ttlMs` must outlast every moment the token still verifies — its life
+   * plus the verifier's clock tolerance past `exp` — so a replay inside that
+   * tolerance still finds the claim.
    */
   consume(jti: string, ttlMs: number): Promise<boolean>;
 }

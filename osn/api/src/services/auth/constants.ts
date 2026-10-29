@@ -26,6 +26,12 @@ export const CHALLENGE_TTL_MS = 120_000;
 // isolate that checks a challenge's expiry and the store that times the claim.
 export const CHALLENGE_CLAIM_MARGIN_MS = 60_000;
 
+// How long a used step-up token's id stays claimed beyond the last moment the
+// token verifies (its `exp` plus the verifier's clock tolerance). Wider than
+// any clock difference between the verifying isolate and the store that times
+// the claim.
+export const STEP_UP_CLAIM_MARGIN_MS = 60_000;
+
 // Per-account profile-switch rate limiting. Fixed window:
 // max 20 switches per hour per account. Enforced via an injectable
 // per-account cap limiter (`profileSwitchCap`) so the window is shared across
