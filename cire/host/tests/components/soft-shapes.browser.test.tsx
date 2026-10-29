@@ -329,7 +329,9 @@ describe("the registry's form fields", () => {
         await page.viewport(viewport.width, viewport.height);
         document.documentElement.dataset.theme = theme;
         authFetch.mockResolvedValue(json(REGISTRY));
-        render(() => <RegistryView weddingId="wed_1" view="list" canEdit />);
+        render(() => (
+          <RegistryView weddingId="wed_1" weddingSlug="nadia-and-sam" view="list" canEdit />
+        ));
         const gift = await screen.findByRole("textbox", { name: "Gift" });
         await document.fonts.ready;
 
