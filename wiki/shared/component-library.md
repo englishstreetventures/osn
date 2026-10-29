@@ -134,9 +134,10 @@ spreads its rest props onto an element therefore type-checks
 `<Td innerHTML={vendorName} />`, which reads at the call site like ordinary
 prop passing and is a script tag. `shared/ui/src/ui/props.ts` omits the three,
 so the mistake is a compile error. Anything that genuinely needs to write markup
-reaches for a bare element and says why. The menu's parts, `PopoverContent`
-and `Chip` are typed with it, and `shared/ui/tests/ui/markup-props.test.tsx`
-fails the type check if one of them takes markup again.
+reaches for a bare element and says why. The menu's parts and `PopoverContent`
+are typed with it; `Notice` and `Chip` go further and take an allow-list of
+props. `shared/ui/tests/ui/markup-props.test.tsx` fails the type check if any
+of them takes markup again.
 
 ### `InfoPopover` — the form-field explainer
 
