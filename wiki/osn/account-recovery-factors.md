@@ -7,7 +7,7 @@ related:
   - "[[step-up]]"
   - "[[sessions]]"
   - "[[identity-model]]"
-last-reviewed: 2026-10-27
+last-reviewed: 2026-10-30
 ---
 
 # Account recovery factors — TOTP and email-verified recovery
@@ -467,8 +467,9 @@ the entry write, which starts the code's guess count. `/login/recovery/email/com
 makes three on every refusal, in two hops: the lockout lookup and the guess
 (the entry read and its count, one `guess` call) side by side, then the
 failure record. `/login/recovery/totp/complete` pays what `checkTotpCode`
-pays — the configuration check, the lockout lookup and the `totp_credentials`
-query side by side, the dummy-key verification and the failure record.
+pays — the configuration check, the attempt count and the `totp_credentials`
+query side by side, then the dummy-key verification; the attempt is counted
+before the code is compared ([[totp]]).
 Recovery-code sign-in (`/login/recovery/complete`, [[recovery-codes]]) does the
 same: every refusal makes the lockout lookup and the failure record, and the
 same two `recovery_codes` statements. On both code routes the audit row a

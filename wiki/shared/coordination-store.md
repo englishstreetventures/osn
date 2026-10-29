@@ -20,7 +20,7 @@ related:
 packages:
   - "@shared/coordination"
   - "@osn/api"
-last-reviewed: 2026-10-28
+last-reviewed: 2026-10-30
 ---
 # Coordination store
 
@@ -159,7 +159,7 @@ Every consumer fails closed. The mapping lives in
 | Step-up token guard | `claim` | The token is refused as "could not be verified", and is not counted as a replay |
 | Discoverable passkey challenge claims | `claim` | The same 503 |
 | Lockouts, `status` / `recordFailure` | `count` / `increment` | Answers `"unknown"`. Every caller refuses with its generic error and writes no security event; a failure that could not be counted shows as `result="unavailable"` on the factor's lockout metric |
-| Lockouts, `reset` | `remove`, only when the lookup on the way in counted a failure; on the recovery-code and TOTP routes it runs after the answer | Swallowed; the counter expires with its window |
+| Lockouts, `reset` | `remove`: for a recovery code or an emailed code, only when the lookup on the way in counted a failure; for TOTP, on every success, since the attempt itself was counted. On the recovery-code and TOTP routes it runs after the answer | Swallowed; the counter expires with its window |
 | Health probe | `write`, `read`, `remove` | `GET /health/coordination` answers 503 |
 
 A ceremony value that does not parse as JSON reads as absent, which sends the
@@ -278,7 +278,7 @@ for (counted from the code, 2026-10-28):
 | Registration `begin` | 1 `swap`, after a D1 collision probe |
 | Code `complete`, success | 1 `guess`, then the claim; registration and email change instead delete the entry once their commit lands, after the answer |
 | Recovery code sign-in, success | 1 (the lockout lookup); the reset runs after the answer, and only when the lookup counted a failure |
-| TOTP step-up or TOTP recovery, success | 1 (the lockout lookup, beside the credential read); the reset as for a recovery code |
+| TOTP step-up or TOTP recovery, success | 1 (the attempt count, an `increment`, beside the credential read); the reset runs after the answer, on every success. Two requests and a few rows written where a read alone would be one request, the price of counting each attempt before its code is compared |
 | Passkey sign-in, identified: `begin` / `complete` | 1 / 1 (`take`) |
 | Passkey sign-in, discoverable: `begin` / `complete` | 0 / 1 (`claim`, only once the signature verifies) |
 | Step-up passkey, passkey registration `complete` | 1 (`take`) |
@@ -302,7 +302,7 @@ dev sign-in stops until the reset. The ceilings and how to watch them are in
 |---|---|
 | `osn.coordination.store.operations{store, op, result}` | One count per call an object answers or fails, retries included. `store` is a `CoordinationStoreName`, `op` one of the nine calls, `result` `ok` or `error` |
 | `osn.auth.ceremony_store.operations{namespace, op, backend}` | One count per ceremony `set`, `get`, `delete` (a `consume` counts as one), `guess`, `take` or `swap`; `backend` is `memory` or `durable_object` |
-| `osn.auth.recovery.lockout{result="unavailable"}`, `osn.auth.totp.lockout{result="unavailable", scope}` | A refusal because the store could not update a lockout counter or, for TOTP and the emailed recovery code, read one |
+| `osn.auth.recovery.lockout{result="unavailable"}`, `osn.auth.totp.lockout{result="unavailable", scope}` | A refusal because the store could not update a lockout counter or, for the emailed recovery code, read one |
 | Log `coordination store call failed` | One line per failed call, after any retry, with `store`, `op`, `durationMs`, `retried` and `kind` |
 
 No attribute or log field carries a key, an IP, an account id or a stored value.

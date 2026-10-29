@@ -8,7 +8,7 @@ related:
   - "[[identity-model]]"
   - "[[account-recovery-factors]]"
   - "[[email]]"
-last-reviewed: 2026-10-27
+last-reviewed: 2026-10-30
 ---
 
 # TOTP (RFC 6238) second factor
@@ -184,6 +184,17 @@ parameter, and per-IP limits are not it.
 So every code check is additionally capped **per account** — five failures, then
 fifteen minutes locked — through a second instance of the store in
 `osn/api/src/lib/recovery-lockout-store.ts`, keyed on the resolved `accountId`.
+
+Each attempt is **counted before its code is compared**. `checkTotpCode` takes
+the attempt's number from the counter (`recordFailure`, one atomic `increment`)
+beside the credential query, and refuses unread an attempt numbered past five,
+or one the store could not count. Attempts sent at once each take their own
+number, so at most five codes are compared in a window however many arrive
+together; a counter read before it was counted would let a burst through
+whole. A right code clears the count after the answer, on every success, since
+its own attempt was counted: without that, five right codes inside a window
+would lock the account. `burnTotpCheckCost` makes the same count at the probe
+key, so an identifier that names nobody costs what a wrong code does.
 
 > [!warning] The counter is scoped by ceremony, and it has to be
 > `checkTotpCode` takes a required `scope` (`"step_up"` or `"recovery"`) and
