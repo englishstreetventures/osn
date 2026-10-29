@@ -1,12 +1,14 @@
 import Button from "@cire/ui/button";
 import { useAuth } from "@shared/rp-auth/solid";
 import { Notice } from "@shared/ui/ui/notice";
-import { createSignal, For, Show } from "solid-js";
+import { createSignal, For, onMount, Show } from "solid-js";
 
 import { isAuthExpired, redirectToLogin } from "../lib/api";
+import { clearNamePrefill, readNamePrefill } from "../lib/name-prefill";
 import { restoreUntilLabel, restoreWedding } from "../lib/wedding-lifecycle";
 import CreateWeddingForm, {
   type DeletedWeddingSummary,
+  MAX_DISPLAY_NAME,
   type WeddingSummary,
 } from "./CreateWeddingForm";
 
@@ -15,6 +17,10 @@ import CreateWeddingForm, {
  * organiser hosts and lets them open one or create a new one. Selecting a
  * wedding is client-side island state (the parent renders the dashboard for the
  * chosen id) — no page navigation, so the auth context survives.
+ *
+ * A couple arriving from the marketing site's closing field come as
+ * `/?name=<their names>`: the create form opens with the names in its field,
+ * and the parameter leaves the address at once (`lib/name-prefill`).
  */
 export default function WeddingList(props: {
   weddings: WeddingSummary[];
@@ -27,12 +33,28 @@ export default function WeddingList(props: {
   /** The wedding can no longer be restored; drop it from the list. */
   onRestoreExpired?: (weddingId: string) => void;
 }) {
-  const [creating, setCreating] = createSignal(false);
+  const arrivedWith =
+    typeof window === "undefined"
+      ? null
+      : readNamePrefill(window.location.search, MAX_DISPLAY_NAME);
+  // Spent by the first form it fills: a second "Create a wedding" opens empty.
+  const [prefill, setPrefill] = createSignal(arrivedWith);
+  const [creating, setCreating] = createSignal(arrivedWith !== null);
+
+  onMount(() => {
+    if (arrivedWith === null) return;
+    history.replaceState(history.state, "", clearNamePrefill(new URL(window.location.href)));
+  });
 
   const isEmpty = () => props.weddings.length === 0;
 
-  function handleCreated(wedding: WeddingSummary) {
+  function closeForm() {
+    setPrefill(null);
     setCreating(false);
+  }
+
+  function handleCreated(wedding: WeddingSummary) {
+    closeForm();
     props.onCreated(wedding);
   }
 
@@ -104,7 +126,8 @@ export default function WeddingList(props: {
       >
         <CreateWeddingForm
           onCreated={handleCreated}
-          onCancel={isEmpty() ? undefined : () => setCreating(false)}
+          onCancel={isEmpty() ? undefined : closeForm}
+          initialName={prefill() ?? undefined}
         />
       </Show>
     </div>
