@@ -4,15 +4,16 @@
  * guest site in both invitation designs.
  *
  * The organiser signs in and opens the sample wedding: its overview, its guest
- * list and its RSVP table. Then, in a second tab, the organiser opens Ada's
+ * list, its guest editor and its RSVP table. Then, in a second tab, the organiser opens Ada's
  * invitation at a link carrying her household's code, which claims on load,
  * and opens the RSVP sheet for the Reception, choosing Attending and ticking
  * "Other" so the sheet shows its text field. Nothing is saved. The organiser
  * then switches the wedding to the Gala design, and the guest tab reloads:
  * the claim's cookie restores the session, so the second design costs no
  * second claim. Last, the organiser switches the wedding back to Classic,
- * leaving it as seeded; that switch runs when a Gala step fails too, so a flow
- * after this one never opens the sample wedding on Gala.
+ * leaving it as seeded. That switch runs when a Gala step fails too, but its
+ * own failure there is dropped so the Gala step's error is the one reported:
+ * if both fail, a later flow finds the sample wedding on Gala.
  *
  * Each view is shot at a phone width and a desktop width, light and dark, into
  * `screenshots/cire-soft-shapes/`. The portal follows the colour scheme (with
@@ -22,7 +23,12 @@
  *
  * Every corner is read from computed style: a pill is a radius of at least
  * half the control's height, and more than 16px, so a 16px card corner on a
- * 32px button does not pass for one.
+ * 32px button does not pass for one. A small field in the portal is one of two
+ * shapes (`cire/host/DESIGN.md` §4, "The small fields"): a filter in the view
+ * bar — a search box, the RSVP sort select — is 28px with the 14px field
+ * corner, half its height, so its ends are round; a field that edits a value —
+ * the guest editor's — is 34px with the same corner, short of a pill. The
+ * bar's action, Add household, is the filters' 28px.
  *
  * The claim goes out from `ORGANISER_ADDRESS`, so it spends the organiser's
  * window of cire-api's claim limit, not the guests' (`flows.test.ts`).
@@ -90,6 +96,21 @@ async function buttonShape(target: Locator): Promise<string> {
   const { transform } = await corner(target);
   const label = transform === "none" ? "label as written" : `label ${transform}`;
   return `${await pillShape(target)}, ${label}`;
+}
+
+const FILTER = "28px, round ends at the 14px corner";
+const FORM_FIELD = "34px, the 14px corner short of a pill";
+
+/**
+ * {@link FILTER} or {@link FORM_FIELD} when a small field is one of the two
+ * shapes; its corner and height otherwise.
+ */
+async function fieldShape(target: Locator): Promise<string> {
+  const { radius, height } = await corner(target);
+  const r = Number.parseFloat(radius);
+  if (radius === "14px" && height === 28 && r >= height / 2) return FILTER;
+  if (radius === "14px" && height === 34 && r < height / 2) return FORM_FIELD;
+  return `${radius} on ${height}px`;
 }
 
 async function radiusOf(target: Locator): Promise<string> {
@@ -254,13 +275,40 @@ test("cire-soft-shapes", async ({ page, context, flow }) => {
   });
   await atEachWidth(page, async (width) => {
     await checkPreview("guest list", width);
-    flow.check(
-      `guest list at ${width}: the search field's corner`,
-      "14px",
-      await radiusOf(guestSearch),
-    );
+    flow.check(`guest list at ${width}: the search field`, FILTER, await fieldShape(guestSearch));
   });
   await flow.step("shoot the guest list", () => shootAll(page, "host-guests", hostTheme(page)));
+
+  // The sample wedding's households are fields here, so the first of each is
+  // there whatever a flow before this one saved.
+  const householdName = page.getByRole("textbox", { name: "Household name" }).first();
+  const firstName = page.getByRole("textbox", { name: "First name" }).first();
+  const addHousehold = page.getByRole("button", { name: "Add household", exact: true });
+  await flow.step("open the guest editor", async () => {
+    await page.goto(`${HOST}/guests/edit`);
+    await expect(householdName).toBeVisible({ timeout: 60_000 });
+    await expect(addHousehold).toBeVisible();
+  });
+  await atEachWidth(page, async (width) => {
+    flow.check(
+      `guest editor at ${width}: the household name field`,
+      FORM_FIELD,
+      await fieldShape(householdName),
+    );
+    flow.check(
+      `guest editor at ${width}: the first name field`,
+      FORM_FIELD,
+      await fieldShape(firstName),
+    );
+    flow.check(
+      `guest editor at ${width}: Add household's height`,
+      28,
+      (await corner(addHousehold)).height,
+    );
+  });
+  await flow.step("shoot the guest editor", () =>
+    shootAll(page, "host-guest-editor", hostTheme(page)),
+  );
 
   const rsvpSearch = page.getByRole("searchbox", { name: /^Search .+ guests$/ });
   await flow.step("open the RSVP table", async () => {
@@ -268,13 +316,14 @@ test("cire-soft-shapes", async ({ page, context, flow }) => {
     await expect(page.getByRole("tablist", { name: "Events" })).toBeVisible();
     await expect(rsvpSearch).toBeVisible();
   });
+  const rsvpSort = page.getByRole("combobox", { name: "Sort guests" });
   await atEachWidth(page, async (width) => {
     await checkPreview("RSVP table", width);
-    flow.check(
-      `RSVP table at ${width}: the search field's corner`,
-      "14px",
-      await radiusOf(rsvpSearch),
-    );
+    flow.check(`RSVP table at ${width}: the search field`, FILTER, await fieldShape(rsvpSearch));
+    // A phone has no head row to sort from, so the sort is a select in the bar.
+    if (width === WIDTHS[0].width) {
+      flow.check(`RSVP table at ${width}: the sort select`, FILTER, await fieldShape(rsvpSort));
+    }
   });
   await flow.step("shoot the RSVP table", () => shootAll(page, "host-rsvps", hostTheme(page)));
 
