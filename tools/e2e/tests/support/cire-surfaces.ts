@@ -150,6 +150,48 @@ const disclosure = (scope: Page | Locator, name: string) => {
 const cardOf = (target: Locator) =>
   target.locator("xpath=ancestor::*[contains(@class,'rounded-ui-lg')][1]");
 
+/**
+ * The portal's sign-in page, before the organiser signs in: the sign-in card is
+ * the card's largest step on the opaque fill, under an `eyebrowClass` label.
+ */
+export async function loginSurfaces(flow: Flow, page: Page): Promise<void> {
+  const proceed = page.getByRole("button", { name: "Continue with musubi" });
+  await flow.step("surfaces: open the portal's sign-in page", async () => {
+    await page.goto(`${ORIGINS.cireHost}/login`);
+    await expect(proceed).toBeVisible({ timeout: 60_000 });
+  });
+  await reading(page);
+  const card = cardOf(proceed);
+  flow.check(
+    "sign-in: the card takes the largest padding step",
+    "32px",
+    await computed(card, "padding-top"),
+  );
+  flow.check(
+    "sign-in: the card takes the card corner",
+    "16px",
+    await computed(card, "border-top-left-radius"),
+  );
+  flow.check(
+    "sign-in: the card is opaque",
+    await probed(card, "base:bg-ui-surface", "background-color"),
+    await computed(card, "background-color"),
+  );
+  const label = page.getByText("Cire · Host Dashboard", { exact: true });
+  flow.check("sign-in: the label is 0.16em wide", "0.16", await trackingRatio(label));
+  // No island owns this page's chrome: its boot script sets the scheme once,
+  // at load, so each scheme is a fresh load.
+  await flow.step("surfaces: shoot the sign-in page", () =>
+    shoot(page, "host-login", async (scheme) => {
+      await page.reload();
+      await page.addStyleTag({ content: "astro-dev-toolbar { display: none !important; }" });
+      await expect(page.locator("html")).toHaveAttribute("data-theme", scheme);
+      await expect(proceed).toBeVisible();
+    }),
+  );
+  await page.emulateMedia({ colorScheme: "light" });
+}
+
 /** The sample wedding's overview, already open: a card's label is `Eyebrow`. */
 export async function overviewSurfaces(flow: Flow, page: Page): Promise<void> {
   const label = page.getByText("Guests & events", { exact: true });
@@ -183,9 +225,9 @@ export async function hostSurfaces(flow: Flow, page: Page): Promise<void> {
   await reading(page);
   const panel = cardOf(profile);
   flow.check(
-    "settings: the panel takes the large padding step",
-    "24px",
-    await computed(panel, "padding-top"),
+    "settings: the panel is a column at the large padding step",
+    "column 24px",
+    `${await computed(panel, "flex-direction")} ${await computed(panel, "padding-top")}`,
   );
   flow.check(
     "settings: the danger zone's border is the danger tone",
@@ -287,6 +329,17 @@ export async function hostSurfaces(flow: Flow, page: Page): Promise<void> {
     await computed(history, "background-color"),
   );
   flow.check("history: the open marker is turned", "90deg", await turn(history));
+  const listLoads = () =>
+    flow.count(`GET cire-api /api/organiser/weddings/${CIRE_GUEST.weddingId}/changes/list `);
+  const loadedOnce = listLoads();
+  flow.check("history: opening it fetched the list", 1, loadedOnce);
+  await flow.step("surfaces: close and reopen the change history", async () => {
+    await history.locator(":scope > summary").click();
+    await expect(history).not.toHaveAttribute("open", "");
+    await history.locator(":scope > summary").click();
+    await expect(history).toHaveAttribute("open", "");
+  });
+  flow.check("history: reopened, it fetches the list no second time", loadedOnce, listLoads());
   await flow.step("surfaces: shoot the open change history", () =>
     shoot(page, "host-change-history-open", hostTheme(page, history)),
   );
@@ -301,6 +354,32 @@ export async function hostSurfaces(flow: Flow, page: Page): Promise<void> {
     `${await guide.evaluate((el) => el.hasAttribute("open"))} ${await guide.evaluate((el) =>
       el.parentElement!.classList.contains("attention-glow"),
     )}`,
+  );
+
+  // ── The co-hosts: the owner's own row ─────────────────────────────────
+  const me = page.locator("li").filter({ has: page.getByText("you", { exact: true }) });
+  await flow.step("surfaces: open the sample wedding's co-hosts", async () => {
+    await page.goto(`${SAMPLE}/settings/hosts`);
+    await expect(me).toBeVisible({ timeout: 60_000 });
+  });
+  await reading(page);
+  flow.check(
+    "co-hosts: the owner's row keeps its gold rule over the card's hairline",
+    await probed(me, "border-gold/40", "border-top-color"),
+    await computed(me, "border-top-color"),
+  );
+  flow.check(
+    "co-hosts: and its gold tint over the card's wash",
+    await probed(me, "bg-gold/5", "background-color"),
+    await computed(me, "background-color"),
+  );
+  flow.check(
+    "co-hosts: the row lays its contents in a row at the small step",
+    "row 16px",
+    `${await computed(me, "flex-direction")} ${await computed(me, "padding-top")}`,
+  );
+  await flow.step("surfaces: shoot the co-hosts", () =>
+    shoot(page, "host-cohosts", hostTheme(page, me)),
   );
 
   // ── A fresh Gold wedding: getting started and the budget's bars ────────
@@ -321,6 +400,18 @@ export async function hostSurfaces(flow: Flow, page: Page): Promise<void> {
     "24px",
     await computed(started, "padding-top"),
   );
+  flow.check(
+    "getting started: the label",
+    "Getting started",
+    (await started.getByText("Getting started", { exact: true }).textContent()) ?? "",
+  );
+  const stepsFit = () =>
+    started
+      .locator("ol button")
+      .evaluateAll((tiles) => tiles.every((tile) => tile.scrollWidth <= tile.clientWidth));
+  flow.check("getting started: every step fits its tile at 1440px", true, await stepsFit());
+  await page.setViewportSize(PHONE);
+  flow.check("getting started: every step fits its tile at 390px", true, await stepsFit());
   await flow.step("surfaces: shoot getting started", () =>
     shoot(page, "host-getting-started", hostTheme(page, started)),
   );
@@ -350,6 +441,11 @@ export async function hostSurfaces(flow: Flow, page: Page): Promise<void> {
     "budget: both take the small padding step",
     "16px 16px",
     `${await computed(band, "padding-top")} ${await computed(bar, "padding-top")}`,
+  );
+  flow.check(
+    "budget: both lay their contents in a row",
+    "row row",
+    `${await computed(band, "flex-direction")} ${await computed(bar, "flex-direction")}`,
   );
   flow.check(
     "budget: the band's label is the muted ink",
@@ -431,6 +527,36 @@ export async function builderSurfaces(
   flow.check("builder: its open marker is turned", "90deg", await turn(typography));
   await flow.step("surfaces: shoot the open typography disclosure", () =>
     shoot(page, "host-builder-typography", hostTheme(page, typography), { widths: [DESKTOP] }),
+  );
+  const heroDisplay = disclosure(page, "Hero display");
+  await flow.step("surfaces: open the builder's Hero tab and its display options", async () => {
+    await sections.getByRole("tab", { name: /^Hero/ }).click();
+    await expect(heroDisplay).toBeVisible();
+    await heroDisplay.locator(":scope > summary").click();
+    await expect(heroDisplay).toHaveAttribute("open", "");
+  });
+  flow.check(
+    "builder: the hero display options take the nested corner",
+    "6px",
+    await computed(heroDisplay, "border-top-left-radius"),
+  );
+  // What a screen reader hears for each slider, from the value it holds.
+  const SLIDERS = [
+    ["Hero image blur", (v: number) => (v === 0 ? "0 — sharp photo" : `${v} — softer backdrop`)],
+    ["Title backdrop opacity", (v: number) => (v === 0 ? "0 — no panel" : `${v} percent opaque`)],
+    ["Title backdrop blur", (v: number) => (v === 0 ? "0 — no frosting" : `${v} pixels of frost`)],
+  ] as const;
+  for (const [name, spoken] of SLIDERS) {
+    const slider = heroDisplay.getByRole("slider", { name, exact: true });
+    const value = Number(await slider.inputValue());
+    flow.check(
+      `builder: ${name} says its value`,
+      spoken(value),
+      (await slider.getAttribute("aria-valuetext")) ?? "",
+    );
+  }
+  await flow.step("surfaces: shoot the open hero display options", () =>
+    shoot(page, "host-builder-hero-display", hostTheme(page, heroDisplay), { widths: [DESKTOP] }),
   );
   await flow.step("surfaces: back to the builder's Design tab", async () => {
     await sections.getByRole("tab", { name: /^Design/ }).click();
@@ -529,6 +655,11 @@ export async function landingSurfaces(flow: Flow, landing: Page): Promise<void> 
     "landing: the demo's event card takes the card corner",
     "16px",
     await computed(card, "border-top-left-radius"),
+  );
+  flow.check(
+    "landing: the demo's event card is opaque",
+    await probed(card, "base:bg-ui-surface", "background-color"),
+    await computed(card, "background-color"),
   );
   const [cardBox, buttonBox] = await Promise.all([card.boundingBox(), respond.boundingBox()]);
   flow.check(
