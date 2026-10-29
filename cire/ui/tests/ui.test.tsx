@@ -5,7 +5,7 @@ import { cleanup, render, screen } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it } from "vitest";
 
 import Button, { type ButtonVariant, buttonClass } from "../src/button";
-import { cardClass } from "../src/card";
+import { CardCta, cardClass } from "../src/card";
 import Loading from "../src/loading";
 import { UsernameInput } from "../src/username-input";
 
@@ -14,7 +14,10 @@ import { UsernameInput } from "../src/username-input";
  * test that has to be edited every time the design moves — it pins the current
  * answer, not the contract. So what is checked here is what a call site can
  * rely on: that the variants differ from each other, that props reach the DOM,
- * and that the accessibility wiring is there.
+ * and that the accessibility wiring is there. The one class a test does read is
+ * the corner: each component carries exactly one `base:`-prefixed corner, from
+ * the role the design spec gives it, so an app sets that role once and a
+ * caller's plain `rounded-*` still wins.
  *
  * They came from `cire/host` and `cire/vendor`, which each had a copy. The
  * components they cover are the ones that stayed cire's — everything else the
@@ -289,6 +292,16 @@ describe("Button — motion", () => {
 });
 
 describe("Card", () => {
+  it("a card takes the large corner", () => {
+    const variants = [
+      cardClass(),
+      cardClass({ tone: "accent" }),
+      cardClass({ interactive: true }),
+      cardClass({ tone: "accent", interactive: true }),
+    ];
+    for (const cls of variants) expect(corners(cls)).toEqual(["base:rounded-ui-lg"]);
+  });
+
   it("marks the accented card out from the ordinary one", () => {
     expect(cardClass({ tone: "accent" })).not.toBe(cardClass());
   });
@@ -297,6 +310,40 @@ describe("Card", () => {
     // The hover treatment is a promise that the whole rectangle is clickable.
     expect(cardClass()).not.toContain("hover:");
     expect(cardClass({ interactive: true })).toContain("hover:");
+  });
+});
+
+/** The classes that time a transition, for every element in a rendered tree. */
+function timings(root: Element): string[][] {
+  return [root, ...root.querySelectorAll("*")].map((el) =>
+    [...el.classList].filter((c) => c.includes("transition") || c.includes("duration-")),
+  );
+}
+
+describe("Card — motion", () => {
+  it("an interactive card fades only what its hover changes, on the app's token", () => {
+    // An interactive card is drawn on a `<button>`, and Tailwind's
+    // `transition-colors` would fade its focus ring in along with the hover.
+    for (const tone of ["default", "accent"] as const) {
+      const cls = cardClass({ tone, interactive: true }).split(/\s+/);
+      expect(cls.filter((c) => c.includes("transition") || c.includes("duration-"))).toEqual([
+        "base:transition-[color,background-color,border-color,text-decoration-color]",
+        "base:duration-(--dur-fast,200ms)",
+      ]);
+    }
+  });
+
+  it("the card's call to action takes its durations from the app's tokens", () => {
+    // The label's colour is a hover; the arrow's nudge is a short slide.
+    const { container } = render(() => <CardCta>Open guests</CardCta>);
+    const timed = timings(container.firstElementChild as Element).filter((t) => t.length > 0);
+    expect(timed).toEqual([
+      [
+        "base:transition-[color,background-color,border-color,text-decoration-color]",
+        "base:duration-(--dur-fast,100ms)",
+      ],
+      ["base:transition-transform", "base:duration-(--dur-base,200ms)"],
+    ]);
   });
 });
 
