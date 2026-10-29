@@ -7,6 +7,8 @@
 // server-rendered and painted immediately — the 3D seal (WaxSeal3D) is a purely
 // decorative island layered in. No JS, no WebGL, or reduced motion: the seal is
 // a flat gold disc and the page reads and converts exactly the same.
+import { eyebrowClass } from '@cire/ui/eyebrow'
+
 import { WaxSeal3D } from '../WaxSeal3D'
 import { DEMO_ANCHOR, DEMO_INVITE_URL, IMAGES, ORGANISER_URL, unsplash } from '../../lib/site'
 
@@ -42,7 +44,7 @@ const hero = IMAGES.hero
   </div>
 
   <div class="letter-column max-w-ui-xl">
-    <p class="eyebrow mb-6">Bespoke digital wedding invitations</p>
+    <p class:list={[eyebrowClass(), 'mb-6']}>Bespoke digital wedding invitations</p>
     <h1 class="display text-text text-[clamp(2.6rem,8vw,5rem)] leading-ui-none">
       Invitations worthy of the moment
     </h1>

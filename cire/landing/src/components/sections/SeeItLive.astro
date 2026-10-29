@@ -2,12 +2,14 @@
 // "Show, don't tell": a real, interactive invitation rendered right in the page.
 // The RSVP is a deliberate no-op (nothing is sent) — see DemoRsvp. This is one of
 // only two sections on the page that earns an eyebrow.
+import { eyebrowClass } from '@cire/ui/eyebrow'
+
 import { DemoRsvp } from '../demo/DemoRsvp'
 ---
 <section id="see-it-live" class="px-6 py-24 md:py-32" aria-labelledby="see-heading">
   <div class="mx-auto max-w-ui-2xl">
     <div class="letter-column mb-14 text-center" data-reveal>
-      <p class="eyebrow mb-5">See it live</p>
+      <p class:list={[eyebrowClass(), 'mb-5']}>See it live</p>
       <h2
         id="see-heading"
         class="display text-text text-[clamp(1.9rem,4.5vw,3rem)] leading-ui-tight"

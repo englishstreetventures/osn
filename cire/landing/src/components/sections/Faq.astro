@@ -1,6 +1,10 @@
 ---
-// Honest answers to the questions couples actually ask. Native <details> so it
-// works with zero JS and is accessible by default. Roman summaries.
+// Honest answers to the questions couples actually ask. Each is `@cire/ui`'s
+// `Disclosure` in its rule tone, rendered to static HTML with no island: a
+// native <details>, so it works with zero JS and is accessible by default.
+// Roman summaries.
+import Disclosure from '@cire/ui/disclosure'
+
 const faqs = [
   {
     q: 'Do my guests need an account or an app?',
@@ -42,39 +46,14 @@ const faqs = [
     <div class="flex flex-col" data-reveal>
       {
         faqs.map((faq) => (
-          <details class="faq-item border-border border-b">
-            <summary class="display text-text flex cursor-pointer items-center justify-between gap-4 py-5 text-ui-lg font-normal">
-              <span>{faq.q}</span>
-              <span class="faq-marker text-gold shrink-0 text-2xl leading-none" aria-hidden="true">
-                +
-              </span>
-            </summary>
-            <p class="font-body text-text-muted pb-5 text-ui-base leading-ui-relaxed font-light">
+          <Disclosure tone="rule" summary={faq.q}>
+            <p class="font-body text-text-muted text-ui-base leading-ui-relaxed font-light">
               {faq.a}
             </p>
-          </details>
+          </Disclosure>
         ))
       }
     </div>
   </div>
 </section>
 
-<style>
-  .faq-item summary {
-    list-style: none;
-  }
-  .faq-item summary::-webkit-details-marker {
-    display: none;
-  }
-  .faq-item summary:focus-visible {
-    outline: 2px solid var(--color-gold);
-    outline-offset: 3px;
-    border-radius: var(--radius-hair);
-  }
-  .faq-item[open] .faq-marker {
-    transform: rotate(45deg);
-  }
-  .faq-marker {
-    transition: transform var(--dur-fast) var(--ease-out);
-  }
-</style>
