@@ -31,10 +31,11 @@ const EVERY_ELEMENT = Object.keys({
 } satisfies Record<EyebrowElement, true>) as EyebrowElement[];
 
 /** The size steps, which share the `text-` prefix with the colours. */
-const SIZE = /^base:text-ui-(xs|sm|base|md|lg|xl|2xl)$/;
+const SIZE = /(^|:)text-ui-(xs|sm|base|md|lg|xl|2xl)$/;
 
+/** Every class that sets a text colour, prefixed or not: a plain one would win over the part's own. */
 function inks(cls: string): string[] {
-  return cls.split(/\s+/).filter((c) => c.startsWith("base:text-") && !SIZE.test(c));
+  return cls.split(/\s+/).filter((c) => /(^|:)text-/.test(c) && !SIZE.test(c));
 }
 
 function trackings(cls: string): string[] {
@@ -86,6 +87,18 @@ describe("Eyebrow", () => {
     expect(wrong).toEqual([]);
     const { container } = render(() => <Eyebrow>Next step</Eyebrow>);
     expect((container.firstElementChild as HTMLElement).tagName).toBe("P");
+  });
+
+  it("renders a paragraph for any element it does not offer, however it was typed", () => {
+    // A tag name read from stored data and cast to the type must not become a
+    // `<script>` or an `<img onerror>` on a guest's page.
+    for (const tag of ["script", "img", "iframe", "p onclick=x"]) {
+      const { container, unmount } = render(() => (
+        <Eyebrow as={tag as EyebrowElement}>Next step</Eyebrow>
+      ));
+      expect((container.firstElementChild as HTMLElement).tagName).toBe("P");
+      unmount();
+    }
   });
 
   it("draws the same label `eyebrowClass` does, for each tone", () => {
