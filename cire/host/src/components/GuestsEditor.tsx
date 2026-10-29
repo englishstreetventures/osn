@@ -1,6 +1,7 @@
 import Button from "@cire/ui/button";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
+import { Chip } from "@shared/ui/ui/chip";
 import { EmptyState } from "@shared/ui/ui/empty-state";
 import { Input } from "@shared/ui/ui/input";
 import { heldWhileClosing, Modal } from "@shared/ui/ui/modal";
@@ -801,9 +802,9 @@ function FamilyCard(props: {
     <Show
       when={props.family.publicId}
       fallback={
-        <span class="font-body text-gold/70 border-gold/30 text-ui-xs tracking-ui-widest shrink-0 rounded-sm border px-1.5 py-0.5 uppercase not-italic">
+        <Chip variant="outline" tone="accent">
           New — code minted on save
-        </span>
+        </Chip>
       }
     >
       <span

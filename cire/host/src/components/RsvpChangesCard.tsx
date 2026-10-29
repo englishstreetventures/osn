@@ -1,6 +1,7 @@
 import Card, { CardCtaButton } from "@cire/ui/card";
 import Eyebrow from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
+import { Notice } from "@shared/ui/ui/notice";
 import { type Accessor, createSignal, For, Show } from "solid-js";
 
 import {
@@ -95,9 +96,9 @@ export default function RsvpChangesCard(props: {
               Email me a daily summary
             </label>
             <Show when={saveFailed()}>
-              <p role="alert" class="text-error text-ui-xs">
+              <Notice size="inline" tone="danger" alert>
                 Could not save that. Please try again.
-              </p>
+              </Notice>
             </Show>
           </Show>
         </Card>

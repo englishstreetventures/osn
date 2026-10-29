@@ -14,6 +14,7 @@ import {
   useDragDropContext,
 } from "@shared/sortable";
 import { toast } from "@shared/toast";
+import { Chip } from "@shared/ui/ui/chip";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
@@ -1056,9 +1057,7 @@ export default function RegistryView(props: RegistryViewProps) {
                                   {item.title}
                                 </span>
                                 <Show when={item.category}>
-                                  <span class="bg-surface/60 text-text-muted text-ui-xs rounded-full px-2 py-0.5">
-                                    {item.category}
-                                  </span>
+                                  <Chip treatment="tag">{item.category}</Chip>
                                 </Show>
                                 <Show when={item.priceMinor != null}>
                                   <span class="text-text text-ui-sm">
@@ -1079,9 +1078,7 @@ export default function RegistryView(props: RegistryViewProps) {
                                     </span>
                                   }
                                 >
-                                  <span class="bg-surface/60 text-text-muted text-ui-xs rounded-full px-2 py-0.5">
-                                    Cash fund
-                                  </span>
+                                  <Chip treatment="tag">Cash fund</Chip>
                                   <Show when={item.targetMinor != null}>
                                     <span class="text-text-muted text-ui-sm">
                                       Goal {formatMinor(item.targetMinor!, currency())}
@@ -1461,15 +1458,11 @@ export default function RegistryView(props: RegistryViewProps) {
                           </Show>
                         </span>
                       </Show>
-                      <span
-                        class={
-                          status.gone
-                            ? "bg-error/10 text-error text-ui-xs rounded-full px-2 py-0.5"
-                            : "bg-surface/60 text-text-muted text-ui-xs rounded-full px-2 py-0.5"
-                        }
-                      >
+                      {/* Danger is outlined: the red tint reads under 4.5:1 on the
+                          pale theme. */}
+                      <Chip treatment="tag" tone={status.gone ? "danger" : "neutral"}>
                         {status.label}
-                      </span>
+                      </Chip>
                       <Show
                         when={props.canEdit}
                         fallback={

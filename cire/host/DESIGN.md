@@ -219,18 +219,15 @@ role is. Two sets of names carry it:
 | `md` | `rounded-md` | 10px | popovers, menus, tooltips and toasts: every Kobalte popover and dropdown menu, the rail tooltip and `ActionTip`'s panel, the module card, the co-host suggestion list, the two droplet popovers, the invite builder's narrow section menu; `--toast-radius` |
 | `sm` | `rounded-sm` | 6px | the small steps, below |
 | `hair` | `rounded-hair` | 2px | colour swatch dots, an inline code mark, the run sheet's event diamond, the import guide's sample table |
-| `pill` | `rounded-full`, `rounded-ui-pill` | a pill or a circle | chips, flags and pill badges (the top bar's role, an enquiry's status, a task's time); `Button`'s `chip` variant; `Meter`'s track; and the round marks — avatars, status circles, the dotted + circle, switches |
+| `pill` | `rounded-full`, `rounded-ui-pill` | a pill or a circle | every `Chip` — status words, outlined badges (the top bar's and a co-host's role, "Connected", "New" on an unsaved event or household, a seated guest's reply, an invite section's state), tags (a vendor's or a gift's category) and the run sheet's flags — and a task's time; `Button`'s `chip` variant; `Meter`'s track; and the round marks — avatars, status circles, the dotted + circle, switches |
 
 **The small steps.** A box keeps a small corner where a soft one would make it
 read as something else: a 14px checkbox looks like a mistake. `sm`, 6px, paints:
 
 - checkboxes (`@shared/ui`'s `Checkbox`);
-- notices (`Notice`'s `md` and `sm` boxes — its `inline` line draws no box —
-  and a hand-written one) and empty states (`EmptyState` and a hand-written
-  empty panel);
-- a badge with text that is not a pill — a dress code, a key hint (`kbd`),
-  "New" on an unsaved event or household, "Connected", a co-host's role, a
-  seated guest's reply;
+- notices (`Notice`'s `md` and `sm` boxes — its `inline` line draws no box)
+  and empty states (`EmptyState` and a hand-written empty panel);
+- a badge with text that is not a pill — a dress code, a key hint (`kbd`);
 - a bordered box nested in a card, a modal or a frame — the change preview
   inside the centred `Modal`, the RSVP reply editor in its table cell or phone
   row, the colour area in its popover, a step card inside the import guide, a
@@ -688,7 +685,7 @@ specificity, so a caller's plain utility — `w-full`, `self-start`, a `rounded-
 | `Eyebrow`, `eyebrowClass` | The small-caps label that leads a section, a card or a group of fields: one size (`xs`), one letter-spacing (`widest`, 0.16em) and two tones — `accent` in readable gold (`--ui-accent-ink`), the default, and `muted` in the secondary ink. The owner chose the spacing and both inks (englishstreetventures/osn#1833). It sets no weight, so on a guest's invite it follows the couple's body weight. `as` renders it as `p` (the default), `span`, `h2`, `h3`, `legend` or `dt`; `eyebrowClass` gives the same classes to anything else. A table head is not an eyebrow — it is `Th` — and the invite preview, which re-declares the couple's palette on a wrapper below the root, draws its own. Every label that leads a section, a card, a fieldset or a group of fields in the portal is `Eyebrow`, and an `.astro` page's (the sign-in page) is `eyebrowClass`. A quiet label — a budget figure's, a checklist bucket's — takes `muted`. |
 | `Loading` | "This is on its way": one pulsing small-caps line with `role="status"`, for a list or a page still fetching. A lazy panel's fallback is `PanelLoading` instead, which holds the panel's height and does not pulse. |
 | `Note` | Cire's standing note: `Notice`'s `accent` tone led by a ✦, drawn as `Notice`'s circled icons are (inline, `aria-hidden`, in the tone's readable gold, sized from the text step) with "Note" read in its place; `sm` unless a size is asked for. **Placed only where the owner asks for one** (englishstreetventures/osn#1868: "I'll let you know when to use a cire note"); a standing note anywhere else is `Notice`'s unmarked `accent`. Not on the marketing site, whose readable gold is its metal gold, not inside the invite preview, which re-declares the couple's palette below the root, and not on `--bg-deep`, where its words read 4.35:1 in light; `tests/styles/notice-contrast.browser.test.tsx` holds it and every `Notice` tone but `danger` at 4.5:1 on the page, the card's three fills, the raised surface and the run sheet's coming-up row. |
-| `Chip` | A state in a pill, in one of five tones — `neutral`, `success`, `pending`, `accent`, `danger`. Two variants: **`filled`**, a light tint (8% of the tone, 10% for `danger`, the surface at 60% for `neutral`) so a word clears 4.5:1 on the light ramp, and **`outline`**, a 1px border at 40% of the tone (the hairline for `neutral`) with no ground, at the filled chip's height (owner, englishstreetventures/osn#1836). Two treatments: **`caps`**, a status word in small caps at `tracking-ui-wider`, and **`tag`**, a label as written — sentence case, normal tracking, `px-2`. Every chip is a pill. An outline or a tag may lead with a dot or an icon, 6px from its word. It takes an `id`, `aria-describedby`, `data-*` and `role="status"` and nothing else: no handler, no `title` (a chip that needs explaining sits in `Tooltip`), nothing that hides its word. Filled `danger` reads 4.01:1 on the light page, so a `danger` chip with no `variant` is outlined; `tests/styles/chip-contrast.browser.test.tsx` holds every other tone and variant at 4.5:1 on the page, a card and the run sheet's coming-up row, in both themes. An enquiry's status wears the vendor portal's tones — open `pending`, quoted `accent`, closed `neutral` — so an enquiry reads alike from both ends. |
+| `Chip` | A state in a pill, in one of five tones — `neutral`, `success`, `pending`, `accent`, `danger`. Two variants: **`filled`**, a light tint (8% of the tone, 10% for `danger`, the surface at 60% for `neutral`) so a word clears 4.5:1 on the light ramp, and **`outline`**, a 1px border at 40% of the tone (the hairline for `neutral`) with no ground, at the filled chip's height (owner, englishstreetventures/osn#1836). Two treatments: **`caps`**, a status word in small caps at `tracking-ui-wider`, and **`tag`**, a label as written — sentence case, normal tracking, `px-2`. Every chip is a pill. An outline or a tag may lead with a dot or an icon, 6px from its word. It takes an `id`, `aria-describedby`, `data-*` and `role="status"` and nothing else: no handler, no `title` (a chip that needs explaining sits in `Tooltip`), nothing that hides its word. Filled `danger` reads 4.01:1 on the light page, so a `danger` chip with no `variant` is outlined; `tests/styles/chip-contrast.browser.test.tsx` holds every other tone and variant at 4.5:1 on the page, a card and the run sheet's coming-up row, in both themes. An enquiry's status wears the vendor portal's tones — open `pending`, quoted `accent`, closed `neutral` — so an enquiry reads alike from both ends. Where the portal draws it: outlined small caps for a badge — the top bar's role (in a `Tooltip`), a co-host's role (filled for the owner, outlined for the rest, in a `TipNote`), "Connected", "New" on an unsaved event or household, an invite section's state (`role="status"`, with a dot) and "Applies immediately", a seated guest's reply (Declined and Invite withdrawn `danger`, Maybe `accent`, No reply `neutral`); tags for a vendor's or a gift's category, "Cash fund" and a gift's status ("No longer available" outlined in `danger`); the run sheet's flags (§The run sheet). |
 | `Notice` | Five tones at three sizes. `danger`, `warn` and `success` each lead with a circled icon of a different shape — a cross, an exclamation mark, a tick — in the tone's ink, sized from the text step and held to the first line, plus a hidden word ("Error", "Warning", "Success"); the owner chose the icons over text glyphs (englishstreetventures/osn#1835). `info` is unmarked, because nothing has happened; so is `accent`, the gold standing note (`Note` is the same note led by a ✦) — its border at 40% of the gold, a 5% tint, readable gold ink (`--gold-ink`). **`md`**, the default, is the box at the 6px step (`p-4`, `text-ui-base`); **`sm`** the same box compact (`px-3 py-2`, `text-ui-sm`), for a note beside a control or in a sidebar; **`inline`** no box at all — the icon, the word and the text at `text-ui-sm` in the tone's ink — for the error line under a field. A box takes `fill="none"` to keep its border and ink and drop its tint, so the words sit on the ground beneath; the inline line has no box and takes no `fill`. Every size is a `<div>`, so a notice never sits inside a `<p>` or a `<label>`, and an inline line about a field is named by the field's `aria-describedby`. It takes an `id`, `aria-describedby`, `data-*` and a layout `class` and nothing else, so no call site can hide its words or pass it a handler. `alert` opts into `role="alert"` and is for a note that appeared **in answer to something** — a standing note that was on screen before the host arrived has nothing to interrupt anyone about. |
 | `EmptyState` | A title, an optional line of prose, and the one thing to do about it, in a dashed box at the 6px step. |
 | `Field`, `Fieldset`, `Input`, `Select`, `Textarea` | A small-caps label, the control, a hint and the errors, wired together by id. The controls take the 14px field corner and two sizes, `md` and `sm`: an `Input` is 36px and 28px, a `Select` has no height of its own. A form field at either size takes `FORM_FIELD_CLASS` and is 34px; a filter is `sm` with `FILTER_FIELD_CLASS`, 28px (§4, One form-field height). |
@@ -703,11 +700,10 @@ regular weight on a borderless one. A label that is a name keeps its capitals.
 Small caps, `uppercase` with wide tracking, stay on what is not a button or link
 label: eyebrows (`Eyebrow`), field labels and legends, table heads, badges,
 status words, key hints, and the tab strips — the module rail's rows, the
-segmented view tabs and the invite builder's section tabs. Only the eyebrows
-share a part. The others keep their own small caps, because each is another
+segmented view tabs and the invite builder's section tabs. The eyebrows share a
+part, and so do the badges, which are `Chip` in small caps (the `Chip` row above). The others keep their own small caps, because each is another
 kind with its own size and ink: the table heads (`Th`, and the guest editor's
-`STRIP_HEAD`), the pill badges (a co-host's role and "Connected", "New" on an
-unsaved event or household, the top bar's role), the "New" reply mark
+`STRIP_HEAD`), the "New" reply mark
 (§A badge that explains itself), the status words ("Current" and "Locked" on
 a design, the RSVP tally's terms) and the getting-started count.
 
@@ -876,13 +872,14 @@ It is read-only for every role. The decisions it settles:
   event's start on its own clock, an item earlier on the clock than the start
   last and marked "(after midnight)" in muted ink. Each time is the item's own
   `HH:MM` as the organiser wrote it, on the event's clock, never converted.
-- **Flags are a word and a shape.** Sentence-case pills, never colour alone:
-  "You" on a `--brand` fill, "Coming up" on a gold fill (`--on-gold` ink),
-  "Done" in a `--border-strong` outline with a tick, "Event removed" in a
-  `--warn` outline with a broken link, explained on hover by `Tooltip`. The
-  two that are about the reader and about now are filled; the two that are
-  states are outlined — "Coming up" and "Event removed" are both warm in the
-  dark ramp, and the fill is what tells them apart at a glance.
+- **Flags are a word and a shape.** `Chip` tags, sentence case, never colour
+  alone (owner, englishstreetventures/osn#1836): "You" filled in the accent,
+  "Coming up" filled in `pending`, "Done" a neutral outline with a tick, "Event
+  removed" a `pending` outline with a broken link, explained on hover by
+  `Tooltip`. The two that are about the reader and about now are filled; the two
+  that are states are outlined — "Coming up" and "Event removed" are both warm,
+  and the fill is what tells them apart at a glance. Each word clears 4.5:1 on a
+  coming-up row's wash in both ramps (`RunSheetView.browser.test.tsx`).
 - **The reader's rows** also carry a 3px `--brand-ink` bar at the row's
   inline start (3:1 or more on the row in both ramps), and `data-own`.
 - **A coming-up row** sits on a `bg-gold/8` wash. **A done row** stays in its

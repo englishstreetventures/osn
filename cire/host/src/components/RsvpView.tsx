@@ -1481,9 +1481,9 @@ export default function RsvpView(props: RsvpViewProps) {
         </Show>
 
         <Show when={formError()}>
-          <p role="alert" class="text-error text-ui-sm">
+          <Notice size="inline" tone="danger" alert>
             {formError()}
-          </p>
+          </Notice>
         </Show>
 
         <div class="flex items-center gap-2">
