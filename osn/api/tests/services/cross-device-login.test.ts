@@ -10,6 +10,7 @@ import { beforeAll } from "vitest";
 import { createDurableCoordination } from "../../src/lib/coordination/durable";
 import { createAuthService } from "../../src/services/auth";
 import { MAX_SESSIONS_PER_ACCOUNT } from "../../src/services/auth/constants";
+import { deriveSessionBinding } from "../../src/services/auth/helpers";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { settle } from "../helpers/background";
 import { createFakeNamespace } from "../helpers/coordination-namespace";
@@ -639,6 +640,75 @@ describe("cross-device login on the shared store", () => {
       expect(successes(decisions)).toBe(1);
       const poll = yield* svc.getCrossDeviceLoginStatus(requestId, cdlSecret);
       expect(poll.status).toBe(decisions[0]._tag === "Success" ? "approved" : "rejected");
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.live(
+    "a poll at the session cap signs no device out while another request's reservation stands",
+    () => {
+      const { svc, layer } = harness();
+      return Effect.gen(function* () {
+        const profile = yield* svc.registerProfile("cdl-cap-poll@example.com", "cdlcappoll");
+        const { seeded, oldest } = yield* fillToCap(svc, profile);
+        const { requestId, cdlSecret } = yield* svc.beginCrossDeviceLogin();
+        yield* svc.approveCrossDeviceLogin(requestId, cdlSecret, profile.accountId);
+        const survivors = seeded.filter((id) => id !== oldest);
+
+        // The approval left the account at the cap. One device is now clearly
+        // the least recently used, and another request's approval has
+        // reserved its row and not yet decided.
+        const { db } = yield* Db;
+        yield* Effect.promise(() =>
+          db.update(sessions).set({ lastUsedAt: 2 }).where(eq(sessions.id, survivors[11]!)),
+        );
+        const nowSec = Math.floor(Date.now() / 1000);
+        yield* Effect.promise(() =>
+          db.insert(sessions).values({
+            id: "reserved-by-another-request",
+            accountId: profile.accountId,
+            familyId: "cdl_0123456789ab",
+            expiresAt: nowSec + 300,
+            createdAt: nowSec,
+            authenticatedAt: nowSec,
+            uaLabel: null,
+            ipHash: null,
+            lastUsedAt: nowSec,
+          }),
+        );
+
+        const poll = yield* svc.getCrossDeviceLoginStatus(requestId, cdlSecret);
+        expect(poll.status).toBe("approved");
+        const ids = yield* sessionIds(profile.accountId);
+        expect(survivors.filter((id) => !ids.includes(id))).toEqual([]);
+      }).pipe(Effect.provide(layer));
+    },
+  );
+
+  it.live("device B's session is a row of its own family, opened by its own tokens", () => {
+    const { svc, layer } = harness();
+    return Effect.gen(function* () {
+      const profile = yield* svc.registerProfile("cdl-row@example.com", "cdlrow");
+      const { requestId, cdlSecret } = yield* svc.beginCrossDeviceLogin({ uaLabel: "Device B" });
+      yield* svc.approveCrossDeviceLogin(requestId, cdlSecret, profile.accountId);
+      const poll = yield* svc.getCrossDeviceLoginStatus(requestId, cdlSecret);
+      if (poll.status !== "approved") throw new Error(`poll answered ${poll.status}`);
+
+      const { db } = yield* Db;
+      const rows = yield* Effect.promise(() =>
+        db.select().from(sessions).where(eq(sessions.accountId, profile.accountId)),
+      );
+      const id = svc.hashSessionToken(poll.session.refreshToken);
+      expect(rows.map((row) => row.id)).toEqual([id]);
+      expect(rows[0]!.familyId).toMatch(/^sfam_/);
+      expect(rows[0]!.uaLabel).toBe("Device B");
+      expect(rows[0]!.expiresAt).toBeGreaterThan(Math.floor(Date.now() / 1000) + 86_400);
+
+      const claims = JSON.parse(
+        Buffer.from(poll.session.accessToken.split(".")[1]!, "base64url").toString("utf8"),
+      ) as Record<string, unknown>;
+      expect(claims["osn_sid"]).toBe(deriveSessionBinding(id, profile.id));
+      const verified = yield* svc.verifyRefreshToken(poll.session.refreshToken);
+      expect(verified).toMatchObject({ accountId: profile.accountId, sessionId: id });
     }).pipe(Effect.provide(layer));
   });
 });

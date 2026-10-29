@@ -8,9 +8,9 @@
  * whose token nobody keeps, so every revocation that follows it — sign out
  * everywhere else, a recovery, an erasure, any wipe of the account's
  * sessions — removes that row as it would a signed-in device's. The poll that
- * takes the approved entry deletes the reserved row and, only if it was still
- * there and the account and profile still stand, mints device B's session
- * from the rows as they are then.
+ * takes the approved entry turns the reserved row into device B's session,
+ * only while it is still there and the account and profile still stand, and
+ * mints the tokens from the profile and account as they are then.
  */
 
 import { createHash } from "node:crypto";
@@ -44,13 +44,14 @@ export function createCrossDeviceModule(
   securityEventsModule: SecurityEventsModule,
 ) {
   const { stores, hashIp } = ctx;
-  const { findDefaultProfile, findProfileById } = profiles;
-  const { issueTokens, makeRoomForReservation, reserveSession } = tokens;
+  const { findDefaultProfile } = profiles;
+  const { claimReservation, makeRoomForReservation, reserveSession } = tokens;
 
   /**
    * Deletes the reserved row `id` while it is live, and answers whether this
    * call deleted it: false once a revocation removed it, it expired, or
-   * another call took it first.
+   * another call took it first. An approval that does not land releases its
+   * row with this.
    */
   const releaseSession = (
     accountId: string,
@@ -131,14 +132,14 @@ export function createCrossDeviceModule(
    * Device B polls this to check whether device A has approved the request.
    * Returns `{ status: "pending" }` until approved. The poll that finds the
    * approval takes the entry, so the session is delivered once — of two polls
-   * at once, one gets it and the other answers `expired`. It then deletes the
-   * reserved row and reloads the profile; it answers `expired`, with no
-   * token, when the row is gone (a revocation since the approval), the
-   * account is deleted or scheduled for deletion, or the profile is gone or
-   * belongs to another account. Otherwise it mints device B's session from
-   * the profile and account as they are now. A session that fails to mint
-   * after the take answers the error, and the request is spent: device B
-   * begins again.
+   * at once, one gets it and the other answers `expired`. It then turns the
+   * reserved row into device B's session in one batch with the profile read
+   * (`claimReservation`); it answers `expired`, with no token, when the row
+   * is gone (a revocation since the approval), the account is deleted or
+   * scheduled for deletion, or the profile is gone or belongs to another
+   * account. Otherwise it mints device B's tokens from the profile and
+   * account as they are now. A session that fails to mint after the take
+   * answers the error, and the request is spent: device B begins again.
    */
   const getCrossDeviceLoginStatus = (
     requestId: string,
@@ -194,29 +195,14 @@ export function createCrossDeviceModule(
         ) {
           return { status: "expired" as const };
         }
-        const { accountId, profileId, sessionId } = taken;
-        // Every revocation since the approval removed the reserved row.
-        const reserved = yield* releaseSession(accountId, sessionId);
-        if (!reserved) return { status: "expired" as const };
-        // Excludes an account scheduled for deletion, as well as a deleted one.
-        const profile = yield* findProfileById(profileId);
-        if (!profile || profile.accountId !== accountId) {
-          return { status: "expired" as const };
-        }
-        // Device B's session, carrying device B's label from begin.
-        const session = yield* issueTokens(
-          profile.id,
-          accountId,
-          profile.email,
-          profile.handle,
-          profile.displayName,
-          undefined,
-          { uaLabel: taken.uaLabel, ip: null },
-        );
+        // Every revocation since the approval removed the reserved row; the
+        // row already carries device B's label from begin.
+        const claimed = yield* claimReservation(taken.accountId, taken.sessionId, taken.profileId);
+        if (!claimed) return { status: "expired" as const };
         return {
           status: "approved" as const,
-          session,
-          profile: toPublicProfile(profile, profile.email),
+          session: claimed.session,
+          profile: toPublicProfile(claimed.profile, claimed.profile.email),
         };
       }
 

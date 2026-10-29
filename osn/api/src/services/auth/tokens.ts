@@ -3,10 +3,11 @@
  * C1), rotated-token reuse detection (C2), and access-token verification.
  */
 
-import { rotatedSessions, sessions } from "@osn/db/schema";
-import { Db } from "@osn/db/service";
+import { accounts, rotatedSessions, sessions, users } from "@osn/db/schema";
+import { Db, type DbService } from "@osn/db/service";
 import { commitBatch, rowsChanged } from "@shared/db-utils";
-import { and, desc, eq, gt, inArray, isNotNull, lte, ne, sql } from "drizzle-orm";
+import { and, desc, eq, exists, gt, inArray, isNotNull, isNull, lte, ne, sql } from "drizzle-orm";
+import type { BatchItem, BatchResponse } from "drizzle-orm/batch";
 import { Clock, Effect } from "effect";
 
 import { ROTATION_RACE_MESSAGE } from "../../lib/grant-failure";
@@ -40,8 +41,19 @@ import {
   verifyJwt,
 } from "./helpers";
 import type { AccessTokenClaims } from "./helpers";
-import type { ProfilesModule } from "./profiles";
-import type { RecoveryFactorAmr, SessionMeta, TokenSet } from "./types";
+import { selectProfileById, type ProfilesModule } from "./profiles";
+import type { ProfileWithEmail, RecoveryFactorAmr, SessionMeta, TokenSet } from "./types";
+
+/** The D1 driver, which alone of the drivers here sends statements as one batch. */
+type BatchingDb = DbService["db"] & {
+  batch<U extends BatchItem<"sqlite">, T extends Readonly<[U, ...U[]]>>(
+    statements: T,
+  ): Promise<BatchResponse<T>>;
+};
+
+/** True on the D1 driver. bun:sqlite has no `batch`, and awaits each statement in turn. */
+const canBatch = (db: DbService["db"]): db is BatchingDb =>
+  "batch" in db && typeof db.batch === "function";
 
 /** The most chunks a tier may ask one sweep pass for. */
 export const ROTATED_SESSION_SWEEP_MAX_CHUNKS_CEILING = 200;
@@ -309,6 +321,94 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
     accountId: string,
     familyId: string,
   ): Effect.Effect<void, DatabaseError, Db> => evictLeastRecentlyUsed(accountId, familyId);
+
+  /**
+   * Turns the reserved row `reservedId` into a live session for the profile
+   * `profileId` and mints its tokens: the cross-device poll's last step, once
+   * it has taken the approval.
+   *
+   * One batch, which D1 runs as one transaction and one round trip: the
+   * profile read; an UPDATE that gives the row a fresh token's id, a family of
+   * its own and a session's life, only while the row is live, its account is
+   * not deleted or scheduled for deletion, and the profile is still in that
+   * account; and a DELETE that removes the reservation when that UPDATE did
+   * not take it. Answers null when it did not take it: a revocation removed
+   * the row, it expired, or the account or profile no longer stands.
+   *
+   * Evicts nothing. The UPDATE changes no row count, so the account stays
+   * where the approval's {@link makeRoomForReservation} left it, and another
+   * request's reservation is never counted against this sign-in.
+   */
+  const claimReservation = (
+    accountId: string,
+    reservedId: string,
+    profileId: string,
+  ): Effect.Effect<
+    { session: TokenSet; profile: ProfileWithEmail } | null,
+    AuthError | DatabaseError,
+    Db
+  > =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const sessionToken = generateSessionToken();
+      const sessionId = hashSessionToken(sessionToken);
+      const nowSec = Math.floor(Date.now() / 1000);
+      const profileRead = selectProfileById(db, profileId);
+      const claim = db
+        .update(sessions)
+        .set({
+          id: sessionId,
+          familyId: genId("sfam_"),
+          expiresAt: nowSec + refreshTokenTtl,
+          createdAt: nowSec,
+          authenticatedAt: nowSec,
+          lastUsedAt: nowSec,
+        })
+        .where(
+          and(
+            eq(sessions.id, reservedId),
+            eq(sessions.accountId, accountId),
+            gt(sessions.expiresAt, nowSec),
+            exists(
+              db
+                .select({ one: sql`1` })
+                .from(users)
+                .innerJoin(accounts, eq(accounts.id, users.accountId))
+                .where(
+                  and(
+                    eq(users.id, profileId),
+                    eq(users.accountId, accountId),
+                    isNull(accounts.deletedAt),
+                  ),
+                ),
+            ),
+          ),
+        );
+      const release = db
+        .delete(sessions)
+        .where(and(eq(sessions.id, reservedId), eq(sessions.accountId, accountId)));
+      const [profileRows, claimed] = yield* Effect.tryPromise({
+        try: async () =>
+          canBatch(db)
+            ? await db.batch([profileRead, claim, release])
+            : ([await profileRead, await claim, await release] as const),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      const profile = profileRows[0];
+      if (rowsChanged(claimed) !== 1 || !profile || profile.accountId !== accountId) return null;
+
+      const accessToken = yield* issueAccessToken(
+        profile.id,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+        deriveSessionBinding(sessionId, profile.id),
+      );
+      return {
+        session: { accessToken, refreshToken: sessionToken, expiresIn: accessTokenTtl },
+        profile,
+      };
+    });
 
   /**
    * Full token issuance: creates a server-side session row and returns an
@@ -965,6 +1065,7 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
     issueRecoverySession,
     reserveSession,
     makeRoomForReservation,
+    claimReservation,
     verifyRefreshToken,
     refreshTokens,
     verifyAccessToken,
