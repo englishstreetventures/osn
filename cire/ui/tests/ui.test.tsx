@@ -11,6 +11,7 @@ import Card, {
   type CardFill,
   type CardPadding,
   type CardTone,
+  cardBoxClass,
   cardClass,
 } from "../src/card";
 import Loading from "../src/loading";
@@ -441,6 +442,52 @@ describe("Card", () => {
       <Card interactive>x</Card>
     ));
     expect((container.firstElementChild as HTMLElement).className).toBe(cardClass());
+  });
+});
+
+describe("cardBoxClass", () => {
+  /** Every box it can draw: each fill × tone. */
+  function everyBox(): { fill: CardFill; tone: CardTone; cls: string }[] {
+    return EVERY_FILL.flatMap((fill) =>
+      EVERY_TONE.map((tone) => ({ fill, tone, cls: cardBoxClass({ fill, tone }) })),
+    );
+  }
+
+  it("is a card's box: the large corner, one border colour and the card's own fill", () => {
+    // A disclosure pads its summary and body itself, so it takes the box alone.
+    const wrong = everyBox().filter(({ fill, tone, cls }) => {
+      const ground = (c: string) => c.split(/\s+/).filter((x) => x.includes("bg-"));
+      return (
+        corners(cls).join() !== "base:rounded-ui-lg" ||
+        !cls.split(/\s+/).includes("base:border") ||
+        borderColours(cls).join() !== borderColours(cardClass({ tone })).join() ||
+        ground(cls).join() !== ground(cardClass({ fill })).join()
+      );
+    });
+    expect(wrong).toEqual([]);
+  });
+
+  it("brings no padding and no layout of its own", () => {
+    const leaks = everyBox().filter(
+      ({ cls }) => paddings(cls).length > 0 || /(^|:)(flex|gap-)/.test(cls.replace(/\s+/g, " ")),
+    );
+    expect(leaks).toEqual([]);
+  });
+
+  it("takes the small corner when nested, and changes nothing else", () => {
+    // A bordered box set inside a card, a modal or a frame.
+    const wrong = everyBox().filter(({ fill, tone, cls }) => {
+      const nested = cardBoxClass({ fill, tone, nested: true });
+      return (
+        corners(nested).join() !== "base:rounded-ui-sm" ||
+        nested.replace("base:rounded-ui-sm", "base:rounded-ui-lg") !== cls
+      );
+    });
+    expect(wrong).toEqual([]);
+  });
+
+  it("with no options is the ordinary card's box", () => {
+    expect(cardBoxClass()).toBe(cardBoxClass({ fill: "wash", tone: "default" }));
   });
 });
 
