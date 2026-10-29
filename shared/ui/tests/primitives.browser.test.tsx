@@ -267,6 +267,23 @@ describe("Notice sizes and the accent tone", () => {
     expect(Math.abs((icon.top + icon.bottom) / 2 - (words.top + line / 2))).toBeLessThan(1);
   });
 
+  it("centres its words in a centred column, as the text it stands in for did", () => {
+    // A one-line message in a `text-center` column: the words' box fills the
+    // row, so the inherited alignment centres them instead of leaving them
+    // hugging the start.
+    const { container } = render(() => (
+      <div style={{ width: "400px", "text-align": "center" }}>
+        <Notice size="sm" tone="accent">
+          <span data-testid="words">Preview</span>
+        </Notice>
+      </div>
+    ));
+    const box = container.firstElementChild!.firstElementChild!.getBoundingClientRect();
+    const words = container.querySelector("[data-testid='words']")!.getBoundingClientRect();
+    const middle = (r: DOMRect) => (r.left + r.right) / 2;
+    expect(Math.abs(middle(words) - middle(box))).toBeLessThan(2);
+  });
+
   it("reads the word in place of the icon at the inline size too", () => {
     const { container } = render(() => (
       <Notice size="inline" tone="danger">
