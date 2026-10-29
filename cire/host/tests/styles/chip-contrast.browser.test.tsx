@@ -25,9 +25,9 @@ import "../../src/styles/global.css";
  *
  * Filled `danger` is left out of the floor and held under it instead: its 10%
  * tint reads 4.01:1 on the pale page with cire's red, and no wash of that red
- * reaches 4.5:1, so the portal draws a danger chip outlined (owner, #1836). The
- * last test fails if that ever stops being true, so the exclusion is looked at
- * again.
+ * reaches 4.5:1, so a danger chip is outlined unless a caller asks for the fill
+ * (owner, #1836). The last test fails if that ever stops being true, so the
+ * exclusion is looked at again.
  */
 
 const THEMES = ["light", "dark"] as const;
@@ -128,7 +128,7 @@ describe("Chip contrast on cire's grounds", () => {
     document.documentElement.dataset.theme = "light";
     const { container } = render(() => (
       <div>
-        <Chip tone="danger" treatment="tag">
+        <Chip tone="danger" variant="filled" treatment="tag">
           No longer available
         </Chip>
       </div>
