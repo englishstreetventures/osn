@@ -351,9 +351,9 @@ describe("deploy.yml deploys dev only", () => {
 
   test("W5: no step names wrangler; Wrangler runs only as the guest route comparison's local runtime, in a step holding no Cloudflare credential", () => {
     expect(readFileSync(join(root, WORKFLOW_FILE.dev), "utf8")).not.toMatch(/wrangler/i);
-    // scripts/guest-route-parity.ts starts `wrangler dev` with an environment
-    // of its own (referenceEnv); the step that runs it holds no credential to
-    // hand on in the first place.
+    // scripts/guest-route-parity.ts starts Wrangler's local runtime, through
+    // its Node child, with an environment of its own (referenceEnv); the step
+    // that runs it holds no credential to hand on in the first place.
     const parity = Object.values(dev.jobs)
       .flatMap((job) => stepsOf(job))
       .filter((step) => (step.run ?? "").includes("guest-route-parity"));
@@ -689,9 +689,10 @@ describe("PR1: the cire stack job compares the guest site's routes with Wrangler
     );
   });
 
-  test("holds the guest site's dev origin and the Access service token, and nothing else", () => {
+  test("holds the guest site's dev origin, the cire-api origin its build calls, and the Access service token, and nothing else", () => {
     expect(parity?.env).toEqual({
       PARITY_ORIGIN: hostOutput("cire_invites_origin"),
+      PARITY_API_ORIGIN: hostOutput("cire_api_origin"),
       CF_ACCESS_CLIENT_ID: "${{ secrets.CF_ACCESS_CLIENT_ID }}",
       CF_ACCESS_CLIENT_SECRET: "${{ secrets.CF_ACCESS_CLIENT_SECRET }}",
     });

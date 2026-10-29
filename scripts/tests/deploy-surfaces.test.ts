@@ -198,16 +198,18 @@ describe("which surfaces a change redeploys", () => {
     },
   );
 
-  test("scripts/guest-route-parity.ts redeploys the guest site on dev, whose stack job runs it after the deploy, and no production surface", () => {
-    const file = "scripts/guest-route-parity.ts";
-    expect(redeployed([file], "dev")).toEqual(["cire_invites"]);
-    expect(stacksDeployed([file])).toEqual(["cire"]);
-    expect(redeployed([file], "production")).toEqual([]);
-    expect(sharedPath(file, "dev")).toBe(false);
-    expect(deployReason(surface("cire_invites"), [file], "dev")).toBe(
-      `${file} changed, which checks this surface's dev deploy`,
-    );
-  });
+  test.each(["scripts/guest-route-parity.ts", "scripts/guest-route-parity-reference.js"])(
+    "%s redeploys the guest site on dev, whose stack job runs the comparison after the deploy, and no production surface",
+    (file) => {
+      expect(redeployed([file], "dev")).toEqual(["cire_invites"]);
+      expect(stacksDeployed([file])).toEqual(["cire"]);
+      expect(redeployed([file], "production")).toEqual([]);
+      expect(sharedPath(file, "dev")).toBe(false);
+      expect(deployReason(surface("cire_invites"), [file], "dev")).toBe(
+        `${file} changed, which checks this surface's dev deploy`,
+      );
+    },
+  );
 
   test("DS2: a change under cire/infra/ redeploys every cire dev surface, and on production ships no staged site's Pages job: the cire stack ships on its own record", () => {
     const file = "cire/infra/alchemy.run.ts";
