@@ -113,3 +113,52 @@ describe.each<LoginSectionLayout>(["band", "panel"])(
     });
   },
 );
+
+/** The horizontal middle of a box. */
+const middle = (el: Element) => {
+  const r = el.getBoundingClientRect();
+  return (r.left + r.right) / 2;
+};
+
+describe("LoginSection — its error line keeps the column's alignment", () => {
+  /** Renders a layout, presses "Not you?" with sign-out failing, and measures. */
+  async function errorLine(layout: LoginSectionLayout) {
+    await page.viewport(1024, 900);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(new Response(null, { status: 503 }))),
+    );
+    const view = render(() => (
+      <LoginSection
+        apiUrl="https://api.test"
+        result={household}
+        onClaimed={() => {}}
+        onSignOut={() => {}}
+        onMemberChange={() => {}}
+        layout={layout}
+      />
+    ));
+    (await view.findByRole("button", { name: "Not you?" })).click();
+    const alert = await view.findByRole("alert");
+    return {
+      line: alert.getBoundingClientRect(),
+      row: alert.parentElement!.getBoundingClientRect(),
+      icon: alert.querySelector("svg")!.getBoundingClientRect(),
+      middle: middle(alert),
+    };
+  }
+
+  it("centres the error line's icon and words together on the band", async () => {
+    const { line, row, middle: mid } = await errorLine("band");
+    // The line hugs its icon and words, and sits in the middle of the row.
+    expect(line.width).toBeGreaterThan(0);
+    expect(row.width).toBeGreaterThan(line.width + 40);
+    expect(Math.abs(mid - (row.left + row.right) / 2)).toBeLessThan(2);
+  });
+
+  it("starts the error line at the column's edge in the panel", async () => {
+    const { line, row, icon } = await errorLine("panel");
+    expect(line.width).toBeGreaterThan(0);
+    expect(icon.left - row.left).toBeLessThan(2);
+  });
+});

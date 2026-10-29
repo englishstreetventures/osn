@@ -1,4 +1,5 @@
 import Button from "@cire/ui/button";
+import { Notice } from "@shared/ui/ui/notice";
 import { createMemo, createSignal, createUniqueId, For, onCleanup, Show } from "solid-js";
 
 import { invitedMembers } from "./plus-one";
@@ -494,9 +495,9 @@ function PlusOneRow(props: PlusOneRowProps) {
       </Show>
 
       <Show when={error()}>
-        <p class="text-error text-ui-sm mt-2" role="alert">
+        <Notice size="inline" tone="danger" alert class="mt-2">
           {error()}
-        </p>
+        </Notice>
       </Show>
       <output class="text-text-muted text-ui-sm mt-2 block font-light empty:hidden">
         {notice() ?? ""}
