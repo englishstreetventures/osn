@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library";
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -12,6 +12,7 @@ vi.mock("../../src/lib/vendors-store", () => ({
 
 import DirectoryBrowseView from "../../src/components/DirectoryBrowseView";
 import { invalidateVendors, upsertCachedVendor } from "../../src/lib/vendors-store";
+import { chipLook } from "../test-support/chip-look";
 
 const listing = (over = {}) => ({
   id: "LA",
@@ -44,6 +45,22 @@ describe("DirectoryBrowseView", () => {
     render(() => <DirectoryBrowseView weddingId="w1" canEdit={true} />);
     await waitFor(() => expect(screen.getByText("Acme Venue")).toBeInTheDocument());
     expect(String(authFetch.mock.calls[0]![0])).toContain("/api/organiser/weddings/w1/directory");
+  });
+
+  it("tags each listing with its categories' names, on the card and in its detail", async () => {
+    authFetch.mockResolvedValueOnce(json({ listings: [listing()], total: 1 }));
+    render(() => <DirectoryBrowseView weddingId="w1" canEdit={true} />);
+    // The card, not the category filter, whose options carry the same words.
+    const card = (await screen.findByText("Acme Venue")).closest("li")!;
+    // The label as written, never the stored key: sentence case, no small caps.
+    const tags = (root: HTMLElement) =>
+      ["Venue", "Catering"].map((word) => chipLook(within(root).getByText(word)));
+    const tag = { tone: "neutral", variant: "filled", treatment: "tag" };
+    const asTags = [tag, tag];
+    expect(tags(card)).toEqual(asTags);
+
+    fireEvent.click(within(card).getByRole("button", { name: "View" }));
+    expect(tags(await screen.findByRole("dialog"))).toEqual(asTags);
   });
 
   it("shows 'Added ✓' for a listing already in the wedding", async () => {

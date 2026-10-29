@@ -1240,6 +1240,8 @@ describe("RsvpPanel", () => {
       />
     ));
     expect(getByText(/Nothing you send here is saved/i)).toBeTruthy();
+    // A standing note, so a status region rather than an alert.
+    expect(getByText(/Nothing you send here is saved/i).closest("[role='status']")).not.toBeNull();
   });
 
   it("treats a valid submit as a no-op in preview mode: closes, never POSTs", async () => {
@@ -1379,6 +1381,10 @@ describe("RsvpPanel", () => {
 
     // Says WHEN it shut, not just that it did.
     expect(getByText(/RSVPs closed on Tuesday 1 September 2026/)).toBeTruthy();
+    // In a status region, so a screen reader is told the sheet is shut.
+    expect(
+      getByText(/RSVPs closed on Tuesday 1 September 2026/).closest("[role='status']"),
+    ).not.toBeNull();
 
     // No submit at all — a disabled Save invites clicking at a door that won't
     // open — and the one remaining button says "Close", not "Cancel".
