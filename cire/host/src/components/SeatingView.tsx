@@ -32,7 +32,7 @@ import { Portal } from "solid-js/web";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { ensureEventsLoaded, type EventRow, eventsAccessor } from "../lib/events-store";
-import { FORM_ACTION_CLASS, FORM_FIELD_CLASS } from "../lib/form-field";
+import { FILTER_FIELD_CLASS, FORM_ACTION_CLASS, FORM_FIELD_CLASS } from "../lib/form-field";
 import { haptic } from "../lib/haptics";
 import { downloadLockedExport, LOCKED_EXPORTS } from "../lib/locked-exports";
 import {
@@ -398,7 +398,7 @@ export default function SeatingView(props: SeatingViewProps) {
                 {...field}
                 size="sm"
                 onChange={(e) => setEventId(e.currentTarget.value)}
-                class="min-w-56"
+                class={`${FILTER_FIELD_CLASS} min-w-56`}
               >
                 {/* Each option carries its own selection, so a refreshed event
                     list, which rebuilds the options, keeps showing the event

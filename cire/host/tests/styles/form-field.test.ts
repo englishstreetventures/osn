@@ -9,8 +9,10 @@ import { describe, expect, it } from "vitest";
  * DESIGN.md §4, "One form-field height"). A field added without it renders
  * at 36px beside 34px neighbours and nothing on screen says so, so this reads
  * every `<Input` and `<Select` tag under `src/` and names those without it.
- * Those are the filters, which stay `size="sm"`, 28px with round ends. Each is
- * found by its file and a marker in its own handler, not by line number.
+ * Those are the filters: `size="sm"` plus `FILTER_FIELD_CLASS`, 28px with round
+ * ends, since an `sm` `Select` with no height of its own takes the platform's
+ * line and draws 27px on Linux. Each is found by its file and a marker in its
+ * own handler, not by line number.
  *
  * Static: a tag runs from its name to the first `>` outside braces and quotes,
  * so an arrow function's `=>` inside a prop cannot end it early.
@@ -77,10 +79,11 @@ describe("Input and Select", () => {
     expect(named.sort()).toEqual(FILTERS.map((x) => `${x.file} ${x.marker}`).sort());
   });
 
-  it("keep each named filter at 28px, size sm", () => {
+  it("keep each named filter at 28px, size sm with the filter height", () => {
     for (const filter of FILTERS) {
       const tag = fields().find((f) => f.file === filter.file && f.tag.includes(filter.marker));
       expect(tag?.tag, `${filter.file} ${filter.marker}`).toMatch(/\bsize="sm"/);
+      expect(tag?.tag, `${filter.file} ${filter.marker}`).toContain("FILTER_FIELD_CLASS");
     }
   });
 });

@@ -48,6 +48,7 @@ import {
   type EventRow as CachedEventRow,
   eventsAccessor,
 } from "../lib/events-store";
+import { FILTER_FIELD_CLASS } from "../lib/form-field";
 import {
   ensureGuestsLoaded,
   guestsAccessor,
@@ -1192,6 +1193,7 @@ export default function GuestTable(props: GuestTableProps) {
                 {...field}
                 type="search"
                 size="sm"
+                class={FILTER_FIELD_CLASS}
                 value={searchInput()}
                 onInput={(e) => handleSearchInput(e.currentTarget.value)}
                 placeholder={compact() ? "Search guests…" : "Search by name, household or code…"}
