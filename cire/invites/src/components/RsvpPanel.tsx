@@ -9,6 +9,7 @@ import {
   createEffect,
   createMemo,
   createSignal,
+  createUniqueId,
   onCleanup,
   Show,
   For,
@@ -148,6 +149,9 @@ async function failureCode(res: Response): Promise<string | undefined> {
   const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
   return typeof body?.error === "string" ? body.error : undefined;
 }
+
+/** The sheet's two consent boxes; see `createConsentBox`. */
+type ConsentBoxName = "consent" | "attestation";
 
 /**
  * One consent checkbox: its state, and the rule for when it may open ticked.
@@ -343,7 +347,17 @@ export function RsvpPanel(props: RsvpPanelProps) {
     return inviter ? `${inviter.firstName}'s guest` : "Guest";
   };
 
-  const [error, setError] = createSignal<string | null>(null);
+  const [error, setErrorText] = createSignal<string | null>(null);
+  // The consent box the error line refuses, when it refuses one: that box is
+  // named by the line and marked wrong until the line next changes.
+  const [refusedBox, setRefusedBox] = createSignal<ConsentBoxName>();
+  const setError = (text: string | null, box?: ConsentBoxName) =>
+    batch(() => {
+      setErrorText(text);
+      setRefusedBox(box);
+    });
+  const errorId = createUniqueId();
+  const refuses = (box: ConsentBoxName) => refusedBox() === box;
   const [loading, setLoading] = createSignal(false);
   // Terminal success state: the reply is recorded, the Save button is filling
   // gold behind a drawn tick, and the sheet is counting down to closing itself.
@@ -544,12 +558,15 @@ export function RsvpPanel(props: RsvpPanelProps) {
     // enforces this with a 422 — see
     // `wiki/compliance/dpia/cire-guest-data.md`.)
     if (ownWithDietaryData().length > 0 && !consent.checked()) {
-      setError("Please tick the box to let us store your dietary requirements.");
+      setError("Please tick the box to let us store your dietary requirements.", "consent");
       return;
     }
     if (plusOnesWithDietaryData().length > 0 && !attestation.checked()) {
       const names = formatNames(plusOnesWithDietaryData().map((m) => m.firstName));
-      setError(`Please confirm that ${names} agreed to their dietary requirements being stored.`);
+      setError(
+        `Please confirm that ${names} agreed to their dietary requirements being stored.`,
+        "attestation",
+      );
       return;
     }
 
@@ -925,6 +942,8 @@ export function RsvpPanel(props: RsvpPanelProps) {
               checked={consent.checked()}
               onChange={(e) => consent.setChecked(e.currentTarget.checked)}
               disabled={locked()}
+              aria-describedby={refuses("consent") ? errorId : undefined}
+              aria-invalid={refuses("consent") ? "true" : undefined}
             />
             <span>
               I agree to the dietary requirements above — for{" "}
@@ -955,6 +974,8 @@ export function RsvpPanel(props: RsvpPanelProps) {
               checked={attestation.checked()}
               onChange={(e) => attestation.setChecked(e.currentTarget.checked)}
               disabled={locked()}
+              aria-describedby={refuses("attestation") ? errorId : undefined}
+              aria-invalid={refuses("attestation") ? "true" : undefined}
             />
             <span>
               {PLUS_ONE_DIETARY_ATTESTATION.text(
@@ -975,7 +996,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
         </Show>
 
         <Show when={error()}>
-          <Notice size="inline" tone="danger" alert class="my-1">
+          <Notice id={errorId} size="inline" tone="danger" alert class="my-1">
             {error()}
           </Notice>
         </Show>

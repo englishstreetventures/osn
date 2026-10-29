@@ -807,6 +807,39 @@ describe("RsvpView", () => {
     expect(authFetchMock).toHaveBeenCalledTimes(2);
   });
 
+  // The refusal is written under the form, so the box it is about names it; a
+  // refusal of the save itself is not the box's.
+  it("names the consent box by its refusal, and only by its own", async () => {
+    authFetchMock
+      .mockResolvedValueOnce(json(VIEW)) // initial load
+      .mockResolvedValueOnce(json({ error: "forbidden" }, 403)); // PUT
+    render(() => <RsvpView weddingId="wed_a" canEdit />);
+
+    await waitFor(() => expect(screen.getByText("Bo Jones")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "Record reply for Cleo Jones" }));
+    fireEvent.input(await screen.findByLabelText(/Anything else/i), {
+      target: { value: "Nut allergy" },
+    });
+    const consent = screen.getByLabelText(
+      new RegExp(ORGANISER_DIETARY_ATTESTATION.text.slice(0, 30)),
+    ) as HTMLInputElement;
+    expect(consent.hasAttribute("aria-describedby")).toBe(false);
+    expect(consent.hasAttribute("aria-invalid")).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
+    const refusal = await screen.findByRole("alert");
+    expect(refusal.textContent).toMatch(/Confirm the guest consented/);
+    const described = document.getElementById(consent.getAttribute("aria-describedby") ?? "");
+    expect(described?.textContent).toMatch(/Confirm the guest consented before storing/);
+    expect(consent.getAttribute("aria-invalid")).toBe("true");
+
+    fireEvent.click(consent);
+    fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
+    expect(await screen.findByText(/You don't have permission/)).toBeTruthy();
+    expect(consent.hasAttribute("aria-describedby")).toBe(false);
+    expect(consent.hasAttribute("aria-invalid")).toBe(false);
+  });
+
   it("editor changes only the status of an existing reply: no attestation, a status-only body", async () => {
     // Narrow, so the prefilled preset is a checkbox on the page rather than a
     // label inside a closed popover trigger.

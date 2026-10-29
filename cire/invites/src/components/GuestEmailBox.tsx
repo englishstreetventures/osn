@@ -83,6 +83,7 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
   const inputId = createUniqueId();
   const invalidId = createUniqueId();
   const reasonId = createUniqueId();
+  const errorId = createUniqueId();
   const [editing, setEditing] = createSignal(props.email === null);
   const [draft, setDraft] = createSignal("");
   const [consent, setConsent] = createSignal(false);
@@ -101,6 +102,13 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
     draft().trim() === "" ? "empty" : parseGuestEmail(draft()) === null ? "invalid" : "valid";
   const blocked = () => blockedReason(address(), consent());
   const showInvalid = () => touched() && address() === "invalid";
+  // The server refused an address the browser had passed: the line under the
+  // box says so, and it is the field's to fix.
+  const refused = () => error() === INVALID_ADDRESS;
+  const describedBy = () =>
+    [showInvalid() ? invalidId : undefined, refused() ? errorId : undefined]
+      .filter(Boolean)
+      .join(" ") || undefined;
   let heading: HTMLHeadingElement | undefined;
   let input: HTMLInputElement | undefined;
   // Each view replaces the button that was pressed, so focus moves on with
@@ -248,8 +256,8 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
                 autocomplete="email"
                 spellcheck={false}
                 disabled={busy()}
-                aria-invalid={showInvalid() ? "true" : undefined}
-                aria-describedby={showInvalid() ? invalidId : undefined}
+                aria-invalid={showInvalid() || refused() ? "true" : undefined}
+                aria-describedby={describedBy()}
               />
               <Show when={showInvalid()}>
                 <p id={invalidId} class="text-error text-ui-sm mt-1.5">
@@ -358,7 +366,7 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
         )}
       </Show>
       <Show when={error()}>
-        <Notice size="inline" tone="danger" alert class="mt-3">
+        <Notice id={errorId} size="inline" tone="danger" alert class="mt-3">
           {error()}
         </Notice>
       </Show>

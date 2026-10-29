@@ -5,6 +5,7 @@ import {
   createEffect,
   createMemo,
   createSignal,
+  createUniqueId,
   For,
   lazy,
   onCleanup,
@@ -255,6 +256,7 @@ const DEFAULT_WELCOME_MESSAGE = "We are delighted to invite you to celebrate wit
 export function LoginSection(props: LoginSectionProps) {
   const layout = () => LAYOUTS[props.layout ?? "band"];
 
+  const claimErrorId = createUniqueId();
   const claim = createClaimCode({
     apiUrl: props.apiUrl,
     result: () => props.result,
@@ -571,10 +573,15 @@ export function LoginSection(props: LoginSectionProps) {
             // the `v` flag, where a trailing unescaped `-` is a syntax error
             // that voids the whole pattern.
             pattern="[A-Za-z0-9\-]+"
+            // Named by the line below only while it says the code was
+            // refused; an unsolved challenge, a server error or a lost
+            // connection is not the field's.
+            aria-describedby={claim.codeRefused() ? claimErrorId : undefined}
+            aria-invalid={claim.codeRefused() ? "true" : undefined}
           />
           <Show when={claim.error()}>
             <div class={`my-2 ${layout().line}`}>
-              <Notice size="inline" tone="danger" alert>
+              <Notice id={claimErrorId} size="inline" tone="danger" alert>
                 {claim.error()}
               </Notice>
             </div>
