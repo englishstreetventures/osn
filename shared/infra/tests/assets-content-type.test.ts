@@ -8,11 +8,14 @@
  * hash, so a file whose type changes is a new blob and uploads again. Each
  * case runs against alchemy's `src/` copy, which Bun loads in a deploy, and
  * its `lib/` copy, which Node-style resolution loads, so this file fails if
- * the patch stops applying to either.
+ * the patch stops applying to either. A file with no type is safe to serve
+ * only with `X-Content-Type-Options: nosniff`, so AC8 holds every one of those
+ * sites to sending it on every path.
  *
  * It reads outside this package: the public directories of the sites Alchemy
- * uploads, the stack declarations that name them (tests/support/asset-sites.ts),
- * and the wrangler cire/invites deploys with (`READS_REPO`).
+ * uploads, their `_headers` among them, the stack declarations that name them
+ * (tests/support/asset-sites.ts), and the wrangler cire/invites deploys with
+ * (`READS_REPO`).
  */
 
 import { createHash } from "node:crypto";
@@ -108,6 +111,45 @@ function extensionOf(file: string): string {
   return dot <= 0 ? "" : name.slice(dot + 1).toLowerCase();
 }
 
+/** One rule of a `_headers` file: its path, each header it sets with every value given, and each it drops. */
+interface HeaderRule {
+  readonly path: string;
+  readonly set: ReadonlyMap<string, readonly string[]>;
+  readonly unset: readonly string[];
+}
+
+/**
+ * A `_headers` file's rules, in file order, as Cloudflare reads them
+ * (workers-shared's parser, which Wrangler bundles): each line is trimmed, so
+ * indentation means nothing; blank and `#` lines are skipped; a line starting
+ * `/` or `<scheme>://` starts a rule; in a rule, `! Name` drops a header and
+ * `Name: value` sets one. Names are lower-cased.
+ */
+function headerRules(source: string): HeaderRule[] {
+  const rules: { path: string; set: Map<string, string[]>; unset: string[] }[] = [];
+  for (const raw of source.split("\n")) {
+    const line = raw.trim();
+    if (line === "" || line.startsWith("#")) continue;
+    if (/^([^\s]+:\/\/|\/)/.test(line)) {
+      rules.push({ path: line, set: new Map(), unset: [] });
+      continue;
+    }
+    const rule = rules.at(-1);
+    if (rule === undefined) continue;
+    const colon = line.indexOf(":");
+    if (colon === -1) {
+      if (line.startsWith("! ")) rule.unset.push(line.slice(2).trim().toLowerCase());
+      continue;
+    }
+    const name = line.slice(0, colon).trim().toLowerCase();
+    rule.set.set(name, [...(rule.set.get(name) ?? []), line.slice(colon + 1).trim()]);
+  }
+  return rules;
+}
+
+/** The header that stops a browser sniffing a type for a response that has none. */
+const NOSNIFF = "x-content-type-options";
+
 const sha256Prefix = (...parts: readonly (Uint8Array | string)[]): string => {
   const hash = createHash("sha256");
   for (const part of parts) hash.update(part);
@@ -196,6 +238,49 @@ describe("the asset sites AC6 reads", () => {
     expect(declared.length).toBeGreaterThan(0);
     expect(declared).toEqual(ASSET_BUILDS);
   });
+
+  test("AC8: each sends X-Content-Type-Options: nosniff on every path, so a file that uploads as application/null is never sniffed", () => {
+    // Cloudflare keeps the last rule for a path, joins a header given twice,
+    // applies every matching rule in file order (drops first, then sets,
+    // appending to a header already set) and reads at most 100 rules, one of
+    // which the guest site's adapter adds at build. A browser reads only the
+    // first value of the header. The builds copy this file to the upload
+    // without dropping a line.
+    expect(ASSET_SITES.length).toBeGreaterThan(0);
+    for (const { publicDir } of ASSET_SITES) {
+      const file = `${publicDir}/_headers`;
+      const at = join(repoRoot, file);
+      const rules = existsSync(at) ? headerRules(readFileSync(at, "utf8")) : [];
+      const everyPath = rules.filter((rule) => rule.path === "/*");
+      expect({
+        [file]: {
+          exists: existsSync(at),
+          everyPathRules: everyPath.length,
+          withinLimit: rules.findIndex((rule) => rule.path === "/*") < 99,
+          everyPathValues: everyPath.flatMap((rule) =>
+            (rule.set.get(NOSNIFF) ?? []).map((value) => value.toLowerCase()),
+          ),
+          otherValues: rules
+            .filter((rule) => rule.path !== "/*")
+            .flatMap((rule) =>
+              (rule.set.get(NOSNIFF) ?? [])
+                .filter((value) => value.toLowerCase() !== "nosniff")
+                .map((value) => `${rule.path}: ${value}`),
+            ),
+          droppedOn: rules.filter((rule) => rule.unset.includes(NOSNIFF)).map((rule) => rule.path),
+        },
+      }).toEqual({
+        [file]: {
+          exists: true,
+          everyPathRules: 1,
+          withinLimit: true,
+          everyPathValues: ["nosniff"],
+          otherValues: [],
+          droppedOn: [],
+        },
+      });
+    }
+  });
 });
 
 describe("the wrangler cire/invites deploys with", () => {
@@ -204,8 +289,12 @@ describe("the wrangler cire/invites deploys with", () => {
       "wrangler",
     );
     const miniflare = createRequire(cli).resolve("miniflare");
-    for (const bundle of [cli, miniflare]) {
-      const text = readFileSync(bundle, "utf8");
+    // Each bundle read once: Wrangler's is about 15 MB.
+    const cliText = readFileSync(cli, "utf8");
+    for (const [bundle, text] of [
+      [cli, cliText],
+      [miniflare, readFileSync(miniflare, "utf8")],
+    ] as const) {
       expect({
         [bundle]: text.includes("/mime@4.0.7/node_modules/mime/dist/src/index.js"),
       }).toEqual({ [bundle]: true });
@@ -214,9 +303,7 @@ describe("the wrangler cire/invites deploys with", () => {
       );
       expect(text).toContain("contentType = `${contentType}; charset=utf-8`;");
     }
-    expect(readFileSync(cli, "utf8")).toContain(
-      'type: getContentType(absFilePath) ?? "application/null"',
-    );
+    expect(cliText).toContain('type: getContentType(absFilePath) ?? "application/null"');
     // The mime this file compares with is the one those bundles carry.
     const own = JSON.parse(
       readFileSync(

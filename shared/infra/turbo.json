@@ -6,9 +6,9 @@
     // project (vitest.config.ts) also reads the Worker sources, the lockfile
     // (which pins the wrangler and alchemy it reads), the root turbo.json,
     // the cire packages' own turbo.json, the workflows, the stack
-    // declarations and the asset sites' public directories, so only it reruns
-    // when one of those changes. tests/package.test.ts holds the last two to
-    // the sites the tests read.
+    // declarations and the asset sites' public directories (their `_headers`
+    // included), so only it reruns when one of those changes.
+    // tests/package.test.ts holds the last two to the sites the tests read.
     "test": {
       "dependsOn": ["^build", "test:repo"]
     },
