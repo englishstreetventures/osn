@@ -292,6 +292,30 @@ describe("one shape and one pace across cire", () => {
     });
   });
 
+  /**
+   * The rules that draw an unchecked native checkbox or radio (host DESIGN.md
+   * §4, "Checkboxes and radios"), comments dropped and whitespace collapsed, so
+   * a copy that drifts in one app is caught here rather than on a screen.
+   */
+  function uncheckedBox(css: string): string[] {
+    const bare = css.replace(/\/\*[\s\S]*?\*\//g, "");
+    return [...bare.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .filter(([, selector]) => selector!.includes(":not(:checked"))
+      .map(([, selector, body]) => `${selector!.trim()} { ${body!.trim()} }`.replace(/\s+/g, " "));
+  }
+
+  it("every cire surface draws an unchecked checkbox and radio alike", () => {
+    const rules = mapSurfaces(uncheckedBox);
+    // A parse that found nothing would make every copy agree with it.
+    expect(rules.host).toHaveLength(4);
+    expect(rules).toEqual({
+      host: rules.host,
+      vendor: rules.host,
+      invites: rules.host,
+      landing: rules.host,
+    });
+  });
+
   function mapSurfaces<R>(read: (css: string) => R): Record<keyof typeof SURFACES, R> {
     return {
       host: read(SURFACES.host),

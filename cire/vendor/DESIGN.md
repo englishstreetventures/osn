@@ -34,7 +34,9 @@ and the marketing site — to one corner scale and one motion ladder. It reads
 each app's `src/styles/global.css` and fails if a corner role (`control` 999px,
 `field` 14px, `lg` 16px, `md` 10px, `sm` 6px, `hair` 2px, `pill` 999px), a
 `--radius-*` step, `--toast-radius` (10px wherever `@shared/toast` loads) or a
-line of the `--dur-*` ladder, its `pointer: fine` block or the easings differs.
+line of the `--dur-*` ladder, its `pointer: fine` block or the easings differs,
+or if the base-layer rules that draw an unchecked native checkbox or radio
+(host §4, Checkboxes and radios) differ in any app.
 The one gap is by design: this portal renders no `Modal`, so it sets no
 `--ui-modal-*` timing. `turbo.json` names the other three stylesheets as the
 test task's inputs, so a change to any of them re-runs this suite rather than
