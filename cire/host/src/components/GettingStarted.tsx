@@ -266,7 +266,9 @@ export default function GettingStarted(props: {
                     type="button"
                     onClick={() => props.onJump(step.tab)}
                     data-complete={step.complete ? "true" : "false"}
-                    class="group flex w-full items-start text-left"
+                    // A step's line wraps inside its tile and starts at its left
+                    // edge: `Button` holds a label to one centred line.
+                    class="group flex w-full items-start justify-start text-left whitespace-normal"
                   >
                     <StepMarker n={i() + 1} complete={step.complete} />
                     <span class="flex flex-col gap-0.5">
