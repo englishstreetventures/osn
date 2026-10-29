@@ -144,7 +144,14 @@ The tool comes from the `ts-lsp@osn-local` plugin in `tools/claude-ts-lsp`, whic
 
 A procedure an agent follows lives in `.claude/skills/<name>/SKILL.md` and nowhere else. Claude Code invokes a skill as `/<name>`, so a wrapper in `.claude/commands/` only splits the procedure across two files that drift.
 
-Skills are measurable. `.claude/` is a Tessl plugin (`.tessl-plugin/plugin.json`), and each scenario under `.claude/evals/<scenario>/` runs an agent with and without the skill and scores the gap. A scenario pins a real commit and builds its branch in `setup.sh`; that commit ships whatever `.claude/` held then, so `setup.sh` deletes it — `exclude` in `scenario.json` does not. Every merged fix pull request is a free labelled scenario: pin its parent SHA, one checklist item per finding it fixed. Nothing in CI runs the evals or `tessl review run quality`; a person runs them by hand, from `scripts/skill-evals.ts` and the `tessl` CLI. Full guide: `.claude/evals/README.md`.
+Skills are measurable. `.claude/.claude-plugin/plugin.json` makes `.claude/` a Claude Code plugin, and `claude plugin eval .claude` runs each case under `.claude/evals/<case>/` with the plugin loaded and without it, and scores the gap. A case's name starts with the skill it measures. Its `setup.sh` shallow-fetches a commit on `main`'s history, removes that checkout's own `.claude/` and `.agents/` so the no-plugin arm cannot read the skills, and builds the branch under test. Every merged fix pull request is a free labelled case: pin its parent commit, one grader per finding it fixed. `scripts/tests/eval-cases.test.ts` checks every case's shape on each pull request, since `claude plugin validate` does not read the cases. Full guide: `.claude/evals/README.md`.
+
+Running the cases is rationed:
+
+- **A run bills the owner's Claude plan.** Every case runs three times with the plugin and three times without by default, and every `llm` grader adds a judge call.
+- **Run only the cases of the one skill that changed**, with `--case '<skill>-*'` and the grants `.claude/evals/README.md` lists for those cases.
+- **Ask the owner before any run**, and only once they confirm the skill's changes are complete. An agent never starts a run on its own.
+- **Never run the whole suite.** Nothing in CI runs it either.
 
 ## Third-party skills
 
@@ -167,7 +174,7 @@ To move a pin, read the upstream change first — `git diff <old-sha>..<new-sha>
 
 `scripts/check-skills-lock.ts` recomputes the CLI's folder hash and fails when a lock entry is not pinned to a full SHA, a folder no longer matches its hash, or a folder under `.agents/skills/` has no entry. The CLI never checks the hash after writing it; this runs on every pull request, through `bun run test:scripts`. It cannot tell whether the tree matches upstream at `ref` — that needs the network, and is what reading the diff is for.
 
-Nothing of ours writes into it. `oxlintrc.json` ignores both `.agents` and the symlink path (it follows the link and would report each file twice), the two lefthook pre-commit commands that lint and format exclude `.agents/**` (the secret scan reads every staged file), and `scripts/skill-evals.ts` skips a symlinked skill. A fix made in someone else's file fails `check-skills-lock`, and the next install throws it away: it goes upstream and comes back as a new pin.
+Nothing of ours writes into it. `oxlintrc.json` ignores both `.agents` and the symlink path (it follows the link and would report each file twice), and the two lefthook pre-commit commands that lint and format exclude `.agents/**` (the secret scan reads every staged file). A fix made in someone else's file fails `check-skills-lock`, and the next install throws it away: it goes upstream and comes back as a new pin.
 
 ## Vendored lint plugin
 

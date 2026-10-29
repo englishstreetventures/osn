@@ -6,51 +6,34 @@
 # `.pr/issue-9131.json`.
 #
 # What the preparation should conclude, and what belongs where in the body, is
-# in `criteria.json` and is not repeated here: this script runs inside the
-# checkout the agent then works in.
+# in `graders/` and is not repeated here.
 set -euo pipefail
 
-# Refuse to run anywhere but a checkout of this repository. Everything below is
-# a relative `rm -rf` or a `git add -A`, and `.claude/projects` is where Claude
-# Code keeps its session transcripts.
-[ -f CLAUDE.md ] && [ -d .claude/skills ] && [ -f shared/email/src/templates/rsvp-digest.ts ] || {
-  echo "setup.sh: not in an osn checkout — refusing to delete anything" >&2
-  exit 1
-}
-
-# Refuse a linked worktree, or a checkout whose git directory sits outside it:
-# the steps below write git config and rewrite history, which there would land
-# in a repository other worktrees share. Run it by hand only in a scratch copy.
-if [ -e .git ] && [ ! -d .git ]; then
-  echo "setup.sh: .git is not a directory (a linked worktree?) — refusing" >&2
+# `claude plugin eval --scaffold` runs this in a fresh, empty workspace. Refuse
+# anywhere else: every step below rewrites the repository it finds.
+if [ -n "$(ls -A)" ]; then
+  echo "setup.sh: the workspace is not empty; run only under claude plugin eval --scaffold" >&2
   exit 1
 fi
-if [ -d .git ]; then
-  common=$(cd "$(git rev-parse --git-common-dir)" && pwd -P)
-  case "$common" in
-    "$(pwd -P)"/*) ;;
-    *) echo "setup.sh: git directory is outside this checkout — refusing" >&2; exit 1 ;;
-  esac
-fi
 
-# The fixture repo may carry `.claude/commands/*.md` copies of skills, and
-# ships its eval rubrics; `exclude` in scenario.json does not strip either.
-# The plugin variant supplies `.claude/skills/`, which nothing here touches.
-rm -rf .claude/commands .claude/projects .claude/evals .claude/tessl.json
-
-# A commit fixture may install the tree without its `.git`. Normalise that, and
-# fold any install-time drift into history BEFORE branching, so it lands on the
-# base and never appears in the branch under review.
-[ -d .git ] || git init -q
+# The pinned commit, shallow, so the fetch fits the scaffold's time limit.
+git init -q
+git fetch -q --depth 1 https://github.com/englishstreetventures/osn.git 44cdfba00cd0844ca00b4d9a7268fa93259c958d
+git checkout -q FETCH_HEAD
 git config user.email "eval@example.invalid"
-git config user.name "Tessl Eval"
+git config user.name "Claude Eval"
+git config commit.gpgsign false
+git config tag.gpgsign false
 
-# Harness symlinks under `.claude/` and `.agents/` exist in one variant only,
-# and `.pr/` is fixture material. None of them is the agent's work, so none may
-# show as a working-tree change.
+# The checkout's own skills and agents would hand the no-plugin arm the
+# instructions under test. The plugin supplies them to the other arm.
+rm -rf .claude .agents
+
+# `.pr/` is fixture material, not the agent's work.
 mkdir -p .git/info
-printf '.claude/\n.agents/\n.pr/\n' >> .git/info/exclude
+printf '.pr/\n' >> .git/info/exclude
 
+# Commit the removal on the base, so no branch cut below shows it in its diff.
 git add -A
 git diff --cached --quiet || git commit -qm "fixture: install state"
 git checkout -q -B main

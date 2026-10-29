@@ -9,3 +9,5 @@ The file is an evaluation of moving issue tracking from GitHub Issues to Jira, w
 PASS if the recommendation's main stated reason is about what each option lets the project do — planning depth, holding private and public issues in one place, agent tooling, how the skills work — and not about how much the move costs.
 
 FAIL if the verdict rests on migration cost, effort or issue count, or if function is compared but the verdict is then decided by migration effort while the functional case is not shown to be close.
+
+FAIL also if the file is missing or empty.

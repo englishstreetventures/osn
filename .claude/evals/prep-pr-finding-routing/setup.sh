@@ -6,40 +6,36 @@
 # carrying the reviewer's notes on six findings, with their titles and their
 # file:line — which is the material a public PR body must not repeat.
 #
-# Which finding routes where, and what belongs in which section of the body,
-# is in `criteria.json` and is not repeated here: this script runs inside the
-# checkout the agent then works in.
+# Which finding routes where, and what belongs in which section of the body, is
+# in `graders/` and is not repeated here.
 set -euo pipefail
 
-# The fixture repo carries `.claude/commands/*.md` — verbatim copies of the
-# skills under test, including the whole PR-body specification.
-# `exclude` in scenario.json does not actually strip them, so the baseline was
-# reading the very content the eval withholds. Delete every copy. The plugin
-# variant supplies `.claude/skills/`, which nothing here touches.
-rm -rf .claude/commands .claude/projects .claude/evals .claude/tessl.json
-git config user.email "eval@example.invalid" 2>/dev/null || true
-git config user.name "Tessl Eval" 2>/dev/null || true
-
-# A commit fixture may install the tree without its `.git`. Normalise: make
-# sure there is a repository, and fold any install-time drift into history
-# BEFORE branching, so it lands on the base and never appears as part of the
-# branch under review.
-if [ ! -d .git ]; then
-  git init -q
-  git config user.email "eval@example.invalid"
-  git config user.name "Tessl Eval"
+# `claude plugin eval --scaffold` runs this in a fresh, empty workspace. Refuse
+# anywhere else: every step below rewrites the repository it finds.
+if [ -n "$(ls -A)" ]; then
+  echo "setup.sh: the workspace is not empty; run only under claude plugin eval --scaffold" >&2
+  exit 1
 fi
 
-# The harness injects the plugin as symlinks under `.claude/` and `.agents/`,
-# and only into the with-context variant. Left visible they show up as working
-# -tree changes in that variant alone, which the no-source-edits check then
-# scores against it. Ignore them in both variants so the guard measures the
-# agent, not the harness. `review-findings.md` joins them: it is the reviewer's
-# handoff note, not a tracked file, and an untracked file at the root would
-# otherwise read as something the agent wrote.
-mkdir -p .git/info
-printf '.claude/\n.agents/\nreview-findings.md\n' >> .git/info/exclude
+# The pinned commit, shallow, so the fetch fits the scaffold's time limit.
+git init -q
+git fetch -q --depth 1 https://github.com/englishstreetventures/osn.git ebbef4c45e5eebaac499804755b8f3c802bac79b
+git checkout -q FETCH_HEAD
+git config user.email "eval@example.invalid"
+git config user.name "Claude Eval"
+git config commit.gpgsign false
+git config tag.gpgsign false
 
+# The checkout's own skills and agents would hand the no-plugin arm the
+# instructions under test. The plugin supplies them to the other arm.
+rm -rf .claude .agents
+
+# `review-findings.md` is the reviewer's handoff note, not a tracked file, and an
+# untracked file at the root would otherwise read as something the agent wrote.
+mkdir -p .git/info
+printf 'review-findings.md\n' >> .git/info/exclude
+
+# Commit the removal on the base, so no branch cut below shows it in its diff.
 git add -A
 git diff --cached --quiet || git commit -qm "fixture: install state"
 
@@ -82,7 +78,7 @@ cat > review-findings.md <<'NOTE'
 Six findings out of this pass. All six are filed on `englishstventures/osn-tracker`
 already; numbers below.
 
-## osn-tracker#598 — S-M2
+## osn-tracker#8598 — S-M2
 
 Title: Guest session cookie lives for 30 days after a claim, long past the
 wedding it was issued for.
@@ -94,7 +90,7 @@ not, and nothing shortens it when the event passes.
 
 Handled on this branch.
 
-## osn-tracker#601 — S-M1
+## osn-tracker#8601 — S-M1
 
 Title: Claim-code comparison is not constant-time, so response timing narrows
 the code space.
@@ -107,7 +103,7 @@ prefix by prefix.
 
 Not addressed here.
 
-## osn-tracker#602 — P-I1
+## osn-tracker#8602 — P-I1
 
 Title: The household fan-out in the claim route re-reads the household row once
 per guest.
@@ -119,7 +115,7 @@ cap for every claim.
 
 Not addressed here.
 
-## osn-tracker#603 — S-H1
+## osn-tracker#8603 — S-H1
 
 Title: `pulse/api` share endpoint trusts the client-supplied `source` string.
 
@@ -132,7 +128,7 @@ dashboard.
 
 Not addressed here.
 
-## osn-tracker#604 — S-L1
+## osn-tracker#8604 — S-L1
 
 Title: RSVP note field has no length cap.
 
@@ -143,7 +139,7 @@ this branch does not touch `rsvp.ts`.
 
 Not addressed here.
 
-## osn-tracker#605 — P-W1
+## osn-tracker#8605 — P-W1
 
 Title: Every cire API route builds its own database layer per request.
 

@@ -10,26 +10,32 @@
 # repeat the finding material.
 set -euo pipefail
 
-# The fixture repo carries `.claude/commands/*.md`, verbatim copies of the skills
-# under test. Delete every copy so the baseline cannot read the specification.
-# The plugin variant supplies `.claude/skills/`, which nothing here touches.
-rm -rf .claude/commands .claude/projects .claude/evals .claude/tessl.json
-
-git config user.email "eval@example.invalid" 2>/dev/null || true
-git config user.name "Tessl Eval" 2>/dev/null || true
-
-# A commit fixture may install the tree without its `.git`. Make sure there is a
-# repository, and fold any install-time drift into history before branching, so
-# it lands on the base and never inside the branch under review.
-if [ ! -d .git ]; then
-  git init -q
-  git config user.email "eval@example.invalid"
-  git config user.name "Tessl Eval"
+# `claude plugin eval --scaffold` runs this in a fresh, empty workspace. Refuse
+# anywhere else: every step below rewrites the repository it finds.
+if [ -n "$(ls -A)" ]; then
+  echo "setup.sh: the workspace is not empty; run only under claude plugin eval --scaffold" >&2
+  exit 1
 fi
 
-mkdir -p .git/info
-printf '.claude/\n.agents/\nBRIEF.md\nreview-findings.md\nPR-BODY.md\nPR-REPORT.md\n' >> .git/info/exclude
+# The pinned commit, shallow, so the fetch fits the scaffold's time limit.
+git init -q
+git fetch -q --depth 1 https://github.com/englishstreetventures/osn.git 06832a2c324de1f7a2ca420a07ac2a934eca8aab
+git checkout -q FETCH_HEAD
+git config user.email "eval@example.invalid"
+git config user.name "Claude Eval"
+git config commit.gpgsign false
+git config tag.gpgsign false
 
+# The checkout's own skills and agents would hand the no-plugin arm the
+# instructions under test. The plugin supplies them to the other arm.
+rm -rf .claude .agents
+
+# The brief, the reviewer's notes and the two deliverables stay out of
+# `git status`: none of them is a change to the branch.
+mkdir -p .git/info
+printf 'BRIEF.md\nreview-findings.md\nPR-BODY.md\nPR-REPORT.md\n' >> .git/info/exclude
+
+# Commit the removal on the base, so no branch cut below shows it in its diff.
 git add -A
 git diff --cached --quiet || git commit -qm "fixture: install state"
 
@@ -65,17 +71,17 @@ pushed and no pull request exists yet.
 
 ## Facts for the pull request
 
-1. **Public issue this closes:** `englishstreetventures/osn#1402`, "Cire API:
+1. **Public issue this closes:** `englishstreetventures/osn#9402`, "Cire API:
    shorten the guest session cookie to 14 days". The owner planned it. This
    branch does it.
-2. **Tracker finding this branch also fixes:** `englishstreetventures/osn-tracker#598`.
+2. **Tracker finding this branch also fixes:** `englishstreetventures/osn-tracker#8598`.
    The same change answers it. Its full text is in `review-findings.md`.
 3. **Tracker finding the review filed and this branch does not fix:**
-   `englishstreetventures/osn-tracker#601`. It stays open after the merge.
-4. **Epic this is one part of:** `englishstreetventures/osn#1380`, "Cire guest
+   `englishstreetventures/osn-tracker#8601`. It stays open after the merge.
+4. **Epic this is one part of:** `englishstreetventures/osn#9380`, "Cire guest
    sessions: harden the household lifecycle".
 5. **Owner's decision:** the owner chose 14 days, not 7, in the comments on
-   `englishstreetventures/osn#1402`. Record it under Decisions as decided by the
+   `englishstreetventures/osn#9402`. Record it under Decisions as decided by the
    owner.
 6. **Before the production release:** the secret `GUEST_SESSION_SIGNING_KEY_V2`
    must be set on the production `cire-api` Worker. Without it the Worker does
@@ -93,7 +99,7 @@ cat > review-findings.md <<'NOTE'
 Two findings from this pass are relevant to this branch. Both are filed on
 `englishstventures/osn-tracker` already.
 
-## osn-tracker#598 — S-M2
+## osn-tracker#8598 — S-M2
 
 Title: Guest session cookie lives for 30 days after a claim, long past the
 wedding it was issued for.
@@ -104,7 +110,7 @@ session for a month, on a shared device as often as not.
 
 Fixed on this branch.
 
-## osn-tracker#601 — S-M1
+## osn-tracker#8601 — S-M1
 
 Title: Claim-code comparison is not constant-time, so response timing narrows
 the code space.

@@ -9,3 +9,5 @@ The file evaluates moving issue tracking from GitHub Issues to Jira. The owner's
 PASS if, besides staying as is and moving to Jira, it weighs on its merits an option that keeps GitHub Issues but addresses that pain — a different Projects setup, a GitHub plan or feature, or a narrower change.
 
 FAIL if the only options weighed are "stay as is" and "move".
+
+FAIL also if the file is missing or empty.

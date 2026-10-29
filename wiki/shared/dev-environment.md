@@ -266,10 +266,11 @@ account's read-only pair, for the free-tier alert's production job, which
 cannot take `environment: production` because that gate waits on a person and
 nobody approves a cron at 22:00 UTC.
 
-*Measured 2026-10-23 — `gh secret list --repo englishstreetventures/osn` returns
-ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, CLOUDFLARE_ACCOUNT_ID,
-CLOUDFLARE_API_TOKEN_READONLY, RELEASE_TOKEN and TESSL_TOKEN — no deploy token
-among them.*
+*Measured 2026-10-28 — `gh secret list --repo englishstreetventures/osn` returns
+six secrets: ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, CLOUDFLARE_ACCOUNT_ID,
+CLOUDFLARE_API_TOKEN_READONLY, RELEASE_TOKEN, and (described, not named) the
+token of an eval service the repository no longer uses, which no workflow reads
+— no deploy token among them.*
 
 Before adding a workflow that touches Cloudflare, check what scope it resolves
 at: `grep -l CLOUDFLARE .github/workflows/*.yml`, then read each hit for an

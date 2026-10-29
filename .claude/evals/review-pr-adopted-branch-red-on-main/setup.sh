@@ -5,40 +5,34 @@
 # and its test to `shared/color`.
 #
 # What the review should find, and what counts as a correct response to each
-# red check, is in `criteria.json` and is deliberately not repeated here: this
-# script runs inside the checkout the agent then works in.
+# red check, is in `graders/` and is deliberately not repeated here.
 set -euo pipefail
 
-# Refuse to run anywhere but a checkout of this repository. Everything below is
-# a relative `rm -rf` or a `git add -A`, and `.claude/projects` is where Claude
-# Code keeps its session transcripts. The harness does `cd` to `installPath`
-# first, but that is an assumption about someone else's runner.
-[ -f CLAUDE.md ] && [ -d .claude/skills ] && [ -d shared/color ] || {
-  echo "setup.sh: not in an osn checkout — refusing to delete anything" >&2
+# `claude plugin eval --scaffold` runs this in a fresh, empty workspace. Refuse
+# anywhere else: every step below rewrites the repository it finds.
+if [ -n "$(ls -A)" ]; then
+  echo "setup.sh: the workspace is not empty; run only under claude plugin eval --scaffold" >&2
   exit 1
-}
-
-# The fixture repo may carry `.claude/commands/*.md` copies of skills, and
-# ships its eval rubrics; `exclude` in scenario.json does not strip either.
-# The plugin variant supplies `.claude/skills/`, which nothing here touches.
-rm -rf .claude/commands .claude/projects .claude/evals .claude/tessl.json
-git config user.email "eval@example.invalid" 2>/dev/null || true
-git config user.name "Tessl Eval" 2>/dev/null || true
-
-# A commit fixture may install the tree without its `.git`. Normalise that, and
-# fold any install-time drift into history so it never reads as the agent's.
-if [ ! -d .git ]; then
-  git init -q
-  git config user.email "eval@example.invalid"
-  git config user.name "Tessl Eval"
 fi
 
-# Harness symlinks under `.claude/` and `.agents/` exist in one variant only;
-# `.pr/` and `.worktrees/` are fixture material. None of them is the agent's
-# work, so none may show as a working-tree change.
-mkdir -p .git/info
-printf '.claude/\n.agents/\n.pr/\n.worktrees/\n' >> .git/info/exclude
+# The pinned commit, shallow, so the fetch fits the scaffold's time limit.
+git init -q
+git fetch -q --depth 1 https://github.com/englishstreetventures/osn.git f5bb0a18a5964da2a7b4652a101e53537644857e
+git checkout -q FETCH_HEAD
+git config user.email "eval@example.invalid"
+git config user.name "Claude Eval"
+git config commit.gpgsign false
+git config tag.gpgsign false
 
+# The checkout's own skills and agents would hand the no-plugin arm the
+# instructions under test. The plugin supplies them to the other arm.
+rm -rf .claude .agents
+
+# `.pr/` and `.worktrees/` are fixture material, not the agent's work.
+mkdir -p .git/info
+printf '.pr/\n.worktrees/\n' >> .git/info/exclude
+
+# Commit the removal on the base, so no branch cut below shows it in its diff.
 git add -A
 git diff --cached --quiet || git commit -qm "fixture: install state"
 git checkout -q -B main
@@ -90,7 +84,7 @@ mkdir -p .pr/logs
 
 cat > .pr/pr.json <<JSON
 {
-  "number": 1631,
+  "number": 9631,
   "title": "feat(shared-color): add readableOn helper",
   "state": "OPEN",
   "isDraft": false,
@@ -100,7 +94,7 @@ cat > .pr/pr.json <<JSON
   "headRepository": { "name": "osn" },
   "headRepositoryOwner": { "login": "englishstreetventures" },
   "mergeStateStatus": "BLOCKED",
-  "body": "## Summary\nAdds \`readableOn()\` to \`@shared/color\` so callers can pick black or white text for any background.\n\n## Changes\n- \`shared/color/src/color.ts\`: new \`readableOn\` helper\n- \`shared/color/tests/color.test.ts\`: unit test\n\n## Testing\n- ✅ \`bun run lint\` passes\n- ✅ \`bun run test\` — all tests green\n- ✅ Security and performance review: no findings\n\nFixes #1630\n"
+  "body": "## Summary\nAdds \`readableOn()\` to \`@shared/color\` so callers can pick black or white text for any background.\n\n## Changes\n- \`shared/color/src/color.ts\`: new \`readableOn\` helper\n- \`shared/color/tests/color.test.ts\`: unit test\n\n## Testing\n- ✅ \`bun run lint\` passes\n- ✅ \`bun run test\` — all tests green\n- ✅ Security and performance review: no findings\n\nFixes #9630\n"
 }
 JSON
 

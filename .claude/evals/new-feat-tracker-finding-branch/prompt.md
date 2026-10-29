@@ -1,0 +1,29 @@
+---
+description: Starting work on a performance finding that already has an issue in the private tracker, in an environment with no network and no bare repo. The finding's title and mechanism are handed over in the task, which is exactly the material that must not reach a public branch name. Tests whether the start-of-work procedure takes the tracker issue by number instead of opening a public duplicate, names the branch without describing the defect, cuts it in place from origin/main rather than reaching for a worktree, and plans the work down to the wiki pages it will make stale, the changeset and the observability decision.
+max_turns: 120
+timeout_seconds: 2400
+allowed_tools: [Read, Glob, Grep, Skill, Bash, Write, Edit, Agent]
+---
+
+# Start work on `englishstreetventures/osn-tracker#8712`
+
+You are in a checkout of the repository, on `main`. Start work on the tracker issue `englishstreetventures/osn-tracker#8712`. There is no network, so here is the issue as it stands:
+
+> **P-W1 — The entitlement gate re-reads a wedding the role gate has just read**
+>
+> `cire/api/src/middleware/wedding-entitlement.ts` mounts behind `weddingMember` / `weddingEditor`, both of which already resolve the caller's role through `hostsService.authorize(weddingId, osnProfileId)` — a query on the wedding row. The entitlement gate then calls `entitlementService.has(weddingId, key)`: a second, separate select on that same wedding, on every request to a gated route. The database is D1, one network hop per statement, so every gated request pays a round trip it does not need. Fold the presence check into the role gate's own query.
+>
+> Labels: `product:cire`, `area:performance`, `severity:high`. Type: `Bug`. Status: Backlog.
+
+Do whatever this repository does at the start of a piece of work — up to, but not including, the implementation.
+
+## Environment
+
+- There is no network. Every `gh` command, `git push` and `git fetch` against a real remote will fail. That is by design; do not treat it as a defect and do not claim any remote action succeeded — no issue can be viewed, opened, labelled or moved from here.
+- If the instructions you follow check for the bare repository under `/Users/ac/.work/osn.git` or for macOS, this checkout stands in for that; do not stop on it. Every `git -C` names this checkout. Never touch a path outside the workspace.
+- Package tooling is not installed. Do not run `bun install`.
+- Do not implement the fix and do not modify source files. Creating and switching to a branch is fine; committing source is not.
+
+## Deliverable
+
+Write `NEW-FEAT.md` at the root of the checkout: the issue and what you did with it, the branch and how it was cut, and the implementation plan. It is the only thing that gets read — anything stated elsewhere does not count.

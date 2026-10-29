@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: review-tests-pulse-account-cookie-credential
+context:
+  scaffold_script: setup.sh

@@ -26,6 +26,8 @@ git fetch -q --depth 1 https://github.com/englishstreetventures/osn.git 7eb6c184
 git checkout -q FETCH_HEAD
 git config user.email "eval@example.invalid"
 git config user.name "Claude Eval"
+git config commit.gpgsign false
+git config tag.gpgsign false
 
 # The checkout's own skills and agents would hand the no-plugin arm the
 # instructions under test. The plugin supplies them to the other arm.

@@ -9,3 +9,5 @@ The file evaluates moving issue tracking from GitHub Issues to Jira. The facts s
 PASS if it addresses a one-to-three-year horizon, states that the cost of switching grows with time, and draws the consequence: move sooner if the move is right, or explain why the growth does not change the answer.
 
 FAIL if it treats today's migration cost as fixed, or mentions the horizon without the growth point.
+
+FAIL also if the file is missing or empty.

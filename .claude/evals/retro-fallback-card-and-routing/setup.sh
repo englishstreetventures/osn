@@ -9,57 +9,38 @@
 # notices the card is not the identity-bearing one and reads the rating off
 # the issue instead.
 #
-# Which finding routes where is in `criteria.json` and is not repeated here:
-# this script runs inside the checkout the agent then works in.
+# Which finding routes where is in `graders/` and is not repeated here.
 set -euo pipefail
 
-# Refuse to run anywhere but a checkout of this repository. Everything below is
-# a relative `rm -rf`, and `.claude/projects` is where Claude Code keeps its
-# session transcripts — a card never written is gone for good. The harness does
-# `cd` to `installPath` before running this, but that is an assumption about
-# someone else's runner, and an assumption guarded by nothing is how a delete
-# lands in a home directory.
-[ -f CLAUDE.md ] && [ -d .claude/skills ] && [ -d tools/pr-metrics ] || {
-  echo "setup.sh: not in an osn checkout — refusing to delete anything" >&2
+# `claude plugin eval --scaffold` runs this in a fresh, empty workspace. Refuse
+# anywhere else: every step below rewrites the repository it finds.
+if [ -n "$(ls -A)" ]; then
+  echo "setup.sh: the workspace is not empty; run only under claude plugin eval --scaffold" >&2
   exit 1
-}
-
-# The fixture ships the repository's own agent instructions. `.claude/commands`
-# holds verbatim copies of skills, which would hand the baseline the content
-# the eval withholds; `exclude` in scenario.json does not strip them.
-rm -rf .claude/commands .claude/projects .claude/evals .claude/tessl.json
-
-# `analyse-sessions` carries the same card-reading traps this scenario scores —
-# the declared-complexity rule and the unobserved-edit rule both appear in it
-# verbatim — so leaving it in place is the `.claude/commands` leak by another
-# route. Remove it only when it is a real directory: the harness injects the
-# skill under test into `.claude/skills/` as a symlink in the with-context
-# variant, and a delete that walked through one would destroy the very thing
-# being measured.
-if [ -d .claude/skills/analyse-sessions ] && [ ! -L .claude/skills/analyse-sessions ]; then
-  rm -rf .claude/skills/analyse-sessions
 fi
 
-git config user.email "eval@example.invalid" 2>/dev/null || true
-git config user.name "Tessl Eval" 2>/dev/null || true
+# The pinned commit, shallow, so the fetch fits the scaffold's time limit.
+git init -q
+git fetch -q --depth 1 https://github.com/englishstreetventures/osn.git 9ecd88aa82752e22e95162617fad8cfaead976d3
+git checkout -q FETCH_HEAD
+git config user.email "eval@example.invalid"
+git config user.name "Claude Eval"
+git config commit.gpgsign false
+git config tag.gpgsign false
 
-# A commit fixture may install the tree without its `.git`. Normalise, and fold
-# any install-time drift into history BEFORE branching so it lands on the base
-# and never appears in the branch under review.
-if [ ! -d .git ]; then
-  git init -q
-  git config user.email "eval@example.invalid"
-  git config user.name "Tessl Eval"
-fi
+# The checkout's own skills and agents would hand the no-plugin arm the
+# instructions under test. The plugin supplies them to the other arm.
+# `.claude/metrics/` stays: its committed session-metrics cards are part of
+# what this case plants.
+find .claude -mindepth 1 -maxdepth 1 ! -name metrics -exec rm -rf {} +
+rm -rf .agents
 
-# The harness injects the plugin as symlinks under `.claude/` and `.agents/`,
-# and only into the with-context variant. Left visible they read as working-tree
-# changes in that variant alone, which the no-source-edits check then scores
-# against it. `ISSUE.md` joins them: it is the issue handed to the session, not
-# a tracked file.
+# `ISSUE.md` is the issue handed to the session, not a tracked file. The card
+# written below, after the last commit, stays out of `git status` too.
 mkdir -p .git/info
-printf '.claude/\n.agents/\nISSUE.md\n' >> .git/info/exclude
+printf 'ISSUE.md\n.claude/metrics/feat-cire-host-registry-filters.json\n' >> .git/info/exclude
 
+# Commit the removal on the base, so no branch cut below shows it in its diff.
 git add -A
 git diff --cached --quiet || git commit -qm "fixture: install state"
 
@@ -286,7 +267,7 @@ CARD
 # The issue the work was taken from. Untracked: it is the brief handed to the
 # session, not repository content — and it is where the rating actually lives.
 cat > ISSUE.md <<'ISSUE'
-# englishstreetventures/osn#1041 — Filter the organiser registry list by claim state
+# englishstreetventures/osn#9041 — Filter the organiser registry list by claim state
 
 **Type** Feature
 **Labels** `product:cire`, `complexity:1`

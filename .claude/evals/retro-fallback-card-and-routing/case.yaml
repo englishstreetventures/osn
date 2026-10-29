@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: retro-fallback-card-and-routing
+context:
+  scaffold_script: setup.sh

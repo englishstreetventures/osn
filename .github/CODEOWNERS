@@ -53,7 +53,7 @@ wrangler.jsonc       @chav-aniket
 # owner is for.
 /tools/oxlint/**     @chav-aniket
 
-# Agent instructions — slash-commands, skills, settings, eval scenarios. A file
+# Agent instructions — slash-commands, skills, settings, eval cases. A file
 # here changes what an agent is told to do in this repo, and an agent runs with
 # full permissions, so it gets a human owner.
 #
