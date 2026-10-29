@@ -321,19 +321,22 @@ function DemoRsvpModal(props: DemoRsvpModalProps) {
             }}
           </For>
 
-          <Show when={error()}>
-            <Notice size="inline" tone="danger" alert class="my-1">
-              {error()}
-            </Notice>
-          </Show>
-
-          <div class="border-border bg-surface sticky bottom-0 -mx-6 -mb-[max(2.5rem,env(safe-area-inset-bottom))] flex gap-3 border-t px-6 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:-mb-10 md:pb-4">
-            <Button variant="quiet" class="flex-1" onClick={() => props.onClose()}>
-              Cancel
-            </Button>
-            <Button type="submit" variant="cta" class="flex-1">
-              Send RSVP
-            </Button>
+          {/* The error line rides in the sticky bar, over the buttons it is
+              about: a line before the bar would sit under it on a short sheet. */}
+          <div class="border-border bg-surface sticky bottom-0 -mx-6 -mb-[max(2.5rem,env(safe-area-inset-bottom))] flex flex-col gap-3 border-t px-6 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:-mb-10 md:pb-4">
+            <Show when={error()}>
+              <Notice size="inline" tone="danger" alert>
+                {error()}
+              </Notice>
+            </Show>
+            <div class="flex gap-3">
+              <Button variant="quiet" class="flex-1" onClick={() => props.onClose()}>
+                Cancel
+              </Button>
+              <Button type="submit" variant="cta" class="flex-1">
+                Send RSVP
+              </Button>
+            </div>
           </div>
         </form>
       </Show>
