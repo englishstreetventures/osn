@@ -49,3 +49,15 @@ description = "Documentation example of a curl credential pattern"
 condition = "AND"
 paths = ['''^wiki/shared/production-deploy\.md$''']
 targetRules = ["curl-auth-user"]
+
+[[allowlists]]
+description = "Test fixture with synthetic credential shapes"
+condition = "AND"
+paths = ['''^cire/api/tests/routes/internal-revoke\.test\.ts$''']
+targetRules = ["generic-api-key"]
+
+[[allowlists]]
+description = "Test fixture with synthetic credential shapes"
+condition = "AND"
+paths = ['''^osn/api/tests/routes/cire-organiser-revoke\.test\.ts$''']
+targetRules = ["generic-api-key"]
