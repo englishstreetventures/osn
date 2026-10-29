@@ -1,5 +1,6 @@
 import { GUEST_EMAIL_CONSENT, parseGuestEmail } from "@cire/guest-email";
 import Button from "@cire/ui/button";
+import { Notice } from "@shared/ui/ui/notice";
 import { createSignal, createUniqueId, Show } from "solid-js";
 
 import type { FamilyMember, MemberEmail } from "./types";
@@ -357,9 +358,9 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
         )}
       </Show>
       <Show when={error()}>
-        <p class="text-error text-ui-sm mt-3" role="alert">
+        <Notice size="inline" tone="danger" alert class="mt-3">
           {error()}
-        </p>
+        </Notice>
       </Show>
     </section>
   );

@@ -152,8 +152,9 @@ it("'Not you?' keeps the member and asks again when the server did not clear it"
   const { view, result } = renderPanel(household([member("Chidi"), member("Ada")], "g-Chidi"));
 
   fireEvent.click(view.getByRole("button", { name: "Not you?" }));
+  // The alert reads its tone's word before the message ("Error: …").
   expect((await view.findByRole("alert")).textContent).toBe(
-    "Couldn't sign you out. Please try again.",
+    "Error: Couldn't sign you out. Please try again.",
   );
   expect(view.getByText(/Answering as Chidi/)).toBeTruthy();
   expect(view.queryByText("Who are you?")).toBeNull();
