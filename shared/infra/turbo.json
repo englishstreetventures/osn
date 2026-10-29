@@ -5,8 +5,10 @@
     // The `package` project reads only this package's files; the `repo`
     // project (vitest.config.ts) also reads the Worker sources, the lockfile
     // (which pins the wrangler and alchemy it reads), the root turbo.json,
-    // the cire packages' own turbo.json, the workflows and the asset sites'
-    // public directories, so only it reruns when one of those changes.
+    // the cire packages' own turbo.json, the workflows, the stack
+    // declarations and the asset sites' public directories, so only it reruns
+    // when one of those changes. tests/package.test.ts holds the last two to
+    // the sites the tests read.
     "test": {
       "dependsOn": ["^build", "test:repo"]
     },
@@ -23,6 +25,10 @@
         "$TURBO_ROOT$/turbo.json",
         "$TURBO_ROOT$/cire/*/turbo.json",
         "$TURBO_ROOT$/.github/workflows/**",
+        "$TURBO_ROOT$/cire/infra/src/declaration.ts",
+        "$TURBO_ROOT$/musubi/infra/src/declaration.ts",
+        "$TURBO_ROOT$/pulse/infra/src/declaration.ts",
+        "$TURBO_ROOT$/zap/infra/src/declaration.ts",
         "$TURBO_ROOT$/cire/host/public/**",
         "$TURBO_ROOT$/cire/vendor/public/**",
         "$TURBO_ROOT$/cire/landing/public/**",

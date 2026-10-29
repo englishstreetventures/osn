@@ -11,7 +11,8 @@
  * the patch stops applying to either.
  *
  * It reads outside this package: the public directories of the sites Alchemy
- * uploads, and the wrangler cire/invites deploys with (`READS_REPO`).
+ * uploads, the stack declarations that name them (tests/support/asset-sites.ts),
+ * and the wrangler cire/invites deploys with (`READS_REPO`).
  */
 
 import { createHash } from "node:crypto";
@@ -28,7 +29,15 @@ import type * as Path from "effect/Path";
 import mime from "mime";
 import { describe, expect, test } from "vitest";
 
+import { SITE_BUILDS } from "../src/production-sites";
 import { alchemyDir } from "./support/alchemy-dir";
+import {
+  ASSET_BUILDS,
+  ASSET_SITES,
+  CIRE_DECLARATION,
+  declaredAssetDirectories,
+  STACK_DECLARATIONS,
+} from "./support/asset-sites";
 
 const packageDir = fileURLToPath(new URL("..", import.meta.url));
 const repoRoot = join(packageDir, "..", "..");
@@ -63,17 +72,6 @@ function wranglerType(path: string): string {
   if (type === null) return "application/null";
   return type.startsWith("text/") && !type.includes("charset") ? `${type}; charset=utf-8` : type;
 }
-
-/** The public directory of every asset site Alchemy uploads, on either tier. */
-const PUBLIC_DIRS = [
-  "cire/host/public",
-  "cire/vendor/public",
-  "cire/landing/public",
-  "cire/invites/public",
-  "musubi/social/public",
-  "musubi/landing/public",
-  "pulse/landing/public",
-];
 
 /** The extensions those sites' builds emit beside what their public directories hold. */
 const EMITTED = [
@@ -170,9 +168,13 @@ describe.each(COPIES)("alchemy's $copy copy", ({ path }) => {
   test("AC6: every extension in an Alchemy asset site's public directory, and every one their builds emit, uploads as Wrangler uploads it", async () => {
     const assets = await load(path);
     const extensions = new Set(EMITTED);
-    for (const dir of PUBLIC_DIRS) {
-      const at = join(repoRoot, dir);
-      expect({ [dir]: existsSync(at) }).toEqual({ [dir]: true });
+    expect(ASSET_SITES.length).toBeGreaterThan(Object.keys(SITE_BUILDS).length);
+    for (const { packageDir: site, publicDir } of ASSET_SITES) {
+      expect({ [site]: existsSync(join(repoRoot, site, "package.json")) }).toEqual({
+        [site]: true,
+      });
+      const at = join(repoRoot, publicDir);
+      if (!existsSync(at)) continue;
       for (const file of filesUnder(at)) {
         const extension = extensionOf(file);
         if (extension !== "") extensions.add(extension);
@@ -184,6 +186,15 @@ describe.each(COPIES)("alchemy's $copy copy", ({ path }) => {
         [extension]: wranglerType(name),
       });
     }
+  });
+});
+
+describe("the asset sites AC6 reads", () => {
+  test("AC7: are exactly the asset directories the stack declarations upload", () => {
+    expect(STACK_DECLARATIONS).toContain(CIRE_DECLARATION);
+    const declared = STACK_DECLARATIONS.flatMap(declaredAssetDirectories).toSorted();
+    expect(declared.length).toBeGreaterThan(0);
+    expect(declared).toEqual(ASSET_BUILDS);
   });
 });
 
