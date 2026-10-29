@@ -49,7 +49,7 @@ describe("Notice's props", () => {
     // `aria-hidden` against the props, so those two are held at run time by
     // the browser test "keeps its role and its words in the accessibility tree".
     // @ts-expect-error — the role follows `alert`.
-    void (<Notice role="status">x</Notice>);
+    void (<Notice role="alert">x</Notice>);
     // @ts-expect-error — a notice that should not show is not rendered.
     void (<Notice hidden>x</Notice>);
     expect(true).toBe(true);
