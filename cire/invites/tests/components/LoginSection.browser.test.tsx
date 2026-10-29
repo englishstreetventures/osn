@@ -206,3 +206,39 @@ describe.each(ERROR_LINES)("LoginSection — $name error line keeps the column's
     expect(icon.left - row.left).toBeLessThan(2);
   });
 });
+
+describe("LoginSection — a claim error too long for one line", () => {
+  it("runs from the form's start on the band, its words beside the icon", async () => {
+    await page.viewport(1024, 900);
+    // A 401: "That code doesn't look right. …" wraps in the band's form.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(new Response(null, { status: 401 }))),
+    );
+    const view = render(() => (
+      <LoginSection
+        apiUrl="https://api.test"
+        result={null}
+        onClaimed={() => {}}
+        onSignOut={() => {}}
+        onMemberChange={() => {}}
+        layout="band"
+      />
+    ));
+    await userEvent.fill(view.getByLabelText("Invitation code"), "WRONG-CODE");
+    await userEvent.click(view.getByRole("button", { name: "Open invitation" }));
+    const alert = await view.findByRole("alert");
+    const words = alert.lastElementChild!;
+    const range = document.createRange();
+    range.selectNodeContents(words);
+    const lines = [...range.getClientRects()];
+    const icon = alert.querySelector("svg")!.getBoundingClientRect();
+    const row = alert.parentElement!.getBoundingClientRect();
+    expect(new Set(lines.map((r) => Math.round(r.top))).size).toBeGreaterThan(1);
+    expect(icon.left - row.left).toBeLessThan(2);
+    // The words start beside the icon, and every line starts where the first
+    // does, rather than each centred in the row away from the icon.
+    expect(lines[0]!.left - icon.right).toBeLessThan(12);
+    expect(Math.abs(lines.at(-1)!.left - lines[0]!.left)).toBeLessThan(2);
+  });
+});
