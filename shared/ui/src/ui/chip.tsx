@@ -1,6 +1,4 @@
-import { type JSX, splitProps } from "solid-js";
-
-import type { SafeProps } from "./props";
+import type { JSX } from "solid-js";
 
 /**
  * A small pill that names a state: a listing that is live or a draft, an
@@ -53,11 +51,23 @@ import type { SafeProps } from "./props";
  * on top of a word that already says it. That is why this takes `children` and
  * not just a `tone`: a chip with a tone and no text is a colour nobody can name.
  *
- * ## No `title`
+ * ## Danger is outlined unless asked
  *
- * A badge whose meaning is not obvious sits inside `Tooltip`; a `title` would
- * hand a screen reader the explanation a second time and show nothing on touch.
- * So `title` is not a prop, and one spread onto a chip is dropped.
+ * Filled `danger`'s 10% tint reads 4.01:1 on cire's pale page with its red, and
+ * no wash of that red reaches the 4.5:1 a small word needs, so a `danger` chip
+ * with no `variant` is outlined (4.59:1). The filled one stays for a ground
+ * that measures it.
+ *
+ * ## What reaches the element
+ *
+ * A chip is a label, not a control, and its word is the state. So it takes an
+ * allow-list rather than a span's props: an `id`, `aria-describedby`, `data-*`
+ * attributes, and `role="status"` for a chip whose word changes under the
+ * reader. Nothing else — no handler, no `title` (a badge that needs explaining
+ * sits in `Tooltip`, and a `title` hands a screen reader the explanation
+ * twice), no `aria-hidden`, `hidden` or `aria-label` that would hide or replace
+ * the word, no markup — reaches the `<span>`, whether typed or spread from an
+ * untyped object. A chip that has to be pressed is a `Button`.
  */
 
 export type ChipTone = "neutral" | "success" | "pending" | "accent" | "danger";
@@ -108,37 +118,53 @@ const TONE = {
   },
 } satisfies Readonly<Record<ChipVariant, Readonly<Record<ChipTone, string>>>>;
 
-export type ChipProps = Omit<SafeProps<"span">, "title" | "children"> & {
+export type ChipProps = {
   tone?: ChipTone;
   variant?: ChipVariant;
   treatment?: ChipTreatment;
+  /** Layout only: where the chip sits, never how it looks. */
+  class?: string;
+  id?: string;
+  /** A polite live region, for a chip whose word changes under the reader. */
+  role?: "status";
+  "aria-describedby"?: string;
   children: JSX.Element;
-};
+} & { [attribute: `data-${string}`]: string | boolean | undefined };
 
-/** The attribute `ChipProps` leaves out, which an untyped spread could still carry. */
-interface Withheld {
-  title?: unknown;
+type DataAttribute = `data-${string}`;
+
+/** A `data-*` attribute name: lower-case letters, digits and hyphens. */
+function isDataAttribute(key: string): key is DataAttribute {
+  return /^data-[a-z0-9-]+$/.test(key);
 }
 
 export function Chip(props: ChipProps) {
-  const withheld: ChipProps & Withheld = props;
-  const [own, , rest] = splitProps(
-    withheld,
-    ["tone", "variant", "treatment", "class", "children"],
-    ["title"],
-  );
+  const data = () => {
+    const out: Partial<Record<DataAttribute, string | boolean>> = {};
+    for (const key of Object.keys(props)) {
+      if (!isDataAttribute(key)) continue;
+      const value = props[key];
+      if (typeof value === "string" || typeof value === "boolean") out[key] = value;
+    }
+    return out;
+  };
   const tone = (): ChipTone =>
-    own.tone && Object.hasOwn(TONE.filled, own.tone) ? own.tone : "neutral";
-  const variant = (): ChipVariant =>
-    own.variant && Object.hasOwn(TONE, own.variant) ? own.variant : "filled";
+    props.tone && Object.hasOwn(TONE.filled, props.tone) ? props.tone : "neutral";
+  const variant = (): ChipVariant => {
+    if (props.variant && Object.hasOwn(TONE, props.variant)) return props.variant;
+    return tone() === "danger" ? "outline" : "filled";
+  };
   const treatment = (): ChipTreatment =>
-    own.treatment && Object.hasOwn(LOOK, own.treatment) ? own.treatment : "caps";
+    props.treatment && Object.hasOwn(LOOK, props.treatment) ? props.treatment : "caps";
   return (
     <span
-      {...rest}
-      class={`${LOOK[treatment()][variant()]} ${TONE[variant()][tone()]}${own.class ? ` ${own.class}` : ""}`}
+      {...data()}
+      id={props.id}
+      role={props.role === "status" ? "status" : undefined}
+      aria-describedby={props["aria-describedby"]}
+      class={`${LOOK[treatment()][variant()]} ${TONE[variant()][tone()]}${props.class ? ` ${props.class}` : ""}`}
     >
-      {own.children}
+      {props.children}
     </span>
   );
 }

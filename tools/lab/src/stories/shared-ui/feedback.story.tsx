@@ -240,7 +240,7 @@ export const ChipOutline = () => (
 /**
  * The `tag` treatment: a label as written, in sentence case at normal spacing —
  * a vendor's category, "Cash fund", a gift no longer available — filled and
- * outlined.
+ * outlined. A `danger` chip is outlined unless a variant is asked for.
  */
 export const ChipTag = () => (
   <div class="flex flex-col gap-3">
