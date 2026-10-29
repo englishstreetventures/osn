@@ -916,7 +916,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
           <label class="font-body text-text-muted text-ui-sm leading-ui-normal flex items-start gap-2.5 normal-case">
             <input
               type="checkbox"
-              class="accent-gold mt-0.5 h-4 w-4 shrink-0 cursor-pointer"
+              class="mt-0.5 h-4 w-4 shrink-0 cursor-pointer"
               checked={consent.checked()}
               onChange={(e) => consent.setChecked(e.currentTarget.checked)}
               disabled={locked()}
@@ -946,7 +946,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
           <label class="font-body text-text-muted text-ui-sm leading-ui-normal flex items-start gap-2.5 normal-case">
             <input
               type="checkbox"
-              class="accent-gold mt-0.5 h-4 w-4 shrink-0 cursor-pointer"
+              class="mt-0.5 h-4 w-4 shrink-0 cursor-pointer"
               checked={attestation.checked()}
               onChange={(e) => attestation.setChecked(e.currentTarget.checked)}
               disabled={locked()}

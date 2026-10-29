@@ -764,10 +764,10 @@ differs. On the guest site each corner paints:
   it, so a guest's tap target does not shrink.
 - **An unchecked checkbox or radio sits on its surface**: no fill, a 1px
   `--ui-hairline-strong` edge, the native box's 13px and 2px corner (a radio
-  round), drawn in `global.css`'s base layer. A ticked one is the browser's own;
-  the RSVP sheet's, the email box's and the consent sheet's carry `accent-gold`,
-  so they fill gold (owner, 2026-10-29; `cire/host/DESIGN.md` §4, Checkboxes and
-  radios).
+  round), drawn in `global.css`'s base layer. A ticked one is the browser's own,
+  blue with a white tick: no box carries an `accent-*` class, and
+  `tests/styles/checkbox-accent.test.ts` fails on one (owner, 2026-10-29;
+  `cire/host/DESIGN.md` §4, Checkboxes and radios).
 - **The household's boxes take their corner from the layout.** The plus-one
   prompt, the email box and the account link draw no corner of their own; the
   `box` field of `LoginSection`'s `LAYOUTS` sets it. On classic's band they sit

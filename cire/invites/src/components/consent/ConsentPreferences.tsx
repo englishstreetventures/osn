@@ -120,7 +120,7 @@ function SwitchRow(props: {
           type="checkbox"
           checked={props.checked}
           onChange={(event) => props.onChange(event.currentTarget.checked)}
-          class="accent-gold mt-0.5 h-4 w-4 shrink-0"
+          class="mt-0.5 h-4 w-4 shrink-0"
         />
         <div class="min-w-0 flex-1">
           <label for={inputId} class="font-body text-text text-ui-base font-normal">
