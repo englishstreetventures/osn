@@ -1,0 +1,826 @@
+---
+// The journey: five steps of a wedding, each shown from both sides, the guest's
+// phone beside the couple's dashboard. The tabs are radios, switched by CSS
+// alone, as the hero's chips are: the radios come first in the group, so
+// `:checked ~ .panels` picks the panel and `:focus-visible ~ .tabs` rings the
+// tab, with JavaScript or without.
+//
+// Everything in the views is the sample wedding (Amara and Sam, 20 March
+// 2027), drawn in landing tokens and labelled as a sample. No screenshot: the
+// dashboard's own look changes faster than this page, and a drawing in the
+// site's tokens cannot drift out of the brand.
+import InviteScreen from '../mock/InviteScreen.astro'
+import PhoneFrame from '../mock/PhoneFrame.astro'
+
+interface Step {
+  readonly id: string
+  readonly label: string
+  readonly title: string
+  readonly body: string
+  /** The plan the couple's side needs, when it is not the free one. */
+  readonly tier?: 'Gold'
+  /** The guest's screen for this step (`InviteScreen`). */
+  readonly guest: 'opened' | 'rsvp' | 'replied' | 'on-the-day' | 'gifts'
+}
+
+const STEPS: readonly Step[] = [
+  {
+    id: 'invite',
+    label: 'Invite',
+    title: 'An invitation in your colours.',
+    body: 'Choose Classic or Gala, set your colours and words, and send each household its own link and code.',
+    guest: 'opened',
+  },
+  {
+    id: 'rsvp',
+    label: 'RSVP',
+    title: 'Every reply, counted as it lands.',
+    body: 'Guests answer person by person, with dietary notes. Your headcount moves the moment they press send.',
+    guest: 'rsvp',
+  },
+  {
+    id: 'seating',
+    label: 'Seating',
+    title: 'Seat everyone who said yes.',
+    body: 'Drag guests to tables, see who has not replied, and print the chart for the venue. Guests see their reply, never the plan.',
+    tier: 'Gold',
+    guest: 'replied',
+  },
+  {
+    id: 'on-the-day',
+    label: 'On the day',
+    title: 'Run the day from one sheet.',
+    body: 'Your run sheet keeps every timing and who it falls to. Guests get the times, the dress code and the way there.',
+    tier: 'Gold',
+    guest: 'on-the-day',
+  },
+  {
+    id: 'gifts',
+    label: 'Gifts',
+    title: 'A gift list nobody doubles up on.',
+    body: 'Guests claim a gift so it is bought once, or give to a fund you name. The gift log keeps track of every thank-you.',
+    tier: 'Gold',
+    guest: 'gifts',
+  },
+]
+---
+<section id="journey" class="journey" aria-labelledby="journey-heading">
+  <div class="journey__inner">
+    <header class="journey__head" data-reveal>
+      <h2 id="journey-heading" class="display journey__title">
+        What your guests see, and what you see.
+      </h2>
+      <p class="journey__lede">
+        Every step has two sides: the invitation a guest holds, and the dashboard you run it from.
+      </p>
+    </header>
+
+    <fieldset class="steps">
+      <legend class="sr-only">Choose a step</legend>
+      {
+        STEPS.map((step, index) => (
+          <input
+            type="radio"
+            name="journey-step"
+            id={`js-${step.id}`}
+            value={step.id}
+            checked={index === 0}
+            class="steps__radio"
+          />
+        ))
+      }
+
+      <div class="tabs">
+        {
+          STEPS.map((step) => (
+            <label for={`js-${step.id}`} class="tab">
+              {step.label}
+            </label>
+          ))
+        }
+      </div>
+
+      <div class="panels">
+        {
+          STEPS.map((step) => (
+            <div class="panel" data-step={step.id}>
+              <div class="panel__copy">
+                {step.tier && (
+                  <p class="panel__tier">
+                    Included in <span data-tier>{step.tier}</span>
+                  </p>
+                )}
+                <h3 class="display panel__title">{step.title}</h3>
+                <p class="panel__body">{step.body}</p>
+              </div>
+
+              <figure class="view view--guest">
+                <div class="view__phone">
+                  <PhoneFrame>
+                    <InviteScreen screen={step.guest} />
+                  </PhoneFrame>
+                </div>
+                <figcaption>What a guest sees</figcaption>
+              </figure>
+
+              <figure class="view view--organiser">
+                <div class="board" aria-hidden="true">
+                  {step.id === 'invite' && (
+                    <>
+                      <div class="board__bar">
+                        <span class="board__name">Invitation</span>
+                        <span>Sample wedding</span>
+                      </div>
+                      <div class="board__body">
+                        <p class="board__label">Design</p>
+                        <div class="designs">
+                          <span class="design is-on">
+                            <span class="design__card">A&amp;S</span>
+                            Classic
+                          </span>
+                          <span class="design design--gala">
+                            <span class="design__card">A&amp;S</span>
+                            Gala
+                          </span>
+                        </div>
+                        <p class="board__label">Colours</p>
+                        <div class="swatches">
+                          <span style="background: var(--color-bg)" />
+                          <span style="background: var(--color-surface-raised)" />
+                          <span style="background: var(--color-gold)" />
+                          <span style="background: var(--color-text)" />
+                        </div>
+                        <p class="board__label">Message for the Okafor household</p>
+                        <div class="message">
+                          <p>You're invited to Amara &amp; Sam! View your invitation and RSVP below.</p>
+                          <p class="message__code">Your invitation code: AMR-7Q2K</p>
+                          <span class="board__pill">Copy</span>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                  {step.id === 'rsvp' && (
+                    <>
+                      <div class="board__bar">
+                        <span class="board__name">Replies</span>
+                        <span>Sample wedding</span>
+                      </div>
+                      <div class="board__body">
+                        <div class="tally">
+                          <span><strong>86</strong>attending</span>
+                          <span><strong>9</strong>not attending</span>
+                          <span><strong>23</strong>still to reply</span>
+                        </div>
+                        <ul class="rows">
+                          <li class="is-new">
+                            <span>Okafor household</span>
+                            <span>2 attending, 1 vegetarian</span>
+                          </li>
+                          <li>
+                            <span>Reyes household</span>
+                            <span>3 attending</span>
+                          </li>
+                          <li>
+                            <span>Haddad household</span>
+                            <span>1 attending, 1 not</span>
+                          </li>
+                          <li>
+                            <span>Tran household</span>
+                            <span class="is-muted">No reply yet</span>
+                          </li>
+                        </ul>
+                      </div>
+                    </>
+                  )}
+                  {step.id === 'seating' && (
+                    <>
+                      <div class="board__bar">
+                        <span class="board__name">Seating, reception</span>
+                        <span>Sample wedding</span>
+                      </div>
+                      <div class="board__body">
+                        <div class="tables">
+                          <div class="table">
+                            <p>Table 1</p>
+                            <span>Amara</span>
+                            <span>Sam</span>
+                            <span>Chidi Okafor</span>
+                            <span>Ngozi Okafor</span>
+                          </div>
+                          <div class="table">
+                            <p>Table 2</p>
+                            <span>Rosa Reyes</span>
+                            <span>Luis Reyes</span>
+                            <span>Dana Reyes</span>
+                            <span class="is-empty">Empty seat</span>
+                          </div>
+                          <div class="table">
+                            <p>Table 3</p>
+                            <span>Omar Haddad</span>
+                            <span class="is-empty">Empty seat</span>
+                            <span class="is-empty">Empty seat</span>
+                          </div>
+                        </div>
+                        <p class="board__label">Not seated</p>
+                        <div class="unseated">
+                          <span>Lina Haddad, declined</span>
+                          <span>Mei Tran, no reply</span>
+                        </div>
+                        <div class="board__actions">
+                          <span class="board__pill">Print</span>
+                          <span class="board__pill">Download for the venue</span>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                  {step.id === 'on-the-day' && (
+                    <>
+                      <div class="board__bar">
+                        <span class="board__name">Run sheet</span>
+                        <span>Sample wedding</span>
+                      </div>
+                      <div class="board__body">
+                        <ol class="run">
+                          <li>
+                            <span class="run__time">2:30 pm</span>
+                            <span>Photographer arrives</span>
+                            <span class="run__who">Lena</span>
+                          </li>
+                          <li>
+                            <span class="run__time">3:00 pm</span>
+                            <span>Guests arrive</span>
+                            <span class="run__who">Ushers</span>
+                          </li>
+                          <li class="is-now">
+                            <span class="run__time">3:30 pm</span>
+                            <span>The Ceremony</span>
+                            <span class="run__who">Celebrant</span>
+                          </li>
+                          <li>
+                            <span class="run__time">5:00 pm</span>
+                            <span>Canapés on the lawn</span>
+                            <span class="run__who">Glasshouse team</span>
+                          </li>
+                          <li>
+                            <span class="run__time">6:00 pm</span>
+                            <span>Doors to the reception</span>
+                            <span class="run__who">MC</span>
+                          </li>
+                        </ol>
+                      </div>
+                    </>
+                  )}
+                  {step.id === 'gifts' && (
+                    <>
+                      <div class="board__bar">
+                        <span class="board__name">Gift log</span>
+                        <span>Sample wedding</span>
+                      </div>
+                      <div class="board__body">
+                        <div class="tally">
+                          <span><strong>14</strong>of 32 claimed</span>
+                          <span><strong>A$1,240</strong>to the honeymoon fund</span>
+                        </div>
+                        <ul class="rows">
+                          <li>
+                            <span>Linen bedding set, Okafor household</span>
+                            <span class="is-done">Thanked</span>
+                          </li>
+                          <li class="is-new">
+                            <span>Honeymoon fund, Reyes household</span>
+                            <span>To thank</span>
+                          </li>
+                          <li>
+                            <span>Copper saucepan set</span>
+                            <span class="is-muted">Not claimed</span>
+                          </li>
+                        </ul>
+                      </div>
+                    </>
+                  )}
+                </div>
+                <figcaption>What you see</figcaption>
+              </figure>
+            </div>
+          ))
+        }
+      </div>
+    </fieldset>
+  </div>
+</section>
+
+<style>
+  .journey {
+    padding: 6rem 1.5rem;
+  }
+
+  .journey__inner {
+    max-width: 72rem;
+    margin: 0 auto;
+  }
+
+  .journey__head {
+    max-width: 40rem;
+    margin: 0 auto 2.5rem;
+    text-align: center;
+  }
+
+  .journey__title {
+    text-wrap: balance;
+    margin: 0;
+    color: var(--color-text);
+    font-size: clamp(1.9rem, 4.5vw, 3rem);
+    line-height: var(--ui-leading-tight);
+  }
+
+  .journey__lede {
+    margin: 1.25rem auto 0;
+    max-width: 34rem;
+    color: var(--color-text-muted);
+    font-size: var(--ui-text-md);
+    font-weight: 300;
+    line-height: var(--ui-leading-relaxed);
+  }
+
+  .steps {
+    position: relative;
+    min-inline-size: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  /* Hidden, but where the tabs are, so a click's focus scroll goes nowhere. */
+  .steps__radio {
+    position: absolute;
+    top: 1rem;
+    left: 50%;
+    width: 1px;
+    height: 1px;
+    margin: 0;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .tabs {
+    display: flex;
+    justify-content: center;
+    gap: 0 0.75rem;
+    margin-bottom: 2.5rem;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .tab {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.75rem;
+    margin-bottom: -1px;
+    padding: 0 0.25rem;
+    border-bottom: 2px solid transparent;
+    color: var(--color-text-muted);
+    font-family: var(--font-body);
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+      color 0.2s var(--ease-out),
+      border-color 0.2s var(--ease-out);
+  }
+
+  .tab:hover {
+    color: var(--color-text);
+  }
+
+  @media (min-width: 640px) {
+    .tabs {
+      gap: 0 2.25rem;
+    }
+
+    .tab {
+      font-size: 0.78rem;
+      letter-spacing: 0.12em;
+    }
+  }
+
+  #js-invite:checked ~ .tabs [for='js-invite'],
+  #js-rsvp:checked ~ .tabs [for='js-rsvp'],
+  #js-seating:checked ~ .tabs [for='js-seating'],
+  #js-on-the-day:checked ~ .tabs [for='js-on-the-day'],
+  #js-gifts:checked ~ .tabs [for='js-gifts'] {
+    border-bottom-color: var(--color-gold);
+    color: var(--color-text);
+  }
+
+  #js-invite:focus-visible ~ .tabs [for='js-invite'],
+  #js-rsvp:focus-visible ~ .tabs [for='js-rsvp'],
+  #js-seating:focus-visible ~ .tabs [for='js-seating'],
+  #js-on-the-day:focus-visible ~ .tabs [for='js-on-the-day'],
+  #js-gifts:focus-visible ~ .tabs [for='js-gifts'] {
+    outline: 2px solid var(--color-gold);
+    outline-offset: 4px;
+  }
+
+  /* All five panels share one cell, so switching never moves the page. */
+  .panels {
+    display: grid;
+  }
+
+  .panel {
+    grid-area: 1 / 1;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+    gap: 2.25rem;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(0.5rem);
+    transition:
+      opacity 0.45s var(--ease-out),
+      transform 0.45s var(--ease-out),
+      visibility 0s linear 0.45s;
+  }
+
+  #js-invite:checked ~ .panels [data-step='invite'],
+  #js-rsvp:checked ~ .panels [data-step='rsvp'],
+  #js-seating:checked ~ .panels [data-step='seating'],
+  #js-on-the-day:checked ~ .panels [data-step='on-the-day'],
+  #js-gifts:checked ~ .panels [data-step='gifts'] {
+    opacity: 1;
+    visibility: visible;
+    transform: none;
+    transition-delay: 0s;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .panel {
+      transition: none;
+    }
+  }
+
+  .panel__copy {
+    max-width: 30rem;
+    text-align: center;
+  }
+
+  .panel__tier {
+    display: inline-block;
+    margin: 0 0 0.9rem;
+    padding: 0.3rem 0.75rem;
+    border: 1px solid var(--color-gold-dim);
+    border-radius: 999px;
+    color: var(--color-text-muted);
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .panel__tier [data-tier] {
+    color: var(--color-gold);
+  }
+
+  .panel__title {
+    text-wrap: balance;
+    margin: 0;
+    color: var(--color-text);
+    font-size: clamp(1.6rem, 3.2vw, 2.25rem);
+    font-weight: 400;
+    line-height: var(--ui-leading-tight);
+  }
+
+  .panel__body {
+    margin: 0.9rem 0 0;
+    color: var(--color-text-muted);
+    font-size: var(--ui-text-base);
+    font-weight: 300;
+    line-height: var(--ui-leading-relaxed);
+  }
+
+  .view {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.85rem;
+    width: 100%;
+    margin: 0;
+  }
+
+  .view figcaption {
+    color: var(--color-text-muted);
+    font-size: 0.7rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  .view__phone {
+    --phone-w: 12rem;
+  }
+
+  @media (min-width: 768px) {
+    .panel {
+      grid-template-columns: 13rem minmax(0, 1fr);
+      align-items: center;
+      column-gap: 2.5rem;
+    }
+
+    .panel__copy {
+      grid-column: 1 / -1;
+    }
+
+    .view__phone {
+      --phone-w: 13rem;
+    }
+  }
+
+  @media (min-width: 1100px) {
+    .panel {
+      grid-template-columns: minmax(0, 17rem) 13.5rem minmax(0, 1fr);
+      column-gap: 3rem;
+    }
+
+    .panel__copy {
+      grid-column: auto;
+      text-align: left;
+    }
+
+    .view__phone {
+      --phone-w: 13.5rem;
+    }
+  }
+
+  /* ── The couple's dashboard, drawn ───────────────────────────────────── */
+
+  .board {
+    width: 100%;
+    max-width: 30rem;
+    overflow: clip;
+    border: 1px solid var(--color-border);
+    border-radius: var(--ui-radius-md);
+    background: var(--color-surface);
+    box-shadow: 0 1.25rem 2.5rem -1.25rem oklch(0% 0 0 / 0.6);
+    color: var(--color-text);
+    font-size: 0.8rem;
+    text-align: left;
+  }
+
+  .board p {
+    margin: 0;
+  }
+
+  .board__bar {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.8rem 1.1rem;
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-surface-raised);
+    color: var(--color-text-muted);
+    font-size: 0.66rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  .board__name {
+    color: var(--color-text);
+    font-family: var(--font-display);
+    font-size: 1.15rem;
+    letter-spacing: 0;
+    text-transform: none;
+  }
+
+  .board__body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 1.1rem;
+  }
+
+  .board__label {
+    color: var(--color-text-muted);
+    font-size: 0.66rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  .board__pill {
+    align-self: flex-start;
+    padding: 0.35rem 0.8rem;
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--ui-radius-sm);
+    font-size: 0.68rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .board__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .designs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+  }
+
+  .design {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.6rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--ui-radius-sm);
+    color: var(--color-text-muted);
+    font-size: 0.72rem;
+  }
+
+  .design.is-on {
+    border-color: var(--color-gold);
+    color: var(--color-gold);
+  }
+
+  .design__card {
+    display: grid;
+    place-items: center;
+    aspect-ratio: 3 / 2;
+    border-radius: var(--ui-radius-hair);
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-display);
+    font-size: 1.15rem;
+    font-style: italic;
+  }
+
+  .design--gala .design__card {
+    background: linear-gradient(160deg, var(--color-surface-raised), var(--color-bg));
+    box-shadow: inset 0 0 0 3px var(--color-bg), inset 0 0 0 4px var(--color-gold-dim);
+  }
+
+  .swatches {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .swatches span {
+    width: 1.6rem;
+    height: 1.6rem;
+    border: 1px solid var(--color-border-strong);
+    border-radius: 999px;
+  }
+
+  .message {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    padding: 0.75rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--ui-radius-sm);
+    background: var(--color-bg);
+    color: var(--color-text-muted);
+    line-height: 1.45;
+  }
+
+  .message__code {
+    color: var(--color-text);
+  }
+
+  .message .board__pill {
+    margin-top: 0.2rem;
+  }
+
+  .tally {
+    display: grid;
+    grid-auto-columns: minmax(0, 1fr);
+    grid-auto-flow: column;
+    gap: 0.75rem;
+  }
+
+  .tally span {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    padding: 0.7rem 0.75rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--ui-radius-sm);
+    color: var(--color-text-muted);
+    font-size: 0.7rem;
+    line-height: 1.3;
+  }
+
+  .tally strong {
+    color: var(--color-text);
+    font-family: var(--font-display);
+    font-size: 1.6rem;
+    font-weight: 400;
+    line-height: 1;
+    font-variant-numeric: lining-nums;
+  }
+
+  .rows,
+  .run {
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .rows li {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 0.25rem 1rem;
+    padding: 0.6rem 0;
+    border-top: 1px solid var(--color-border);
+  }
+
+  .rows li > span:last-child {
+    color: var(--color-text-muted);
+  }
+
+  .rows .is-new > span:first-child {
+    color: var(--color-gold);
+  }
+
+  .rows li > span.is-done {
+    color: var(--color-success);
+  }
+
+  .is-muted {
+    font-style: italic;
+  }
+
+  .tables {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.6rem;
+  }
+
+  .table {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    padding: 0.65rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--ui-radius-sm);
+    font-size: 0.72rem;
+    line-height: 1.3;
+  }
+
+  .table p {
+    margin-bottom: 0.2rem;
+    color: var(--color-gold);
+    font-size: 0.64rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .table .is-empty {
+    color: var(--color-text-muted);
+    font-style: italic;
+  }
+
+  .unseated {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+
+  .unseated span {
+    padding: 0.3rem 0.6rem;
+    border: 1px dashed var(--color-border-strong);
+    border-radius: var(--ui-radius-sm);
+    color: var(--color-text-muted);
+    font-size: 0.72rem;
+  }
+
+  .run li {
+    display: grid;
+    grid-template-columns: 4.25rem minmax(0, 1fr) auto;
+    gap: 0.75rem;
+    padding: 0.6rem 0.5rem;
+    border-top: 1px solid var(--color-border);
+  }
+
+  .run li:first-child {
+    border-top: 0;
+  }
+
+  .run .is-now {
+    border-radius: var(--ui-radius-sm);
+    background: color-mix(in oklch, var(--color-gold) 10%, transparent);
+    box-shadow: inset 2px 0 0 var(--color-gold);
+  }
+
+  .run__time {
+    color: var(--color-gold);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .run__who {
+    color: var(--color-text-muted);
+  }
+</style>

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
+import { CI_USER_AGENT } from "../../../../scripts/smoke-check";
 import {
   checkProbeResponse,
   coloFromRay,
@@ -279,13 +280,13 @@ describe("parseSampleCount", () => {
 });
 
 describe("probeRequests", () => {
-  it("builds the same route twice, with the session cookie on the query arm only", () => {
+  it("builds the same route twice, with the session cookie on the query arm only and the CI user agent on both", () => {
     const { control, query } = probeRequests("https://api.dev.example.com", "tok");
 
     expect(control.url).toBe("https://api.dev.example.com/api/claim/session");
     expect(query.url).toBe(control.url);
-    expect(control.headers).toEqual({});
-    expect(query.headers).toEqual({ cookie: "cire_session=tok" });
+    expect(control.headers).toEqual({ "user-agent": CI_USER_AGENT });
+    expect(query.headers).toEqual({ "user-agent": CI_USER_AGENT, cookie: "cire_session=tok" });
   });
 });
 

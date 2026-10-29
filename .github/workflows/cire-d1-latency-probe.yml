@@ -75,9 +75,10 @@ jobs:
         env:
           DEV_DOMAIN: ${{ vars.DEV_DOMAIN }}
 
-      # `--no-install`: the script imports only Bun and web built-ins, so a
-      # stray package import must fail here rather than be fetched from the
-      # public registry.
+      # `--no-install`: the script imports only Bun and web built-ins and
+      # scripts/smoke-check.ts, which imports only node:fs, so a stray
+      # package import must fail here rather than be fetched from the public
+      # registry.
       - name: Time the route pair
         run: bun --no-install cire/api/scripts/d1-latency-probe.ts
         env:

@@ -162,7 +162,7 @@ export interface RetrieveCheckoutSessionInput {
  * names a Price the deployment configured rather than pricing a line inline.
  */
 export interface CreatePlatformCheckoutSessionInput {
-  /** A `price_...` from configuration. No money amount is held in this repo. */
+  /** A `price_...` from configuration. cire-api holds no money amount. */
   priceId: string;
   successUrl: string;
   cancelUrl: string;

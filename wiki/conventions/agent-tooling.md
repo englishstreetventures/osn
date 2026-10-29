@@ -7,7 +7,7 @@ related:
   - "[[session-metrics]]"
   - "[[contributing]]"
   - "[[wiki-search]]"
-last-reviewed: 2026-10-28
+last-reviewed: 2026-10-29
 ---
 
 # Agent tooling
@@ -174,7 +174,7 @@ To move a pin, read the upstream change first — `git diff <old-sha>..<new-sha>
 
 `scripts/check-skills-lock.ts` recomputes the CLI's folder hash and fails when a lock entry is not pinned to a full SHA, a folder no longer matches its hash, or a folder under `.agents/skills/` has no entry. The CLI never checks the hash after writing it; this runs on every pull request, through `bun run test:scripts`. It cannot tell whether the tree matches upstream at `ref` — that needs the network, and is what reading the diff is for.
 
-Nothing of ours writes into it. `oxlintrc.json` ignores both `.agents` and the symlink path (it follows the link and would report each file twice), and both lefthook pre-commit commands exclude `.agents/**`. A fix made in someone else's file fails `check-skills-lock`, and the next install throws it away: it goes upstream and comes back as a new pin.
+Nothing of ours writes into it. `oxlintrc.json` ignores both `.agents` and the symlink path (it follows the link and would report each file twice), and the two lefthook pre-commit commands that lint and format exclude `.agents/**` (the secret scan reads every staged file). A fix made in someone else's file fails `check-skills-lock`, and the next install throws it away: it goes upstream and comes back as a new pin.
 
 ## Vendored lint plugin
 

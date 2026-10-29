@@ -1,26 +1,23 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro'
 import Hero from '../components/sections/Hero.astro'
-import Promise from '../components/sections/Promise.astro'
-import Features from '../components/sections/Features.astro'
-import HowItWorks from '../components/sections/HowItWorks.astro'
 import SeeItLive from '../components/sections/SeeItLive.astro'
+import Journey from '../components/sections/Journey.astro'
+import Pricing from '../components/sections/Pricing.astro'
 import Craft from '../components/sections/Craft.astro'
 import Testimonials from '../components/sections/Testimonials.astro'
 import Faq from '../components/sections/Faq.astro'
 import FinalCta from '../components/sections/FinalCta.astro'
 ---
 <BaseLayout>
-  {/* The Unfolding Letter: the page reads top to bottom like opening and reading
-      a single invitation — sealed hero, the letter unfolds, what's inside, how it
-      works, open one yourself, the trust behind it, questions, and the sign-off. */}
-  <Hero />
-
+  {/* The invitation is the page: the finished invitation first, then one to
+      answer yourself, the guest's and the couple's side of each step, what it
+      costs, the trust behind it, questions, and the message a couple sends. */}
   <main>
-    <Promise />
-    <Features />
-    <HowItWorks />
+    <Hero />
     <SeeItLive />
+    <Journey />
+    <Pricing />
     <Craft />
     {/* Renders nothing until real, consented couple quotes exist (honest social
         proof — SHOW_TESTIMONIALS stays false until then). */}

@@ -1,0 +1,51 @@
+# Policy for scripts/secret-scan.sh. CI reads this file from origin/main, never
+# from a pull request's checkout, so an entry takes effect for other pull requests
+# once it is merged.
+#
+# Each entry names one file and the one rule its fixture trips. Any other rule,
+# and any other file, still fails the scan.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Test fixture with synthetic credential shapes"
+condition = "AND"
+paths = ['''^cire/infra/tests/cross-stack\.test\.ts$''']
+targetRules = ["generic-api-key"]
+
+[[allowlists]]
+description = "Test fixture with synthetic credential shapes"
+condition = "AND"
+paths = ['''^cire/infra/tests/evaluate\.ts$''']
+targetRules = ["stripe-access-token"]
+
+[[allowlists]]
+description = "Test fixture with synthetic credential shapes"
+condition = "AND"
+paths = ['''^musubi/infra/tests/evaluate\.ts$''']
+targetRules = ["generic-api-key"]
+
+[[allowlists]]
+description = "Test fixture with synthetic credential shapes"
+condition = "AND"
+paths = ['''^musubi/infra/tests/seeds\.test\.ts$''']
+targetRules = ["generic-api-key"]
+
+[[allowlists]]
+description = "Test fixture with synthetic credential shapes"
+condition = "AND"
+paths = ['''^shared/infra/tests/secrets/require\.test\.ts$''']
+targetRules = ["stripe-access-token"]
+
+[[allowlists]]
+description = "Test fixture with synthetic credential shapes"
+condition = "AND"
+paths = ['''^tools/pr-metrics/tests/pr-metrics\.test\.ts$''']
+targetRules = ["generic-api-key"]
+
+[[allowlists]]
+description = "Documentation example of a curl credential pattern"
+condition = "AND"
+paths = ['''^wiki/shared/production-deploy\.md$''']
+targetRules = ["curl-auth-user"]

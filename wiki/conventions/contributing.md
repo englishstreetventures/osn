@@ -7,7 +7,7 @@ related:
   - "[[review-findings]]"
   - "[[stacked-prs]]"
   - "[[testing-patterns]]"
-last-reviewed: 2026-10-26
+last-reviewed: 2026-10-29
 ---
 
 # Contributing
@@ -40,6 +40,10 @@ Android is deferred. iOS is the primary native target (Swift). Web support follo
 Lefthook runs automatically on every commit:
 - **oxlint** -- lints staged files
 - **bun fmt** -- formats staged files
+- **Secret scan** -- `scripts/secret-scan.sh staged`, advisory. CI scans the same commits and blocks the merge.
+  The hook prints one line and passes when gitleaks 8.30.1 or later is not installed (`brew install gitleaks`).
+  `--no-verify` skips it; the policy file it reads is `origin/main`'s `.gitleaks.toml`, so a local edit to that file does not change what it allows.
+  Known limit: a release commit pushed with `--no-verify` skips it; CI scans that commit after the push.
 
 ### Pre-push (lefthook)
 

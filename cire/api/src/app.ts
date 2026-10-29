@@ -730,8 +730,9 @@ export interface AppOptions {
   /**
    * Stripe Price ids for the self-serve tier upgrades. A tier with no Price
    * here is not for sale in this deployment: it never appears in the catalogue
-   * and the checkout route 404s for it. No money amount is held in this
-   * repository — the price is read back from Stripe.
+   * and the checkout route 404s for it. cire-api holds no money amount: the
+   * price is read back from Stripe. The marketing site's published offer
+   * (`cire/landing/src/lib/plans.ts`) is checked against these by hand.
    */
   upgradePrices?: UpgradePriceConfig;
   /** Override the upgrade purchase limiter (useful for testing). */

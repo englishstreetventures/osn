@@ -18,7 +18,8 @@ vi.mock("../../src/lib/api", async () => {
   return organiserApiMock();
 });
 
-vi.mock("../../src/components/CreateWeddingForm", () => ({
+vi.mock("../../src/components/CreateWeddingForm", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/components/CreateWeddingForm")>()),
   default: (props: { onCreated: (w: unknown) => void }) => (
     <button
       data-testid="create-form"

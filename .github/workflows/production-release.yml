@@ -2024,8 +2024,15 @@ jobs:
   # After each stack job, asks each staged site's Worker (its spare host) and
   # its Pages project (the production host) the same paths, and keeps the
   # report (scripts/site-parity.ts). The owner reads it before the site's
-  # flip; a difference does not fail the release. No Environment and no
-  # secret: both hosts are public.
+  # flip; a difference (exit 1) does not fail the job. The last step fails it
+  # on every comparison that compared nothing: answers that did not come from
+  # the site (exit 3: Cloudflare in its place, as a challenge, an Access
+  # redirect, a 429 or its own 403 page; or a `/` that did not answer both
+  # hosts with a 2xx HTML page), a usage error (exit 2) before any request,
+  # an error that stopped the script (exit 4), a comparison step that ran but
+  # wrote no exit code (its timeout) or any other, and an exit of 0 or 1 with
+  # no report.
+  # No Environment and no secret: both hosts are public.
   site-parity:
     name: Compare the staged sites with Pages
     needs:
@@ -2066,19 +2073,29 @@ jobs:
         id: place_sites
         run: bun run scripts/production-sites-artifact.ts "$RUNNER_TEMP/production-sites"
 
+      # Each comparison writes its exit code as the step output `exit`, for
+      # the last step to read.
       - name: Compare the staged cire sites
         id: parity_cire
         if: needs.stack-cire-production.outputs.deployed == 'true'
         continue-on-error: true
         timeout-minutes: 5
-        run: bun run scripts/site-parity.ts --stack cire --out "$RUNNER_TEMP/site-parity/cire.json"
+        run: |
+          status=0
+          bun run scripts/site-parity.ts --stack cire --out "$RUNNER_TEMP/site-parity/cire.json" || status=$?
+          echo "exit=$status" >> "$GITHUB_OUTPUT"
+          exit "$status"
 
       - name: Compare the staged musubi sites
         id: parity_musubi
         if: needs.stack-musubi-production.outputs.deployed == 'true'
         continue-on-error: true
         timeout-minutes: 5
-        run: bun run scripts/site-parity.ts --stack musubi --out "$RUNNER_TEMP/site-parity/musubi.json"
+        run: |
+          status=0
+          bun run scripts/site-parity.ts --stack musubi --out "$RUNNER_TEMP/site-parity/musubi.json" || status=$?
+          echo "exit=$status" >> "$GITHUB_OUTPUT"
+          exit "$status"
 
       - name: Keep the comparison
         if: ${{ !cancelled() }}
@@ -2087,6 +2104,46 @@ jobs:
           name: site-parity
           path: ${{ runner.temp }}/site-parity/
           if-no-files-found: ignore
+
+      # A step's outcome is `skipped` only when its stack did not deploy; a
+      # step its timeout stopped ran, but wrote no exit code.
+      - name: Fail when a comparison compared nothing
+        if: ${{ !cancelled() }}
+        env:
+          PARITY_CIRE_EXIT: ${{ steps.parity_cire.outputs.exit }}
+          PARITY_CIRE_OUTCOME: ${{ steps.parity_cire.outcome }}
+          PARITY_MUSUBI_EXIT: ${{ steps.parity_musubi.outputs.exit }}
+          PARITY_MUSUBI_OUTCOME: ${{ steps.parity_musubi.outcome }}
+        run: |
+          if [ "$PARITY_CIRE_EXIT" = 3 ] || [ "$PARITY_MUSUBI_EXIT" = 3 ]; then
+            echo "::error::A staged site's answers did not come from the site, so its comparison holds nothing: Cloudflare answered in its place (the zone's configuration, such as Bot Fight Mode), or its root path / did not answer both hosts with a 2xx HTML page (a zone's custom error or block page, a host not ready, or no page there). See the comparison steps above."
+            exit 1
+          fi
+          if [ "$PARITY_CIRE_EXIT" = 2 ] || [ "$PARITY_MUSUBI_EXIT" = 2 ]; then
+            echo "::error::site-parity refused its arguments, so it compared nothing; see the comparison steps above."
+            exit 1
+          fi
+          if [ "$PARITY_CIRE_EXIT" = 4 ] || [ "$PARITY_MUSUBI_EXIT" = 4 ]; then
+            echo "::error::site-parity stopped on an error before it finished, so its report is missing; see the comparison steps above."
+            exit 1
+          fi
+          check() {
+            [ "$2" = skipped ] && return 0
+            case "$3" in
+              0 | 1)
+                if [ ! -f "$RUNNER_TEMP/site-parity/$1.json" ]; then
+                  echo "::error::The $1 comparison exited $3 but left no report, so it compared nothing; see its step above."
+                  exit 1
+                fi
+                ;;
+              *)
+                echo "::error::The $1 comparison ran but did not finish (exit code '$3'; none when its timeout stopped it), so it compared nothing; see its step above."
+                exit 1
+                ;;
+            esac
+          }
+          check cire "$PARITY_CIRE_OUTCOME" "$PARITY_CIRE_EXIT"
+          check musubi "$PARITY_MUSUBI_OUTCOME" "$PARITY_MUSUBI_EXIT"
 
   # ── A site's domain back on its Pages project ────────────────────────────
   # The rollback of a flip, dispatched with `attach` naming the site, or run

@@ -15,7 +15,7 @@ related:
   - "[[cire-entitlements]]"
   - "[[stripe-webhooks]]"
   - "[[infrastructure-as-code]]"
-last-reviewed: 2026-10-28
+last-reviewed: 2026-10-29
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -1415,7 +1415,22 @@ then `musubi.social` (englishstreetventures/osn#1787). Before each:
 - The site has run `staged` through at least one release, and the `site-parity` artifact
   of the latest release shows no difference a real path relies on (an unknown path's 404
   in place of Pages' 200, and Pages' `access-control-allow-origin: *`, are accepted
-  unless one does).
+  unless one does). Both comparisons, this one and the dev guest route comparison
+  ([[infrastructure-as-code#The guest route comparison]]), send smoke-check's CI user agent
+  (`CI_USER_AGENT`), and a refused run — the `site-parity` job failing on exit 3, its
+  report's `refused` list naming the site, side and path — means an answer, asked twice,
+  did not come from the site. Either Cloudflare answered in its place (a challenge, an
+  Access redirect, a 429, or a 403 carrying Cloudflare's own error page: a block rule,
+  or a fault in the host's DNS or custom domain), or `/` did not answer both hosts with
+  a 2xx HTML page: a zone's custom error page or custom block response, a host or
+  custom domain not ready yet (no answer, or Cloudflare's 52x or 530 page), or a site
+  with no page there. A redirect on `/` counts as no page, even to the same path on
+  both hosts. On every other path a zone's own page leaves nothing to tell it from the
+  site's, so check the zone has none before you trust a match. The job also fails
+  whenever a comparison compared nothing: exit 2 (a usage error, before any request),
+  exit 4 (an error stopped the script), a comparison step that ran but did not finish
+  (no exit code after its 5-minute timeout, or a code the script never gives), and an
+  exit of 0 or 1 that left no report.
 - A pull request turns the site from `staged` to `worker` in
   `shared/infra/src/production-sites.ts`. Once it merges, every release that ships the
   site's stack fails at `alchemy-plan`'s precheck until the flip runs, so the daily run

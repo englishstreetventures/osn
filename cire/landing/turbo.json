@@ -1,0 +1,24 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    // The `package` project reads only this package's files; the `repo`
+    // project (vitest.config.ts) also reads cire-api's tiers and slug rule, the
+    // organiser portal's create form, the guest site's stylesheet and the
+    // design-token contract, so only it reruns when one of those changes.
+    "test": {
+      "dependsOn": ["^build", "test:repo"]
+    },
+    "test:repo": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!**/*.md",
+        "$TURBO_ROOT$/cire/api/src/services/tiers.ts",
+        "$TURBO_ROOT$/cire/api/src/lib/slug.ts",
+        "$TURBO_ROOT$/cire/host/src/components/CreateWeddingForm.tsx",
+        "$TURBO_ROOT$/cire/invites/src/styles/global.css",
+        "$TURBO_ROOT$/shared/design-tokens/src/**"
+      ]
+    }
+  }
+}

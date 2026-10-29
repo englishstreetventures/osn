@@ -1,0 +1,48 @@
+---
+// A pressed wax seal in CSS: a gold disc, slightly uneven at the edge as wax
+// is, with a monogram set into it. Decorative only; whatever contains it says
+// what it means. Sized by its container through `--seal-size`.
+interface Props {
+  /** The letters pressed into the wax. */
+  monogram?: string
+  class?: string
+}
+
+const { monogram = 'C', class: klass } = Astro.props
+---
+<span class:list={['seal', klass]} aria-hidden="true">
+  <span class="seal__mark">{monogram}</span>
+</span>
+
+<style>
+  .seal {
+    display: grid;
+    place-items: center;
+    width: var(--seal-size, 4rem);
+    aspect-ratio: 1;
+    /* Wax spreads unevenly under the die, so the disc is not a true circle. */
+    border-radius: 51% 47% 52% 48% / 48% 52% 47% 51%;
+    background: radial-gradient(
+      circle at 38% 32%,
+      oklch(82% 0.09 82.08),
+      oklch(63% 0.085 70) 68%,
+      oklch(52% 0.08 64)
+    );
+    box-shadow:
+      inset 0 0.08em 0.16em oklch(95% 0.05 82 / 0.5),
+      inset 0 -0.16em 0.3em oklch(40% 0.06 60 / 0.6),
+      0 0.35em 1em oklch(0% 0 0 / 0.45);
+    font-size: calc(var(--seal-size, 4rem) * 0.42);
+  }
+
+  .seal__mark {
+    font-family: var(--font-display);
+    font-style: italic;
+    font-weight: 400;
+    line-height: 1;
+    letter-spacing: -0.02em;
+    color: oklch(30% 0.04 80);
+    transform: translateY(0.04em);
+    text-shadow: 0 0.03em 0 oklch(90% 0.06 82 / 0.45);
+  }
+</style>

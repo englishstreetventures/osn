@@ -307,7 +307,8 @@ describe("createPlatformCheckoutSession", () => {
 
   it("names a configured Price rather than pricing a line inline", async () => {
     // The amount lives at Stripe. If this ever sends `price_data` again, a
-    // price change becomes a deploy and the repo starts holding money amounts.
+    // price change becomes an API deploy and cire-api starts holding money
+    // amounts.
     const { impl, calls } = stubFetch(() => json({ id: "cs_u1", url: "https://pay.test/cs_u1" }));
     const client = createStripeClient({ secretKey: "sk_test", fetchImpl: impl });
 

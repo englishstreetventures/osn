@@ -30,6 +30,7 @@ package.json         @chav-aniket
 bunfig.toml          @chav-aniket
 /oxlintrc.json       @chav-aniket
 /lefthook.yml        @chav-aniket
+/.gitleaks.toml      @chav-aniket
 
 # What the dependency soak actually resolves to. `bunfig.toml` sets the policy;
 # these two decide which bytes land. `bun.lock` pins every resolved version and

@@ -38,18 +38,18 @@
 # cire/host's did for the plus-one controls (wiki/conventions/bundle-size-guards.md
 # has the before-and-after build).
 #
-# `cire/landing` went the other way and so its threshold moved. Converting its
-# demo sheet to `@shared/ui`'s `Modal` deleted the one module importing `motion`,
-# and the library left the bundle with it: 185,383 -> 164,847 bytes. Leaving
-# 189,324 in place would have banked a 24.5 KB gap, which is larger than the
-# mistake this guard exists to catch, so the threshold followed the measurement
-# down to measured + ~11.7 KB.
+# `cire/landing` went the other way, twice, and so its threshold moved. Converting
+# its demo sheet to `@shared/ui`'s `Modal` deleted the one module importing
+# `motion` (185,383 -> 164,847 bytes), and replacing the Three.js hero seal with a
+# CSS one removed `three` (164,847 -> 40,725). Leaving the old ceiling in place
+# would have banked a gap larger than the mistake this guard exists to catch, so
+# each time the threshold followed the measurement down to measured + ~11.7 KB.
 #
 # Blank lines and lines starting with # are ignored.
 
 cire/invites   worker  200900   # measured 190660
 cire/host      static  349653   # measured 337953
 cire/vendor    static  81644    # measured 77305
-cire/landing   static  176547   # measured 164847
+cire/landing   static  52425    # measured 40725
 musubi/landing static  26865    # measured 15206
 pulse/landing  static  28366    # measured 16683
