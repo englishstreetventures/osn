@@ -1,0 +1,426 @@
+---
+// One screen of the sample wedding's invitation, as a guest's phone shows it,
+// drawn in landing tokens for a PhoneFrame. Synthetic data throughout: Amara
+// and Sam's wedding, seen by the Okafor household (Chidi and Ngozi), whose
+// code is AMR-7Q2K. Nothing in it is a control: the button and field are
+// spans, so the page never offers a press that does nothing.
+//
+// The words follow the guest site's own where it has them ("Open Invitation",
+// "Send RSVP"). Type is sized in `cqi`, against the phone's screen.
+import SealMark from './SealMark.astro'
+
+type InviteScreenName = 'sealed' | 'opened' | 'rsvp' | 'replied' | 'on-the-day' | 'gifts'
+
+interface Props {
+  screen: InviteScreenName
+}
+
+const { screen } = Astro.props
+---
+<div class:list={['inv', `inv--${screen}`]}>
+  {
+    screen === 'sealed' && (
+      <>
+        <p class="inv__kicker">Together with their families</p>
+        <span class="inv__seal"><SealMark monogram="A&S" /></span>
+        <p class="inv__names">Amara &amp; Sam</p>
+        <p class="inv__date">Saturday 20 March 2027</p>
+        <div class="inv__stack">
+          <span class="inv__label">Invitation code</span>
+          <span class="inv__field">AMR-7Q2K</span>
+          <span class="inv__button">Open Invitation</span>
+        </div>
+      </>
+    )
+  }
+  {
+    screen === 'opened' && (
+      <>
+        <p class="inv__kicker">Together with their families</p>
+        <p class="inv__names">Amara &amp; Sam</p>
+        <p class="inv__line">request the pleasure of your company</p>
+        <span class="inv__rule" />
+        <p class="inv__date">Saturday 20 March 2027</p>
+        <p class="inv__line">Byron Bay</p>
+        <ul class="inv__events">
+          <li>
+            <span class="inv__event">The Ceremony</span>
+            <span class="inv__meta">3:30 pm, Cliffside Chapel</span>
+            <span class="inv__pill">Respond</span>
+          </li>
+          <li>
+            <span class="inv__event">The Reception</span>
+            <span class="inv__meta">6:00 pm, The Glasshouse</span>
+            <span class="inv__pill">Respond</span>
+          </li>
+        </ul>
+      </>
+    )
+  }
+  {
+    screen === 'rsvp' && (
+      <>
+        <p class="inv__kicker">Respond</p>
+        <p class="inv__title">The Ceremony</p>
+        <div class="inv__person">
+          <span class="inv__who">Chidi Okafor</span>
+          <span class="inv__choice">
+            <span class="is-on">Attending</span>
+            <span>Not attending</span>
+          </span>
+        </div>
+        <div class="inv__person">
+          <span class="inv__who">Ngozi Okafor</span>
+          <span class="inv__choice">
+            <span class="is-on">Attending</span>
+            <span>Not attending</span>
+          </span>
+          <span class="inv__tags">
+            <span class="is-on">Vegetarian</span>
+            <span>Gluten free</span>
+            <span>Other</span>
+          </span>
+        </div>
+        <span class="inv__button">Send RSVP</span>
+      </>
+    )
+  }
+  {
+    screen === 'replied' && (
+      <>
+        <p class="inv__kicker">Your reply</p>
+        <span class="inv__seal inv__seal--small"><SealMark monogram="A&S" /></span>
+        <p class="inv__title">Thank you, Okafors.</p>
+        <p class="inv__line">Amara and Sam have your reply.</p>
+        <ul class="inv__summary">
+          <li>
+            <span class="inv__who">Chidi Okafor</span>
+            <span class="inv__meta">Attending both</span>
+          </li>
+          <li>
+            <span class="inv__who">Ngozi Okafor</span>
+            <span class="inv__meta">Attending both, vegetarian</span>
+          </li>
+        </ul>
+        <span class="inv__ghost">Change your reply</span>
+      </>
+    )
+  }
+  {
+    screen === 'on-the-day' && (
+      <>
+        <p class="inv__kicker">Today</p>
+        <p class="inv__title">Saturday 20 March</p>
+        <ol class="inv__times">
+          <li>
+            <span class="inv__time">3:00 pm</span>
+            <span>Arrive at Cliffside Chapel</span>
+          </li>
+          <li>
+            <span class="inv__time">3:30 pm</span>
+            <span>The Ceremony</span>
+          </li>
+          <li>
+            <span class="inv__time">5:00 pm</span>
+            <span>Canapés on the lawn</span>
+          </li>
+          <li>
+            <span class="inv__time">6:00 pm</span>
+            <span>The Reception, The Glasshouse</span>
+          </li>
+        </ol>
+        <p class="inv__meta">Dress code: garden formal</p>
+        <span class="inv__ghost">Open in maps</span>
+      </>
+    )
+  }
+  {
+    screen === 'gifts' && (
+      <>
+        <p class="inv__kicker">Gift list</p>
+        <p class="inv__title">For our next chapter</p>
+        <ul class="inv__gifts">
+          <li>
+            <span class="inv__who">Linen bedding set</span>
+            <span class="inv__meta is-on">Claimed by you</span>
+          </li>
+          <li>
+            <span class="inv__who">Copper saucepan set</span>
+            <span class="inv__pill">Claim</span>
+          </li>
+          <li>
+            <span class="inv__who">Honeymoon fund</span>
+            <span class="inv__pill">Give</span>
+          </li>
+        </ul>
+      </>
+    )
+  }
+</div>
+
+<style>
+  .inv {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3.6cqi;
+    height: 100%;
+    padding: 17cqi 7cqi 8cqi;
+    text-align: center;
+    font-family: var(--font-body);
+    color: var(--color-text);
+  }
+
+  .inv p {
+    margin: 0;
+  }
+
+  .inv__kicker {
+    font-size: 3.9cqi;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--color-gold);
+  }
+
+  .inv__names {
+    font-family: var(--font-display);
+    font-weight: 300;
+    font-size: 13.4cqi;
+    white-space: nowrap;
+    line-height: 1.05;
+  }
+
+  .inv__title {
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: 9.2cqi;
+    line-height: 1.1;
+  }
+
+  .inv__date {
+    font-size: 4.6cqi;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-gold);
+  }
+
+  .inv__line,
+  .inv__meta {
+    font-size: 4.6cqi;
+    font-weight: 300;
+    line-height: 1.35;
+    color: var(--color-text-muted);
+  }
+
+  .inv__rule {
+    display: block;
+    width: 30%;
+    height: 1px;
+    background: linear-gradient(to right, transparent, var(--color-gold-dim), transparent);
+  }
+
+  /* SealMark reads its size from here: a scoped class does not reach a
+     child component's root under Astro's attribute strategy, a custom
+     property does. */
+  .inv__seal {
+    --seal-size: 40cqi;
+    display: block;
+    margin-block: 3cqi 2cqi;
+  }
+
+  .inv__seal--small {
+    --seal-size: 24cqi;
+    margin-block: 0;
+  }
+
+  /* The guest site's code field and button, as shapes. */
+  .inv__stack {
+    display: flex;
+    flex-direction: column;
+    gap: 2.4cqi;
+    width: 100%;
+    margin-top: 8cqi;
+  }
+
+  .inv__label {
+    font-size: 4.1cqi;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+  }
+
+  .inv__field {
+    padding: 3.4cqi 0;
+    border: 1px solid color-mix(in oklch, var(--color-text) 55%, transparent);
+    border-radius: 1.4cqi;
+    background: color-mix(in oklch, var(--color-text) 4.5%, transparent);
+    font-size: 5.9cqi;
+    letter-spacing: 0.14em;
+  }
+
+  .inv__button {
+    display: block;
+    width: 100%;
+    margin-top: auto;
+    padding: 3.6cqi 0;
+    border-radius: 1.4cqi;
+    background: var(--color-gold);
+    color: var(--color-bg);
+    font-size: 4.6cqi;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+  }
+
+  .inv__stack .inv__button {
+    margin-top: 0;
+  }
+
+  .inv__ghost {
+    margin-top: auto;
+    padding: 3cqi 6cqi;
+    border: 1px solid var(--color-border-strong);
+    border-radius: 999px;
+    font-size: 4.4cqi;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-text);
+  }
+
+  .inv__pill {
+    padding: 1.6cqi 3.6cqi;
+    border: 1px solid var(--color-gold-dim);
+    border-radius: 999px;
+    font-size: 3.5cqi;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-gold);
+  }
+
+  .inv__events,
+  .inv__summary,
+  .inv__gifts,
+  .inv__times {
+    display: flex;
+    flex-direction: column;
+    gap: 2.6cqi;
+    width: 100%;
+    margin: 1cqi 0 0;
+    padding: 0;
+    list-style: none;
+    text-align: left;
+  }
+
+  .inv__events li {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    column-gap: 2cqi;
+    padding: 3.4cqi 4cqi;
+    border: 1px solid var(--color-border);
+    border-radius: 1.4cqi;
+    background: var(--color-surface);
+  }
+
+  .inv__events .inv__meta {
+    grid-column: 1;
+  }
+
+  .inv__events .inv__pill {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+
+  .inv__event,
+  .inv__who {
+    font-family: var(--font-display);
+    font-size: 6cqi;
+    line-height: 1.15;
+  }
+
+  .inv__person {
+    display: flex;
+    flex-direction: column;
+    gap: 2cqi;
+    width: 100%;
+    padding: 3.4cqi 4cqi;
+    border: 1px solid var(--color-border);
+    border-radius: 1.4cqi;
+    text-align: left;
+  }
+
+  .inv__choice {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2cqi;
+  }
+
+  .inv__choice > span,
+  .inv__tags > span {
+    padding: 2cqi 1cqi;
+    border: 1px solid var(--color-border);
+    border-radius: 1cqi;
+    font-size: 3.7cqi;
+    letter-spacing: 0.08em;
+    text-align: center;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+  }
+
+  .inv__tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.6cqi;
+  }
+
+  .inv__tags > span {
+    padding-inline: 2.6cqi;
+    border-radius: 999px;
+    text-transform: none;
+    letter-spacing: 0.02em;
+  }
+
+  .inv__choice > .is-on,
+  .inv__tags > .is-on {
+    border-color: var(--color-gold);
+    background: color-mix(in oklch, var(--color-gold) 10%, transparent);
+    color: var(--color-gold);
+  }
+
+  .inv__summary li,
+  .inv__gifts li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 2cqi;
+    padding-block: 2.6cqi;
+    border-top: 1px solid var(--color-border);
+  }
+
+  .inv__summary li {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.6cqi;
+  }
+
+  .inv__meta.is-on {
+    color: var(--color-gold);
+    font-size: 4.4cqi;
+  }
+
+  .inv__times li {
+    display: grid;
+    grid-template-columns: 20cqi 1fr;
+    gap: 3cqi;
+    font-size: 4.7cqi;
+    line-height: 1.3;
+  }
+
+  .inv__time {
+    color: var(--color-gold);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .inv--on-the-day .inv__meta {
+    margin-top: 2cqi;
+  }
+</style>

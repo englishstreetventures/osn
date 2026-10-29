@@ -1,0 +1,222 @@
+---
+// The three plans, from `lib/plans.ts`: their prices, guest caps and what each
+// adds. Every call to action is the same one the rest of the page makes, to
+// the organiser portal; a couple starts on Ivory and upgrades from their
+// dashboard, so there is nothing to choose before signing up.
+import { GOLD_TO_CRIMSON_PRICE, PLANS } from '../../lib/plans'
+import { ORGANISER_URL } from '../../lib/site'
+---
+<section id="pricing" class="pricing" aria-labelledby="pricing-heading">
+  <div class="pricing__inner">
+    <header class="pricing__head" data-reveal>
+      <h2 id="pricing-heading" class="display pricing__title">
+        Start free. Pay once if you need more.
+      </h2>
+      <p class="pricing__lede">
+        One price for your wedding, never a subscription. All prices in Australian dollars.
+      </p>
+    </header>
+
+    <div class="plans" data-reveal>
+      {
+        PLANS.map((plan) => (
+          <article
+            class:list={['plan', { 'plan--featured': plan.id === 'gold' }]}
+            data-plan={plan.id}
+            aria-labelledby={`plan-${plan.id}`}
+          >
+            <h3 id={`plan-${plan.id}`} class="display plan__name" data-plan-name>
+              {plan.name}
+            </h3>
+            <p class="plan__desc">{plan.description}</p>
+            <p class="plan__price" data-plan-price>
+              {plan.price === 0 ? (
+                'Free'
+              ) : (
+                <><span class="plan__currency">A$</span>{plan.price}</>
+              )}
+            </p>
+            <p class="plan__period">
+              {plan.price === 0 ? 'No card needed' : 'Once, for your wedding'}
+            </p>
+            <p class="plan__cap">
+              Up to <strong data-plan-cap>{plan.guestCap.toLocaleString('en-AU')}</strong> guests
+            </p>
+            <ul class="plan__list">
+              {plan.inclusions.map((item) => (
+                <li>{item}</li>
+              ))}
+            </ul>
+            <a href={ORGANISER_URL} class={plan.id === 'gold' ? 'cta-primary' : 'cta-ghost'}>
+              Create your invitation
+            </a>
+          </article>
+        ))
+      }
+    </div>
+
+    <p class="pricing__note" data-plan-upgrade>
+      Already on Gold? Move up to Crimson for A${GOLD_TO_CRIMSON_PRICE}. Start on Ivory and upgrade
+      from your dashboard whenever you need to.
+    </p>
+  </div>
+</section>
+
+<style>
+  .pricing {
+    padding: 6rem 1.5rem;
+  }
+
+  .pricing__inner {
+    max-width: 64rem;
+    margin: 0 auto;
+  }
+
+  .pricing__head {
+    max-width: 36rem;
+    margin: 0 auto 3.5rem;
+    text-align: center;
+  }
+
+  .pricing__title {
+    margin: 0;
+    color: var(--color-text);
+    font-size: clamp(1.9rem, 4.5vw, 3rem);
+    line-height: var(--ui-leading-tight);
+  }
+
+  .pricing__lede {
+    margin: 1.25rem 0 0;
+    color: var(--color-text-muted);
+    font-size: var(--ui-text-md);
+    font-weight: 300;
+    line-height: var(--ui-leading-relaxed);
+  }
+
+  .plans {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1.25rem;
+  }
+
+  @media (min-width: 768px) {
+    .plans {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      align-items: start;
+    }
+
+    .plan--featured {
+      margin-top: -0.75rem;
+    }
+  }
+
+  .plan {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    padding: 2rem 1.75rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--ui-radius-md);
+    background: color-mix(in oklch, var(--color-surface) 70%, transparent);
+  }
+
+  .plan--featured {
+    border-color: var(--color-gold-dim);
+    background: var(--color-surface-raised);
+    box-shadow: 0 1.5rem 3rem -1.5rem oklch(0% 0 0 / 0.6);
+  }
+
+  .plan__name {
+    margin: 0;
+    color: var(--color-gold);
+    font-size: 1.9rem;
+    font-weight: 400;
+    line-height: 1.1;
+  }
+
+  .plan__desc {
+    margin-top: 0.4rem;
+    min-height: 2.6em;
+    color: var(--color-text-muted);
+    font-size: var(--ui-text-base);
+    font-weight: 300;
+    line-height: 1.45;
+  }
+
+  .plan__price {
+    margin-top: 1.5rem;
+    color: var(--color-text);
+    font-family: var(--font-display);
+    font-size: 3.25rem;
+    font-weight: 300;
+    line-height: 1;
+    font-variant-numeric: lining-nums;
+  }
+
+  .plan__currency {
+    margin-right: 0.1em;
+    font-size: 0.5em;
+    vertical-align: 0.6em;
+  }
+
+  .plan__period {
+    margin-top: 0.5rem;
+    color: var(--color-text-muted);
+    font-size: var(--ui-text-sm);
+  }
+
+  .plan__cap {
+    margin-top: 1.5rem;
+    padding-top: 1.25rem;
+    border-top: 1px solid var(--color-border);
+    color: var(--color-text-muted);
+    font-size: var(--ui-text-base);
+  }
+
+  .plan__cap strong {
+    color: var(--color-text);
+    font-weight: 700;
+  }
+
+  .plan__list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    margin: 1rem 0 2rem;
+    padding: 0;
+    list-style: none;
+    color: var(--color-text);
+    font-size: var(--ui-text-base);
+    font-weight: 300;
+    line-height: 1.4;
+  }
+
+  /* A small gold lozenge for a bullet. */
+  .plan__list li {
+    display: grid;
+    grid-template-columns: 0.35rem 1fr;
+    gap: 0.85rem;
+    align-items: baseline;
+  }
+
+  .plan__list li::before {
+    content: '';
+    aspect-ratio: 1;
+    transform: translateY(-0.2em) rotate(45deg);
+    background: var(--color-gold);
+  }
+
+  .plan a {
+    margin-top: auto;
+    text-align: center;
+  }
+
+  .pricing__note {
+    max-width: 36rem;
+    margin: 2.5rem auto 0;
+    color: var(--color-text-muted);
+    font-size: var(--ui-text-sm);
+    line-height: var(--ui-leading-relaxed);
+    text-align: center;
+  }
+</style>

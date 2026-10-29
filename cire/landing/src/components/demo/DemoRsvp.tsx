@@ -33,14 +33,14 @@ const DEMO_EVENTS: DemoEvent[] = [
   {
     id: "ceremony",
     name: "The Ceremony",
-    date: "Saturday, 17 October 2026",
+    date: "Saturday, 20 March 2027",
     location: "Cliffside Chapel, Byron Bay",
     description: "Vows at golden hour, followed by canapés on the lawn.",
   },
   {
     id: "reception",
     name: "The Reception",
-    date: "Saturday, 17 October 2026",
+    date: "Saturday, 20 March 2027",
     location: "The Glasshouse, Byron Bay",
     description: "Dinner, dancing and a little late-night magic.",
   },
@@ -149,16 +149,12 @@ function DemoRsvpModal(props: DemoRsvpModalProps) {
   /*
    * Reset per event, explicitly.
    *
-   * This component used to be mounted inside `<Show when={rsvpEvent()}>`, so
-   * every event got a fresh instance and its state reset by construction. It
-   * stays mounted now — the sheet has to survive its own exit animation — which
-   * means one instance for every event, and a `createSignal` initialiser that
-   * runs once, while `props.event` is still null.
-   *
-   * The failure that caused was quiet rather than loud: `responses` stayed `{}`,
-   * so `current[guestId]?.attending !== null` was `undefined !== null`, every
-   * guest counted as answered, and the "respond for everyone" guard never
-   * fired. A test caught it; nothing about the rendered sheet looked wrong.
+   * The sheet stays mounted so it can animate its own exit, so one instance
+   * serves every event, and a `createSignal` initialiser runs once, while
+   * `props.event` is still null. Without this reset `responses` would stay
+   * `{}`, `current[guestId]?.attending !== null` would read `undefined !==
+   * null`, every guest would count as answered, and the "respond for everyone"
+   * guard would never fire, with nothing on screen looking wrong.
    */
   createEffect(
     on(
@@ -226,12 +222,9 @@ function DemoRsvpModal(props: DemoRsvpModalProps) {
         <h3 id={titleId} class="font-display text-text text-ui-xl mb-2 font-light italic">
           {shownEvent()?.name}
         </h3>
-        <p
-          class="border-gold/40 bg-gold/5 text-gold text-ui-xs mb-6 rounded-sm border px-3.5 py-2.5 leading-relaxed"
-          role="status"
-        >
+        <output class="border-gold/40 bg-gold/5 text-gold text-ui-xs mb-6 block rounded-sm border px-3.5 py-2.5 leading-relaxed">
           Interactive preview. Your reply won&rsquo;t be saved.
-        </p>
+        </output>
 
         <form class="flex flex-col gap-5" onSubmit={handleSubmit}>
           <For each={eventMembers()}>

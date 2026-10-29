@@ -1,69 +1,461 @@
 ---
-// The face of the invitation. The whole first screen is the sealed letter: a
-// real, three-dimensional wax seal resting at its heart, with the opening line
-// and the calls to action set beneath it.
+// The first screen: the invitation itself. A fan of five phones, the middle
+// one a finished Cire invitation and the four around it silhouettes. Four chips
+// under the fan switch the middle phone between the sealed invitation, the
+// opened one, the reply and the day itself.
 //
-// Progressive enhancement is the rule here. Every word and both CTAs are
-// server-rendered and painted immediately — the 3D seal (WaxSeal3D) is a purely
-// decorative island layered in. No JS, no WebGL, or reduced motion: the seal is
-// a flat gold disc and the page reads and converts exactly the same.
-import { WaxSeal3D } from '../WaxSeal3D'
-import { DEMO_ANCHOR, DEMO_INVITE_URL, IMAGES, ORGANISER_URL, unsplash } from '../../lib/site'
+// The chips are radios, and the switch is CSS alone: the radios come first in
+// the group, so `:checked ~ .stage` picks the screen and `:focus-visible ~
+// .chips` rings the chip. No script, no `:has()` (the browser floor's Firefox
+// lacks it), and it works with JavaScript off. Arrow keys move between them
+// as between any radios.
+//
+// Every word and both calls to action are server-rendered. The phones are
+// hidden from assistive technology; the figure's caption says, in words, what
+// the chosen screen shows.
+import InviteScreen from '../mock/InviteScreen.astro'
+import PhoneFrame from '../mock/PhoneFrame.astro'
+import { DEMO_ANCHOR, DEMO_INVITE_URL, ORGANISER_URL } from '../../lib/site'
 
 const demoHref = DEMO_INVITE_URL ?? DEMO_ANCHOR
 const demoIsExternal = DEMO_INVITE_URL !== null
-const hero = IMAGES.hero
+
+const STATES = [
+  {
+    id: 'sealed',
+    label: 'Sealed',
+    caption:
+      'Sealed: the invitation as a guest first sees it, with the couple’s names, the date and a field for their household’s code.',
+  },
+  {
+    id: 'opened',
+    label: 'Opened',
+    caption: 'Opened: the couple’s words, the date, and the ceremony and reception to reply to.',
+  },
+  {
+    id: 'rsvp',
+    label: 'RSVP',
+    caption: 'The reply: each person in the household answers for each event, with dietary notes.',
+  },
+  {
+    id: 'on-the-day',
+    label: 'On the day',
+    caption: 'On the day: the timings, the dress code and the way to the venue.',
+  },
+] as const
 ---
-<section
-  class="relative flex min-h-[100svh] flex-col items-center justify-center overflow-hidden px-6 pt-28 pb-20 text-center"
-  aria-label="Cire: invitations worthy of the moment"
->
-  {/* Candle-warm celebration photo, dimmed under a forest radial so type and the
-      seal stay legible. Eager: it is the hero's paint. */}
-  <div class="absolute inset-0 -z-10">
-    <img
-      src={unsplash(hero.id, 2000)}
-      srcset={[640, 1024, 1600, 2000].map((w) => `${unsplash(hero.id, w)} ${w}w`).join(', ')}
-      sizes="100vw"
-      alt={hero.alt}
-      class="h-full w-full object-cover opacity-40"
-      fetchpriority="high"
-    />
-    <div
-      class="absolute inset-0"
-      style="background: radial-gradient(120% 90% at 50% 32%, oklch(19.96% 0.0331 147.34 / 0.55), oklch(19.96% 0.0331 147.34 / 0.97));"
-    >
-    </div>
-  </div>
-
-  {/* The seal presenter — decorative, hydrates client-side, degrades to a poster. */}
-  <div class="mb-10 md:mb-12">
-    <WaxSeal3D client:load />
-  </div>
-
-  <div class="letter-column max-w-[46rem]">
-    <p class="eyebrow mb-6">Bespoke digital wedding invitations</p>
-    <h1 class="display text-text text-[clamp(2.6rem,8vw,5rem)] leading-ui-none">
-      Invitations worthy of the moment
-    </h1>
-    <p
-      class="font-body text-text-muted mx-auto mt-7 max-w-[34rem] text-ui-md leading-ui-relaxed font-light"
-    >
-      A real invitation: tactile, animated, personal. And it counts every RSVP, so you never chase a
-      reply.
+<section id="hero" class="hero" aria-labelledby="hero-heading">
+  <div class="hero__copy">
+    <p class="eyebrow mb-5">Digital wedding invitations</p>
+    <h1 id="hero-heading" class="display hero__title">Invitations worthy of the moment</h1>
+    <p class="hero__lede">
+      A real invitation your guests open, answer and keep, with every reply counted for you.
     </p>
-    <div class="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
-      <a href={ORGANISER_URL} class="cta-primary w-full sm:w-auto">
-        Create your invitation
-      </a>
+    <div class="hero__ctas">
+      <a href={ORGANISER_URL} class="cta-primary">Create your invitation</a>
       <a
         href={demoHref}
         target={demoIsExternal ? '_blank' : undefined}
         rel={demoIsExternal ? 'noopener noreferrer' : undefined}
-        class="cta-ghost w-full sm:w-auto"
+        class="cta-ghost"
       >
         See a live invite
       </a>
     </div>
   </div>
+
+  <fieldset class="show">
+    <legend class="sr-only">Show the invitation</legend>
+    {
+      STATES.map((state, index) => (
+        <input
+          type="radio"
+          name="hero-state"
+          id={`hs-${state.id}`}
+          value={state.id}
+          checked={index === 0}
+          class="show__radio"
+        />
+      ))
+    }
+
+    <figure class="stage">
+      <div class="fan">
+        <div class="fan__slot" data-fan="far-left"><PhoneFrame variant="placeholder" /></div>
+        <div class="fan__slot" data-fan="left"><PhoneFrame variant="placeholder" /></div>
+        <div class="fan__slot" data-fan="centre">
+          <PhoneFrame>
+            <div class="screens">
+              {
+                STATES.map((state) => (
+                  <div class="screen" data-state={state.id}>
+                    <InviteScreen screen={state.id} />
+                  </div>
+                ))
+              }
+            </div>
+          </PhoneFrame>
+        </div>
+        <div class="fan__slot" data-fan="right"><PhoneFrame variant="placeholder" /></div>
+        <div class="fan__slot" data-fan="far-right"><PhoneFrame variant="placeholder" /></div>
+      </div>
+      <figcaption class="sr-only">
+        {
+          STATES.map((state) => (
+            <span class="stage__caption" data-caption={state.id}>
+              {state.caption}
+            </span>
+          ))
+        }
+      </figcaption>
+    </figure>
+
+    <div class="chips">
+      {
+        STATES.map((state) => (
+          <label for={`hs-${state.id}`} class="chip">
+            {state.label}
+          </label>
+        ))
+      }
+    </div>
+  </fieldset>
 </section>
+
+<style>
+  .hero {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 5rem 1.5rem 3.5rem;
+    text-align: center;
+    /* The outer phones run past the edge on a narrow screen; clip, never
+       scroll, so the page cannot pan sideways and no focus can scroll it. */
+    overflow-x: clip;
+  }
+
+  .hero__copy {
+    max-width: 62rem;
+  }
+
+  .hero__title {
+    margin: 0;
+    color: var(--color-text);
+    font-size: clamp(2.6rem, 6.4vw, 4.4rem);
+    line-height: 1.05;
+    text-wrap: balance;
+  }
+
+  .hero__lede {
+    max-width: 32rem;
+    margin: 1.25rem auto 0;
+    color: var(--color-text-muted);
+    font-size: var(--ui-text-md);
+    font-weight: 300;
+    line-height: 1.7;
+  }
+
+  .hero__ctas {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+    margin-top: 1.75rem;
+  }
+
+  @media (min-width: 640px) {
+    .hero {
+      padding-top: 6.5rem;
+    }
+
+    .hero__ctas {
+      flex-direction: row;
+      justify-content: center;
+    }
+  }
+
+  /* ── The fan and its chips ───────────────────────────────────────────── */
+
+  .show {
+    position: relative;
+    width: 100%;
+    min-inline-size: 0;
+    margin: 2.75rem 0 0;
+    padding: 0;
+    border: 0;
+  }
+
+  /* Hidden, but sitting where the chips are: clicking a chip focuses its
+     radio, and the browser scrolls a focused element into view. */
+  .show__radio {
+    position: absolute;
+    bottom: 1.25rem;
+    left: 50%;
+    width: 1px;
+    height: 1px;
+    margin: 0;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .stage {
+    position: relative;
+    margin: 0;
+  }
+
+  /* The bloom the invitation rests in. */
+  .stage::before {
+    content: '';
+    position: absolute;
+    inset: -12% -20% 0;
+    background: radial-gradient(
+      closest-side,
+      color-mix(in oklch, var(--color-gold) 16%, transparent),
+      transparent
+    );
+    pointer-events: none;
+  }
+
+  .fan {
+    --phone-w: 10rem;
+    position: relative;
+    display: grid;
+    justify-items: center;
+    height: calc(var(--phone-w) * 2);
+  }
+
+  .fan__slot {
+    grid-area: 1 / 1;
+    width: var(--phone-w);
+    transform: translateX(var(--x, 0)) rotate(var(--r, 0deg)) scale(var(--s, 1));
+    transform-origin: 50% 90%;
+    opacity: var(--o, 1);
+  }
+
+  .fan__slot[data-fan='centre'] {
+    z-index: 3;
+  }
+
+  /* Under 640px the neighbours lean in, so their tops stay on the screen,
+     and the outer pair is not drawn at all. */
+  .fan__slot[data-fan='left'] {
+    --x: -62%;
+    --r: 5deg;
+    --s: 0.82;
+    --o: 0.55;
+    z-index: 2;
+  }
+
+  .fan__slot[data-fan='right'] {
+    --x: 62%;
+    --r: -5deg;
+    --s: 0.82;
+    --o: 0.55;
+    z-index: 2;
+  }
+
+  .fan__slot[data-fan^='far-'] {
+    display: none;
+    z-index: 1;
+  }
+
+  @media (min-width: 640px) {
+    .fan {
+      --phone-w: 12.5rem;
+    }
+
+    .fan__slot[data-fan='left'] {
+      --x: -66%;
+      --r: -5deg;
+      --s: 0.84;
+      --o: 0.6;
+    }
+
+    .fan__slot[data-fan='right'] {
+      --x: 66%;
+      --r: 5deg;
+      --s: 0.84;
+      --o: 0.6;
+    }
+
+    .fan__slot[data-fan^='far-'] {
+      display: block;
+      --s: 0.7;
+      --o: 0.35;
+    }
+
+    .fan__slot[data-fan='far-left'] {
+      --x: -118%;
+      --r: -9deg;
+    }
+
+    .fan__slot[data-fan='far-right'] {
+      --x: 118%;
+      --r: 9deg;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .fan {
+      --phone-w: 13.5rem;
+    }
+
+    .fan__slot[data-fan='left'] {
+      --x: -72%;
+      --r: -6deg;
+      --s: 0.86;
+    }
+
+    .fan__slot[data-fan='right'] {
+      --x: 72%;
+      --r: 6deg;
+      --s: 0.86;
+    }
+
+    .fan__slot[data-fan^='far-'] {
+      --s: 0.72;
+    }
+
+    .fan__slot[data-fan='far-left'] {
+      --x: -132%;
+      --r: -10deg;
+    }
+
+    .fan__slot[data-fan='far-right'] {
+      --x: 132%;
+      --r: 10deg;
+    }
+  }
+
+  /* The fan opens once on arrival, from a closed stack. */
+  @media (prefers-reduced-motion: no-preference) {
+    .fan__slot {
+      animation: fan-open 0.9s var(--ease-out) both;
+    }
+
+    .fan__slot[data-fan='left'],
+    .fan__slot[data-fan='right'] {
+      animation-delay: 0.08s;
+    }
+
+    .fan__slot[data-fan^='far-'] {
+      animation-delay: 0.16s;
+    }
+  }
+
+  @keyframes fan-open {
+    from {
+      opacity: 0;
+      transform: translateX(0) rotate(0deg) scale(var(--s, 1));
+    }
+  }
+
+  /* The four screens share one cell; the chosen one shows. */
+  .screens {
+    display: grid;
+    height: 100%;
+  }
+
+  .screen {
+    grid-area: 1 / 1;
+    min-height: 0;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(0.5rem);
+    transition:
+      opacity 0.45s var(--ease-out),
+      transform 0.45s var(--ease-out),
+      visibility 0s linear 0.45s;
+  }
+
+  #hs-sealed:checked ~ .stage [data-state='sealed'],
+  #hs-opened:checked ~ .stage [data-state='opened'],
+  #hs-rsvp:checked ~ .stage [data-state='rsvp'],
+  #hs-on-the-day:checked ~ .stage [data-state='on-the-day'] {
+    opacity: 1;
+    visibility: visible;
+    transform: none;
+    transition-delay: 0s;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .screen {
+      transition: none;
+    }
+  }
+
+  .stage__caption {
+    display: none;
+  }
+
+  #hs-sealed:checked ~ .stage [data-caption='sealed'],
+  #hs-opened:checked ~ .stage [data-caption='opened'],
+  #hs-rsvp:checked ~ .stage [data-caption='rsvp'],
+  #hs-on-the-day:checked ~ .stage [data-caption='on-the-day'] {
+    display: inline;
+  }
+
+  .chips {
+    position: relative;
+    z-index: 4;
+    display: inline-flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.25rem;
+    margin-top: 1.75rem;
+    padding: 0.25rem;
+    border: 1px solid var(--color-border);
+    border-radius: 999px;
+    background: color-mix(in oklch, var(--color-bg) 80%, transparent);
+  }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.75rem;
+    padding: 0 0.7rem;
+    border-radius: 999px;
+    color: var(--color-text-muted);
+    font-family: var(--font-body);
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+      color 0.2s var(--ease-out),
+      background-color 0.2s var(--ease-out),
+      box-shadow 0.2s var(--ease-out);
+  }
+
+  .chip:hover {
+    color: var(--color-text);
+  }
+
+  @media (min-width: 640px) {
+    .chip {
+      padding: 0 1.15rem;
+      font-size: 0.74rem;
+      letter-spacing: 0.12em;
+    }
+  }
+
+  #hs-sealed:checked ~ .chips [for='hs-sealed'],
+  #hs-opened:checked ~ .chips [for='hs-opened'],
+  #hs-rsvp:checked ~ .chips [for='hs-rsvp'],
+  #hs-on-the-day:checked ~ .chips [for='hs-on-the-day'] {
+    background: var(--color-surface-raised);
+    box-shadow: inset 0 0 0 1px var(--color-gold-dim);
+    color: var(--color-gold);
+  }
+
+  /* The ring is drawn at once, never animated, as on every control here. */
+  #hs-sealed:focus-visible ~ .chips [for='hs-sealed'],
+  #hs-opened:focus-visible ~ .chips [for='hs-opened'],
+  #hs-rsvp:focus-visible ~ .chips [for='hs-rsvp'],
+  #hs-on-the-day:focus-visible ~ .chips [for='hs-on-the-day'] {
+    outline: 2px solid var(--color-gold);
+    outline-offset: 4px;
+  }
+</style>
