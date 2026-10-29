@@ -1,7 +1,7 @@
 import { eyebrowClass } from "@cire/ui/eyebrow";
 import { cleanup, render, screen } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 
 import "../../src/styles/global.css";
 
@@ -120,6 +120,11 @@ describe("the vendor portal's cards", () => {
         await pictureWholePage(`inbox-${viewport.name}-${theme}`, viewport.width);
 
         await page.viewport(viewport.width, viewport.height);
+        // The whole row is the control: a hover turns its border gold.
+        await userEvent.hover(row);
+        await settle();
+        expect(getComputedStyle(row).borderTopColor).toBe(painted("--ui-accent-soft"));
+        await userEvent.unhover(row);
         row.click();
         const quote = await screen.findByText("Send a quote", {}, { timeout: 5_000 });
         await settle();
