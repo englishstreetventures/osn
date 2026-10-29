@@ -35,7 +35,7 @@ import AccountAvatar, { accountName, AVATAR_TRIGGER_CLASS } from "./AccountAvata
  */
 const itemClass =
   "font-body flex w-full cursor-pointer items-center rounded-sm px-3 py-2 text-ui-sm " +
-  "outline-none transition-colors duration-(--dur-fast) ease-(--ease-out) " +
+  "outline-none transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast) ease-(--ease-out) " +
   "text-text-muted data-[highlighted]:bg-gold/10 data-[highlighted]:text-gold";
 
 /** The same row, plus room for the indicator column the settings rows carry. */

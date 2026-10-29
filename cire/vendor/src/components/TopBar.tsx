@@ -120,7 +120,7 @@ export default function TopBar(props: {
           type="button"
           aria-label="Cire — your listings"
           onClick={() => props.onHome()}
-          class="group hover:bg-surface/60 -mx-1 flex shrink-0 items-center gap-2 rounded-sm px-1.5 py-1.5 transition-colors duration-(--dur-fast) ease-(--ease-out)"
+          class="group hover:bg-surface/60 -mx-1 flex shrink-0 items-center gap-2 rounded-sm px-1.5 py-1.5 transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast) ease-(--ease-out)"
         >
           <span
             aria-hidden="true"
