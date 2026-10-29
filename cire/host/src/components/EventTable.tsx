@@ -1,5 +1,6 @@
 import Button from "@cire/ui/button";
 import { cardClass } from "@cire/ui/card";
+import Eyebrow from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
 import { EmptyState } from "@shared/ui/ui/empty-state";
@@ -237,9 +238,7 @@ export default function EventTable(props: EventTableProps) {
               // details into a half-width card.
               <li class={EVENT_CARD_CLASS}>
                 <header class="flex flex-col gap-1">
-                  <span class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">
-                    {event.slug}
-                  </span>
+                  <Eyebrow as="span">{event.slug}</Eyebrow>
                   <h3 class="font-display text-text text-ui-lg font-light">{event.name}</h3>
                   <p class="font-body text-text-muted text-ui-sm">
                     {formatEventWhen(event.startAt, event.endAt, event.timezone)} · {event.timezone}

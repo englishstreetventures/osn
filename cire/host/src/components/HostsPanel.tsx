@@ -1,4 +1,5 @@
 import Button from "@cire/ui/button";
+import { cardClass } from "@cire/ui/card";
 import { UsernameInput } from "@cire/ui/username-input";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
@@ -44,6 +45,8 @@ import {
 import LeaveWedding from "./LeaveWedding";
 import SectionIntro from "./SectionIntro";
 import UpgradeDialog from "./UpgradeDialog";
+
+const HOST_ROW_CLASS = `${cardClass({ padding: "sm" })} flex-row flex-wrap items-center justify-between gap-x-4 gap-y-2`;
 
 /** A seat on the wedding — an owner's or a co-host's. Owners are seats like
  *  everyone else, so one shape serves both. */
@@ -1152,11 +1155,8 @@ export default function HostsPanel(props: HostsPanelProps) {
                 // under the name and the controls: at phone width there is no
                 // room beside them for a second select at its full width.
                 <li
-                  class="rounded-ui-lg flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border px-4 py-3"
-                  classList={{
-                    "border-gold/40 bg-gold/5": host.role === "owner",
-                    "border-border bg-surface/30": host.role !== "owner",
-                  }}
+                  class={HOST_ROW_CLASS}
+                  classList={{ "border-gold/40 bg-gold/5": host.role === "owner" }}
                 >
                   <span class="font-body text-text text-ui-base flex flex-wrap items-center gap-3">
                     {host.handle ? (

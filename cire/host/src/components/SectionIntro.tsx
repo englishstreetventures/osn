@@ -1,3 +1,4 @@
+import Eyebrow from "@cire/ui/eyebrow";
 import type { JSX } from "solid-js";
 import { Show } from "solid-js";
 
@@ -19,7 +20,7 @@ export default function SectionIntro(props: {
   return (
     <div class="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
       <div class="flex flex-col gap-1">
-        <p class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">{props.eyebrow}</p>
+        <Eyebrow>{props.eyebrow}</Eyebrow>
         <h2 class="font-display text-text text-ui-lg font-light">{props.title}</h2>
         <Show when={props.description}>
           <p class="font-body text-text-muted text-ui-sm leading-ui-normal max-w-prose">

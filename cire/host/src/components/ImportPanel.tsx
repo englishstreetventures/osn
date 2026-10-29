@@ -1,5 +1,8 @@
 import { ORGANISER_EMAIL_ATTESTATION } from "@cire/guest-email";
 import Button from "@cire/ui/button";
+import { cardClass } from "@cire/ui/card";
+import Disclosure from "@cire/ui/disclosure";
+import Eyebrow from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
 import { Field } from "@shared/ui/ui/field";
 import { Notice } from "@shared/ui/ui/notice";
@@ -35,6 +38,9 @@ import {
 } from "./ChangePreview";
 import EmailAttestationCheck from "./EmailAttestationCheck";
 import SectionIntro from "./SectionIntro";
+
+const DIFF_PREVIEW_CLASS = `${cardClass({ padding: "sm", fill: "well" })} gap-4`;
+
 interface ImportPlan {
   eventCreates: unknown[];
   eventUpdates: unknown[];
@@ -483,7 +489,7 @@ export default function ImportPanel(props: {
 
       <Show when={preview()}>
         {(p) => (
-          <div class="border-border bg-bg/40 rounded-ui-lg flex flex-col gap-4 border p-4">
+          <div class={DIFF_PREVIEW_CLASS}>
             <h3 class="font-display text-gold-ink text-ui-md">Diff preview</h3>
             {/* The reassurance under a destructive confirm is read off the
                 SERVER's echoed scope, not off what this panel believes it sent.
@@ -604,7 +610,7 @@ function Col(props: { children: string; required?: boolean }) {
 function KeyLegend() {
   return (
     <div class="text-ui-sm flex flex-wrap items-center gap-x-4 gap-y-1.5">
-      <span class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">Key</span>
+      <Eyebrow as="span">Key</Eyebrow>
       <span class="text-text-muted flex items-center gap-1.5">
         <Col required>Aa</Col> indicates mandatory fields
       </span>
@@ -617,25 +623,16 @@ function KeyLegend() {
 
 /**
  * A collapsible "Formatting tips" aside — the deep, per-field guidance (timestamp
- * shape, IANA timezone, palette syntax, attendance tokens) lives behind a native
- * <details>/<summary> so the default sheet view stays short and scannable and the
- * nitty-gritty is one click away. Gold-accented to match the rest of the panel,
- * keyboard- and screen-reader-accessible with no JS.
+ * shape, IANA timezone, palette syntax, attendance tokens) lives behind a
+ * disclosure so the default sheet view stays short and scannable and the
+ * nitty-gritty is one click away. Nested: it sits inside a step card of the
+ * guide, so it takes the small corner.
  */
 function FormattingTips(props: { children: JSX.Element }) {
   return (
-    <details class="border-gold/25 bg-gold/6 group/tips rounded-sm border">
-      <summary class="font-display text-gold-ink text-ui-base flex cursor-pointer list-none items-center gap-2 p-3 select-none focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 [&::-webkit-details-marker]:hidden">
-        <span
-          class="text-gold inline-block not-italic transition-transform duration-(--dur-fast) ease-(--ease-out) group-open/tips:rotate-90"
-          aria-hidden
-        >
-          ›
-        </span>
-        Formatting tips
-      </summary>
-      <div class="flex flex-col gap-3 px-3.5 pt-1 pb-3.5">{props.children}</div>
-    </details>
+    <Disclosure nested summary="Formatting tips">
+      {props.children}
+    </Disclosure>
   );
 }
 
@@ -930,31 +927,20 @@ function CsvFormatHelp(props: { kind: ImportKind }) {
     if (firstTime) markImportHelpSeen();
   });
 
+  // The glow is the portal's own treatment, so it goes on a wrapper with the
+  // guide's corner (its ring is `border-radius: inherit`), never on the part.
   return (
-    <details
-      open={firstTime}
-      class="border-border bg-bg/30 group rounded-ui-lg border"
-      classList={{ "attention-glow": firstTime && !touched() }}
-    >
+    <div class="rounded-ui-lg" classList={{ "attention-glow": firstTime && !touched() }}>
       {/* The summary's own click — NOT the details' `toggle` — is what counts as
           "touched". Setting `open` programmatically fires `toggle` too, so a
           toggle listener would call the guide touched at the very moment it
           opened itself and the glow would never paint. A click covers the
           keyboard path as well: Enter/Space on a focused summary IS a click. */}
-      <summary
-        onClick={() => setTouched(true)}
-        class="font-body text-text hover:text-gold text-ui-base flex cursor-pointer items-center gap-2 px-4 py-3 transition duration-(--dur-fast) ease-(--ease-out) select-none"
+      <Disclosure
+        open={firstTime}
+        onSummaryClick={() => setTouched(true)}
+        summary="How to structure your sheet — CSV format"
       >
-        <span
-          class="text-gold inline-block transition-transform duration-(--dur-fast) ease-(--ease-out) group-open:rotate-90"
-          aria-hidden
-        >
-          ›
-        </span>
-        How to structure your sheet — CSV format
-      </summary>
-
-      <div class="border-border/60 flex flex-col gap-5 border-t px-4 py-5">
         <ol class="auto-grid items-start [--auto-grid-min:17rem]">
           <StepCard n={1} title="New here?">
             <p class="text-text-muted text-ui-sm">
@@ -1006,7 +992,7 @@ function CsvFormatHelp(props: { kind: ImportKind }) {
             </p>
           </StepCard>
         </ol>
-      </div>
-    </details>
+      </Disclosure>
+    </div>
   );
 }

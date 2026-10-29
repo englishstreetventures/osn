@@ -1,4 +1,6 @@
 import Button from "@cire/ui/button";
+import Disclosure from "@cire/ui/disclosure";
+import Eyebrow from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
 import { Notice } from "@shared/ui/ui/notice";
 import { createSignal, For, Show } from "solid-js";
@@ -195,9 +197,9 @@ export default function ChangeHistory(props: { weddingId: string }) {
     }
   }
 
-  function onToggle(e: Event) {
+  function onToggle(open: boolean) {
     // Lazy-load the first time the disclosure is opened.
-    if ((e.currentTarget as HTMLDetailsElement).open && !loaded() && !loading()) {
+    if (open && !loaded() && !loading()) {
       void loadList();
     }
   }
@@ -244,18 +246,9 @@ export default function ChangeHistory(props: { weddingId: string }) {
   }
 
   return (
-    <details class="border-border bg-bg/30 group/history rounded-ui-lg border" onToggle={onToggle}>
-      <summary class="font-body text-text hover:text-gold text-ui-base flex cursor-pointer items-center gap-2 px-4 py-3 transition duration-(--dur-fast) ease-(--ease-out) select-none [&::-webkit-details-marker]:hidden">
-        <span
-          class="text-gold inline-block transition-transform duration-(--dur-fast) ease-(--ease-out) group-open/history:rotate-90"
-          aria-hidden
-        >
-          ›
-        </span>
-        Change history
-      </summary>
-
-      <div class="border-border/60 flex flex-col gap-4 border-t px-4 py-5">
+    <Disclosure summary="Change history" onToggle={onToggle}>
+      {/* The notice, the loading line and the list keep a 16px rhythm. */}
+      <div class="flex flex-col gap-4">
         <Show when={error()}>
           <Notice tone="danger">{error()}</Notice>
         </Show>
@@ -281,9 +274,7 @@ export default function ChangeHistory(props: { weddingId: string }) {
                 return (
                   <li class="border-border bg-surface/30 flex flex-col gap-2 rounded-sm border p-4 @lg/panel:flex-row @lg/panel:items-center @lg/panel:justify-between">
                     <div class="flex flex-col gap-1">
-                      <span class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">
-                        {KIND_LABEL[entry.kind] ?? "Change"}
-                      </span>
+                      <Eyebrow as="span">{KIND_LABEL[entry.kind] ?? "Change"}</Eyebrow>
                       <span class="font-body text-text text-ui-base">
                         {formatDate(entry.uploadedAt)}
                       </span>
@@ -327,6 +318,6 @@ export default function ChangeHistory(props: { weddingId: string }) {
           </ul>
         </Show>
       </div>
-    </details>
+    </Disclosure>
   );
 }

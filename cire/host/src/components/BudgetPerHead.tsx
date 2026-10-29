@@ -1,4 +1,5 @@
 import Button from "@cire/ui/button";
+import Eyebrow from "@cire/ui/eyebrow";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { createSignal, For, Show } from "solid-js";
@@ -156,9 +157,9 @@ export function PerHeadPanel(props: {
         )}
       </Field>
       <fieldset class="flex flex-col gap-1 border-0 p-0">
-        <legend class="text-gold-dim font-body text-ui-xs tracking-ui-widest mb-1 uppercase">
+        <Eyebrow as="legend" tone="muted" class="mb-1">
           Count guests at
-        </legend>
+        </Eyebrow>
         <label class="text-text text-ui-sm flex items-center gap-2">
           <input
             type="radio"

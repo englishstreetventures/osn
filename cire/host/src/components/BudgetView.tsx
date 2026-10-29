@@ -1,4 +1,6 @@
 import Button from "@cire/ui/button";
+import { cardClass } from "@cire/ui/card";
+import Eyebrow from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
 import {
   closestCenter,
@@ -30,13 +32,16 @@ import {
   revalidateBudget,
   setCachedBudget,
 } from "../lib/budget-store";
-import { FORM_ACTION_CLASS, FORM_FIELD_CLASS } from "../lib/form-field";
+import { FIELD_BAR_CLASS, FORM_ACTION_CLASS, FORM_FIELD_CLASS } from "../lib/form-field";
 import { haptic } from "../lib/haptics";
 import { belowSmallestUnitError, formatMinor, minorToInput, parseMinor } from "../lib/money";
 import { categoryLabel, SERVICE_CATEGORIES, type ServiceCategory } from "../lib/service-categories";
 import { sameButOrder } from "../lib/sortable-rows";
 import { type PerHeadChange, PerHeadPanel, PerHeadSummary } from "./BudgetPerHead";
 import ReorderControls from "./ReorderControls";
+
+const SUMMARY_CLASS = `${cardClass({ padding: "sm" })} flex-row flex-wrap items-center justify-between gap-4`;
+
 interface BudgetViewProps {
   weddingId: string;
   /** Owner/editor may add/edit items + payments and reorder. */
@@ -490,11 +495,11 @@ export default function BudgetView(props: BudgetViewProps) {
       </Show>
 
       {/* Summary — spent vs cap, owner cap editor. */}
-      <div class="border-border bg-surface/20 rounded-ui-lg flex flex-wrap items-center justify-between gap-4 border p-4">
+      <div class={SUMMARY_CLASS}>
         <div class="flex flex-col gap-1">
-          <span class="text-gold-dim font-body text-ui-xs tracking-ui-widest uppercase">
+          <Eyebrow as="span" tone="muted">
             Spent so far
-          </span>
+          </Eyebrow>
           <span class="text-text text-ui-lg font-semibold">
             {fmtMinor(spent(), currency())}
             <Show when={snapshot()?.budgetTotalMinor != null}>
@@ -558,10 +563,7 @@ export default function BudgetView(props: BudgetViewProps) {
 
       {/* Add item (editor). */}
       <Show when={props.canEdit}>
-        <form
-          onSubmit={addItem}
-          class="border-border bg-surface/20 rounded-ui-lg flex flex-wrap items-end gap-3 border p-4"
-        >
+        <form onSubmit={addItem} class={FIELD_BAR_CLASS}>
           <Field label="Category">
             {(field) => (
               <Select
@@ -660,9 +662,9 @@ export default function BudgetView(props: BudgetViewProps) {
                 <Show when={categoryItems().length > 0}>
                   <section class="flex flex-col gap-2">
                     <div class="flex items-baseline justify-between">
-                      <h3 class="text-gold-dim font-body text-ui-xs tracking-ui-widest uppercase">
+                      <Eyebrow as="h3" tone="muted">
                         {categoryLabel(category.key)}
-                      </h3>
+                      </Eyebrow>
                       <span class="text-text-muted text-ui-sm">
                         est {fmtMinor(subtotalEst(), currency())} · spent{" "}
                         {fmtMinor(subtotalActual(), currency())}
@@ -837,9 +839,9 @@ function MoneyCell(props: {
 }) {
   return (
     <label class="flex w-24 flex-col gap-0.5">
-      <span class="text-gold-dim font-body text-ui-xs tracking-ui-widest uppercase">
+      <Eyebrow as="span" tone="muted">
         {props.label}
-      </span>
+      </Eyebrow>
       <Show
         when={props.canEdit}
         fallback={

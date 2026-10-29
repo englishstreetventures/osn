@@ -6,11 +6,11 @@ import { commands } from "vitest/browser";
 import "../../src/styles/global.css";
 
 /**
- * A `<details>` body fading in as it opens, and not for a reader who asked for
- * no motion. The global reduced-motion block selects `*`, which no
- * pseudo-element matches, so it cannot reach `::details-content`: the fade is
- * gated by its own `no-preference` query, and only a real engine computes a
- * pseudo-element's animation to show which one won.
+ * `@cire/ui`'s `Disclosure`, painted by the host's own stylesheet: what its
+ * unit tests can only read as class names. The body's fade is the part's own
+ * transition, gated by `no-preference`: the global reduced-motion block selects
+ * `*`, which no pseudo-element matches, so it cannot reach `::details-content`,
+ * and only a real engine computes a pseudo-element's transition to show it.
  */
 
 const body = (el: Element) => getComputedStyle(el, "::details-content");
@@ -20,31 +20,6 @@ afterEach(async () => {
   await commands.emulateMedia({ reducedMotion: "no-preference" });
 });
 
-describe("a disclosure opening", () => {
-  it("fades its body in, and simply opens under reduced motion", async () => {
-    const { container } = render(() => (
-      <details>
-        <summary>More</summary>
-        <p>Inside</p>
-      </details>
-    ));
-    const details = container.querySelector("details")!;
-    details.open = true;
-    expect(body(details).animationName).toBe("details-in");
-
-    details.open = false;
-    await commands.emulateMedia({ reducedMotion: "reduce" });
-    details.open = true;
-    expect(body(details).animationName).toBe("none");
-  });
-});
-
-/**
- * `@cire/ui`'s `Disclosure`, painted by the host's own stylesheet: what its
- * unit tests can only read as class names. Until the app's `<details>` move
- * onto it, the host's `details-in` keyframe also runs on its body, so the fade
- * is read from the transition and not from the opacity.
- */
 describe("the Disclosure part", () => {
   const markerOf = (details: Element) =>
     [...details.querySelector(":scope > summary")!.children].find(
@@ -181,13 +156,6 @@ describe("the Disclosure part", () => {
   });
 
   it("makes the whole summary row the click target and sets the body under it", () => {
-    // The host stylesheet also fades every open `<details>` with its own
-    // `details-in` keyframe, which holds an unpainted body at its first frame;
-    // switched off here so the measurements read the part alone.
-    const noKeyframe = document.createElement("style");
-    noKeyframe.textContent = "details::details-content { animation: none !important; }";
-    document.head.append(noKeyframe);
-    onTestFinished(() => noKeyframe.remove());
     const { container } = render(() => (
       <div
         style={{
