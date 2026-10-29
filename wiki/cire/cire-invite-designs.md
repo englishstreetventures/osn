@@ -758,16 +758,10 @@ differs. On the guest site each corner paints:
 | 2px, `--radius-hair` | a legal page's inline placeholder (`.placeholder`), about 16px tall, where 6px would draw a near-pill |
 | round, `rounded-full` | the sheet's close cross, the dress-code colour circles, avatars, the gift radio marks, the spinner, the map pin's shadow |
 
-- **Every text field is one height.** The code field, the email box, a
-  plus-one's names, "Anything else" and the gift page's amount, name, quantity
-  and "From" are `h-8.5` (`FORM_FIELD_CLASS`, `src/lib/form-field.ts`), with
-  `py-1` in place of each field's own vertical padding — the cire apps' one
-  form-field height (owner, 2026-10-29; `cire/host/DESIGN.md` §4, One
-  form-field height). That is 2.125rem: 34px at the 16px root and 36.125px from
-  1024px, where the root steps to 17px. A textarea keeps its rows.
-  `tests/components/form-fields.browser.test.tsx` measures each at 390 and
-  1440px against 2.125 times the root size, with the 14px corner short of a
-  pill.
+- **Fields keep this site's own heights.** The portals' one form-field height
+  (34px, `cire/host/DESIGN.md` §4) does not reach the guest site, which is not a
+  portal (owner, 2026-10-29): each field stays at the height its padding gives
+  it, so a guest's tap target does not shrink.
 - **An unchecked checkbox or radio sits on its surface**: no fill, a 1px
   `--ui-hairline-strong` edge, the native box's 13px and 2px corner (a radio
   round), drawn in `global.css`'s base layer. A ticked one is the browser's own;

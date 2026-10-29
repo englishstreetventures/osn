@@ -1,7 +1,6 @@
 import Button from "@cire/ui/button";
 import { createMemo, createSignal, createUniqueId, For, onCleanup, Show } from "solid-js";
 
-import { FORM_FIELD_CLASS } from "../lib/form-field";
 import { invitedMembers } from "./plus-one";
 import {
   hasUnansweredEvents,
@@ -58,7 +57,8 @@ const NAME_MAX = 100;
  * 0.55 is what clears the 3:1 a control's edge needs on every palette
  * (WCAG 2.1 SC 1.4.11). 16px on phones, so iOS does not zoom on focus.
  */
-const INPUT = `border-text/55 bg-text/4.5 font-body text-text focus:border-gold sm:text-ui-base rounded-ui-field mt-1.5 block w-full cursor-text border px-3 ${FORM_FIELD_CLASS} text-base transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ui-focus disabled:cursor-not-allowed disabled:opacity-50`;
+const INPUT =
+  "border-text/55 bg-text/4.5 font-body text-text focus:border-gold sm:text-ui-base rounded-ui-field mt-1.5 block w-full cursor-text border px-3 py-2.5 text-base transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ui-focus disabled:cursor-not-allowed disabled:opacity-50";
 
 const LABEL = "font-body text-text-muted text-ui-sm block";
 
