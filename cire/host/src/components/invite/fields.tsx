@@ -378,7 +378,7 @@ export function SectionCard(props: {
                   <input
                     type="checkbox"
                     data-visibility-switch
-                    class="accent-gold h-4 w-4 shrink-0 cursor-pointer"
+                    class="h-4 w-4 shrink-0 cursor-pointer"
                     checked={visibility().visible}
                     onChange={(e) => visibility().onChange(e.currentTarget.checked)}
                   />

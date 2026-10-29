@@ -144,7 +144,6 @@ export default function RemintPanel(props: RemintPanelProps) {
                     checked={targetStyle() === option.value}
                     disabled={busy()}
                     onChange={() => setTargetStyle(option.value)}
-                    class="accent-gold"
                   />
                   <span class="font-body text-text text-ui-base">{option.label}</span>
                 </span>

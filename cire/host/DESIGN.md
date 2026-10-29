@@ -336,14 +336,15 @@ unchecked one is drawn, in `global.css`'s base layer, with no fill and a 1px
 `--ui-hairline-strong` edge (`--ui-ink-secondary` on hover), at the native
 box's 13px and 2px corner (a radio round), so ticking moves nothing; disabled,
 it fades to 0.4. Only the edge fades, on `--dur-fast`. Why: the browser's white
-unchecked box stood out from every ground (owner, 2026-10-29). The boxes that
-already carry `accent-gold` — in the guest editor, the RSVP editor, the email
-attestation, the RSVP changes card and the invite builder, and the code-style
-radios when creating a wedding or re-minting codes — fill gold rather than
-blue; `@shared/ui`'s `Checkbox` draws its own box and is untouched.
+unchecked box stood out from every ground, and the browser's blue fill makes a
+ticked one look like a form (owner, 2026-10-29). So no checkbox or radio carries
+an `accent-*` class: every ticked box is the browser's blue. Two boxes draw
+their own: the run-time popover's radios (`RunTimeEditor`), which paint the
+brand ink, and `@shared/ui`'s `Checkbox` (englishstreetventures/osn#1841).
 `tests/styles/checkboxes.browser.test.tsx` holds the unchecked look, the
 checked box's `appearance: auto`, the same size both ways and a tick that
-moves nothing, in light and dark.
+moves nothing, in light and dark; `tests/styles/checkbox-accent.test.ts` reads
+every native checkbox and radio in `src/` and fails on an `accent-*` class.
 
 `soft-shapes.browser.test.tsx` renders the RSVP page, the budget, the registry
 and the co-host form in Chromium at 390 and 1280px, and measures the computed
