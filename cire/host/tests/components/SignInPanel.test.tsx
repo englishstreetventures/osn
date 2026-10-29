@@ -109,6 +109,38 @@ describe("SignInPanel", () => {
     expect(screen.getByRole("alert").textContent).toMatch(/did not go through/i);
   });
 
+  it("carries a ?name= target through sign-in only when it is a path on this origin", () => {
+    // The marketing site links here as `/?name=…`; signed out, the portal
+    // bounces through `/login?returnTo=` and must land back on that path. A
+    // crafted `returnTo` carrying the same parameter gets the dashboard root.
+    const returnFor = (target: string) => {
+      window.history.replaceState(null, "", `/login?returnTo=${encodeURIComponent(target)}`);
+      render(() => <SignInPanel />);
+      fireEvent.click(screen.getByRole("button", { name: /Continue with musubi/i }));
+      const [, returnTo] = startSignIn.mock.calls.at(-1)!;
+      cleanup();
+      return new URL(returnTo as string);
+    };
+    try {
+      const kept = returnFor("/?name=Amara%20%26%20Sam");
+      expect(kept.origin).toBe(window.location.origin);
+      expect(kept.searchParams.get("name")).toBe("Amara & Sam");
+
+      for (const crafted of [
+        "https://evil.example/?name=Amara",
+        "//evil.example/?name=Amara",
+        "/\\evil.example/?name=Amara",
+      ]) {
+        const landed = returnFor(crafted);
+        expect(`${landed.origin}${landed.pathname}${landed.search}`).toBe(
+          `${window.location.origin}/`,
+        );
+      }
+    } finally {
+      window.history.replaceState(null, "", "/");
+    }
+  });
+
   it("retries on demand after a failure", () => {
     authError = "sign_in_failed";
     render(() => <SignInPanel />);

@@ -1,42 +1,387 @@
 ---
-// The sign-off before the footer: one clear invitation to begin, over a faint
-// gold bloom. Same CTA labels as the hero (one intent, one label everywhere).
-import { DEMO_ANCHOR, DEMO_INVITE_URL, ORGANISER_URL } from '../../lib/site'
-
-const demoHref = DEMO_INVITE_URL ?? DEMO_ANCHOR
-const demoIsExternal = DEMO_INVITE_URL !== null
+// The sign-off: the message a couple sends, and where they start.
+//
+// Beside the copy, a phone holds the one-to-one thread a guest receives: the
+// guest site's three-line message, its link and the household's code, and a
+// reply. Under the copy, "Your names" previews the link Cire would make from
+// them, and the call to action carries the names to the organiser portal as
+// `?name=`, where the create form opens with them filled in.
+//
+// The call to action stays a link, never a form: the CSP's `form-action
+// 'self'` refuses a submit to the portal's origin, and a link needs no
+// exception. The preview is written with `textContent` and only ever shows
+// the slug, which is `[a-z0-9-]`; the names themselves are echoed nowhere.
+// Without JavaScript the field does nothing and the link opens the portal
+// without a name.
+import PhoneFrame from '../mock/PhoneFrame.astro'
+import { MAX_NAME_LENGTH } from '../../lib/slug-preview'
+import { ORGANISER_URL } from '../../lib/site'
 ---
-<section
-  class="relative overflow-hidden px-6 py-28 text-center md:py-40"
-  aria-labelledby="cta-heading"
->
-  <div
-    class="absolute inset-0 -z-10"
-    style="background: radial-gradient(120% 80% at 50% 0%, oklch(74.99% 0.0854 82.08 / 0.12), transparent 60%);"
-  >
-  </div>
-  <div class="letter-column" data-reveal>
-    <h2
-      id="cta-heading"
-      class="display text-text text-[clamp(2.2rem,6vw,4rem)] leading-ui-none"
-    >
-      Begin your invitation.
-    </h2>
-    <p class="font-body text-text-muted mx-auto mt-6 max-w-[32rem] text-ui-md leading-ui-relaxed font-light">
-      Give your guests something to remember opening, and give yourself one less thing to chase.
-    </p>
-    <div class="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
-      <a href={ORGANISER_URL} class="cta-primary w-full sm:w-auto">
-        Create your invitation
-      </a>
-      <a
-        href={demoHref}
-        target={demoIsExternal ? '_blank' : undefined}
-        rel={demoIsExternal ? 'noopener noreferrer' : undefined}
-        class="cta-ghost w-full sm:w-auto"
-      >
-        See a live invite
-      </a>
+<section id="cta" class="closing" aria-labelledby="cta-heading">
+  <div class="closing__inner">
+    <div class="closing__copy" data-reveal>
+      <h2 id="cta-heading" class="display closing__title">Begin your invitation.</h2>
+      <p class="closing__lede">
+        Start with your names. Here is the link your guests will open.
+      </p>
+
+      <div class="claim" data-claim>
+        <label for="claim-names" class="claim__label">Your names</label>
+        <input
+          id="claim-names"
+          name="names"
+          type="text"
+          class="claim__input"
+          maxlength={MAX_NAME_LENGTH}
+          placeholder="e.g. Amara & Sam"
+          autocomplete="off"
+          spellcheck="false"
+          aria-describedby="claim-preview claim-note"
+          data-claim-input
+        />
+        <p id="claim-preview" class="claim__preview" data-claim-preview>
+          <span>invite.cireweddings.com/cire/invite?slug=</span><span
+            class="claim__slug"
+            data-claim-slug>wedding</span
+          ><span aria-hidden="true">-······</span>
+        </p>
+        <p id="claim-note" class="claim__note">
+          Cire adds the last six characters, so no two links are alike.
+        </p>
+        <a href={ORGANISER_URL} class="cta-primary claim__cta" data-claim-cta data-base={ORGANISER_URL}>
+          Create your invitation
+        </a>
+      </div>
     </div>
+
+    <figure class="closing__thread">
+      <div class="thread-phone">
+        <PhoneFrame>
+          <div class="thread">
+            <p class="thread__who">
+              <span class="thread__avatar">N</span>
+              Aunty Ngozi
+            </p>
+            <div class="thread__messages">
+              <div class="thread__card">
+                <span class="thread__host">invite.cireweddings.com</span>
+                <span class="thread__card-title">Amara &amp; Sam</span>
+                <span class="thread__card-line">You're Invited</span>
+              </div>
+              <div class="bubble bubble--out">
+                <p>You're invited to Amara &amp; Sam! View your invitation and RSVP below.</p>
+                <p class="bubble__link" data-thread-link>
+                  invite.cireweddings.com/cire/invite?slug=amara-sam-4c1e9a
+                </p>
+                <p>Your invitation code: <span class="bubble__code">AMR-7Q2K</span></p>
+              </div>
+              <div class="bubble bubble--in">
+                <p>Opened it! Chidi and I are both coming. See you in Byron x</p>
+              </div>
+            </div>
+            <span class="thread__compose">Message</span>
+          </div>
+        </PhoneFrame>
+      </div>
+      <figcaption class="sr-only">
+        A sample message: the couple send Aunty Ngozi the link to their invitation and her
+        household's code, and she replies that she and Chidi are coming.
+      </figcaption>
+    </figure>
   </div>
 </section>
+
+<script>
+  import { claimHref, slugPreview } from '../../lib/slug-preview'
+
+  for (const root of document.querySelectorAll<HTMLElement>('[data-claim]')) {
+    const input = root.querySelector<HTMLInputElement>('[data-claim-input]')
+    const slug = root.querySelector<HTMLElement>('[data-claim-slug]')
+    const cta = root.querySelector<HTMLAnchorElement>('[data-claim-cta]')
+    const base = cta?.dataset.base
+    if (!input || !slug || !cta || base === undefined) continue
+
+    const update = () => {
+      slug.textContent = slugPreview(input.value)
+      cta.setAttribute('href', claimHref(base, input.value))
+    }
+    input.addEventListener('input', update)
+    // There is no form to submit, so Enter follows the link instead.
+    input.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault()
+        cta.click()
+      }
+    })
+    // A value the browser restored on a back navigation.
+    update()
+  }
+</script>
+
+<style>
+  .closing {
+    position: relative;
+    padding: 6rem 1.5rem 7rem;
+    overflow-x: clip;
+  }
+
+  .closing::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: radial-gradient(
+      120% 80% at 50% 0%,
+      color-mix(in oklch, var(--color-gold) 12%, transparent),
+      transparent 60%
+    );
+    pointer-events: none;
+  }
+
+  .closing__inner {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+    gap: 3.5rem;
+    max-width: 64rem;
+    margin: 0 auto;
+  }
+
+  @media (min-width: 900px) {
+    .closing__inner {
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      justify-items: start;
+      gap: 5rem;
+    }
+  }
+
+  .closing__copy {
+    width: 100%;
+    max-width: 32rem;
+  }
+
+  .closing__title {
+    text-wrap: balance;
+    margin: 0;
+    color: var(--color-text);
+    font-size: clamp(2.2rem, 6vw, 4rem);
+    line-height: var(--ui-leading-none);
+  }
+
+  .closing__lede {
+    margin: 1.25rem 0 0;
+    color: var(--color-text-muted);
+    font-size: var(--ui-text-md);
+    font-weight: 300;
+    line-height: var(--ui-leading-relaxed);
+  }
+
+  .claim {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    margin-top: 2.25rem;
+  }
+
+  .claim__label {
+    color: var(--color-text);
+    font-size: var(--ui-text-sm);
+    letter-spacing: 0.06em;
+  }
+
+  /* The guest site's field: ink at alpha, so the boundary holds 3:1 on the
+     page ground. 16px type, or a phone zooms in on focus. */
+  .claim__input {
+    width: 100%;
+    padding: 0.85rem 1rem;
+    border: 1px solid color-mix(in oklch, var(--color-text) 55%, transparent);
+    border-radius: var(--ui-radius-sm);
+    background: color-mix(in oklch, var(--color-text) 4.5%, transparent);
+    color: var(--color-text);
+    font-family: var(--font-body);
+    font-size: 1rem;
+    transition: border-color 0.2s var(--ease-out);
+  }
+
+  .claim__input::placeholder {
+    color: var(--color-text-muted);
+  }
+
+  .claim__input:focus {
+    border-color: var(--color-gold);
+  }
+
+  .claim__input:focus-visible {
+    outline: 2px solid var(--color-gold);
+    outline-offset: 2px;
+  }
+
+  .claim__preview {
+    margin: 0.25rem 0 0;
+    color: var(--color-text-muted);
+    font-family: var(--ui-font-mono);
+    font-size: 0.8rem;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+  }
+
+  .claim__slug {
+    color: var(--color-gold);
+  }
+
+  .claim__note {
+    margin: 0;
+    color: var(--color-text-muted);
+    font-size: var(--ui-text-xs);
+    line-height: 1.5;
+  }
+
+  .claim__cta {
+    align-self: flex-start;
+    margin-top: 1rem;
+  }
+
+  @media (max-width: 639px) {
+    .claim__cta {
+      align-self: stretch;
+      text-align: center;
+    }
+  }
+
+  .closing__thread {
+    margin: 0;
+  }
+
+  .thread-phone {
+    --phone-w: 13rem;
+  }
+
+  @media (min-width: 900px) {
+    .thread-phone {
+      --phone-w: 15rem;
+    }
+  }
+
+  /* ── The thread, sized against the phone's screen ────────────────────── */
+
+  .thread {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    padding: 15cqi 5cqi 6cqi;
+    font-family: var(--font-body);
+    font-size: 5cqi;
+    line-height: 1.4;
+  }
+
+  /* As in any messaging app, the conversation sits at the bottom. */
+  .thread__messages {
+    display: flex;
+    flex-direction: column;
+    gap: 3cqi;
+    margin-top: auto;
+  }
+
+  .thread__compose {
+    margin-top: 5cqi;
+    padding: 2.6cqi 4.5cqi;
+    border: 1px solid var(--color-border-strong);
+    border-radius: 999px;
+    color: var(--color-text-muted);
+    font-size: 4.2cqi;
+  }
+
+  .thread p {
+    margin: 0;
+  }
+
+  .thread__who {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1.5cqi;
+    margin-bottom: 3cqi;
+    padding-bottom: 4cqi;
+    border-bottom: 1px solid var(--color-border);
+    color: var(--color-text);
+    font-size: 3.8cqi;
+  }
+
+  .thread__avatar {
+    display: grid;
+    place-items: center;
+    width: 12cqi;
+    aspect-ratio: 1;
+    border-radius: 999px;
+    background: var(--color-surface-raised);
+    color: var(--color-gold);
+    font-family: var(--font-display);
+    font-size: 6cqi;
+  }
+
+  .thread__card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6cqi;
+    align-self: flex-end;
+    width: 84%;
+    padding: 3cqi 4cqi;
+    border: 1px solid var(--color-border);
+    border-radius: 4cqi 4cqi 1cqi 4cqi;
+    background: var(--color-surface-raised);
+  }
+
+  .thread__host {
+    color: var(--color-text-muted);
+    font-size: 3.2cqi;
+  }
+
+  .thread__card-title {
+    color: var(--color-text);
+    font-family: var(--font-display);
+    font-size: 6cqi;
+    line-height: 1.1;
+  }
+
+  .thread__card-line {
+    color: var(--color-text-muted);
+    font-size: 3.6cqi;
+  }
+
+  .bubble {
+    display: flex;
+    flex-direction: column;
+    gap: 1.6cqi;
+    max-width: 84%;
+    padding: 3cqi 4cqi;
+    border-radius: 4cqi;
+  }
+
+  .bubble--out {
+    align-self: flex-end;
+    margin-top: -1.6cqi;
+    border-top-right-radius: 1cqi;
+    background: color-mix(in oklch, var(--color-gold) 22%, var(--color-surface));
+    color: var(--color-text);
+  }
+
+  .bubble__link {
+    color: var(--color-text);
+    text-decoration: underline;
+    text-decoration-color: var(--color-gold);
+    text-underline-offset: 0.2em;
+    overflow-wrap: anywhere;
+  }
+
+  .bubble__code {
+    white-space: nowrap;
+  }
+
+  .bubble--in {
+    align-self: flex-start;
+    border-top-left-radius: 1cqi;
+    background: var(--color-surface-raised);
+    color: var(--color-text);
+  }
+</style>

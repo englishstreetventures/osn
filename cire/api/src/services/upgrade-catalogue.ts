@@ -1,11 +1,12 @@
 /**
  * What a cire host can buy, and what it costs.
  *
- * NO MONEY AMOUNT LIVES IN THIS FILE, or anywhere else in this repository. An
- * entry names a Stripe Price id the deployment configured; the amount is read
- * back from Stripe. So changing what an upgrade costs is a dashboard change
- * plus a var, never a deploy — and there is no second copy of a price to drift
- * out of step with the one customers are actually charged.
+ * NO MONEY AMOUNT LIVES IN THIS FILE, or anywhere else in cire-api. An entry
+ * names a Stripe Price id the deployment configured; the amount is read back
+ * from Stripe, so what a host is charged is always Stripe's and changing it is
+ * a dashboard change plus a var, never an API deploy. The marketing site
+ * publishes the offer as text in `cire/landing/src/lib/plans.ts`, checked by
+ * hand against these Prices before a release: change a Price, change that file.
  *
  * KEY-OPTIONAL, AND FAIL-CLOSED, like `createStripeClientFromEnv` and
  * `@shared/turnstile`: a tier with no configured Price id is simply not

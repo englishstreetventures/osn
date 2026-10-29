@@ -1,0 +1,214 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": 1859,
+    "branch": "feat/cire-landing-product-led-design",
+    "base_sha": "482a1b92435c4548d2827989ee953359d8116b2a",
+    "head_sha": "e86e6b2b638d088fb3bbf17641852cecb7668940",
+    "generated_at": "2026-10-29T06:05:44.875Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 1456,
+    "type": null,
+    "labels": [
+      "product:cire",
+      "complexity:3"
+    ]
+  },
+  "complexity": {
+    "declared": 3,
+    "method": "confirmed",
+    "issues": 1
+  },
+  "window": {
+    "sessions": 16,
+    "first_ts": "2026-10-28T15:52:12.655Z",
+    "last_ts": "2026-10-29T06:05:40.107Z",
+    "span_seconds": 51207,
+    "active_seconds": 13403,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 127.07509440000014,
+    "tokens": {
+      "input": 2385,
+      "output": 911523,
+      "thinking": 382794,
+      "cache_write_5m": 2797788,
+      "cache_write_1h": 518469,
+      "cache_read": 226746006
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 2385,
+          "output": 911523,
+          "thinking": 382794,
+          "cache_write_5m": 2797788,
+          "cache_write_1h": 518469,
+          "cache_read": 226746006
+        },
+        "usd_equivalent": 127.07509440000014,
+        "messages": 1170
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 345,
+          "output": 124264,
+          "thinking": 22581,
+          "cache_write_5m": 254073,
+          "cache_write_1h": 518469,
+          "cache_read": 31450627
+        },
+        "usd_equivalent": 20.485027800000008,
+        "messages": 172
+      },
+      "subagent": {
+        "tokens": {
+          "input": 2040,
+          "output": 787259,
+          "thinking": 360213,
+          "cache_write_5m": 2543715,
+          "cache_write_1h": 0,
+          "cache_read": 195295379
+        },
+        "usd_equivalent": 106.59006660000007,
+        "messages": 998
+      }
+    },
+    "effort": {
+      "medium": 259,
+      "high": 310,
+      "xhigh": 601
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 2,
+      "test": 14,
+      "docs": 7,
+      "config": 2,
+      "source": 36
+    },
+    "loc": {
+      "generated": {
+        "added": 42,
+        "deleted": 2
+      },
+      "test": {
+        "added": 1210,
+        "deleted": 173
+      },
+      "docs": {
+        "added": 318,
+        "deleted": 117
+      },
+      "config": {
+        "added": 27,
+        "deleted": 4
+      },
+      "source": {
+        "added": 2830,
+        "deleted": 1127
+      }
+    },
+    "packages": [
+      "cire/api",
+      "cire/host",
+      "cire/landing",
+      "tools/e2e"
+    ],
+    "touches_migration": false,
+    "commits": 21
+  },
+  "interaction": {
+    "user_turns": 6,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": 3270813,
+    "sessions_with_observed_edit": 1,
+    "tool_calls": {
+      "Bash": 889,
+      "Edit": 124,
+      "Read": 74,
+      "mcp__claude-in-chrome__browser_batch": 64,
+      "Write": 55,
+      "Skill": 22,
+      "ToolSearch": 17,
+      "StructuredOutput": 15,
+      "mcp__claude-in-chrome__computer": 12,
+      "Grep": 12,
+      "Agent": 11,
+      "SubagentHandback": 11,
+      "mcp__claude-in-chrome__javascript_tool": 8,
+      "mcp__claude-in-chrome__find": 7,
+      "Monitor": 7,
+      "mcp__claude-in-chrome__navigate": 6,
+      "TaskStop": 5,
+      "mcp__claude-in-chrome__tabs_context_mcp": 4,
+      "mcp__claude-in-chrome__read_page": 3,
+      "mcp__claude-in-chrome__tabs_close_mcp": 3,
+      "Artifact": 3,
+      "AskUserQuestion": 3,
+      "mcp__claude-in-chrome__tabs_create_mcp": 2,
+      "WebFetch": 2,
+      "mcp__mobbin__authenticate": 1,
+      "mcp__mobbin__list_collections": 1,
+      "mcp__mobbin__get_collection_contents": 1,
+      "mcp__claude-in-chrome__get_page_text": 1,
+      "EnterWorktree": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 15,
+      "max_edits_one_file": 39
+    },
+    "skills": {
+      "design-system": 2,
+      "claude-in-chrome": 1,
+      "new-feat": 3,
+      "stress-plan": 1,
+      "design-taste-frontend": 1,
+      "write-wiki": 3,
+      "obsidian:obsidian-markdown": 2,
+      "web-design-guidelines": 1,
+      "prep-pr": 1,
+      "review-tests": 1,
+      "review-performance": 1,
+      "write-issue": 1,
+      "rate-complexity": 1,
+      "review-security": 1,
+      "write-pr": 1,
+      "retro": 1
+    },
+    "subagents": {
+      "designer": 3,
+      "Plan": 1,
+      "attacker": 3,
+      "reviewer": 3,
+      "implementer": 1
+    },
+    "requests": {
+      "main": 172,
+      "subagent": 998,
+      "with_tools": 1147,
+      "with_one_tool": 996,
+      "context_median": 146978,
+      "context_p90": 444457
+    }
+  },
+  "review": {
+    "reports": 1,
+    "findings": 6,
+    "located": 6,
+    "acted_on": 4,
+    "paired": 5,
+    "acted_on_paired": 3,
+    "control_changed": 0,
+    "acted_on_by_test": 2,
+    "acted_on_paired_by_test": 1
+  }
+}

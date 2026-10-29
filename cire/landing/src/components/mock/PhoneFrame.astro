@@ -1,0 +1,92 @@
+---
+// The outline of a phone, drawn in landing tokens, holding whatever screen is
+// slotted into it. Decorative: the frame is hidden from assistive technology,
+// and the section that uses it carries the words.
+//
+// `variant="placeholder"` is a dashed silhouette with a question mark and no
+// screen, standing where a design Cire has not made yet would go. It promises
+// nothing and is never captioned.
+//
+// Width comes from the parent through `--phone-w`: under Astro's attribute
+// scoping a parent's class cannot style this root, so a parent positions a
+// wrapper of its own and sets the width there. The screen is a size
+// container, so what is slotted in sizes its type in `cqi` and scales with the
+// phone at every breakpoint.
+interface Props {
+  variant?: 'screen' | 'placeholder'
+}
+
+const { variant = 'screen' } = Astro.props
+---
+<div class:list={['phone', `phone--${variant}`]} aria-hidden="true">
+  {
+    variant === 'placeholder' ? (
+      <span class="phone__unknown">?</span>
+    ) : (
+      <div class="phone__screen">
+        <slot />
+      </div>
+    )
+  }
+</div>
+
+<style>
+  .phone {
+    position: relative;
+    width: var(--phone-w, 14rem);
+    aspect-ratio: 1 / 2;
+    /* A drawing of a device, not a card: the house radius cap is for
+       controls and panels, and a phone's corners are part of its outline. */
+    border-radius: calc(var(--phone-w, 14rem) * 0.15);
+    flex-shrink: 0;
+  }
+
+  .phone--screen {
+    padding: calc(var(--phone-w, 14rem) * 0.035);
+    background: linear-gradient(160deg, var(--color-surface-raised), var(--color-surface));
+    border: 1px solid var(--color-border-strong);
+    box-shadow:
+      0 1.5rem 3rem -1rem oklch(0% 0 0 / 0.55),
+      inset 0 1px 0 color-mix(in oklch, var(--color-text) 8%, transparent);
+  }
+
+  .phone__screen {
+    position: relative;
+    height: 100%;
+    overflow: clip;
+    container-type: inline-size;
+    border-radius: calc(var(--phone-w, 14rem) * 0.12);
+    background:
+      radial-gradient(120% 60% at 50% 0%, color-mix(in oklch, var(--color-gold) 10%, transparent), transparent 70%),
+      var(--color-bg);
+  }
+
+  /* The speaker slot, so the outline reads as a phone at a glance. */
+  .phone__screen::before {
+    content: '';
+    position: absolute;
+    top: 3.2cqi;
+    left: 50%;
+    width: 26cqi;
+    height: 6cqi;
+    translate: -50% 0;
+    border-radius: 999px;
+    background: var(--color-surface);
+    z-index: 1;
+  }
+
+  .phone--placeholder {
+    display: grid;
+    place-items: center;
+    border: 1.5px dashed var(--color-border-strong);
+    background: color-mix(in oklch, var(--color-surface) 35%, transparent);
+  }
+
+  .phone__unknown {
+    font-family: var(--font-display);
+    font-weight: 300;
+    font-size: calc(var(--phone-w, 14rem) * 0.32);
+    line-height: 1;
+    color: var(--color-text-muted);
+  }
+</style>

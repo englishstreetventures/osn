@@ -1,7 +1,13 @@
 /**
- * Cire organiser portal: an owner signs in through osn-api, opens a Gold
- * wedding's empty checklist, previews the starter checklist and adds every task
- * it ticks. Each lands in cire-api's `tasks` table, seeded from the template and
+ * Cire organiser portal: an owner arrives signed out at the address the
+ * marketing site's "Your names" field sends a couple to, `/?name=Amara & Sam`,
+ * signs in through osn-api from the login page that address leads to, and
+ * finds the create form open with the names in it and the names gone from the
+ * address. Nothing is sent until the owner presses "Create wedding"; the owner
+ * cancels instead, so no wedding is made.
+ *
+ * Then the owner opens a Gold wedding's empty checklist, previews the starter
+ * checklist and adds every task it ticks. Each lands in cire-api's `tasks` table, seeded from the template and
  * due a set time before the wedding date.
  *
  * The wedding (`CIRE_ORGANISER.checklist`) is dated 2099-06-20, far past the
@@ -18,12 +24,27 @@
  * expands the rail again and scrolls to check it sticks below the top bar.
  */
 
-import type { Page } from "@playwright/test";
+import { mkdirSync } from "node:fs";
+import { resolve } from "node:path";
 
-import { CIRE_ORGANISER, DB_FILES, ORIGINS, REALTIME_KEEPALIVE } from "../../src/config";
+import type { Page, Request } from "@playwright/test";
+
+import {
+  CIRE_ORGANISER,
+  DB_FILES,
+  ORIGINS,
+  REALTIME_KEEPALIVE,
+  SCREENSHOT_DIR,
+} from "../../src/config";
 import { expect, onSuiteClock, queryOne, signInToCireHost, test } from "../support/fixtures";
 
 const { weddingId, firstItem } = CIRE_ORGANISER.checklist;
+
+/** Where the marketing site's claim link sends a couple who typed "Amara & Sam". */
+const CLAIM_ARRIVAL = "/?name=Amara%20%26%20Sam";
+
+/** The request that would create a wedding. */
+const CREATE_WEDDING = `${ORIGINS.cireApi}/api/organiser/weddings`;
 
 /**
  * Counts, in each document `page` loads, the frames its push sockets (path
@@ -189,7 +210,46 @@ const returnTraffic = (page: Page): Promise<ReturnTraffic> =>
 test("cire-checklist-starter", async ({ page, flow }) => {
   await countPushPongs(page);
   await countReturnTraffic(page, `${ORIGINS.cireApi}/api/organiser/weddings`);
-  await signInToCireHost(flow, page);
+  // From before the sign-in, so a form that sent itself on arrival is seen.
+  const creates: string[] = [];
+  const watchCreates = (request: Request): void => {
+    if (request.method() === "POST" && request.url() === CREATE_WEDDING)
+      creates.push(request.url());
+  };
+  page.on("request", watchCreates);
+  await signInToCireHost(flow, page, CLAIM_ARRIVAL);
+
+  const form = page.locator("form").filter({
+    has: page.getByRole("textbox", { name: "Wedding name" }),
+  });
+  const arrived = await flow.step("find the names in the create form", async () => {
+    const field = form.getByRole("textbox", { name: "Wedding name" });
+    await expect(field).toBeVisible();
+    // The form alone, with `astro dev`'s toolbar out of the way of the field.
+    mkdirSync(resolve(SCREENSHOT_DIR, "cire-checklist-starter"), { recursive: true });
+    const toolbar = await page.addStyleTag({
+      content: "astro-dev-toolbar { display: none !important; }",
+    });
+    await form.screenshot({
+      path: resolve(SCREENSHOT_DIR, "cire-checklist-starter", "portal-name-prefill.png"),
+      animations: "disabled",
+    });
+    await toolbar.evaluate((style) => style.parentNode?.removeChild(style));
+    return {
+      value: await field.inputValue(),
+      search: await page.evaluate(() => window.location.search),
+    };
+  });
+  flow.check("portal: the create form opens with the couple's names", "Amara & Sam", arrived.value);
+  flow.check("portal: the names leave the address once read", "", arrived.search);
+
+  await flow.step("cancel the create form", async () => {
+    await form.getByRole("button", { name: "Cancel" }).click();
+    await expect(page.getByRole("button", { name: /Create a wedding/ })).toBeVisible();
+    await expect(form).toHaveCount(0);
+  });
+  page.off("request", watchCreates);
+  flow.check("portal: nothing asked cire-api to create a wedding", 0, creates.length);
 
   await flow.step("open the wedding's checklist", async () => {
     await page.goto(`${ORIGINS.cireHost}/#/w/${weddingId}/checklist`);

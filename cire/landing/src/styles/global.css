@@ -57,6 +57,12 @@
 
 @layer base {
   html {
+    /* One dark palette, so the browser's own controls and scrollbars are
+       drawn dark too. */
+    color-scheme: dark;
+    /* The fixed masthead is 4.25rem tall: an in-page link or a focused
+       control scrolled into view lands below it, not under it. */
+    scroll-padding-top: 5rem;
     font-size: 16px;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -81,9 +87,9 @@
     color: var(--color-text);
   }
 
-  /* Honour reduced-motion globally: the smooth-scroll above and any CSS-driven
-     entrance animation snap off. Motion-One islands check the same media query
-     in JS before animating (mirrors cire/invites's AnimatedModal). */
+  /* Honour reduced-motion globally: the smooth-scroll above and every CSS
+     transition and animation snap off. Motion on this site is CSS alone; the
+     demo sheet's modal (`@shared/ui`) reads the same media query itself. */
   @media (prefers-reduced-motion: reduce) {
     html {
       scroll-behavior: auto;

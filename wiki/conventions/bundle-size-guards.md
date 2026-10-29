@@ -9,7 +9,7 @@ related:
   - "[[review-findings]]"
   - "[[free-tier-limits]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-10-28
+last-reviewed: 2026-10-29
 ---
 
 # Guards with a threshold
@@ -228,7 +228,7 @@ the guard's warning regardless of how large or small the app's own baseline is:
 | cire/invites | worker | 190660 B | 200900 B *(re-baselined, englishstreetventures/osn#1765 — see below)* |
 | cire/host | static | 337953 B | 349653 B *(re-baselined, englishstreetventures/osn#1803 — see below)* |
 | cire/vendor | static | 77305 B | 81644 B |
-| cire/landing | static | 164847 B | 176547 B |
+| cire/landing | static | 40725 B | 52425 B *(re-baselined down when `three` left; see below)* |
 | musubi/landing | static | 15206 B | 26865 B |
 | pulse/landing | static | 16683 B | 28366 B |
 
@@ -240,9 +240,14 @@ below carry their own measurements, and cire/vendor's and cire/landing's moved
 with the changes that file's comment names. That file is still the one the
 guard reads; this table only mirrors it.*
 
-`cire/landing` ships a Three.js scene by design (the wax-seal hero) — its
-JS number is dominated by one intentional dependency, which is exactly why
-each app gets its own baseline rather than a shared number.
+`cire/landing` carries no animation or 3D library: its hero seal is CSS and
+its motion is CSS transitions. Its threshold follows the build down whenever a
+dependency leaves the package, so the headroom stays smaller than the mistake
+the guard exists to catch rather than banking the gap.
+
+*Measured 2026-10-29 — `bun run --cwd cire/landing build`, which ends with
+`guard-bundle-size.sh .` printing `cire/landing dist/_astro gzip total: 40725
+bytes across 6 files`.*
 
 ### `cire/host` went **up** on a change that made the first load smaller
 

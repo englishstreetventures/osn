@@ -1,7 +1,7 @@
 import { Schema, SchemaTransformation } from "effect";
 
 import { canonicalTimeZone } from "../lib/rsvp-deadline";
-import { MAX_DISPLAY_NAME } from "../services/weddings";
+import { MAX_DISPLAY_NAME } from "../lib/slug";
 
 /** Trim then require non-empty — same idiom as `CreateWeddingBody.displayName`. */
 const trimmed = (max: number) => Schema.Trim.check(Schema.isMinLength(1), Schema.isMaxLength(max));
@@ -31,7 +31,7 @@ const Currency = Schema.String.check(Schema.isPattern(/^[A-Z]{3}$/));
  * resolve would silently degrade the RSVP deadline to UTC at read time, and a
  * deadline the organiser can't predict is worse than none.
  *
- * CANONICALISED, not merely accepted (S-L2). `Intl` also constructs for
+ * CANONICALISED, not merely accepted. `Intl` also constructs for
  * `"+05:30"`, `"utc"` and `"AUSTRALIA/sydney"`; storing those verbatim would
  * mean a fixed-offset deadline that never applies DST (drifting an hour across
  * a transition) and one zone spelled several ways in the column. The
@@ -128,7 +128,7 @@ const isSettingsKey = (key: string): key is SettingsKey =>
  * trip it.
  *
  * Iterates the STRUCT'S OWN FIELD LIST and reads each key off the patch,
- * rather than walking the patch's own enumerable keys (S-M1). Two reasons, one
+ * rather than walking the patch's own enumerable keys. Two reasons, one
  * structural and one about drift:
  *
  *  1. `weddingSettingsService.update` decides what to write with

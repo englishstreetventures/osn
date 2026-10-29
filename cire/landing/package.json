@@ -14,8 +14,9 @@
     "build": "astro build && bun run ../../scripts/check-astro-fonts.ts dist && ../../scripts/guard-bundle-size.sh .",
     "preview": "astro preview --port 4323",
     "typecheck": "bun ../../scripts/astro-typecheck.ts",
-    "test": "vitest run",
+    "test": "vitest run --project package",
     "test:mutation": "bun ../../tools/stryker/src/cli.ts",
+    "test:repo": "vitest run --project repo",
     "test:run": "vitest run"
   },
   "dependencies": {
@@ -28,15 +29,13 @@
     "@tailwindcss/vite": "^4.3.3",
     "astro": "^7.4.2",
     "solid-js": "^1.9.15",
-    "tailwindcss": "^4.3.3",
-    "three": "^0.186.1"
+    "tailwindcss": "^4.3.3"
   },
   "devDependencies": {
     "@astrojs/ts-content-mapper": "0.2.0",
     "@shared/dev-urls": "workspace:*",
     "@shared/typescript-config": "workspace:*",
     "@solidjs/testing-library": "^0.8.10",
-    "@types/three": "^0.186.0",
     "happy-dom": "^21.0.4",
     "typescript": "7.1.0-beta",
     "vite-plugin-solid": "^2.11.14",

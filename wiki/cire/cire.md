@@ -24,7 +24,7 @@ related:
   - "[[data-map]]"
   - "[[dpia/cire-guest-data]]"
   - "[[cire-rsvp-changes]]"
-last-reviewed: 2026-10-27
+last-reviewed: 2026-10-29
 ---
 
 # Cire
@@ -310,8 +310,10 @@ point, and everything product-specific is a wiki page.
 ## Marketing site + platform roadmap
 
 The apex `cireweddings.com` gets its own **marketing site**, `@cire/landing` — a
-static Astro brochure that opens with a wax-seal "unveil" and sells the invite
-product (full design + deploy/migration plan in [[cire-landing]]). The end state
+static Astro site that opens on a finished invitation, shows each step from the
+guest's and the couple's side, publishes the three plans and their prices, and
+carries a couple's names into the organiser portal (full design + deploy/migration
+plan in [[cire-landing]]). The end state
 is three concerns on three hosts: marketing (apex) · invites
 (`invite.cireweddings.com`) · organiser (`host.cireweddings.com`).
 

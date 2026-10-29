@@ -1,9 +1,9 @@
 ---
-// A hotlinked Unsplash image that always paints over a gold-tinted gradient, so
-// a slow CDN or a blocked request never leaves an empty hole — the gradient is
-// on-brand on its own. Responsive via srcset; lazy by default. Swap the `id`
-// (or the whole IMAGES map in lib/site.ts) for real art when it exists.
-import { unsplash, type SiteImage } from '../lib/site'
+// A self-hosted image that always paints over a gold-tinted gradient, so a
+// slow or failed load never leaves an empty hole: the gradient is on-brand on
+// its own. Responsive via srcset over the widths in `IMAGES` (lib/site.ts);
+// lazy by default. Swap the files there for real art when it exists.
+import type { SiteImage } from '../lib/site'
 
 interface Props {
   image: SiteImage
@@ -17,15 +17,14 @@ interface Props {
 const { image, class: klass = '', eager = false, sizes = '(min-width: 768px) 45vw, 100vw' } =
   Astro.props
 
-const widths = [480, 800, 1200, 1600]
-const srcset = widths.map((w) => `${unsplash(image.id, w)} ${w}w`).join(', ')
+const srcset = image.files.map((file) => `${file.src} ${file.width}w`).join(', ')
 ---
 <figure
   class:list={['cire-figure', klass]}
   style="background: linear-gradient(150deg, var(--color-surface-raised), var(--color-surface));"
 >
   <img
-    src={unsplash(image.id, 1200)}
+    src={image.files[0].src}
     srcset={srcset}
     sizes={sizes}
     alt={image.alt}
@@ -52,7 +51,7 @@ const srcset = widths.map((w) => `${unsplash(image.id, w)} ${w}w`).join(', ')
     object-fit: cover;
   }
 
-  /* Photo credit, required by the Unsplash licence — present but visually quiet. */
+  /* Photo credit: present but visually quiet. */
   .cire-figure figcaption {
     position: absolute;
     right: 0.5rem;

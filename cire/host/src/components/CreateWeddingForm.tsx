@@ -44,7 +44,9 @@ export interface DeletedWeddingSummary {
 /** Claim-code style, mirroring the API's `weddings.code_style` enum. */
 export type CodeStyle = "simple" | "secure";
 
-const MAX_DISPLAY_NAME = 120;
+/** The longest name cire-api accepts (`MAX_DISPLAY_NAME` in `cire/api/src/lib/slug.ts`),
+ *  in UTF-16 units, as `maxLength` counts them. */
+export const MAX_DISPLAY_NAME = 120;
 
 /** Friendly, non-technical labels for the two code styles. `secure` is the
  *  recommended default; `simple` trades guess-resistance for shorter codes. */
@@ -70,9 +72,12 @@ const CODE_STYLE_OPTIONS: { value: CodeStyle; label: string; hint: string }[] = 
 export default function CreateWeddingForm(props: {
   onCreated: (wedding: WeddingSummary) => void;
   onCancel?: () => void;
+  /** What the name field starts with. Read once, when the form opens: it
+   *  fills the field and nothing else. */
+  initialName?: string;
 }) {
   const { authFetch } = useAuth();
-  const [name, setName] = createSignal("");
+  const [name, setName] = createSignal(props.initialName ?? "");
   const [codeStyle, setCodeStyle] = createSignal<CodeStyle>("secure");
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
