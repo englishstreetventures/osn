@@ -1,5 +1,6 @@
 import { buttonClass } from "@cire/ui/button";
 import { cardClass } from "@cire/ui/card";
+import Eyebrow from "@cire/ui/eyebrow";
 import Loading from "@cire/ui/loading";
 import { useAuth } from "@shared/rp-auth/solid";
 import { EmptyState } from "@shared/ui/ui/empty-state";
@@ -58,9 +59,7 @@ export default function OrgPicker(props: OrgPickerProps) {
 
       <Show when={(orgs() ?? []).length > 0}>
         <div class="flex flex-col gap-3">
-          <h2 class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">
-            Your organisations
-          </h2>
+          <Eyebrow as="h2">Your organisations</Eyebrow>
           {/* One column until there is room for two whole cards. An org row is
               a name and a handle — short enough that a single column on a
               widescreen is mostly empty space. */}

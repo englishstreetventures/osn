@@ -1,5 +1,6 @@
 import Button from "@cire/ui/button";
-import Card, { CardEyebrow } from "@cire/ui/card";
+import Card, { cardBoxClass } from "@cire/ui/card";
+import Eyebrow from "@cire/ui/eyebrow";
 import Loading from "@cire/ui/loading";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
@@ -17,6 +18,13 @@ import {
 } from "../lib/enquiries-store";
 import { FORM_FIELD_CLASS } from "../lib/form-field";
 import { haptic } from "../lib/haptics";
+
+/**
+ * The quote form, a box inside the thread's card: the card's border and the
+ * small corner a nested box takes (host DESIGN.md §4), no fill of its own.
+ */
+const QUOTE_FORM_CLASS = `${cardBoxClass({ fill: "none", nested: true })} flex flex-col gap-4 p-4`;
+
 // AUD formatter — acceptable for v1; wedding currency context not available in vendor app.
 const aud = new Intl.NumberFormat(undefined, { style: "currency", currency: "AUD" });
 
@@ -204,8 +212,8 @@ export default function VendorEnquiryThread(props: VendorEnquiryThreadProps) {
       </div>
 
       {/* ── Quote form ───────────────────────────────────────────────────── */}
-      <div class="border-border flex flex-col gap-4 rounded-sm border p-4">
-        <CardEyebrow>Send a quote</CardEyebrow>
+      <div class={QUOTE_FORM_CLASS}>
+        <Eyebrow>Send a quote</Eyebrow>
 
         {/*
           The formatted amount is the field's `hint`, not a line inside its
