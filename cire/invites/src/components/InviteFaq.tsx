@@ -12,6 +12,7 @@
  * text nodes only (Solid escapes them); nothing here parses markup or links.
  */
 
+import Disclosure from "@cire/ui/disclosure";
 import { For } from "solid-js";
 
 import type { FaqEntry } from "./types";
@@ -25,34 +26,28 @@ export const FAQ_HEADING = "Questions & Answers";
 export const FAQ_HEADING_ID = "invite-faq-heading";
 
 /**
- * The questions, each a native disclosure: the question is the `<summary>`,
- * the answer opens beneath it. `<details>` is reachable and operable from the
- * keyboard (Enter or Space on the summary) with no script, and announces its
- * expanded state itself. The question is not a heading: a heading inside a
- * `<summary>` loses its heading role in several screen readers, and the
- * section's own `<h2>` already names the list.
+ * The questions, each a `Disclosure` in its rule tone: the question is the
+ * `<summary>`, the answer opens beneath it. A native `<details>`, so it is
+ * reachable and operable from the keyboard (Enter or Space on the summary)
+ * with no script, and announces its expanded state itself. The question is not
+ * a heading: a heading inside a `<summary>` loses its heading role in several
+ * screen readers, and the section's own `<h2>` already names the list. Its
+ * words keep the regular weight whatever body weight the couple chose, as a
+ * question to scan down.
  *
- * `class` sets the list's outer rules, which differ by pack.
+ * Each entry draws the rule under it, so the last one closes the list. `class`
+ * adds the rule above the first, where a pack wants one.
  */
 export function FaqList(props: { entries: readonly FaqEntry[]; class?: string }) {
   return (
-    <div data-faq-list class={`divide-border divide-y text-left ${props.class ?? ""}`}>
+    <div data-faq-list class={`text-left ${props.class ?? ""}`}>
       <For each={props.entries}>
         {(entry) => (
-          <details class="group" data-faq-item>
-            <summary class="font-display text-text flex min-h-11 cursor-pointer list-none items-center justify-between gap-4 py-4 text-xl font-normal break-words [&::-webkit-details-marker]:hidden">
-              <span class="min-w-0">{entry.question}</span>
-              <span
-                aria-hidden="true"
-                class="text-gold-ink shrink-0 text-2xl leading-none transition-transform duration-(--dur-fast) ease-(--ease-out) group-open:rotate-45"
-              >
-                +
-              </span>
-            </summary>
-            <p class="font-body text-text-muted text-ui-base leading-ui-normal pb-5 break-words whitespace-pre-line">
+          <Disclosure tone="rule" summary={<span class="font-normal">{entry.question}</span>}>
+            <p class="font-body text-text-muted text-ui-base leading-ui-normal break-words whitespace-pre-line">
               {entry.answer}
             </p>
-          </details>
+          </Disclosure>
         )}
       </For>
     </div>

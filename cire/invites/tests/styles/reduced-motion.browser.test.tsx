@@ -14,6 +14,7 @@
  * back, which is only meaningful in a browser: jsdom parses no stylesheet and
  * `matchMedia` there is a stub that never matches anything.
  */
+import Disclosure from "@cire/ui/disclosure";
 import { render } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it } from "vitest";
 import { commands } from "vitest/browser";
@@ -98,21 +99,24 @@ describe("prefers-reduced-motion", () => {
     expect(getComputedStyle(el).scale).toBe("1");
   });
 
-  it("opens a disclosure's body with no fade — the `*` clamp cannot reach `::details-content`", async () => {
+  it("opens an FAQ answer with no fade — the `*` clamp cannot reach `::details-content`", async () => {
+    // The FAQ's `Disclosure` gates its own fade on `no-preference`, since the
+    // clamp above selects `*` and no pseudo-element matches it.
     const { container } = render(() => (
-      <details>
-        <summary>Can we bring our children?</summary>
+      <Disclosure tone="rule" summary="Can we bring our children?">
         <p>Yes.</p>
-      </details>
+      </Disclosure>
     ));
     const details = container.querySelector("details")!;
     const body = () => getComputedStyle(details, "::details-content");
     details.open = true;
-    expect(body().animationName).toBe("details-in");
+    expect(body().transitionProperty).toBe("opacity, translate");
+    expect(Number.parseFloat(body().transitionDuration)).toBeGreaterThan(0);
 
     details.open = false;
     await emulate({ reducedMotion: "reduce" });
     details.open = true;
-    expect(body().animationName).toBe("none");
+    expect(body().transitionDuration).toBe("0s");
+    expect(body().opacity).toBe("1");
   });
 });

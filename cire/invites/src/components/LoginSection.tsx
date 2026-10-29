@@ -1,4 +1,5 @@
 import Button from "@cire/ui/button";
+import Eyebrow from "@cire/ui/eyebrow";
 import {
   createEffect,
   createMemo,
@@ -505,9 +506,7 @@ export function LoginSection(props: LoginSectionProps) {
         }}
         style={{ display: showWelcome() ? "none" : "" }}
       >
-        <p class="font-body text-gold-ink text-ui-xs tracking-ui-widest mb-3 uppercase">
-          Your Invitation
-        </p>
+        <Eyebrow class="mb-3">Your Invitation</Eyebrow>
         <h2 class={`${HEADING} text-text mb-5 ${layout().headingSize}`}>Enter your code</h2>
         <p class="text-text-muted text-ui-base leading-ui-normal mb-8 font-light">
           Enter the code from your invitation to see your events.
