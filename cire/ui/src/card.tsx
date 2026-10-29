@@ -125,6 +125,20 @@ export function cardClass(options: CardOptions = {}): string {
 }
 
 /**
+ * A card's box alone: its corner, its border in the tone's colour, and the
+ * fill, with no padding and no layout.
+ *
+ * For a part that pads its own pieces rather than the box — a disclosure,
+ * whose summary row is the whole click target. It repeats `CARD_BASE`'s
+ * corner and border rather than composing it, because `cardClass()` with no
+ * options is pinned and puts its padding between the border and its colour.
+ */
+export function cardBoxClass(options: { fill?: CardFill; tone?: CardTone } = {}): string {
+  const fill = FILL[options.fill ?? "wash"];
+  return `base:rounded-ui-lg base:border ${TONE[options.tone ?? "default"]}${fill ? ` ${fill}` : ""}`;
+}
+
+/**
  * The card as a `<div>`.
  *
  * It takes how the card looks and nothing about whether it is a control: a
