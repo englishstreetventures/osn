@@ -81,9 +81,9 @@
     color: var(--color-text);
   }
 
-  /* Honour reduced-motion globally: the smooth-scroll above and any CSS-driven
-     entrance animation snap off. Motion-One islands check the same media query
-     in JS before animating (mirrors cire/invites's AnimatedModal). */
+  /* Honour reduced-motion globally: the smooth-scroll above and every CSS
+     transition and animation snap off. Motion on this site is CSS alone; the
+     demo sheet's modal (`@shared/ui`) reads the same media query itself. */
   @media (prefers-reduced-motion: reduce) {
     html {
       scroll-behavior: auto;
