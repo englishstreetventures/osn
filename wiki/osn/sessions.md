@@ -9,7 +9,7 @@ related:
   - "[[account-recovery-factors]]"
   - "[[cire-auth]]"
   - "[[coordination-store]]"
-last-reviewed: 2026-10-28
+last-reviewed: 2026-10-30
 ---
 
 # Session introspection + revocation
@@ -68,7 +68,7 @@ Local dev leaves `OSN_COOKIE_DOMAIN` unset — localhost is one host, so a host-
 
 **Standing constraint:** the marker is readable by every host under `OSN_COOKIE_DOMAIN`. That is accepted — the bit is not a secret — but it means a `*.musubi.social` subdomain must never be delegated to a party that shouldn't learn whether a visitor holds an OSN session. Keep subdomain delegation in-house.
 
-Per-account hard cap: `MAX_SESSIONS_PER_ACCOUNT = 50`. Every insert of a session row — `issueTokens`, a restricted recovery session, and the row a cross-device approval reserves — first evicts the least recently used rows once the cap is reached (`makeRoomForSession`), so an attacker can't inflate the revocation surface. The public revocation handle (first 16 hex of the SHA-256) is collision-safe inside that bounded population.
+Per-account hard cap: `MAX_SESSIONS_PER_ACCOUNT = 50`. Every insert of a new session — `issueTokens` and a restricted recovery session — first evicts the least recently used rows once the cap is reached (`makeRoomForSession`), so an attacker can't inflate the revocation surface. The row a cross-device approval reserves is the exception: the approval evicts nothing until its `swap` has landed, then evicts down to the cap (`makeRoomForReservation`), so a lost race or a failed store call signs no device out. Until then the account holds one row over the cap for each approval in flight. Every reservation for one request shares a family, the request's id, and the winner's eviction leaves that family out of its count, since a racing loser releases its own row. The public revocation handle (first 16 hex of the SHA-256) is collision-safe inside that bounded population.
 
 ## Endpoints
 
@@ -105,7 +105,7 @@ QR-code mediated session transfer — authenticate on a new device by scanning a
 | `POST /login/cross-device/:requestId/approve` | Bearer | Device A approves; device B's next poll gets the session |
 | `POST /login/cross-device/:requestId/reject` | Bearer | Device A explicitly rejects |
 
-**Protocol:** Device B calls `begin`, renders a QR code encoding the `requestId` + `cdlSecret`, and polls `status` at ~2s intervals. Device A scans the QR, calls `approve` with its access token + the secret from the QR fragment. The server reserves a `sessions` row for device B (its token is never kept) and records the approval — the approving account, the profile device B signs in as and the reserved row's id, never a token — plus a `cross_device_login` security event + email notification. Device B's next poll takes the approved entry, deletes the reserved row, reloads the profile, and only then mints its session from the profile and account as they are. It answers `expired`, with no token, when the reserved row is gone (any revocation of the account's sessions since the approval removes it, as it would a signed-in device's), the account is deleted or scheduled for deletion, or the profile is gone or now belongs to another account.
+**Protocol:** Device B calls `begin`, renders a QR code encoding the `requestId` + `cdlSecret`, and polls `status` at ~2s intervals. Device A scans the QR, calls `approve` with its access token + the secret from the QR fragment. The server reserves a `sessions` row for device B (its token is never kept) and records the approval — the approving account, the profile device B signs in as and the reserved row's id, never a token — plus a `cross_device_login` security event + email notification. On an account at the cap, the approval evicts the least recently used session only after its `swap` lands; one that loses the `swap`, or whose `swap` fails, releases its reserved row and evicts nothing. Device B's next poll takes the approved entry, deletes the reserved row, reloads the profile, and only then mints its session from the profile and account as they are. It answers `expired`, with no token, when the reserved row is gone (any revocation of the account's sessions since the approval removes it, as it would a signed-in device's), the account is deleted or scheduled for deletion, or the profile is gone or now belongs to another account.
 
 **Security properties:** 256-bit CSPRNG secret, SHA-256 hashed at rest, constant-time comparison, no token stored (the poll mints the session after it `take`s the approved entry, so one poll gets it; a revocation between approval and poll is honoured through the reserved row), one decision per request (approve and reject each replace the pending entry they read in one `swap`, so of two at once one lands), 5-minute TTL, rate-limited on all endpoints. The secret never appears in URL query strings (all endpoints use POST bodies). Pending requests live in the `cross_device` ceremony store, which a deployed Worker keeps on the coordination store, one object per request, gone when its TTL ends ([[coordination-store]]); the Bun dev server keeps them in memory.
 
