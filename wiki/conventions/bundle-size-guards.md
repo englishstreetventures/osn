@@ -9,7 +9,7 @@ related:
   - "[[review-findings]]"
   - "[[free-tier-limits]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-10-28
+last-reviewed: 2026-10-29
 ---
 
 # Guards with a threshold
@@ -227,7 +227,7 @@ the guard's warning regardless of how large or small the app's own baseline is:
 |---|---|---:|---:|
 | cire/invites | worker | 190660 B | 200900 B *(re-baselined, englishstreetventures/osn#1765 — see below)* |
 | cire/host | static | 337953 B | 349653 B *(re-baselined, englishstreetventures/osn#1803 — see below)* |
-| cire/vendor | static | 77305 B | 81644 B |
+| cire/vendor | static | 81787 B | 86126 B *(re-baselined, englishstreetventures/osn#1821 — see below)* |
 | cire/landing | static | 164847 B | 176547 B |
 | musubi/landing | static | 15206 B | 26865 B |
 | pulse/landing | static | 16683 B | 28366 B |
@@ -364,6 +364,21 @@ on a fresh checkout of 5f42aafa1, reading the total the guard prints. Chunk and 
 gzip level 9 with no timestamp, summed over `OrganiserApp`'s chunk and every
 chunk it imports statically; the Kobalte modules read from the `use…Context`
 names in that set of files.*
+
+### `cire/vendor` re-baselined for the corner roles and the checkbox rule
+
+The portal's shape work (corner roles, the checkbox and radio base rule, and the
+`transition-ui-colors` utility; englishstreetventures/osn#1821) took the bundle
+from **77305 B**, the figure the row held, to **81787 B** across the same 10
+files, past the 81644 B threshold. Part of that gap grew on `main` before this
+work and the `# measured` comment had not moved with it. The threshold moved to
+measured + 4339 B, **86126 B**. The headroom stays at vendor's ~4.3 KB rather
+than the ~11.7 KB default: it is well under the 21261 B cost of a motion-class
+library, so one such mistake still trips the warning, and a raise never loosens
+it. No dependency was added.
+
+*Measured 2026-10-29 — `rm -rf cire/vendor/dist && bun run --cwd cire/vendor
+build` on `feat/cire-soft-shapes`, reading the total the guard prints.*
 
 ### `cire/invites` re-baselined after the zod override
 
