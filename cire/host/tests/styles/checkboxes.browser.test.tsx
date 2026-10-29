@@ -1,6 +1,6 @@
 import { cleanup, render, screen } from "@solidjs/testing-library";
-import { afterEach, describe, expect, it } from "vitest";
-import { page } from "vitest/browser";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { page, userEvent } from "vitest/browser";
 
 import "../../src/styles/global.css";
 
@@ -71,6 +71,24 @@ function Boxes() {
         <input type="radio" name="r" checked aria-label="radio checked" />
         Radio, chosen
       </label>
+      <label class="flex items-center gap-2">
+        <input type="checkbox" disabled aria-label="disabled unchecked" />
+        Disabled
+      </label>
+      <label class="flex items-center gap-2">
+        <input type="radio" name="d" disabled aria-label="radio disabled" />
+        Radio, disabled
+      </label>
+      <label class="flex items-center gap-2">
+        <input
+          type="checkbox"
+          aria-label="indeterminate"
+          ref={(el) => {
+            el.indeterminate = true;
+          }}
+        />
+        Some of them
+      </label>
       <p>
         Inline in a sentence <input type="checkbox" aria-label="inline" /> before and after.
       </p>
@@ -129,4 +147,41 @@ describe("native checkboxes and radios", () => {
       });
     });
   }
+
+  it("dims a disabled unchecked box, leaves an indeterminate one native, and darkens the edge on hover", async () => {
+    await page.viewport(600, 500);
+    render(() => <Boxes />);
+    const get = (name: string) => screen.getByLabelText(name) as HTMLInputElement;
+
+    // `appearance: none` drops the browser's own grey, so the dimming is the
+    // only thing that tells a disabled box from a live one.
+    for (const name of ["disabled unchecked", "radio disabled"]) {
+      const style = getComputedStyle(get(name));
+      expect({ name, appearance: style.appearance, opacity: style.opacity }).toEqual({
+        name,
+        appearance: "none",
+        opacity: "0.4",
+      });
+    }
+    expect(getComputedStyle(get("plain unchecked")).opacity).toBe("1");
+
+    // A box with some of its group ticked is the browser's dash.
+    expect(get("indeterminate").indeterminate).toBe(true);
+    expect(getComputedStyle(get("indeterminate")).appearance).toBe("auto");
+
+    // The edge goes from the hairline to the secondary ink under the pointer.
+    const probe = document.createElement("div");
+    probe.style.borderTop = "1px solid var(--ui-ink-secondary)";
+    document.body.append(probe);
+    const secondary = getComputedStyle(probe).borderTopColor;
+    probe.remove();
+    const box = get("plain unchecked");
+    expect(getComputedStyle(box).borderTopColor).toBe(hairlineStrong());
+    await userEvent.hover(box);
+    await vi.waitFor(() => expect(getComputedStyle(box).borderTopColor).toBe(secondary));
+    await userEvent.hover(get("disabled unchecked"));
+    await vi.waitFor(() =>
+      expect(getComputedStyle(get("disabled unchecked")).borderTopColor).toBe(hairlineStrong()),
+    );
+  });
 });

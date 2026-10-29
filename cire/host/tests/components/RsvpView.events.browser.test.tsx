@@ -580,6 +580,10 @@ describe("the RSVP page on a phone", () => {
     const presets = await vi.waitFor(() =>
       within(row).getByRole("group", { name: `Dietary requirements for ${guest}` }),
     );
+    // The inline presets are one long row; the editor holds it in the panel
+    // rather than widening the block or the page.
+    expect(row.scrollWidth).toBeLessThanOrEqual(row.clientWidth);
+    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(innerWidth);
     // The pill is the label; its checkbox is hidden under it.
     await userEvent.click(within(presets).getByText("Vegetarian"));
     expect(
@@ -606,6 +610,23 @@ describe("the RSVP page on a phone", () => {
     };
     expect(body.dietaryPresets).toEqual(["vegetarian"]);
     expect(body.dietaryConsent).toBe(true);
+  });
+
+  it("names the dietary group for the guest in the popover a wide panel draws", async () => {
+    await page.viewport(1280, 800);
+    renderPage(THREE);
+    await ready(rowsOf(THREE));
+    const record = screen.getAllByRole("button", { name: /^Record reply for / })[0]!;
+    const guest = record.getAttribute("aria-label")!.replace("Record reply for ", "");
+    await userEvent.click(record);
+    // The trigger holds the value where a narrow panel draws the pills.
+    const trigger = await vi.waitFor(() =>
+      screen.getByRole("button", { name: /Add dietary requirements/ }),
+    );
+    await userEvent.click(trigger);
+    await vi.waitFor(() =>
+      expect(screen.getByRole("group", { name: `Dietary requirements for ${guest}` })).toBeTruthy(),
+    );
   });
 });
 
