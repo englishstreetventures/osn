@@ -4,6 +4,7 @@ import { Input } from "@shared/ui/ui/input";
 import { createSignal, For, Show } from "solid-js";
 
 import type { BudgetEvent, BudgetItemRow } from "../lib/budget-store";
+import { SMALL_FORM_FIELD_CLASS } from "../lib/form-field";
 import { belowSmallestUnitError, formatMinor, minorToInput, parseMinor } from "../lib/money";
 
 /** What a per-head save sends. `eventIds` is left out unless the organiser
@@ -145,6 +146,7 @@ export function PerHeadPanel(props: {
           <Input
             {...field}
             size="sm"
+            class={SMALL_FORM_FIELD_CLASS}
             type="number"
             min="0"
             step="any"

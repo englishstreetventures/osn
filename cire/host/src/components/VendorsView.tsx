@@ -7,6 +7,7 @@ import { Select } from "@shared/ui/ui/select";
 import { createMemo, createSignal, For, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
+import { SMALL_FORM_FIELD_CLASS } from "../lib/form-field";
 import { haptic } from "../lib/haptics";
 import { formatMinor } from "../lib/money";
 import { categoryLabel, SERVICE_CATEGORIES, type ServiceCategory } from "../lib/service-categories";
@@ -383,6 +384,7 @@ export default function VendorsView(props: VendorsViewProps) {
                             {/* Status picker */}
                             <Select
                               size="sm"
+                              class={SMALL_FORM_FIELD_CLASS}
                               aria-label={`Status for ${v.name}`}
                               value={v.status}
                               onChange={(e) =>
@@ -441,6 +443,7 @@ export default function VendorsView(props: VendorsViewProps) {
                                     <Input
                                       {...field}
                                       size="sm"
+                                      class={SMALL_FORM_FIELD_CLASS}
                                       type="email"
                                       value={listEmail()}
                                       onInput={(e) => setListEmail(e.currentTarget.value)}

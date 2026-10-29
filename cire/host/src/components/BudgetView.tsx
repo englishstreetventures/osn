@@ -30,6 +30,7 @@ import {
   revalidateBudget,
   setCachedBudget,
 } from "../lib/budget-store";
+import { SMALL_FORM_FIELD_CLASS } from "../lib/form-field";
 import { haptic } from "../lib/haptics";
 import { belowSmallestUnitError, formatMinor, minorToInput, parseMinor } from "../lib/money";
 import { categoryLabel, SERVICE_CATEGORIES, type ServiceCategory } from "../lib/service-categories";
@@ -845,6 +846,7 @@ function MoneyCell(props: {
       >
         <Input
           size="sm"
+          class={SMALL_FORM_FIELD_CLASS}
           type="number"
           min="0"
           step={MONEY_STEP}
@@ -918,6 +920,7 @@ function PaymentPanel(props: {
               <Input
                 {...field}
                 size="sm"
+                class={SMALL_FORM_FIELD_CLASS}
                 value={label()}
                 onInput={(e) => setLabel(e.currentTarget.value)}
                 placeholder="Deposit"
@@ -929,6 +932,7 @@ function PaymentPanel(props: {
               <Input
                 {...field}
                 size="sm"
+                class={SMALL_FORM_FIELD_CLASS}
                 type="number"
                 min="0"
                 step={MONEY_STEP}
@@ -943,6 +947,7 @@ function PaymentPanel(props: {
               <Input
                 {...field}
                 size="sm"
+                class={SMALL_FORM_FIELD_CLASS}
                 type="date"
                 value={due()}
                 onInput={(e) => setDue(e.currentTarget.value)}

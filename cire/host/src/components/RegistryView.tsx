@@ -20,6 +20,7 @@ import { createMemo, createSignal, For, onMount, Show, untrack } from "solid-js"
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { downloadBlob } from "../lib/download";
+import { SMALL_FORM_FIELD_CLASS } from "../lib/form-field";
 import { haptic } from "../lib/haptics";
 import {
   belowSmallestUnitError,
@@ -1163,6 +1164,7 @@ export default function RegistryView(props: RegistryViewProps) {
                                       <Input
                                         {...field}
                                         size="sm"
+                                        class={SMALL_FORM_FIELD_CLASS}
                                         value={editTitle()}
                                         onInput={(e) => setEditTitle(e.currentTarget.value)}
                                       />
@@ -1175,6 +1177,7 @@ export default function RegistryView(props: RegistryViewProps) {
                                         <Input
                                           {...field}
                                           size="sm"
+                                          class={SMALL_FORM_FIELD_CLASS}
                                           type="number"
                                           min="0"
                                           step="any"
@@ -1190,6 +1193,7 @@ export default function RegistryView(props: RegistryViewProps) {
                                         <Input
                                           {...field}
                                           size="sm"
+                                          class={SMALL_FORM_FIELD_CLASS}
                                           type="number"
                                           min="0"
                                           step="any"
@@ -1203,6 +1207,7 @@ export default function RegistryView(props: RegistryViewProps) {
                                         <Input
                                           {...field}
                                           size="sm"
+                                          class={SMALL_FORM_FIELD_CLASS}
                                           type="number"
                                           min={MIN_QUANTITY}
                                           max={MAX_QUANTITY}
@@ -1217,6 +1222,7 @@ export default function RegistryView(props: RegistryViewProps) {
                                         <Input
                                           {...field}
                                           size="sm"
+                                          class={SMALL_FORM_FIELD_CLASS}
                                           value={editCategory()}
                                           onInput={(e) => setEditCategory(e.currentTarget.value)}
                                           placeholder="Kitchen"
@@ -1228,6 +1234,7 @@ export default function RegistryView(props: RegistryViewProps) {
                                         <Input
                                           {...field}
                                           size="sm"
+                                          class={SMALL_FORM_FIELD_CLASS}
                                           type="url"
                                           value={editUrl()}
                                           onInput={(e) => setEditUrl(e.currentTarget.value)}
