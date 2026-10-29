@@ -63,6 +63,8 @@ const INPUT =
 
 const LABEL = "font-body text-text-muted text-ui-sm block";
 
+const FIRST_NAME_MISSING = "Please enter your guest's first name.";
+
 export function PlusOnePrompt(props: PlusOnePromptProps) {
   const headingId = createUniqueId();
 
@@ -200,6 +202,7 @@ function fullName(member: Pick<FamilyMember, "firstName" | "lastName">): string 
 function PlusOneRow(props: PlusOneRowProps) {
   const firstId = createUniqueId();
   const lastId = createUniqueId();
+  const errorId = createUniqueId();
 
   const [mode, setMode] = createSignal<Mode>("view");
   const [first, setFirst] = createSignal("");
@@ -207,6 +210,9 @@ function PlusOneRow(props: PlusOneRowProps) {
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [notice, setNotice] = createSignal<string | null>(null);
+  // The one message on the error line that is about the first-name box; the
+  // server's refusals do not say which name they mean.
+  const firstRefused = () => error() === FIRST_NAME_MISSING;
 
   let firstInput: HTMLInputElement | undefined;
   let changeButton: HTMLButtonElement | undefined;
@@ -270,7 +276,7 @@ function PlusOneRow(props: PlusOneRowProps) {
     const firstName = first().trim();
     const lastName = last().trim();
     if (!firstName) {
-      setError("Please enter your guest's first name.");
+      setError(FIRST_NAME_MISSING);
       firstInput?.focus();
       return;
     }
@@ -450,6 +456,8 @@ function PlusOneRow(props: PlusOneRowProps) {
               autocomplete="off"
               spellcheck={false}
               disabled={busy()}
+              aria-describedby={firstRefused() ? errorId : undefined}
+              aria-invalid={firstRefused() ? "true" : undefined}
             />
           </div>
           <div>
@@ -495,7 +503,7 @@ function PlusOneRow(props: PlusOneRowProps) {
       </Show>
 
       <Show when={error()}>
-        <Notice size="inline" tone="danger" alert class="mt-2">
+        <Notice id={errorId} size="inline" tone="danger" alert class="mt-2">
           {error()}
         </Notice>
       </Show>
