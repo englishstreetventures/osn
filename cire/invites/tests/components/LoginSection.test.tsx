@@ -797,6 +797,33 @@ describe("LoginSection claim", () => {
     expect(claimedBeforeAnnounce).toEqual([1]);
   });
 
+  it("names the button Checking… and disables it while the code is checked", async () => {
+    const claimed = result([member("Chidi")]);
+    let settle: (response: Response) => void = noop;
+    fetchMock.mockReturnValue(new Promise<Response>((resolve) => (settle = resolve)));
+    const onClaimed = vi.fn();
+    const { getByLabelText, getByText, getByRole } = render(() => (
+      <LoginSection apiUrl="https://api.test" result={null} onClaimed={onClaimed} />
+    ));
+
+    fireEvent.input(getByLabelText("Invitation code"), {
+      target: { value: "OKAFOR-LILY-AB12CD" },
+    });
+    fireEvent.click(getByText("Open invitation"));
+
+    const checking = await waitFor(() => getByRole("button", { name: "Checking…" }));
+    expect((checking as HTMLButtonElement).disabled).toBe(true);
+    expect(onClaimed).not.toHaveBeenCalled();
+
+    settle(
+      new Response(JSON.stringify(claimed), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    await waitFor(() => expect(onClaimed).toHaveBeenCalledTimes(1));
+  });
+
   it("writes no hint when the claim fails", async () => {
     fetchMock.mockResolvedValue(new Response(null, { status: 401 }));
     const onClaimed = vi.fn();
