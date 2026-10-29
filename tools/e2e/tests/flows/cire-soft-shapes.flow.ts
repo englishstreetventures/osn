@@ -23,12 +23,15 @@
  *
  * Every corner is read from computed style: a pill is a radius of at least
  * half the control's height, and more than 16px, so a 16px card corner on a
- * 32px button does not pass for one. A small field in the portal is one of two
- * shapes (`cire/host/DESIGN.md` §4, "The small fields"): a filter in the view
+ * 32px button does not pass for one. A field is one of two shapes
+ * (`cire/host/DESIGN.md` §4, "One form-field height"): a filter in the view
  * bar — a search box, the RSVP sort select — is 28px with the 14px field
- * corner, half its height, so its ends are round; a field that edits a value —
- * the guest editor's — is 34px with the same corner, short of a pill. The
- * bar's action, Add household, is the filters' 28px.
+ * corner, half its height, so its ends are round; a form field — the guest
+ * editor's — is 34px with the same corner, short of a pill, and a boxed button
+ * beside one, Delete household and Add guest, is 34px too. The bar's action,
+ * Add household, is the filters' 28px. The guest site's fields — the email box
+ * and "Anything else" — are 2.125rem, which is 34px at its 16px root and
+ * 36.125px at the 17px root it takes from 1024px.
  *
  * The claim goes out from `ORGANISER_ADDRESS`, so it spends the organiser's
  * window of cire-api's claim limit, not the guests' (`flows.test.ts`).
@@ -100,6 +103,7 @@ async function buttonShape(target: Locator): Promise<string> {
 
 const FILTER = "28px, round ends at the 14px corner";
 const FORM_FIELD = "34px, the 14px corner short of a pill";
+const GUEST_FIELD = "2.125rem, the 14px corner short of a pill";
 
 /**
  * {@link FILTER} or {@link FORM_FIELD} when a small field is one of the two
@@ -111,6 +115,27 @@ async function fieldShape(target: Locator): Promise<string> {
   if (radius === "14px" && height === 28 && r >= height / 2) return FILTER;
   if (radius === "14px" && height === 34 && r < height / 2) return FORM_FIELD;
   return `${radius} on ${height}px`;
+}
+
+/**
+ * {@link GUEST_FIELD} when a guest-site field is 2.125 times the root font size
+ * tall with the 14px corner short of a pill; its corner, height and the
+ * height wanted otherwise.
+ */
+async function guestFieldShape(target: Locator): Promise<string> {
+  const { radius, height, want } = await target.evaluate((el) => ({
+    radius: getComputedStyle(el).borderTopLeftRadius,
+    height: el.getBoundingClientRect().height,
+    want: 2.125 * Number.parseFloat(getComputedStyle(document.documentElement).fontSize),
+  }));
+  if (
+    radius === "14px" &&
+    Math.abs(height - want) < 0.01 &&
+    Number.parseFloat(radius) < height / 2
+  ) {
+    return GUEST_FIELD;
+  }
+  return `${radius} on ${height}px, want ${want}px`;
 }
 
 async function radiusOf(target: Locator): Promise<string> {
@@ -182,7 +207,7 @@ async function inviteViews(flow: Flow, guest: Page, design: "classic" | "gala"):
   });
   const email = guest.getByRole("textbox", { name: `Your email, ${guestName}` });
   await atEachWidth(guest, async (width) => {
-    flow.check(`${design} at ${width}: the email field's corner`, "14px", await radiusOf(email));
+    flow.check(`${design} at ${width}: the email field`, GUEST_FIELD, await guestFieldShape(email));
     flow.check(`${design} at ${width}: the event card's corner`, "16px", await radiusOf(card));
     flow.check(
       `${design} at ${width}: Respond's corner and label`,
@@ -211,9 +236,9 @@ async function inviteViews(flow: Flow, guest: Page, design: "classic" | "gala"):
   const save = sheet.getByRole("button", { name: "Save", exact: true });
   await atEachWidth(guest, async (width) => {
     flow.check(
-      `${design} sheet at ${width}: the text field's corner`,
-      "14px",
-      await radiusOf(field),
+      `${design} sheet at ${width}: the text field`,
+      GUEST_FIELD,
+      await guestFieldShape(field),
     );
     flow.check(
       `${design} sheet at ${width}: Save's corner and label`,
@@ -284,6 +309,10 @@ test("cire-soft-shapes", async ({ page, context, flow }) => {
   const householdName = page.getByRole("textbox", { name: "Household name" }).first();
   const firstName = page.getByRole("textbox", { name: "First name" }).first();
   const addHousehold = page.getByRole("button", { name: "Add household", exact: true });
+  const addGuest = page.getByRole("button", { name: "Add guest", exact: true }).first();
+  const deleteHousehold = page
+    .getByRole("button", { name: "Delete household", exact: true })
+    .first();
   await flow.step("open the guest editor", async () => {
     await page.goto(`${HOST}/guests/edit`);
     await expect(householdName).toBeVisible({ timeout: 60_000 });
@@ -305,6 +334,12 @@ test("cire-soft-shapes", async ({ page, context, flow }) => {
       28,
       (await corner(addHousehold)).height,
     );
+    flow.check(
+      `guest editor at ${width}: Delete household's height`,
+      34,
+      (await corner(deleteHousehold)).height,
+    );
+    flow.check(`guest editor at ${width}: Add guest's height`, 34, (await corner(addGuest)).height);
   });
   await flow.step("shoot the guest editor", () =>
     shootAll(page, "host-guest-editor", hostTheme(page)),
