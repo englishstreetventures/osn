@@ -316,6 +316,37 @@ describe("one shape and one pace across cire", () => {
     });
   });
 
+  /**
+   * The at-rules each unchecked-box rule sits inside, outermost first. The
+   * rule's own selector is not part of the path.
+   */
+  function uncheckedBoxPreludes(css: string): string[][] {
+    const text = css.replace(/\/\*[\s\S]*?\*\//g, "");
+    const out: string[][] = [];
+    const path: string[] = [];
+    let start = 0;
+    for (let i = 0; i < text.length; i++) {
+      if (text[i] === "{") {
+        const prelude = text.slice(start, i).trim();
+        if (prelude.includes(":not(:checked")) out.push([...path]);
+        path.push(prelude);
+        start = i + 1;
+      } else if (text[i] === "}" || text[i] === ";") {
+        if (text[i] === "}") path.pop();
+        start = i + 1;
+      }
+    }
+    return out;
+  }
+
+  // Utilities such as `sr-only` and `h-4 w-4` beat the rule only while it is
+  // in `@layer base`; outside it, its `width: 13px` wins over them.
+  it("every cire surface keeps the unchecked-box rules in the base layer", () => {
+    const layers = mapSurfaces(uncheckedBoxPreludes);
+    const base = Array.from({ length: 4 }, () => ["@layer base"]);
+    expect(layers).toEqual({ host: base, vendor: base, invites: base, landing: base });
+  });
+
   function mapSurfaces<R>(read: (css: string) => R): Record<keyof typeof SURFACES, R> {
     return {
       host: read(SURFACES.host),
