@@ -29,21 +29,31 @@
  * gives in a site's place compares nothing about the site: a challenge
  * (`cf-mitigated`), an Access redirect or a 429, which `judge()` in
  * smoke-check.ts calls `blocked`, and a 403 carrying Cloudflare's own error
- * page, which its Block action and its other 1xxx errors answer. Such a path
- * is asked again on both hosts once: RETRY_MS later, all such paths at once;
- * after a 429, once the longest wait its answers name has passed (its
- * `Retry-After` in seconds, at most RATE_LIMIT_MAX_MS, else
- * RATE_LIMIT_RETRY_MS), one path at a time. If either side still answers so,
- * the run refuses: the report's `refused` list names the site, the side and
- * the path, and an error says the zone's configuration answered, not the
- * site.
+ * page, which its Block action and its other 1xxx errors answer.
+ *
+ * `/` must also answer both hosts as the site's own page: a 2xx with an HTML
+ * content type. A zone's custom error page or custom block response carries
+ * no mark of Cloudflare, so two of them would compare as alike; `/` is a
+ * page on every staged site, so on `/` anything else is refused, no answer
+ * included. A redirect counts as no page, even to the same path on both
+ * hosts: redirects are not followed, so it proves no page answered, and a
+ * zone's redirect rule answers both hosts alike. On any other path such an
+ * answer is compared as the site's own.
+ *
+ * A path refused either way is asked again on both hosts once: RETRY_MS
+ * later, all such paths at once; after a 429, once the longest wait its
+ * answers name has passed (its `Retry-After` in seconds, at most
+ * RATE_LIMIT_MAX_MS, else RATE_LIMIT_RETRY_MS), one path at a time. If
+ * either side still answers so, the run refuses: the report's `refused` list
+ * names the site, the side and the path, and an error says why.
  *
  * Imports only node built-ins and the repository's import-free files.
  *
  * Exit codes: 0 every answer matches; 1 a difference, or a host that did not
- * answer; 2 a usage error, before any request; 3 Cloudflare answered in a
- * site's place, whatever else differs; 4 an error stopped the run, and the
- * report may be missing. The report is written before every 0, 1 or 3.
+ * answer a path other than `/`; 2 a usage error, before any request; 3
+ * Cloudflare answered in a site's place, or `/` did not answer both hosts as
+ * the site's own page, whatever else differs; 4 an error stopped the run, and
+ * the report may be missing. The report is written before every 0, 1 or 3.
  */
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -242,8 +252,9 @@ export async function observe(
     // errors answer 403 with no `cf-mitigated`, but with Cloudflare's own
     // error page. Any other 401 or 403 is compared as the site's own answer.
     // A zone that serves its own page in place of Cloudflare's (a custom
-    // error page, a custom block response) leaves no marker, so two of those
-    // compare as alike.
+    // error page, a custom block response) leaves no marker: runSiteParity
+    // refuses it when it answers `/`, which must be a page; on any other
+    // path two of those compare as alike.
     const outcome = judge({ url, expects: { kind: "page" } }, response, "", false);
     if (outcome.kind === "blocked") {
       // judge() words its reasons for a Worker; either side here is a site.
@@ -267,6 +278,24 @@ export async function observe(
   } catch {
     return { error: "no answer" };
   }
+}
+
+/** The path every staged site serves as a page, and so must answer as one on both hosts. */
+const HOME = "/";
+
+/**
+ * Why an answer on `/` is not the site's own page, or undefined when it is
+ * one: a 2xx whose content type, before any parameter, is `text/html`. A
+ * blocked answer is refused for its own reason before this is asked.
+ */
+function notThePage(seen: Observation): string | undefined {
+  if ("error" in seen) return seen.error;
+  if (!("status" in seen)) return undefined;
+  const type = seen.headers["content-type"] ?? "";
+  const media = (type.split(";")[0] ?? "").trim().toLowerCase();
+  if (seen.status >= 200 && seen.status <= 299 && media === "text/html") return undefined;
+  const to = seen.location === null ? "" : ` to ${oneLine(seen.location, 80)}`;
+  return `answered ${seen.status}${to} ${oneLine(type, 80) || "with no content type"}, expected a 2xx HTML page`;
 }
 
 /** The fields two observations differ in: `status`, `location`, a header name, or `answer`. */
@@ -296,7 +325,10 @@ export interface SiteParityInput {
 const SIDES = ["worker", "pages"] as const;
 const SIDE_NAMES = { worker: "Worker", pages: "Pages" } as const;
 
-/** A path Cloudflare answered in a site's place, on one side, after it was asked again. */
+/**
+ * A path refused on one side after it was asked again: Cloudflare answered
+ * in the site's place, or `/` did not answer as the site's own page.
+ */
 export interface Refusal {
   readonly site: SiteSurface;
   readonly side: (typeof SIDES)[number];
@@ -354,17 +386,21 @@ export async function runSiteParity(input: SiteParityInput): Promise<number> {
     ),
   );
   type Ask = (typeof asks)[number];
-  // A path Cloudflare answered in a site's place is asked again once. After a
-  // 429, once the longest wait those answers name has passed, one path at a
-  // time, so the second round is never a burst into the same limit; after
-  // any other, RETRY_MS later, all at once.
+  // A path Cloudflare answered in a site's place, or a `/` that is not the
+  // site's own page, is asked again once. After a 429, once the longest wait
+  // those answers name has passed, one path at a time, so the second round is
+  // never a burst into the same limit; after any other, RETRY_MS later, all
+  // at once. A path with a 429 on either side goes with the 429s only.
   const waits = (ask: Ask) =>
     ask.answers.flatMap((seen) =>
       "blocked" in seen && seen.retryAfterMs !== undefined ? [seen.retryAfterMs] : [],
     );
-  const blocked = asks.filter((ask) => ask.answers.some((seen) => "blocked" in seen));
-  const limited = blocked.filter((ask) => waits(ask).length > 0);
-  const challenged = blocked.filter((ask) => waits(ask).length === 0);
+  const doubted = (ask: Ask) =>
+    ask.answers.some((seen) => "blocked" in seen) ||
+    (ask.path === HOME && ask.answers.some((seen) => notThePage(seen) !== undefined));
+  const again = asks.filter(doubted);
+  const limited = again.filter((ask) => waits(ask).length > 0);
+  const challenged = again.filter((ask) => waits(ask).length === 0);
   const limitWait = Math.max(0, ...limited.flatMap(waits));
   const askAgain = async (ask: Ask, wait: number) => {
     ask.answers = await askBoth(ask.plan, ask.path);
@@ -402,15 +438,30 @@ export async function runSiteParity(input: SiteParityInput): Promise<number> {
       })),
   }));
 
-  // Sites in map order, paths sorted, the Worker side before the Pages side.
-  const refused: Refusal[] = sites.flatMap(({ site, probes }) =>
+  // Sites in map order, paths sorted, the Worker side before the Pages side,
+  // whichever the reason.
+  const refusals = sites.flatMap(({ site, probes }) =>
     probes.flatMap((result) =>
       SIDES.flatMap((side) => {
         const seen = result[side];
-        return "blocked" in seen ? [{ site, side, path: result.path, reason: seen.blocked }] : [];
+        const byCloudflare = "blocked" in seen;
+        const reason = byCloudflare
+          ? seen.blocked
+          : result.path === HOME
+            ? notThePage(seen)
+            : undefined;
+        return reason === undefined
+          ? []
+          : [{ site, side, path: result.path, reason, byCloudflare }];
       }),
     ),
   );
+  const refused: Refusal[] = refusals.map(({ site, side, path, reason }) => ({
+    site,
+    side,
+    path,
+    reason,
+  }));
   // A refused path compared nothing, so it is never a difference too.
   const differ = sites.flatMap(({ site, probes }) =>
     probes
@@ -439,12 +490,16 @@ export async function runSiteParity(input: SiteParityInput): Promise<number> {
       `::warning::site-parity: ${differing} path${differing === 1 ? "" : "s"} answer differently on the staged Worker and on Pages; read the report before the site's flip.\n`,
     );
   }
-  for (const one of refused) {
+  for (const one of refusals) {
     const host = sites.find((entry) => entry.site === one.site)?.[one.side] ?? "";
     const waited =
       asks.find((ask) => ask.plan.site === one.site && ask.path === one.path)?.waited ?? 0;
+    // The refusal rests on the second answer, which may be the first to fail.
+    const asked = `on the ${SIDE_NAMES[one.side]} side (${host}) when asked again ${waited / 1000} s later: ${one.reason}`;
     out(
-      `::error::site-parity: Cloudflare answered in the site's place for ${one.site} ${one.path} on the ${SIDE_NAMES[one.side]} side (${host}), when asked and again ${waited / 1000} s later: ${one.reason}. That is the zone's configuration, such as Bot Fight Mode, not the site; nothing was compared.\n`,
+      one.byCloudflare
+        ? `::error::site-parity: Cloudflare answered in the site's place for ${one.site} ${one.path} ${asked}. That is the zone's configuration, such as Bot Fight Mode, not the site; nothing was compared.\n`
+        : `::error::site-parity: ${one.site} ${one.path} did not answer as the site's own page ${asked}. A run passes only when \`/\` answers both hosts with a 2xx HTML page; a zone's custom error page or custom block response answers otherwise, as does a host or custom domain that is not ready (no answer, or Cloudflare's 52x or 530 page), or a site with no page at \`/\`. Nothing was compared on \`/\`.\n`,
     );
   }
   if (refused.length > 0) return 3;

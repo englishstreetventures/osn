@@ -1,7 +1,8 @@
 // scripts/site-parity.ts asks a staged site's Worker (its spare host) and its
 // Pages project (the production host) the same paths and reports where they
 // differ. These drive it against built-site fixtures and an injected fetch.
-// Cloudflare answering in a site's place is refused, not compared.
+// Cloudflare answering in a site's place is refused, not compared, and so is
+// a `/` that does not answer both hosts as the site's own page.
 
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -328,7 +329,8 @@ describe("runSiteParity", () => {
           ? "::error::site-parity: Cloudflare answered in the site's place for cire_host / on the Worker side (https://next-host.cireweddings.com)"
           : "::error::site-parity: Cloudflare answered in the site's place for cire_host / on the Pages side (https://host.cireweddings.com)",
       );
-      expect(result.output).toContain(`, when asked and again ${wait / 1000} s later: ${reason}.`);
+      // The second answer is the one the refusal rests on.
+      expect(result.output).toContain(`) when asked again ${wait / 1000} s later: ${reason}.`);
       expect(result.output).toContain("zone's configuration, such as Bot Fight Mode, not the site");
       expect(result.output).not.toContain("answer differently");
       expect(result.output).not.toContain("cire_host /: answer differ");
@@ -369,11 +371,12 @@ describe("runSiteParity", () => {
     expect(result.output).not.toContain("cire_host /:");
   });
 
-  test("SP6: a site's own 403, with no cf-mitigated, is compared as any answer, never refused", async () => {
+  test("SP6: a site's own 403 on a path other than `/`, with no cf-mitigated, is compared as any answer, never refused", async () => {
     const forbidden = () =>
       new Response("forbidden", { status: 403, headers: { "content-type": "text/html" } });
     const hosts = fakeHosts((url) =>
-      url === "https://next-host.cireweddings.com/" || url === "https://host.cireweddings.com/"
+      url === `https://next-host.cireweddings.com${UNKNOWN_PATH}` ||
+      url === `https://host.cireweddings.com${UNKNOWN_PATH}`
         ? forbidden()
         : undefined,
     );
@@ -501,9 +504,9 @@ describe("runSiteParity", () => {
     },
   );
 
-  test("SP8: Cloudflare's page on a status other than 403, a Worker that threw (1101, 500), is the site's own failure: a difference, never a refusal", async () => {
+  test("SP8: Cloudflare's page on a status other than 403, a Worker that threw (1101, 500) on a path other than `/`, is the site's own failure: a difference, never a refusal", async () => {
     const hosts = fakeHosts((url) =>
-      url === "https://next-host.cireweddings.com/"
+      url === `https://next-host.cireweddings.com${UNKNOWN_PATH}`
         ? new Response(WORKER_THREW_PAGE, {
             status: 500,
             headers: { "content-type": "text/html; charset=UTF-8" },
@@ -517,7 +520,7 @@ describe("runSiteParity", () => {
       differing: 1,
       refused: [],
     });
-    expect(result.output).toContain("cire_host /: status, ");
+    expect(result.output).toContain(`cire_host ${UNKNOWN_PATH}: status, `);
     expect(result.output).not.toContain("::error::");
   });
 
@@ -538,7 +541,7 @@ describe("runSiteParity", () => {
       expect(result.slept).toEqual([wait]);
       expect(hosts.calls.filter((url) => url === blockedUrl)).toHaveLength(2);
       expect(result.output).toContain(
-        `cire_host / on the Worker side (https://next-host.cireweddings.com), when asked and again ${wait / 1000} s later: answered 429`,
+        `cire_host / on the Worker side (https://next-host.cireweddings.com) when asked again ${wait / 1000} s later: answered 429`,
       );
       // The wait is the run's, never the report's.
       expect(readFileSync(result.out, "utf8")).not.toContain("retryAfter");
@@ -613,6 +616,222 @@ describe("runSiteParity", () => {
       const paths = site.probes.map((probe) => probe.path);
       expect(paths).toEqual(paths.toSorted());
     }
+  });
+
+  // `/` must answer both hosts as the site's own page, a 2xx with an HTML
+  // content type: a zone's custom error page or custom block response
+  // carries no marker, so two of them would otherwise compare as alike.
+  const HOME_WORKER = "https://next-host.cireweddings.com/";
+  const HOME_PAGES = "https://host.cireweddings.com/";
+  const notAPage = (what: string) => `answered ${what}, expected a 2xx HTML page`;
+  const notAPageLine = (side: "Worker" | "Pages", host: string, reason: string) =>
+    `::error::site-parity: cire_host / did not answer as the site's own page on the ${side} side (${host}) when asked again 2 s later: ${reason}. A run passes only when \`/\` answers both hosts with a 2xx HTML page;`;
+  const html = (status: number, init: { body?: string; location?: string } = {}) =>
+    new Response(init.body ?? "<!doctype html><title>Restricted</title>", {
+      status,
+      headers: {
+        "content-type": "text/html; charset=utf-8",
+        ...(init.location === undefined ? {} : { location: init.location }),
+      },
+    });
+  const onHome = (answer: () => Response | Error) =>
+    fakeHosts((url) => (url === HOME_WORKER || url === HOME_PAGES ? answer() : undefined));
+
+  test("SP11: a zone's own 403 page on `/` of both hosts, no marker and no cf-mitigated, refuses the run, never two matching answers", async () => {
+    const hosts = onHome(() => html(403));
+    const result = await parity(["--stack", "cire"], hosts);
+    expect(result.code).toBe(3);
+    expect(result.slept).toEqual([RETRY_MS]);
+    expect(hosts.calls.filter((url) => url === HOME_WORKER)).toHaveLength(2);
+    expect(hosts.calls.filter((url) => url === HOME_PAGES)).toHaveLength(2);
+    const reason = notAPage("403 text/html; charset=utf-8");
+    const report = JSON.parse(readFileSync(result.out, "utf8"));
+    expect(report.refused).toEqual([
+      { site: "cire_host", side: "worker", path: "/", reason },
+      { site: "cire_host", side: "pages", path: "/", reason },
+    ]);
+    expect(report.differing).toBe(0);
+    expect(result.output).toContain(
+      notAPageLine("Worker", "https://next-host.cireweddings.com", reason),
+    );
+    expect(result.output).toContain(notAPageLine("Pages", "https://host.cireweddings.com", reason));
+    expect(result.output).not.toContain("Cloudflare answered in the site's place");
+    expect(result.output).not.toContain("answers as Pages does");
+  });
+
+  test.each([
+    ["200 text/html, with no parameter", 200, "text/html"],
+    ["200 Text/HTML in other letter case", 200, "Text/HTML; charset=UTF-8"],
+    ["200 text/html with a space before its parameter", 200, "text/html ; charset=utf-8"],
+    ["203, a 2xx other than 200", 203, "text/html; charset=utf-8"],
+  ] as const)("SP11: `/` answering %s on both hosts is a page", async (_, status, type) => {
+    const hosts = onHome(
+      () => new Response("<!doctype html>", { status, headers: { "content-type": type } }),
+    );
+    const result = await parity(["--stack", "cire"], hosts);
+    expect(result.code).toBe(0);
+    expect(result.slept).toEqual([]);
+    expect(JSON.parse(readFileSync(result.out, "utf8"))).toMatchObject({
+      differing: 0,
+      refused: [],
+    });
+  });
+
+  test.each([
+    [
+      "text/plain",
+      () =>
+        new Response("Restricted", { headers: { "content-type": "text/plain; charset=utf-8" } }),
+      "200 text/plain; charset=utf-8",
+    ],
+    [
+      "JSON",
+      () => new Response("{}", { headers: { "content-type": "application/json" } }),
+      "200 application/json",
+    ],
+    ["no content type", () => new Response(null, { status: 200 }), "200 with no content type"],
+  ] as const)(
+    "SP11: `/` answering 200 with %s on both hosts is not a page, and refuses the run",
+    async (_, answer, what) => {
+      const result = await parity(["--stack", "cire"], onHome(answer));
+      expect(result.code).toBe(3);
+      const reason = notAPage(what);
+      expect(JSON.parse(readFileSync(result.out, "utf8")).refused).toEqual([
+        { site: "cire_host", side: "worker", path: "/", reason },
+        { site: "cire_host", side: "pages", path: "/", reason },
+      ]);
+    },
+  );
+
+  test.each([
+    ["Pages answers 404", HOME_PAGES, () => html(404), "pages", "404 text/html; charset=utf-8"],
+    [
+      "the Worker answers 503",
+      HOME_WORKER,
+      () => html(503),
+      "worker",
+      "503 text/html; charset=utf-8",
+    ],
+  ] as const)(
+    "SP11: `/` a page on one host and not the other refuses that side only: %s",
+    async (_, url, answer, side, what) => {
+      const result = await parity(
+        ["--stack", "cire"],
+        fakeHosts((requested) => (requested === url ? answer() : undefined)),
+      );
+      expect(result.code).toBe(3);
+      const report = JSON.parse(readFileSync(result.out, "utf8"));
+      expect(report.refused).toEqual([
+        { site: "cire_host", side, path: "/", reason: notAPage(what) },
+      ]);
+      // A refused path compared nothing, so it is never a difference too.
+      expect(report.differing).toBe(0);
+      expect(result.output).not.toContain("cire_host /:");
+    },
+  );
+
+  test.each([
+    ["the same path", "/welcome", "/welcome"],
+    ["a long path, cut to 80 characters", `/${"a".repeat(300)}`, `/${"a".repeat(79)}`],
+  ] as const)(
+    "SP11: `/` redirecting on both hosts to %s is not a page, whatever its content type: redirects are not followed",
+    async (_, location, shown) => {
+      const result = await parity(
+        ["--stack", "cire"],
+        onHome(() => html(302, { location })),
+      );
+      expect(result.code).toBe(3);
+      const reason = notAPage(`302 to ${shown} text/html; charset=utf-8`);
+      expect(JSON.parse(readFileSync(result.out, "utf8")).refused).toEqual([
+        { site: "cire_host", side: "worker", path: "/", reason },
+        { site: "cire_host", side: "pages", path: "/", reason },
+      ]);
+    },
+  );
+
+  test("SP11: no answer on `/` refuses the run, as a host or custom domain that is not ready gives", async () => {
+    const hosts = fakeHosts((url) =>
+      url === HOME_WORKER ? new TypeError("fetch failed") : undefined,
+    );
+    const result = await parity(["--stack", "cire"], hosts);
+    expect(result.code).toBe(3);
+    expect(result.slept).toEqual([RETRY_MS]);
+    expect(hosts.calls.filter((url) => url === HOME_WORKER)).toHaveLength(2);
+    const report = JSON.parse(readFileSync(result.out, "utf8"));
+    expect(report.refused).toEqual([
+      { site: "cire_host", side: "worker", path: "/", reason: "no answer" },
+    ]);
+    expect(report.differing).toBe(0);
+    expect(result.output).toContain(
+      notAPageLine("Worker", "https://next-host.cireweddings.com", "no answer"),
+    );
+  });
+
+  test("SP11: a `/` that is not a page once and a page when asked again 2 s later is compared as any answer", async () => {
+    const hosts = fakeHosts((url, asked) =>
+      url === HOME_WORKER && asked === 0 ? html(503) : undefined,
+    );
+    const result = await parity(["--stack", "cire"], hosts);
+    expect(result.code).toBe(0);
+    expect(result.slept).toEqual([RETRY_MS]);
+    expect(hosts.calls.filter((url) => url === HOME_WORKER)).toHaveLength(2);
+    expect(JSON.parse(readFileSync(result.out, "utf8"))).toMatchObject({
+      differing: 0,
+      refused: [],
+    });
+  });
+
+  test("SP11: a `/` with a 429 on one host and no page on the other is asked again once, after the 429's wait, never with the 2 s re-ask too", async () => {
+    const hosts = fakeHosts((url) =>
+      url === HOME_WORKER ? tooMany("5") : url === HOME_PAGES ? html(404) : undefined,
+    );
+    const result = await parity(["--stack", "cire"], hosts);
+    expect(result.code).toBe(3);
+    expect(result.slept).toEqual([5_000]);
+    expect(hosts.calls.filter((url) => url === HOME_WORKER)).toHaveLength(2);
+    expect(hosts.calls.filter((url) => url === HOME_PAGES)).toHaveLength(2);
+    expect(JSON.parse(readFileSync(result.out, "utf8")).refused).toEqual([
+      {
+        site: "cire_host",
+        side: "worker",
+        path: "/",
+        reason:
+          "answered 429: a rate limit or the account's daily request cap, not the site's code",
+      },
+      {
+        site: "cire_host",
+        side: "pages",
+        path: "/",
+        reason: notAPage("404 text/html; charset=utf-8"),
+      },
+    ]);
+  });
+
+  test("SP11: refusals of both kinds keep one order: sites in map order, paths sorted, the Worker side first", async () => {
+    const hosts = fakeHosts((url) =>
+      url === HOME_PAGES
+        ? html(404)
+        : url === "https://next-vendor.cireweddings.com/"
+          ? challenge()
+          : undefined,
+    );
+    const result = await parity(["--stack", "cire"], hosts);
+    expect(result.code).toBe(3);
+    expect(result.slept).toEqual([RETRY_MS]);
+    expect(JSON.parse(readFileSync(result.out, "utf8")).refused).toEqual([
+      {
+        site: "cire_host",
+        side: "pages",
+        path: "/",
+        reason: notAPage("404 text/html; charset=utf-8"),
+      },
+      {
+        site: "cire_vendor",
+        side: "worker",
+        path: "/",
+        reason: "Cloudflare answered 403 in the site's place (cf-mitigated: challenge)",
+      },
+    ]);
   });
 
   test("SP7: a challenge that clears when asked again 2 s later is compared as any answer", async () => {
