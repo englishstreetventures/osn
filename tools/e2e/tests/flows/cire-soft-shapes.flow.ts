@@ -40,6 +40,15 @@
  * its contents and that its "Anything else" field takes the 14px corner. Both
  * views are shot, the top of the page and the open sheet.
  *
+ * Along the way it runs the surfaces checks (`../support/cire-surfaces.ts`):
+ * the cards, small-caps labels and disclosures every cire app takes from
+ * `@cire/ui`, read from computed style and shot into `screenshots/cire-surfaces/`
+ * — on the overview, the settings, the import panel, a fresh Gold wedding's
+ * overview and budget, the Gold seating wedding's chart, the invite builder,
+ * the marketing site's FAQ and demo, and the guest FAQ in both designs. The
+ * guest FAQ needs entries the stack's seed does not have, so the organiser adds
+ * two through the API before the guest tab opens and removes them at the end.
+ *
  * The claim goes out from `ORGANISER_ADDRESS`, so it spends the organiser's
  * window of cire-api's claim limit, not the guests' (`flows.test.ts`).
  */
@@ -50,6 +59,15 @@ import { resolve } from "node:path";
 import type { Locator, Page } from "@playwright/test";
 
 import { CIRE_GUEST, ORIGINS, SCREENSHOT_DIR } from "../../src/config";
+import {
+  addGuestFaq,
+  builderSurfaces,
+  guestFaqSurfaces,
+  hostSurfaces,
+  landingSurfaces,
+  overviewSurfaces,
+  removeGuestFaq,
+} from "../support/cire-surfaces";
 import {
   claimFromOrganiserAddress,
   expect,
@@ -260,6 +278,7 @@ test("cire-soft-shapes", async ({ page, context, flow }) => {
       await radiusOf(guestsCard),
     );
   });
+  await overviewSurfaces(flow, page);
 
   const preview = page.getByRole("button", { name: "Preview invite" });
   /**
@@ -347,6 +366,8 @@ test("cire-soft-shapes", async ({ page, context, flow }) => {
   });
   await flow.step("shoot the RSVP table", () => shootAll(page, "host-rsvps", hostTheme(page)));
 
+  await hostSurfaces(flow, page);
+
   const design = (name: "Classic" | "Gala") =>
     page
       .getByRole("radiogroup", { name: "Invite design" })
@@ -360,6 +381,7 @@ test("cire-soft-shapes", async ({ page, context, flow }) => {
     "true",
     (await design("Classic").getAttribute("aria-checked")) ?? "missing",
   );
+  await builderSurfaces(flow, page, design);
 
   // ── The marketing site ───────────────────────────────────────────────────
   // No claim and no sign-in: the page is public, and its demo sends nothing.
@@ -389,6 +411,7 @@ test("cire-soft-shapes", async ({ page, context, flow }) => {
       await expect.poll(() => landing.evaluate(() => window.scrollY)).toBe(0);
     }),
   );
+  await landingSurfaces(flow, landing);
 
   const demoRespond = landing.getByRole("article").first().getByRole("button", {
     name: "Respond",
@@ -431,6 +454,7 @@ test("cire-soft-shapes", async ({ page, context, flow }) => {
   await landing.close();
 
   // ── The guest site, in Classic ───────────────────────────────────────────
+  const faqIds = await addGuestFaq(flow, page);
   const guest = await flow.newPage(context);
   const served = guestSitePaths(guest);
   const claimed = await flow.step(`open ${guestName}'s invitation from its link`, async () => {
@@ -461,6 +485,7 @@ test("cire-soft-shapes", async ({ page, context, flow }) => {
   flow.check("Classic's modules served", true, designModules("classic"));
   flow.check("Gala's modules not served", false, designModules("gala"));
 
+  await guestFaqSurfaces(flow, guest, "classic");
   await inviteViews(flow, guest, "classic");
 
   // ── The guest site, in Gala ──────────────────────────────────────────────
@@ -503,6 +528,7 @@ test("cire-soft-shapes", async ({ page, context, flow }) => {
     flow.check("Gala's modules served", true, designModules("gala", sinceReload));
     flow.check("Classic's modules not served", false, designModules("classic", sinceReload));
 
+    await guestFaqSurfaces(flow, guest, "gala");
     await inviteViews(flow, guest, "gala");
   } catch (error) {
     // A switch to Gala that never landed leaves Classic chosen, and pressing a
@@ -515,6 +541,7 @@ test("cire-soft-shapes", async ({ page, context, flow }) => {
   }
 
   await switchBack();
+  await removeGuestFaq(flow, page, faqIds);
 
   // The flow's own screenshot: the Gala RSVP sheet on a phone, in light.
   await guest.setViewportSize(WIDTHS[0]);
