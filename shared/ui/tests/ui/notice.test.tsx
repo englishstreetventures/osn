@@ -43,15 +43,25 @@ describe("Notice's default size", () => {
 });
 
 describe("Notice's props", () => {
-  it("leaves the role and the hiding attributes to the component", () => {
-    // Type checks, not runtime: `bun run typecheck` fails if either becomes a
+  it("leaves the role, the handlers and the hiding attributes to the component", () => {
+    // Type checks, not runtime: `bun run typecheck` fails if any becomes a
     // prop a caller may set. TSX never checks a hyphenated attribute such as
-    // `aria-hidden` against the props, so those two are held at run time by
-    // the browser test "keeps its role and its words in the accessibility tree".
-    // @ts-expect-error — the role follows `alert`.
-    void (<Notice role="alert">x</Notice>);
-    // @ts-expect-error — a notice that should not show is not rendered.
-    void (<Notice hidden>x</Notice>);
-    expect(true).toBe(true);
+    // `aria-hidden` against the props, so those are held at run time by the
+    // browser test "lets nothing past its allow-list reach the element".
+    const refused = () => (
+      <>
+        {/* @ts-expect-error — the role follows `alert`. */}
+        <Notice role="alert">x</Notice>
+        {/* @ts-expect-error — a notice that should not show is not rendered. */}
+        <Notice hidden>x</Notice>
+        {/* @ts-expect-error — nor taken out of the accessibility tree. */}
+        <Notice inert>x</Notice>
+        {/* @ts-expect-error — a notice is not a control. */}
+        <Notice onClick={() => undefined}>x</Notice>
+        {/* @ts-expect-error — markup is not a notice's prop: its words are children. */}
+        <Notice innerHTML="<img src=x>">x</Notice>
+      </>
+    );
+    expect(typeof refused).toBe("function");
   });
 });

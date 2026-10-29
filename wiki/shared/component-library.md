@@ -131,7 +131,7 @@ cire/ui/src/
 Solid's `HTMLAttributes` includes `innerHTML`, `innerText` and `textContent`,
 and dom-expressions assigns `innerHTML` as markup, unescaped. A primitive that
 spreads its rest props onto an element therefore type-checks
-`<Notice innerHTML={vendorName} />`, which reads at the call site like ordinary
+`<Td innerHTML={vendorName} />`, which reads at the call site like ordinary
 prop passing and is a script tag. `shared/ui/src/ui/props.ts` omits the three,
 so the mistake is a compile error. Anything that genuinely needs to write markup
 reaches for a bare element and says why. The menu's parts and `PopoverContent`
@@ -185,10 +185,12 @@ are standing notes. `accent` paints `--ui-accent-ink`, never `--ui-accent`.
 
 All three render a `<div>`, so none sits inside a `<p>` or a `<label>`: a call
 site there moves the line out of the paragraph. An inline line about a field
-takes an `id` the field names in `aria-describedby`. The role and `aria-live`
-follow `alert`, and neither they nor `aria-hidden` and `hidden` reach the
-element from a caller, so no call site can hide "Error" or turn an alert into a
-status; a call site that needs a status region wraps the notice in one. `mark` draws an app's own icon
+takes an `id` the field names in `aria-describedby`. A notice takes an
+allow-list rather than a `<div>`'s props — `id`, `aria-describedby`, `data-*`
+and a layout `class` — and the role follows `alert`: nothing else reaches the
+element, typed or spread, so no call site can pass markup or a handler, hide
+"Error", rename the words or turn an alert into a status. A call site that needs
+a status region wraps the notice in one. `mark` draws an app's own icon
 and read word in the same slot, for a part built on a tone that has none. With
 no `size` and no `tone`, `Notice` renders the classes it rendered before it had
 either: `shared/ui/tests/ui/notice.test.tsx` pins that string, and

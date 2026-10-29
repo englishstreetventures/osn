@@ -1,6 +1,4 @@
-import { type JSX, Show, splitProps } from "solid-js";
-
-import type { SafeProps } from "./props";
+import { type JSX, Show } from "solid-js";
 
 /**
  * A block that says something went wrong, or right, or is about to.
@@ -49,11 +47,17 @@ import type { SafeProps } from "./props";
  * is not drawn, since the icon would say what nothing reads, and its slot is
  * `inert` as well as `aria-hidden`, so nothing in it can take focus.
  *
- * The role, `aria-live`, `aria-hidden` and `hidden` are the component's, not
- * the caller's: none is a prop, so a caller cannot hide "Error" from a screen
- * reader or quietly turn an alert into a status. A tone or size outside the
- * named sets — a cast value from data — draws `info` at `md` rather than
- * failing to render.
+ * ## What reaches the element
+ *
+ * A notice's words are what it is for, so it takes an allow-list rather than a
+ * `<div>`'s props: an `id` (for a field's `aria-describedby` to name), its own
+ * `aria-describedby`, `data-*` attributes and a layout `class`, appended last.
+ * The role follows `alert`. Nothing else reaches the element, typed or spread
+ * from an untyped object: no markup, no handler, and nothing — `aria-hidden`,
+ * `hidden`, `inert`, `popover`, `aria-label`, a `title` — that would hide the
+ * words or "Error" from a screen reader, rename them, read them twice or turn
+ * an alert into a status. A tone or size outside the named sets — a cast value
+ * from data — draws `info` at `md` rather than failing to render.
  *
  * ## `alert`
  *
@@ -152,37 +156,43 @@ const MARK = {
   accent: undefined,
 } satisfies Readonly<Record<NoticeTone, (() => NoticeMark) | undefined>>;
 
-export type NoticeProps = Omit<
-  SafeProps<"div">,
-  "role" | "aria-live" | "aria-hidden" | "hidden"
-> & {
+export type NoticeProps = {
   tone?: NoticeTone;
   size?: NoticeSize;
   /** Announce it the moment it appears. See the note above. */
   alert?: boolean;
   /** An app's own mark, for a tone that has none. See the note above. */
   mark?: NoticeMark;
-};
+  /** Layout only: where the notice sits, never how it looks. */
+  class?: string;
+  id?: string;
+  "aria-describedby"?: string;
+  children?: JSX.Element;
+} & { [attribute: `data-${string}`]: string | boolean | undefined };
 
-/** The attributes `NoticeProps` leaves out, which an untyped spread could still carry. */
-interface Withheld {
-  role?: unknown;
-  "aria-live"?: unknown;
-  "aria-hidden"?: unknown;
-  hidden?: unknown;
+type DataAttribute = `data-${string}`;
+
+/** A `data-*` attribute name: lower-case letters, digits and hyphens. */
+function isDataAttribute(key: string): key is DataAttribute {
+  return /^data-[a-z0-9-]+$/.test(key);
 }
 
 export function Notice(props: NoticeProps) {
-  const withheld: NoticeProps & Withheld = props;
-  const [own, , rest] = splitProps(
-    withheld,
-    ["tone", "size", "alert", "mark", "class", "children"],
-    ["role", "aria-live", "aria-hidden", "hidden"],
-  );
-  const tone = (): NoticeTone => (own.tone && Object.hasOwn(INK, own.tone) ? own.tone : "info");
-  const size = (): NoticeSize => (own.size && Object.hasOwn(SIZE, own.size) ? own.size : "md");
+  const data = () => {
+    const out: Partial<Record<DataAttribute, string | boolean>> = {};
+    for (const key of Object.keys(props)) {
+      if (!isDataAttribute(key)) continue;
+      const value = props[key];
+      if (typeof value === "string" || typeof value === "boolean") out[key] = value;
+    }
+    return out;
+  };
+  const tone = (): NoticeTone =>
+    props.tone && Object.hasOwn(INK, props.tone) ? props.tone : "info";
+  const size = (): NoticeSize =>
+    props.size && Object.hasOwn(SIZE, props.size) ? props.size : "md";
   const mark = () => {
-    const m = MARK[tone()]?.() ?? own.mark;
+    const m = MARK[tone()]?.() ?? props.mark;
     return m?.word.trim() ? m : undefined;
   };
   const look = () =>
@@ -191,9 +201,11 @@ export function Notice(props: NoticeProps) {
       : `${SIZE[size()]} ${BOX[tone()]} ${INK[tone()]}`;
   return (
     <div
-      {...rest}
-      role={own.alert ? "alert" : undefined}
-      class={`${look()}${own.class ? ` ${own.class}` : ""}`}
+      {...data()}
+      id={props.id}
+      aria-describedby={props["aria-describedby"]}
+      role={props.alert ? "alert" : undefined}
+      class={`${look()}${props.class ? ` ${props.class}` : ""}`}
     >
       <Show when={mark()}>
         {(m) => (
@@ -213,7 +225,7 @@ export function Notice(props: NoticeProps) {
       </Show>
       {/* Its own box, so a run of text and an inline element inside it stay one
           paragraph rather than becoming two flex items with a gap between them. */}
-      <div class="base:min-w-0">{own.children}</div>
+      <div class="base:min-w-0">{props.children}</div>
     </div>
   );
 }

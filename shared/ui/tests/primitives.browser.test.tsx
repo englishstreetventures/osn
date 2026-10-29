@@ -331,12 +331,29 @@ describe("Notice sizes and the accent tone", () => {
     }
   });
 
-  it("keeps its role and its words in the accessibility tree whatever a caller spreads", () => {
-    const spread: Record<string, string> = {
+  it("lets nothing past its allow-list reach the element, however it is spread", () => {
+    // A spread skips the type check, so the allow-list is held at run time:
+    // markup, a handler, and anything that would hide, rename or repeat the
+    // words, or turn an alert into a status, stay off the element.
+    const spread: Record<string, unknown> = {
       role: "status",
       "aria-hidden": "true",
       "aria-live": "off",
+      "aria-label": "Fine",
+      "aria-busy": "true",
       hidden: "",
+      inert: true,
+      popover: "auto",
+      title: "Could not save",
+      tabIndex: 0,
+      onClick: () => undefined,
+      innerHTML: "<img src=x>",
+      "prop:innerHTML": "<img src=x>",
+      "attr:aria-hidden": "true",
+      "bool:hidden": true,
+      id: "save-error",
+      "aria-describedby": "save-hint",
+      "data-testid": "save-error",
     };
     const { container } = render(() => (
       <Notice tone="danger" alert {...spread}>
@@ -345,9 +362,25 @@ describe("Notice sizes and the accent tone", () => {
     ));
     const box = container.firstElementChild!;
     expect(box.getAttribute("role")).toBe("alert");
-    expect(box.hasAttribute("aria-hidden")).toBe(false);
-    expect(box.hasAttribute("aria-live")).toBe(false);
-    expect(box.hasAttribute("hidden")).toBe(false);
+    for (const name of [
+      "aria-hidden",
+      "aria-live",
+      "aria-label",
+      "aria-busy",
+      "hidden",
+      "inert",
+      "popover",
+      "title",
+      "tabindex",
+      "onclick",
+    ]) {
+      expect(box.hasAttribute(name)).toBe(false);
+    }
+    expect(box.querySelector("img")).toBeNull();
+    expect(container.textContent).toContain("Error:");
+    expect(box.id).toBe("save-error");
+    expect(box.getAttribute("aria-describedby")).toBe("save-hint");
+    expect(box.getAttribute("data-testid")).toBe("save-error");
   });
 
   it("makes the icon slot inert, and draws no mark whose word is empty", () => {
