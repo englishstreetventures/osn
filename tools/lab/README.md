@@ -32,6 +32,7 @@ view. For a component's full range of variants and states, open its own group:
 | `shared/ui/data`     | Table, Meter                                                                    |
 | `shared/ui/overlays` | Dialog, Modal, DropdownMenu, Popover, InfoPopover, Tooltip, Tabs                |
 | `cire/ui/Button`  | Every variant at every size in cire's light and dark mapping; states; each shape claim measured from the painted button; live playground |
+| `cire/ui/Card`    | The plain, accent, eyebrow and interactive cards in cire's light and dark mapping; each padding step, fill and tone, measured from the painted card |
 | `pulse/Icon`      | The Pulse glyph set, every icon at every size                                   |
 | `shared/toast`    | Tones, positions, stacking, actions/promises, overflow                          |
 | `shared/sortable` | Drag feel, the shift/settle animation, grip hover/focus, multi-container        |

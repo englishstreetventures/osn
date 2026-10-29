@@ -56,7 +56,7 @@ export default function Reveal(props: RevealProps): JSX.Element {
 
   return (
     <div
-      class="grid transition-[grid-template-rows,opacity] duration-200 ease-out"
+      class="grid transition-[grid-template-rows,opacity] duration-(--dur-base,200ms) ease-out"
       classList={{
         "grid-rows-[1fr] opacity-100": open(),
         "grid-rows-[0fr] opacity-0": !open(),

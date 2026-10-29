@@ -1,8 +1,23 @@
-import Card, { CardCta, CardEyebrow, cardClass } from "@cire/ui/card";
-import { For, type JSX } from "solid-js";
+import Card, {
+  CardCta,
+  CardEyebrow,
+  type CardFill,
+  type CardPadding,
+  type CardTone,
+  cardClass,
+} from "@cire/ui/card";
+import { For, type JSX, Show } from "solid-js";
 
 import type { Story, StoryArgs } from "../../lab/types.ts";
-import { Eyebrow, Gallery, Mono, Rule, Section } from "../design-system/chrome.tsx";
+import {
+  Caption,
+  Eyebrow,
+  Gallery,
+  Mono,
+  Readout,
+  Rule,
+  Section,
+} from "../design-system/chrome.tsx";
 import { type CireTheme, cireStyle } from "./cire-mapping.ts";
 
 export const meta = { title: "cire/ui/Card", layout: "padded" as const };
@@ -56,10 +71,11 @@ export const Cards: Story<ThemeArgs> = {
       title="cire/ui Card"
       intro={
         <>
-          One border, one padding and the <Mono>lg</Mono> corner, which cire maps to 16px. The
-          interactive card is a <Mono>&lt;button&gt;</Mono> wearing <Mono>cardClass</Mono>; hover it
-          to see the border and fill answer. cire's fonts are not loaded here, so the type is the
-          lab's: judge the face in the app.
+          One border and the <Mono>lg</Mono> corner, which cire maps to 16px, at the default padding
+          and fill; the next three stories show the other steps. The interactive card is a{" "}
+          <Mono>&lt;button&gt;</Mono> wearing <Mono>cardClass</Mono>; hover it to see the border and
+          fill answer. cire's fonts are not loaded here, so the type is the lab's: judge the face in
+          the app.
         </>
       }
     >
@@ -94,6 +110,150 @@ export const Cards: Story<ThemeArgs> = {
           Every card has the same 16px corner. The accent card differs in its border colour alone.
         </Rule>
       </Section>
+    </Gallery>
+  ),
+};
+
+/**
+ * One `Card` with the props given, captioned with what the browser painted for
+ * the property the step changes. The ref is on a wrapper, since `Card` takes
+ * none; the card is its first child.
+ */
+function Measured(props: {
+  name: string;
+  property: string;
+  padding?: CardPadding;
+  fill?: CardFill;
+  tone?: CardTone;
+  children: JSX.Element;
+}) {
+  let wrap: HTMLDivElement | undefined;
+  return (
+    <div class="flex flex-col gap-2">
+      <div
+        ref={(node) => {
+          wrap = node;
+        }}
+      >
+        <Card padding={props.padding} fill={props.fill} tone={props.tone}>
+          {props.children}
+        </Card>
+      </div>
+      <Caption
+        name={<Mono>{props.name}</Mono>}
+        value={
+          <>
+            {props.property}{" "}
+            <Readout of={() => wrap?.firstElementChild ?? undefined} property={props.property} />
+          </>
+        }
+      />
+    </div>
+  );
+}
+
+const PADDING_USE = {
+  sm: "A filter bar, or a small card in a list.",
+  md: "The ordinary card, and the default.",
+  lg: "A panel that holds a whole form.",
+  xl: "The sign-in card, alone on its page.",
+} satisfies Record<CardPadding, string>;
+
+/** The four padding steps, each measured. `md` is the default. */
+export const Paddings: Story<ThemeArgs> = {
+  args: { cireTheme: "both" },
+  controls: themeControl,
+  render: (args) => (
+    <Gallery
+      title="cire/ui Card — padding"
+      intro={
+        <>
+          Four steps: <Mono>sm</Mono> 16px, <Mono>md</Mono> 20px (the default), <Mono>lg</Mono> 24px
+          and <Mono>xl</Mono> 32px. Each caption is the padding the browser painted.
+        </>
+      }
+    >
+      <Panels theme={args.cireTheme}>
+        <For each={Object.keys(PADDING_USE) as CardPadding[]}>
+          {(padding) => (
+            <Measured name={`padding="${padding}"`} property="padding-top" padding={padding}>
+              <p class="text-ui-sm text-ui-ink">{PADDING_USE[padding]}</p>
+            </Measured>
+          )}
+        </For>
+      </Panels>
+    </Gallery>
+  ),
+};
+
+const FILL_USE = {
+  wash: "The surface at 30%: the default, so a grid of cards reads as one layer.",
+  well: "The sunk surface, for a box holding something already on the page.",
+  opaque: "The surface itself, for a card that must let nothing behind it through.",
+  none: "No ground, for a card set on something that already has one.",
+} satisfies Record<CardFill, string>;
+
+/** The four fills, each measured, on cire's page ground. `wash` is the default. */
+export const Fills: Story<ThemeArgs> = {
+  args: { cireTheme: "both" },
+  controls: themeControl,
+  render: (args) => (
+    <Gallery
+      title="cire/ui Card — fill"
+      intro={
+        <>
+          Four fills, each on cire's page ground. The caption is the background colour the browser
+          painted; <Mono>none</Mono> paints none. On the guest site and the marketing site the sunk
+          surface is the page ground itself, so there a <Mono>well</Mono> card shows its border
+          alone: judge that in the app.
+        </>
+      }
+    >
+      <Panels theme={args.cireTheme}>
+        <For each={Object.keys(FILL_USE) as CardFill[]}>
+          {(fill) => (
+            <Measured name={`fill="${fill}"`} property="background-color" fill={fill}>
+              <p class="text-ui-sm text-ui-ink">{FILL_USE[fill]}</p>
+            </Measured>
+          )}
+        </For>
+      </Panels>
+    </Gallery>
+  ),
+};
+
+const TONE_USE = {
+  default: "The hairline, for every ordinary card.",
+  accent: "The gold rule, for the loudest card on its screen.",
+  danger: "The red rule, for the card that holds an action nobody can undo.",
+} satisfies Record<CardTone, string>;
+
+/** The three tones. A tone changes the border and nothing else. */
+export const Tones: Story<ThemeArgs> = {
+  args: { cireTheme: "both" },
+  controls: themeControl,
+  render: (args) => (
+    <Gallery
+      title="cire/ui Card — tone"
+      intro={
+        <>
+          A tone is the border colour alone; the fill and padding are their own options. The caption
+          is the border colour the browser painted.
+        </>
+      }
+    >
+      <Panels theme={args.cireTheme}>
+        <For each={Object.keys(TONE_USE) as CardTone[]}>
+          {(tone) => (
+            <Measured name={`tone="${tone}"`} property="border-top-color" tone={tone}>
+              <Show when={tone === "danger"} fallback={<CardEyebrow>{tone}</CardEyebrow>}>
+                <p class="text-ui-sm text-ui-danger">Delete this wedding</p>
+              </Show>
+              <p class="text-ui-xs text-ui-ink-secondary">{TONE_USE[tone]}</p>
+            </Measured>
+          )}
+        </For>
+      </Panels>
     </Gallery>
   ),
 };
