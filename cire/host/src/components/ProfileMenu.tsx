@@ -99,6 +99,9 @@ export default function ProfileMenu(props: {
             <img
               src={url()}
               alt=""
+              /* No Referer: the image's host learns the organiser's address
+                 from the request, never which wedding page drew it. */
+              referrerpolicy="no-referrer"
               onError={() => setFailedAvatarUrl(url())}
               class="h-full w-full rounded-full object-cover"
             />

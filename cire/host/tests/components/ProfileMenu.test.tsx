@@ -50,6 +50,20 @@ describe("ProfileMenu", () => {
     expect(img.src).toBe("https://cdn.test/alex.png");
   });
 
+  it("asks for the avatar image without saying which page asked", () => {
+    // The image's host learns the organiser's address from the request, and
+    // nothing more: no Referer names the wedding page it was drawn on.
+    render(() => (
+      <ProfileMenu
+        session={{ ...SESSION, avatarUrl: "https://cdn.test/referrer.png" }}
+        onSecurity={() => {}}
+        onSignOut={() => {}}
+      />
+    ));
+    const img = screen.getByRole("button", { name: /account menu/i }).querySelector("img");
+    expect(img?.getAttribute("referrerpolicy")).toBe("no-referrer");
+  });
+
   it("falls back to the initial when the avatar image fails to load", () => {
     // A dead link, or a response that is not an image, fires `error` — the
     // circle shows the initial rather than nothing.
