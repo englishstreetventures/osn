@@ -86,7 +86,7 @@ export default function RsvpChangesCard(props: {
             <label class="font-body text-text-muted text-ui-sm border-border/40 flex items-center gap-2 border-t pt-3">
               <input
                 type="checkbox"
-                class="accent-gold h-4 w-4 shrink-0 cursor-pointer"
+                class="h-4 w-4 shrink-0 cursor-pointer"
                 checked={feed().digest.enabled}
                 disabled={saving()}
                 onChange={(e) => void toggleDigest(e.currentTarget.checked)}

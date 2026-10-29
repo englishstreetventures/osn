@@ -1450,7 +1450,7 @@ export default function RsvpView(props: RsvpViewProps) {
             <label class="font-body text-text-muted text-ui-sm leading-ui-normal flex items-start gap-2.5 normal-case">
               <input
                 type="checkbox"
-                class="accent-gold mt-0.5 h-4 w-4 shrink-0 cursor-pointer"
+                class="mt-0.5 h-4 w-4 shrink-0 cursor-pointer"
                 checked={formConsent()}
                 onChange={(e) => setFormConsent(e.currentTarget.checked)}
                 disabled={saving()}

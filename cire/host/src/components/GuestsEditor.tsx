@@ -1146,7 +1146,7 @@ function GuestRow(props: {
                 checked={props.guest.eventKeys.includes(evt.key)}
                 aria-label={`${props.guest.firstName || "Guest"} attends ${evt.name || "event"}`}
                 onChange={() => props.store.toggleAttendance(props.guest.key, evt.key)}
-                class="accent-gold h-4 w-4 cursor-pointer"
+                class="h-4 w-4 cursor-pointer"
               />
             </Td>
           )}

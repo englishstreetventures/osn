@@ -162,7 +162,6 @@ export default function CreateWeddingForm(props: {
                     checked={codeStyle() === option.value}
                     disabled={busy()}
                     onChange={() => setCodeStyle(option.value)}
-                    class="accent-gold"
                   />
                   <span class="font-body text-text text-ui-base">{option.label}</span>
                 </span>
