@@ -114,7 +114,9 @@ describe("the Disclosure part", () => {
     // step can match Tailwind's own default duration by chance.
     const root = document.documentElement.style;
     root.setProperty("--motion-scale", "3");
-    onTestFinished(() => root.removeProperty("--motion-scale"));
+    onTestFinished(() => {
+      root.removeProperty("--motion-scale");
+    });
     const probe = document.createElement("span");
     document.body.append(probe);
     onTestFinished(() => probe.remove());
