@@ -77,10 +77,19 @@ const hostTheme = (page: Page, target?: Locator) => async (scheme: Scheme) => {
   }
 };
 
-/** Light, at a desktop width: where the checks read. */
+/**
+ * Light, at a desktop width: where the checks read. The portal follows the
+ * scheme a moment after it changes (`lib/theme.ts` writes `data-theme` from a
+ * media listener), so a read straight after a dark shot would see the dark
+ * ramp; the guest and marketing sites carry no `data-theme`.
+ */
 async function reading(page: Page): Promise<void> {
   await page.setViewportSize(DESKTOP);
   await page.emulateMedia({ colorScheme: "light" });
+  await page.waitForFunction(() => {
+    const theme = document.documentElement.dataset.theme;
+    return theme === undefined || theme === "light";
+  });
 }
 
 /** One computed property of `target`, or of its pseudo-element. */
