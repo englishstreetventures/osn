@@ -129,7 +129,9 @@ export function cardClass(options: CardOptions = {}): string {
  * fill, with no padding and no layout.
  *
  * For a part that pads its own pieces rather than the box — a disclosure,
- * whose summary row is the whole click target. It repeats `CARD_BASE`'s
+ * whose summary row is the whole click target — and for a box set inside a
+ * card, which takes the small corner and pads itself (the vendor portal's
+ * quote form). It repeats `CARD_BASE`'s
  * corner and border rather than composing it, because `cardClass()` with no
  * options is pinned and puts its padding between the border and its colour.
  *
@@ -162,15 +164,6 @@ export default function Card(props: CardLook & { class?: string; children: JSX.E
     >
       {props.children}
     </div>
-  );
-}
-
-/** The gold label a card leads with. One weight, one tracking, everywhere. */
-export function CardEyebrow(props: { children: JSX.Element }) {
-  return (
-    <p class="base:font-ui-body base:text-ui-accent base:text-ui-xs base:tracking-ui-ultra base:uppercase">
-      {props.children}
-    </p>
   );
 }
 
