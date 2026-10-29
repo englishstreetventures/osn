@@ -10,9 +10,11 @@
  * and a closing field that previews the couple's link and carries their names
  * to the organiser portal.
  *
- * The flow never follows a link into the portal: the portal calls cire-api as
- * it loads, and those lines would land in results.json in a different order on
- * each run. It checks every organiser link's href instead.
+ * The flow never loads the portal: the portal calls cire-api as it loads, and
+ * those lines would land in results.json in a different order on each run. It
+ * checks every organiser link's href instead, and follows the claim link once,
+ * into a page the flow itself serves at the portal's address. The portal's
+ * half, the form opening with the names, is `cire-checklist-starter`'s.
  *
  * The stack starts the landing site with no `PUBLIC_DEMO_INVITE_URL`, so "See
  * a live invite" is the in-page anchor. A developer's own `cire/landing/.env`
@@ -22,7 +24,7 @@
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 
-import type { Page } from "@playwright/test";
+import type { Locator, Page, Route } from "@playwright/test";
 
 import { ORIGINS, SCREENSHOT_DIR } from "../../src/config";
 import { expect, test } from "../support/fixtures";
@@ -31,13 +33,40 @@ const HOME = `${ORIGINS.cireLanding}/`;
 const SHOTS = resolve(SCREENSHOT_DIR, "cire-landing-home");
 const PORTAL = ORIGINS.cireHost;
 
-/** The hero's four states, in the order the chips list them. */
+/**
+ * The hero's four states, in the order the chips list them, and the caption a
+ * screen reader hears for each: the phones are hidden from assistive
+ * technology, so the figure's name is all it says of the invitation.
+ */
 const HERO_STATES = [
-  { id: "sealed", label: "Sealed" },
-  { id: "opened", label: "Opened" },
-  { id: "rsvp", label: "RSVP" },
-  { id: "on-the-day", label: "On the day" },
+  {
+    id: "sealed",
+    label: "Sealed",
+    caption:
+      "Sealed: the invitation as a guest first sees it, with the couple’s names, the date and a field for their household’s code.",
+  },
+  {
+    id: "opened",
+    label: "Opened",
+    caption: "Opened: the couple’s words, the date, and the ceremony and reception to reply to.",
+  },
+  {
+    id: "rsvp",
+    label: "RSVP",
+    caption: "The reply: each person in the household answers for each event, with dietary notes.",
+  },
+  {
+    id: "on-the-day",
+    label: "On the day",
+    caption: "On the day: the timings, the dress code and the way to the venue.",
+  },
 ] as const;
+
+/** The three plans' ids, in the order the pricing section shows them. */
+const PLAN_IDS = ["ivory", "gold", "crimson"] as const;
+
+/** The craft section's photograph, by its alt text. */
+const CRAFT_PHOTO = "A beautifully laid place setting with a handwritten name card";
 
 /** The journey's five tabs, the heading of each panel, and the plan it needs. */
 const JOURNEY = [
@@ -73,6 +102,16 @@ async function organiserHrefs(page: Page): Promise<string[]> {
   return page
     .locator(`a[href^="${PORTAL}"]`)
     .evaluateAll((links) => links.map((link) => link.getAttribute("href") ?? ""));
+}
+
+/** The href of the link named `name` inside `scope`. */
+async function hrefOf(scope: Locator, name: string): Promise<string> {
+  return (await scope.getByRole("link", { name, exact: true }).getAttribute("href")) ?? "";
+}
+
+/** How many figures in the hero a screen reader names exactly `caption`. */
+async function heroFiguresNamed(page: Page, caption: string): Promise<number> {
+  return page.locator("#hero").getByRole("figure", { name: caption, exact: true }).count();
 }
 
 /** The hero state on screen, once exactly one is. */
@@ -159,21 +198,37 @@ test("cire-landing-home", async ({ page, browser, flow }) => {
   });
 
   await flow.step("every organiser link points at the portal", async () => {
+    // Counted here for the JavaScript-off step to compare with, where the
+    // count lands in results.json; each link a couple can press to start is
+    // checked by name below.
     const hrefs = await organiserHrefs(page);
     organiserLinkCount = hrefs.length;
-    flow.check("organiser links on the page", hrefs.length, organiserLinkCount);
     flow.check(
       "every organiser link is the portal root, or the claim link carrying a name",
       "",
       hrefs.filter((href) => href !== PORTAL && !href.startsWith(`${PORTAL}/?name=`)).join(" "),
     );
     flow.check(
+      "the nav's call to action opens the portal",
+      PORTAL,
+      await hrefOf(page.locator("[data-site-nav]"), "Create your invitation"),
+    );
+    flow.check(
       "the hero's primary call to action opens the portal",
       PORTAL,
-      (await page
-        .locator("#hero")
-        .getByRole("link", { name: "Create your invitation" })
-        .getAttribute("href")) ?? "",
+      await hrefOf(page.locator("#hero"), "Create your invitation"),
+    );
+    for (const id of PLAN_IDS) {
+      flow.check(
+        `the ${id} plan's call to action opens the portal`,
+        PORTAL,
+        await hrefOf(page.locator(`#pricing [data-plan="${id}"]`), "Create your invitation"),
+      );
+    }
+    flow.check(
+      "the footer's Create an invitation opens the portal",
+      PORTAL,
+      await hrefOf(page.getByRole("contentinfo"), "Create an invitation"),
     );
   });
 
@@ -216,11 +271,68 @@ test("cire-landing-home", async ({ page, browser, flow }) => {
         .filter((href) => href !== PORTAL && !href.startsWith(`${PORTAL}/?name=`))
         .join(" "),
     );
+    const field = page.locator("#cta").getByLabel("Your names");
+    const claimLink = page.locator("[data-claim-cta]");
+    await field.fill("   ");
+    flow.check(
+      "with only spaces in the field, the claim link opens the portal with no name",
+      PORTAL,
+      (await claimLink.getAttribute("href")) ?? "",
+    );
+    await field.fill("  Amara & Sam  ");
+    flow.check(
+      "the claim link carries the names without the spaces around them",
+      `${PORTAL}/?name=Amara%20%26%20Sam`,
+      (await claimLink.getAttribute("href")) ?? "",
+    );
+    flow.check(
+      "the field takes no more than the 120 characters cire-api accepts",
+      "120",
+      (await field.getAttribute("maxlength")) ?? "",
+    );
+  });
+
+  await flow.step("press Enter in the claim field", async () => {
+    // The field sits in no form, so Enter is the field's own handler following
+    // the link. A page served here stands in for the portal, so no request
+    // reaches the portal or cire-api.
+    const portal = (url: URL): boolean => url.origin === PORTAL;
+    const standIn = (route: Route) =>
+      route.fulfill({ status: 200, contentType: "text/html", body: "<title>portal</title>" });
+    await page.route(portal, standIn);
+    await page.locator("#cta").getByLabel("Your names").press("Enter");
+    await page.waitForURL(portal);
+    flow.check(
+      "Enter in the claim field follows the claim link",
+      `${PORTAL}/?name=Amara%20%26%20Sam`,
+      page.url(),
+    );
+    // Back on the home page the link must match the field, whether or not the
+    // browser put the names back in it, so the check is that they agree and
+    // not what either holds.
+    await page.goBack();
+    const back = await page.locator("[data-claim]").evaluate((claim) => ({
+      value: claim.querySelector<HTMLInputElement>("[data-claim-input]")?.value ?? "",
+      href: claim.querySelector("[data-claim-cta]")?.getAttribute("href") ?? "",
+    }));
+    const trimmed = back.value.trim();
+    const expected = trimmed === "" ? PORTAL : `${PORTAL}/?name=${encodeURIComponent(trimmed)}`;
+    flow.check(
+      "back on the home page, the claim link matches the field",
+      true,
+      back.href === expected,
+    );
+    await page.unroute(portal, standIn);
   });
 
   await flow.step("switch the hero's invitation with the chips", async () => {
     await page.locator("#hero").scrollIntoViewIfNeeded();
     flow.check("the hero opens on the sealed invitation", "sealed", await visibleHeroState(page));
+    flow.check(
+      "a screen reader hears the sealed invitation's caption, and only it",
+      1,
+      await heroFiguresNamed(page, HERO_STATES[0].caption),
+    );
     const sealed = page.locator('#hero [data-state="sealed"]');
     const sealedText = ((await sealed.textContent()) ?? "").replace(/\s+/g, " ");
     flow.check("the sealed invitation names the couple", true, sealedText.includes("Amara & Sam"));
@@ -247,6 +359,11 @@ test("cire-landing-home", async ({ page, browser, flow }) => {
         `the ${state.label} chip shows that invitation`,
         state.id,
         await visibleHeroState(page),
+      );
+      flow.check(
+        `a screen reader hears the ${state.label} invitation's caption, and only it`,
+        1,
+        await heroFiguresNamed(page, state.caption),
       );
     }
     await page.locator("#hs-on-the-day").focus();
@@ -280,8 +397,17 @@ test("cire-landing-home", async ({ page, browser, flow }) => {
     const demo = page.locator("#see-it-live");
     await demo.scrollIntoViewIfNeeded();
     await expect(demo.locator("astro-island:not([ssr])")).toHaveCount(1);
+    // `astro dev`'s toolbar audit fetches each of the page's own images to
+    // weigh them, whenever it runs; that is the dev server, not the demo, so
+    // a GET of exactly one of those files is not counted.
+    const pageImages = new Set(
+      await page
+        .locator("img[src]")
+        .evaluateAll((images: HTMLImageElement[]) => images.map((image) => image.src)),
+    );
     const sent: string[] = [];
     const collect = (request: { resourceType(): string; method(): string; url(): string }) => {
+      if (request.method() === "GET" && pageImages.has(request.url())) return;
       if (["fetch", "xhr", "eventsource", "ping"].includes(request.resourceType())) {
         sent.push(`${request.method()} ${request.url()}`);
       }
@@ -348,29 +474,61 @@ test("cire-landing-home", async ({ page, browser, flow }) => {
   await flow.step("read the plans", async () => {
     const pricing = page.locator("#pricing");
     await pricing.scrollIntoViewIfNeeded();
-    const plans = await pricing
-      .locator("[data-plan]")
-      .evaluateAll((articles) =>
-        articles.map((article) =>
-          ["[data-plan-name]", "[data-plan-price]", "[data-plan-cap]"]
-            .map((part) => (article.querySelector(part)?.textContent ?? "").replace(/\s+/g, ""))
-            .join(", "),
-        ),
-      );
+    const cards = await pricing.locator("[data-plan]").evaluateAll((articles) =>
+      articles.map((article) => {
+        const [name, price, cap] = ["[data-plan-name]", "[data-plan-price]", "[data-plan-cap]"].map(
+          (part) => (article.querySelector(part)?.textContent ?? "").replace(/\s+/g, ""),
+        );
+        return { name: name ?? "", price: price ?? "", cap: cap ?? "" };
+      }),
+    );
     flow.check(
       "each plan's name, price and guest cap",
       "Ivory, Free, 100 / Gold, A$79, 500 / Crimson, A$149, 1,000",
-      plans.join(" / "),
+      cards.map((card) => `${card.name}, ${card.price}, ${card.cap}`).join(" / "),
+    );
+    const upgrade = (await pricing.locator("[data-plan-upgrade]").textContent()) ?? "";
+    flow.check("the footnote prices the move from Gold to Crimson", true, upgrade.includes("A$70"));
+    // Each plan's price and cap as the cards show them, bound to its name, so
+    // a FAQ with two caps swapped, or an old price, fails.
+    const faq = ((await page.locator("#faq").textContent()) ?? "").replace(/\s+/g, " ");
+    flow.check(
+      "the FAQ gives each plan the price and guest cap its card shows",
+      "",
+      cards
+        .map(
+          (card) =>
+            `${card.name} is ${card.price === "Free" ? "free" : card.price} for up to ${card.cap} guests`,
+        )
+        .filter((phrase) => !faq.includes(phrase))
+        .join(" / "),
     );
     flow.check(
-      "the footnote prices the move from Gold to Crimson",
+      "the FAQ prices the move from Gold to Crimson as the footnote does",
       true,
-      ((await pricing.locator("[data-plan-upgrade]").textContent()) ?? "").includes("A$70"),
+      faq.includes(`from Gold, Crimson is ${upgrade.match(/A\$\d+/)?.[0] ?? "no price"}`),
+    );
+  });
+
+  await flow.step("see the craft photograph served from the site itself", async () => {
+    const photo = page.getByRole("img", { name: CRAFT_PHOTO, exact: true });
+    await photo.scrollIntoViewIfNeeded();
+    // Lazy: it loads once it nears the viewport.
+    await expect
+      .poll(() => photo.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0))
+      .toBe(true);
+    const source = await photo.evaluate((img: HTMLImageElement) => img.currentSrc);
+    flow.check(
+      "the craft photograph loads from the landing site's own origin",
+      ORIGINS.cireLanding,
+      new URL(source).origin,
     );
     flow.check(
-      "the FAQ answers what it costs with the same prices",
-      true,
-      ((await page.locator("#faq").textContent()) ?? "").includes("A$79"),
+      "the craft photograph credits its photographer",
+      "Photo: Jonathan Borba / Unsplash",
+      (
+        (await page.locator("figure", { has: photo }).locator("figcaption").textContent()) ?? ""
+      ).trim(),
     );
   });
 
