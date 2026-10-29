@@ -18,7 +18,9 @@ import type { SafeProps } from "./props";
  * sidebar. `inline` is no box at all — no border, no fill, no padding — for
  * the error line under a field: the mark, the read word and the text, in the
  * tone's ink. All three are a `<div>`, so none may sit inside a `<p>` or a
- * `<label>`; a call site there moves the line out of the paragraph.
+ * `<label>`; a call site there moves the line out of the paragraph. An inline
+ * line about a field takes an `id` the field names in `aria-describedby`, so a
+ * screen reader hears it with the field and not only when it appears.
  *
  * ## The mark, not just the hue
  *
@@ -43,7 +45,15 @@ import type { SafeProps } from "./props";
  * `mark` lets an app draw its own mark in the same slot — an icon and the word
  * read in its place — for a part of its own built on a tone that has none.
  * It adds a mark to `info` or `accent`; a tone with a mark of its own keeps
- * it, so an app can never swap "Error" for a softer word.
+ * it, so an app can never swap "Error" for a softer word. A mark with no word
+ * is not drawn, since the icon would say what nothing reads, and its slot is
+ * `inert` as well as `aria-hidden`, so nothing in it can take focus.
+ *
+ * The role, `aria-live`, `aria-hidden` and `hidden` are the component's, not
+ * the caller's: none is a prop, so a caller cannot hide "Error" from a screen
+ * reader or quietly turn an alert into a status. A tone or size outside the
+ * named sets — a cast value from data — draws `info` at `md` rather than
+ * failing to render.
  *
  * ## `alert`
  *
@@ -142,7 +152,10 @@ const MARK = {
   accent: undefined,
 } satisfies Readonly<Record<NoticeTone, (() => NoticeMark) | undefined>>;
 
-export type NoticeProps = SafeProps<"div"> & {
+export type NoticeProps = Omit<
+  SafeProps<"div">,
+  "role" | "aria-live" | "aria-hidden" | "hidden"
+> & {
   tone?: NoticeTone;
   size?: NoticeSize;
   /** Announce it the moment it appears. See the note above. */
@@ -151,19 +164,35 @@ export type NoticeProps = SafeProps<"div"> & {
   mark?: NoticeMark;
 };
 
+/** The attributes `NoticeProps` leaves out, which an untyped spread could still carry. */
+interface Withheld {
+  role?: unknown;
+  "aria-live"?: unknown;
+  "aria-hidden"?: unknown;
+  hidden?: unknown;
+}
+
 export function Notice(props: NoticeProps) {
-  const [own, rest] = splitProps(props, ["tone", "size", "alert", "mark", "class", "children"]);
-  const tone = () => own.tone ?? "info";
-  const size = () => own.size ?? "md";
-  const mark = () => MARK[tone()]?.() ?? own.mark;
+  const withheld: NoticeProps & Withheld = props;
+  const [own, , rest] = splitProps(
+    withheld,
+    ["tone", "size", "alert", "mark", "class", "children"],
+    ["role", "aria-live", "aria-hidden", "hidden"],
+  );
+  const tone = (): NoticeTone => (own.tone && Object.hasOwn(INK, own.tone) ? own.tone : "info");
+  const size = (): NoticeSize => (own.size && Object.hasOwn(SIZE, own.size) ? own.size : "md");
+  const mark = () => {
+    const m = MARK[tone()]?.() ?? own.mark;
+    return m?.word.trim() ? m : undefined;
+  };
   const look = () =>
     size() === "inline"
       ? `${SIZE.inline} ${INK[tone()]}`
       : `${SIZE[size()]} ${BOX[tone()]} ${INK[tone()]}`;
   return (
     <div
-      role={own.alert ? "alert" : undefined}
       {...rest}
+      role={own.alert ? "alert" : undefined}
       class={`${look()}${own.class ? ` ${own.class}` : ""}`}
     >
       <Show when={mark()}>
@@ -171,7 +200,11 @@ export function Notice(props: NoticeProps) {
           <>
             {/* One line tall, so the icon sits beside the first line however
                 many the words wrap to. */}
-            <span aria-hidden="true" class="base:flex base:h-lh base:shrink-0 base:items-center">
+            <span
+              aria-hidden="true"
+              inert
+              class="base:flex base:h-lh base:shrink-0 base:items-center"
+            >
               {m().icon}
             </span>
             <span class="base:sr-only">{m().word}: </span>

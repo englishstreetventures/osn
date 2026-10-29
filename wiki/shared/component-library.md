@@ -184,7 +184,11 @@ are standing notes. `accent` paints `--ui-accent-ink`, never `--ui-accent`.
 | `inline` | no border, fill, padding or corner — the mark, the word and the text, in the tone's ink | the error line under a field |
 
 All three render a `<div>`, so none sits inside a `<p>` or a `<label>`: a call
-site there moves the line out of the paragraph. `mark` draws an app's own icon
+site there moves the line out of the paragraph. An inline line about a field
+takes an `id` the field names in `aria-describedby`. The role and `aria-live`
+follow `alert`, and neither they nor `aria-hidden` and `hidden` reach the
+element from a caller, so no call site can hide "Error" or turn an alert into a
+status; a call site that needs a status region wraps the notice in one. `mark` draws an app's own icon
 and read word in the same slot, for a part built on a tone that has none. With
 no `size` and no `tone`, `Notice` renders the classes it rendered before it had
 either: `shared/ui/tests/ui/notice.test.tsx` pins that string, and
