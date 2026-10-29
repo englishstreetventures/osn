@@ -32,6 +32,14 @@
  * Add household, is the filters' 28px. The guest site is not a portal: its
  * fields keep their own heights, so there only their 14px corner is read.
  *
+ * Before the guest site, a third tab opens the marketing site with no claim and
+ * no sign-in. At a phone and a desktop width it reads the hero's two calls to
+ * action, "Create your invitation" and "See a live invite", as pills with
+ * their labels as written. At a phone's width it opens the demo's Respond
+ * sheet, answers Attending and Other, and reads that the sheet's width holds
+ * its contents and that its "Anything else" field takes the 14px corner. Both
+ * views are shot, the top of the page and the open sheet.
+ *
  * The claim goes out from `ORGANISER_ADDRESS`, so it spends the organiser's
  * window of cire-api's claim limit, not the guests' (`flows.test.ts`).
  */
@@ -352,6 +360,75 @@ test("cire-soft-shapes", async ({ page, context, flow }) => {
     "true",
     (await design("Classic").getAttribute("aria-checked")) ?? "missing",
   );
+
+  // ── The marketing site ───────────────────────────────────────────────────
+  // No claim and no sign-in: the page is public, and its demo sends nothing.
+  const landing = await flow.newPage(context);
+  const main = landing.getByRole("main");
+  const create = main.getByRole("link", { name: "Create your invitation" }).first();
+  const live = main.getByRole("link", { name: "See a live invite" }).first();
+  await flow.step("open the marketing site", async () => {
+    await landing.goto(ORIGINS.cireLanding);
+    await expect(create).toBeVisible({ timeout: 60_000 });
+  });
+  await atEachWidth(landing, async (width) => {
+    flow.check(
+      `landing at ${width}: Create your invitation's corner and label`,
+      BUTTON,
+      await buttonShape(create),
+    );
+    flow.check(
+      `landing at ${width}: See a live invite's corner and label`,
+      BUTTON,
+      await buttonShape(live),
+    );
+  });
+  await flow.step("shoot the marketing site's top", () =>
+    shootAll(landing, "landing-top", async () => {
+      await landing.evaluate(() => window.scrollTo(0, 0));
+      await expect.poll(() => landing.evaluate(() => window.scrollY)).toBe(0);
+    }),
+  );
+
+  const demoRespond = landing.getByRole("article").first().getByRole("button", {
+    name: "Respond",
+    exact: true,
+  });
+  const demo = landing.getByRole("dialog");
+  const demoField = demo.getByRole("textbox", { name: "Anything else" });
+  await flow.step("open the demo's Respond sheet, Attending, Other", async () => {
+    await landing.setViewportSize(WIDTHS[0]);
+    await demoRespond.scrollIntoViewIfNeeded();
+    // The demo hydrates when it scrolls into view; press until it answers.
+    await expect(async () => {
+      await demoRespond.click();
+      await expect(demo).toBeVisible({ timeout: 2_000 });
+    }).toPass({ timeout: 60_000 });
+    await demo.getByRole("button", { name: "Attending", exact: true }).first().click();
+    await demo
+      .locator("label")
+      .filter({ has: landing.getByRole("checkbox", { name: "Other", exact: true }) })
+      .first()
+      .click();
+    await expect(demoField.first()).toBeVisible();
+  });
+  flow.check(
+    "landing at 390: the demo sheet holds its contents",
+    true,
+    await demo.evaluate((el) => el.scrollWidth <= el.clientWidth),
+  );
+  flow.check(
+    "landing at 390: the demo's Anything else field's corner",
+    "14px",
+    await radiusOf(demoField.first()),
+  );
+  await flow.step("shoot the demo's Respond sheet", () =>
+    shootAll(landing, "landing-demo", async () => {
+      await demoField.first().evaluate((el) => el.scrollIntoView({ block: "center" }));
+      await expect(demoField.first()).toBeInViewport();
+    }),
+  );
+  await landing.close();
 
   // ── The guest site, in Classic ───────────────────────────────────────────
   const guest = await flow.newPage(context);
