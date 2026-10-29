@@ -19,6 +19,7 @@
     "./eyebrow": "./src/eyebrow.tsx",
     "./guest-privacy-notice.astro": "./src/guest-privacy-notice.astro",
     "./loading": "./src/loading.tsx",
+    "./note": "./src/note.tsx",
     "./reveal": "./src/reveal.tsx",
     "./username-input": "./src/username-input.tsx"
   },
