@@ -29,6 +29,13 @@ import { Notice, type NoticeProps } from "@shared/ui/ui/notice";
  *   resolve where each app declares them, on `:root`; the host's invite
  *   preview puts a couple's palette on a wrapper further down, where a note
  *   would paint the portal's gold.
+ * - **The receded ground** (`--bg-deep`, under a scrim or a stuck bar): the
+ *   gold words read 4.35:1 there on the light theme. `cire/host`'s
+ *   `tests/styles/notice-contrast.browser.test.tsx` holds every other ground
+ *   at 4.5:1.
+ *
+ * It takes `Notice`'s props — a size, `alert`, an `id`, `aria-describedby`,
+ * `data-*` and a layout class — and nothing else reaches the element.
  */
 
 export type NoteProps = Omit<NoticeProps, "tone" | "mark">;
