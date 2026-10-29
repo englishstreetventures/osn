@@ -46,6 +46,7 @@ import { createStore, reconcile } from "solid-js/store";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { downloadBlob } from "../lib/download";
+import { FORM_FIELD_CLASS } from "../lib/form-field";
 import { haptic } from "../lib/haptics";
 import { CIRE_MARKETING_URL } from "../lib/osn";
 import { fetchRsvpChangeRows, markRsvpChangesSeen, newRowCheck } from "../lib/rsvp-changes";
@@ -1367,6 +1368,7 @@ export default function RsvpView(props: RsvpViewProps) {
           {(field) => (
             <Select
               {...field}
+              class={FORM_FIELD_CLASS}
               value={formStatus()}
               onChange={(e) => setFormStatus(e.currentTarget.value as RsvpStatus)}
               disabled={saving()}

@@ -5,6 +5,7 @@ import { Select } from "@shared/ui/ui/select";
 import { createSignal, createUniqueId, For, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../../lib/api";
+import { FORM_FIELD_CLASS } from "../../lib/form-field";
 import type { OrganiserHouseholdRow } from "../../lib/households-store";
 import { buildInviteMessage, copyToClipboard } from "../../lib/invite-message";
 import { markHouseholdShared } from "../../lib/mark-shared";
@@ -122,6 +123,7 @@ export default function InviteMessageCopy(props: InviteMessageCopyProps) {
           Household
         </label>
         <Select
+          class={FORM_FIELD_CLASS}
           id={pickerId}
           value={chosenId()}
           aria-describedby={pickerNote() ? pickerNoteId : undefined}

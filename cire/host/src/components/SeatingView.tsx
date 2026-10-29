@@ -32,6 +32,7 @@ import { Portal } from "solid-js/web";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { ensureEventsLoaded, type EventRow, eventsAccessor } from "../lib/events-store";
+import { FORM_ACTION_CLASS, FORM_FIELD_CLASS } from "../lib/form-field";
 import { haptic } from "../lib/haptics";
 import { downloadLockedExport, LOCKED_EXPORTS } from "../lib/locked-exports";
 import {
@@ -458,7 +459,7 @@ export default function SeatingView(props: SeatingViewProps) {
                         placeholder={`Table ${tables().length + 1}`}
                         maxLength={80}
                         onInput={(e) => setNewName(e.currentTarget.value)}
-                        class="w-48"
+                        class={`${FORM_FIELD_CLASS} w-48`}
                       />
                     )}
                   </Field>
@@ -471,11 +472,11 @@ export default function SeatingView(props: SeatingViewProps) {
                         max="100"
                         value={newCapacity()}
                         onInput={(e) => setNewCapacity(e.currentTarget.value)}
-                        class="w-24"
+                        class={`${FORM_FIELD_CLASS} w-24`}
                       />
                     )}
                   </Field>
-                  <Button type="submit" variant="primary" size="sm">
+                  <Button class={FORM_ACTION_CLASS} type="submit" variant="primary" size="sm">
                     Add table
                   </Button>
                 </form>
@@ -655,7 +656,7 @@ function Place(props: {
               value={name()}
               maxLength={80}
               onInput={(e) => setName(e.currentTarget.value)}
-              class="w-44"
+              class={`${FORM_FIELD_CLASS} w-44`}
             />
             <Input
               aria-label={`Seats at ${props.title}`}
@@ -664,12 +665,17 @@ function Place(props: {
               max="100"
               value={capacity()}
               onInput={(e) => setCapacity(e.currentTarget.value)}
-              class="w-20"
+              class={`${FORM_FIELD_CLASS} w-20`}
             />
-            <Button type="submit" variant="primary" size="sm">
+            <Button class={FORM_ACTION_CLASS} type="submit" variant="primary" size="sm">
               Save
             </Button>
-            <Button variant="quiet" size="sm" onClick={() => setEditing(false)}>
+            <Button
+              class={FORM_ACTION_CLASS}
+              variant="quiet"
+              size="sm"
+              onClick={() => setEditing(false)}
+            >
               Cancel
             </Button>
           </form>

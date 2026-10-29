@@ -20,6 +20,7 @@ import { createEffect, createMemo, createSignal, For, on, onMount, Show, untrack
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { TIMEFRAME_BUCKETS, type TimeframeBucket } from "../lib/checklist-buckets";
 import { ensureEventsLoaded, type EventRow, eventsAccessor } from "../lib/events-store";
+import { FORM_ACTION_CLASS, FORM_FIELD_CLASS } from "../lib/form-field";
 import { haptic } from "../lib/haptics";
 import { createHolderWrites, readerFirst } from "../lib/holder-writes";
 import {
@@ -458,6 +459,7 @@ export default function ChecklistView(props: ChecklistViewProps) {
             {(field) => (
               <Input
                 {...field}
+                class={FORM_FIELD_CLASS}
                 value={newTitle()}
                 onInput={(e) => setNewTitle(e.currentTarget.value)}
                 placeholder="Book the venue"
@@ -468,6 +470,7 @@ export default function ChecklistView(props: ChecklistViewProps) {
             {(field) => (
               <Select
                 {...field}
+                class={FORM_FIELD_CLASS}
                 value={newBucket()}
                 onChange={(e) => setNewBucket(e.currentTarget.value as TimeframeBucket)}
               >
@@ -481,13 +484,14 @@ export default function ChecklistView(props: ChecklistViewProps) {
             {(field) => (
               <Input
                 {...field}
+                class={FORM_FIELD_CLASS}
                 type="date"
                 value={newDue()}
                 onInput={(e) => setNewDue(e.currentTarget.value)}
               />
             )}
           </Field>
-          <Button type="submit" variant="primary">
+          <Button class={FORM_ACTION_CLASS} type="submit" variant="primary">
             Add task
           </Button>
         </form>

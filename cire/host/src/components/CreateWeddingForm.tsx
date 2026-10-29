@@ -6,6 +6,7 @@ import { Notice } from "@shared/ui/ui/notice";
 import { createSignal, For, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { FORM_FIELD_CLASS } from "../lib/form-field";
 import { haptic } from "../lib/haptics";
 import type { Tier } from "../lib/tiers";
 import type { WeddingRole } from "../lib/wedding-roles";
@@ -131,6 +132,7 @@ export default function CreateWeddingForm(props: {
         {(field) => (
           <Input
             {...field}
+            class={FORM_FIELD_CLASS}
             value={name()}
             maxLength={MAX_DISPLAY_NAME}
             placeholder="e.g. Nadia &amp; Sam"

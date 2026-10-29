@@ -30,7 +30,7 @@ import {
   revalidateBudget,
   setCachedBudget,
 } from "../lib/budget-store";
-import { SMALL_FORM_FIELD_CLASS } from "../lib/form-field";
+import { FORM_ACTION_CLASS, FORM_FIELD_CLASS } from "../lib/form-field";
 import { haptic } from "../lib/haptics";
 import { belowSmallestUnitError, formatMinor, minorToInput, parseMinor } from "../lib/money";
 import { categoryLabel, SERVICE_CATEGORIES, type ServiceCategory } from "../lib/service-categories";
@@ -536,6 +536,7 @@ export default function BudgetView(props: BudgetViewProps) {
                 {(field) => (
                   <Input
                     {...field}
+                    class={FORM_FIELD_CLASS}
                     type="number"
                     min="0"
                     step={MONEY_STEP}
@@ -544,10 +545,10 @@ export default function BudgetView(props: BudgetViewProps) {
                   />
                 )}
               </Field>
-              <Button variant="primary" onClick={saveCap}>
+              <Button class={FORM_ACTION_CLASS} variant="primary" onClick={saveCap}>
                 Save
               </Button>
-              <Button variant="quiet" onClick={() => setCapDraft(null)}>
+              <Button class={FORM_ACTION_CLASS} variant="quiet" onClick={() => setCapDraft(null)}>
                 Cancel
               </Button>
             </div>
@@ -565,6 +566,7 @@ export default function BudgetView(props: BudgetViewProps) {
             {(field) => (
               <Select
                 {...field}
+                class={FORM_FIELD_CLASS}
                 value={newCategory()}
                 onChange={(e) => setNewCategory(e.currentTarget.value as ServiceCategory)}
               >
@@ -578,6 +580,7 @@ export default function BudgetView(props: BudgetViewProps) {
             {(field) => (
               <Input
                 {...field}
+                class={FORM_FIELD_CLASS}
                 value={newName()}
                 onInput={(e) => setNewName(e.currentTarget.value)}
                 placeholder="Caterer, venue, band…"
@@ -601,6 +604,7 @@ export default function BudgetView(props: BudgetViewProps) {
             {(field) => (
               <Input
                 {...field}
+                class={FORM_FIELD_CLASS}
                 type="number"
                 min="0"
                 step={MONEY_STEP}
@@ -609,7 +613,7 @@ export default function BudgetView(props: BudgetViewProps) {
               />
             )}
           </Field>
-          <Button type="submit" variant="primary">
+          <Button class={FORM_ACTION_CLASS} type="submit" variant="primary">
             Add item
           </Button>
         </form>
@@ -846,7 +850,7 @@ function MoneyCell(props: {
       >
         <Input
           size="sm"
-          class={SMALL_FORM_FIELD_CLASS}
+          class={FORM_FIELD_CLASS}
           type="number"
           min="0"
           step={MONEY_STEP}
@@ -920,7 +924,7 @@ function PaymentPanel(props: {
               <Input
                 {...field}
                 size="sm"
-                class={SMALL_FORM_FIELD_CLASS}
+                class={FORM_FIELD_CLASS}
                 value={label()}
                 onInput={(e) => setLabel(e.currentTarget.value)}
                 placeholder="Deposit"
@@ -932,7 +936,7 @@ function PaymentPanel(props: {
               <Input
                 {...field}
                 size="sm"
-                class={SMALL_FORM_FIELD_CLASS}
+                class={FORM_FIELD_CLASS}
                 type="number"
                 min="0"
                 step={MONEY_STEP}
@@ -947,14 +951,14 @@ function PaymentPanel(props: {
               <Input
                 {...field}
                 size="sm"
-                class={SMALL_FORM_FIELD_CLASS}
+                class={FORM_FIELD_CLASS}
                 type="date"
                 value={due()}
                 onInput={(e) => setDue(e.currentTarget.value)}
               />
             )}
           </Field>
-          <Button type="submit" variant="outline" size="sm">
+          <Button class={FORM_ACTION_CLASS} type="submit" variant="outline" size="sm">
             Add payment
           </Button>
         </form>

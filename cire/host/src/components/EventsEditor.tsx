@@ -56,6 +56,7 @@ import {
   eventsAccessor,
   invalidateEvents,
 } from "../lib/events-store";
+import { FORM_FIELD_CLASS } from "../lib/form-field";
 import {
   createGuestEventDraft,
   type DraftEvent,
@@ -883,6 +884,7 @@ function EventDrawer(props: {
           {(field) => (
             <Input
               {...field}
+              class={FORM_FIELD_CLASS}
               value={props.event.name}
               onInput={(e) => props.onPatch({ name: e.currentTarget.value })}
             />
@@ -899,6 +901,7 @@ function EventDrawer(props: {
           {(field) => (
             <Select
               {...field}
+              class={FORM_FIELD_CLASS}
               value={props.event.timezone}
               onChange={(e) => setTimezone(e.currentTarget.value)}
             >
@@ -933,6 +936,7 @@ function EventDrawer(props: {
               {(field) => (
                 <Input
                   {...field}
+                  class={FORM_FIELD_CLASS}
                   type="time"
                   value={start().time}
                   aria-label="Start time"
@@ -955,6 +959,7 @@ function EventDrawer(props: {
               {(field) => (
                 <Input
                   {...field}
+                  class={FORM_FIELD_CLASS}
                   type="time"
                   value={end().time}
                   aria-label="End time"
@@ -973,6 +978,7 @@ function EventDrawer(props: {
           {(field) => (
             <Input
               {...field}
+              class={FORM_FIELD_CLASS}
               value={props.event.venueName ?? ""}
               placeholder="The Grounds of Alexandria"
               onInput={(e) =>
@@ -988,6 +994,7 @@ function EventDrawer(props: {
           {(field) => (
             <Input
               {...field}
+              class={FORM_FIELD_CLASS}
               value={props.event.address ?? ""}
               onInput={(e) =>
                 props.onPatch({
@@ -1029,6 +1036,7 @@ function EventDrawer(props: {
                 {(field) => (
                   <Select
                     {...field}
+                    class={FORM_FIELD_CLASS}
                     value={props.event.childrenPolicy ?? ""}
                     onChange={(e) =>
                       props.onPatch({ childrenPolicy: childrenPolicyOf(e.currentTarget.value) })
@@ -1044,6 +1052,7 @@ function EventDrawer(props: {
                 {(field) => (
                   <Select
                     {...field}
+                    class={FORM_FIELD_CLASS}
                     value={props.event.plusOnePolicy ?? ""}
                     onChange={(e) =>
                       props.onPatch({ plusOnePolicy: plusOnePolicyOf(e.currentTarget.value) })
@@ -1128,6 +1137,7 @@ function EventDrawer(props: {
                   {(field) => (
                     <Input
                       {...field}
+                      class={FORM_FIELD_CLASS}
                       data-swatch-name
                       value={swatch.name}
                       placeholder="Blush"
@@ -1167,6 +1177,7 @@ function EventDrawer(props: {
           {(field) => (
             <Input
               {...field}
+              class={FORM_FIELD_CLASS}
               type="url"
               value={props.event.pinterestUrl ?? ""}
               placeholder="https://www.pinterest.com/…"
@@ -1183,6 +1194,7 @@ function EventDrawer(props: {
           {(field) => (
             <Input
               {...field}
+              class={FORM_FIELD_CLASS}
               type="url"
               value={props.event.mapsUrl ?? ""}
               placeholder="https://maps.google.com/…"
@@ -1411,6 +1423,7 @@ function RunOfShowRow(props: {
             {(field) => (
               <Input
                 {...field}
+                class={FORM_FIELD_CLASS}
                 // The after-midnight line describes the time it is about.
                 aria-describedby={
                   [field["aria-describedby"], props.afterMidnight ? hintId : undefined]
@@ -1432,6 +1445,7 @@ function RunOfShowRow(props: {
             {(field) => (
               <Input
                 {...field}
+                class={FORM_FIELD_CLASS}
                 data-ros-name
                 value={props.item.label}
                 maxLength={MAX_RUN_OF_SHOW_LABEL}

@@ -262,7 +262,8 @@ read as something else: a 14px checkbox looks like a mistake. `sm`, 6px, paints:
   a scroll container, so its head would stick inside the card and scroll away
   with it; `clip` cuts the corners and leaves the page as the scroller.
   `GuestsStack.browser.test.tsx` fails "card header holds" with `hidden`.
-- **The small fields** take the 14px field corner at one of two heights, below.
+- **Fields** take the 14px field corner at one of two heights, below (One
+  form-field height).
 - **The event drawer** (`Modal presentation="drawer"`) and the module nav's
   sheet are square: each runs to the window's edge.
 - Tailwind's other default steps (`rounded-xs`, `rounded-lg`, `rounded-xl`,
@@ -281,35 +282,61 @@ Their pages list every corner they paint
 and motion; [cire-landing](../../wiki/cire/cire-landing.md) §Corners, labels and
 motion).
 
-**The small fields: a filter is a pill, a field that holds a value is not.**
-`Input` and `Select` at `size="sm"` come in two heights, chosen by what the
-field does (owner, 2026-10-29):
+**One form-field height: a form field is 34px, a filter is a 28px pill.** Two
+heights, chosen by what the field does (owner, 2026-10-29: "All form fields 34px
+with the 14px corner; buttons beside them match. Filters stay 28px pills."):
 
+- **A form field is 34px** — any `Input` or `Select` that enters or edits a
+  value, at either size, plus `FORM_FIELD_CLASS` (`h-8.5`, in
+  `src/lib/form-field.ts`) — so the 14px corner leaves a straight side. That is
+  every field in a form or a modal, the guest editor's household name and cells,
+  the budget's add form, money cells, payment form and price per head, the
+  registry's add form and inline editor, a co-host's handle, role and run-sheet
+  scope, a vendor's status and listing email, the event drawer, the run-time
+  popover and the colour picker's hex value. The shared sizes are 28px (`sm`)
+  and 36px (`md`; an `md` `Select` has no height of its own and draws 37px), so
+  the call site sets it — height only, since `shadcn/no-restyle` lets a call
+  site size a shared part but not pad it; the engine centres the text.
+  `UsernameInput` takes it through its wrapper (`[&>input]:h-8.5`), since it
+  fixes its inner `Input`'s class.
+  A `Textarea` takes no height: `base:min-h-15` holds it at its rows.
+- **A boxed button in a row with a form field is 34px too** —
+  `FORM_ACTION_CLASS` (`h-8.5`) — so the row lines up: Add item, Add
+  payment and the budget total's Save and Cancel, Add task, Add table and a
+  table's Save and Cancel, Add vendor, List + invite and its Cancel, Add host,
+  Find pictures, and on a household card Delete household (beside the name,
+  or under it on a narrow panel) and Add guest at the card's foot. A
+  borderless button (`link`, `subtle`, `bare`) draws no box and keeps its
+  size; so does a button stacked under the fields rather than beside them.
 - **A filter in a view bar is 28px** — `size="sm"` alone — so the 14px corner is
   half its height and rounds its ends: the guest-list and RSVP search boxes and
   the RSVP sort select. The chips and the reply key beside them are 28px too
   (`h-7`, `size-7`). The bar's action is the same height: Add household is
   `Button size="sm"` with `h-7`, since `size="sm"` alone is 31px, and its icon
   form on a narrow panel is `size-7`.
-- **A small field that edits a value is 34px** — `size="sm"` plus
-  `SMALL_FORM_FIELD_CLASS` (`h-8.5`, in `src/lib/form-field.ts`) — so the same
-  corner leaves a straight side: the guest editor's household name and cells,
-  the budget's money cells, payment form and price per head, the registry's
-  inline editor and shop link, a co-host's role and run-sheet scope, a vendor's
-  status and listing email, and the colour picker's hex value. The registry
-  editor's `Textarea` takes no height: `base:min-h-15` already holds it at 60px.
 
 Why: a pill reads as a search box. That is right for a filter, which is one,
 and wrong for a field that holds a value, which should look like the form field
-it is. The owner chose 28px pills for the bar and 34px for form fields from the
-two side by side. A field at the default size (`md`, 36px) is unchanged.
+it is; one height for every form field keeps a form's rows level wherever it
+sits. The owner chose from the heights side by side.
 
-`soft-shapes.browser.test.tsx` renders the RSVP page and the budget in Chromium
-at 390 and 1280px, light and dark, and measures the computed shapes: the search
-box, and on a phone the sort select, 28px with round ends; the reply editor's
-select and textarea at 14px and short of a pill; the editor, nested in the
-list's frame, at 6px; "Save reply" a pill; and the budget's money cell, payment
-fields and price per head 34px at 14px, short of a pill.
+Not yet on the rule, and why: the vendor directory's filter panel (Category,
+Keyword, Location and Clear filters, labelled fields at 36px) and the seating
+chart's Event select (which chart to show, beside Print) are filters that are
+not in a view bar, left at 36px for the owner to place; the dietary picker's
+trigger in the reply editor is `@cire/ui`'s `field`-variant button and keeps
+its height until a shared 34px size exists; the command palette's and the task
+holders' search boxes draw no box of their own.
+
+`soft-shapes.browser.test.tsx` renders the RSVP page, the budget, the registry
+and the co-host form in Chromium at 390 and 1280px, and measures the computed
+shapes: the search box, and on a phone the sort select, 28px with round ends;
+the reply editor's status select 34px, and it and the textarea at 14px and
+short of a pill; the editor, nested in the list's frame, at 6px; "Save reply" a
+pill; the budget's total, add form, money cell, payment fields and price per
+head, the registry's add form, inline editor and shop link, and the co-host
+handle 34px at 14px, short of a pill; and Add item, Add payment, the total's
+Save and Cancel, Find pictures and Add host 34px.
 
 **Depth.** `--inner-lip` is a single inner highlight along the top edge of a
 raised surface. It is the one trick that makes a flat card read as a lit object
@@ -625,7 +652,7 @@ specificity, so a caller's plain utility — `w-full`, `self-start`, a `rounded-
 | `Chip` | A status word in a pill, small caps, in one of four tones. An enquiry's status wears the vendor portal's tones — open `pending`, quoted `accent`, closed `neutral` — so an enquiry reads alike from both ends. |
 | `Notice` | Four tones, at the 6px step. `danger`, `warn` and `success` each carry a distinct glyph plus a hidden word ("Error", "Warning", "Success"); `info` is unmarked, because nothing has happened. `alert` opts into `role="alert"` and is for a note that appeared **in answer to something** — a standing note that was on screen before the host arrived has nothing to interrupt anyone about. |
 | `EmptyState` | A title, an optional line of prose, and the one thing to do about it, in a dashed box at the 6px step. |
-| `Field`, `Fieldset`, `Input`, `Select`, `Textarea` | A small-caps label, the control, a hint and the errors, wired together by id. The controls take the 14px field corner and two sizes: `md` for a form (an `Input` 36px tall) and `sm` (28px) for a filter in a view bar. A small field that edits a value — in a table row or an inline form — is `sm` with `SMALL_FORM_FIELD_CLASS`, 34px (§4, The small fields). |
+| `Field`, `Fieldset`, `Input`, `Select`, `Textarea` | A small-caps label, the control, a hint and the errors, wired together by id. The controls take the 14px field corner and two sizes, `md` (an `Input` 36px) and `sm` (28px). A form field at either size takes `FORM_FIELD_CLASS` and is 34px; a filter in a view bar is `sm` alone, 28px (§4, One form-field height). |
 | `Meter`, `meterPct` | A thin bar. Scaled by transform rather than resized — see the file. `meterPct` clamps at both ends and reads a zero or missing maximum as empty, not as a division by zero. |
 | `Stat` | A figure, then what it is, then an optional hint. |
 | `Table`, `Th`, `Td` | Every table in the portal as one set of parts, in a hairline frame at the 6px step. By default the wrapper scrolls so the page never does, and it is a named, focusable `<section>` so the columns past the right edge are reachable without a mouse; `label` is required. `scroll="page"` clips instead and lets the page scroll, for a table whose head row sticks under the stuck stack (§A table that scrolls with the page). `frame="none"` drops the border for a table inside something that draws its edge. `Th` and `Td` take `pin` for a head row or first column held in view; `Th srOnly` keeps a head for assistive technology under a visible copy. |

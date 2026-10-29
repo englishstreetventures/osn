@@ -19,6 +19,8 @@ import { Select } from "@shared/ui/ui/select";
 import { Textarea } from "@shared/ui/ui/textarea";
 import EyeOff from "lucide-solid/icons/eye-off";
 import { createUniqueId, For, type JSX, Show } from "solid-js";
+
+import { FORM_FIELD_CLASS } from "../../lib/form-field";
 const LABEL_CLASS = "font-body text-text-muted text-ui-sm";
 
 /**
@@ -66,6 +68,7 @@ export function TextField(props: {
         </Show>
       </span>
       <Input
+        class={FORM_FIELD_CLASS}
         id={id}
         placeholder={props.placeholder}
         value={props.value}
@@ -127,7 +130,11 @@ export function ChoiceField(props: {
   return (
     <label class="flex flex-col gap-1.5">
       <span class={LABEL_CLASS}>{props.label}</span>
-      <Select value={props.value} onChange={(e) => props.onChange(e.currentTarget.value)}>
+      <Select
+        class={FORM_FIELD_CLASS}
+        value={props.value}
+        onChange={(e) => props.onChange(e.currentTarget.value)}
+      >
         <For each={props.options}>{(opt) => <option value={opt.value}>{opt.label}</option>}</For>
       </Select>
     </label>

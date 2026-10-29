@@ -7,6 +7,7 @@ import { Notice } from "@shared/ui/ui/notice";
 import { createSignal, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
+import { FORM_FIELD_CLASS } from "../lib/form-field";
 import { haptic } from "../lib/haptics";
 import { invalidateTasks } from "../lib/tasks-store";
 import { TIER_LABEL } from "../lib/tiers";
@@ -340,6 +341,7 @@ export default function SettingsPanel(props: SettingsPanelProps) {
               {(field) => (
                 <Input
                   {...field}
+                  class={FORM_FIELD_CLASS}
                   value={displayName()}
                   maxLength={120}
                   autocomplete="off"
@@ -409,6 +411,7 @@ export default function SettingsPanel(props: SettingsPanelProps) {
               {(field) => (
                 <Input
                   {...field}
+                  class={FORM_FIELD_CLASS}
                   type="number"
                   min="1"
                   max="10000"
@@ -431,6 +434,7 @@ export default function SettingsPanel(props: SettingsPanelProps) {
               {(field) => (
                 <Input
                   {...field}
+                  class={FORM_FIELD_CLASS}
                   value={currency()}
                   maxLength={3}
                   autocomplete="off"

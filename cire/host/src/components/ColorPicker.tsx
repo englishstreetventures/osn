@@ -8,7 +8,7 @@ import { Popover } from "@kobalte/core/popover";
 import { Input } from "@shared/ui/ui/input";
 import { createEffect, createSignal, createUniqueId, Show } from "solid-js";
 
-import { SMALL_FORM_FIELD_CLASS } from "../lib/form-field";
+import { FORM_FIELD_CLASS } from "../lib/form-field";
 
 /**
  * The colour a picker shows when nothing is set and the caller names no
@@ -277,7 +277,7 @@ export default function ColorPicker(props: {
                     error `Field` would announce. */}
                 <Input
                   size="sm"
-                  class={SMALL_FORM_FIELD_CLASS}
+                  class={FORM_FIELD_CLASS}
                   id={hexId}
                   value={hexText()}
                   onInput={(e) => onHexInput(e.currentTarget)}

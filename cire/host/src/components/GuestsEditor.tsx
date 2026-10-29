@@ -38,7 +38,7 @@ import {
   eventsAccessor,
   invalidateEvents,
 } from "../lib/events-store";
-import { SMALL_FORM_FIELD_CLASS } from "../lib/form-field";
+import { FORM_ACTION_CLASS, FORM_FIELD_CLASS } from "../lib/form-field";
 import {
   createGuestEventDraft,
   type DraftFamily,
@@ -476,7 +476,7 @@ export default function GuestsEditor(props: {
       {/* Add household, in the view bar beside the mode switch, so it is to
           hand however far down the list the host is. 28px, the height of the
           search box the Households tab puts in the same place: a bar's action
-          is the height of its filters (DESIGN.md §4, "The small fields"). */}
+          is the height of its filters (DESIGN.md §4, "One form-field height"). */}
       <Show when={store.loaded()}>
         <ViewBar slot="end">
           <Show
@@ -823,7 +823,7 @@ function FamilyCard(props: {
     <Button
       variant="quiet"
       size="sm"
-      class="shrink-0"
+      class={`${FORM_ACTION_CLASS} shrink-0`}
       onClick={() => props.store.removeFamily(props.family.key)}
       title="Delete this household. Its claim code is disabled and any RSVPs are discarded — you'll confirm the impact before it's applied."
     >
@@ -861,7 +861,7 @@ function FamilyCard(props: {
             placeholder="Household name"
             aria-invalid={famErrors().length > 0}
             onInput={(e) => props.store.renameFamily(props.family.key, e.currentTarget.value)}
-            class={`${SMALL_FORM_FIELD_CLASS} min-w-0 flex-1`}
+            class={`${FORM_FIELD_CLASS} min-w-0 flex-1`}
           />
           <Show when={!props.compact()}>
             {code()}
@@ -989,7 +989,7 @@ function FamilyCard(props: {
       <Button
         variant="outline"
         size="sm"
-        class="mt-4 self-start"
+        class={`${FORM_ACTION_CLASS} mt-4 self-start`}
         onClick={() => props.store.addGuest(props.family.key)}
       >
         Add guest
@@ -1022,7 +1022,7 @@ function GuestEmailCell(props: {
         fallback={
           <Input
             size="sm"
-            class={SMALL_FORM_FIELD_CLASS}
+            class={FORM_FIELD_CLASS}
             type="email"
             autocomplete="off"
             value={props.guest.email ?? ""}
@@ -1092,7 +1092,7 @@ function GuestRow(props: {
               `aria-label` carries the name instead. */}
           <Input
             size="sm"
-            class={SMALL_FORM_FIELD_CLASS}
+            class={FORM_FIELD_CLASS}
             value={props.guest.firstName}
             aria-label="First name"
             aria-invalid={props.errors.length > 0}
@@ -1104,7 +1104,7 @@ function GuestRow(props: {
         <Td>
           <Input
             size="sm"
-            class={SMALL_FORM_FIELD_CLASS}
+            class={FORM_FIELD_CLASS}
             value={props.guest.lastName}
             aria-label="Last name"
             onInput={(e) =>
@@ -1119,7 +1119,7 @@ function GuestRow(props: {
               placeholder already says the field is optional. */}
           <Input
             size="sm"
-            class={SMALL_FORM_FIELD_CLASS}
+            class={FORM_FIELD_CLASS}
             value={props.guest.nickname ?? ""}
             aria-label="Nickname"
             placeholder="—"

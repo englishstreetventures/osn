@@ -6,6 +6,7 @@ import { Modal } from "@shared/ui/ui/modal";
 import { createSignal, Show } from "solid-js";
 
 import { isAuthExpired, redirectToLogin } from "../lib/api";
+import { FORM_FIELD_CLASS } from "../lib/form-field";
 import { deleteWedding } from "../lib/wedding-lifecycle";
 
 /**
@@ -118,6 +119,7 @@ export default function DeleteWeddingDialog(props: {
             {(field) => (
               <Input
                 {...field}
+                class={FORM_FIELD_CLASS}
                 value={typed()}
                 autocomplete="off"
                 spellcheck={false}

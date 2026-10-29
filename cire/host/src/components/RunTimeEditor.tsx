@@ -10,6 +10,7 @@ import { createEffect, createMemo, createSignal, createUniqueId, For, on, Show }
 import { redirectToLogin } from "../lib/api";
 import { splitIso } from "../lib/event-datetime";
 import type { EventRow } from "../lib/events-store";
+import { FORM_FIELD_CLASS } from "../lib/form-field";
 import { haptic } from "../lib/haptics";
 import { type ZonedTime, zonedTime } from "../lib/run-sheet-display";
 import { type RunTimePatch, type RunTimeRefusal, saveTaskRunTime } from "../lib/run-time-write";
@@ -359,6 +360,7 @@ export default function RunTimeEditor(props: RunTimeEditorProps) {
               {(field) => (
                 <Select
                   {...field}
+                  class={FORM_FIELD_CLASS}
                   value={eventId()}
                   onChange={(e) => pickEvent(e.currentTarget.value)}
                 >
@@ -414,6 +416,7 @@ export default function RunTimeEditor(props: RunTimeEditorProps) {
                     {(field) => (
                       <Select
                         {...field}
+                        class={FORM_FIELD_CLASS}
                         value={zone()}
                         onChange={(e) => {
                           zoneTouched = true;
@@ -478,6 +481,7 @@ export default function RunTimeEditor(props: RunTimeEditorProps) {
                         {(field) => (
                           <Input
                             {...field}
+                            class={FORM_FIELD_CLASS}
                             type="number"
                             inputMode="numeric"
                             min="0"
@@ -492,6 +496,7 @@ export default function RunTimeEditor(props: RunTimeEditorProps) {
                         {(field) => (
                           <Select
                             {...field}
+                            class={FORM_FIELD_CLASS}
                             value={direction()}
                             onChange={(e) =>
                               setDirection(e.currentTarget.value === "after" ? "after" : "before")
@@ -566,6 +571,7 @@ function DateAndTime(props: {
         {(field) => (
           <Input
             {...field}
+            class={FORM_FIELD_CLASS}
             type="date"
             value={props.date}
             onInput={(e) => props.onDate(e.currentTarget.value)}
@@ -576,6 +582,7 @@ function DateAndTime(props: {
         {(field) => (
           <Input
             {...field}
+            class={FORM_FIELD_CLASS}
             type="time"
             value={props.time}
             onInput={(e) => props.onTime(e.currentTarget.value)}
