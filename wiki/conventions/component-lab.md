@@ -83,6 +83,7 @@ So far, in `tools/lab/src/stories/cire-ui/`:
 | --- | --- | --- |
 | `cire/ui/Button` | `button.story.tsx` | Every variant at every size; `disabled`, `aria-disabled` and the chosen `choice`; each shape claim measured from the painted button (the 32px icon circle, the 14px field corner, a caller's corner winning); live playground |
 | `cire/ui/Card` | `card.story.tsx` | The plain, accent, eyebrow and interactive cards; each padding step, each fill and each tone, captioned with the padding, fill or border colour the browser painted |
+| `cire/ui/Disclosure` | `disclosure.story.tsx` | Each tone closed beside open, a card disclosure holding rows, and a closed `nested` disclosure inside an open one, each captioned with the turn the browser painted on its marker |
 | `cire/ui/Eyebrow` | `eyebrow.story.tsx` | Both tones in a card and over a heading, captioned with the painted letter-spacing and colour; the label as each element `as` renders |
 
 `shared/toast` and `shared/sortable` are benches rather than catalogues: they

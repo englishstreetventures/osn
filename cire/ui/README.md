@@ -3,7 +3,7 @@
 cire's own component layer: the chrome `@shared/ui` should not carry, because it is
 this product's house style rather than anything a second product would want.
 
-Eight components: `Button`, `Card`, `Eyebrow`, `Loading`, `DietaryPresets`,
+Nine components: `Button`, `Card`, `Disclosure`, `Eyebrow`, `Loading`, `DietaryPresets`,
 `DietaryPresetsPopover`, `Reveal`, and a combobox-shaped `UsernameInput`. Everything a cire surface needs that is not house style —
 `Field`, `Notice`, `EmptyState`, `Chip`, `Stat`, `Meter`, `Table`, `Modal`,
 `SafeProps` — is in `@shared/ui`, because none of it is cire-specific; it was
@@ -31,18 +31,15 @@ Every class here is a `ui-*` utility, `base:`-prefixed. **"House-specific"
 describes which components live here, not a separate vocabulary** — a library
 that wrote `bg-gold` would be a library that only renders in the two apps that
 happen to declare `--gold`, which is exactly the bug this package exists to fix.
-The same trap catches motion: `--dur-fast` is declared in `cire/host` and
-`cire/vendor` and in neither `cire/invites` nor `cire/landing`, so a component
-here that spelled `duration-(--dur-fast)` would animate on two surfaces and sit
-untimed on the other two.
-
-The visible cost is that transitions here are plain Tailwind durations rather
-than cire's `--dur-*` scale, so they do not follow `--motion-scale`. Nothing in
-any app writes that property — it exists so a fixtures page can slow the whole
-portal to 0.1× and judge a reference behaviour frame by frame — so what is lost
-is a development affordance for these components, not a user-facing one.
-The reduced-motion kill switch is a global rule in each app's `global.css` and
-is unaffected.
+The same trap catches motion, so a duration here names its fallback:
+`duration-(--dur-fast,100ms)` takes the app's own `--dur-*` step, which all four
+cire apps declare and which follows their `--motion-scale` and pointer ladder,
+and the fallback only where no app declares one, as in the component lab. A
+bare `duration-(--dur-fast)` would sit untimed wherever the token is missing.
+The reduced-motion kill switch is a global rule in each app's `global.css`. It
+selects `*`, which reaches no pseudo-element, so a part that animates one —
+`Disclosure`'s fade on `::details-content` — carries its own `motion-safe:`
+gate.
 
 ## Adding an app
 
