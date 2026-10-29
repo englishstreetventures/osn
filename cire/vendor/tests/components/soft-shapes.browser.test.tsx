@@ -6,8 +6,8 @@ import "../../src/styles/global.css";
 
 /**
  * The signed-in dashboard's corners, read from a real engine: an action button
- * is a pill, a text field is the 14px `field` corner and never a pill, the
- * editor is a 16px card, a status chip is a pill and a checkbox is the 6px
+ * is a pill, a form field is 34px with the 14px `field` corner and never a pill,
+ * the editor is a 16px card, a status chip is a pill and a checkbox is the 6px
  * small step.
  *
  * All five come from the vendor stylesheet's role map (`--ui-radius-control`,
@@ -117,11 +117,22 @@ describe("the vendor dashboard's corners", () => {
         expectPill(within(form).getByRole("button", { name: "Save listing" }));
         expectPill(screen.getByRole("button", { name: "← All organisations" }));
 
-        // A text field takes the field corner, and at its height that leaves a
-        // straight side: not a pill.
-        const name = within(form).getByDisplayValue(LISTING.name);
-        expect(corner(name)).toBe("14px");
-        expect(14).toBeLessThan(name.getBoundingClientRect().height / 2);
+        // Every form field is 34px with the field corner, which at that height
+        // leaves a straight side: not a pill (host DESIGN.md §4, "One
+        // form-field height"). The textarea keeps its rows' height.
+        const fields = [...form.querySelectorAll("input, select")].filter(
+          (el) =>
+            (el as HTMLInputElement).type !== "checkbox" && el.getBoundingClientRect().height > 0,
+        );
+        expect(fields.length).toBeGreaterThan(5);
+        const off = fields
+          .map((el) => ({
+            name: (el as HTMLInputElement).labels?.[0]?.textContent?.trim() || el.id,
+            height: Math.round(el.getBoundingClientRect().height * 100) / 100,
+            corner: corner(el),
+          }))
+          .filter((f) => f.height !== 34 || f.corner !== "14px");
+        expect(off).toEqual([]);
         expect(corner(within(form).getByDisplayValue(LISTING.description!))).toBe("14px");
 
         // The editor is a card on the page.

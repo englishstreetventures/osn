@@ -42,6 +42,9 @@ replaying a cached pass. What each corner paints is host §4.
 
 `src/lib/` carries three verbatim ports: `theme.ts` / `theme-boot.ts`,
 `auto-size.ts`, `sliding-pill.ts`. They are generic and have their own tests.
+`form-field.ts` holds the host's `FORM_FIELD_CLASS` (`h-8.5`): every form field
+here is 34px, as host §4 ("One form-field height") sets. This portal has no
+button in a row with a field, so it carries no `FORM_ACTION_CLASS`.
 
 ---
 
@@ -137,8 +140,9 @@ round marks — the avatar, the haptics switch — are `rounded-full`.
 
 `tests/components/soft-shapes.browser.test.tsx` renders the dashboard's listing
 editor in Chromium at 390 and 1440px, light and dark, and measures the computed
-corners: "Save listing" and "← All organisations" pills, the name input 14px
-and short of a pill, the description textarea 14px, the editor card 16px, the
+corners: "Save listing" and "← All organisations" pills, every text field and
+select in the listing editor 34px at 14px, short of a pill, the description
+textarea 14px, the editor card 16px, the
 listing's status chip a pill, a category checkbox's box 6px. It writes each
 screenshot to `e2e-artifacts/cire-soft-shapes/vendor/`. `bun run --cwd cire/vendor
 test:browser` runs it; `test:run` runs the unit project alone.
