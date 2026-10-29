@@ -13,6 +13,8 @@
 // Every word and both calls to action are server-rendered. The phones are
 // hidden from assistive technology; the figure's caption says, in words, what
 // the chosen screen shows.
+import { eyebrowClass } from '@cire/ui/eyebrow'
+
 import InviteScreen from '../mock/InviteScreen.astro'
 import PhoneFrame from '../mock/PhoneFrame.astro'
 import { DEMO_ANCHOR, DEMO_INVITE_URL, ORGANISER_URL } from '../../lib/site'
@@ -46,7 +48,7 @@ const STATES = [
 ---
 <section id="hero" class="hero" aria-labelledby="hero-heading">
   <div class="hero__copy">
-    <p class="eyebrow mb-5">Digital wedding invitations</p>
+    <p class:list={[eyebrowClass(), 'mb-5']}>Digital wedding invitations</p>
     <h1 id="hero-heading" class="display hero__title">Invitations worthy of the moment</h1>
     <p class="hero__lede">
       A real invitation your guests open, answer and keep, with every reply counted for you.
