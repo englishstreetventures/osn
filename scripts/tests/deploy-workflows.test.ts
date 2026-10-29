@@ -1636,7 +1636,12 @@ describe("PW7: the staged sites are compared with Pages after the stack jobs", (
       }
       const refused = gateRun(ran("failure", "3"), [s.key]);
       expect({ key: s.key, exit: refused.exitCode }).toEqual({ key: s.key, exit: 1 });
-      expect(refused.output).toContain("::error::Cloudflare answered in place of a staged site");
+      // Exit 3 is either refusal: Cloudflare in the site's place, or a `/` that is not the site's page.
+      expect(refused.output).toContain(
+        "::error::A staged site's answers did not come from the site, so its comparison holds nothing:",
+      );
+      expect(refused.output).toContain("Cloudflare answered in its place");
+      expect(refused.output).toContain("did not answer both hosts with a 2xx HTML page");
       expect(refused.bunCalls).toEqual([]);
       // A usage error exits before any request: the report holds nothing.
       const usage = gateRun(ran("failure", "2"), []);

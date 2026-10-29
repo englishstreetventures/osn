@@ -2025,11 +2025,13 @@ jobs:
   # its Pages project (the production host) the same paths, and keeps the
   # report (scripts/site-parity.ts). The owner reads it before the site's
   # flip; a difference (exit 1) does not fail the job. The last step fails it
-  # on every comparison that compared nothing: Cloudflare answering in a
-  # site's place (exit 3: a challenge, an Access redirect, a 429, Cloudflare's
-  # own 403 page), a usage error (exit 2) before any request, an error that
-  # stopped the script (exit 4), a comparison step that ran but wrote no exit
-  # code (its timeout) or any other, and an exit of 0 or 1 with no report.
+  # on every comparison that compared nothing: answers that did not come from
+  # the site (exit 3: Cloudflare in its place, as a challenge, an Access
+  # redirect, a 429 or its own 403 page; or a `/` that did not answer both
+  # hosts with a 2xx HTML page), a usage error (exit 2) before any request,
+  # an error that stopped the script (exit 4), a comparison step that ran but
+  # wrote no exit code (its timeout) or any other, and an exit of 0 or 1 with
+  # no report.
   # No Environment and no secret: both hosts are public.
   site-parity:
     name: Compare the staged sites with Pages
@@ -2114,7 +2116,7 @@ jobs:
           PARITY_MUSUBI_OUTCOME: ${{ steps.parity_musubi.outcome }}
         run: |
           if [ "$PARITY_CIRE_EXIT" = 3 ] || [ "$PARITY_MUSUBI_EXIT" = 3 ]; then
-            echo "::error::Cloudflare answered in place of a staged site, so its comparison holds nothing; see the comparison steps above. This is the zone's configuration, such as Bot Fight Mode, not the site."
+            echo "::error::A staged site's answers did not come from the site, so its comparison holds nothing: Cloudflare answered in its place (the zone's configuration, such as Bot Fight Mode), or its root path / did not answer both hosts with a 2xx HTML page (a zone's custom error or block page, a host not ready, or no page there). See the comparison steps above."
             exit 1
           fi
           if [ "$PARITY_CIRE_EXIT" = 2 ] || [ "$PARITY_MUSUBI_EXIT" = 2 ]; then
