@@ -15,6 +15,7 @@
 import type { SectionState } from "@cire/theme";
 import Button from "@cire/ui/button";
 import Eyebrow from "@cire/ui/eyebrow";
+import { Chip } from "@shared/ui/ui/chip";
 import { Input } from "@shared/ui/ui/input";
 import { Select } from "@shared/ui/ui/select";
 import { Textarea } from "@shared/ui/ui/textarea";
@@ -258,24 +259,22 @@ export function HiddenSectionIcon() {
 export function SegmentBadge(props: { state: SectionState }) {
   const shown = () => props.state === "shown";
   return (
-    <span
+    <Chip
+      variant="outline"
+      tone={shown() ? "accent" : "neutral"}
       data-segment-badge
       data-shown={shown() ? "true" : "false"}
       data-state={props.state}
       role="status"
-      class="font-body text-ui-xs tracking-ui-wider inline-flex w-fit items-center gap-1.5 rounded-full border px-2.5 py-0.5 uppercase"
-      classList={{
-        "border-gold/40 text-gold bg-gold/5": shown(),
-        "border-border text-text-muted bg-bg/40": !shown(),
-      }}
+      class="w-fit"
     >
       <span
-        aria-hidden
+        aria-hidden="true"
         class="inline-block h-1.5 w-1.5 rounded-full"
         classList={{ "bg-gold": shown(), "bg-text-muted/60": !shown() }}
       />
       {SECTION_STATE_LABELS[props.state]}
-    </span>
+    </Chip>
   );
 }
 
@@ -322,11 +321,7 @@ function VisibilityReason(props: { visibility: SectionVisibility }) {
  *  bar (image upload/remove/crop, design selection) — the one visual cue that
  *  separates the two persistence models the builder mixes. */
 export function InstantBadge() {
-  return (
-    <span class="font-body border-border text-text-muted text-ui-xs tracking-ui-wider rounded-full border px-2 py-0.5 uppercase">
-      Applies immediately
-    </span>
-  );
+  return <Chip variant="outline">Applies immediately</Chip>;
 }
 
 /**

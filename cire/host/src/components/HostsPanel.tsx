@@ -3,6 +3,7 @@ import { cardClass } from "@cire/ui/card";
 import { UsernameInput } from "@cire/ui/username-input";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
+import { Chip } from "@shared/ui/ui/chip";
 import { EmptyState } from "@shared/ui/ui/empty-state";
 import { Field, Fieldset } from "@shared/ui/ui/field";
 import { heldWhileClosing, Modal } from "@shared/ui/ui/modal";
@@ -42,6 +43,7 @@ import {
   surfacesFor,
   type WeddingRole,
 } from "../lib/wedding-roles";
+import { TipNote } from "./ActionTip";
 import LeaveWedding from "./LeaveWedding";
 import SectionIntro from "./SectionIntro";
 import UpgradeDialog from "./UpgradeDialog";
@@ -1092,9 +1094,9 @@ export default function HostsPanel(props: HostsPanelProps) {
                                     connection the caption already said so, and a
                                     badge on every row is noise. */}
                                 <Show when={s.connected && !browsingConnections()}>
-                                  <span class="border-gold/40 text-gold font-body text-ui-xs tracking-ui-widest rounded-sm border px-1.5 py-0.5 uppercase">
+                                  <Chip variant="outline" tone="accent">
                                     Connected
-                                  </span>
+                                  </Chip>
                                 </Show>
                               </span>
                               <Show when={s.displayName}>
@@ -1175,16 +1177,15 @@ export default function HostsPanel(props: HostsPanelProps) {
                     {/* The badge is the read of the seat. An owner also gets the
                         select below, which is the write — both name the role
                         from the same place, so they cannot disagree. */}
-                    <span
-                      class="text-gold font-body text-ui-xs tracking-ui-widest rounded-sm border px-2 py-0.5 uppercase"
-                      classList={{
-                        "border-gold": host.role === "owner",
-                        "border-gold/40": host.role !== "owner",
-                      }}
-                      title={ROLE_COPY[host.role].summary}
-                    >
-                      {ROLE_COPY[host.role].label}
-                    </span>
+                    {/* Filled for the owner, outlined for every other role; the
+                        word names the role either way. One per row inside the
+                        module shell, so it explains itself through the shell's
+                        one panel (`TipNote`), never a `title`. */}
+                    <TipNote text={ROLE_COPY[host.role].summary}>
+                      <Chip variant={host.role === "owner" ? "filled" : "outline"} tone="accent">
+                        {ROLE_COPY[host.role].label}
+                      </Chip>
+                    </TipNote>
                     {/* Who seated them. Shown only to owners, and only when the
                         seat names someone other than its holder — owners are
                         equals, so which of them seated someone is worth

@@ -1,6 +1,7 @@
 import Button from "@cire/ui/button";
 import Eyebrow from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
+import { Chip } from "@shared/ui/ui/chip";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
@@ -365,9 +366,7 @@ export default function VendorsView(props: VendorsViewProps) {
                           {v.name}
                         </span>
                         {/* Category chip */}
-                        <span class="bg-surface/60 text-text-muted text-ui-xs rounded-full px-2 py-0.5">
-                          {categoryLabel(v.category)}
-                        </span>
+                        <Chip treatment="tag">{categoryLabel(v.category)}</Chip>
                         <Show when={v.contactName ?? v.email ?? v.phone}>
                           <span class="text-text-muted text-ui-sm">
                             {v.contactName}

@@ -1,5 +1,6 @@
 import Button from "@cire/ui/button";
 import { useAuth } from "@shared/rp-auth/solid";
+import { Chip, type ChipTone, type ChipVariant } from "@shared/ui/ui/chip";
 import { EmptyState } from "@shared/ui/ui/empty-state";
 import { Notice } from "@shared/ui/ui/notice";
 import { Tooltip } from "@shared/ui/ui/tooltip";
@@ -585,22 +586,30 @@ function TaskRow(props: TaskRowProps) {
   );
 }
 
-const FLAG_TONE = {
-  you: "border-brand bg-brand text-on-brand",
-  soon: "border-gold bg-gold text-on-gold",
-  done: "border-border-strong text-text-muted",
-  removed: "border-warn/50 bg-warn/5 text-warn",
-} as const;
+/**
+ * Each flag's chip: the two about the reader and about now are filled, the two
+ * that are states are outlined, so "Coming up" and "Event removed" — both warm —
+ * are told apart by the fill as well as the word (owner,
+ * englishstreetventures/osn#1836).
+ */
+const FLAG_CHIP = {
+  you: { tone: "accent", variant: "filled" },
+  soon: { tone: "pending", variant: "filled" },
+  done: { tone: "neutral", variant: "outline" },
+  removed: { tone: "pending", variant: "outline" },
+} as const satisfies Record<string, { tone: ChipTone; variant: ChipVariant }>;
 
 /** A state a row is in, as a word and a shape: never colour alone. */
-function Flag(props: { tone: keyof typeof FLAG_TONE; glyph?: JSX.Element; children: string }) {
+function Flag(props: { tone: keyof typeof FLAG_CHIP; glyph?: JSX.Element; children: string }) {
   return (
-    <span
+    <Chip
+      treatment="tag"
+      tone={FLAG_CHIP[props.tone].tone}
+      variant={FLAG_CHIP[props.tone].variant}
       data-flag={props.tone}
-      class={`font-body text-ui-xs inline-flex items-center gap-1 rounded-full border px-2 py-0.5 leading-none font-medium ${FLAG_TONE[props.tone]}`}
     >
       {props.glyph}
       {props.children}
-    </span>
+    </Chip>
   );
 }

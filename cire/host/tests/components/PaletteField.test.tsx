@@ -159,8 +159,8 @@ describe("PaletteField", () => {
     ));
 
     const heading = await waitFor(() => screen.getByText("Some colours are hard to read"));
-    const notice = heading.parentElement!;
-    expect(notice.getAttribute("role")).toBe("status");
+    const notice = heading.closest("[role='status']")!;
+    expect(notice).not.toBeNull();
     expect(notice.textContent).toContain("Buttons and rules are hard to see on event cards.");
     // The measured ratio and the bar it missed, so the warning is checkable
     // rather than a bare verdict.

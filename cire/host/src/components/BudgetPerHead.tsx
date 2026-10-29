@@ -2,6 +2,7 @@ import Button from "@cire/ui/button";
 import Eyebrow from "@cire/ui/eyebrow";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
+import { Notice } from "@shared/ui/ui/notice";
 import { createSignal, For, Show } from "solid-js";
 
 import type { BudgetEvent, BudgetItemRow } from "../lib/budget-store";
@@ -200,9 +201,9 @@ export function PerHeadPanel(props: {
         preview household are not counted.
       </p>
       <Show when={error()}>
-        <p class="text-error text-ui-sm" role="alert">
+        <Notice size="inline" tone="danger" alert>
           {error()}
-        </p>
+        </Notice>
       </Show>
       <div class="flex flex-wrap gap-2">
         <Button type="submit" variant="primary" size="sm">

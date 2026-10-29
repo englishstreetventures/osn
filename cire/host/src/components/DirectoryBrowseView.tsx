@@ -2,6 +2,7 @@ import Button from "@cire/ui/button";
 import { cardClass } from "@cire/ui/card";
 import Loading from "@cire/ui/loading";
 import { useAuth } from "@shared/rp-auth/solid";
+import { Chip } from "@shared/ui/ui/chip";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { heldWhileClosing, Modal } from "@shared/ui/ui/modal";
@@ -338,11 +339,7 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
                   {/* Category chips */}
                   <div class="flex flex-wrap gap-1">
                     <For each={item.categories}>
-                      {(cat) => (
-                        <span class="bg-surface/60 text-text-muted text-ui-xs rounded-full px-2 py-0.5">
-                          {categoryLabel(cat)}
-                        </span>
-                      )}
+                      {(cat) => <Chip treatment="tag">{categoryLabel(cat)}</Chip>}
                     </For>
                   </div>
 
@@ -512,11 +509,7 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
               {/* Category chips */}
               <div class="flex flex-wrap gap-1">
                 <For each={ml().categories}>
-                  {(cat) => (
-                    <span class="bg-surface/60 text-text-muted text-ui-xs rounded-full px-2 py-0.5">
-                      {categoryLabel(cat)}
-                    </span>
-                  )}
+                  {(cat) => <Chip treatment="tag">{categoryLabel(cat)}</Chip>}
                 </For>
               </div>
 
