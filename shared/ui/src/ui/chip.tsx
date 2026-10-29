@@ -32,14 +32,20 @@ import type { SafeProps } from "./props";
  * border at 40% of the tone (the hairline for `neutral`) and no ground, at the
  * filled chip's height: the border takes the place of a pixel of padding.
  *
+ * The tints are light on purpose. A chip's word is small text, held to 4.5:1
+ * on what it sits on, and a stronger wash darkens the ground under a coloured
+ * word on a pale theme: `success`, `pending` and `accent` fill at 8%, `danger`
+ * at 10%, `neutral` with the surface at 60%. `cire/host`'s
+ * `tests/styles/chip-contrast.browser.test.tsx` measures every tone and
+ * variant on cire's grounds in both themes.
+ *
  * `caps`, the default, is a status word in small caps: `uppercase`, the wider
  * letter-spacing, held to one line. `tag` is a label as written — a vendor's
  * category, "Cash fund", a run sheet's "Coming up" — in sentence case at
  * normal spacing and a step narrower, free to wrap like the text it is.
  *
  * An outline or a tag may lead with a mark — a dot, an icon — and holds it
- * 6px from the word. A filled small-caps chip holds its word alone, which keeps
- * its class list the one every app drew before the variants existed.
+ * 6px from the word. A filled small-caps chip holds its word alone.
  *
  * ## Colour is never the only carrier
  *
@@ -62,7 +68,6 @@ export type ChipTreatment = "caps" | "tag";
 
 const LOOK = {
   caps: {
-    /** The chip every app drew before the variants existed, byte for byte. */
     filled:
       "base:font-ui-body base:inline-flex base:shrink-0 base:items-center base:rounded-ui-pill " +
       "base:px-2.5 base:py-0.5 base:text-ui-xs base:tracking-ui-wider base:whitespace-nowrap base:uppercase",
@@ -86,11 +91,11 @@ const TONE = {
     /** Nothing has happened yet: a draft, a closed thread. */
     neutral: "base:bg-ui-surface/60 base:text-ui-ink-secondary",
     /** Done, published, confirmed. */
-    success: "base:bg-ui-success/12 base:text-ui-success",
+    success: "base:bg-ui-success/8 base:text-ui-success",
     /** Waiting on someone. */
-    pending: "base:bg-ui-warn/12 base:text-ui-warn",
+    pending: "base:bg-ui-warn/8 base:text-ui-warn",
     /** Progressed, but not finished — the state worth drawing the eye to. */
-    accent: "base:bg-ui-accent-soft base:text-ui-accent-ink",
+    accent: "base:bg-ui-accent/8 base:text-ui-accent-ink",
     /** Gone or refused: declined, withdrawn, no longer available. */
     danger: "base:bg-ui-danger/10 base:text-ui-danger",
   },
