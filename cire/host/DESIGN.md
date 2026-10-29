@@ -179,7 +179,8 @@ Two rules in `@layer base`:
 `text-ui-*`, `tracking-ui-*` and `leading-ui-*`, set in `global.css` — never
 from Tailwind's own. A paragraph of prose takes `leading-ui-normal` (1.6) and a
 hint or a tight stack of lines `leading-ui-snug` (1.4); `leading-ui-relaxed`
-(1.75) is the `Notice` body's. Words or figures in Cormorant are never set at a
+(1.75) is the `md` `Notice` body's (its `sm` box takes 1.6, its `inline` line
+1.4). Words or figures in Cormorant are never set at a
 line height of 1, because its descenders need the room. A display line that
 keeps to one line — the wordmark, a module's heading, the wedding switcher's
 name, the overview's countdown and counts — takes `leading-ui-none` (1.1); a
@@ -224,8 +225,9 @@ role is. Two sets of names carry it:
 read as something else: a 14px checkbox looks like a mistake. `sm`, 6px, paints:
 
 - checkboxes (`@shared/ui`'s `Checkbox`);
-- notices (`Notice` and a hand-written one) and empty states (`EmptyState`
-  and a hand-written empty panel);
+- notices (`Notice`'s `md` and `sm` boxes — its `inline` line draws no box —
+  and a hand-written one) and empty states (`EmptyState` and a hand-written
+  empty panel);
 - a badge with text that is not a pill — a dress code, a key hint (`kbd`),
   "New" on an unsaved event or household, "Connected", a co-host's role, a
   seated guest's reply;
@@ -686,7 +688,7 @@ specificity, so a caller's plain utility — `w-full`, `self-start`, a `rounded-
 | `Eyebrow`, `eyebrowClass` | The small-caps label that leads a section, a card or a group of fields: one size (`xs`), one letter-spacing (`widest`, 0.16em) and two tones — `accent` in readable gold (`--ui-accent-ink`), the default, and `muted` in the secondary ink. The owner chose the spacing and both inks (englishstreetventures/osn#1833). It sets no weight, so on a guest's invite it follows the couple's body weight. `as` renders it as `p` (the default), `span`, `h2`, `h3`, `legend` or `dt`; `eyebrowClass` gives the same classes to anything else. A table head is not an eyebrow — it is `Th` — and the invite preview, which re-declares the couple's palette on a wrapper below the root, draws its own. Every label that leads a section, a card, a fieldset or a group of fields in the portal is `Eyebrow`, and an `.astro` page's (the sign-in page) is `eyebrowClass`. A quiet label — a budget figure's, a checklist bucket's — takes `muted`. |
 | `Loading` | "This is on its way": one pulsing small-caps line with `role="status"`, for a list or a page still fetching. A lazy panel's fallback is `PanelLoading` instead, which holds the panel's height and does not pulse. |
 | `Chip` | A status word in a pill, small caps, in one of four tones. An enquiry's status wears the vendor portal's tones — open `pending`, quoted `accent`, closed `neutral` — so an enquiry reads alike from both ends. |
-| `Notice` | Four tones, at the 6px step. `danger`, `warn` and `success` each carry a distinct glyph plus a hidden word ("Error", "Warning", "Success"); `info` is unmarked, because nothing has happened. `alert` opts into `role="alert"` and is for a note that appeared **in answer to something** — a standing note that was on screen before the host arrived has nothing to interrupt anyone about. |
+| `Notice` | Five tones at three sizes. `danger`, `warn` and `success` each lead with a circled icon of a different shape — a cross, an exclamation mark, a tick — in the tone's ink, sized from the text step and held to the first line, plus a hidden word ("Error", "Warning", "Success"); the owner chose the icons over text glyphs (englishstreetventures/osn#1835). `info` is unmarked, because nothing has happened; so is `accent`, the gold standing note — its border at 40% of the gold, a 5% wash, readable gold ink (`--gold-ink`). **`md`**, the default, is the box at the 6px step (`p-4`, `text-ui-base`); **`sm`** the same box compact (`px-3 py-2`, `text-ui-sm`), for a note beside a control or in a sidebar; **`inline`** no box at all — the icon, the word and the text at `text-ui-sm` in the tone's ink — for the error line under a field. Every size is a `<div>`, so a notice never sits inside a `<p>` or a `<label>`. `alert` opts into `role="alert"` and is for a note that appeared **in answer to something** — a standing note that was on screen before the host arrived has nothing to interrupt anyone about. |
 | `EmptyState` | A title, an optional line of prose, and the one thing to do about it, in a dashed box at the 6px step. |
 | `Field`, `Fieldset`, `Input`, `Select`, `Textarea` | A small-caps label, the control, a hint and the errors, wired together by id. The controls take the 14px field corner and two sizes, `md` and `sm`: an `Input` is 36px and 28px, a `Select` has no height of its own. A form field at either size takes `FORM_FIELD_CLASS` and is 34px; a filter is `sm` with `FILTER_FIELD_CLASS`, 28px (§4, One form-field height). |
 | `Meter`, `meterPct` | A thin bar. Scaled by transform rather than resized — see the file. `meterPct` clamps at both ends and reads a zero or missing maximum as empty, not as a division by zero. |

@@ -167,6 +167,30 @@ hold that guarantee rather than trusting it.
 > while the panel is in fact hidden. `shared/ui/tests/ui/info-popover.test.tsx`
 > holds the guarantee, rendering the popover inside a real `Dialog`.
 
+### `Notice` — five tones, three sizes, a mark that is a shape
+
+`<Notice tone size alert>` says something went wrong, went right, or is worth
+knowing. Five tones: `danger`, `warn` and `success` each lead with a circled
+icon of a different shape (a cross, an exclamation mark, a tick), drawn inline
+in [notice.tsx](../../shared/ui/src/ui/notice.tsx) in the tone's ink, sized in
+`em` from the text step, `aria-hidden`, with a word read in its place
+("Error:", "Warning:", "Success:"). `info` and `accent` carry no mark: they
+are standing notes. `accent` paints `--ui-accent-ink`, never `--ui-accent`.
+
+| Size | What it draws | For |
+| --- | --- | --- |
+| `md`, the default | the box every app drew before the others: `p-4`, `text-ui-base`, the `sm` corner | a block on a page or in a modal |
+| `sm` | the same box, compact: `px-3 py-2`, `text-ui-sm` | a note beside a control or in a sidebar |
+| `inline` | no border, fill, padding or corner — the mark, the word and the text, in the tone's ink | the error line under a field |
+
+All three render a `<div>`, so none sits inside a `<p>` or a `<label>`: a call
+site there moves the line out of the paragraph. `mark` draws an app's own icon
+and read word in the same slot, for a part built on a tone that has none. With
+no `size` and no `tone`, `Notice` renders the classes it rendered before it had
+either: `shared/ui/tests/ui/notice.test.tsx` pins that string, and
+`primitives.browser.test.tsx` holds the inline line boxless, `accent` off
+`info`, the icon on the first line and sized from the text step.
+
 ### `Tooltip` — a label that explains itself on hover
 
 `<Tooltip text="…">{label}</Tooltip>` gives a short label, such as a table
