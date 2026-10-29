@@ -105,9 +105,8 @@ interface CardLook {
  * `interactive` is accepted only on the wash fill and a tone other than
  * `danger`. Its hover lifts the wash to 50% and turns the border gold: no other
  * fill has a lifted step to go to, and a danger card holds a control rather
- * than being one. So the type refuses the pairs that would have no hover, and
- * with them an `interactive` that is a `boolean` variable rather than `true` —
- * a card is a control or it is not, and the call site knows which.
+ * than being one. So the type refuses the pairs that would have no hover,
+ * whether `interactive` is written `true` or passed as a `boolean`.
  */
 export type CardOptions =
   | (CardLook & { interactive?: false })

@@ -422,6 +422,25 @@ describe("Card", () => {
     cardClass({ fill: "none", interactive: true });
     // @ts-expect-error — a danger card is never the control
     cardClass({ tone: "danger", interactive: true });
+    // A flag decided at run time is held to the same pairs.
+    const washed = (clickable: boolean) => cardClass({ fill: "wash", interactive: clickable });
+    expect(washed(true)).toContain("hover:");
+    expect(washed(false)).not.toContain("hover:");
+    const opaque = (clickable: boolean) =>
+      // @ts-expect-error — no hover for the opaque fill, however the flag is written
+      cardClass({ fill: "opaque", interactive: clickable });
+    expect(opaque).toBeTypeOf("function");
+  });
+
+  it("keeps the hover off `Card`, which is a `<div>`", () => {
+    // A `<div>` with the interactive hover promises a click nothing answers; a
+    // card that is the control is a `<button>` or `<a>` wearing `cardClass`.
+    // The line below is checked by the type-check, not by this run.
+    const { container } = render(() => (
+      // @ts-expect-error — `Card` takes no `interactive`
+      <Card interactive>x</Card>
+    ));
+    expect((container.firstElementChild as HTMLElement).className).toBe(cardClass());
   });
 });
 
