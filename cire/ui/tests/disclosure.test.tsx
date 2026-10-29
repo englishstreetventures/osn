@@ -160,6 +160,7 @@ describe("Disclosure — the marker", () => {
         </Disclosure>
       ));
       const { summary, marker } = parts(container);
+      expect(summary.querySelectorAll('[aria-hidden="true"]')).toHaveLength(1);
       expect(marker.textContent).toBe(GLYPH[tone]);
       expect(tone === "card" ? summary.firstElementChild : summary.lastElementChild).toBe(marker);
       unmount();
@@ -184,6 +185,22 @@ describe("Disclosure — the marker", () => {
       expect(marker.parentElement).toBe(summary);
       expect(summary.parentElement).toBe(details);
       expect(classes(marker).filter((c) => c.includes("group"))).toEqual([]);
+      unmount();
+    }
+  });
+
+  it("turns on the app's quick step, with the house easing", () => {
+    // `--dur-fast` follows each app's motion ladder; the fallback is for an
+    // app that declares none.
+    for (const tone of EVERY_TONE) {
+      const { container, unmount } = render(() => (
+        <Disclosure tone={tone} summary="Is there parking?">
+          x
+        </Disclosure>
+      ));
+      expect(
+        classes(parts(container).marker).filter((c) => /transition|duration-|ease-/.test(c)),
+      ).toEqual(["base:transition-[rotate]", "base:duration-(--dur-fast,100ms)", "base:ease-out"]);
       unmount();
     }
   });
@@ -337,8 +354,14 @@ describe("Disclosure — the opening fade", () => {
     // going away.
     for (const tone of EVERY_TONE) {
       const timed = fade(tone).filter((c) => /transition|duration-|ease-/.test(c));
-      expect(timed.length).toBeGreaterThan(0);
       expect(timed.filter((c) => !c.includes(":open:"))).toEqual([]);
+      // What fades, for how long and on which curve: the body's opacity and
+      // drop, on the app's base step, with the house easing.
+      expect(timed.map((c) => c.slice(c.lastIndexOf(":") + 1))).toEqual([
+        "transition-[opacity,translate]",
+        "duration-(--dur-base,200ms)",
+        "ease-out",
+      ]);
     }
   });
 });
