@@ -245,6 +245,31 @@ describe("Disclosure — the box", () => {
     ).toEqual([]);
   });
 
+  it("takes the card's large corner on the page, and the small step when nested", () => {
+    // A bordered box inside another box takes the small corner (the host's
+    // design system, §4); a call site may not restyle the part to get it.
+    const corner = (nested: boolean) => {
+      const { container, unmount } = render(() => (
+        <Disclosure nested={nested} summary="Formatting tips">
+          x
+        </Disclosure>
+      ));
+      const found = classes(parts(container).details).filter((c) => c.includes("rounded-"));
+      unmount();
+      return found;
+    };
+    expect(corner(false)).toEqual(["base:rounded-ui-lg"]);
+    expect(corner(true)).toEqual(["base:rounded-ui-sm"]);
+    // A rule has no corner to change. Checked by the type-check, not by this run.
+    // @ts-expect-error — `nested` is the card tone's alone
+    const rule = () => (
+      <Disclosure tone="rule" nested summary="Is there parking?">
+        x
+      </Disclosure>
+    );
+    expect(rule).toBeTypeOf("function");
+  });
+
   it("draws a rule as a hairline under the row, with no fill and no corner", () => {
     const rule = detailsClasses("rule");
     expect(rule).toContain("base:border-b");

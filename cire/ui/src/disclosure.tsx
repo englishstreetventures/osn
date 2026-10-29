@@ -18,11 +18,10 @@ import { cardBoxClass } from "./card";
  * - `card`, the default: Card's box with the well fill, a leading `›` that
  *   turns a quarter as it opens. The summary row and the body pad themselves,
  *   so the whole row is the click target. On the page it takes the card's
- *   16px corner; one nested in another box takes the small step from its
- *   caller (`class="rounded-sm"`). The summary has no corner of its own: its
- *   parent in the rendered tree is the details' internal slot, so
- *   `border-radius: inherit` would find none, and its focus ring is the square
- *   one every host disclosure draws.
+ *   16px corner; `nested`, for one set inside another box, takes the small
+ *   step. The summary has no corner of its own: its parent in the rendered
+ *   tree is the details' internal slot, so `border-radius: inherit` would find
+ *   none, and its focus ring is the square one every host disclosure draws.
  * - `rule`: a row with a hairline under it, a trailing `+` that turns into ×.
  *   An FAQ: the question in the display face, the answer beneath.
  *
@@ -49,13 +48,20 @@ import { cardBoxClass } from "./card";
  * when `open` starts true. So a count of whether the reader has touched it
  * listens to `onSummaryClick`, the summary's own click, which a keyboard
  * press on the summary also fires.
+ *
+ * ## `class`
+ *
+ * Where it sits — a margin, a width, its place in a parent's flex or grid —
+ * and nothing about how it looks, which the house lint refuses at a call site
+ * (`shadcn/no-restyle`). A treatment one app owns, such as the host's
+ * `attention-glow`, goes on an element wrapped round it.
  */
 
 export type DisclosureTone = "card" | "rule";
 
 interface ToneLook {
-  /** The box, on the `<details>`. */
-  box: string;
+  /** The box, on the `<details>`; `nested` is the card's small corner. */
+  box: (nested: boolean) => string;
   /** The summary row's padding, gap and type. */
   summary: string;
   glyph: string;
@@ -67,14 +73,14 @@ interface ToneLook {
 
 const TONES = {
   card: {
-    box: cardBoxClass({ fill: "well" }),
+    box: (nested) => cardBoxClass({ fill: "well", nested }),
     summary: "base:gap-2 base:px-4 base:py-3 base:font-ui-body base:text-ui-base",
     glyph: "›",
     turn: "base:[details[open]>summary>&]:rotate-90",
     body: "base:px-4 base:pb-4",
   },
   rule: {
-    box: "base:border-b base:border-ui-hairline",
+    box: () => "base:border-b base:border-ui-hairline",
     summary: "base:gap-4 base:py-4 base:font-ui-display base:text-ui-lg base:leading-ui-tight",
     glyph: "+",
     turn: "base:[details[open]>summary>&]:rotate-45",
@@ -102,20 +108,30 @@ const MARKER =
 
 const BODY = "base:flex base:flex-col base:gap-3";
 
-export interface DisclosureProps {
+interface DisclosureCommon {
   /** The summary row's words. The marker is the part's own. */
   summary: JSX.Element;
-  tone?: DisclosureTone;
   /** Whether it starts open. */
   open?: boolean;
   /** Every new state, a script's change and the mount included. */
   onToggle?: (open: boolean) => void;
   /** The summary's own click, the reader's touch. */
   onSummaryClick?: () => void;
-  /** On the `<details>`, after the part's own. */
+  /** On the `<details>`, after the part's own: placement only. */
   class?: string;
   children: JSX.Element;
 }
+
+/** `nested` belongs to the card tone alone: a rule has no corner to change. */
+export type DisclosureProps = DisclosureCommon &
+  (
+    | {
+        tone?: "card";
+        /** Set inside another box: the small corner. */
+        nested?: boolean;
+      }
+    | { tone: "rule"; nested?: never }
+  );
 
 export default function Disclosure(props: DisclosureProps): JSX.Element {
   const look = () => TONES[props.tone ?? "card"];
@@ -127,7 +143,7 @@ export default function Disclosure(props: DisclosureProps): JSX.Element {
   return (
     <details
       open={props.open}
-      class={`${look().box} ${FADE}${props.class ? ` ${props.class}` : ""}`}
+      class={`${look().box(props.nested === true)} ${FADE}${props.class ? ` ${props.class}` : ""}`}
       onToggle={(event) => props.onToggle?.(event.currentTarget.open)}
     >
       <summary class={`${SUMMARY_BASE} ${look().summary}`} onClick={() => props.onSummaryClick?.()}>

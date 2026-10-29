@@ -132,10 +132,17 @@ export function cardClass(options: CardOptions = {}): string {
  * whose summary row is the whole click target. It repeats `CARD_BASE`'s
  * corner and border rather than composing it, because `cardClass()` with no
  * options is pinned and puts its padding between the border and its colour.
+ *
+ * `nested` gives the small corner the host's design system gives a bordered
+ * box set inside a card, a modal or a frame; on the page a box keeps the
+ * card's large one.
  */
-export function cardBoxClass(options: { fill?: CardFill; tone?: CardTone } = {}): string {
+export function cardBoxClass(
+  options: { fill?: CardFill; tone?: CardTone; nested?: boolean } = {},
+): string {
   const fill = FILL[options.fill ?? "wash"];
-  return `base:rounded-ui-lg base:border ${TONE[options.tone ?? "default"]}${fill ? ` ${fill}` : ""}`;
+  const corner = options.nested ? "base:rounded-ui-sm" : "base:rounded-ui-lg";
+  return `${corner} base:border ${TONE[options.tone ?? "default"]}${fill ? ` ${fill}` : ""}`;
 }
 
 /**
