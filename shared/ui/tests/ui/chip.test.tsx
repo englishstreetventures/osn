@@ -30,13 +30,3 @@ describe("Chip's default", () => {
     expect(container.firstElementChild?.getAttribute("class")).toBe(`${TODAY} mt-1`);
   });
 });
-
-describe("Chip's props", () => {
-  it("leaves a badge's explanation to a Tooltip, not a title", () => {
-    // A type check: `bun run typecheck` fails if `title` becomes a prop. The
-    // browser test "drops a title a caller spreads" holds it at run time.
-    // @ts-expect-error — a badge explains itself in a Tooltip.
-    void (<Chip title="Owners can change anything">Owner</Chip>);
-    expect(true).toBe(true);
-  });
-});
