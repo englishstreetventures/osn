@@ -20,8 +20,16 @@ const SIZES = ["inline", "sm", "md"] as const satisfies readonly NoticeSize[];
 describe("Note", () => {
   it("leads with a star hidden from assistive technology", () => {
     const { container } = render(() => <Note>Preview: nothing you send is saved.</Note>);
-    const slot = container.querySelector("[aria-hidden='true']");
-    expect(slot?.querySelector("svg path")).not.toBeNull();
+    expect(container.querySelector("[aria-hidden='true'] svg path")).not.toBeNull();
+  });
+
+  it.each(SIZES)("draws the %s note's star in the text's colour and at its size", (size) => {
+    const { container } = render(() => <Note size={size}>words</Note>);
+    const star = container.querySelector("[aria-hidden='true'] svg");
+    expect(star).not.toBeNull();
+    expect(star!.getAttribute("fill")).toBe("currentColor");
+    expect(star!.getAttribute("width")).toMatch(/em$/);
+    expect(star!.getAttribute("height")).toMatch(/em$/);
   });
 
   it("reads the word Note in the star's place", () => {
