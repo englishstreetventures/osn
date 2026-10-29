@@ -118,6 +118,34 @@ describe("legal pages", () => {
     expect(hosts).toMatch(/which table each guest sits at/);
   });
 
+  /**
+   * Where the data is, as `cire/infra/src/declaration.ts` places it: `cire-db`
+   * has its primary in Oceania (`locationHint: "oc"`) and read replicas
+   * wherever Cloudflare puts them (`readReplication: "auto"`), and it holds the
+   * organiser sessions too, so no notice may place sign-in state in Oceania
+   * alone. The R2 buckets, which hold what organisers upload, are in Eastern
+   * North America (`locationHint: "enam"`); the vendor portal stores nothing
+   * there, so the vendors' notice names no file storage.
+   */
+  it("each organiser-facing page says where Cloudflare holds the data", () => {
+    const flat = (page: string) => page.replace(/\s+/g, " ");
+    for (const page of [privacy, hosts, vendors].map(flat)) {
+      expect(page).toMatch(/primary region is (<strong>)?Oceania/);
+      expect(page).toMatch(/read-only copies/);
+      expect(page).toMatch(/which (it|Cloudflare) chooses and can change/);
+      expect(page).not.toMatch(/sign-in state in Oceania/);
+    }
+    for (const page of [privacy, hosts].map(flat)) {
+      expect(page).toMatch(/in Eastern North America/);
+    }
+    expect(flat(vendors)).not.toMatch(/Eastern North America/);
+    for (const page of [hosts, vendors].map(flat)) {
+      expect(page).toMatch(/hold your sign-in sessions too/);
+      expect(page).toMatch(/transferred out of that area to Oceania and elsewhere/);
+    }
+    expect(flat(hosts)).toMatch(/live updates/);
+  });
+
   it("footer links every legal page", () => {
     for (const name of footerPages) {
       expect(footer).toContain(`href="/${name}"`);
