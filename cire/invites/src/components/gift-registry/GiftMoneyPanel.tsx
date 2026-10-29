@@ -2,7 +2,6 @@ import Button from "@cire/ui/button";
 import { toast, type ToastOptions } from "@shared/toast";
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 
-import { FORM_FIELD_CLASS } from "../../lib/form-field";
 import {
   contributeGift,
   formatGiftPrice,
@@ -359,7 +358,7 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
               inputmode="decimal"
               value={customText()}
               onInput={(event) => setCustomText(event.currentTarget.value)}
-              class={`border-border bg-text/4.5 font-body text-text focus:border-gold text-ui-base rounded-ui-field focus-visible:outline-ui-focus mx-auto w-40 border px-3 ${FORM_FIELD_CLASS} text-center focus-visible:outline-2 focus-visible:outline-offset-2`}
+              class="border-border bg-text/4.5 font-body text-text focus:border-gold text-ui-base rounded-ui-field focus-visible:outline-ui-focus mx-auto w-40 border px-3 py-2 text-center focus-visible:outline-2 focus-visible:outline-offset-2"
             />
           </label>
         </Show>
@@ -372,7 +371,7 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
               maxlength="120"
               value={displayName()}
               onInput={(event) => setDisplayName(event.currentTarget.value)}
-              class={`border-border bg-text/4.5 font-body text-text focus:border-gold text-ui-base rounded-ui-field focus-visible:outline-ui-focus w-full border px-3 ${FORM_FIELD_CLASS} focus-visible:outline-2 focus-visible:outline-offset-2`}
+              class="border-border bg-text/4.5 font-body text-text focus:border-gold text-ui-base rounded-ui-field focus-visible:outline-ui-focus w-full border px-3 py-2 focus-visible:outline-2 focus-visible:outline-offset-2"
             />
           </label>
           <label class="font-body text-text-muted text-ui-sm">

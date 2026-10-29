@@ -15,7 +15,6 @@ import {
   type Accessor,
 } from "solid-js";
 
-import { FORM_FIELD_CLASS } from "../lib/form-field";
 import { isPlusOne } from "./plus-one";
 import { hasHouseholdResponded } from "./rsvp-responded";
 import { savedDwellMs } from "./rsvp-saved";
@@ -869,7 +868,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
                         // utilities layer and would beat the base-layer
                         // `:focus-visible` ring, leaving a border tint as the
                         // only focus cue on the invite's main data-entry field.
-                        class={`border-border font-body text-text placeholder:text-text-muted focus:border-gold sm:text-ui-base rounded-ui-field mt-1.5 block w-full border bg-transparent px-3 ${FORM_FIELD_CLASS} text-base transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast) ease-(--ease-out)`}
+                        class="border-border font-body text-text placeholder:text-text-muted focus:border-gold sm:text-ui-base rounded-ui-field mt-1.5 block w-full border bg-transparent px-3 py-2.5 text-base transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast) ease-(--ease-out)"
                         placeholder="e.g. no onion or garlic"
                         value={responses()[guestId]?.dietary ?? ""}
                         onInput={(e) => setDietary(guestId, e.currentTarget.value)}
