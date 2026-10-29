@@ -15,19 +15,29 @@ import { Notice } from "../../src/ui/notice";
 
 afterEach(cleanup);
 
-const TODAY =
+const BOX =
   "base:font-ui-body base:flex base:items-start base:gap-2.5 base:rounded-ui-sm " +
-  "base:border base:p-4 base:text-ui-base base:leading-ui-relaxed " +
-  "base:border-ui-hairline base:bg-ui-surface/30 base:text-ui-ink-secondary";
+  "base:border base:p-4 base:text-ui-base base:leading-ui-relaxed";
 
-describe("Notice's default", () => {
-  it("renders the classes it rendered before it had sizes", () => {
-    const { container } = render(() => <Notice>standing note</Notice>);
-    expect(container.firstElementChild?.getAttribute("class")).toBe(TODAY);
-  });
+/** Each tone's classes as they were before `Notice` had sizes. */
+const TODAY = {
+  danger: `${BOX} base:border-ui-danger/20 base:bg-ui-danger/5 base:text-ui-danger`,
+  warn: `${BOX} base:border-ui-warn/20 base:bg-ui-warn/5 base:text-ui-warn`,
+  success: `${BOX} base:border-ui-success/20 base:bg-ui-success/5 base:text-ui-success`,
+  info: `${BOX} base:border-ui-hairline base:bg-ui-surface/30 base:text-ui-ink-secondary`,
+} as const;
 
-  it("appends a caller's class last, after its own", () => {
+describe("Notice's default size", () => {
+  it.each(["danger", "warn", "success", "info"] as const)(
+    "renders the %s classes it rendered before",
+    (tone) => {
+      const { container } = render(() => <Notice tone={tone}>standing note</Notice>);
+      expect(container.firstElementChild?.getAttribute("class")).toBe(TODAY[tone]);
+    },
+  );
+
+  it("is `info` with no tone, and appends a caller's class last", () => {
     const { container } = render(() => <Notice class="mt-4">standing note</Notice>);
-    expect(container.firstElementChild?.getAttribute("class")).toBe(`${TODAY} mt-4`);
+    expect(container.firstElementChild?.getAttribute("class")).toBe(`${TODAY.info} mt-4`);
   });
 });

@@ -42,7 +42,8 @@ import type { SafeProps } from "./props";
  *
  * `mark` lets an app draw its own mark in the same slot — an icon and the word
  * read in its place — for a part of its own built on a tone that has none.
- * It adds a mark; it never takes one away.
+ * It adds a mark to `info` or `accent`; a tone with a mark of its own keeps
+ * it, so an app can never swap "Error" for a softer word.
  *
  * ## `alert`
  *
@@ -154,7 +155,7 @@ export function Notice(props: NoticeProps) {
   const [own, rest] = splitProps(props, ["tone", "size", "alert", "mark", "class", "children"]);
   const tone = () => own.tone ?? "info";
   const size = () => own.size ?? "md";
-  const mark = () => own.mark ?? MARK[tone()]?.();
+  const mark = () => MARK[tone()]?.() ?? own.mark;
   const look = () =>
     size() === "inline"
       ? `${SIZE.inline} ${INK[tone()]}`

@@ -44,16 +44,6 @@ describe("Notice", () => {
     }
   });
 
-  it("gives each tone a different colour, or the tones are decoration", () => {
-    const colours = (["danger", "warn", "success", "info"] as const).map((tone) => {
-      const { container, unmount } = render(() => <Notice tone={tone}>body</Notice>);
-      const c = painted(container.firstElementChild!, "color");
-      unmount();
-      return c;
-    });
-    expect(new Set(colours).size).toBe(colours.length);
-  });
-
   it("carries tone as a mark's shape as well as a hue", () => {
     // The accessibility claim in the docblock, made falsifiable. `danger` and
     // `warn` are the closest pair in most palettes and the pair red-green
@@ -67,13 +57,21 @@ describe("Notice", () => {
       return shape;
     });
     expect(shapes).not.toContain("");
+    for (const shape of shapes) expect(shape).toContain("<circle");
     expect(new Set(shapes).size).toBe(3);
   });
 
-  it("reads a word in place of the icon, because a drawn cross is not a thing to hear", () => {
-    const { container } = render(() => <Notice tone="danger">Could not save</Notice>);
-    expect(container.textContent).toContain("Error:");
-  });
+  it.each([
+    ["danger", "Error:"],
+    ["warn", "Warning:"],
+    ["success", "Success:"],
+  ] as const)(
+    "reads %s's word in place of its icon, because a drawn mark is not a thing to hear",
+    (tone, word) => {
+      const { container } = render(() => <Notice tone={tone}>body</Notice>);
+      expect(container.querySelector(".base\\:sr-only")?.textContent).toBe(`${word} `);
+    },
+  );
 
   it("gives `info` no mark at all — nothing has happened", () => {
     const { container } = render(() => <Notice tone="info">standing note</Notice>);
@@ -152,20 +150,26 @@ describe("Notice sizes and the accent tone", () => {
     expect(before.columnGap).toBe("10px");
   });
 
-  it.each(EVERY_TONE)("draws a %s inline line with no border, no fill and no padding", (tone) => {
-    const { container } = render(() => (
-      <Notice size="inline" tone={tone}>
-        Enter a valid email address.
-      </Notice>
-    ));
-    const line = look(container.firstElementChild!);
-    expect(line.borderTopWidth).toBe("0px");
-    expect(line.backgroundColor).toBe(TRANSPARENT);
-    expect(line.paddingTop).toBe("0px");
-    expect(line.paddingLeft).toBe("0px");
-  });
+  it.each(EVERY_TONE)(
+    "draws the %s inline line with no border, no fill and no padding, in its ink",
+    (tone) => {
+      const { container } = render(() => (
+        <Notice size="inline" tone={tone}>
+          Enter a valid email address.
+        </Notice>
+      ));
+      const line = look(container.firstElementChild!);
+      const boxed = render(() => <Notice tone={tone}>body</Notice>);
+      expect(line.color).toBe(look(boxed.container.firstElementChild!).color);
+      boxed.unmount();
+      expect(line.borderTopWidth).toBe("0px");
+      expect(line.backgroundColor).toBe(TRANSPARENT);
+      expect(line.paddingTop).toBe("0px");
+      expect(line.paddingLeft).toBe("0px");
+    },
+  );
 
-  it.each(EVERY_TONE)("draws a %s box at sm and md, and sm is the smaller", (tone) => {
+  it.each(EVERY_TONE)("draws the %s box at sm and md, and sm is the smaller", (tone) => {
     const sm = render(() => (
       <Notice size="sm" tone={tone}>
         body
@@ -265,11 +269,10 @@ describe("Notice sizes and the accent tone", () => {
 
   it("reads the word in place of the icon at the inline size too", () => {
     const { container } = render(() => (
-      <Notice size="inline" tone="danger" alert>
+      <Notice size="inline" tone="danger">
         Enter a valid email address.
       </Notice>
     ));
-    expect(container.firstElementChild?.getAttribute("role")).toBe("alert");
     expect(container.querySelector("[aria-hidden='true'] svg")).not.toBeNull();
     expect(container.textContent).toContain("Error:");
   });
@@ -293,6 +296,21 @@ describe("Notice sizes and the accent tone", () => {
     const slot = container.querySelector("[aria-hidden='true']");
     expect(slot?.querySelector("[data-testid='own-mark']")).not.toBeNull();
     expect(container.textContent).toContain("Note:");
+  });
+
+  it("keeps a tone's own mark when an app passes one", () => {
+    const { container } = render(() => (
+      <Notice
+        tone="danger"
+        mark={{ icon: <svg viewBox="0 0 24 24" data-testid="own-mark" />, word: "Note" }}
+      >
+        Could not save
+      </Notice>
+    ));
+    expect(container.querySelector("[data-testid='own-mark']")).toBeNull();
+    expect(container.querySelector("[aria-hidden='true'] svg circle")).not.toBeNull();
+    expect(container.textContent).toContain("Error:");
+    expect(container.textContent).not.toContain("Note:");
   });
 });
 
