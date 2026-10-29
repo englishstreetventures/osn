@@ -30,7 +30,7 @@ export default function WeddingSwitcher(props: {
     <DropdownMenu placement="bottom-start" gutter={8}>
       <DropdownMenu.Trigger
         aria-label="Switch wedding"
-        class="group hover:bg-surface/60 flex min-w-0 items-center gap-2 rounded-sm px-2 py-1 transition-colors duration-(--dur-fast) ease-(--ease-out)"
+        class="group hover:bg-surface/60 flex min-w-0 items-center gap-2 rounded-sm px-2 py-1 transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast) ease-(--ease-out)"
       >
         {/* `truncate` clips at this box, and at this size Cormorant's g, j, p
             and y reach about 4.7px below the baseline, past the 3.7px a 1.1
@@ -56,7 +56,7 @@ export default function WeddingSwitcher(props: {
             <For each={others()}>
               {(wedding) => (
                 <DropdownMenu.Item
-                  class="font-body data-[highlighted]:bg-gold/10 flex w-full cursor-pointer flex-col items-start gap-0.5 rounded-sm px-3 py-2 transition-colors duration-(--dur-fast) ease-(--ease-out) outline-none"
+                  class="font-body data-[highlighted]:bg-gold/10 flex w-full cursor-pointer flex-col items-start gap-0.5 rounded-sm px-3 py-2 transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast) ease-(--ease-out) outline-none"
                   onSelect={() => props.onSelect(wedding)}
                 >
                   <span class="text-text text-ui-sm w-full truncate">{wedding.displayName}</span>
@@ -70,7 +70,7 @@ export default function WeddingSwitcher(props: {
           </Show>
 
           <DropdownMenu.Item
-            class="font-body text-text-muted data-[highlighted]:bg-gold/10 data-[highlighted]:text-gold text-ui-sm flex w-full cursor-pointer items-center gap-2 rounded-sm px-3 py-2 transition-colors duration-(--dur-fast) ease-(--ease-out) outline-none"
+            class="font-body text-text-muted data-[highlighted]:bg-gold/10 data-[highlighted]:text-gold text-ui-sm flex w-full cursor-pointer items-center gap-2 rounded-sm px-3 py-2 transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast) ease-(--ease-out) outline-none"
             onSelect={() => props.onAll()}
           >
             <span aria-hidden="true">←</span>
