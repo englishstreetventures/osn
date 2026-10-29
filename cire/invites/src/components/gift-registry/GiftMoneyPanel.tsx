@@ -229,7 +229,7 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
             <legend class="font-body text-text-muted text-ui-sm mb-2">What it’s for</legend>
             <div class="flex flex-col gap-2">
               <label
-                class="font-body rounded-ui-field focus-within:outline-ui-focus flex cursor-pointer items-center gap-3 border px-4 py-3 transition-colors duration-(--dur-fast) ease-(--ease-out) focus-within:outline-2 focus-within:outline-offset-2"
+                class="font-body rounded-ui-field focus-within:outline-ui-focus flex cursor-pointer items-center gap-3 border px-4 py-3 transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast) ease-(--ease-out) focus-within:outline-2 focus-within:outline-offset-2"
                 classList={{
                   "border-gold bg-gold/5": fundId() === null,
                   "border-border": fundId() !== null,
@@ -249,7 +249,7 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
                 {(fund) => (
                   <label
                     data-gift-money-fund={fund.id}
-                    class="font-body rounded-ui-field focus-within:outline-ui-focus flex cursor-pointer items-start gap-3 border px-4 py-3 transition-colors duration-(--dur-fast) ease-(--ease-out) focus-within:outline-2 focus-within:outline-offset-2"
+                    class="font-body rounded-ui-field focus-within:outline-ui-focus flex cursor-pointer items-start gap-3 border px-4 py-3 transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast) ease-(--ease-out) focus-within:outline-2 focus-within:outline-offset-2"
                     classList={{
                       "border-gold bg-gold/5": fundId() === fund.id,
                       "border-border": fundId() !== fund.id,
@@ -302,7 +302,7 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
             <For each={GIFT_AMOUNT_PRESETS_MINOR}>
               {(minor) => (
                 <label
-                  class="font-body text-ui-sm rounded-ui-control focus-within:outline-ui-focus cursor-pointer border px-4 py-2 transition-colors duration-(--dur-fast) ease-(--ease-out) focus-within:outline-2 focus-within:outline-offset-2"
+                  class="font-body text-ui-sm rounded-ui-control focus-within:outline-ui-focus cursor-pointer border px-4 py-2 transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast) ease-(--ease-out) focus-within:outline-2 focus-within:outline-offset-2"
                   classList={{
                     "border-gold text-gold-ink bg-gold/5": preset() === minor,
                     "border-border text-text-muted": preset() !== minor,
@@ -326,7 +326,7 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
               )}
             </For>
             <label
-              class="font-body text-ui-sm rounded-ui-control focus-within:outline-ui-focus cursor-pointer border px-4 py-2 transition-colors duration-(--dur-fast) ease-(--ease-out) focus-within:outline-2 focus-within:outline-offset-2"
+              class="font-body text-ui-sm rounded-ui-control focus-within:outline-ui-focus cursor-pointer border px-4 py-2 transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast) ease-(--ease-out) focus-within:outline-2 focus-within:outline-offset-2"
               classList={{
                 "border-gold text-gold-ink bg-gold/5": preset() === null,
                 "border-border text-text-muted": preset() !== null,

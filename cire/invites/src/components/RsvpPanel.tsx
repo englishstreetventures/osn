@@ -794,7 +794,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
                   <div class="flex gap-2">
                     <button
                       type="button"
-                      class="font-body text-ui-sm tracking-ui-normal rounded-ui-control flex-1 cursor-pointer border px-4 py-2.5 font-medium transition-colors duration-(--dur-fast) ease-(--ease-out)"
+                      class="font-body text-ui-sm tracking-ui-normal rounded-ui-control flex-1 cursor-pointer border px-4 py-2.5 font-medium transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast) ease-(--ease-out)"
                       classList={{
                         "border-gold text-gold-ink bg-gold/8":
                           responses()[guestId]?.attending === "attending",
@@ -809,7 +809,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
                     </button>
                     <button
                       type="button"
-                      class="font-body text-ui-sm tracking-ui-normal rounded-ui-control flex-1 cursor-pointer border px-4 py-2.5 font-medium transition-colors duration-(--dur-fast) ease-(--ease-out)"
+                      class="font-body text-ui-sm tracking-ui-normal rounded-ui-control flex-1 cursor-pointer border px-4 py-2.5 font-medium transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast) ease-(--ease-out)"
                       classList={{
                         "border-gold text-gold-ink bg-gold/8":
                           responses()[guestId]?.attending === "declined",
@@ -868,7 +868,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
                         // utilities layer and would beat the base-layer
                         // `:focus-visible` ring, leaving a border tint as the
                         // only focus cue on the invite's main data-entry field.
-                        class="border-border font-body text-text placeholder:text-text-muted focus:border-gold sm:text-ui-base rounded-ui-field mt-1.5 block w-full border bg-transparent px-3 py-2.5 text-base transition-colors duration-(--dur-fast) ease-(--ease-out)"
+                        class="border-border font-body text-text placeholder:text-text-muted focus:border-gold sm:text-ui-base rounded-ui-field mt-1.5 block w-full border bg-transparent px-3 py-2.5 text-base transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast) ease-(--ease-out)"
                         placeholder="e.g. no onion or garlic"
                         value={responses()[guestId]?.dietary ?? ""}
                         onInput={(e) => setDietary(guestId, e.currentTarget.value)}
@@ -1052,7 +1052,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
                 keyed on `loading()` instead, which is the state that earns it. */}
             <button
               type="submit"
-              class="border-gold font-body text-gold-ink hover:bg-gold hover:text-on-gold disabled:hover:text-gold-ink text-ui-sm tracking-ui-normal rounded-ui-control flex-1 border bg-transparent px-5 py-3 font-medium transition-colors duration-(--dur-fast) ease-(--ease-out) disabled:cursor-not-allowed disabled:hover:bg-transparent"
+              class="border-gold font-body text-gold-ink hover:bg-gold hover:text-on-gold disabled:hover:text-gold-ink text-ui-sm tracking-ui-normal rounded-ui-control flex-1 border bg-transparent px-5 py-3 font-medium transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast) ease-(--ease-out) disabled:cursor-not-allowed disabled:hover:bg-transparent"
               classList={{
                 "opacity-40": loading() || blockedByMember(),
                 "cursor-pointer": !saved(),

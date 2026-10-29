@@ -319,7 +319,7 @@ export function EventCard(props: EventCardProps) {
                 neither pair was measured against. */}
             <Show when={rsvpShown()}>
               <button
-                class="font-body text-ui-sm tracking-ui-normal bg-gold rounded-ui-control relative min-h-11 flex-1 overflow-clip border border-transparent px-5 py-3 font-medium underline-offset-4 transition-colors duration-(--dur-base) ease-(--ease-out) hover:underline sm:flex-none sm:py-2.5"
+                class="font-body text-ui-sm tracking-ui-normal bg-gold rounded-ui-control relative min-h-11 flex-1 overflow-clip border border-transparent px-5 py-3 font-medium underline-offset-4 transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-base) ease-(--ease-out) hover:underline sm:flex-none sm:py-2.5"
                 classList={{ "text-bg": confirmed(), "text-on-gold": !confirmed() }}
                 onClick={() => props.onRespond(props.event)}
                 aria-describedby={props.rsvpClosed ? props.rsvpClosedNoticeId : undefined}

@@ -74,7 +74,7 @@ interface AnimatedModalProps {
 function CloseButton(props: { onClick: () => void }) {
   return (
     <button
-      class="text-text-muted hover:text-text bg-surface focus-visible:outline-ui-focus flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-full border-none text-2xl leading-none transition-colors duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2"
+      class="text-text-muted hover:text-text bg-surface focus-visible:outline-ui-focus flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-full border-none text-2xl leading-none transition-[color,background-color,border-color,text-decoration-color] duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2"
       onClick={() => props.onClick()}
       aria-label="Close"
     >
