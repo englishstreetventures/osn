@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 
 import { READS_REPO } from "../vitest.config";
+import { ASSET_SITES, SOURCES } from "./support/asset-sites";
 
 /** The Alchemy release whose source this package's builders were checked against. */
 const AUDITED_ALCHEMY = "2.0.0-beta.83";
@@ -87,14 +88,37 @@ describe("the vitest projects", () => {
     const files = readdirSync(join(packageDir, "tests"), { recursive: true, encoding: "utf8" })
       .filter((path) => path.endsWith(".test.ts"))
       .map((path) => `tests/${path}`);
-    const climbing = files.filter((file) => {
+    const climbs = (file: string): boolean => {
       const source = readFileSync(join(packageDir, file), "utf8");
       const depth = file.split("/").length - 1;
       const ups = [...source.matchAll(/new URL\(\s*["'`]((?:\.\.\/)+)/g)].map(
         (match) => (match[1] ?? "").length / 3,
       );
       return ups.some((up) => up > depth) || /join\(packageDir,\s*"\.\.",\s*"\.\."/.test(source);
-    });
+    };
+    // A test file reads what the support modules it imports read.
+    const supportOf = (file: string): string[] =>
+      [
+        ...readFileSync(join(packageDir, file), "utf8").matchAll(/from "\.\/support\/([\w-]+)"/g),
+      ].map((match) => `tests/support/${match[1]}.ts`);
+    const climbing = files.filter((file) => climbs(file) || supportOf(file).some(climbs));
     expect(climbing.toSorted()).toEqual(READS_REPO.toSorted());
+  });
+});
+
+describe("the repo project's cache", () => {
+  // turbo reruns `test:repo` only when one of its inputs changes, and CI
+  // restores its cache, so a file AC6 or AC7 reads that is not an input lets
+  // them pass from the cache after it changed.
+  test("PK1: every asset site's public directory, and every stack declaration, is a test:repo input", () => {
+    const turbo = Bun.JSONC.parse(readFileSync(join(packageDir, "turbo.json"), "utf8")) as {
+      readonly tasks: Readonly<Record<string, { readonly inputs?: readonly string[] }>>;
+    };
+    const inputs = turbo.tasks["test:repo"]?.inputs ?? [];
+    expect(ASSET_SITES.length).toBeGreaterThan(0);
+    for (const { publicDir } of ASSET_SITES)
+      expect(inputs).toContain(`$TURBO_ROOT$/${publicDir}/**`);
+    expect(SOURCES.length).toBeGreaterThan(0);
+    for (const source of SOURCES) expect(inputs).toContain(`$TURBO_ROOT$/${source}`);
   });
 });

@@ -8,15 +8,14 @@
  * file fails if the patch stops applying to either.
  */
 
-import { existsSync, readFileSync } from "node:fs";
-import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 
 import { Credentials } from "alchemy/Cloudflare";
 import { Cause, Clock, Duration, Effect, Exit, Redacted } from "effect";
 import { FetchHttpClient } from "effect/http";
 import { describe, expect, test } from "vitest";
+
+import { alchemyDir } from "./support/alchemy-dir";
 
 interface ImportResult {
   readonly filename: string;
@@ -30,25 +29,6 @@ interface ImportModule {
     readonly databaseId: string;
     readonly sqlData: string;
   }) => Effect.Effect<ImportResult, unknown, unknown>;
-}
-
-const packageDir = fileURLToPath(new URL("..", import.meta.url));
-
-/** The installed alchemy's root directory, as this package resolves it. */
-function alchemyDir(): string {
-  let dir = dirname(createRequire(join(packageDir, "index.js")).resolve("alchemy"));
-  for (;;) {
-    const manifest = join(dir, "package.json");
-    if (
-      existsSync(manifest) &&
-      (JSON.parse(readFileSync(manifest, "utf8")) as { readonly name?: string }).name === "alchemy"
-    ) {
-      return dir;
-    }
-    const parent = dirname(dir);
-    if (parent === dir) throw new Error("no alchemy package.json above its entry point");
-    dir = parent;
-  }
 }
 
 /** Both copies alchemy ships. A computed path keeps the type-checker out of alchemy's source. */

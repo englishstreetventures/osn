@@ -132,8 +132,8 @@ describe("W3: no install or build step holds a secret", () => {
       if (step.id?.startsWith("smoke_") === true) {
         return accountSecrets("dev").concat(["CF_ACCESS_CLIENT_ID", "CF_ACCESS_CLIENT_SECRET"]);
       }
-      // The Access token alone: it starts `wrangler dev`, which must never
-      // hold a Cloudflare credential.
+      // The Access token alone: it starts Wrangler's local runtime, which
+      // must never hold a Cloudflare credential.
       if (step.id === "parity_cire_invites") {
         return ["CF_ACCESS_CLIENT_ID", "CF_ACCESS_CLIENT_SECRET"];
       }

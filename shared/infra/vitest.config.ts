@@ -10,6 +10,7 @@ import { defineConfig } from "vitest/config";
  */
 export const READS_REPO = [
   "tests/accounts.test.ts",
+  "tests/assets-content-type.test.ts",
   "tests/package.test.ts",
   "tests/secrets/environments.test.ts",
   "tests/secrets/inventory.test.ts",

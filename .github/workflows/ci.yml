@@ -301,6 +301,30 @@ jobs:
       - name: Check Astro app bundle sizes and refuse public source maps
         run: ./scripts/guard-bundle-size.sh --all
 
+      # The guest route comparison (scripts/guest-route-parity.ts) starts
+      # Wrangler's local runtime on Node through
+      # scripts/guest-route-parity-reference.js, and relays the Worker's
+      # cire-api calls through itself. This runs that child under real Node
+      # and the wrangler cire/invites resolves, on a fixture Worker, so the
+      # path a subrequest takes through workerd, Miniflare and the relay is
+      # proven before a change to it merges; only the dev deploy runs it on
+      # the real build. Here, not in `script-tests`: that job installs
+      # nothing, so it has no wrangler and no workerd. The test fails rather
+      # than skips when either is missing.
+      - name: Test the guest route comparison's reference on real Wrangler
+        timeout-minutes: 5
+        run: bun run test:scripts:wrangler
+
+      # What the fake origins saw, ports and paths normalised, whether the
+      # test passed or not.
+      - name: Keep the reference test's request logs
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: guest-route-parity-wrangler
+          path: test-artifacts/
+          if-no-files-found: warn
+
       # Each API's d1-integration.test.ts lives under `tests/d1/` (cire's under
       # `tests/db/`); `@shared/realtime`'s tests/d1/hub.test.ts joins this lane
       # for the same reason, though it covers TopicHub on workerd rather than
@@ -391,7 +415,8 @@ jobs:
     # is GitHub's six hours — and because the aggregate `ci` job `needs` it,
     # and `CI` is a required check, a wedged runner here holds the merge gate
     # open for that long. Five minutes is generous: the job does a checkout,
-    # a shasum, and `bun test ./scripts/` with no install.
+    # a shasum, `bun test ./scripts/` and the relay's 13 s idle-timeout test,
+    # with no install.
     timeout-minutes: 5
     steps:
       # Two commits deep so a pull request's merge commit has its base,
@@ -490,9 +515,26 @@ jobs:
       #
       # No `bun install` on purpose: the files under scripts/ import nothing
       # but `bun:test`, Bun/Node built-ins, and each other, so an install here
-      # would be a minute spent on nothing.
+      # would be a minute spent on nothing. Two test files are named so this
+      # step skips them: the one that needs installed packages,
+      # scripts/tests/guest-route-parity-wrangler.e2e.ts (real Wrangler under
+      # Node), which runs in `build-test` instead, and the relay's idle-timeout
+      # test, which runs in the next step. The CLI tests of the guest route
+      # comparison spawn its Node child, scripts/guest-route-parity-reference.js,
+      # on the Node the runner ships, with a stand-in for wrangler.
       - name: Test the scripts
         run: bun run test:scripts
+
+      # scripts/tests/guest-route-parity-relay-idle.slow.ts: the guest route
+      # comparison's relay still answers after a cire-api call that takes
+      # 13 s, longer than Bun's default idle timeout. It waits those seconds
+      # out, so it stays out of the step above, which runs its files one after
+      # another; it needs no install, so it runs here, not in `build-test`,
+      # whose time sets when the `ci` gate finishes on a cold turbo cache. It
+      # fails rather than skips.
+      - name: Test the guest route comparison's relay over a slow cire-api
+        timeout-minutes: 2
+        run: bun run test:scripts:relay-idle
 
       # The guard's own tests run in the step above; this step runs it against
       # this repo's real vitest configs. Both halves are needed — a test suite

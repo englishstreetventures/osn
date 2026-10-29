@@ -1417,7 +1417,8 @@ then `musubi.social` (englishstreetventures/osn#1787). Before each:
   in place of Pages' 200, and Pages' `access-control-allow-origin: *`, are accepted
   unless one does). Both comparisons, this one and the dev guest route comparison
   ([[infrastructure-as-code#The guest route comparison]]), send smoke-check's CI user agent
-  (`CI_USER_AGENT`), and a refused run — the `site-parity` job failing on exit 3, its
+  (`CI_USER_AGENT`) — the guest comparison's local Wrangler runtime too, whose calls to
+  cire-api go out through a relay that sets it — and a refused run — the `site-parity` job failing on exit 3, its
   report's `refused` list naming the site, side and path — means an answer, asked twice,
   did not come from the site. Either Cloudflare answered in its place (a challenge, an
   Access redirect, a 429, or a 403 carrying Cloudflare's own error page: a block rule,

@@ -32,6 +32,10 @@ The bar for keeping any non-E2E test: **name the real bug it catches that no E2E
 
 `tools/e2e` (`@tools/e2e`) is where E2E tests live. `bun run test:e2e` boots the real stack, runs every flow in Chromium, and writes the artifact. `bun run test:e2e:repro` runs it twice and fails unless both runs wrote the same `results.json` byte for byte. CI runs the repro on every pull request (the `E2E` job) and uploads `e2e-artifacts/`.
 
+One E2E test lives outside it: [`scripts/tests/guest-route-parity-wrangler.e2e.ts`](../../scripts/tests/guest-route-parity-wrangler.e2e.ts), run by `bun run test:scripts:wrangler`. It runs the guest route comparison's Node child on real Wrangler and a fixture Worker ([[infrastructure-as-code#The guest route comparison]]): it tests a script under `scripts/`, and needs no stack, only an install and Node. Its `.e2e.ts` name keeps it out of `bun test ./scripts/`, since the Scripts job installs nothing; CI's Build & Test job runs it. Its artifact, the fake origins' request logs with ports and paths normalised, goes to `test-artifacts/guest-route-parity-wrangler.json`, not `e2e-artifacts/`, which the suite clears.
+
+A script test that needs no install but waits out seconds is named out of `bun test ./scripts/` too, since that command runs its files one after another, and gets a root script and a step of its own in the Scripts job, not in Build & Test, whose time sets when the `ci` gate finishes on a cold turbo cache. The one such test is the relay's 13 s idle-timeout test, [`scripts/tests/guest-route-parity-relay-idle.slow.ts`](../../scripts/tests/guest-route-parity-relay-idle.slow.ts), run by `bun run test:scripts:relay-idle`.
+
 ### What one run does
 
 1. Refuses to start if any of its ports is taken, and names the port. It never reuses a server it did not start. Stop your `bun run dev` first. A refused run leaves the previous run's artifacts where they are. The ports are fixed for the whole machine, so two worktrees cannot run the suite at once: when another worktree's run holds them, `lsof -nP -iTCP:4000 -sTCP:LISTEN` names its process, and `lsof -p <pid>` its directory. Wait for that run to finish rather than stopping it, and start once the ports have stayed free for a minute or so, since a repro frees them for a moment between its two runs.
@@ -975,7 +979,11 @@ A stand-in proves what reaches the program, never how the program takes it.
 After changing a flag or a variable the script passes, run the real program
 once: a stand-in that logs `wrangler dev --env-file <a path that does not
 exist>` passes every test, and the real Wrangler refuses to start
-(`node: <path>: not found`).
+(`node: <path>: not found`). Nor does a stand-in fail the way the real program
+does: Wrangler's `unstable_startWorker` throws a generic error with the reason
+in its `cause`. Where the real program can run in CI, keep a test that runs
+it, as `guest-route-parity-wrangler.e2e.ts` does for the guest route
+comparison's child.
 
 ## Reading TypeScript from a test
 
