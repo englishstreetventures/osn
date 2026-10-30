@@ -1,6 +1,12 @@
 import { splitProps, type Component } from "solid-js";
 
-import { controlClass, type ControlFace, type ControlSize } from "./control";
+import {
+  controlClass,
+  CONTROL_HEIGHT,
+  type ControlFace,
+  type ControlFill,
+  type ControlSize,
+} from "./control";
 import type { SafeProps } from "./props";
 
 /**
@@ -13,24 +19,34 @@ import type { SafeProps } from "./props";
 type InputProps = Omit<SafeProps<"input">, "size"> & {
   /** {@link ControlSize} — the shared control box, not the native character count. */
   size?: ControlSize;
-  /** {@link ControlFace} — `code` for a field holding an identifier rather than prose. */
+  /** {@link ControlFace} — how the value is set: `code`, `claim` or `amount`. */
   face?: ControlFace;
+  /** {@link ControlFill} — `ink` for a field on a surface the page does not choose. */
+  fill?: ControlFill;
 };
-
-/** Height is `Input`'s own: a `Textarea` sized this way would be a single line. */
-const INPUT_HEIGHT = {
-  sm: "base:h-7",
-  md: "base:h-9",
-} satisfies Readonly<Record<ControlSize, string>>;
 
 const FILE =
   "base:file:border-0 base:file:bg-transparent base:file:text-ui-base base:file:font-medium";
 
+/**
+ * A code is typed letter for letter, so the faces for one turn off the
+ * browser's spelling help — which can send what is typed to its vendor — and
+ * `claim` asks a phone's keyboard for capitals. Before the caller's props, so a
+ * call site can still say otherwise.
+ */
+const FACE_ATTRIBUTES = {
+  text: {},
+  code: { spellcheck: false },
+  claim: { spellcheck: false, autocorrect: "off", autocapitalize: "characters" },
+  amount: {},
+} as const satisfies Readonly<Record<ControlFace, Readonly<Record<string, string | boolean>>>>;
+
 const Input: Component<InputProps> = (props) => {
-  const [local, others] = splitProps(props, ["class", "size", "face"]);
+  const [local, others] = splitProps(props, ["class", "size", "face", "fill"]);
   return (
     <input
-      class={`base:flex ${INPUT_HEIGHT[local.size ?? "md"]} ${FILE} ${controlClass(local.size, local.class, local.face)}`}
+      {...FACE_ATTRIBUTES[local.face ?? "text"]}
+      class={`base:flex ${CONTROL_HEIGHT[local.size ?? "md"]} ${FILE} ${controlClass(local.size, local.class, local.face, local.fill)}`}
       {...others}
     />
   );

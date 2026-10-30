@@ -11,12 +11,11 @@
  * with a form field takes the field's height, so the row lines up (owner,
  * 2026-10-29; DESIGN.md §4, "One form-field height").
  *
- * The call site sets every one of these heights. A shared `Input` is 28px at
- * `sm` and 36px at `md`, but a shared `Select` has no height of its own at
- * either size: its padding plus the font's line, which the platform sets —
- * 28px for an `sm` select on macOS, 27px on Linux. Every shared class is
- * `base:` (zero specificity), so a plain class here wins whatever the
- * stylesheet order.
+ * The call site sets these heights. A shared `Input` and `Select` are 28px at
+ * `sm` and 36px at `md`; the shared control's `form` and `form-compact` sizes
+ * are 34px and take this module's place in englishstreetventures/osn#1842.
+ * Every shared class is `base:` (zero specificity), so a plain class here wins
+ * whatever the stylesheet order.
  */
 
 import { cardClass } from "@cire/ui/card";
@@ -24,17 +23,16 @@ import { cardClass } from "@cire/ui/card";
 /**
  * Give it to every `Input` and `Select` that enters or edits a value, before
  * any class of the call site's own. Height only: `shadcn/no-restyle` lets a
- * call site size a shared part but not pad or restyle it, so an `md` field
- * keeps its `py-2`, and the engine centres its 14.4px text in the 34px box. Not
- * for a `Textarea`, which `base:min-h-15` holds at its own height.
+ * call site size a shared part but not pad or restyle it, and the engine
+ * centres the text in the 34px box. Not for a `Textarea`, which
+ * `base:min-h-15` holds at its own height.
  */
 export const FORM_FIELD_CLASS = "h-8.5";
 
 /**
  * Give it to every filter, an `Input` or `Select` at `size="sm"`, before any
- * class of the call site's own: 28px whatever the platform's font, so the 14px
- * corner is half the height and rounds the ends. An `Input` is 28px at `sm`
- * already; it takes the class too, so every filter carries one rule.
+ * class of the call site's own: 28px, so the 14px corner is half the height
+ * and rounds the ends. Both are 28px at `sm` already; the class restates it.
  */
 export const FILTER_FIELD_CLASS = "h-7";
 

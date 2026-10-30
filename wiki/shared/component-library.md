@@ -85,7 +85,7 @@ shared/ui/src/
     ├── checkbox.tsx        ← Checkbox — a box ticked to say yes, saved with a form (native)
     ├── choice.ts           ← the box, label and note slot Checkbox and RadioGroupItem share
     ├── chip.tsx            ← Chip
-    ├── control.ts          ← controlClass / ControlSize — the box Input, Textarea and Select share
+    ├── control.ts          ← controlClass, sizes, fills, faces, heights — the box Input, Textarea and Select share
     ├── dialog.tsx          ← Dialog, DialogContent, … (Kobalte)
     ├── dropdown-menu.tsx   ← DropdownMenu, DropdownMenuItem, … (Kobalte)
     ├── empty-state.tsx     ← EmptyState
@@ -665,7 +665,17 @@ The drawn box keeps the DOM shape Kobalte's parts had — a clipped input, then 
 
 ### Simple styled components (Input, Label, Card, Textarea, Select)
 
-Thin wrappers that apply consistent base styling and accept a `class` prop for overrides. `Input`, `Textarea` and `Select` share one box, defined once in `shared/ui/src/ui/control.ts` with two sizes — `md` for a form, `sm` for a control inside a table row — so a date and a currency line up in a column:
+Thin wrappers that apply consistent base styling and accept a `class` prop for overrides. `Input`, `Textarea` and `Select` share one box, defined once in `shared/ui/src/ui/control.ts`, so a date and a currency line up in a column:
+
+| Prop | Values | What it does |
+|---|---|---|
+| `size` | `md` (default, 36px), `sm` (28px), `form` and `form-compact` (34px), `touch` | `md` is a form, `sm` a table row or a filter bar. `form` (12px sides, the base type step) and `form-compact` (8px sides, the small step) are cire's portal fields. `touch` is a guest's field: 46px with 16px type below 640px, 44px from there, so iOS never zooms and the tap target never drops under 44px. Heights are rem, so on the guest site's 17px desktop root a touch field is 46.75px. `Input` and `Select` take a fixed height at every size, so no field's height comes from the platform's font; `Textarea` takes the size's sides and type and grows with its rows |
+| `fill` | `ground` (default), `ink` | `ink` draws the edge and fill from the text colour at 55% and 4.5%, for a field on a surface the page does not choose (a guest site's section in the couple's colour): focus turns the edge to the accent and draws the 2px `--ui-focus` outline 2px off, with no ring offset to paint a halo; 16px type below 640px; normal letter-spacing, whatever the label above sets |
+| `face` (`Input`) | `text` (default), `code`, `claim`, `amount` | `code`: mono with wide tracking, for an identifier. `claim`: an invitation's code, centred capitals at `tracking-ui-wider`, 1rem at every width, 16px sides. `amount`: centred |
+
+`controlClass` picks one padding, one type size and at most one letter-spacing for each size, face and fill, because two zero-specificity `base:` classes on one property are decided by the stylesheet's order. With no fill, every string it returns for `sm` and `md` is the one it returned before the fills existed, and `tests/ui/control.test.tsx` pins them with the rendered classes of `Input` and `Textarea`.
+
+`Select` draws its own chevron: the browser's arrow is off (`appearance: none`) and a 10×6 chevron in the secondary ink sits 12px in from the right on the wide boxes and 10px on the narrow ones, with right padding that keeps a long value clear of it; the select has no top or bottom padding, so the engine centres the value. The select and the chevron share the one cell of a grid, so the caller's `class` (with `classList`, `style` and `hidden`) lands on that box: it places, sizes and shows the field — `w-40`, `w-auto`, `h-8.5` — and cannot restyle it. Every other prop goes on the `<select>`. `tests/control.browser.test.tsx` measures the heights under a 2em line, the touch switch, the ink edge at 3:1 over three guest palettes, the chevron's inset and a content-sized select in a squeezed row.
 
 ```tsx
 import { Input } from "@shared/ui/ui/input";
