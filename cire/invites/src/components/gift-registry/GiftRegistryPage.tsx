@@ -485,7 +485,7 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
             <Show when={preview()}>
               <p
                 data-gift-preview
-                class="border-gold/40 bg-gold/5 text-gold-ink font-body text-ui-sm leading-ui-normal max-w-ui-md mx-auto mb-8 rounded-sm border px-4 py-3 text-center"
+                class="border-gold/40 text-gold-ink font-body text-ui-sm leading-ui-normal max-w-ui-md mx-auto mb-8 rounded-sm border px-4 py-3 text-center"
               >
                 {registry()?.cashGiftsEnabled
                   ? "Preview mode. Guests reserve gifts and give money here; nothing can be reserved or given from a preview."
