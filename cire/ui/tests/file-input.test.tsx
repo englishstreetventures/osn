@@ -84,15 +84,32 @@ describe("FileInput", () => {
 });
 
 describe("FILE_BUTTON", () => {
-  it("is quiet at md, utility for utility, at the form-field height", () => {
+  it("is quiet at md, utility for utility, at the form-field height, and nothing more", () => {
     const { variant, size } = buttonLook({ variant: "quiet", size: "md" });
-    const own = FILE_BUTTON.split(/\s+/);
     // Every class of the variant and the size, on the file button. `py-2` gives
     // way to the fixed height.
-    const expected = [...variant.split(/\s+/), ...size.split(/\s+/)]
+    const fromButton = [...variant.split(/\s+/), ...size.split(/\s+/)]
       .filter((c) => c !== "base:py-2")
       .map(onFileButton);
-    for (const c of expected) expect(own).toContain(c);
-    expect(own).toContain(CONTROL_HEIGHT.form.replace("base:", "base:file:"));
+    // What a button beside a file name needs that `quiet` and `md` do not say:
+    // an edge and no fill, the pill corner and body face every `Button` takes,
+    // the field height, a gap before the name, the cursor for each state, and
+    // `Button`'s fade, stopped under reduced motion.
+    const extras = [
+      "base:file:border",
+      "base:file:bg-transparent",
+      "base:file:rounded-ui-control",
+      "base:file:font-ui-body",
+      "base:file:py-0",
+      CONTROL_HEIGHT.form.replace("base:", "base:file:"),
+      "base:file:mr-3",
+      "base:enabled:file:cursor-pointer",
+      "base:disabled:file:cursor-not-allowed",
+      "base:file:transition-[color,background-color,border-color,text-decoration-color]",
+      "base:file:duration-(--dur-fast,100ms)",
+      "base:file:ease-out",
+      "base:motion-reduce:file:transition-none",
+    ];
+    expect(new Set(FILE_BUTTON.split(/\s+/))).toEqual(new Set([...fromButton, ...extras]));
   });
 });
