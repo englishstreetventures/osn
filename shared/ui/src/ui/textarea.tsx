@@ -1,6 +1,6 @@
 import { splitProps, type Component } from "solid-js";
 
-import { controlClass, type ControlSize } from "./control";
+import { composeControl, type ControlFill, type ControlSize } from "./control";
 import type { SafeProps } from "./props";
 
 export type TextareaResize = "y" | "none";
@@ -10,9 +10,25 @@ const TEXTAREA_RESIZE = {
   none: "base:resize-none",
 } satisfies Readonly<Record<TextareaResize, string>>;
 
+/**
+ * A textarea's padding at each size. The fixed-height sizes give `Input` no top
+ * or bottom padding, since the engine centres one line; a textarea grows with
+ * its rows and needs both.
+ */
+const TEXTAREA_PAD = {
+  sm: "base:px-2 base:py-1",
+  md: "base:px-3 base:py-2",
+  form: "base:px-3 base:py-2",
+  "form-compact": "base:px-2 base:py-1",
+  touch: "base:px-3 base:py-2.5",
+} satisfies Readonly<Record<ControlSize, string>>;
+
 type TextareaProps = Omit<SafeProps<"textarea">, "size"> & {
-  /** {@link ControlSize} — the shared control box. */
+  /** {@link ControlSize} — the shared control box; a textarea takes its padding
+   *  and type, never its height. */
   size?: ControlSize;
+  /** {@link ControlFill} — `ink` for a field on a surface the page does not choose. */
+  fill?: ControlFill;
   /**
    * `"y"` by default on purpose: sideways resize breaks the column a textarea
    * sits in, and no-resize takes away the one control a writer has over a long
@@ -34,10 +50,11 @@ type TextareaProps = Omit<SafeProps<"textarea">, "size"> & {
 };
 
 const Textarea: Component<TextareaProps> = (props) => {
-  const [local, others] = splitProps(props, ["class", "size", "resize"]);
+  const [local, others] = splitProps(props, ["class", "size", "fill", "resize"]);
+  const size = () => local.size ?? "md";
   return (
     <textarea
-      class={`base:flex base:min-h-15 ${controlClass(local.size, local.class)} ${TEXTAREA_RESIZE[local.resize ?? "y"]}`}
+      class={`base:flex base:min-h-15 ${composeControl(size(), undefined, local.fill, TEXTAREA_PAD[size()])}${local.class ? ` ${local.class}` : ""} ${TEXTAREA_RESIZE[local.resize ?? "y"]}`}
       {...others}
     />
   );
