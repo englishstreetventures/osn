@@ -6,11 +6,13 @@
 import { accounts, emailChanges, sessions } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { timingSafeEqualString } from "@shared/crypto/timing-safe";
-import { commitBatch, driverErrorText } from "@shared/db-utils";
+import { driverErrorText, rowsChanged } from "@shared/db-utils";
 import { type EmailError, EmailService } from "@shared/email";
-import { and, count as countFn, eq, gte, ne } from "drizzle-orm";
+import { and, count as countFn, eq, exists, gte, lt, ne, sql } from "drizzle-orm";
 import { Effect, Schema } from "effect";
 
+import { canBatch } from "../../lib/batch";
+import { bound } from "../../lib/bound";
 import { UNIQUE_CONSTRAINT_ERROR } from "../../lib/unique-constraint";
 import {
   metricAuthOtpSent,
@@ -176,13 +178,13 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
    * Finalises an email change. Requires:
    *   - A valid step-up token (passkey or OTP amr) for this account.
    *   - A valid OTP sent to the **new** email address.
-   *   - < 2 completed changes in the last 7 days.
+   *   - < 2 completed changes in the last 7 days, counted at the preflight
+   *     and again inside every statement of the commit.
    *
    * On success: the accounts row is updated, every OTHER session is
    * revoked (the caller's stays so they don't get kicked out of the
-   * Settings flow), and an audit row is inserted — all in one transaction
-   * so we cannot leave the system in a half-changed state. One code commits
-   * one change: the code's entry is claimed before the commit.
+   * Settings flow), and an audit row is inserted — one D1 batch. One code
+   * commits one change: the code's entry is claimed before the commit.
    */
   const completeEmailChange = (
     accountId: string,
@@ -272,39 +274,77 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
       }
       const currentAccountRow = preflight.current;
 
+      // The cap holds at the commit as well as at the preflight: two
+      // different codes — one claimed, then a second begun and completed —
+      // each pass a preflight that counted one change. Every statement below
+      // re-counts the changes in the window inside itself, and SQLite runs
+      // each statement atomically, so once two are on record no statement
+      // writes, whether or not D1 keeps one batch apart from another.
+      const changeId = genId("ech_");
+      const recentChanges = sql`(${db
+        .select({ n: countFn() })
+        .from(emailChanges)
+        .where(
+          and(eq(emailChanges.accountId, accountId), gte(emailChanges.completedAt, windowStart)),
+        )})`;
+      const ownChangeRecorded = exists(
+        db
+          .select({ one: sql`1` })
+          .from(emailChanges)
+          .where(eq(emailChanges.id, changeId)),
+      );
+      const otherSessions =
+        currentSessionHash !== null
+          ? and(eq(sessions.accountId, accountId), ne(sessions.id, currentSessionHash))
+          : eq(sessions.accountId, accountId);
+      const swap = db
+        .update(accounts)
+        .set({ email: pending.newEmail, updatedAt: new Date(nowSec * 1000) })
+        .where(and(eq(accounts.id, accountId), lt(recentChanges, EMAIL_CHANGE_LIMIT)));
+      // Records the change only while the account holds the address this
+      // request wrote. Where two requests' statements interleave (bun:sqlite
+      // runs them one at a time; D1 might), only the one whose address landed
+      // last finds it here, so the change on record is the address that
+      // stands. The other is refused with the cap's error even when it found
+      // fewer than two changes, since the one that stands records next.
+      const record = db.insert(emailChanges).select(
+        db
+          .select({
+            id: bound(changeId, emailChanges.id),
+            accountId: bound(accountId, emailChanges.accountId),
+            previousEmail: bound(currentAccountRow.email, emailChanges.previousEmail),
+            newEmail: bound(pending.newEmail, emailChanges.newEmail),
+            completedAt: bound(nowSec, emailChanges.completedAt),
+          })
+          .from(accounts)
+          .where(
+            and(
+              eq(accounts.id, accountId),
+              eq(accounts.email, pending.newEmail),
+              lt(recentChanges, EMAIL_CHANGE_LIMIT),
+            ),
+          ),
+      );
+      // A refused request's sessions stay: the wipe runs only once its own
+      // change is on record.
+      const wipe = db.delete(sessions).where(and(otherSessions, ownChangeRecorded));
+
       const changed = yield* Effect.tryPromise({
         try: async () => {
           try {
-            // Atomic batch on D1, sequential on bun:sqlite. A half-applied
-            // change would leave a potentially-compromised session alive with a
-            // stale email claim, so the email swap + audit row + session wipe
-            // commit together. The guarantee is D1's, not this function's — on
-            // the local bun:sqlite driver the statements run one after another
-            // and a mid-chain failure can leave the swap applied without the
-            // audit row or the session wipe.
-            await commitBatch(db, [
-              db
-                .update(accounts)
-                .set({ email: pending.newEmail, updatedAt: new Date(nowSec * 1000) })
-                .where(eq(accounts.id, accountId)),
-
-              db.insert(emailChanges).values({
-                id: genId("ech_"),
-                accountId,
-                previousEmail: currentAccountRow.email,
-                newEmail: pending.newEmail,
-                completedAt: nowSec,
-              }),
-
-              currentSessionHash !== null
-                ? db
-                    .delete(sessions)
-                    .where(
-                      and(eq(sessions.accountId, accountId), ne(sessions.id, currentSessionHash)),
-                    )
-                : db.delete(sessions).where(eq(sessions.accountId, accountId)),
-            ]);
-
+            // One batch on D1, one statement at a time on bun:sqlite. The
+            // swap goes first, so a UNIQUE(email) conflict throws before
+            // anything is written on either driver. A refused request's swap
+            // can land on bun:sqlite (or on D1, should it interleave batches)
+            // and be overwritten by the swap that stands; its change and its
+            // wipe never run. `previous_email` is the preflight's read, so
+            // with two changes committing together it can name the address
+            // before the other one.
+            const [, recorded] = canBatch(db)
+              ? await db.batch([swap, record, wipe])
+              : ([await swap, await record, await wipe] as const);
+            if (rowsChanged(recorded) !== 1)
+              return { ok: false as const, reason: "capped" as const };
             return { ok: true as const, email: pending.newEmail };
           } catch (e) {
             const msg = driverErrorText(e);
@@ -321,10 +361,14 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
         catch: (cause) => new DatabaseError({ cause }),
       });
 
+      if (!changed.ok && changed.reason === "capped") {
+        return yield* Effect.fail(
+          new AuthError({ message: "Email change limit reached (2 per 7 days)" }),
+        );
+      }
       if (!changed.ok) {
-        // Only "conflict" can come out of the narrowed TX (preflight
-        // already rejected not_found / rate_limit). Map to a generic
-        // error that matches the begin-path enumeration posture.
+        // A UNIQUE(email) conflict: another account holds the address. Map to
+        // a generic error that matches the begin-path enumeration posture.
         //
         // The claim above has already spent the code, so a retry finds no
         // pending change: the address is held by another account, and a fresh

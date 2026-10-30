@@ -4,12 +4,12 @@
  */
 
 import { accounts, rotatedSessions, sessions, users } from "@osn/db/schema";
-import { Db, type DbService } from "@osn/db/service";
+import { Db } from "@osn/db/service";
 import { commitBatch, rowsChanged } from "@shared/db-utils";
 import { and, desc, eq, exists, gt, inArray, isNotNull, isNull, lte, ne, sql } from "drizzle-orm";
-import type { BatchItem, BatchResponse } from "drizzle-orm/batch";
 import { Clock, Effect } from "effect";
 
+import { canBatch } from "../../lib/batch";
 import { ROTATION_RACE_MESSAGE } from "../../lib/grant-failure";
 import {
   metricRetentionSweep,
@@ -43,17 +43,6 @@ import {
 import type { AccessTokenClaims } from "./helpers";
 import { selectProfileById, type ProfilesModule } from "./profiles";
 import type { ProfileWithEmail, RecoveryFactorAmr, SessionMeta, TokenSet } from "./types";
-
-/** The D1 driver, which alone of the drivers here sends statements as one batch. */
-type BatchingDb = DbService["db"] & {
-  batch<U extends BatchItem<"sqlite">, T extends Readonly<[U, ...U[]]>>(
-    statements: T,
-  ): Promise<BatchResponse<T>>;
-};
-
-/** True on the D1 driver. bun:sqlite has no `batch`, and awaits each statement in turn. */
-const canBatch = (db: DbService["db"]): db is BatchingDb =>
-  "batch" in db && typeof db.batch === "function";
 
 /** The most chunks a tier may ask one sweep pass for. */
 export const ROTATED_SESSION_SWEEP_MAX_CHUNKS_CEILING = 200;
