@@ -755,7 +755,7 @@ differs. On the guest site each corner paints:
 | 1.75rem, `rounded-t-ui-sheet` | the top corners of a bottom sheet (`Modal presentation="sheet"`) |
 | 10px, `rounded-md` | the link menu |
 | 6px, `rounded-sm` | notices — closed, preview mode, the RSVP deadline, "You reserved…", the gift page's payment, signed-out and preview notices, a legal page's draft banner and owner note — and the blocked-content placeholders (`MoodboardBlock`, `ConsentPlaceholder`); the link menu's rows; a box nested in a modal (the RSVP sheet's member fieldsets, the consent sheet's switch rows) or in a card (the household boxes inside gala's card); the gift page's "Send gifts to" address box |
-| 2px, `--radius-hair` | a legal page's inline placeholder (`.placeholder`), about 16px tall, where 6px would draw a near-pill |
+| 2px, `--radius-hair` | nothing on the guest site: a legal page's inline placeholder (`.placeholder`) draws no highlight, so no box to round |
 | round, `rounded-full` | the "RSVPs closed" badge (`Chip`); the sheet's close cross, the dress-code colour circles, avatars, the gift radio marks, the spinner, the map pin's shadow |
 
 - **Fields keep this site's own heights.** The portals' one form-field height
@@ -774,6 +774,21 @@ differs. On the guest site each corner paints:
   on the page and take the card corner, `rounded-ui-lg`. Inside gala's 16px
   card they take `rounded-sm`: a box inside another takes the outer corner less
   the padding between them, to the nearest step.
+- **No gold tint under gold words.** `derivePalette` walks the readable gold
+  (`--color-gold-ink`) to 4.5:1 against each ground alone, so a tint between
+  the two is a backdrop nothing measures — the rule [[cire-rsvp-deadline]]
+  already sets for the deadline notice. Every gold note a guest sees — the
+  welcome's and the RSVP sheet's preview notes, and the gift page's payment,
+  signed-out and preview notes and "You reserved…" — is `Notice`'s `accent`
+  note at `sm` with `fill="none"`: its 40% gold rule and readable gold on the
+  ground beneath. The household's boxes keep their 30% gold rule and draw no
+  fill, and the account's initial sits in its round slot with no disc. A
+  chosen answer in the RSVP sheet keeps its gold border and gold label; a
+  chosen gift amount keeps those and its tick, a chosen fund row its gold
+  border and filled radio mark. A legal page's placeholder is gold mono text
+  with no highlight. `tests/components/notice-contrast.browser.test.tsx` holds
+  each at 4.5:1 in every scheme on every ground it can sit on, and fails any
+  fill between a gold word and its site's own box.
 - **The owner note** on a legal page is square on its ruled side
   (`0 var(--radius-sm) var(--radius-sm) 0`), so the 2px rule stays straight.
 - **The closing band image is square.** It runs edge to edge below 1536px and

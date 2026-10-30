@@ -129,6 +129,22 @@ describe("privacy: nothing about any other household", () => {
     // A note is for the couple, not for the page.
     expect(container.textContent).not.toContain("hidden from the list");
   });
+
+  it("says a single reservation as one, in a sentence", () => {
+    const { container } = renderCard({
+      claim: {
+        itemId: "gi-1",
+        quantity: 1,
+        status: "reserved",
+        note: null,
+        displayName: "The Ashworths",
+      },
+    });
+
+    expect(container.querySelector("[data-gift-mine]")?.textContent).toBe(
+      "You reserved this as The Ashworths.",
+    );
+  });
 });
 
 describe("the shop link", () => {

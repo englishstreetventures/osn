@@ -1,4 +1,5 @@
 import Button from "@cire/ui/button";
+import { Notice } from "@shared/ui/ui/notice";
 import { createEffect, createMemo, createSignal, createUniqueId, Show } from "solid-js";
 
 import {
@@ -262,16 +263,18 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
         </Show>
 
         {/* This household's own reservation, echoed back. The only place a name
-            may appear — and it is their own, which they typed. */}
+            may appear — and it is their own, which they typed, up to 120
+            characters in one word if they like: the wrapper lets it break
+            rather than run out of the card. `Notice`'s accent note with no fill,
+            so its readable gold sits on the card itself. */}
         <Show when={props.claim}>
           {(claim) => (
-            <p
-              data-gift-mine
-              class="border-gold/40 bg-gold/5 text-gold-ink font-body text-ui-sm rounded-sm border px-3 py-2"
-            >
-              You reserved {claim().quantity === 1 ? "this" : `${claim().quantity} of these`}
-              <Show when={claim().displayName}>{(name) => <> as {name()}</>}</Show>.
-            </p>
+            <div class="break-words">
+              <Notice size="sm" tone="accent" fill="none" data-gift-mine>
+                You reserved {claim().quantity === 1 ? "this" : `${claim().quantity} of these`}
+                <Show when={claim().displayName}>{(name) => <> as {name()}</>}</Show>.
+              </Notice>
+            </div>
           )}
         </Show>
 
