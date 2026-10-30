@@ -146,11 +146,21 @@ describe("proseLinkClass", () => {
   });
 
   it("brightens a muted link to the body ink under the pointer", async () => {
-    render(() => <Sentence tone="muted" name="muted link" />);
+    render(() => (
+      <Ramp ramp="dark">
+        <Sentence tone="muted" name="muted link" />
+      </Ramp>
+    ));
     const link = screen.getByRole("link");
+    // Painted over the ground: the dark secondary ink is the body ink at 58%,
+    // and on a bare canvas the two read back one unit apart.
+    const ground = getComputedStyle(link.closest("div")!).backgroundColor;
+    const over = (color: string) => composite([ground, color]).join(",");
+    const ink = over(token(link, "--ui-ink"));
+    expect(over(getComputedStyle(link).color)).not.toBe(ink);
     await userEvent.hover(link);
     await settled(link);
-    expect(painted(getComputedStyle(link).color)).toBe(painted(token(link, "--ui-ink")));
+    expect(over(getComputedStyle(link).color)).toBe(ink);
   });
 
   it("leaves an accent link's ink as it is under the pointer", async () => {
