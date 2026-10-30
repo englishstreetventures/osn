@@ -29,14 +29,17 @@ const FILE =
   "base:file:border-0 base:file:bg-transparent base:file:text-ui-base base:file:font-medium";
 
 /**
- * A code is typed letter for letter, so the faces for one turn off the
- * browser's spelling help — which can send what is typed to its vendor — and
- * `claim` asks a phone's keyboard for capitals. Before the caller's props, so a
- * call site can still say otherwise.
+ * An invitation's code is typed letter for letter off a card, so `claim` turns
+ * off the browser's spelling help — which can send what is typed to its
+ * vendor — and asks a phone's keyboard for capitals. `code` sets the type only,
+ * so a field that takes it (musubi's profile ID) keeps its own markup; a call
+ * site that wants no spelling help on a code says so, as the colour picker's
+ * hex field does. Before the caller's props, so a call site can still say
+ * otherwise.
  */
 const FACE_ATTRIBUTES = {
   text: {},
-  code: { spellcheck: false },
+  code: {},
   claim: { spellcheck: false, autocorrect: "off", autocapitalize: "characters" },
   amount: {},
 } as const satisfies Readonly<Record<ControlFace, Readonly<Record<string, string | boolean>>>>;

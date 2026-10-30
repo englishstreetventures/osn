@@ -51,7 +51,9 @@ export type ControlSize = "sm" | "md" | "form" | "form-compact" | "touch";
  *   section in the couple's own colour, where a ground fill could vanish or
  *   clash. The edge is ink at 55%, the lowest that clears the 3:1 a control's
  *   edge needs on every guest palette; the fill is ink at 4.5%, enough to read
- *   as a well. Its type never drops under 16px below 640px.
+ *   as a well. The placeholder is the secondary ink taken 15% toward the text
+ *   colour: the well alone takes the secondary ink under the 4.5:1 text needs
+ *   on a light palette. Its type never drops under 16px below 640px.
  */
 export type ControlFill = "ground" | "ink";
 
@@ -104,7 +106,7 @@ const GROUND_TAIL =
  */
 const INK_HEAD =
   "base:border-ui-ink/55 base:bg-ui-ink/4.5 base:text-ui-ink " +
-  "base:placeholder:text-ui-ink-secondary";
+  "base:placeholder:text-[color:color-mix(in_oklab,var(--ui-ink-secondary),var(--ui-ink)_15%)]";
 
 const INK_TAIL =
   "base:rounded-ui-field base:border " +
