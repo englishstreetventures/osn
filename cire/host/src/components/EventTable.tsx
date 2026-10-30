@@ -338,7 +338,7 @@ export default function EventTable(props: EventTableProps) {
                   <div class={`${LINK_PILL_ROW} pt-1`}>
                     <Show when={event.mapsUrl}>
                       {(href) => (
-                        <LinkPill href={href()} external mark={MapPin}>
+                        <LinkPill href={href()} mark={MapPin}>
                           Maps
                         </LinkPill>
                       )}
@@ -346,7 +346,7 @@ export default function EventTable(props: EventTableProps) {
                     <Show when={event.pinterestUrl}>
                       {(href) => (
                         // Pinterest has no mark in the portal's icon set; a pin stands in.
-                        <LinkPill href={href()} external mark={Pin}>
+                        <LinkPill href={href()} mark={Pin}>
                           Pinterest
                         </LinkPill>
                       )}
