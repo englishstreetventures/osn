@@ -67,6 +67,27 @@ describe("DemoRsvp", () => {
     await waitFor(() => expect(queryByText("Send RSVP")).toBeNull());
   });
 
+  it("marks the pressed answer, and only it, whichever is pressed", async () => {
+    // The pair is `Button` `choice`, whose chosen look is keyed off
+    // `aria-pressed`: the attribute is what a sighted visitor sees too.
+    const { getAllByText, getByText } = render(() => <DemoRsvp />);
+
+    fireEvent.click(getAllByText("Respond")[0]!);
+    await waitFor(() => expect(getByText("Send RSVP")).toBeTruthy());
+
+    const amara = within(fieldsetFor("Amara"));
+    const attending = amara.getByRole("button", { name: "Attending" });
+    const declined = amara.getByRole("button", { name: "Not attending" });
+    const pressed = () => [attending, declined].map((b) => b.getAttribute("aria-pressed"));
+    expect(pressed()).toEqual(["false", "false"]);
+
+    fireEvent.click(attending);
+    expect(pressed()).toEqual(["true", "false"]);
+
+    fireEvent.click(declined);
+    expect(pressed()).toEqual(["false", "true"]);
+  });
+
   it("offers the dietary picker only to a member marked attending", async () => {
     // The demo is the only place a stranger meets this control, and it mirrors
     // the real sheet: a guest who is not coming is never asked what they eat,
