@@ -10,7 +10,7 @@
  *
  * And a Windows contrast theme drops `box-shadow` and repaints backgrounds in
  * system colours, so the drawn parts draw focus with an outline there, and the
- * drawn radio keeps its dot visible.
+ * drawn radio's dot and the switch's thumb stay visible.
  */
 
 import { cleanup, render, screen } from "@solidjs/testing-library";
@@ -91,5 +91,23 @@ describe("a contrast theme", () => {
     const circle = screen.getByRole("radio").nextElementSibling as HTMLElement;
     const dot = getComputedStyle(circle.firstElementChild!, "::after");
     expect(dot.backgroundColor).not.toBe(getComputedStyle(circle).backgroundColor);
+  });
+
+  it("keeps the switch's thumb apart from its track, on or off", async () => {
+    await emulate({ forcedColors: "active" });
+    render(() => (
+      <>
+        <Switch checked={false} label="Off" />
+        <Switch checked label="On" />
+      </>
+    ));
+    for (const name of ["Off", "On"]) {
+      const track = screen.getByRole("switch", { name }).nextElementSibling as HTMLElement;
+      const thumb = getComputedStyle(track.firstElementChild!);
+      expect([name, thumb.backgroundColor === getComputedStyle(track).backgroundColor]).toEqual([
+        name,
+        false,
+      ]);
+    }
   });
 });
