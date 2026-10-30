@@ -344,6 +344,11 @@ describe("ConsentPreferences dialog", () => {
       panel.querySelector('a[href="https://policy.pinterest.com/privacy-policy"]'),
     ).not.toBeNull();
     expect(panel.querySelector('a[href="https://policies.google.com/privacy"]')).not.toBeNull();
+    // Each is named by its words and says it opens a new tab; the arrow is
+    // for the eye only.
+    expect(
+      within(panel).getAllByRole("link", { name: /^privacy policy ?\(opens in a new tab\)$/ }),
+    ).toHaveLength(2);
   });
 
   it("treats a dismissal as no decision at all, whatever dismissed it", () => {
