@@ -955,7 +955,7 @@ describe("LoginSection layout", () => {
   it("band: paints the tone across the whole section, on a centred column", () => {
     // Classic's shape, and the default — a pack that passes no layout gets a
     // working panel with no markup of its own.
-    const { container, getByText, getByLabelText } = render(() => (
+    const { container, getByText } = render(() => (
       <LoginSection apiUrl="http://x" result={null} onClaimed={noop} themeVars={surface} />
     ));
     const section = getByText("Enter your code").closest("section") as HTMLElement;
@@ -973,7 +973,7 @@ describe("LoginSection layout", () => {
   it("panel: paints only a bordered card, centred on phones and flush left from md", () => {
     // Gala's shape. The tone belongs to the card, not the section around it:
     // painting the section would turn the inset card back into a band.
-    const { container, getByText, getByLabelText } = render(() => (
+    const { container, getByText } = render(() => (
       <LoginSection
         apiUrl="http://x"
         result={null}
