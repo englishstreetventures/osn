@@ -137,10 +137,14 @@ describe('Button variant="round"', () => {
     render(() => <Round />);
     const button = screen.getByRole("button");
     const rest = getComputedStyle(button).backgroundColor;
+    // Painted over the disc: the dark secondary ink is the body ink at 58%,
+    // and on a bare canvas the two read back one unit apart.
+    const ink = over(rest, token(button, "--ui-ink"));
+    expect(over(rest, getComputedStyle(button).color)).not.toBe(ink);
     await userEvent.hover(button);
     await settled(button);
     expect(getComputedStyle(button).backgroundColor).toBe(rest);
-    expect(painted(getComputedStyle(button).color)).toBe(painted(token(button, "--ui-ink")));
+    expect(over(rest, getComputedStyle(button).color)).toBe(ink);
   });
 
   it("draws a 2px focus ring in --ui-focus that does not fade in", async () => {
