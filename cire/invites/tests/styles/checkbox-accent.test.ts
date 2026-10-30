@@ -40,7 +40,9 @@ describe("native checkboxes and radios", () => {
   it("carry no accent colour, so a ticked one is the browser's own", () => {
     const all = boxes();
     // A scan that found nothing would pass whatever the source says.
-    expect(all.length).toBeGreaterThan(5);
+    // The gift panel's hidden choice radios; every visible box is `@shared/ui`'s
+    // `Checkbox`, which the host's test holds to the browser's own box.
+    expect(all.length).toBeGreaterThanOrEqual(4);
     expect(all.filter((box) => /\baccent-/.test(box.tag)).map((box) => box.at)).toEqual([]);
   });
 });
