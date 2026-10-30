@@ -132,7 +132,8 @@ function SwitchRow(props: {
               <p class="font-body text-text-muted text-ui-xs leading-ui-snug mt-1.5">
                 <Show when={vendor()?.transfer}>{(transfer) => <>{transfer()} · </>}</Show>
                 <a href={url()} target="_blank" rel="noopener noreferrer" class={proseLinkClass()}>
-                  privacy policy ↗<span class="sr-only"> (opens in a new tab)</span>
+                  privacy policy <span aria-hidden="true">↗</span>
+                  <span class="sr-only"> (opens in a new tab)</span>
                 </a>
               </p>
             )}
