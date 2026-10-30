@@ -30,7 +30,12 @@ const HREFS = {
 function renderLinks(here: InviteMessagePlace, role: Role) {
   const onNavigate = vi.fn<(place: InviteMessagePlace) => void>();
   const { container } = render(() => (
-    <InviteMessageLinks here={here} {...ROLES[role]} hrefs={HREFS} onNavigate={onNavigate} />
+    <InviteMessageLinks
+      here={here}
+      {...ROLES[role]}
+      href={(place) => HREFS[place]}
+      onNavigate={onNavigate}
+    />
   ));
   return { onNavigate, text: () => visibleText(container) };
 }
