@@ -37,15 +37,13 @@ function Row(props: { width: string; children: JSX.Element }) {
 function pills() {
   return (
     <>
-      <LinkPill href="https://bloom.example" mark={Globe}>
-        Website
-      </LinkPill>
-      <LinkPill href="https://instagram.com/bloom" mark={InstagramMark}>
-        Instagram
-      </LinkPill>
-      <LinkPill href="https://shop.example/napkins" hint="to the shop page for Napkins">
-        Link
-      </LinkPill>
+      <LinkPill href="https://bloom.example" mark={Globe} label="Website" />
+      <LinkPill href="https://instagram.com/bloom" mark={InstagramMark} label="Instagram" />
+      <LinkPill
+        href="https://shop.example/napkins"
+        hint="to the shop page for Napkins"
+        label="Link"
+      />
     </>
   );
 }
@@ -89,13 +87,7 @@ describe("LinkPill", () => {
     ] as const) {
       it(`holds its word at ${WCAG_TEXT_MIN}:1 under the pointer on the ${ground}, ${theme}`, async () => {
         document.documentElement.dataset.theme = theme;
-        render(() =>
-          wrap(
-            <LinkPill href="https://bloom.example" mark={Globe}>
-              Website
-            </LinkPill>,
-          ),
-        );
+        render(() => wrap(<LinkPill href="https://bloom.example" mark={Globe} label="Website" />));
         const link = screen.getByRole("link");
         await userEvent.hover(link);
         await Promise.all(link.getAnimations().map((a) => a.finished));
