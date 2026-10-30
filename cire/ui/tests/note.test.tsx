@@ -112,4 +112,19 @@ describe("Note", () => {
     );
     expect(stars.every((star) => star !== null)).toBe(true);
   });
+
+  it("keeps its tint: a note offers no fill, at any size", () => {
+    // Type checks, not runtime: `bun run --cwd cire/ui typecheck` fails if
+    // `fill` becomes a prop, and if a size stops reaching `Notice`.
+    const typed = () => (
+      <>
+        {SIZES.map((size) => (
+          <Note size={size}>x</Note>
+        ))}
+        {/* @ts-expect-error — a note is the gold box with its tint. */}
+        <Note fill="none">x</Note>
+      </>
+    );
+    expect(typeof typed).toBe("function");
+  });
 });
