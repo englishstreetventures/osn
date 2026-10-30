@@ -14,12 +14,14 @@ import {
   users,
 } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
-import { eq } from "drizzle-orm";
-import { Effect, Layer } from "effect";
+import { and, eq } from "drizzle-orm";
+import { Effect, Fiber, Layer } from "effect";
+import { afterAll, beforeAll } from "vitest";
 
 import * as accountErasure from "../../src/services/account-erasure";
 import * as appEnroll from "../../src/services/app-enrollments";
-import { createTestLayer } from "../helpers/db";
+import { createTestLayer, createTestLayerWithSqlite } from "../helpers/db";
+import { holdQueries } from "../helpers/held-query";
 
 /**
  * Helper — seed an account + one profile and return the ids.
@@ -635,6 +637,180 @@ describe("app-enrollments service", () => {
   );
 });
 
-// Module-suppression: avoid an unused-binding warning for the Layer import
-// when @effect/vitest's `provide(...)` is the only consumer.
-void Layer;
+/**
+ * A cancel and a purge sweep that meet at the end of the grace window. Once a
+ * sweep has claimed the account the cancel is refused, as one past the window
+ * is; a cancel that lands first leaves the sweep nothing to purge. The bridges
+ * answer from a local server that counts the purges it is sent.
+ */
+describe("account-erasure: a cancel and a purge", () => {
+  let server: ReturnType<typeof Bun.serve>;
+  const purged: string[] = [];
+  let urls: { pulseApiUrl: string; zapApiUrl: string };
+
+  beforeAll(() => {
+    server = Bun.serve({
+      port: 0,
+      async fetch(request) {
+        const body = (await request.json()) as { accountId: string };
+        purged.push(body.accountId);
+        return Response.json({ ok: true });
+      },
+    });
+    const base = `http://localhost:${server.port}`;
+    urls = { pulseApiUrl: base, zapApiUrl: base };
+  });
+
+  afterAll(() => {
+    void server.stop(true);
+  });
+
+  const purgesOf = (accountId: string) => purged.filter((id) => id === accountId).length;
+
+  function held() {
+    const { db, email } = createTestLayerWithSqlite();
+    const queries = holdQueries(db);
+    return {
+      layer: Layer.merge(Layer.succeed(Db, { db: queries.db }), email.layer),
+      hold: queries.hold,
+    };
+  }
+
+  /** An account scheduled for erasure, enrolled in both apps when `bridges`. */
+  const scheduled = (handle: string, bridges: boolean) =>
+    Effect.gen(function* () {
+      const { accountId } = yield* seedAccountAndProfile(`${handle}@example.com`, handle);
+      if (bridges) {
+        yield* appEnroll.joinApp(accountId, "pulse");
+        yield* appEnroll.joinApp(accountId, "zap");
+      }
+      const { scheduledFor } = yield* accountErasure.requestErasure({
+        accountId,
+        cancelSessionId: null,
+      });
+      return { accountId, pastWindowMs: (scheduledFor + 1) * 1_000 };
+    });
+
+  const accountRow = (accountId: string) =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const rows = yield* Effect.promise(() =>
+        db.select().from(accounts).where(eq(accounts.id, accountId)),
+      );
+      return rows[0];
+    });
+
+  const jobRow = (accountId: string) =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const rows = yield* Effect.promise(() =>
+        db.select().from(deletionJobs).where(eq(deletionJobs.accountId, accountId)),
+      );
+      return rows[0];
+    });
+
+  const cancelEvents = (accountId: string) =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      return yield* Effect.promise(() =>
+        db
+          .select()
+          .from(securityEvents)
+          .where(
+            and(
+              eq(securityEvents.accountId, accountId),
+              eq(securityEvents.kind, "account_deletion_cancelled"),
+            ),
+          ),
+      );
+    });
+
+  it.live("a cancel held at its delete while the fan-out claims and purges is refused", () => {
+    const h = held();
+    return Effect.gen(function* () {
+      const { accountId, pastWindowMs } = yield* scheduled("ce1", true);
+
+      const remove = h.hold(/^delete from "deletion_jobs"/);
+      const cancel = yield* Effect.forkChild(
+        Effect.result(accountErasure.cancelErasure(accountId)),
+      );
+      yield* Effect.promise(() => remove.reached);
+      yield* accountErasure.runFanOutRetrySweep({ nowMs: pastWindowMs, ...urls });
+      expect(purgesOf(accountId)).toBe(2);
+      remove.release();
+
+      expect(yield* Fiber.join(cancel)).toMatchObject({
+        _tag: "Success",
+        success: { cancelled: false },
+      });
+      expect((yield* accountRow(accountId))?.deletedAt).not.toBeNull();
+      expect((yield* jobRow(accountId))?.purgeStartedAt).toBeGreaterThan(0);
+      expect(yield* cancelEvents(accountId)).toEqual([]);
+    }).pipe(Effect.provide(h.layer));
+  });
+
+  it.live("a cancel that lands while the fan-out is held before its claim stops the purge", () => {
+    const h = held();
+    return Effect.gen(function* () {
+      const { accountId, pastWindowMs } = yield* scheduled("ce2", true);
+
+      const body = h.hold(/^select "id" from "users"/);
+      const sweep = yield* Effect.forkChild(
+        accountErasure.runFanOutRetrySweep({ nowMs: pastWindowMs, ...urls }),
+      );
+      yield* Effect.promise(() => body.reached);
+      expect(yield* accountErasure.cancelErasure(accountId)).toEqual({ cancelled: true });
+      body.release();
+      yield* Fiber.join(sweep);
+
+      expect(purgesOf(accountId)).toBe(0);
+      expect((yield* accountRow(accountId))?.deletedAt).toBeNull();
+      expect(yield* jobRow(accountId)).toBeUndefined();
+    }).pipe(Effect.provide(h.layer));
+  });
+
+  it.live("a cancel held at its delete while the hard delete runs is refused", () => {
+    const h = held();
+    return Effect.gen(function* () {
+      const { accountId, pastWindowMs } = yield* scheduled("ce3", false);
+
+      const remove = h.hold(/^delete from "deletion_jobs"/);
+      const cancel = yield* Effect.forkChild(
+        Effect.result(accountErasure.cancelErasure(accountId)),
+      );
+      yield* Effect.promise(() => remove.reached);
+      expect(yield* accountErasure.runHardDeleteSweep({ nowMs: pastWindowMs })).toEqual({
+        purged: 1,
+      });
+      remove.release();
+
+      expect(yield* Fiber.join(cancel)).toMatchObject({
+        _tag: "Success",
+        success: { cancelled: false },
+      });
+      expect(yield* accountRow(accountId)).toBeUndefined();
+      expect(yield* cancelEvents(accountId)).toEqual([]);
+    }).pipe(Effect.provide(h.layer));
+  });
+
+  it.live(
+    "a cancel that lands while the hard delete is held before its claim keeps the account",
+    () => {
+      const h = held();
+      return Effect.gen(function* () {
+        const { accountId, pastWindowMs } = yield* scheduled("ce4", false);
+
+        const profiles = h.hold(/^select "id" from "users"/);
+        const sweep = yield* Effect.forkChild(
+          accountErasure.runHardDeleteSweep({ nowMs: pastWindowMs }),
+        );
+        yield* Effect.promise(() => profiles.reached);
+        expect(yield* accountErasure.cancelErasure(accountId)).toEqual({ cancelled: true });
+        profiles.release();
+
+        expect(yield* Fiber.join(sweep)).toEqual({ purged: 0 });
+        expect((yield* accountRow(accountId))?.deletedAt).toBeNull();
+      }).pipe(Effect.provide(h.layer));
+    },
+  );
+});
