@@ -1150,6 +1150,14 @@ describe("RsvpView", () => {
     ).toBeTruthy();
     // A title beside the text would hand a screen reader the same words twice.
     expect(document.querySelector("tbody [title]")).toBeNull();
+
+    // The key names every mark, each line ending on one full stop whether its
+    // words carry their own or not.
+    fireEvent.click(screen.getByRole("button", { name: "What the reply icons mean" }));
+    const key = await screen.findByRole("dialog", { name: "What the reply icons mean" });
+    expect(key.textContent).toContain("— Recorded by a host (phone/paper RSVP).");
+    expect(key.textContent).toContain("their household gave.");
+    expect(key.textContent).not.toMatch(/\.\./);
   });
 
   it.each([
