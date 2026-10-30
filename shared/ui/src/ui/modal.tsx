@@ -152,7 +152,7 @@ const PRESENTATION_SURFACE = {
  *
  * `sheet` reads `--ui-radius-sheet` rather than `--ui-radius-lg` so an app can
  * make that grip pronounced without touching its cards — cire's guest site
- * wants 28px there against 10px cards.
+ * wants 28px there against smaller card corners.
  *
  * The surface differs on purpose too: a `centred` dialog floats above the page
  * and takes `surface-raised`, while a `sheet` or `drawer` is flush with an edge
