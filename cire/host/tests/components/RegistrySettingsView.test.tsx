@@ -152,6 +152,18 @@ describe("publishing", () => {
     );
   });
 
+  it("shows the list's visibility and lets Published be chosen", async () => {
+    setCachedRegistry("wed_1", snapshot({ items: [item()] }));
+    renderPanel();
+    const draft = (await screen.findByRole("radio", { name: /^Draft/ })) as HTMLInputElement;
+    const publish = screen.getByRole("radio", { name: /^Published/ }) as HTMLInputElement;
+    expect([draft.checked, publish.checked]).toEqual([true, false]);
+    fireEvent.click(publish);
+    expect([draft.checked, publish.checked]).toEqual([false, true]);
+    fireEvent.click(draft);
+    expect([draft.checked, publish.checked]).toEqual([true, false]);
+  });
+
   it("is allowed once there is a gift", async () => {
     setCachedRegistry("wed_1", snapshot({ items: [item()] }));
     renderPanel();

@@ -2781,6 +2781,13 @@ describe("RsvpPanel", () => {
       );
       expect(ownBox().checked).toBe(false);
       expect(attestBox().checked).toBe(false);
+      // The words read as sentences: each link is spaced from the words round it.
+      expect(ownBox().closest("label")?.textContent).toContain(
+        "for this wedding. See our privacy notice",
+      );
+      expect(attestBox().closest("label")?.textContent).toContain(
+        `${PLUS_ONE_DIETARY_ATTESTATION.text("Sam")} See our privacy notice`,
+      );
     });
 
     it("shows only the attestation when only the plus-one gives dietary data", () => {
