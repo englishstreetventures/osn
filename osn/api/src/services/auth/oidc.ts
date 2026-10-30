@@ -27,6 +27,7 @@ import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 
 import { oauthAuthorizationCodes, oauthClients, oauthConsents } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
+import { rowsChanged } from "@shared/db-utils";
 import { and, eq, isNull, lte } from "drizzle-orm";
 import { Effect } from "effect";
 
@@ -532,6 +533,13 @@ export const runExpiredAuthCodeSweep = (
     return { deleted: deleted.length };
   });
 
+/**
+ * How many times a re-approval reads the consent and writes it on the
+ * condition that it is still as read: once, then once more after a change
+ * landed in between.
+ */
+const CONSENT_WRITE_PASSES = 2;
+
 export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
   const { config } = ctx;
   const { findDefaultProfile, findProfileById } = profiles;
@@ -827,11 +835,14 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
 
   /**
    * Records (or widens) a consent. Returns `true` when this is the first link
-   * between the account and the relying party, which is the event worth
-   * counting — later re-authorizations are not new relationships.
+   * between the account and the relying party, or a re-link after a revoke,
+   * which are the events worth counting — later re-authorizations are not new
+   * relationships.
    *
    * Scopes are merged rather than replaced so approving a second, narrower
-   * request cannot quietly withdraw a scope the user already granted.
+   * request cannot quietly withdraw a scope the user already granted. Fails
+   * with a `DatabaseError`, writing nothing, when the row changes under both
+   * of its {@link CONSENT_WRITE_PASSES} passes.
    */
   const recordConsent = (
     accountId: string,
@@ -864,46 +875,64 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
       });
       if (inserted.length > 0) return true;
 
-      const existing = yield* Effect.tryPromise({
-        try: () =>
-          db
-            .select({
-              id: oauthConsents.id,
-              scope: oauthConsents.scope,
-              revokedAt: oauthConsents.revokedAt,
-            })
-            .from(oauthConsents)
-            .where(
-              and(eq(oauthConsents.accountId, accountId), eq(oauthConsents.clientId, clientId)),
-            )
-            .limit(1),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
-      const row = existing[0];
-      if (!row) return false; // Deleted between the two statements — nothing to widen.
+      // Read, merge, and write only while the row is as read: a revoke, or
+      // another approval, that lands between the read and the write leaves
+      // the write nothing to change. One more pass reads the row again; a
+      // second change in that window fails the request, which the client can
+      // retry, rather than writing over a grant this pass never read.
+      for (let pass = 0; pass < CONSENT_WRITE_PASSES; pass++) {
+        const existing = yield* Effect.tryPromise({
+          try: () =>
+            db
+              .select({
+                id: oauthConsents.id,
+                scope: oauthConsents.scope,
+                revokedAt: oauthConsents.revokedAt,
+              })
+              .from(oauthConsents)
+              .where(
+                and(eq(oauthConsents.accountId, accountId), eq(oauthConsents.clientId, clientId)),
+              )
+              .limit(1),
+          catch: (cause) => new DatabaseError({ cause }),
+        });
+        const row = existing[0];
+        if (!row) return false; // Deleted since the insert — nothing to widen.
 
-      // Merging holds only for LIVE rows (a narrower approval must not shrink
-      // an existing grant). Across a revocation boundary the old scope is a
-      // withdrawal record, not a grant — resurrecting it would silently
-      // re-authorize scopes the consent screen never displayed. A re-grant
-      // starts from exactly what the user just approved.
-      const nextScope = row.revokedAt !== null ? scope : mergeScope(row.scope, scope);
-      yield* Effect.tryPromise({
-        try: () =>
-          db
-            .update(oauthConsents)
-            .set({
-              profileId,
-              scope: nextScope,
-              grantedAt: nowSec,
-              revokedAt: null,
-            })
-            .where(eq(oauthConsents.id, row.id)),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
-      // A revoked row being re-approved is the user linking again, so it
-      // counts; a live row being widened is not a new relationship.
-      return row.revokedAt !== null;
+        // Merging holds only for LIVE rows (a narrower approval must not
+        // shrink an existing grant). Across a revocation boundary the old
+        // scope is a withdrawal record, not a grant — resurrecting it would
+        // silently re-authorize scopes the consent screen never displayed. A
+        // re-grant starts from exactly what the user just approved.
+        const nextScope = row.revokedAt !== null ? scope : mergeScope(row.scope, scope);
+        const updated = yield* Effect.tryPromise({
+          try: () =>
+            db
+              .update(oauthConsents)
+              .set({
+                profileId,
+                scope: nextScope,
+                grantedAt: nowSec,
+                revokedAt: null,
+              })
+              .where(
+                and(
+                  eq(oauthConsents.id, row.id),
+                  eq(oauthConsents.scope, row.scope),
+                  row.revokedAt === null
+                    ? isNull(oauthConsents.revokedAt)
+                    : eq(oauthConsents.revokedAt, row.revokedAt),
+                ),
+              ),
+          catch: (cause) => new DatabaseError({ cause }),
+        });
+        // A revoked row being re-approved is the user linking again, so it
+        // counts; a live row being widened is not a new relationship.
+        if (rowsChanged(updated) === 1) return row.revokedAt !== null;
+      }
+      return yield* Effect.fail(
+        new DatabaseError({ cause: "the consent changed under each pass of its write" }),
+      );
     });
 
   /**
