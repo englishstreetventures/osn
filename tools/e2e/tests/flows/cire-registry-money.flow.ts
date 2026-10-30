@@ -87,7 +87,7 @@ test("cire-registry-money", async ({ page, flow }) => {
     };
     const notice = page.getByTestId("money-gifts-unavailable");
     await expect(notice).toBeVisible();
-    const publish = page.getByTestId("registry-publish");
+    const publish = page.getByRole("radio", { name: /^Published/ });
     await expect(publish).toBeDisabled();
     return {
       status: response.status(),

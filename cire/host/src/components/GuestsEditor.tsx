@@ -1,6 +1,7 @@
 import Button from "@cire/ui/button";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
+import { Checkbox } from "@shared/ui/ui/checkbox";
 import { Chip } from "@shared/ui/ui/chip";
 import { EmptyState } from "@shared/ui/ui/empty-state";
 import { Input } from "@shared/ui/ui/input";
@@ -39,7 +40,7 @@ import {
   eventsAccessor,
   invalidateEvents,
 } from "../lib/events-store";
-import { FORM_ACTION_CLASS, FORM_FIELD_CLASS } from "../lib/form-field";
+import { FORM_ACTION_CLASS } from "../lib/form-field";
 import {
   createGuestEventDraft,
   type DraftFamily,
@@ -857,13 +858,13 @@ function FamilyCard(props: {
           </Show>
           <Input
             ref={props.nameRef}
-            size="sm"
+            size="form-compact"
             value={props.family.familyName}
             aria-label="Household name"
             placeholder="Household name"
             aria-invalid={famErrors().length > 0}
             onInput={(e) => props.store.renameFamily(props.family.key, e.currentTarget.value)}
-            class={`${FORM_FIELD_CLASS} min-w-0 flex-1`}
+            class="min-w-0 flex-1"
           />
           <Show when={!props.compact()}>
             {code()}
@@ -1023,8 +1024,7 @@ function GuestEmailCell(props: {
         when={guestsOwn()}
         fallback={
           <Input
-            size="sm"
-            class={FORM_FIELD_CLASS}
+            size="form-compact"
             type="email"
             autocomplete="off"
             value={props.guest.email ?? ""}
@@ -1093,8 +1093,7 @@ function GuestRow(props: {
               visible label per cell would repeat it 200 times down the page.
               `aria-label` carries the name instead. */}
           <Input
-            size="sm"
-            class={FORM_FIELD_CLASS}
+            size="form-compact"
             value={props.guest.firstName}
             aria-label="First name"
             aria-invalid={props.errors.length > 0}
@@ -1105,8 +1104,7 @@ function GuestRow(props: {
         </Td>
         <Td>
           <Input
-            size="sm"
-            class={FORM_FIELD_CLASS}
+            size="form-compact"
             value={props.guest.lastName}
             aria-label="Last name"
             onInput={(e) =>
@@ -1120,8 +1118,7 @@ function GuestRow(props: {
               stylesheet order rather than by class order. The em-dash
               placeholder already says the field is optional. */}
           <Input
-            size="sm"
-            class={FORM_FIELD_CLASS}
+            size="form-compact"
             value={props.guest.nickname ?? ""}
             aria-label="Nickname"
             placeholder="—"
@@ -1143,12 +1140,13 @@ function GuestRow(props: {
         <For each={props.events}>
           {(evt) => (
             <Td align="center">
-              <input
-                type="checkbox"
+              <Checkbox
+                box="native"
+                size="sm"
+                class="items-center"
                 checked={props.guest.eventKeys.includes(evt.key)}
                 aria-label={`${props.guest.firstName || "Guest"} attends ${evt.name || "event"}`}
                 onChange={() => props.store.toggleAttendance(props.guest.key, evt.key)}
-                class="h-4 w-4 cursor-pointer"
               />
             </Td>
           )}

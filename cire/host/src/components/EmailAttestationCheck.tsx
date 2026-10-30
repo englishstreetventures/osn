@@ -1,6 +1,8 @@
 import { ORGANISER_EMAIL_ATTESTATION } from "@cire/guest-email";
 import { proseLinkClass } from "@cire/ui/button";
 import Eyebrow from "@cire/ui/eyebrow";
+import { Checkbox } from "@shared/ui/ui/checkbox";
+import { Notice } from "@shared/ui/ui/notice";
 
 import { CIRE_MARKETING_URL } from "../lib/osn";
 
@@ -23,29 +25,34 @@ export default function EmailAttestationCheck(props: {
   disabled?: boolean;
 }) {
   return (
-    <div class="border-gold/30 bg-gold/6 flex flex-col gap-1.5 rounded-sm border p-3">
-      <Eyebrow>{props.count === 1 ? "1 email address" : `${props.count} email addresses`}</Eyebrow>
-      <label class="font-body text-text-muted text-ui-sm leading-ui-normal flex items-start gap-2.5 normal-case">
-        <input
-          type="checkbox"
-          class="mt-0.5 h-4 w-4 shrink-0 cursor-pointer"
+    <Notice tone="accent" size="sm">
+      <div class="flex flex-col gap-1.5">
+        <Eyebrow>
+          {props.count === 1 ? "1 email address" : `${props.count} email addresses`}
+        </Eyebrow>
+        <Checkbox
+          box="native"
+          size="sm"
+          align="start"
           checked={props.checked}
-          onChange={(e) => props.onChange(e.currentTarget.checked)}
+          onChange={props.onChange}
           disabled={props.disabled}
+          label={ORGANISER_EMAIL_ATTESTATION.text}
+          note={
+            <p class="font-body text-text-muted text-ui-sm leading-ui-normal">
+              The notice to share:{" "}
+              <a
+                href={`${CIRE_MARKETING_URL}/privacy/guests`}
+                target="_blank"
+                rel="noopener noreferrer"
+                class={proseLinkClass()}
+              >
+                cireweddings.com/privacy/guests<span class="sr-only"> (opens in a new tab)</span>
+              </a>
+            </p>
+          }
         />
-        <span>{ORGANISER_EMAIL_ATTESTATION.text}</span>
-      </label>
-      <p class="font-body text-text-muted text-ui-sm leading-ui-normal pl-6.5">
-        The notice to share:{" "}
-        <a
-          href={`${CIRE_MARKETING_URL}/privacy/guests`}
-          target="_blank"
-          rel="noopener noreferrer"
-          class={proseLinkClass()}
-        >
-          cireweddings.com/privacy/guests<span class="sr-only"> (opens in a new tab)</span>
-        </a>
-      </p>
-    </div>
+      </div>
+    </Notice>
   );
 }

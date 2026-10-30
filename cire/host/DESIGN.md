@@ -333,10 +333,9 @@ sits. The owner chose from the heights side by side.
 
 The rule is the portals' — this one and `cire/vendor`. The guest site is not a
 portal and keeps its fields' own heights, so a guest's tap target does not
-shrink (owner, 2026-10-29). Not yet on the rule, and why: the dietary picker's
-trigger in the reply editor is `@cire/ui`'s `field`-variant button and keeps
-its height until a shared 34px size exists (englishstreetventures/osn#1842); the command palette's and
-the task holders' search boxes draw no box of their own.
+shrink (owner, 2026-10-29). The dietary picker's trigger in the reply editor,
+`@cire/ui`'s `field`-variant button, is 34px too. Not on the rule, and why: the
+command palette's and the task holders' search boxes draw no box of their own.
 
 **Checkboxes and radios: the checked box is the browser's, the unchecked one
 sits on its surface.** A checked or indeterminate native box keeps the

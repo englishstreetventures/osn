@@ -15,6 +15,7 @@
 import type { SectionState } from "@cire/theme";
 import Button from "@cire/ui/button";
 import Eyebrow from "@cire/ui/eyebrow";
+import { Checkbox } from "@shared/ui/ui/checkbox";
 import { Chip } from "@shared/ui/ui/chip";
 import { Input } from "@shared/ui/ui/input";
 import { Select } from "@shared/ui/ui/select";
@@ -22,7 +23,6 @@ import { Textarea } from "@shared/ui/ui/textarea";
 import EyeOff from "lucide-solid/icons/eye-off";
 import { createUniqueId, For, type JSX, Show } from "solid-js";
 
-import { FORM_FIELD_CLASS } from "../../lib/form-field";
 const LABEL_CLASS = "font-body text-text-muted text-ui-sm";
 
 /**
@@ -70,7 +70,7 @@ export function TextField(props: {
         </Show>
       </span>
       <Input
-        class={FORM_FIELD_CLASS}
+        size="form"
         id={id}
         placeholder={props.placeholder}
         value={props.value}
@@ -133,7 +133,7 @@ export function ChoiceField(props: {
     <label class="flex flex-col gap-1.5">
       <span class={LABEL_CLASS}>{props.label}</span>
       <Select
-        class={FORM_FIELD_CLASS}
+        size="form"
         value={props.value}
         onChange={(e) => props.onChange(e.currentTarget.value)}
       >
@@ -371,19 +371,13 @@ export function SectionCard(props: {
             {(visibility) => (
               <span class="flex flex-wrap items-center gap-4">
                 <SegmentBadge state={visibility().state} />
-                {/* A native checkbox, as elsewhere in the portal: the input
-                  itself takes keyboard focus and shows the dashboard's
-                  `:focus-visible` ring. */}
-                <label class="font-body text-text text-ui-sm flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    data-visibility-switch
-                    class="h-4 w-4 shrink-0 cursor-pointer"
-                    checked={visibility().visible}
-                    onChange={(e) => visibility().onChange(e.currentTarget.checked)}
-                  />
-                  Show on the invite
-                </label>
+                <Checkbox
+                  box="native"
+                  size="sm"
+                  checked={visibility().visible}
+                  onChange={(next) => visibility().onChange(next)}
+                  label="Show on the invite"
+                />
               </span>
             )}
           </Show>

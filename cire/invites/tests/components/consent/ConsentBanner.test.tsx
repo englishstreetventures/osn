@@ -295,8 +295,12 @@ describe("ConsentPreferences dialog", () => {
     // What the site stores to work at all is necessary and lives in the
     // privacy notice; the sheet asks only about the two third parties.
     const panel = dialog()!;
-    const labels = [...panel.querySelectorAll("label")].map((l) => (l.textContent ?? "").trim());
-    expect(labels).toEqual(["Pinterest moodboards", "Google Maps"]);
+    // Each box is named by its title alone; its summary describes it.
+    const names = within(panel)
+      .getAllByRole("checkbox")
+      .map((box) => box.getAttribute("aria-labelledby"))
+      .map((id) => panel.querySelector(`#${cssEscape(id!)}`)?.textContent);
+    expect(names).toEqual(["Pinterest moodboards", "Google Maps"]);
     expect(panel.querySelectorAll('input[type="checkbox"]')).toHaveLength(2);
     expect(buttonLabels(panel)).toEqual(["Save choices"]);
   });
@@ -414,18 +418,7 @@ describe("ConsentPreferencesLink", () => {
 
 /** The switch whose label reads `label`. */
 function switchOf(panel: HTMLElement, label: string): HTMLInputElement {
-  return panel.querySelector<HTMLInputElement>("#" + cssEscape(labelledInputId(panel, label)))!;
-}
-
-/** Find the checkbox id whose <label> text matches, so tests key on copy, not order. */
-function labelledInputId(panel: HTMLElement, labelText: string): string {
-  const label = [...panel.querySelectorAll("label")].find((candidate) =>
-    (candidate.textContent ?? "").includes(labelText),
-  );
-  if (!label) throw new Error(`no label matching "${labelText}"`);
-  const id = label.getAttribute("for");
-  if (!id) throw new Error(`label "${labelText}" has no for=`);
-  return id;
+  return within(panel).getByRole("checkbox", { name: label }) as HTMLInputElement;
 }
 
 /** Solid's createUniqueId produces ids that need escaping in a CSS selector. */

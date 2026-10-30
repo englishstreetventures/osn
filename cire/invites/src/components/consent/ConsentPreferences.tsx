@@ -1,6 +1,7 @@
 import Button, { proseLinkClass } from "@cire/ui/button";
 import { CATEGORY_LIST, type ConsentCategory } from "@cire/ui/consent-categories";
 import { gatedVendorsInCategory } from "@cire/ui/consent-vendors";
+import { Checkbox } from "@shared/ui/ui/checkbox";
 import { Modal } from "@shared/ui/ui/modal";
 import { createSignal, createUniqueId, For, type JSX, Show } from "solid-js";
 
@@ -109,27 +110,24 @@ function SwitchRow(props: {
   checked: boolean;
   onChange: (next: boolean) => void;
 }): JSX.Element {
-  const inputId = createUniqueId();
   const vendor = () => gatedVendorsInCategory(props.id)[0];
 
+  // The title and the summary are the label, so a tap anywhere on either ticks
+  // the box; the box is named by the title and described by the summary. The
+  // vendor's line holds a link, so it is the box's note, outside the label.
   return (
     <div class="border-border/60 bg-surface-raised/40 rounded-sm border px-4 py-3.5">
-      <div class="flex items-start gap-3">
-        <input
-          id={inputId}
-          type="checkbox"
-          checked={props.checked}
-          onChange={(event) => props.onChange(event.currentTarget.checked)}
-          class="mt-0.5 h-4 w-4 shrink-0"
-        />
-        <div class="min-w-0 flex-1">
-          <label for={inputId} class="font-body text-text text-ui-base font-normal">
-            {props.title}
-          </label>
-          <p class="font-body text-text-muted text-ui-sm leading-ui-normal mt-1">{props.summary}</p>
+      <Checkbox
+        box="native"
+        align="start"
+        checked={props.checked}
+        onChange={props.onChange}
+        label={props.title}
+        description={props.summary}
+        note={
           <Show when={vendor()?.privacyUrl}>
             {(url) => (
-              <p class="font-body text-text-muted text-ui-xs leading-ui-snug mt-1.5">
+              <p class="font-body text-text-muted text-ui-xs leading-ui-snug">
                 <Show when={vendor()?.transfer}>{(transfer) => <>{transfer()} · </>}</Show>
                 <a href={url()} target="_blank" rel="noopener noreferrer" class={proseLinkClass()}>
                   privacy policy <span aria-hidden="true">↗</span>
@@ -138,8 +136,8 @@ function SwitchRow(props: {
               </p>
             )}
           </Show>
-        </div>
-      </div>
+        }
+      />
     </div>
   );
 }
