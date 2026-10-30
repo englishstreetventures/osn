@@ -146,6 +146,23 @@ describe("legal pages", () => {
     expect(flat(hosts)).toMatch(/live updates/);
   });
 
+  /**
+   * Resized copies of invite, event and gift images (and the original upload
+   * when a resize fails) sit in Cloudflare's cache for up to a year; link
+   * thumbnails for 30 days. Nothing deletes a copy on removal, so the notices
+   * say removal deletes the stored file and a cached copy can outlive it.
+   */
+  it("the privacy pages say cached image copies can outlive removal", () => {
+    const flat = (page: string) => page.replace(/\s+/g, " ");
+    expect(flat(privacy)).toMatch(
+      /copies of images are cached where they are viewed, for up to a year/,
+    );
+    expect(flat(hosts)).toMatch(/Removing a file deletes the stored file/);
+    expect(flat(hosts)).toMatch(/up to a year after they were stored/);
+    expect(flat(hosts)).toMatch(/link thumbnails for up to 30 days/);
+    expect(flat(hosts)).not.toMatch(/removed when you ask us to\./);
+  });
+
   it("footer links every legal page", () => {
     for (const name of footerPages) {
       expect(footer).toContain(`href="/${name}"`);
