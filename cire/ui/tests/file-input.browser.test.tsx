@@ -11,6 +11,7 @@ import { cleanup, render, screen } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it } from "vitest";
 import { userEvent } from "vitest/browser";
 
+import Button from "../src/button";
 import { type CardFill, cardClass } from "../src/card";
 import FileInput from "../src/file-input";
 import { backdropLayers, composite, ratio } from "./test-support/paint";
@@ -22,6 +23,16 @@ const RAMPS = ["dark", "light"] as const;
 afterEach(cleanup);
 
 const button = (input: Element) => getComputedStyle(input, "::file-selector-button");
+
+/** A token's colour as the page resolves it, read off a probe's own style. */
+function token(name: string): string {
+  const probe = document.createElement("span");
+  probe.style.color = `var(${name})`;
+  document.body.append(probe);
+  const color = getComputedStyle(probe).color;
+  probe.remove();
+  return color;
+}
 
 /** The button's word against what it sits on (it has no fill of its own). */
 function buttonInk(input: Element): number {
@@ -55,6 +66,14 @@ describe("FileInput", () => {
     expect(b.backgroundColor).toBe("rgba(0, 0, 0, 0)");
     expect(Number.parseFloat(b.borderTopLeftRadius)).toBeGreaterThanOrEqual(17);
     expect(b.fontSize).toBe(getComputedStyle(input).fontSize);
+    expect(b.marginRight).toBe("12px");
+    // The body face on the button and the file name, as a `Button` draws it.
+    render(() => <Button>Crop</Button>);
+    const face = getComputedStyle(screen.getByRole("button")).fontFamily;
+    expect([b.fontFamily, getComputedStyle(input).fontFamily]).toEqual([face, face]);
+    // `Button`'s colour fade, on the app's `--dur-fast` (90ms here).
+    expect(b.transitionProperty).toContain("border-color");
+    expect(b.transitionDuration).toBe("0.09s");
   });
 
   it("turns the edge to the accent under the pointer, and not when disabled", async () => {
@@ -68,8 +87,8 @@ describe("FileInput", () => {
     const shut = screen.getByLabelText("Shut");
     const rest = button(open).borderTopColor;
     await userEvent.hover(open);
-    await new Promise((resolve) => setTimeout(resolve, 250));
-    expect(button(open).borderTopColor).not.toBe(rest);
+    await expect.poll(() => button(open).borderTopColor).toBe(token("--ui-accent"));
+    await expect.poll(() => button(open).color).toBe(token("--ui-accent-ink"));
     expect(button(open).cursor).toBe("pointer");
     await userEvent.hover(shut, { force: true });
     await new Promise((resolve) => setTimeout(resolve, 250));
@@ -81,7 +100,12 @@ describe("FileInput", () => {
     render(() => <FileInput aria-label="Picture" />);
     await userEvent.tab();
     const s = getComputedStyle(screen.getByLabelText("Picture"));
-    expect([s.outlineStyle, s.outlineWidth, s.outlineOffset]).toEqual(["solid", "2px", "2px"]);
+    expect([s.outlineStyle, s.outlineWidth, s.outlineOffset, s.outlineColor]).toEqual([
+      "solid",
+      "2px",
+      "2px",
+      token("--ui-focus"),
+    ]);
   });
 
   for (const ramp of RAMPS) {
