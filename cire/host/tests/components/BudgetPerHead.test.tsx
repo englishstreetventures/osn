@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen } from "@solidjs/testing-library";
+import { cleanup, fireEvent, render, screen, within } from "@solidjs/testing-library";
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -120,6 +120,13 @@ describe("PerHeadPanel", () => {
     expect(screen.getByLabelText("Only these events")).not.toBeChecked();
     fireEvent.click(screen.getByLabelText("Only these events"));
     expect(screen.getByLabelText("Only these events")).toBeChecked();
+    // The event boxes are a named group of their own, not loose boxes.
+    const group = screen.getByRole("group", { name: "Events to count" });
+    expect(
+      within(group)
+        .getAllByRole("checkbox")
+        .map((b) => b.getAttribute("aria-label") ?? b.closest("label")?.textContent),
+    ).toEqual(["Ceremony", "Reception"]);
     fireEvent.click(screen.getByLabelText("Reception"));
     fireEvent.click(screen.getByLabelText("Ceremony"));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
