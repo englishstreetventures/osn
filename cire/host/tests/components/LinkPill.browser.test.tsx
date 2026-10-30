@@ -37,13 +37,13 @@ function Row(props: { width: string; children: JSX.Element }) {
 function pills() {
   return (
     <>
-      <LinkPill href="https://bloom.example" external mark={Globe}>
+      <LinkPill href="https://bloom.example" mark={Globe}>
         Website
       </LinkPill>
-      <LinkPill href="https://instagram.com/bloom" external mark={InstagramMark}>
+      <LinkPill href="https://instagram.com/bloom" mark={InstagramMark}>
         Instagram
       </LinkPill>
-      <LinkPill href="https://shop.example/napkins" external hint="to the shop page for Napkins">
+      <LinkPill href="https://shop.example/napkins" hint="to the shop page for Napkins">
         Link
       </LinkPill>
     </>
@@ -91,7 +91,7 @@ describe("LinkPill", () => {
         document.documentElement.dataset.theme = theme;
         render(() =>
           wrap(
-            <LinkPill href="https://bloom.example" external mark={Globe}>
+            <LinkPill href="https://bloom.example" mark={Globe}>
               Website
             </LinkPill>,
           ),

@@ -10,8 +10,6 @@ const MARKED_PILL = `${PILL} @max-[14rem]:w-7 @max-[14rem]:px-0`;
 
 export interface LinkPillProps {
   href: string;
-  /** Opens away from the portal, in a new tab, and says so to assistive tech. */
-  external?: boolean;
   /** The destination's mark. With one, the pill turns to a circle in a narrow row. */
   mark?: Component<{ class?: string }>;
   /** Heard after the word, never shown: what or whose the destination is. */
@@ -36,13 +34,17 @@ export interface LinkPillProps {
  * (under 14rem, about the width of the two widest side by side) a marked pill
  * drops its word to a 28px circle; the word stays in its name. A pill with no
  * mark keeps its word at every width, since a circle would have nothing to say.
+ *
+ * Every place a portal pill leads is away from the portal — a vendor's site, a
+ * map, a shop, the live invite — so it opens in a new tab, keeping the host's
+ * place, and says so in hidden words after its name.
  */
 export function LinkPill(props: LinkPillProps) {
   return (
     <a
       href={props.href}
-      target={props.external ? "_blank" : undefined}
-      rel={props.external ? "noopener noreferrer" : undefined}
+      target="_blank"
+      rel="noopener noreferrer"
       class={props.mark ? MARKED_PILL : PILL}
     >
       <Show when={props.mark}>
@@ -50,9 +52,7 @@ export function LinkPill(props: LinkPillProps) {
       </Show>
       <span class={props.mark ? "@max-[14rem]:sr-only" : undefined}>{props.children}</span>
       <Show when={props.hint}>{(hint) => <span class="sr-only"> {hint()}</span>}</Show>
-      <Show when={props.external}>
-        <span class="sr-only"> (opens in a new tab)</span>
-      </Show>
+      <span class="sr-only"> (opens in a new tab)</span>
     </a>
   );
 }

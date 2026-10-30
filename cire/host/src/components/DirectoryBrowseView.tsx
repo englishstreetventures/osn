@@ -547,19 +547,14 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
                 <div class={LINK_PILL_ROW}>
                   <Show when={safeHref(ml().website)}>
                     {(href) => (
-                      <LinkPill href={href()} external mark={Globe} hint={`for ${ml().name}`}>
+                      <LinkPill href={href()} mark={Globe} hint={`for ${ml().name}`}>
                         Website
                       </LinkPill>
                     )}
                   </Show>
                   <Show when={safeInstagramHref(ml().instagram)}>
                     {(href) => (
-                      <LinkPill
-                        href={href()}
-                        external
-                        mark={InstagramMark}
-                        hint={`for ${ml().name}`}
-                      >
+                      <LinkPill href={href()} mark={InstagramMark} hint={`for ${ml().name}`}>
                         Instagram
                       </LinkPill>
                     )}
