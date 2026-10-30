@@ -8,7 +8,7 @@ import { Db } from "@osn/db/service";
 import { timingSafeEqualString } from "@shared/crypto/timing-safe";
 import { driverErrorText, rowsChanged } from "@shared/db-utils";
 import { type EmailError, EmailService } from "@shared/email";
-import { and, count as countFn, eq, exists, gte, lt, ne, sql } from "drizzle-orm";
+import { and, count as countFn, eq, exists, gte, lt, sql } from "drizzle-orm";
 import { Effect, Schema } from "effect";
 
 import { canBatch } from "../../lib/batch";
@@ -24,6 +24,7 @@ import { MAX_OTP_ATTEMPTS } from "./constants";
 import type { AuthContext } from "./context";
 import { AuthError, type CoordinationError, DatabaseError, ValidationError } from "./errors";
 import { EmailSchema, genId, genOtpCode, hashSessionToken, logDevOtp } from "./helpers";
+import { outsideFamilyOf } from "./sessions";
 import type { StepUpModule } from "./step-up";
 import { storeCall } from "./store-call";
 import type { PendingEmailChange } from "./stores";
@@ -293,9 +294,14 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
           .from(emailChanges)
           .where(eq(emailChanges.id, changeId)),
       );
+      // Every session but the caller's device, which stays across a refresh
+      // of its own session (`outsideFamilyOf`).
       const otherSessions =
         currentSessionHash !== null
-          ? and(eq(sessions.accountId, accountId), ne(sessions.id, currentSessionHash))
+          ? and(
+              eq(sessions.accountId, accountId),
+              outsideFamilyOf(db, sessions.familyId, currentSessionHash),
+            )
           : eq(sessions.accountId, accountId);
       const swap = db
         .update(accounts)

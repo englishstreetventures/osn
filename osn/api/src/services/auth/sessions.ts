@@ -4,14 +4,14 @@
  */
 
 import { oauthAuthorizationCodes, rotatedSessions, sessions } from "@osn/db/schema";
-import { Db } from "@osn/db/service";
+import { Db, type DbService } from "@osn/db/service";
 import { timingSafeEqualString } from "@shared/crypto/timing-safe";
 import type { SecurityInvalidationTrigger } from "@shared/observability/metrics";
-import { and, desc, eq, gte, inArray, lt, ne } from "drizzle-orm";
+import { and, desc, eq, gt, gte, inArray, lt, notInArray } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { metricSessionSecurityInvalidation, withSessionOp } from "../../metrics";
-import { MAX_SESSIONS_PER_ACCOUNT } from "./constants";
+import { CALLER_ROTATION_GRACE_MS, MAX_SESSIONS_PER_ACCOUNT } from "./constants";
 import { AuthError, DatabaseError } from "./errors";
 import { deriveSessionBinding, hashSessionToken, sessionHandleFromHash } from "./helpers";
 import type { SessionSummary } from "./types";
@@ -24,6 +24,40 @@ export type CallerSessionResolution =
   | { readonly _tag: "resolved"; readonly sessionHash: string }
   | { readonly _tag: "none" }
   | { readonly _tag: "stale" };
+
+/**
+ * Rows outside the family of the session `sessionHash` names, for the
+ * account-wide deletes that spare the caller's device. The family is looked up
+ * among the live sessions, and among the rotation records for a rotation
+ * inside {@link CALLER_ROTATION_GRACE_MS}; a refresh keeps the family, so the
+ * caller's device stays whether its refresh is in flight when the delete runs
+ * or landed just before it. A hash found in neither spares nothing. Each arm
+ * reads its table's primary key.
+ */
+export const outsideFamilyOf = (
+  db: DbService["db"],
+  familyColumn: typeof sessions.familyId | typeof rotatedSessions.familyId,
+  sessionHash: string,
+  nowMs: number = Date.now(),
+) =>
+  notInArray(
+    familyColumn,
+    db
+      .select({ familyId: sessions.familyId })
+      .from(sessions)
+      .where(eq(sessions.id, sessionHash))
+      .unionAll(
+        db
+          .select({ familyId: rotatedSessions.familyId })
+          .from(rotatedSessions)
+          .where(
+            and(
+              eq(rotatedSessions.tokenHash, sessionHash),
+              gt(rotatedSessions.rotatedAt, nowMs - CALLER_ROTATION_GRACE_MS),
+            ),
+          ),
+      ),
+  );
 
 /**
  * Finds the session id whose per-profile binding equals `sessionBinding`.
@@ -180,11 +214,12 @@ export function createSessionsModule() {
     });
 
   /**
-   * Invalidates all sessions for an account EXCEPT the one identified by
-   * `keepSessionHash`. Used after security events (H1) where the current
-   * session should survive but all others must be revoked (passkey
-   * registration, passkey deletion, …). `trigger` labels the emitted metric
-   * so the security-invalidation dashboard can attribute the sweep.
+   * Invalidates all sessions for an account EXCEPT the device of the one
+   * identified by `keepSessionHash` (its family; see {@link outsideFamilyOf}).
+   * Used after security events (H1) where the current session should survive
+   * but all others must be revoked (passkey registration, passkey deletion,
+   * …). `trigger` labels the emitted metric so the security-invalidation
+   * dashboard can attribute the sweep.
    */
   const invalidateOtherAccountSessions = (
     accountId: string,
@@ -197,7 +232,12 @@ export function createSessionsModule() {
         try: () =>
           db
             .delete(sessions)
-            .where(and(eq(sessions.accountId, accountId), ne(sessions.id, keepSessionHash))),
+            .where(
+              and(
+                eq(sessions.accountId, accountId),
+                outsideFamilyOf(db, sessions.familyId, keepSessionHash),
+              ),
+            ),
         catch: (cause) => new DatabaseError({ cause }),
       });
       metricSessionSecurityInvalidation(trigger);
@@ -303,8 +343,9 @@ export function createSessionsModule() {
     }).pipe(withSessionOp("revoke"));
 
   /**
-   * Revokes all sessions for the account except the caller's, for the
-   * "Sign out everywhere else" button in Settings, then deletes the account's
+   * Revokes all sessions for the account except the caller's device (its
+   * family; see {@link outsideFamilyOf}), for the "Sign out everywhere else"
+   * button in Settings, then deletes the account's
    * OIDC authorization codes in flight. A code is bound to the account, not to
    * the session that minted it, so one held from a revoked session would
    * otherwise still open a session at its relying party for the minute it
@@ -321,7 +362,12 @@ export function createSessionsModule() {
         try: () =>
           db
             .delete(sessions)
-            .where(and(eq(sessions.accountId, accountId), ne(sessions.id, currentSessionHash))),
+            .where(
+              and(
+                eq(sessions.accountId, accountId),
+                outsideFamilyOf(db, sessions.familyId, currentSessionHash),
+              ),
+            ),
         catch: (cause) => new DatabaseError({ cause }),
       });
       yield* Effect.tryPromise({

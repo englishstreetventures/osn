@@ -26,7 +26,7 @@ import { it, expect, describe } from "@effect/vitest";
 import { rotatedSessions, sessions } from "@osn/db/schema";
 import { Db, type DbService } from "@osn/db/service";
 import { makeLogEmailLive } from "@shared/email";
-import { eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { Effect, Fiber, Layer } from "effect";
 import { beforeAll, vi } from "vitest";
 
@@ -400,14 +400,18 @@ describe("a rotation and the requests that land between its statements", () => {
     const auth = createAuthService(config);
     const h = held();
     return Effect.gen(function* () {
-      const { profile, refreshToken, familyId } = yield* signIn(auth, "fr-f3@example.com", "frf3");
+      const { refreshToken, familyId } = yield* signIn(auth, "fr-f3@example.com", "frf3");
       const oldHash = auth.hashSessionToken(refreshToken);
 
       const swap = h.hold(/^delete from "sessions"/);
       const lost = yield* Effect.forkChild(Effect.result(auth.refreshTokens(refreshToken)));
       yield* Effect.promise(() => swap.reached);
-      // Every session but the old one goes, the new row with them.
-      yield* auth.invalidateOtherAccountSessions(profile.accountId, oldHash);
+      // A delete that takes the new row and leaves the old one. The account-wide
+      // deletes keep the whole family of the hash they spare, so this is a
+      // direct statement.
+      yield* Effect.promise(() =>
+        h.db.delete(sessions).where(and(eq(sessions.familyId, familyId), ne(sessions.id, oldHash))),
+      );
       swap.release();
 
       const outcome = yield* Fiber.join(lost);

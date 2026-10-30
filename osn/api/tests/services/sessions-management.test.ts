@@ -1,10 +1,13 @@
 import { it, expect, describe } from "@effect/vitest";
 import { Db } from "@osn/db/service";
+import type { EmailService } from "@shared/email";
 import { Effect, Fiber, Layer } from "effect";
 import { beforeAll } from "vitest";
 
 import { ROTATION_RACE_MESSAGE } from "../../src/lib/grant-failure";
+import * as accountErasure from "../../src/services/account-erasure";
 import { createAuthService } from "../../src/services/auth";
+import { CALLER_ROTATION_GRACE_MS } from "../../src/services/auth/constants";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import {
   createCapturingTestLayer,
@@ -401,4 +404,182 @@ describe("revoke holds against a refresh", () => {
       expect(details.filter((d) => /^SCAN (rotated_sessions|sessions)\b/.test(d))).toEqual([]);
     }).pipe(Effect.provide(layer));
   });
+});
+
+/**
+ * The four deletes that revoke every session but the caller's take the
+ * caller's session hash from the request. A refresh of that session in another
+ * tab can rotate it while the delete waits, or just before it runs; either way
+ * the caller's device stays and every other device goes. A hash rotated out
+ * longer ago than `CALLER_ROTATION_GRACE_MS` spares nothing.
+ */
+describe("account-wide deletes keep the caller's device across its own refresh", () => {
+  function held() {
+    const { db, sqlite, email } = createTestLayerWithSqlite();
+    const queries = holdQueries(db);
+    return {
+      layer: Layer.merge(Layer.succeed(Db, { db: queries.db }), email.layer),
+      hold: queries.hold,
+      sqlite,
+      latestCode: (): string => {
+        const all = email.recorded();
+        for (let i = all.length - 1; i >= 0; i--) {
+          const m = all[i]!.text.match(/code is: (\d{6})/);
+          if (m) return m[1]!;
+        }
+        throw new Error("no code mailed");
+      },
+    };
+  }
+  type Held = ReturnType<typeof held>;
+
+  /** The caller's device and one other, which has refreshed once. */
+  const twoDevices = (handle: string) =>
+    Effect.gen(function* () {
+      const profile = yield* auth.registerProfile(`${handle}@example.com`, handle);
+      const open = () =>
+        auth.issueTokens(
+          profile.id,
+          profile.accountId,
+          profile.email,
+          profile.handle,
+          profile.displayName,
+        );
+      const me = (yield* open()).refreshToken;
+      const otherFirst = (yield* open()).refreshToken;
+      const other = (yield* auth.refreshTokens(otherFirst)).refreshToken;
+      return { profile, me, otherFirst, other };
+    });
+
+  type Profile = { readonly accountId: string; readonly email: string };
+
+  /**
+   * Each site, prepared up to the point where it needs the caller's hash:
+   * anything it must do first (a step-up, a mailed code) is done before a
+   * test arms its hold.
+   */
+  const sites: ReadonlyArray<{
+    readonly name: string;
+    /** Whether the site deletes rotation records outside the caller's family too. */
+    readonly records: boolean;
+    readonly prepare: (
+      profile: Profile,
+      h: Held,
+    ) => Effect.Effect<
+      (callerHash: string) => Effect.Effect<unknown, unknown, Db | EmailService>,
+      unknown,
+      Db | EmailService
+    >;
+  }> = [
+    {
+      name: "sign out everywhere else",
+      records: false,
+      prepare: (profile) =>
+        Effect.succeed((hash: string) =>
+          auth.revokeAllOtherAccountSessions(profile.accountId, hash),
+        ),
+    },
+    {
+      name: "passkey add and delete",
+      records: false,
+      prepare: (profile) =>
+        Effect.succeed((hash: string) =>
+          auth.invalidateOtherAccountSessions(profile.accountId, hash),
+        ),
+    },
+    {
+      name: "email change",
+      records: false,
+      prepare: (profile, h) =>
+        Effect.gen(function* () {
+          const stepUp = yield* auth.issueStepUpToken(profile.accountId, "otp", "email_change");
+          yield* auth.beginEmailChange(profile.accountId, `new-${profile.email}`);
+          const code = h.latestCode();
+          return (hash: string) => auth.completeEmailChange(profile.accountId, code, stepUp, hash);
+        }),
+    },
+    {
+      name: "erasure",
+      records: true,
+      prepare: (profile) =>
+        Effect.succeed((hash: string) =>
+          accountErasure.requestErasure({ accountId: profile.accountId, cancelSessionId: hash }),
+        ),
+    },
+  ];
+
+  /** True when `refreshToken` does not verify. */
+  const dead = (refreshToken: string) =>
+    Effect.result(auth.verifyRefreshToken(refreshToken)).pipe(
+      Effect.map((outcome) => outcome._tag === "Failure"),
+    );
+
+  const recordOf = (h: Held, refreshToken: string) =>
+    h.sqlite
+      .query("SELECT token_hash FROM rotated_sessions WHERE token_hash = ?")
+      .get(auth.hashSessionToken(refreshToken)) !== null;
+
+  const SESSIONS_DELETE = /^delete from "sessions"/;
+
+  for (const [index, site] of sites.entries()) {
+    it.live(`${site.name}: the caller's refresh that lands while the delete waits stays`, () => {
+      const h = held();
+      return Effect.gen(function* () {
+        const { profile, me, otherFirst, other } = yield* twoDevices(`wipea${index}`);
+        const run = yield* site.prepare(profile, h);
+
+        const wipe = h.hold(SESSIONS_DELETE);
+        const deleting = yield* Effect.forkChild(Effect.result(run(auth.hashSessionToken(me))));
+        yield* Effect.promise(() => wipe.reached);
+        const mine = yield* auth.refreshTokens(me);
+        wipe.release();
+
+        expect((yield* Fiber.join(deleting))._tag).toBe("Success");
+        expect(yield* dead(mine.refreshToken)).toBe(false);
+        expect(yield* dead(other)).toBe(true);
+        if (site.records) {
+          expect(recordOf(h, me)).toBe(true);
+          expect(recordOf(h, otherFirst)).toBe(false);
+        }
+      }).pipe(Effect.provide(h.layer));
+    });
+
+    it.live(`${site.name}: the caller's refresh held at its swap still completes`, () => {
+      const h = held();
+      return Effect.gen(function* () {
+        const { profile, me, other } = yield* twoDevices(`wipeb${index}`);
+        const run = yield* site.prepare(profile, h);
+
+        const swap = h.hold(SESSIONS_DELETE);
+        const refreshing = yield* Effect.forkChild(Effect.result(auth.refreshTokens(me)));
+        yield* Effect.promise(() => swap.reached);
+        yield* run(auth.hashSessionToken(me));
+        swap.release();
+
+        const outcome = yield* Fiber.join(refreshing);
+        expect(outcome._tag).toBe("Success");
+        if (outcome._tag === "Success") {
+          expect(yield* dead(outcome.success.refreshToken)).toBe(false);
+        }
+        expect(yield* dead(other)).toBe(true);
+      }).pipe(Effect.provide(h.layer));
+    });
+
+    it.live(`${site.name}: a hash rotated out past the window spares nothing`, () => {
+      const h = held();
+      return Effect.gen(function* () {
+        const { profile, me, other } = yield* twoDevices(`wipeg${index}`);
+        const run = yield* site.prepare(profile, h);
+        const rotated = yield* auth.refreshTokens(me);
+        h.sqlite
+          .query("UPDATE rotated_sessions SET rotated_at = ? WHERE token_hash = ?")
+          .run(Date.now() - CALLER_ROTATION_GRACE_MS - 1, auth.hashSessionToken(me));
+
+        yield* run(auth.hashSessionToken(me));
+
+        expect(yield* dead(rotated.refreshToken)).toBe(true);
+        expect(yield* dead(other)).toBe(true);
+      }).pipe(Effect.provide(h.layer));
+    });
+  }
 });

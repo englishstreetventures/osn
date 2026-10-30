@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import {
   accounts,
   appEnrollments,
@@ -20,7 +22,7 @@ import type { DeletionJob } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { commitBatch, jsonEachIn, rowsChanged } from "@shared/db-utils";
 import type { AppEnrollmentApp, DeletionFanoutService } from "@shared/observability/metrics";
-import { and, eq, gt, inArray, isNull, lte, ne, notExists, notInArray, or, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, lte, notExists, or, sql } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
 import { canBatch } from "../lib/batch";
@@ -35,6 +37,7 @@ import {
   withAccountDeletion,
 } from "../metrics";
 import { listActiveApps, leaveApp } from "./app-enrollments";
+import { outsideFamilyOf } from "./auth/sessions";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -119,6 +122,17 @@ export interface RequestErasureOutput {
 
 const newId = (prefix: string): string =>
   `${prefix}${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
+
+/**
+ * The id of the `account_deletion_cancelled` event for one deletion job, from
+ * the account and the job's `soft_deleted_at`: the same for every cancel of
+ * that job, so the table's key lets one of them record it. A job requested in
+ * the same second as an earlier one of the same account shares that id, and
+ * its cancel finds it taken and records nothing. The shape of every event id
+ * (`sev_` and 12 hex), which the acknowledge route requires.
+ */
+const cancelEventId = (accountId: string, softDeletedAt: number): string =>
+  `sev_${createHash("sha256").update(`${accountId}:${softDeletedAt}`).digest("hex").slice(0, 12)}`;
 
 /**
  * Soft-deletes the account: redacts identity fields, nukes credentials,
@@ -215,35 +229,37 @@ export const requestErasure = (
           db.delete(recoveryCodes).where(eq(recoveryCodes.accountId, accountId)),
           db.delete(totpCredentials).where(eq(totpCredentials.accountId, accountId)),
 
-          // 4. Revoke all sessions EXCEPT the cancellation handle. The
-          //    requesting session stays alive as the only path to cancel
-          //    during the 7-day grace window. Without a cancellation handle
-          //    the user must use a recovery-code login to cancel.
+          // 4. Revoke all sessions EXCEPT the cancellation handle's device
+          //    (its family, so a refresh of the handle in another tab does
+          //    not sign it out; see `outsideFamilyOf`). The requesting
+          //    session stays alive as the only path to cancel during the
+          //    7-day grace window. Without a cancellation handle the user must
+          //    use a recovery-code login to cancel.
           cancelSessionId
             ? db
                 .delete(sessions)
-                .where(and(eq(sessions.accountId, accountId), ne(sessions.id, cancelSessionId)))
+                .where(
+                  and(
+                    eq(sessions.accountId, accountId),
+                    outsideFamilyOf(db, sessions.familyId, cancelSessionId),
+                  ),
+                )
             : db.delete(sessions).where(eq(sessions.accountId, accountId)),
 
           //    And the rotation records of every family just revoked. The
           //    cancel handle's family keeps its own, so a replay of a token
           //    rotated out of that chain still revokes the handle: that is
           //    what reuse detection is for while the handle is the account's
-          //    only live session. Runs after the delete above, so the handle's
-          //    row is still there for the subquery to read its family from.
+          //    only live session. The family is found as the delete above
+          //    finds it, from the handle's row or, when the handle has just
+          //    been refreshed, from its own record.
           cancelSessionId
             ? db
                 .delete(rotatedSessions)
                 .where(
                   and(
                     eq(rotatedSessions.accountId, accountId),
-                    notInArray(
-                      rotatedSessions.familyId,
-                      db
-                        .select({ familyId: sessions.familyId })
-                        .from(sessions)
-                        .where(eq(sessions.id, cancelSessionId)),
-                    ),
+                    outsideFamilyOf(db, rotatedSessions.familyId, cancelSessionId),
                   ),
                 )
             : db.delete(rotatedSessions).where(eq(rotatedSessions.accountId, accountId)),
@@ -327,10 +343,14 @@ export const cancelErasure = (
       return { cancelled: false };
     }
 
-    // The job goes first, and only while no sweep has claimed it and the
-    // window is open. The restore and the audit event run only once it is
-    // gone, and the event only while the account row exists, so a refused
-    // cancel writes nothing.
+    // The job goes first: the job this request read (its `soft_deleted_at`),
+    // and only while no sweep has claimed it and the window is open. The
+    // restore and the audit event run only once no job stands, and the event
+    // only while the account row exists. The event's id is the job's own, so a
+    // job's cancellation is recorded once: a second cancel of the same job
+    // finds the id taken and writes nothing. So a refused cancel writes
+    // nothing, whether a sweep, another cancel or a new request came first.
+    const { softDeletedAt } = existing[0];
     const jobGone = notExists(
       db
         .select({ one: sql`1` })
@@ -342,6 +362,7 @@ export const cancelErasure = (
       .where(
         and(
           eq(deletionJobs.accountId, accountId),
+          eq(deletionJobs.softDeletedAt, softDeletedAt),
           isNull(deletionJobs.purgeStartedAt),
           gt(deletionJobs.hardDeleteAt, now),
         ),
@@ -350,18 +371,21 @@ export const cancelErasure = (
       .update(accounts)
       .set({ deletedAt: null })
       .where(and(eq(accounts.id, accountId), jobGone));
-    const audit = db.insert(securityEvents).select(
-      db
-        .select({
-          id: bound(newId("sev_"), securityEvents.id),
-          accountId: bound(accountId, securityEvents.accountId),
-          kind: bound("account_deletion_cancelled", securityEvents.kind),
-          createdAt: bound(now, securityEvents.createdAt),
-          acknowledgedAt: bound(null, securityEvents.acknowledgedAt),
-        })
-        .from(accounts)
-        .where(and(eq(accounts.id, accountId), jobGone)),
-    );
+    const audit = db
+      .insert(securityEvents)
+      .select(
+        db
+          .select({
+            id: bound(cancelEventId(accountId, softDeletedAt), securityEvents.id),
+            accountId: bound(accountId, securityEvents.accountId),
+            kind: bound("account_deletion_cancelled", securityEvents.kind),
+            createdAt: bound(now, securityEvents.createdAt),
+            acknowledgedAt: bound(null, securityEvents.acknowledgedAt),
+          })
+          .from(accounts)
+          .where(and(eq(accounts.id, accountId), jobGone)),
+      )
+      .onConflictDoNothing({ target: securityEvents.id });
     const released = yield* Effect.tryPromise({
       // One batch on D1; one statement at a time on bun:sqlite.
       try: async () => {

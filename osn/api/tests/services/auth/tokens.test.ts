@@ -2,7 +2,7 @@ import { it, expect, describe } from "@effect/vitest";
 import { rotatedSessions, sessions } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { and, eq, lte } from "drizzle-orm";
-import { Effect, Fiber, Layer } from "effect";
+import { Effect, Fiber, Layer, Logger } from "effect";
 import { TestClock } from "effect/testing";
 import { afterEach, beforeAll, vi } from "vitest";
 
@@ -160,6 +160,51 @@ describe("refreshTokens: a replayed rotated-out token", () => {
       const left = yield* Effect.promise(() => db.select().from(rotatedSessions));
       expect(left.map((r) => r.tokenHash)).toEqual([hashSessionToken(b0)]);
     }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("counts a family revoke, and warns, only when the revoke removed a session", () => {
+    const { layer, db } = createTestLayerWithSqlite();
+    const reuse = vi.spyOn(metrics, "metricSessionReuseDetected");
+    const revoked = vi.spyOn(metrics, "metricSessionFamilyRevoked");
+    const lines: { level: string; message: unknown }[] = [];
+    const logged = Logger.layer([
+      Logger.map(Logger.formatStructured, (line) => {
+        lines.push(line);
+      }),
+    ]);
+    const warnings = () =>
+      lines.filter(
+        (line) =>
+          line.level === "WARN" && String(line.message).includes("Session token reuse detected"),
+      );
+    return Effect.gen(function* () {
+      const { profile, refreshToken: t0 } = yield* signIn("reuse-gone@example.com", "reusegone");
+      const t1 = (yield* auth.refreshTokens(t0)).refreshToken;
+      // Revoked by handle: the family's sessions go, its records stay.
+      yield* auth.revokeAccountSession(profile.accountId, hashSessionToken(t1).slice(0, 16), null);
+      const u0 = (yield* auth.issueTokens(
+        profile.id,
+        profile.accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      )).refreshToken;
+      const u1 = (yield* auth.refreshTokens(u0)).refreshToken;
+      yield* Effect.promise(() =>
+        db.update(rotatedSessions).set({ rotatedAt: Date.now() - ROTATION_GRACE_MS - 1 }),
+      );
+
+      yield* Effect.flip(auth.refreshTokens(t0));
+      expect(reuse).toHaveBeenCalledTimes(1);
+      expect(revoked).not.toHaveBeenCalled();
+      expect(warnings()).toEqual([]);
+
+      yield* Effect.flip(auth.refreshTokens(u0));
+      expect(reuse).toHaveBeenCalledTimes(2);
+      expect(revoked).toHaveBeenCalledTimes(1);
+      expect(warnings()).toHaveLength(1);
+      expect((yield* Effect.flip(auth.verifyRefreshToken(u1)))._tag).toBe("AuthError");
+    }).pipe(Effect.provide(layer), Effect.provide(logged));
   });
 
   it.effect("is not reuse once its record has expired", () => {

@@ -134,6 +134,23 @@ export const RECOVERY_SESSION_TTL_SEC = 900; // 15 min
  */
 export const ROTATION_GRACE_MS = 10_000;
 /**
+ * How long after its rotation a rotated-out session hash still names the
+ * caller's device, for the account-wide deletes that spare the caller (sign
+ * out everywhere else, passkey add and delete, email change, erasure). Those
+ * read the caller's hash from the request, and a refresh of the same session
+ * in another tab can rotate it before the delete runs; the delete then keeps
+ * the family the hash was rotated out of. Past this window the hash spares
+ * nothing.
+ *
+ * Kept short for the same reason as {@link ROTATION_GRACE_MS}, with a different
+ * cost: the one who rotated may be a thief holding a copy of the caller's
+ * token, and a thief who rotated inside the window keeps that session through
+ * the caller's delete, until the caller's next refresh trips reuse detection.
+ * Measured at the delete, so a request slower than this between reading its
+ * cookie and its delete signs its own device out.
+ */
+export const CALLER_ROTATION_GRACE_MS = 10_000;
+/**
  * Bounds on one `runRotatedSessionSweep` pass: chunks of this many expired
  * `rotated_sessions` rows, and by default at most this many chunks — 5 000
  * rows and 10 deletes a run, the Workers Free tier's share of its per-run D1

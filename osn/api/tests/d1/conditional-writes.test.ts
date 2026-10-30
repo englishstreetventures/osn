@@ -7,6 +7,7 @@ import {
   deletionJobs,
   emailChanges,
   organisationMembers,
+  securityEvents,
   sessions,
 } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
@@ -318,5 +319,27 @@ describe("erasure cancel and purge on D1", () => {
     expect(purgesOf(accountId)).toBe(0);
     expect(await deletedAt(accountId)).toBeNull();
     expect(await job(accountId)).toBeUndefined();
+  });
+
+  it("of two cancels of one job, the second's batch writes nothing", async () => {
+    const { accountId } = await scheduled("ced1twice");
+
+    const batch = hold(/^delete from "deletion_jobs"/);
+    const second = outcomeOf(cancelErasure(accountId));
+    await batch.reached;
+    expect(await run(cancelErasure(accountId))).toEqual({ cancelled: true });
+    batch.release();
+
+    expect(await second).toMatchObject({ _tag: "Success", success: { cancelled: false } });
+    const events = await db
+      .select({ id: securityEvents.id })
+      .from(securityEvents)
+      .where(
+        and(
+          eq(securityEvents.accountId, accountId),
+          eq(securityEvents.kind, "account_deletion_cancelled"),
+        ),
+      );
+    expect(events).toHaveLength(1);
   });
 });

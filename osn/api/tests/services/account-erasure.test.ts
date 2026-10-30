@@ -813,4 +813,81 @@ describe("account-erasure: a cancel and a purge", () => {
       }).pipe(Effect.provide(h.layer));
     },
   );
+
+  /** The account's job as a request one second after this one would have written it. */
+  const asIfRequestedLater = (accountId: string) =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const job = (yield* jobRow(accountId))!;
+      yield* Effect.promise(() =>
+        db
+          .update(deletionJobs)
+          .set({ softDeletedAt: job.softDeletedAt + 1 })
+          .where(eq(deletionJobs.accountId, accountId)),
+      );
+    });
+
+  const EVENT_ID = /^sev_[a-f0-9]{12}$/;
+
+  it.live("of two cancels of one job, the second writes nothing", () => {
+    const h = held();
+    return Effect.gen(function* () {
+      const { accountId } = yield* scheduled("ce5", false);
+
+      const remove = h.hold(/^delete from "deletion_jobs"/);
+      const second = yield* Effect.forkChild(
+        Effect.result(accountErasure.cancelErasure(accountId)),
+      );
+      yield* Effect.promise(() => remove.reached);
+      expect(yield* accountErasure.cancelErasure(accountId)).toEqual({ cancelled: true });
+      remove.release();
+
+      expect(yield* Fiber.join(second)).toMatchObject({
+        _tag: "Success",
+        success: { cancelled: false },
+      });
+      const events = yield* cancelEvents(accountId);
+      expect(events).toHaveLength(1);
+      expect(events[0]!.id).toMatch(EVENT_ID);
+    }).pipe(Effect.provide(h.layer));
+  });
+
+  it.live("a cancel that read a job since cancelled and asked for again leaves the new one", () => {
+    const h = held();
+    return Effect.gen(function* () {
+      const { accountId } = yield* scheduled("ce6", false);
+
+      const remove = h.hold(/^delete from "deletion_jobs"/);
+      const stale = yield* Effect.forkChild(Effect.result(accountErasure.cancelErasure(accountId)));
+      yield* Effect.promise(() => remove.reached);
+      expect(yield* accountErasure.cancelErasure(accountId)).toEqual({ cancelled: true });
+      yield* accountErasure.requestErasure({ accountId, cancelSessionId: null });
+      yield* asIfRequestedLater(accountId);
+      remove.release();
+
+      expect(yield* Fiber.join(stale)).toMatchObject({
+        _tag: "Success",
+        success: { cancelled: false },
+      });
+      expect(yield* jobRow(accountId)).toBeDefined();
+      expect((yield* accountRow(accountId))?.deletedAt).not.toBeNull();
+      expect(yield* cancelEvents(accountId)).toHaveLength(1);
+    }).pipe(Effect.provide(h.layer));
+  });
+
+  it.live("each job's cancel writes its own event", () => {
+    const h = held();
+    return Effect.gen(function* () {
+      const { accountId } = yield* scheduled("ce7", false);
+      expect(yield* accountErasure.cancelErasure(accountId)).toEqual({ cancelled: true });
+      yield* accountErasure.requestErasure({ accountId, cancelSessionId: null });
+      yield* asIfRequestedLater(accountId);
+      expect(yield* accountErasure.cancelErasure(accountId)).toEqual({ cancelled: true });
+
+      const ids = (yield* cancelEvents(accountId)).map((event) => event.id);
+      expect(ids).toHaveLength(2);
+      expect(new Set(ids).size).toBe(2);
+      for (const id of ids) expect(id).toMatch(EVENT_ID);
+    }).pipe(Effect.provide(h.layer));
+  });
 });

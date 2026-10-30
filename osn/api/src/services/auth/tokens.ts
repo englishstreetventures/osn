@@ -743,27 +743,34 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
       // Replayed rotated-out token outside the grace window — revoke the
       // family's sessions and, with them, its rotation records: once the
       // family is gone a further replay from the same chain has nothing left
-      // to revoke.
+      // to revoke. The revoke is counted, and warned of, only when it removed
+      // a session: a family already revoked (by handle, say) leaves records
+      // that a stale replay still finds.
       const { accountId, familyId } = record;
       metricSessionReuseDetected();
-      yield* Effect.logWarning("Session token reuse detected — revoking family");
-      yield* Effect.tryPromise({
-        try: () =>
-          commitBatch(db, [
-            db.delete(sessions).where(eq(sessions.familyId, familyId)),
-            // Led by `account_id` so it searches `rotated_sessions_account_family_idx`.
-            db
-              .delete(rotatedSessions)
-              .where(
-                and(
-                  eq(rotatedSessions.accountId, accountId),
-                  eq(rotatedSessions.familyId, familyId),
-                ),
-              ),
-          ]),
+      const removeSessions = db.delete(sessions).where(eq(sessions.familyId, familyId));
+      // Led by `account_id` so it searches `rotated_sessions_account_family_idx`.
+      const removeRecords = db
+        .delete(rotatedSessions)
+        .where(
+          and(eq(rotatedSessions.accountId, accountId), eq(rotatedSessions.familyId, familyId)),
+        );
+      const removed = yield* Effect.tryPromise({
+        // One batch on D1; one statement at a time on bun:sqlite.
+        try: async () => {
+          const [result] = canBatch(db)
+            ? await db.batch([removeSessions, removeRecords])
+            : ([await removeSessions, await removeRecords] as const);
+          return rowsChanged(result);
+        },
         catch: (cause) => new DatabaseError({ cause }),
       });
-      metricSessionFamilyRevoked();
+      if (removed > 0) {
+        metricSessionFamilyRevoked();
+        yield* Effect.logWarning("Session token reuse detected — family revoked");
+      } else {
+        yield* Effect.logInfo("Session token reuse detected — no session of the family was left");
+      }
     }).pipe(Effect.withSpan("auth.session.reuse_detect"));
 
   /**
