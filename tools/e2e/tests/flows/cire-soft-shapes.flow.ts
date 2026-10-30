@@ -445,7 +445,7 @@ test("cire-soft-shapes", async ({ page, context, flow }) => {
       .click();
     await expect(demoField.first()).toBeVisible();
   });
-  await demoPair(flow, demo);
+  await demoPair(flow, landing, demo);
   flow.check(
     "landing at 390: the demo sheet holds its contents",
     true,

@@ -15,7 +15,7 @@
  *   the sheet's close × is a 44px filled disc, both answers stand at the
  *   guest site's 44px floor, and only the chosen one wears a ring, 2px wide;
  * - the marketing site's demo sheet on a phone, with Attending chosen: the
- *   same pair, the same ring.
+ *   same pair, the same ring, stacked inside the sheet on a 320px phone.
  */
 
 import { mkdirSync } from "node:fs";
@@ -29,6 +29,7 @@ import { expect, type Flow } from "./fixtures";
 const SHOTS = resolve(SCREENSHOT_DIR, "cire-buttons");
 const PHONE = { width: 390, height: 844 } as const;
 const DESKTOP = { width: 1440, height: 900 } as const;
+const NARROW = { width: 320, height: 568 } as const;
 const CLEAR = "rgba(0, 0, 0, 0)";
 
 /**
@@ -86,6 +87,9 @@ export async function replyKey(flow: Flow, page: Page): Promise<void> {
   const key = page.getByRole("button", { name: "What the reply icons mean" });
   await page.setViewportSize(DESKTOP);
   await page.emulateMedia({ colorScheme: "light" });
+  // The portal puts the scheme it resolved on `data-theme`; both fills are
+  // read in light, so the lift is the popover's and not a theme change.
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
   const shut = await painted(key);
   flow.check("buttons: the reply key's box", "28x28", shut.size);
   flow.check(
@@ -170,6 +174,24 @@ export async function guestSheet(
 }
 
 /** The marketing site's demo sheet on a phone, with Attending chosen for its first guest. */
-export async function demoPair(flow: Flow, demo: Locator): Promise<void> {
+export async function demoPair(flow: Flow, landing: Page, demo: Locator): Promise<void> {
   await pair(flow, "the demo", demo);
+  // On a 320px phone the demo's pair stacks inside its sheet, as the guest
+  // sheet's does, rather than running "Not attending" out of it.
+  await landing.setViewportSize(NARROW);
+  const attending = demo.getByRole("button", { name: "Attending", exact: true }).first();
+  const declined = demo.getByRole("button", { name: "Not attending", exact: true }).first();
+  await expect(declined).toBeVisible();
+  const [above, below] = await Promise.all([attending.boundingBox(), declined.boundingBox()]);
+  flow.check(
+    "buttons: the demo's pair stacks on a 320px phone",
+    true,
+    above !== null && below !== null && below.y >= above.y + above.height,
+  );
+  flow.check(
+    "buttons: the demo's sheet holds its pair on a 320px phone",
+    true,
+    await demo.evaluate((el) => el.scrollWidth <= el.clientWidth),
+  );
+  await landing.setViewportSize(PHONE);
 }

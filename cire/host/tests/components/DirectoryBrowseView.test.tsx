@@ -132,6 +132,9 @@ describe("DirectoryBrowseView", () => {
     ["a website alone", "https://acme.example", null, ["Website"]],
     ["an Instagram handle alone", null, "acme.venue", ["Instagram"]],
     ["neither", null, null, []],
+    // A vendor writes these, so an address that is not http(s) and a handle
+    // with characters a handle cannot have are refused, not linked.
+    ["a refused website and handle", "javascript:alert(1)", "acme venue!", []],
   ])("links %s as pills that open a new tab and say so", async (_l, website, instagram, words) => {
     authFetch.mockResolvedValueOnce(
       json({ listings: [listing({ website, instagram })], total: 1 }),

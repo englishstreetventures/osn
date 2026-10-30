@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { proseLinkClass } from "@cire/ui/button";
 import { cleanup, render, screen, waitFor } from "@solidjs/testing-library";
 import "@testing-library/jest-dom/vitest";
 import type { JSX } from "solid-js";
@@ -129,10 +130,11 @@ describe("ClaimApp", () => {
     await waitFor(() =>
       expect(screen.getByText(/already has a directory listing/i)).toBeInTheDocument(),
     );
-    expect(screen.getByRole("link", { name: /edit test org's listing/i })).toHaveAttribute(
-      "href",
-      "/#/orgs/org1",
-    );
+    const edit = screen.getByRole("link", { name: /edit test org's listing/i });
+    expect(edit).toHaveAttribute("href", "/#/orgs/org1");
+    // The readable-gold prose link `notice-link.browser.test.tsx` holds at
+    // 4.5:1 on the warning's tint, not the warning's own ink.
+    expect(edit.className).toBe(proseLinkClass());
     // Not the dead-link message, and the token is still parked for a retry.
     expect(screen.queryByText(/no longer valid/i)).not.toBeInTheDocument();
     expect(sessionStorage.getItem("cire.vendor.claim-token")).toBe("valid-token");
