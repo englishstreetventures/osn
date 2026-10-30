@@ -15,7 +15,9 @@
  *   the sheet's close × is a 44px filled disc, both answers stand at the
  *   guest site's 44px floor, and only the chosen one wears a ring, 2px wide;
  * - the marketing site's demo sheet on a phone, with Attending chosen: the
- *   same pair, the same ring, stacked inside the sheet on a 320px phone.
+ *   same pair, the same ring, its chosen word and an unchosen word under the
+ *   pointer both at 4.5:1 or more on the sheet, stacked inside the sheet on a
+ *   320px phone.
  */
 
 import { mkdirSync } from "node:fs";
@@ -54,6 +56,47 @@ function painted(target: Locator) {
       ring: spread ? Number.parseFloat(spread) : 0,
       underline: style.textDecorationLine,
     };
+  });
+}
+
+/** WCAG 2's minimum contrast for body text. */
+const TEXT_MIN = 4.5;
+
+/**
+ * The contrast of `target`'s words against what is painted under them, once
+ * its transitions have finished: every background from the document down to
+ * its own, translucent ones included, laid on a 1px canvas, then its ink laid
+ * over that, and the WCAG 2 ratio of the two.
+ */
+function inkRatio(target: Locator): Promise<number> {
+  return target.evaluate(async (el) => {
+    await Promise.all(el.getAnimations().map((a) => a.finished));
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 1;
+    const ctx = canvas.getContext("2d")!;
+    const paint = (layers: readonly string[]) => {
+      for (const layer of layers) {
+        ctx.fillStyle = layer;
+        ctx.fillRect(0, 0, 1, 1);
+      }
+      const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+      return [r!, g!, b!] as const;
+    };
+    const layers: string[] = [];
+    for (let node: Element | null = el; node; node = node.parentElement) {
+      layers.unshift(getComputedStyle(node).backgroundColor);
+    }
+    const ground = paint(["#fff", ...layers]);
+    const ink = paint([`rgb(${ground.join(",")})`, getComputedStyle(el).color]);
+    const luminance = (rgb: readonly number[]) => {
+      const [r, g, b] = rgb.map((v) => {
+        const c = v / 255;
+        return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
+    };
+    const [hi, lo] = [luminance(ground), luminance(ink)].toSorted((a, b) => b - a);
+    return (hi! + 0.05) / (lo! + 0.05);
   });
 }
 
@@ -176,6 +219,30 @@ export async function guestSheet(
 /** The marketing site's demo sheet on a phone, with Attending chosen for its first guest. */
 export async function demoPair(flow: Flow, landing: Page, demo: Locator): Promise<void> {
   await pair(flow, "the demo", demo);
+  // The marketing site maps the readable gold to the metal gold, and an
+  // unchosen answer under the pointer mixes it halfway with the muted ink, so
+  // both words are read where the demo paints them.
+  const chosen = demo.getByRole("button", { name: "Attending", exact: true }).first();
+  const other = demo.getByRole("button", { name: "Not attending", exact: true }).first();
+  flow.check(
+    `buttons: the demo's chosen Attending reads at ${TEXT_MIN}:1 or more`,
+    true,
+    (await inkRatio(chosen)) >= TEXT_MIN,
+  );
+  const rest = await other.evaluate((el) => getComputedStyle(el).color);
+  await other.hover();
+  const hovered = await inkRatio(other);
+  flow.check(
+    "buttons: the demo's Not attending changes its ink under the pointer",
+    true,
+    await other.evaluate((el, before) => getComputedStyle(el).color !== before, rest),
+  );
+  flow.check(
+    `buttons: the demo's Not attending under the pointer reads at ${TEXT_MIN}:1 or more`,
+    true,
+    hovered >= TEXT_MIN,
+  );
+  await landing.mouse.move(0, 0);
   // On a 320px phone the demo's pair stacks inside its sheet, as the guest
   // sheet's does, rather than running "Not attending" out of it.
   await landing.setViewportSize(NARROW);
