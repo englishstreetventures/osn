@@ -108,6 +108,9 @@ const Switch: Component<SwitchProps> = (props) => {
           local.onChange?.(next);
         }}
       />
+      {/* A contrast theme repaints both the track and the thumb in the ground's
+          system colour, so there the thumb keeps the theme's text colour (its
+          `currentColor`) and its place still says on or off. */}
       <span
         aria-hidden="true"
         data-checked={flag(local.checked)}
@@ -117,7 +120,7 @@ const Switch: Component<SwitchProps> = (props) => {
       >
         <span
           data-checked={flag(local.checked)}
-          class="base:bg-ui-ink-secondary base:data-[checked]:bg-ui-on-accent base:h-3.5 base:w-3.5 base:rounded-full base:transition-transform base:data-[checked]:translate-x-4 base:motion-reduce:transition-none"
+          class="base:bg-ui-ink-secondary base:data-[checked]:bg-ui-on-accent base:h-3.5 base:w-3.5 base:rounded-full base:transition-transform base:data-[checked]:translate-x-4 base:motion-reduce:transition-none base:forced-colors:forced-color-adjust-none base:forced-colors:bg-current base:forced-colors:data-[checked]:bg-current"
         />
       </span>
       <span
