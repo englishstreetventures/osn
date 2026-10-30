@@ -7,7 +7,7 @@ import "../../src/styles/global.css";
 /**
  * The signed-in dashboard's corners, read from a real engine: an action button
  * is a pill, a form field is 34px with the 14px `field` corner and never a pill,
- * the editor is a 16px card, a status chip is a pill and a checkbox is the 6px
+ * the editor is a 16px card, a status chip is a pill and a checkbox is the native
  * small step.
  *
  * All five come from the vendor stylesheet's role map (`--ui-radius-control`,
@@ -138,11 +138,20 @@ describe("the vendor dashboard's corners", () => {
         // The editor is a card on the page.
         expect(corner(form.parentElement!)).toBe("16px");
 
-        // A status chip is a pill; a checkbox is the small step.
+        // A status chip is a pill; a checkbox is the browser's own box, drawn
+        // unticked at its 13px with a 2px corner (host DESIGN.md §4).
         expectPill(screen.getByText(LISTING.listed));
-        // The box drawn is the span after the visually hidden input.
-        const venue = within(form).getByRole("checkbox", { name: "Venue" });
-        expect(corner(venue.nextElementSibling!)).toBe("6px");
+        const boxes = within(form).getAllByRole("checkbox") as HTMLInputElement[];
+        const drawn = boxes.map((b) => {
+          const r = b.getBoundingClientRect();
+          const s = getComputedStyle(b);
+          return b.checked
+            ? `${r.width}x${r.height} ${s.appearance}`
+            : `${r.width}x${r.height} ${s.appearance} ${corner(b)}`;
+        });
+        expect(new Set(drawn)).toEqual(
+          new Set(boxes.map((b) => (b.checked ? "13x13 auto" : "13x13 none 2px"))),
+        );
 
         // The whole page in one picture: as tall as the document, at the
         // viewport's width, which is what decides the layout.

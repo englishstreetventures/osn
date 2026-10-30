@@ -3,14 +3,15 @@ import { cardClass } from "@cire/ui/card";
 import Eyebrow from "@cire/ui/eyebrow";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
+import { Checkbox } from "@shared/ui/ui/checkbox";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
+import { RadioGroup, RadioGroupItem } from "@shared/ui/ui/radio-group";
 import { Textarea } from "@shared/ui/ui/textarea";
 import { batch, createMemo, createSignal, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
-import { FORM_FIELD_CLASS } from "../lib/form-field";
 import { haptic } from "../lib/haptics";
 import {
   claimStripeCheck,
@@ -544,28 +545,20 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
               </Notice>
             </Show>
 
-            <div class="flex flex-wrap gap-4">
-              <label class="font-body text-text text-ui-base flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="registry-visibility"
-                  checked={!published()}
-                  onChange={() => setPublished(false)}
-                />
-                Draft — only you can see it
-              </label>
-              <label class="font-body text-text text-ui-base flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="registry-visibility"
-                  data-testid="registry-publish"
-                  checked={published()}
-                  disabled={!canPublish() && !published()}
-                  onChange={() => setPublished(true)}
-                />
-                Published — guests with a code can see it
-              </label>
-            </div>
+            <RadioGroup
+              box="native"
+              name="registry-visibility"
+              value={published() ? "published" : "draft"}
+              onChange={(value) => setPublished(value === "published")}
+              aria-label="Visibility"
+            >
+              <RadioGroupItem value="draft" label="Draft — only you can see it" />
+              <RadioGroupItem
+                value="published"
+                label="Published — guests with a code can see it"
+                disabled={!canPublish() && !published()}
+              />
+            </RadioGroup>
           </fieldset>
 
           {/* ── The couple's own words ─────────────────────────────────── */}
@@ -579,8 +572,8 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
             >
               {(field) => (
                 <Input
+                  size="form"
                   {...field}
-                  class={FORM_FIELD_CLASS}
                   value={headline()}
                   maxLength={120}
                   autocomplete="off"
@@ -629,8 +622,8 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
             >
               {(field) => (
                 <Input
+                  size="form"
                   {...field}
-                  class={FORM_FIELD_CLASS}
                   type="date"
                   value={shippingVisibleFrom()}
                   onInput={(event) => setShippingVisibleFrom(event.currentTarget.value)}
@@ -708,24 +701,20 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
               </p>
             </Show>
 
-            <label class="font-body text-text text-ui-base mt-1 flex items-start gap-2">
-              <input
-                type="checkbox"
-                data-testid="cash-gifts"
-                class="mt-1"
-                checked={cashGifts()}
-                disabled={cashGiftsLocked()}
-                onChange={(event) => setCashGifts(event.currentTarget.checked)}
-              />
-              <span>
-                Let guests give money
+            <Checkbox
+              box="native"
+              align="start"
+              class="mt-1"
+              checked={cashGifts()}
+              disabled={cashGiftsLocked()}
+              onChange={setCashGifts}
+              label="Let guests give money"
+              description={
                 <Show when={stripeState() !== "ready"}>
-                  <span class="text-text-muted text-ui-sm block">
-                    Available once Stripe can take payments.
-                  </span>
+                  Available once Stripe can take payments.
                 </Show>
-              </span>
-            </label>
+              }
+            />
           </fieldset>
 
           <Show when={props.canEdit}>

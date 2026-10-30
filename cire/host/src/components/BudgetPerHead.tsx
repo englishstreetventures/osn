@@ -1,12 +1,13 @@
 import Button from "@cire/ui/button";
 import Eyebrow from "@cire/ui/eyebrow";
+import { Checkbox } from "@shared/ui/ui/checkbox";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
+import { RadioGroup, RadioGroupItem } from "@shared/ui/ui/radio-group";
 import { createSignal, createUniqueId, For, Show } from "solid-js";
 
 import type { BudgetEvent, BudgetItemRow } from "../lib/budget-store";
-import { FORM_FIELD_CLASS } from "../lib/form-field";
 import { belowSmallestUnitError, formatMinor, minorToInput, parseMinor } from "../lib/money";
 
 /** What a per-head save sends. `eventIds` is left out unless the organiser
@@ -101,6 +102,7 @@ export function PerHeadPanel(props: {
   const errorId = createUniqueId();
   const priceRefused = () => error()?.price === true;
   const scopeName = `per-head-scope-${props.item.id}`;
+  const legendId = createUniqueId();
 
   const chooseEvery = (every: boolean) => {
     setEveryEvent(every);
@@ -158,8 +160,7 @@ export function PerHeadPanel(props: {
             // otherwise the field's wiring stands.
             aria-describedby={priceRefused() ? errorId : undefined}
             aria-invalid={priceRefused() ? "true" : undefined}
-            size="sm"
-            class={FORM_FIELD_CLASS}
+            size="form-compact"
             type="number"
             min="0"
             step="any"
@@ -168,44 +169,44 @@ export function PerHeadPanel(props: {
           />
         )}
       </Field>
-      <fieldset class="flex flex-col gap-1 border-0 p-0">
-        <Eyebrow as="legend" tone="muted" class="mb-1">
+      {/* The radio group is the group, named by the label over it; the event
+          boxes that follow "Only these events" are its answer, not more
+          choices in it. */}
+      <div class="flex flex-col gap-2">
+        <Eyebrow id={legendId} tone="muted" class="mb-1">
           Count guests at
         </Eyebrow>
-        <label class="text-text text-ui-sm flex items-center gap-2">
-          <input
-            type="radio"
-            name={scopeName}
-            checked={everyEvent()}
-            onChange={() => chooseEvery(true)}
-          />
-          Every event
-        </label>
-        <label class="text-text text-ui-sm flex items-center gap-2">
-          <input
-            type="radio"
-            name={scopeName}
-            checked={!everyEvent()}
+        <RadioGroup
+          box="native"
+          size="sm"
+          orientation="vertical"
+          name={scopeName}
+          value={everyEvent() ? "every" : "these"}
+          onChange={(value) => chooseEvery(value === "every")}
+          aria-labelledby={legendId}
+        >
+          <RadioGroupItem value="every" label="Every event" />
+          <RadioGroupItem
+            value="these"
+            label="Only these events"
             disabled={props.events.length === 0}
-            onChange={() => chooseEvery(false)}
           />
-          Only these events
-        </label>
+        </RadioGroup>
         <Show when={!everyEvent()}>
           <For each={props.events}>
             {(ev) => (
-              <label class="text-text text-ui-sm ml-6 flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={picked().has(ev.id)}
-                  onChange={(e) => toggle(ev.id, e.currentTarget.checked)}
-                />
-                {ev.name}
-              </label>
+              <Checkbox
+                box="native"
+                size="sm"
+                class="ml-6"
+                checked={picked().has(ev.id)}
+                onChange={(next) => toggle(ev.id, next)}
+                label={ev.name}
+              />
             )}
           </For>
         </Show>
-      </fieldset>
+      </div>
       <p class="text-text-muted text-ui-xs max-w-prose">
         Until RSVPs close this counts every invited guest who has not declined, then only those who
         said yes. A guest at more than one of these events counts once. Withdrawn invites and your

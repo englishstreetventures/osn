@@ -1,6 +1,7 @@
 import { ORGANISER_EMAIL_ATTESTATION } from "@cire/guest-email";
 import Button from "@cire/ui/button";
 import Eyebrow from "@cire/ui/eyebrow";
+import { Checkbox } from "@shared/ui/ui/checkbox";
 import { Notice } from "@shared/ui/ui/notice";
 import { Table, Td, Th } from "@shared/ui/ui/table";
 import { createSignal, createUniqueId, For, Show } from "solid-js";
@@ -220,15 +221,14 @@ export function LinkedTasksChoice(props: {
             )}
           </For>
         </ul>
-        <label class="text-text text-ui-sm flex items-start gap-2">
-          <input
-            type="checkbox"
-            class="mt-0.5"
-            checked={props.remove}
-            onChange={(e) => props.onChange(e.currentTarget.checked)}
-          />
-          <span>{`Also remove ${count() === 1 ? "this task" : `these ${count()} ${noun()}`} from the checklist`}</span>
-        </label>
+        <Checkbox
+          box="native"
+          size="sm"
+          align="start"
+          checked={props.remove}
+          onChange={props.onChange}
+          label={`Also remove ${count() === 1 ? "this task" : `these ${count()} ${noun()}`} from the checklist`}
+        />
         <p class="text-text-muted text-ui-xs">
           Left unticked, they stay on the checklist at the time they had, marked "event removed".
           Reverting this change does not link them again or bring back any you remove.

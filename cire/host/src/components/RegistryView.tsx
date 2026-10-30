@@ -18,12 +18,13 @@ import { Chip } from "@shared/ui/ui/chip";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
+import { RadioGroup, RadioGroupItem } from "@shared/ui/ui/radio-group";
 import { Textarea } from "@shared/ui/ui/textarea";
-import { createMemo, createSignal, For, onMount, Show, untrack } from "solid-js";
+import { createMemo, createSignal, createUniqueId, For, onMount, Show, untrack } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { downloadBlob } from "../lib/download";
-import { FIELD_BAR_CLASS, FORM_FIELD_CLASS } from "../lib/form-field";
+import { FIELD_BAR_CLASS } from "../lib/form-field";
 import { haptic } from "../lib/haptics";
 import {
   belowSmallestUnitError,
@@ -188,6 +189,7 @@ export default function RegistryView(props: RegistryViewProps) {
   // Add-item form state. `newKind` picks a gift to reserve or a cash fund; each
   // shows only its own fields, and the body carries only those.
   const [newKind, setNewKind] = createSignal<RegistryItem["kind"]>("product");
+  const kindLegendId = createUniqueId();
   const [newTarget, setNewTarget] = createSignal("");
   const [newDescription, setNewDescription] = createSignal("");
   const [newTitle, setNewTitle] = createSignal("");
@@ -862,29 +864,22 @@ export default function RegistryView(props: RegistryViewProps) {
             {/* A gift is a thing a household reserves; a cash fund is a named
                 purpose guests give money to. Each kind shows only its own
                 fields, so nothing typed here can belong to the other. */}
-            <fieldset class="flex w-full flex-wrap gap-x-5 gap-y-1 border-0 p-0">
-              <Eyebrow as="legend" tone="muted" class="mb-1">
+            <div class="flex w-full flex-col gap-1">
+              <Eyebrow id={kindLegendId} tone="muted" class="mb-1">
                 Add
               </Eyebrow>
-              <label class="text-text text-ui-sm flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="registry-new-kind"
-                  checked={newKind() === "product"}
-                  onChange={() => setNewKind("product")}
-                />
-                A gift to reserve
-              </label>
-              <label class="text-text text-ui-sm flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="registry-new-kind"
-                  checked={newKind() === "cash_fund"}
-                  onChange={() => setNewKind("cash_fund")}
-                />
-                A cash fund
-              </label>
-            </fieldset>
+              <RadioGroup
+                box="native"
+                size="sm"
+                name="registry-new-kind"
+                value={newKind()}
+                onChange={(value) => setNewKind(value === "cash_fund" ? "cash_fund" : "product")}
+                aria-labelledby={kindLegendId}
+              >
+                <RadioGroupItem value="product" label="A gift to reserve" />
+                <RadioGroupItem value="cash_fund" label="A cash fund" />
+              </RadioGroup>
+            </div>
             <Show
               when={newKind() === "cash_fund"}
               fallback={
@@ -892,8 +887,8 @@ export default function RegistryView(props: RegistryViewProps) {
                   <Field label="Gift" class="min-w-48 flex-1">
                     {(field) => (
                       <Input
+                        size="form"
                         {...field}
-                        class={FORM_FIELD_CLASS}
                         value={newTitle()}
                         onInput={(e) => setNewTitle(e.currentTarget.value)}
                         placeholder="Copper pan, a good bottle of something…"
@@ -903,8 +898,8 @@ export default function RegistryView(props: RegistryViewProps) {
                   <Field label="Price (optional)" class="w-28">
                     {(field) => (
                       <Input
+                        size="form"
                         {...field}
-                        class={FORM_FIELD_CLASS}
                         type="number"
                         min="0"
                         // `any`, not `0.01`: how many decimals a price may carry is a
@@ -921,8 +916,8 @@ export default function RegistryView(props: RegistryViewProps) {
                   <Field label="How many" class="w-20">
                     {(field) => (
                       <Input
+                        size="form"
                         {...field}
-                        class={FORM_FIELD_CLASS}
                         type="number"
                         min={MIN_QUANTITY}
                         max={MAX_QUANTITY}
@@ -935,8 +930,8 @@ export default function RegistryView(props: RegistryViewProps) {
                   <Field label="Link (optional)" class="w-56">
                     {(field) => (
                       <Input
+                        size="form"
                         {...field}
-                        class={FORM_FIELD_CLASS}
                         type="url"
                         value={newUrl()}
                         onInput={(e) => setNewUrl(e.currentTarget.value)}
@@ -950,8 +945,8 @@ export default function RegistryView(props: RegistryViewProps) {
               <Field label="Fund" class="min-w-48 flex-1">
                 {(field) => (
                   <Input
+                    size="form"
                     {...field}
-                    class={FORM_FIELD_CLASS}
                     value={newTitle()}
                     onInput={(e) => setNewTitle(e.currentTarget.value)}
                     placeholder="Honeymoon, a house deposit…"
@@ -963,8 +958,8 @@ export default function RegistryView(props: RegistryViewProps) {
               <Field label="Goal (optional)" class="w-32">
                 {(field) => (
                   <Input
+                    size="form"
                     {...field}
-                    class={FORM_FIELD_CLASS}
                     type="number"
                     min="0"
                     // `any`, for the same reason as the price: the currency
@@ -1146,8 +1141,7 @@ export default function RegistryView(props: RegistryViewProps) {
                                     {(field) => (
                                       <Input
                                         {...field}
-                                        size="sm"
-                                        class={FORM_FIELD_CLASS}
+                                        size="form-compact"
                                         value={editTitle()}
                                         onInput={(e) => setEditTitle(e.currentTarget.value)}
                                       />
@@ -1159,8 +1153,7 @@ export default function RegistryView(props: RegistryViewProps) {
                                       {(field) => (
                                         <Input
                                           {...field}
-                                          size="sm"
-                                          class={FORM_FIELD_CLASS}
+                                          size="form-compact"
                                           type="number"
                                           min="0"
                                           step="any"
@@ -1175,8 +1168,7 @@ export default function RegistryView(props: RegistryViewProps) {
                                       {(field) => (
                                         <Input
                                           {...field}
-                                          size="sm"
-                                          class={FORM_FIELD_CLASS}
+                                          size="form-compact"
                                           type="number"
                                           min="0"
                                           step="any"
@@ -1189,8 +1181,7 @@ export default function RegistryView(props: RegistryViewProps) {
                                       {(field) => (
                                         <Input
                                           {...field}
-                                          size="sm"
-                                          class={FORM_FIELD_CLASS}
+                                          size="form-compact"
                                           type="number"
                                           min={MIN_QUANTITY}
                                           max={MAX_QUANTITY}
@@ -1204,8 +1195,7 @@ export default function RegistryView(props: RegistryViewProps) {
                                       {(field) => (
                                         <Input
                                           {...field}
-                                          size="sm"
-                                          class={FORM_FIELD_CLASS}
+                                          size="form-compact"
                                           value={editCategory()}
                                           onInput={(e) => setEditCategory(e.currentTarget.value)}
                                           placeholder="Kitchen"
@@ -1216,8 +1206,7 @@ export default function RegistryView(props: RegistryViewProps) {
                                       {(field) => (
                                         <Input
                                           {...field}
-                                          size="sm"
-                                          class={FORM_FIELD_CLASS}
+                                          size="form-compact"
                                           type="url"
                                           value={editUrl()}
                                           onInput={(e) => setEditUrl(e.currentTarget.value)}

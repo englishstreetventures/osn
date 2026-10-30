@@ -8,6 +8,7 @@ import DietaryPresetsInline from "@cire/ui/dietary-presets";
 import DietaryPresets from "@cire/ui/dietary-presets-popover";
 import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
+import { Checkbox } from "@shared/ui/ui/checkbox";
 import { EmptyState } from "@shared/ui/ui/empty-state";
 import { Field, Fieldset } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
@@ -47,7 +48,6 @@ import { createStore, reconcile } from "solid-js/store";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { downloadBlob } from "../lib/download";
-import { FILTER_FIELD_CLASS, FORM_FIELD_CLASS } from "../lib/form-field";
 import { haptic } from "../lib/haptics";
 import { CIRE_MARKETING_URL } from "../lib/osn";
 import { fetchRsvpChangeRows, markRsvpChangesSeen, newRowCheck } from "../lib/rsvp-changes";
@@ -877,7 +877,6 @@ export default function RsvpView(props: RsvpViewProps) {
         <Input
           {...field}
           size="sm"
-          class={FILTER_FIELD_CLASS}
           type="search"
           aria-controls={panelId}
           value={query()}
@@ -949,7 +948,7 @@ export default function RsvpView(props: RsvpViewProps) {
           {/* At the search box's height, so the two read as one bar. */}
           <Select
             size="sm"
-            class={`${FILTER_FIELD_CLASS} max-w-28 min-w-0`}
+            class="max-w-28 min-w-0"
             aria-label="Sort guests"
             value={sort() ? `${sort()!.key}:${sort()!.direction}` : ""}
             onChange={(e) =>
@@ -1378,8 +1377,8 @@ export default function RsvpView(props: RsvpViewProps) {
         <Field label="Status">
           {(field) => (
             <Select
+              size="form"
               {...field}
-              class={FORM_FIELD_CLASS}
               value={formStatus()}
               onChange={(e) => setFormStatus(e.currentTarget.value as RsvpStatus)}
               disabled={saving()}
@@ -1457,39 +1456,38 @@ export default function RsvpView(props: RsvpViewProps) {
             dietaryEdited(target) && (formDietary().trim().length > 0 || formPresets().length > 0)
           }
         >
-          <div class="flex flex-col gap-1.5">
-            <label class="font-body text-text-muted text-ui-sm leading-ui-normal flex items-start gap-2.5 normal-case">
-              <input
-                type="checkbox"
-                class="mt-0.5 h-4 w-4 shrink-0 cursor-pointer"
-                checked={formConsent()}
-                onChange={(e) => setFormConsent(e.currentTarget.checked)}
-                disabled={saving()}
-                aria-describedby={consentRefused() ? errorId : undefined}
-                aria-invalid={consentRefused() ? "true" : undefined}
-              />
-              <span>{attestationFor(target).text}</span>
-            </label>
-            {/* A plus-one may never see the invite or the notice it links, so
-                the organiser recording their answer is asked to pass on the
-                privacy page the line names, which leads to the guests'
-                notice. Outside the label, so it is no part of what the box
-                attests or of its accessible name; a new tab, so the form
-                keeps what was typed. */}
-            <Show when={target.plusOne}>
-              <p class="font-body text-text-muted text-ui-sm leading-ui-normal pl-6.5">
-                Share our privacy notice with them:{" "}
-                <a
-                  href={`${CIRE_MARKETING_URL}/privacy`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class={proseLinkClass()}
-                >
-                  cireweddings.com/privacy<span class="sr-only"> (opens in a new tab)</span>
-                </a>
-              </p>
-            </Show>
-          </div>
+          {/* A plus-one may never see the invite or the notice it links, so
+              the organiser recording their answer is asked to pass on the
+              privacy page the line names, which leads to the guests' notice.
+              It is the box's note: outside the label, so it is no part of what
+              the box attests or of its accessible name; a new tab, so the form
+              keeps what was typed. */}
+          <Checkbox
+            box="native"
+            size="sm"
+            align="start"
+            checked={formConsent()}
+            onChange={setFormConsent}
+            disabled={saving()}
+            aria-describedby={consentRefused() ? errorId : undefined}
+            aria-invalid={consentRefused() ? "true" : undefined}
+            label={attestationFor(target).text}
+            note={
+              <Show when={target.plusOne}>
+                <p class="font-body text-text-muted text-ui-sm leading-ui-normal">
+                  Share our privacy notice with them:{" "}
+                  <a
+                    href={`${CIRE_MARKETING_URL}/privacy`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class={proseLinkClass()}
+                  >
+                    cireweddings.com/privacy<span class="sr-only"> (opens in a new tab)</span>
+                  </a>
+                </p>
+              </Show>
+            }
+          />
         </Show>
 
         <Show when={formError()}>
