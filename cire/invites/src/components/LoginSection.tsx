@@ -614,7 +614,7 @@ export function LoginSection(props: LoginSectionProps) {
       <div ref={props.welcomeRef} style={{ display: showWelcome() ? "" : "none" }}>
         <Show when={props.result?.preview}>
           <div class={`mb-6 ${layout().measure}`} role="status">
-            <Notice size="sm" tone="accent">
+            <Notice size="sm" tone="accent" fill="none">
               Preview mode. Every event is shown; try the RSVP, nothing you send is saved.
             </Notice>
           </div>

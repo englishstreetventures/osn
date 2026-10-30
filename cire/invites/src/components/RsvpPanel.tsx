@@ -747,7 +747,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
           // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- not `<output>`: that element is form-associated, and this is a notice about the wedding, not the result of anything the guest did.
           role="status"
         >
-          <Notice size="sm" tone="accent">
+          <Notice size="sm" tone="accent" fill="none">
             Preview — try the RSVP as a guest would. Nothing you send here is saved.
           </Notice>
         </div>
