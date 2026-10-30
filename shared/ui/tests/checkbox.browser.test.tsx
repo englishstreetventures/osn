@@ -329,6 +329,38 @@ describe("Checkbox, drawn (pulse's box, which must not move)", () => {
       words.getBoundingClientRect().left - drawnBoxOf("Florals").getBoundingClientRect().right,
     ).toBe(8);
   });
+
+  it("sets a label that wraps, with align start, at prose leading, on a first line the box fits", () => {
+    // `leading-none` beside a centred box is pulse's one-line look; a label set
+    // to wrap reads its second line at prose leading, and the slot that centres
+    // the 16px box on the first line is that line's height.
+    render(() => (
+      <div style={{ width: "160px", "line-height": "1" }}>
+        {(["sm", "md"] as const).map((size) => (
+          <Checkbox
+            checked={false}
+            size={size}
+            align="start"
+            label={`Also remove these three tasks from the checklist, ${size}`}
+          />
+        ))}
+      </div>
+    ));
+    for (const size of ["sm", "md"]) {
+      const name = `Also remove these three tasks from the checklist, ${size}`;
+      const words = screen.getByText(name);
+      const s = getComputedStyle(words);
+      expect({ size, ratio: parseFloat(s.lineHeight) / parseFloat(s.fontSize) > 1 }).toEqual({
+        size,
+        ratio: true,
+      });
+      const slot = drawnBoxOf(name).parentElement as HTMLElement;
+      expect({ size, fits: slot.getBoundingClientRect().height >= 16 }).toEqual({
+        size,
+        fits: true,
+      });
+    }
+  });
 });
 
 describe("Checkbox, native (cire's box)", () => {

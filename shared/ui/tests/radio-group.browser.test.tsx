@@ -141,6 +141,25 @@ describe("RadioGroup, drawn (pulse's circle, which must not move)", () => {
     expect(getComputedStyle(screen.getByRole("radiogroup")).rowGap).toBe("8px");
     expect(getComputedStyle(circleOf("SMS")).opacity).toBe("0.5");
   });
+
+  it("sets a label that wraps, with align start, at prose leading, on a first line the circle fits", () => {
+    render(() => (
+      <div style={{ width: "160px", "line-height": "1" }}>
+        <RadioGroup size="sm" value="" aria-label="Scope">
+          <RadioGroupItem
+            value="a"
+            align="start"
+            label="Only the events this guest is invited to"
+          />
+        </RadioGroup>
+      </div>
+    ));
+    const words = screen.getByText("Only the events this guest is invited to");
+    const s = getComputedStyle(words);
+    expect(parseFloat(s.lineHeight) / parseFloat(s.fontSize)).toBeGreaterThan(1);
+    const slot = circleOf("Only the events this guest is invited to").parentElement as HTMLElement;
+    expect(slot.getBoundingClientRect().height).toBeGreaterThanOrEqual(16);
+  });
 });
 
 describe("RadioGroup, native (cire's radio)", () => {

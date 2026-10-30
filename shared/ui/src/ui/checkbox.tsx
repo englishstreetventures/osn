@@ -192,7 +192,7 @@ const Checkbox: Component<CheckboxProps> = (props) => {
         class={
           native()
             ? clsx(NATIVE_ROW, NATIVE_TEXT[size()], ROW_ALIGN[align()])
-            : clsx("base:flex base:gap-2", DRAWN_TEXT[size()], ROW_ALIGN[align()])
+            : clsx("base:flex base:gap-2", DRAWN_TEXT[align()][size()], ROW_ALIGN[align()])
         }
       >
         <Show when={align() === "start"} fallback={box()}>
