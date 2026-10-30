@@ -933,6 +933,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
             Dietary requirements on file are shared with the caterers for this wedding. See our{" "}
             <a href="/privacy" target="_blank" rel="noopener noreferrer" class={proseLinkClass()}>
               privacy notice
+              <span class="sr-only"> (opens in a new tab)</span>
             </a>
             .
           </p>
@@ -954,6 +955,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
               with the caterers for this wedding. See our{" "}
               <a href="/privacy" target="_blank" rel="noopener noreferrer" class={proseLinkClass()}>
                 privacy notice
+                <span class="sr-only"> (opens in a new tab)</span>
               </a>
               .
             </span>
@@ -982,6 +984,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
               See our{" "}
               <a href="/privacy" target="_blank" rel="noopener noreferrer" class={proseLinkClass()}>
                 privacy notice
+                <span class="sr-only"> (opens in a new tab)</span>
               </a>
               .
             </span>

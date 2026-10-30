@@ -260,6 +260,7 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
               class={`${proseLinkClass({ tone: "muted" })} font-body text-ui-sm self-start`}
             >
               View this gift
+              <span class="sr-only"> (opens in a new tab)</span>
             </a>
           )}
         </Show>

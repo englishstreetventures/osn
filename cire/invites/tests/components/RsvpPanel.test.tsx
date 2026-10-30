@@ -1479,11 +1479,13 @@ describe("RsvpPanel", () => {
     expect(queryAttestBox()).toBeNull();
     const line = screen.getByText(/Dietary requirements on file are shared with the caterers/);
     expect(line.textContent).toBe(
-      "Dietary requirements on file are shared with the caterers for this wedding. See our privacy notice.",
+      "Dietary requirements on file are shared with the caterers for this wedding. See our privacy notice (opens in a new tab).",
     );
-    expect(within(line).getByRole("link", { name: "privacy notice" }).getAttribute("href")).toBe(
-      "/privacy",
-    );
+    expect(
+      within(line)
+        .getByRole("link", { name: /^privacy notice ?\(opens in a new tab\)$/ })
+        .getAttribute("href"),
+    ).toBe("/privacy");
   });
 
   it.each([

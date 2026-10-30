@@ -159,6 +159,7 @@ export function PlusOnePrompt(props: PlusOnePromptProps) {
           Your guest won&apos;t see this invitation, so please share our{" "}
           <a href="/privacy" target="_blank" rel="noopener noreferrer" class={proseLinkClass()}>
             privacy notice
+            <span class="sr-only"> (opens in a new tab)</span>
           </a>{" "}
           with them. It explains what we keep about them and why.
         </p>
