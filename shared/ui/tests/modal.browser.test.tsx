@@ -390,6 +390,71 @@ describe("Modal — the exit", () => {
   });
 });
 
+/**
+ * A closed `<dialog>` is hidden by one user-agent rule,
+ * `dialog:not([open]) { display: none }`, and any author `display` beats a
+ * user-agent rule whatever its specificity. `frame` is a flex column, and
+ * several callers pass `flex` of their own, so a Modal mounted closed is a
+ * case of its own: it must lay out nothing until it opens, and nothing again
+ * once its exit has finished.
+ */
+describe("Modal — while closed", () => {
+  /** A modal that starts closed, as a caller that keeps it mounted has it. */
+  function mountClosed(props: { frame?: boolean; class?: string }) {
+    const [open, setOpen] = createSignal(false);
+    const result = render(() => (
+      <div style={{ position: "relative", width: "800px", height: "200px" }}>
+        <Modal open={open()} onClose={() => setOpen(false)} label="Closed dialog" {...props}>
+          <button type="button">inside</button>
+        </Modal>
+      </div>
+    ));
+    const el = result.container.querySelector("dialog");
+    if (!el) throw new Error("no dialog rendered");
+    return { ...result, open, setOpen, dialog: el };
+  }
+
+  /** Nothing laid out: no box to paint a border, a fill or a shadow from. */
+  const laysOutNothing = (dialog: HTMLDialogElement) => {
+    expect(getComputedStyle(dialog).display).toBe("none");
+    expect(dialog.getClientRects()).toHaveLength(0);
+  };
+
+  it("frame: lays out nothing while closed, opens as a column, and lays out nothing after its exit", async () => {
+    const { setOpen, dialog } = mountClosed({ frame: true });
+    // The frame's `flex` is what used to beat the user-agent rule: a closed
+    // panel drew as a hairline-bordered, shadowed strip as wide as its
+    // max-width and as tall as its border, at the top of whatever held it.
+    laysOutNothing(dialog);
+
+    setOpen(true);
+    expect(dialog.matches(":modal")).toBe(true);
+    expect(getComputedStyle(dialog).display).toBe("flex");
+    // The entry still runs on the panel itself, not only on its `::backdrop`:
+    // leaving `display: none` must not cost the `@starting-style` from-state.
+    const entry = dialog.getAnimations().map((a) => (a as CSSTransition).transitionProperty);
+    expect(new Set(entry)).toEqual(new Set(["opacity", "transform"]));
+
+    setOpen(false);
+    await new Promise((r) => requestAnimationFrame(r));
+    // Still drawn while the exit runs: `[open]` stays until `close()`.
+    expect(dialog.hasAttribute("data-closing")).toBe(true);
+    expect(getComputedStyle(dialog).display).toBe("flex");
+    await vi.waitFor(() => expect(dialog.open).toBe(false));
+
+    laysOutNothing(dialog);
+  });
+
+  it("a caller's own `flex` does not show it while closed", () => {
+    // The callers that build their panel as a flex column pass `flex` in
+    // `class`, a plain utility that beats every `base:` default. It must not
+    // beat the closed state as well.
+    const { dialog } = mountClosed({ class: "flex flex-col gap-4" });
+    expect(getComputedStyle(dialog).display).toBe("none");
+    expect(dialog.getClientRects()).toHaveLength(0);
+  });
+});
+
 describe("Modal under prefers-reduced-motion", () => {
   /** Typed accessor for the command registered in `vitest.config.ts`. */
   const emulate = (options: { reducedMotion?: "reduce" | "no-preference" }) =>

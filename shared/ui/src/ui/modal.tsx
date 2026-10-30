@@ -185,11 +185,26 @@ const MODAL_PADDING = {
 /**
  * The stylesheet `Modal` injects once per document.
  *
- * Two things live here rather than in Tailwind utilities. The backdrop is a
+ * Three things live here rather than in Tailwind utilities. The backdrop is a
  * `::backdrop` pseudo-element, which cannot be targeted by a class on the
- * element; and the entry/exit choreography needs `@starting-style`, which has
- * no utility form either. Both are scoped to `.ui-modal` rather than to
- * `dialog` so an app's own `<dialog>` elements are left alone.
+ * element; the entry/exit choreography needs `@starting-style`, which has no
+ * utility form either; and the closed state has to beat every utility. All are
+ * scoped to `.ui-modal` rather than to `dialog` so an app's own `<dialog>`
+ * elements are left alone.
+ *
+ * ## A closed modal lays out nothing, whatever its classes
+ *
+ * The browser hides a closed `<dialog>` with one user-agent rule,
+ * `dialog:not([open]) { display: none }`, and an author `display` beats a
+ * user-agent rule at any specificity. `frame` is a flex column, and callers
+ * pass `flex` for their own columns, so a modal kept mounted while closed would
+ * lay out as a bordered, shadowed strip at the top of whatever positions it.
+ * The rule below puts the platform's hiding back. This stylesheet is
+ * unlayered, so it beats every utility in Tailwind's layers. It is injected
+ * when the first `Modal` runs, so server-rendered markup has only the
+ * user-agent rule until then: a server-rendered modal must not carry a
+ * `display` utility. `[open]` stays on through the deferred exit below, so the
+ * exit is still drawn.
  *
  * ## The backdrop mixes the app's ground rather than using black
  *
@@ -201,8 +216,8 @@ const MODAL_PADDING = {
  * ## Entry is pure CSS. Exit cannot be.
  *
  * Entry is `@starting-style`, which needs no JavaScript at all: the browser
- * takes the from-state at the moment the element is first rendered. Safari has
- * had it since 17.5; older engines simply show the dialog immediately, which is
+ * takes the from-state at the moment the element is first rendered, or shown
+ * again after `display: none`, as a closed modal is. Safari has had it since 17.5; older engines simply show the dialog immediately, which is
  * a degradation rather than a broken state.
  *
  * Exit is the part that has to be held open from JavaScript, and it is worth
@@ -227,6 +242,10 @@ const MODAL_PADDING = {
  * choreography, which is the only hand-rolled one this replaces.
  */
 const MODAL_STYLE = `
+.ui-modal:not([open]) {
+  display: none;
+}
+
 .ui-modal::backdrop {
   background-color: color-mix(in srgb, var(--ui-ground-deep, #18181b) 72%, transparent);
   opacity: 0;

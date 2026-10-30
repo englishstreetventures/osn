@@ -45,6 +45,24 @@ describe("the guest sheet, in a real engine", () => {
     expect(getByRole("dialog").matches(":modal")).toBe(true);
   });
 
+  it("enters from the panel's starting style, rising and fading in", () => {
+    // The sheet reads the page's width before `Modal` opens it, which gives
+    // the closed dialog a style of its own. Laid out while closed, that style
+    // left `@starting-style` nothing to apply and the sheet appeared at rest
+    // on the spot; hidden while closed, it enters on the panel's own
+    // transitions.
+    const { getByRole } = render(() => (
+      <AnimatedModal onClose={() => {}} label="Event details">
+        <p>body</p>
+      </AnimatedModal>
+    ));
+
+    const entry = getByRole("dialog")
+      .getAnimations()
+      .map((a) => (a as CSSTransition).transitionProperty);
+    expect(new Set(entry)).toEqual(new Set(["opacity", "transform"]));
+  });
+
   it.each([false, true])(
     "lands focus on the scroll container, so the keyboard can scroll the sheet (toolbar: %s)",
     (toolbar) => {
