@@ -219,7 +219,7 @@ const RadioGroupItem: Component<RadioGroupItemProps> = (props) => {
           ? NATIVE_ROW
           : "base:flex base:cursor-pointer base:gap-1 base:data-[disabled]:cursor-not-allowed",
         // The type is the row's, so the first-line box and the words share one line.
-        native() ? NATIVE_TEXT[group.size()] : DRAWN_TEXT[group.size()],
+        native() ? NATIVE_TEXT[group.size()] : DRAWN_TEXT[align()][group.size()],
         ROW_ALIGN[align()],
         local.class,
       )}

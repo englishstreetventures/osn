@@ -62,11 +62,22 @@ export const NATIVE_TEXT = {
   md: "base:text-ui-ink base:text-ui-base base:leading-ui-normal",
 } satisfies Readonly<Record<ChoiceSize, string>>;
 
-/** The drawn label: pulse's, which takes the ink of whatever it sits in. */
+/**
+ * The drawn label: pulse's, which takes the ink of whatever it sits in. Beside
+ * a centred box it sits at leading 1, pulse's one-line look. A label set to
+ * wrap (`align="start"`) takes prose leading, so its second line reads and the
+ * first-line slot ({@link FIRST_LINE}) is tall enough for the 16px box.
+ */
 export const DRAWN_TEXT = {
-  sm: "base:text-ui-sm base:leading-none",
-  md: "base:text-ui-base base:leading-none",
-} satisfies Readonly<Record<ChoiceSize, string>>;
+  center: {
+    sm: "base:text-ui-sm base:leading-none",
+    md: "base:text-ui-base base:leading-none",
+  },
+  start: {
+    sm: "base:text-ui-sm base:leading-ui-normal",
+    md: "base:text-ui-base base:leading-ui-normal",
+  },
+} satisfies Readonly<Record<ChoiceAlign, Readonly<Record<ChoiceSize, string>>>>;
 
 /**
  * A native row: the label is the whole hit area, so it says so under the
