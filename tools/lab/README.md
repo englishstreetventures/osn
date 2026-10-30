@@ -35,6 +35,7 @@ view. For a component's full range of variants and states, open its own group:
 | `cire/ui/Card`    | The plain, accent, eyebrow and interactive cards in cire's light and dark mapping; each padding step, fill and tone, measured from the painted card |
 | `cire/ui/Disclosure` | Each tone closed and open, a card disclosure holding rows, and a nested one, in cire's light and dark mapping, captioned with the marker's painted turn |
 | `cire/ui/Eyebrow` | Both tones and every element it renders as, in cire's light and dark mapping, measured from the painted label |
+| `cire/ui/FileInput` | Empty, with a file chosen and disabled, in cire's light and dark mapping |
 | `pulse/Icon`      | The Pulse glyph set, every icon at every size                                   |
 | `shared/toast`    | Tones, positions, stacking, actions/promises, overflow                          |
 | `shared/sortable` | Drag feel, the shift/settle animation, grip hover/focus, multi-container        |
