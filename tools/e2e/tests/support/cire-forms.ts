@@ -83,7 +83,7 @@ export async function hostForms(flow: Flow, page: Page, sample: string): Promise
   const visibility = page.getByRole("radiogroup", { name: "Visibility" });
   const draft = visibility.getByRole("radio", { name: /^Draft/ });
   const published = visibility.getByRole("radio", { name: /^Published/ });
-  const money = page.getByRole("checkbox", { name: "Let guests give money" });
+  const money = page.getByRole("checkbox", { name: "Let guests give money", exact: true });
   await flow.step("forms: open a wedding's gift-list settings", async () => {
     await page.setViewportSize(DESKTOP);
     // The gift list is a paid module: the money wedding has one, the sample
@@ -108,8 +108,8 @@ export async function hostForms(flow: Flow, page: Page, sample: string): Promise
   );
   flow.check(
     "forms: the money box is the native 13px, named by its words alone",
-    true,
-    (await boxShape(money)).startsWith("13x13"),
+    (await money.isChecked()) ? "13x13 auto 0px" : UNTICKED,
+    await boxShape(money),
   );
   await flow.step("forms: shoot the gift-list settings' radios and box", () =>
     shoot(page, "host-registry-settings", async () => {
@@ -214,4 +214,33 @@ export async function demoForms(flow: Flow, landing: Page, demo: Locator): Promi
     "46 16px none start",
     await fieldShape(demo.getByRole("textbox", { name: "Anything else" }).first()),
   );
+}
+
+/**
+ * The invite builder's Hero section, signed in: the picture picker, named by
+ * the picture it sets, at the 34px form height. The flow leaves the builder on
+ * its Design tab; this opens Hero and goes back.
+ */
+export async function builderForms(flow: Flow, page: Page): Promise<void> {
+  const sections = page.getByLabel("Invite sections");
+  const picker = page.getByLabel(/: choose a picture$/).first();
+  await flow.step("forms: open the builder's Hero tab", async () => {
+    await page.setViewportSize(DESKTOP);
+    await sections.getByRole("tab", { name: /^Hero/ }).click();
+    await expect(picker).toBeVisible();
+  });
+  flow.check(
+    "forms: the invite picture's picker is named and 34px",
+    34,
+    await picker.evaluate((el) => el.getBoundingClientRect().height),
+  );
+  await flow.step("forms: shoot the hero picture's picker", () =>
+    shoot(page, "host-builder-picture-picker", async () => {
+      await picker.evaluate((el) => el.scrollIntoView({ block: "center" }));
+      await expect(picker).toBeInViewport();
+    }),
+  );
+  await flow.step("forms: back to the builder's Design tab", async () => {
+    await sections.getByRole("tab", { name: /^Design/ }).click();
+  });
 }

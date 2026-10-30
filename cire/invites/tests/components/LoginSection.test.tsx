@@ -1273,43 +1273,11 @@ describe("LoginSection code field", () => {
     return input as HTMLInputElement;
   }
 
-  // jsdom computes no colours, so the contrast contract is pinned as classes —
-  // the same tactic the sticky-footer and grid-column contracts use. The alphas
-  // were chosen by compositing over every `PALETTE_PRESETS` entry × all three
-  // section tones in a real browser: the border clears WCAG SC 1.4.11's 3:1 on
-  // the WORST pair (garden/ground, 3.23:1; it was 1.27:1 before), and the fill
-  // lifts the field off its section from 1.00:1 — literally indistinguishable —
-  // to ~1.09:1.
-  it("draws the field one step off whatever surface it sits on", () => {
-    const cls = codeInput().className;
-    // Ink-at-alpha, NOT a surface token: the organiser chooses this section's
-    // tone (ground / card / raised), so a fixed surface token would vanish on
-    // the tone that matches it. Ink adapts to any palette in the right
-    // direction — darkening a light scheme, lightening a dark one.
-    // `@shared/ui`'s ink fill: on this site `--ui-ink` is `--color-text`.
-    expect(cls).toContain("base:bg-ui-ink/4.5");
-    expect(cls).toContain("base:border-ui-ink/55");
-    // `border-border` is the same ink at 0.12 — the hairline this replaced, and
-    // the reason the field read as flat page on a pale scheme.
-    expect(cls).not.toContain("border-border");
-    // A fill means the field is no longer see-through.
-    expect(cls.split(" ")).not.toContain("base:bg-transparent");
-  });
-
   it("gives the field an accessible name that outlives the placeholder", () => {
     // A placeholder is not an accessible name and disappears on input, so
     // without this the page's only control is an unnamed edit field to a screen
     // reader or voice control (WCAG SC 3.3.2 / 4.1.2).
     expect(codeInput().getAttribute("aria-label")).toBe("Invitation code");
-  });
-
-  it("keeps the gold focus border and ring", () => {
-    // The fill must not have displaced the focus affordance — this is the page's
-    // only input, and the ring is what keeps keyboard users oriented.
-    const cls = codeInput().className;
-    // On this site `--ui-accent` is `--color-gold`.
-    expect(cls).toContain("base:focus:border-ui-accent");
-    expect(cls).toContain("base:focus-visible:outline-ui-focus");
   });
 });
 

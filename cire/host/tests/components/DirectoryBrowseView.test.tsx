@@ -63,6 +63,21 @@ describe("DirectoryBrowseView", () => {
     expect(tags(await screen.findByRole("dialog"))).toEqual(asTags);
   });
 
+  it("prompts for a category in the listing's detail too, as one named group", async () => {
+    authFetch.mockResolvedValueOnce(json({ listings: [listing()], total: 1 }));
+    render(() => <DirectoryBrowseView weddingId="w1" canEdit={true} />);
+    const card = (await screen.findByText("Acme Venue")).closest("li")!;
+    fireEvent.click(within(card).getByRole("button", { name: "View" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Add to wedding" }));
+    const picker = within(dialog).getByRole("radiogroup", { name: "Pick a category" });
+    const radios = within(picker).getAllByRole("radio") as HTMLInputElement[];
+    expect(radios.map((r) => [r.value, r.name])).toEqual([
+      ["venue", "modal-add-cat-LA"],
+      ["catering", "modal-add-cat-LA"],
+    ]);
+  });
+
   it("shows 'Added ✓' for a listing already in the wedding", async () => {
     authFetch.mockResolvedValueOnce(json({ listings: [listing({ inWedding: true })], total: 1 }));
     render(() => <DirectoryBrowseView weddingId="w1" canEdit={true} />);
