@@ -282,6 +282,7 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
                   class={proseLinkClass()}
                 >
                   privacy notice
+                  <span class="sr-only"> (opens in a new tab)</span>
                 </a>
                 .
               </span>
