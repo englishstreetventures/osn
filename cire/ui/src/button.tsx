@@ -165,9 +165,10 @@ const VARIANT = {
    *
    * `quiet`'s body plus the thing they all need and no two would spell the
    * same way: an accent border, and a ring so the mark survives on a swatch
-   * whose own colour is already sitting against that border. The ring also
-   * doubles the edge's weight, so the chosen answer differs by more than
-   * colour. It reads `aria-pressed` and `aria-checked` together because some
+   * whose own colour is already sitting against that border. At rest the
+   * ring also doubles the edge's weight, so the chosen answer differs from the
+   * rest by more than colour; an unchosen option under the pointer wears a
+   * fainter ring of its own (below). It reads `aria-pressed` and `aria-checked` together because some
    * are toggle groups and some radio groups — which ARIA property carries the
    * state is a question about the group's semantics, not about how the chosen
    * member should look.

@@ -220,18 +220,63 @@ describe('Button variant="choice"', () => {
     expect(look(chosen)).toEqual(rest);
   });
 
-  it("moves its colours and ring on the base duration, never the focus ring", () => {
+  it("keeps a chosen toggle's look under the pointer", async () => {
     render(() => (
       <Ramp>
-        <Button variant="choice">Phone</Button>
+        <Button variant="choice" aria-pressed="true">
+          Attending
+        </Button>
       </Ramp>
+    ));
+    const chosen = screen.getByRole("button");
+    const rest = look(chosen);
+    await userEvent.hover(chosen);
+    await settled(chosen);
+    expect(look(chosen)).toEqual(rest);
+  });
+
+  it("keeps the chosen answer's edge apart from a hovered one's, in both ramps", async () => {
+    // While the pointer rests on the unchosen answer both wear a ring; the
+    // chosen one's edge and ring are the full accent, the hovered one's half.
+    for (const ramp of RAMPS) {
+      render(() => (
+        <Ramp ramp={ramp}>
+          <Button variant="choice" aria-pressed="true">
+            Attending
+          </Button>
+          <Button variant="choice" aria-pressed="false">
+            Not attending
+          </Button>
+        </Ramp>
+      ));
+      const chosen = screen.getByRole("button", { name: "Attending" });
+      const other = screen.getByRole("button", { name: "Not attending" });
+      await userEvent.hover(other);
+      await settled(other);
+      const ground = onGround(other, "transparent");
+      const chosenEdge = onGround(chosen, getComputedStyle(chosen).borderTopColor);
+      const hoverEdge = onGround(other, getComputedStyle(other).borderTopColor);
+      // At least a third of the way from the ground to the chosen edge apart.
+      expect(distance(chosenEdge, hoverEdge)).toBeGreaterThan(distance(ground, chosenEdge) / 3);
+      cleanup();
+    }
+  });
+
+  it("moves its colours and ring on the app's base duration, never the focus ring", () => {
+    // A value apart from the fallback, so the token is what is read.
+    render(() => (
+      <div style={{ "--dur-base": "170ms" }}>
+        <Ramp>
+          <Button variant="choice">Phone</Button>
+        </Ramp>
+      </div>
     ));
     const style = getComputedStyle(screen.getByRole("button"));
     expect(style.transitionProperty.split(", ")).toEqual(
       expect.arrayContaining(["color", "background-color", "border-color", "box-shadow"]),
     );
     expect(style.transitionProperty).not.toMatch(/outline|all/);
-    expect(style.transitionDuration).toBe("0.15s");
+    expect(style.transitionDuration).toBe("0.17s");
   });
 
   it("lets a caller's plain hover class win over its own", async () => {
