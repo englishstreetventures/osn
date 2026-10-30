@@ -70,13 +70,6 @@ export type ButtonSize = "sm" | "md" | "lg" | "swatch" | "icon";
 const BASE =
   "base:font-ui-body base:inline-flex base:items-center base:justify-center base:gap-2 " +
   "base:border base:whitespace-nowrap " +
-  // Only what a hover changes. Tailwind's `transition-colors` also fades
-  // `outline-color`, which would bring the focus ring in over the hover's
-  // duration rather than the moment focus lands. The duration is the app's
-  // `--dur-fast`, so it follows the app's motion ladder; the fallback is for an
-  // app that declares no ladder.
-  "base:transition-[color,background-color,border-color,text-decoration-color] " +
-  "base:duration-(--dur-fast,100ms) base:ease-out " +
   // Its own focus ring, from the contract's own token. A library component
   // cannot assume its host declares a blanket `:focus-visible` rule: the two
   // portals and `@cire/invites` do, `@cire/landing` does not, and the nine
@@ -89,8 +82,47 @@ const BASE =
   // rather than left to each caller. Used where the point is that someone READS
   // why they cannot press it — a `disabled` button is skipped by the keyboard
   // and by a screen reader in forms mode, which hides the explanation from
-  // exactly the person asking.
-  "base:aria-disabled:cursor-not-allowed base:aria-disabled:opacity-40";
+  // exactly the person asking. How it looks while unavailable is the
+  // variant's: see {@link LOCKED}.
+  "base:aria-disabled:cursor-not-allowed";
+
+/**
+ * Only what a hover changes. Tailwind's `transition-colors` also fades
+ * `outline-color`, which would bring the focus ring in over the hover's
+ * duration rather than the moment focus lands. The duration is the app's
+ * `--dur-fast`, so it follows the app's motion ladder; the fallback is for an
+ * app that declares no ladder.
+ *
+ * `choice` runs on its own clock instead ({@link CHOICE_MOTION}).
+ */
+const MOTION =
+  "base:transition-[color,background-color,border-color,text-decoration-color] " +
+  "base:duration-(--dur-fast,100ms) base:ease-out";
+
+/**
+ * `choice`'s colours and ring move on `--dur-base`, a step slower than a
+ * hover's: the owner asked to watch the gold come up between rest, halfway
+ * and chosen (englishstreetventures/osn#1840). `box-shadow` is listed because
+ * the ring is a shadow; the outline still is not, so the focus ring lands at
+ * once.
+ */
+const CHOICE_MOTION =
+  "base:transition-[color,background-color,border-color,box-shadow] " +
+  "base:duration-(--dur-base,150ms) base:ease-out";
+
+/**
+ * How an `aria-disabled` control looks: faded to 40%, for every variant but
+ * `choice`.
+ *
+ * A `choice` is locked with `aria-disabled` while the answer it carries is
+ * being saved — the guest sheet's Attending and Not attending through the save
+ * and the "Saved" pause — and faded, the answer just given would be the
+ * hardest thing on the sheet to read. So a locked choice keeps its look and
+ * only stops answering the pointer (its hover is gated on `not-aria-disabled`).
+ * A `disabled` choice still fades through {@link BASE}, which is what the
+ * host's busy crop presets and registry pictures rely on.
+ */
+const LOCKED = "base:aria-disabled:opacity-40";
 
 const VARIANT = {
   primary:
@@ -127,24 +159,38 @@ const VARIANT = {
   quietDanger:
     "base:border-ui-hairline base:text-ui-ink-secondary base:hover:border-ui-danger base:hover:text-ui-danger",
   /**
-   * One option among several, with the chosen one marked — the desktop/phone
-   * preview toggle, the palette presets, the section-background picker, the
-   * registry's candidate pictures.
+   * One option among several, with the chosen one marked — the guest sheet's
+   * Attending and Not attending, the desktop/phone preview toggle, the palette
+   * presets, the section-background picker, the registry's candidate pictures.
    *
-   * `quiet`'s body plus the thing all four need and no two would spell the same
-   * way: an accent border, and a ring so the mark survives on a swatch whose
-   * own colour is already sitting against that border. It reads
-   * `aria-pressed` and `aria-checked` together because two of the four are
-   * toggle groups and two are radio groups — which ARIA property carries the
+   * `quiet`'s body plus the thing they all need and no two would spell the
+   * same way: an accent border, and a ring so the mark survives on a swatch
+   * whose own colour is already sitting against that border. The ring also
+   * doubles the edge's weight, so the chosen answer differs by more than
+   * colour. It reads `aria-pressed` and `aria-checked` together because some
+   * are toggle groups and some radio groups — which ARIA property carries the
    * state is a question about the group's semantics, not about how the chosen
    * member should look.
+   *
+   * Under the pointer an unchosen option goes halfway to chosen: its edge and
+   * ink a mix of rest and chosen, and a ring at half the chosen ring's
+   * strength (the owner's choice on englishstreetventures/osn#1840), so a
+   * hover never looks like a choice already made. The hover is gated on the
+   * option being neither chosen nor locked, and the gate sits inside `base:`
+   * (`…:hover:base:…`), so the rule keeps zero specificity and a caller's
+   * plain class still wins. A locked choice (`aria-disabled`) keeps its look:
+   * see {@link LOCKED}.
    *
    * No focus treatment of its own. {@link BASE} already draws one from
    * `--ui-focus`, the app's contrast-checked focus token, which is what the
    * hand-rolled gold rings at these call sites were approximating.
    */
   choice:
-    "base:border-ui-hairline base:text-ui-ink-secondary base:hover:border-ui-accent base:hover:text-ui-accent-ink " +
+    "base:border-ui-hairline base:text-ui-ink-secondary " +
+    "not-aria-pressed:not-aria-checked:not-aria-disabled:hover:base:border-[color:color-mix(in_oklab,var(--ui-hairline),var(--ui-accent))] " +
+    "not-aria-pressed:not-aria-checked:not-aria-disabled:hover:base:text-[color:color-mix(in_oklab,var(--ui-ink-secondary),var(--ui-accent-ink))] " +
+    "not-aria-pressed:not-aria-checked:not-aria-disabled:hover:base:ring-1 " +
+    "not-aria-pressed:not-aria-checked:not-aria-disabled:hover:base:ring-ui-accent/30 " +
     "base:aria-pressed:border-ui-accent base:aria-pressed:text-ui-accent-ink " +
     "base:aria-pressed:ring-1 base:aria-pressed:ring-ui-accent/60 " +
     "base:aria-checked:border-ui-accent base:aria-checked:text-ui-accent-ink " +
@@ -435,7 +481,8 @@ function cornerFor(variant: ButtonVariant, size: ButtonSize): string {
 export function buttonClass(options: { variant?: ButtonVariant; size?: ButtonSize } = {}): string {
   const variant = options.variant ?? "quiet";
   const size = options.size ?? "md";
-  return `${BASE} ${cornerFor(variant, size)} ${VARIANT[variant]} ${sizingFor(variant, size)}`;
+  const motion = variant === "choice" ? CHOICE_MOTION : `${MOTION} ${LOCKED}`;
+  return `${BASE} ${motion} ${cornerFor(variant, size)} ${VARIANT[variant]} ${sizingFor(variant, size)}`;
 }
 
 export type ProseLinkTone = "accent" | "muted";
