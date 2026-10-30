@@ -4,15 +4,15 @@ import { splitProps } from "solid-js";
 /**
  * cire's button.
  *
- * Sixteen variants, each named for the job a control does, so a call site
- * names the job rather than writing out its classes. Eleven draw a box:
+ * Seventeen variants, each named for the job a control does, so a call site
+ * names the job rather than writing out its classes. Twelve draw a box:
  * `primary`, `cta`, `outline`, `quiet`, `quietDanger`, `choice`, `tile`,
- * `dashed`, `field`, `danger` and `chip`. Five draw none: `link`, `subtle`,
- * `touchLink`, `bare` and `bareDanger` (see {@link BORDERLESS}).
+ * `dashed`, `field`, `danger`, `chip` and `round`. Five draw none: `link`,
+ * `subtle`, `touchLink`, `bare` and `bareDanger` (see {@link BORDERLESS}).
  *
  * ## Why this is not `@shared/ui`'s Button
  *
- * The vocabulary is the house's, not a general one: sixteen variants named for
+ * The vocabulary is the house's, not a general one: seventeen variants named for
  * the jobs cire's screens do — a guest site's outlined call to action, a tile,
  * a field-shaped trigger, a sheet's chrome — and a *gold* primary rather than a
  * neutral one. `@shared/ui`'s Button is the shadcn set, six variants, and an
@@ -59,6 +59,7 @@ export type ButtonVariant =
   | "field"
   | "danger"
   | "chip"
+  | "round"
   | "link"
   | "subtle"
   | "touchLink"
@@ -219,6 +220,25 @@ const VARIANT = {
   chip:
     "base:border-ui-accent/40 base:bg-ui-surface base:text-ui-accent-ink " +
     "base:hover:border-ui-accent",
+  /**
+   * A glyph on an opaque disc — the RSVP page's reply key beside the search
+   * box, and the guest event sheet's close × beside `chip`.
+   *
+   * Filled rather than transparent, because the close × sits over a sheet
+   * whose content scrolls underneath it and must hide it, and no edge, because
+   * the disc is the shape. Muted ink, brightening to the body ink under the
+   * pointer; the fill does not move on hover (the owner's choice on
+   * englishstreetventures/osn#1839). It does move while the popover it opens
+   * is showing: Kobalte sets `aria-expanded` on its trigger, and the raised
+   * surface holds the disc lit so the key reads as the thing that is open.
+   *
+   * Its own sizes ({@link ROUND_SIZE}), and the `pill` step at every one of
+   * them, which {@link cornerFor} picks for it: a round button stays a circle
+   * whatever an app maps `control` to.
+   */
+  round:
+    "base:border-transparent base:bg-ui-surface base:text-ui-ink-secondary base:hover:text-ui-ink " +
+    "base:aria-expanded:bg-ui-surface-raised base:aria-expanded:text-ui-ink",
 
   /*
    * The borderless ones: these four, and `bareDanger` after them.
@@ -356,8 +376,27 @@ const FIELD_SIZE = {
   icon: "base:h-8 base:w-8 base:shrink-0 base:p-0 base:text-ui-base",
 } satisfies Readonly<Record<ButtonSize, string>>;
 
-/** Which of the four tables a variant sizes from. */
+/**
+ * {@link SIZE} for `round`: a square box the pill corner makes a circle.
+ *
+ * Three sides, from where the two round buttons sit. 28px for the reply key,
+ * the height of the small search box and filter chips beside it; 32px, the
+ * `icon` size every boxed glyph already takes; 44px for the sheet's close ×,
+ * the guest site's touch floor. `swatch` has no picture to frame here and
+ * takes `md`. The glyph sits on the base step, and the close × on the large
+ * one, so it reads at the size of the sheet's heading rather than a label's.
+ */
+const ROUND_SIZE = {
+  sm: "base:size-7 base:shrink-0 base:p-0 base:text-ui-base base:leading-none",
+  md: "base:size-8 base:shrink-0 base:p-0 base:text-ui-base base:leading-none",
+  lg: "base:size-11 base:shrink-0 base:p-0 base:text-ui-lg base:leading-none",
+  swatch: "base:size-8 base:shrink-0 base:p-0 base:text-ui-base base:leading-none",
+  icon: "base:size-8 base:shrink-0 base:p-0 base:text-ui-base base:leading-none",
+} satisfies Readonly<Record<ButtonSize, string>>;
+
+/** Which of the five tables a variant sizes from. */
 function sizingFor(variant: ButtonVariant, size: ButtonSize): string {
+  if (variant === "round") return ROUND_SIZE[size];
   if (variant === "tile") return TILE_SIZE[size];
   if (variant === "field") return FIELD_SIZE[size];
   return BORDERLESS.has(variant) ? BORDERLESS_SIZE[size] : SIZE[size];
@@ -371,14 +410,15 @@ function sizingFor(variant: ButtonVariant, size: ButtonSize): string {
  * role instead — the text field's corner: a tile is a block, a field holds a
  * value, and a swatch frames a picture, so a pill would read as a lozenge
  * around each. `chip` takes the `pill` step, since it is drawn as a sibling of a
- * round close button and stays round whatever `control` is. The borderless
- * variants take `control` too; with no border and no fill, only their focus
- * ring shows it.
+ * round close button and stays round whatever `control` is, and so does
+ * `round`, at every size, `swatch` included. The borderless variants take
+ * `control` too; with no border and no fill, only their focus ring shows it.
  *
  * Exactly one corner class, and never a plain one, so a caller's plain
  * `rounded-*` in `class` outranks it rather than tying with it.
  */
 function cornerFor(variant: ButtonVariant, size: ButtonSize): string {
+  if (variant === "round") return "base:rounded-ui-pill";
   if (size === "swatch" || variant === "tile" || variant === "field") {
     return "base:rounded-ui-field";
   }
