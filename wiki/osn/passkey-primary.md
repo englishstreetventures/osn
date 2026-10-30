@@ -12,7 +12,7 @@ packages:
   - "@osn/client"
   - "@osn/auth-ui"
   - "@musubi/social"
-last-reviewed: 2026-10-27
+last-reviewed: 2026-10-30
 ---
 
 # Passkey-Primary Login
@@ -57,6 +57,8 @@ holds from registration to deletion:
 | `POST /login/passkey/begin` | — | Issue WebAuthn options. Identifier-bound or identifier-less (discoverable). |
 | `POST /login/passkey/complete` | — | Verify the assertion and issue a session. |
 | `POST /login/recovery/complete` | — | Exchange identifier + recovery code for a session. Escape hatch. |
+
+**The signature counter only moves forward.** `@simplewebauthn/server` refuses an assertion whose counter is not above the stored one, unless both are 0 (an authenticator with no counter, as synced passkeys are). The write that stores the new counter holds the same rule (`services/auth/passkey-counter.ts`, used by sign-in and passkey step-up): of two assertions verified against one stored counter, the second to write is refused with `Passkey verification failed`, as it is when they arrive one after the other, and a passkey deleted between the read and the write is refused the same way. Both refusals come before a session or a step-up token is issued. Tests: `osn/api/tests/services/auth/passkey-counter.test.ts`.
 
 Client SDK surface (`@osn/client`):
 

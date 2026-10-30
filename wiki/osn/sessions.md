@@ -38,9 +38,13 @@ sequenceDiagram
     end
   else token current
     API->>API: mint new session token (same family)
-    API->>DB: DELETE old row (compare-and-swap)
-    API->>DB: batch: INSERT new row (copy ua_label + ip_hash) + INSERT rotated_sessions(old hash → family)
-    API-->>Client: 200 + new HttpOnly cookie + access token
+    API->>DB: batch: INSERT new row FROM old row (if old stands) + INSERT rotated_sessions(old hash → family) (if new stands) + DELETE old row (if new stands — the compare-and-swap)
+    alt swap deleted the old row
+      API-->>Client: 200 + new HttpOnly cookie + access token
+    else swap deleted nothing (concurrent grant, or a revoke mid-grant)
+      API->>DB: DELETE this grant's new row (and its record, if it wrote one)
+      API-->>Client: 400 invalid_grant (rotation_race; marker kept)
+    end
   end
 ```
 
@@ -75,10 +79,12 @@ Per-account hard cap: `MAX_SESSIONS_PER_ACCOUNT = 50`. Every insert of a new ses
 | Route | Purpose |
 |---|---|
 | `GET /sessions` | List the caller's active sessions with coarse UA labels + timestamps, flagging the current one |
-| `DELETE /sessions/:id` | Revoke a session by its 16-hex public handle (first 16 chars of SHA-256 hash) |
+| `DELETE /sessions/:id` | Revoke a device by the 16-hex public handle (first 16 chars of SHA-256 hash) of one of its sessions: every session of that session's family |
 | `POST /sessions/revoke-all-other` | Revoke every session EXCEPT the caller's current one, delete the account's OIDC authorization codes in flight, then end the account's cire organiser sessions |
 
 All endpoints authenticate via `Authorization: Bearer <access_token>` and resolve `accountId` server-side. A session handle from account A's log cannot be replayed to revoke a session in account B — the DELETE is scoped to the caller's own account.
+
+**A revoke holds against a refresh in flight.** A family is a device's refresh chain, or the reservations of one cross-device request. `DELETE /sessions/:id` is one statement that deletes every session of the account in the family its handle names, so no refresh can land between finding the family and deleting it. The handle is looked up among the live sessions and the rotation records, so a handle from a Settings list the device has since refreshed past still finds its family. Each lookup reads its table's primary key by range (`tests/services/sessions-management.test.ts` pins the query plan). A rotation never leaves its family empty (see [[#Rotation grace window (concurrency tolerance)]]), so this delete, a reuse revoke, and every account-wide delete — sign out everywhere else, email change, erasure — leave no session behind them, wherever in a rotation they land.
 
 ### Sign out everywhere else reaches cire
 
@@ -210,7 +216,7 @@ That `UPDATE` is the one write that turns a restricted session into a full one, 
 
 Rotation is single-use, but legitimate clients produce concurrent or retried grants of the **same current token**: two browser tabs bootstrapping on reload, a cold-start bootstrap racing a 401-refresh in one tab, or a grant retried after a lost response. Treating every such replay as C2 reuse revoked the whole family and logged the user out across every device — the "logs out sometimes" bug. Two guards now distinguish benign concurrency from genuine reuse, WITHOUT weakening detection of a real replay:
 
-- **CAS-0-rows is always benign.** In the rotation swap the old-session `DELETE` is a compare-and-swap; a 0-rows result means the row was present at verify but gone by delete — i.e. a concurrent grant rotated it in the gap. A replay of an *already*-rotated token can't reach here (it fails `verifyRefreshToken`, whose row is absent, and goes down `detectReuse`). So a 0-rows CAS is never reuse: the losing grant fails but the family is **preserved** (no `revokeFamily`, no `reuse_detected`; a `rotation_race` metric fires instead).
+- **CAS-0-rows is never reuse.** A rotation inserts the new row only while the old one stands, then the old token's record only while the new row stands, then deletes the old row only while the new one stands — the compare-and-swap. At every moment the family holds the old row, the new row or both. A 0-rows swap means the old row was present at verify but gone by the swap, or the new one gone: a concurrent grant rotated it in the gap, or a delete took the family or the account mid-grant. A replay of an *already*-rotated token can't reach here (it fails `verifyRefreshToken`, whose row is absent, and goes down `detectReuse`). So a 0-rows CAS is never reuse: the losing grant deletes what it wrote (its new row, and its record when it wrote one) and fails, the family is **preserved** (no `revokeFamily`, no `reuse_detected`; a `rotation_race` metric fires instead), and the route keeps the marker cookie. After a revoke, the next grant answers `Invalid or expired session`, which retracts it.
 - **`detectReuse` grace window.** When a rotated-out hash is replayed, `detectReuse` compares `now − rotatedAtMs` against `ROTATION_GRACE_MS` (10 s). Within the window it is benign concurrency/retry → family preserved (`rotation_race`). Outside it → genuine reuse → full family revocation (unchanged). The window is short: an attacker replaying a stolen rotated token seconds after the legitimate rotation gains nothing they couldn't do with the live token, and any replay after the window still revokes. Mirrors the "reuse leeway" interval standard in rotating-refresh-token implementations.
 
 **Reading the CAS result.** The rows-affected field differs per driver — bun:sqlite gives `{ changes }`, libsql `{ rowsAffected }`, and Cloudflare D1 `{ success, meta: { changes } }`. The CAS reads it through `rowsChanged` in `@shared/db-utils`, which knows all three. This is not a detail: the gate once read only the top-level fields, which is correct on the bun:sqlite the tests run against and always `undefined` on the D1 production runs. Every production refresh therefore deleted its session, skipped the replacement INSERT, and answered `400 invalid_grant` — sessions died at the first refresh after five minutes, and no prod session row ever had `last_used_at` move past `created_at`. Any new rows-affected check must go through the same helper.
@@ -235,13 +241,17 @@ memory. It lives in D1, in `rotated_sessions` (`osn/db/src/schema/index.ts`):
 Two indexes: `expires_at`, for the sweep, and `(account_id, family_id)`, for
 erasure (by account) and a detected reuse (by account and family).
 
-- **Write.** `refreshTokens` deletes the old session row with its
-  compare-and-swap, then inserts the new session and the old token's record in
-  one `commitBatch`. On D1 a batch commits both or neither, so a session never
-  exists without the record that lets reuse detection see its predecessor
-  replayed. A failed batch is a `DatabaseError`: the grant fails and the old row
-  is already gone, so the user signs in again, but `POST /token` reads it as
-  "session status unknown" and keeps the marker cookie.
+- **Write.** `refreshTokens` inserts the new session (copying the device and
+  any restriction from the old row as it stands), then the old token's record,
+  then deletes the old row with its compare-and-swap: one batch on D1, which
+  commits whole or not at all, so a session never exists without the record
+  that lets reuse detection see its predecessor replayed; one statement at a
+  time on bun:sqlite. A failed write is a `DatabaseError`: the grant fails, the
+  old row stays (a failed D1 batch rolls back; on bun:sqlite the grant deletes
+  its own new row), and `POST /token` reads it as "session status unknown" and
+  keeps the marker cookie. A second record for one token fails on the key, so
+  of two grants of one token interleaved on bun:sqlite the second fails this
+  way.
 - **Read.** `detectReuse` runs only for a token not in `sessions`, and reads its
   live record (`expires_at` later than now). No record: nothing more happens.
   A record inside the grace window: a benign race, family kept. Outside it: one
