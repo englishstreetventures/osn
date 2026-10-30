@@ -691,6 +691,8 @@ describe("the reply key", () => {
     ]) {
       expect([words, dialog.textContent?.includes(words)]).toEqual([words, true]);
     }
+    // Each line ends on one full stop, whether its words carry their own or not.
+    expect(dialog.textContent).not.toMatch(/\.\./);
     await userEvent.keyboard("{Escape}");
     await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(document.activeElement).toBe(key);
