@@ -161,8 +161,9 @@ export const Variants: Story<ThemeArgs> = {
         <>
           Seventeen variants, five sizes, inside cire's <Mono>--ui-*</Mono> mapping. Actions are
           pills; a <Mono>tile</Mono>, a <Mono>field</Mono> and the <Mono>swatch</Mono> size take the
-          14px field corner. Labels are written in sentence case and shown as written. cire's fonts
-          are not loaded here, so the type is the lab's: judge the face in the app.
+          14px field corner. Labels are written in sentence case and shown as written. Point at an{" "}
+          <Mono>outline</Mono>: its edge turns full gold and nothing fills. cire's fonts are not
+          loaded here, so the type is the lab's: judge the face in the app.
         </>
       }
     >
@@ -210,8 +211,8 @@ export const States: Story<ThemeArgs> = {
           and swallows the click. A <Mono>choice</Mono> is marked the same whether its group reads{" "}
           <Mono>aria-pressed</Mono> or <Mono>aria-checked</Mono>. A <Mono>choice</Mono> locked with{" "}
           <Mono>aria-disabled</Mono> keeps its look, so the answer just given stays legible while it
-          saves. Point at an unchosen choice: it goes halfway to chosen. Tab into a panel to see the
-          focus ring follow the pill.
+          saves. The chosen one wears a 2px ring. Point at an unchosen choice: it goes halfway to
+          chosen, with a 1px ring. Tab into a panel to see the focus ring follow the pill.
         </>
       }
     >
