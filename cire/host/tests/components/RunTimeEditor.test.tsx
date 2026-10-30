@@ -178,8 +178,10 @@ describe("RunTimeEditor", () => {
     expect(screen.queryByLabelText("Time zone")).toBeNull();
     // The two ways to tie the time are one named group, offset first.
     const tie = screen.getByRole("radiogroup", { name: /^How the time follows/ });
-    const offset = within(tie).getByRole("radio", { name: "Before or after the start" });
-    const clock = within(tie).getByRole("radio", { name: "At a clock time" });
+    const offset = within(tie).getByRole("radio", {
+      name: "Before or after the start",
+    }) as HTMLInputElement;
+    const clock = within(tie).getByRole("radio", { name: "At a clock time" }) as HTMLInputElement;
     expect([offset.checked, clock.checked]).toEqual([true, false]);
     expect(offset.name).not.toBe("");
     expect(clock.name).toBe(offset.name);
