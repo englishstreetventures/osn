@@ -16,7 +16,6 @@ import {
   replyToEnquiry,
   submitQuote,
 } from "../lib/enquiries-store";
-import { FORM_FIELD_CLASS } from "../lib/form-field";
 import { haptic } from "../lib/haptics";
 
 /**
@@ -236,6 +235,7 @@ export default function VendorEnquiryThread(props: VendorEnquiryThreadProps) {
                 $
               </span>
               <Input
+                size="form"
                 {...field}
                 type="number"
                 min="0.01"
@@ -244,7 +244,7 @@ export default function VendorEnquiryThread(props: VendorEnquiryThreadProps) {
                 value={quoteAmount()}
                 onInput={(e) => setQuoteAmount(e.currentTarget.value)}
                 disabled={quoting()}
-                class={`${FORM_FIELD_CLASS} max-w-48`}
+                class="max-w-48"
               />
             </div>
           )}
@@ -259,8 +259,8 @@ export default function VendorEnquiryThread(props: VendorEnquiryThreadProps) {
         >
           {(field) => (
             <Input
+              size="form"
               {...field}
-              class={FORM_FIELD_CLASS}
               placeholder="Anything the couple should know about the quote"
               value={quoteNote()}
               onInput={(e) => setQuoteNote(e.currentTarget.value)}

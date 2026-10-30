@@ -35,7 +35,7 @@ import { Portal } from "solid-js/web";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
 import { ensureEventsLoaded, type EventRow, eventsAccessor } from "../lib/events-store";
-import { FILTER_FIELD_CLASS, FORM_ACTION_CLASS, FORM_FIELD_CLASS } from "../lib/form-field";
+import { FORM_ACTION_CLASS } from "../lib/form-field";
 import { haptic } from "../lib/haptics";
 import { downloadLockedExport, LOCKED_EXPORTS } from "../lib/locked-exports";
 import {
@@ -403,7 +403,7 @@ export default function SeatingView(props: SeatingViewProps) {
                 {...field}
                 size="sm"
                 onChange={(e) => setEventId(e.currentTarget.value)}
-                class={`${FILTER_FIELD_CLASS} min-w-56`}
+                class="min-w-56"
               >
                 {/* Each option carries its own selection, so a refreshed event
                     list, which rebuilds the options, keeps showing the event
@@ -463,25 +463,27 @@ export default function SeatingView(props: SeatingViewProps) {
                   <Field label="Table name">
                     {(field) => (
                       <Input
+                        size="form"
                         {...field}
                         value={newName()}
                         placeholder={`Table ${tables().length + 1}`}
                         maxLength={80}
                         onInput={(e) => setNewName(e.currentTarget.value)}
-                        class={`${FORM_FIELD_CLASS} w-48`}
+                        class="w-48"
                       />
                     )}
                   </Field>
                   <Field label="Seats">
                     {(field) => (
                       <Input
+                        size="form"
                         {...field}
                         type="number"
                         min="1"
                         max="100"
                         value={newCapacity()}
                         onInput={(e) => setNewCapacity(e.currentTarget.value)}
-                        class={`${FORM_FIELD_CLASS} w-24`}
+                        class="w-24"
                       />
                     )}
                   </Field>
@@ -658,20 +660,22 @@ function Place(props: {
         fallback={
           <form class="flex flex-wrap items-end gap-2" onSubmit={(e) => void save(e)}>
             <Input
+              size="form"
               aria-label={`Name of ${props.title}`}
               value={name()}
               maxLength={80}
               onInput={(e) => setName(e.currentTarget.value)}
-              class={`${FORM_FIELD_CLASS} w-44`}
+              class="w-44"
             />
             <Input
+              size="form"
               aria-label={`Seats at ${props.title}`}
               type="number"
               min="1"
               max="100"
               value={capacity()}
               onInput={(e) => setCapacity(e.currentTarget.value)}
-              class={`${FORM_FIELD_CLASS} w-20`}
+              class="w-20"
             />
             <Button class={FORM_ACTION_CLASS} type="submit" variant="primary" size="sm">
               Save

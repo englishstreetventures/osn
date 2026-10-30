@@ -196,7 +196,7 @@ export default function DatePicker(props: {
         <span class="font-body text-text-muted text-ui-xs tracking-ui-wider uppercase">
           {props.label}
         </span>
-        <p class="font-body text-text border-border bg-bg/50 text-ui-base rounded-ui-field border px-3 py-2 opacity-70">
+        <p class="font-body text-text border-border bg-bg/50 text-ui-base rounded-ui-field flex h-8.5 items-center border px-3 opacity-70">
           <Show when={selected()} fallback={<span class="opacity-60">No date set</span>}>
             {(d) => formatLong(d())}
           </Show>
@@ -214,7 +214,9 @@ export default function DatePicker(props: {
         <Popover.Trigger
           aria-label={`${props.label}${selected() ? `: ${formatLong(selected()!)}` : ", no date set"}`}
           disabled={props.disabled}
-          class="border-border bg-bg font-body text-text hover:border-gold focus-visible:border-gold focus-visible:ring-gold/40 text-ui-base rounded-ui-field transition-ui-colors flex items-center justify-between gap-2 border px-3 py-2 text-left duration-(--dur-fast) ease-(--ease-out) outline-none focus-visible:ring-2 disabled:opacity-40"
+          // The portals' form-field height, so the trigger is level with the
+          // time field beside it.
+          class="border-border bg-bg font-body text-text hover:border-gold focus-visible:border-gold focus-visible:ring-gold/40 text-ui-base rounded-ui-field transition-ui-colors flex h-8.5 items-center justify-between gap-2 border px-3 text-left duration-(--dur-fast) ease-(--ease-out) outline-none focus-visible:ring-2 disabled:opacity-40"
         >
           <Show
             when={selected()}

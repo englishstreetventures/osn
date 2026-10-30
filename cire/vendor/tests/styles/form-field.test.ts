@@ -4,12 +4,13 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
- * Every form field is the portal's one height, 34px, and a `FORM_FIELD_CLASS`
- * on each `Input` and `Select` is how it gets there (`src/lib/form-field.ts`;
- * the host portal's DESIGN.md §4, "One form-field height"). A field added without it renders
- * at 36px beside 34px neighbours and nothing on screen says so, so this reads
- * every `<Input` and `<Select` tag under `src/` and names those without it.
- * This portal has no filter, so none is allowed.
+ * Every form field is the portal's one height, 34px: the shared control's
+ * `form` size, or `form-compact` in a narrow cell (the host portal's DESIGN.md
+ * §4, "One form-field height"). A field added without one renders at 36px
+ * beside 34px neighbours and nothing on screen says so, so this reads every
+ * `<Input` and `<Select` tag under `src/` and names those without it. A height
+ * class on one would fight the size, so none may carry `h-8.5`. This portal
+ * has no filter, so none is allowed.
  *
  * Static: a tag runs from its name to the first `>` outside braces and quotes,
  * so an arrow function's `=>` inside a prop cannot end it early.
@@ -57,6 +58,7 @@ describe("Input and Select", () => {
     const all = fields();
     // A scan that found nothing would pass whatever the source says.
     expect(all.length).toBeGreaterThan(5);
-    expect(all.filter((f) => !f.tag.includes("FORM_FIELD_CLASS")).map((f) => f.at)).toEqual([]);
+    const sized = (tag: string) => /\bsize="form(-compact)?"/.test(tag) && !/\bh-8\.5\b/.test(tag);
+    expect(all.filter((f) => !sized(f.tag)).map((f) => f.at)).toEqual([]);
   });
 });

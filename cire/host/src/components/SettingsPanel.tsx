@@ -8,7 +8,6 @@ import { Notice } from "@shared/ui/ui/notice";
 import { createSignal, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
-import { FORM_FIELD_CLASS } from "../lib/form-field";
 import { haptic } from "../lib/haptics";
 import { invalidateRegistry, peekCachedRegistry } from "../lib/registry-store";
 import { invalidateTasks } from "../lib/tasks-store";
@@ -352,8 +351,8 @@ export default function SettingsPanel(props: SettingsPanelProps) {
             <Field label="Wedding name">
               {(field) => (
                 <Input
+                  size="form"
                   {...field}
-                  class={FORM_FIELD_CLASS}
                   value={displayName()}
                   maxLength={120}
                   autocomplete="off"
@@ -365,7 +364,7 @@ export default function SettingsPanel(props: SettingsPanelProps) {
 
             <div class="flex flex-col gap-1.5">
               <span class={labelClass}>Invite link</span>
-              <p class="font-body text-text border-border bg-bg/50 text-ui-base rounded-ui-field border px-3 py-2 opacity-70">
+              <p class="font-body text-text border-border bg-bg/50 text-ui-base rounded-ui-field flex h-8.5 items-center border px-3 opacity-70">
                 {slug()}
               </p>
               <span class={hintClass}>
@@ -422,8 +421,8 @@ export default function SettingsPanel(props: SettingsPanelProps) {
             <Field label="Expected guests">
               {(field) => (
                 <Input
+                  size="form"
                   {...field}
-                  class={FORM_FIELD_CLASS}
                   type="number"
                   min="1"
                   max="10000"
@@ -445,8 +444,8 @@ export default function SettingsPanel(props: SettingsPanelProps) {
             >
               {(field) => (
                 <Input
+                  size="form"
                   {...field}
-                  class={FORM_FIELD_CLASS}
                   value={currency()}
                   maxLength={3}
                   autocomplete="off"
