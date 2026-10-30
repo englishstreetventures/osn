@@ -58,6 +58,20 @@ describe("FileInput", () => {
     expect(input.getAttribute("aria-invalid")).toBe("true");
   });
 
+  it("carries the button's classes, and a caller's layout class after them", () => {
+    const { container } = render(() => (
+      <>
+        <FileInput aria-label="Bare" />
+        <FileInput aria-label="Placed" class="w-full" />
+      </>
+    ));
+    const [bare, placed] = [...container.querySelectorAll("input")];
+    const own = bare!.className.split(" ");
+    for (const c of FILE_BUTTON.split(/\s+/)) expect(own).toContain(c);
+    expect(own.every((c) => c.startsWith("base:"))).toBe(true);
+    expect(placed!.className).toBe(`${bare!.className} w-full`);
+  });
+
   it("calls onChange with the input as the event's target", () => {
     let target: EventTarget | null = null;
     const { container } = render(() => (
