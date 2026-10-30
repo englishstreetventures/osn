@@ -113,6 +113,7 @@ describe("RadioGroup, drawn (pulse's circle, which must not move)", () => {
   it("paints no ring after a pointer click, which focuses the input too", async () => {
     render(() => <Choice />);
     await userEvent.click(screen.getByText("SMS"));
+    expect(document.activeElement).toBe(radio("SMS"));
     expect(getComputedStyle(circleOf("SMS")).boxShadow).toBe("none");
   });
 
@@ -133,6 +134,12 @@ describe("RadioGroup, drawn (pulse's circle, which must not move)", () => {
       4,
     );
     expect(getComputedStyle(screen.getByRole("radiogroup")).columnGap).toBe("8px");
+  });
+
+  it("keeps 8px between radios in a column, and fades a disabled circle to half", () => {
+    render(() => <Choice orientation="vertical" smsDisabled />);
+    expect(getComputedStyle(screen.getByRole("radiogroup")).rowGap).toBe("8px");
+    expect(getComputedStyle(circleOf("SMS")).opacity).toBe("0.5");
   });
 });
 
@@ -174,5 +181,92 @@ describe("RadioGroup, native (cire's radio)", () => {
     unmount();
     render(() => <Choice box="native" orientation="vertical" />);
     expect(row("SMS").top - row("Email").bottom).toBe(8);
+  });
+
+  it("answers a click on the radio and its words, not on the rest of a column's line", async () => {
+    let picked: string | undefined;
+    render(() => (
+      <div style={{ width: "400px" }}>
+        <Choice box="native" orientation="vertical" onChange={(v) => (picked = v)} />
+      </div>
+    ));
+    const group = screen.getByRole("radiogroup");
+    const sms = radio("SMS").closest("label")!.getBoundingClientRect();
+    const top = group.getBoundingClientRect().top;
+    await userEvent.click(group, { position: { x: 390, y: sms.top - top + sms.height / 2 } });
+    expect(picked).toBeUndefined();
+  });
+});
+
+describe("RadioGroup's own wiring", () => {
+  it("sets every label at the group's size", () => {
+    render(() => (
+      <>
+        <RadioGroup box="native" size="sm" value="a" aria-label="Small">
+          <RadioGroupItem value="a" label="Small one" />
+        </RadioGroup>
+        <RadioGroup box="native" value="a" aria-label="Medium">
+          <RadioGroupItem value="a" label="Medium one" />
+        </RadioGroup>
+      </>
+    ));
+    const font = (text: string) => parseFloat(getComputedStyle(screen.getByText(text)).fontSize);
+    expect(font("Small one")).toBeLessThan(font("Medium one"));
+  });
+
+  it("centres a radio on its label's first line with align start", () => {
+    render(() => (
+      <div style={{ width: "160px", "line-height": "1" }}>
+        <RadioGroup box="native" size="sm" value="" aria-label="Scope">
+          <RadioGroupItem
+            value="a"
+            align="start"
+            label="Only the events this guest is invited to"
+          />
+        </RadioGroup>
+      </div>
+    ));
+    const input = radio("Only the events this guest is invited to");
+    const words = screen.getByText("Only the events this guest is invited to");
+    const line = parseFloat(getComputedStyle(words).lineHeight);
+    expect(words.getBoundingClientRect().height).toBeGreaterThan(line * 1.5);
+    const r = input.getBoundingClientRect();
+    expect(
+      Math.abs(r.top + r.height / 2 - (words.getBoundingClientRect().top + line / 2)),
+    ).toBeLessThan(1);
+  });
+
+  it("describes an item by the caller's aria-describedby", () => {
+    render(() => (
+      <>
+        <span id="why">Only hosts see this.</span>
+        <RadioGroup box="native" value="" aria-label="Shown to">
+          <RadioGroupItem value="hosts" label="Hosts" aria-describedby="why" />
+        </RadioGroup>
+      </>
+    ));
+    expect(radio("Hosts")).toHaveAccessibleDescription("Only hosts see this.");
+  });
+
+  it("gives two unnamed groups two names, so choosing in one leaves the other", async () => {
+    render(() => (
+      <>
+        <RadioGroup box="native" value="a" aria-label="First">
+          <RadioGroupItem value="a" label="First A" />
+          <RadioGroupItem value="b" label="First B" />
+        </RadioGroup>
+        <RadioGroup box="native" value="a" aria-label="Second">
+          <RadioGroupItem value="a" label="Second A" />
+          <RadioGroupItem value="b" label="Second B" />
+        </RadioGroup>
+      </>
+    ));
+    expect(radio("First A").name).not.toBe(radio("Second A").name);
+  });
+
+  it("refuses to render an item outside a group", () => {
+    expect(() => render(() => <RadioGroupItem value="x" label="X" />)).toThrow(
+      "inside a RadioGroup",
+    );
   });
 });
