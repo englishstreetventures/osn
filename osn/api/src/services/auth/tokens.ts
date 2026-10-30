@@ -613,10 +613,15 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
 
       const nowSec = Math.floor(Date.now() / 1000);
 
-      // Expired — clean up lazily
+      // Expired — clean up lazily. Only while it is still expired: a verify
+      // of the same token a moment earlier may have found it live and
+      // extended it (below) since this one read it, and that session stays.
       if (nowSec >= session.expiresAt) {
         yield* Effect.tryPromise({
-          try: () => db.delete(sessions).where(eq(sessions.id, sessionId)),
+          try: () =>
+            db
+              .delete(sessions)
+              .where(and(eq(sessions.id, sessionId), lte(sessions.expiresAt, nowSec))),
           catch: (cause) => new DatabaseError({ cause }),
         });
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired session" }));

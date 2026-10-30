@@ -1,7 +1,8 @@
 import { it, expect, describe } from "@effect/vitest";
 import { rotatedSessions, sessions } from "@osn/db/schema";
+import { Db } from "@osn/db/service";
 import { and, eq, lte } from "drizzle-orm";
-import { Effect, Fiber } from "effect";
+import { Effect, Fiber, Layer } from "effect";
 import { TestClock } from "effect/testing";
 import { afterEach, beforeAll, vi } from "vitest";
 
@@ -18,6 +19,7 @@ import { hashSessionToken } from "../../../src/services/auth/helpers";
 import { runRotatedSessionSweep } from "../../../src/services/auth/tokens";
 import { makeTestAuthConfig } from "../../helpers/auth-config";
 import { createCapturingTestLayer, createTestLayerWithSqlite } from "../../helpers/db";
+import { holdQueries } from "../../helpers/held-query";
 
 /**
  * Rotated-session reuse detection on the `rotated_sessions` table: the record
@@ -395,6 +397,39 @@ describe("runRotatedSessionSweep", () => {
       expect(recorded.mock.calls).toEqual([
         ["rotated_sessions", ROTATED_SESSION_SWEEP_CHUNK, ROTATED_SESSION_SWEEP_PAUSE_MS / 1000],
       ]);
+    }).pipe(Effect.provide(layer));
+  });
+});
+
+describe("verifyRefreshToken: an expired session's delete", () => {
+  it.live("leaves a session that another verify of the token extended since", () => {
+    const { db, sqlite, email } = createTestLayerWithSqlite();
+    const queries = holdQueries(db);
+    const layer = Layer.merge(Layer.succeed(Db, { db: queries.db }), email.layer);
+    const expiryOf = (id: string) =>
+      (
+        sqlite.query("SELECT expires_at AS expiresAt FROM sessions WHERE id = ?").get(id) as {
+          expiresAt: number;
+        } | null
+      )?.expiresAt;
+    return Effect.gen(function* () {
+      const { refreshToken } = yield* signIn("expiry-race@example.com", "expiryrace");
+      const id = hashSessionToken(refreshToken);
+      const expiresAt = expiryOf(id)!;
+
+      // One verify reads the session at its expiry second and is held at its delete.
+      const clock = vi.spyOn(Date, "now").mockReturnValue(expiresAt * 1000);
+      const remove = queries.hold(/^delete from "sessions"/);
+      const late = yield* Effect.forkChild(Effect.result(auth.verifyRefreshToken(refreshToken)));
+      yield* Effect.promise(() => remove.reached);
+
+      // Another, a second earlier, finds it live and extends it.
+      clock.mockReturnValue((expiresAt - 1) * 1000);
+      yield* auth.verifyRefreshToken(refreshToken);
+      remove.release();
+
+      expect((yield* Fiber.join(late))._tag).toBe("Failure");
+      expect(expiryOf(id)).toBeGreaterThan(expiresAt);
     }).pipe(Effect.provide(layer));
   });
 });
