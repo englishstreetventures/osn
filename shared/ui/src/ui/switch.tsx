@@ -1,5 +1,5 @@
 import { clsx } from "clsx";
-import { splitProps, type Component } from "solid-js";
+import { onMount, splitProps, type Component } from "solid-js";
 
 import type { SafeProps } from "./props";
 
@@ -64,10 +64,18 @@ const Switch: Component<SwitchProps> = (props) => {
   ]);
   const inert = () => local.readOnly === true || local.busy === true;
   const flag = (on: boolean | undefined) => (on ? "" : undefined);
+  let input!: HTMLInputElement;
+  // A server-rendered page that the browser restores — a reload, a back
+  // navigation the cache missed — can flip the input before it hydrates, and
+  // hydration writes no property. Put the caller's value back once mounted.
+  onMount(() => {
+    input.checked = local.checked;
+  });
   return (
     <label class={clsx("base:inline-flex base:items-center base:gap-2", local.class)} {...others}>
       {/* `peer` is a marker for the track's focus ring, not a utility. */}
       <input
+        ref={input}
         type="checkbox"
         role="switch"
         class="peer base:sr-only"
@@ -105,7 +113,7 @@ const Switch: Component<SwitchProps> = (props) => {
         data-checked={flag(local.checked)}
         data-readonly={flag(inert())}
         data-disabled={flag(local.disabled)}
-        class="base:border-ui-hairline-strong base:bg-ui-ground base:data-[checked]:border-ui-accent base:data-[checked]:bg-ui-accent base:peer-focus-visible:ring-ui-focus base:peer-focus-visible:ring-offset-ui-ground base:inline-flex base:h-5 base:w-9 base:shrink-0 base:cursor-pointer base:items-center base:rounded-full base:border base:p-0.5 base:transition-colors base:peer-focus-visible:ring-2 base:peer-focus-visible:ring-offset-2 base:data-[disabled]:cursor-not-allowed base:data-[disabled]:opacity-50 base:data-[readonly]:cursor-default base:motion-reduce:transition-none"
+        class="base:border-ui-hairline-strong base:bg-ui-ground base:data-[checked]:border-ui-accent base:data-[checked]:bg-ui-accent base:peer-focus-visible:ring-ui-focus base:peer-focus-visible:ring-offset-ui-ground base:inline-flex base:h-5 base:w-9 base:shrink-0 base:cursor-pointer base:items-center base:rounded-full base:border base:p-0.5 base:transition-colors base:peer-focus-visible:ring-2 base:peer-focus-visible:ring-offset-2 base:data-[disabled]:cursor-not-allowed base:data-[disabled]:opacity-50 base:data-[readonly]:cursor-default base:motion-reduce:transition-none base:forced-colors:peer-focus-visible:outline-2 base:forced-colors:peer-focus-visible:outline-offset-2"
       >
         <span
           data-checked={flag(local.checked)}

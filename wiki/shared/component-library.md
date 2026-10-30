@@ -659,6 +659,8 @@ Key behaviours you get by default:
 
 The outer element of a `Checkbox` is a `<div>` holding the label and the note, each at its own width, so a note that comes and goes never remounts the input, and only the box and its words answer a click. A cire app also draws every bare native box with the same values in a base-layer rule (`cire/host/DESIGN.md` §4, Checkboxes and radios), for the native inputs that sit outside the parts.
 
+Two guarantees hold beyond a plain client render, for `Switch` too. A page the browser restores (a reload, a back navigation the cache missed) can tick an input before it hydrates, and hydration writes no property, so each part puts the caller's value back once mounted: a box never shows a state the caller does not hold, which matters most for a consent box. And a Windows contrast theme drops `box-shadow` and repaints backgrounds, so the drawn box, circle and switch track draw keyboard focus as an outline there, and the chosen dot keeps the text colour. `tests/choice-restore.browser.test.tsx` holds both.
+
 The drawn box keeps the DOM shape Kobalte's parts had — a clipped input, then the painted box — so pulse's forms and the vendor portal's soft-shapes test read it unchanged. `tests/checkbox.browser.test.tsx` and `tests/radio-group.browser.test.tsx` hold both boxes in Chromium.
 
 ### Simple styled components (Input, Label, Card, Textarea, Select)

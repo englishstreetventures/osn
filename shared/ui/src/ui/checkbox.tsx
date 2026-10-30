@@ -1,5 +1,13 @@
 import { clsx } from "clsx";
-import { children, createUniqueId, Show, splitProps, type Component, type JSX } from "solid-js";
+import {
+  children,
+  createUniqueId,
+  onMount,
+  Show,
+  splitProps,
+  type Component,
+  type JSX,
+} from "solid-js";
 
 import {
   DESCRIPTION,
@@ -71,7 +79,7 @@ type CheckboxProps = Omit<SafeProps<"div">, "onChange" | "children"> & {
  * a note that comes and goes never remounts the input or takes its focus.
  */
 const Checkbox: Component<CheckboxProps> = (props) => {
-  const [local, input, others] = splitProps(
+  const [local, field, others] = splitProps(
     props,
     ["class", "checked", "onChange", "label", "description", "note", "box", "size", "align"],
     [
@@ -98,28 +106,38 @@ const Checkbox: Component<CheckboxProps> = (props) => {
   const align = () => local.align ?? "center";
   const flag = (on: boolean | undefined) => (on ? "" : undefined);
 
+  let input!: HTMLInputElement;
+  // A server-rendered page that the browser restores — a reload, a back
+  // navigation the cache missed — can tick or untick the input before it
+  // hydrates, and hydration writes no property. Put the caller's value back
+  // once mounted, so the box never shows a state the caller does not hold.
+  onMount(() => {
+    input.checked = local.checked;
+  });
+
   const element = (
     <input
+      ref={input}
       type="checkbox"
       // `peer` marks the drawn box's focus ring; it is not a utility.
       class={native() ? NATIVE_CHECKBOX : "peer base:sr-only"}
       checked={local.checked}
-      name={input.name}
-      value={input.value}
-      id={input.id}
-      disabled={input.disabled}
-      required={input.required}
-      aria-label={input["aria-label"]}
+      name={field.name}
+      value={field.value}
+      id={field.id}
+      disabled={field.disabled}
+      required={field.required}
+      aria-label={field["aria-label"]}
       aria-labelledby={
-        input["aria-labelledby"] ??
-        (hasDescription() && input["aria-label"] === undefined ? titleId : undefined)
+        field["aria-labelledby"] ??
+        (hasDescription() && field["aria-label"] === undefined ? titleId : undefined)
       }
       aria-describedby={idList(
-        input["aria-describedby"],
+        field["aria-describedby"],
         hasDescription() && descriptionId,
         hasNote() && noteId,
       )}
-      aria-invalid={input["aria-invalid"]}
+      aria-invalid={field["aria-invalid"]}
       onClick={(event) => {
         // A click on the label reaches the input without focusing it in every
         // engine; focus it, so a keyboard user carries on from here.
@@ -135,13 +153,14 @@ const Checkbox: Component<CheckboxProps> = (props) => {
     />
   );
 
-  // The tick is drawn only while ticked, as Kobalte's indicator was.
+  // The tick is drawn only while ticked, as Kobalte's indicator was. A contrast
+  // theme drops the ring, a shadow, so focus there draws an outline instead.
   const drawnBox = (
     <span
       aria-hidden="true"
       data-checked={flag(local.checked)}
-      data-disabled={flag(input.disabled)}
-      class="base:border-ui-hairline-strong base:bg-ui-ground base:data-[checked]:bg-ui-accent base:data-[checked]:text-ui-on-accent base:peer-focus-visible:ring-ui-focus base:h-4 base:w-4 base:shrink-0 base:rounded-ui-sm base:border base:transition-colors base:peer-focus-visible:ring-2 base:data-[disabled]:opacity-50"
+      data-disabled={flag(field.disabled)}
+      class="base:border-ui-hairline-strong base:bg-ui-ground base:data-[checked]:bg-ui-accent base:data-[checked]:text-ui-on-accent base:peer-focus-visible:ring-ui-focus base:h-4 base:w-4 base:shrink-0 base:rounded-ui-sm base:border base:transition-colors base:peer-focus-visible:ring-2 base:data-[disabled]:opacity-50 base:forced-colors:peer-focus-visible:outline-2 base:forced-colors:peer-focus-visible:outline-offset-2"
     >
       <Show when={local.checked}>
         <span class="base:flex base:items-center base:justify-center">
@@ -162,7 +181,8 @@ const Checkbox: Component<CheckboxProps> = (props) => {
     </span>
   );
 
-  const box = native() ? element : [element, drawnBox];
+  // Reactive, so a box that changes after mount draws the new one whole.
+  const box = () => (native() ? element : [element, drawnBox]);
 
   return (
     <div class={clsx(WRAP, local.class)} {...others}>
@@ -175,8 +195,8 @@ const Checkbox: Component<CheckboxProps> = (props) => {
             : clsx("base:flex base:gap-2", DRAWN_TEXT[size()], ROW_ALIGN[align()])
         }
       >
-        <Show when={align() === "start"} fallback={box}>
-          <span class={FIRST_LINE}>{box}</span>
+        <Show when={align() === "start"} fallback={box()}>
+          <span class={FIRST_LINE}>{box()}</span>
         </Show>
         <Show when={local.label !== undefined || hasDescription()}>
           <span class={native() ? "base:min-w-0" : undefined}>
