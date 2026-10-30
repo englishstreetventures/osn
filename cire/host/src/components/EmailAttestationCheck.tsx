@@ -1,4 +1,5 @@
 import { ORGANISER_EMAIL_ATTESTATION } from "@cire/guest-email";
+import { proseLinkClass } from "@cire/ui/button";
 import Eyebrow from "@cire/ui/eyebrow";
 
 import { CIRE_MARKETING_URL } from "../lib/osn";
@@ -40,7 +41,7 @@ export default function EmailAttestationCheck(props: {
           href={`${CIRE_MARKETING_URL}/privacy/guests`}
           target="_blank"
           rel="noopener noreferrer"
-          class="text-gold-ink underline underline-offset-2"
+          class={proseLinkClass()}
         >
           cireweddings.com/privacy/guests<span class="sr-only"> (opens in a new tab)</span>
         </a>

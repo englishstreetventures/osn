@@ -1,5 +1,5 @@
 import { GUEST_EMAIL_CONSENT, parseGuestEmail } from "@cire/guest-email";
-import Button from "@cire/ui/button";
+import Button, { proseLinkClass } from "@cire/ui/button";
 import { Notice } from "@shared/ui/ui/notice";
 import { createSignal, createUniqueId, Show } from "solid-js";
 
@@ -279,7 +279,7 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
                   href="/privacy"
                   target="_blank"
                   rel="noopener noreferrer"
-                  class="text-gold-ink underline underline-offset-2"
+                  class={proseLinkClass()}
                 >
                   privacy notice
                 </a>
