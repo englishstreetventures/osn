@@ -941,7 +941,7 @@ by the look:
 | Glyph          | `bare`                                | An arrow, a cross, a disclosure caret. No underline, because there is no word to underline                                                                                                                                                    |
 | Field          | `field`                               | A control shaped like the field it stands in for — the dietary picker's collapsed trigger, in a column of text inputs: an input's padding and weight, the text field's corner, transparent like the inputs around it |
 | Chrome         | `chip`, `round`                       | A control in a sheet's own chrome rather than its content. `chip`: the guest event sheet's badge, "Give RSVP →" and "← See details", in its bar beside the round close button — a pill on the surface fill, opaque because content scrolls under it, in accent ink because it leads somewhere. `round`: a glyph on that same opaque disc with no edge — the sheet's close ×, the RSVP page's reply key — muted ink that brightens on hover while the fill stays, and the raised surface while the popover it opens shows (`aria-expanded`) |
-| State and fill | `choice`, `tile`                      | One option among several, marked through `aria-pressed` **or** `aria-checked` so a toggle group and a radio group look the same; and the control that _is_ a block — a card, a row — where a hairline stops describing the target             |
+| State and fill | `choice`, `tile`                      | One option among several, marked through `aria-pressed` **or** `aria-checked` so a toggle group and a radio group look the same — an accent edge, accent ink and a 60% ring; and the control that _is_ a block — a card, a row — where a hairline stops describing the target. Under the pointer an unchosen `choice` goes halfway to chosen (edge and ink a `color-mix` of rest and chosen, a 30% ring), on `--dur-base`. Locked with `aria-disabled` while its answer saves, a `choice` keeps its look and only stops answering the pointer; every other variant fades to 40%, and `disabled` fades a `choice` too |
 
 Five sizes, and they are not one scale:
 
@@ -982,6 +982,14 @@ whatever an app maps `control` to. The borderless variants take `control` too;
 with no border and no fill, only their focus ring shows it.
 Because no default corner is a plain utility, a caller's plain `rounded-*` in
 `class` wins rather than tying with it (§Class composition above).
+
+`choice`'s hover is gated on the option being neither chosen nor locked, and the
+gate is written inside `base:` — `not-aria-pressed:not-aria-checked:not-aria-disabled:hover:base:…` —
+because Tailwind applies stacked variants left to right: `base:hover:x` compiles to
+`:where(.x):hover`, which keeps the hover's own pseudo-class weight, and a gate
+of three `:not()` before `base:` would outrank a caller's plain `hover:` class.
+Written the other way the whole selector sits in `:where()` and a caller still
+wins (`cire/ui/tests/choice.browser.test.tsx`).
 
 `cire/ui/src/button.tsx` carries the reason for each in its own doc comment, and
 that is the bar for adding one: a variant is a design concept somebody can name,

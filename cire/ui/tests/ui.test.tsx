@@ -377,7 +377,8 @@ describe("Button — motion", () => {
     // Tailwind's `transition-colors` includes `outline-color`, which would fade
     // the focus ring in over the hover's duration. The ring must show the
     // moment focus lands, so the transition names its properties instead.
-    const wrong = EVERY_VARIANT.filter((variant) => {
+    // `choice` names its own list, with the ring's `box-shadow` (below).
+    const wrong = EVERY_VARIANT.filter((variant) => variant !== "choice").filter((variant) => {
       const cls = buttonClass({ variant }).split(/\s+/);
       return (
         cls.includes("base:transition-colors") ||
@@ -390,7 +391,7 @@ describe("Button — motion", () => {
   it("takes its hover duration from the app's motion token", () => {
     // A literal duration ignores the app's ladder, which is shorter under a
     // fine pointer. The fallback is for an app that declares no ladder.
-    const wrong = EVERY_VARIANT.filter((variant) => {
+    const wrong = EVERY_VARIANT.filter((variant) => variant !== "choice").filter((variant) => {
       const durations = buttonClass({ variant })
         .split(/\s+/)
         .filter((c) => c.includes("duration-"));
@@ -479,6 +480,54 @@ describe("proseLinkClass", () => {
 
   it("is the accent tone when no tone is named", () => {
     expect(proseLinkClass()).toBe(proseLinkClass({ tone: "accent" }));
+  });
+});
+
+describe("Button — choice, halfway and locked", () => {
+  const classes = (variant: ButtonVariant) => buttonClass({ variant }).split(/\s+/);
+  const GATE = "not-aria-pressed:not-aria-checked:not-aria-disabled:hover:base:";
+
+  it("moves its colours and its ring on the app's base duration, and nothing else", () => {
+    const cls = classes("choice");
+    expect(cls.filter((c) => c.includes("transition"))).toEqual([
+      "base:transition-[color,background-color,border-color,box-shadow]",
+    ]);
+    expect(cls.filter((c) => c.includes("duration-"))).toEqual([
+      "base:duration-(--dur-base,150ms)",
+    ]);
+  });
+
+  it("keeps a locked choice at full strength, and fades every other locked variant", () => {
+    // The answer a guest just gave is locked while it saves; faded, it would be
+    // the hardest thing on the sheet to read.
+    expect(classes("choice").filter((c) => c.includes("aria-disabled:opacity"))).toEqual([]);
+    const unfaded = EVERY_VARIANT.filter((v) => v !== "choice").filter(
+      (variant) => !classes(variant).includes("base:aria-disabled:opacity-40"),
+    );
+    expect(unfaded).toEqual([]);
+    // `disabled` still fades it, which the host's busy pictures rely on.
+    expect(classes("choice")).toContain("base:disabled:opacity-40");
+    // Locked, every variant says so to the pointer, `choice` included.
+    const silent = EVERY_VARIANT.filter(
+      (variant) => !classes(variant).includes("base:aria-disabled:cursor-not-allowed"),
+    );
+    expect(silent).toEqual([]);
+  });
+
+  it("rests on the hairline in the secondary ink, as `quiet` does", () => {
+    expect(classes("choice")).toEqual(
+      expect.arrayContaining(["base:border-ui-hairline", "base:text-ui-ink-secondary"]),
+    );
+  });
+
+  it("answers the pointer only when neither chosen nor locked, at zero specificity", () => {
+    const hover = classes("choice").filter((c) => c.includes("hover:"));
+    expect(hover).toEqual([
+      `${GATE}border-[color:color-mix(in_oklab,var(--ui-hairline),var(--ui-accent))]`,
+      `${GATE}text-[color:color-mix(in_oklab,var(--ui-ink-secondary),var(--ui-accent-ink))]`,
+      `${GATE}ring-1`,
+      `${GATE}ring-ui-accent/30`,
+    ]);
   });
 });
 
