@@ -818,7 +818,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
                       type="button"
                       class="font-body text-ui-sm tracking-ui-normal rounded-ui-control transition-ui-colors flex-1 cursor-pointer border px-4 py-2.5 font-medium duration-(--dur-fast) ease-(--ease-out)"
                       classList={{
-                        "border-gold text-gold-ink bg-gold/8":
+                        "border-gold text-gold-ink":
                           responses()[guestId]?.attending === "attending",
                         "border-border text-text-muted hover:border-gold-dim hover:text-text":
                           responses()[guestId]?.attending !== "attending",
@@ -833,8 +833,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
                       type="button"
                       class="font-body text-ui-sm tracking-ui-normal rounded-ui-control transition-ui-colors flex-1 cursor-pointer border px-4 py-2.5 font-medium duration-(--dur-fast) ease-(--ease-out)"
                       classList={{
-                        "border-gold text-gold-ink bg-gold/8":
-                          responses()[guestId]?.attending === "declined",
+                        "border-gold text-gold-ink": responses()[guestId]?.attending === "declined",
                         "border-border text-text-muted hover:border-gold-dim hover:text-text":
                           responses()[guestId]?.attending !== "declined",
                       }}

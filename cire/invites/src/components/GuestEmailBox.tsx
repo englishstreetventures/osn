@@ -208,7 +208,7 @@ export function GuestEmailBox(props: GuestEmailBoxProps) {
 
   return (
     <section
-      class={`border-gold/30 bg-gold/5 border px-5 py-6 text-left ${props.class ?? ""}`}
+      class={`border-gold/30 border px-5 py-6 text-left ${props.class ?? ""}`}
       aria-labelledby={headingId}
     >
       <h3

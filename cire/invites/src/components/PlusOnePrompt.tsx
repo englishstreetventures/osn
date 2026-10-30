@@ -116,7 +116,7 @@ export function PlusOnePrompt(props: PlusOnePromptProps) {
           long word, and every line here that carries one must still wrap
           inside the narrow panel card on a phone. */}
       <section
-        class={`border-gold/30 bg-gold/5 border px-5 py-6 text-left wrap-anywhere ${props.class ?? ""}`}
+        class={`border-gold/30 border px-5 py-6 text-left wrap-anywhere ${props.class ?? ""}`}
         aria-labelledby={headingId}
       >
         <h3

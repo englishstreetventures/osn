@@ -1,6 +1,7 @@
 import { buttonClass } from "@cire/ui/button";
 import Eyebrow, { eyebrowClass } from "@cire/ui/eyebrow";
 import { Toaster } from "@shared/toast";
+import { Notice } from "@shared/ui/ui/notice";
 import {
   createMemo,
   createSignal,
@@ -47,6 +48,15 @@ import { GiftRegistryItemCard } from "./GiftRegistryItemCard";
  * heading, without `Eyebrow`'s run-time choice of tag.
  */
 const SHELF_LABEL_CLASS = eyebrowClass();
+
+/**
+ * Where a note above the list sits: centred in the page's column, at the
+ * intro's measure. Each note is `Notice`'s accent note with no fill, so its
+ * readable gold sits on the page's own ground — the ground the palette holds
+ * that gold to 4.5:1 against — rather than on a tint nothing measures. The
+ * notice takes layout and no type, so the centring is set here and inherited.
+ */
+const NOTE_PLACE = "max-w-ui-md mx-auto mb-8 text-center";
 
 /**
  * The money panel is a whole second surface — its own amount field, its own
@@ -439,14 +449,13 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
                 asserting on the page that money moved. */}
             <Show when={payment()}>
               {(arrival) => (
-                <p
-                  data-gift-payment={arrival()}
-                  class="border-gold/40 bg-gold/5 text-gold-ink font-body text-ui-sm leading-ui-normal max-w-ui-md mx-auto mb-8 rounded-sm border px-4 py-3 text-center"
-                >
-                  {arrival() === "thanks"
-                    ? "Thank you. If your payment went through, it’s on its way to them — the couple will see it in their gift list."
-                    : "Nothing was charged. The list is still here whenever you want it."}
-                </p>
+                <div class={NOTE_PLACE}>
+                  <Notice size="sm" tone="accent" fill="none" data-gift-payment={arrival()}>
+                    {arrival() === "thanks"
+                      ? "Thank you. If your payment went through, it’s on its way to them — the couple will see it in their gift list."
+                      : "Nothing was charged. The list is still here whenever you want it."}
+                  </Notice>
+                </div>
               )}
             </Show>
 
@@ -463,19 +472,18 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
                 between the two, or on a later re-read — which is why the
                 reserve controls are gone. */}
             <Show when={!signedIn()}>
-              <p
-                data-gift-signed-out
-                class="border-gold/40 bg-gold/5 text-gold-ink font-body text-ui-sm leading-ui-normal max-w-ui-md mx-auto mb-8 rounded-sm border px-4 py-3 text-center"
-              >
-                Your invite session has ended. Enter your invite code again on{" "}
-                <a
-                  href={props.inviteHref}
-                  class="rounded-ui-control focus-visible:outline-ui-focus underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2"
-                >
-                  the invitation
-                </a>{" "}
-                to reserve a gift.
-              </p>
+              <div class={NOTE_PLACE}>
+                <Notice size="sm" tone="accent" fill="none" data-gift-signed-out>
+                  Your invite session has ended. Enter your invite code again on{" "}
+                  <a
+                    href={props.inviteHref}
+                    class="rounded-ui-control focus-visible:outline-ui-focus underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2"
+                  >
+                    the invitation
+                  </a>{" "}
+                  to reserve a gift.
+                </Notice>
+              </div>
             </Show>
 
             {/* The organiser's preview. Same opening words as the invite's own
@@ -483,14 +491,13 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
                 when the list offers it: where the couple, Stripe or this site
                 cannot take a money gift, guests are offered none. */}
             <Show when={preview()}>
-              <p
-                data-gift-preview
-                class="border-gold/40 text-gold-ink font-body text-ui-sm leading-ui-normal max-w-ui-md mx-auto mb-8 rounded-sm border px-4 py-3 text-center"
-              >
-                {registry()?.cashGiftsEnabled
-                  ? "Preview mode. Guests reserve gifts and give money here; nothing can be reserved or given from a preview."
-                  : "Preview mode. Guests reserve gifts here; nothing can be reserved from a preview."}
-              </p>
+              <div class={NOTE_PLACE}>
+                <Notice size="sm" tone="accent" fill="none" data-gift-preview>
+                  {registry()?.cashGiftsEnabled
+                    ? "Preview mode. Guests reserve gifts and give money here; nothing can be reserved or given from a preview."
+                    : "Preview mode. Guests reserve gifts here; nothing can be reserved from a preview."}
+                </Notice>
+              </div>
             </Show>
 
             <Show when={shippingAddress()}>

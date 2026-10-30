@@ -232,7 +232,7 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
               <label
                 class="font-body rounded-ui-field focus-within:outline-ui-focus transition-ui-colors flex cursor-pointer items-center gap-3 border px-4 py-3 duration-(--dur-fast) ease-(--ease-out) focus-within:outline-2 focus-within:outline-offset-2"
                 classList={{
-                  "border-gold bg-gold/5": fundId() === null,
+                  "border-gold": fundId() === null,
                   "border-border": fundId() !== null,
                 }}
               >
@@ -252,7 +252,7 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
                     data-gift-money-fund={fund.id}
                     class="font-body rounded-ui-field focus-within:outline-ui-focus transition-ui-colors flex cursor-pointer items-start gap-3 border px-4 py-3 duration-(--dur-fast) ease-(--ease-out) focus-within:outline-2 focus-within:outline-offset-2"
                     classList={{
-                      "border-gold bg-gold/5": fundId() === fund.id,
+                      "border-gold": fundId() === fund.id,
                       "border-border": fundId() !== fund.id,
                     }}
                   >
@@ -305,7 +305,7 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
                 <label
                   class="font-body text-ui-sm rounded-ui-control focus-within:outline-ui-focus transition-ui-colors cursor-pointer border px-4 py-2 duration-(--dur-fast) ease-(--ease-out) focus-within:outline-2 focus-within:outline-offset-2"
                   classList={{
-                    "border-gold text-gold-ink bg-gold/5": preset() === minor,
+                    "border-gold text-gold-ink": preset() === minor,
                     "border-border text-text-muted": preset() !== minor,
                   }}
                 >
@@ -329,7 +329,7 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
             <label
               class="font-body text-ui-sm rounded-ui-control focus-within:outline-ui-focus transition-ui-colors cursor-pointer border px-4 py-2 duration-(--dur-fast) ease-(--ease-out) focus-within:outline-2 focus-within:outline-offset-2"
               classList={{
-                "border-gold text-gold-ink bg-gold/5": preset() === null,
+                "border-gold text-gold-ink": preset() === null,
                 "border-border text-text-muted": preset() !== null,
               }}
             >

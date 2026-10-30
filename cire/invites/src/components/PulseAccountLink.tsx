@@ -84,7 +84,7 @@ function AccountPicture(props: { account: SignedInAccount }) {
       when={avatarUrl() !== null && !failed()}
       fallback={
         <span
-          class="bg-gold/15 text-gold-ink font-display text-ui-md flex size-10 shrink-0 items-center justify-center rounded-full"
+          class="text-gold-ink font-display text-ui-md flex size-10 shrink-0 items-center justify-center rounded-full"
           aria-hidden="true"
         >
           {initial()}
@@ -214,7 +214,7 @@ export function PulseAccountLink(props: PulseAccountLinkProps) {
 
   return (
     <section
-      class={`border-gold/30 bg-gold/5 border px-5 py-6 text-left ${props.class ?? ""}`}
+      class={`border-gold/30 border px-5 py-6 text-left ${props.class ?? ""}`}
       aria-labelledby="pulse-link-heading"
     >
       <h3
