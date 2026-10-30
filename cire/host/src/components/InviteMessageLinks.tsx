@@ -1,4 +1,4 @@
-import Button from "@cire/ui/button";
+import { proseLinkClass } from "@cire/ui/button";
 import { For, type JSX, Show } from "solid-js";
 
 import { ROLE_COPY } from "../lib/wedding-roles";
@@ -19,6 +19,8 @@ interface InviteMessageLinksProps {
   canEdit: boolean;
   /** Owner: may open Invite → Codes. */
   canManage: boolean;
+  /** Each place's address, so a link can open in a new tab and say where it goes. */
+  hrefs: Readonly<Record<InviteMessagePlace, string>>;
   /** Go to a place. Only called for a place the reader may open. */
   onNavigate: (place: InviteMessagePlace) => void;
 }
@@ -64,6 +66,11 @@ const SENTENCE = {
   ),
 } satisfies Readonly<Record<InviteMessagePlace, (place: PlaceRenderer) => JSX.Element>>;
 
+/** A click the browser should handle itself: a new tab, a new window, a
+ *  download, or any button but the main one. */
+const opensElsewhere = (event: MouseEvent): boolean =>
+  event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey;
+
 /** A place's path spoken as a list, "Invite, Codes" — never "Invite right
  *  arrow Codes". */
 const spokenPath = (place: InviteMessagePlace): string => PLACE_PATH[place].join(", ");
@@ -92,9 +99,12 @@ function PlacePath(props: { place: InviteMessagePlace }) {
  * the three has to be found by guessing. A place the reader can open is a link;
  * one their role cannot open is named as text, with who can.
  *
- * The links are buttons that navigate through the dashboard's own route
- * callbacks rather than `#/…` anchors, because a hash change skips the invite
- * builder's unsaved-changes check.
+ * Each link is an `<a href>` to the place's address, so it wraps with its
+ * sentence and a modifier or middle click opens the place in a new tab. A plain
+ * click does not follow the address: it navigates through the dashboard's own
+ * route callback, because a hash change skips the invite builder's
+ * unsaved-changes check, and only the callback opens the builder on its Message
+ * section, which is builder state rather than part of the address.
  */
 export default function InviteMessageLinks(props: InviteMessageLinksProps) {
   const canOpen = (place: InviteMessagePlace): boolean => {
@@ -117,21 +127,20 @@ export default function InviteMessageLinks(props: InviteMessageLinksProps) {
         </span>
       }
     >
-      {/* `touchLink`, not `link`: inside a sentence the underline at rest is
-          what marks the words as a link. `link` shows its underline only on
-          hover, leaving colour alone to do it, which WCAG 1.4.1 does not
-          accept for a link set in running text. */}
-      <Button
-        variant="touchLink"
+      {/* The muted prose link: inside a sentence the underline at rest is what
+          marks the words as a link (WCAG 1.4.1). */}
+      <a
+        href={props.hrefs[target]}
+        class={proseLinkClass({ tone: "muted" })}
         aria-label={spokenPath(target)}
-        onClick={() => props.onNavigate(target)}
+        onClick={(event) => {
+          if (opensElsewhere(event)) return;
+          event.preventDefault();
+          props.onNavigate(target);
+        }}
       >
-        {/* One flex item, so the button's gap does not open between the path's
-            words and the underline runs unbroken. */}
-        <span>
-          <PlacePath place={target} />
-        </span>
-      </Button>
+        <PlacePath place={target} />
+      </a>
     </Show>
   );
 
