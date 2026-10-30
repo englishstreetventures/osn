@@ -3,8 +3,7 @@
  *
  * The claim page warns that an organisation already has a listing and links
  * to it inside the warning (`ClaimApp.tsx`). The link takes the readable gold,
- * not the warning's own ink (the owner's choice on
- * englishstreetventures/osn#1838), so its words sit on the warning's tint in a
+ * not the warning's own ink, so its words sit on the warning's tint in a
  * colour the tint was not chosen for. This holds them at 4.5:1 in both themes.
  */
 
