@@ -193,18 +193,22 @@ export function PerHeadPanel(props: {
           />
         </RadioGroup>
         <Show when={!everyEvent()}>
-          <For each={props.events}>
-            {(ev) => (
-              <Checkbox
-                box="native"
-                size="sm"
-                class="ml-6"
-                checked={picked().has(ev.id)}
-                onChange={(next) => toggle(ev.id, next)}
-                label={ev.name}
-              />
-            )}
-          </For>
+          {/* The boxes answer "Only these events", so they are a group of
+              their own, named for it, as the indent shows on screen. */}
+          <fieldset class="m-0 ml-6 flex flex-col gap-2 border-0 p-0">
+            <legend class="sr-only">Events to count</legend>
+            <For each={props.events}>
+              {(ev) => (
+                <Checkbox
+                  box="native"
+                  size="sm"
+                  checked={picked().has(ev.id)}
+                  onChange={(next) => toggle(ev.id, next)}
+                  label={ev.name}
+                />
+              )}
+            </For>
+          </fieldset>
         </Show>
       </div>
       <p class="text-text-muted text-ui-xs max-w-prose">
