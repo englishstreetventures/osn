@@ -3,11 +3,11 @@
  * introspection surface (list / revoke-one / revoke-all-other).
  */
 
-import { oauthAuthorizationCodes, sessions } from "@osn/db/schema";
+import { oauthAuthorizationCodes, rotatedSessions, sessions } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { timingSafeEqualString } from "@shared/crypto/timing-safe";
 import type { SecurityInvalidationTrigger } from "@shared/observability/metrics";
-import { and, desc, eq, like, ne } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lt, ne } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { metricSessionSecurityInvalidation, withSessionOp } from "../../metrics";
@@ -236,20 +236,23 @@ export function createSessionsModule() {
     }).pipe(withSessionOp("list"));
 
   /**
-   * Revokes a single session by its public handle (first 16 hex chars of
-   * the SHA-256). Scopes the DELETE to the caller's accountId so a stolen
-   * handle from another account's log line can't revoke anyone else's
-   * sessions. Returns whether the caller's own session was the one revoked
-   * so the HTTP layer can clear the cookie.
+   * Revokes a device by the public handle of one of its sessions (first 16
+   * hex chars of the SHA-256): every session of that session's family, the
+   * device's refresh chain (or the reservations of one cross-device request).
+   * Scoped to the caller's accountId, so a stolen handle from another
+   * account's log line can't revoke anyone else's sessions. Returns whether
+   * the caller's own session was among those revoked, so the HTTP layer can
+   * clear the cookie.
    *
-   * S-M4: Idempotent — a handle that doesn't match any row returns
-   * `{ revokedSelf: false }` rather than surfacing "Session not found".
-   * This mirrors the `/logout` posture ("don't leak whether the session
-   * existed") and closes the handle-existence oracle.
+   * One statement, so no refresh can land between finding the family and
+   * deleting it; and a rotation in flight leaves nothing behind it (see
+   * `refreshTokens`). The handle is looked up among the rotation records as
+   * well as the live sessions, so a handle the device has since rotated away
+   * from — a Settings list a few minutes old — still finds its family.
    *
-   * P-W1: The match uses a `LIKE 'handle%'` predicate so the DB returns
-   * at most one row via the PK index rather than fetching every session
-   * for the account into JS and finding in-memory.
+   * Idempotent: a handle that matches nothing returns `{ revokedSelf: false }`
+   * rather than "Session not found", as `/logout` does, so revoke is not an
+   * oracle for which handles exist.
    */
   const revokeAccountSession = (
     accountId: string,
@@ -257,35 +260,46 @@ export function createSessionsModule() {
     currentSessionHash: string | null,
   ): Effect.Effect<{ revokedSelf: boolean }, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
-      // Short-circuit on malformed handles so the LIKE pattern stays
-      // safe (no escape concerns since we've already enforced [0-9a-f]{16}
-      // at the route but defence-in-depth at the service boundary).
+      // The route enforces the shape; checked again here because the bounds
+      // below are only a prefix range for a lowercase hex handle.
       if (!/^[0-9a-f]{16}$/.test(sessionHandle)) {
         return { revokedSelf: false };
       }
       const { db } = yield* Db;
-      const rows = yield* Effect.tryPromise({
+      // Every id and record key with the handle as its prefix: 64 lowercase
+      // hex characters, and "g" sorts after every hex digit. Each arm reads
+      // its table's primary key by range, not the account's rows; the outer
+      // `account_id` keeps the delete to the caller's account, since a family
+      // belongs to one account.
+      const upper = `${sessionHandle}g`;
+      const families = db
+        .select({ familyId: sessions.familyId })
+        .from(sessions)
+        .where(and(gte(sessions.id, sessionHandle), lt(sessions.id, upper)))
+        .unionAll(
+          db
+            .select({ familyId: rotatedSessions.familyId })
+            .from(rotatedSessions)
+            .where(
+              and(
+                gte(rotatedSessions.tokenHash, sessionHandle),
+                lt(rotatedSessions.tokenHash, upper),
+              ),
+            ),
+        );
+      const removed = yield* Effect.tryPromise({
         try: () =>
           db
-            .select({ id: sessions.id })
-            .from(sessions)
-            .where(and(eq(sessions.accountId, accountId), like(sessions.id, `${sessionHandle}%`)))
-            .limit(1),
+            .delete(sessions)
+            .where(and(eq(sessions.accountId, accountId), inArray(sessions.familyId, families)))
+            .returning({ id: sessions.id }),
         catch: (cause) => new DatabaseError({ cause }),
       });
-      const match = rows[0];
-      if (!match) {
-        // S-M4: idempotent — indistinguishable from a no-op revoke of a
-        // handle that existed for a different account (scoping predicate
-        // already filtered those out).
-        return { revokedSelf: false };
-      }
-      yield* Effect.tryPromise({
-        try: () => db.delete(sessions).where(eq(sessions.id, match.id)),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
-      metricSessionSecurityInvalidation("session_revoke");
-      return { revokedSelf: currentSessionHash !== null && match.id === currentSessionHash };
+      if (removed.length > 0) metricSessionSecurityInvalidation("session_revoke");
+      return {
+        revokedSelf:
+          currentSessionHash !== null && removed.some((row) => row.id === currentSessionHash),
+      };
     }).pipe(withSessionOp("revoke"));
 
   /**

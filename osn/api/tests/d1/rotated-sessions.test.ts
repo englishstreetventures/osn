@@ -23,8 +23,8 @@ import { makeTestAuthConfig } from "../helpers/auth-config";
 /**
  * Rotation records on real D1. bun:sqlite runs `commitBatch` statement by
  * statement; D1 runs it as one batch, which is a transaction, and enforces
- * foreign keys. What depends on either is proven here: a rotation's two
- * inserts commit together or not at all, the sweep's `rowid` subquery runs on
+ * foreign keys. What depends on either is proven here: a rotation's inserts
+ * and its delete commit together or not at all, the sweep's `rowid` subquery runs on
  * D1, and erasure removes the records before the account row they reference.
  */
 
@@ -112,9 +112,13 @@ describe("rotation records on D1", () => {
     const error = await failure(auth.refreshTokens(refreshToken));
 
     expect(error._tag).toBe("DatabaseError");
-    // The old session was swapped out before the batch, as it is today; the
-    // batch's first insert rolled back with its second.
-    expect(await sessionsOf(profile.accountId)).toEqual([]);
+    // The whole rotation is one batch: the new session rolled back with the
+    // record, and the old session, whose delete was in the same batch, stays
+    // and still verifies.
+    expect((await sessionsOf(profile.accountId)).map((s) => s.id)).toEqual([
+      hashSessionToken(refreshToken),
+    ]);
+    await run(auth.verifyRefreshToken(refreshToken));
   });
 
   it("a replay outside the grace window revokes the family and its records", async () => {

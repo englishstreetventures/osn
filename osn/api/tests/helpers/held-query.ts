@@ -13,6 +13,9 @@
  * and run later is still seen when it runs. The handle answers `"batch" in db`
  * as the driver does, so code that looks for a batch takes the same path.
  * Imports no test framework: the D1 tier runs under `bun test`.
+ *
+ * The same file as `zap/api/tests/helpers/held-query.ts`: a test helper cannot
+ * cross packages, so each keeps a copy, and a change to one goes to both.
  */
 
 export interface Hold {

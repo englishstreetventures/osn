@@ -20,10 +20,10 @@
 
 import { it, expect, describe } from "@effect/vitest";
 import { accounts, passkeys, securityEvents, sessions } from "@osn/db/schema";
-import type { Db } from "@osn/db/service";
+import { Db } from "@osn/db/service";
 import { extractClaims } from "@shared/osn-auth-client/verify";
 import { eq } from "drizzle-orm";
-import { Effect } from "effect";
+import { Effect, Fiber, Layer } from "effect";
 import { beforeAll, afterEach, vi } from "vitest";
 
 import { resolveAccessTokenPrincipal, resolveAccountId } from "../../src/lib/auth-derive";
@@ -39,6 +39,7 @@ import {
   isReservedOidcClientId,
 } from "../../src/services/auth/constants";
 import type { PasskeyProvenance } from "../../src/services/auth/types";
+import { holdQueries } from "../helpers/held-query";
 
 /**
  * Every `metricRecoveryPasskeyReclaim` call, in order.
@@ -756,6 +757,44 @@ describe("restricted recovery session — enrolling a passkey lifts the restrict
 
       const rotated = yield* auth.refreshTokens(restricted.refreshToken);
       expect(payloadOf(rotated.accessToken)["aud"]).toBe(ACCESS_TOKEN_AUDIENCE);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.live("a lift that lands while the session's refresh is held stays lifted", () => {
+    const { db, email } = createTestLayerWithSqlite();
+    const queries = holdQueries(db);
+    const layer = Layer.merge(Layer.succeed(Db, { db: queries.db }), email.layer);
+    return Effect.gen(function* () {
+      const user = yield* auth.registerProfile("rs-liftrace@example.com", "rsliftrace");
+      const restricted = yield* auth.issueRecoverySession(
+        user.id,
+        user.accountId,
+        user.email,
+        user.handle,
+        user.displayName,
+        "otp",
+      );
+      const callerHash = auth.hashSessionToken(restricted.refreshToken);
+
+      // The refresh has read the session restricted and waits at its insert.
+      const insert = queries.hold(/^insert into "sessions"/);
+      const refresh = yield* Effect.forkChild(
+        Effect.result(auth.refreshTokens(restricted.refreshToken)),
+      );
+      yield* Effect.promise(() => insert.reached);
+      yield* auth.beginPasskeyRegistration(user.accountId);
+      yield* Effect.result(
+        auth.completePasskeyRegistration(user.accountId, fakeAttestation(), callerHash),
+      );
+      insert.release();
+
+      const outcome = yield* Fiber.join(refresh);
+      expect(outcome._tag).toBe("Success");
+      if (outcome._tag !== "Success") return;
+      const row = yield* sessionRow(db, outcome.success.refreshToken);
+      expect(row?.restrictedUntil).toBeNull();
+      expect(row?.restrictedAmr).toBeNull();
+      expect(row!.expiresAt - row!.createdAt).toBeGreaterThan(RECOVERY_SESSION_TTL_SEC);
     }).pipe(Effect.provide(layer));
   });
 
