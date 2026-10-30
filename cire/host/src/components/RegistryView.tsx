@@ -1101,9 +1101,8 @@ export default function RegistryView(props: RegistryViewProps) {
                                   <LinkPill
                                     href={item.externalUrl!}
                                     hint={`to the shop page for ${item.title}`}
-                                  >
-                                    Link
-                                  </LinkPill>
+                                    label="Link"
+                                  />
                                 </Show>
 
                                 <Show when={props.canEdit}>

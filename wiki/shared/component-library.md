@@ -1014,7 +1014,7 @@ do the navigating and leaves a modifier or middle click to the browser; an
 action that goes nowhere stays a `<button>`, outside the sentence. A link that stands alone is not this either: it is a pill,
 `buttonClass({ variant: "outline" })`. The organiser portal draws its pills through `LinkPill`
 (`cire/host/src/components/LinkPill.tsx`): `sm` at 28px, a destination's 14px mark before the word, and a 28px circle
-with the word in its name in a row under 14rem (`cire/host/DESIGN.md` §7). The guest site's pills are `md` at its 44px
+with the word in its name and its title in a row under 14rem (`cire/host/DESIGN.md` §7). The guest site's pills are `md` at its 44px
 floor.
 
 ## Adding a new component

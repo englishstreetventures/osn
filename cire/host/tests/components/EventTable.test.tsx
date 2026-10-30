@@ -466,7 +466,12 @@ describe("EventTable — an event's places", () => {
         words.map((w) => href[w as keyof typeof href]),
       );
       for (const [i, word] of words.entries()) {
-        expect(links[i]!.textContent).toBe(`${word} (opens in a new tab)`);
+        // The event's name follows the word, heard and never shown, so a
+        // wedding with several events does not read "Maps" once per event
+        // with nothing to tell them apart.
+        expect(
+          screen.getByRole("link", { name: `${word} for Reception (opens in a new tab)` }),
+        ).toBe(links[i]);
         expect(links[i]!.getAttribute("target")).toBe("_blank");
         // The mark is decoration: the word names the link.
         expect(links[i]!.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");

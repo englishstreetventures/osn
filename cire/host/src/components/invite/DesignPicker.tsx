@@ -129,9 +129,11 @@ export default function DesignPicker(props: {
                   </Show>
                 </button>
                 <Show when={!isLocked()}>
-                  <LinkPill href={props.previewHref(design.id)} hint={design.name}>
-                    Preview live
-                  </LinkPill>
+                  <LinkPill
+                    href={props.previewHref(design.id)}
+                    hint={design.name}
+                    label="Preview live"
+                  />
                 </Show>
               </div>
             );
