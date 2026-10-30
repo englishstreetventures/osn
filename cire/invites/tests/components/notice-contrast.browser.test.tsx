@@ -5,9 +5,11 @@ import {
   sectionToneVars,
   WCAG_TEXT_MIN,
 } from "@cire/theme";
+import { buttonClass } from "@cire/ui/button";
 import { Notice, type NoticeTone } from "@shared/ui/ui/notice";
 import { cleanup, render, screen, within } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { userEvent } from "vitest/browser";
 
 import "../../src/styles/global.css";
 import { EventSheet } from "../../src/components/EventSheet";
@@ -41,7 +43,8 @@ import type { GiftRegistry } from "../../src/lib/gift-registry-read";
  * tone an organiser can give the welcome, in both layouts; the RSVP sheet's
  * preview note on the sheet; its chosen answers on each tone the sheet can
  * take; the gift page's notes and chosen amount on each tone the page can
- * take. Inside a site, every element that draws words of its own in the
+ * take; a link standing alone, the gift pages' outline pill, under the
+ * pointer on every ground. Inside a site, every element that draws words of its own in the
  * readable gold is measured, and every element between those words and the
  * site's own box must lay no ground, so a gold word added later is held too.
  */
@@ -525,6 +528,34 @@ describe.each(PALETTE_PRESET_KEYS)("the %s scheme", (palettePreset) => {
       cleanup();
       vi.unstubAllGlobals();
       document.cookie = "cire_claimed=; Path=/; Max-Age=0";
+    }
+    expect(short).toEqual([]);
+  });
+
+  it("holds a standalone link pill's gold word to 4.5:1 under the pointer, with no fill, on every ground", async () => {
+    // "Back to the invitation" and "Open the invitation" on the gift pages:
+    // `outline` answers the pointer with its edge alone, so its gold word
+    // stays on the ground the palette derived it against.
+    apply();
+    const short: string[] = [];
+    for (const [groundName, ground] of Object.entries(GROUNDS)) {
+      render(() => (
+        <div class={`${ground} p-4`}>
+          <a
+            href="/ada-and-ben"
+            class={`${buttonClass({ variant: "outline", size: "md" })} min-h-11`}
+          >
+            Back to the invitation
+          </a>
+        </div>
+      ));
+      const pill = screen.getByRole("link");
+      await userEvent.hover(pill);
+      await Promise.all(pill.getAnimations().map((a) => a.finished));
+      if (fills(pill)) short.push(`${groundName}: fills under the pointer`);
+      const ratio = wordsRatio(pill);
+      if (ratio < WCAG_TEXT_MIN) short.push(`${groundName}: ${ratio.toFixed(2)}:1`);
+      cleanup();
     }
     expect(short).toEqual([]);
   });

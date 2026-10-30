@@ -28,7 +28,8 @@ export interface LinkPillProps {
  * it takes `proseLinkClass`.
  *
  * `Button`'s `outline` at `sm`, at the portal's 28px pill height: accent ink
- * on an accent hairline, washed on hover, because a link leads somewhere.
+ * on an accent hairline that turns full gold under the pointer, because a
+ * link leads somewhere.
  *
  * A named destination someone knows by its mark — a website, Instagram, a map,
  * Pinterest — leads with that mark at 14px. In a row too narrow for its pills

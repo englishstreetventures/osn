@@ -185,10 +185,17 @@ function paint(color: string): string {
   return [...ctx.getImageData(0, 0, 1, 1).data].slice(0, 3).join(",");
 }
 
-/** What marks an answer chosen: its edge and the ring a chosen answer wears. */
+/**
+ * What marks an answer chosen: its edge, and the width in px of the ring a
+ * chosen answer wears (0 for none). Tailwind writes every ring layer, so the
+ * ring is the one layer that is not transparent; its last length is the spread.
+ */
 function mark(el: HTMLElement) {
   const style = getComputedStyle(el);
-  return { edge: paint(style.borderTopColor), ring: style.boxShadow.includes(" 1px") };
+  const layers = style.boxShadow === "none" ? [] : style.boxShadow.split(/,(?![^(]*\))/);
+  const ring = layers.map((l) => l.trim()).find((l) => !l.startsWith("rgba(0, 0, 0, 0)"));
+  const spread = ring?.match(/-?\d+(\.\d+)?px/g)?.at(-1);
+  return { edge: paint(style.borderTopColor), ring: spread ? Number.parseFloat(spread) : 0 };
 }
 
 describe("the answer pair, as painted", () => {
@@ -212,8 +219,8 @@ describe("the answer pair, as painted", () => {
     await Promise.all(
       [attending, declined].flatMap((b) => b.getAnimations()).map((a) => a.finished),
     );
-    expect(mark(attending)).toEqual({ edge: accent, ring: true });
-    expect(mark(declined).ring).toBe(false);
+    expect(mark(attending)).toEqual({ edge: accent, ring: 2 });
+    expect(mark(declined).ring).toBe(0);
     expect(mark(declined).edge).not.toBe(accent);
 
     fireEvent.click(declined);
@@ -221,8 +228,8 @@ describe("the answer pair, as painted", () => {
     await Promise.all(
       [attending, declined].flatMap((b) => b.getAnimations()).map((a) => a.finished),
     );
-    expect(mark(declined)).toEqual({ edge: accent, ring: true });
-    expect(mark(attending).ring).toBe(false);
+    expect(mark(declined)).toEqual({ edge: accent, ring: 2 });
+    expect(mark(attending).ring).toBe(0);
     expect(mark(attending).edge).not.toBe(accent);
   });
 
