@@ -44,9 +44,10 @@ replaying a cached pass. What each corner paints is host §4.
 
 `src/lib/` carries three verbatim ports: `theme.ts` / `theme-boot.ts`,
 `auto-size.ts`, `sliding-pill.ts`. They are generic and have their own tests.
-`form-field.ts` holds the host's `FORM_FIELD_CLASS` (`h-8.5`): every form field
-here is 34px, as host §4 ("One form-field height") sets. This portal has no
-button in a row with a field, so it carries no `FORM_ACTION_CLASS`.
+Every form field here takes `@shared/ui`'s `size="form"` and is 34px, as host
+§4 ("One form-field height") sets; `tests/styles/form-field.test.ts` holds
+it. This portal has no button in a row with a field, so it carries no
+`FORM_ACTION_CLASS`.
 
 ---
 
@@ -135,7 +136,7 @@ a headline figure or a table.
 | --- | --- | --- |
 | `Chip`, `ChipTone` | `shared/ui/src/ui/chip.tsx` | A pill naming a state — a listing that is live or a draft, an enquiry open, quoted or closed. The tones are ramp tokens, never the raw Tailwind palette, so the chip moves when the theme flips. Its word is a badge, so it stays in small caps. Filled, its tint is 8% of the tone, so the word clears 4.5:1 on the light ramp; the host portal draws its badges, tags and run-sheet flags with the same part, outlined where a badge sits beside text (host `DESIGN.md` §7). |
 | `Loading` | `cire/ui/src/loading.tsx` | `<p role="status">` with a pulse, for a surface waiting on its data, so no surface can forget the role: a spinner nobody announces is a blank screen. `status`, not `alert`: something starting to load is not urgent. Its words are a status line, so they stay in small caps. |
-| `Checkbox` | `shared/ui/src/ui/checkbox.tsx` | A native checkbox and its word as one clickable row, for the service-category grid. It takes its word as `label` and draws its default (drawn) box at the 6px step. |
+| `Checkbox` | `shared/ui/src/ui/checkbox.tsx` | A native checkbox and its word as one clickable row, for the service-category grid. It takes its word as `label` and `box="native"`, so its box is the browser's own, as every cire box is (host §4, Checkboxes and radios). |
 
 **Corners here** follow host §4. The small steps this portal writes itself: the
 profile menu at 10px (a menu); at 6px its rows' highlight and the wordmark's
@@ -159,7 +160,7 @@ editor in Chromium at 390 and 1440px, light and dark, and measures the computed
 corners: "Save listing" and "← All organisations" pills, every text field and
 select in the listing editor 34px at 14px, short of a pill, the description
 textarea 14px, the editor card 16px, the
-listing's status chip a pill, a category checkbox's box 6px. It writes each
+listing's status chip a pill, a category checkbox the browser's own box. It writes each
 screenshot to `e2e-artifacts/cire-soft-shapes/vendor/`. `bun run --cwd cire/vendor
 test:browser` runs it; `test:run` runs the unit project alone.
 

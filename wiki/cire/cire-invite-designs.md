@@ -772,16 +772,34 @@ differs. On the guest site each corner paints:
 | 2px, `--radius-hair` | nothing on the guest site: a legal page's inline placeholder (`.placeholder`) draws no highlight, so no box to round |
 | round, `rounded-full` | the "RSVPs closed" badge (`Chip`); the sheet's close cross (`Button` `round`, the `pill` step), the dress-code colour circles, avatars, the gift radio marks, the spinner, the map pin's shadow |
 
-- **Fields keep this site's own heights.** The portals' one form-field height
-  (34px, `cire/host/DESIGN.md` §4) does not reach the guest site, which is not a
-  portal (owner, 2026-10-29): each field stays at the height its padding gives
-  it, so a guest's tap target does not shrink.
+- **Fields are drawn in the scheme's ink, at a touch height.** The portals'
+  34px form fields (`cire/host/DESIGN.md` §4) do not reach the guest site,
+  which is not a portal (owner, 2026-10-29). Every text field here — the code
+  field, an email, a plus-one's name, "Anything else", the gift fields and the
+  marketing demo's field — is `@shared/ui`'s `Input` or `Textarea` with
+  `fill="ink"` at `size="touch"` (owner, 2026-10-30). The edge is the scheme's
+  ink at 55% and the fill the ink at 4.5%, so the field reads on whichever
+  surface the section sits on; 55% is the lowest edge that clears 3:1 on the
+  worst preset and tone, garden on its ground. A field is 46px with 16px type
+  on a phone, so iOS does not zoom, and 44px from 640px; heights are rem, so on
+  the 17px desk root it is 46.75px, never under the 44px floor. The code field
+  keeps its look through the `claim` face: centred capitals at 1rem on every
+  width, 54px tall; the gift amount stays centred through the `amount` face. A
+  field's small-caps label puts its case and tracking on its words, not on the
+  `<label>`, so the value is typed as written. `tests/styles/guest-fields.test.ts`
+  fails on a text field drawn by hand or one without the ink fill and the touch
+  size.
 - **An unchecked checkbox or radio sits on its surface**: no fill, a 1px
   `--ui-hairline-strong` edge, the native box's 13px and 2px corner (a radio
-  round), drawn in `global.css`'s base layer. A ticked one is the browser's own,
-  blue with a white tick: no box carries an `accent-*` class, and
-  `tests/styles/checkbox-accent.test.ts` fails on one (owner, 2026-10-29;
-  `cire/host/DESIGN.md` §4, Checkboxes and radios).
+  round). A ticked one is the browser's own, blue with a white tick: no box
+  carries an `accent-*` class, and `tests/styles/checkbox-accent.test.ts`
+  fails on one (owner, 2026-10-29; `cire/host/DESIGN.md` §4, Checkboxes and
+  radios). Every visible box is `@shared/ui`'s `Checkbox` with `box="native"`,
+  which draws that box; the gift panel's choice radios are hidden under their
+  pills and drawn by `global.css`'s base layer. A consent statement is in body
+  ink with its link in the label; the privacy choices' rows name each box by
+  its title and describe it by its summary, both inside the label, with the
+  vendor's line under it.
 - **The household's boxes take their corner from the layout.** The plus-one
   prompt, the email box and the account link draw no corner of their own; the
   `box` field of `LoginSection`'s `LAYOUTS` sets it. On classic's band they sit
