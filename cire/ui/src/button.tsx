@@ -492,36 +492,12 @@ export interface ButtonLook {
 /**
  * A variant's own classes and a size's own, without the base every `Button`
  * shares — for a part that draws a button's look on something that is not a
- * button, such as a file input's button. {@link FILE_BUTTON} is held to
- * `quiet` at `md` through this.
+ * button, such as a file input's button: `file-input.tsx`'s `FILE_BUTTON` is
+ * held to `quiet` at `md` through this.
  */
 export function buttonLook(options: { variant: ButtonVariant; size: ButtonSize }): ButtonLook {
   return { variant: VARIANT[options.variant], size: SIZE[options.size] };
 }
-
-/**
- * `quiet` at `md`, drawn on a file input's `::file-selector-button`, at the
- * 34px form-field height (`@shared/ui`'s `CONTROL_HEIGHT.form`, and the
- * portal's `FORM_ACTION_CLASS`), so a picker lines up with the fields and
- * buttons in its row.
- *
- * A literal, not `buttonClass` with `file:` added at run time: Tailwind writes
- * CSS only for the classes it finds in the source, so a computed class emits
- * nothing. `tests/file-input.test.tsx` derives it from {@link buttonLook} and
- * fails on any drift. `file:` goes straight before each utility, after any
- * state on the input (`enabled:hover:`), so the pseudo-element comes last and
- * the hover answers the pointer anywhere on the picker. Only an enabled picker
- * answers it, since a disabled one is still hovered. Its fade is `Button`'s,
- * and stops under reduced motion, which a page's `*` rule does not reach.
- */
-export const FILE_BUTTON =
-  "base:file:border base:file:border-ui-hairline base:file:bg-transparent base:file:text-ui-ink-secondary " +
-  "base:enabled:hover:file:border-ui-accent base:enabled:hover:file:text-ui-accent-ink " +
-  "base:file:rounded-ui-control base:file:font-ui-body " +
-  "base:file:px-5 base:file:py-0 base:file:h-8.5 base:file:text-ui-sm base:file:font-medium base:file:tracking-ui-normal " +
-  "base:file:mr-3 base:enabled:file:cursor-pointer base:disabled:file:cursor-not-allowed " +
-  "base:file:transition-[color,background-color,border-color,text-decoration-color] " +
-  "base:file:duration-(--dur-fast,100ms) base:file:ease-out base:motion-reduce:file:transition-none";
 
 /**
  * The classes on their own, for a call site that needs a different element — an
