@@ -1035,13 +1035,14 @@ describe("design selector", () => {
 
     // Only two unlocked cards (classic, gala) get a preview link — the locked
     // test-premium card in between does not.
-    const links = screen.getAllByRole("link", { name: "Preview live" });
+    const links = screen.getAllByRole("link", { name: /^Preview live/ });
     expect(links.length).toBe(2);
 
     const galaLink = links.find((l) => l.getAttribute("href")?.includes("design=gala"));
     expect(galaLink).toBeDefined();
     expect(galaLink!.getAttribute("target")).toBe("_blank");
-    expect(galaLink!.getAttribute("rel")).toBe("noopener");
+    expect(galaLink!.getAttribute("rel")).toBe("noopener noreferrer");
+    expect(galaLink).toHaveAccessibleName("Preview live Gala (opens in a new tab)");
     expect(galaLink!.getAttribute("href")).toBe(
       "http://localhost:4321/cire/invite?slug=anita-ben&design=gala",
     );
