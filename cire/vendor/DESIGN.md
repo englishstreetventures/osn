@@ -135,7 +135,7 @@ a headline figure or a table.
 | --- | --- | --- |
 | `Chip`, `ChipTone` | `shared/ui/src/ui/chip.tsx` | A pill naming a state — a listing that is live or a draft, an enquiry open, quoted or closed. The tones are ramp tokens, never the raw Tailwind palette, so the chip moves when the theme flips. Its word is a badge, so it stays in small caps. Filled, its tint is 8% of the tone, so the word clears 4.5:1 on the light ramp; the host portal draws its badges, tags and run-sheet flags with the same part, outlined where a badge sits beside text (host `DESIGN.md` §7). |
 | `Loading` | `cire/ui/src/loading.tsx` | `<p role="status">` with a pulse, for a surface waiting on its data, so no surface can forget the role: a spinner nobody announces is a blank screen. `status`, not `alert`: something starting to load is not urgent. Its words are a status line, so they stay in small caps. |
-| `Checkbox` | `shared/ui/src/ui/checkbox.tsx` | A Kobalte checkbox and its word as one clickable row, for the service-category grid. It takes its word as `label` and draws its box at the 6px step. |
+| `Checkbox` | `shared/ui/src/ui/checkbox.tsx` | A native checkbox and its word as one clickable row, for the service-category grid. It takes its word as `label` and draws its default (drawn) box at the 6px step. |
 
 **Corners here** follow host §4. The small steps this portal writes itself: the
 profile menu at 10px (a menu); at 6px its rows' highlight and the wordmark's

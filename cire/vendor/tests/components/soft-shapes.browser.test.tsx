@@ -140,7 +140,7 @@ describe("the vendor dashboard's corners", () => {
 
         // A status chip is a pill; a checkbox is the small step.
         expectPill(screen.getByText(LISTING.listed));
-        // The box drawn is the control after Kobalte's hidden input.
+        // The box drawn is the span after the visually hidden input.
         const venue = within(form).getByRole("checkbox", { name: "Venue" });
         expect(corner(venue.nextElementSibling!)).toBe("6px");
 
