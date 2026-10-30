@@ -796,7 +796,9 @@ describe("RsvpPanel", () => {
     pickPreset(fs, /^vegan$/i);
     const checkbox = consentBox() as HTMLInputElement;
     expect(checkbox.checked).toBe(false);
-    const privacyLink = screen.getByText(/privacy notice/i).closest("a") as HTMLAnchorElement;
+    const privacyLink = screen.getByRole("link", {
+      name: /^privacy notice ?\(opens in a new tab\)$/,
+    });
     expect(privacyLink.getAttribute("href")).toBe("/privacy");
   });
 

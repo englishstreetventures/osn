@@ -1041,6 +1041,13 @@ describe("ModuleShell", () => {
     const CODES = { name: "Invite, Codes" };
     const HOUSEHOLDS = { name: "Guests, Households" };
 
+    it("gives each place its own address, for a click that opens it in a new tab", async () => {
+      renderShell({ module: "guests", sub: "list" });
+      const guests = within(screen.getByTestId("guests"));
+      expect(guests.getByRole("link", MESSAGE).getAttribute("href")).toBe("#/w/wed_1/invite");
+      expect(guests.getByRole("link", CODES).getAttribute("href")).toBe("#/w/wed_1/invite/codes");
+    });
+
     it("sends the owner from Codes to the builder, open on its Message section", async () => {
       const { onModule, onSub } = renderShell({ module: "invite", sub: "codes" });
 
