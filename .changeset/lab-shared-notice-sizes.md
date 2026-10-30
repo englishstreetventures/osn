@@ -2,4 +2,4 @@
 "@tools/lab": patch
 ---
 
-The feedback stories show every `Notice` tone at every size, the inline line under a field, the accent tone, and the same set under cire's two ramps; the playground gains a size control.
+The feedback stories show every `Notice` tone at every size, the inline line under a field, the accent tone, the same set under cire's two ramps, and every tone's box with no fill; the playground gains a size control.

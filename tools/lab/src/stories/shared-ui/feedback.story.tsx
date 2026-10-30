@@ -133,6 +133,30 @@ export const NoticeAccent = () => (
   </div>
 );
 
+/**
+ * Every tone's box with `fill="none"`: the border and the ink, no tint, so the
+ * words sit on the ground beneath. The inline line has no box and takes no
+ * fill.
+ */
+export const NoticeUnfilled = () => (
+  <div class="flex max-w-xl flex-col gap-8">
+    <For each={["sm", "md"] as const}>
+      {(size) => (
+        <section class="flex flex-col gap-3">
+          <h3 class="text-meta text-subtle">{size}, no fill</h3>
+          <For each={TONES}>
+            {(tone) => (
+              <Notice size={size} tone={tone} fill="none">
+                {WORDS[tone]}
+              </Notice>
+            )}
+          </For>
+        </section>
+      )}
+    </For>
+  </div>
+);
+
 function CireRamp(props: { theme: CireTheme }) {
   return (
     <div

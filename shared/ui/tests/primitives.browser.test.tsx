@@ -208,6 +208,32 @@ describe("Notice sizes and the accent tone", () => {
     expect(gold.borderTopColor).not.toBe(grey.borderTopColor);
   });
 
+  it.each(EVERY_TONE)(
+    "draws the %s box with no fill: the same border and ink on whatever ground it sits",
+    (tone) => {
+      for (const size of ["sm", "md"] as const) {
+        const tinted = render(() => (
+          <Notice size={size} tone={tone}>
+            body
+          </Notice>
+        ));
+        const withFill = look(tinted.container.firstElementChild!);
+        tinted.unmount();
+        const bare = render(() => (
+          <Notice size={size} tone={tone} fill="none">
+            body
+          </Notice>
+        ));
+        const without = look(bare.container.firstElementChild!);
+        bare.unmount();
+
+        expect(withFill.backgroundColor).not.toBe(TRANSPARENT);
+        expect(without.backgroundColor).toBe(TRANSPARENT);
+        expect({ ...without, backgroundColor: withFill.backgroundColor }).toEqual(withFill);
+      }
+    },
+  );
+
   it("gives every one of the five tones its own ink", () => {
     const inks = EVERY_TONE.map((tone) => {
       const { container, unmount } = render(() => <Notice tone={tone}>body</Notice>);
