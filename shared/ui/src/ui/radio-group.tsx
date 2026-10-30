@@ -2,6 +2,7 @@ import { clsx } from "clsx";
 import {
   createContext,
   createUniqueId,
+  onMount,
   Show,
   splitProps,
   useContext,
@@ -50,7 +51,7 @@ type RadioGroupProps = Omit<SafeProps<"div">, "onChange"> & {
 };
 
 type RadioContextValue = {
-  name: string;
+  name: () => string;
   value: () => string;
   choose: (input: HTMLInputElement) => void;
   disabled: () => boolean;
@@ -97,16 +98,27 @@ const RadioGroup: Component<RadioGroupProps> = (props) => {
     "orientation",
     "children",
   ]);
-  const name = local.name ?? createUniqueId();
+  const fallbackName = createUniqueId();
+  const name = () => local.name ?? fallbackName;
   let root: HTMLDivElement | undefined;
+
+  /** Every radio back to the value the group was given. */
+  const restore = () => {
+    for (const radio of root?.querySelectorAll<HTMLInputElement>('input[type="radio"]') ?? []) {
+      if (radio.name === name()) radio.checked = radio.value === local.value;
+    }
+  };
+
+  // A server-rendered page that the browser restores — a reload, a back
+  // navigation the cache missed — can choose a radio before it hydrates, and
+  // hydration writes no property. Put the caller's value back once mounted.
+  onMount(restore);
 
   const choose = (input: HTMLInputElement) => {
     const next = input.value;
     // Controlled: put every radio back to the value the group was given, and
     // let `value` move them if the caller agrees.
-    for (const radio of root?.querySelectorAll<HTMLInputElement>('input[type="radio"]') ?? []) {
-      if (radio.name === name) radio.checked = radio.value === local.value;
-    }
+    restore();
     local.onChange?.(next);
   };
 
@@ -166,7 +178,7 @@ const RadioGroupItem: Component<RadioGroupItemProps> = (props) => {
       type="radio"
       // `peer` marks the drawn circle's focus ring; it is not a utility.
       class={native() ? NATIVE_RADIO : "peer base:sr-only"}
-      name={group.name}
+      name={group.name()}
       value={local.value}
       checked={chosen()}
       disabled={off()}
@@ -180,21 +192,25 @@ const RadioGroupItem: Component<RadioGroupItemProps> = (props) => {
     />
   );
 
-  // The dot is drawn only while chosen, as Kobalte's indicator was.
+  // The dot is drawn only while chosen, as Kobalte's indicator was. A contrast
+  // theme would repaint it in the circle's own colour, so there it keeps the
+  // theme's text colour (its `currentColor`); and focus, whose ring is a shadow the theme drops,
+  // draws an outline.
   const circle = (
     <span
       aria-hidden="true"
       data-checked={flag(chosen())}
       data-disabled={flag(off())}
-      class="base:border-ui-hairline-strong base:bg-ui-ground base:data-[checked]:border-ui-accent base:peer-focus-visible:ring-ui-focus base:aspect-square base:h-4 base:w-4 base:rounded-ui-pill base:border base:transition-colors base:peer-focus-visible:ring-2 base:data-[disabled]:opacity-50"
+      class="base:border-ui-hairline-strong base:bg-ui-ground base:data-[checked]:border-ui-accent base:peer-focus-visible:ring-ui-focus base:aspect-square base:h-4 base:w-4 base:rounded-ui-pill base:border base:transition-colors base:peer-focus-visible:ring-2 base:data-[disabled]:opacity-50 base:forced-colors:peer-focus-visible:outline-2 base:forced-colors:peer-focus-visible:outline-offset-2"
     >
       <Show when={chosen()}>
-        <span class="base:after:bg-ui-accent base:flex base:items-center base:justify-center base:after:block base:after:h-2.5 base:after:w-2.5 base:after:rounded-full" />
+        <span class="base:after:bg-ui-accent base:flex base:items-center base:justify-center base:after:block base:after:h-2.5 base:after:w-2.5 base:after:rounded-full base:forced-colors:after:forced-color-adjust-none base:forced-colors:after:bg-current" />
       </Show>
     </span>
   );
 
-  const box = native() ? input : [input, circle];
+  // Reactive, so a box that changes after mount draws the new one whole.
+  const box = () => (native() ? input : [input, circle]);
 
   return (
     <label
@@ -210,8 +226,8 @@ const RadioGroupItem: Component<RadioGroupItemProps> = (props) => {
       data-disabled={flag(off())}
       {...others}
     >
-      <Show when={align() === "start"} fallback={box}>
-        <span class={FIRST_LINE}>{box}</span>
+      <Show when={align() === "start"} fallback={box()}>
+        <span class={FIRST_LINE}>{box()}</span>
       </Show>
       <span class={native() ? "base:min-w-0" : undefined}>{local.label}</span>
     </label>
