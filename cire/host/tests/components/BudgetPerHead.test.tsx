@@ -115,7 +115,11 @@ describe("PerHeadPanel", () => {
 
   it("sends the ticked events in the wedding's order", () => {
     const { onSave } = panel(line());
+    // The radio group shows the line's scope: every event, until another is chosen.
+    expect(screen.getByLabelText("Every event")).toBeChecked();
+    expect(screen.getByLabelText("Only these events")).not.toBeChecked();
     fireEvent.click(screen.getByLabelText("Only these events"));
+    expect(screen.getByLabelText("Only these events")).toBeChecked();
     fireEvent.click(screen.getByLabelText("Reception"));
     fireEvent.click(screen.getByLabelText("Ceremony"));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -127,7 +131,9 @@ describe("PerHeadPanel", () => {
 
   it("sends null to count every event again", () => {
     const { onSave } = panel(line({ eventIds: ["evt_ceremony"] }));
+    expect(screen.getByLabelText("Only these events")).toBeChecked();
     fireEvent.click(screen.getByLabelText("Every event"));
+    expect(screen.getByLabelText("Every event")).toBeChecked();
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(onSave).toHaveBeenCalledWith({ unitPriceMinor: 5_000, eventIds: null });
   });

@@ -77,6 +77,12 @@ describe("DirectoryBrowseView", () => {
     fireEvent.click(screen.getAllByRole("button", { name: /add to wedding/i })[0]!);
     // multi-category → pick one, then confirm
     await waitFor(() => screen.getByLabelText(/venue/i));
+    // One named group, its radios sharing one name of their own.
+    const picker = screen.getByRole("radiogroup", { name: "Pick a category" });
+    const names = within(picker)
+      .getAllByRole("radio")
+      .map((r) => (r as HTMLInputElement).name);
+    expect(names).toEqual(["add-cat-LA", "add-cat-LA"]);
     fireEvent.click(screen.getByLabelText(/venue/i));
     fireEvent.click(screen.getByRole("button", { name: /confirm|add/i }));
     await waitFor(() => {
