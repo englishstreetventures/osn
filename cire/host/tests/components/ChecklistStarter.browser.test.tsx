@@ -120,6 +120,8 @@ function linesInPanel(): string[] {
 interface Frame {
   card: boolean;
   lines: string[];
+  /** The starter's closed preview dialog is in the panel to be read at all. */
+  dialogMounted: boolean;
   dialogBoxes: number;
 }
 
@@ -132,6 +134,7 @@ function sampleFrames() {
     frames.push({
       card: starterCard() !== null,
       lines: linesInPanel(),
+      dialogMounted: frameEl().querySelector("dialog") !== null,
       dialogBoxes: frameEl().querySelector("dialog")?.getClientRects().length ?? 0,
     });
     requestAnimationFrame(read);
@@ -247,6 +250,10 @@ for (const viewport of VIEWPORTS) {
     expect(loadingFrames.length).toBeGreaterThan(0);
     expect(cardFrames.length).toBeGreaterThanOrEqual(FRAMES_AFTER);
 
+    // Without the dialog in the panel the two checks below would pass while
+    // reading nothing: a starter that stopped keeping it mounted, or one that
+    // portalled it out, could draw its strip where no frame looks.
+    expect(sampler.frames.every((f) => f.dialogMounted)).toBe(true);
     expect(sampler.frames.flatMap((f) => f.lines)).toEqual([]);
     expect(sampler.frames.map((f) => f.dialogBoxes).filter((n) => n > 0)).toEqual([]);
 
