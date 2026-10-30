@@ -1,5 +1,6 @@
-import { cleanup, render } from "@solidjs/testing-library";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, within } from "@solidjs/testing-library";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { page } from "vitest/browser";
 
 import "../../src/styles/global.css";
 import { EventSheet } from "../../src/components/EventSheet";
@@ -155,5 +156,116 @@ describe("RSVP action bar, as laid out", () => {
       const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
       expect(btn.contains(hit), `${name} is not the topmost element at its own centre`).toBe(true);
     }
+  });
+});
+
+/** The tester iframe's own default, restored after every test that moves it. */
+const DEFAULT_VIEWPORT = [414, 896] as const;
+
+/** The first guest's fieldset and its two answers. */
+function pair() {
+  const fieldset = document.querySelector("dialog fieldset") as HTMLElement;
+  const box = within(fieldset);
+  return {
+    fieldset,
+    attending: box.getByRole("button", { name: "Attending" }),
+    declined: box.getByRole("button", { name: "Not attending" }),
+  };
+}
+
+/** A colour painted on a 1px canvas over the page's surface, read back as `r,g,b`. */
+function paint(color: string): string {
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 1;
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--color-surface");
+  ctx.fillRect(0, 0, 1, 1);
+  ctx.fillStyle = color;
+  ctx.fillRect(0, 0, 1, 1);
+  return [...ctx.getImageData(0, 0, 1, 1).data].slice(0, 3).join(",");
+}
+
+/** What marks an answer chosen: its edge and the ring a chosen answer wears. */
+function mark(el: HTMLElement) {
+  const style = getComputedStyle(el);
+  return { edge: paint(style.borderTopColor), ring: style.boxShadow.includes(" 1px") };
+}
+
+describe("the answer pair, as painted", () => {
+  afterEach(async () => {
+    cleanup();
+    vi.unstubAllGlobals();
+    await page.viewport(...DEFAULT_VIEWPORT);
+  });
+
+  it("marks the pressed answer, and only it, whichever is pressed", async () => {
+    // jsdom pins `aria-pressed`; this pins what a sighted guest sees. Either
+    // condition replaced with `true` paints both answers chosen and fails here.
+    await open();
+    const { attending, declined } = pair();
+    const accent = paint(
+      getComputedStyle(document.documentElement).getPropertyValue("--ui-accent"),
+    );
+
+    fireEvent.click(attending);
+    await new Promise(requestAnimationFrame);
+    await Promise.all(
+      [attending, declined].flatMap((b) => b.getAnimations()).map((a) => a.finished),
+    );
+    expect(mark(attending)).toEqual({ edge: accent, ring: true });
+    expect(mark(declined).ring).toBe(false);
+    expect(mark(declined).edge).not.toBe(accent);
+
+    fireEvent.click(declined);
+    await new Promise(requestAnimationFrame);
+    await Promise.all(
+      [attending, declined].flatMap((b) => b.getAnimations()).map((a) => a.finished),
+    );
+    expect(mark(declined)).toEqual({ edge: accent, ring: true });
+    expect(mark(attending).ring).toBe(false);
+    expect(mark(attending).edge).not.toBe(accent);
+  });
+
+  it("keeps the chosen answer at full strength while the reply saves", async () => {
+    // A request that never settles holds the sheet in its saving state.
+    vi.stubGlobal("fetch", () => new Promise<Response>(() => {}));
+    const { getByRole } = await open();
+    const { attending, declined } = pair();
+    fireEvent.click(attending);
+    fireEvent.click(getByRole("button", { name: "Save" }));
+    await new Promise(requestAnimationFrame);
+    expect(attending.getAttribute("aria-disabled")).toBe("true");
+    expect(getComputedStyle(attending).opacity).toBe("1");
+    expect(getComputedStyle(declined).opacity).toBe("1");
+  });
+
+  it("stacks the pair inside the fieldset on a 320px phone, labels on one line", async () => {
+    await page.viewport(320, 568);
+    await open();
+    const { fieldset, attending, declined } = pair();
+    const inner = fieldset.getBoundingClientRect();
+    for (const answer of [attending, declined]) {
+      const r = answer.getBoundingClientRect();
+      expect(r.left).toBeGreaterThanOrEqual(inner.left);
+      expect(r.right).toBeLessThanOrEqual(inner.right);
+      // One line: a 44px touch target holding one line of the body step.
+      expect(r.height).toBeLessThan(50);
+      expect(answer.scrollWidth).toBeLessThanOrEqual(answer.clientWidth);
+    }
+    expect(declined.getBoundingClientRect().top).toBeGreaterThan(
+      attending.getBoundingClientRect().bottom - 1,
+    );
+  });
+
+  it("keeps the pair side by side on a 360px phone, each 44px tall", async () => {
+    await page.viewport(360, 740);
+    await open();
+    const { attending, declined } = pair();
+    const a = attending.getBoundingClientRect();
+    const d = declined.getBoundingClientRect();
+    expect(Math.abs(a.top - d.top)).toBeLessThan(1);
+    expect(a.height).toBeGreaterThanOrEqual(44);
+    expect(d.height).toBeGreaterThanOrEqual(44);
+    expect(declined.scrollWidth).toBeLessThanOrEqual(declined.clientWidth);
   });
 });
