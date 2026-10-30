@@ -957,7 +957,9 @@ link is a word floating in a gap. `tile` takes square block padding, because its
 interior is a small layout — a numbered marker beside two lines of text — rather
 than a word. `field` takes an input's padding and weight. `round` takes a square per step — 28px at `sm` (the reply key, at the search box's height), 32px at
 `md`, `icon` and `swatch`, 44px at `lg` (the close ×, the guest site's touch floor) — its glyph on the
-`base` text step, and the close × on `lg`. Everything else takes
+`base` text step, and the close × on `lg`. A `round` button, and any `Button` at the `icon` size, holds one glyph hidden
+from assistive tech, so its type requires `aria-label` or `aria-labelledby`
+when the variant or size is written as a literal. Everything else takes
 the ordinary one, whose side padding is a step wider than a rectangle's because
 a pill's round ends eat into the room beside the label.
 
