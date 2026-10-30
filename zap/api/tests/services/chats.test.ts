@@ -4,6 +4,7 @@ import { it } from "@effect/vitest";
 import { chats as chatsTable, chatMembers } from "@zap/db/schema";
 import { Db } from "@zap/db/service";
 import { applySchema } from "@zap/db/testing";
+import { and, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { Effect, Fiber, Layer, Result } from "effect";
 import { describe, expect, beforeEach, afterEach } from "vitest";
@@ -476,6 +477,89 @@ describe("chats service", () => {
         expect(tagOf(yield* Fiber.join(byAlice))).toBe("NotChatMember");
       }).pipe(Effect.provide(h.layer));
     });
+  });
+
+  describe("addMember and updateChat hold the admin role at the write", () => {
+    function held() {
+      const { db } = createTestDb();
+      const queries = holdQueries(db);
+      return { layer: Layer.succeed(Db, { db: queries.db }), hold: queries.hold };
+    }
+
+    const tagOf = (outcome: Result.Result<unknown, { readonly _tag: string }>) =>
+      Result.isFailure(outcome) ? outcome.failure._tag : "ok";
+
+    /** A group with two admins, Alice and Bob, and Alice's write about to be held. */
+    const twoAdmins = () =>
+      Effect.gen(function* () {
+        const chat = yield* seedChat({ type: "group", title: "Before" });
+        yield* seedMember(chat.id, "usr_alice", "admin");
+        yield* seedMember(chat.id, "usr_bob", "admin");
+        return chat;
+      });
+
+    /** Ways Alice stops being an admin while her write is held. */
+    const losses: ReadonlyArray<{
+      readonly name: string;
+      readonly lose: (chatId: string) => Effect.Effect<unknown, unknown, Db>;
+    }> = [
+      {
+        name: "removed by the other admin",
+        lose: (chatId) => removeMember(chatId, "usr_alice", "usr_bob"),
+      },
+      {
+        name: "demoted",
+        lose: (chatId) =>
+          Effect.gen(function* () {
+            const { db } = yield* Db;
+            yield* Effect.promise(() =>
+              db
+                .update(chatMembers)
+                .set({ role: "member" })
+                .where(and(eq(chatMembers.chatId, chatId), eq(chatMembers.profileId, "usr_alice"))),
+            );
+          }),
+      },
+    ];
+
+    for (const loss of losses) {
+      it.live(`addMember by a requester ${loss.name} before its insert adds no one`, () => {
+        const h = held();
+        return Effect.gen(function* () {
+          const chat = yield* twoAdmins();
+
+          const insert = h.hold(/^insert into "chat_members"/);
+          const adding = yield* Effect.forkChild(
+            Effect.result(addMember(chat.id, "usr_carol", "usr_alice")),
+          );
+          yield* Effect.promise(() => insert.reached);
+          yield* loss.lose(chat.id);
+          insert.release();
+
+          expect(tagOf(yield* Fiber.join(adding))).toBe("NotChatAdmin");
+          const { members } = yield* getChatMembers(chat.id);
+          expect(members.map((m) => m.profileId)).not.toContain("usr_carol");
+        }).pipe(Effect.provide(h.layer));
+      });
+
+      it.live(`updateChat by a requester ${loss.name} before its update changes nothing`, () => {
+        const h = held();
+        return Effect.gen(function* () {
+          const chat = yield* twoAdmins();
+
+          const update = h.hold(/^update "chats"/);
+          const renaming = yield* Effect.forkChild(
+            Effect.result(updateChat(chat.id, { title: "After" }, "usr_alice")),
+          );
+          yield* Effect.promise(() => update.reached);
+          yield* loss.lose(chat.id);
+          update.release();
+
+          expect(tagOf(yield* Fiber.join(renaming))).toBe("NotChatAdmin");
+          expect((yield* getChat(chat.id)).title).toBe("Before");
+        }).pipe(Effect.provide(h.layer));
+      });
+    }
   });
 
   // ── listChats pagination ────────────────────────────────────────────────

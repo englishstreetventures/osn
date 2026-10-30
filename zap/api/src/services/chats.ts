@@ -1,11 +1,12 @@
 import { commitBatch, rowsChanged } from "@shared/db-utils";
 import { chats, chatMembers } from "@zap/db/schema";
 import type { Chat, ChatMember } from "@zap/db/schema";
-import { Db } from "@zap/db/service";
+import { Db, type DbService } from "@zap/db/service";
 import { and, asc, count, desc, eq, exists, gt, lt, ne, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/sqlite-core";
 import { Data, Effect, Schema } from "effect";
 
+import { bound } from "../lib/bound";
 import {
   DEFAULT_CHAT_LIMIT,
   DEFAULT_MEMBER_LIMIT,
@@ -425,11 +426,21 @@ export const updateChat = (
     );
 
     const now = storedNow();
-    yield* Effect.tryPromise({
+    // Writes only while the requester is still an admin of the chat, so one
+    // removed or demoted since the read above renames nothing.
+    const updated = yield* Effect.tryPromise({
       try: () =>
-        db.update(chats).set({ title: validated.title, updatedAt: now }).where(eq(chats.id, id)),
+        db
+          .update(chats)
+          .set({ title: validated.title, updatedAt: now })
+          .where(and(eq(chats.id, id), requesterIsAdmin(db, id, requestingProfileId))),
       catch: (cause) => new DatabaseError({ cause }),
     });
+    if (rowsChanged(updated) === 0) {
+      // Refused as the checks refuse, in their order: the chat, then the role.
+      yield* getChat(id);
+      return yield* Effect.fail(new NotChatAdmin({ chatId: id }));
+    }
 
     // `?? chat.title`, not `validated.title`. Drizzle omits an `undefined`
     // field from the SET clause, so a request that sends no title leaves the
@@ -555,13 +566,34 @@ export const addMember = (
     // a separate, pre-existing TOCTOU (two concurrent adds of *different*
     // profiles can both read `total = 499` and both insert), which this does
     // not close and is not a regression.
-    yield* Effect.tryPromise({
-      try: () => db.insert(chatMembers).values(row),
+    //
+    // Inserted from the requester's own admin row, so the member is added only
+    // while the requester is still an admin; one removed or demoted since the
+    // read above adds no one.
+    const inserted = yield* Effect.tryPromise({
+      try: () =>
+        db.insert(chatMembers).select(
+          db
+            .select({
+              id: bound(row.id, chatMembers.id),
+              chatId: bound(row.chatId, chatMembers.chatId),
+              profileId: bound(row.profileId, chatMembers.profileId),
+              role: bound(row.role, chatMembers.role),
+              joinedAt: bound(row.joinedAt, chatMembers.joinedAt),
+            })
+            .from(requesterMembership)
+            .where(requesterAdminRow(chatId, requestingProfileId)),
+        ),
       catch: (cause) =>
         isUniqueConstraintFailure(cause)
           ? new AlreadyMember({ chatId, profileId })
           : new DatabaseError({ cause }),
     });
+    if (rowsChanged(inserted) === 0) {
+      // Refused as the checks refuse, in their order: the chat, then the role.
+      yield* getChat(chatId);
+      return yield* Effect.fail(new NotChatAdmin({ chatId }));
+    }
     metricMemberAdded("ok");
 
     // Returned from the values just written — see `provisionC2bChat`.
@@ -599,9 +631,29 @@ const assertAdmin = (
     }
   });
 
-/** Second names for `chat_members`, for a delete that reads other rows of the table it deletes from. */
+/** Second names for `chat_members`, for a write that reads other rows of the table it writes. */
 const requesterMembership = alias(chatMembers, "requester_membership");
 const adminMemberships = alias(chatMembers, "admin_memberships");
+
+/** The requester's admin row in the chat, on `requesterMembership`. */
+const requesterAdminRow = (chatId: string, requestingProfileId: string) =>
+  and(
+    eq(requesterMembership.chatId, chatId),
+    eq(requesterMembership.profileId, requestingProfileId),
+    eq(requesterMembership.role, "admin"),
+  );
+
+/**
+ * True while the requester is an admin of the chat, for a write that must hold
+ * the role as it runs rather than as an earlier read found it.
+ */
+const requesterIsAdmin = (db: DbService["db"], chatId: string, requestingProfileId: string) =>
+  exists(
+    db
+      .select({ one: sql`1` })
+      .from(requesterMembership)
+      .where(requesterAdminRow(chatId, requestingProfileId)),
+  );
 
 export const removeMember = (
   chatId: string,
@@ -651,18 +703,6 @@ export const removeMember = (
     // another admin stands, so of two admins leaving at once one is refused,
     // and an admin must hand off the role first. SQLite runs each statement
     // whole, so the count and the delete see the same rows.
-    const requesterIsAdmin = exists(
-      db
-        .select({ one: sql`1` })
-        .from(requesterMembership)
-        .where(
-          and(
-            eq(requesterMembership.chatId, chatId),
-            eq(requesterMembership.profileId, requestingProfileId),
-            eq(requesterMembership.role, "admin"),
-          ),
-        ),
-    );
     const anotherAdminStands = or(
       ne(chatMembers.role, "admin"),
       gt(
@@ -681,7 +721,9 @@ export const removeMember = (
             and(
               eq(chatMembers.chatId, chatId),
               eq(chatMembers.profileId, profileId),
-              profileId !== requestingProfileId ? requesterIsAdmin : undefined,
+              profileId !== requestingProfileId
+                ? requesterIsAdmin(db, chatId, requestingProfileId)
+                : undefined,
               anotherAdminStands,
             ),
           ),

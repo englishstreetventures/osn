@@ -14,6 +14,7 @@ import {
   getChatMembers,
   listChats,
   removeMember,
+  updateChat,
 } from "../../src/services/chats";
 import { resetConsentGate, setConsentGate } from "../../src/services/consent";
 import { listMessages, sendMessage } from "../../src/services/messages";
@@ -114,5 +115,15 @@ describe("zap/api over real D1 (Miniflare)", () => {
 
     const { members } = await run(getChatMembers(chat.id));
     expect(members.map((m) => [m.profileId, m.role])).toEqual([[ALICE, "admin"]]);
+  });
+
+  // The rename answers from its update's change count, which D1 reports under
+  // `meta.changes`.
+  it("updateChat renames the chat for its admin over async D1", async () => {
+    const chat = await run(createChat({ type: "group", title: "Before" }, ALICE));
+
+    expect((await run(updateChat(chat.id, { title: "After" }, ALICE))).title).toBe("After");
+    const mine = await run(listChats(ALICE));
+    expect(mine.chats[0]!.title).toBe("After");
   });
 });
