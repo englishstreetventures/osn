@@ -1,4 +1,4 @@
-import Button from "@cire/ui/button";
+import Button, { proseLinkClass } from "@cire/ui/button";
 import { Notice } from "@shared/ui/ui/notice";
 import { createMemo, createSignal, createUniqueId, For, onCleanup, Show } from "solid-js";
 
@@ -157,12 +157,7 @@ export function PlusOnePrompt(props: PlusOnePromptProps) {
 
         <p class="text-text-muted text-ui-xs leading-ui-normal mt-5 font-light">
           Your guest won&apos;t see this invitation, so please share our{" "}
-          <a
-            href="/privacy"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="text-gold-ink underline underline-offset-2"
-          >
+          <a href="/privacy" target="_blank" rel="noopener noreferrer" class={proseLinkClass()}>
             privacy notice
           </a>{" "}
           with them. It explains what we keep about them and why.
