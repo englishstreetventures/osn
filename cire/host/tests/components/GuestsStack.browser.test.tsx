@@ -745,7 +745,7 @@ describe("moving within the stack", () => {
     await page.viewport(1280, 400);
     render({ module: "guests", sub: "list" }, { ...FULL, customisation: EMPTY_CUSTOMISATION });
     await loaded("list");
-    const link = screen.getByRole("button", { name: "Invite, Design, Message" });
+    const link = screen.getByRole("link", { name: "Invite, Design, Message" });
     // The links just under the view bar: the module's heading has gone under
     // the top bar.
     window.scrollTo(0, scrollY + rect(link).top - rect(viewBar()).bottom - 4);
