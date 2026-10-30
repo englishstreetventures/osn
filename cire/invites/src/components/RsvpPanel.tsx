@@ -1,5 +1,5 @@
 import { PLUS_ONE_DIETARY_ATTESTATION } from "@cire/dietary";
-import Button from "@cire/ui/button";
+import Button, { proseLinkClass } from "@cire/ui/button";
 import DietaryPresets from "@cire/ui/dietary-presets";
 import Reveal from "@cire/ui/reveal";
 import { toast } from "@shared/toast";
@@ -22,6 +22,18 @@ import { hasHouseholdResponded } from "./rsvp-responded";
 import { savedDwellMs } from "./rsvp-saved";
 import type { EventSummary, FamilyMember, RsvpSummary } from "./types";
 import { formatNames, isValidRsvpSaveResponse } from "./utils";
+
+/**
+ * The Attending / Not attending row. Side by side while the pair fits its own
+ * box, stacked below 16rem: two halves wide enough for "Not attending" in Lato
+ * at the body step, with `Button` `md`'s padding, plus the 8px gap, come to
+ * 15.75rem (measured in Chromium, 2026-10-30). In rem, so a guest who enlarges
+ * the text stacks sooner. A 360px phone keeps the pair side by side; a 320px
+ * one stacks it (`RsvpPanel.browser.test.tsx`).
+ */
+const ANSWER_PAIR_CLASS = "flex gap-2 @max-[16rem]:flex-col";
+/** Each answer fills its half, at the guest site's 44px touch floor. */
+const ANSWER_CLASS = "min-h-11 flex-1";
 
 export interface RsvpPanelProps {
   event: EventSummary;
@@ -799,12 +811,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
                     stored "maybe", which the binary pair cannot show. The
                     answer on file is written out instead, in the box the pair
                     would fill: a value rather than an action, so it takes a
-                    field's corner, not the pair's pill.
-
-                    The pair itself is raw rather than `Button` `choice`: it is
-                    disabled while the reply saves and through the "Saved"
-                    dwell, when the chosen answer has to stay legible, and
-                    `Button` fades a disabled control. */}
+                    field's corner, not the pair's pill. */}
                 <Show
                   when={!props.closed}
                   fallback={
@@ -813,36 +820,38 @@ export function RsvpPanel(props: RsvpPanelProps) {
                     </p>
                   }
                 >
-                  <div class="flex gap-2">
-                    <button
-                      type="button"
-                      class="font-body text-ui-sm tracking-ui-normal rounded-ui-control transition-ui-colors flex-1 cursor-pointer border px-4 py-2.5 font-medium duration-(--dur-fast) ease-(--ease-out)"
-                      classList={{
-                        "border-gold text-gold-ink":
-                          responses()[guestId]?.attending === "attending",
-                        "border-border text-text-muted hover:border-gold-dim hover:text-text":
-                          responses()[guestId]?.attending !== "attending",
-                      }}
-                      aria-pressed={responses()[guestId]?.attending === "attending"}
-                      onClick={() => setAttending(guestId, "attending")}
-                      disabled={locked()}
-                    >
-                      Attending
-                    </button>
-                    <button
-                      type="button"
-                      class="font-body text-ui-sm tracking-ui-normal rounded-ui-control transition-ui-colors flex-1 cursor-pointer border px-4 py-2.5 font-medium duration-(--dur-fast) ease-(--ease-out)"
-                      classList={{
-                        "border-gold text-gold-ink": responses()[guestId]?.attending === "declined",
-                        "border-border text-text-muted hover:border-gold-dim hover:text-text":
-                          responses()[guestId]?.attending !== "declined",
-                      }}
-                      aria-pressed={responses()[guestId]?.attending === "declined"}
-                      onClick={() => setAttending(guestId, "declined")}
-                      disabled={locked()}
-                    >
-                      Not attending
-                    </button>
+                  {/* `Button` `choice`: the chosen answer wears the accent
+                      edge and ring, and while the reply saves and through the
+                      "Saved" pause the pair is locked with `aria-disabled`,
+                      which keeps the answer just given at full strength
+                      (`disabled` would fade it). The pair sits side by side
+                      while it fits its own box and stacks below that — a
+                      container query on the pair, so it follows the sheet's
+                      width rather than the window's, and a label never
+                      wraps. */}
+                  <div class="@container">
+                    <div class={ANSWER_PAIR_CLASS}>
+                      <Button
+                        variant="choice"
+                        size="md"
+                        class={ANSWER_CLASS}
+                        aria-pressed={responses()[guestId]?.attending === "attending"}
+                        aria-disabled={locked() || undefined}
+                        onClick={() => setAttending(guestId, "attending")}
+                      >
+                        Attending
+                      </Button>
+                      <Button
+                        variant="choice"
+                        size="md"
+                        class={ANSWER_CLASS}
+                        aria-pressed={responses()[guestId]?.attending === "declined"}
+                        aria-disabled={locked() || undefined}
+                        onClick={() => setAttending(guestId, "declined")}
+                      >
+                        Not attending
+                      </Button>
+                    </div>
                   </div>
                 </Show>
 
@@ -922,12 +931,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
         <Show when={props.closed && dietaryOnFile()}>
           <p class="font-body text-text-muted text-ui-sm leading-ui-normal">
             Dietary requirements on file are shared with the caterers for this wedding. See our{" "}
-            <a
-              href="/privacy"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="text-gold-ink underline underline-offset-2"
-            >
+            <a href="/privacy" target="_blank" rel="noopener noreferrer" class={proseLinkClass()}>
               privacy notice
             </a>
             .
@@ -948,12 +952,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
               I agree to the dietary requirements above — for{" "}
               {formatNames(ownWithDietaryData().map((m) => m.firstName))} — being stored and shared
               with the caterers for this wedding. See our{" "}
-              <a
-                href="/privacy"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="text-gold-ink underline underline-offset-2"
-              >
+              <a href="/privacy" target="_blank" rel="noopener noreferrer" class={proseLinkClass()}>
                 privacy notice
               </a>
               .
@@ -981,12 +980,7 @@ export function RsvpPanel(props: RsvpPanelProps) {
                 formatNames(plusOnesWithDietaryData().map((m) => m.firstName)),
               )}{" "}
               See our{" "}
-              <a
-                href="/privacy"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="text-gold-ink underline underline-offset-2"
-              >
+              <a href="/privacy" target="_blank" rel="noopener noreferrer" class={proseLinkClass()}>
                 privacy notice
               </a>
               .

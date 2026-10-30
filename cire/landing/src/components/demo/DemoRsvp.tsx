@@ -254,39 +254,31 @@ function DemoRsvpModal(props: DemoRsvpModalProps) {
                   <legend class="font-display text-text text-ui-md mb-3 font-normal italic">
                     {member.firstName} {member.lastName}
                   </legend>
-                  {/* Raw, as the guest sheet's pair is: `Button` `choice`
-                      marks the chosen answer with a ring, where the sheet
-                      fills it with a gold tint, and this pair has to look
-                      like the sheet's. */}
-                  <div class="flex gap-2">
-                    <button
-                      type="button"
-                      class="font-body text-ui-sm tracking-ui-normal rounded-ui-control focus-visible:outline-ui-focus transition-ui-colors flex-1 cursor-pointer border px-4 py-2.5 font-medium duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2"
-                      classList={{
-                        "border-gold text-gold bg-gold/8":
-                          responses()[guestId]?.attending === "attending",
-                        "border-border text-text-muted hover:border-gold-dim hover:text-text":
-                          responses()[guestId]?.attending !== "attending",
-                      }}
-                      aria-pressed={responses()[guestId]?.attending === "attending"}
-                      onClick={() => setAttending(guestId, "attending")}
-                    >
-                      Attending
-                    </button>
-                    <button
-                      type="button"
-                      class="font-body text-ui-sm tracking-ui-normal rounded-ui-control focus-visible:outline-ui-focus transition-ui-colors flex-1 cursor-pointer border px-4 py-2.5 font-medium duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2"
-                      classList={{
-                        "border-gold text-gold bg-gold/8":
-                          responses()[guestId]?.attending === "declined",
-                        "border-border text-text-muted hover:border-gold-dim hover:text-text":
-                          responses()[guestId]?.attending !== "declined",
-                      }}
-                      aria-pressed={responses()[guestId]?.attending === "declined"}
-                      onClick={() => setAttending(guestId, "declined")}
-                    >
-                      Not attending
-                    </button>
+                  {/* The guest sheet's pair (`RsvpPanel`): `Button` `choice`,
+                      side by side while it fits its own box and stacked below
+                      16rem, each at the 44px touch floor. The demo saves
+                      nothing, so the pair never locks. */}
+                  <div class="@container">
+                    <div class="flex gap-2 @max-[16rem]:flex-col">
+                      <Button
+                        variant="choice"
+                        size="md"
+                        class="min-h-11 flex-1"
+                        aria-pressed={responses()[guestId]?.attending === "attending"}
+                        onClick={() => setAttending(guestId, "attending")}
+                      >
+                        Attending
+                      </Button>
+                      <Button
+                        variant="choice"
+                        size="md"
+                        class="min-h-11 flex-1"
+                        aria-pressed={responses()[guestId]?.attending === "declined"}
+                        onClick={() => setAttending(guestId, "declined")}
+                      >
+                        Not attending
+                      </Button>
+                    </div>
                   </div>
                   <Show when={responses()[guestId]?.attending === "attending"}>
                     <div class="mt-3">
