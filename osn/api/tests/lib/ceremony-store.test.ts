@@ -300,9 +300,10 @@ describe.each([
 });
 
 /**
- * A `delete` that names the value it read removes only that value: a `set`
- * that landed since — a new `begin` at the same key — keeps its entry and its
- * guess count. Both builders answer alike.
+ * A `delete` or a `consume` that names the value it read removes only that
+ * value: a `set` that landed since — a new `begin` at the same key — keeps its
+ * entry and its guess count, and the `consume` answers that it won nothing.
+ * Both builders answer alike.
  */
 describe.each([
   ["memory", () => createInMemoryCeremonyStore<Entry>("pending_email_change")],
@@ -311,7 +312,27 @@ describe.each([
     () =>
       createDurableCeremonyStore<Entry>(createFakeNamespace().ns, "pending_email_change", vi.fn()),
   ],
-] as const)("CeremonyStore.delete with the value it read (%s)", (_backend, build) => {
+] as const)("CeremonyStore.delete and consume with the value read (%s)", (_backend, build) => {
+  it("consume leaves a value written since, with its count, and wins nothing", async () => {
+    const store = build();
+    await store.set("k", entry("guessed"), 60_000);
+    const { value: read } = await store.guess("k");
+    const fresh = entry("fresh");
+    await store.set("k", fresh, 60_000);
+    await store.guess("k");
+    expect(await store.consume("k", read!)).toBe(false);
+    expect(await store.guess("k")).toEqual({ value: fresh, n: 2 });
+  });
+
+  it("consume removes the value it read, and wins", async () => {
+    const store = build();
+    await store.set("k", entry("guessed"), 60_000);
+    const { value: read } = await store.guess("k");
+    expect(await store.consume("k", read!)).toBe(true);
+    expect(await store.guess("k")).toEqual({ value: null, n: 0 });
+    expect(await store.consume("k", read!)).toBe(false);
+  });
+
   it("leaves a value written since, with its count", async () => {
     const store = build();
     await store.set("k", entry("completed"), 60_000);

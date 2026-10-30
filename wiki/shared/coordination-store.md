@@ -154,7 +154,7 @@ Every consumer fails closed. The mapping lives in
 | Consumer | Calls | When the call fails |
 |---|---|---|
 | Rate limiters and per-account caps | `increment` | Denied, as if over the limit: the route refuses, with 429 where it answers one |
-| Ceremony `set` / `get` / `delete` / `consume` | `write` (JSON) / `read` / `remove`, with `{ value }` when the caller names the value it read / `remove` | The call rejects; `storeCall` turns it into a `CoordinationError`, which the route answers with a generic 503 (`osn/api/src/lib/public-error.ts`) |
+| Ceremony `set` / `get` / `delete` / `consume` | `write` (JSON) / `read` / `remove`, with `{ value }` when the caller names the value it read / the same `remove` | The call rejects; `storeCall` turns it into a `CoordinationError`, which the route answers with a generic 503 (`osn/api/src/lib/public-error.ts`) |
 | Ceremony `guess` / `take` / `swap` | `guess` / `take` / `swap` (JSON), on the entry's own object | The same 503 |
 | Step-up token guard | `claim` | The token is refused as "could not be verified", and is not counted as a replay |
 | Discoverable passkey challenge claims | `claim` | The same 503 |
@@ -179,9 +179,16 @@ mints is a wrong token, answered with that route's uniform 202.
   reads its entry and counts the guess on it in one `guess` before it compares
   the code, so guesses sent at once each take their own number and no guess can
   read the entry and count from a number it no longer has. `begin`'s `write`
-  (registration's `swap`) starts the count at 0. A right code claims its entry with `remove`, so of two
-  right codes exactly one wins. The life of a count is set out in
-  `osn/api/src/services/auth/attempts.ts`.
+  (registration's `swap`) starts the count at 0. A right code claims its entry
+  with `remove({ value })`, so of two right codes exactly one wins; email
+  change claims beside its D1 preflight, before it commits, so one code commits
+  one change. The guess that reaches the cap, when wrong, deletes the entry the
+  same way. Both name the entry the guess read, so a `begin` that lands between
+  the guess and the call keeps its new entry, and the old code wins nothing. A
+  registration whose code could not be sent settles the entry its `begin` wrote
+  in one call naming it: a `remove({ value })` when nothing was sent, a `swap`
+  to itself with at most a minute to live when the code may still arrive. The
+  life of a count is set out in `osn/api/src/services/auth/attempts.ts`.
 - **A WebAuthn challenge is used once.** Passkey sign-in with an identifier,
   passkey registration and step-up by passkey `take` their challenge, so of two
   presentations of one assertion sent at once only one reaches verification.
@@ -278,7 +285,7 @@ for (counted from the code, 2026-10-28):
 |---|---|
 | Code `begin` (step-up OTP, TOTP enrolment, email change, recovery email) | 1 `write`, after any cap or limiter |
 | Registration `begin` | 1 `swap`, after a D1 collision probe |
-| Code `complete`, success | 1 `guess`, then the claim; registration and email change instead delete the entry once their commit lands, after the answer, and email change deletes only the entry it completed, so a change begun before that delete lands keeps its code |
+| Code `complete`, success | 1 `guess`, then the claim (email change: beside its D1 preflight, before the commit); registration instead deletes the entry once its insert lands, after the answer |
 | Recovery code sign-in, success | 1 (the lockout lookup); the reset runs after the answer, and only when the lookup counted a failure; it takes back only those failures |
 | TOTP step-up or TOTP recovery, success | 1 (the attempt count, an `increment`, beside the credential read); the reset runs after the answer, on every success, and takes back only this attempt's count. Two requests and a few rows written where a read alone would be one request, the price of counting each attempt before its code is compared |
 | Passkey sign-in, identified: `begin` / `complete` | 1 / 1 (`take`) |

@@ -20,11 +20,18 @@
  *   again, so a right code that reached the cap is not robbed of its claim by
  *   the guesses behind it.
  * - A right code claims the entry ({@link claimEntry}: of two right codes
- *   exactly one wins) or, where the commit that follows must succeed first,
- *   deletes it after the commit. Email change deletes only the entry its guess
- *   read (`CeremonyStore.delete` with that value), since its `begin`
- *   overwrites the entry at the same key; registration's `begin` cannot write
- *   over a live entry, nor at the key of an address that has an account.
+ *   exactly one wins). Registration, whose insert must succeed first, deletes
+ *   it after the insert instead.
+ *
+ * The delete and the claim name the entry the guess read, and remove only
+ * that entry: a `begin` that lands between the guess and either call writes a
+ * new entry at the same key, which stays, with its count, and the old code
+ * wins nothing. A call that finds the new entry writes nothing where one that
+ * removes the old entry writes, so the two cost differently only when a
+ * `begin` landed in that gap. On the one unauthenticated refusal path that
+ * deletes — registration's capped guess — that needs the old entry to have
+ * expired in the gap, since a registration `begin` writes only where nothing
+ * is live.
  */
 
 import { Effect } from "effect";
@@ -63,15 +70,24 @@ export const guessEntry = <V extends { readonly expiresAt: number }>(
     return { entry: value, standing: n === max ? "last" : "open" };
   });
 
-/** Delete the entry at `key`, and its guess count with it. */
+/**
+ * Delete `entry`, the one a guess read at `key`, and its guess count with it,
+ * while it is still the live one.
+ */
 export const spendEntry = <V>(
   store: CeremonyStore<V>,
   key: string,
-): Effect.Effect<void, CoordinationError> => storeCall(store, "delete", () => store.delete(key));
+  entry: V,
+): Effect.Effect<void, CoordinationError> =>
+  storeCall(store, "delete", () => store.delete(key, entry));
 
-/** Claim the entry at `key` for the right code. True for exactly one caller. */
+/**
+ * Claim `entry`, the one a guess read at `key`, for the right code. True for
+ * exactly one caller, and only while `entry` is still the live one.
+ */
 export const claimEntry = <V>(
   store: CeremonyStore<V>,
   key: string,
+  entry: V,
 ): Effect.Effect<boolean, CoordinationError> =>
-  storeCall(store, "consume", () => store.consume(key));
+  storeCall(store, "consume", () => store.consume(key, entry));

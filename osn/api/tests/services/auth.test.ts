@@ -4,7 +4,7 @@ import { Db } from "@osn/db/service";
 import { EmailError, EmailService, makeLogEmailLive } from "@shared/email";
 import { Deferred, Effect, Layer, Logger, References } from "effect";
 import { TestClock } from "effect/testing";
-import { beforeAll } from "vitest";
+import { beforeAll, vi } from "vitest";
 
 import { createAuthService } from "../../src/services/auth";
 import { hashSessionToken } from "../../src/services/auth/helpers";
@@ -189,6 +189,17 @@ describe("checkHandle", () => {
 // ---------------------------------------------------------------------------
 // Email-verified registration: beginRegistration + completeRegistration
 // ---------------------------------------------------------------------------
+
+/** What `read` answers with the clock `aheadMs` past now. */
+async function readAhead<A>(aheadMs: number, read: () => Promise<A>): Promise<A> {
+  const now = Date.now();
+  const clock = vi.spyOn(Date, "now").mockReturnValue(now + aheadMs);
+  try {
+    return await read();
+  } finally {
+    clock.mockRestore();
+  }
+}
 
 describe("beginRegistration + completeRegistration", () => {
   // Each test gets a fresh makeAuth() via the module-scope helper so the
@@ -562,9 +573,10 @@ describe("beginRegistration + completeRegistration", () => {
 
         yield* TestClock.adjust("1 second");
         yield* tick;
-        const held = yield* pending();
-        expect(held?.handle).toBe("slowmail");
-        expect(held!.expiresAt - Date.now()).toBeLessThanOrEqual(60_000);
+        const held = (key: string) => () => stores.pendingRegistrations.get(key);
+        const late = yield* Effect.promise(() => readAhead(59_000, held("slow@example.com")));
+        expect(late?.handle).toBe("slowmail");
+        expect(yield* Effect.promise(() => readAhead(60_001, held("slow@example.com")))).toBeNull();
       });
     },
   );
@@ -588,14 +600,12 @@ describe("beginRegistration + completeRegistration", () => {
         ).toEqual({
           sent: true,
         });
-        const held = yield* Effect.promise(() =>
-          stores.pendingRegistrations.get("gone@example.com"),
-        );
-        expect(held!.expiresAt - Date.now()).toBeGreaterThan(0);
-        expect(held!.expiresAt - Date.now()).toBeLessThanOrEqual(60_000);
-
         yield* settle(svc.beginRegistration("gone@example.com", "gonemail", "1990-01-01"));
         expect(sends).toBe(1);
+
+        const held = () => stores.pendingRegistrations.get("gone@example.com");
+        expect((yield* Effect.promise(() => readAhead(59_000, held)))?.handle).toBe("gonemail");
+        expect(yield* Effect.promise(() => readAhead(60_001, held))).toBeNull();
       }).pipe(Effect.provide(Layer.merge(createTestLayer(), unreachableEmailLayer)));
     },
   );
@@ -636,31 +646,25 @@ describe("beginRegistration + completeRegistration", () => {
     }).pipe(Effect.provide(Layer.merge(createTestLayer(), refusingEmailLayer)));
   });
 
-  // A store read that could not be made answers `null` here. A
-  // refusal whose read of the entry fails that way still deletes it, or every
-  // retry inside the code's life would meet the pending check and send nothing.
-  it.effect("a refused send deletes its entry when the store cannot read it back", () => {
-    const real = createDefaultCeremonyStores();
-    let reads = 0;
-    const stores = {
-      ...real,
-      pendingRegistrations: {
-        ...real.pendingRegistrations,
-        get: (key: string) =>
-          ++reads === 1 ? real.pendingRegistrations.get(key) : Promise.resolve(null),
-        set: real.pendingRegistrations.set.bind(real.pendingRegistrations),
-        delete: real.pendingRegistrations.delete.bind(real.pendingRegistrations),
-      },
-    };
+  // A refused send removes its own entry, or every retry inside the code's
+  // life would meet the pending check and send nothing.
+  it.effect("a refused send deletes its own entry, so a retry sends a new code", () => {
+    const stores = createDefaultCeremonyStores();
     const svc = createAuthService({ ...config, ceremonyStores: stores });
+    let sends = 0;
     const refusingEmailLayer = Layer.succeed(EmailService, {
-      send: () => Effect.fail(new EmailError({ reason: "dispatch_failed", cause: 403 })),
+      send: () =>
+        Effect.sync(() => (sends += 1)).pipe(
+          Effect.andThen(Effect.fail(new EmailError({ reason: "dispatch_failed", cause: 403 }))),
+        ),
     });
     return Effect.gen(function* () {
-      yield* settle(svc.beginRegistration("unread@example.com", "unread", "1990-01-01"));
+      yield* settle(svc.beginRegistration("refused@example.com", "refused", "1990-01-01"));
       expect(
-        yield* Effect.promise(() => real.pendingRegistrations.get("unread@example.com")),
+        yield* Effect.promise(() => stores.pendingRegistrations.get("refused@example.com")),
       ).toBeNull();
+      yield* settle(svc.beginRegistration("refused@example.com", "refused", "1990-01-01"));
+      expect(sends).toBe(2);
     }).pipe(Effect.provide(Layer.merge(createTestLayer(), refusingEmailLayer)));
   });
 });

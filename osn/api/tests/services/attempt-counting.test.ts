@@ -299,6 +299,37 @@ describe.each(Object.entries(bundles))("attempt counting on the %s bundle", (_na
     }).pipe(Effect.provide(mail.layer));
   });
 
+  it.live(
+    "email change: of two right codes sent at once, each with its own token, exactly one commits",
+    () => {
+      const mail = capture();
+      const auth = createAuthService({ ...base, ...bundle() });
+      return Effect.gen(function* () {
+        const profile = yield* auth.registerProfile("att-ec2@example.com", "attec2");
+        const tokens = yield* Effect.all(
+          [0, 1].map(() => auth.issueStepUpToken(profile.accountId, "otp", "email_change")),
+        );
+        yield* auth.beginEmailChange(profile.accountId, "att-ec2-new@example.com");
+        const right = mail.latest();
+        const results = yield* Effect.all(
+          tokens.map((token) =>
+            Effect.result(auth.completeEmailChange(profile.accountId, right, token, null)),
+          ),
+          { concurrency: "unbounded" },
+        );
+        const committed = results.filter((r) => r._tag === "Success");
+        expect(committed.map((r) => r.success)).toEqual([{ email: "att-ec2-new@example.com" }]);
+        const refused = results.filter((r) => r._tag === "Failure");
+        expect(refused.map((r) => r.failure._tag)).toEqual(["AuthError"]);
+        expect(refused[0]!.failure.message).toMatch(/invalid or expired code/i);
+        const rows = mail.sqlite
+          .query("SELECT COUNT(*) AS n FROM email_changes WHERE account_id = ?")
+          .get(profile.accountId) as { n: number };
+        expect(rows.n).toBe(1);
+      }).pipe(Effect.provide(mail.layer));
+    },
+  );
+
   it.live("registration: a burst of wrong codes spends the code; a new one works", () => {
     const mail = capture();
     const auth = createAuthService({ ...base, ...bundle() });

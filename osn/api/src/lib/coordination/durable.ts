@@ -8,7 +8,7 @@
  * | Consumer | Call |
  * |---|---|
  * | rate limiters, per-account caps | `increment` in a fixed window; a failed call denies |
- * | ceremony `set` / `get` / `delete` / `consume` | `write` (JSON) / `read` / `remove` (`{ value }` with an expected value) / `remove` |
+ * | ceremony `set` / `get` / `delete` / `consume` | `write` (JSON) / `read` / `remove`, with `{ value }` when the caller names the value it read |
  * | ceremony `guess` / `take` / `swap` | `guess` / `take` / `swap`, on the entry's own object |
  * | step-up token guard, discoverable passkey challenge claims | `claim` |
  * | lockout `status` / `recordFailure` / `reset` | `count` / `increment` / `remove` (`{ hits }`) |
@@ -161,6 +161,13 @@ export function createDurableCeremonyStore<V>(
       return null;
     }
   };
+  /**
+   * The condition a `delete` or `consume` naming `expected` sends. As in
+   * `swap`: an `expected` a `get` or `guess` parsed stringifies back to the
+   * text stored.
+   */
+  const holding = (expected: V | undefined) =>
+    expected === undefined ? undefined : { value: JSON.stringify(expected) };
   return {
     backend: "durable_object",
     namespace: name,
@@ -174,16 +181,11 @@ export function createDurableCeremonyStore<V>(
     },
     async delete(key, expected) {
       op("delete");
-      // As in `swap`: an `expected` a `get` or `guess` parsed stringifies back
-      // to the text stored.
-      await store.remove(
-        key,
-        expected === undefined ? undefined : { value: JSON.stringify(expected) },
-      );
+      await store.remove(key, holding(expected));
     },
-    async consume(key) {
+    async consume(key, expected) {
       op("delete");
-      return store.remove(key);
+      return store.remove(key, holding(expected));
     },
     async guess(key) {
       op("guess");

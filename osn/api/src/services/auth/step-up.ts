@@ -635,11 +635,12 @@ export function createStepUpModule(ctx: AuthContext) {
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
       }
       if (!timingSafeEqualString(entry.codeHash, hashSessionToken(code))) {
-        if (standing === "last") yield* spendEntry(stores.stepUpOtp, accountId);
+        if (standing === "last") yield* spendEntry(stores.stepUpOtp, accountId, entry);
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
       }
-      // Of two right codes sent at once, exactly one claims the entry.
-      if (!(yield* claimEntry(stores.stepUpOtp, accountId))) {
+      // Of two right codes sent at once, exactly one claims the entry; none
+      // does once a new `begin` has replaced it.
+      if (!(yield* claimEntry(stores.stepUpOtp, accountId, entry))) {
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
       }
       const stepUpToken = yield* issueStepUpToken(accountId, "otp", purpose);

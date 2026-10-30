@@ -168,22 +168,22 @@ export function createRegistrationModule(
     error instanceof EmailError && error.reason !== "api_unreachable" ? "none" : "unknown";
 
   /**
-   * Settle the pending registration at `key` after its code's send failed, if
-   * it is still the one holding `codeHash`. Between storing it and the failure,
-   * another begin for the same address can have replaced it — both passed the
-   * pending check before either stored — and that one's code may have
-   * arrived, so it stays.
+   * Settle `parked`, the pending registration this begin wrote at `key`, after
+   * its code's send failed. It is one store call that names `parked`, so it
+   * touches no other entry: one spent since — by the cap, or by the
+   * registration its code completed — is not brought back, and one a later
+   * begin wrote once this one was spent or expired stays, since that one's
+   * code may have arrived.
    *
-   * - Nothing was sent: the entry goes, so a retry sends a new code. A read
-   *   that comes back empty deletes too: a store read that could not be made
-   *   answers `null`, and keeping the entry then would leave every
-   *   retry meeting the pending check for the code's whole life.
-   * - The code may still arrive: the entry stays, for at most
-   *   {@link UNKNOWN_DELIVERY_HOLD_MS}, so the address gets no second code at
-   *   once and the person can retry a minute later. Deleting it instead would
-   *   let each begin mail the address again while sends are slow.
+   * - Nothing was sent: `parked` goes, so a retry sends a new code.
+   * - The code may still arrive: `parked` stays, with at most
+   *   {@link UNKNOWN_DELIVERY_HOLD_MS} left to live, so the address gets no
+   *   second code at once and the person can retry a minute later. Deleting it
+   *   instead would let each begin mail the address again while sends are
+   *   slow. The stored value is the same one, so a guess that read it before
+   *   the hold still names it when it deletes.
    *
-   * A store write that fails leaves the entry as it was.
+   * A store call that fails leaves the entry as it was, to expire.
    *
    * Holding the entry rewrites it, and a rewrite starts its guess count again.
    * That allows at most one more cap's worth of guesses, inside the minute the
@@ -192,24 +192,20 @@ export function createRegistrationModule(
    */
   const settleFailedSend = (
     key: string,
-    codeHash: string,
+    parked: PendingRegistration,
     delivery: "none" | "unknown",
   ): Effect.Effect<void> =>
-    // Best effort throughout: the send has already failed, and the caller's
-    // answer does not depend on this tidying. A read the store could not make
-    // counts as empty, for the reason above.
+    // Best effort: the send has already failed, and the caller's answer does
+    // not depend on this tidying.
     Effect.promise(async () => {
-      const stored = await stores.pendingRegistrations.get(key).catch(() => null);
-      if (stored !== null && stored.codeHash !== codeHash) return;
       if (delivery === "none") {
-        await stores.pendingRegistrations.delete(key).catch(() => undefined);
+        await stores.pendingRegistrations.delete(key, parked).catch(() => undefined);
         return;
       }
-      if (stored === null) return;
-      const expiresAt = Math.min(stored.expiresAt, Date.now() + UNKNOWN_DELIVERY_HOLD_MS);
+      const left = Math.min(parked.expiresAt - Date.now(), UNKNOWN_DELIVERY_HOLD_MS);
       await stores.pendingRegistrations
-        .set(key, { ...stored, expiresAt }, Math.max(0, expiresAt - Date.now()))
-        .catch(() => undefined);
+        .swap(key, parked, parked, Math.max(1, left))
+        .catch(() => false);
     });
 
   /**
@@ -376,7 +372,7 @@ export function createRegistrationModule(
           .pipe(
             Effect.timeout("10 seconds"),
             Effect.tap(() => Effect.sync(() => metricAuthOtpSent("registration"))),
-            Effect.catch((error) => settleFailedSend(normalisedEmail, codeHash, deliveryOf(error))),
+            Effect.catch((error) => settleFailedSend(key, parked, deliveryOf(error))),
           ),
       );
 
@@ -443,7 +439,7 @@ export function createRegistrationModule(
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
       }
       if (!timingSafeEqualString(pending.codeHash, hashSessionToken(code))) {
-        if (standing === "last") yield* spendEntry(stores.pendingRegistrations, key);
+        if (standing === "last") yield* spendEntry(stores.pendingRegistrations, key, pending);
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
       }
 
@@ -503,12 +499,13 @@ export function createRegistrationModule(
 
       // Success: only NOW delete the pending entry, and its guess count with
       // it — after the answer, since the account exists whatever happens
-      // here. Nothing a later request writes can be at this key by then:
-      // `begin` writes here only by a swap from nothing, which cannot land
-      // while this entry is live, and once the account exists `begin` finds
-      // the address taken and writes at its probe key. A store fault is not
-      // the caller's answer; an entry left behind expires with its TTL.
-      yield* forkBackground(spendEntry(stores.pendingRegistrations, key).pipe(Effect.ignore));
+      // here. Only the entry this guess read goes. Nothing a later request
+      // writes can be at this key by then: once the account exists, `begin`
+      // finds the address taken and writes at its probe key. A store fault is
+      // not the caller's answer; an entry left behind expires with its TTL.
+      yield* forkBackground(
+        spendEntry(stores.pendingRegistrations, key, pending).pipe(Effect.ignore),
+      );
 
       const issued = yield* issueTokens(
         id,

@@ -493,13 +493,17 @@ export function createTotpModule(
 
       const matched = yield* Effect.promise(() => verifyTotpCode({ secret: opened.secret, code }));
       if (!matched) {
-        if (standing === "last") yield* spendEntry(stores.pendingTotpEnrollments, accountId);
+        if (standing === "last") {
+          yield* spendEntry(stores.pendingTotpEnrollments, accountId, pending);
+        }
         metricTotpVerified("invalid");
         return yield* Effect.fail(new AuthError({ message: GENERIC_CODE_FAILURE }));
       }
 
-      // Of two right codes sent at once, exactly one claims the pending secret.
-      if (!(yield* claimEntry(stores.pendingTotpEnrollments, accountId))) {
+      // Of two right codes sent at once, exactly one claims the pending secret;
+      // none does once a new `begin` has parked another, so the credential is
+      // only ever written from the secret the latest `begin` parked.
+      if (!(yield* claimEntry(stores.pendingTotpEnrollments, accountId, pending))) {
         metricTotpVerified("invalid");
         return yield* Effect.fail(new AuthError({ message: GENERIC_CODE_FAILURE }));
       }

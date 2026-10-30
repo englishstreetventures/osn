@@ -591,17 +591,19 @@ export function createRecoveryFactorsModule(
         return yield* Effect.fail(new AuthError({ message: GENERIC_FAILURE }));
       }
 
-      // Of two right codes sent at once, exactly one claims the entry. The
-      // lockout reset runs beside the claim: a right code takes back the
-      // failures the lookup counted whichever of two right codes wins, so it
-      // waits on nothing. A lookup that counted no failures leaves nothing to
-      // take back, so then there is no reset. A failure a concurrent wrong code
-      // records after the lookup stands either way, and expires with its
-      // window.
+      // Of two right codes sent at once, exactly one claims the entry; none
+      // does once a new `begin` has replaced it. The lockout reset runs beside
+      // the claim: a right code takes back the failures the lookup counted
+      // whether or not its claim wins — of two right codes, or a right code
+      // for an entry replaced since its guess, which only the mailbox's holder
+      // can send — so it waits on nothing. A lookup that counted no failures
+      // leaves nothing to take back, so then there is no reset. A failure a
+      // concurrent wrong code records after the lookup stands either way, and
+      // expires with its window.
       const clearsFailures = lockout.failures > 0;
       const [won] = yield* Effect.all(
         [
-          claimEntry(stores.pendingRecoveryOtp, profile.accountId),
+          claimEntry(stores.pendingRecoveryOtp, profile.accountId, entry),
           clearsFailures
             ? Effect.promise(() =>
                 recoveryOtpLockoutStore.reset(profile.accountId, lockout.failures),

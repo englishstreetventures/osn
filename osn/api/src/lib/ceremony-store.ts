@@ -57,7 +57,11 @@ export interface CeremonyStore<V> {
   /**
    * Claim `key` for single use: remove it and report whether THIS call is the
    * one that removed a live entry. First consumer wins; every other caller
-   * gets `false`, including one racing in another isolate.
+   * gets `false`, including one racing in another isolate. With `expected` —
+   * a value an earlier {@link guess} or {@link get} answered, compared as JSON
+   * — it wins only while that value is still the live one: an entry `set`
+   * since, by a new `begin` at the same key, stays with its count, and the
+   * answer is `false`.
    *
    * The same guarantee `StepUpJtiStore.consume` gives a step-up jti, for the
    * same reason: a `get` followed by a `delete` leaves a window in which two
@@ -65,7 +69,7 @@ export interface CeremonyStore<V> {
    * Unlike {@link delete} it answers, so the caller can act on having won
    * rather than assuming it.
    */
-  consume(key: string): Promise<boolean>;
+  consume(key: string, expected?: V): Promise<boolean>;
   /**
    * Count one guess against the live entry at `key` and return the entry with
    * the count after this guess, in one atomic call: guesses sent at once each
@@ -168,6 +172,12 @@ export function createInMemoryCeremonyStore<V>(
     return entry;
   }
 
+  /** Whether the live value at `key` is `expected`, compared as JSON. */
+  function holds(key: string, expected: V): boolean {
+    const entry = live(key);
+    return entry !== undefined && JSON.stringify(entry.value) === JSON.stringify(expected);
+  }
+
   /** Remove `key`, and answer what was live there. */
   function remove(key: string): MemoryEntry<V> | undefined {
     const found = live(key);
@@ -193,14 +203,12 @@ export function createInMemoryCeremonyStore<V>(
     },
     async delete(key, expected) {
       observer.onOp?.("delete", namespace);
-      if (expected !== undefined) {
-        const entry = live(key);
-        if (entry === undefined || JSON.stringify(entry.value) !== JSON.stringify(expected)) return;
-      }
+      if (expected !== undefined && !holds(key, expected)) return;
       remove(key);
     },
-    async consume(key) {
+    async consume(key, expected) {
       observer.onOp?.("delete", namespace);
+      if (expected !== undefined && !holds(key, expected)) return false;
       // An entry past its TTL is not a live claim, so removing it wins nothing.
       return remove(key) !== undefined;
     },

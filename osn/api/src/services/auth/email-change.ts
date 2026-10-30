@@ -11,14 +11,13 @@ import { type EmailError, EmailService } from "@shared/email";
 import { and, count as countFn, eq, gte, ne } from "drizzle-orm";
 import { Effect, Schema } from "effect";
 
-import { forkBackground } from "../../lib/background";
 import { UNIQUE_CONSTRAINT_ERROR } from "../../lib/unique-constraint";
 import {
   metricAuthOtpSent,
   metricSessionSecurityInvalidation,
   withEmailChange,
 } from "../../metrics";
-import { guessEntry } from "./attempts";
+import { claimEntry, guessEntry } from "./attempts";
 import { MAX_OTP_ATTEMPTS } from "./constants";
 import type { AuthContext } from "./context";
 import { AuthError, type CoordinationError, DatabaseError, ValidationError } from "./errors";
@@ -35,13 +34,13 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
   const EMAIL_CHANGE_WINDOW_SECONDS = 7 * 24 * 60 * 60;
 
   /**
-   * Drop the pending change `entry` — the one this request's guess read — on a
-   * path that is already failing, or one that has already committed. Only
-   * that entry goes: `begin` overwrites the entry at the account's key, so a
-   * change begun since keeps its own. The store is a network hop in
-   * production, and a blip there must not replace the answer the caller has
-   * earned, nor the outcome bucket it was meant to record. The entry carries a
-   * TTL, so losing the delete costs nothing but the wait.
+   * Drop the pending change `entry` — the one this request's guess read — when
+   * the guess that reached the cap was wrong. Only that entry goes: `begin`
+   * overwrites the entry at the account's key, so a change begun since keeps
+   * its own. The store is a network hop in production, and a blip there must
+   * not replace the refusal the caller has earned, nor the outcome bucket it
+   * was meant to record. The entry carries a TTL, so losing the delete costs
+   * nothing but the wait.
    */
   const dropPending = (accountId: string, entry: PendingEmailChange) =>
     Effect.tryPromise(() => stores.pendingEmailChanges.delete(accountId, entry)).pipe(
@@ -182,7 +181,8 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
    * On success: the accounts row is updated, every OTHER session is
    * revoked (the caller's stays so they don't get kicked out of the
    * Settings flow), and an audit row is inserted — all in one transaction
-   * so we cannot leave the system in a half-changed state.
+   * so we cannot leave the system in a half-changed state. One code commits
+   * one change: the code's entry is claimed before the commit.
    */
   const completeEmailChange = (
     accountId: string,
@@ -199,10 +199,7 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
       yield* verifyStepUpForEmailChange(accountId, stepUpToken);
 
       // Read and counted in one call, before the code is compared; see
-      // `attempts.ts`. The entry is deleted after the commit below, not
-      // claimed here, so a commit that fails leaves the code usable. Each
-      // attempt spends its own step-up token above, so a second right code
-      // reaches the commit only with a second token.
+      // `attempts.ts`.
       const guessed = yield* guessEntry(stores.pendingEmailChanges, accountId, MAX_OTP_ATTEMPTS);
       if (!guessed) {
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
@@ -222,9 +219,9 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
 
       // The rate check + current-account fetch move OUT of the
       // transaction so the write section holds the writer lock as briefly
-      // as possible. Race-safety is preserved by the UNIQUE(email)
-      // constraint catching concurrent winners at `tx.update`.
-      const preflight = yield* Effect.tryPromise({
+      // as possible. The UNIQUE(email) constraint catches another account
+      // that commits the same address at `tx.update`.
+      const readPreflight = Effect.tryPromise({
         try: async () => {
           const [acct] = await db
             .select({ email: accounts.email })
@@ -248,6 +245,23 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
         },
         catch: (cause) => new DatabaseError({ cause }),
       });
+
+      // Single use: the right code claims its entry, beside the preflight
+      // reads, before anything commits. Of two right codes sent at once, each
+      // with its own step-up token, exactly one claims it and goes on to the
+      // commit; the other is refused as a wrong code would be, whatever the
+      // preflight found. None claims an entry a new `begin` has replaced. The
+      // claim spends the code even when the preflight or the commit then
+      // fails: the caller steps up and begins again. The entry is not put
+      // back after a failed commit, since D1 can fail a batch it has
+      // committed, and a code put back then would commit the change twice.
+      const [claimed, preflight] = yield* Effect.all(
+        [claimEntry(stores.pendingEmailChanges, accountId, pending), readPreflight],
+        { concurrency: "unbounded" },
+      );
+      if (!claimed) {
+        return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
+      }
       if (!preflight.ok) {
         if (preflight.reason === "not_found") {
           return yield* Effect.fail(new AuthError({ message: "Account not found" }));
@@ -312,25 +326,14 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
         // already rejected not_found / rate_limit). Map to a generic
         // error that matches the begin-path enumeration posture.
         //
-        // The pending change is deleted here, not just left to expire. The
-        // address is claimed by another account, so every retry of this
-        // ceremony fails the same way; holding the entry only keeps the
-        // OTP-attempts counter open against a target the caller cannot have.
-        // (Not an absolute impossibility — the winner could later move off the
-        // address — but then a fresh `begin` is the honest way back in.)
-        // Matches the lockout branch above.
-        yield* dropPending(accountId, pending);
+        // The claim above has already spent the code, so a retry finds no
+        // pending change: the address is held by another account, and a fresh
+        // `begin` is the honest way back in should it ever come free.
         return yield* Effect.fail(
           new AuthError({ message: "Invalid or expired code", metricResult: "conflict" }),
         );
       }
 
-      // The change has committed, so the answer is success whatever happens
-      // here, and the delete runs after it. It removes only the entry this
-      // change completed, so a change the caller begins before it lands keeps
-      // its code. An entry the store cannot delete expires with its TTL, and
-      // its guess count with it.
-      yield* forkBackground(dropPending(accountId, pending));
       metricSessionSecurityInvalidation("email_change");
       return { email: changed.email };
     }).pipe(withEmailChange("complete"));

@@ -227,8 +227,8 @@ describe("beginEmailChange + completeEmailChange", () => {
       expect(aEmailChanges).toHaveLength(0);
 
       // A's pre-existing session still verifies — the failed complete
-      // didn't touch sessions at all (S2's delete only removes the
-      // pending ceremony state, never a session).
+      // didn't touch sessions at all (its claim removes only the pending
+      // ceremony state, never a session).
       yield* a.auth.verifyRefreshToken(aTokens.refreshToken);
     }).pipe(Effect.provide(layer));
   });
@@ -438,15 +438,14 @@ describe("beginEmailChange + completeEmailChange", () => {
     }).pipe(Effect.provide(layer));
   });
 
-  // Proves the S2 delete (removing a conflicted pending
-  // change) actually matters, rather than being dead code. Extends the race
-  // test's world: A's complete already lost the genuine UNIQUE race once
-  // (S2 fires, pending is gone). A second, non-uniqueness fault is then
-  // installed and A resubmits with a fresh token — with S2 in place this
+  // Proves a conflicted change spends its code. Extends the race test's world:
+  // A's complete already lost the genuine UNIQUE race once, after its claim
+  // removed the pending change. A second, non-uniqueness fault is then
+  // installed and A resubmits with a fresh token — with the code spent this
   // short-circuits at `!pending` (AuthError) rather than ever reaching the
-  // write and turning into a DatabaseError. Without S2 the pending entry
-  // would survive and this assertion would catch the regression.
-  it.effect("S2 delete: a conflicted pending change cannot be resurrected by retrying", () => {
+  // write and turning into a DatabaseError. Were the pending entry to survive
+  // the conflict, this assertion would catch it.
+  it.effect("a conflicted pending change cannot be resurrected by retrying", () => {
     const { layer, captured, sqlite } = makeEmailCapture();
     return Effect.gen(function* () {
       const a = yield* setup("ec-s2-a@example.com", "ecs2a", captured);
@@ -484,10 +483,10 @@ describe("beginEmailChange + completeEmailChange", () => {
       const secondErr = yield* Effect.flip(
         a.auth.completeEmailChange(a.profile.accountId, codeA, freshStepUpToken, null),
       );
-      // With the S2 delete in place: the pending entry is already gone, so this short-circuits
-      // at `!pending` — AuthError. Without S2, the pending entry would
-      // survive and reach the write, where `ec_block_update` fires a
-      // non-UNIQUE message that S1 correctly re-throws as DatabaseError.
+      // The pending entry is already gone, so this short-circuits at
+      // `!pending` — AuthError. A surviving entry would reach the write, where
+      // `ec_block_update` fires a non-UNIQUE message that the complete
+      // re-throws as DatabaseError.
       expect(secondErr._tag).toBe("AuthError");
     }).pipe(Effect.provide(layer));
   });

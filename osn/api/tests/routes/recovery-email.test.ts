@@ -909,9 +909,9 @@ function makeCountingApp(options: { readonly lockoutsUnreachable?: boolean } = {
           hops.pendingRecoveryOtp += 1;
           return pending.take(key);
         },
-        consume: (key) => {
+        consume: (key, expected) => {
           hops.pendingRecoveryOtp += 1;
-          return pending.consume(key);
+          return pending.consume(key, expected);
         },
         swap: (key, expected, value, ttlMs) => {
           hops.pendingRecoveryOtp += 1;
