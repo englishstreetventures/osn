@@ -268,7 +268,7 @@ describe("@shared/ui's Checkbox and RadioGroup with box=native", () => {
       }
     });
 
-    it(`hold the label, the description and the note at 4.5:1 on the page and a card, ${theme}`, async () => {
+    it(`hold the label and the description at 4.5:1 on the page and a card, ${theme}`, async () => {
       await page.viewport(600, 600);
       document.documentElement.dataset.theme = theme;
       const row = () => (
@@ -279,7 +279,6 @@ describe("@shared/ui's Checkbox and RadioGroup with box=native", () => {
           checked={false}
           label="I confirm each guest agreed to get emails about this wedding."
           description="They can stop them at any time."
-          note={<p class="text-text-muted text-ui-sm">The notice to share: example.com</p>}
         />
       );
       render(() => (
@@ -292,10 +291,12 @@ describe("@shared/ui's Checkbox and RadioGroup with box=native", () => {
       ));
       for (const ground of ["page", "card"]) {
         const at = document.querySelector<HTMLElement>(`[data-ground="${ground}"]`)!;
-        const words = [...at.querySelectorAll<HTMLElement>("label span, p")].filter(
+        // The label's words and the description: the inks the part sets. A
+        // note takes its caller's own ink, so it is not measured here.
+        const words = [...at.querySelectorAll<HTMLElement>("label span")].filter(
           (el) => el.childElementCount === 0 && el.textContent!.trim().length > 0,
         );
-        expect(words.length).toBeGreaterThanOrEqual(3);
+        expect(words.length).toBeGreaterThanOrEqual(2);
         for (const el of words) {
           expect({ ground, text: el.textContent, ok: inkRatio(el) >= 4.5 }).toEqual({
             ground,

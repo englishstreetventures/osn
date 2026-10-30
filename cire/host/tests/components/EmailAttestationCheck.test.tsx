@@ -25,6 +25,8 @@ describe("EmailAttestationCheck", () => {
     const link = screen.getByRole("link", { name: /cireweddings\.com\/privacy\/guests/ });
     expect(link.getAttribute("href")).toMatch(/\/privacy\/guests$/);
     expect(box.closest("label")).not.toContainElement(link);
+    // The words read as a sentence: a space before the link.
+    expect(link.parentElement?.textContent).toContain("The notice to share: cireweddings.com");
     fireEvent.click(box);
     expect(onChange).toHaveBeenCalledWith(true);
   });
