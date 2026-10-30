@@ -40,7 +40,10 @@
  * its contents and that its "Anything else" field takes the 14px corner. Both
  * views are shot, the top of the page and the open sheet.
  *
- * Along the way it runs the surfaces checks (`../support/cire-surfaces.ts`):
+ * Along the way it runs the buttons checks (`../support/cire-buttons.ts`): the
+ * RSVP table's reply key, the consent prompt's link, the guest sheet's close ×
+ * and answer pair in both designs, and the demo's answer pair, shot into
+ * `screenshots/cire-buttons/`. And the surfaces checks (`../support/cire-surfaces.ts`):
  * the cards, small-caps labels and disclosures every cire app takes from
  * `@cire/ui`, read from computed style and shot into `screenshots/cire-surfaces/`
  * — on the overview, the settings, the import panel, a fresh Gold wedding's
@@ -59,6 +62,7 @@ import { resolve } from "node:path";
 import type { Locator, Page } from "@playwright/test";
 
 import { CIRE_GUEST, ORIGINS, SCREENSHOT_DIR } from "../../src/config";
+import { consentLink, demoPair, guestSheet, replyKey } from "../support/cire-buttons";
 import { builderFeedback, landingFeedback } from "../support/cire-feedback";
 import {
   addGuestFaq,
@@ -236,6 +240,7 @@ async function inviteViews(flow: Flow, guest: Page, design: "classic" | "gala"):
     await expect(other).toBeChecked();
     await expect(sheet.getByRole("textbox", { name: "Anything else" })).toBeVisible();
   });
+  await guestSheet(flow, guest, sheet, design);
 
   const field = sheet.getByRole("textbox", { name: "Anything else" });
   const save = sheet.getByRole("button", { name: "Save", exact: true });
@@ -368,6 +373,7 @@ test("cire-soft-shapes", async ({ page, context, flow }) => {
     }
   });
   await flow.step("shoot the RSVP table", () => shootAll(page, "host-rsvps", hostTheme(page)));
+  await replyKey(flow, page);
 
   await hostSurfaces(flow, page);
 
@@ -439,6 +445,7 @@ test("cire-soft-shapes", async ({ page, context, flow }) => {
       .click();
     await expect(demoField.first()).toBeVisible();
   });
+  await demoPair(flow, landing, demo);
   flow.check(
     "landing at 390: the demo sheet holds its contents",
     true,
@@ -476,10 +483,13 @@ test("cire-soft-shapes", async ({ page, context, flow }) => {
     });
     flow.check(`claim with ${guestName}'s code`, 200, claimed);
 
-    await flow.step("decline optional storage", async () => {
+    const prompt = guest.getByRole("dialog", { name: "Privacy choices" });
+    await flow.step("see the consent prompt", async () => {
       // The consent prompt is an idle-hydrated island: wait for it rather than race it.
-      const prompt = guest.getByRole("dialog", { name: "Privacy choices" });
       await expect(prompt).toBeVisible({ timeout: 60_000 });
+    });
+    await consentLink(flow, prompt);
+    await flow.step("decline optional storage", async () => {
       await prompt.getByRole("button", { name: "Reject all" }).click();
       await expect(prompt).toBeHidden();
     });

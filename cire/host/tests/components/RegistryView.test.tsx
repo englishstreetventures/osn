@@ -183,11 +183,14 @@ describe("RegistryView — the gift list", () => {
     );
     render(() => <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />);
     await screen.findByText("Copper pan");
-    // Named by what it opens, not by "Link" — a screen-reader user hitting a
-    // list of them otherwise hears the same word once per row.
-    const links = screen.getAllByRole("link", { name: /^Open the shop page for/ });
+    // Named by what it opens as well as "Link" — a screen-reader user hitting a
+    // list of them otherwise hears the same word once per row — with the
+    // visible word first, so "click Link" works by voice.
+    const links = screen.getAllByRole("link", { name: /^Link to the shop page for/ });
     expect(links).toHaveLength(1);
-    expect(links[0]).toHaveAccessibleName("Open the shop page for Copper pan");
+    expect(links[0]).toHaveAccessibleName(
+      "Link to the shop page for Copper pan (opens in a new tab)",
+    );
     expect(links[0]).toHaveAttribute("href", "https://shop.example/pan");
     expect(links[0]).toHaveAttribute("rel", "noopener noreferrer");
   });

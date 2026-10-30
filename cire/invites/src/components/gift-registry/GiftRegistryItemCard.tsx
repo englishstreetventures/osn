@@ -1,4 +1,4 @@
-import Button from "@cire/ui/button";
+import Button, { proseLinkClass } from "@cire/ui/button";
 import { Notice } from "@shared/ui/ui/notice";
 import { createEffect, createMemo, createSignal, createUniqueId, Show } from "solid-js";
 
@@ -255,9 +255,12 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
               // handle back to this page.
               target="_blank"
               rel="noopener noreferrer"
-              class="font-body text-text-muted hover:text-gold-ink text-ui-sm rounded-ui-control focus-visible:outline-ui-focus transition-ui-colors self-start underline underline-offset-2 duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2"
+              // Not inside a sentence, so the card's own type step comes with
+              // it: the link class brings no size.
+              class={`${proseLinkClass({ tone: "muted" })} font-body text-ui-sm self-start`}
             >
               View this gift
+              <span class="sr-only"> (opens in a new tab)</span>
             </a>
           )}
         </Show>

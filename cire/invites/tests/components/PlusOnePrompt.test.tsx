@@ -143,7 +143,9 @@ describe("PlusOnePrompt — who is asked", () => {
    */
   it("asks the household to share the privacy notice with their guest", () => {
     renderPrompt(household([bo]));
-    const link = screen.getByRole("link", { name: "privacy notice" }) as HTMLAnchorElement;
+    const link = screen.getByRole("link", {
+      name: /^privacy notice ?\(opens in a new tab\)$/,
+    }) as HTMLAnchorElement;
     expect(link.getAttribute("href")).toBe("/privacy");
     expect(link.closest("p")?.textContent).toMatch(/won't see this invitation/);
   });

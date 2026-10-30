@@ -14,7 +14,7 @@ related:
   - "[[cire-consent]]"
   - "[[cire-plus-ones]]"
   - "[[testing-patterns]]"
-last-reviewed: 2026-10-29
+last-reviewed: 2026-10-30
 ---
 
 # Cire Landing
@@ -96,7 +96,7 @@ renders on the page today; the demo's dietary choices are `@cire/ui` chips.
 | The CTAs, `.cta-primary` and `.cta-ghost` (`Hero.astro`, `FinalCta.astro`) | a pill, `var(--ui-radius-control)`, with `0.95rem 2.25rem` padding so the label keeps a flat edge before each round end | sentence case, normal tracking, weight 500 (Lato loads 300, 400 and 700, so it draws the 400 face) at `--ui-text-base`, the size of `Button` `lg` | colour, fill and border on `--dur-fast`; the press's `transform` too |
 | The masthead link, `.site-nav__cta` (`SiteNav.astro`) | none: an underlined link with no box, which a corner would curl | sentence case at 0.875rem, the footer links' size, no medium weight | `--dur-fast`; the masthead's scrolled wash on `--dur-slow` |
 | The photos (`Figure.astro`) | the 14px field corner, as a framed picture takes; the credit badge 6px, a text badge set in from the frame | — | the credit's fade on `--dur-fast` |
-| The demo invitation (`DemoRsvp.tsx`) | its frame and its two event cards 16px, as the guest event card is; the preview notice and member fieldset 6px, as in the guest sheet; Attending / Not attending pills | sentence case | the pair and the field on `--dur-fast` |
+| The demo invitation (`DemoRsvp.tsx`) | its frame and its two event cards 16px, as the guest event card is; the preview notice and member fieldset 6px, as in the guest sheet; Attending / Not attending pills, `@cire/ui` `Button` `choice` at the 44px floor as on the guest sheet — the chosen one with a 2px gold ring, side by side above 16rem and stacked below | sentence case | the pair on `--dur-base`, the field on `--dur-fast` |
 | Legal pages (`LegalLayout.astro`) | the draft banner 6px, a notice; an inline placeholder 2px, about 16px tall, where 6px would draw a near-pill | "← Back to Cire" sentence case; the privacy tab row small caps (§Privacy pages) | — |
 | Focus rings (`SiteNav.astro`, `SiteFooter.astro`, `PrivacyNav.astro`) | `var(--radius-hair)`, 2px; a CTA's ring sets none and follows the pill; the FAQ's question takes the base layer's ring (below) | — | — |
 

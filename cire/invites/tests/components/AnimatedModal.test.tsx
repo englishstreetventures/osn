@@ -160,7 +160,7 @@ describe("AnimatedModal", () => {
     // so nothing scrolls and the panel simply overflows the viewport.
     expect(scroller.className).toContain("min-h-0");
     // Opaque, because content now passes underneath the button as it scrolls.
-    expect(close.className).toContain("bg-surface");
+    expect(close.className).toContain("bg-ui-surface");
     expect(close.className).not.toContain("bg-transparent");
     // And ranked, because some of what passes underneath is positioned. The
     // dietary pills carry `relative` so their `sr-only` inputs resolve inside

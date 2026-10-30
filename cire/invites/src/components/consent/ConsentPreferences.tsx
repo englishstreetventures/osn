@@ -1,4 +1,4 @@
-import Button from "@cire/ui/button";
+import Button, { proseLinkClass } from "@cire/ui/button";
 import { CATEGORY_LIST, type ConsentCategory } from "@cire/ui/consent-categories";
 import { gatedVendorsInCategory } from "@cire/ui/consent-vendors";
 import { Modal } from "@shared/ui/ui/modal";
@@ -131,13 +131,9 @@ function SwitchRow(props: {
             {(url) => (
               <p class="font-body text-text-muted text-ui-xs leading-ui-snug mt-1.5">
                 <Show when={vendor()?.transfer}>{(transfer) => <>{transfer()} · </>}</Show>
-                <a
-                  href={url()}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="text-gold-ink underline underline-offset-2"
-                >
-                  privacy policy ↗
+                <a href={url()} target="_blank" rel="noopener noreferrer" class={proseLinkClass()}>
+                  privacy policy <span aria-hidden="true">↗</span>
+                  <span class="sr-only"> (opens in a new tab)</span>
                 </a>
               </p>
             )}

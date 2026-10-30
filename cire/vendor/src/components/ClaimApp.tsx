@@ -1,4 +1,4 @@
-import Button from "@cire/ui/button";
+import Button, { proseLinkClass } from "@cire/ui/button";
 import Card from "@cire/ui/card";
 import Eyebrow from "@cire/ui/eyebrow";
 import Loading from "@cire/ui/loading";
@@ -130,7 +130,7 @@ function ClaimContent() {
                 <Notice tone="warn" alert>
                   {org().name} already has a directory listing, and an organisation can have only
                   one. Pick another organisation, or{" "}
-                  <a class="underline" href={`/#/orgs/${encodeURIComponent(org().id)}`}>
+                  <a class={proseLinkClass()} href={`/#/orgs/${encodeURIComponent(org().id)}`}>
                     edit {org().name}'s listing
                   </a>
                   .

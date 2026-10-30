@@ -46,6 +46,7 @@ import {
   stillWanted,
 } from "../lib/registry-store";
 import { sameButOrder } from "../lib/sortable-rows";
+import { LinkPill } from "./LinkPill";
 import RegistryImageField from "./RegistryImageField";
 import ReorderControls from "./ReorderControls";
 
@@ -1091,19 +1092,18 @@ export default function RegistryView(props: RegistryViewProps) {
                         migration or a fixture, and a `javascript:` href here
                         runs in the organiser's own origin.
 
-                        The `aria-label` names the item, because a screen-reader
-                        user listing the page's links otherwise hears "Link,
-                        link, link" with nothing to tell them apart. */}
+                        Hidden words after "Link" name the item, because a
+                        screen-reader user listing the page's links otherwise
+                        hears "Link, link, link" with nothing to tell them
+                        apart; the visible word still starts the name, so
+                        "click Link" works by voice. */}
                                 <Show when={item.externalUrl && isHttpsUrl(item.externalUrl)}>
-                                  <a
+                                  <LinkPill
                                     href={item.externalUrl!}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    aria-label={`Open the shop page for ${item.title}`}
-                                    class="text-gold-dim hover:text-gold text-ui-sm underline-offset-2 hover:underline"
+                                    hint={`to the shop page for ${item.title}`}
                                   >
                                     Link
-                                  </a>
+                                  </LinkPill>
                                 </Show>
 
                                 <Show when={props.canEdit}>

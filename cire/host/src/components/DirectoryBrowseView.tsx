@@ -8,7 +8,8 @@ import { Input } from "@shared/ui/ui/input";
 import { heldWhileClosing, Modal } from "@shared/ui/ui/modal";
 import { Notice } from "@shared/ui/ui/notice";
 import { Select } from "@shared/ui/ui/select";
-import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import Globe from "lucide-solid/icons/globe";
+import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
@@ -17,6 +18,7 @@ import { haptic } from "../lib/haptics";
 import { categoryLabel, SERVICE_CATEGORIES } from "../lib/service-categories";
 import { invalidateVendors, upsertCachedVendor, type VendorRow } from "../lib/vendors-store";
 import EnquireDialog from "./EnquireDialog";
+import { InstagramMark, LINK_PILL_ROW, LinkPill } from "./LinkPill";
 
 const LISTING_CLASS = cardClass({ padding: "sm" });
 
@@ -94,6 +96,10 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
     const cleaned = handle.replace(/^[@\s]+/, "");
     return /^[A-Za-z0-9._]+$/.test(cleaned) ? `https://instagram.com/${cleaned}` : null;
   };
+
+  // The shown listing's own places, each checked once per listing.
+  const shownWebsite = createMemo(() => safeHref(shownListing()?.website));
+  const shownInstagram = createMemo(() => safeInstagramHref(shownListing()?.instagram));
 
   // Focus-return: track the element that triggered the modal open
   let modalOpener: HTMLElement | null = null;
@@ -539,32 +545,27 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
                 <p class="text-text text-ui-base">{ml().description}</p>
               </Show>
 
-              {/* Contact details */}
+              {/* Contact details: the listing's own places as pills, then how
+                  to reach the vendor as text. */}
+              <Show when={shownWebsite() || shownInstagram()}>
+                <div class={LINK_PILL_ROW}>
+                  <Show when={shownWebsite()}>
+                    {(href) => (
+                      <LinkPill href={href()} mark={Globe} hint={`for ${ml().name}`}>
+                        Website
+                      </LinkPill>
+                    )}
+                  </Show>
+                  <Show when={shownInstagram()}>
+                    {(href) => (
+                      <LinkPill href={href()} mark={InstagramMark} hint={`for ${ml().name}`}>
+                        Instagram
+                      </LinkPill>
+                    )}
+                  </Show>
+                </div>
+              </Show>
               <div class="flex flex-col gap-1">
-                <Show when={safeHref(ml().website)}>
-                  {(href) => (
-                    <a
-                      href={href()}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      class="text-gold-dim hover:text-gold text-ui-sm underline-offset-2 hover:underline"
-                    >
-                      Website
-                    </a>
-                  )}
-                </Show>
-                <Show when={safeInstagramHref(ml().instagram)}>
-                  {(href) => (
-                    <a
-                      href={href()}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      class="text-gold-dim hover:text-gold text-ui-sm underline-offset-2 hover:underline"
-                    >
-                      Instagram
-                    </a>
-                  )}
-                </Show>
                 <Show when={ml().email}>
                   <span class="text-text-muted text-ui-sm">{ml().email}</span>
                 </Show>

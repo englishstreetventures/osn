@@ -15,6 +15,7 @@ import { DESIGNS } from "@cire/invite-designs";
 import { cardClass } from "@cire/ui/card";
 import { createSignal, For, Show } from "solid-js";
 
+import { LinkPill } from "../LinkPill";
 import { isDesignLocked } from "./model";
 
 const DESIGN_CARD_CLASS = `${cardClass({ padding: "sm", fill: "none" })} items-start gap-2`;
@@ -128,14 +129,9 @@ export default function DesignPicker(props: {
                   </Show>
                 </button>
                 <Show when={!isLocked()}>
-                  <a
-                    href={props.previewHref(design.id)}
-                    target="_blank"
-                    rel="noopener"
-                    class="font-body text-gold-dim text-ui-xs underline-offset-4 hover:underline"
-                  >
+                  <LinkPill href={props.previewHref(design.id)} hint={design.name}>
                     Preview live
-                  </a>
+                  </LinkPill>
                 </Show>
               </div>
             );
