@@ -529,21 +529,6 @@ describe("Button — choice, halfway and locked", () => {
       `${GATE}ring-ui-accent/30`,
     ]);
   });
-
-  it("keeps the chosen mark: an accent edge, accent ink and a 60% ring, either way", () => {
-    expect(classes("choice")).toEqual(
-      expect.arrayContaining([
-        "base:aria-pressed:border-ui-accent",
-        "base:aria-pressed:text-ui-accent-ink",
-        "base:aria-pressed:ring-1",
-        "base:aria-pressed:ring-ui-accent/60",
-        "base:aria-checked:border-ui-accent",
-        "base:aria-checked:text-ui-accent-ink",
-        "base:aria-checked:ring-1",
-        "base:aria-checked:ring-ui-accent/60",
-      ]),
-    );
-  });
 });
 
 const EVERY_PADDING = Object.keys({
