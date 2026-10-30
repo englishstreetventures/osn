@@ -3,6 +3,7 @@ import Button, { proseLinkClass } from "@cire/ui/button";
 import { cardClass } from "@cire/ui/card";
 import Disclosure from "@cire/ui/disclosure";
 import Eyebrow from "@cire/ui/eyebrow";
+import FileInput from "@cire/ui/file-input";
 import { useAuth } from "@shared/rp-auth/solid";
 import { Field } from "@shared/ui/ui/field";
 import { Notice } from "@shared/ui/ui/notice";
@@ -432,18 +433,15 @@ export default function ImportPanel(props: {
             accessible name ("events.csv events.csv" instead of "Remove"), and a
             click on it would also re-open the file picker the label points at. */}
         <div class="flex flex-col gap-1.5">
-          {/* `Field` for the label wiring only — the control keeps its own
-              `file:` styling rather than taking `Input`'s box, because the part
-              a host clicks is the pseudo-element button, not the field. */}
+          {/* `Field` for the label wiring only: the picker is `FileInput`, whose
+              button is the part a host clicks, not `Input`'s box. */}
           <Field label={copy().fileName}>
             {(field) => (
-              <input
+              <FileInput
                 {...field}
-                type="file"
                 accept=".csv,text/csv"
                 ref={fileInput}
                 onChange={(e) => selectFile(e.currentTarget.files?.[0] ?? null)}
-                class="font-body text-text file:border-border file:bg-bg file:font-body file:text-text hover:file:border-gold text-ui-sm file:text-ui-sm file:rounded-ui-control file:mr-3 file:border file:px-4 file:py-1.5 file:font-medium"
               />
             )}
           </Field>

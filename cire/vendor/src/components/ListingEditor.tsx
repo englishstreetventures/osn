@@ -14,7 +14,6 @@ import { Textarea } from "@shared/ui/ui/textarea";
 import { createEffect, createMemo, createResource, createSignal, For, Show } from "solid-js";
 
 import { friendlyError } from "../lib/api";
-import { FORM_FIELD_CLASS } from "../lib/form-field";
 import { haptic } from "../lib/haptics";
 import { categoryLabel, SERVICE_CATEGORIES } from "../lib/service-categories";
 import { fetchListing, putListing, takeSeededListing } from "../lib/vendor-store";
@@ -222,8 +221,8 @@ export default function ListingEditor(props: ListingEditorProps) {
           >
             {(field) => (
               <Input
+                size="form"
                 {...field}
-                class={FORM_FIELD_CLASS}
                 value={name()}
                 onInput={(e) => setName(e.currentTarget.value)}
                 required
@@ -250,6 +249,7 @@ export default function ListingEditor(props: ListingEditorProps) {
               <For each={SERVICE_CATEGORIES}>
                 {(cat) => (
                   <Checkbox
+                    box="native"
                     checked={checked()[cat.key] ?? false}
                     onChange={(next) => toggleCategory(cat.key, next)}
                     label={categoryLabel(cat.key)}
@@ -281,8 +281,8 @@ export default function ListingEditor(props: ListingEditorProps) {
             <Field label="Email">
               {(field) => (
                 <Input
+                  size="form"
                   {...field}
-                  class={FORM_FIELD_CLASS}
                   type="email"
                   value={email()}
                   onInput={(e) => setEmail(e.currentTarget.value)}
@@ -294,8 +294,8 @@ export default function ListingEditor(props: ListingEditorProps) {
             <Field label="Phone">
               {(field) => (
                 <Input
+                  size="form"
                   {...field}
-                  class={FORM_FIELD_CLASS}
                   type="tel"
                   value={phone()}
                   onInput={(e) => setPhone(e.currentTarget.value)}
@@ -307,8 +307,8 @@ export default function ListingEditor(props: ListingEditorProps) {
             <Field label="Website">
               {(field) => (
                 <Input
+                  size="form"
                   {...field}
-                  class={FORM_FIELD_CLASS}
                   type="url"
                   value={website()}
                   onInput={(e) => setWebsite(e.currentTarget.value)}
@@ -320,8 +320,8 @@ export default function ListingEditor(props: ListingEditorProps) {
             <Field label="Instagram">
               {(field) => (
                 <Input
+                  size="form"
                   {...field}
-                  class={FORM_FIELD_CLASS}
                   value={instagram()}
                   onInput={(e) => setInstagram(e.currentTarget.value)}
                   placeholder="@handle"
@@ -334,8 +334,8 @@ export default function ListingEditor(props: ListingEditorProps) {
           <Field label="Location">
             {(field) => (
               <Input
+                size="form"
                 {...field}
-                class={FORM_FIELD_CLASS}
                 value={locationText()}
                 onInput={(e) => setLocationText(e.currentTarget.value)}
                 placeholder="e.g. Sydney, NSW"
@@ -348,8 +348,8 @@ export default function ListingEditor(props: ListingEditorProps) {
             <Field label="Price band">
               {(field) => (
                 <Select
+                  size="form"
                   {...field}
-                  class={FORM_FIELD_CLASS}
                   value={priceBand()}
                   onChange={(e) => setPriceBand(e.currentTarget.value)}
                 >
@@ -363,8 +363,8 @@ export default function ListingEditor(props: ListingEditorProps) {
             <Field label="Price min ($)">
               {(field) => (
                 <Input
+                  size="form"
                   {...field}
-                  class={FORM_FIELD_CLASS}
                   type="number"
                   min="0"
                   step="0.01"
@@ -378,8 +378,8 @@ export default function ListingEditor(props: ListingEditorProps) {
             <Field label="Price max ($)">
               {(field) => (
                 <Input
+                  size="form"
                   {...field}
-                  class={FORM_FIELD_CLASS}
                   type="number"
                   min="0"
                   step="0.01"

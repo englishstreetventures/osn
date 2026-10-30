@@ -7,7 +7,6 @@ import { Modal } from "@shared/ui/ui/modal";
 import { createSignal, Show } from "solid-js";
 
 import { isAuthExpired, redirectToLogin } from "../lib/api";
-import { FORM_FIELD_CLASS } from "../lib/form-field";
 import { deleteWedding } from "../lib/wedding-lifecycle";
 
 const DANGER_ZONE_CLASS = cardClass({ tone: "danger", fill: "none" });
@@ -118,8 +117,8 @@ export default function DeleteWeddingDialog(props: {
           >
             {(field) => (
               <Input
+                size="form"
                 {...field}
-                class={FORM_FIELD_CLASS}
                 value={typed()}
                 autocomplete="off"
                 spellcheck={false}

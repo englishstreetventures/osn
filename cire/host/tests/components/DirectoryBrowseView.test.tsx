@@ -63,6 +63,21 @@ describe("DirectoryBrowseView", () => {
     expect(tags(await screen.findByRole("dialog"))).toEqual(asTags);
   });
 
+  it("prompts for a category in the listing's detail too, as one named group", async () => {
+    authFetch.mockResolvedValueOnce(json({ listings: [listing()], total: 1 }));
+    render(() => <DirectoryBrowseView weddingId="w1" canEdit={true} />);
+    const card = (await screen.findByText("Acme Venue")).closest("li")!;
+    fireEvent.click(within(card).getByRole("button", { name: "View" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Add to wedding" }));
+    const picker = within(dialog).getByRole("radiogroup", { name: "Pick a category" });
+    const radios = within(picker).getAllByRole("radio") as HTMLInputElement[];
+    expect(radios.map((r) => [r.value, r.name])).toEqual([
+      ["venue", "modal-add-cat-LA"],
+      ["catering", "modal-add-cat-LA"],
+    ]);
+  });
+
   it("shows 'Added ✓' for a listing already in the wedding", async () => {
     authFetch.mockResolvedValueOnce(json({ listings: [listing({ inWedding: true })], total: 1 }));
     render(() => <DirectoryBrowseView weddingId="w1" canEdit={true} />);
@@ -77,6 +92,12 @@ describe("DirectoryBrowseView", () => {
     fireEvent.click(screen.getAllByRole("button", { name: /add to wedding/i })[0]!);
     // multi-category → pick one, then confirm
     await waitFor(() => screen.getByLabelText(/venue/i));
+    // One named group, its radios sharing one name of their own.
+    const picker = screen.getByRole("radiogroup", { name: "Pick a category" });
+    const names = within(picker)
+      .getAllByRole("radio")
+      .map((r) => (r as HTMLInputElement).name);
+    expect(names).toEqual(["add-cat-LA", "add-cat-LA"]);
     fireEvent.click(screen.getByLabelText(/venue/i));
     fireEvent.click(screen.getByRole("button", { name: /confirm|add/i }));
     await waitFor(() => {

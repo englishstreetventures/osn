@@ -7,13 +7,14 @@ import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { heldWhileClosing, Modal } from "@shared/ui/ui/modal";
 import { Notice } from "@shared/ui/ui/notice";
+import { RadioGroup, RadioGroupItem } from "@shared/ui/ui/radio-group";
 import { Select } from "@shared/ui/ui/select";
 import Globe from "lucide-solid/icons/globe";
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
-import { FIELD_BAR_CLASS, FILTER_FIELD_CLASS } from "../lib/form-field";
+import { FIELD_BAR_CLASS } from "../lib/form-field";
 import { haptic } from "../lib/haptics";
 import { categoryLabel, SERVICE_CATEGORIES } from "../lib/service-categories";
 import { invalidateVendors, upsertCachedVendor, type VendorRow } from "../lib/vendors-store";
@@ -248,16 +249,15 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
 
   return (
     <div class="flex flex-col gap-6">
-      {/* Filter bar. Filters are 28px pills (`FILTER_FIELD_CLASS`), and the
-          bar's one action is their height: a `Button` at `size="sm"` alone is
-          31px (DESIGN.md §4, "One form-field height"). */}
+      {/* Filter bar. Filters are 28px pills (`size="sm"`), and the bar's one
+          action is their height: a `Button` at `size="sm"` alone is 31px
+          (DESIGN.md §4, "One form-field height"). */}
       <div class={FIELD_BAR_CLASS}>
         <Field label="Category">
           {(field) => (
             <Select
               {...field}
               size="sm"
-              class={FILTER_FIELD_CLASS}
               value={category()}
               onChange={(e) => {
                 setCategory(e.currentTarget.value);
@@ -275,7 +275,6 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
             <Input
               {...field}
               size="sm"
-              class={FILTER_FIELD_CLASS}
               value={q()}
               onInput={(e) => {
                 setQ(e.currentTarget.value);
@@ -291,7 +290,6 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
             <Input
               {...field}
               size="sm"
-              class={FILTER_FIELD_CLASS}
               value={location()}
               onInput={(e) => {
                 setLocation(e.currentTarget.value);
@@ -413,25 +411,18 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
                         }
                       >
                         <div class="flex flex-col gap-2">
-                          <fieldset class="flex flex-wrap gap-2">
-                            <legend class="text-gold-dim font-body text-ui-xs sr-only uppercase">
-                              Pick a category
-                            </legend>
+                          <RadioGroup
+                            box="native"
+                            size="sm"
+                            name={`add-cat-${item.id}`}
+                            value={pickerCategory()}
+                            onChange={setPickerCategory}
+                            aria-label="Pick a category"
+                          >
                             <For each={item.categories}>
-                              {(cat) => (
-                                <label class="text-ui-sm flex items-center gap-1">
-                                  <input
-                                    type="radio"
-                                    name={`add-cat-${item.id}`}
-                                    value={cat}
-                                    checked={pickerCategory() === cat}
-                                    onChange={() => setPickerCategory(cat)}
-                                  />
-                                  {categoryLabel(cat)}
-                                </label>
-                              )}
+                              {(cat) => <RadioGroupItem value={cat} label={categoryLabel(cat)} />}
                             </For>
-                          </fieldset>
+                          </RadioGroup>
                           <div class="flex gap-2">
                             <Button
                               variant="primary"
@@ -609,25 +600,18 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
                     }
                   >
                     <div class="flex flex-col gap-2">
-                      <fieldset class="flex flex-wrap gap-2">
-                        <legend class="text-gold-dim font-body text-ui-xs sr-only uppercase">
-                          Pick a category
-                        </legend>
+                      <RadioGroup
+                        box="native"
+                        size="sm"
+                        name={`modal-add-cat-${ml().id}`}
+                        value={pickerCategory()}
+                        onChange={setPickerCategory}
+                        aria-label="Pick a category"
+                      >
                         <For each={ml().categories}>
-                          {(cat) => (
-                            <label class="text-ui-sm flex items-center gap-1">
-                              <input
-                                type="radio"
-                                name={`modal-add-cat-${ml().id}`}
-                                value={cat}
-                                checked={pickerCategory() === cat}
-                                onChange={() => setPickerCategory(cat)}
-                              />
-                              {categoryLabel(cat)}
-                            </label>
-                          )}
+                          {(cat) => <RadioGroupItem value={cat} label={categoryLabel(cat)} />}
                         </For>
-                      </fieldset>
+                      </RadioGroup>
                       <div class="flex gap-2">
                         <Button
                           variant="primary"

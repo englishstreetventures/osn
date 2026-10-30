@@ -36,13 +36,14 @@
  */
 
 import Button from "@cire/ui/button";
+import FileInput from "@cire/ui/file-input";
 import { useAuth } from "@shared/rp-auth/solid";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
-import { FORM_ACTION_CLASS, FORM_FIELD_CLASS } from "../lib/form-field";
+import { FORM_ACTION_CLASS } from "../lib/form-field";
 import { haptic } from "../lib/haptics";
 /** Mirrors `MAX_IMAGE_BYTES` in `cire/api/src/services/invite-assets.ts`. Checked
  *  here only to spare the organiser a five-megabyte upload that ends in a 413 —
@@ -463,8 +464,7 @@ export default function RegistryImageField(props: {
       </div>
 
       <Show when={mode() === "upload"}>
-        <input
-          type="file"
+        <FileInput
           accept={ACCEPT}
           aria-label="Photo to upload"
           disabled={props.disabled || busy() !== null}
@@ -473,7 +473,6 @@ export default function RegistryImageField(props: {
             if (file) void upload(file);
             e.currentTarget.value = "";
           }}
-          class="font-body text-text file:border-border file:bg-bg file:font-body file:text-text hover:file:border-gold text-ui-sm file:text-ui-sm file:rounded-ui-control file:mr-3 file:border file:px-4 file:py-1.5 file:font-medium"
         />
       </Show>
 
@@ -485,9 +484,9 @@ export default function RegistryImageField(props: {
             </label>
             <Input
               id={`${props.idPrefix}-shop-link`}
-              size="sm"
+              size="form-compact"
               type="url"
-              class={`${FORM_FIELD_CLASS} min-w-64 flex-1`}
+              class="min-w-64 flex-1"
               placeholder="https://…"
               value={url()}
               disabled={props.disabled || busy() !== null}

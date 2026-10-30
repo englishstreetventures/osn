@@ -12,6 +12,7 @@ import {
   SortableProvider,
   useDragDropContext,
 } from "@shared/sortable";
+import { Checkbox } from "@shared/ui/ui/checkbox";
 import { Field } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
@@ -32,7 +33,7 @@ import {
   revalidateBudget,
   setCachedBudget,
 } from "../lib/budget-store";
-import { FIELD_BAR_CLASS, FORM_ACTION_CLASS, FORM_FIELD_CLASS } from "../lib/form-field";
+import { FIELD_BAR_CLASS, FORM_ACTION_CLASS } from "../lib/form-field";
 import { haptic } from "../lib/haptics";
 import { belowSmallestUnitError, formatMinor, minorToInput, parseMinor } from "../lib/money";
 import { categoryLabel, SERVICE_CATEGORIES, type ServiceCategory } from "../lib/service-categories";
@@ -540,8 +541,8 @@ export default function BudgetView(props: BudgetViewProps) {
               <Field label={`Total budget (${currency()})`} class="w-32">
                 {(field) => (
                   <Input
+                    size="form"
                     {...field}
-                    class={FORM_FIELD_CLASS}
                     type="number"
                     min="0"
                     step={MONEY_STEP}
@@ -567,8 +568,8 @@ export default function BudgetView(props: BudgetViewProps) {
           <Field label="Category">
             {(field) => (
               <Select
+                size="form"
                 {...field}
-                class={FORM_FIELD_CLASS}
                 value={newCategory()}
                 onChange={(e) => setNewCategory(e.currentTarget.value as ServiceCategory)}
               >
@@ -581,8 +582,8 @@ export default function BudgetView(props: BudgetViewProps) {
           <Field label="Item" class="min-w-48 flex-1">
             {(field) => (
               <Input
+                size="form"
                 {...field}
-                class={FORM_FIELD_CLASS}
                 value={newName()}
                 onInput={(e) => setNewName(e.currentTarget.value)}
                 placeholder="Caterer, venue, band…"
@@ -590,14 +591,14 @@ export default function BudgetView(props: BudgetViewProps) {
             )}
           </Field>
           <Show when={perHeadSupported()}>
-            <label class="text-text text-ui-sm flex items-center gap-2 self-center">
-              <input
-                type="checkbox"
-                checked={newPerHead()}
-                onChange={(e) => setNewPerHead(e.currentTarget.checked)}
-              />
-              Priced per head
-            </label>
+            <Checkbox
+              box="native"
+              size="sm"
+              class="self-center"
+              checked={newPerHead()}
+              onChange={setNewPerHead}
+              label="Priced per head"
+            />
           </Show>
           <Field
             label={newPerHead() && perHeadSupported() ? "Price per head" : "Estimate (optional)"}
@@ -605,8 +606,8 @@ export default function BudgetView(props: BudgetViewProps) {
           >
             {(field) => (
               <Input
+                size="form"
                 {...field}
-                class={FORM_FIELD_CLASS}
                 type="number"
                 min="0"
                 step={MONEY_STEP}
@@ -851,8 +852,7 @@ function MoneyCell(props: {
         }
       >
         <Input
-          size="sm"
-          class={FORM_FIELD_CLASS}
+          size="form-compact"
           type="number"
           min="0"
           step={MONEY_STEP}
@@ -890,8 +890,9 @@ function PaymentPanel(props: {
       <For each={props.payments}>
         {(p) => (
           <div class="text-ui-sm flex flex-wrap items-center gap-2">
-            <input
-              type="checkbox"
+            <Checkbox
+              box="native"
+              size="sm"
               aria-label={`${p.label} paid`}
               checked={p.paidAt != null}
               disabled={!props.canEdit}
@@ -925,8 +926,7 @@ function PaymentPanel(props: {
             {(field) => (
               <Input
                 {...field}
-                size="sm"
-                class={FORM_FIELD_CLASS}
+                size="form-compact"
                 value={label()}
                 onInput={(e) => setLabel(e.currentTarget.value)}
                 placeholder="Deposit"
@@ -937,8 +937,7 @@ function PaymentPanel(props: {
             {(field) => (
               <Input
                 {...field}
-                size="sm"
-                class={FORM_FIELD_CLASS}
+                size="form-compact"
                 type="number"
                 min="0"
                 step={MONEY_STEP}
@@ -952,8 +951,7 @@ function PaymentPanel(props: {
             {(field) => (
               <Input
                 {...field}
-                size="sm"
-                class={FORM_FIELD_CLASS}
+                size="form-compact"
                 type="date"
                 value={due()}
                 onInput={(e) => setDue(e.currentTarget.value)}

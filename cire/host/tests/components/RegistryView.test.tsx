@@ -1397,7 +1397,12 @@ describe("RegistryView — cash funds", () => {
     );
     render(() => <RegistryView weddingId="wed_1" weddingSlug="wed-1" view="list" canEdit={true} />);
 
+    // Back and forth between the two kinds: each shows its own fields.
     fireEvent.click(await screen.findByRole("radio", { name: "A cash fund" }));
+    fireEvent.click(screen.getByRole("radio", { name: "A gift to reserve" }));
+    expect(screen.queryByLabelText("Fund")).toBeNull();
+    expect(screen.getByRole("radio", { name: "A gift to reserve" })).toBeChecked();
+    fireEvent.click(screen.getByRole("radio", { name: "A cash fund" }));
     fireEvent.input(screen.getByLabelText("Fund"), { target: { value: "Honeymoon in Kyoto" } });
     fireEvent.input(screen.getByLabelText("Goal (optional)"), { target: { value: "50000" } });
     fireEvent.input(screen.getByLabelText("What it’s for (optional)"), {

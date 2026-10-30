@@ -30,7 +30,8 @@
  * editor's — is 34px with the same corner, short of a pill, and a boxed button
  * beside one, Delete household and Add guest, is 34px too. The bar's action,
  * Add household, is the filters' 28px. The guest site is not a portal: its
- * fields keep their own heights, so there only their 14px corner is read.
+ * fields are the ink fill at the touch size, whose heights the forms checks
+ * read; here only their 14px corner is.
  *
  * Before the guest site, a third tab opens the marketing site with no claim and
  * no sign-in. At a phone and a desktop width it reads the hero's two calls to
@@ -40,7 +41,11 @@
  * its contents and that its "Anything else" field takes the 14px corner. Both
  * views are shot, the top of the page and the open sheet.
  *
- * Along the way it runs the buttons checks (`../support/cire-buttons.ts`): the
+ * Along the way it runs the forms checks (`../support/cire-forms.ts`): the
+ * gift-list settings' radios and box, the import picker, the claim panel's
+ * code field, the RSVP sheet's ink field and consent box, and the demo's
+ * field, shot into `screenshots/cire-forms/`. And the buttons checks
+ * (`../support/cire-buttons.ts`): the
  * RSVP table's reply key, the consent prompt's link, the guest sheet's close ×
  * and answer pair in both designs, and the demo's answer pair, shot into
  * `screenshots/cire-buttons/`. And the surfaces checks (`../support/cire-surfaces.ts`):
@@ -64,6 +69,7 @@ import type { Locator, Page } from "@playwright/test";
 import { CIRE_GUEST, ORIGINS, SCREENSHOT_DIR } from "../../src/config";
 import { consentLink, demoPair, guestSheet, replyKey } from "../support/cire-buttons";
 import { builderFeedback, landingFeedback } from "../support/cire-feedback";
+import { builderForms, claimForms, demoForms, hostForms, sheetForms } from "../support/cire-forms";
 import {
   addGuestFaq,
   builderSurfaces,
@@ -241,6 +247,7 @@ async function inviteViews(flow: Flow, guest: Page, design: "classic" | "gala"):
     await expect(sheet.getByRole("textbox", { name: "Anything else" })).toBeVisible();
   });
   await guestSheet(flow, guest, sheet, design);
+  await sheetForms(flow, guest, sheet, design);
 
   const field = sheet.getByRole("textbox", { name: "Anything else" });
   const save = sheet.getByRole("button", { name: "Save", exact: true });
@@ -376,6 +383,7 @@ test("cire-soft-shapes", async ({ page, context, flow }) => {
   await replyKey(flow, page);
 
   await hostSurfaces(flow, page);
+  await hostForms(flow, page, HOST);
 
   const design = (name: "Classic" | "Gala") =>
     page
@@ -391,6 +399,7 @@ test("cire-soft-shapes", async ({ page, context, flow }) => {
     (await design("Classic").getAttribute("aria-checked")) ?? "missing",
   );
   await builderSurfaces(flow, page, design);
+  await builderForms(flow, page);
   await builderFeedback(flow, page);
 
   // ── The marketing site ───────────────────────────────────────────────────
@@ -446,6 +455,7 @@ test("cire-soft-shapes", async ({ page, context, flow }) => {
     await expect(demoField.first()).toBeVisible();
   });
   await demoPair(flow, landing, demo);
+  await demoForms(flow, landing, demo);
   flow.check(
     "landing at 390: the demo sheet holds its contents",
     true,
@@ -466,6 +476,7 @@ test("cire-soft-shapes", async ({ page, context, flow }) => {
   await landing.close();
 
   // ── The guest site, in Classic ───────────────────────────────────────────
+  await claimForms(flow, context, INVITE);
   const faqIds = await addGuestFaq(flow, page);
   const guest = await flow.newPage(context);
   // The two FAQ entries come off however the guest steps end, so a failure

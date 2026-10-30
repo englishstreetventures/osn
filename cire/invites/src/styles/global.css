@@ -6,6 +6,8 @@
  * a shared file pointing at a product package inverts the layering and would
  * scan cire's classes into every musubi, pulse, lab and metrics build. */
 @source "../../../ui/src";
+/* This site draws no file picker, so `FileInput`'s button rules stay out. */
+@source not "../../../ui/src/file-input.tsx";
 /* The toast package's own styles. It reads the `--toast-*` custom properties
    the palette block below emits, so an invite's toasts are the organiser's
    colours with contrast already enforced against the surface they sit on. */

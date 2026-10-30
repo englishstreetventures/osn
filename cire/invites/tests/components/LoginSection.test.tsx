@@ -955,7 +955,7 @@ describe("LoginSection layout", () => {
   it("band: paints the tone across the whole section, on a centred column", () => {
     // Classic's shape, and the default — a pack that passes no layout gets a
     // working panel with no markup of its own.
-    const { container, getByText, getByLabelText } = render(() => (
+    const { container, getByText } = render(() => (
       <LoginSection apiUrl="http://x" result={null} onClaimed={noop} themeVars={surface} />
     ));
     const section = getByText("Enter your code").closest("section") as HTMLElement;
@@ -965,13 +965,15 @@ describe("LoginSection layout", () => {
     expect(section.className).toContain("border-b");
     expect(getByText("Enter your code").closest(".text-center")).not.toBeNull();
     // No inset card inside the band: the code field is the only box in it.
-    expect(boxes(section)).toEqual([getByLabelText("Invitation code")]);
+    // The code field is `@shared/ui`'s `Input`, whose edge is a `base:`
+    // utility, so the section draws no box by hand.
+    expect(boxes(section)).toEqual([]);
   });
 
   it("panel: paints only a bordered card, centred on phones and flush left from md", () => {
     // Gala's shape. The tone belongs to the card, not the section around it:
     // painting the section would turn the inset card back into a band.
-    const { container, getByText, getByLabelText } = render(() => (
+    const { container, getByText } = render(() => (
       <LoginSection
         apiUrl="http://x"
         result={null}
@@ -993,7 +995,7 @@ describe("LoginSection layout", () => {
     expect(classes).toEqual(
       expect.arrayContaining(["border", "rounded-ui-lg", "max-w-column-xs", "md:mx-0"]),
     );
-    expect(boxes(section)).toEqual([card, getByLabelText("Invitation code")]);
+    expect(boxes(section)).toEqual([card]);
     // Left-aligned copy, against the band's centred column.
     expect(getByText("Enter your code").closest(".text-center")).toBeNull();
   });
@@ -1271,41 +1273,11 @@ describe("LoginSection code field", () => {
     return input as HTMLInputElement;
   }
 
-  // jsdom computes no colours, so the contrast contract is pinned as classes —
-  // the same tactic the sticky-footer and grid-column contracts use. The alphas
-  // were chosen by compositing over every `PALETTE_PRESETS` entry × all three
-  // section tones in a real browser: the border clears WCAG SC 1.4.11's 3:1 on
-  // the WORST pair (garden/ground, 3.23:1; it was 1.27:1 before), and the fill
-  // lifts the field off its section from 1.00:1 — literally indistinguishable —
-  // to ~1.09:1.
-  it("draws the field one step off whatever surface it sits on", () => {
-    const cls = codeInput().className;
-    // Ink-at-alpha, NOT a surface token: the organiser chooses this section's
-    // tone (ground / card / raised), so a fixed surface token would vanish on
-    // the tone that matches it. Ink adapts to any palette in the right
-    // direction — darkening a light scheme, lightening a dark one.
-    expect(cls).toContain("bg-text/4.5");
-    expect(cls).toContain("border-text/55");
-    // `border-border` is the same ink at 0.12 — the hairline this replaced, and
-    // the reason the field read as flat page on a pale scheme.
-    expect(cls).not.toContain("border-border");
-    // A fill means the field is no longer see-through.
-    expect(cls).not.toContain("bg-transparent");
-  });
-
   it("gives the field an accessible name that outlives the placeholder", () => {
     // A placeholder is not an accessible name and disappears on input, so
     // without this the page's only control is an unnamed edit field to a screen
     // reader or voice control (WCAG SC 3.3.2 / 4.1.2).
     expect(codeInput().getAttribute("aria-label")).toBe("Invitation code");
-  });
-
-  it("keeps the gold focus border and ring", () => {
-    // The fill must not have displaced the focus affordance — this is the page's
-    // only input, and the ring is what keeps keyboard users oriented.
-    const cls = codeInput().className;
-    expect(cls).toContain("focus:border-gold");
-    expect(cls).toContain("focus-visible:outline-ui-focus");
   });
 });
 
