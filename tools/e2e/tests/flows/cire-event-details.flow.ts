@@ -43,6 +43,7 @@ import {
   ORIGINS,
   SCREENSHOT_DIR,
 } from "../../src/config";
+import { invitePreviewFeedback } from "../support/cire-feedback";
 import {
   claimFromOrganiserAddress,
   cookieNamed,
@@ -593,6 +594,8 @@ test("cire-event-details", async ({ page, context, flow }) => {
     await prompt.getByRole("button", { name: "Reject all" }).click();
     await expect(prompt).toBeHidden();
   });
+
+  await invitePreviewFeedback(flow, page);
 
   const sheet = page.getByRole("dialog");
   const details = sheet.locator('[data-panel="details"]');

@@ -14,6 +14,10 @@
  *   accent box at the 6px step;
  * - the host's invite builder on its Hero section at a desktop width, where the
  *   section's state badge is an outlined pill, a live region.
+ *
+ * And one the `cire-event-details` flow stands in: the invitation opened from
+ * "Preview invite" on a phone, where the welcome's preview note is the accent
+ * box with no fill, so its gold words sit on the welcome's own ground.
  */
 
 import { mkdirSync } from "node:fs";
@@ -170,5 +174,39 @@ export async function builderFeedback(flow: Flow, page: Page): Promise<void> {
   );
   await flow.step("feedback: back to the builder's Design tab", async () => {
     await sections.getByRole("tab", { name: /^Design/ }).click();
+  });
+}
+
+/**
+ * The invitation, open from "Preview invite" on a phone: read the welcome's
+ * preview note and shoot it.
+ */
+export async function invitePreviewFeedback(flow: Flow, page: Page): Promise<void> {
+  const note = page
+    .getByRole("status")
+    .filter({ hasText: "Preview mode. Every event is shown" })
+    .locator(":scope > div");
+  flow.check(
+    "feedback: the invitation's preview note has a border",
+    "1px",
+    await computed(note, "border-top-width"),
+  );
+  flow.check(
+    "feedback: the invitation's preview note draws no fill",
+    "rgba(0, 0, 0, 0)",
+    await computed(note, "background-color"),
+  );
+  flow.check(
+    "feedback: the invitation's preview note carries no mark",
+    0,
+    await note.locator("[aria-hidden='true']").count(),
+  );
+  await flow.step("feedback: shoot the invitation's preview note", async () => {
+    mkdirSync(SHOTS, { recursive: true });
+    await note.scrollIntoViewIfNeeded();
+    await note.screenshot({
+      path: resolve(SHOTS, "invite-preview-note-390.png"),
+      animations: "disabled",
+    });
   });
 }
