@@ -122,7 +122,7 @@ osn/auth-ui/src/
 
 cire/ui/src/
 ├── button.tsx  card.tsx  disclosure.tsx  eyebrow.tsx  loading.tsx  note.tsx
-├── file-input.tsx          ← a file input whose button is the quiet pill (FILE_BUTTON in button.tsx)
+├── file-input.tsx          ← a file input whose button is the quiet pill (FILE_BUTTON)
 ├── dietary-presets.tsx     dietary-presets-popover.tsx
 ├── reveal.tsx              ← opens a block to its own height; the wrapper outlives the content
 └── username-input.tsx      ← a combobox-shaped input; see cire/ui/README.md for why it is not the shared one
