@@ -874,3 +874,53 @@ describe("BudgetView — amounts in the wedding's currency", () => {
     });
   });
 });
+
+describe("BudgetView — a payment's paid box", () => {
+  const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
+  const item = {
+    id: "it",
+    weddingId: "wed_1",
+    category: "venue" as const,
+    name: "Reception venue",
+    estimateMinor: null,
+    quotedMinor: null,
+    actualMinor: null,
+    notes: null,
+    sortOrder: 0,
+    createdAt: 1,
+    updatedAt: 1,
+  };
+  const payment = {
+    id: "p1",
+    budgetItemId: "it",
+    label: "Deposit",
+    amountMinor: 50_000,
+    dueAt: null,
+    paidAt: null,
+    createdAt: 2,
+  };
+
+  it("ticks a payment paid for someone who may edit", async () => {
+    setCachedBudget("wed_1", snap({ items: [item], payments: [payment] }));
+    authFetch.mockResolvedValueOnce(json({ payment: { ...payment, paidAt: 3 } }));
+    render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
+    fireEvent.click(await screen.findByRole("button", { name: "payments (1)" }));
+    const box = screen.getByRole("checkbox", { name: "Deposit paid" });
+    expect(box).not.toBeChecked();
+    fireEvent.click(box);
+    await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(1));
+    const [url, init] = authFetch.mock.calls[0]!;
+    expect(String(url)).toMatch(/\/budget\/items\/it\/payments\/p1$/);
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({ paid: true });
+  });
+
+  it("refuses the box to someone who may only read", async () => {
+    setCachedBudget("wed_1", snap({ items: [item], payments: [payment] }));
+    render(() => <BudgetView weddingId="wed_1" canEdit={false} canManage={false} />);
+    fireEvent.click(await screen.findByRole("button", { name: "payments (1)" }));
+    const box = screen.getByRole("checkbox", { name: "Deposit paid" });
+    expect(box).toBeDisabled();
+    fireEvent.click(box);
+    expect(authFetch).not.toHaveBeenCalled();
+  });
+});

@@ -45,8 +45,12 @@ describe("flow sources", () => {
   // without regard to case, so `name: "Open Invitation"` presses the same
   // button and spends the same claim.
   test("the flows claim no more invitation codes than cire-api allows in a minute, per address", () => {
-    const dir = join(import.meta.dirname, "flows");
-    const sources = readdirSync(dir).map((file) => readFileSync(join(dir, file), "utf8"));
+    // The support modules too: a flow's checks there run in its session.
+    const sources = dirs.flatMap((dir) =>
+      readdirSync(dir)
+        .filter((file) => file.endsWith(".ts"))
+        .map((file) => readFileSync(join(dir, file), "utf8")),
+    );
     const count = (source: string, pattern: RegExp) => source.match(pattern)?.length ?? 0;
     const press = /name: "Open invitation" \}\)\.click\(/gi;
     const link = /[?&]code=/g;
@@ -74,11 +78,16 @@ describe("flow sources", () => {
   // budget fails only on a fast machine. Seven fits every window: 14 of the 15
   // redirect legs, 7 of the 10 dev logins, 9 of the 20 authorizes.
   test("the flows sign an organiser in no more often than the sign-in limits allow", () => {
-    const dir = join(import.meta.dirname, "flows");
-    const signIns = readdirSync(dir)
-      .map((file) => readFileSync(join(dir, file), "utf8"))
+    // The support modules too, less the helper's own definition.
+    const signIns = dirs
+      .flatMap((dir) =>
+        readdirSync(dir)
+          .filter((file) => file.endsWith(".ts"))
+          .map((file) => readFileSync(join(dir, file), "utf8")),
+      )
       .reduce(
-        (sum, source) => sum + (source.match(/signInToCireHost\(|\/dev\/login\?/g)?.length ?? 0),
+        (sum, source) =>
+          sum + (source.match(/(?<!function )signInToCireHost\(|\/dev\/login\?/g)?.length ?? 0),
         0,
       );
     expect(signIns).toBeGreaterThan(0);

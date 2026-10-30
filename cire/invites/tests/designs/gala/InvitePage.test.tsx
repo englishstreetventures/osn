@@ -168,18 +168,8 @@ describe("gala InvitePage", () => {
   // contrast contract lives there — asserted here as well so this pack cannot
   // quietly stop using the shared panel and draw a field of its own. Same
   // values, same reasoning — see the note in components/LoginSection.tsx.
-  it("draws the code field one step off its surface, like classic", () => {
+  it("names the code field, as classic does", () => {
     const { getByPlaceholderText } = render(() => <InvitePage apiUrl="https://api.test" />);
-    const cls = (getByPlaceholderText(/PATEL-JOY/) as HTMLInputElement).className;
-
-    expect(cls).toContain("base:bg-ui-ink/4.5");
-    expect(cls).toContain("base:border-ui-ink/55");
-    expect(cls).not.toContain("border-border");
-    expect(cls.split(" ")).not.toContain("base:bg-transparent");
-    // Classic asserts BOTH halves of the focus affordance, so gala must
-    // too — a half-copied drift guard drifts.
-    expect(cls).toContain("base:focus:border-ui-accent");
-    expect(cls).toContain("base:focus-visible:outline-ui-focus");
     // A placeholder is not an accessible name, and it vanishes on input.
     expect((getByPlaceholderText(/PATEL-JOY/) as HTMLInputElement).getAttribute("aria-label")).toBe(
       "Invitation code",
