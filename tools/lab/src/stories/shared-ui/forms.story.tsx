@@ -1,4 +1,4 @@
-import { Checkbox } from "@shared/ui/ui/checkbox";
+import { Checkbox, type ChoiceBox } from "@shared/ui/ui/checkbox";
 import { Field, Fieldset } from "@shared/ui/ui/field";
 import { Input } from "@shared/ui/ui/input";
 import { Label } from "@shared/ui/ui/label";
@@ -8,9 +8,10 @@ import { Select } from "@shared/ui/ui/select";
 import { Switch } from "@shared/ui/ui/switch";
 import { Textarea } from "@shared/ui/ui/textarea";
 import { UsernameInput, type UsernameInputStatus } from "@shared/ui/ui/username-input";
-import { createSignal } from "solid-js";
+import { createSignal, type JSX } from "solid-js";
 
 import type { Story, StoryArgs } from "../../lab/types.ts";
+import { type CireTheme, cireStyle } from "../cire-ui/cire-mapping.ts";
 
 export const meta = { title: "shared/ui/forms", layout: "padded" as const };
 
@@ -231,3 +232,194 @@ export const Groups = () => {
     </div>
   );
 };
+
+/* ── Checkbox and RadioGroup, state by state ─────────────────────────────── */
+
+type ChoiceTheme = CireTheme | "lab";
+
+/**
+ * A panel for one look: the lab's own mapping for the drawn box, or cire's
+ * mapping in one theme for the native box. `color-scheme` follows the panel,
+ * as cire's pages set it, so a ticked native box is the browser's own for that
+ * scheme.
+ */
+function ChoicePanel(props: { theme: ChoiceTheme; children: JSX.Element }) {
+  return (
+    <div
+      class="rounded-ui-lg border-ui-hairline bg-ui-ground text-ui-ink flex min-w-0 flex-1 basis-80 flex-col gap-4 border p-5"
+      style={
+        props.theme === "lab"
+          ? undefined
+          : { ...cireStyle(props.theme), "color-scheme": props.theme }
+      }
+      data-theme-panel={props.theme}
+    >
+      <span class="text-meta text-subtle tracking-wide uppercase">
+        {props.theme === "lab" ? "drawn · lab mapping" : `native · cire ${props.theme}`}
+      </span>
+      {props.children}
+    </div>
+  );
+}
+
+const NOTICE_LINK = "text-ui-accent-ink underline underline-offset-2";
+
+/** Every checkbox state, in one box and one panel. */
+function CheckboxStates(props: { box: ChoiceBox }) {
+  const [florals, setFlorals] = createSignal(true);
+  const [catering, setCatering] = createSignal(false);
+  const [remove, setRemove] = createSignal(false);
+  const [maps, setMaps] = createSignal(false);
+  const [attest, setAttest] = createSignal(false);
+  return (
+    <div class="flex flex-col gap-3">
+      <Checkbox box={props.box} checked={florals()} onChange={setFlorals} label="Checked" />
+      <Checkbox box={props.box} checked={catering()} onChange={setCatering} label="Unchecked" />
+      <Checkbox box={props.box} checked disabled label="Disabled, checked" />
+      <Checkbox box={props.box} checked={false} disabled label="Disabled, unchecked" />
+      <div class="flex items-center gap-2">
+        <Checkbox
+          box={props.box}
+          checked={catering()}
+          onChange={setCatering}
+          aria-label="Deposit paid"
+        />
+        <span class="text-ui-sm text-ui-ink-secondary">Named only by aria-label</span>
+      </div>
+      <Checkbox
+        box={props.box}
+        size="sm"
+        align="start"
+        class="max-w-72"
+        checked={remove()}
+        onChange={setRemove}
+        label={
+          <>
+            Also remove these three tasks from the checklist. See the{" "}
+            <a href="#help" class={NOTICE_LINK} onClick={(e) => e.preventDefault()}>
+              help page
+            </a>
+            .
+          </>
+        }
+      />
+      <Checkbox
+        box={props.box}
+        align="start"
+        checked={maps()}
+        onChange={setMaps}
+        label="Google Maps"
+        description="Shows an interactive map of each venue. It loads from Google's servers."
+        note={
+          <span class="text-ui-xs leading-ui-snug text-ui-ink-secondary">
+            Google LLC (US) ·{" "}
+            <a href="#policy" class={NOTICE_LINK} onClick={(e) => e.preventDefault()}>
+              privacy policy
+            </a>
+          </span>
+        }
+      />
+      <Checkbox
+        box={props.box}
+        size="sm"
+        align="start"
+        checked={attest()}
+        onChange={setAttest}
+        label="I confirm the plus-one consented to their dietary requirements being stored and shared with the caterers."
+        note={
+          <p class="text-ui-sm leading-ui-normal text-ui-ink-secondary">
+            Share our privacy notice with them:{" "}
+            <a href="#privacy" class={NOTICE_LINK} onClick={(e) => e.preventDefault()}>
+              example.com/privacy
+            </a>
+          </p>
+        }
+      />
+    </div>
+  );
+}
+
+/**
+ * `Checkbox`, every state: checked, unchecked, disabled both ways, named only
+ * by `aria-label`, a two-line label holding a link (`align="start"`, the box on
+ * its first line), a `description` inside the label, and a `note` under it,
+ * outside the label. The drawn box under the lab's mapping, as pulse draws it;
+ * the native box under cire's, light and dark.
+ */
+export const CheckboxBoxes = () => (
+  <div class="flex flex-wrap items-start gap-6">
+    <ChoicePanel theme="lab">
+      <CheckboxStates box="drawn" />
+    </ChoicePanel>
+    <ChoicePanel theme="dark">
+      <CheckboxStates box="native" />
+    </ChoicePanel>
+    <ChoicePanel theme="light">
+      <CheckboxStates box="native" />
+    </ChoicePanel>
+  </div>
+);
+
+function RadioStates(props: { box: ChoiceBox }) {
+  const [scope, setScope] = createSignal("every");
+  const [shown, setShown] = createSignal("guests");
+  return (
+    <div class="flex flex-col gap-5">
+      <div class="flex flex-col gap-2">
+        <span class="text-ui-xs text-ui-ink-secondary">Row, one item disabled</span>
+        <RadioGroup
+          box={props.box}
+          size="sm"
+          value={shown()}
+          onChange={setShown}
+          aria-label="Who sees the list"
+        >
+          <RadioGroupItem value="guests" label="Guests" />
+          <RadioGroupItem value="hosts" label="Only hosts" />
+          <RadioGroupItem value="nobody" label="Nobody" disabled />
+        </RadioGroup>
+      </div>
+      <div class="flex flex-col gap-2">
+        <span class="text-ui-xs text-ui-ink-secondary">Column</span>
+        <RadioGroup
+          box={props.box}
+          size="sm"
+          orientation="vertical"
+          value={scope()}
+          onChange={setScope}
+          aria-label="Count guests at"
+        >
+          <RadioGroupItem value="every" label="Every event" />
+          <RadioGroupItem value="these" label="Only these events" />
+        </RadioGroup>
+      </div>
+      <div class="flex flex-col gap-2">
+        <span class="text-ui-xs text-ui-ink-secondary">Disabled group, md labels</span>
+        <RadioGroup box={props.box} value="a" disabled aria-label="Locked">
+          <RadioGroupItem value="a" label="Chosen" />
+          <RadioGroupItem value="b" label="Not chosen" />
+        </RadioGroup>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * `RadioGroup`, every state: a row (16px apart in the native box, 8px in the
+ * drawn) with one radio disabled, a column (8px apart), and a whole group
+ * disabled. The drawn circle under the lab's mapping; the native radio under
+ * cire's, light and dark.
+ */
+export const RadioBoxes = () => (
+  <div class="flex flex-wrap items-start gap-6">
+    <ChoicePanel theme="lab">
+      <RadioStates box="drawn" />
+    </ChoicePanel>
+    <ChoicePanel theme="dark">
+      <RadioStates box="native" />
+    </ChoicePanel>
+    <ChoicePanel theme="light">
+      <RadioStates box="native" />
+    </ChoicePanel>
+  </div>
+);

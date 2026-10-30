@@ -82,7 +82,8 @@ shared/ui/src/
     ├── badge.tsx           ← Badge (variant-based)
     ├── button.tsx          ← Button + buttonVariants (CVA)
     ├── card.tsx            ← Card, CardHeader, CardTitle, …
-    ├── checkbox.tsx        ← Checkbox (Kobalte)
+    ├── checkbox.tsx        ← Checkbox — a box ticked to say yes, saved with a form (native)
+    ├── choice.ts           ← the box, label and note slot Checkbox and RadioGroupItem share
     ├── chip.tsx            ← Chip
     ├── control.ts          ← controlClass / ControlSize — the box Input, Textarea and Select share
     ├── dialog.tsx          ← Dialog, DialogContent, … (Kobalte)
@@ -99,7 +100,7 @@ shared/ui/src/
     ├── popover.tsx         ← Popover, PopoverTrigger, … (Kobalte)
     ├── props.ts            ← SafeProps — element props minus innerHTML/innerText/textContent
     ├── qr-code.tsx         ← QrCode
-    ├── radio-group.tsx     ← RadioGroup, RadioGroupItem (Kobalte)
+    ├── radio-group.tsx     ← RadioGroup, RadioGroupItem (native)
     ├── select.tsx          ← Select (native <select>, Input's box)
     ├── stat.tsx            ← Stat
     ├── switch.tsx          ← Switch — an on/off change that takes effect at once (native)
@@ -422,7 +423,7 @@ import CireButton from "@cire/ui/button";
 
 | Package                    | Role                                                                                        |
 | -------------------------- | ------------------------------------------------------------------------------------------- |
-| `@kobalte/core`            | Headless UI primitives (Dialog, Popover, Tooltip, Tabs, RadioGroup, Checkbox, DropdownMenu) |
+| `@kobalte/core`            | Headless UI primitives (Dialog, Popover, Tooltip, Tabs, DropdownMenu)                       |
 | `class-variance-authority` | Type-safe variant definitions for Button, Badge                                             |
 | `clsx`                     | Conditional class string joining                                                            |
 
@@ -612,7 +613,7 @@ import { buttonVariants } from "@shared/ui/ui/button";
 </A>;
 ```
 
-### Kobalte components (Dialog, Popover, Tooltip, Tabs, RadioGroup, Checkbox)
+### Kobalte components (Dialog, Popover, Tooltip, Tabs)
 
 These wrap Kobalte primitives with styling. They provide proper accessibility by default:
 
@@ -640,10 +641,27 @@ Key behaviours you get by default:
 - **Popover** — portaled, auto-positioned, outside click/Escape dismisses
 - **Tabs** — `role="tablist"` / `role="tab"` / `role="tabpanel"`, keyboard arrow navigation
 - **Tooltip** — hover only, panel hidden from assistive technology; §`Tooltip` above says why
-- **RadioGroup** — grouped `role="radiogroup"`, single selection, keyboard navigation
-- **Checkbox** — `role="checkbox"`, indeterminate support
-- **Focus on Checkbox and RadioGroup** — Kobalte keeps a real `<input>`, clipped to 1px, for focus and semantics, and paints a sibling `<div>` as the box or circle. Keyboard focus lands on the input, never on the `<div>`, so a ring keyed to the `<div>`'s own `:focus-visible` never draws. The input carries a plain `peer` marker and the `<div>` draws `peer-focus-visible:ring-2 ring-ui-focus`, the shape `Switch` uses; there is no ring offset, so nothing paints a ground-coloured halo on another surface. `tests/checkbox.browser.test.tsx` and `tests/radio-group.browser.test.tsx` tab to each and measure the ring
 - **Switch** — not Kobalte: a native `<input type="checkbox" role="switch">`, visually hidden inside its label beside a painted track, so Space toggles it and it is announced as a switch. The element carries everything a switch needs, and it renders on the organiser portal, whose bundle budget had no room for Kobalte's form-control layer (~0.9 KB gzip there). Controlled: it shows `checked` and nothing else. Use it where flipping it *is* the action, and a `Checkbox` for a choice saved later with a form. `readOnly` is for someone who may read the setting but not change it — it stays in the tab order, announced as read-only, at full contrast — and `busy` holds it read-only and announced as busy while a change saves, so it keeps focus. `disabled` removes it from the tab order; prefer `readOnly` whenever the state is worth reading
+
+### Checkbox and RadioGroup — native, in two boxes
+
+`Checkbox`, `RadioGroup` and `RadioGroupItem` are native `<input>`s inside their `<label>`, like `Switch`, with nothing from Kobalte: Space ticks a box, the arrow keys move between radios of one `name`, a click anywhere on the label ticks or chooses, and `aria-label`, `aria-labelledby`, `aria-describedby`, `aria-invalid`, `disabled`, `name`, `value`, `id` and `required` land on the input itself. Both are controlled, as `Switch` is: the element is put back to the value it was given and `onChange` asks for the new one, so a change the caller refuses never shows as made. A `RadioGroup`'s `value` is required (`""` for none chosen yet); its `name` defaults to a fresh id, since native radios only exclude each other within one name.
+
+| Prop | Values | What it does |
+|---|---|---|
+| `box` | `drawn` (default), `native` | `drawn` hides the input and paints a 16px box beside it: small corner, ground fill, accent and a tick (a dot for a radio) when chosen, `ring-2` from the input's `:focus-visible`. Pulse draws this. `native` shows the browser's own input: ticked, the platform's blue and tick; unticked, no fill, a 1px `--ui-hairline-strong` edge, a 2px corner (a radio round), `--ui-ink-secondary` under the pointer, 40% when disabled, only the edge fading. Both states 13px, so ticking moves nothing; the house focus outline (2px, 2px off, `--ui-focus`). Cire draws every box this way |
+| `size` | `md` (default), `sm` | The label's step: `text-ui-base` or `text-ui-sm`. On `RadioGroup` for every item |
+| `align` | `center` (default), `start` | `start` centres the box on the label's first line, for a label that wraps |
+| `orientation` (`RadioGroup`) | `horizontal` (default), `vertical` | Native: 16px between radios in a row, 8px in a column. Drawn: 8px either way. Layout only, so no `aria-orientation` |
+| `label` | JSX | Inside the `<label>`, so a link or a second line is the caller's. Native labels are body ink (`--ui-ink`) at prose leading, 8px from the box |
+| `description` (`Checkbox`) | JSX | Inside the label under the words, `text-ui-sm` secondary ink. The box is then named by `label` alone (`aria-labelledby`) and described by this |
+| `note` (`Checkbox`) | JSX | Under the row, outside the label, indented by the box and its gap so its first word sits under the label's. A click on it ticks nothing; the box is described by it. A note that resolves to nothing draws nothing and is not referenced |
+
+The outer element of a `Checkbox` is a `<div>` holding the label and the note, each at its own width, so a note that comes and goes never remounts the input, and only the box and its words answer a click. A cire app also draws every bare native box with the same values in a base-layer rule (`cire/host/DESIGN.md` §4, Checkboxes and radios), for the native inputs that sit outside the parts.
+
+Two guarantees hold beyond a plain client render, for `Switch` too. A page the browser restores (a reload, a back navigation the cache missed) can tick an input before it hydrates, and hydration writes no property, so each part puts the caller's value back once mounted: a box never shows a state the caller does not hold, which matters most for a consent box. And a Windows contrast theme drops `box-shadow` and repaints backgrounds, so the drawn box, circle and switch track draw keyboard focus as an outline there, and the chosen dot keeps the text colour. `tests/choice-restore.browser.test.tsx` holds both.
+
+The drawn box keeps the DOM shape Kobalte's parts had — a clipped input, then the painted box — so pulse's forms and the vendor portal's soft-shapes test read it unchanged. `tests/checkbox.browser.test.tsx` and `tests/radio-group.browser.test.tsx` hold both boxes in Chromium.
 
 ### Simple styled components (Input, Label, Card, Textarea, Select)
 

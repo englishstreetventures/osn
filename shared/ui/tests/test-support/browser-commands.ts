@@ -13,6 +13,9 @@ import { defineBrowserCommand } from "@vitest/browser-playwright";
  * motion preference, to test the handful of rules that care. A per-test command
  * keeps it to the tests that actually assert it.
  *
+ * `forcedColors` emulates a Windows contrast theme, under which the browser
+ * replaces author colours with system ones and drops `box-shadow`.
+ *
  * Restore the preference in an `afterEach` (`{ reducedMotion: "no-preference" }`):
  * the browser context is shared across tests in a file, so a leaked preference
  * silently changes every later assertion about animation.
@@ -22,8 +25,8 @@ import { defineBrowserCommand } from "@vitest/browser-playwright";
  * `@shared/*` package existing only to hold a Playwright command that two test
  * configs register is more machinery than the duplication costs.
  */
-export const emulateMedia = defineBrowserCommand<[{ reducedMotion?: "reduce" | "no-preference" }]>(
-  async (ctx, options) => {
-    await ctx.page.emulateMedia(options);
-  },
-);
+export const emulateMedia = defineBrowserCommand<
+  [{ reducedMotion?: "reduce" | "no-preference"; forcedColors?: "active" | "none" }]
+>(async (ctx, options) => {
+  await ctx.page.emulateMedia(options);
+});

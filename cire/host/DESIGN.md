@@ -348,9 +348,11 @@ box's 13px and 2px corner (a radio round), so ticking moves nothing; disabled,
 it fades to 0.4. Only the edge fades, on `--dur-fast`. Why: the browser's white
 unchecked box stood out from every ground, and the browser's blue fill makes a
 ticked one look like a form (owner, 2026-10-29). So no checkbox or radio carries
-an `accent-*` class: every ticked box is the browser's blue. Two boxes draw
-their own: the run-time popover's radios (`RunTimeEditor`), which paint the
-brand ink, and `@shared/ui`'s `Checkbox` (englishstreetventures/osn#1841).
+an `accent-*` class: every ticked box is the browser's blue. `@shared/ui`'s
+`Checkbox` and `RadioGroup` draw the same box with `box="native"` (by default
+they draw pulse's own). One box draws its own look: the run-time popover's
+radios (`RunTimeEditor`), which paint the brand ink until
+englishstreetventures/osn#1841 moves them onto the shared part.
 `tests/styles/checkboxes.browser.test.tsx` holds the unchecked look, the
 checked box's `appearance: auto`, the same size both ways and a tick that
 moves nothing, in light and dark; `tests/styles/checkbox-accent.test.ts` reads
@@ -714,14 +716,10 @@ kind with its own size and ink: the table heads (`Th`, and the guest editor's
 a design, the RSVP tally's terms) and the getting-started count.
 
 **Checkboxes and radios** are native inputs, named by the `<label>` round them
-or by `aria-label`, rather than `@shared/ui`'s `Checkbox` and `RadioGroup`. Those
-two are built on Kobalte, which on this portal costs about 5.8 KB gzip of the
-bundle guard's headroom (`scripts/bundle-size-budgets.txt`) — the trade
-`Switch` is native to avoid — and most of the portal's boxes need what neither
-part forwards to its input: a name from `aria-label` alone (a checklist task, a
-payment, a guest's attendance cell), `disabled`, or a label with a second line
-or a link in it. A native box also keeps one look across a fieldset that mixes
-the two, such as the budget line's "Count guests at".
+or by `aria-label`. `@shared/ui`'s `Checkbox` and `RadioGroup` are native too,
+forward `aria-label`, `disabled` and a JSX label to the input, and draw this
+portal's box with `box="native"` (§4); the portal's boxes move onto them in
+englishstreetventures/osn#1841.
 
 ### Who holds a task: faces, not names
 
