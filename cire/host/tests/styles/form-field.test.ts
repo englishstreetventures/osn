@@ -4,15 +4,14 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
- * Every form field is the portal's one height, 34px, and a `FORM_FIELD_CLASS`
- * on each `Input` and `Select` is how it gets there (`src/lib/form-field.ts`;
- * DESIGN.md §4, "One form-field height"). A field added without it renders
- * at 36px beside 34px neighbours and nothing on screen says so, so this reads
- * every `<Input` and `<Select` tag under `src/` and names those without it.
- * Those are the filters: `size="sm"` plus `FILTER_FIELD_CLASS`, 28px with round
- * ends, since an `sm` `Select` with no height of its own takes the platform's
- * line and draws 27px on Linux. Each is found by its file and a marker in its
- * own handler, not by line number.
+ * Every form field is the portal's one height, 34px: the shared control's
+ * `form` size, or `form-compact` in a narrow cell (DESIGN.md §4, "One
+ * form-field height"). A field added without one renders at 36px beside 34px
+ * neighbours and nothing on screen says so, so this reads every `<Input` and
+ * `<Select` tag under `src/` and names those without it. Those are the
+ * filters: `size="sm"`, 28px with round ends. A height class on a field would
+ * fight its size, so none carries `h-8.5` or `h-7`. Each filter is found by its
+ * file and a marker in its own handler, not by line number.
  *
  * Static: a tag runs from its name to the first `>` outside braces and quotes,
  * so an arrow function's `=>` inside a prop cannot end it early.
@@ -71,7 +70,8 @@ describe("Input and Select", () => {
     const all = fields();
     // A scan that found nothing would pass whatever the source says.
     expect(all.length).toBeGreaterThan(50);
-    const without = all.filter((f) => !f.tag.includes("FORM_FIELD_CLASS"));
+    expect(all.filter((f) => /\bh-(8\.5|7)\b/.test(f.tag)).map((f) => f.at)).toEqual([]);
+    const without = all.filter((f) => !/\bsize="form(-compact)?"/.test(f.tag));
     const named = without.map((f) => {
       const filter = FILTERS.find((x) => x.file === f.file && f.tag.includes(x.marker));
       return filter ? `${filter.file} ${filter.marker}` : f.at;
@@ -79,11 +79,11 @@ describe("Input and Select", () => {
     expect(named.sort()).toEqual(FILTERS.map((x) => `${x.file} ${x.marker}`).sort());
   });
 
-  it("keep each named filter at 28px, size sm with the filter height", () => {
-    for (const filter of FILTERS) {
+  it("keep each named filter at 28px, size sm", () => {
+    const sizes = FILTERS.map((filter) => {
       const tag = fields().find((f) => f.file === filter.file && f.tag.includes(filter.marker));
-      expect(tag?.tag, `${filter.file} ${filter.marker}`).toMatch(/\bsize="sm"/);
-      expect(tag?.tag, `${filter.file} ${filter.marker}`).toContain("FILTER_FIELD_CLASS");
-    }
+      return `${filter.file} ${filter.marker}: ${/\bsize="sm"/.test(tag?.tag ?? "") ? "sm" : "not sm"}`;
+    });
+    expect(sizes).toEqual(FILTERS.map((x) => `${x.file} ${x.marker}: sm`));
   });
 });
