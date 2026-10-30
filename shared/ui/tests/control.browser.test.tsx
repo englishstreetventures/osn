@@ -360,6 +360,27 @@ describe("faces", () => {
     expect(s.paddingLeft).toBe("16px");
   });
 
+  it("turns off spelling help for a code, and asks a phone for capitals for an invitation's", () => {
+    render(() => (
+      <>
+        <Input face="claim" aria-label="Invitation code" />
+        <Input face="code" aria-label="Profile ID" />
+        <Input face="claim" aria-label="Overridden" spellcheck />
+      </>
+    ));
+    const claim = screen.getByRole("textbox", { name: "Invitation code" }) as HTMLInputElement;
+    const code = screen.getByRole("textbox", { name: "Profile ID" }) as HTMLInputElement;
+    expect([claim.spellcheck, claim.getAttribute("autocorrect"), claim.autocapitalize]).toEqual([
+      false,
+      "off",
+      "characters",
+    ]);
+    expect(code.spellcheck).toBe(false);
+    expect(
+      (screen.getByRole("textbox", { name: "Overridden" }) as HTMLInputElement).spellcheck,
+    ).toBe(true);
+  });
+
   it("sets an amount centred and nothing else", () => {
     render(() => <Input fill="ink" size="touch" face="amount" aria-label="Amount" value="150" />);
     const s = getComputedStyle(screen.getByRole("textbox"));
