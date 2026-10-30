@@ -507,6 +507,17 @@ describe("Button — choice, halfway and locked", () => {
     expect(unfaded).toEqual([]);
     // `disabled` still fades it, which the host's busy pictures rely on.
     expect(classes("choice")).toContain("base:disabled:opacity-40");
+    // Locked, every variant says so to the pointer, `choice` included.
+    const silent = EVERY_VARIANT.filter(
+      (variant) => !classes(variant).includes("base:aria-disabled:cursor-not-allowed"),
+    );
+    expect(silent).toEqual([]);
+  });
+
+  it("rests on the hairline in the secondary ink, as `quiet` does", () => {
+    expect(classes("choice")).toEqual(
+      expect.arrayContaining(["base:border-ui-hairline", "base:text-ui-ink-secondary"]),
+    );
   });
 
   it("answers the pointer only when neither chosen nor locked, at zero specificity", () => {
