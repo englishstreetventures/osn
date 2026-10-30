@@ -24,9 +24,10 @@ afterEach(async () => {
   await page.viewport(1280, 800);
 });
 
-/** `--ui-focus` and `--ui-accent` in the test palette (`test-support/tailwind.css`). */
+/** `--ui-focus` in the test palette (`test-support/tailwind.css`). */
 const FOCUS = "rgb(47, 75, 216)";
-const ACCENT = "rgb(47, 75, 216)";
+/** An accent apart from the focus colour, set on a wrapper where a test needs both. */
+const ACCENT = "rgb(176, 112, 24)";
 
 /** A parent that would stretch any box whose height comes from its padding. */
 const TALL = { "font-size": "20px", "line-height": "2" } as const;
@@ -88,16 +89,47 @@ describe("heights", () => {
     }
   });
 
-  it("makes a touch field 46px on a phone and 44px from 640px", async () => {
+  it("makes a touch field 46px with 16px type on a phone and 44px from 640px, in either fill", async () => {
     await page.viewport(390, 800);
     render(() => (
       <div style={TALL}>
         <Input size="touch" aria-label="Your name" />
+        <Select size="touch" aria-label="Meal">
+          <option>Vegetarian</option>
+        </Select>
       </div>
     ));
-    expect(height(screen.getByRole("textbox"))).toBe(46);
+    const input = screen.getByRole("textbox");
+    const select = screen.getByRole("combobox");
+    expect([height(input), height(select), getComputedStyle(input).fontSize]).toEqual([
+      46,
+      46,
+      "16px",
+    ]);
     await page.viewport(1280, 800);
-    expect(height(screen.getByRole("textbox"))).toBe(44);
+    expect([height(input), height(select), getComputedStyle(input).fontSize]).toEqual([
+      44,
+      44,
+      "14.4px",
+    ]);
+  });
+
+  it("gives form md's sides and type and form-compact sm's", () => {
+    render(() => (
+      <>
+        <Input size="form" aria-label="form" />
+        <Input size="md" aria-label="md" />
+        <Input size="form-compact" aria-label="form-compact" />
+        <Input size="sm" aria-label="sm" />
+      </>
+    ));
+    const box = (name: string) => {
+      const s = getComputedStyle(screen.getByRole("textbox", { name }));
+      return [s.paddingLeft, s.fontSize];
+    };
+    expect(box("form")).toEqual(box("md"));
+    expect(box("form-compact")).toEqual(box("sm"));
+    expect(box("form")).not.toEqual(box("form-compact"));
   });
 
   it("gives a textarea no fixed height, and top and bottom padding at a fixed-height size", () => {
@@ -151,8 +183,29 @@ describe("the ink fill", () => {
     });
   });
 
+  it("focuses an ink select the same way: an outline, no ring", async () => {
+    render(() => (
+      <Select fill="ink" aria-label="Meal">
+        <option>Vegetarian</option>
+      </Select>
+    ));
+    await userEvent.tab();
+    const s = getComputedStyle(screen.getByRole("combobox"));
+    expect([s.outlineStyle, s.outlineWidth, s.outlineColor, s.boxShadow]).toEqual([
+      "solid",
+      "2px",
+      FOCUS,
+      "none",
+    ]);
+  });
+
   it("focuses with the 2px outline 2px off and an accent edge, and fades no outline", async () => {
-    render(() => <Input fill="ink" aria-label="Your name" />);
+    // An accent apart from the focus colour, so each assertion reads its own token.
+    render(() => (
+      <div style={{ "--ui-accent": ACCENT }}>
+        <Input fill="ink" aria-label="Your name" />
+      </div>
+    ));
     const field = screen.getByRole("textbox");
     expect(getComputedStyle(field).transitionProperty).not.toMatch(/outline|all/);
     await userEvent.tab();
@@ -172,20 +225,23 @@ describe("the ink fill", () => {
 
 describe("Select's chevron", () => {
   it("sits 12px in on a wide box and 10px on a narrow one, clear of a long value", () => {
+    const sizes = [
+      ["md", 12, 34],
+      ["form", 12, 34],
+      ["touch", 12, 34],
+      ["sm", 10, 28],
+      ["form-compact", 10, 28],
+    ] as const;
     render(() => (
       <>
-        <Select size="form" aria-label="wide" class="w-48">
-          <option>A very long category name that runs on</option>
-        </Select>
-        <Select size="sm" aria-label="narrow" class="w-48">
-          <option>A very long sort order that runs on</option>
-        </Select>
+        {sizes.map(([size]) => (
+          <Select size={size} aria-label={size} class="w-48">
+            <option>A very long value that runs on towards the chevron</option>
+          </Select>
+        ))}
       </>
     ));
-    for (const [name, inset, pad] of [
-      ["wide", 12, 34],
-      ["narrow", 10, 28],
-    ] as const) {
+    for (const [name, inset, pad] of sizes) {
       const select = screen.getByRole("combobox", { name });
       const s = getComputedStyle(select);
       const chevron = select.nextElementSibling!.getBoundingClientRect();
@@ -224,6 +280,40 @@ describe("Select's chevron", () => {
     const needed = probe.getBoundingClientRect().width;
     probe.remove();
     expect(content).toBeGreaterThanOrEqual(needed - 1);
+  });
+
+  it("shrinks with a box the caller caps and lets shrink, chevron and all", () => {
+    render(() => (
+      <div style={{ display: "flex", width: "220px", gap: "8px" }}>
+        <Select size="sm" aria-label="Sort guests" class="max-w-28 min-w-0">
+          <option>Household Z–A, with a long tail</option>
+        </Select>
+        <span>Key</span>
+      </div>
+    ));
+    const select = screen.getByRole("combobox");
+    const box = select.parentElement!.getBoundingClientRect();
+    const right = select.getBoundingClientRect().right;
+    const chevron = select.nextElementSibling!.getBoundingClientRect().right;
+    expect([box.width, right <= box.right, chevron <= box.right]).toEqual([112, true, true]);
+  });
+
+  it("puts hidden and style on the box, so nothing of a hidden select is drawn", () => {
+    render(() => (
+      <>
+        <Select aria-label="Hidden" hidden>
+          <option>Gone</option>
+        </Select>
+        <Select aria-label="Styled" style={{ width: "120px" }}>
+          <option>Narrow</option>
+        </Select>
+      </>
+    ));
+    const hidden = screen.getByRole("combobox", { hidden: true, name: "Hidden" });
+    expect(hidden.parentElement!.getBoundingClientRect().height).toBe(0);
+    expect(screen.getByRole("combobox", { name: "Styled" }).getBoundingClientRect().width).toBe(
+      120,
+    );
   });
 
   it("lets the call site's class size the box the select fills, and dims the chevron when disabled", () => {
