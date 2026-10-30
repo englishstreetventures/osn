@@ -1,4 +1,4 @@
-import { buttonClass } from "@cire/ui/button";
+import { buttonClass, proseLinkClass } from "@cire/ui/button";
 import Eyebrow, { eyebrowClass } from "@cire/ui/eyebrow";
 import { Toaster } from "@shared/toast";
 import { Notice } from "@shared/ui/ui/notice";
@@ -423,7 +423,9 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
               </p>
               <a
                 href={props.inviteHref}
-                class="font-body text-gold-ink text-ui-sm rounded-ui-control focus-visible:outline-ui-focus underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2"
+                // A link standing alone is a pill (owner, #1838), at the guest
+                // site's 44px touch floor.
+                class={`${buttonClass({ variant: "outline", size: "md" })} min-h-11`}
               >
                 Back to the invitation
               </a>
@@ -475,10 +477,7 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
               <div class={NOTE_PLACE}>
                 <Notice size="sm" tone="accent" fill="none" data-gift-signed-out>
                   Your invite session has ended. Enter your invite code again on{" "}
-                  <a
-                    href={props.inviteHref}
-                    class="rounded-ui-control focus-visible:outline-ui-focus underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2"
-                  >
+                  <a href={props.inviteHref} class={proseLinkClass()}>
                     the invitation
                   </a>{" "}
                   to reserve a gift.
