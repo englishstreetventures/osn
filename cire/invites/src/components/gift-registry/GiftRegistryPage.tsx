@@ -423,8 +423,8 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
               </p>
               <a
                 href={props.inviteHref}
-                // A link standing alone is a pill (owner, #1838), at the guest
-                // site's 44px touch floor.
+                // A link standing alone is a pill, at the guest site's 44px
+                // touch floor.
                 class={`${buttonClass({ variant: "outline", size: "md" })} min-h-11`}
               >
                 Back to the invitation

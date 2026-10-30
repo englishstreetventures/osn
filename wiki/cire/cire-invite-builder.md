@@ -9,7 +9,7 @@ related:
   - "[[cire-development]]"
   - "[[drag-and-drop]]"
   - "[[cire-host-portal-layout]]"
-last-reviewed: 2026-10-29
+last-reviewed: 2026-10-30
 ---
 # Cire invite builder
 
@@ -1363,9 +1363,15 @@ every row. Each of the three carries one line naming the other two
 (`InviteMessageLinks.tsx`), which `ModuleShell` renders into a slot on
 `InviteBuilder`, `RemintPanel` and `GuestTable`. A place the reader's role
 cannot open — Codes for a co-host, the builder for a viewer — is named as text
-with the role that can. The links are buttons that call the shell's route
-callbacks, not `#/w/…` anchors: a hash change reaches `OrganiserApp` through
-`onHashChange`, which skips the unsaved-changes check. A link that crosses
+with the role that can. Each place is an `<a href>` to its route, which
+`ModuleShell` builds with `serializeRoute`, set in the sentence with
+`proseLinkClass`. A plain left click calls `preventDefault` and goes through
+the shell's route callback instead, because a hash change reaches
+`OrganiserApp` through `onHashChange`, which skips the unsaved-changes check,
+and only the callback opens the builder's Message section. A click with a
+modifier key, or a middle click, is left to the browser: it opens the place in
+a new tab, where there is no draft to guard, and the builder there opens at its
+default section rather than Message. A link that crosses
 modules passes its sub with the module (`onModule(module, sub)`), so the move is
 one route write and never mounts the module's default view on the way. A link
 to the message editor opens the builder on its Message section: the shell hands

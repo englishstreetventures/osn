@@ -830,9 +830,10 @@ classic draws one rule above the first.
 **Motion.** The site carries the portals' ladder: `--dur-fast`, `--dur-base`
 and `--dur-slow`, shorter under `pointer: fine`, and the house easings, so
 Tailwind's `ease-out` class reads the house curve. A hover, a focus or a press
-runs on `--dur-fast` and `--ease-out`; the sheet's panel swap, the badge's
-words after a press, Respond's label ink following the bloom fill and the FAQ
-body's arrival run on `--dur-base`. Choreography longer than `--dur-slow` keeps
+runs on `--dur-fast` and `--ease-out`, except the answer pair (`Button`
+`choice`), whose colours and ring move on `--dur-base`; the sheet's panel
+swap, the badge's words after a press, Respond's label ink following the bloom
+fill and the FAQ body's arrival run on `--dur-base`. Choreography longer than `--dur-slow` keeps
 its own timing:
 
 - the bloom fill, 500ms (`SWEEP_DURATION_MS` in `rsvp-responded.ts`);
