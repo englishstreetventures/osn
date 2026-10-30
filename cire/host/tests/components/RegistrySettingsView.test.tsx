@@ -157,6 +157,18 @@ describe("publishing", () => {
     );
   });
 
+  it("locks the visibility for someone who can read the settings but not change them", async () => {
+    setCachedRegistry("wed_1", snapshot({ items: [item()] }));
+    renderPanel({ canEdit: false });
+    const draft = (await screen.findByRole("radio", { name: /^Draft/ })) as HTMLInputElement;
+    // The fieldset round the group disables both radios at once (the DOM
+    // here does not cascade it to `:disabled`; a browser does).
+    expect(draft.closest("fieldset")?.disabled).toBe(true);
+    expect(screen.getByRole("radio", { name: /^Published/ }).closest("fieldset")).toBe(
+      draft.closest("fieldset"),
+    );
+  });
+
   it("shows the list's visibility and lets Published be chosen", async () => {
     setCachedRegistry("wed_1", snapshot({ items: [item()] }));
     renderPanel();
