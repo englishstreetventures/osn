@@ -5,7 +5,7 @@ import { chats as chatsTable, chatMembers } from "@zap/db/schema";
 import { Db } from "@zap/db/service";
 import { applySchema } from "@zap/db/testing";
 import { drizzle } from "drizzle-orm/bun-sqlite";
-import { Effect, Result } from "effect";
+import { Effect, Fiber, Layer, Result } from "effect";
 import { describe, expect, beforeEach, afterEach } from "vitest";
 
 import { MAX_CHAT_MEMBERS } from "../../src/lib/limits";
@@ -21,7 +21,8 @@ import {
   isUniqueConstraintFailure,
 } from "../../src/services/chats";
 import { setConsentGate, resetConsentGate } from "../../src/services/consent";
-import { createTestLayer, seedC2bChat, seedChat, seedMember } from "../helpers/db";
+import { createTestDb, createTestLayer, seedC2bChat, seedChat, seedMember } from "../helpers/db";
+import { holdQueries } from "../helpers/held-query";
 
 describe("chats service", () => {
   // The CRUD suite exercises membership/admin logic, not the social graph, so
@@ -391,6 +392,91 @@ describe("chats service", () => {
       expect(members[0]!.profileId).toBe("usr_bob");
     }).pipe(Effect.provide(createTestLayer())),
   );
+
+  // ── removeMember holds at the delete ────────────────────────────────────
+  //
+  // The checks read the chat's membership and the delete runs after them. A
+  // removal that lands in between must not let this one strand the chat with
+  // no admin, remove someone on behalf of a requester removed in the meantime,
+  // or answer success for a member already gone.
+
+  describe("removeMember holds at the delete", () => {
+    function held() {
+      const { db } = createTestDb();
+      const queries = holdQueries(db);
+      return { layer: Layer.succeed(Db, { db: queries.db }), hold: queries.hold };
+    }
+
+    const DELETE = /^delete from "chat_members"/;
+
+    const tagOf = (outcome: Result.Result<void, { readonly _tag: string }>) =>
+      Result.isFailure(outcome) ? outcome.failure._tag : "ok";
+
+    it.live("of two admins leaving at once, the second is refused LastAdmin", () => {
+      const h = held();
+      return Effect.gen(function* () {
+        const chat = yield* seedChat({ type: "group" });
+        yield* seedMember(chat.id, "usr_alice", "admin");
+        yield* seedMember(chat.id, "usr_bob", "admin");
+        yield* seedMember(chat.id, "usr_carol");
+
+        const remove = h.hold(DELETE);
+        const alice = yield* Effect.forkChild(
+          Effect.result(removeMember(chat.id, "usr_alice", "usr_alice")),
+        );
+        yield* Effect.promise(() => remove.reached);
+        yield* removeMember(chat.id, "usr_bob", "usr_bob");
+        remove.release();
+
+        expect(tagOf(yield* Fiber.join(alice))).toBe("LastAdmin");
+        const { members } = yield* getChatMembers(chat.id);
+        expect(members.filter((m) => m.role === "admin").map((m) => m.profileId)).toEqual([
+          "usr_alice",
+        ]);
+      }).pipe(Effect.provide(h.layer));
+    });
+
+    it.live("a requester removed before its delete removes no one", () => {
+      const h = held();
+      return Effect.gen(function* () {
+        const chat = yield* seedChat({ type: "group" });
+        yield* seedMember(chat.id, "usr_alice", "admin");
+        yield* seedMember(chat.id, "usr_bob", "admin");
+        yield* seedMember(chat.id, "usr_carol");
+
+        const remove = h.hold(DELETE);
+        const byAlice = yield* Effect.forkChild(
+          Effect.result(removeMember(chat.id, "usr_carol", "usr_alice")),
+        );
+        yield* Effect.promise(() => remove.reached);
+        yield* removeMember(chat.id, "usr_alice", "usr_bob");
+        remove.release();
+
+        expect(tagOf(yield* Fiber.join(byAlice))).toBe("NotChatAdmin");
+        const { members } = yield* getChatMembers(chat.id);
+        expect(members.map((m) => m.profileId).toSorted()).toEqual(["usr_bob", "usr_carol"]);
+      }).pipe(Effect.provide(h.layer));
+    });
+
+    it.live("a member who leaves before the delete is answered NotChatMember", () => {
+      const h = held();
+      return Effect.gen(function* () {
+        const chat = yield* seedChat({ type: "group" });
+        yield* seedMember(chat.id, "usr_alice", "admin");
+        yield* seedMember(chat.id, "usr_carol");
+
+        const remove = h.hold(DELETE);
+        const byAlice = yield* Effect.forkChild(
+          Effect.result(removeMember(chat.id, "usr_carol", "usr_alice")),
+        );
+        yield* Effect.promise(() => remove.reached);
+        yield* removeMember(chat.id, "usr_carol", "usr_carol");
+        remove.release();
+
+        expect(tagOf(yield* Fiber.join(byAlice))).toBe("NotChatMember");
+      }).pipe(Effect.provide(h.layer));
+    });
+  });
 
   // ── listChats pagination ────────────────────────────────────────────────
 

@@ -8,7 +8,13 @@ import { createSchemaSql } from "@zap/db/testing";
 import { Effect, Layer } from "effect";
 import { Miniflare } from "miniflare";
 
-import { createChat, listChats } from "../../src/services/chats";
+import {
+  addMember,
+  createChat,
+  getChatMembers,
+  listChats,
+  removeMember,
+} from "../../src/services/chats";
 import { resetConsentGate, setConsentGate } from "../../src/services/consent";
 import { listMessages, sendMessage } from "../../src/services/messages";
 
@@ -93,5 +99,20 @@ describe("zap/api over real D1 (Miniflare)", () => {
     await expect(
       run(sendMessage(chat.id, BOB, { ciphertext: "ff", nonce: "n" })),
     ).rejects.toThrow();
+  });
+
+  // The removal answers from its delete's change count, which D1 reports under
+  // `meta.changes`: a removal that went through, and the last admin refused.
+  it("removeMember removes a member, and refuses the last admin, over async D1", async () => {
+    setConsentGate(() => Promise.resolve(true));
+    const chat = await run(createChat({ type: "group", title: "Leaving" }, ALICE));
+    await run(addMember(chat.id, BOB, ALICE));
+
+    await run(removeMember(chat.id, BOB, ALICE));
+    const refused = await run(Effect.flip(removeMember(chat.id, ALICE, ALICE)));
+    expect(refused._tag).toBe("LastAdmin");
+
+    const { members } = await run(getChatMembers(chat.id));
+    expect(members.map((m) => [m.profileId, m.role])).toEqual([[ALICE, "admin"]]);
   });
 });
