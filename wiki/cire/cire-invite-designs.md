@@ -345,7 +345,10 @@ event and the panel to open on.
 - **A bar at the top stays put while the panel scrolls under it**: the
   sheet's title, then the badge, then the close button
   ([`AnimatedModal`](../../cire/invites/src/components/AnimatedModal.tsx)'s
-  `toolbar`). It is the scrollport's first child and `sticky` at its top, so
+  `toolbar`). The close is `@cire/ui`'s `Button` `round` at `lg`: a 44px disc
+  on the opaque surface, so the panel scrolling under it stays hidden, with no
+  edge, its × on the `lg` text step in muted ink that brightens under the
+  pointer. It is the scrollport's first child and `sticky` at its top, so
   the panel passes beneath it rather than past it. It is no part of either
   panel: a swipe never moves it, and a touch on it starts none.
   - **Its look.** Full-bleed across the sheet and at least 3.75rem tall
@@ -541,6 +544,17 @@ event and the panel to open on.
   the sliding form's full-bleed action bar would otherwise cause. Outside a
   switch nothing is clipped. Under reduced motion the global clamp makes the
   switch instant.
+- **The answer pair**, Attending and Not attending, is `Button` `choice` at
+  `md` with the 44px floor (`min-h-11`), as `aria-pressed` toggles. The chosen
+  answer wears the accent edge, the readable gold and a 2px ring at 60% of the
+  gold, and no fill; an unchosen one under the pointer goes halfway, its edge
+  and ink a mix of rest and chosen with a 1px ring at 30%, on `--dur-base`.
+  While a reply saves the pair is locked with `aria-disabled`: it keeps its
+  look, so the answer just given stays legible, and takes no click. The pair
+  sits side by side while its own box is 16rem or wider and stacks below
+  that, a container query on the pair's own wrapper measured against the
+  guest site's Lato, so "Not attending" never runs out of a 320px screen
+  (`tests/components/RsvpPanel.browser.test.tsx`).
 - **Past the RSVP deadline** the form is read-only: each member's answer on
   file is written out in place of the answer pair, and one line about stored
   dietary data takes the consent boxes' place ([[cire-rsvp-deadline]]). The
@@ -756,7 +770,7 @@ differs. On the guest site each corner paints:
 | 10px, `rounded-md` | the link menu |
 | 6px, `rounded-sm` | notices — closed, preview mode, the RSVP deadline, "You reserved…", the gift page's payment, signed-out and preview notices, a legal page's draft banner and owner note — and the blocked-content placeholders (`MoodboardBlock`, `ConsentPlaceholder`); the link menu's rows; a box nested in a modal (the RSVP sheet's member fieldsets, the consent sheet's switch rows) or in a card (the household boxes inside gala's card); the gift page's "Send gifts to" address box |
 | 2px, `--radius-hair` | nothing on the guest site: a legal page's inline placeholder (`.placeholder`) draws no highlight, so no box to round |
-| round, `rounded-full` | the "RSVPs closed" badge (`Chip`); the sheet's close cross, the dress-code colour circles, avatars, the gift radio marks, the spinner, the map pin's shadow |
+| round, `rounded-full` | the "RSVPs closed" badge (`Chip`); the sheet's close cross (`Button` `round`, the `pill` step), the dress-code colour circles, avatars, the gift radio marks, the spinner, the map pin's shadow |
 
 - **Fields keep this site's own heights.** The portals' one form-field height
   (34px, `cire/host/DESIGN.md` §4) does not reach the guest site, which is not a
