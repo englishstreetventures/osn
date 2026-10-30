@@ -8,6 +8,7 @@ related:
 packages:
   - "@cire/invites"
   - "@cire/host"
+  - "@cire/ui"
   - "@musubi/social"
   - "@pulse/web"
   - "@shared/ui"
@@ -17,7 +18,7 @@ last-reviewed: 2026-10-30
 # Browser Tests
 
 A second Vitest project — in `@cire/invites`, `@cire/host`, `@cire/vendor`,
-`@shared/ui`, `@musubi/social` and `@pulse/web` — that runs a handful of tests
+`@cire/ui`, `@shared/ui`, `@musubi/social` and `@pulse/web` — that runs a handful of tests
 in a **real Chromium** instead of jsdom/happy-dom. Files are named
 `*.browser.test.ts(x)`.
 
@@ -28,6 +29,8 @@ bun run --cwd cire/host test:run       # fast tier (happy-dom)
 bun run --cwd cire/host test:browser   # browser tier
 bun run --cwd cire/vendor test:run     # fast tier (happy-dom)
 bun run --cwd cire/vendor test:browser # browser tier
+bun run --cwd cire/ui test:run         # fast tier (happy-dom)
+bun run --cwd cire/ui test:browser     # browser tier
 bun run --cwd musubi/social test:browser
 bun run --cwd pulse/web test:browser
 bun run test:browser                        # every package that has one (turbo)
@@ -409,6 +412,7 @@ nothing.
 | `@cire/host`     | `tests/components/soft-shapes.browser.test.tsx` | The portal's corners and field heights as computed, on the RSVP page, the budget, the registry's gift list and the co-host form, loaded with `src/styles/global.css`, at 390 and 1280px (light and dark, the co-host form in light) (`cire/host/DESIGN.md` §4, One form-field height): the search box, and at 390 the sort select, is a filter — 28px with a 14px corner, at least half its height, so a pill — and so are the vendor directory's Category, Keyword and Location and the seating chart's Event select, with Clear filters, Print and Download seating CSV beside them 28px; at 390px every filter and those three buttons are 28px again under a test `@font-face` that gives whichever of Arial, Helvetica, Liberation Sans or DejaVu Sans the machine has a 2em line, forced onto every field and button, after the case checks the face loaded; every form field — the reply editor's status select, the budget's total, add form, money cell, payment fields and price per head, the registry's add form, inline editor and shop link, and the co-host handle — is 34px with a 14px corner, short of a pill; the reply editor's textarea is 14px and less than half its height; the editor, nested in the list's frame, is 6px; "Save reply" has a corner of at least half its height and over 16px, a pill; Add item, Add payment, the total's Save and Cancel, Find pictures and Add host, each in a row with a field, are 34px. Verified against the bug: the four RSVP cases fail on the old 4px scale and with `--ui-radius-control` mapped to the 6px step; all fail with `--ui-radius-field` mapped to the 6px step; with `FORM_FIELD_CLASS` and `FORM_ACTION_CLASS` left off, every case fails on its first field (`status` 37, `total`, `gift` and `handle` 36, expected 34). With the directory's and the seating chart's filters at their old size, both filter cases fail, the directory with all four of its controls off 28px. With `FILTER_FIELD_CLASS` left off, Linux Chromium in CI draws the RSVP sort and the directory's Category at 27px while macOS draws 28px, since an `sm` `Select` takes the font's line; the tall-line case fails on every platform, with the sort select at 39px, and with the class left off the Category or the Event select alone, on that select. Leaves `rsvp-bar-*`, `rsvp-editor-*`, `budget-top-*`, `budget-fields-*`, `registry-add-*`, `registry-edit-*`, `hosts-add-*`, `directory-filters-*`, `seating-filter-*` and `*-tall-line-390` screenshots in the gitignored `__screenshots__/` beside the file |
 | `@cire/host`     | `tests/styles/checkboxes.browser.test.tsx` | Native checkboxes and radios under `src/styles/global.css`, light and dark (`cire/host/DESIGN.md` §4, Checkboxes and radios): an unchecked one has `appearance: none`, a transparent background and a 1px `--ui-hairline-strong` edge, a radio's corner 50%; a checked one keeps `appearance: auto`; checked and unchecked are the same size — 13px bare, 16px with `h-4 w-4` — and ticking moves the box neither in a flex row nor in a line of text. Verified against the bug: without the base-layer rule both cases fail on the first unchecked box (`appearance: auto`, no edge). Leaves `boxes-{light,dark}.png` in the gitignored `__screenshots__/` beside the file |
 | `@cire/vendor`   | `tests/components/soft-shapes.browser.test.tsx` | The vendor dashboard's corners as computed: `VendorApp` signed in, inside `@container/frame` as `index.astro` renders it, with `src/styles/global.css`, the listing editor open, at 390×844 and 1440×900 in light and dark. "Save listing" and "← All organisations" are pills, a corner of at least half the height and over 16px; every text field and select in the listing editor is 34px at 14px, short of a pill (host §4, One form-field height), and the description textarea 14px; the editor card is 16px; the listing's status chip is a pill; a category checkbox's drawn box is 6px; `data-theme` is the case's theme. Verified against the bug: with `--ui-radius-field` mapped to the pill, all four fail (`expected '999px' to be '14px'`); with `--ui-radius-control` at 14px, "Save listing" fails (`expected 14 to be greater than or equal to 18.84375`); at 16px, the 31px back button fails (`expected 16 to be greater than 16`). With `FORM_FIELD_CLASS` left off, all four fail with nine fields off 34px. Writes `e2e-artifacts/cire-soft-shapes/vendor/dashboard-{390,1440}-{light,dark}.png`, which a later `bun run test:e2e` deletes with the rest of `e2e-artifacts/` |
+| `@cire/ui`       | `tests/prose-link.browser.test.tsx` | `proseLinkClass` inside a sentence, against cire's two ramps (`tests/test-support/tailwind.css`): a long link in a 10rem paragraph breaks across two or more line boxes; it is underlined at rest at 2px; it takes the sentence's type size and weight; Tab gives a 2px ring 2px out in `--ui-focus` whose transition names no `outline`; accent paints `--ui-accent-ink` and muted `--ui-ink-secondary`, each at 4.5:1 or more on the ground and the surface in both ramps; muted brightens to `--ui-ink` under the pointer and accent does not change. Verified against the bug: with `buttonClass({ variant: "link" })` and `subtle` in its place, the wrap, underline and type-size cases fail in both tones |
 
 Six of these were verified against the bug rather than merely written green.
 The #203 test fails when the popover is put back at `z-90`. The
