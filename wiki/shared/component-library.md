@@ -220,9 +220,11 @@ The filled tints are light on purpose: `success`, `pending` and `accent` at 8%,
 `danger` at 10%, `neutral` the surface at 60%. A chip's word is small text,
 held to 4.5:1 on what it sits on, and a stronger wash darkens the ground under a
 coloured word on a pale theme. `cire/host/tests/styles/chip-contrast.browser.test.tsx`
-measures every tone, variant and treatment on cire's page, a card's wash and the
-run sheet's coming-up row, in both themes; filled `danger` reads 4.01:1 on
-cire's pale page, so the portal draws `danger` outlined.
+holds every tone, variant and treatment to 4.5:1 on cire's page and a card's
+wash, and the flags' tones on the run sheet's coming-up row, in both themes;
+filled `danger` reads 4.65:1 on cire's light page.
+
+*Measured 2026-10-30 — the composite `cire/host/tests/styles/chip-contrast.browser.test.tsx` paints, read for a filled `danger` tag on the light page (headless Chromium)*
 
 An outline or a tag may lead with a mark — a dot, an icon — held 6px from its
 word; a filled small-caps chip holds its word alone. A `danger` chip with no

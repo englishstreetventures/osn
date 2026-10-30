@@ -53,10 +53,11 @@ import type { JSX } from "solid-js";
  *
  * ## Danger is outlined unless asked
  *
- * Filled `danger`'s 10% tint reads 4.01:1 on cire's pale page with its red, and
- * no wash of that red reaches the 4.5:1 a small word needs, so a `danger` chip
- * with no `variant` is outlined (4.59:1). The filled one stays for a ground
- * that measures it.
+ * A red tint darkens a pale ground under a red word, so filled `danger` reads
+ * lower than outlined, and the token contract holds `--ui-danger` to no floor
+ * as ink. A `danger` chip with no `variant` is therefore outlined; the filled
+ * one is for an app that measures it — cire's light red reads 4.65:1 filled on
+ * its page (`cire/host/tests/styles/chip-contrast.browser.test.tsx`).
  *
  * ## What reaches the element
  *

@@ -149,7 +149,7 @@
 
     --success: oklch(43% 0.115 148);
     --warn: oklch(45% 0.105 62);
-    --error: oklch(50% 0.15 25);
+    --error: oklch(46% 0.15 25);
     --status-yes: oklch(64% 0.095 78);
     --status-no: oklch(47% 0.14 24);
     --status-no-ink: oklch(97% 0.01 24);
@@ -194,7 +194,7 @@
 
   --success: oklch(43% 0.115 148);
   --warn: oklch(45% 0.105 62);
-  --error: oklch(50% 0.15 25);
+  --error: oklch(46% 0.15 25);
   --status-yes: oklch(64% 0.095 78);
   --status-no: oklch(47% 0.14 24);
   --status-no-ink: oklch(97% 0.01 24);

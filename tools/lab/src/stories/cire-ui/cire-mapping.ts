@@ -72,7 +72,7 @@ const CIRE_COLOR = {
     "--ui-on-accent": "oklch(24% 0.018 340)",
     "--ui-success": "oklch(43% 0.115 148)",
     "--ui-warn": "oklch(45% 0.105 62)",
-    "--ui-danger": "oklch(50% 0.15 25)",
+    "--ui-danger": "oklch(46% 0.15 25)",
     "--ui-on-danger": "oklch(88.6% 0.011 92)",
     "--ui-focus": "oklch(38% 0.072 141)",
   },
