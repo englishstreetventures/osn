@@ -92,9 +92,6 @@ function Specimen(props: {
   extra?: { role?: "radio"; "aria-pressed"?: "true" | "false"; "aria-checked"?: "true" | "false" };
 }) {
   const label = () => props.label ?? LABEL[props.variant];
-  /** A round button holds one glyph whatever its size, so its label is the name, not the content. */
-  const glyphOnly = () =>
-    props.variant === "round" || props.size === "icon" || props.size === "swatch";
   return (
     <Button
       ref={props.ref}
@@ -102,7 +99,9 @@ function Specimen(props: {
       size={props.size}
       disabled={props.disabled}
       aria-disabled={props.ariaDisabled ? "true" : undefined}
-      aria-label={glyphOnly() ? label() : undefined}
+      // Named whatever it holds: a word names itself, so the label only changes
+      // what is heard for a glyph, and a `round` button's type requires one.
+      aria-label={label()}
       class={props.class}
       {...props.extra}
     >

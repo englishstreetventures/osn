@@ -388,10 +388,11 @@ const FIELD_SIZE = {
  */
 const ROUND_SIZE = {
   sm: "base:size-7 base:shrink-0 base:p-0 base:text-ui-base base:leading-none",
-  md: "base:size-8 base:shrink-0 base:p-0 base:text-ui-base base:leading-none",
+  // `h-8 w-8` rather than `size-8`: the `icon` size already emits those two.
+  md: "base:h-8 base:w-8 base:shrink-0 base:p-0 base:text-ui-base base:leading-none",
   lg: "base:size-11 base:shrink-0 base:p-0 base:text-ui-lg base:leading-none",
-  swatch: "base:size-8 base:shrink-0 base:p-0 base:text-ui-base base:leading-none",
-  icon: "base:size-8 base:shrink-0 base:p-0 base:text-ui-base base:leading-none",
+  swatch: "base:h-8 base:w-8 base:shrink-0 base:p-0 base:text-ui-base base:leading-none",
+  icon: "base:h-8 base:w-8 base:shrink-0 base:p-0 base:text-ui-base base:leading-none",
 } satisfies Readonly<Record<ButtonSize, string>>;
 
 /** Which of the five tables a variant sizes from. */
@@ -492,12 +493,29 @@ export function proseLinkClass(options: { tone?: ProseLinkTone } = {}): string {
   );
 }
 
-export type ButtonProps = SafeProps<"button"> & {
-  variant?: ButtonVariant;
-  size?: ButtonSize;
-};
+/** A name for a control whose content is hidden from assistive tech. */
+type Named = { "aria-label": string } | { "aria-labelledby": string };
 
-export default function Button(props: ButtonProps) {
+/**
+ * A `round` button, and any button at the `icon` size, is a glyph and nothing
+ * else, and the glyph is hidden from assistive tech, so it must be named:
+ * written `variant="round"` or `size="icon"`, the type refuses one with neither
+ * `aria-label` nor `aria-labelledby`. A variant or size held in a variable of
+ * the whole union is not narrowed, so the lab's specimen grid still
+ * type-checks; it names every specimen anyway.
+ */
+export type ButtonProps<
+  V extends ButtonVariant = ButtonVariant,
+  S extends ButtonSize = ButtonSize,
+> = SafeProps<"button"> & {
+  variant?: V;
+  size?: S;
+} & (V extends "round" ? Named : S extends "icon" ? Named : unknown);
+
+export default function Button<
+  V extends ButtonVariant = ButtonVariant,
+  S extends ButtonSize = ButtonSize,
+>(props: ButtonProps<V, S>) {
   const [own, rest] = splitProps(props, ["variant", "size", "class", "onClick"]);
 
   /**

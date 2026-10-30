@@ -36,7 +36,7 @@ describe("events drag grip — painted", () => {
       // The row's own wrapper. A flex parent is where a `min-width` floor can be
       // shrunk back below itself, so the measurement has to include it.
       <div class="flex items-center">
-        <Button variant="bare" size="icon" class={GRIP_CLASS}>
+        <Button variant="bare" size="icon" class={GRIP_CLASS} aria-label="Move event">
           ⠿
         </Button>
       </div>
@@ -52,7 +52,7 @@ describe("events drag grip — painted", () => {
   it("is squeezed by neither a narrow row nor a greedy sibling", () => {
     const result = render(() => (
       <div class="flex w-24 items-center">
-        <Button variant="bare" size="icon" class={GRIP_CLASS}>
+        <Button variant="bare" size="icon" class={GRIP_CLASS} aria-label="Move event">
           ⠿
         </Button>
         <span class="grow">An event title long enough to want every pixel in the row</span>
