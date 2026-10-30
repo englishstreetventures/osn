@@ -1,5 +1,7 @@
 import Button, { proseLinkClass } from "@cire/ui/button";
+import { Input } from "@shared/ui/ui/input";
 import { Notice } from "@shared/ui/ui/notice";
+import { Textarea } from "@shared/ui/ui/textarea";
 import { createEffect, createMemo, createSignal, createUniqueId, Show } from "solid-js";
 
 import {
@@ -332,9 +334,13 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
         <Show when={open() && props.canClaim}>
           <form class="flex flex-col gap-3 pt-1" onSubmit={submit}>
             <div class="flex flex-col gap-1">
-              <label class="font-body text-text-muted text-ui-xs tracking-ui-widest flex flex-col gap-1 uppercase">
-                How many
-                <input
+              <label class="font-body text-text-muted text-ui-xs flex flex-col gap-1">
+                {/* The small caps are the words' alone: a field inherits a
+                    label's case and tracking. */}
+                <span class="tracking-ui-widest uppercase">How many</span>
+                <Input
+                  fill="ink"
+                  size="touch"
                   type="number"
                   min="1"
                   max={maxQuantity()}
@@ -344,7 +350,6 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
                   // naming an id that is not in the DOM describes nothing.
                   aria-describedby={quantityHint() ? quantityHintId : undefined}
                   onInput={(e) => setQuantityText(e.currentTarget.value)}
-                  class="border-text/55 bg-text/4.5 font-body text-text focus:border-gold text-ui-base rounded-ui-field tracking-ui-normal focus-visible:outline-ui-focus transition-ui-colors w-full border px-3 py-2 normal-case duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2"
                 />
               </label>
               {/* OUTSIDE the label. The input is labelled by wrapping, so the
@@ -359,26 +364,28 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
               </Show>
             </div>
 
-            <label class="font-body text-text-muted text-ui-xs tracking-ui-widest flex flex-col gap-1 uppercase">
-              From (optional)
-              <input
+            <label class="font-body text-text-muted text-ui-xs flex flex-col gap-1">
+              <span class="tracking-ui-widest uppercase">From (optional)</span>
+              <Input
+                fill="ink"
+                size="touch"
                 type="text"
                 maxlength="80"
                 value={displayName()}
                 onInput={(e) => setDisplayName(e.currentTarget.value)}
                 placeholder="The Ashworths"
-                class="border-text/55 bg-text/4.5 font-body text-text placeholder:text-text-muted focus:border-gold text-ui-base rounded-ui-field tracking-ui-normal focus-visible:outline-ui-focus transition-ui-colors w-full border px-3 py-2 normal-case duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2"
               />
             </label>
 
-            <label class="font-body text-text-muted text-ui-xs tracking-ui-widest flex flex-col gap-1 uppercase">
-              Note for the couple (optional)
-              <textarea
+            <label class="font-body text-text-muted text-ui-xs flex flex-col gap-1">
+              <span class="tracking-ui-widest uppercase">Note for the couple (optional)</span>
+              <Textarea
+                fill="ink"
+                size="touch"
                 rows="2"
                 maxlength="500"
                 value={note()}
                 onInput={(e) => setNote(e.currentTarget.value)}
-                class="border-text/55 bg-text/4.5 font-body text-text placeholder:text-text-muted focus:border-gold text-ui-base rounded-ui-field tracking-ui-normal focus-visible:outline-ui-focus transition-ui-colors w-full resize-y border px-3 py-2 normal-case duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2"
               />
             </label>
 

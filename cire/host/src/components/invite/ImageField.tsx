@@ -7,9 +7,11 @@
  */
 
 import Button from "@cire/ui/button";
+import FileInput from "@cire/ui/file-input";
 import { Notice } from "@shared/ui/ui/notice";
 import { createSignal, lazy, Show, Suspense } from "solid-js";
 
+import { FORM_ACTION_CLASS } from "../../lib/form-field";
 import { haptic } from "../../lib/haptics";
 import {
   CROP_ASPECT,
@@ -117,28 +119,45 @@ export default function ImageField(props: {
         </Show>
       </div>
       <div class="flex flex-wrap items-center gap-3">
-        <input
-          type="file"
+        <FileInput
           accept="image/jpeg,image/png,image/webp"
+          // The visible label is a sibling span, not a `<label>`, so the
+          // picker is named here.
+          aria-label={`${props.label}: choose a picture`}
           onChange={(e) => {
             const file = e.currentTarget.files?.[0];
             if (file) props.onSelect(file);
             e.currentTarget.value = "";
           }}
-          class="font-body text-text file:border-border file:bg-bg file:font-body file:text-text hover:file:border-gold text-ui-sm file:text-ui-sm file:rounded-ui-control file:mr-3 file:border file:px-4 file:py-1.5 file:font-medium"
         />
         <Show when={props.url}>
-          <Button variant="outline" size="sm" onClick={() => setCropping("desktop")}>
+          {/* At the picker's 34px, so the row lines up. */}
+          <Button
+            variant="outline"
+            size="sm"
+            class={FORM_ACTION_CLASS}
+            onClick={() => setCropping("desktop")}
+          >
             Crop
           </Button>
           <Show when={hasMobileCrop()}>
-            <Button variant="outline" size="sm" onClick={() => setCropping("mobile")}>
+            <Button
+              variant="outline"
+              size="sm"
+              class={FORM_ACTION_CLASS}
+              onClick={() => setCropping("mobile")}
+            >
               Phone crop
             </Button>
           </Show>
           {/* Danger, not quiet: removing the photo takes effect on the live
               invite straight away — there is no save bar to change your mind at. */}
-          <Button variant="danger" size="sm" onClick={() => props.onRemove()}>
+          <Button
+            variant="danger"
+            size="sm"
+            class={FORM_ACTION_CLASS}
+            onClick={() => props.onRemove()}
+          >
             Remove
           </Button>
         </Show>

@@ -172,14 +172,14 @@ describe("gala InvitePage", () => {
     const { getByPlaceholderText } = render(() => <InvitePage apiUrl="https://api.test" />);
     const cls = (getByPlaceholderText(/PATEL-JOY/) as HTMLInputElement).className;
 
-    expect(cls).toContain("bg-text/4.5");
-    expect(cls).toContain("border-text/55");
+    expect(cls).toContain("base:bg-ui-ink/4.5");
+    expect(cls).toContain("base:border-ui-ink/55");
     expect(cls).not.toContain("border-border");
-    expect(cls).not.toContain("bg-transparent");
+    expect(cls.split(" ")).not.toContain("base:bg-transparent");
     // Classic asserts BOTH halves of the focus affordance, so gala must
     // too — a half-copied drift guard drifts.
-    expect(cls).toContain("focus:border-gold");
-    expect(cls).toContain("focus-visible:outline-ui-focus");
+    expect(cls).toContain("base:focus:border-ui-accent");
+    expect(cls).toContain("base:focus-visible:outline-ui-focus");
     // A placeholder is not an accessible name, and it vanishes on input.
     expect((getByPlaceholderText(/PATEL-JOY/) as HTMLInputElement).getAttribute("aria-label")).toBe(
       "Invitation code",
