@@ -1,7 +1,14 @@
 import { afterAll, beforeAll, describe, expect, it, setDefaultTimeout } from "bun:test";
 
 import type { D1Database as DrizzleD1 } from "@cloudflare/workers-types";
-import { accounts, connections, emailChanges, organisationMembers } from "@osn/db/schema";
+import {
+  accounts,
+  connections,
+  deletionJobs,
+  emailChanges,
+  organisationMembers,
+  sessions,
+} from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { createSchemaSql } from "@osn/db/testing";
 import { createD1Db } from "@shared/db-utils";
@@ -10,6 +17,12 @@ import { and, eq } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 import { Miniflare } from "miniflare";
 
+import {
+  cancelErasure,
+  requestErasure,
+  runFanOutRetrySweep,
+} from "../../src/services/account-erasure";
+import { joinApp } from "../../src/services/app-enrollments";
 import { createAuthService } from "../../src/services/auth";
 import { createGraphService } from "../../src/services/graph";
 import { createOrganisationService } from "../../src/services/organisation";
@@ -21,10 +34,11 @@ import { holdQueries } from "../helpers/held-query";
  * the email change's three statements as one batch and answers each
  * statement's result, so whether the commit reads its own insert's change
  * count correctly — 1 for the change that commits, 0 for the one the cap
- * refuses — is proven here, on the driver production runs. The graph and
- * organisation writes answer from a single statement's change count, which D1
- * reports under `meta.changes`; each one's success path runs here, and the
- * rows it writes are read back.
+ * refuses — is proven here, on the driver production runs. The same holds for
+ * a refresh's rotation and an erasure cancel, each one batch whose results are
+ * read. The graph and organisation writes answer from a single statement's
+ * change count, which D1 reports under `meta.changes`; each one's success path
+ * runs here, and the rows it writes are read back.
  */
 
 const MF_TIMEOUT_MS = 30_000;
@@ -181,5 +195,128 @@ describe("graph and organisation writes on D1", () => {
     expect(await run(org.getMemberRole(organisation.id, carol!.id))).toBeNull();
     await run(org.removeMember(organisation.id, alice!.id, bob!.id));
     expect(await run(org.getMemberRole(organisation.id, bob!.id))).toBeNull();
+  });
+});
+
+describe("session revoke on D1", () => {
+  const signIn = async (handle: string) => {
+    const profile = await run(auth.registerProfile(`${handle}@example.com`, handle));
+    const { refreshToken } = await run(
+      auth.issueTokens(
+        profile.id,
+        profile.accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      ),
+    );
+    const { familyId } = await run(auth.verifyRefreshToken(refreshToken));
+    return { profile, refreshToken, familyId };
+  };
+  const familyRows = async (familyId: string) =>
+    (await db.select({ id: sessions.id }).from(sessions).where(eq(sessions.familyId, familyId)))
+      .length;
+
+  it("a revoke that lands while a refresh's batch is held leaves no session of the device", async () => {
+    const { profile, refreshToken, familyId } = await signIn("rvd1hold");
+
+    const batch = hold(/^insert into "sessions"/);
+    const refresh = outcomeOf(auth.refreshTokens(refreshToken));
+    await batch.reached;
+    await run(
+      auth.revokeAccountSession(
+        profile.accountId,
+        auth.hashSessionToken(refreshToken).slice(0, 16),
+        null,
+      ),
+    );
+    batch.release();
+
+    expect((await refresh)._tag).toBe("Failure");
+    expect(await familyRows(familyId)).toBe(0);
+  });
+
+  it("a handle the device has rotated away from still revokes it, and a refresh succeeds", async () => {
+    const { profile, refreshToken, familyId } = await signIn("rvd1stale");
+    const handle = auth.hashSessionToken(refreshToken).slice(0, 16);
+
+    const next = await run(auth.refreshTokens(refreshToken));
+    await run(auth.verifyRefreshToken(next.refreshToken));
+    expect(await familyRows(familyId)).toBe(1);
+
+    expect(await run(auth.revokeAccountSession(profile.accountId, handle, null))).toEqual({
+      revokedSelf: false,
+    });
+    expect(await familyRows(familyId)).toBe(0);
+  });
+});
+
+describe("erasure cancel and purge on D1", () => {
+  let server: ReturnType<typeof Bun.serve>;
+  const purged: string[] = [];
+  let urls: { pulseApiUrl: string; zapApiUrl: string };
+
+  beforeAll(() => {
+    server = Bun.serve({
+      port: 0,
+      async fetch(request) {
+        const body = (await request.json()) as { accountId: string };
+        purged.push(body.accountId);
+        return Response.json({ ok: true });
+      },
+    });
+    const base = `http://localhost:${server.port}`;
+    urls = { pulseApiUrl: base, zapApiUrl: base };
+  });
+
+  afterAll(() => {
+    void server.stop(true);
+  });
+
+  const purgesOf = (accountId: string) => purged.filter((id) => id === accountId).length;
+
+  const scheduled = async (handle: string) => {
+    const profile = await run(auth.registerProfile(`${handle}@example.com`, handle));
+    await run(joinApp(profile.accountId, "pulse"));
+    await run(joinApp(profile.accountId, "zap"));
+    const { scheduledFor } = await run(
+      requestErasure({ accountId: profile.accountId, cancelSessionId: null }),
+    );
+    return { accountId: profile.accountId, pastWindowMs: (scheduledFor + 1) * 1_000 };
+  };
+
+  const deletedAt = async (accountId: string) =>
+    (await db.select().from(accounts).where(eq(accounts.id, accountId)))[0]?.deletedAt;
+  const job = async (accountId: string) =>
+    (await db.select().from(deletionJobs).where(eq(deletionJobs.accountId, accountId)))[0];
+
+  it("a cancel whose batch is held while the fan-out claims and purges is refused", async () => {
+    const { accountId, pastWindowMs } = await scheduled("ced1claim");
+
+    const batch = hold(/^delete from "deletion_jobs"/);
+    const cancel = outcomeOf(cancelErasure(accountId));
+    await batch.reached;
+    await run(runFanOutRetrySweep({ nowMs: pastWindowMs, ...urls }));
+    expect(purgesOf(accountId)).toBe(2);
+    batch.release();
+
+    expect(await cancel).toMatchObject({ _tag: "Success", success: { cancelled: false } });
+    expect(await deletedAt(accountId)).not.toBeNull();
+    expect((await job(accountId))?.purgeStartedAt).toBeGreaterThan(0);
+  });
+
+  it("a cancel that lands while the fan-out is held before its claim stops the purge", async () => {
+    const { accountId, pastWindowMs } = await scheduled("ced1first");
+
+    const body = hold(/^select "id" from "users"/);
+    const sweep = run(runFanOutRetrySweep({ nowMs: pastWindowMs, ...urls }));
+    await body.reached;
+    expect(await run(cancelErasure(accountId))).toEqual({ cancelled: true });
+    body.release();
+    await sweep;
+
+    expect(purgesOf(accountId)).toBe(0);
+    expect(await deletedAt(accountId)).toBeNull();
+    expect(await job(accountId)).toBeUndefined();
   });
 });
