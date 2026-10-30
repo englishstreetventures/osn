@@ -72,6 +72,10 @@ const Select: Component<SelectProps> = (props) => {
       hidden={box.hidden}
     >
       <select
+        // The box's own minimum, so a box the caller lets shrink (`min-w-0`
+        // under a `max-w-*`) takes the select with it, and one it does not
+        // keeps the select's content width.
+        style={{ "min-width": "inherit" }}
         class={`peer base:col-start-1 base:row-start-1 base:cursor-pointer base:appearance-none ${composeControl(
           size(),
           undefined,
