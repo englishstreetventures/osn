@@ -426,10 +426,13 @@ const PROSE_LINK_TONE = {
  * is what marks the words as a link without colour (WCAG 1.4.1), and a phone
  * has no hover to reveal one.
  *
- * For an `<a>`. A `<button>` lays out as an inline block even at
- * `display: inline`, so its words never wrap with the sentence; an in-page
- * action written in a sentence is an `<a href>` whose click handler does the
- * work.
+ * For an `<a href>` that goes somewhere. A `<button>` lays out as an inline
+ * block even at `display: inline`, so its words never wrap with the sentence.
+ * A way to another screen written into a sentence is still a link with a real
+ * address, whose click handler may take over the plain click to do the
+ * navigating (leaving a modifier or middle click to the browser). An action
+ * that goes nowhere is not a link: it stays a `<button>`, outside the
+ * sentence.
  *
  * Its own focus ring, with `Button`'s values, since `@cire/landing` declares
  * no blanket `:focus-visible` rule. The corner is the `control` role, as on the
