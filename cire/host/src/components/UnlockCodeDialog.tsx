@@ -6,7 +6,6 @@ import { Modal } from "@shared/ui/ui/modal";
 import { createSignal, Show } from "solid-js";
 
 import { isAuthExpired, redirectToLogin } from "../lib/api";
-import { FORM_FIELD_CLASS } from "../lib/form-field";
 import type { PaidTier } from "../lib/tiers";
 import { redeemUnlockCode } from "../lib/unlock-code";
 
@@ -88,8 +87,8 @@ export default function UnlockCodeDialog(props: {
           <Field label="Code" errors={errors()}>
             {(field) => (
               <Input
+                size="form"
                 {...field}
-                class={FORM_FIELD_CLASS}
                 name="unlockCode"
                 value={code()}
                 autocomplete="off"

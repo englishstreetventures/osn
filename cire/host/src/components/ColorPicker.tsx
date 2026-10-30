@@ -8,8 +8,6 @@ import { Popover } from "@kobalte/core/popover";
 import { Input } from "@shared/ui/ui/input";
 import { createEffect, createSignal, createUniqueId, Show } from "solid-js";
 
-import { FORM_FIELD_CLASS } from "../lib/form-field";
-
 /**
  * The colour a picker shows when nothing is set and the caller names no
  * fallback. Callers that know the real default — the scheme editor, which knows
@@ -276,8 +274,7 @@ export default function ColorPicker(props: {
                     note about a value that was KEPT, which is not the assertive
                     error `Field` would announce. */}
                 <Input
-                  size="sm"
-                  class={FORM_FIELD_CLASS}
+                  size="form-compact"
                   id={hexId}
                   value={hexText()}
                   onInput={(e) => onHexInput(e.currentTarget)}
