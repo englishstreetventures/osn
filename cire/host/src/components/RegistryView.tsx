@@ -1100,7 +1100,6 @@ export default function RegistryView(props: RegistryViewProps) {
                                 <Show when={item.externalUrl && isHttpsUrl(item.externalUrl)}>
                                   <LinkPill
                                     href={item.externalUrl!}
-                                    external
                                     hint={`to the shop page for ${item.title}`}
                                   >
                                     Link
