@@ -228,9 +228,10 @@ role is. Two sets of names carry it:
 | `pill` | `rounded-full`, `rounded-ui-pill` | a pill or a circle | every `Chip` — status words, outlined badges (the top bar's and a co-host's role, "Connected", "New" on an unsaved event or household, a seated guest's reply, an invite section's state), tags (a vendor's or a gift's category) and the run sheet's flags — and a task's time; `Button`'s `chip` variant; `Meter`'s track; and the round marks — avatars, status circles, the dotted + circle, switches |
 
 **The small steps.** A box keeps a small corner where a soft one would make it
-read as something else: a 14px checkbox looks like a mistake. `sm`, 6px, paints:
+read as something else: a 14px checkbox looks like a mistake. (A checkbox or
+radio is the browser's own box at its 2px corner, §Checkboxes and radios.)
+`sm`, 6px, paints:
 
-- checkboxes (`@shared/ui`'s `Checkbox`);
 - notices (`Notice`'s `md` and `sm` boxes — its `inline` line draws no box)
   and empty states (`EmptyState` and a hand-written empty panel);
 - a badge with text that is not a pill — a dress code, a key hint (`kbd`);
@@ -293,20 +294,24 @@ heights, chosen by what the field does (owner, 2026-10-29: "All form fields 34px
 with the 14px corner; buttons beside them match. Filters stay 28px pills."):
 
 - **A form field is 34px** — any `Input` or `Select` that enters or edits a
-  value, at either size, plus `FORM_FIELD_CLASS` (`h-8.5`, in
-  `src/lib/form-field.ts`) — so the 14px corner leaves a straight side. That is
+  value takes `@shared/ui`'s `size="form"` (12px sides, the base type step),
+  or `size="form-compact"` (8px sides, the small step) in a narrow cell or an
+  inline editor — so the 14px corner leaves a straight side. That is
   every field in a form or a modal, the guest editor's household name and cells,
   the budget's add form, money cells, payment form and price per head, the
   registry's add form and inline editor, a co-host's handle, role and run-sheet
   scope, a vendor's status and listing email, the event drawer, the run-time
-  popover and the colour picker's hex value. A shared `Input` and `Select` are
-  28px at `sm` and 36px at `md`, so the call site sets 34px — height only,
-  since `shadcn/no-restyle` lets a call site size a shared part but not pad
-  it; the engine centres the text. The shared control's own 34px sizes, `form`
-  and `form-compact`, take this class's place in englishstreetventures/osn#1842.
-  `UsernameInput` takes it through its wrapper (`[&>input]:h-8.5`), since it
-  fixes its inner `Input`'s class.
-  A `Textarea` takes no height: `base:min-h-15` holds it at its rows.
+  popover and the colour picker's hex value. The compact box is the guest
+  editor's household name and cells, the registry's inline editor, the
+  budget's payment fields and price per head, the colour's hex value, a
+  co-host's role and run-sheet scope selects, a vendor's status select and the
+  registry picture's shop link. `UsernameInput` hands its `size` to its inner
+  `Input`. The date picker's trigger and its read-only box, the invite link's
+  read-only box and the dietary picker's trigger are 34px too (`h-8.5`). A
+  `Textarea` takes the size's sides and type, and no height: `base:min-h-15`
+  holds it at its rows. `tests/styles/form-field.test.ts` reads every `Input`
+  and `Select` in `src/` and fails on one without a form size, a filter
+  without `sm`, or a field carrying a height class.
 - **A boxed button in a row with a form field is 34px too** —
   `FORM_ACTION_CLASS` (`h-8.5`) — so the row lines up: Add item, Add
   payment and the budget total's Save and Cancel, Add task, Add table and a
@@ -315,12 +320,11 @@ with the 14px corner; buttons beside them match. Filters stay 28px pills."):
   or under it on a narrow panel) and Add guest at the card's foot. A
   borderless button (`link`, `subtle`, `bare`) draws no box and keeps its
   size; so does a button stacked under the fields rather than beside them.
-- **A filter is 28px** — `size="sm"` plus `FILTER_FIELD_CLASS` (`h-7`) — so
-  the 14px corner is half its height and rounds its ends: the guest-list and
-  RSVP search boxes, the RSVP sort select, the vendor directory's Category,
-  Keyword and Location, and the seating chart's Event select (which chart to
-  show). An `sm` `Input` and `Select` are 28px of their own, so the class
-  restates their height; it goes in englishstreetventures/osn#1842. The chips and the reply
+- **A filter is 28px** — `size="sm"`, whose `Input` and `Select` are 28px of
+  their own — so the 14px corner is half its height and rounds its ends: the
+  guest-list and RSVP search boxes, the RSVP sort select, the vendor
+  directory's Category, Keyword and Location, and the seating chart's Event
+  select (which chart to show). The chips and the reply
   key beside them are 28px too (`h-7`, `size-7`). A bar's action is the same
   height: Add household, Clear filters, Print and Download seating CSV are
   `Button size="sm"` with `h-7`, since `size="sm"` alone is 31px, and Add
@@ -332,8 +336,9 @@ it is; one height for every form field keeps a form's rows level wherever it
 sits. The owner chose from the heights side by side.
 
 The rule is the portals' — this one and `cire/vendor`. The guest site is not a
-portal and keeps its fields' own heights, so a guest's tap target does not
-shrink (owner, 2026-10-29). The dietary picker's trigger in the reply editor,
+portal: its fields are `@shared/ui`'s ink fill at the `touch` size, 46px on a
+phone and 44px from 640px (46.75px on its 17px desk root), so a guest's tap
+target never drops under 44px (owner, 2026-10-29 and 2026-10-30). The dietary picker's trigger in the reply editor,
 `@cire/ui`'s `field`-variant button, is 34px too. Not on the rule, and why: the
 command palette's and the task holders' search boxes draw no box of their own.
 
@@ -346,15 +351,29 @@ box's 13px and 2px corner (a radio round), so ticking moves nothing; disabled,
 it fades to 0.4. Only the edge fades, on `--dur-fast`. Why: the browser's white
 unchecked box stood out from every ground, and the browser's blue fill makes a
 ticked one look like a form (owner, 2026-10-29). So no checkbox or radio carries
-an `accent-*` class: every ticked box is the browser's blue. `@shared/ui`'s
-`Checkbox` and `RadioGroup` draw the same box with `box="native"` (by default
-they draw pulse's own). One box draws its own look: the run-time popover's
-radios (`RunTimeEditor`), which paint the brand ink until
-englishstreetventures/osn#1841 moves them onto the shared part.
+an `accent-*` class: every ticked box is the browser's blue.
+
+Every checkbox and radio but the code-style and remint radio cards is
+`@shared/ui`'s `Checkbox` or `RadioGroup` with `box="native"`, which draws this
+box (by default the parts draw pulse's own). Its label is body ink — a consent
+statement too, which reads more easily than the secondary ink did — at
+`text-ui-sm`, or `text-ui-base` where the row is a form's own line (the
+checklist starter, the gift list's visibility and "Let guests give money"),
+8px from the box, at prose leading; a label that wraps takes `align="start"`,
+the box on its first line. Radios sit 16px apart in a row, so each reads with
+its own word, and 8px apart in a column (owner, 2026-10-30). A line under a
+box that says what ticking does is the box's `description`, inside the label
+in the secondary ink; a line about the box that holds a link — the notice an
+attestation asks the organiser to pass on — is its `note`, outside the label,
+indented to the label's words, and it describes the box. A radio group is
+named by the label over it (`aria-labelledby`) or by `aria-label`.
 `tests/styles/checkboxes.browser.test.tsx` holds the unchecked look, the
 checked box's `appearance: auto`, the same size both ways and a tick that
-moves nothing, in light and dark; `tests/styles/checkbox-accent.test.ts` reads
-every native checkbox and radio in `src/` and fails on an `accent-*` class.
+moves nothing, in light and dark, and that the part draws exactly what the
+rule draws on a bare input, and its label, description and note at 4.5:1 on
+the page and a card; `tests/styles/checkbox-accent.test.ts` reads every
+native box in `src/` and fails on an `accent-*` class, and every part in the
+four cire apps and fails on one without `box="native"`.
 
 `soft-shapes.browser.test.tsx` renders the RSVP page, the budget, the registry,
 the co-host form, the vendor directory and the seating chart in Chromium at 390
@@ -689,13 +708,13 @@ specificity, so a caller's plain utility — `w-full`, `self-start`, a `rounded-
 | `Card`, `cardClass`, `cardBoxClass`, `CardCta`, `CardCtaButton` | The raised surface at the 16px card corner, plus its furnishings: the "go to the module" line at the foot, and that line as a button for a card that is not itself the control. A card's label is `Eyebrow`. `cardClass` is exported so a surface that has to be an `<a>` or a `<button>` gets the same look without wrapping. `cardBoxClass` is the box alone — corner, border and fill, no padding or layout — for a part that pads its own pieces, as `Disclosure` does; its `nested` option takes the 6px step. Three options, each defaulting to the card every module drew before the others existed (`md`, `wash`, `default`): **`padding`** `sm` 16px (a filter bar, a small card in a list), `md` 20px, `lg` 24px (a panel that holds a whole form), `xl` 32px (the sign-in card); **`fill`** `wash` (the surface at 30%, so a grid of cards reads as one layer), `well` (the sunk surface, for a box holding something already on the page — on the guest and marketing sites the sunk surface is the page ground, so there a well shows its border alone), `opaque` (the surface, for a card nothing behind may show through) and `none` (for a card set on something that already has a ground); **`tone`**, the border alone: `default` the hairline, `accent` the gold rule, `danger` the red one, for the card that holds an action nobody can undo. The steps are `@shared/ui` `Card`'s plus `xl`, and its `muted` is the `well` here. The `interactive` option adds the hover treatment — which is a promise that the whole rectangle is clickable, so a card that is not a control must not wear it. It is `cardClass`'s alone, since `Card` is a `<div>`, and it goes only with the wash fill and a tone other than `danger`: the hover lifts the wash and turns the border gold, which no other fill has a step for, and a danger card holds a control rather than being one. The type refuses the rest, whether `interactive` is written `true` or passed as a `boolean`. **Every bordered, padded block on the page draws its box from these**, at a step: the full-width panels (settings, the gift-list settings, the code style, a new wedding, the invite builder) `lg`; the filter bars and add forms (`FIELD_BAR_CLASS` in `src/lib/form-field.ts`), the small cards in a list and the event rows `sm`; the import's diff preview `sm` on the `well`; a row with no ground of its own (a deleted wedding, a design to choose) `sm` on `none`; the getting-started guide `lg` with the `accent` tone; the danger zone the `danger` tone on `none`; the sign-in card `xl` on `opaque`. A state that recolours a card keeps its own plain class beside the card's — a design that is chosen, a co-host who owns the wedding, an event row in error or being dragged, a table a guest is dragged over — and wins over the card's `base:` default. One card is drawn by hand: the guest editor's household card, whose stuck head sits flush with its top edge, which no padding step leaves. |
 | `Disclosure` | A native `<details>`: a summary row, a marker that turns as it opens, and the opening fade (§4). Two tones. **`card`**, the default: `cardBoxClass({ fill: "well" })` — Card's border, the 16px corner and the sunk fill — with the padding on the summary row (`px-4 py-3`, so the whole row is the click target) and the body (`px-4 pb-4`), not on the box; `nested` gives the 6px step for one set inside another box. Its summary is the body face at the `base` step, and its marker a leading `›` that turns 90°. **`rule`**: a hairline under the row, no fill and no corner, the summary in the display face at the `lg` step with `leading-ui-tight`, and a trailing `+` that turns 45° into ×; the body is `pb-5`. The owner chose the fill, both markers and their ink (englishstreetventures/osn#1834): the marker is `--ui-accent-ink` in both, `aria-hidden`, at the summary's own size, and turns on `--dur-fast` with the house easing, keyed to its own `<details>` (`details[open] > summary > marker`) so a closed disclosure inside an open one stays closed. The summary has no hover colour and no corner of its own; its focus ring is the square one. The body is a column with Card's 12px gap. `open` sets whether it starts open; `onToggle` reports every new state, a script's change and the mount included, so a count of whether the reader touched it listens to `onSummaryClick`. A caller's `class` places it and does not restyle it; a treatment one app owns, such as `attention-glow`, goes on a wrapper. An Astro page renders it to static HTML. |
 | `Eyebrow`, `eyebrowClass` | The small-caps label that leads a section, a card or a group of fields: one size (`xs`), one letter-spacing (`widest`, 0.16em) and two tones — `accent` in readable gold (`--ui-accent-ink`), the default, and `muted` in the secondary ink. The owner chose the spacing and both inks (englishstreetventures/osn#1833). It sets no weight, so on a guest's invite it follows the couple's body weight. `as` renders it as `p` (the default), `span`, `h2`, `h3`, `legend` or `dt`; `eyebrowClass` gives the same classes to anything else. A table head is not an eyebrow — it is `Th` — and the invite preview, which re-declares the couple's palette on a wrapper below the root, draws its own. Every label that leads a section, a card, a fieldset or a group of fields in the portal is `Eyebrow`, and an `.astro` page's (the sign-in page) is `eyebrowClass`. A quiet label — a budget figure's, a checklist bucket's — takes `muted`. |
-| `FileInput` | A native file input whose button is `Button`'s `quiet` pill at `md` and the 34px form-field height (`FILE_BUTTON`, held to `quiet` and `md` by a test), the file name beside it in body ink at the small step, the house focus outline on the input and the whole picker at 40% when disabled. A picker with no visible label takes an `aria-label`. Its button's word is the browser's own ("Choose File" in Chromium). The portal's four pickers move onto it in englishstreetventures/osn#1843. |
+| `FileInput` | A native file input whose button is `Button`'s `quiet` pill at `md` and the 34px form-field height (`FILE_BUTTON`, held to `quiet` and `md` by a test), the file name beside it in body ink at the small step, the house focus outline on the input and the whole picker at 40% when disabled. A picker with no visible label takes an `aria-label`. Its button's word is the browser's own ("Choose File" in Chromium). The portal's four pickers are `FileInput`: the guest-list spreadsheet, invite pictures (named by `aria-label`, its row's Crop, Phone crop and Remove at 34px), gift pictures and event pictures. |
 | `Loading` | "This is on its way": one pulsing small-caps line with `role="status"`, for a list or a page still fetching. A lazy panel's fallback is `PanelLoading` instead, which holds the panel's height and does not pulse. |
 | `Note` | Cire's standing note: `Notice`'s `accent` tone led by a ✦, drawn as `Notice`'s circled icons are (inline, `aria-hidden`, in the tone's readable gold, sized from the text step) with "Note" read in its place; `sm` unless a size is asked for. **Placed only where the owner asks for one** (englishstreetventures/osn#1868: "I'll let you know when to use a cire note"); a standing note anywhere else is `Notice`'s unmarked `accent`. Not on the marketing site, whose readable gold is its metal gold, not inside the invite preview, which re-declares the couple's palette below the root, and not on `--bg-deep`, where its words read 4.35:1 in light; `tests/styles/notice-contrast.browser.test.tsx` holds it and every `Notice` tone at 4.5:1 on the page, the card's three fills, the raised surface and the run sheet's coming-up row. |
 | `Chip` | A state in a pill, in one of five tones — `neutral`, `success`, `pending`, `accent`, `danger`. Two variants: **`filled`**, a light tint (8% of the tone, 10% for `danger`, the surface at 60% for `neutral`) so a word clears 4.5:1 on the light ramp, and **`outline`**, a 1px border at 40% of the tone (the hairline for `neutral`) with no ground, at the filled chip's height (owner, englishstreetventures/osn#1836). Two treatments: **`caps`**, a status word in small caps at `tracking-ui-wider`, and **`tag`**, a label as written — sentence case, normal tracking, `px-2`. Every chip is a pill. An outline or a tag may lead with a dot or an icon, 6px from its word. It takes an `id`, `aria-describedby`, `data-*` and `role="status"` and nothing else: no handler, no `title` (a chip that needs explaining sits in `Tooltip`), nothing that hides its word. A `danger` chip with no `variant` is outlined, the owner's look for an ended state; filled, it reads 4.65:1 on the light page. `tests/styles/chip-contrast.browser.test.tsx` holds every tone and variant at 4.5:1 on the page and a card, and the flags' tones on the run sheet's coming-up row, in both themes. An enquiry's status wears the vendor portal's tones — open `pending`, quoted `accent`, closed `neutral` — so an enquiry reads alike from both ends. Where the portal draws it: outlined small caps for a badge — the top bar's role (in a `Tooltip`), a co-host's role (filled for the owner, outlined for the rest, in a `TipNote`), "Connected", "New" on an unsaved event or household, an invite section's state (`role="status"`, with a dot) and "Applies immediately", a seated guest's reply (Declined and Invite withdrawn `danger`, Maybe `accent`, No reply `neutral`); tags for a vendor's or a gift's category, "Cash fund" and a gift's status (one that has ended — "No longer coming", "Refunded", "Payment disputed", "Didn't go through" — outlined in `danger`); the run sheet's flags (§The run sheet). |
 | `Notice` | Five tones at three sizes. `danger`, `warn` and `success` each lead with a circled icon of a different shape — a cross, an exclamation mark, a tick — in the tone's ink, sized from the text step and held to the first line, plus a hidden word ("Error", "Warning", "Success"); the owner chose the icons over text glyphs (englishstreetventures/osn#1835). `info` is unmarked, because nothing has happened; so is `accent`, the gold standing note (`Note` is the same note led by a ✦) — its border at 40% of the gold, a 5% tint, readable gold ink (`--gold-ink`). **`md`**, the default, is the box at the 6px step (`p-4`, `text-ui-base`); **`sm`** the same box compact (`px-3 py-2`, `text-ui-sm`), for a note beside a control or in a sidebar; **`inline`** no box at all — the icon, the word and the text at `text-ui-sm` in the tone's ink — for the error line under a field. A box takes `fill="none"` to keep its border and ink and drop its tint, so the words sit on the ground beneath; the inline line has no box and takes no `fill`. Every size is a `<div>`, so a notice never sits inside a `<p>` or a `<label>`, and an inline line about a field is named by the field's `aria-describedby`. It takes an `id`, `aria-describedby`, `data-*` and a layout `class` and nothing else, so no call site can hide its words or pass it a handler. `alert` opts into `role="alert"` and is for a note that appeared **in answer to something** — a standing note that was on screen before the host arrived has nothing to interrupt anyone about. |
 | `EmptyState` | A title, an optional line of prose, and the one thing to do about it, in a dashed box at the 6px step. |
-| `Field`, `Fieldset`, `Input`, `Select`, `Textarea` | A small-caps label, the control, a hint and the errors, wired together by id. The controls take the 14px field corner. An `Input` and a `Select` are 36px at `md` and 28px at `sm`; the shared control also has `form` and `form-compact` at 34px and `touch` for a guest's field, and a `Select` draws its own chevron, 12px in on a wide box and 10px on a narrow one. A form field takes `FORM_FIELD_CLASS` and is 34px; a filter is `sm` with `FILTER_FIELD_CLASS`, 28px (§4, One form-field height). |
+| `Field`, `Fieldset`, `Input`, `Select`, `Textarea` | A small-caps label, the control, a hint and the errors, wired together by id. The controls take the 14px field corner. An `Input` and a `Select` are 36px at `md` and 28px at `sm`; the shared control also has `form` and `form-compact` at 34px and `touch` for a guest's field, and a `Select` draws its own chevron, 12px in on a wide box and 10px on a narrow one. A form field is `form` or `form-compact`, 34px; a filter is `sm`, 28px (§4, One form-field height). |
 | `Meter`, `meterPct` | A thin bar. Scaled by transform rather than resized — see the file. `meterPct` clamps at both ends and reads a zero or missing maximum as empty, not as a division by zero. |
 | `Stat` | A figure, then what it is, then an optional hint. |
 | `Table`, `Th`, `Td` | Every table in the portal as one set of parts, in a hairline frame at the 6px step. By default the wrapper scrolls so the page never does, and it is a named, focusable `<section>` so the columns past the right edge are reachable without a mouse; `label` is required. `scroll="page"` clips instead and lets the page scroll, for a table whose head row sticks under the stuck stack (§A table that scrolls with the page). `frame="none"` drops the border for a table inside something that draws its edge. `Th` and `Td` take `pin` for a head row or first column held in view; `Th srOnly` keeps a head for assistive technology under a visible copy. |
@@ -714,11 +733,11 @@ kind with its own size and ink: the table heads (`Th`, and the guest editor's
 (§A badge that explains itself), the status words ("Current" and "Locked" on
 a design, the RSVP tally's terms) and the getting-started count.
 
-**Checkboxes and radios** are native inputs, named by the `<label>` round them
-or by `aria-label`. `@shared/ui`'s `Checkbox` and `RadioGroup` are native too,
-forward `aria-label`, `disabled` and a JSX label to the input, and draw this
-portal's box with `box="native"` (§4); the portal's boxes move onto them in
-englishstreetventures/osn#1841.
+**Checkboxes and radios** are `@shared/ui`'s `Checkbox` and `RadioGroup` with
+`box="native"` (§4): native inputs inside their labels, named by the label or
+by `aria-label`, with `disabled`, the `aria-*` wiring and a JSX label on the
+input. The code-style and remint radio cards stay bare native inputs, a block
+pressed to choose, drawn by the same base rule.
 
 ### Who holds a task: faces, not names
 
