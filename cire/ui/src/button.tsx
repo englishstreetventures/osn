@@ -406,8 +406,7 @@ export type ProseLinkTone = "accent" | "muted";
  * link changes nothing on hover: its underline already says what it is.
  *
  * Two tones and no third that inherits: a link inside a tinted notice keeps
- * the readable gold rather than taking the notice's own ink (the owner's
- * choice on englishstreetventures/osn#1838).
+ * the readable gold rather than taking the notice's own ink.
  */
 const PROSE_LINK_TONE = {
   accent: "base:text-ui-accent-ink",
