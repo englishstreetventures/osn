@@ -4,6 +4,7 @@ import { cardClass } from "@cire/ui/card";
 import DietaryPresets from "@cire/ui/dietary-presets";
 import Eyebrow, { eyebrowClass } from "@cire/ui/eyebrow";
 import Reveal from "@cire/ui/reveal";
+import { Input } from "@shared/ui/ui/input";
 import { heldWhileClosing } from "@shared/ui/ui/modal";
 import { Notice } from "@shared/ui/ui/notice";
 import { createEffect, createMemo, createSignal, createUniqueId, For, on, Show } from "solid-js";
@@ -295,11 +296,13 @@ function DemoRsvpModal(props: DemoRsvpModalProps) {
                     {/* Same reveal as the real sheet — this demo is what a
                         visitor judges the real one by. */}
                     <Reveal when={responses()[guestId]?.dietaryPresets.includes("other") ?? false}>
-                      <label class="font-body text-text-muted text-ui-sm tracking-ui-wide mt-3 block uppercase">
-                        Anything else
-                        <input
+                      <label class="font-body text-text-muted text-ui-sm mt-3 block">
+                        <span class="tracking-ui-wide uppercase">Anything else</span>
+                        <Input
+                          fill="ink"
+                          size="touch"
+                          class="mt-1.5"
                           type="text"
-                          class="border-border font-body text-text placeholder:text-text-muted focus:border-gold sm:text-ui-base rounded-ui-field focus-visible:outline-ui-focus transition-ui-colors mt-1.5 block w-full border bg-transparent px-3 py-2.5 text-base duration-(--dur-fast) ease-(--ease-out) focus-visible:outline-2 focus-visible:outline-offset-2"
                           placeholder="e.g. no onion or garlic"
                           value={responses()[guestId]?.dietary ?? ""}
                           onInput={(e) => setDietary(guestId, e.currentTarget.value)}
