@@ -185,14 +185,16 @@ export const Fields = () => {
 };
 
 /**
- * Two sizes and no more. `sm` is for a control sitting inside a table row, `md`
- * for a form — and the point of having exactly two is that an input, a select
- * and a textarea at the same size share one box, so a date and a currency line
- * up in a column instead of being three near-misses.
+ * Five sizes, each a fixed height an input and a select share, so a date and a
+ * currency line up in a column. `sm` (28px) sits in a table row or a filter
+ * bar, `md` (36px) in a form; `form` (34px, md's sides and type) and
+ * `form-compact` (34px, sm's) are cire's portal fields; `touch` is a guest's
+ * field, 46px on a phone and 44px from 640px. The select draws its own chevron,
+ * 12px in on the wide boxes and 10px on the narrow ones.
  */
 export const ControlSizes = () => (
   <div class="flex flex-col gap-8">
-    {(["md", "sm"] as const).map((size) => (
+    {(["md", "form", "form-compact", "sm", "touch"] as const).map((size) => (
       <div class="flex flex-col gap-2">
         <span class="text-meta text-subtle tracking-wide uppercase">{size}</span>
         <div class="flex flex-wrap items-center gap-3">
@@ -201,9 +203,88 @@ export const ControlSizes = () => (
             <option>Select</option>
           </Select>
           <Input size={size} class="w-40" aria-invalid="true" value="Invalid" />
+          <Select size={size} class="w-40" disabled>
+            <option>Disabled</option>
+          </Select>
         </div>
       </div>
     ))}
+  </div>
+);
+
+/** Three of the guest site's palettes (`cire/theme/src/palette.ts`): a ground and its ink. */
+const INK_GROUNDS = [
+  { name: "chapel · light", ground: "oklch(94.5% 0.014 85)", ink: "oklch(28% 0.018 70)" },
+  { name: "jewel · dark", ground: "oklch(19.5% 0.045 305)", ink: "oklch(95.5% 0.014 85)" },
+  { name: "garden · coloured", ground: "oklch(93.5% 0.021 25)", ink: "oklch(30% 0.052 350)" },
+] as const;
+
+/**
+ * `fill="ink"`: the edge and fill drawn from the text colour at 55% and 4.5%, so
+ * a guest field reads on whatever surface the couple chose. Each panel sets
+ * its own ink and ground; under it the ground fill for comparison. The claim
+ * code is centred capitals at 1rem on every width, and an amount is centred.
+ * Focus one to see the accent edge and the outline.
+ */
+export const InkFields = () => (
+  <div class="flex flex-wrap items-start gap-6">
+    {INK_GROUNDS.map((g) => (
+      <div
+        class="rounded-ui-lg flex min-w-0 flex-1 basis-72 flex-col gap-3 p-5"
+        style={{ background: g.ground, color: g.ink, "--ui-ink": g.ink }}
+      >
+        <span class="text-meta tracking-wide uppercase">{g.name}</span>
+        <Input fill="ink" size="touch" aria-label="Your name" placeholder="Your name" />
+        <Input
+          fill="ink"
+          size="touch"
+          face="claim"
+          class="h-13.5"
+          aria-label="Invitation code"
+          placeholder="e.g. PATEL-JOY-RK97"
+        />
+        <Input
+          fill="ink"
+          size="touch"
+          face="amount"
+          class="mx-auto w-40"
+          aria-label="Amount"
+          value="150"
+        />
+        <Textarea
+          fill="ink"
+          size="touch"
+          rows={3}
+          aria-label="A note"
+          placeholder="Anything else"
+        />
+        <Input fill="ink" size="touch" aria-label="Disabled" value="Disabled" disabled />
+        <Input size="md" aria-label="Ground fill" placeholder="Ground fill, for comparison" />
+      </div>
+    ))}
+  </div>
+);
+
+/**
+ * The select's own chevron at every size, with a value long enough to reach it,
+ * sized to its content in a squeezed row, and disabled.
+ */
+export const SelectChevron = () => (
+  <div class="flex max-w-md flex-col gap-4">
+    {(["md", "form", "form-compact", "sm"] as const).map((size) => (
+      <Select size={size} aria-label={`${size} select`}>
+        <option>{`A long ${size} value that runs on towards the chevron`}</option>
+      </Select>
+    ))}
+    <label class="flex w-64 items-center gap-2">
+      <span class="text-meta min-w-0 flex-1 truncate">A role for this co-host</span>
+      <Select size="form-compact" class="w-auto">
+        <option>Can edit everything</option>
+      </Select>
+    </label>
+    <Select size="form" disabled aria-label="Disabled select">
+      <option>Disabled</option>
+    </Select>
   </div>
 );
 
