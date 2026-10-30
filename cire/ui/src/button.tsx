@@ -101,10 +101,9 @@ const MOTION =
 
 /**
  * `choice`'s colours and ring move on `--dur-base`, a step slower than a
- * hover's: the owner asked to watch the gold come up between rest, halfway
- * and chosen (englishstreetventures/osn#1840). `box-shadow` is listed because
- * the ring is a shadow; the outline still is not, so the focus ring lands at
- * once.
+ * hover's, so the gold can be seen coming up between rest, halfway and
+ * chosen. `box-shadow` is listed because the ring is a shadow; the outline
+ * still is not, so the focus ring lands at once.
  */
 const CHOICE_MOTION =
   "base:transition-[color,background-color,border-color,box-shadow] " +
@@ -146,9 +145,8 @@ const VARIANT = {
    * pill: a gold word inside a 40% gold edge.
    *
    * Under the pointer the edge turns full gold and nothing else moves — no
-   * wash (the owner's choice on englishstreetventures/osn#1840). A gold wash
-   * behind the gold word would draw the two together: on the light ramp it
-   * takes the word to 3.90:1 on the page. With the ground left alone the word
+   * wash. A gold wash behind the gold word would draw the two together: on
+   * the light ramp it takes the word to 3.90:1 on the page. With the ground left alone the word
    * keeps its rest contrast wherever the button sits, and the edge is the
    * hover's one sign.
    */
@@ -187,8 +185,7 @@ const VARIANT = {
    *
    * Under the pointer an unchosen option goes halfway to chosen: its edge and
    * ink a mix of rest and chosen, and a 1px ring at half the chosen ring's
-   * strength (the owner's choice on englishstreetventures/osn#1840), so a
-   * hover never looks like a choice already made. The hover is gated on the
+   * strength, so a hover never looks like a choice already made. The hover is gated on the
    * option being neither chosen nor locked, and the gate sits inside `base:`
    * (`…:hover:base:…`), so the rule keeps zero specificity and a caller's
    * plain class still wins. A locked choice (`aria-disabled`) keeps its look:

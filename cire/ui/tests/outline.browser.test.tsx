@@ -3,9 +3,8 @@
  *
  * The portals' secondary action: a 40% gold edge and a gold word, at every
  * `outline` in the organiser and vendor portals. Under the pointer the edge
- * turns full gold and nothing else moves (the owner's choice on
- * englishstreetventures/osn#1840): a gold wash behind the gold word takes the
- * light ramp's word to 3.90:1 on the page. Each case is one way it can fail
+ * turns full gold and nothing else moves: a gold wash behind the gold word
+ * takes the light ramp's word to 3.90:1 on the page. Each case is one way it can fail
  * the person pointing at it, on every ground an outline sits on in the
  * portals — the page, each card fill and the raised surface of a dialog: the
  * word falls under 4.5:1, a wash comes back, or the hover shows nothing.
