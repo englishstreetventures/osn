@@ -5,6 +5,8 @@ import { useAuth } from "@shared/rp-auth/solid";
 import { toast } from "@shared/toast";
 import { EmptyState } from "@shared/ui/ui/empty-state";
 import { Notice } from "@shared/ui/ui/notice";
+import MapPin from "lucide-solid/icons/map-pin";
+import Pin from "lucide-solid/icons/pin";
 import { createSignal, lazy, onMount, Show, For, Suspense } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
@@ -30,6 +32,7 @@ import {
   type ImageCrop,
 } from "../lib/image-crop";
 import { hasGuestPolicy, hasRunOfShow, hasText } from "../lib/invite-emptiness";
+import { LINK_PILL_ROW, LinkPill } from "./LinkPill";
 import SectionIntro from "./SectionIntro";
 
 /**
@@ -332,26 +335,21 @@ export default function EventTable(props: EventTableProps) {
                 </Show>
 
                 <Show when={event.pinterestUrl || event.mapsUrl}>
-                  <div class="font-body text-ui-sm flex flex-wrap gap-4 pt-1">
+                  <div class={`${LINK_PILL_ROW} pt-1`}>
                     <Show when={event.mapsUrl}>
-                      <a
-                        href={event.mapsUrl!}
-                        target="_blank"
-                        rel="noreferrer"
-                        class="text-gold underline-offset-4 hover:underline"
-                      >
-                        Maps ↗
-                      </a>
+                      {(href) => (
+                        <LinkPill href={href()} external mark={MapPin}>
+                          Maps
+                        </LinkPill>
+                      )}
                     </Show>
                     <Show when={event.pinterestUrl}>
-                      <a
-                        href={event.pinterestUrl!}
-                        target="_blank"
-                        rel="noreferrer"
-                        class="text-gold underline-offset-4 hover:underline"
-                      >
-                        Pinterest ↗
-                      </a>
+                      {(href) => (
+                        // Pinterest has no mark in the portal's icon set; a pin stands in.
+                        <LinkPill href={href()} external mark={Pin}>
+                          Pinterest
+                        </LinkPill>
+                      )}
                     </Show>
                   </div>
                 </Show>
