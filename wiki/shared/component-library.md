@@ -863,10 +863,11 @@ error rather than needing a trip to the source.
 
 ### cire's `Button`, as a vocabulary
 
-`@cire/ui`'s `Button` is the house style rather than the shadcn set — uppercase,
-tracked, a sharp 4px corner, a gold primary — and on a cire surface it is where a
-call site's colour, shape and padding have to come from. Sixteen variants,
-grouped by the job rather than by the look:
+`@cire/ui`'s `Button` is the house style rather than the shadcn set — pill
+actions, sentence-case labels at normal tracking in a medium weight, a gold
+primary — and on a cire surface it is where a call site's colour, shape and
+padding have to come from. Sixteen variants, grouped by the job rather than by
+the look:
 
 | Group          | Variants                              | What each is for                                                                                                                                                                                                                              |
 | -------------- | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -875,7 +876,7 @@ grouped by the job rather than by the look:
 | Destructive    | `danger`, `quietDanger`, `bareDanger` | Red at rest for the button that commits it; muted at rest and red on hover for the control that merely offers it, boxed (`quietDanger`) or as a glyph (`bareDanger`). A column of red-outlined buttons down a table reads as an error state   |
 | Text           | `link`, `subtle`, `touchLink`         | Accent ink, muted ink, and muted ink carrying its underline at rest. The last is for a link whose underline must show without hover: on `@cire/invites`, read on a phone where there is no hover to reveal one, and for a link set inside a sentence, where colour alone does not mark it (WCAG 1.4.1) |
 | Glyph          | `bare`                                | An arrow, a cross, a disclosure caret. No underline, because there is no word to underline                                                                                                                                                    |
-| Field          | `field`                               | A control shaped like the field it stands in for — the dietary picker's collapsed trigger, in a column of text inputs: sentence case, an input's padding, transparent like the inputs around it |
+| Field          | `field`                               | A control shaped like the field it stands in for — the dietary picker's collapsed trigger, in a column of text inputs: an input's padding and weight, the text field's corner, transparent like the inputs around it |
 | Chrome         | `chip`                                | A control in a sheet's own chrome rather than its content — the guest event sheet's badge, "Give RSVP →" and "← See details", in its bar beside the round close button. A pill on the surface fill, opaque because content scrolls under it, in accent ink because it leads somewhere |
 | State and fill | `choice`, `tile`                      | One option among several, marked through `aria-pressed` **or** `aria-checked` so a toggle group and a radio group look the same; and the control that _is_ a block — a card, a row — where a hairline stops describing the target             |
 
@@ -885,14 +886,34 @@ Five sizes, and they are not one scale:
 | ---------------- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | `sm`, `md`, `lg` | three steps of label padding and type             | An ordinary control                                                                                              |
 | `swatch`         | one hairline of padding, no type at all           | A control whose content is the thing itself — a colour swatch, a product thumbnail. The picture is what sizes it |
-| `icon`           | square, sized to the glyph rather than to a label | A single glyph                                                                                                   |
+| `icon`           | square, sized to the glyph rather than to a label; boxed, a 32px circle | A single glyph                                                                                     |
 
 Four sizing tables, picked by the variant. The borderless ones take the type
-step and none of the box padding, because `px-4 py-2` around a text link is a
-word floating in a gap. `tile` takes square block padding, because its interior
-is a small layout — a numbered marker beside two lines of text — rather than a
-word. `field` takes an input's padding and sentence case. Everything else takes
-the ordinary one.
+step and none of the box padding or weight, because `px-5 py-2` around a text
+link is a word floating in a gap. `tile` takes square block padding, because its
+interior is a small layout — a numbered marker beside two lines of text — rather
+than a word. `field` takes an input's padding and weight. Everything else takes
+the ordinary one, whose side padding is a step wider than a rectangle's because
+a pill's round ends eat into the room beside the label.
+
+The corner is not in the sizing tables. Each class string carries exactly one,
+`base:`-prefixed, from a contract role rather than a size step, so each cire app
+sets how round its buttons are once, in its stylesheet ([[design-tokens]]):
+
+| Variant or size                         | Corner                 |
+| --------------------------------------- | ---------------------- |
+| size `swatch`, whatever the variant      | `base:rounded-ui-field` |
+| variant `tile` or `field`               | `base:rounded-ui-field` |
+| variant `chip`                          | `base:rounded-ui-pill` |
+| every other variant and size             | `base:rounded-ui-control` |
+
+A tile is a block, a field holds a value and a swatch frames a picture, so a
+pill would read as a lozenge around each. `chip` takes the `pill` step rather
+than the `control` role: it sits beside a round close button and stays round
+whatever an app maps `control` to. The borderless variants take `control` too;
+with no border and no fill, only their focus ring shows it.
+Because no default corner is a plain utility, a caller's plain `rounded-*` in
+`class` wins rather than tying with it (§Class composition above).
 
 `cire/ui/src/button.tsx` carries the reason for each in its own doc comment, and
 that is the bar for adding one: a variant is a design concept somebody can name,

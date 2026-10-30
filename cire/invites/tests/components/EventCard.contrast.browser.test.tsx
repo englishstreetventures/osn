@@ -96,8 +96,8 @@ function parts(container: HTMLElement) {
 
 beforeAll(() => {
   // A colour read straight after a state change returns the pre-transition
-  // value under `transition-colors`. How the button animates is a question for
-  // `EventCard.browser.test.tsx`; this file reads settled states.
+  // value while the button's colours fade. How the button animates is a
+  // question for `EventCard.browser.test.tsx`; this file reads settled states.
   const stop = document.createElement("style");
   stop.textContent = "*, *::before, *::after { transition: none !important; }";
   document.head.append(stop);

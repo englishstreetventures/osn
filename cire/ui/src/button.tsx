@@ -4,19 +4,30 @@ import { splitProps } from "solid-js";
 /**
  * cire's button.
  *
- * Every control in both portals was already one of four shapes — a solid gold
- * commit, a gold-outlined secondary, a neutral-outlined quiet action, and a
- * destructive one — written out longhand at each of the ~40 call sites, which
- * is why three had drifted to a different padding and two to a different
- * tracking. This is those four, named.
+ * Sixteen variants, each named for the job a control does, so a call site
+ * names the job rather than writing out its classes. Eleven draw a box:
+ * `primary`, `cta`, `outline`, `quiet`, `quietDanger`, `choice`, `tile`,
+ * `dashed`, `field`, `danger` and `chip`. Five draw none: `link`, `subtle`,
+ * `touchLink`, `bare` and `bareDanger` (see {@link BORDERLESS}).
  *
  * ## Why this is not `@shared/ui`'s Button
  *
- * The shapes are the house style, not a general one: uppercase, tracked, a
- * sharp 4px corner, and a *gold* primary rather than a neutral one. `@shared/ui`'s
- * Button is the shadcn set — six variants, sentence case, rounded — and an app
- * that wanted cire's would be overriding almost every class. Two components is
- * the honest answer; one component with ten variants is not.
+ * The vocabulary is the house's, not a general one: sixteen variants named for
+ * the jobs cire's screens do — a guest site's outlined call to action, a tile,
+ * a field-shaped trigger, a sheet's chrome — and a *gold* primary rather than a
+ * neutral one. `@shared/ui`'s Button is the shadcn set, six variants, and an
+ * app that wanted cire's would be overriding almost every class. Two
+ * components is the honest answer; one component carrying both vocabularies
+ * is not.
+ *
+ * ## Shape and case
+ *
+ * Actions take the `control` corner role, which cire's design draws as a pill
+ * once an app maps it so. Labels show as written, at normal tracking, with a
+ * medium weight on a boxed label so it stands apart from the text around it.
+ * Nothing here transforms the label. The corner comes from a contract role
+ * rather than a size step, so each app sets how round its buttons are once, in
+ * its stylesheet: see {@link cornerFor}.
  *
  * ## No haptic here
  *
@@ -57,8 +68,14 @@ export type ButtonSize = "sm" | "md" | "lg" | "swatch" | "icon";
 
 const BASE =
   "base:font-ui-body base:inline-flex base:items-center base:justify-center base:gap-2 " +
-  "base:rounded-ui-sm base:border base:whitespace-nowrap " +
-  "base:transition-colors base:duration-100 base:ease-out " +
+  "base:border base:whitespace-nowrap " +
+  // Only what a hover changes. Tailwind's `transition-colors` also fades
+  // `outline-color`, which would bring the focus ring in over the hover's
+  // duration rather than the moment focus lands. The duration is the app's
+  // `--dur-fast`, so it follows the app's motion ladder; the fallback is for an
+  // app that declares no ladder.
+  "base:transition-[color,background-color,border-color,text-decoration-color] " +
+  "base:duration-(--dur-fast,100ms) base:ease-out " +
   // Its own focus ring, from the contract's own token. A library component
   // cannot assume its host declares a blanket `:focus-visible` rule: the two
   // portals and `@cire/invites` do, `@cire/landing` does not, and the nine
@@ -168,11 +185,12 @@ const VARIANT = {
    * currently selected.
    *
    * Not `quiet` with different padding. The other variants are all *actions*
-   * and read as actions: uppercase, tracked, centred. This one holds a value a
-   * guest typed the meaning of — "Vegetarian, no nuts" — and shouting it in
-   * small caps beside the text box below makes the pair look like two different
-   * kinds of thing when they are one. So it takes {@link FIELD_SIZE}: sentence
-   * case, no tracking, and an input's padding rather than a button's.
+   * and read as actions: a pill, a medium-weight label, centred. This one holds
+   * a value a guest typed the meaning of — "Vegetarian, no nuts" — and drawing
+   * it as a pill with a weighted label beside the text box below makes the pair
+   * look like two different kinds of thing when they are one. So it takes
+   * {@link FIELD_SIZE}, an input's padding and weight rather than a button's,
+   * and the text field's corner rather than the action's.
    *
    * Transparent rather than washed, for the same reason — it has to sit level
    * with the inputs around it, which are transparent over the form's own
@@ -194,17 +212,16 @@ const VARIANT = {
    * and an accent hairline, because it leads somewhere — `quiet`'s neutral ink
    * would make the way to the RSVP form the dimmest thing on the details.
    *
-   * `rounded-full` is the one plain utility in this table: {@link BASE}'s
-   * `base:rounded-ui-sm` is a zero-specificity `:where()` as a `base:` corner
-   * here would be, so the two would tie and the stylesheet's order would pick
-   * the corner. A plain class outranks it.
+   * Its pill is the `pill` step rather than the `control` role, which
+   * {@link cornerFor} picks for it: it must match the round close button
+   * beside it whatever an app decides its buttons look like.
    */
   chip:
-    "rounded-full base:border-ui-accent/40 base:bg-ui-surface base:text-ui-accent-ink " +
+    "base:border-ui-accent/40 base:bg-ui-surface base:text-ui-accent-ink " +
     "base:hover:border-ui-accent",
 
   /*
-   * The four borderless ones.
+   * The borderless ones: these four, and `bareDanger` after them.
    *
    * Counted across `cire/host`: 9 accent text links, 17 muted ones and 25 glyph
    * buttons — 51 of that app's 98 raw `<button>` elements, each written out by
@@ -255,28 +272,35 @@ const VARIANT = {
  * The variants that draw no box.
  *
  * They take the type size from {@link SIZE}'s twin below and none of its
- * padding: a bordered control needs `px-4 py-2` to BE a control, and a text
- * link with the same padding is a word floating in a gap. Nor the uppercase —
- * a link reads as a sentence fragment, and shouting it makes it a button
- * wearing a link's clothes.
+ * padding: a bordered control needs `px-5 py-2` to BE a control, and a text
+ * link with the same padding is a word floating in a gap. Nor the medium
+ * weight — a link reads as part of the sentence around it, and weighting it
+ * makes it a button wearing a link's clothes.
  */
 const BORDERLESS = new Set<ButtonVariant>(["link", "subtle", "touchLink", "bare", "bareDanger"]);
 
+// A pill's round ends eat into the room beside its label, so each step's side
+// padding is a step wider than a rectangle of the same height would need.
+//
+// The tracking is set rather than left to inherit: letter-spacing passes down
+// to a button where a text transform does not, so a button set inside a
+// tracked eyebrow would otherwise spread its sentence-case label to match.
 const SIZE = {
-  sm: "base:px-3 base:py-1.5 base:text-ui-xs base:tracking-ui-wider base:uppercase",
-  md: "base:px-4 base:py-2 base:text-ui-sm base:tracking-ui-wider base:uppercase",
+  sm: "base:px-4 base:py-1.5 base:text-ui-xs base:font-medium base:tracking-ui-normal",
+  md: "base:px-5 base:py-2 base:text-ui-sm base:font-medium base:tracking-ui-normal",
   // For a control that is the only thing to do on the screen it is on — a
   // claim-code submit, an RSVP commit. Also the minimum comfortable touch
   // target on a phone, which is where most invites are opened.
-  lg: "base:px-6 base:py-3.5 base:text-ui-base base:tracking-ui-wider base:uppercase",
+  lg: "base:px-7 base:py-3.5 base:text-ui-base base:font-medium base:tracking-ui-normal",
   // The control's content is the thing itself — a colour swatch, a product
   // thumbnail, a design preview. One hairline of padding, so the border reads
   // as a frame around the picture rather than a box around a label, and the
   // picture's own dimensions are what size the control. No type treatment,
   // because there is no type.
   swatch: "base:p-1",
-  // Square, for a single glyph. No tracking — there is nothing to track.
-  icon: "base:h-8 base:w-8 base:shrink-0 base:p-0 base:text-ui-base base:uppercase",
+  // Square, for a single glyph, so the pill corner makes it a circle. No
+  // weight or tracking: a glyph is not a label.
+  icon: "base:h-8 base:w-8 base:shrink-0 base:p-0 base:text-ui-base",
 } satisfies Readonly<Record<ButtonSize, string>>;
 
 /** {@link SIZE} for the borderless variants: type only, plus what a glyph needs to stay hittable. */
@@ -304,22 +328,23 @@ const BORDERLESS_SIZE = {
  * rather than a word. `px-4 py-2` around that reads as a paragraph that has
  * been squeezed into a button.
  *
- * The type steps are {@link SIZE}'s own, so a tile and an ordinary button in
- * the same row are the same size of thing; only the room inside differs.
+ * The type steps and weight are {@link SIZE}'s own, so a tile and an ordinary
+ * button in the same row are the same size of thing; only the room inside
+ * differs.
  */
 const TILE_SIZE = {
-  sm: "base:gap-3 base:p-3 base:text-ui-xs base:tracking-ui-wider base:uppercase",
-  md: "base:gap-3 base:p-4 base:text-ui-sm base:tracking-ui-wider base:uppercase",
-  lg: "base:gap-3 base:p-6 base:text-ui-base base:tracking-ui-wider base:uppercase",
+  sm: "base:gap-3 base:p-3 base:text-ui-xs base:font-medium base:tracking-ui-normal",
+  md: "base:gap-3 base:p-4 base:text-ui-sm base:font-medium base:tracking-ui-normal",
+  lg: "base:gap-3 base:p-6 base:text-ui-base base:font-medium base:tracking-ui-normal",
   swatch: "base:p-1",
-  icon: "base:h-8 base:w-8 base:shrink-0 base:p-0 base:text-ui-base base:uppercase",
+  icon: "base:h-8 base:w-8 base:shrink-0 base:p-0 base:text-ui-base",
 } satisfies Readonly<Record<ButtonSize, string>>;
 
 /**
  * {@link SIZE} for `field`.
  *
- * An input's padding and sentence case — the two things that make a control
- * read as a form field rather than as a button. The type steps are
+ * An input's padding and an input's weight — the two things that make a
+ * control read as a form field rather than as a button. The type steps are
  * {@link SIZE}'s own, so a field and the text box under it are the same size of
  * thing.
  */
@@ -339,6 +364,29 @@ function sizingFor(variant: ButtonVariant, size: ButtonSize): string {
 }
 
 /**
+ * The one corner a variant and size take, always `base:`-prefixed.
+ *
+ * Actions take the `control` role, which decides how round an app's buttons
+ * are. A `tile`, a `field` and anything at the `swatch` size take the `field`
+ * role instead — the text field's corner: a tile is a block, a field holds a
+ * value, and a swatch frames a picture, so a pill would read as a lozenge
+ * around each. `chip` takes the `pill` step, since it is drawn as a sibling of a
+ * round close button and stays round whatever `control` is. The borderless
+ * variants take `control` too; with no border and no fill, only their focus
+ * ring shows it.
+ *
+ * Exactly one corner class, and never a plain one, so a caller's plain
+ * `rounded-*` in `class` outranks it rather than tying with it.
+ */
+function cornerFor(variant: ButtonVariant, size: ButtonSize): string {
+  if (size === "swatch" || variant === "tile" || variant === "field") {
+    return "base:rounded-ui-field";
+  }
+  if (variant === "chip") return "base:rounded-ui-pill";
+  return "base:rounded-ui-control";
+}
+
+/**
  * The classes on their own, for a call site that needs a different element — an
  * `<a>` that looks like a button, a Kobalte trigger rendered `as`. Reaching for
  * this instead of `<button role="link">` is the right trade every time.
@@ -346,7 +394,7 @@ function sizingFor(variant: ButtonVariant, size: ButtonSize): string {
 export function buttonClass(options: { variant?: ButtonVariant; size?: ButtonSize } = {}): string {
   const variant = options.variant ?? "quiet";
   const size = options.size ?? "md";
-  return `${BASE} ${VARIANT[variant]} ${sizingFor(variant, size)}`;
+  return `${BASE} ${cornerFor(variant, size)} ${VARIANT[variant]} ${sizingFor(variant, size)}`;
 }
 
 export type ButtonProps = SafeProps<"button"> & {

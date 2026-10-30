@@ -81,12 +81,15 @@ Corner rule — exactly one corner class per class string, always `base:`-prefix
 |---|---|
 | size `swatch`, any variant | `base:rounded-ui-field` |
 | variant `tile` or `field` | `base:rounded-ui-field` |
+| variant `chip` | `base:rounded-ui-pill` |
 | every other variant and size | `base:rounded-ui-control` |
+
+`chip` takes the `pill` step, not the `control` role: it sits beside the event sheet's round close button and must stay round whatever an app maps `control` to — invites maps it to 4px until Phase 4, which would square the sheet's chips between merges.
 
 So the palette presets (`PaletteField.tsx:124-130`, `choice` default size) and the Desktop/Phone toggle (`invite/previews.tsx:63`, `choice` `sm`) become pills; only `RegistryImageField.tsx:534` (`swatch`) is a soft square.
 
 - [ ] **Step 1: failing tests** in `cire/ui/tests/ui.test.tsx`:
-  - `every action variant is a pill`: for `primary, cta, outline, quiet, quietDanger, danger, choice, dashed, chip`, `buttonClass({variant})` contains `base:rounded-ui-control` and exactly one `rounded-` token.
+  - `every action variant is a pill`: for `primary, cta, outline, quiet, quietDanger, danger, choice, dashed`, `buttonClass({variant})` contains `base:rounded-ui-control` and exactly one `rounded-` token; for `chip`, `base:rounded-ui-pill` and exactly one.
   - `tile, field and swatch take the field corner`: `tile`, `field`, and `choice`+`swatch` contain `base:rounded-ui-field` and not `rounded-ui-control`.
   - `labels are sentence case`: sizes `sm, md, lg, icon` on `primary` and `tile` contain neither `uppercase` nor `tracking-ui-wider`; boxed `sm, md, lg` contain `base:font-medium`.
   - `a caller's corner still wins`: `<Button variant="chip" class="rounded-none">x</Button>`; every `rounded-` token in the class except `rounded-none` is `base:`-prefixed. (Red on main: `button.tsx:203`.)
