@@ -208,8 +208,10 @@ export const States: Story<ThemeArgs> = {
         <>
           <Mono>disabled</Mono> leaves the tab order; <Mono>aria-disabled</Mono> keeps its tab stop
           and swallows the click. A <Mono>choice</Mono> is marked the same whether its group reads{" "}
-          <Mono>aria-pressed</Mono> or <Mono>aria-checked</Mono>. Tab into a panel to see the focus
-          ring follow the pill.
+          <Mono>aria-pressed</Mono> or <Mono>aria-checked</Mono>. A <Mono>choice</Mono> locked with{" "}
+          <Mono>aria-disabled</Mono> keeps its look, so the answer just given stays legible while it
+          saves. Point at an unchosen choice: it goes halfway to chosen. Tab into a panel to see the
+          focus ring follow the pill.
         </>
       }
     >
@@ -268,6 +270,39 @@ export const States: Story<ThemeArgs> = {
                   label="Ivory"
                   extra={{ role: "radio", "aria-checked": "true" }}
                 />
+              </div>
+            </Section>
+            <Section title="Chosen while locked">
+              <div class="flex flex-col gap-3">
+                <For
+                  each={
+                    [
+                      { name: "Unchosen", chosen: undefined, locked: false },
+                      { name: "Chosen", chosen: "attending", locked: false },
+                      { name: "Chosen while locked", chosen: "attending", locked: true },
+                    ] as const
+                  }
+                >
+                  {(row) => (
+                    <fieldset class="flex flex-col gap-1.5">
+                      <legend class="text-ui-xs text-ui-ink-secondary">{row.name}</legend>
+                      <div class="flex gap-2">
+                        <For each={["attending", "declined"] as const}>
+                          {(answer) => (
+                            <Specimen
+                              variant="choice"
+                              size="md"
+                              label={answer === "attending" ? "Attending" : "Not attending"}
+                              ariaDisabled={row.locked}
+                              class="min-h-11 flex-1"
+                              extra={{ "aria-pressed": row.chosen === answer ? "true" : "false" }}
+                            />
+                          )}
+                        </For>
+                      </div>
+                    </fieldset>
+                  )}
+                </For>
               </div>
             </Section>
           </>
