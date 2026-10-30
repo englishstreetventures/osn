@@ -23,7 +23,7 @@ packages:
   - "@cire/host"
   - "@pulse/web"
   - "@shared/ui"
-last-reviewed: 2026-10-28
+last-reviewed: 2026-10-30
 ---
 
 # Frontend Patterns
@@ -251,6 +251,34 @@ into the layout at full opacity when the chunk lands. `awaitEventCards`
 it through the `waitForEvents` hook, **under** the fade-out of the step before it
 rather than on top of it, and both halves of the wait are capped so a chunk that
 never arrives still reveals the page.
+
+### A closed dialog with a display class is still drawn
+
+The browser hides a closed `<dialog>` with one user-agent rule,
+`dialog:not([open]) { display: none }`. An author rule beats a user-agent
+rule whatever their specificity, so a `flex` or `block` on the element —
+`:where()`-wrapped or not — lays the closed dialog out. With the user-agent
+`position: absolute; inset-inline: 0; margin: auto` it sits centred in the
+nearest positioned box, at the top of its parent's column, painting its border,
+fill and shadow around no content. Cire's host Checklist drew its starter
+preview's closed `Modal` this way: a 512×2 strip across the top of the panel,
+on the first card's top edge, so the starter card seemed to grow out of a line.
+
+A dialog laid out while closed also loses its entry. Cire's guest sheet reads
+the page's width before `Modal` opens it, which gives the closed dialog a
+style of its own, so `@starting-style` had nothing to apply and the sheet
+appeared at rest.
+
+`@shared/ui`'s `Modal` puts the rule back for every `.ui-modal` in its injected,
+unlayered stylesheet, which outranks every Tailwind utility
+([[component-library]] §`frame`). A `<dialog>`
+of your own that takes a display class needs the same rule, or the display
+class only while open (`open:flex`).
+
+The fast tier cannot see it: happy-dom computes no user-agent styles. Read
+`getComputedStyle(dialog).display` and `getClientRects()` of a closed dialog in
+the browser tier (`shared/ui` `tests/modal.browser.test.tsx`, `cire/host`
+`tests/components/ChecklistStarter.browser.test.tsx`).
 
 ### `position: sticky` resolves its offsets against the scrollport
 

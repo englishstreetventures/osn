@@ -23,7 +23,7 @@ packages:
   - "@shared/ui"
   - "@osn/auth-ui"
   - "@cire/ui"
-last-reviewed: 2026-10-28
+last-reviewed: 2026-10-30
 ---
 
 # Component Library (Zaidan)
@@ -605,7 +605,7 @@ Its motion is split, and the split is not arbitrary:
 
 |           | How                         | Why there                                                                                                                                                                                              |
 | --------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Entry** | `@starting-style`, pure CSS | The browser takes the from-state when the element is first rendered. No JavaScript at all. Safari has had it since 17.5; older engines show the dialog immediately, which degrades rather than breaks. |
+| **Entry** | `@starting-style`, pure CSS | The browser takes the from-state when the element is first rendered, or shown again after `display: none`, as a closed modal is. No JavaScript at all. Safari has had it since 17.5; older engines show the dialog immediately, which degrades rather than breaks. |
 | **Exit**  | JavaScript defers `close()` | `close()` drops a dialog out of the top layer _immediately_, so an exit transition has nothing left to paint.                                                                                          |
 
 **A CSS-only exit from the top layer does not work cross-browser, and this is
@@ -690,11 +690,19 @@ container, so a child owns the scrollport and the furniture sits beside it. The
 child needs its own `min-h-0`, or it cannot shrink under the panel's
 `max-height` and nothing scrolls.
 
-Two details worth carrying.
+Three details worth carrying.
 
 `frame` sets `p-0` rather than merely omitting the padding. **The user-agent
 stylesheet gives every `<dialog>` `padding: 1em`**, so a component that writes
 no padding rule ships a 16px band its caller cannot see in its own markup.
+
+The column is drawn only while the dialog is open. **A closed `<dialog>` is
+hidden by one user-agent rule, `dialog:not([open]) { display: none }`, and any
+author `display` beats it**, so the frame's `flex` — or a caller's own `flex`
+in `class` — would lay a modal kept mounted while closed out as a bordered,
+shadowed strip at the top of whatever positions it. `Modal`'s injected
+stylesheet puts the rule back for every `.ui-modal`, unlayered so no utility
+outranks it; see [[frontend-patterns#A closed dialog with a display class is still drawn]].
 
 And the panel **clips rather than hides**. `overflow: hidden` refuses the user a
 scrollbar and grants everything else — `scrollIntoView`, and the scroll the
