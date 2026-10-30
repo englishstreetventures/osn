@@ -2,7 +2,7 @@ import { Notice, type NoticeProps } from "@shared/ui/ui/notice";
 
 /**
  * Cire's standing note: `@shared/ui` `Notice`'s accent tone — its border at 40%
- * of the gold, a 5% wash, readable gold ink — led by a ✦, the house ornament,
+ * of the gold, a 5% tint, readable gold ink — led by a ✦, the house ornament,
  * with "Note" read in its place.
  *
  * The shared accent tone carries no mark, so the other products draw it bare;
@@ -35,10 +35,11 @@ import { Notice, type NoticeProps } from "@shared/ui/ui/notice";
  *   at 4.5:1.
  *
  * It takes `Notice`'s props — a size, `alert`, an `id`, `aria-describedby`,
- * `data-*` and a layout class — and nothing else reaches the element.
+ * `data-*` and a layout class — and nothing else reaches the element. It takes
+ * no `fill`: a note is the gold box with its tint.
  */
 
-export type NoteProps = Omit<NoticeProps, "tone" | "mark">;
+export type NoteProps = Omit<NoticeProps, "tone" | "mark" | "fill">;
 
 /** A four-pointed star with curved sides, the ✦ the portal's ornament draws. */
 function Star() {
