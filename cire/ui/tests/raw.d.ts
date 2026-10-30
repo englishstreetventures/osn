@@ -7,3 +7,9 @@ declare module "*?raw" {
   const source: string;
   export default source;
 }
+
+/**
+ * A browser test imports `test-support/tailwind.css` for its side effect, the
+ * stand-in stylesheet. Declared here for the same reason as `?raw`.
+ */
+declare module "*.css";

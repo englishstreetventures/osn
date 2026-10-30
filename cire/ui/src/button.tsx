@@ -397,6 +397,61 @@ export function buttonClass(options: { variant?: ButtonVariant; size?: ButtonSiz
   return `${BASE} ${cornerFor(variant, size)} ${VARIANT[variant]} ${sizingFor(variant, size)}`;
 }
 
+export type ProseLinkTone = "accent" | "muted";
+
+/**
+ * A link's ink, by tone. `accent` is readable gold, for a link the sentence is
+ * about. `muted` is the secondary ink, for a way round to somewhere else, and
+ * brightens to the body ink under the pointer as `touchLink` does. An accent
+ * link changes nothing on hover: its underline already says what it is.
+ *
+ * Two tones and no third that inherits: a link inside a tinted notice keeps
+ * the readable gold rather than taking the notice's own ink (the owner's
+ * choice on englishstreetventures/osn#1838).
+ */
+const PROSE_LINK_TONE = {
+  accent: "base:text-ui-accent-ink",
+  muted: "base:text-ui-ink-secondary base:hover:text-ui-ink",
+} satisfies Readonly<Record<ProseLinkTone, string>>;
+
+/**
+ * The classes for a link set inside a sentence — "See our privacy notice",
+ * "or edit Bloom & Co's listing".
+ *
+ * Not a `buttonClass` variant, because every `buttonClass` output starts
+ * `inline-flex … whitespace-nowrap`, which holds a long link to one line where
+ * a link in running text has to break with the words around it. So: inline,
+ * no type size and no weight, both of which it takes from its sentence, and
+ * underlined at rest at a 2px offset, because inside a sentence the underline
+ * is what marks the words as a link without colour (WCAG 1.4.1), and a phone
+ * has no hover to reveal one.
+ *
+ * For an `<a href>` that goes somewhere. A `<button>` lays out as an inline
+ * block even at `display: inline`, so its words never wrap with the sentence.
+ * A way to another screen written into a sentence is still a link with a real
+ * address, whose click handler may take over the plain click to do the
+ * navigating (leaving a modifier or middle click to the browser). An action
+ * that goes nowhere is not a link: it stays a `<button>`, outside the
+ * sentence.
+ *
+ * Its own focus ring, with `Button`'s values, since `@cire/landing` declares
+ * no blanket `:focus-visible` rule. The corner is the `control` role, as on the
+ * borderless buttons, and only the ring shows it. The transition names the
+ * colours alone, so the ring lands the moment focus does.
+ *
+ * A link that stands alone rather than inside a sentence is not this: it is a
+ * pill, `buttonClass({ variant: "outline" })`.
+ */
+export function proseLinkClass(options: { tone?: ProseLinkTone } = {}): string {
+  const tone = options.tone ?? "accent";
+  return (
+    "base:underline base:underline-offset-2 base:rounded-ui-control " +
+    "base:transition-[color,text-decoration-color] base:duration-(--dur-fast,100ms) base:ease-out " +
+    "base:focus-visible:outline-2 base:focus-visible:outline-offset-2 base:focus-visible:outline-ui-focus " +
+    PROSE_LINK_TONE[tone]
+  );
+}
+
 export type ButtonProps = SafeProps<"button"> & {
   variant?: ButtonVariant;
   size?: ButtonSize;
