@@ -9,7 +9,7 @@ import { heldWhileClosing, Modal } from "@shared/ui/ui/modal";
 import { Notice } from "@shared/ui/ui/notice";
 import { Select } from "@shared/ui/ui/select";
 import Globe from "lucide-solid/icons/globe";
-import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 
 import { apiUrl, isAuthExpired, redirectToLogin, weddingPath } from "../lib/api";
@@ -96,6 +96,10 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
     const cleaned = handle.replace(/^[@\s]+/, "");
     return /^[A-Za-z0-9._]+$/.test(cleaned) ? `https://instagram.com/${cleaned}` : null;
   };
+
+  // The shown listing's own places, each checked once per listing.
+  const shownWebsite = createMemo(() => safeHref(shownListing()?.website));
+  const shownInstagram = createMemo(() => safeInstagramHref(shownListing()?.instagram));
 
   // Focus-return: track the element that triggered the modal open
   let modalOpener: HTMLElement | null = null;
@@ -543,16 +547,16 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
 
               {/* Contact details: the listing's own places as pills, then how
                   to reach the vendor as text. */}
-              <Show when={safeHref(ml().website) || safeInstagramHref(ml().instagram)}>
+              <Show when={shownWebsite() || shownInstagram()}>
                 <div class={LINK_PILL_ROW}>
-                  <Show when={safeHref(ml().website)}>
+                  <Show when={shownWebsite()}>
                     {(href) => (
                       <LinkPill href={href()} mark={Globe} hint={`for ${ml().name}`}>
                         Website
                       </LinkPill>
                     )}
                   </Show>
-                  <Show when={safeInstagramHref(ml().instagram)}>
+                  <Show when={shownInstagram()}>
                     {(href) => (
                       <LinkPill href={href()} mark={InstagramMark} hint={`for ${ml().name}`}>
                         Instagram
