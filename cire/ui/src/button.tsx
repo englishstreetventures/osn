@@ -138,11 +138,21 @@ const VARIANT = {
    * photograph and a date, so the *primary* action is drawn as an outline and
    * promotes on hover. The portals have the opposite problem — a dashboard
    * needs its commit to be findable — so there `primary` is filled from the
-   * start and `outline` stays a wash. Both products need both.
+   * start and `outline` never fills. Both products need both.
    */
   cta: "base:border-ui-accent base:text-ui-accent-ink base:bg-transparent base:hover:bg-ui-accent base:hover:text-ui-on-accent base:disabled:hover:bg-transparent base:disabled:hover:text-ui-accent-ink",
-  outline:
-    "base:border-ui-accent/40 base:text-ui-accent-ink base:hover:border-ui-accent base:hover:bg-ui-accent-soft",
+  /**
+   * The portals' secondary action, and a link that stands alone drawn as a
+   * pill: a gold word inside a 40% gold edge.
+   *
+   * Under the pointer the edge turns full gold and nothing else moves — no
+   * wash (the owner's choice on englishstreetventures/osn#1840). A gold wash
+   * behind the gold word would draw the two together: on the light ramp it
+   * takes the word to 3.90:1 on the page. With the ground left alone the word
+   * keeps its rest contrast wherever the button sits, and the edge is the
+   * hover's one sign.
+   */
+  outline: "base:border-ui-accent/40 base:text-ui-accent-ink base:hover:border-ui-accent",
   quiet:
     "base:border-ui-hairline base:text-ui-ink-secondary base:hover:border-ui-accent base:hover:text-ui-accent-ink",
   /**
@@ -164,17 +174,19 @@ const VARIANT = {
    * presets, the section-background picker, the registry's candidate pictures.
    *
    * `quiet`'s body plus the thing they all need and no two would spell the
-   * same way: an accent border, and a ring so the mark survives on a swatch
-   * whose own colour is already sitting against that border. At rest the
-   * ring also doubles the edge's weight, so the chosen answer differs from the
-   * rest by more than colour; an unchosen option under the pointer wears a
-   * fainter ring of its own (below). It reads `aria-pressed` and `aria-checked` together because some
-   * are toggle groups and some radio groups — which ARIA property carries the
-   * state is a question about the group's semantics, not about how the chosen
-   * member should look.
+   * same way: an accent border, and a 2px ring outside it so the mark survives
+   * on a swatch whose own colour is already sitting against that border. The
+   * ring makes the chosen answer differ from the rest by more than colour, and
+   * its width keeps it apart from an unchosen option under the pointer, which
+   * wears a fainter 1px ring of its own (below), so the two differ by shape and
+   * not by gold strength alone. It reads
+   * `aria-pressed` and `aria-checked` together because some are toggle groups
+   * and some radio groups — which ARIA property carries the state is a
+   * question about the group's semantics, not about how the chosen member
+   * should look.
    *
    * Under the pointer an unchosen option goes halfway to chosen: its edge and
-   * ink a mix of rest and chosen, and a ring at half the chosen ring's
+   * ink a mix of rest and chosen, and a 1px ring at half the chosen ring's
    * strength (the owner's choice on englishstreetventures/osn#1840), so a
    * hover never looks like a choice already made. The hover is gated on the
    * option being neither chosen nor locked, and the gate sits inside `base:`
@@ -193,9 +205,9 @@ const VARIANT = {
     "not-aria-pressed:not-aria-checked:not-aria-disabled:hover:base:ring-1 " +
     "not-aria-pressed:not-aria-checked:not-aria-disabled:hover:base:ring-ui-accent/30 " +
     "base:aria-pressed:border-ui-accent base:aria-pressed:text-ui-accent-ink " +
-    "base:aria-pressed:ring-1 base:aria-pressed:ring-ui-accent/60 " +
+    "base:aria-pressed:ring-2 base:aria-pressed:ring-ui-accent/60 " +
     "base:aria-checked:border-ui-accent base:aria-checked:text-ui-accent-ink " +
-    "base:aria-checked:ring-1 base:aria-checked:ring-ui-accent/60",
+    "base:aria-checked:ring-2 base:aria-checked:ring-ui-accent/60",
   /**
    * The whole block is the control — a wedding in the portal's list, a step in
    * the getting-started guide, the collapsed section menu in the invite
