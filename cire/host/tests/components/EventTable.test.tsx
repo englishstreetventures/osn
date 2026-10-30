@@ -435,3 +435,42 @@ describe("EventTable open-ended events (endAt '')", () => {
     expect(body).not.toContain("2026-09-19 18:00 –");
   });
 });
+
+describe("EventTable — an event's places", () => {
+  afterEach(() => {
+    cleanup();
+    __resetEventsCache();
+    resetOrganiserMocks();
+  });
+
+  it.each([
+    [
+      "a map and a moodboard",
+      "https://maps.example/x",
+      "https://pinterest.example/y",
+      ["Maps", "Pinterest"],
+    ],
+    ["a map alone", "https://maps.example/x", null, ["Maps"]],
+    ["a moodboard alone", null, "https://pinterest.example/y", ["Pinterest"]],
+  ])(
+    "links %s as pills that open a new tab and say so",
+    async (_l, mapsUrl, pinterestUrl, words) => {
+      authFetchMock.mockResolvedValueOnce(json([{ ...EVENT, mapsUrl, pinterestUrl }]));
+      render(() => <EventTable weddingId="wed_1" weddingSlug="my-wedding" />);
+      await waitFor(() => screen.getByText("Reception"));
+      const href = { Maps: "https://maps.example/x", Pinterest: "https://pinterest.example/y" };
+      const links = screen
+        .queryAllByRole("link")
+        .filter((a) => /^(Maps|Pinterest)/.test(a.textContent ?? ""));
+      expect(links.map((a) => a.getAttribute("href"))).toEqual(
+        words.map((w) => href[w as keyof typeof href]),
+      );
+      for (const [i, word] of words.entries()) {
+        expect(links[i]!.textContent).toBe(`${word} (opens in a new tab)`);
+        expect(links[i]!.getAttribute("target")).toBe("_blank");
+        // The mark is decoration: the word names the link.
+        expect(links[i]!.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+      }
+    },
+  );
+});
