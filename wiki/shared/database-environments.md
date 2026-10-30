@@ -18,7 +18,7 @@ related:
   - "[[d1-read-replication]]"
   - "[[cire-development]]"
   - "[[infrastructure-as-code]]"
-last-reviewed: 2026-10-27
+last-reviewed: 2026-10-30
 ---
 
 # Database Environments
@@ -70,6 +70,11 @@ bun:sqlite result is a harmless no-op; D1 returns a real Promise.
   bun:sqlite the tests run against and returns 0 for every write on D1, which
   inverted two of `@osn/api`'s compare-and-swap gates in production — see
   [[sessions]].
+- `canBatch(db)` (`osn/api/src/lib/batch.ts`) — true on D1, whose `db.batch`
+  answers each statement's result in order. A write set whose results matter
+  (the email change commit reads its insert's change count) runs as
+  `canBatch(db) ? db.batch([...]) : [await a, await b, …]`; `commitBatch`
+  answers nothing.
 
 ## Per-service wiring
 
@@ -116,15 +121,24 @@ Three rewrite shapes recur:
 1. **Pure write sets** (cascade deletes, swap-then-write) → drop straight into
    `commitBatch`.
 2. **Read-then-write** (e.g. "pick the default-promotion target", "list hosted
-   events") → run the read first, then `commitBatch` the writes. Safe because the
-   subject (a profile/account being deleted) can't change between read and batch.
+   events") → run the read first, then `commitBatch` the writes. Safe as is only
+   where the subject (a profile/account being deleted) can't change between read
+   and batch. Where another request can change what was read, the write carries
+   it as a condition — the row's id and the state read (`status = 'pending'`, a
+   role), or `EXISTS` on the row that authorised it — and checks `rowsChanged`;
+   zero means what was read has changed, and the request is refused as the read
+   would refuse it now. The graph writes and the organisation membership writes
+   in `@osn/api` do this ([[social-graph]], [[identity-model]]).
 3. **Check-then-insert under a constraint** (handle/email uniqueness) → pre-check
    for a friendly error, then rely on the **UNIQUE constraint** as the
    authoritative race-safe guard, mapping the violation to
    a clean error. Count caps with no backing constraint (maxProfiles, passkey
-   cap) become best-effort with a documented benign over-by-one race; the
-   last-passkey invariant is kept race-safe with a **count-guarded conditional
-   DELETE** (`… WHERE (SELECT COUNT(*) …) > 1`).
+   cap) become best-effort with a documented benign over-by-one race. A cap or
+   invariant that must hold puts the count inside the write, which SQLite runs
+   as one statement whether or not D1 keeps batches apart: the last-passkey
+   invariant with a **count-guarded conditional DELETE**
+   (`… WHERE (SELECT COUNT(*) …) > 1`), email change's 2-per-7-days cap with a
+   count-guarded `INSERT … SELECT` whose change count the commit checks.
 
 ## Migration status
 

@@ -20,7 +20,7 @@ related:
 packages:
   - "@osn/api"
   - "@osn/db"
-last-reviewed: 2026-10-27
+last-reviewed: 2026-10-30
 ---
 
 # Social Graph
@@ -42,6 +42,8 @@ A connection is a mutual relationship between two users. It requires both partie
 - The sender can cancel a pending request
 - Either party can remove an accepted connection
 
+Each of these reads the connection, then writes it, in two statements, so the write names the row as it was read — its id, its two profiles and its status — and checks that it changed one. A request accepted, declined or removed by another request in between is left as that request left it, and this one is refused as it would be had it read afterwards: `Pending request not found` for an accept or decline, `Connection not found` for a remove or cancel. A request is written only while neither profile blocks the other and no connection stands between them in either direction, both checked inside the insert; refused, it answers `Cannot send connection request` or `Connection already exists`, as the checks before it do.
+
 **List asymmetry (by design, not a bug):** `listPendingRequests` /
 `GET /graph/connections/pending` returns only requests *received* by the
 caller (`addresseeId = caller`); it never includes ones the caller sent.
@@ -60,7 +62,8 @@ direction — no new endpoint needed for cancel).
 ### Blocks (unidirectional)
 
 A block is a one-way action. When A blocks B:
-- The block removes any existing connection between A and B (wrapped in a DB transaction)
+- The block removes any existing connection between A and B, in one batch: the block is inserted first, then the connections are deleted, so a request that lands while the block is written is removed by the delete or refused by its own block check
+- An unblock deletes the block it read, and answers `Block not found` when another unblock removed it first
 - B cannot send connection requests to A
 - Neither can add the other as a co-host on a cire wedding: cire-api asks `GET /graph/internal/either-blocked` before it seats anyone, and checks only the owner doing the adding ([[cire-auth#Equal owners]])
 - Neither is suggested to the other by the internal handle search: `GET /graph/internal/profile-search` given a `requesterId` leaves out that profile and everyone with a block against it, either way round, and cire's co-host autocomplete always passes the signed-in organiser
@@ -125,7 +128,7 @@ The `:handle` route parameter uses TypeBox `HandleParam` with regex + length bou
 - N+1 queries in graph list functions replaced with `inArray` batch fetches
 - `eitherBlocked` collapsed from two sequential `isBlocked` calls to a single OR query
 - `blockProfile` replaced SELECT-then-DELETE with direct `DELETE WHERE OR`
-- `removeConnection` and `blockProfile` wrapped in DB transactions
+- `blockProfile` writes the block and deletes the connections in one batch (`commitBatch`); `removeConnection` is a read, then a delete that names the row read
 
 ## Recommendations (contact suggestions)
 

@@ -11,7 +11,7 @@ packages:
   - "@osn/db"
   - "@osn/api"
   - "@osn/client"
-last-reviewed: 2026-10-27
+last-reviewed: 2026-10-30
 ---
 # Identity Model
 
@@ -117,6 +117,7 @@ Organisations are independent entities that are **composed of profiles, not acco
 - Multiple profiles from the same account **can be in the same org** — one might be admin, another a member. This is by design.
 - Org ownership is per-profile. Deleting a profile that owns an org requires ownership transfer first (enforced in P3).
 - The `listMembers` service return **never includes `accountId`** — defence in depth against correlation leakage.
+- Admins add and remove plain members; only the owner grants admin, removes an admin or changes a role, and the owner itself cannot be removed. Each membership write (`addMember`, `removeMember`, `updateMemberRole`, `updateOrganisation` in `osn/api/src/services/organisation.ts`) checks in one statement and writes in another, so the write carries what the checks read: the caller's admin row (a non-owner's add, removal or update), the member's row and, for a non-owner's removal, its plain-member role. A caller demoted, or a member promoted or removed, in between changes nothing, and the write is refused with the message the checks would give now. The owner needs no such guard: `ownerId` never changes.
 
 ## Token Model
 
