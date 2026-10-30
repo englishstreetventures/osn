@@ -4,8 +4,8 @@ import { CONTROL_HEIGHT } from "@shared/ui/ui/control";
 import { cleanup, fireEvent, render } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { buttonLook, FILE_BUTTON } from "../src/button";
-import FileInput from "../src/file-input";
+import { buttonLook } from "../src/button";
+import FileInput, { FILE_BUTTON } from "../src/file-input";
 
 /**
  * `FileInput`: the props a picker's call sites rely on reach the input, and
