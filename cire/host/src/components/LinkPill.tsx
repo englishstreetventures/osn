@@ -37,24 +37,44 @@ export interface LinkPillProps {
  *
  * Every place a portal pill leads is away from the portal — a vendor's site, a
  * map, a shop, the live invite — so it opens in a new tab, keeping the host's
- * place, and says so in hidden words after its name.
+ * place, and says so in hidden words after its name. An address that is not
+ * `http:` or `https:` draws no pill at all ({@link webHref}).
  */
 export function LinkPill(props: LinkPillProps) {
   return (
-    <a
-      href={props.href}
-      target="_blank"
-      rel="noopener noreferrer"
-      class={props.mark ? MARKED_PILL : PILL}
-    >
-      <Show when={props.mark}>
-        {(mark) => <Dynamic component={mark()} class="size-3.5 shrink-0" />}
-      </Show>
-      <span class={props.mark ? "@max-[14rem]:sr-only" : undefined}>{props.children}</span>
-      <Show when={props.hint}>{(hint) => <span class="sr-only"> {hint()}</span>}</Show>
-      <span class="sr-only"> (opens in a new tab)</span>
-    </a>
+    <Show when={webHref(props.href)}>
+      {(href) => (
+        <a
+          href={href()}
+          target="_blank"
+          rel="noopener noreferrer"
+          class={props.mark ? MARKED_PILL : PILL}
+        >
+          <Show when={props.mark}>
+            {(mark) => <Dynamic component={mark()} class="size-3.5 shrink-0" />}
+          </Show>
+          <span class={props.mark ? "@max-[14rem]:sr-only" : undefined}>{props.children}</span>
+          <Show when={props.hint}>{(hint) => <span class="sr-only"> {hint()}</span>}</Show>
+          <span class="sr-only"> (opens in a new tab)</span>
+        </a>
+      )}
+    </Show>
   );
+}
+
+/**
+ * `href` when it is an absolute `http:` or `https:` address, and `null`
+ * otherwise, so the pill draws nothing. Many of these addresses are typed by
+ * a vendor or a co-host, and a `javascript:` link would run in the portal's
+ * own origin; the pill refuses one whatever its caller checked.
+ */
+function webHref(href: string): string | null {
+  try {
+    const { protocol } = new URL(href);
+    return protocol === "https:" || protocol === "http:" ? href : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
