@@ -1,6 +1,8 @@
 import Button, { buttonClass } from "@cire/ui/button";
 import Eyebrow from "@cire/ui/eyebrow";
 import { toast, type ToastOptions } from "@shared/toast";
+import { Input } from "@shared/ui/ui/input";
+import { Textarea } from "@shared/ui/ui/textarea";
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 
 import {
@@ -353,13 +355,16 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
         <Show when={preset() === null}>
           <label class="font-body text-text-muted text-ui-sm mb-5 block">
             <span class="mb-1 block">Amount ({props.currency})</span>
-            <input
+            <Input
+              fill="ink"
+              size="touch"
+              face="amount"
+              class="mx-auto w-40"
               data-gift-money-amount
               type="text"
               inputmode="decimal"
               value={customText()}
               onInput={(event) => setCustomText(event.currentTarget.value)}
-              class="border-border bg-text/4.5 font-body text-text focus:border-gold text-ui-base rounded-ui-field focus-visible:outline-ui-focus mx-auto w-40 border px-3 py-2 text-center focus-visible:outline-2 focus-visible:outline-offset-2"
             />
           </label>
         </Show>
@@ -367,22 +372,24 @@ export function GiftMoneyPanel(props: GiftMoneyPanelProps) {
         <div class="mx-auto mb-5 flex max-w-104 flex-col gap-3 text-left">
           <label class="font-body text-text-muted text-ui-sm">
             <span class="mb-1 block">Your name (optional)</span>
-            <input
+            <Input
+              fill="ink"
+              size="touch"
               type="text"
               maxlength="120"
               value={displayName()}
               onInput={(event) => setDisplayName(event.currentTarget.value)}
-              class="border-border bg-text/4.5 font-body text-text focus:border-gold text-ui-base rounded-ui-field focus-visible:outline-ui-focus w-full border px-3 py-2 focus-visible:outline-2 focus-visible:outline-offset-2"
             />
           </label>
           <label class="font-body text-text-muted text-ui-sm">
             <span class="mb-1 block">A note for them (optional)</span>
-            <textarea
+            <Textarea
+              fill="ink"
+              size="touch"
               rows="2"
               maxlength="400"
               value={message()}
               onInput={(event) => setMessage(event.currentTarget.value)}
-              class="border-border bg-text/4.5 font-body text-text focus:border-gold text-ui-base rounded-ui-field focus-visible:outline-ui-focus w-full border px-3 py-2 focus-visible:outline-2 focus-visible:outline-offset-2"
             />
           </label>
         </div>

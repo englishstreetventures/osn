@@ -965,7 +965,9 @@ describe("LoginSection layout", () => {
     expect(section.className).toContain("border-b");
     expect(getByText("Enter your code").closest(".text-center")).not.toBeNull();
     // No inset card inside the band: the code field is the only box in it.
-    expect(boxes(section)).toEqual([getByLabelText("Invitation code")]);
+    // The code field is `@shared/ui`'s `Input`, whose edge is a `base:`
+    // utility, so the section draws no box by hand.
+    expect(boxes(section)).toEqual([]);
   });
 
   it("panel: paints only a bordered card, centred on phones and flush left from md", () => {
@@ -993,7 +995,7 @@ describe("LoginSection layout", () => {
     expect(classes).toEqual(
       expect.arrayContaining(["border", "rounded-ui-lg", "max-w-column-xs", "md:mx-0"]),
     );
-    expect(boxes(section)).toEqual([card, getByLabelText("Invitation code")]);
+    expect(boxes(section)).toEqual([card]);
     // Left-aligned copy, against the band's centred column.
     expect(getByText("Enter your code").closest(".text-center")).toBeNull();
   });
@@ -1284,13 +1286,14 @@ describe("LoginSection code field", () => {
     // tone (ground / card / raised), so a fixed surface token would vanish on
     // the tone that matches it. Ink adapts to any palette in the right
     // direction — darkening a light scheme, lightening a dark one.
-    expect(cls).toContain("bg-text/4.5");
-    expect(cls).toContain("border-text/55");
+    // `@shared/ui`'s ink fill: on this site `--ui-ink` is `--color-text`.
+    expect(cls).toContain("base:bg-ui-ink/4.5");
+    expect(cls).toContain("base:border-ui-ink/55");
     // `border-border` is the same ink at 0.12 — the hairline this replaced, and
     // the reason the field read as flat page on a pale scheme.
     expect(cls).not.toContain("border-border");
     // A fill means the field is no longer see-through.
-    expect(cls).not.toContain("bg-transparent");
+    expect(cls.split(" ")).not.toContain("base:bg-transparent");
   });
 
   it("gives the field an accessible name that outlives the placeholder", () => {
@@ -1304,8 +1307,9 @@ describe("LoginSection code field", () => {
     // The fill must not have displaced the focus affordance — this is the page's
     // only input, and the ring is what keeps keyboard users oriented.
     const cls = codeInput().className;
-    expect(cls).toContain("focus:border-gold");
-    expect(cls).toContain("focus-visible:outline-ui-focus");
+    // On this site `--ui-accent` is `--color-gold`.
+    expect(cls).toContain("base:focus:border-ui-accent");
+    expect(cls).toContain("base:focus-visible:outline-ui-focus");
   });
 });
 
