@@ -120,11 +120,7 @@ describe("Checkbox, either box", () => {
             onChange={(v) => (reported = v)}
             label={
               <>
-                I agree. See our{" "}
-                <a href="#notice" onClick={(e) => e.preventDefault()}>
-                  privacy notice
-                </a>
-                .
+                I agree. See our <a href="#notice">privacy notice</a>.
               </>
             }
           />
@@ -164,11 +160,11 @@ describe("Checkbox, either box", () => {
             note={<span>Share our privacy notice with them.</span>}
           />
         ));
+        render(() => <span id="err">Required.</span>);
         const input = box("I confirm the plus-one agreed.");
         const note = screen.getByText("Share our privacy notice with them.");
         expect(rowOf(input)).not.toContainElement(note);
-        expect(input.getAttribute("aria-describedby")?.split(" ")).toContain("err");
-        expect(input.getAttribute("aria-describedby")?.split(" ").length).toBe(2);
+        expect(input).toHaveAccessibleDescription("Required. Share our privacy notice with them.");
 
         const words = screen.getByText("I confirm the plus-one agreed.");
         expect(note.getBoundingClientRect().left).toBeCloseTo(
@@ -178,6 +174,42 @@ describe("Checkbox, either box", () => {
 
         await userEvent.click(note);
         expect(reported).toBeUndefined();
+      });
+
+      it("answers a click on the box and its words, not on the rest of the line", async () => {
+        let reported: boolean | undefined;
+        const { container } = render(() => (
+          <div style={{ width: "400px" }}>
+            <Checkbox box={kind} checked={false} onChange={(v) => (reported = v)} label="Venue" />
+          </div>
+        ));
+        const outer = container.firstElementChild!.firstElementChild as HTMLElement;
+        await userEvent.click(outer.parentElement!, { position: { x: 390, y: 5 } });
+        expect(reported).toBeUndefined();
+      });
+
+      it("lets a caller's own name win over the label beside a description", () => {
+        render(() => (
+          <>
+            <span id="heading">Pinterest</span>
+            <Checkbox
+              box={kind}
+              checked={false}
+              aria-labelledby="heading"
+              label="Moodboards"
+              description="Loads from Pinterest."
+            />
+            <Checkbox
+              box={kind}
+              checked={false}
+              aria-label="Maps"
+              label="Google Maps"
+              description="Loads from Google."
+            />
+          </>
+        ));
+        expect(box("Pinterest")).toHaveAccessibleDescription("Loads from Pinterest.");
+        expect(box("Maps")).toHaveAccessibleDescription("Loads from Google.");
       });
 
       it("keeps focus and leaves no gap or description when a note comes and goes", async () => {
@@ -252,6 +284,7 @@ describe("Checkbox, drawn (pulse's box, which must not move)", () => {
     render(() => <Agreeing />);
     await userEvent.click(screen.getByText("Florals"));
     expect((box("Florals") as HTMLInputElement).checked).toBe(true);
+    expect(document.activeElement).toBe(box("Florals"));
     expect(getComputedStyle(drawnBoxOf("Florals")).boxShadow).toBe("none");
   });
 
@@ -277,6 +310,9 @@ describe("Checkbox, drawn (pulse's box, which must not move)", () => {
     expect(off.backgroundColor).toBe(GROUND);
     // `rounded-ui-sm` at the contract's fallback.
     expect(off.borderTopLeftRadius).toBe("4px");
+    const { unmount } = render(() => <Checkbox checked={false} disabled label="Shut" />);
+    expect(getComputedStyle(drawnBoxOf("Shut")).opacity).toBe("0.5");
+    unmount();
     const on = getComputedStyle(drawnBoxOf("On"));
     expect(on.backgroundColor).toBe(ACCENT);
     expect(drawnBoxOf("On").querySelector("svg")).not.toBeNull();

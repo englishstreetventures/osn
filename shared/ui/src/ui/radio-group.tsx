@@ -63,16 +63,17 @@ const RadioContext = createContext<RadioContextValue>();
 /**
  * Root gap and direction. Native: 16px between radios in a row, twice the
  * box-to-label gap so each radio reads with its own word, and 8px in a column.
- * Drawn keeps pulse's 8px either way.
+ * Drawn keeps pulse's 8px either way. A column lays each radio out at its own
+ * width, so only the radio and its words answer a click, as a `Checkbox` does.
  */
 const ROOT = {
   native: {
     horizontal: "base:flex base:flex-wrap base:gap-x-4 base:gap-y-2",
-    vertical: "base:flex base:flex-col base:gap-2",
+    vertical: "base:flex base:flex-col base:items-start base:gap-2",
   },
   drawn: {
     horizontal: "base:flex base:gap-2 base:text-ui-base",
-    vertical: "base:flex base:flex-col base:gap-2 base:text-ui-base",
+    vertical: "base:flex base:flex-col base:items-start base:gap-2 base:text-ui-base",
   },
 } satisfies Readonly<Record<ChoiceBox, Readonly<Record<RadioOrientation, string>>>>;
 
