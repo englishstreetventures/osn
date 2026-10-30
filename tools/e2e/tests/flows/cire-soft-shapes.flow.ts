@@ -42,7 +42,7 @@
  * views are shot, the top of the page and the open sheet.
  *
  * Along the way it runs the forms checks (`../support/cire-forms.ts`): the
- * budget's per-head radios and boxes, the import picker, the claim panel's
+ * gift-list settings' radios and box, the import picker, the claim panel's
  * code field, the RSVP sheet's ink field and consent box, and the demo's
  * field, shot into `screenshots/cire-forms/`. And the buttons checks
  * (`../support/cire-buttons.ts`): the

@@ -8,11 +8,9 @@
  * Places the `cire-soft-shapes` flow already stands in, so it signs in and
  * claims no more than it did:
  *
- * - the sample wedding's budget, signed in: the first line's per-head panel
- *   open with "Only these events" chosen and its payments open, so the
- *   vertical radio group, the event boxes and the "paid" boxes are on screen
- *   beside the add form's "Priced per head" box. Nothing is saved: the panel
- *   saves only on its own Save, which this never presses;
+ * - the money wedding's gift-list settings, signed in: the visibility radios in
+ *   a row and the "Let guests give money" box with its description. Nothing is
+ *   saved: the form saves only on its own Save, which this never presses;
  * - the guest editor's spreadsheet import, signed in: the file picker;
  * - the invitation's claim panel, opened with no code, so no claim is spent:
  *   the code field;
@@ -26,7 +24,7 @@ import { resolve } from "node:path";
 
 import type { BrowserContext, Locator, Page } from "@playwright/test";
 
-import { SCREENSHOT_DIR } from "../../src/config";
+import { CIRE_ORGANISER, ORIGINS, SCREENSHOT_DIR } from "../../src/config";
 import { expect, type Flow } from "./fixtures";
 
 const SHOTS = resolve(SCREENSHOT_DIR, "cire-forms");
@@ -78,65 +76,45 @@ async function fieldShape(target: Locator): Promise<string> {
 }
 
 /**
- * The sample wedding's budget: the per-head panel's radios and event boxes,
- * the payments' "paid" boxes and the add form's box; then the import picker.
+ * A wedding's gift-list settings: the visibility radios and the money
+ * box; then the import picker.
  */
 export async function hostForms(flow: Flow, page: Page, sample: string): Promise<void> {
-  const firstLine = page.getByText("Reception venue", { exact: true });
-  await flow.step("forms: open the sample wedding's budget", async () => {
+  const visibility = page.getByRole("radiogroup", { name: "Visibility" });
+  const draft = visibility.getByRole("radio", { name: /^Draft/ });
+  const published = visibility.getByRole("radio", { name: /^Published/ });
+  const money = page.getByRole("checkbox", { name: "Let guests give money" });
+  await flow.step("forms: open a wedding's gift-list settings", async () => {
     await page.setViewportSize(DESKTOP);
-    await page.goto(`${sample}/budget`);
-    await expect(firstLine).toBeVisible({ timeout: 60_000 });
+    // The gift list is a paid module: the money wedding has one, the sample
+    // wedding does not.
+    await page.goto(`${ORIGINS.cireHost}/#/w/${CIRE_ORGANISER.money.weddingId}/registry/settings`);
+    await expect(draft).toBeVisible({ timeout: 60_000 });
   });
-  const scope = page.getByRole("radiogroup", { name: "Count guests at" });
-  const these = scope.getByRole("radio", { name: "Only these events" });
-  await flow.step(
-    "forms: open the first line's per head and its payments, choose these events",
-    async () => {
-      await page.getByRole("button", { name: "per head", exact: true }).first().click();
-      await expect(scope).toBeVisible();
-      await page
-        .getByRole("button", { name: /^payments \(/ })
-        .first()
-        .click();
-      await these.click();
-      await expect(these).toBeChecked();
-    },
-  );
-  const every = scope.getByRole("radio", { name: "Every event" });
-  const eventBoxes = scope.locator("xpath=..").getByRole("checkbox");
-  const paid = page.getByRole("checkbox", { name: / paid$/ }).first();
-  const perHead = page.getByRole("checkbox", { name: "Priced per head" });
-  flow.check("forms: an unchosen radio is the native 13px, round", ROUND, await boxShape(every));
+  const [chosen, other] = (await draft.isChecked()) ? [draft, published] : [published, draft];
+  flow.check("forms: an unchosen radio is the native 13px, round", ROUND, await boxShape(other));
   flow.check(
     "forms: a chosen radio is the browser's own",
     "auto",
-    await these.evaluate((el) => getComputedStyle(el).appearance),
+    await chosen.evaluate((el) => getComputedStyle(el).appearance),
   );
   flow.check(
-    "forms: the scope's radios are 8px apart in a column",
-    8,
-    await scope.evaluate((el) => {
+    "forms: the visibility radios are 16px apart in a row",
+    16,
+    await visibility.evaluate((el) => {
       const [a, b] = [...el.querySelectorAll("label")].map((l) => l.getBoundingClientRect());
-      return Math.round((b?.top ?? 0) - (a?.bottom ?? 0));
+      return Math.round((b?.left ?? 0) - (a?.right ?? 0));
     }),
   );
-  flow.check("forms: the event boxes show", true, (await eventBoxes.count()) > 0);
   flow.check(
-    "forms: an event box is the native 13px",
+    "forms: the money box is the native 13px, named by its words alone",
     true,
-    (await boxShape(eventBoxes.first())).startsWith("13x13"),
+    (await boxShape(money)).startsWith("13x13"),
   );
-  flow.check(
-    "forms: a payment's paid box is the native 13px",
-    true,
-    (await boxShape(paid)).startsWith("13x13"),
-  );
-  flow.check("forms: the add form's box is the native 13px", UNTICKED, await boxShape(perHead));
-  await flow.step("forms: shoot the budget's per head and payments", () =>
-    shoot(page, "host-budget-per-head", async () => {
-      await scope.evaluate((el) => el.scrollIntoView({ block: "center" }));
-      await expect(scope).toBeInViewport();
+  await flow.step("forms: shoot the gift-list settings' radios and box", () =>
+    shoot(page, "host-registry-settings", async () => {
+      await visibility.evaluate((el) => el.scrollIntoView({ block: "center" }));
+      await expect(visibility).toBeInViewport();
     }),
   );
 
@@ -182,8 +160,13 @@ export async function claimForms(
     await fieldShape(code),
   );
   await panel.setViewportSize(DESKTOP);
-  // The guest site's root is 17px from 1024px, and the code is one rem.
-  flow.check("forms: the code field on a desk", "54 17px uppercase center", await fieldShape(code));
+  // The guest site's root is 17px from 1024px; the code is one rem and the
+  // field 3.375rem, so both grow with it, as the field's padding did.
+  flow.check(
+    "forms: the code field on a desk",
+    "57.375 17px uppercase center",
+    await fieldShape(code),
+  );
   await flow.step("forms: shoot the claim panel", () =>
     shoot(panel, "invite-claim", async () => {
       await expect(code).toBeInViewport();
