@@ -41,7 +41,7 @@ carry the variants and states, and all seven stories live together in
 | `shared/ui` | `overview.story.tsx` | Everything, one state each |
 | `shared/ui/Button` | `button.story.tsx` | All variants, all sizes, live playground |
 | `shared/ui/display` | `display.story.tsx` | Badge, Avatar, Card |
-| `shared/ui/forms` | `forms.story.tsx` | Input, Label, Textarea, Select, Field, Fieldset, Checkbox, RadioGroup, UsernameInput, OtpInput |
+| `shared/ui/forms` | `forms.story.tsx` | Input, Label, Textarea, Select, Field, Fieldset, Checkbox and RadioGroup (each state, drawn under the lab's mapping and native under cire's), UsernameInput, OtpInput |
 | `shared/ui/feedback` | `feedback.story.tsx` | Notice, Chip, EmptyState, Stat |
 | `shared/ui/data` | `data.story.tsx` | Table, Meter |
 | `shared/ui/overlays` | `overlays.story.tsx` | Dialog, Modal, DropdownMenu, Popover, InfoPopover, Tooltip, Tabs |
