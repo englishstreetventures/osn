@@ -19,8 +19,8 @@ interface InviteMessageLinksProps {
   canEdit: boolean;
   /** Owner: may open Invite → Codes. */
   canManage: boolean;
-  /** Each place's address, so a link can open in a new tab and say where it goes. */
-  hrefs: Readonly<Record<InviteMessagePlace, string>>;
+  /** A place's address, so a link can open in a new tab and say where it goes. */
+  href: (place: InviteMessagePlace) => string;
   /** Go to a place. Only called for a place the reader may open. */
   onNavigate: (place: InviteMessagePlace) => void;
 }
@@ -130,7 +130,7 @@ export default function InviteMessageLinks(props: InviteMessageLinksProps) {
       {/* The muted prose link: inside a sentence the underline at rest is what
           marks the words as a link (WCAG 1.4.1). */}
       <a
-        href={props.hrefs[target]}
+        href={props.href(target)}
         class={proseLinkClass({ tone: "muted" })}
         aria-label={spokenPath(target)}
         onClick={(event) => {
