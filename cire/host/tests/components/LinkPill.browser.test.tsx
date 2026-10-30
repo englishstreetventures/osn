@@ -5,8 +5,8 @@
  * Each case is one way the pill can fail someone: it is not the portal's 28px
  * pill height; a marked pill keeps its word in a row too narrow for it, or
  * loses its name when it drops the word; a pill with no mark turns into an
- * empty circle; or its gold word under the pointer, on the gold wash, falls
- * under 4.5:1 on the page or a card in either theme.
+ * empty circle; or its gold word under the pointer falls under 4.5:1 on the
+ * page or a card in either theme.
  */
 
 import { contrastRatio, WCAG_TEXT_MIN } from "@cire/theme";
