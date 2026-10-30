@@ -316,7 +316,9 @@ function RoundSpecimen(props: {
 /**
  * `round`: a glyph on an opaque disc. The reply key beside the RSVP search box
  * is 28px (`sm`); a boxed glyph is 32px (`md`, `icon`); the event sheet's
- * close × is 44px (`lg`). Hover by hand: only the glyph brightens.
+ * close × is 44px (`lg`). Disabled at every size; hover and focus by hand at
+ * every size, since a static story holds neither (`round.browser.test.tsx`
+ * reads both).
  */
 export const Round: Story<ThemeArgs> = {
   args: { cireTheme: "both" },
@@ -328,8 +330,9 @@ export const Round: Story<ThemeArgs> = {
         <>
           The surface fill with no edge, a muted glyph that brightens to the body ink under the
           pointer, and the pill step at every size. While the popover it opens is showing (
-          <Mono>aria-expanded</Mono>) the disc lifts to the raised surface. The lab draws the
-          platform font, so judge the × in the app.
+          <Mono>aria-expanded</Mono>) the disc lifts to the raised surface. Point at each size to
+          see its hover, and tab to it to see its focus ring: a static story holds neither. The lab
+          draws the platform font, so judge the × in the app.
         </>
       }
     >
@@ -347,6 +350,12 @@ export const Round: Story<ThemeArgs> = {
               <div class="flex flex-wrap items-end gap-6">
                 <RoundSpecimen size="sm" name="Closed key" glyph="i" open={false} />
                 <RoundSpecimen size="sm" name="Open key" glyph="i" open />
+              </div>
+            </Section>
+            <Section title="Disabled">
+              <div class="flex flex-wrap items-end gap-6">
+                <RoundSpecimen size="sm" name="Key, disabled" glyph="i" disabled />
+                <RoundSpecimen size="md" name="More, disabled" glyph="…" disabled />
                 <RoundSpecimen size="lg" name="Close, disabled" glyph="×" disabled />
               </div>
             </Section>

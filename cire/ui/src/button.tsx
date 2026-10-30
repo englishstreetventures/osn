@@ -227,10 +227,10 @@ const VARIANT = {
    * Filled rather than transparent, because the close × sits over a sheet
    * whose content scrolls underneath it and must hide it, and no edge, because
    * the disc is the shape. Muted ink, brightening to the body ink under the
-   * pointer; the fill does not move on hover (the owner's choice on
-   * englishstreetventures/osn#1839). It does move while the popover it opens
-   * is showing: Kobalte sets `aria-expanded` on its trigger, and the raised
-   * surface holds the disc lit so the key reads as the thing that is open.
+   * pointer; the fill does not move on hover. It does move while the popover
+   * it opens is showing: Kobalte sets `aria-expanded` on its trigger, and the
+   * raised surface holds the disc lit so the key reads as the thing that is
+   * open.
    *
    * Its own sizes ({@link ROUND_SIZE}), and the `pill` step at every one of
    * them, which {@link cornerFor} picks for it: a round button stays a circle
