@@ -47,6 +47,15 @@ import { type JSX, Show } from "solid-js";
  * is not drawn, since the icon would say what nothing reads, and its slot is
  * `inert` as well as `aria-hidden`, so nothing in it can take focus.
  *
+ * ## A box with no fill
+ *
+ * `fill="none"` keeps a box's border and ink and drops its tint, so the words
+ * sit on the ground beneath — for a note whose ink is held to a contrast floor
+ * against that ground and not against the ground plus a tint. `tint`, the
+ * default, is the box as every app already draws it. The inline line has no
+ * box, so it takes no `fill`: the type refuses one beside `size="inline"`. Any
+ * value other than `"none"` — a cast one from data — draws the tint.
+ *
  * ## What reaches the element
  *
  * A notice's words are what it is for, so it takes an allow-list rather than a
@@ -82,13 +91,22 @@ const SIZE = {
     "base:border base:p-4 base:text-ui-base base:leading-ui-relaxed",
 } satisfies Readonly<Record<NoticeSize, string>>;
 
-/** The box a tone draws at `sm` and `md`; `inline` draws none. */
-const BOX = {
-  danger: "base:border-ui-danger/20 base:bg-ui-danger/5",
-  warn: "base:border-ui-warn/20 base:bg-ui-warn/5",
-  success: "base:border-ui-success/20 base:bg-ui-success/5",
-  info: "base:border-ui-hairline base:bg-ui-surface/30",
-  accent: "base:border-ui-accent/40 base:bg-ui-accent/5",
+/** The border a tone draws round its box at `sm` and `md`; `inline` draws none. */
+const BORDER = {
+  danger: "base:border-ui-danger/20",
+  warn: "base:border-ui-warn/20",
+  success: "base:border-ui-success/20",
+  info: "base:border-ui-hairline",
+  accent: "base:border-ui-accent/40",
+} satisfies Readonly<Record<NoticeTone, string>>;
+
+/** The tint a tone lays inside its box, unless the box asks for none. */
+const FILL = {
+  danger: "base:bg-ui-danger/5",
+  warn: "base:bg-ui-warn/5",
+  success: "base:bg-ui-success/5",
+  info: "base:bg-ui-surface/30",
+  accent: "base:bg-ui-accent/5",
 } satisfies Readonly<Record<NoticeTone, string>>;
 
 const INK = {
@@ -156,9 +174,19 @@ const MARK = {
   accent: undefined,
 } satisfies Readonly<Record<NoticeTone, (() => NoticeMark) | undefined>>;
 
-export type NoticeProps = {
+export type NoticeFill = "tint" | "none";
+
+/** A size and the fill that goes with it: a box takes one, the inline line none. */
+type NoticeBox =
+  | { size: "inline"; fill?: never }
+  | {
+      size?: Exclude<NoticeSize, "inline">;
+      /** `none` drops the box's tint. See the note above. */
+      fill?: NoticeFill;
+    };
+
+export type NoticeProps = NoticeBox & {
   tone?: NoticeTone;
-  size?: NoticeSize;
   /** Announce it the moment it appears. See the note above. */
   alert?: boolean;
   /** An app's own mark, for a tone that has none. See the note above. */
@@ -195,10 +223,11 @@ export function Notice(props: NoticeProps) {
     const m = MARK[tone()]?.() ?? props.mark;
     return m?.word.trim() ? m : undefined;
   };
+  const box = () => (props.fill === "none" ? BORDER[tone()] : `${BORDER[tone()]} ${FILL[tone()]}`);
   const look = () =>
     size() === "inline"
       ? `${SIZE.inline} ${INK[tone()]}`
-      : `${SIZE[size()]} ${BOX[tone()]} ${INK[tone()]}`;
+      : `${SIZE[size()]} ${box()} ${INK[tone()]}`;
   return (
     <div
       {...data()}

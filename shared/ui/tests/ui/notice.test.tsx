@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { cleanup, render } from "@solidjs/testing-library";
+import type { JSX } from "solid-js";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { Notice } from "../../src/ui/notice";
@@ -42,6 +43,44 @@ describe("Notice's default size", () => {
   });
 });
 
+const BOXED = ["sm", "md"] as const;
+const EVERY_TONE = ["danger", "warn", "success", "info", "accent"] as const;
+
+/** The class list `view` renders on the notice's element. */
+function classesOf(view: () => JSX.Element): string[] {
+  const { container, unmount } = render(view);
+  const list = container.firstElementChild?.getAttribute("class")?.split(" ") ?? [];
+  unmount();
+  return list;
+}
+
+describe("Notice's fill", () => {
+  it.each(BOXED.flatMap((size) => EVERY_TONE.map((tone) => [size, tone] as const)))(
+    "draws the %s %s box with no fill as the tinted box less its one fill class",
+    (size, tone) => {
+      const omitted = classesOf(() => (
+        <Notice size={size} tone={tone}>
+          x
+        </Notice>
+      ));
+      const tint = classesOf(() => (
+        <Notice size={size} tone={tone} fill="tint">
+          x
+        </Notice>
+      ));
+      const none = classesOf(() => (
+        <Notice size={size} tone={tone} fill="none">
+          x
+        </Notice>
+      ));
+      // `tint` is the default, class for class, so no app's box moves.
+      expect(tint).toEqual(omitted);
+      expect(tint.filter((c) => c.startsWith("base:bg-"))).toHaveLength(1);
+      expect(none).toEqual(tint.filter((c) => !c.startsWith("base:bg-")));
+    },
+  );
+});
+
 describe("Notice's props", () => {
   it("leaves the role, the handlers and the hiding attributes to the component", () => {
     // Type checks, not runtime: `bun run typecheck` fails if any becomes a
@@ -63,5 +102,33 @@ describe("Notice's props", () => {
       </>
     );
     expect(typeof refused).toBe("function");
+  });
+
+  it("lets a box drop its fill, and gives the inline line, which has no box, none to drop", () => {
+    // Type checks, as above.
+    const accepted = () => (
+      <>
+        <Notice fill="none">x</Notice>
+        <Notice size="sm" fill="none">
+          x
+        </Notice>
+        <Notice size="md" fill="tint">
+          x
+        </Notice>
+      </>
+    );
+    const refused = () => (
+      <>
+        {/* @ts-expect-error — `inline` draws no box, so there is no fill to choose. */}
+        <Notice size="inline" fill="none">
+          x
+        </Notice>
+        {/* @ts-expect-error — not even the default one. */}
+        <Notice size="inline" fill="tint">
+          x
+        </Notice>
+      </>
+    );
+    expect([typeof accepted, typeof refused]).toEqual(["function", "function"]);
   });
 });

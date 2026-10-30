@@ -23,7 +23,7 @@ packages:
   - "@shared/ui"
   - "@osn/auth-ui"
   - "@cire/ui"
-last-reviewed: 2026-10-29
+last-reviewed: 2026-10-30
 ---
 
 # Component Library (Zaidan)
@@ -169,7 +169,7 @@ hold that guarantee rather than trusting it.
 
 ### `Notice` — five tones, three sizes, a mark that is a shape
 
-`<Notice tone size alert>` says something went wrong, went right, or is worth
+`<Notice tone size fill alert>` says something went wrong, went right, or is worth
 knowing. Five tones: `danger`, `warn` and `success` each lead with a circled
 icon of a different shape (a cross, an exclamation mark, a tick), drawn inline
 in [notice.tsx](../../shared/ui/src/ui/notice.tsx) in the tone's ink, sized in
@@ -183,6 +183,11 @@ are standing notes. `accent` paints `--ui-accent-ink`, never `--ui-accent`.
 | `sm` | the same box, compact: `px-3 py-2`, `text-ui-sm` | a note beside a control or in a sidebar |
 | `inline` | no border, fill, padding or corner — the mark, the word and the text, in the tone's ink | the error line under a field |
 
+A box takes `fill`: `tint`, the default, or `none`, which keeps the border and
+the ink and drops the tint, so the words sit on the ground beneath — for a note
+whose ink must clear its contrast floor on that ground alone. The inline line
+has no box, and the type refuses `fill` beside `size="inline"`.
+
 All three render a `<div>`, so none sits inside a `<p>` or a `<label>`: a call
 site there moves the line out of the paragraph. An inline line about a field
 takes an `id` the field names in `aria-describedby`. A notice takes an
@@ -193,9 +198,10 @@ element, typed or spread, so no call site can pass markup or a handler, hide
 a status region wraps the notice in one. `mark` draws an app's own icon
 and read word in the same slot, for a part built on a tone that has none. With
 no `size` and no `tone`, `Notice` renders the classes it rendered before it had
-either: `shared/ui/tests/ui/notice.test.tsx` pins that string, and
-`primitives.browser.test.tsx` holds the inline line boxless, `accent` off
-`info`, the icon on the first line and sized from the text step.
+either: `shared/ui/tests/ui/notice.test.tsx` pins that string and an unfilled
+box's as the same less its one fill class, and `primitives.browser.test.tsx`
+holds the inline line boxless, an unfilled box's ground transparent, `accent`
+off `info`, the icon on the first line and sized from the text step.
 
 ### `Tooltip` — a label that explains itself on hover
 
