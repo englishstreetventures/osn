@@ -42,7 +42,7 @@ const CLEAR = "rgba(0, 0, 0, 0)";
  */
 function painted(target: Locator) {
   return target.evaluate(async (el) => {
-    await Promise.all(el.getAnimations().map((a) => a.finished));
+    await Promise.all(el.getAnimations().map((a) => a.finished.catch(() => undefined)));
     const style = getComputedStyle(el);
     const box = el.getBoundingClientRect();
     const layers = style.boxShadow === "none" ? [] : style.boxShadow.split(/,(?![^(]*\))/);
@@ -70,7 +70,9 @@ const TEXT_MIN = 4.5;
  */
 function inkRatio(target: Locator): Promise<number> {
   return target.evaluate(async (el) => {
-    await Promise.all(el.getAnimations().map((a) => a.finished));
+    // A transition the pointer replaces mid-way is cancelled, and its
+    // `finished` rejects; the paint read below is the settled one either way.
+    await Promise.all(el.getAnimations().map((a) => a.finished.catch(() => undefined)));
     const canvas = document.createElement("canvas");
     canvas.width = canvas.height = 1;
     const ctx = canvas.getContext("2d")!;
