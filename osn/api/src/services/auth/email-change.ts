@@ -25,6 +25,7 @@ import { AuthError, type CoordinationError, DatabaseError, ValidationError } fro
 import { EmailSchema, genId, genOtpCode, hashSessionToken, logDevOtp } from "./helpers";
 import type { StepUpModule } from "./step-up";
 import { storeCall } from "./store-call";
+import type { PendingEmailChange } from "./stores";
 
 export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) {
   const { config, stores, otpTtl, emailChangeBeginCap } = ctx;
@@ -34,14 +35,18 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
   const EMAIL_CHANGE_WINDOW_SECONDS = 7 * 24 * 60 * 60;
 
   /**
-   * Drop a pending change on a path that is already failing, or one that has
-   * already committed. The store is a network hop in production, and a blip
-   * there must not replace the answer the caller has earned, nor the
-   * outcome bucket it was meant to record. The entry
-   * carries a TTL, so losing the delete costs nothing but the wait.
+   * Drop the pending change `entry` — the one this request's guess read — on a
+   * path that is already failing, or one that has already committed. Only
+   * that entry goes: `begin` overwrites the entry at the account's key, so a
+   * change begun since keeps its own. The store is a network hop in
+   * production, and a blip there must not replace the answer the caller has
+   * earned, nor the outcome bucket it was meant to record. The entry carries a
+   * TTL, so losing the delete costs nothing but the wait.
    */
-  const dropPending = (accountId: string) =>
-    Effect.tryPromise(() => stores.pendingEmailChanges.delete(accountId)).pipe(Effect.ignore);
+  const dropPending = (accountId: string, entry: PendingEmailChange) =>
+    Effect.tryPromise(() => stores.pendingEmailChanges.delete(accountId, entry)).pipe(
+      Effect.ignore,
+    );
 
   const beginEmailChange = (
     accountId: string,
@@ -195,8 +200,9 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
 
       // Read and counted in one call, before the code is compared; see
       // `attempts.ts`. The entry is deleted after the commit below, not
-      // claimed here, so a commit that fails leaves the code usable; the count
-      // and the commit's own checks keep two right codes from both landing.
+      // claimed here, so a commit that fails leaves the code usable. Each
+      // attempt spends its own step-up token above, so a second right code
+      // reaches the commit only with a second token.
       const guessed = yield* guessEntry(stores.pendingEmailChanges, accountId, MAX_OTP_ATTEMPTS);
       if (!guessed) {
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
@@ -206,7 +212,7 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
       }
       if (!timingSafeEqualString(pending.codeHash, hashSessionToken(code))) {
-        if (standing === "last") yield* dropPending(accountId);
+        if (standing === "last") yield* dropPending(accountId, pending);
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
       }
 
@@ -313,16 +319,18 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
         // (Not an absolute impossibility — the winner could later move off the
         // address — but then a fresh `begin` is the honest way back in.)
         // Matches the lockout branch above.
-        yield* dropPending(accountId);
+        yield* dropPending(accountId, pending);
         return yield* Effect.fail(
           new AuthError({ message: "Invalid or expired code", metricResult: "conflict" }),
         );
       }
 
       // The change has committed, so the answer is success whatever happens
-      // here, and the delete runs after it; an entry the store cannot delete
-      // expires with its TTL, and its guess count with it.
-      yield* forkBackground(dropPending(accountId));
+      // here, and the delete runs after it. It removes only the entry this
+      // change completed, so a change the caller begins before it lands keeps
+      // its code. An entry the store cannot delete expires with its TTL, and
+      // its guess count with it.
+      yield* forkBackground(dropPending(accountId, pending));
       metricSessionSecurityInvalidation("email_change");
       return { email: changed.email };
     }).pipe(withEmailChange("complete"));

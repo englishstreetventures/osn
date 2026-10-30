@@ -16,4 +16,5 @@ export {
   type CoordinationRateLimiterOptions,
   type CoordinationStub,
   type CoordinationStubOptions,
+  type RemoveCondition,
 } from "./client";

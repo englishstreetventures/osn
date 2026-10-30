@@ -59,7 +59,7 @@ SQLite-backed classes, so the class is declared with `new_sqlite_classes`.
 | `count()` | The live count, or 0 | No |
 | `read()` | The live value, or `null` | No |
 | `write(value, ttlMs)` | Replaces the entry for `ttlMs`. A TTL at or below zero removes the entry instead | Yes |
-| `remove()` | Deletes the entry and its alarm. `true` only if a live entry was there | Only when an entry exists |
+| `remove(expected?)` | Deletes the entry and its alarm. `true` only if a live entry was there. With `{ value }`, deletes only while that is still the live value: a value written since stays as it was, value, count and expiry, and the answer is `false`. With `{ hits }`, takes that many hits off the live count and deletes the entry when none are left; otherwise the window's end and its alarm stay where they were. Refuses any other shape before touching storage | Only when an entry exists; nothing for a `{ value }` that does not match |
 | `claim(ttlMs)` | Stores a marker for `ttlMs` if there is no live entry. `true` only for the caller that stored it | Only when it wins |
 | `guess()` | With a live entry, adds 1 to its count and answers `{ value, n }`, the value and the count after this guess; the expiry stays. With none, counts nothing and answers `{ value: null, n: 0 }`. `write` starts the count again; `remove` and `take` clear it with the value | Only when an entry exists |
 | `take()` | The live value, removed in the same call, or `null`. Of two takes at once, one gets the value | Only when an entry exists |
@@ -154,12 +154,12 @@ Every consumer fails closed. The mapping lives in
 | Consumer | Calls | When the call fails |
 |---|---|---|
 | Rate limiters and per-account caps | `increment` | Denied, as if over the limit: the route refuses, with 429 where it answers one |
-| Ceremony `set` / `get` / `delete` / `consume` | `write` (JSON) / `read` / `remove` / `remove` | The call rejects; `storeCall` turns it into a `CoordinationError`, which the route answers with a generic 503 (`osn/api/src/lib/public-error.ts`) |
+| Ceremony `set` / `get` / `delete` / `consume` | `write` (JSON) / `read` / `remove`, with `{ value }` when the caller names the value it read / `remove` | The call rejects; `storeCall` turns it into a `CoordinationError`, which the route answers with a generic 503 (`osn/api/src/lib/public-error.ts`) |
 | Ceremony `guess` / `take` / `swap` | `guess` / `take` / `swap` (JSON), on the entry's own object | The same 503 |
 | Step-up token guard | `claim` | The token is refused as "could not be verified", and is not counted as a replay |
 | Discoverable passkey challenge claims | `claim` | The same 503 |
 | Lockouts, `status` / `recordFailure` | `count` / `increment` | Answers `"unknown"`. Every caller refuses with its generic error and writes no security event; a failure that could not be counted shows as `result="unavailable"` on the factor's lockout metric |
-| Lockouts, `reset` | `remove`: for a recovery code or an emailed code, only when the lookup on the way in counted a failure; for TOTP, on every success, since the attempt itself was counted. On the recovery-code and TOTP routes it runs after the answer | Swallowed; the counter expires with its window |
+| Lockouts, `reset` | `remove({ hits })`, taking back the failures the success read, so a failure recorded after that read stands: for a recovery code or an emailed code, only when the lookup on the way in counted a failure; for TOTP, on every success, since the attempt itself was counted. On the recovery-code and TOTP routes it runs after the answer. Should the window end between the read and the reset, up to that many of the next window's failures go instead | Swallowed; the counter expires with its window |
 | Health probe | `write`, `read`, `remove` | `GET /health/coordination` answers 503 |
 
 A ceremony value that does not parse as JSON reads as absent, which sends the
@@ -255,6 +255,8 @@ every call, so every call is one request.
 | `write` | 1, and 1 more when the alarm fires | about 2, and about 1 at expiry |
 | `remove`, entry present | 1 | at least 1 |
 | `remove`, nothing there | 1 | 0 |
+| `remove({ hits })`, hits left over | 1 | about 1 |
+| `remove({ value })`, another value live | 1 | 0 |
 | `claim`, won | 1, and 1 more when the alarm fires | about 2, and about 1 at expiry |
 | `claim`, lost | 1 | 0 |
 | `guess`, entry present | 1 | about 1 |
@@ -276,9 +278,9 @@ for (counted from the code, 2026-10-28):
 |---|---|
 | Code `begin` (step-up OTP, TOTP enrolment, email change, recovery email) | 1 `write`, after any cap or limiter |
 | Registration `begin` | 1 `swap`, after a D1 collision probe |
-| Code `complete`, success | 1 `guess`, then the claim; registration and email change instead delete the entry once their commit lands, after the answer |
-| Recovery code sign-in, success | 1 (the lockout lookup); the reset runs after the answer, and only when the lookup counted a failure |
-| TOTP step-up or TOTP recovery, success | 1 (the attempt count, an `increment`, beside the credential read); the reset runs after the answer, on every success. Two requests and a few rows written where a read alone would be one request, the price of counting each attempt before its code is compared |
+| Code `complete`, success | 1 `guess`, then the claim; registration and email change instead delete the entry once their commit lands, after the answer, and email change deletes only the entry it completed, so a change begun before that delete lands keeps its code |
+| Recovery code sign-in, success | 1 (the lockout lookup); the reset runs after the answer, and only when the lookup counted a failure; it takes back only those failures |
+| TOTP step-up or TOTP recovery, success | 1 (the attempt count, an `increment`, beside the credential read); the reset runs after the answer, on every success, and takes back only this attempt's count. Two requests and a few rows written where a read alone would be one request, the price of counting each attempt before its code is compared |
 | Passkey sign-in, identified: `begin` / `complete` | 1 / 1 (`take`) |
 | Passkey sign-in, discoverable: `begin` / `complete` | 0 / 1 (`claim`, only once the signature verifies) |
 | Step-up passkey, passkey registration `complete` | 1 (`take`) |

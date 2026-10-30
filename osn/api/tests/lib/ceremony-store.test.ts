@@ -298,3 +298,36 @@ describe.each([
     expect(results.filter(Boolean)).toHaveLength(1);
   });
 });
+
+/**
+ * A `delete` that names the value it read removes only that value: a `set`
+ * that landed since — a new `begin` at the same key — keeps its entry and its
+ * guess count. Both builders answer alike.
+ */
+describe.each([
+  ["memory", () => createInMemoryCeremonyStore<Entry>("pending_email_change")],
+  [
+    "durable_object",
+    () =>
+      createDurableCeremonyStore<Entry>(createFakeNamespace().ns, "pending_email_change", vi.fn()),
+  ],
+] as const)("CeremonyStore.delete with the value it read (%s)", (_backend, build) => {
+  it("leaves a value written since, with its count", async () => {
+    const store = build();
+    await store.set("k", entry("completed"), 60_000);
+    const { value: read } = await store.guess("k");
+    const fresh = entry("fresh");
+    await store.set("k", fresh, 60_000);
+    await store.guess("k");
+    await store.delete("k", read!);
+    expect(await store.guess("k")).toEqual({ value: fresh, n: 2 });
+  });
+
+  it("removes the value it read, with its count", async () => {
+    const store = build();
+    await store.set("k", entry("completed"), 60_000);
+    const { value: read } = await store.guess("k");
+    await store.delete("k", read!);
+    expect(await store.guess("k")).toEqual({ value: null, n: 0 });
+  });
+});

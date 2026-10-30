@@ -523,6 +523,89 @@ describe("CoordinationStore", () => {
     TEST_TIMEOUT_MS,
   );
 
+  // F-DO23
+  it(
+    "remove({ value }) deletes only the value it names; another value stays as it was",
+    async () => {
+      const name = "do23";
+      await call(name, "write", "first", 60_000);
+      await call(name, "write", "second", 60_000);
+      await guess(name);
+      const before = await dump(name);
+      expect(await call<boolean>(name, "remove", { value: "first" })).toBe(false);
+      expect(await dump(name)).toEqual(before);
+      expect(await guess(name)).toEqual({ value: "second", n: 2 });
+
+      expect(await call<boolean>(name, "remove", { value: "second" })).toBe(true);
+      expect(await dump(name)).toEqual(EMPTY);
+      expect(await call<boolean>("do23-absent", "remove", { value: "second" })).toBe(false);
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  // F-DO24
+  it(
+    "remove({ hits }) takes back that many hits, keeping the window's end, and deletes when none are left",
+    async () => {
+      const name = "do24";
+      await call(name, "increment", 60_000);
+      await call(name, "increment", 60_000);
+      await call(name, "increment", 60_000);
+      const before = await dump(name);
+      expect(await call<boolean>(name, "remove", { hits: 2 })).toBe(true);
+      expect(await call<number>(name, "count")).toBe(1);
+      expect((await dump(name)).alarm).toBe(before.alarm);
+      // The window's end has not moved: the next hit counts on from what was left.
+      expect(await call<number>(name, "increment", 60_000)).toBe(2);
+
+      expect(await call<boolean>(name, "remove", { hits: 5 })).toBe(true);
+      expect(await dump(name)).toEqual(EMPTY);
+      expect(await call<boolean>(name, "remove", { hits: 1 })).toBe(false);
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  // F-DO25
+  it.each([
+    ["no key", {}],
+    ["both keys", { value: "v", hits: 1 }],
+    ["a value that is not a string", { value: 1 }],
+    ["zero hits", { hits: 0 }],
+    ["a fraction of a hit", { hits: 1.5 }],
+    ["hits that are not a number", { hits: "1" }],
+    ["not an object", "v"],
+    ["null", null],
+  ])(
+    "remove refuses %s and leaves the entry as it was",
+    async (label, condition) => {
+      const name = `do25-${label}`;
+      await call(name, "write", "v", 60_000);
+      const before = await dump(name);
+      const refused = await refusal(name, "remove", condition);
+      expect(["TypeError", "RangeError"]).toContain(refused.name);
+      expect(refused.message).not.toContain(name);
+      expect(await dump(name)).toEqual(before);
+      expect(await call<string | null>(name, "read")).toBe("v");
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "the client passes a remove's condition to the object on a real binding",
+    async () => {
+      const at = { namespace: "ceremony", key: "acct_2" };
+      await send(mf, { ...at, op: "write", args: ["old", 60_000] });
+      await send(mf, { ...at, op: "write", args: ["new", 60_000] });
+      const kept = await send(mf, { ...at, op: "remove", args: [{ value: "old" }] });
+      expect(kept).toEqual({ ok: true, result: false });
+      expect(await call<string | null>("ceremony:acct_2", "read")).toBe("new");
+      const removed = await send(mf, { ...at, op: "remove", args: [{ value: "new" }] });
+      expect(removed).toEqual({ ok: true, result: true });
+      expect(await call<string | null>("ceremony:acct_2", "read")).toBeNull();
+    },
+    TEST_TIMEOUT_MS,
+  );
+
   it(
     "the client addresses <namespace>:<key> on a real binding",
     async () => {

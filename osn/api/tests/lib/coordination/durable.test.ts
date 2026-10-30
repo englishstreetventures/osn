@@ -138,7 +138,7 @@ describe("durable lockout counters", () => {
       );
       expect(await store.status(KEY)).toEqual({ status: "unknown" });
       expect(await store.recordFailure(KEY)).toBe("unknown");
-      await expect(store.reset(KEY)).resolves.toBeUndefined();
+      await expect(store.reset(KEY, 1)).resolves.toBeUndefined();
       expect(onError.mock.calls.map(([named, op]) => `${named}.${op}`)).toEqual([
         `${name}.count`,
         `${name}.increment`,
@@ -160,7 +160,7 @@ describe("durable lockout counters", () => {
     expect(await store.status(KEY)).toEqual({ status: "open", failures: 2 });
     expect(await store.recordFailure(KEY)).toBe(3);
     expect(await store.status(KEY)).toEqual({ status: "locked", failures: 3 });
-    await store.reset(KEY);
+    await store.reset(KEY, 3);
     expect(await store.status(KEY)).toEqual({ status: "open", failures: 0 });
   });
 

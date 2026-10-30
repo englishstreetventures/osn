@@ -51,7 +51,7 @@ function holdingLockout(ns: CoordinationNamespace) {
         count: () => call(() => stub.count()),
         read: () => call(() => stub.read()),
         write: (value, ttlMs) => call(() => stub.write(value, ttlMs)),
-        remove: () => call(() => stub.remove()),
+        remove: (expected) => call(() => stub.remove(expected)),
         claim: (ttlMs) => call(() => stub.claim(ttlMs)),
         guess: () => call(() => stub.guess()),
         take: () => call(() => stub.take()),

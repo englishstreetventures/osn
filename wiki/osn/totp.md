@@ -191,9 +191,11 @@ beside the credential query, and refuses unread an attempt numbered past five,
 or one the store could not count. Attempts sent at once each take their own
 number, so at most five codes are compared in a window however many arrive
 together; a counter read before it was counted would let a burst through
-whole. A right code clears the count after the answer, on every success, since
-its own attempt was counted: without that, five right codes inside a window
-would lock the account. `burnTotpCheckCost` makes the same count at the probe
+whole. A right code takes back its own number after the answer, on every
+success, since its own attempt was counted: without that, five right codes
+inside a window would lock the account. It takes back only that number
+(`reset(key, attempts)`), so an attempt counted after it, before or after the
+answer, stands. `burnTotpCheckCost` makes the same count at the probe
 key, so an identifier that names nobody costs what a wrong code does.
 
 > [!warning] The counter is scoped by ceremony, and it has to be

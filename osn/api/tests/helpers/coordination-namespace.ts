@@ -40,8 +40,9 @@ export interface FakeNamespace {
 /**
  * A stand-in for the `COORDINATION` binding with the store's semantics: one
  * entry per object name, a fixed window that starts at the first hit, expiry
- * checked on every read, a `write` at or below zero TTL that removes, and a
- * guess counted on the entry it reads. Each
+ * checked on every read, a `write` at or below zero TTL that removes, a guess
+ * counted on the entry it reads, and a `remove` that, given a condition,
+ * deletes only the value it names or takes back only the hits it names. Each
  * call runs to completion before it answers, which is the atomicity a
  * Durable Object gives one object.
  */
@@ -91,11 +92,22 @@ export function createFakeNamespace(): FakeNamespace {
             assertDuration(ttlMs);
             entries.set(name, { v: value, exp: Date.now() + ttlMs });
           }),
-        remove: () =>
+        remove: (expected) =>
           run("remove", () => {
-            const existed = live(name) !== undefined;
-            entries.delete(name);
-            return existed;
+            const entry = live(name);
+            if (entry === undefined || expected === undefined) {
+              entries.delete(name);
+              return entry !== undefined;
+            }
+            if ("value" in expected) {
+              if (entry.v !== expected.value) return false;
+              entries.delete(name);
+              return true;
+            }
+            const left = (entry.n ?? 0) - expected.hits;
+            if (left > 0) entry.n = left;
+            else entries.delete(name);
+            return true;
           }),
         claim: (ttlMs) =>
           run("claim", () => {

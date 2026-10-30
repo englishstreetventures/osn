@@ -21,7 +21,10 @@
  *   the guesses behind it.
  * - A right code claims the entry ({@link claimEntry}: of two right codes
  *   exactly one wins) or, where the commit that follows must succeed first,
- *   deletes it after the commit.
+ *   deletes it after the commit. Email change deletes only the entry its guess
+ *   read (`CeremonyStore.delete` with that value), since its `begin`
+ *   overwrites the entry at the same key; registration's `begin` cannot write
+ *   over a live entry, nor at the key of an address that has an account.
  */
 
 import { Effect } from "effect";

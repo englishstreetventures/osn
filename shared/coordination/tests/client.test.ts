@@ -40,7 +40,8 @@ function recordingNamespace(answer: (op: CoordinationOp, attempt: number) => Pro
         count: () => record(name, "count", []) as Promise<number>,
         read: () => record(name, "read", []) as Promise<string | null>,
         write: (value, ttlMs) => record(name, "write", [value, ttlMs]) as Promise<void>,
-        remove: () => record(name, "remove", []) as Promise<boolean>,
+        remove: (expected) =>
+          record(name, "remove", expected === undefined ? [] : [expected]) as Promise<boolean>,
         claim: (ttlMs) => record(name, "claim", [ttlMs]) as Promise<boolean>,
         guess: () => record(name, "guess", []) as Promise<{ value: string | null; n: number }>,
         take: () => record(name, "take", []) as Promise<string | null>,
@@ -253,6 +254,19 @@ describe("createCoordinationClient", () => {
     expect(calls.map((c) => c.args)).toEqual([
       ["v", 0],
       ["v", -5],
+    ]);
+  });
+
+  it("passes a remove's condition to the object, once, and sends none when there is none", async () => {
+    const { ns, calls } = recordingNamespace(() => Promise.resolve(true));
+    const client = createCoordinationClient(ns, { namespace: "ceremony" });
+    await client.remove("k", { value: "v" });
+    await client.remove("k", { hits: 3 });
+    await client.remove("k");
+    expect(calls.map((c) => [c.op, c.args])).toEqual([
+      ["remove", [{ value: "v" }]],
+      ["remove", [{ hits: 3 }]],
+      ["remove", []],
     ]);
   });
 });

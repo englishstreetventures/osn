@@ -592,17 +592,20 @@ export function createRecoveryFactorsModule(
       }
 
       // Of two right codes sent at once, exactly one claims the entry. The
-      // lockout reset runs beside the claim: a right code clears the counter
-      // whichever of two right codes wins, so it waits on nothing. A lookup
-      // that counted no failures leaves nothing to clear, so then there is no
-      // reset; a failure a concurrent wrong code records meanwhile stands, and
-      // expires with its window.
+      // lockout reset runs beside the claim: a right code takes back the
+      // failures the lookup counted whichever of two right codes wins, so it
+      // waits on nothing. A lookup that counted no failures leaves nothing to
+      // take back, so then there is no reset. A failure a concurrent wrong code
+      // records after the lookup stands either way, and expires with its
+      // window.
       const clearsFailures = lockout.failures > 0;
       const [won] = yield* Effect.all(
         [
           claimEntry(stores.pendingRecoveryOtp, profile.accountId),
           clearsFailures
-            ? Effect.promise(() => recoveryOtpLockoutStore.reset(profile.accountId))
+            ? Effect.promise(() =>
+                recoveryOtpLockoutStore.reset(profile.accountId, lockout.failures),
+              )
             : Effect.void,
         ],
         { concurrency: "unbounded" },

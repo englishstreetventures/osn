@@ -45,6 +45,13 @@ export interface CoordinationStubOptions {
 const STUB_OPTIONS: CoordinationStubOptions = { locationHint: COORDINATION_LOCATION_HINT };
 
 /**
+ * What a `remove` may delete, named by what its caller read: `{ value }`, only
+ * while that is still the live value; `{ hits }`, that many hits off the live
+ * count, deleting the entry when none are left. Exactly one key.
+ */
+export type RemoveCondition = { readonly value: string } | { readonly hits: number };
+
+/**
  * The calls one object answers. Each is atomic on that object. Durations are
  * whole milliseconds from 1 to {@link MAX_TTL_MS}; anything else is refused,
  * except a `write` TTL at or below zero, which removes the entry.
@@ -58,8 +65,12 @@ export interface CoordinationStub {
   read(): Promise<string | null>;
   /** Stores `value` for `ttlMs`, replacing any entry. */
   write(value: string, ttlMs: number): Promise<void>;
-  /** Deletes the entry; true only if a live one was there. */
-  remove(): Promise<boolean>;
+  /**
+   * Deletes the entry; true only if a live one was there. With `expected`,
+   * deletes only what it names (see {@link RemoveCondition}); a live entry it
+   * does not match stays as it was, and the answer is false.
+   */
+  remove(expected?: RemoveCondition): Promise<boolean>;
   /** Stores a marker for `ttlMs` if no live entry exists; true only for the caller that stored it. */
   claim(ttlMs: number): Promise<boolean>;
   /**
@@ -138,7 +149,7 @@ export interface CoordinationClient {
   count(key: string): Promise<number>;
   read(key: string): Promise<string | null>;
   write(key: string, value: string, ttlMs: number): Promise<void>;
-  remove(key: string): Promise<boolean>;
+  remove(key: string, expected?: RemoveCondition): Promise<boolean>;
   claim(key: string, ttlMs: number): Promise<boolean>;
   guess(key: string): Promise<{ value: string | null; n: number }>;
   take(key: string): Promise<string | null>;
@@ -232,7 +243,10 @@ export function createCoordinationClient<S extends string>(
     count: (key) => call("count", key, (stub) => stub.count()),
     read: (key) => call("read", key, (stub) => stub.read()),
     write: (key, value, ttlMs) => call("write", key, (stub) => stub.write(value, clamp(ttlMs))),
-    remove: (key) => call("remove", key, (stub) => stub.remove()),
+    remove: (key, expected) =>
+      call("remove", key, (stub) =>
+        expected === undefined ? stub.remove() : stub.remove(expected),
+      ),
     claim: (key, ttlMs) => call("claim", key, (stub) => stub.claim(clamp(ttlMs))),
     guess: (key) => call("guess", key, (stub) => stub.guess()),
     take: (key) => call("take", key, (stub) => stub.take()),

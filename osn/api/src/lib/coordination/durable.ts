@@ -8,10 +8,10 @@
  * | Consumer | Call |
  * |---|---|
  * | rate limiters, per-account caps | `increment` in a fixed window; a failed call denies |
- * | ceremony `set` / `get` / `delete` / `consume` | `write` (JSON) / `read` / `remove` / `remove` |
+ * | ceremony `set` / `get` / `delete` / `consume` | `write` (JSON) / `read` / `remove` (`{ value }` with an expected value) / `remove` |
  * | ceremony `guess` / `take` / `swap` | `guess` / `take` / `swap`, on the entry's own object |
  * | step-up token guard, discoverable passkey challenge claims | `claim` |
- * | lockout `status` / `recordFailure` / `reset` | `count` / `increment` / `remove` |
+ * | lockout `status` / `recordFailure` / `reset` | `count` / `increment` / `remove` (`{ hits }`) |
  * | health probe `roundTrip` | `write` / `read` / `remove`, on a fresh key |
  *
  * Failure posture, per store:
@@ -106,7 +106,8 @@ export function measured(
         count: () => count("count", () => stub.count()),
         read: () => count("read", () => stub.read()),
         write: (value, ttlMs) => count("write", () => stub.write(value, ttlMs)),
-        remove: () => count("remove", () => stub.remove()),
+        remove: (expected) =>
+          count("remove", () => (expected === undefined ? stub.remove() : stub.remove(expected))),
         claim: (ttlMs) => count("claim", () => stub.claim(ttlMs)),
         guess: () => count("guess", () => stub.guess()),
         take: () => count("take", () => stub.take()),
@@ -171,9 +172,14 @@ export function createDurableCeremonyStore<V>(
       op("get");
       return parse(await store.read(key));
     },
-    async delete(key) {
+    async delete(key, expected) {
       op("delete");
-      await store.remove(key);
+      // As in `swap`: an `expected` a `get` or `guess` parsed stringifies back
+      // to the text stored.
+      await store.remove(
+        key,
+        expected === undefined ? undefined : { value: JSON.stringify(expected) },
+      );
     },
     async consume(key) {
       op("delete");
@@ -227,9 +233,9 @@ export function createDurableLockoutStore(
         return "unknown";
       }
     },
-    async reset(accountId) {
+    async reset(accountId, failures) {
       try {
-        await store.remove(accountId);
+        await store.remove(accountId, { hits: failures });
       } catch {
         // Reported through `onError`; the counter expires with its window.
       }

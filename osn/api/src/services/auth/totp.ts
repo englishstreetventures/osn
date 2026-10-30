@@ -341,10 +341,11 @@ export function createTotpModule(
       // read high exactly when it matters.
       if (rekey) metricTotpRekeyed("ok");
 
-      // Clears the count after the answer, on every success: this attempt was
-      // counted on the way in, so without the reset a few right codes inside
-      // one window would lock the account.
-      yield* forkBackground(Effect.promise(() => totpLockoutStore.reset(key)));
+      // Takes back the count this attempt was given, after the answer, on
+      // every success: this attempt was counted on the way in, so without the
+      // reset a few right codes inside one window would lock the account. An
+      // attempt counted after this one, before or after the answer, stands.
+      yield* forkBackground(Effect.promise(() => totpLockoutStore.reset(key, attempts)));
       metricTotpLockout("reset", scope);
       metricTotpVerified("ok");
     });

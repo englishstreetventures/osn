@@ -1,6 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 
-import { MAX_TTL_MS } from "./client";
+import { MAX_TTL_MS, type RemoveCondition } from "./client";
 
 /** The one stored record: a value, a count, or both, and when it stops being live. */
 interface Entry {
@@ -16,6 +16,29 @@ const ENTRY = "entry";
 function assertDuration(ms: unknown, what: "windowMs" | "ttlMs"): asserts ms is number {
   if (typeof ms !== "number" || !Number.isSafeInteger(ms) || ms <= 0 || ms > MAX_TTL_MS) {
     throw new RangeError(`${what} must be a whole number of milliseconds from 1 to ${MAX_TTL_MS}`);
+  }
+}
+
+/**
+ * Refuses anything but an object with exactly one of `value` (a string) or
+ * `hits` (a whole number from 1); `undefined` is no condition.
+ */
+function assertCondition(expected: unknown): asserts expected is RemoveCondition | undefined {
+  if (expected === undefined) return;
+  if (typeof expected !== "object" || expected === null) {
+    throw new TypeError("expected must be { value } or { hits }");
+  }
+  const keys = Object.keys(expected);
+  if (keys.length !== 1 || (keys[0] !== "value" && keys[0] !== "hits")) {
+    throw new TypeError("expected must be { value } or { hits }");
+  }
+  if ("value" in expected) {
+    if (typeof expected.value !== "string") throw new TypeError("value must be a string");
+    return;
+  }
+  const { hits } = expected as { hits: unknown };
+  if (typeof hits !== "number" || !Number.isSafeInteger(hits) || hits < 1) {
+    throw new RangeError("hits must be a whole number from 1");
   }
 }
 
@@ -95,11 +118,31 @@ export class CoordinationStore extends DurableObject<unknown> {
     await this.store({ v: value, exp: Date.now() + ttlMs });
   }
 
-  /** Deletes the entry. True only if a live one was there. */
-  async remove(): Promise<boolean> {
-    const existed = this.live(Date.now()) !== undefined;
+  /**
+   * Deletes the entry. True only if a live one was there. With `expected`, it
+   * deletes only what its caller read: `{ value }` only while that is still
+   * the live value, so a value written since stays as it was, value, count
+   * and expiry, and nothing is stored; `{ hits }` takes that many hits off the
+   * live count, deleting the entry when none are left and otherwise leaving
+   * the window's end where it was, so hits counted since stand. An expired
+   * entry is cleared either way, and answers false.
+   */
+  async remove(expected?: RemoveCondition): Promise<boolean> {
+    assertCondition(expected);
+    const entry = this.live(Date.now());
+    if (entry !== undefined && expected !== undefined) {
+      if ("value" in expected) {
+        if (entry.v !== expected.value) return false;
+      } else {
+        const left = (entry.n ?? 0) - expected.hits;
+        if (left > 0) {
+          this.ctx.storage.kv.put<Entry>(ENTRY, { ...entry, n: left });
+          return true;
+        }
+      }
+    }
     await this.clear();
-    return existed;
+    return entry !== undefined;
   }
 
   /**

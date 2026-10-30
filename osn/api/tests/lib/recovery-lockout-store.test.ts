@@ -17,8 +17,20 @@ describe("createInMemoryRecoveryLockoutStore", () => {
       status: "locked",
       failures: RECOVERY_LOCKOUT_THRESHOLD,
     });
-    await store.reset("acc_a");
+    await store.reset("acc_a", RECOVERY_LOCKOUT_THRESHOLD);
     expect(await store.status("acc_a")).toEqual({ status: "open", failures: 0 });
+  });
+
+  it("reset takes back only the failures its caller read; one recorded since stands", async () => {
+    const store = createInMemoryRecoveryLockoutStore();
+    await store.recordFailure("acc_a");
+    await store.recordFailure("acc_a");
+    expect(await store.status("acc_a")).toEqual({ status: "open", failures: 2 });
+    await store.recordFailure("acc_a");
+    await store.reset("acc_a", 2);
+    expect(await store.status("acc_a")).toEqual({ status: "open", failures: 1 });
+    // The failure recorded since keeps its window: one more brings the count to 2.
+    expect(await store.recordFailure("acc_a")).toBe(2);
   });
 
   it("recordFailure returns the running count", async () => {

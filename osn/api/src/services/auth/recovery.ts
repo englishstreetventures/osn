@@ -411,13 +411,15 @@ export function createRecoveryModule(
       });
 
       metricRecoveryCodeConsumed("success");
-      // O2: a successful consume clears the failed-attempt counter — after the
-      // answer, since the answer does not depend on it, and only when the
-      // lookup above counted a failure to clear. A failure a concurrent wrong
-      // code records in between is left standing, which is stricter, and
-      // expires with its window.
+      // A successful consume takes back the failures the lookup above
+      // counted — after the answer, since the answer does not depend on it,
+      // and only when there are any. A failure a wrong code records after that
+      // lookup, before or after the answer, stands, and expires with its
+      // window.
       if (lockout.failures > 0) {
-        yield* forkBackground(Effect.promise(() => recoveryLockoutStore.reset(profile.accountId)));
+        yield* forkBackground(
+          Effect.promise(() => recoveryLockoutStore.reset(profile.accountId, lockout.failures)),
+        );
         metricRecoveryLockout("reset");
       }
       // S-L3: whole-account session wipe is a security-relevant event — emit

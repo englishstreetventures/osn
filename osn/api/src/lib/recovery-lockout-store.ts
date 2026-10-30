@@ -65,8 +65,14 @@ export interface RecoveryLockoutStore {
    * and refuses unread any attempt whose count is over the threshold.
    */
   recordFailure(accountId: string): Promise<number | "unknown">;
-  /** Clear the counter — called on a successful consume. Never rejects. */
-  reset(accountId: string): Promise<void>;
+  /**
+   * Take back `failures` — the count this caller's `status` or `recordFailure`
+   * answered — on a success, deleting the counter when none are left. A
+   * failure recorded since stands, with the window it was counted in. Should
+   * the window end between that read and this call, up to `failures` of the
+   * next window's count go instead. Never rejects.
+   */
+  reset(accountId: string, failures: number): Promise<void>;
 }
 
 export interface RecoveryLockoutConfig {
@@ -112,8 +118,11 @@ export function createInMemoryRecoveryLockoutStore(
       bucket.count += 1;
       return bucket.count;
     },
-    async reset(accountId) {
-      buckets.delete(accountId);
+    async reset(accountId, failures) {
+      const bucket = live(accountId);
+      if (!bucket) return;
+      bucket.count -= failures;
+      if (bucket.count <= 0) buckets.delete(accountId);
     },
   };
 }

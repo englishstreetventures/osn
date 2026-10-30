@@ -833,9 +833,9 @@ function countingLockout(bump: () => void, inner: RecoveryLockoutStore): Recover
       bump();
       return inner.recordFailure(id);
     },
-    reset: (id) => {
+    reset: (id, failures) => {
       bump();
-      return inner.reset(id);
+      return inner.reset(id, failures);
     },
   };
 }
@@ -897,9 +897,9 @@ function makeCountingApp(options: { readonly lockoutsUnreachable?: boolean } = {
           hops.pendingRecoveryOtp += 1;
           return pending.set(key, value, ttlMs);
         },
-        delete: (key) => {
+        delete: (key, expected) => {
           hops.pendingRecoveryOtp += 1;
-          return pending.delete(key);
+          return pending.delete(key, expected);
         },
         guess: (key) => {
           hops.pendingRecoveryOtp += 1;

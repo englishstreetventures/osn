@@ -47,8 +47,13 @@ export interface CeremonyStore<V> {
   set(key: string, value: V, ttlMs: number): Promise<void>;
   /** Fetch the live value for `key`, or `null` if absent/expired. */
   get(key: string): Promise<V | null>;
-  /** Remove `key`. Idempotent. */
-  delete(key: string): Promise<void>;
+  /**
+   * Remove `key`. Idempotent. With `expected` — a value an earlier
+   * {@link guess} or {@link get} answered, compared as JSON — only while that
+   * value is still the live one: an entry `set` since, by a new `begin` at the
+   * same key, stays with its count.
+   */
+  delete(key: string, expected?: V): Promise<void>;
   /**
    * Claim `key` for single use: remove it and report whether THIS call is the
    * one that removed a live entry. First consumer wins; every other caller
@@ -186,8 +191,12 @@ export function createInMemoryCeremonyStore<V>(
       observer.onOp?.("get", namespace);
       return live(key)?.value ?? null;
     },
-    async delete(key) {
+    async delete(key, expected) {
       observer.onOp?.("delete", namespace);
+      if (expected !== undefined) {
+        const entry = live(key);
+        if (entry === undefined || JSON.stringify(entry.value) !== JSON.stringify(expected)) return;
+      }
       remove(key);
     },
     async consume(key) {

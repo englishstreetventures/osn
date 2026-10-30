@@ -503,8 +503,11 @@ export function createRegistrationModule(
 
       // Success: only NOW delete the pending entry, and its guess count with
       // it — after the answer, since the account exists whatever happens
-      // here. A store fault is not the caller's answer; an entry left behind
-      // expires with its TTL.
+      // here. Nothing a later request writes can be at this key by then:
+      // `begin` writes here only by a swap from nothing, which cannot land
+      // while this entry is live, and once the account exists `begin` finds
+      // the address taken and writes at its probe key. A store fault is not
+      // the caller's answer; an entry left behind expires with its TTL.
       yield* forkBackground(spendEntry(stores.pendingRegistrations, key).pipe(Effect.ignore));
 
       const issued = yield* issueTokens(

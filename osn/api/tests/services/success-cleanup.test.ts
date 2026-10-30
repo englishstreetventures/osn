@@ -2,11 +2,12 @@ import { it, expect, describe } from "@effect/vitest";
 import type { CoordinationNamespace, CoordinationOp } from "@shared/coordination";
 import { base32Decode, deriveTotpCode } from "@shared/crypto/totp";
 import { makeLogEmailLive } from "@shared/email";
-import { Effect, Layer } from "effect";
+import { Effect, Fiber, Layer } from "effect";
 import { beforeAll } from "vitest";
 
 import { createDurableCoordination } from "../../src/lib/coordination/durable";
 import { createAuthService } from "../../src/services/auth";
+import { MAX_OTP_ATTEMPTS } from "../../src/services/auth/constants";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { settle } from "../helpers/background";
 import { createFakeNamespace } from "../helpers/coordination-namespace";
@@ -40,6 +41,7 @@ const ANSWER_WITHIN = "2 seconds";
  */
 function holding(ns: CoordinationNamespace, held: (store: string, op: CoordinationOp) => boolean) {
   let release!: () => void;
+  let waiting = 0;
   const gate = new Promise<void>((resolve) => {
     release = resolve;
   });
@@ -47,14 +49,17 @@ function holding(ns: CoordinationNamespace, held: (store: string, op: Coordinati
     getByName(name, options) {
       const stub = ns.getByName(name, options);
       const store = name.slice(0, name.indexOf(":"));
-      const call = <A>(op: CoordinationOp, run: () => Promise<A>): Promise<A> =>
-        held(store, op) ? gate.then(run) : run();
+      const call = <A>(op: CoordinationOp, run: () => Promise<A>): Promise<A> => {
+        if (!held(store, op)) return run();
+        waiting += 1;
+        return gate.then(run);
+      };
       return {
         increment: (windowMs) => call("increment", () => stub.increment(windowMs)),
         count: () => call("count", () => stub.count()),
         read: () => call("read", () => stub.read()),
         write: (value, ttlMs) => call("write", () => stub.write(value, ttlMs)),
-        remove: () => call("remove", () => stub.remove()),
+        remove: (expected) => call("remove", () => stub.remove(expected)),
         claim: (ttlMs) => call("claim", () => stub.claim(ttlMs)),
         guess: () => call("guess", () => stub.guess()),
         take: () => call("take", () => stub.take()),
@@ -62,7 +67,7 @@ function holding(ns: CoordinationNamespace, held: (store: string, op: Coordinati
       };
     },
   };
-  return { ns: wrapped, release };
+  return { ns: wrapped, release, waiting: () => waiting };
 }
 
 function harness(held: (store: string, op: CoordinationOp) => boolean = () => false) {
@@ -105,6 +110,15 @@ function harness(held: (store: string, op: CoordinationOp) => boolean = () => fa
       }
       throw new Error(`${op} never reached the store`);
     });
+  /** Waits until `n` held calls have been sent and are waiting on the gate. */
+  const holdingAtLeast = (n: number) =>
+    Effect.gen(function* () {
+      for (let i = 0; i < 200; i++) {
+        if (gate.waiting() >= n) return;
+        yield* Effect.sleep("5 millis");
+      }
+      throw new Error(`only ${gate.waiting()} of ${n} held calls were sent`);
+    });
   /** Lets background work run, then answers whether `op` reached the store after `from`. */
   const settledWithout = (op: string, from: number) =>
     Effect.gen(function* () {
@@ -119,10 +133,14 @@ function harness(held: (store: string, op: CoordinationOp) => boolean = () => fa
     code,
     mailedCode,
     landed,
+    holdingAtLeast,
     settledWithout,
     release: gate.release,
   };
 }
+
+/** A six-digit code that is not `code`. */
+const wrongFor = (code: string) => (code === "000000" ? "000001" : "000000");
 
 /** An account with a confirmed TOTP credential, and the step its enrolment code used. */
 const withTotp = (auth: ReturnType<typeof createAuthService>, handle: string) =>
@@ -247,4 +265,126 @@ describe("a lockout with no failures on record", () => {
       expect(yield* h.settledWithout("recovery_otp_lockout.remove", from)).toBe(true);
     }).pipe(Effect.provide(h.layer));
   });
+});
+
+/**
+ * A cleanup removes only what its own request saw. Each case holds the cleanup
+ * while another request writes to the same key — a new `begin`, a wrong code —
+ * then lets the cleanup land, and checks that the other request's write
+ * survived it.
+ */
+describe("a cleanup leaves what another request wrote", () => {
+  it.live("email change: a begin after the answer keeps its entry", () => {
+    const h = harness((store, op) => store === "pending_email_change" && op === "remove");
+    return Effect.gen(function* () {
+      const profile = yield* h.auth.registerProfile("keep-ec@example.com", "keepec");
+      const first = yield* h.auth.issueStepUpToken(profile.accountId, "otp", "email_change");
+      yield* h.auth.beginEmailChange(profile.accountId, "keep-ec-1@example.com");
+      yield* h.auth.completeEmailChange(profile.accountId, h.code(), first, null);
+
+      // The completed change's delete is still held when the next change begins.
+      yield* h.auth.beginEmailChange(profile.accountId, "keep-ec-2@example.com");
+      const code = h.code();
+      h.release();
+      yield* h.landed("pending_email_change.remove");
+
+      const second = yield* h.auth.issueStepUpToken(profile.accountId, "otp", "email_change");
+      const done = yield* h.auth.completeEmailChange(profile.accountId, code, second, null);
+      expect(done.email).toBe("keep-ec-2@example.com");
+    }).pipe(Effect.provide(h.layer));
+  });
+
+  it.live(
+    "email change: a begin while the capped guess's delete is in flight keeps its entry",
+    () => {
+      const h = harness((store, op) => store === "pending_email_change" && op === "remove");
+      return Effect.gen(function* () {
+        const profile = yield* h.auth.registerProfile("keep-ecl@example.com", "keepecl");
+        yield* h.auth.beginEmailChange(profile.accountId, "keep-ecl-1@example.com");
+        const wrong = wrongFor(h.code());
+        for (let i = 1; i < MAX_OTP_ATTEMPTS; i++) {
+          const token = yield* h.auth.issueStepUpToken(profile.accountId, "otp", "email_change");
+          yield* Effect.flip(h.auth.completeEmailChange(profile.accountId, wrong, token, null));
+        }
+        const last = yield* h.auth.issueStepUpToken(profile.accountId, "otp", "email_change");
+        const capped = yield* Effect.forkChild(
+          Effect.flip(h.auth.completeEmailChange(profile.accountId, wrong, last, null)),
+        );
+        yield* h.holdingAtLeast(1);
+
+        yield* h.auth.beginEmailChange(profile.accountId, "keep-ecl-2@example.com");
+        const code = h.code();
+        h.release();
+        expect((yield* Fiber.join(capped))._tag).toBe("AuthError");
+
+        const token = yield* h.auth.issueStepUpToken(profile.accountId, "otp", "email_change");
+        const done = yield* h.auth.completeEmailChange(profile.accountId, code, token, null);
+        expect(done.email).toBe("keep-ecl-2@example.com");
+      }).pipe(Effect.provide(h.layer));
+    },
+  );
+
+  it.live("recovery-code sign-in: a wrong code after the answer keeps its failure", () => {
+    const h = harness((store, op) => store === "recovery_lockout" && op === "remove");
+    return Effect.gen(function* () {
+      const profile = yield* h.auth.registerProfile("keep-rc@example.com", "keeprc");
+      const { recoveryCodes } = yield* h.auth.generateRecoveryCodesForAccount(profile.accountId);
+      yield* Effect.flip(h.auth.consumeRecoveryCode("keeprc", "wrong-code"));
+      yield* h.auth.consumeRecoveryCode("keeprc", recoveryCodes[0]!);
+
+      // The reset is still held when the next wrong code is counted.
+      yield* Effect.flip(h.auth.consumeRecoveryCode("keeprc", "wrong-code"));
+      h.release();
+      yield* h.landed("recovery_lockout.remove");
+      expect(
+        yield* Effect.promise(() => h.bundle.recoveryLockoutStore.status(profile.accountId)),
+      ).toEqual({ status: "open", failures: 1 });
+    }).pipe(Effect.provide(h.layer));
+  });
+
+  it.live("TOTP step-up: a wrong attempt after the answer keeps its count", () => {
+    const h = harness((store, op) => store === "totp_lockout" && op === "remove");
+    return Effect.gen(function* () {
+      const { profile, next } = yield* withTotp(h.auth, "keeptotp");
+      yield* Effect.flip(h.auth.completeStepUpTotp(profile.accountId, wrongFor(next)));
+      yield* h.auth.completeStepUpTotp(profile.accountId, next);
+
+      // The reset is still held when the next attempt is counted.
+      yield* Effect.flip(h.auth.completeStepUpTotp(profile.accountId, wrongFor(next)));
+      h.release();
+      yield* h.landed("totp_lockout.remove");
+      expect(
+        yield* Effect.promise(() => h.bundle.totpLockoutStore.status(profile.accountId)),
+      ).toEqual({ status: "open", failures: 1 });
+    }).pipe(Effect.provide(h.layer));
+  });
+
+  it.live(
+    "emailed recovery code: a wrong code counted while the reset is in flight keeps its failure",
+    () => {
+      const h = harness(
+        (store, op) =>
+          (store === "pending_recovery_otp" || store === "recovery_otp_lockout") && op === "remove",
+      );
+      return Effect.gen(function* () {
+        const profile = yield* h.auth.registerProfile("keep-er@example.com", "keeper");
+        yield* h.auth.beginEmailRecovery("keep-er@example.com");
+        const code = yield* h.mailedCode;
+        yield* Effect.flip(h.auth.completeEmailRecovery("keep-er@example.com", wrongFor(code)));
+
+        // The right code's claim and reset are both held; a wrong code guesses
+        // against the still-live entry and counts its failure on the account.
+        const right = yield* Effect.forkChild(
+          h.auth.completeEmailRecovery("keep-er@example.com", code),
+        );
+        yield* h.holdingAtLeast(2);
+        yield* Effect.flip(h.auth.completeEmailRecovery("keep-er@example.com", wrongFor(code)));
+        h.release();
+        yield* Fiber.join(right);
+        expect(
+          yield* Effect.promise(() => h.bundle.recoveryOtpLockoutStore.status(profile.accountId)),
+        ).toEqual({ status: "open", failures: 1 });
+      }).pipe(Effect.provide(h.layer));
+    },
+  );
 });

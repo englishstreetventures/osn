@@ -1,4 +1,8 @@
-import { createCoordinationClient, type CoordinationNamespace } from "../../../src/client";
+import {
+  createCoordinationClient,
+  type CoordinationNamespace,
+  type RemoveCondition,
+} from "../../../src/client";
 import { CoordinationStore } from "../../../src/store";
 
 /** What a test can see of an object's storage: every stored key and the pending alarm. */
@@ -64,7 +68,7 @@ async function callObject(
     case "write":
       return stub.write(args[0] as string, args[1] as number);
     case "remove":
-      return stub.remove();
+      return args.length === 0 ? stub.remove() : stub.remove(args[0] as RemoveCondition);
     case "claim":
       return stub.claim(args[0] as number);
     case "guess":
@@ -99,6 +103,8 @@ async function callClient(
       return client.read(key);
     case "increment":
       return client.increment(key, args[0] as number);
+    case "remove":
+      return client.remove(key, args[0] as RemoveCondition | undefined);
     default:
       throw new Error(`unknown client op ${op}`);
   }
