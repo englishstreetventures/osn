@@ -7,7 +7,7 @@
  * injected {@link StepUpJtiStore}.
  */
 
-import { accounts, type NewPasskey, passkeys } from "@osn/db/schema";
+import { accounts, passkeys } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { timingSafeEqualString } from "@shared/crypto/timing-safe";
 import { type EmailError, EmailService } from "@shared/email";
@@ -39,7 +39,6 @@ import { claimEntry, guessEntry, spendEntry } from "./attempts";
 import {
   CHALLENGE_TTL_MS,
   MAX_OTP_ATTEMPTS,
-  PASSKEY_LAST_USED_COALESCE_MS,
   RECOVERY_COOLDOWN_MS,
   STEP_UP_CLAIM_MARGIN_MS,
 } from "./constants";
@@ -54,6 +53,7 @@ import {
   type StepUpTokenClaims,
   verifyJwt,
 } from "./helpers";
+import { recordAssertion } from "./passkey-counter";
 import { storeCall } from "./store-call";
 import type { AssertingCredential, PasskeyProvenance } from "./types";
 
@@ -535,20 +535,13 @@ export function createStepUpModule(ctx: AuthContext) {
         return yield* Effect.fail(new AuthError({ message: "Passkey verification failed" }));
       }
 
-      const nowSec = Math.floor(Date.now() / 1000);
-      const shouldTouchLastUsed =
-        !pk.lastUsedAt || Date.now() - pk.lastUsedAt * 1000 >= PASSKEY_LAST_USED_COALESCE_MS;
-      const updates: Partial<Pick<NewPasskey, "counter" | "lastUsedAt" | "updatedAt">> = {
-        counter: verification.authenticationInfo.newCounter,
-      };
-      if (shouldTouchLastUsed) {
-        updates["lastUsedAt"] = nowSec;
-        updates["updatedAt"] = nowSec;
+      // The counter, and the coalesced last_used_at, written only while the
+      // counter rule still holds against the row; refused otherwise, before a
+      // step-up token is issued.
+      const written = yield* recordAssertion(pk, verification.authenticationInfo.newCounter);
+      if (!written) {
+        return yield* Effect.fail(new AuthError({ message: "Passkey verification failed" }));
       }
-      yield* Effect.tryPromise({
-        try: () => db.update(passkeys).set(updates).where(eq(passkeys.id, pk.id)),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
 
       // Carry the asserted credential's provenance into the token. `webauthn`
       // in the AMR says a ceremony happened; this says whose credential ran it,

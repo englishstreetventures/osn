@@ -4,14 +4,7 @@
  * (conditional-UI) flow and the shared assertion verifier.
  */
 
-import {
-  accounts,
-  type NewPasskey,
-  passkeys,
-  securityEvents,
-  sessions,
-  users,
-} from "@osn/db/schema";
+import { accounts, passkeys, securityEvents, sessions, users } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { commitBatch, jsonEachIn } from "@shared/db-utils";
 import { EmailService } from "@shared/email";
@@ -45,12 +38,12 @@ import {
   CHALLENGE_CLAIM_MARGIN_MS,
   CHALLENGE_TTL_MS,
   MAX_PASSKEYS_PER_ACCOUNT,
-  PASSKEY_LAST_USED_COALESCE_MS,
   RECOVERY_ENROLMENT_PASSKEY_CEILING,
 } from "./constants";
 import type { AuthContext } from "./context";
 import { AuthError, type CoordinationError, DatabaseError } from "./errors";
 import { genId, MAX_IDENTIFIER_LENGTH, normaliseIdentifier, now, probeAccountId } from "./helpers";
+import { recordAssertion } from "./passkey-counter";
 import type { ProfilesModule } from "./profiles";
 import type { SecurityEventsModule } from "./security-events";
 import type { SessionsModule } from "./sessions";
@@ -949,21 +942,13 @@ export function createPasskeysModule(
         if (!won) return yield* Effect.fail(notFound);
       }
 
-      // Update counter + coalesced last_used_at (parallel to sessions).
-      const nowSec = Math.floor(Date.now() / 1000);
-      const shouldTouchLastUsed =
-        !pk.lastUsedAt || Date.now() - pk.lastUsedAt * 1000 >= PASSKEY_LAST_USED_COALESCE_MS;
-      const updates: Partial<Pick<NewPasskey, "counter" | "lastUsedAt" | "updatedAt">> = {
-        counter: verification.authenticationInfo.newCounter,
-      };
-      if (shouldTouchLastUsed) {
-        updates["lastUsedAt"] = nowSec;
-        updates["updatedAt"] = nowSec;
+      // The counter, and the coalesced last_used_at, written only while the
+      // counter rule still holds against the row; refused with the
+      // verifier's own answer otherwise, before any session is issued.
+      const written = yield* recordAssertion(pk, verification.authenticationInfo.newCounter);
+      if (!written) {
+        return yield* Effect.fail(new AuthError({ message: "Passkey verification failed" }));
       }
-      yield* Effect.tryPromise({
-        try: () => db.update(passkeys).set(updates).where(eq(passkeys.id, pk.id)),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
 
       return profile;
     });
