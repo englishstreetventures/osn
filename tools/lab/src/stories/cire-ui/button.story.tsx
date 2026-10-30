@@ -32,6 +32,7 @@ const VARIANTS = [
   "field",
   "danger",
   "chip",
+  "round",
   "link",
   "subtle",
   "touchLink",
@@ -49,7 +50,7 @@ const GROUPS: readonly { name: string; variants: readonly ButtonVariant[] }[] = 
   { name: "Text", variants: ["link", "subtle", "touchLink"] },
   { name: "Glyph", variants: ["bare"] },
   { name: "Field", variants: ["field"] },
-  { name: "Chrome", variants: ["chip"] },
+  { name: "Chrome", variants: ["chip", "round"] },
   { name: "State and fill", variants: ["choice", "tile"] },
 ];
 
@@ -66,6 +67,7 @@ const LABEL = {
   field: "Vegetarian, no nuts",
   danger: "Delete wedding",
   chip: "See details",
+  round: "Close",
   link: "View listing",
   subtle: "Cancel",
   touchLink: "Sign out",
@@ -90,6 +92,9 @@ function Specimen(props: {
   extra?: { role?: "radio"; "aria-pressed"?: "true" | "false"; "aria-checked"?: "true" | "false" };
 }) {
   const label = () => props.label ?? LABEL[props.variant];
+  /** A round button holds one glyph whatever its size, so its label is the name, not the content. */
+  const glyphOnly = () =>
+    props.variant === "round" || props.size === "icon" || props.size === "swatch";
   return (
     <Button
       ref={props.ref}
@@ -97,11 +102,13 @@ function Specimen(props: {
       size={props.size}
       disabled={props.disabled}
       aria-disabled={props.ariaDisabled ? "true" : undefined}
-      aria-label={props.size === "icon" || props.size === "swatch" ? label() : undefined}
+      aria-label={glyphOnly() ? label() : undefined}
       class={props.class}
       {...props.extra}
     >
-      {props.size === "icon" ? (
+      {props.variant === "round" ? (
+        <span aria-hidden="true">×</span>
+      ) : props.size === "icon" ? (
         <span aria-hidden="true">+</span>
       ) : props.size === "swatch" ? (
         <span aria-hidden="true" class="bg-ui-accent-soft block h-10 w-10" />
@@ -153,7 +160,7 @@ export const Variants: Story<ThemeArgs> = {
       title="cire/ui Button"
       intro={
         <>
-          Sixteen variants, five sizes, inside cire's <Mono>--ui-*</Mono> mapping. Actions are
+          Seventeen variants, five sizes, inside cire's <Mono>--ui-*</Mono> mapping. Actions are
           pills; a <Mono>tile</Mono>, a <Mono>field</Mono> and the <Mono>swatch</Mono> size take the
           14px field corner. Labels are written in sentence case and shown as written. cire's fonts
           are not loaded here, so the type is the lab's: judge the face in the app.
@@ -271,6 +278,86 @@ export const States: Story<ThemeArgs> = {
   ),
 };
 
+/** One round button, captioned with its painted box and fill. */
+function RoundSpecimen(props: {
+  size: ButtonSize;
+  name: string;
+  glyph: string;
+  open?: boolean;
+  disabled?: boolean;
+}) {
+  let el: HTMLButtonElement | undefined;
+  return (
+    <div class="flex flex-col items-start gap-2">
+      <Button
+        variant="round"
+        size={props.size}
+        aria-label={props.name}
+        aria-expanded={props.open === undefined ? undefined : props.open ? "true" : "false"}
+        disabled={props.disabled}
+        ref={(node) => {
+          el = node;
+        }}
+      >
+        <span aria-hidden="true">{props.glyph}</span>
+      </Button>
+      <Caption
+        name={<Mono>{props.size}</Mono>}
+        value={
+          <>
+            <Readout of={() => el} property="width" /> × <Readout of={() => el} property="height" />{" "}
+            · fill <Readout of={() => el} property="background-color" />
+          </>
+        }
+      />
+    </div>
+  );
+}
+
+/**
+ * `round`: a glyph on an opaque disc. The reply key beside the RSVP search box
+ * is 28px (`sm`); a boxed glyph is 32px (`md`, `icon`); the event sheet's
+ * close × is 44px (`lg`). Hover by hand: only the glyph brightens.
+ */
+export const Round: Story<ThemeArgs> = {
+  args: { cireTheme: "both" },
+  controls: themeControl,
+  render: (args) => (
+    <Gallery
+      title="cire/ui Button — round"
+      intro={
+        <>
+          The surface fill with no edge, a muted glyph that brightens to the body ink under the
+          pointer, and the pill step at every size. While the popover it opens is showing (
+          <Mono>aria-expanded</Mono>) the disc lifts to the raised surface. The lab draws the
+          platform font, so judge the × in the app.
+        </>
+      }
+    >
+      <Panels theme={args.cireTheme}>
+        {() => (
+          <>
+            <Section title="Sizes">
+              <div class="flex flex-wrap items-end gap-6">
+                <RoundSpecimen size="sm" name="What the reply icons mean" glyph="i" />
+                <RoundSpecimen size="md" name="More" glyph="…" />
+                <RoundSpecimen size="lg" name="Close" glyph="×" />
+              </div>
+            </Section>
+            <Section title="States">
+              <div class="flex flex-wrap items-end gap-6">
+                <RoundSpecimen size="sm" name="Closed key" glyph="i" open={false} />
+                <RoundSpecimen size="sm" name="Open key" glyph="i" open />
+                <RoundSpecimen size="lg" name="Close, disabled" glyph="×" disabled />
+              </div>
+            </Section>
+          </>
+        )}
+      </Panels>
+    </Gallery>
+  ),
+};
+
 /** What a measured corner says about the shape it draws. */
 function verdict(el: Element | undefined): string {
   const width = Number.parseFloat(computed(el, "width"));
@@ -361,6 +448,11 @@ export const Corners: Story<ThemeArgs> = {
               variant="choice"
               size="swatch"
               note="Frames a picture: the field role whatever the variant."
+            />
+            <Measured
+              variant="round"
+              size="swatch"
+              note="A round button: the pill step at every size, swatch included."
             />
             <Measured
               variant="chip"
