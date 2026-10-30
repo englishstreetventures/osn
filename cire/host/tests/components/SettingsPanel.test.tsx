@@ -84,10 +84,11 @@ describe("SettingsPanel", () => {
     await waitFor(() => {
       expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy();
     });
-    // Slug renders read-only text (renames are deliberately unsupported).
-    expect(screen.getByText("aisha-and-ben")).toBeTruthy();
-    expect(screen.queryByDisplayValue("aisha-and-ben")).toBeNull();
-    expect(screen.getByText(/can.t be changed/)).toBeTruthy();
+    // The slug is a read-only field (renames are deliberately unsupported),
+    // named by its label and described by the line saying why.
+    const slug = screen.getByRole("textbox", { name: "Invite link" }) as HTMLInputElement;
+    expect([slug.value, slug.readOnly]).toEqual(["aisha-and-ben", true]);
+    expect(slug).toHaveAccessibleDescription(/can.t be changed/);
     // The date is edited through the custom DatePicker (a Popover trigger showing
     // the formatted date), not a native <input type="date">.
     expect(screen.getByText(/20 March 2027/)).toBeTruthy();

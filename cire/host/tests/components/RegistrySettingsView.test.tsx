@@ -140,9 +140,14 @@ describe("publishing", () => {
     // page too, so this is not only about the gift list.
     expect(screen.getByText(/money-gift option/i)).toBeTruthy();
     // And it is announced on entering the group rather than left as loose text
-    // beside a control the keyboard skips.
-    const group = publish.closest("fieldset") as HTMLFieldSetElement;
+    // beside a control the keyboard skips. The radio group carries the name
+    // and the reason once: the fieldset round it, there to disable every
+    // control at once, is no second group named "Visibility".
+    const group = screen.getByRole("radiogroup", { name: "Visibility" });
+    expect(group.contains(publish)).toBe(true);
     expect(group.getAttribute("aria-describedby")).toBe("registry-publish-blocked");
+    expect(screen.queryByRole("group", { name: "Visibility" })).toBeNull();
+    expect(group.hasAttribute("aria-label")).toBe(false);
     expect(document.getElementById("registry-publish-blocked")?.textContent).toMatch(
       /Add a gift before publishing/i,
     );

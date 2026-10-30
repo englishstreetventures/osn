@@ -780,7 +780,10 @@ differs. On the guest site each corner paints:
   `fill="ink"` at `size="touch"` (owner, 2026-10-30). The edge is the scheme's
   ink at 55% and the fill the ink at 4.5%, so the field reads on whichever
   surface the section sits on; 55% is the lowest edge that clears 3:1 on the
-  worst preset and tone, garden on its ground. A field is 46px with 16px type
+  worst preset and tone, garden on its ground. A placeholder is the muted ink
+  taken 15% toward the scheme's ink, because the well alone takes the muted ink
+  under 4.5:1 on garden; `@shared/ui`'s `tests/control.browser.test.tsx`
+  holds it at 4.5:1 on four palettes. A field is 46px with 16px type
   on a phone, so iOS does not zoom, and 44px from 640px; heights are rem, so on
   the 17px desk root it is 46.75px, never under the 44px floor. The code field
   keeps its look through the `claim` face: centred capitals at 1rem on every

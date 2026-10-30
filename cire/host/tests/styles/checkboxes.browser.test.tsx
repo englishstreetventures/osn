@@ -4,6 +4,8 @@ import { cleanup, render, screen } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { page, userEvent } from "vitest/browser";
 
+import EmailAttestationCheck from "../../src/components/EmailAttestationCheck";
+
 import "../../src/styles/global.css";
 
 /**
@@ -305,6 +307,36 @@ describe("@shared/ui's Checkbox and RadioGroup with box=native", () => {
           });
         }
       }
+    });
+  }
+});
+
+describe("the email attestation on its accent notice", () => {
+  for (const theme of THEMES) {
+    it(`holds its eyebrow, statement, note and link at 4.5:1 on the notice's fill, ${theme}`, async () => {
+      await page.viewport(600, 600);
+      document.documentElement.dataset.theme = theme;
+      render(() => (
+        <div class="bg-bg text-text p-4">
+          <EmailAttestationCheck count={2} checked={false} onChange={() => {}} />
+        </div>
+      ));
+      const box = screen.getByRole("checkbox");
+      const label = box.closest("label")!;
+      const statement = [...label.querySelectorAll<HTMLElement>("span")].find(
+        (el) => el.childElementCount === 0 && el.textContent!.trim().length > 0,
+      )!;
+      const link = screen.getByRole("link", { name: /privacy\/guests/ });
+      const parts = {
+        eyebrow: screen.getByText("2 email addresses"),
+        statement,
+        note: link.parentElement as HTMLElement,
+        link,
+      };
+      const ratios = Object.fromEntries(
+        Object.entries(parts).map(([part, el]) => [part, inkRatio(el) >= 4.5]),
+      );
+      expect(ratios).toEqual({ eyebrow: true, statement: true, note: true, link: true });
     });
   }
 });

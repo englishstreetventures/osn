@@ -355,11 +355,17 @@ export default function SettingsPanel(props: SettingsPanelProps) {
             </Field>
 
             <div class="flex flex-col gap-1.5">
-              <span class={labelClass}>Invite link</span>
-              <p class="font-body text-text border-border bg-bg/50 text-ui-base rounded-ui-field flex h-8.5 items-center border px-3 opacity-70">
-                {slug()}
-              </p>
-              <span class={hintClass}>
+              <span id="settings-slug-label" class={labelClass}>
+                Invite link
+              </span>
+              <Input
+                size="form"
+                readOnly
+                aria-labelledby="settings-slug-label"
+                aria-describedby="settings-slug-hint"
+                value={slug()}
+              />
+              <span id="settings-slug-hint" class={hintClass}>
                 Your invite link can&apos;t be changed — invites you&apos;ve already shared (or
                 printed) keep working.
               </span>

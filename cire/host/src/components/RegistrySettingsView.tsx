@@ -516,19 +516,17 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
 
         <form class="flex flex-col gap-8" noValidate onSubmit={(event) => void save(event)}>
           {/* ── Visibility ─────────────────────────────────────────────── */}
-          {/* The description hangs off the FIELDSET, not off the blocked radio.
-              A `disabled` radio is out of the tab order and skipped by a screen
-              reader in forms mode, so a description on it would be unreachable
-              by the one person who needs it; a group description is announced
-              on entering the group, and the Draft radio beside it is always
-              reachable. Making the radio `aria-disabled` instead would let a
-              click flip the DOM's checked state while the signal stayed put. */}
-          <fieldset
-            class="flex flex-col gap-3 border-0 p-0"
-            disabled={!props.canEdit}
-            aria-describedby={canPublish() ? undefined : "registry-publish-blocked"}
-          >
-            <Eyebrow as="legend" class="mb-1">
+          {/* The description hangs off the RADIO GROUP, not off the blocked
+              radio. A `disabled` radio is out of the tab order and skipped by a
+              screen reader in forms mode, so a description on it would be
+              unreachable by the one person who needs it; a group description
+              is announced on entering the group, and the Draft radio beside it
+              is always reachable. Making the radio `aria-disabled` instead
+              would let a click flip the DOM's checked state while the signal
+              stayed put. The fieldset only disables every control at once: it
+              takes no role, so the group's name, the legend, is said once. */}
+          <fieldset role="none" class="flex flex-col gap-3 border-0 p-0" disabled={!props.canEdit}>
+            <Eyebrow as="legend" id="registry-visibility-label" class="mb-1">
               Visibility
             </Eyebrow>
 
@@ -550,7 +548,8 @@ export default function RegistrySettingsView(props: RegistrySettingsViewProps) {
               name="registry-visibility"
               value={published() ? "published" : "draft"}
               onChange={(value) => setPublished(value === "published")}
-              aria-label="Visibility"
+              aria-labelledby="registry-visibility-label"
+              aria-describedby={canPublish() ? undefined : "registry-publish-blocked"}
             >
               <RadioGroupItem value="draft" label="Draft — only you can see it" />
               <RadioGroupItem

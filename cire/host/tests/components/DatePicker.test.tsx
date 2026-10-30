@@ -106,14 +106,16 @@ describe("DatePicker", () => {
     render(() => (
       <DatePicker label="Wedding date" value="2027-03-20" onChange={() => {}} readOnly />
     ));
-    expect(screen.getByText(/20 March 2027/)).toBeTruthy();
+    const fixed = screen.getByRole("textbox", { name: "Wedding date" }) as HTMLInputElement;
+    expect([fixed.value, fixed.readOnly]).toEqual(["Saturday 20 March 2027", true]);
     // No interactive trigger — a co-host can't open a picker.
     expect(screen.queryByRole("button")).toBeNull();
   });
 
   it("read-only shows a placeholder when the date is unset", () => {
     render(() => <DatePicker label="Wedding date" value={null} onChange={() => {}} readOnly />);
-    expect(screen.getByText(/No date set/)).toBeTruthy();
+    const fixed = screen.getByRole("textbox", { name: "Wedding date" }) as HTMLInputElement;
+    expect([fixed.value, fixed.placeholder]).toEqual(["", "No date set"]);
   });
 
   it("reflects an external value change on the trigger", async () => {
