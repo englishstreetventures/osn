@@ -343,10 +343,10 @@ export const sessions = sqliteTable(
      * authorisation. Request-time restriction is carried by the access token's
      * `aud: "osn-recovery"`, which every verifier — including the three
      * services outside this repo that check the token over JWKS — already
-     * rejects. This column exists because `refreshTokens` deletes the old row
-     * and inserts a new one: without it the restriction would die on the first
-     * silent refresh, five minutes in. `refreshTokens` copies it forward and
-     * re-mints with the recovery audience while it is set.
+     * rejects. This column exists because `refreshTokens` inserts a new row and
+     * deletes the old one: without it the restriction would die on the first
+     * silent refresh, five minutes in. `refreshTokens` copies it forward from
+     * the old row and re-mints with the recovery audience while it is set.
      *
      * It also pins the session's absolute expiry: a restricted row is inserted
      * with `expiresAt === restrictedUntil` and never slides, so a credential
@@ -758,6 +758,14 @@ export const deletionJobs = sqliteTable(
      * for the account are revoked at soft-delete time.
      */
     cancelSessionId: text("cancel_session_id"),
+    /**
+     * Unix seconds. The moment a sweep began purging the account — the
+     * fan-out's first bridge call, or the hard delete — written before it
+     * purges anything, and only while this row exists. Once it is set the
+     * account cannot be restored: a cancel deletes this row only while it is
+     * NULL. Nothing clears it; the row's own delete removes it.
+     */
+    purgeStartedAt: integer("purge_started_at"),
   },
   (t) => [
     // Sweeper scan: rows ready for hard-delete.

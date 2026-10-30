@@ -1,0 +1,1 @@
+ALTER TABLE `deletion_jobs` ADD `purge_started_at` integer;
