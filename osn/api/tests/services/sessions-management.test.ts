@@ -7,7 +7,6 @@ import { beforeAll } from "vitest";
 import { ROTATION_RACE_MESSAGE } from "../../src/lib/grant-failure";
 import * as accountErasure from "../../src/services/account-erasure";
 import { createAuthService } from "../../src/services/auth";
-import { CALLER_ROTATION_GRACE_MS } from "../../src/services/auth/constants";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import {
   createCapturingTestLayer,
@@ -408,10 +407,11 @@ describe("revoke holds against a refresh", () => {
 
 /**
  * The four deletes that revoke every session but the caller's take the
- * caller's session hash from the request. A refresh of that session in another
- * tab can rotate it while the delete waits, or just before it runs; either way
- * the caller's device stays and every other device goes. A hash rotated out
- * longer ago than `CALLER_ROTATION_GRACE_MS` spares nothing.
+ * caller's session hash from the request. A refresh of that session in
+ * another tab, held at any of its statements while the delete runs, completes
+ * and keeps the caller's device; every other device goes. A hash no live
+ * session holds when the delete runs — one already rotated out — spares
+ * nothing, so a stale token cannot shield its family.
  */
 describe("account-wide deletes keep the caller's device across its own refresh", () => {
   function held() {
@@ -519,66 +519,53 @@ describe("account-wide deletes keep the caller's device across its own refresh",
       .query("SELECT token_hash FROM rotated_sessions WHERE token_hash = ?")
       .get(auth.hashSessionToken(refreshToken)) !== null;
 
-  const SESSIONS_DELETE = /^delete from "sessions"/;
+  /** The statements of a rotation, in the order it runs them. */
+  const ROTATION_STEPS: ReadonlyArray<{ readonly step: string; readonly pattern: RegExp }> = [
+    { step: "insert of the new session", pattern: /^insert into "sessions"/ },
+    { step: "rotation record", pattern: /^insert into "rotated_sessions"/ },
+    { step: "swap", pattern: /^delete from "sessions"/ },
+  ];
 
   for (const [index, site] of sites.entries()) {
-    it.live(`${site.name}: the caller's refresh that lands while the delete waits stays`, () => {
+    for (const [at, { step, pattern }] of ROTATION_STEPS.entries()) {
+      it.live(`${site.name}: the caller's refresh held at its ${step} still completes`, () => {
+        const h = held();
+        return Effect.gen(function* () {
+          const { profile, me, otherFirst, other } = yield* twoDevices(`wipe${index}h${at}`);
+          const run = yield* site.prepare(profile, h);
+
+          const rotation = h.hold(pattern);
+          const refreshing = yield* Effect.forkChild(Effect.result(auth.refreshTokens(me)));
+          yield* Effect.promise(() => rotation.reached);
+          yield* run(auth.hashSessionToken(me));
+          rotation.release();
+
+          const outcome = yield* Fiber.join(refreshing);
+          expect(outcome._tag).toBe("Success");
+          if (outcome._tag === "Success") {
+            expect(yield* dead(outcome.success.refreshToken)).toBe(false);
+          }
+          expect(yield* dead(other)).toBe(true);
+          if (site.records) {
+            expect(recordOf(h, me)).toBe(true);
+            expect(recordOf(h, otherFirst)).toBe(false);
+          }
+        }).pipe(Effect.provide(h.layer));
+      });
+    }
+
+    it.live(`${site.name}: a hash rotated out before the delete spares nothing`, () => {
       const h = held();
       return Effect.gen(function* () {
-        const { profile, me, otherFirst, other } = yield* twoDevices(`wipea${index}`);
-        const run = yield* site.prepare(profile, h);
-
-        const wipe = h.hold(SESSIONS_DELETE);
-        const deleting = yield* Effect.forkChild(Effect.result(run(auth.hashSessionToken(me))));
-        yield* Effect.promise(() => wipe.reached);
-        const mine = yield* auth.refreshTokens(me);
-        wipe.release();
-
-        expect((yield* Fiber.join(deleting))._tag).toBe("Success");
-        expect(yield* dead(mine.refreshToken)).toBe(false);
-        expect(yield* dead(other)).toBe(true);
-        if (site.records) {
-          expect(recordOf(h, me)).toBe(true);
-          expect(recordOf(h, otherFirst)).toBe(false);
-        }
-      }).pipe(Effect.provide(h.layer));
-    });
-
-    it.live(`${site.name}: the caller's refresh held at its swap still completes`, () => {
-      const h = held();
-      return Effect.gen(function* () {
-        const { profile, me, other } = yield* twoDevices(`wipeb${index}`);
-        const run = yield* site.prepare(profile, h);
-
-        const swap = h.hold(SESSIONS_DELETE);
-        const refreshing = yield* Effect.forkChild(Effect.result(auth.refreshTokens(me)));
-        yield* Effect.promise(() => swap.reached);
-        yield* run(auth.hashSessionToken(me));
-        swap.release();
-
-        const outcome = yield* Fiber.join(refreshing);
-        expect(outcome._tag).toBe("Success");
-        if (outcome._tag === "Success") {
-          expect(yield* dead(outcome.success.refreshToken)).toBe(false);
-        }
-        expect(yield* dead(other)).toBe(true);
-      }).pipe(Effect.provide(h.layer));
-    });
-
-    it.live(`${site.name}: a hash rotated out past the window spares nothing`, () => {
-      const h = held();
-      return Effect.gen(function* () {
-        const { profile, me, other } = yield* twoDevices(`wipeg${index}`);
+        const { profile, me, other } = yield* twoDevices(`wipe${index}stale`);
         const run = yield* site.prepare(profile, h);
         const rotated = yield* auth.refreshTokens(me);
-        h.sqlite
-          .query("UPDATE rotated_sessions SET rotated_at = ? WHERE token_hash = ?")
-          .run(Date.now() - CALLER_ROTATION_GRACE_MS - 1, auth.hashSessionToken(me));
 
         yield* run(auth.hashSessionToken(me));
 
         expect(yield* dead(rotated.refreshToken)).toBe(true);
         expect(yield* dead(other)).toBe(true);
+        if (site.records) expect(recordOf(h, me)).toBe(false);
       }).pipe(Effect.provide(h.layer));
     });
   }

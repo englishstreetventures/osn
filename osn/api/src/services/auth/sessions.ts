@@ -7,11 +7,11 @@ import { oauthAuthorizationCodes, rotatedSessions, sessions } from "@osn/db/sche
 import { Db, type DbService } from "@osn/db/service";
 import { timingSafeEqualString } from "@shared/crypto/timing-safe";
 import type { SecurityInvalidationTrigger } from "@shared/observability/metrics";
-import { and, desc, eq, gt, gte, inArray, lt, notInArray } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lt, notInArray } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { metricSessionSecurityInvalidation, withSessionOp } from "../../metrics";
-import { CALLER_ROTATION_GRACE_MS, MAX_SESSIONS_PER_ACCOUNT } from "./constants";
+import { MAX_SESSIONS_PER_ACCOUNT } from "./constants";
 import { AuthError, DatabaseError } from "./errors";
 import { deriveSessionBinding, hashSessionToken, sessionHandleFromHash } from "./helpers";
 import type { SessionSummary } from "./types";
@@ -26,37 +26,22 @@ export type CallerSessionResolution =
   | { readonly _tag: "stale" };
 
 /**
- * Rows outside the family of the session `sessionHash` names, for the
- * account-wide deletes that spare the caller's device. The family is looked up
- * among the live sessions, and among the rotation records for a rotation
- * inside {@link CALLER_ROTATION_GRACE_MS}; a refresh keeps the family, so the
- * caller's device stays whether its refresh is in flight when the delete runs
- * or landed just before it. A hash found in neither spares nothing. Each arm
- * reads its table's primary key.
+ * Rows outside the family of the live session `sessionHash` names, for the
+ * account-wide deletes that spare the caller's device. A rotation inserts the
+ * new session before it deletes the old one, and keeps the family, so the
+ * caller's device stays wherever in its own refresh the delete lands. Only a
+ * live session spares anything: a hash already rotated out, revoked or never
+ * issued spares nothing, so a stale token cannot shield a family that someone
+ * else's refresh has moved on. Reads the sessions primary key.
  */
 export const outsideFamilyOf = (
   db: DbService["db"],
   familyColumn: typeof sessions.familyId | typeof rotatedSessions.familyId,
   sessionHash: string,
-  nowMs: number = Date.now(),
 ) =>
   notInArray(
     familyColumn,
-    db
-      .select({ familyId: sessions.familyId })
-      .from(sessions)
-      .where(eq(sessions.id, sessionHash))
-      .unionAll(
-        db
-          .select({ familyId: rotatedSessions.familyId })
-          .from(rotatedSessions)
-          .where(
-            and(
-              eq(rotatedSessions.tokenHash, sessionHash),
-              gt(rotatedSessions.rotatedAt, nowMs - CALLER_ROTATION_GRACE_MS),
-            ),
-          ),
-      ),
+    db.select({ familyId: sessions.familyId }).from(sessions).where(eq(sessions.id, sessionHash)),
   );
 
 /**

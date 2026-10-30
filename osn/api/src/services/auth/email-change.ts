@@ -294,8 +294,8 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
           .from(emailChanges)
           .where(eq(emailChanges.id, changeId)),
       );
-      // Every session but the caller's device, which stays across a refresh
-      // of its own session (`outsideFamilyOf`).
+      // Every session but the caller's device, which stays through a refresh
+      // of its own session in flight (`outsideFamilyOf`).
       const otherSessions =
         currentSessionHash !== null
           ? and(

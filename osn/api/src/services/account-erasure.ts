@@ -230,8 +230,8 @@ export const requestErasure = (
           db.delete(totpCredentials).where(eq(totpCredentials.accountId, accountId)),
 
           // 4. Revoke all sessions EXCEPT the cancellation handle's device
-          //    (its family, so a refresh of the handle in another tab does
-          //    not sign it out; see `outsideFamilyOf`). The requesting
+          //    (its family, so a refresh of the handle in flight in another
+          //    tab does not sign it out; see `outsideFamilyOf`). The requesting
           //    session stays alive as the only path to cancel during the
           //    7-day grace window. Without a cancellation handle the user must
           //    use a recovery-code login to cancel.
@@ -250,9 +250,8 @@ export const requestErasure = (
           //    cancel handle's family keeps its own, so a replay of a token
           //    rotated out of that chain still revokes the handle: that is
           //    what reuse detection is for while the handle is the account's
-          //    only live session. The family is found as the delete above
-          //    finds it, from the handle's row or, when the handle has just
-          //    been refreshed, from its own record.
+          //    only live session. Runs after the delete above, which keeps the
+          //    handle's row, so the family is found as that delete found it.
           cancelSessionId
             ? db
                 .delete(rotatedSessions)
