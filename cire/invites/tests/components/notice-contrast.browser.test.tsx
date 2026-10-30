@@ -5,7 +5,6 @@ import {
   sectionToneVars,
   WCAG_TEXT_MIN,
 } from "@cire/theme";
-import { buttonClass } from "@cire/ui/button";
 import { Notice, type NoticeTone } from "@shared/ui/ui/notice";
 import { cleanup, render, screen, within } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -43,8 +42,8 @@ import type { GiftRegistry } from "../../src/lib/gift-registry-read";
  * tone an organiser can give the welcome, in both layouts; the RSVP sheet's
  * preview note on the sheet; its chosen answers on each tone the sheet can
  * take; the gift page's notes and chosen amount on each tone the page can
- * take; a link standing alone, the gift pages' outline pill, under the
- * pointer on every ground. Inside a site, every element that draws words of its own in the
+ * take; the closed gift page's link standing alone, its outline pill, under
+ * the pointer on each tone the page can take. Inside a site, every element that draws words of its own in the
  * readable gold is measured, and every element between those words and the
  * site's own box must lay no ground, so a gold word added later is held too.
  */
@@ -532,30 +531,36 @@ describe.each(PALETTE_PRESET_KEYS)("the %s scheme", (palettePreset) => {
     expect(short).toEqual([]);
   });
 
-  it("holds a standalone link pill's gold word to 4.5:1 under the pointer, with no fill, on every ground", async () => {
-    // "Back to the invitation" and "Open the invitation" on the gift pages:
-    // `outline` answers the pointer with its edge alone, so its gold word
-    // stays on the ground the palette derived it against.
+  it("holds the closed gift page's link pill to 4.5:1 under the pointer, with no fill, on every tone", async () => {
+    // "Back to the invitation", a link standing alone: `outline` answers the
+    // pointer with its edge alone, so its gold word stays on the ground the
+    // palette derived it against, and it keeps the 44px touch floor.
     apply();
     const short: string[] = [];
-    for (const [groundName, ground] of Object.entries(GROUNDS)) {
-      render(() => (
-        <div class={`${ground} p-4`}>
-          <a
-            href="/ada-and-ben"
-            class={`${buttonClass({ variant: "outline", size: "md" })} min-h-11`}
-          >
-            Back to the invitation
-          </a>
-        </div>
+    for (const tone of SECTION_TONES) {
+      // A 404 is the API's one answer for a list the guest cannot see.
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => Promise.resolve(new Response("{}", { status: 404 }))),
+      );
+      const view = render(() => (
+        <GiftRegistryPage
+          apiUrl="https://api.test"
+          slug="ada-and-ben"
+          inviteHref="/ada-and-ben"
+          themeVars={sectionToneVars(tone)}
+        />
       ));
-      const pill = screen.getByRole("link");
+      const pill = await screen.findByRole("link", { name: "Back to the invitation" }, LAZY);
       await userEvent.hover(pill);
       await Promise.all(pill.getAnimations().map((a) => a.finished));
-      if (fills(pill)) short.push(`${groundName}: fills under the pointer`);
+      if (fills(pill)) short.push(`${tone}: fills under the pointer`);
       const ratio = wordsRatio(pill);
-      if (ratio < WCAG_TEXT_MIN) short.push(`${groundName}: ${ratio.toFixed(2)}:1`);
+      if (ratio < WCAG_TEXT_MIN) short.push(`${tone}: ${ratio.toFixed(2)}:1`);
+      if (pill.getBoundingClientRect().height < 44) short.push(`${tone}: under 44px`);
+      view.unmount();
       cleanup();
+      vi.unstubAllGlobals();
     }
     expect(short).toEqual([]);
   });

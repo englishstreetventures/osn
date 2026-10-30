@@ -154,6 +154,8 @@ describe("the shop link", () => {
     expect(link?.getAttribute("href")).toBe("https://shop.example/pan");
     expect(link?.getAttribute("target")).toBe("_blank");
     expect(link?.getAttribute("rel")).toBe("noopener noreferrer");
+    // It leaves the invite, and says so to a screen reader.
+    expect(link?.textContent).toBe("View this gift (opens in a new tab)");
   });
 
   it("renders NO link for a non-https url, whatever the column says", () => {

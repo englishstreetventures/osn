@@ -138,7 +138,13 @@ describe("InviteMessageLinks", () => {
     const { onNavigate } = renderLinks("codes", "owner");
     const link = screen.getByRole("link", { name: MESSAGE });
 
-    for (const init of [{ metaKey: true }, { ctrlKey: true }, { shiftKey: true }, { button: 1 }]) {
+    for (const init of [
+      { metaKey: true },
+      { ctrlKey: true },
+      { shiftKey: true },
+      { altKey: true },
+      { button: 1 },
+    ]) {
       const click = new MouseEvent("click", { bubbles: true, cancelable: true, ...init });
       link.dispatchEvent(click);
       expect(click.defaultPrevented).toBe(false);
