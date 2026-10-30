@@ -17,6 +17,7 @@
     "./dietary-presets-popover": "./src/dietary-presets-popover.tsx",
     "./disclosure": "./src/disclosure.tsx",
     "./eyebrow": "./src/eyebrow.tsx",
+    "./file-input": "./src/file-input.tsx",
     "./guest-privacy-notice.astro": "./src/guest-privacy-notice.astro",
     "./loading": "./src/loading.tsx",
     "./note": "./src/note.tsx",
