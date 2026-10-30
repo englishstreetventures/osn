@@ -1,6 +1,8 @@
 import Button from "@cire/ui/button";
 import { Popover } from "@kobalte/core/popover";
-import { createEffect, createSignal, For, Show } from "solid-js";
+import { CONTROL_HEIGHT, controlClass } from "@shared/ui/ui/control";
+import { Input } from "@shared/ui/ui/input";
+import { createEffect, createSignal, createUniqueId, For, Show } from "solid-js";
 
 /**
  * A themed calendar date picker built on the Kobalte `Popover` primitive —
@@ -190,17 +192,22 @@ export default function DatePicker(props: {
   };
 
   // ── Read-only: co-hosts just see the formatted date, no popover. ──────────
+  // A read-only form field, so it is the portal's field box, named by the
+  // label above it, and an unset date is its placeholder.
   if (props.readOnly) {
+    const labelId = createUniqueId();
     return (
       <div class="flex flex-col gap-1.5">
-        <span class="font-body text-text-muted text-ui-xs tracking-ui-wider uppercase">
+        <span id={labelId} class="font-body text-text-muted text-ui-xs tracking-ui-wider uppercase">
           {props.label}
         </span>
-        <p class="font-body text-text border-border bg-bg/50 text-ui-base rounded-ui-field flex h-8.5 items-center border px-3 opacity-70">
-          <Show when={selected()} fallback={<span class="opacity-60">No date set</span>}>
-            {(d) => formatLong(d())}
-          </Show>
-        </p>
+        <Input
+          size="form"
+          readOnly
+          aria-labelledby={labelId}
+          value={selected() ? formatLong(selected()!) : ""}
+          placeholder="No date set"
+        />
       </div>
     );
   }
@@ -214,9 +221,10 @@ export default function DatePicker(props: {
         <Popover.Trigger
           aria-label={`${props.label}${selected() ? `: ${formatLong(selected()!)}` : ", no date set"}`}
           disabled={props.disabled}
-          // The portals' form-field height, so the trigger is level with the
-          // time field beside it.
-          class="border-border bg-bg font-body text-text hover:border-gold focus-visible:border-gold focus-visible:ring-gold/40 text-ui-base rounded-ui-field transition-ui-colors flex h-8.5 items-center justify-between gap-2 border px-3 text-left duration-(--dur-fast) ease-(--ease-out) outline-none focus-visible:ring-2 disabled:opacity-40"
+          // The form field's own box at `form`: its height, edge, fill and
+          // focus, so the trigger is level with the time field beside it and
+          // reads as the same kind of control.
+          class={`${CONTROL_HEIGHT.form} ${controlClass("form", "flex items-center justify-between gap-2 text-left")}`}
         >
           <Show
             when={selected()}
