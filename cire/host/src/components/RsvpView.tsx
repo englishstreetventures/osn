@@ -182,6 +182,9 @@ const PROVENANCE = {
 
 type Provenance = (typeof PROVENANCE)[keyof typeof PROVENANCE];
 
+/** `text` closed with one full stop: a mark's explanation of two sentences already has its own. */
+const sentence = (text: string) => (text.endsWith(".") ? text : `${text}.`);
+
 /** The reply key's button: `Button`'s `round` at `sm`, the search box's 28px,
  *  so the bar's row does not grow for it. `PopoverTrigger` renders it `as`
  *  this, so its handlers, ref and `aria-expanded` arrive in `props`; the
@@ -917,7 +920,7 @@ export default function RsvpView(props: RsvpViewProps) {
                   <span class="text-text inline-block font-medium first-letter:uppercase">
                     {p.name}
                   </span>{" "}
-                  — {p.text}.
+                  — {sentence(p.text)}
                 </span>
               </li>
             )}
