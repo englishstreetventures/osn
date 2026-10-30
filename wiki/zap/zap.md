@@ -138,7 +138,9 @@ add-member) when the two share a permitted OSN social-graph relationship.
   members** (`InvalidDmMembership`); the **last admin** of a chat cannot be
   removed (`LastAdmin`). `removeMember`'s delete holds that rule and the
   requester's admin row as it runs, so of two admins leaving at once one is
-  refused, and a requester removed in the meantime removes no one. Message-list cursors are scoped to their chat and
+  refused, and a requester removed in the meantime removes no one.
+  `addMember` and `updateChat` hold the requester's admin row in their write
+  the same way. Message-list cursors are scoped to their chat and
   unknown cursors are rejected (`zap/api/src/services/messages.ts`, Z6).
 
 > **Ops provisioning:** consent checks require `zap-api` to be registered as an

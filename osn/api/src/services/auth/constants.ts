@@ -115,8 +115,8 @@ export const RECOVERY_SESSION_TTL_SEC = 900; // 15 min
 /**
  * Rotation-reuse grace window (refresh-token concurrency tolerance).
  *
- * Refresh-token rotation is single-use: each `/token` grant deletes the old
- * session row and mints a new one, and a replay of a rotated-out token
+ * Refresh-token rotation is single-use: each `/token` grant mints a new
+ * session row and then deletes the old one, and a replay of a rotated-out token
  * normally revokes the whole family (Copenhagen Book C2). But legitimate
  * clients produce concurrent/near-concurrent grants of the SAME current token
  * — multiple browser tabs bootstrapping on reload, a cold-start bootstrap

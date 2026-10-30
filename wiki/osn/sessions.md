@@ -159,7 +159,7 @@ With neither a live cookie nor a resolvable `osn_sid` there is genuinely no self
 
 ## Rotation preserves metadata
 
-Refresh-token rotation (Copenhagen Book C2) deletes the old session row and inserts a new one with a rotated session token. We copy the old row's `ua_label` and `ip_hash` onto the new row so Settings continues to show the same "Firefox on macOS" entry instead of flipping to a new device. The `last_used_at` timestamp is set to the rotation moment.
+Refresh-token rotation (Copenhagen Book C2) inserts a new session row with a rotated session token while the old row stands, writes the rotation record while the new row stands, then deletes the old row while the new one stands; on D1 the three run as one batch, so the family always holds a session mid-rotation. We copy the old row's `ua_label` and `ip_hash` onto the new row so Settings continues to show the same "Firefox on macOS" entry instead of flipping to a new device. The `last_used_at` timestamp is set to the rotation moment.
 
 ## The restricted recovery session
 
