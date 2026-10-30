@@ -993,10 +993,12 @@ brightening to the body ink on hover as `touchLink` does. A link inside a
 tinted `Notice` takes `accent` too, not the notice's ink (owner,
 englishstreetventures/osn#1838). It draws `Button`'s focus ring itself, since
 `@cire/landing` has no blanket `:focus-visible` rule, and its transition names
-its colours only. It is for an `<a>`: a `<button>` lays out as an inline block
-even at `display: inline`, so its words never wrap with the sentence, and an
-in-page action written into a sentence is an `<a href>` whose click handler does
-the work. A link that stands alone is not this either: it is a pill,
+its colours only. It is for an `<a href>` that goes somewhere: a `<button>`
+lays out as an inline block even at `display: inline`, so its words never wrap
+with the sentence. A way to another screen written into a sentence is still a
+link with a real address, whose click handler may take over the plain click to
+do the navigating and leaves a modifier or middle click to the browser; an
+action that goes nowhere stays a `<button>`, outside the sentence. A link that stands alone is not this either: it is a pill,
 `buttonClass({ variant: "outline" })`.
 
 ## Adding a new component
