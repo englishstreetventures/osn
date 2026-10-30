@@ -7,8 +7,9 @@
  * choosing: the answer they just gave fades while it saves, a locked answer
  * still takes a click or still reacts to the pointer, the host's busy pictures
  * stop fading, chosen and unchosen look alike, the hover stops sitting halfway
- * between the two, a chosen radio loses its ring under the pointer, a word
- * falls under 4.5:1, or the colours move on the wrong clock.
+ * between the two, the chosen and a hovered answer differ by gold strength
+ * alone, a chosen radio loses its ring under the pointer, a word falls under
+ * 4.5:1, or the colours move on the wrong clock.
  */
 
 import { cleanup, render, screen } from "@solidjs/testing-library";
@@ -52,6 +53,17 @@ function ringColor(el: Element): string {
   const rings = shadow.split(/,(?![^(]*\))/).map((s) => s.trim());
   const visible = rings.find((r) => !r.startsWith("rgba(0, 0, 0, 0)") && !/\/ 0\)/.test(r));
   return visible ? visible.replace(/\s+-?\d+(\.\d+)?px.*$/, "") : "none";
+}
+
+/** The spread of the ring `ringColor` reads, in px, or 0. */
+function ringSpread(el: Element): number {
+  const shadow = getComputedStyle(el).boxShadow;
+  if (shadow === "none") return 0;
+  const rings = shadow.split(/,(?![^(]*\))/).map((s) => s.trim());
+  const visible = rings.find((r) => !r.startsWith("rgba(0, 0, 0, 0)") && !/\/ 0\)/.test(r));
+  // Offsets, blur, then the spread: the last length is the ring's width.
+  const lengths = visible?.match(/-?\d+(\.\d+)?px/g) ?? [];
+  return lengths.length ? Number.parseFloat(lengths.at(-1)!) : 0;
 }
 
 async function settled(el: Element) {
@@ -147,7 +159,7 @@ describe('Button variant="choice"', () => {
       expect(onGround(chosen, getComputedStyle(chosen).borderTopColor)).not.toEqual(
         onGround(other, getComputedStyle(other).borderTopColor),
       );
-      // The ring doubles the edge's weight: the sign that is not colour alone.
+      // A ring outside the edge: the sign that is not colour alone.
       expect(ringColor(chosen)).not.toBe("none");
       expect(ringColor(other)).toBe("none");
     });
@@ -233,6 +245,43 @@ describe('Button variant="choice"', () => {
     await userEvent.hover(chosen);
     await settled(chosen);
     expect(look(chosen)).toEqual(rest);
+  });
+
+  it("draws the chosen ring twice as wide as a hovered one, so the two differ by more than gold", async () => {
+    // While the pointer rests on the unchosen answer both wear a ring. Told
+    // apart by strength alone, they look alike to someone who cannot tell gold
+    // strengths apart; the chosen ring's width is the mark a hover never adds.
+    render(() => (
+      <Ramp>
+        <Button variant="choice" aria-pressed="true">
+          Attending
+        </Button>
+        <Button variant="choice" aria-pressed="false">
+          Not attending
+        </Button>
+        <div role="radiogroup" aria-label="Palette">
+          {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
+          <Button variant="choice" role="radio" aria-checked="true">
+            Sage
+          </Button>
+          {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
+          <Button variant="choice" role="radio" aria-checked="false">
+            Ivory
+          </Button>
+        </div>
+      </Ramp>
+    ));
+    for (const [chosenName, otherName, role] of [
+      ["Attending", "Not attending", "button"],
+      ["Sage", "Ivory", "radio"],
+    ] as const) {
+      const chosen = screen.getByRole(role, { name: chosenName });
+      const other = screen.getByRole(role, { name: otherName });
+      await userEvent.hover(other);
+      await settled(other);
+      expect(ringSpread(chosen)).toBe(2);
+      expect(ringSpread(other)).toBe(1);
+    }
   });
 
   it("keeps the chosen answer's edge apart from a hovered one's, in both ramps", async () => {

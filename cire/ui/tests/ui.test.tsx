@@ -372,6 +372,22 @@ const EVERY_VARIANT = Object.keys({
   round: true,
 } satisfies Record<ButtonVariant, true>) as ButtonVariant[];
 
+describe("Button — outline", () => {
+  // Its browser tier (`outline.browser.test.tsx`) proves the painted result;
+  // this reads the class string, which is what mutation testing sees.
+  it("is a gold edge and a gold word whose edge goes full gold under the pointer, with no wash", () => {
+    const cls = buttonClass({ variant: "outline" }).split(/\s+/);
+    expect(cls).toEqual(
+      expect.arrayContaining([
+        "base:border-ui-accent/40",
+        "base:text-ui-accent-ink",
+        "base:hover:border-ui-accent",
+      ]),
+    );
+    expect(cls.filter((c) => /hover:bg-/.test(c))).toEqual([]);
+  });
+});
+
 describe("Button — motion", () => {
   it("fades only what a hover changes, so the focus ring shows at once", () => {
     // Tailwind's `transition-colors` includes `outline-color`, which would fade
@@ -517,6 +533,13 @@ describe("Button — choice, halfway and locked", () => {
   it("rests on the hairline in the secondary ink, as `quiet` does", () => {
     expect(classes("choice")).toEqual(
       expect.arrayContaining(["base:border-ui-hairline", "base:text-ui-ink-secondary"]),
+    );
+  });
+
+  it("rings the chosen option at 2px, wider than the hover's 1px", () => {
+    // The width is what tells chosen from hovered without telling golds apart.
+    expect(classes("choice").filter((c) => /^base:aria-(pressed|checked):ring-\d/.test(c))).toEqual(
+      ["base:aria-pressed:ring-2", "base:aria-checked:ring-2"],
     );
   });
 
