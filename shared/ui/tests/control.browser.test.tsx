@@ -48,6 +48,20 @@ function composite(color: string, ground: string): [number, number, number] {
   return [r!, g!, b!];
 }
 
+/** The sRGB pixel a stack of colours paints, the first at the bottom. */
+function paint(layers: readonly string[]): [number, number, number] {
+  const canvas = document.createElement("canvas");
+  canvas.width = 1;
+  canvas.height = 1;
+  const ctx = canvas.getContext("2d")!;
+  for (const layer of layers) {
+    ctx.fillStyle = layer;
+    ctx.fillRect(0, 0, 1, 1);
+  }
+  const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+  return [r!, g!, b!];
+}
+
 function luminance([r, g, b]: [number, number, number]): number {
   const lin = (c: number) => {
     const s = c / 255;
@@ -180,6 +194,53 @@ describe("the ink fill", () => {
       const painted = composite(edge, g.ground);
       const ground = composite(g.ground, g.ground);
       expect([g.ground, contrast(painted, ground) >= 3]).toEqual([g.ground, true]);
+    });
+  });
+
+  it("sets the placeholder at 4.5:1 inside the well, on a light, a dark and a coloured ground", () => {
+    // The same three palettes, plus the guest site's own evergreen, each with
+    // its muted ink as `cire/theme`'s `derivePalette` resolves it: the
+    // placeholder is that ink, over the ink-at-4.5% well, over the ground.
+    const grounds = [
+      {
+        ground: "oklch(94.5% 0.014 85)",
+        ink: "oklch(28% 0.018 70)",
+        muted: "oklch(50.61% 0.0166 75.1)",
+      },
+      {
+        ground: "oklch(19.5% 0.045 305)",
+        ink: "oklch(95.5% 0.014 85)",
+        muted: "oklch(69.66% 0.0245 37.4)",
+      },
+      {
+        ground: "oklch(93.5% 0.021 25)",
+        ink: "oklch(30% 0.052 350)",
+        muted: "oklch(51.59% 0.0415 1.9)",
+      },
+      {
+        ground: "oklch(19.96% 0.0331 147.34)",
+        ink: "oklch(94.62% 0.0111 89.72)",
+        muted: "oklch(69.24% 0.0186 109.31)",
+      },
+    ];
+    render(() => (
+      <>
+        {grounds.map((g, i) => (
+          <div style={{ "--ui-ink": g.ink, "--ui-ink-secondary": g.muted, background: g.ground }}>
+            <Input fill="ink" placeholder="Allergies, a high chair" aria-label={`field ${i}`} />
+          </div>
+        ))}
+      </>
+    ));
+    grounds.forEach((g, i) => {
+      const field = screen.getByRole("textbox", { name: `field ${i}` });
+      const well = paint([g.ground, getComputedStyle(field).backgroundColor]);
+      const words = paint([
+        g.ground,
+        getComputedStyle(field).backgroundColor,
+        getComputedStyle(field, "::placeholder").color,
+      ]);
+      expect([g.ground, contrast(words, well) >= 4.5]).toEqual([g.ground, true]);
     });
   });
 
@@ -360,7 +421,7 @@ describe("faces", () => {
     expect(s.paddingLeft).toBe("16px");
   });
 
-  it("turns off spelling help for a code, and asks a phone for capitals for an invitation's", () => {
+  it("turns off spelling help for an invitation's code and asks a phone for capitals, and leaves a code face's markup alone", () => {
     render(() => (
       <>
         <Input face="claim" aria-label="Invitation code" />
@@ -375,7 +436,9 @@ describe("faces", () => {
       "off",
       "characters",
     ]);
-    expect(code.spellcheck).toBe(false);
+    // `code` sets type only: a call site that wants no spelling help says so,
+    // and a field that never asked (musubi's profile ID) keeps its markup.
+    expect(code.hasAttribute("spellcheck")).toBe(false);
     expect(
       (screen.getByRole("textbox", { name: "Overridden" }) as HTMLInputElement).spellcheck,
     ).toBe(true);
@@ -385,5 +448,48 @@ describe("faces", () => {
     render(() => <Input fill="ink" size="touch" face="amount" aria-label="Amount" value="150" />);
     const s = getComputedStyle(screen.getByRole("textbox"));
     expect([s.textAlign, s.textTransform]).toEqual(["center", "none"]);
+  });
+});
+
+describe("the select's chevron", () => {
+  it("reads at 3:1 on the ground fill in both of cire's ramps", () => {
+    // cire's ground and secondary ink, dark and light, as the portals map them
+    // (`cire/host/src/styles/global.css`, through its `--ui-*` block).
+    const ramps = [
+      {
+        theme: "dark",
+        ground: "oklch(16.8% 0.026 148)",
+        secondary: "oklch(94.6% 0.011 90 / 0.58)",
+      },
+      { theme: "light", ground: "oklch(88.6% 0.011 92)", secondary: "oklch(44% 0.022 340)" },
+    ];
+    render(() => (
+      <>
+        {ramps.map((r) => (
+          <div
+            style={{
+              "--ui-ground": r.ground,
+              "--ui-ink-secondary": r.secondary,
+              background: r.ground,
+            }}
+          >
+            <Select size="form" aria-label={r.theme}>
+              <option>Catering</option>
+            </Select>
+          </div>
+        ))}
+      </>
+    ));
+    for (const r of ramps) {
+      const select = screen.getByRole("combobox", { name: r.theme });
+      const chevron = select.parentElement!.querySelector("svg")!;
+      const fill = paint([r.ground, getComputedStyle(select).backgroundColor]);
+      const stroke = paint([
+        r.ground,
+        getComputedStyle(select).backgroundColor,
+        getComputedStyle(chevron).color,
+      ]);
+      expect([r.theme, contrast(stroke, fill) >= 3]).toEqual([r.theme, true]);
+    }
   });
 });
