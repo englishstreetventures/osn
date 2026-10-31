@@ -108,6 +108,64 @@ describe("refreshTokens: the rotation record", () => {
       }).pipe(Effect.provide(layer));
     },
   );
+
+  // The clean-up that removes the new row after a failed write can fail too,
+  // on the statement-at-a-time driver; the row it leaves is held by no one.
+  it.effect("logs at error, naming no session, when its new row cannot be removed", () => {
+    const { layer, db, sqlite } = createTestLayerWithSqlite();
+    const lines: { level: string; message: unknown; annotations: unknown }[] = [];
+    const logged = Logger.layer([
+      Logger.map(Logger.formatStructured, (line) => {
+        lines.push(line);
+      }),
+    ]);
+    return Effect.gen(function* () {
+      const profile = yield* auth.registerProfile("cleanup-fail@example.com", "cleanupfail");
+      const { refreshToken } = yield* auth.issueRecoverySession(
+        profile.id,
+        profile.accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+        "otp",
+      );
+      // The record insert fails on its key, after the new row is in.
+      yield* Effect.promise(() =>
+        db.insert(rotatedSessions).values({
+          tokenHash: hashSessionToken(refreshToken),
+          familyId: "sfam_other",
+          accountId: profile.accountId,
+          rotatedAt: 0,
+          expiresAt: Date.now() + 60_000,
+        }),
+      );
+      // And the clean-up's delete of that row is refused.
+      sqlite.run(
+        `CREATE TRIGGER refuse_restricted_delete BEFORE DELETE ON sessions
+         WHEN OLD.restricted_until IS NOT NULL BEGIN SELECT RAISE(ABORT, 'refused'); END`,
+      );
+      lines.length = 0;
+
+      const error = yield* Effect.flip(auth.refreshTokens(refreshToken));
+
+      expect(error._tag).toBe("DatabaseError");
+      const errors = lines.filter((line) => line.level === "ERROR");
+      expect(errors.map((line) => [String(line.message), line.annotations])).toEqual([
+        [
+          "Refresh rotation could not remove its own new session after a failed write",
+          { restricted: "true" },
+        ],
+      ]);
+      const left = sqlite
+        .query("SELECT id FROM sessions WHERE account_id = ?")
+        .all(profile.accountId) as { id: string }[];
+      expect(left).toHaveLength(2);
+      const written = JSON.stringify(lines);
+      for (const secret of [profile.accountId, ...left.map((row) => row.id)]) {
+        expect(written).not.toContain(secret);
+      }
+    }).pipe(Effect.provide(layer), Effect.provide(logged));
+  });
 });
 
 describe("refreshTokens: a replayed rotated-out token", () => {

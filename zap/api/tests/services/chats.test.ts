@@ -562,6 +562,85 @@ describe("chats service", () => {
     }
   });
 
+  describe("addMember holds the member cap at the write", () => {
+    function held() {
+      const { db } = createTestDb();
+      const queries = holdQueries(db);
+      return { layer: Layer.succeed(Db, { db: queries.db }), hold: queries.hold };
+    }
+
+    const tagOf = (outcome: Result.Result<unknown, { readonly _tag: string }>) =>
+      Result.isFailure(outcome) ? outcome.failure._tag : "ok";
+
+    /** A group one member short of the cap: Alice and Bob (admins) and fillers. */
+    const oneShortOfTheCap = () =>
+      Effect.gen(function* () {
+        const chat = yield* seedChat({ type: "group" });
+        yield* seedMember(chat.id, "usr_alice", "admin");
+        yield* seedMember(chat.id, "usr_bob", "admin");
+        for (let i = 0; i < MAX_CHAT_MEMBERS - 3; i++) {
+          yield* seedMember(chat.id, `usr_filler_${i}`);
+        }
+        return chat;
+      });
+
+    const membersOf = (chatId: string) =>
+      Effect.gen(function* () {
+        const { db } = yield* Db;
+        return yield* Effect.promise(() =>
+          db
+            .select({ profileId: chatMembers.profileId })
+            .from(chatMembers)
+            .where(eq(chatMembers.chatId, chatId)),
+        );
+      });
+
+    it.live("of two adds that both read the last free place, the second is refused", () => {
+      const h = held();
+      return Effect.gen(function* () {
+        const chat = yield* oneShortOfTheCap();
+
+        const insert = h.hold(/^insert into "chat_members"/);
+        const adding = yield* Effect.forkChild(
+          Effect.result(addMember(chat.id, "usr_dave", "usr_alice")),
+        );
+        yield* Effect.promise(() => insert.reached);
+        yield* addMember(chat.id, "usr_erin", "usr_bob");
+        insert.release();
+
+        expect(tagOf(yield* Fiber.join(adding))).toBe("MemberLimitReached");
+        const members = yield* membersOf(chat.id);
+        expect(members).toHaveLength(MAX_CHAT_MEMBERS);
+        expect(members.map((m) => m.profileId)).not.toContain("usr_dave");
+      }).pipe(Effect.provide(h.layer));
+    });
+
+    it.live("a requester demoted while the chat filled is refused for the role first", () => {
+      const h = held();
+      return Effect.gen(function* () {
+        const chat = yield* oneShortOfTheCap();
+
+        const insert = h.hold(/^insert into "chat_members"/);
+        const adding = yield* Effect.forkChild(
+          Effect.result(addMember(chat.id, "usr_dave", "usr_alice")),
+        );
+        yield* Effect.promise(() => insert.reached);
+        yield* addMember(chat.id, "usr_erin", "usr_bob");
+        const { db } = yield* Db;
+        yield* Effect.promise(() =>
+          db
+            .update(chatMembers)
+            .set({ role: "member" })
+            .where(and(eq(chatMembers.chatId, chat.id), eq(chatMembers.profileId, "usr_alice"))),
+        );
+        insert.release();
+
+        expect(tagOf(yield* Fiber.join(adding))).toBe("NotChatAdmin");
+        expect((yield* membersOf(chat.id)).map((m) => m.profileId)).not.toContain("usr_dave");
+      }).pipe(Effect.provide(h.layer));
+    });
+  });
+
   // ── listChats pagination ────────────────────────────────────────────────
 
   it.effect("listChats applies the default limit (50) and returns newest first", () =>

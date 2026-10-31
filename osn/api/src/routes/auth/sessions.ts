@@ -15,9 +15,10 @@ export function createSessionRoutes(ctx: AuthRouteContext) {
       // Session introspection + revocation
       //
       // `GET /sessions` lists the caller's active sessions for the account,
-      // marking the one currently attached to the request cookie as
-      // "isCurrent". `DELETE /sessions/:id` revokes a single session by
-      // its public handle (first 16 hex of the SHA-256 hash).
+      // marking the caller's device — the family of the session the request
+      // cookie names — as "isCurrent". `DELETE /sessions/:id` revokes a
+      // single session by its public handle (first 16 hex of the SHA-256
+      // hash).
       // `POST /sessions/revoke-all-other` is the "sign out everywhere else"
       // button — it preserves the caller's current session.
       // -------------------------------------------------------------------------

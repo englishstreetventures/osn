@@ -1,12 +1,14 @@
 import { it, expect, describe } from "@effect/vitest";
 import { Db } from "@osn/db/service";
 import type { EmailService } from "@shared/email";
-import { Effect, Fiber, Layer } from "effect";
-import { beforeAll } from "vitest";
+import { Effect, Fiber, Layer, Logger } from "effect";
+import { afterEach, beforeAll, vi } from "vitest";
 
 import { ROTATION_RACE_MESSAGE } from "../../src/lib/grant-failure";
+import * as metrics from "../../src/metrics";
 import * as accountErasure from "../../src/services/account-erasure";
 import { createAuthService } from "../../src/services/auth";
+import { ROTATION_GRACE_MS } from "../../src/services/auth/constants";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import {
   createCapturingTestLayer,
@@ -85,6 +87,34 @@ describe("listAccountSessions", () => {
 
       const { sessions } = yield* auth.listAccountSessions(alice.accountId, null);
       expect(sessions).toHaveLength(1);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("a cookie the device has refreshed past still flags the device's session", () =>
+    Effect.gen(function* () {
+      const profile = yield* auth.registerProfile("list-past@example.com", "listpast");
+      const open = () =>
+        auth.issueTokens(
+          profile.id,
+          profile.accountId,
+          profile.email,
+          profile.handle,
+          profile.displayName,
+        );
+      const me = (yield* open()).refreshToken;
+      const other = (yield* open()).refreshToken;
+      const refreshed = yield* auth.refreshTokens(me);
+
+      const { sessions } = yield* auth.listAccountSessions(
+        profile.accountId,
+        auth.hashSessionToken(me),
+      );
+
+      const handle = (token: string) => auth.hashSessionToken(token).slice(0, 16);
+      expect(sessions.filter((s) => s.isCurrent).map((s) => s.id)).toEqual([
+        handle(refreshed.refreshToken),
+      ]);
+      expect(sessions.find((s) => s.id === handle(other))?.isCurrent).toBe(false);
     }).pipe(Effect.provide(createTestLayer())),
   );
 });
@@ -763,4 +793,172 @@ describe("logout and revoke follow the caller's device across its own refresh", 
       expect(yield* dead(refreshed.refreshToken)).toBe(false);
     }).pipe(Effect.provide(createTestLayer())),
   );
+});
+
+describe("logout of a rotated-out token", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** One device signed in, refreshed once; the database beside it. */
+  const refreshedOnce = (handle: string) => {
+    const { layer, sqlite } = createTestLayerWithSqlite();
+    const setUp = Effect.gen(function* () {
+      const profile = yield* auth.registerProfile(`${handle}@example.com`, handle);
+      const old = (yield* auth.issueTokens(
+        profile.id,
+        profile.accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      )).refreshToken;
+      const familyId = (
+        sqlite
+          .query("SELECT family_id AS familyId FROM sessions WHERE id = ?")
+          .get(auth.hashSessionToken(old)) as { familyId: string }
+      ).familyId;
+      const current = (yield* auth.refreshTokens(old)).refreshToken;
+      return { profile, old, current, familyId };
+    });
+    /** Moves every rotation record past the grace window. */
+    const ageRecords = () =>
+      sqlite
+        .query("UPDATE rotated_sessions SET rotated_at = ?")
+        .run(Date.now() - ROTATION_GRACE_MS - 1);
+    const records = (accountId: string) =>
+      (
+        sqlite
+          .query("SELECT COUNT(*) AS n FROM rotated_sessions WHERE account_id = ?")
+          .get(accountId) as { n: number }
+      ).n;
+    return { layer, sqlite, setUp, ageRecords, records };
+  };
+
+  const capture = () => {
+    const lines: { level: string; message: unknown }[] = [];
+    const layer = Logger.layer([
+      Logger.map(Logger.formatStructured, (line) => {
+        lines.push(line);
+      }),
+    ]);
+    const reuseLines = (level: string) =>
+      lines.filter(
+        (line) =>
+          line.level === level && String(line.message).includes("Session token reuse detected"),
+      );
+    return { lines, layer, reuseLines };
+  };
+
+  const dead = (refreshToken: string) =>
+    Effect.result(auth.verifyRefreshToken(refreshToken)).pipe(
+      Effect.map((outcome) => outcome._tag === "Failure"),
+    );
+
+  it.effect("outside the grace window counts reuse, warns, and names no one", () => {
+    const db = refreshedOnce("lo_reuse");
+    const log = capture();
+    const reuse = vi.spyOn(metrics, "metricSessionReuseDetected");
+    const revoked = vi.spyOn(metrics, "metricSessionFamilyRevoked");
+    return Effect.gen(function* () {
+      const { profile, old, current, familyId } = yield* db.setUp;
+      db.ageRecords();
+      log.lines.length = 0;
+
+      yield* auth.invalidateSession(old);
+
+      expect(reuse).toHaveBeenCalledTimes(1);
+      expect(revoked).toHaveBeenCalledTimes(1);
+      expect(log.reuseLines("WARN").map((line) => String(line.message))).toEqual([
+        "Session token reuse detected at logout — family revoked",
+      ]);
+      expect(yield* dead(current)).toBe(true);
+      expect(db.records(profile.accountId)).toBe(0);
+      const written = JSON.stringify(log.lines);
+      for (const secret of [profile.accountId, auth.hashSessionToken(old), familyId]) {
+        expect(written).not.toContain(secret);
+      }
+    }).pipe(Effect.provide(db.layer), Effect.provide(log.layer));
+  });
+
+  it.effect("counts once: a second logout with the same token finds nothing", () => {
+    const db = refreshedOnce("lo_twice");
+    const log = capture();
+    const reuse = vi.spyOn(metrics, "metricSessionReuseDetected");
+    return Effect.gen(function* () {
+      const { old } = yield* db.setUp;
+      db.ageRecords();
+
+      yield* auth.invalidateSession(old);
+      yield* auth.invalidateSession(old);
+
+      expect(reuse).toHaveBeenCalledTimes(1);
+      expect(log.reuseLines("WARN")).toHaveLength(1);
+      expect(log.reuseLines("INFO")).toEqual([]);
+    }).pipe(Effect.provide(db.layer), Effect.provide(log.layer));
+  });
+
+  it.effect("whose family has no session left counts reuse and logs it at info", () => {
+    const db = refreshedOnce("lo_gone");
+    const log = capture();
+    const reuse = vi.spyOn(metrics, "metricSessionReuseDetected");
+    const revoked = vi.spyOn(metrics, "metricSessionFamilyRevoked");
+    return Effect.gen(function* () {
+      const { profile, old, current } = yield* db.setUp;
+      // Revoked by handle: the family's sessions go, its records stay.
+      yield* auth.revokeAccountSession(
+        profile.accountId,
+        auth.hashSessionToken(current).slice(0, 16),
+        null,
+      );
+      db.ageRecords();
+
+      yield* auth.invalidateSession(old);
+
+      expect(reuse).toHaveBeenCalledTimes(1);
+      expect(revoked).not.toHaveBeenCalled();
+      expect(log.reuseLines("WARN")).toEqual([]);
+      expect(log.reuseLines("INFO").map((line) => String(line.message))).toEqual([
+        "Session token reuse detected at logout — no session of the family was left",
+      ]);
+      expect(db.records(profile.accountId)).toBe(0);
+    }).pipe(Effect.provide(db.layer), Effect.provide(log.layer));
+  });
+
+  it.effect("inside the grace window is the device's own race, not reuse", () => {
+    const db = refreshedOnce("lo_grace");
+    const log = capture();
+    const reuse = vi.spyOn(metrics, "metricSessionReuseDetected");
+    return Effect.gen(function* () {
+      const { old, current } = yield* db.setUp;
+
+      yield* auth.invalidateSession(old);
+
+      expect(reuse).not.toHaveBeenCalled();
+      expect(log.reuseLines("WARN")).toEqual([]);
+      expect(yield* dead(current)).toBe(true);
+    }).pipe(Effect.provide(db.layer), Effect.provide(log.layer));
+  });
+
+  it.effect("of a live token is not reuse, even with an old record of its hash", () => {
+    const db = refreshedOnce("lo_live");
+    const log = capture();
+    const reuse = vi.spyOn(metrics, "metricSessionReuseDetected");
+    return Effect.gen(function* () {
+      const { profile, current, familyId } = yield* db.setUp;
+      // What a rotation that wrote its record and then failed its swap leaves
+      // on the statement-at-a-time driver: the hash live and recorded.
+      db.sqlite
+        .query(
+          "INSERT INTO rotated_sessions (token_hash, family_id, account_id, rotated_at, expires_at) VALUES (?, ?, ?, 0, ?)",
+        )
+        .run(auth.hashSessionToken(current), familyId, profile.accountId, Date.now() + 60_000);
+      db.ageRecords();
+
+      yield* auth.invalidateSession(current);
+
+      expect(reuse).not.toHaveBeenCalled();
+      expect(log.reuseLines("WARN")).toEqual([]);
+      expect(yield* dead(current)).toBe(true);
+    }).pipe(Effect.provide(db.layer), Effect.provide(log.layer));
+  });
 });

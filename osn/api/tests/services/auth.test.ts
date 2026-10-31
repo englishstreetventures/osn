@@ -1558,37 +1558,36 @@ describe("refresh token rotation (C2)", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // The verifier carries the device metadata off the row it already
-  // loaded, so `refreshTokens` no longer re-reads the same session by primary
-  // key. If this stops being returned, the rotation path silently loses the
-  // device's identity.
-  it.effect("verifyRefreshToken returns the session's device metadata", () =>
-    Effect.gen(function* () {
-      // A pepper is required for `ipHash` to be stored at all (context.hashIp).
-      const svc = createAuthService({ ...config, sessionIpPepper: "x".repeat(32) });
-      const profile = yield* svc.registerProfile("verify-meta@example.com", "verifymeta");
-      const tokens = yield* svc.issueTokens(
+  it.effect("verifyRefreshToken's authentication time is a fresh session's creation time", () => {
+    const { layer, sqlite } = createTestLayerWithSqlite();
+    return Effect.gen(function* () {
+      const profile = yield* auth.registerProfile("verify-meta@example.com", "verifymeta");
+      const tokens = yield* auth.issueTokens(
         profile.id,
         profile.accountId,
         profile.email,
         profile.handle,
         profile.displayName,
-        undefined,
-        { uaLabel: "Firefox on macOS", ip: "203.0.113.7" },
       );
 
-      const result = yield* svc.verifyRefreshToken(tokens.refreshToken);
-      expect(result.uaLabel).toBe("Firefox on macOS");
-      expect(result.ipHash).toMatch(/^[a-f0-9]{64}$/);
-      expect(result.createdAt).toBeGreaterThan(0);
+      const result = yield* auth.verifyRefreshToken(tokens.refreshToken);
+      const row = sqlite
+        .query("SELECT created_at AS createdAt FROM sessions WHERE id = ?")
+        .get(result.sessionId) as { createdAt: number };
       // Freshly issued: the ceremony time is the row's creation time.
-      expect(result.authenticatedAt).toBe(result.createdAt);
-    }).pipe(Effect.provide(createTestLayer())),
-  );
+      expect(result.authenticatedAt).toBe(row.createdAt);
+    }).pipe(Effect.provide(layer));
+  });
 
-  it.effect("rotation carries uaLabel, ipHash and authenticatedAt onto the new row", () =>
-    Effect.gen(function* () {
-      const svc = createAuthService({ ...config, sessionIpPepper: "x".repeat(32) });
+  it.effect("rotation carries uaLabel, ipHash and authenticatedAt onto the new row", () => {
+    const { layer, sqlite } = createTestLayerWithSqlite();
+    // A pepper is required for `ipHash` to be stored at all (context.hashIp).
+    const svc = createAuthService({ ...config, sessionIpPepper: "x".repeat(32) });
+    const device = (sessionId: string) =>
+      sqlite
+        .query("SELECT ua_label AS uaLabel, ip_hash AS ipHash FROM sessions WHERE id = ?")
+        .get(sessionId) as { uaLabel: string | null; ipHash: string | null };
+    return Effect.gen(function* () {
       const profile = yield* svc.registerProfile("rot-carry@example.com", "rotcarry");
       const tokens = yield* svc.issueTokens(
         profile.id,
@@ -1600,18 +1599,22 @@ describe("refresh token rotation (C2)", () => {
         { uaLabel: "Safari on iOS", ip: "203.0.113.9" },
       );
       const before = yield* svc.verifyRefreshToken(tokens.refreshToken);
+      const beforeDevice = device(before.sessionId);
 
       const rotated = yield* svc.refreshTokens(tokens.refreshToken);
       const after = yield* svc.verifyRefreshToken(rotated.refreshToken);
 
       expect(after.sessionId).not.toBe(before.sessionId);
       expect(after.familyId).toBe(before.familyId);
-      expect(after.uaLabel).toBe("Safari on iOS");
-      expect(after.ipHash).toBe(before.ipHash);
+      expect(beforeDevice.ipHash).toMatch(/^[a-f0-9]{64}$/);
+      expect(device(after.sessionId)).toEqual({
+        uaLabel: "Safari on iOS",
+        ipHash: beforeDevice.ipHash,
+      });
       // `auth_time` survives the silent rotation (OIDC max_age honesty).
       expect(after.authenticatedAt).toBe(before.authenticatedAt);
-    }).pipe(Effect.provide(createTestLayer())),
-  );
+    }).pipe(Effect.provide(layer));
+  });
 });
 
 // ---------------------------------------------------------------------------

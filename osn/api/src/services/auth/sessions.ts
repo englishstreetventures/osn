@@ -6,13 +6,19 @@
 import { oauthAuthorizationCodes, rotatedSessions, sessions } from "@osn/db/schema";
 import { Db, type DbService } from "@osn/db/service";
 import { timingSafeEqualString } from "@shared/crypto/timing-safe";
+import { rowsChanged } from "@shared/db-utils";
 import type { SecurityInvalidationTrigger } from "@shared/observability/metrics";
-import { and, desc, eq, gt, gte, inArray, lt, notInArray } from "drizzle-orm";
+import { and, desc, eq, gt, gte, inArray, lt, notExists, notInArray, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { canBatch } from "../../lib/batch";
-import { metricSessionSecurityInvalidation, withSessionOp } from "../../metrics";
-import { MAX_SESSIONS_PER_ACCOUNT } from "./constants";
+import {
+  metricSessionFamilyRevoked,
+  metricSessionReuseDetected,
+  metricSessionSecurityInvalidation,
+  withSessionOp,
+} from "../../metrics";
+import { MAX_SESSIONS_PER_ACCOUNT, ROTATION_GRACE_MS } from "./constants";
 import { AuthError, DatabaseError } from "./errors";
 import { deriveSessionBinding, hashSessionToken, sessionHandleFromHash } from "./helpers";
 import type { SessionSummary } from "./types";
@@ -31,8 +37,9 @@ export type CallerSessionResolution =
  * in the old one's family before it deletes the old one, so a write that names
  * the caller's device by family reaches it wherever in its own refresh the
  * write lands. Which sessions a hash may name follows one rule: a hash may end
- * its family, or say the caller's device was ended, whether it is live or
- * rotated out; only a live session spares or lifts anything, so a stale token
+ * its family, say the caller's device was ended, or mark the caller's device in
+ * a list, whether it is live or rotated out; only a live session spares or
+ * lifts anything, so a stale token
  * cannot shield or widen a family someone else's refresh has moved on.
  */
 
@@ -106,19 +113,90 @@ export function createSessionsModule() {
    * the delete or is in flight when the delete runs, leaves no session of the
    * device behind.
    *
+   * A token no live session holds, found through a rotation record written
+   * longer than `ROTATION_GRACE_MS` ago, is a replay of a token its device has
+   * moved on from, and counts as reuse as it does at `/token`: the
+   * `reuse_detected` metric, then `family_revoked` and a warning when the
+   * delete removed a session, or an info line when none was left. No line
+   * names the account, the family or the token. The family's rotation records
+   * go with it, so one token counts as reuse once. Inside the window it is the
+   * device's own race with its refresh, and nothing is counted.
+   *
    * Silently succeeds when the token names nothing (idempotent — don't leak
-   * whether a session was valid). The family's rotation records stay, as a
-   * revoke by handle leaves them: a later replay finds no session to revoke.
+   * whether a session was valid). Otherwise the family's rotation records
+   * stay, as a revoke by handle leaves them.
    */
   const invalidateSession = (sessionToken: string): Effect.Effect<void, DatabaseError, Db> =>
     Effect.gen(function* () {
       const sessionId = hashSessionToken(sessionToken);
       const { db } = yield* Db;
+      const nowMs = Date.now();
+      // The token's live rotation record, when no live session holds its hash.
+      // Read before the delete, which removes the live session of a token
+      // still in use.
+      const rotatedOut = db
+        .select({
+          accountId: rotatedSessions.accountId,
+          familyId: rotatedSessions.familyId,
+          rotatedAt: rotatedSessions.rotatedAt,
+        })
+        .from(rotatedSessions)
+        .where(
+          and(
+            eq(rotatedSessions.tokenHash, sessionId),
+            gt(rotatedSessions.expiresAt, nowMs),
+            notExists(
+              db
+                .select({ one: sql`1` })
+                .from(sessions)
+                .where(eq(sessions.id, sessionId)),
+            ),
+          ),
+        )
+        .limit(1);
+      const removal = db
+        .delete(sessions)
+        .where(inArray(sessions.familyId, familyOf(db, sessionId, nowMs)));
+      const { record, removed } = yield* Effect.tryPromise({
+        try: async () => {
+          // One batch on D1, so one request and one transaction, over the two
+          // tables the delete's own lookup reads.
+          if (canBatch(db)) {
+            const [records, result] = await db.batch([rotatedOut, removal]);
+            return { record: records[0], removed: rowsChanged(result) };
+          }
+          // In turn on bun:sqlite, where a failed read loses only the reuse
+          // signal, never the logout.
+          const records = await rotatedOut.then(
+            (rows) => rows,
+            () => [],
+          );
+          return { record: records[0], removed: rowsChanged(await removal) };
+        },
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      if (record === undefined || nowMs - record.rotatedAt < ROTATION_GRACE_MS) return;
+
+      metricSessionReuseDetected();
+      if (removed > 0) {
+        metricSessionFamilyRevoked();
+        yield* Effect.logWarning("Session token reuse detected at logout — family revoked");
+      } else {
+        yield* Effect.logInfo(
+          "Session token reuse detected at logout — no session of the family was left",
+        );
+      }
+      // Led by `account_id` so it searches `rotated_sessions_account_family_idx`.
       yield* Effect.tryPromise({
         try: () =>
           db
-            .delete(sessions)
-            .where(inArray(sessions.familyId, familyOf(db, sessionId, Date.now()))),
+            .delete(rotatedSessions)
+            .where(
+              and(
+                eq(rotatedSessions.accountId, record.accountId),
+                eq(rotatedSessions.familyId, record.familyId),
+              ),
+            ),
         catch: (cause) => new DatabaseError({ cause }),
       });
     });
@@ -229,11 +307,7 @@ export function createSessionsModule() {
       return { _tag: "stale" } as const;
     }).pipe(Effect.withSpan("auth.session.classify_caller"));
 
-  /**
-   * Invalidates ALL sessions for an account. Used when a security event
-   * demands full session revocation (e.g. passkey registration, email
-   * change, account compromise). See auth improvements H1.
-   */
+  /** Deletes every session on the account, the caller's device included. */
   const invalidateAccountSessions = (accountId: string): Effect.Effect<void, DatabaseError, Db> =>
     Effect.gen(function* () {
       const { db } = yield* Db;
@@ -246,10 +320,11 @@ export function createSessionsModule() {
   /**
    * Invalidates all sessions for an account EXCEPT the device of the one
    * identified by `keepSessionHash` (its family; see {@link outsideFamilyOf}).
-   * Used after security events (H1) where the current session should survive
-   * but all others must be revoked (passkey registration, passkey deletion,
-   * …). `trigger` labels the emitted metric so the security-invalidation
-   * dashboard can attribute the sweep.
+   * Used after a passkey is registered or deleted: the caller's device stays,
+   * and every other session goes, since one opened before the change may be
+   * held by whoever the change is meant to lock out. `trigger` labels the
+   * emitted metric so the security-invalidation dashboard can attribute the
+   * sweep.
    */
   const invalidateOtherAccountSessions = (
     accountId: string,
@@ -273,6 +348,14 @@ export function createSessionsModule() {
       metricSessionSecurityInvalidation(trigger);
     }).pipe(Effect.withSpan("auth.session.invalidate_other"));
 
+  /**
+   * The account's sessions for the Settings list. `isCurrent` marks the
+   * caller's device: every session in the family of the session
+   * `currentSessionHash` names, live or rotated out (see {@link familyOf}), as
+   * `revokeAccountSession` decides `revokedSelf`. So a cookie the device has
+   * refreshed past still marks the device's live session. The marker grants
+   * nothing: a revoke by handle and the account-wide deletes do not read it.
+   */
   const listAccountSessions = (
     accountId: string,
     currentSessionHash: string | null,
@@ -285,7 +368,20 @@ export function createSessionsModule() {
       const rows = yield* Effect.tryPromise({
         try: () =>
           db
-            .select()
+            .select({
+              id: sessions.id,
+              uaLabel: sessions.uaLabel,
+              createdAt: sessions.createdAt,
+              lastUsedAt: sessions.lastUsedAt,
+              expiresAt: sessions.expiresAt,
+              isCurrent:
+                currentSessionHash === null
+                  ? sql<boolean>`0`.mapWith(Boolean)
+                  : inArray(
+                      sessions.familyId,
+                      familyOf(db, currentSessionHash, Date.now()),
+                    ).mapWith(Boolean),
+            })
             .from(sessions)
             .where(eq(sessions.accountId, accountId))
             .orderBy(desc(sessions.lastUsedAt))
@@ -299,7 +395,7 @@ export function createSessionsModule() {
           createdAt: row.createdAt,
           lastUsedAt: row.lastUsedAt,
           expiresAt: row.expiresAt,
-          isCurrent: currentSessionHash !== null && row.id === currentSessionHash,
+          isCurrent: row.isCurrent,
         })),
       };
     }).pipe(withSessionOp("list"));

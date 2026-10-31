@@ -5,9 +5,11 @@ import { createD1Db } from "@shared/db-utils";
 import { chatMembers, chats, messages } from "@zap/db/schema";
 import { Db } from "@zap/db/service";
 import { createSchemaSql } from "@zap/db/testing";
+import { eq, sql } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 import { Miniflare } from "miniflare";
 
+import { MAX_CHAT_MEMBERS } from "../../src/lib/limits";
 import {
   addMember,
   createChat,
@@ -18,6 +20,7 @@ import {
 } from "../../src/services/chats";
 import { resetConsentGate, setConsentGate } from "../../src/services/consent";
 import { listMessages, sendMessage } from "../../src/services/messages";
+import { holdQueries } from "../helpers/held-query";
 
 // Integration tests against a REAL (workerd-backed) D1 database via Miniflare.
 // The rest of the Zap suite runs on synchronous bun:sqlite; these exercise the
@@ -125,5 +128,38 @@ describe("zap/api over real D1 (Miniflare)", () => {
     expect((await run(updateChat(chat.id, { title: "After" }, ALICE))).title).toBe("After");
     const mine = await run(listChats(ALICE));
     expect(mine.chats[0]!.title).toBe("After");
+  });
+
+  // The add answers from its insert's change count, which D1 reports under
+  // `meta.changes`: one for an add that went in, none for one the cap refused
+  // at the write.
+  it("addMember holds the member cap in its insert over async D1", async () => {
+    setConsentGate(() => Promise.resolve(true));
+    const chat = await run(createChat({ type: "group", title: "Full" }, ALICE));
+    // Alice and the fillers: one member short of the cap.
+    await rawDb.run(
+      sql`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ${MAX_CHAT_MEMBERS - 2})
+          INSERT INTO chat_members (id, chat_id, profile_id, role, joined_at)
+          SELECT 'cmem_seed_' || i, ${chat.id}, 'usr_seed_' || i, 'member', 0 FROM n`,
+    );
+    const queries = holdQueries(rawDb);
+    const heldLayer = Layer.succeed(Db, { db: queries.db });
+    const runHeld = <A, E>(eff: Effect.Effect<A, E, Db>): Promise<A> =>
+      Effect.runPromise(eff.pipe(Effect.provide(heldLayer)));
+
+    const insert = queries.hold(/^insert into "chat_members"/);
+    const adding = runHeld(Effect.flip(addMember(chat.id, "usr_dave", ALICE)));
+    await insert.reached;
+    const erin = await runHeld(addMember(chat.id, "usr_erin", ALICE));
+    insert.release();
+
+    expect(erin.profileId).toBe("usr_erin");
+    expect((await adding)._tag).toBe("MemberLimitReached");
+    const members = await rawDb
+      .select({ profileId: chatMembers.profileId })
+      .from(chatMembers)
+      .where(eq(chatMembers.chatId, chat.id));
+    expect(members).toHaveLength(MAX_CHAT_MEMBERS);
+    expect(members.map((m) => m.profileId)).not.toContain("usr_dave");
   });
 });

@@ -10,7 +10,7 @@ related:
   - "[[social-graph]]"
   - "[[arc-tokens]]"
   - "[[monorepo-structure]]"
-last-reviewed: 2026-10-30
+last-reviewed: 2026-10-31
 ---
 
 # Zap
@@ -140,7 +140,9 @@ add-member) when the two share a permitted OSN social-graph relationship.
   requester's admin row as it runs, so of two admins leaving at once one is
   refused, and a requester removed in the meantime removes no one.
   `addMember` and `updateChat` hold the requester's admin row in their write
-  the same way. Message-list cursors are scoped to their chat and
+  the same way, and `addMember`'s insert also holds the member cap
+  (`MAX_CHAT_MEMBERS`, 500): of two adds that both read the last free place,
+  the second inserts nothing and is refused `MemberLimitReached`. Message-list cursors are scoped to their chat and
   unknown cursors are rejected (`zap/api/src/services/messages.ts`, Z6).
 
 > **Ops provisioning:** consent checks require `zap-api` to be registered as an

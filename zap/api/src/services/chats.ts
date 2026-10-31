@@ -56,12 +56,12 @@ export class AlreadyMember extends Data.TaggedError("AlreadyMember")<{
   readonly profileId: string;
 }> {}
 
-/** Z3 — a DM must have exactly two members (creator + one other). */
+/** Refused: a DM created with anyone but exactly one other member, or an add to a DM. */
 export class InvalidDmMembership extends Data.TaggedError("InvalidDmMembership")<{
   readonly memberCount: number;
 }> {}
 
-/** Z5 — cannot remove the last admin of a chat. */
+/** Refused: removing the last admin of a chat, the admin leaving included. */
 export class LastAdmin extends Data.TaggedError("LastAdmin")<{
   readonly chatId: string;
 }> {}
@@ -518,8 +518,8 @@ export const addMember = (
     yield* checkConsent(requestingProfileId, profileId);
 
     // Cap+duplicate fold: one query over chat_members instead of a
-    // COUNT(*) followed by a separate indexed duplicate lookup. `sum()` from
-    // drizzle-orm 0.45.2 is typed `SQL<string | null>`
+    // COUNT(*) followed by a separate indexed duplicate lookup. drizzle-orm's
+    // `sum()` is typed `SQL<string | null>`
     // (`sql\`sum(...)\`.mapWith(String)`), which does not typecheck against a
     // numeric comparison — the raw `sql<number>` template is used instead.
     // `sum` over zero matching rows is SQL NULL, hence the `dup ?? 0` guard;
@@ -558,16 +558,18 @@ export const addMember = (
       joinedAt: now,
     };
     // The cap/duplicate check above is a read, so it cannot hold against a
-    // write that lands after it: two concurrent adds of the *same* profile
-    // can both pass it and both reach this INSERT. The unique constraint on
-    // (chat_id, profile_id) is the guard: its failure resolves to
-    // `AlreadyMember` (409) rather than `DatabaseError` (500). The member
-    // *cap* has no such guard at the write: two concurrent adds of
-    // *different* profiles can both read `total = 499` and both insert.
+    // write that lands after it; the insert holds them itself. The unique
+    // constraint on (chat_id, profile_id) holds the duplicate: of two adds of
+    // the *same* profile, the second fails it and resolves to `AlreadyMember`
+    // (409) rather than `DatabaseError` (500).
     //
-    // Inserted from the requester's own admin row, so the member is added only
-    // while the requester is still an admin; one removed or demoted since the
-    // read above adds no one.
+    // The insert holds the requester's role and the member cap: it inserts
+    // from the requester's own admin row, and only while the chat has fewer
+    // than `MAX_CHAT_MEMBERS` members. SQLite runs the statement whole, so a
+    // requester removed or demoted since the read above adds no one, and of
+    // two adds that both read the last free place, the second inserts nothing
+    // and is refused `MemberLimitReached` — for two adds of one profile too,
+    // since the cap is checked before the duplicate.
     const inserted = yield* Effect.tryPromise({
       try: () =>
         db.insert(chatMembers).select(
@@ -580,7 +582,7 @@ export const addMember = (
               joinedAt: bound(row.joinedAt, chatMembers.joinedAt),
             })
             .from(requesterMembership)
-            .where(requesterAdminRow(chatId, requestingProfileId)),
+            .where(and(requesterAdminRow(chatId, requestingProfileId), chatHasRoom(db, chatId))),
         ),
       catch: (cause) =>
         isUniqueConstraintFailure(cause)
@@ -588,9 +590,12 @@ export const addMember = (
           : new DatabaseError({ cause }),
     });
     if (rowsChanged(inserted) === 0) {
-      // Refused as the checks refuse, in their order: the chat, then the role.
+      // Refused as the checks refuse, in their order: the chat, the role, then
+      // the cap. The insert holds only the role and the cap, so with the role
+      // standing it was the cap.
       yield* getChat(chatId);
-      return yield* Effect.fail(new NotChatAdmin({ chatId }));
+      yield* assertAdmin(chatId, requestingProfileId);
+      return yield* Effect.fail(new MemberLimitReached({ chatId }));
     }
     metricMemberAdded("ok");
 
@@ -602,8 +607,9 @@ export const addMember = (
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-// Used by `removeMember`: the admin check on removing someone else, and its
-// re-read when the guarded delete removes no one.
+// Used by `removeMember`, for the admin check on removing someone else and its
+// re-read when the guarded delete removes no one, and by `addMember`, for its
+// re-read when the guarded insert adds no one.
 const assertAdmin = (
   chatId: string,
   profileId: string,
@@ -632,6 +638,14 @@ const assertAdmin = (
 /** Second names for `chat_members`, for a write that reads other rows of the table it writes. */
 const requesterMembership = alias(chatMembers, "requester_membership");
 const adminMemberships = alias(chatMembers, "admin_memberships");
+const counted = alias(chatMembers, "counted_memberships");
+
+/**
+ * True while the chat has fewer than `MAX_CHAT_MEMBERS` members, for a write
+ * that must hold the cap as it runs rather than as an earlier read found it.
+ */
+const chatHasRoom = (db: DbService["db"], chatId: string) =>
+  lt(db.select({ n: count() }).from(counted).where(eq(counted.chatId, chatId)), MAX_CHAT_MEMBERS);
 
 /** The requester's admin row in the chat, on `requesterMembership`. */
 const requesterAdminRow = (chatId: string, requestingProfileId: string) =>

@@ -10,7 +10,7 @@ import { Db } from "@osn/db/service";
 import { createSchemaSql } from "@osn/db/testing";
 import { createD1Db } from "@shared/db-utils";
 import { eq } from "drizzle-orm";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Logger } from "effect";
 import { Miniflare } from "miniflare";
 
 import { handler } from "../../src/index";
@@ -290,6 +290,44 @@ describe("the caller's device on D1", () => {
 
     expect(result.revokedSelf).toBe(false);
     await run(auth.verifyRefreshToken(next.refreshToken));
+  });
+
+  it("a cookie the device has refreshed past still flags the device in the list", async () => {
+    const { profile, refreshToken } = await signIn("d1-ic@example.com", "d1ic");
+    const other = await openAnother(profile);
+    const next = await run(auth.refreshTokens(refreshToken));
+
+    const { sessions: listed } = await run(
+      auth.listAccountSessions(profile.accountId, hashSessionToken(refreshToken)),
+    );
+
+    expect(listed.filter((s) => s.isCurrent).map((s) => s.id)).toEqual([
+      handleOf(next.refreshToken),
+    ]);
+    expect(listed.find((s) => s.id === handleOf(other))?.isCurrent).toBe(false);
+  });
+
+  it("logout with a cookie rotated out past the grace window warns of reuse", async () => {
+    const { profile, refreshToken } = await signIn("d1-lo-reuse@example.com", "d1loreuse");
+    const next = await run(auth.refreshTokens(refreshToken));
+    await db
+      .update(rotatedSessions)
+      .set({ rotatedAt: Date.now() - ROTATION_GRACE_MS - 1 })
+      .where(eq(rotatedSessions.accountId, profile.accountId));
+    const warnings: string[] = [];
+    const logged = Logger.layer([
+      Logger.map(Logger.formatStructured, (line) => {
+        if (line.level === "WARN") warnings.push(String(line.message));
+      }),
+    ]);
+
+    await Effect.runPromise(
+      auth.invalidateSession(refreshToken).pipe(Effect.provide(layer), Effect.provide(logged)),
+    );
+
+    expect(warnings).toEqual(["Session token reuse detected at logout — family revoked"]);
+    expect((await failure(auth.verifyRefreshToken(next.refreshToken)))._tag).toBe("AuthError");
+    expect(await recordsOf(profile.accountId)).toEqual([]);
   });
 });
 

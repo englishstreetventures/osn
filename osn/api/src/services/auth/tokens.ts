@@ -561,10 +561,10 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
    * remains, `expiresAt` is extended by the full TTL from now.
    *
    * Returns the session's `accountId`, `familyId` and `sessionId` (the hash),
-   * its authentication time, its device fields and its restriction, all from
-   * the one row read here. `refreshTokens` rotates from the account, family,
-   * hash and restriction; it copies the device onto the new session from the
-   * old row as it stands when the insert runs, not from this read.
+   * its authentication time and its restriction, all from the one row read
+   * here. `refreshTokens` rotates from the account, family, hash and
+   * restriction; it copies the device onto the new session from the old row
+   * as it stands when the insert runs, not from this read.
    *
    * Two callers: `refreshTokens` here, and the OIDC provider's `resolveSession`
    * (`routes/auth/oidc.ts`), which is how `/authorize` learns whether this
@@ -588,9 +588,6 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
       familyId: string;
       sessionId: string;
       authenticatedAt: number;
-      createdAt: number;
-      uaLabel: string | null;
-      ipHash: string | null;
       restrictedUntil: number | null;
       restrictedAmr: string | null;
     },
@@ -676,9 +673,6 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
         familyId: session.familyId,
         sessionId,
         authenticatedAt: session.authenticatedAt ?? session.createdAt,
-        createdAt: session.createdAt,
-        uaLabel: session.uaLabel,
-        ipHash: session.ipHash,
         restrictedUntil: session.restrictedUntil,
         restrictedAmr: session.restrictedAmr,
       };
@@ -917,6 +911,7 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
       // statement at a time on bun:sqlite, each built once the one before has
       // run. Change counts go through `rowsChanged`, which reads D1's
       // `meta.changes`.
+      let newRowLeft = false;
       const written = yield* Effect.tryPromise({
         try: async () => {
           if (canBatch(db)) {
@@ -930,19 +925,32 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
             return { recorded, swapped };
           } catch (error) {
             // The new row is this request's alone; it goes with the failure,
-            // and the old row stays, as a failed D1 batch leaves it.
+            // and the old row stays, as a failed D1 batch leaves it. A delete
+            // that fails too leaves the row, held by no one, until it
+            // expires; that is logged below, and the grant fails with the
+            // first error either way.
             await db
               .delete(sessions)
               .where(newRow)
               .then(
                 () => undefined,
-                () => undefined,
+                () => {
+                  newRowLeft = true;
+                },
               );
             throw error;
           }
         },
         catch: (cause) => new DatabaseError({ cause }),
-      });
+      }).pipe(
+        Effect.tapError(() =>
+          newRowLeft
+            ? Effect.logError(
+                "Refresh rotation could not remove its own new session after a failed write",
+              ).pipe(Effect.annotateLogs({ restricted: String(restrictedUntil !== null) }))
+            : Effect.void,
+        ),
+      );
 
       if (written.swapped === 0) {
         // Lost: the old row was present at verify but gone, or the new one

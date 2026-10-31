@@ -630,8 +630,10 @@ export const runHardDeleteSweep = (
  * the claim answers false and nothing is deleted.
  *
  * Neither audit table has a foreign key to `accounts` (each outlives its
- * parent by design), so the surviving rows stay queryable by accountId until
- * their own retention sweepers age them out. The `users.handle` was redacted
+ * parent by design), so the surviving rows stay queryable by accountId.
+ * Nothing deletes them: `wiki/compliance/retention.md` sets 12 months for
+ * `security_events` and 90 days for `email_changes`, and no sweeper enforces
+ * either. The `users.handle` was redacted
  * to `deleted_<id>` at soft-delete time, so the surviving accountId names no
  * person.
  *

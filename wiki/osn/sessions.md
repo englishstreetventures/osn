@@ -78,7 +78,7 @@ Per-account hard cap: `MAX_SESSIONS_PER_ACCOUNT = 50`. Every insert of a new ses
 
 | Route | Purpose |
 |---|---|
-| `GET /sessions` | List the caller's active sessions with coarse UA labels + timestamps, flagging the current one |
+| `GET /sessions` | List the caller's active sessions with coarse UA labels + timestamps, flagging the caller's device: every session in the family of the session the cookie names, live or rotated out |
 | `DELETE /sessions/:id` | Revoke a device by the 16-hex public handle (first 16 chars of SHA-256 hash) of one of its sessions: every session of that session's family |
 | `POST /sessions/revoke-all-other` | Revoke every session EXCEPT the caller's own device (the family of its current session), delete the account's OIDC authorization codes in flight, then end the account's cire organiser sessions |
 
@@ -88,7 +88,9 @@ All endpoints authenticate via `Authorization: Bearer <access_token>` and resolv
 
 **The caller's device survives its own refresh in flight.** The account-wide deletes that spare the caller — sign out everywhere else, passkey add and delete, email change, erasure's cancel handle — spare the caller's *family*, not the one row id the request named (`outsideFamilyOf` in [`sessions.ts`](../../osn/api/src/services/auth/sessions.ts)). The family is read from the live session the caller's hash names. A rotation inserts the new row before it deletes the old one and keeps the family, so a refresh of the caller's session in another tab, wherever it is when the delete runs, completes and keeps the device; every other device goes. Only a live session spares anything: a hash already rotated out by the time the delete runs, revoked or never issued spares nothing, so a stale token cannot shield the family someone else's refresh has moved on (a request whose own tab finished refreshing first signs that device out, and it signs in again). Erasure's soft delete keeps the rotation records of the same family. Tests: `osn/api/tests/services/sessions-management.test.ts` (each of the four, with the caller's refresh held at each of its three statements, and with a hash rotated out before the delete).
 
-**Logout and the revoke's answer follow the caller's device too.** `POST /logout` deletes every session in the family of the session the cookie names, in one statement. The family is found from the live session, or from the token's rotation record while that record is live (`expires_at`, as reuse detection reads it). So a refresh of the same token in another tab, whether it finished before the delete or is in flight when it runs, leaves no session of the device. `DELETE /sessions/:id` finds the cookie's family the same way, before its delete (in the same batch on D1), and answers `revokedSelf: true` when that family was among those revoked, so the route clears the cookie whichever of the device's sessions the cookie holds. One rule decides which lookup each write takes: a hash may end its family, or report the caller's device ended, whether it is live or rotated out; only a live session spares or lifts anything ([[#The restricted recovery session]]). Tests: `osn/api/tests/services/sessions-management.test.ts` (each with the caller's refresh held at each of its three statements, and finished before the write) and `osn/api/tests/d1/rotated-sessions.test.ts` (the revoke's batch on D1).
+**Logout and the revoke's answer follow the caller's device too.** `POST /logout` deletes every session in the family of the session the cookie names, in one statement. The family is found from the live session, or from the token's rotation record while that record is live (`expires_at`, as reuse detection reads it). So a refresh of the same token in another tab, whether it finished before the delete or is in flight when it runs, leaves no session of the device. `DELETE /sessions/:id` finds the cookie's family the same way, before its delete (in the same batch on D1), and answers `revokedSelf: true` when that family was among those revoked, so the route clears the cookie whichever of the device's sessions the cookie holds. `GET /sessions` marks `isCurrent` on the same family, in the list's own statement, so a cookie the device has refreshed past still marks the device; the marker grants nothing on the server. One rule decides which lookup each write takes: a hash may end its family, report the caller's device ended, or mark it in the list, whether it is live or rotated out; only a live session spares or lifts anything ([[#The restricted recovery session]]). Tests: `osn/api/tests/services/sessions-management.test.ts` (each with the caller's refresh held at each of its three statements, and finished before the write) and `osn/api/tests/d1/rotated-sessions.test.ts` (the revoke's batch on D1).
+
+**A logout with a token rotated out past the grace window is reuse.** Before its delete, `POST /logout` reads the token's live rotation record when no live session holds the hash (in the same batch on D1). A record written more than `ROTATION_GRACE_MS` ago means the device moved on from this token, so the logout counts it as `/token` does: `reuse_detected`, then `family_revoked` and the warning `Session token reuse detected at logout — family revoked` when the delete removed a session, or `… no session of the family was left` at info. It then deletes the family's rotation records, so one token counts as reuse once, whichever route replays it. Inside the window it is the device's own race with its refresh, and nothing is counted. Tests: `osn/api/tests/services/sessions-management.test.ts` ("logout of a rotated-out token") and `osn/api/tests/d1/rotated-sessions.test.ts`.
 
 ### Sign out everywhere else reaches cire
 
@@ -254,7 +256,9 @@ erasure (by account) and a detected reuse (by account and family).
   that lets reuse detection see its predecessor replayed; one statement at a
   time on bun:sqlite. A failed write is a `DatabaseError`: the grant fails, the
   old row stays (a failed D1 batch rolls back; on bun:sqlite the grant deletes
-  its own new row), and `POST /token` reads it as "session status unknown" and
+  its own new row, and if that delete fails too, logs `Refresh rotation could
+  not remove its own new session after a failed write` at error, annotated
+  `restricted` only), and `POST /token` reads it as "session status unknown" and
   keeps the marker cookie. A second record for one token fails on the key, so
   of two grants of one token interleaved on bun:sqlite the second fails this
   way.
@@ -262,9 +266,12 @@ erasure (by account) and a detected reuse (by account and family).
   live record (`expires_at` later than now). No record: nothing more happens.
   A record inside the grace window: a benign race, family kept. Outside it: one
   batch deletes the family's sessions and its rotation records, so a further
-  replay from that chain has nothing left to revoke. A revoke by handle and a
-  logout leave the family's records, so a stale replay can find a record whose
-  family has no session left; that replay counts as reuse and revokes nothing. A failed read is a
+  replay from that chain has nothing left to revoke. A revoke by handle, and a
+  logout with a live token or one rotated out inside the grace window, leave the
+  family's records, so a stale replay can find a record whose family has no
+  session left; that replay counts as reuse and revokes nothing. A logout with a
+  token rotated out past the grace window deletes them, as a replay here does
+  ([[#Endpoints]]). A failed read is a
   `DatabaseError` — the grant fails and nothing is revoked, so a storage error
   never passes for "not rotated" and never makes a revocation up.
 - **Sweep.** `runRotatedSessionSweep` deletes expired records in chunks of 500,
@@ -290,11 +297,12 @@ erasure (by account) and a detected reuse (by account and family).
 - `osn.auth.cire_session.revocations{trigger, result}` — one per request to cire-api's organiser-session revoke, and one per sign-out or connection revoke that sent none because the back-channel is unconfigured (`unconfigured`) or the profile lookup failed (`error`). `trigger` ∈ `sign_out_everywhere` / `connection_revoked`; `result` ∈ `ok` / `rejected` / `timeout` / `error` / `unconfigured`. Span `auth.cire_session.revoke`. Metric export on workerd is deferred, so on deployed tiers the error and warning log lines are the signal; none carries the secret, an account id or a profile id
 - Spans: `auth.session.list`, `auth.session.revoke`, `auth.session.revoke_all`, `auth.session.resolve_binding` (the `osn_sid` lookup), `auth.session.resolve_caller` (cookie-or-binding "who is calling"), `auth.session.lift_restriction` (a recovery session becoming an ordinary one)
 - `SecurityInvalidationTrigger` union extended with `session_revoke`, `session_revoke_all`, and `passkey_delete` so the H1 dashboard picks up user-initiated revocations alongside passkey-register, passkey-delete, recovery-code, and email-change triggers
-- `osn.auth.session.reuse_detected` / `osn.auth.session.family_revoked` — genuine C2 reuse caught (replay outside the grace window) and the resulting whole-family revocations. `family_revoked` and its warning log `Session token reuse detected — family revoked` count only a revoke that removed a session; a replay whose family has no session left counts `reuse_detected` and logs `Session token reuse detected — no session of the family was left` at info. A spike is a real security signal (token theft) — distinct from the benign metric below.
+- `osn.auth.session.reuse_detected` / `osn.auth.session.family_revoked` — genuine C2 reuse caught (replay outside the grace window) and the resulting whole-family revocations. `family_revoked` and its warning log `Session token reuse detected — family revoked` count only a revoke that removed a session; a replay whose family has no session left counts `reuse_detected` and logs `Session token reuse detected — no session of the family was left` at info. A logout with a token rotated out past the grace window counts the same way, with `at logout` in both lines ([[#Endpoints]]). Neither counter carries an attribute, and no line names the account, the family or the token. A spike is a real security signal (token theft) — distinct from the benign metric below.
 - `osn.auth.session.rotation_race` — benign concurrent/retried grants tolerated within `ROTATION_GRACE_MS` (CAS-0-rows or a rotated-token replay inside the window). The family is PRESERVED. Expected to be non-zero for normal multi-tab usage; it is NOT a security signal. Watch the ratio of `family_revoked` to `rotation_race` — a rise in the former relative to the latter is what matters.
 - Spans: `auth.session.rotate` around a refresh, `auth.session.reuse_detect` around the record lookup and any revocation, `auth.session.rotated_sweep` around a sweep. A failed sweep logs `scheduled rotated-session sweep failed` on the Worker
 - `osn.retention.rows_deleted{table}` and `osn.retention.cycle.duration{table}` (seconds) — one of each per sweep pass, `table` = `rotated_sessions`, a failed pass included with the rows its earlier chunks deleted
 - A rotation record that cannot be written or read is a `DatabaseError` on the grant, in Workers Logs with the rest of osn-api's D1 errors
+- `Refresh rotation could not remove its own new session after a failed write` (error, annotated `restricted` = `true` / `false`, never the cause, whose text carries the statement's parameters) — bun:sqlite only: a rotation whose write failed and whose delete of its own new row failed too, leaving a row no one holds until it expires
 - Redaction: `ipHash`, `uaLabel` (both spellings), `familyId` (already in the deny-list — correlates sessions across rotation events)
 
 ## UI
