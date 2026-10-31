@@ -3,15 +3,22 @@
  * introspection surface (list / revoke-one / revoke-all-other).
  */
 
-import { oauthAuthorizationCodes, sessions } from "@osn/db/schema";
-import { Db } from "@osn/db/service";
+import { oauthAuthorizationCodes, rotatedSessions, sessions } from "@osn/db/schema";
+import { Db, type DbService } from "@osn/db/service";
 import { timingSafeEqualString } from "@shared/crypto/timing-safe";
+import { rowsChanged } from "@shared/db-utils";
 import type { SecurityInvalidationTrigger } from "@shared/observability/metrics";
-import { and, desc, eq, like, ne } from "drizzle-orm";
+import { and, desc, eq, gt, gte, inArray, lt, notExists, notInArray, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
-import { metricSessionSecurityInvalidation, withSessionOp } from "../../metrics";
-import { MAX_SESSIONS_PER_ACCOUNT } from "./constants";
+import { canBatch } from "../../lib/batch";
+import {
+  metricSessionFamilyRevoked,
+  metricSessionReuseDetected,
+  metricSessionSecurityInvalidation,
+  withSessionOp,
+} from "../../metrics";
+import { MAX_SESSIONS_PER_ACCOUNT, ROTATION_GRACE_MS } from "./constants";
 import { AuthError, DatabaseError } from "./errors";
 import { deriveSessionBinding, hashSessionToken, sessionHandleFromHash } from "./helpers";
 import type { SessionSummary } from "./types";
@@ -24,6 +31,59 @@ export type CallerSessionResolution =
   | { readonly _tag: "resolved"; readonly sessionHash: string }
   | { readonly _tag: "none" }
   | { readonly _tag: "stale" };
+
+/*
+ * A family is one device's refresh chain: a rotation inserts the new session
+ * in the old one's family before it deletes the old one, so a write that names
+ * the caller's device by family reaches it wherever in its own refresh the
+ * write lands. Which sessions a hash may name follows one rule: a hash may end
+ * its family, say the caller's device was ended, or mark the caller's device in
+ * a list, whether it is live or rotated out; only a live session spares or
+ * lifts anything, so a stale token
+ * cannot shield or widen a family someone else's refresh has moved on.
+ */
+
+/** The family of the live session `sessionHash` names; none for any other hash. */
+const liveFamilyOf = (db: DbService["db"], sessionHash: string) =>
+  db.select({ familyId: sessions.familyId }).from(sessions).where(eq(sessions.id, sessionHash));
+
+/**
+ * The family of the session `sessionHash` names, live or rotated out while its
+ * token could still have been used (the record's `expires_at`, as reuse
+ * detection reads it). Each arm reads its table's primary key.
+ */
+const familyOf = (db: DbService["db"], sessionHash: string, nowMs: number) =>
+  db
+    .select({ familyId: sessions.familyId })
+    .from(sessions)
+    .where(eq(sessions.id, sessionHash))
+    .unionAll(
+      db
+        .select({ familyId: rotatedSessions.familyId })
+        .from(rotatedSessions)
+        .where(
+          and(eq(rotatedSessions.tokenHash, sessionHash), gt(rotatedSessions.expiresAt, nowMs)),
+        ),
+    );
+
+/**
+ * Rows outside the family of the live session `sessionHash` names, for the
+ * account-wide deletes that spare the caller's device. A hash already rotated
+ * out, revoked or never issued spares nothing.
+ */
+export const outsideFamilyOf = (
+  db: DbService["db"],
+  familyColumn: typeof sessions.familyId | typeof rotatedSessions.familyId,
+  sessionHash: string,
+) => notInArray(familyColumn, liveFamilyOf(db, sessionHash));
+
+/**
+ * Sessions in the family of the live session `sessionHash` names, for the
+ * restriction lift. A hash already rotated out, revoked or never issued names
+ * none.
+ */
+export const inLiveFamilyOf = (db: DbService["db"], sessionHash: string) =>
+  inArray(sessions.familyId, liveFamilyOf(db, sessionHash));
 
 /**
  * Finds the session id whose per-profile binding equals `sessionBinding`.
@@ -46,16 +106,97 @@ function matchBinding(
 
 export function createSessionsModule() {
   /**
-   * Invalidates a single session by deleting its DB row. Used by the
-   * `/logout` endpoint. Silently succeeds if the session doesn't exist
-   * (idempotent — don't leak whether a session was valid).
+   * Ends the device a session token belongs to: every session of its family,
+   * found from the live session or from the token's live rotation record
+   * (see {@link familyOf}). Used by the `/logout` endpoint. One statement, so
+   * a refresh of the same token in another tab, whether it finished before
+   * the delete or is in flight when the delete runs, leaves no session of the
+   * device behind.
+   *
+   * A token no live session holds, found through a rotation record written
+   * longer than `ROTATION_GRACE_MS` ago, is a replay of a token its device has
+   * moved on from, and counts as reuse as it does at `/token`: the
+   * `reuse_detected` metric, then `family_revoked` and a warning when the
+   * delete removed a session, or an info line when none was left. No line
+   * names the account, the family or the token. The family's rotation records
+   * go with it, so one token counts as reuse once. Inside the window it is the
+   * device's own race with its refresh, and nothing is counted.
+   *
+   * Silently succeeds when the token names nothing (idempotent — don't leak
+   * whether a session was valid). Otherwise the family's rotation records
+   * stay, as a revoke by handle leaves them.
    */
   const invalidateSession = (sessionToken: string): Effect.Effect<void, DatabaseError, Db> =>
     Effect.gen(function* () {
       const sessionId = hashSessionToken(sessionToken);
       const { db } = yield* Db;
+      const nowMs = Date.now();
+      // The token's live rotation record, when no live session holds its hash.
+      // Read before the delete, which removes the live session of a token
+      // still in use.
+      const rotatedOut = db
+        .select({
+          accountId: rotatedSessions.accountId,
+          familyId: rotatedSessions.familyId,
+          rotatedAt: rotatedSessions.rotatedAt,
+        })
+        .from(rotatedSessions)
+        .where(
+          and(
+            eq(rotatedSessions.tokenHash, sessionId),
+            gt(rotatedSessions.expiresAt, nowMs),
+            notExists(
+              db
+                .select({ one: sql`1` })
+                .from(sessions)
+                .where(eq(sessions.id, sessionId)),
+            ),
+          ),
+        )
+        .limit(1);
+      const removal = db
+        .delete(sessions)
+        .where(inArray(sessions.familyId, familyOf(db, sessionId, nowMs)));
+      const { record, removed } = yield* Effect.tryPromise({
+        try: async () => {
+          // One batch on D1, so one request and one transaction, over the two
+          // tables the delete's own lookup reads.
+          if (canBatch(db)) {
+            const [records, result] = await db.batch([rotatedOut, removal]);
+            return { record: records[0], removed: rowsChanged(result) };
+          }
+          // In turn on bun:sqlite, where a failed read loses only the reuse
+          // signal, never the logout.
+          const records = await rotatedOut.then(
+            (rows) => rows,
+            () => [],
+          );
+          return { record: records[0], removed: rowsChanged(await removal) };
+        },
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      if (record === undefined || nowMs - record.rotatedAt < ROTATION_GRACE_MS) return;
+
+      metricSessionReuseDetected();
+      if (removed > 0) {
+        metricSessionFamilyRevoked();
+        yield* Effect.logWarning("Session token reuse detected at logout — family revoked");
+      } else {
+        yield* Effect.logInfo(
+          "Session token reuse detected at logout — no session of the family was left",
+        );
+      }
+      // Led by `account_id` so it searches `rotated_sessions_account_family_idx`.
       yield* Effect.tryPromise({
-        try: () => db.delete(sessions).where(eq(sessions.id, sessionId)),
+        try: () =>
+          db
+            .delete(rotatedSessions)
+            .where(
+              and(
+                eq(rotatedSessions.accountId, record.accountId),
+                eq(rotatedSessions.familyId, record.familyId),
+              ),
+            ),
         catch: (cause) => new DatabaseError({ cause }),
       });
     });
@@ -108,10 +249,11 @@ export function createSessionsModule() {
 
   /**
    * Names the caller's own live session for the paths that revoke every
-   * OTHER session on the account (H1 on passkey register, S-L3 on passkey
-   * delete). Both inputs are server-derived: the hash comes from the
-   * HttpOnly cookie, the binding from the signed access token. Neither is
-   * ever read from the request body (S-H1).
+   * OTHER session on the account (passkey register and passkey delete). Both
+   * inputs are server-derived: the hash comes from the HttpOnly cookie, the
+   * binding from the signed access token. Neither is ever read from the
+   * request body, so a caller cannot name someone else's session as its own
+   * and keep it through the sweep.
    *
    * The cookie wins when it names a session that is still live, but it does
    * NOT win merely by being present. A cookie holding a revoked, expired or
@@ -133,20 +275,20 @@ export function createSessionsModule() {
   /**
    * The three-way classification behind {@link resolveCallerSession}, for the
    * destructive "revoke every OTHER session" paths (passkey register/delete)
-   * that must NOT degrade to an account-wide wipe on ambiguity (S-M2):
+   * that must NOT degrade to an account-wide wipe on ambiguity:
    *
    *  - `resolved`  — a cookie or `osn_sid` binding names a live session. Keep
    *    it, revoke the rest.
    *  - `none`      — neither a cookie nor a binding was presented at all. A
-   *    genuinely credential-less-but-authenticated call (legacy access token
-   *    with no `osn_sid`, no cookie): there is no "self" to preserve, so the
-   *    H1 account-wide wipe is the correct, intended outcome.
+   *    genuinely credential-less-but-authenticated call (an access token
+   *    with no `osn_sid`, no cookie): there is no "self" to preserve, so
+   *    revoking every session on the account is the intended outcome.
    *  - `stale`     — a cookie and/or binding WAS presented but matches no live
    *    row. The caller plainly has a session; it has just rotated out or been
-   *    LRU-evicted past `MAX_SESSIONS_PER_ACCOUNT`. Treating this as `none`
-   *    and wiping the account was the S-M2 bug — a narrower door onto the same
-   *    "logged out everywhere" failure `osn_sid` exists to prevent. Destructive
-   *    callers must fail closed here (re-authenticate) instead of wiping.
+   *    LRU-evicted past `MAX_SESSIONS_PER_ACCOUNT`. Wiping the account here
+   *    would sign the caller out everywhere — the failure `osn_sid` exists to
+   *    prevent, reached through a stale credential instead of a missing one.
+   *    Destructive callers must fail closed here (re-authenticate) instead.
    */
   const classifyCallerSession = (
     accountId: string,
@@ -165,11 +307,7 @@ export function createSessionsModule() {
       return { _tag: "stale" } as const;
     }).pipe(Effect.withSpan("auth.session.classify_caller"));
 
-  /**
-   * Invalidates ALL sessions for an account. Used when a security event
-   * demands full session revocation (e.g. passkey registration, email
-   * change, account compromise). See auth improvements H1.
-   */
+  /** Deletes every session on the account, the caller's device included. */
   const invalidateAccountSessions = (accountId: string): Effect.Effect<void, DatabaseError, Db> =>
     Effect.gen(function* () {
       const { db } = yield* Db;
@@ -180,11 +318,13 @@ export function createSessionsModule() {
     });
 
   /**
-   * Invalidates all sessions for an account EXCEPT the one identified by
-   * `keepSessionHash`. Used after security events (H1) where the current
-   * session should survive but all others must be revoked (passkey
-   * registration, passkey deletion, …). `trigger` labels the emitted metric
-   * so the security-invalidation dashboard can attribute the sweep.
+   * Invalidates all sessions for an account EXCEPT the device of the one
+   * identified by `keepSessionHash` (its family; see {@link outsideFamilyOf}).
+   * Used after a passkey is registered or deleted: the caller's device stays,
+   * and every other session goes, since one opened before the change may be
+   * held by whoever the change is meant to lock out. `trigger` labels the
+   * emitted metric so the security-invalidation dashboard can attribute the
+   * sweep.
    */
   const invalidateOtherAccountSessions = (
     accountId: string,
@@ -197,26 +337,51 @@ export function createSessionsModule() {
         try: () =>
           db
             .delete(sessions)
-            .where(and(eq(sessions.accountId, accountId), ne(sessions.id, keepSessionHash))),
+            .where(
+              and(
+                eq(sessions.accountId, accountId),
+                outsideFamilyOf(db, sessions.familyId, keepSessionHash),
+              ),
+            ),
         catch: (cause) => new DatabaseError({ cause }),
       });
       metricSessionSecurityInvalidation(trigger);
     }).pipe(Effect.withSpan("auth.session.invalidate_other"));
 
+  /**
+   * The account's sessions for the Settings list. `isCurrent` marks the
+   * caller's device: every session in the family of the session
+   * `currentSessionHash` names, live or rotated out (see {@link familyOf}), as
+   * `revokeAccountSession` decides `revokedSelf`. So a cookie the device has
+   * refreshed past still marks the device's live session. The marker grants
+   * nothing: a revoke by handle and the account-wide deletes do not read it.
+   */
   const listAccountSessions = (
     accountId: string,
     currentSessionHash: string | null,
   ): Effect.Effect<{ sessions: SessionSummary[] }, DatabaseError, Db> =>
     Effect.gen(function* () {
       const { db } = yield* Db;
-      // P-W2: hard cap defends the Settings page against pathological
-      // accounts. MAX_SESSIONS_PER_ACCOUNT is the real ceiling (enforced
-      // at issueTokens) but the LIMIT here is belt-and-braces plus a
-      // signal to the planner.
+      // The LIMIT bounds the Settings page whatever the account holds.
+      // MAX_SESSIONS_PER_ACCOUNT is the real ceiling (enforced at issuance),
+      // and concurrent logins can leave an account a row or two over it.
       const rows = yield* Effect.tryPromise({
         try: () =>
           db
-            .select()
+            .select({
+              id: sessions.id,
+              uaLabel: sessions.uaLabel,
+              createdAt: sessions.createdAt,
+              lastUsedAt: sessions.lastUsedAt,
+              expiresAt: sessions.expiresAt,
+              isCurrent:
+                currentSessionHash === null
+                  ? sql<boolean>`0`.mapWith(Boolean)
+                  : inArray(
+                      sessions.familyId,
+                      familyOf(db, currentSessionHash, Date.now()),
+                    ).mapWith(Boolean),
+            })
             .from(sessions)
             .where(eq(sessions.accountId, accountId))
             .orderBy(desc(sessions.lastUsedAt))
@@ -230,26 +395,33 @@ export function createSessionsModule() {
           createdAt: row.createdAt,
           lastUsedAt: row.lastUsedAt,
           expiresAt: row.expiresAt,
-          isCurrent: currentSessionHash !== null && row.id === currentSessionHash,
+          isCurrent: row.isCurrent,
         })),
       };
     }).pipe(withSessionOp("list"));
 
   /**
-   * Revokes a single session by its public handle (first 16 hex chars of
-   * the SHA-256). Scopes the DELETE to the caller's accountId so a stolen
-   * handle from another account's log line can't revoke anyone else's
-   * sessions. Returns whether the caller's own session was the one revoked
-   * so the HTTP layer can clear the cookie.
+   * Revokes a device by the public handle of one of its sessions (first 16
+   * hex chars of the SHA-256): every session of that session's family, the
+   * device's refresh chain (or the reservations of one cross-device request).
+   * Scoped to the caller's accountId, so a stolen handle from another
+   * account's log line can't revoke anyone else's sessions.
    *
-   * S-M4: Idempotent — a handle that doesn't match any row returns
-   * `{ revokedSelf: false }` rather than surfacing "Session not found".
-   * This mirrors the `/logout` posture ("don't leak whether the session
-   * existed") and closes the handle-existence oracle.
+   * The delete is one statement, so no refresh can land between finding the
+   * family and deleting it; and a rotation in flight leaves nothing behind it
+   * (see `refreshTokens`). The handle is looked up among the rotation records
+   * as well as the live sessions, so a handle the device has since rotated
+   * away from — a Settings list a few minutes old — still finds its family.
    *
-   * P-W1: The match uses a `LIKE 'handle%'` predicate so the DB returns
-   * at most one row via the PK index rather than fetching every session
-   * for the account into JS and finding in-memory.
+   * Returns whether the caller's own device was among those revoked, so the
+   * HTTP layer can clear the cookie: the family of the session the cookie
+   * names, live or rotated out, read before the delete (in the same batch on
+   * D1). A family never changes, so a refresh of the caller's session between
+   * the read and the delete, or before the read, leaves the answer true.
+   *
+   * Idempotent: a handle that matches nothing returns `{ revokedSelf: false }`
+   * rather than "Session not found", as `/logout` does, so revoke is not an
+   * oracle for which handles exist.
    */
   const revokeAccountSession = (
     accountId: string,
@@ -257,40 +429,63 @@ export function createSessionsModule() {
     currentSessionHash: string | null,
   ): Effect.Effect<{ revokedSelf: boolean }, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
-      // Short-circuit on malformed handles so the LIKE pattern stays
-      // safe (no escape concerns since we've already enforced [0-9a-f]{16}
-      // at the route but defence-in-depth at the service boundary).
+      // The route enforces the shape; checked again here because the bounds
+      // below are only a prefix range for a lowercase hex handle.
       if (!/^[0-9a-f]{16}$/.test(sessionHandle)) {
         return { revokedSelf: false };
       }
       const { db } = yield* Db;
-      const rows = yield* Effect.tryPromise({
-        try: () =>
+      // Every id and record key with the handle as its prefix: 64 lowercase
+      // hex characters, and "g" sorts after every hex digit. Each arm reads
+      // its table's primary key by range, not the account's rows; the outer
+      // `account_id` keeps the delete to the caller's account, since a family
+      // belongs to one account.
+      const upper = `${sessionHandle}g`;
+      const families = db
+        .select({ familyId: sessions.familyId })
+        .from(sessions)
+        .where(and(gte(sessions.id, sessionHandle), lt(sessions.id, upper)))
+        .unionAll(
           db
-            .select({ id: sessions.id })
-            .from(sessions)
-            .where(and(eq(sessions.accountId, accountId), like(sessions.id, `${sessionHandle}%`)))
-            .limit(1),
+            .select({ familyId: rotatedSessions.familyId })
+            .from(rotatedSessions)
+            .where(
+              and(
+                gte(rotatedSessions.tokenHash, sessionHandle),
+                lt(rotatedSessions.tokenHash, upper),
+              ),
+            ),
+        );
+      const removal = db
+        .delete(sessions)
+        .where(and(eq(sessions.accountId, accountId), inArray(sessions.familyId, families)))
+        .returning({ familyId: sessions.familyId });
+      const { callerFamily, removed } = yield* Effect.tryPromise({
+        try: async () => {
+          if (currentSessionHash === null) {
+            return { callerFamily: undefined, removed: await removal };
+          }
+          // Before the delete: a live session of the revoked family is gone
+          // after it, and has no rotation record to be found by.
+          const callerRead = familyOf(db, currentSessionHash, Date.now()).limit(1);
+          const [callerRows, removedRows] = canBatch(db)
+            ? await db.batch([callerRead, removal])
+            : ([await callerRead, await removal] as const);
+          return { callerFamily: callerRows[0]?.familyId, removed: removedRows };
+        },
         catch: (cause) => new DatabaseError({ cause }),
       });
-      const match = rows[0];
-      if (!match) {
-        // S-M4: idempotent — indistinguishable from a no-op revoke of a
-        // handle that existed for a different account (scoping predicate
-        // already filtered those out).
-        return { revokedSelf: false };
-      }
-      yield* Effect.tryPromise({
-        try: () => db.delete(sessions).where(eq(sessions.id, match.id)),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
-      metricSessionSecurityInvalidation("session_revoke");
-      return { revokedSelf: currentSessionHash !== null && match.id === currentSessionHash };
+      if (removed.length > 0) metricSessionSecurityInvalidation("session_revoke");
+      return {
+        revokedSelf:
+          callerFamily !== undefined && removed.some((row) => row.familyId === callerFamily),
+      };
     }).pipe(withSessionOp("revoke"));
 
   /**
-   * Revokes all sessions for the account except the caller's, for the
-   * "Sign out everywhere else" button in Settings, then deletes the account's
+   * Revokes all sessions for the account except the caller's device (its
+   * family; see {@link outsideFamilyOf}), for the "Sign out everywhere else"
+   * button in Settings, then deletes the account's
    * OIDC authorization codes in flight. A code is bound to the account, not to
    * the session that minted it, so one held from a revoked session would
    * otherwise still open a session at its relying party for the minute it
@@ -307,7 +502,12 @@ export function createSessionsModule() {
         try: () =>
           db
             .delete(sessions)
-            .where(and(eq(sessions.accountId, accountId), ne(sessions.id, currentSessionHash))),
+            .where(
+              and(
+                eq(sessions.accountId, accountId),
+                outsideFamilyOf(db, sessions.familyId, currentSessionHash),
+              ),
+            ),
         catch: (cause) => new DatabaseError({ cause }),
       });
       yield* Effect.tryPromise({

@@ -11,7 +11,7 @@ packages:
   - "@osn/db"
   - "@osn/api"
   - "@osn/client"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-31
 ---
 # Identity Model
 
@@ -117,6 +117,7 @@ Organisations are independent entities that are **composed of profiles, not acco
 - Multiple profiles from the same account **can be in the same org** — one might be admin, another a member. This is by design.
 - Org ownership is per-profile. Deleting a profile that owns an org requires ownership transfer first (enforced in P3).
 - The `listMembers` service return **never includes `accountId`** — defence in depth against correlation leakage.
+- Admins add and remove plain members; only the owner grants admin, removes an admin or changes a role, and the owner itself cannot be removed. Each membership write (`addMember`, `removeMember`, `updateMemberRole`, `updateOrganisation` in `osn/api/src/services/organisation.ts`) checks in one statement and writes in another, so the write carries what the checks read: the caller's admin row (a non-owner's add, removal or update), the member's row and, for a non-owner's removal, its plain-member role. A caller demoted, or a member promoted or removed, in between changes nothing, and the write is refused with the message the checks would give now. The owner needs no such guard: `ownerId` never changes.
 
 ## Token Model
 
@@ -152,7 +153,7 @@ Session tokens (formerly "refresh tokens") are **opaque** — not JWTs. The serv
 
 **Sliding-window expiry:** when less than half the TTL remains (< 15 days), the session's `expiresAt` is extended by the full TTL from now. This matches the Copenhagen Book's recommended pattern.
 
-**Revocation:** `invalidateSession(token)` deletes a single session row; `invalidateAccountSessions(accountId)` deletes all sessions for an account (used for security events). `POST /logout` exposes single-session invalidation.
+**Revocation:** `invalidateSession(token)` ends the token's device: every session of its family, so a refresh of the same token in another tab cannot leave one behind ([[sessions#Endpoints]]); `invalidateAccountSessions(accountId)` deletes all sessions for an account (used for security events). `POST /logout` exposes the first.
 
 **Sessions table:**
 
@@ -295,7 +296,9 @@ Settings-surface operations over an account's existing credentials. All routes b
 
 ### Discoverable-credential login
 
-`POST /login/passkey/begin` with no body (or `{}`) returns `{ options, challengeId }`. Browser calls `navigator.credentials.get({ mediation: "conditional", … })`; the signed assertion is posted back via `/login/passkey/complete` with `{ challengeId, assertion }`. The server resolves the caller from the credential's `accountId` + `userHandle`. Exactly one of `identifier` / `challengeId` must be present — the route returns 400 otherwise.
+`POST /login/passkey/begin` with no body (or `{}`) returns `{ options, challengeId }`; `challengeId` is `options.challenge`. Browser calls `navigator.credentials.get({ mediation: "conditional", … })`; the signed assertion is posted back via `/login/passkey/complete` with `{ challengeId, assertion }`. The server resolves the caller from the credential's `accountId` + `userHandle`. Exactly one of `identifier` / `challengeId` must be present — the route returns 400 otherwise.
+
+The challenge proves itself — 16 random bytes, an expiry and an HMAC over both — so `begin` stores nothing. `complete` refuses a challenge that is not the one the browser signed, that the server did not mint or that has expired, and claims its nonce once the signature verifies, so it signs in once ([[coordination-store#Refusals cost the same, and single use is atomic]]).
 
 ### Last-passkey guard
 

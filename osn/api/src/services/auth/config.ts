@@ -1,9 +1,13 @@
 import type { JWK } from "jose";
 
 import type { RecoveryLockoutStore } from "../../lib/recovery-lockout-store";
-import type { RotatedSessionStore } from "../../lib/rotated-session-store";
 import type { TotpKeyRing } from "../../lib/totp-secret-crypto";
-import type { AccountCapLimiter, CeremonyStores, StepUpJtiStore } from "./stores";
+import type {
+  AccountCapLimiter,
+  CeremonyStores,
+  ChallengeClaimStore,
+  StepUpJtiStore,
+} from "./stores";
 
 export interface AuthConfig {
   /** RP ID for WebAuthn (e.g. "localhost" or "example.com") */
@@ -125,28 +129,27 @@ export interface AuthConfig {
   // there produces a `webauthn` AMR this list also accepts — which is what the
   // credential-provenance rule in `step-up.ts` refuses, not this list.
   /**
-   * Cluster-wide single-use guard for step-up token jtis (S-H1). Inject a
-   * Redis-backed store in multi-pod deployments; otherwise the default
-   * in-memory map means a captured token replays successfully once per pod.
+   * Single-use guard for step-up token jtis. A deployed Worker passes the
+   * coordination store's, shared by every isolate; the in-memory default
+   * would let a captured token replay once per isolate.
    */
   stepUpJtiStore?: StepUpJtiStore;
   /**
-   * Cluster-safe record of rotated-out session hashes for C2 reuse detection
-   * (S-H1 session). Single-process deployments get the in-memory default;
-   * multi-pod deployments inject a Redis-backed store so a rotation recorded
-   * on one pod is visible to every other pod on subsequent /token calls.
+   * Single-use claims on discoverable passkey challenges. A deployed Worker
+   * passes the coordination store's, shared by every isolate; the in-memory
+   * default would let one challenge sign in once per isolate.
    */
-  rotatedSessionStore?: RotatedSessionStore;
+  passkeyChallengeClaims?: ChallengeClaimStore;
   /**
-   * O2: per-account recovery-code lockout counter. Defaults to in-memory;
-   * inject the Redis-backed store in multi-pod deployments so the threshold
-   * is enforced across pods. Keyed on the resolved accountId — see
+   * O2: per-account recovery-code lockout counter. Defaults to in-memory; a
+   * deployed Worker passes the coordination store's, so the threshold holds
+   * across isolates. Keyed on the resolved accountId — see
    * `recovery-lockout-store.ts`.
    */
   recoveryLockoutStore?: RecoveryLockoutStore;
   /**
-   * Per-account TOTP failed-code lockout. Same shape as the recovery counter
-   * and the OPPOSITE outage posture — it fails closed. See
+   * Per-account TOTP failed-code lockout. Same shape and outage posture as the
+   * recovery counter — a counter that cannot be reached refuses. See
    * `lib/recovery-lockout-store.ts`.
    *
    * Its keys are scoped by ceremony: `checkTotpCode` takes a `scope` and keys
@@ -159,7 +162,7 @@ export interface AuthConfig {
    * rather than a share of {@link recoveryLockoutStore}: an attacker grinding
    * 64-bit recovery codes must not deny the owner the email path, nor the
    * reverse — the whole point of a second recovery factor is that it is
-   * independent of the first. Fails CLOSED, like {@link totpLockoutStore}.
+   * independent of the first.
    */
   recoveryOtpLockoutStore?: RecoveryLockoutStore;
   /**
@@ -180,21 +183,18 @@ export interface AuthConfig {
    */
   totpEncryptionKeys?: TotpKeyRing;
   /**
-   * O3: injectable Redis-backed ceremony / pending-state stores. When omitted
-   * each falls back to an in-memory `Map` (single-process only). Multi-pod
-   * deployments MUST inject the Redis-backed variants so a ceremony `begin`
-   * served by one pod can be `complete`d by another, and so per-account caps
-   * are enforced cluster-wide rather than per-pod. The factory builds these
-   * from a single `RedisClient` in `index.ts`.
+   * Ceremony / pending-state stores. When omitted each falls back to an
+   * in-memory `Map` (single-process only). A deployed Worker passes the
+   * coordination store's, so a ceremony `begin` served by one isolate can be
+   * `complete`d by another.
    */
   ceremonyStores?: CeremonyStores;
   /**
-   * O3: per-account caps, routed through the redis-rate-limiter family rather
-   * than bespoke stores. `check(accountId)` returns `true` while under the cap,
-   * `false` once exceeded (fixed window). Defaults to in-memory fixed-window
-   * limiters with the historical bounds (profile-switch 20/hr, email-change
-   * begin 3/24h). Injected from `index.ts` as Redis-backed limiters in
-   * multi-pod deployments so the window is shared across pods.
+   * Per-account caps, built as rate limiters. `check(accountId)` returns
+   * `true` while under the cap, `false` once exceeded (fixed window). Defaults
+   * to in-memory limiters with the `OSN_RATE_LIMITS` bounds (profile-switch
+   * 20/hr, email-change begin 3/24h); a deployed Worker passes the
+   * coordination store's, so the window is shared across isolates.
    */
   profileSwitchCap?: AccountCapLimiter;
   emailChangeBeginCap?: AccountCapLimiter;

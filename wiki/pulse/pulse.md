@@ -15,7 +15,7 @@ related:
   - "[[venues]]"
   - "[[event-access]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-08-21
+last-reviewed: 2026-10-27
 ---
 
 # Pulse
@@ -98,7 +98,7 @@ Every direct-fetch route (`GET /events/:id`, `/ics`, `/comms`, `/rsvps`, `/rsvps
 - **`priceMin` / `priceMax` / `currency`** — price in minor units under the given currency. Events in other currencies drop out. `priceMax=0` keeps null-priced rows (`null` ≡ free); `priceMin > 0` excludes them.
 - **`friendsOnly=true`** — union of events hosted by a connection OR RSVPed by a connection. RSVPs are restricted to **positive engagement only** (`going`, `interested`); `invited` (organiser-only pre-RSVP marker) and `not_going` (explicit decline) never surface. The RSVP branch LEFT-JOINs `pulse_users` and respects `attendance_visibility = 'no_one'` (the viewer's own RSVP is excluded — it isn't a *friend* signal). When the viewer has zero connections, the predicate uses a sentinel ID so the SQL still runs and timing matches the populated case.
 
-Per-IP rate limited (60 req/min, in-memory; Redis-swappable at composition time). Visibility predicate consumed via `buildVisibilityFilter` in `services/eventVisibility.ts` — single source of truth shared with `listEvents`.
+Per-IP rate limited (60 req/min, `PULSE_IP_LIMITS.discovery`), in memory: each process or Worker isolate counts on its own. Visibility predicate consumed via `buildVisibilityFilter` in `services/eventVisibility.ts` — single source of truth shared with `listEvents`.
 
 Pagination is cursor-based on `(startTime, id)` — stable under concurrent inserts, same shape on web + mobile. Finished / cancelled events are excluded.
 

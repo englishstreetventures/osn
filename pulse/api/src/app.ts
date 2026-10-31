@@ -9,7 +9,7 @@ import { Elysia } from "elysia";
 
 import type { OsnTokenVerification } from "./lib/jwks";
 import { originGuard } from "./lib/origin-guard";
-import { makeMemoryRateLimiters, type PulseRateLimiters } from "./redis";
+import { makeMemoryRateLimiters, type PulseRateLimiters } from "./lib/rate-limit";
 import { createAccountRoutes } from "./routes/account";
 import { createAuthRoutes } from "./routes/auth";
 import { createCloseFriendsRoutes } from "./routes/closeFriends";
@@ -33,9 +33,9 @@ export interface AppOptions {
   verification?: OsnTokenVerification;
   /**
    * Rate limiter backends (W4). The composition root (`local.ts` long-lived
-   * Bun host, or the per-isolate `index.ts` Worker) builds these from Redis
-   * when `REDIS_URL` is configured and falls back to in-memory counters
-   * otherwise. Omitted → in-memory limiters built here (tests / local).
+   * Bun host, or the per-isolate `index.ts` Worker) builds them in memory, so
+   * each process or isolate counts on its own. Omitted → a fresh set built
+   * here (tests).
    */
   rateLimiters?: PulseRateLimiters;
   /**

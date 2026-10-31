@@ -34,8 +34,8 @@ export const createCloseFriendsRoutes = (
   _testKey?: CryptoKey,
   /**
    * Per-USER limiter (keyed on `claims.profileId`) shared by the add +
-   * remove list mutations (W4). Default in-memory; production wires Redis at
-   * the composition root.
+   * remove list mutations (W4). The composition root passes the one from
+   * `makeMemoryRateLimiters`; the default is a fresh in-memory one.
    */
   mutateRateLimiter: RateLimiterBackend = createDefaultWriteRateLimiter("close_friend_mutate"),
 ) => {

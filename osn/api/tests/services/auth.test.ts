@@ -2,15 +2,15 @@ import { it, expect, describe } from "@effect/vitest";
 import { passkeys } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { EmailError, EmailService, makeLogEmailLive } from "@shared/email";
-import { Deferred, Effect, Fiber, Layer, Logger, References } from "effect";
+import { Deferred, Effect, Layer, Logger, References } from "effect";
 import { TestClock } from "effect/testing";
-import { beforeAll } from "vitest";
+import { beforeAll, vi } from "vitest";
 
-import { createInMemoryRotatedSessionStore } from "../../src/lib/rotated-session-store";
 import { createAuthService } from "../../src/services/auth";
 import { hashSessionToken } from "../../src/services/auth/helpers";
 import { createDefaultCeremonyStores } from "../../src/services/auth/stores";
 import { makeTestAuthConfig } from "../helpers/auth-config";
+import { settle } from "../helpers/background";
 import { createTestLayer, createTestLayerWithSqlite } from "../helpers/db";
 
 /**
@@ -21,7 +21,7 @@ import { createTestLayer, createTestLayerWithSqlite } from "../helpers/db";
  *   it.effect("...", () => {
  *     const { svc, captured, layer } = makeAuth();
  *     return Effect.gen(function* () {
- *       yield* svc.beginRegistration(...);
+ *       yield* settle(svc.beginRegistration(...));
  *       expect(captured.code).toMatch(/.../);
  *     }).pipe(Effect.provide(layer));
  *   });
@@ -190,6 +190,17 @@ describe("checkHandle", () => {
 // Email-verified registration: beginRegistration + completeRegistration
 // ---------------------------------------------------------------------------
 
+/** What `read` answers with the clock `aheadMs` past now. */
+async function readAhead<A>(aheadMs: number, read: () => Promise<A>): Promise<A> {
+  const now = Date.now();
+  const clock = vi.spyOn(Date, "now").mockReturnValue(now + aheadMs);
+  try {
+    return await read();
+  } finally {
+    clock.mockRestore();
+  }
+}
+
 describe("beginRegistration + completeRegistration", () => {
   // Each test gets a fresh makeAuth() via the module-scope helper so the
   // OTP captured in begin can be replayed in complete.
@@ -197,7 +208,9 @@ describe("beginRegistration + completeRegistration", () => {
   it.effect("happy path: begin → complete creates user and returns session", () => {
     const { svc, captured, layer } = makeAuth();
     return Effect.gen(function* () {
-      yield* svc.beginRegistration("verify@example.com", "verifyme", "1990-01-01", "Verify Me");
+      yield* settle(
+        svc.beginRegistration("verify@example.com", "verifyme", "1990-01-01", "Verify Me"),
+      );
       expect(captured.code).toMatch(/^\d{6}$/);
 
       const result = yield* svc.completeRegistration("verify@example.com", captured.code!);
@@ -219,7 +232,7 @@ describe("beginRegistration + completeRegistration", () => {
   it.effect("email is normalised to lowercase across the pipeline", () => {
     const { svc, captured, layer } = makeAuth();
     return Effect.gen(function* () {
-      yield* svc.beginRegistration("MixedCase@Example.com", "mixedcase", "1990-01-01");
+      yield* settle(svc.beginRegistration("MixedCase@Example.com", "mixedcase", "1990-01-01"));
       // The OTP is captured from the email body which is sent to the
       // lowercased address; complete must also accept the lowercased form.
       const result = yield* svc.completeRegistration("MixedCase@Example.com", captured.code!);
@@ -234,7 +247,7 @@ describe("beginRegistration + completeRegistration", () => {
   it.effect("does not create the user before the OTP is verified", () => {
     const { svc, layer } = makeAuth();
     return Effect.gen(function* () {
-      yield* svc.beginRegistration("pending@example.com", "pendinguser", "1990-01-01");
+      yield* settle(svc.beginRegistration("pending@example.com", "pendinguser", "1990-01-01"));
 
       // No DB row yet.
       const found = yield* svc.findProfileByEmail("pending@example.com");
@@ -300,7 +313,7 @@ describe("beginRegistration + completeRegistration", () => {
       const thirteenToday = new Date();
       thirteenToday.setUTCFullYear(thirteenToday.getUTCFullYear() - 13);
       const dob = thirteenToday.toISOString().slice(0, 10);
-      const result = yield* svc.beginRegistration("teen@example.com", "teenuser", dob);
+      const result = yield* settle(svc.beginRegistration("teen@example.com", "teenuser", dob));
       expect(result.sent).toBe(true);
       expect(captured.code).toMatch(/^\d{6}$/);
     }).pipe(Effect.provide(layer));
@@ -339,7 +352,9 @@ describe("beginRegistration + completeRegistration", () => {
       yield* svc.registerProfile("taken@example.com", "takenuser");
       // No throw — and crucially, no email sent (otherwise enumeration is
       // possible via timing or via observing outbound mail).
-      const result = yield* svc.beginRegistration("taken@example.com", "newhandle", "1990-01-01");
+      const result = yield* settle(
+        svc.beginRegistration("taken@example.com", "newhandle", "1990-01-01"),
+      );
       expect(result.sent).toBe(true);
       expect(captured.code).toBeUndefined();
     }).pipe(Effect.provide(layer));
@@ -349,7 +364,9 @@ describe("beginRegistration + completeRegistration", () => {
     const { svc, captured, layer } = makeAuth();
     return Effect.gen(function* () {
       yield* svc.registerProfile("first@example.com", "duphandle");
-      const result = yield* svc.beginRegistration("second@example.com", "duphandle", "1990-01-01");
+      const result = yield* settle(
+        svc.beginRegistration("second@example.com", "duphandle", "1990-01-01"),
+      );
       expect(result.sent).toBe(true);
       expect(captured.code).toBeUndefined();
     }).pipe(Effect.provide(layer));
@@ -358,12 +375,12 @@ describe("beginRegistration + completeRegistration", () => {
   it.effect("begin refuses to overwrite a non-expired pending entry", () => {
     const { svc, captured, layer } = makeAuth();
     return Effect.gen(function* () {
-      yield* svc.beginRegistration("dup@example.com", "dupuser", "1990-01-01");
+      yield* settle(svc.beginRegistration("dup@example.com", "dupuser", "1990-01-01"));
       const firstCode = captured.code;
       captured.reset();
       // Second call within the TTL should not send another email and should
       // not change the stored OTP.
-      yield* svc.beginRegistration("dup@example.com", "differenthandle", "1990-01-01");
+      yield* settle(svc.beginRegistration("dup@example.com", "differenthandle", "1990-01-01"));
       expect(captured.code).toBeUndefined();
       // The original code must still verify.
       const result = yield* svc.completeRegistration("dup@example.com", firstCode!);
@@ -374,7 +391,7 @@ describe("beginRegistration + completeRegistration", () => {
   it.effect("complete fails with AuthError when the OTP is wrong", () => {
     const { svc, layer } = makeAuth();
     return Effect.gen(function* () {
-      yield* svc.beginRegistration("wrong@example.com", "wronguser", "1990-01-01");
+      yield* settle(svc.beginRegistration("wrong@example.com", "wronguser", "1990-01-01"));
       const error = yield* Effect.flip(svc.completeRegistration("wrong@example.com", "000000"));
       expect(error._tag).toBe("AuthError");
       expect(error.message).toContain("Invalid or expired code");
@@ -395,7 +412,7 @@ describe("beginRegistration + completeRegistration", () => {
   it.effect("complete is single-use: a replayed code fails", () => {
     const { svc, captured, layer } = makeAuth();
     return Effect.gen(function* () {
-      yield* svc.beginRegistration("replay@example.com", "replayuser", "1990-01-01");
+      yield* settle(svc.beginRegistration("replay@example.com", "replayuser", "1990-01-01"));
       yield* svc.completeRegistration("replay@example.com", captured.code!);
 
       // Second call with the same code must fail — pending entry was deleted.
@@ -409,7 +426,7 @@ describe("beginRegistration + completeRegistration", () => {
   it.effect("brute-force is capped — pending entry is wiped after 5 wrong guesses", () => {
     const { svc, captured, layer } = makeAuth();
     return Effect.gen(function* () {
-      yield* svc.beginRegistration("brute@example.com", "bruteuser", "1990-01-01");
+      yield* settle(svc.beginRegistration("brute@example.com", "bruteuser", "1990-01-01"));
       // 5 wrong guesses
       for (let i = 0; i < 5; i++) {
         const err = yield* Effect.flip(svc.completeRegistration("brute@example.com", "000000"));
@@ -425,7 +442,7 @@ describe("beginRegistration + completeRegistration", () => {
   it.effect("a TOCTOU loss against the legacy /register doesn't burn the OTP", () => {
     const { svc, captured, layer } = makeAuth();
     return Effect.gen(function* () {
-      yield* svc.beginRegistration("toctou@example.com", "toctouuser", "1990-01-01");
+      yield* settle(svc.beginRegistration("toctou@example.com", "toctouuser", "1990-01-01"));
       // Simulate someone winning the race via the legacy registerProfile path.
       yield* svc.registerProfile("toctou@example.com", "toctouuser");
       // Our complete fails (handle/email taken) but the pending entry must
@@ -462,7 +479,7 @@ describe("beginRegistration + completeRegistration", () => {
       return undefined;
     };
     return Effect.gen(function* () {
-      yield* svc.beginRegistration("regfault@example.com", "regfaultuser", "1990-01-01");
+      yield* settle(svc.beginRegistration("regfault@example.com", "regfaultuser", "1990-01-01"));
       const code = latestCode();
       sqlite.run(`
         CREATE TRIGGER reject_users_insert_regfault BEFORE INSERT ON users
@@ -485,7 +502,7 @@ describe("beginRegistration + completeRegistration", () => {
     () => {
       const { svc, captured, layer } = makeAuth();
       return Effect.gen(function* () {
-        yield* svc.beginRegistration("realdup@example.com", "realdupuser", "1990-01-01");
+        yield* settle(svc.beginRegistration("realdup@example.com", "realdupuser", "1990-01-01"));
         const code = captured.code;
         // Someone else wins the race for the SAME email via the legacy path
         // before our OTP is redeemed.
@@ -502,9 +519,32 @@ describe("beginRegistration + completeRegistration", () => {
     },
   );
 
-  // A send that never answers is cut off at ten seconds. Resend may still
-  // deliver it, so the begin keeps its entry, for a minute at most: a retry
-  // cannot mail the address again at once, and can a minute later.
+  // The address is free, so this begin is the one that mails a code; it
+  // answers before the send does, as the taken and pending branches answer
+  // without one. A begin that waited would answer later for a free address
+  // than for a taken one.
+  it.live("a free address is answered without waiting on the send", () => {
+    const svc = createAuthService({ ...config, ceremonyStores: createDefaultCeremonyStores() });
+    return Effect.gen(function* () {
+      const sending = yield* Deferred.make<void>();
+      const hangingEmailLayer = Layer.succeed(EmailService, {
+        send: () => Deferred.succeed(sending, undefined).pipe(Effect.andThen(Effect.never)),
+      });
+      const answer = yield* svc
+        .beginRegistration("quick@example.com", "quickmail", "1990-01-01")
+        .pipe(
+          Effect.provide(Layer.merge(createTestLayer(), hangingEmailLayer)),
+          Effect.timeout("2 seconds"),
+        );
+      expect(answer).toEqual({ sent: true });
+      yield* Deferred.await(sending).pipe(Effect.timeout("2 seconds"));
+    });
+  });
+
+  // A send that never answers is cut off at ten seconds, after the begin has
+  // answered. Resend may still deliver it, so the entry stays, for a minute at
+  // most: a retry cannot mail the address again at once, and can a minute
+  // later.
   it.effect(
     "a send that never answers is cut off at ten seconds and holds its entry for a minute",
     () => {
@@ -515,25 +555,28 @@ describe("beginRegistration + completeRegistration", () => {
         const hangingEmailLayer = Layer.succeed(EmailService, {
           send: () => Deferred.succeed(sending, undefined).pipe(Effect.andThen(Effect.never)),
         });
-        const begin = yield* Effect.forkChild(
-          svc
+        expect(
+          yield* svc
             .beginRegistration("slow@example.com", "slowmail", "1990-01-01")
             .pipe(Effect.provide(Layer.merge(createTestLayer(), hangingEmailLayer))),
-        );
+        ).toEqual({ sent: true });
         yield* Deferred.await(sending);
         // Let the timeout's timer reach the test clock before moving it.
-        yield* Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 20)));
+        const tick = Effect.promise(() => new Promise<void>((resolve) => setTimeout(resolve, 20)));
+        yield* tick;
+        const pending = () =>
+          Effect.promise(() => stores.pendingRegistrations.get("slow@example.com"));
 
         yield* TestClock.adjust("9 seconds");
-        expect(begin.pollUnsafe()).toBeUndefined();
+        yield* tick;
+        expect((yield* pending())!.expiresAt - Date.now()).toBeGreaterThan(60_000);
 
         yield* TestClock.adjust("1 second");
-        expect(yield* Fiber.join(begin)).toEqual({ sent: true });
-        const held = yield* Effect.promise(() =>
-          stores.pendingRegistrations.get("slow@example.com"),
-        );
-        expect(held?.handle).toBe("slowmail");
-        expect(held!.expiresAt - Date.now()).toBeLessThanOrEqual(60_000);
+        yield* tick;
+        const held = (key: string) => () => stores.pendingRegistrations.get(key);
+        const late = yield* Effect.promise(() => readAhead(59_000, held("slow@example.com")));
+        expect(late?.handle).toBe("slowmail");
+        expect(yield* Effect.promise(() => readAhead(60_001, held("slow@example.com")))).toBeNull();
       });
     },
   );
@@ -552,17 +595,17 @@ describe("beginRegistration + completeRegistration", () => {
           ),
       });
       return Effect.gen(function* () {
-        expect(yield* svc.beginRegistration("gone@example.com", "gonemail", "1990-01-01")).toEqual({
+        expect(
+          yield* settle(svc.beginRegistration("gone@example.com", "gonemail", "1990-01-01")),
+        ).toEqual({
           sent: true,
         });
-        const held = yield* Effect.promise(() =>
-          stores.pendingRegistrations.get("gone@example.com"),
-        );
-        expect(held!.expiresAt - Date.now()).toBeGreaterThan(0);
-        expect(held!.expiresAt - Date.now()).toBeLessThanOrEqual(60_000);
-
-        yield* svc.beginRegistration("gone@example.com", "gonemail", "1990-01-01");
+        yield* settle(svc.beginRegistration("gone@example.com", "gonemail", "1990-01-01"));
         expect(sends).toBe(1);
+
+        const held = () => stores.pendingRegistrations.get("gone@example.com");
+        expect((yield* Effect.promise(() => readAhead(59_000, held)))?.handle).toBe("gonemail");
+        expect(yield* Effect.promise(() => readAhead(60_001, held))).toBeNull();
       }).pipe(Effect.provide(Layer.merge(createTestLayer(), unreachableEmailLayer)));
     },
   );
@@ -585,7 +628,6 @@ describe("beginRegistration + completeRegistration", () => {
               handle: "racewinner",
               displayName: null,
               codeHash: hashSessionToken(winner),
-              attempts: 0,
               expiresAt: Date.now() + 600_000,
             },
             600_000,
@@ -595,38 +637,34 @@ describe("beginRegistration + completeRegistration", () => {
         ),
     });
     return Effect.gen(function* () {
-      const begun = yield* svc.beginRegistration("race@example.com", "raceloser", "1990-01-01");
+      const begun = yield* settle(
+        svc.beginRegistration("race@example.com", "raceloser", "1990-01-01"),
+      );
       expect(begun).toEqual({ sent: true });
       const created = yield* svc.completeRegistration("race@example.com", winner);
       expect(created.handle).toBe("racewinner");
     }).pipe(Effect.provide(Layer.merge(createTestLayer(), refusingEmailLayer)));
   });
 
-  // The Redis-backed store answers a read it could not make with `null`. A
-  // refusal whose read of the entry fails that way still deletes it, or every
-  // retry inside the code's life would meet the pending check and send nothing.
-  it.effect("a refused send deletes its entry when the store cannot read it back", () => {
-    const real = createDefaultCeremonyStores();
-    let reads = 0;
-    const stores = {
-      ...real,
-      pendingRegistrations: {
-        ...real.pendingRegistrations,
-        get: (key: string) =>
-          ++reads === 1 ? real.pendingRegistrations.get(key) : Promise.resolve(null),
-        set: real.pendingRegistrations.set.bind(real.pendingRegistrations),
-        delete: real.pendingRegistrations.delete.bind(real.pendingRegistrations),
-      },
-    };
+  // A refused send removes its own entry, or every retry inside the code's
+  // life would meet the pending check and send nothing.
+  it.effect("a refused send deletes its own entry, so a retry sends a new code", () => {
+    const stores = createDefaultCeremonyStores();
     const svc = createAuthService({ ...config, ceremonyStores: stores });
+    let sends = 0;
     const refusingEmailLayer = Layer.succeed(EmailService, {
-      send: () => Effect.fail(new EmailError({ reason: "dispatch_failed", cause: 403 })),
+      send: () =>
+        Effect.sync(() => (sends += 1)).pipe(
+          Effect.andThen(Effect.fail(new EmailError({ reason: "dispatch_failed", cause: 403 }))),
+        ),
     });
     return Effect.gen(function* () {
-      yield* svc.beginRegistration("unread@example.com", "unread", "1990-01-01");
+      yield* settle(svc.beginRegistration("refused@example.com", "refused", "1990-01-01"));
       expect(
-        yield* Effect.promise(() => real.pendingRegistrations.get("unread@example.com")),
+        yield* Effect.promise(() => stores.pendingRegistrations.get("refused@example.com")),
       ).toBeNull();
+      yield* settle(svc.beginRegistration("refused@example.com", "refused", "1990-01-01"));
+      expect(sends).toBe(2);
     }).pipe(Effect.provide(Layer.merge(createTestLayer(), refusingEmailLayer)));
   });
 });
@@ -835,15 +873,14 @@ describe("passkey login", () => {
   // Discoverable flow — beginPasskeyLogin(null) must return options plus a
   // server-minted challengeId. The identifier-less path is how
   // conditional-UI autofill drives sign-in.
-  it.effect("beginPasskeyLogin(null) returns options + a UUID challengeId", () =>
+  it.effect("beginPasskeyLogin(null) returns options and the challenge as its id", () =>
     Effect.gen(function* () {
       const result = yield* auth.beginPasskeyLogin(null);
       expect(result.options.challenge).toBeTruthy();
-      expect(result.challengeId).toBeTruthy();
-      // Server-minted random UUID — lowercase hex with dashes, 36 chars.
-      expect(result.challengeId).toMatch(
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
-      );
+      // The challenge proves itself (nonce, expiry, MAC: 56 bytes, base64url),
+      // so the id the client round-trips is the challenge.
+      expect(result.challengeId).toBe(result.options.challenge);
+      expect(result.challengeId).toMatch(/^[A-Za-z0-9_-]{75}$/);
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -1057,12 +1094,14 @@ describe("LogEmailLive local-mode behaviour", () => {
     const { svc, captured: emailCap, layer } = makeAuth();
     const { captured: logLines, loggerLayer } = captureLogs();
     return Effect.gen(function* () {
-      yield* svc
-        .beginRegistration("dev@example.com", "devuser", "1990-01-01", "Dev User")
-        .pipe(
-          Effect.provide(loggerLayer),
-          Effect.provideService(References.MinimumLogLevel, "Debug"),
-        );
+      yield* settle(
+        svc
+          .beginRegistration("dev@example.com", "devuser", "1990-01-01", "Dev User")
+          .pipe(
+            Effect.provide(loggerLayer),
+            Effect.provideService(References.MinimumLogLevel, "Debug"),
+          ),
+      );
 
       // Log line: template + subject + to, no OTP code.
       const emailLogs = logLines.filter((l) => l.includes("[email:log]"));
@@ -1470,41 +1509,36 @@ describe("refresh token rotation (C2)", () => {
       }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("replaying a rotated-out token OUTSIDE the grace window revokes the family (C2)", () =>
-    Effect.gen(function* () {
-      // A genuine reuse: a stolen rotated token replayed long after rotation
-      // (outside ROTATION_GRACE_MS). Force "outside grace" deterministically
-      // with a store whose check reports the rotation happened at epoch 0.
-      const base = createInMemoryRotatedSessionStore();
-      const outsideGraceStore = {
-        ...base,
-        check: async (hash: string) => {
-          const rec = await base.check(hash);
-          return rec ? { familyId: rec.familyId, rotatedAtMs: 0 } : null;
-        },
-      };
-      const authReuse = createAuthService({ ...config, rotatedSessionStore: outsideGraceStore });
+  it.effect(
+    "replaying a rotated-out token OUTSIDE the grace window revokes the family (C2)",
+    () => {
+      const { layer, sqlite } = createTestLayerWithSqlite();
+      return Effect.gen(function* () {
+        // A genuine reuse: a stolen rotated token replayed long after rotation
+        // (outside ROTATION_GRACE_MS). Force "outside grace" deterministically
+        // by moving the rotation record's timestamp back to epoch 0.
+        const profile = yield* auth.registerProfile("reuse-old@example.com", "reuseold");
+        const tokens = yield* auth.issueTokens(
+          profile.id,
+          profile.accountId,
+          profile.email,
+          profile.handle,
+          profile.displayName,
+        );
 
-      const profile = yield* authReuse.registerProfile("reuse-old@example.com", "reuseold");
-      const tokens = yield* authReuse.issueTokens(
-        profile.id,
-        profile.accountId,
-        profile.email,
-        profile.handle,
-        profile.displayName,
-      );
+        // Rotate once — old token is now rotated out (recorded in rotated_sessions).
+        const r1 = yield* auth.refreshTokens(tokens.refreshToken);
+        sqlite.run("UPDATE rotated_sessions SET rotated_at = 0");
 
-      // Rotate once — old token is now rotated out (tracked in the store).
-      const r1 = yield* authReuse.refreshTokens(tokens.refreshToken);
+        // Replay the old token — outside grace ⇒ genuine reuse ⇒ family revocation.
+        const err1 = yield* Effect.flip(auth.refreshTokens(tokens.refreshToken));
+        expect(err1._tag).toBe("AuthError");
 
-      // Replay the old token — outside grace ⇒ genuine reuse ⇒ family revocation.
-      const err1 = yield* Effect.flip(authReuse.refreshTokens(tokens.refreshToken));
-      expect(err1._tag).toBe("AuthError");
-
-      // The new token (r1) is also revoked (whole family gone).
-      const err2 = yield* Effect.flip(authReuse.verifyRefreshToken(r1.refreshToken));
-      expect(err2._tag).toBe("AuthError");
-    }).pipe(Effect.provide(createTestLayer())),
+        // The new token (r1) is also revoked (whole family gone).
+        const err2 = yield* Effect.flip(auth.verifyRefreshToken(r1.refreshToken));
+        expect(err2._tag).toBe("AuthError");
+      }).pipe(Effect.provide(layer));
+    },
   );
 
   it.effect("verifyRefreshToken returns familyId and sessionId", () =>
@@ -1524,37 +1558,36 @@ describe("refresh token rotation (C2)", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // The verifier carries the device metadata off the row it already
-  // loaded, so `refreshTokens` no longer re-reads the same session by primary
-  // key. If this stops being returned, the rotation path silently loses the
-  // device's identity.
-  it.effect("verifyRefreshToken returns the session's device metadata", () =>
-    Effect.gen(function* () {
-      // A pepper is required for `ipHash` to be stored at all (context.hashIp).
-      const svc = createAuthService({ ...config, sessionIpPepper: "x".repeat(32) });
-      const profile = yield* svc.registerProfile("verify-meta@example.com", "verifymeta");
-      const tokens = yield* svc.issueTokens(
+  it.effect("verifyRefreshToken's authentication time is a fresh session's creation time", () => {
+    const { layer, sqlite } = createTestLayerWithSqlite();
+    return Effect.gen(function* () {
+      const profile = yield* auth.registerProfile("verify-meta@example.com", "verifymeta");
+      const tokens = yield* auth.issueTokens(
         profile.id,
         profile.accountId,
         profile.email,
         profile.handle,
         profile.displayName,
-        undefined,
-        { uaLabel: "Firefox on macOS", ip: "203.0.113.7" },
       );
 
-      const result = yield* svc.verifyRefreshToken(tokens.refreshToken);
-      expect(result.uaLabel).toBe("Firefox on macOS");
-      expect(result.ipHash).toMatch(/^[a-f0-9]{64}$/);
-      expect(result.createdAt).toBeGreaterThan(0);
+      const result = yield* auth.verifyRefreshToken(tokens.refreshToken);
+      const row = sqlite
+        .query("SELECT created_at AS createdAt FROM sessions WHERE id = ?")
+        .get(result.sessionId) as { createdAt: number };
       // Freshly issued: the ceremony time is the row's creation time.
-      expect(result.authenticatedAt).toBe(result.createdAt);
-    }).pipe(Effect.provide(createTestLayer())),
-  );
+      expect(result.authenticatedAt).toBe(row.createdAt);
+    }).pipe(Effect.provide(layer));
+  });
 
-  it.effect("rotation carries uaLabel, ipHash and authenticatedAt onto the new row", () =>
-    Effect.gen(function* () {
-      const svc = createAuthService({ ...config, sessionIpPepper: "x".repeat(32) });
+  it.effect("rotation carries uaLabel, ipHash and authenticatedAt onto the new row", () => {
+    const { layer, sqlite } = createTestLayerWithSqlite();
+    // A pepper is required for `ipHash` to be stored at all (context.hashIp).
+    const svc = createAuthService({ ...config, sessionIpPepper: "x".repeat(32) });
+    const device = (sessionId: string) =>
+      sqlite
+        .query("SELECT ua_label AS uaLabel, ip_hash AS ipHash FROM sessions WHERE id = ?")
+        .get(sessionId) as { uaLabel: string | null; ipHash: string | null };
+    return Effect.gen(function* () {
       const profile = yield* svc.registerProfile("rot-carry@example.com", "rotcarry");
       const tokens = yield* svc.issueTokens(
         profile.id,
@@ -1566,18 +1599,22 @@ describe("refresh token rotation (C2)", () => {
         { uaLabel: "Safari on iOS", ip: "203.0.113.9" },
       );
       const before = yield* svc.verifyRefreshToken(tokens.refreshToken);
+      const beforeDevice = device(before.sessionId);
 
       const rotated = yield* svc.refreshTokens(tokens.refreshToken);
       const after = yield* svc.verifyRefreshToken(rotated.refreshToken);
 
       expect(after.sessionId).not.toBe(before.sessionId);
       expect(after.familyId).toBe(before.familyId);
-      expect(after.uaLabel).toBe("Safari on iOS");
-      expect(after.ipHash).toBe(before.ipHash);
+      expect(beforeDevice.ipHash).toMatch(/^[a-f0-9]{64}$/);
+      expect(device(after.sessionId)).toEqual({
+        uaLabel: "Safari on iOS",
+        ipHash: beforeDevice.ipHash,
+      });
       // `auth_time` survives the silent rotation (OIDC max_age honesty).
       expect(after.authenticatedAt).toBe(before.authenticatedAt);
-    }).pipe(Effect.provide(createTestLayer())),
-  );
+    }).pipe(Effect.provide(layer));
+  });
 });
 
 // ---------------------------------------------------------------------------

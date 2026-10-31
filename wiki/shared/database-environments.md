@@ -18,7 +18,7 @@ related:
   - "[[d1-read-replication]]"
   - "[[cire-development]]"
   - "[[infrastructure-as-code]]"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-30
 ---
 
 # Database Environments
@@ -70,6 +70,11 @@ bun:sqlite result is a harmless no-op; D1 returns a real Promise.
   bun:sqlite the tests run against and returns 0 for every write on D1, which
   inverted two of `@osn/api`'s compare-and-swap gates in production — see
   [[sessions]].
+- `canBatch(db)` (`osn/api/src/lib/batch.ts`) — true on D1, whose `db.batch`
+  answers each statement's result in order. A write set whose results matter
+  (the email change commit reads its insert's change count) runs as
+  `canBatch(db) ? db.batch([...]) : [await a, await b, …]`; `commitBatch`
+  answers nothing.
 
 ## Per-service wiring
 
@@ -116,15 +121,24 @@ Three rewrite shapes recur:
 1. **Pure write sets** (cascade deletes, swap-then-write) → drop straight into
    `commitBatch`.
 2. **Read-then-write** (e.g. "pick the default-promotion target", "list hosted
-   events") → run the read first, then `commitBatch` the writes. Safe because the
-   subject (a profile/account being deleted) can't change between read and batch.
+   events") → run the read first, then `commitBatch` the writes. Safe as is only
+   where the subject (a profile/account being deleted) can't change between read
+   and batch. Where another request can change what was read, the write carries
+   it as a condition — the row's id and the state read (`status = 'pending'`, a
+   role), or `EXISTS` on the row that authorised it — and checks `rowsChanged`;
+   zero means what was read has changed, and the request is refused as the read
+   would refuse it now. The graph writes and the organisation membership writes
+   in `@osn/api` do this ([[social-graph]], [[identity-model]]).
 3. **Check-then-insert under a constraint** (handle/email uniqueness) → pre-check
    for a friendly error, then rely on the **UNIQUE constraint** as the
    authoritative race-safe guard, mapping the violation to
    a clean error. Count caps with no backing constraint (maxProfiles, passkey
-   cap) become best-effort with a documented benign over-by-one race; the
-   last-passkey invariant is kept race-safe with a **count-guarded conditional
-   DELETE** (`… WHERE (SELECT COUNT(*) …) > 1`).
+   cap) become best-effort with a documented benign over-by-one race. A cap or
+   invariant that must hold puts the count inside the write, which SQLite runs
+   as one statement whether or not D1 keeps batches apart: the last-passkey
+   invariant with a **count-guarded conditional DELETE**
+   (`… WHERE (SELECT COUNT(*) …) > 1`), email change's 2-per-7-days cap with a
+   count-guarded `INSERT … SELECT` whose change count the commit checks.
 
 ## Migration status
 
@@ -135,15 +149,14 @@ Three rewrite shapes recur:
 | `@osn/api` | ✅ | ✅ (Miniflare-tested) · **deployed** on Workers | 17 → `commitBatch` |
 | `@cire/api` | ✅ (dev/tests) | ✅ (always was) | n/a (async from day 1) |
 
-**`@osn/api` on Workers — done.** The old caveat here (ioredis and module-top-level
-JWT key loading, neither of which runs on workerd) was resolved by the Upstash REST
-client and request-scoped key loading. osn-api has been a deployed Worker since
+**`@osn/api` on Workers — done.** Nothing in it needs what workerd lacks: JWT
+keys load in request scope rather than at module top level, and its shared state
+is on the `COORDINATION` Durable Object, not a socket ([[coordination-store]]). osn-api has been a deployed Worker since
 2026-07-27 — `id.musubi.social` in production, `id.musubi.<DEV_DOMAIN>` on dev — and
 CI deploys it. See [[musubi-identity-migration]] and [[dev-environment]].
 
-**Databases and region.** All D1 databases are in **`oc` (Oceania / Sydney)** and
-both Upstash Redis databases are in **`ap-southeast-2` (Sydney)** — co-located for
-low AU latency (the project is AU-centric). One region means one **primary**: a
+**Databases and region.** All D1 databases are in **`oc` (Oceania / Sydney)** —
+co-located for low AU latency (the project is AU-centric). One region means one **primary**: a
 request served from a colo outside Oceania pays a round trip to Sydney for every
 query it makes, which is what read replication and the D1 Sessions API address —
 see [[d1-read-replication]].

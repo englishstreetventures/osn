@@ -75,9 +75,23 @@ export function parseDisownToken(
   const parts = token.split(".");
   if (parts.length !== 2) return null;
   const [lookupId, secret] = parts;
-  if (!lookupId || !secret) return null;
+  // The lookup id keys a store entry, so only the shape `genDisownToken`
+  // makes is one: anything else, an over-long one included, is a wrong token.
+  if (!lookupId || !secret || !DISOWN_LOOKUP_ID.test(lookupId)) return null;
   return { lookupId, secret };
 }
+
+/** A disown token's lookup id, as `genId("rdt_")` makes it. */
+const DISOWN_LOOKUP_ID = /^rdt_[0-9a-f]{12}$/;
+
+/**
+ * The longest identifier — a handle or an email address — any account can
+ * hold: an address is at most 255 characters (`EmailSchema`), a handle far
+ * fewer. A longer one names no account, and a store keyed by it would refuse
+ * it, so the ceremonies that key by an identifier refuse it first, as bad
+ * input.
+ */
+export const MAX_IDENTIFIER_LENGTH = 255;
 
 export function now(): Date {
   return new Date();
@@ -228,10 +242,19 @@ export async function signJwt(
 }
 
 /**
+ * How many seconds past its `exp` (and before its `nbf`) {@link verifyJwt}
+ * still accepts a token. Anything that must outlast every moment a token
+ * verifies — the step-up token's single-use claim — adds this to the token's
+ * life.
+ */
+export const JWT_CLOCK_TOLERANCE_S = 30;
+
+/**
  * O1: `issuer` is pinned to `AuthConfig.issuerUrl` so a token minted by a
  * different OSN deployment (or any other ES256 issuer sharing nothing but the
- * curve) is rejected. A 30s `clockTolerance` absorbs benign clock skew between
- * the signer and verifier without materially widening the effective TTL.
+ * curve) is rejected. A {@link JWT_CLOCK_TOLERANCE_S} `clockTolerance` absorbs
+ * benign clock skew between the signer and verifier without materially
+ * widening the effective TTL.
  *
  * Cross-service rollout note (the downstream verifier half is W7): the tolerant
  * verifier MUST deploy before the signer begins enforcing/emitting `iss`. A
@@ -247,7 +270,7 @@ export async function verifyJwt(
   const { payload } = await jwtVerify(token, publicKey, {
     algorithms: ["ES256"],
     issuer,
-    clockTolerance: 30,
+    clockTolerance: JWT_CLOCK_TOLERANCE_S,
     // jose only checks `exp` when the claim is present, so a token minted
     // without one never expires. Every token this verifier is meant to accept
     // carries an `exp` — the 5-minute access token and the step-up token both

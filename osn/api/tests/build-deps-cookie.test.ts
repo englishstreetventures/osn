@@ -1,10 +1,10 @@
 import { generateArcKeyPair } from "@shared/crypto";
-import { createMemoryClient } from "@shared/redis";
 import { exportJWK } from "jose";
 import { describe, it, expect, beforeAll } from "vitest";
 
 import { buildAppDeps, type BuildParts, type EnvVars } from "../src/build-deps";
 import { buildSessionCookie, buildSessionMarkerCookie } from "../src/lib/cookie-session";
+import { createInMemoryCoordination } from "../src/lib/coordination/memory";
 import { osnLoggerLayer } from "../src/observability";
 import { createTestLayer } from "./helpers/db";
 
@@ -45,7 +45,7 @@ function nonLocalEnv(over: Partial<Record<string, string>> = {}): EnvVars {
 
 function parts(over: Partial<BuildParts> = {}): BuildParts {
   return {
-    redisClient: createMemoryClient(),
+    coordination: () => createInMemoryCoordination(),
     dbAndEmailLayer: createTestLayer(),
     observabilityLayer: osnLoggerLayer,
     includeObservabilityPlugin: false,

@@ -17,6 +17,11 @@
  * `production`, or `dev` (the dev tier's own account). The ceilings are per
  * account, and each account files and updates its own issue.
  *
+ * The two accounts run different plans (`PLANS`). Dev runs Workers Free, where
+ * every line below is a cap. Production runs Workers Paid, where none of Free's
+ * daily lines stops anything: they are kept as growth signals, and the one cap
+ * left is Paid's size limit for a single database (`linesFor`).
+ *
  * Everything above the CLI block is pure: feed it a parsed API response and a
  * database-name map, get back the breaches and the issue body. The CLI block
  * is the only part that makes a network call, shells out to `gh`, or sets an
@@ -53,12 +58,72 @@ export const CEILINGS = {
   d1DatabaseBytes: 500_000_000,
 } as const;
 
+/**
+ * The size at which one database stops taking writes on Workers Paid, from
+ * https://developers.cloudflare.com/d1/platform/limits/ — re-read it before
+ * acting on the figure, as for `CEILINGS`.
+ */
+export const PAID_DATABASE_BYTES = 10_000_000_000;
+
 /** Report a counter once it reaches this share of its ceiling. */
 export const WARN_FRACTION = 0.8;
 
 /** The accounts the alert watches. Each has its own ceilings and its own issue. */
 export const ACCOUNTS = ["production", "dev"] as const;
 export type Account = (typeof ACCOUNTS)[number];
+
+/** The Workers plan each account runs, which decides what each line means. */
+export const PLANS = { production: "paid", dev: "free" } as const satisfies Readonly<
+  Record<Account, "free" | "paid">
+>;
+
+/**
+ * What crossing a line means. At a `cap` something stops: queries fail, the
+ * edge answers 429, a database refuses writes. At a `signal` nothing stops —
+ * usage grew, and on Workers Paid Cloudflare bills past a month's included
+ * amount.
+ */
+export type LineKind = "cap" | "signal";
+
+/** One counter's line on one account: the figure, and what crossing it means. */
+export interface Line {
+  readonly ceiling: number;
+  readonly kind: LineKind;
+}
+
+/** Every counter's line on one account, one entry per `CEILINGS` key. */
+export interface Lines {
+  readonly d1RowsWritten: Line;
+  readonly d1RowsRead: Line;
+  readonly workersRequests: Line;
+  readonly d1StorageBytes: Line;
+  readonly d1DatabaseBytes: Line;
+}
+
+/**
+ * The line each counter is weighed against on `account`. On Workers Free every
+ * line is a cap. On Workers Paid the daily lines and the account's storage line
+ * stay at Free's figures as growth signals, and a database's size is weighed
+ * against Paid's own limit, which is still a cap.
+ */
+export function linesFor(account: Account): Lines {
+  if (PLANS[account] === "free") {
+    return {
+      d1RowsWritten: { ceiling: CEILINGS.d1RowsWritten, kind: "cap" },
+      d1RowsRead: { ceiling: CEILINGS.d1RowsRead, kind: "cap" },
+      workersRequests: { ceiling: CEILINGS.workersRequests, kind: "cap" },
+      d1StorageBytes: { ceiling: CEILINGS.d1StorageBytes, kind: "cap" },
+      d1DatabaseBytes: { ceiling: CEILINGS.d1DatabaseBytes, kind: "cap" },
+    };
+  }
+  return {
+    d1RowsWritten: { ceiling: CEILINGS.d1RowsWritten, kind: "signal" },
+    d1RowsRead: { ceiling: CEILINGS.d1RowsRead, kind: "signal" },
+    workersRequests: { ceiling: CEILINGS.workersRequests, kind: "signal" },
+    d1StorageBytes: { ceiling: CEILINGS.d1StorageBytes, kind: "signal" },
+    d1DatabaseBytes: { ceiling: PAID_DATABASE_BYTES, kind: "cap" },
+  };
+}
 
 /**
  * The title each account's issue is found by. Stable, because it is the key:
@@ -183,6 +248,8 @@ export interface Breach {
   readonly day: string;
   readonly used: number;
   readonly ceiling: number;
+  /** Whether something stops at this line on the account's plan. */
+  readonly kind: LineKind;
   /** How the amounts are written — rows, requests or bytes. */
   readonly unit: "count" | "bytes";
   /** What made up the total, largest first. Empty only if the API returned none. */
@@ -230,11 +297,12 @@ function accumulate(
 
 function breachesFor(
   counter: string,
-  ceiling: number,
+  line: Line,
   unit: "count" | "bytes",
   days: ReadonlyMap<string, Contributor[]>,
   noteHeader?: string,
 ): Breach[] {
+  const { ceiling, kind } = line;
   const found: Breach[] = [];
   for (const [day, contributors] of days) {
     const used = contributors.reduce((total, c) => total + c.amount, 0);
@@ -244,6 +312,7 @@ function breachesFor(
       day,
       used,
       ceiling,
+      kind,
       unit,
       contributors: contributors.toSorted(byAmountDescending),
       noteHeader,
@@ -265,14 +334,20 @@ function latestDay(groups: readonly StorageGroup[]): string | undefined {
 }
 
 /**
- * Every counter at or above the warning share of its ceiling, worst first.
+ * Every counter at or above the warning share of its line on `account`,
+ * worst first.
  *
  * All but one are account-wide, so the total compared is the sum across every
  * database or script for that day, and the contributors are what makes the
  * figure actionable. The exception is a single database's size, which binds
  * each database on its own and so is checked once per database.
  */
-export function findBreaches(usage: Usage, names: ReadonlyMap<string, string>): readonly Breach[] {
+export function findBreaches(
+  usage: Usage,
+  names: ReadonlyMap<string, string>,
+  account: Account,
+): readonly Breach[] {
+  const lines = linesFor(account);
   const written = accumulate(
     usage.d1.map((g) => ({
       day: g.dimensions.date,
@@ -313,17 +388,17 @@ export function findBreaches(usage: Usage, names: ReadonlyMap<string, string>): 
   const perDatabase = sizes.flatMap((size) =>
     breachesFor(
       `D1 database size: ${size.name}`,
-      CEILINGS.d1DatabaseBytes,
+      lines.d1DatabaseBytes,
       "bytes",
       accumulate([size]),
     ),
   );
 
   return [
-    ...breachesFor("D1 rows written", CEILINGS.d1RowsWritten, "count", written, "Write queries"),
-    ...breachesFor("D1 rows read", CEILINGS.d1RowsRead, "count", read, "Read queries"),
-    ...breachesFor("Workers requests", CEILINGS.workersRequests, "count", requests),
-    ...breachesFor("D1 storage", CEILINGS.d1StorageBytes, "bytes", storage),
+    ...breachesFor("D1 rows written", lines.d1RowsWritten, "count", written, "Write queries"),
+    ...breachesFor("D1 rows read", lines.d1RowsRead, "count", read, "Read queries"),
+    ...breachesFor("Workers requests", lines.workersRequests, "count", requests),
+    ...breachesFor("D1 storage", lines.d1StorageBytes, "bytes", storage),
     ...perDatabase,
     // Worst first, and the newer day first where two are equally bad — which
     // is what two runs of the same over-budget job in a week look like.
@@ -345,9 +420,57 @@ export interface Window {
 }
 
 /**
+ * What a breach's figure line adds on Workers Paid, where lines differ in kind.
+ * The one cap there is a database's size.
+ */
+function kindNote(breach: Breach): string {
+  return breach.kind === "signal"
+    ? " A growth signal: nothing stops at this line on Workers Paid."
+    : " A cap: at this size the database stops taking writes.";
+}
+
+/** The closing paragraphs for an account on Workers Free: every line is a cap. */
+function freeFooter(): string[] {
+  return [
+    "The row and request ceilings are daily and account-wide, across every Worker",
+    "and every database; they reset at UTC midnight. Storage is a running total,",
+    "and has two lines — 5 GB across the account, and 500 MB for any one database.",
+    "Past a daily ceiling, D1 queries error and Workers return 429 from the edge,",
+    "so both APIs go to 503 or 429 for the rest of the day. A full database stops",
+    "taking writes on its own, whatever the account total says.",
+    "",
+    "What to do: find which job or route spent the rows, and either cut it or move",
+    "to Workers Paid. For D1, `bunx wrangler d1 insights <db> --time-period=7d",
+    "--sort-by=writes --limit=20 --json` names the query. The ceilings, what breaks",
+    "at each, and the upgrade costs are in `wiki/shared/free-tier-limits.md`.",
+  ];
+}
+
+/** The closing paragraphs for an account on Workers Paid: one cap, the rest signals. */
+function paidFooter(): string[] {
+  const count = (n: number) => n.toLocaleString("en-US");
+  const gigabytes = (bytes: number) => `${bytes / 1_000_000_000} GB`;
+  return [
+    "This account runs Workers Paid. Its daily lines are Workers Free's —",
+    `${count(CEILINGS.workersRequests)} Workers requests, ${count(CEILINGS.d1RowsWritten)} D1 rows written and`,
+    `${count(CEILINGS.d1RowsRead)} rows read a day — and so is the ${gigabytes(CEILINGS.d1StorageBytes)} storage line. On Paid none`,
+    "of them stops anything: crossing one means usage grew, and Cloudflare bills",
+    "only past a month's included amounts. The one cap is a database's size: at",
+    `${gigabytes(PAID_DATABASE_BYTES)} a database stops taking writes.`,
+    "",
+    "What to do: find what grew, and whether it should have. For D1, `bunx wrangler",
+    "d1 insights <db> --time-period=7d --sort-by=writes --limit=20 --json` names the",
+    "query. Compare the month so far with the plan's included amounts on the",
+    "account's billing page. The lines, Paid's included amounts and what each costs",
+    "past them are in `wiki/shared/free-tier-limits.md`.",
+  ];
+}
+
+/**
  * The issue body. Names the counter, the day, the figure and the databases or
  * scripts that spent it, because "the account is at 82%" tells nobody what to
- * change.
+ * change. On a Paid account it also says which lines are caps and which are
+ * only signs of growth.
  */
 export function renderIssueBody(
   breaches: readonly Breach[],
@@ -356,9 +479,13 @@ export function renderIssueBody(
   account: Account,
 ): string {
   const lines: string[] = [];
+  const paid = PLANS[account] === "paid";
+  const counters = breaches.length === 1 ? "counter is" : "counters are";
 
   lines.push(
-    `${breaches.length} Cloudflare free-tier ${breaches.length === 1 ? "counter is" : "counters are"} at or above ${Math.round(WARN_FRACTION * 100)}% of a ceiling on the ${account} account.`,
+    paid
+      ? `${breaches.length} Cloudflare ${counters} at or above ${Math.round(WARN_FRACTION * 100)}% of a line on the ${account} account, which runs Workers Paid.`
+      : `${breaches.length} Cloudflare free-tier ${counters} at or above ${Math.round(WARN_FRACTION * 100)}% of a ceiling on the ${account} account.`,
     "",
     `Window ${window.start} to ${window.end} (UTC). Read at ${now}.`,
     "",
@@ -370,7 +497,7 @@ export function renderIssueBody(
     lines.push(
       `## ${breach.counter} — ${breach.day}`,
       "",
-      `${amount(breach.used, breach.unit)} of ${amount(breach.ceiling, breach.unit)} (${percent(breach)}).`,
+      `${amount(breach.used, breach.unit)} of ${amount(breach.ceiling, breach.unit)} (${percent(breach)}).${paid ? kindNote(breach) : ""}`,
       "",
       noteHeader
         ? `| Database or script | Amount | ${noteHeader} |`
@@ -385,17 +512,7 @@ export function renderIssueBody(
   }
 
   lines.push(
-    "The row and request ceilings are daily and account-wide, across every Worker",
-    "and every database; they reset at UTC midnight. Storage is a running total,",
-    "and has two lines — 5 GB across the account, and 500 MB for any one database.",
-    "Past a daily ceiling, D1 queries error and Workers return 429 from the edge,",
-    "so both APIs go to 503 or 429 for the rest of the day. A full database stops",
-    "taking writes on its own, whatever the account total says.",
-    "",
-    "What to do: find which job or route spent the rows, and either cut it or move",
-    "to Workers Paid. For D1, `bunx wrangler d1 insights <db> --time-period=7d",
-    "--sort-by=writes --limit=20 --json` names the query. The ceilings, what breaks",
-    "at each, and the upgrade costs are in `wiki/shared/free-tier-limits.md`.",
+    ...(paid ? paidFooter() : freeFooter()),
     "",
     "Filed by `.github/workflows/free-tier-ceiling-alert.yml`, which runs",
     `\`scripts/check-free-tier-ceilings.ts --account ${account}\` once a day and edits`,
@@ -728,7 +845,7 @@ if (import.meta.main) {
     fetchUsage(token, accountId, window),
     listDatabases(token, accountId),
   ]);
-  const breaches = findBreaches(usage, names);
+  const breaches = findBreaches(usage, names, account);
 
   if (breaches.length === 0) {
     process.stdout.write(
@@ -741,7 +858,7 @@ if (import.meta.main) {
 
   for (const breach of breaches) {
     process.stdout.write(
-      `free-tier ceilings (${account}): ${breach.counter} on ${breach.day} at ${percent(breach)} of its ceiling.\n`,
+      `free-tier ceilings (${account}): ${breach.counter} on ${breach.day} at ${percent(breach)} of its ${breach.kind === "cap" ? "ceiling" : "line, a growth signal"}.\n`,
     );
   }
 

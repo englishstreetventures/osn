@@ -4,17 +4,18 @@ import { Effect, Layer } from "effect";
 
 import { createApp, type App } from "./app";
 import { buildAppDeps, type BuiltDeps, SERVICE_NAME } from "./build-deps";
+import { createInMemoryCoordination } from "./lib/coordination/memory";
 import { selectEmailLayer } from "./lib/email-layer";
 import { startOutboundKeyRotation } from "./lib/outbound-arc";
-import { initRedisClient } from "./redis";
 import * as accountErasure from "./services/account-erasure";
+import { runRotatedSessionSweep } from "./services/auth/tokens";
 
 export { SERVICE_NAME };
 export const port = Number(process.env.PORT) || 4000;
 
 /**
  * Bun composition root: read every `process.env`-driven input, initialise the
- * FULL observability layer (OTel SDK) + the ioredis-or-memory client + the
+ * FULL observability layer (OTel SDK) + the in-memory coordination stores + the
  * email transport, then hand them to the shared {@link buildAppDeps} (which is
  * runtime-agnostic and shared with the Workers `index.ts` entry). The Effect
  * layer graph is built ONCE inside `buildAppDeps` into a shared `ManagedRuntime`
@@ -25,18 +26,6 @@ export async function buildAppDeps_Bun(): Promise<
 > {
   // Initialise observability (logger, tracing, metrics) before building the app.
   const { layer: observabilityLayer } = initObservability({ serviceName: SERVICE_NAME });
-
-  // -------------------------------------------------------------------------
-  // Redis client — env-driven backend selection. See `./redis.ts` for
-  // the full lifecycle (TLS warning, credential redaction, REDIS_REQUIRED
-  // fail-closed mode, lazyConnect).
-  // -------------------------------------------------------------------------
-  const redisClient = await initRedisClient({
-    redisUrl: process.env.REDIS_URL,
-    redisRequired: process.env.REDIS_REQUIRED === "true",
-    nodeEnv: process.env.NODE_ENV,
-    loggerLayer: observabilityLayer,
-  });
 
   // -------------------------------------------------------------------------
   // Email transport (@shared/email) — selection shared with the Workers entry
@@ -73,7 +62,9 @@ export async function buildAppDeps_Bun(): Promise<
   const emailLayer = selectEmailLayer(env, observabilityLayer);
 
   const built = await buildAppDeps(env, {
-    redisClient,
+    // One process, so its own memory is the shared state. A deployed Worker
+    // runs many isolates and uses the Durable Object bundle instead.
+    coordination: () => createInMemoryCoordination(),
     dbAndEmailLayer: Layer.merge(DbLive, emailLayer),
     observabilityLayer,
     // Bun path keeps the full per-request observability plugin (server span +
@@ -133,10 +124,11 @@ export function startBunServer(
     osnEnv: process.env.OSN_ENV,
   }).catch(() => undefined);
 
-  // Hard-delete + fan-out retry sweeper. Single-instance — production should
-  // wrap with a Redis lock; for now the fixed 6-hour cadence + idempotent
-  // per-row writes keep multi-instance safe enough that a stray double-pass
-  // is a non-event. (The Workers entry runs the same two sweeps on a cron.)
+  // Hard-delete + fan-out retry + rotated-session sweeper. Single-instance —
+  // a multi-instance deploy would need a lock; for now the fixed 6-hour cadence
+  // + idempotent per-row writes keep multi-instance safe enough that a stray
+  // double-pass is a non-event. (The Workers entry runs the same sweeps on a
+  // cron.)
   const SWEEPER_INTERVAL_MS =
     Number(process.env.OSN_DELETION_SWEEPER_INTERVAL_MS) || 6 * 60 * 60 * 1_000;
   const fanoutUrls = {
@@ -148,6 +140,7 @@ export function startBunServer(
       Effect.gen(function* () {
         yield* accountErasure.runFanOutRetrySweep(fanoutUrls);
         yield* accountErasure.runHardDeleteSweep();
+        yield* runRotatedSessionSweep();
       }).pipe(Effect.provide(DbLive), Effect.provide(observabilityLayer)) as Effect.Effect<
         unknown,
         never,
@@ -162,7 +155,7 @@ export function startBunServer(
 // Bun dev entry (the default `dev` script: `bun run --watch src/local.ts --devloop`).
 //
 // The fast, native devloop: stable :4000, real passkey/OTP ceremonies, full
-// OTel observability, ioredis-or-memory rate limiters, bun:sqlite. The
+// OTel observability, in-memory rate limiters and stores, bun:sqlite. The
 // Cloudflare Workers `index.ts` entry mirrors this composition from the `env`
 // binding instead of `process.env`. Tests do NOT import this module — they
 // build the app via `createApp` + a test layer.

@@ -28,10 +28,10 @@ const UNSET_ON_DEV: Readonly<Record<string, string>> = {
   OSN_DELETION_SWEEPER_INTERVAL_MS:
     "read only by src/local.ts; the Worker sweeps on its cron instead",
   OSN_REFRESH_TOKEN_TTL: "defaults to 30 days (build-deps.ts); production sets none either",
+  OSN_ROTATED_SESSION_SWEEP_MAX_CHUNKS:
+    "dev is on Workers Free: unset, the sweep keeps its default of 10 chunks (services/auth/tokens.ts), inside the 50 D1 queries one cron run may make",
   PORT: "read only by src/local.ts, the Bun dev server",
   PULSE_API_URL: "a deletion fan-out target; dev runs no pulse-api",
-  REDIS_REQUIRED: "read only by src/local.ts; the Worker reads Upstash's REST pair instead",
-  REDIS_URL: "read only by src/local.ts; the Worker reads Upstash's REST pair instead",
   RESEND_API_URL:
     "the local Resend emulator's origin; a deployed tier refuses to boot with it, and the inventory forbids it on dev",
   TRUSTED_PROXY_COUNT:

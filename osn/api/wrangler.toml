@@ -1,5 +1,7 @@
 name = "osn-api"
-main = "src/index.ts"
+# `entry.ts` exports the fetch/scheduled handler (from `index.ts`) and the
+# `CoordinationStore` Durable Object class the `COORDINATION` binding names.
+main = "src/entry.ts"
 compatibility_date = "2025-03-01"
 # `nodejs_compat_populate_process_env` is what makes `process.env` reflect the
 # [vars] below plus the Worker's secrets. It is only a DEFAULT for
@@ -39,9 +41,8 @@ workers_dev = false
 
 # ── Top-level (local `wrangler dev`) ─────────────────────────────────────────
 # These apply to `wrangler dev` with no `--env`. OSN_ENV is unset/"local" here,
-# so: in-memory rate limiters (no Upstash needed), miniflare local D1, no Secure
-# cookies, localhost issuer/CORS/RP defaults baked into the factory. Needs NO
-# external services.
+# so: miniflare local D1 and Durable Objects, no Secure cookies, localhost
+# issuer/CORS/RP defaults baked into the factory. Needs NO external services.
 [vars]
 OSN_ENV = "local"
 OSN_RP_ID = "localhost"
@@ -75,20 +76,35 @@ database_name = "osn-db"
 database_id = "a1dfceb8-2e7a-48eb-a161-ad428f3ddff5"
 migrations_dir = "../db/drizzle"
 
+# ── Coordination store (Durable Object) ──────────────────────────────────────
+# Every ceremony, single-use claim, lockout counter and limiter longer than a
+# minute lives in `CoordinationStore` objects, one per key, so every isolate
+# sees the same state. Named envs do NOT inherit `durable_objects`, so the
+# binding is mirrored into [env.staging|production] below; the migration that
+# creates the SQLite-backed class is top-level and applies to every env.
+[[durable_objects.bindings]]
+name = "COORDINATION"
+class_name = "CoordinationStore"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["CoordinationStore"]
+
 # ── Native Workers Rate Limiting bindings (GA `[[ratelimits]]`) ───────────────
-# Part 2: the 60s-window per-IP auth limiters run on Cloudflare's native Rate
-# Limiting binding (global + atomic at the edge) instead of Upstash. One binding
-# per request-budget tier (5/10/20/30/60 per 60s) so every endpoint keeps its
-# existing budget; `selectAuthRateLimiters` (src/lib/native-rate-limiters.ts)
+# The 60s-window per-IP auth limiters run on Cloudflare's native Rate Limiting
+# binding (global + atomic at the edge). One binding per request-budget tier
+# (5/10/20/30/60 per 60s) so every endpoint keeps its budget from
+# `AUTH_RATE_LIMITS`; `selectAuthRateLimiters` (src/lib/native-rate-limiters.ts)
 # namespaces the key per endpoint so endpoints sharing a tier never share a
-# bucket. The native binding only supports period 10 or 60s, so the three
-# 1-hour-window per-IP limiters (recovery generate/complete, email-change-begin)
-# and every per-user/per-account limiter + stateful store STAY on Upstash.
+# bucket. The native binding only supports period 10 or 60s, so the hour-window
+# per-IP limiters, the per-account caps and every stateful store stay on the
+# coordination store. A test holds every `limit` here to the budget table.
 #
 # TRADE-OFF: native rate limiting is counted PER-COLO, not globally — a caller
 # spread across Cloudflare locations sees a slightly looser effective cap. This
 # was explicitly approved; a single attacker is pinned to one colo, and the
-# stateful brute-force guards (recovery lockout) remain on Upstash.
+# stateful brute-force guards (the lockout counters) are on the coordination
+# store, which is global.
 #
 # `namespace_id` is an account-scoped positive integer that uniquely identifies
 # the namespace. The values below are NEW and per-tier; bump/replace them if they
@@ -117,6 +133,20 @@ simple = { limit = 30, period = 60 }
 [[ratelimits]]
 name = "RL_AUTH_IP_60_60"
 namespace_id = "2005"
+simple = { limit = 60, period = 60 }
+
+# Per-user tiers for graph and organisation writes and the two recommendation
+# endpoints, keyed `<store>:<userId>`. A deployed Worker without them answers
+# 503 (`USER_TIERS` in src/lib/native-rate-limiters.ts). Profile create, delete
+# and set-default are keyed per IP and share the RL_AUTH_IP tiers above.
+[[ratelimits]]
+name = "RL_USER_20_60"
+namespace_id = "2006"
+simple = { limit = 20, period = 60 }
+
+[[ratelimits]]
+name = "RL_USER_60_60"
+namespace_id = "2007"
 simple = { limit = 60, period = 60 }
 
 # ── Workers observability (Part 3) ───────────────────────────────────────────
@@ -156,6 +186,12 @@ OSN_ISSUER_URL = "https://api.staging.osn.example"
 OSN_CORS_ORIGIN = "https://staging.osn.example"
 # Marker-cookie domain only — see the production block. Placeholder like the rest.
 OSN_COOKIE_DOMAIN = "staging.osn.example"
+# Rotated-session sweep chunks per cron run, as production (see there).
+OSN_ROTATED_SESSION_SWEEP_MAX_CHUNKS = "100"
+
+[[env.staging.durable_objects.bindings]]
+name = "COORDINATION"
+class_name = "CoordinationStore"
 
 [[env.staging.d1_databases]]
 binding = "DB"
@@ -165,12 +201,12 @@ migrations_dir = "../db/drizzle"
 
 # Native rate-limit bindings mirrored into staging (named envs don't inherit).
 #
-# 2201–2205, not the 2001–2005 production uses. `namespace_id` is ACCOUNT-scoped,
+# 2201–2207, not the 2001–2007 production uses. `namespace_id` is ACCOUNT-scoped,
 # not worker-scoped: two Workers naming the same id share one set of counters. On
 # the shared ids, a staging load test against /login would have spent production's
 # per-IP budget and locked real users out of sign-in — and any staging IP that
 # collided with a real one would have done it quietly. The dev tier, in its own
-# account, uses 2101–2105 (musubi/infra).
+# account, uses the 21xx range (musubi/infra).
 [[env.staging.ratelimits]]
 name = "RL_AUTH_IP_5_60"
 namespace_id = "2201"
@@ -194,6 +230,16 @@ simple = { limit = 30, period = 60 }
 [[env.staging.ratelimits]]
 name = "RL_AUTH_IP_60_60"
 namespace_id = "2205"
+simple = { limit = 60, period = 60 }
+
+[[env.staging.ratelimits]]
+name = "RL_USER_20_60"
+namespace_id = "2206"
+simple = { limit = 20, period = 60 }
+
+[[env.staging.ratelimits]]
+name = "RL_USER_60_60"
+namespace_id = "2207"
 simple = { limit = 60, period = 60 }
 
 [env.staging.observability]
@@ -257,6 +303,12 @@ OSN_EMAIL_FROM = "hello@cireweddings.com"
 # `/authorize` on the FIRST OSN_ORIGIN, which is fine only because that is now
 # the apex too; set it anyway, because the fallback silently follows list order.
 OSN_AUTHORIZE_UI_URL = "https://musubi.social/authorize"
+# Chunks of 500 expired rotation records the 6-hourly sweep deletes per run, read
+# by `rotatedSweepMaxChunks` (src/services/auth/tokens.ts) in the `scheduled`
+# handler (src/index.ts). 100 chunks is 50 000 records a run, inside Workers
+# Paid's 1 000 D1 queries per invocation; unset, as on dev (Workers Free, 50
+# queries shared by four sweeps), it is 10.
+OSN_ROTATED_SESSION_SWEEP_MAX_CHUNKS = "100"
 # Sign out everywhere else, and revoking cire's connection, ask cire-api to end
 # the account's organiser sessions at CIRE_INTERNAL_REVOKE_URL. Both values
 # equal cire-api's own (cire/api/wrangler.toml CIRE_API_ORIGIN and
@@ -281,6 +333,10 @@ CIRE_OIDC_CLIENT_ID = "cid_cire"
 [[env.production.routes]]
 pattern = "id.musubi.social"
 custom_domain = true
+
+[[env.production.durable_objects.bindings]]
+name = "COORDINATION"
+class_name = "CoordinationStore"
 
 [[env.production.d1_databases]]
 binding = "DB"
@@ -314,6 +370,16 @@ simple = { limit = 30, period = 60 }
 [[env.production.ratelimits]]
 name = "RL_AUTH_IP_60_60"
 namespace_id = "2005"
+simple = { limit = 60, period = 60 }
+
+[[env.production.ratelimits]]
+name = "RL_USER_20_60"
+namespace_id = "2006"
+simple = { limit = 20, period = 60 }
+
+[[env.production.ratelimits]]
+name = "RL_USER_60_60"
+namespace_id = "2007"
 simple = { limit = 60, period = 60 }
 
 [env.production.observability]
@@ -353,8 +419,6 @@ crons = ["0 */6 * * *"]
 #                              and delete it once the drain is done. Present but
 #                              malformed fails the boot, like the current key.
 #                              Procedure: wiki/shared/production-deploy.md.
-#   UPSTASH_REDIS_REST_URL     Upstash REST URL            — REQUIRED non-local (S-L1; region TBD C-M18)
-#   UPSTASH_REDIS_REST_TOKEN   Upstash REST token          — REQUIRED non-local (S-L1; region TBD C-M18)
 #   RESEND_API_KEY             Resend bearer key — REQUIRED non-local (preferred
 #                              email transport; selected over CLOUDFLARE_* creds)
 #   RESEND_API_URL             NEVER set here, as a var or a secret. Local
@@ -366,7 +430,10 @@ crons = ["0 */6 * * *"]
 #   CLOUDFLARE_ACCOUNT_ID      legacy Cloudflare Email Service — optional fallback
 #   CLOUDFLARE_EMAIL_API_TOKEN legacy Cloudflare Email Service — optional fallback
 #   OSN_EMAIL_FROM             verified sender (also settable as a [vars])
-#   INTERNAL_SERVICE_SECRET    S2S registration shared secret (optional)
+#   INTERNAL_SERVICE_SECRET    required: the bearer for /health/coordination, which
+#                              the post-deploy smoke check asks (unset, the probe
+#                              answers 501 and the check fails), and for
+#                              /graph/internal/register-service.
 #   CIRE_INTERNAL_REVOKE_SECRET bearer for cire-api's organiser-session revoke
 #                              (optional, at least 32 characters). cire-api
 #                              holds the SAME value; set both, or the revoke is

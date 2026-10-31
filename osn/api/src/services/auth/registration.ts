@@ -12,11 +12,19 @@ import { eq, sql } from "drizzle-orm";
 import { unionAll } from "drizzle-orm/sqlite-core";
 import { Effect, Schema } from "effect";
 
+import { forkBackground } from "../../lib/background";
 import { UNIQUE_CONSTRAINT_ERROR } from "../../lib/unique-constraint";
 import { metricAuthHandleCheck, metricAuthOtpSent, withAuthRegister } from "../../metrics";
+import { guessEntry, spendEntry } from "./attempts";
 import { MAX_OTP_ATTEMPTS, MIN_AGE_YEARS, RESERVED_HANDLES } from "./constants";
 import type { AuthContext } from "./context";
-import { AgeRestrictionError, AuthError, DatabaseError, ValidationError } from "./errors";
+import {
+  AgeRestrictionError,
+  AuthError,
+  type CoordinationError,
+  DatabaseError,
+  ValidationError,
+} from "./errors";
 import {
   ageInYears,
   BirthdateSchema,
@@ -26,9 +34,12 @@ import {
   HandleSchema,
   hashSessionToken,
   logDevOtp,
+  MAX_IDENTIFIER_LENGTH,
   now,
 } from "./helpers";
 import type { ProfilesModule } from "./profiles";
+import { storeCall } from "./store-call";
+import type { PendingRegistration } from "./stores";
 import type { TokensModule } from "./tokens";
 import type { ProfileWithEmail, SessionMeta } from "./types";
 
@@ -40,7 +51,7 @@ export function createRegistrationModule(
   _profiles: ProfilesModule,
   tokens: TokensModule,
 ) {
-  const { config, stores, otpTtl } = ctx;
+  const { config, stores, otpTtl, serverMac } = ctx;
   const { issueTokens } = tokens;
 
   /**
@@ -157,42 +168,44 @@ export function createRegistrationModule(
     error instanceof EmailError && error.reason !== "api_unreachable" ? "none" : "unknown";
 
   /**
-   * Settle the pending registration at `key` after its code's send failed, if
-   * it is still the one holding `codeHash`. Between storing it and the failure,
-   * another begin for the same address can have replaced it — both passed the
-   * pending check before either stored — and that one's code may have
-   * arrived, so it stays.
+   * Settle `parked`, the pending registration this begin wrote at `key`, after
+   * its code's send failed. It is one store call that names `parked`, so it
+   * touches no other entry: one spent since — by the cap, or by the
+   * registration its code completed — is not brought back, and one a later
+   * begin wrote once this one was spent or expired stays, since that one's
+   * code may have arrived.
    *
-   * - Nothing was sent: the entry goes, so a retry sends a new code. A read
-   *   that comes back empty deletes too: the Redis store answers a read it
-   *   could not make with `null`, and keeping the entry then would leave every
-   *   retry meeting the pending check for the code's whole life.
-   * - The code may still arrive: the entry stays, for at most
-   *   {@link UNKNOWN_DELIVERY_HOLD_MS}, so the address gets no second code at
-   *   once and the person can retry a minute later. Deleting it instead would
-   *   let each begin mail the address again while sends are slow.
+   * - Nothing was sent: `parked` goes, so a retry sends a new code.
+   * - The code may still arrive: `parked` stays, with at most
+   *   {@link UNKNOWN_DELIVERY_HOLD_MS} left to live, so the address gets no
+   *   second code at once and the person can retry a minute later. Deleting it
+   *   instead would let each begin mail the address again while sends are
+   *   slow. The stored value is the same one, so a guess that read it before
+   *   the hold still names it when it deletes.
    *
-   * A store write that fails leaves the entry as it was.
+   * A store call that fails leaves the entry as it was, to expire.
+   *
+   * Holding the entry rewrites it, and a rewrite starts its guess count again.
+   * That allows at most one more cap's worth of guesses, inside the minute the
+   * entry is held, against a code whose send failed — a bound the cap's own
+   * arithmetic absorbs (ten six-digit guesses, not five).
    */
   const settleFailedSend = (
     key: string,
-    codeHash: string,
+    parked: PendingRegistration,
     delivery: "none" | "unknown",
   ): Effect.Effect<void> =>
+    // Best effort: the send has already failed, and the caller's answer does
+    // not depend on this tidying.
     Effect.promise(async () => {
-      const stored = await stores.pendingRegistrations.get(key);
-      if (stored !== null && stored.codeHash !== codeHash) return;
       if (delivery === "none") {
-        await stores.pendingRegistrations.delete(key);
+        await stores.pendingRegistrations.delete(key, parked).catch(() => undefined);
         return;
       }
-      if (stored === null) return;
-      const expiresAt = Math.min(stored.expiresAt, Date.now() + UNKNOWN_DELIVERY_HOLD_MS);
-      await stores.pendingRegistrations.set(
-        key,
-        { ...stored, expiresAt },
-        Math.max(0, expiresAt - Date.now()),
-      );
+      const left = Math.min(parked.expiresAt - Date.now(), UNKNOWN_DELIVERY_HOLD_MS);
+      await stores.pendingRegistrations
+        .swap(key, parked, parked, Math.max(1, left))
+        .catch(() => false);
     });
 
   /**
@@ -204,7 +217,8 @@ export function createRegistrationModule(
    *  - Always returns `{ sent: true }` regardless of whether the email or
    *    handle is already taken, and whether or not the code's email went out,
    *    so neither the status nor the body says whether an address has an
-   *    account.
+   *    account. Every branch answers after the one store call: the code's
+   *    send runs after the answer, so the time to answer does not say either.
    *    The "is this handle free?" question is answered separately by the
    *    public `/handle/:handle` endpoint, which is the appropriate channel
    *    and can be rate-limited independently.
@@ -217,13 +231,12 @@ export function createRegistrationModule(
    *    timeout), and `osn.email.send.attempts{outcome="failed"}` counts it;
    *    this function's own attempt counter records the begin as `ok`.
    *  - The pending-registrations store is self-bounding (CEREMONY_STORE_MAX
-   *    in-memory, native PX expiry on Redis) and sweeps expired entries on
+   *    in-memory, per-entry TTL on the Durable Object store) and sweeps expired entries on
    *    insert, so unauthenticated abuse can't grow it without bound.
    *  - Refuses to overwrite a non-expired pending entry, so a second begin
    *    for someone's address cannot reset the code they hold. The check and
-   *    the write are two store calls, so this holds for begins that do not
-   *    overlap: two that do can both pass the check, and the later one's code
-   *    replaces the earlier one's.
+   *    the write are one store call (`swap` from nothing), so of two begins
+   *    that overlap, one parks its code and the other sends nothing.
    *  - The local-only `Effect.logDebug` of the OTP is gated on
    *    `OSN_ENV` being unset or `"local"`.
    *
@@ -238,7 +251,7 @@ export function createRegistrationModule(
     displayName?: string,
   ): Effect.Effect<
     { sent: boolean },
-    AgeRestrictionError | AuthError | ValidationError | DatabaseError,
+    AgeRestrictionError | AuthError | ValidationError | DatabaseError | CoordinationError,
     Db | EmailService
   > =>
     Effect.gen(function* () {
@@ -270,7 +283,7 @@ export function createRegistrationModule(
       const normalisedEmail = email.toLowerCase();
 
       // The store sweeps expired entries and self-bounds (CEREMONY_STORE_MAX
-      // on the in-memory backend, native PX expiry on Redis), so no explicit
+      // on the in-memory backend, per-entry TTL on the Durable Object store), so no explicit
       // sweep / size cap is needed here any more.
       // A single round-trip existence probe — UNION ALL of two indexed
       // single-table arms (see registerProfile for why not an OR across the
@@ -296,63 +309,73 @@ export function createRegistrationModule(
       // Silently no-op when the email or handle already exists. The user
       // can use the login flow if they already have an account; we don't
       // confirm or deny their existence over an unauthenticated channel.
-      if (collision.length > 0) {
-        return { sent: true };
-      }
+      const taken = collision.length > 0;
 
-      // Don't let an attacker reset a victim's in-progress OTP by
-      // re-posting begin with the same email.
-      const existingPending = yield* Effect.promise(() =>
-        stores.pendingRegistrations.get(normalisedEmail),
-      );
-      if (existingPending && existingPending.expiresAt > Date.now()) {
-        return { sent: true };
-      }
-
+      // Every branch — the address or handle taken, a code already pending,
+      // a code sent — makes the same one store call, a swap from nothing, so
+      // the branches cost the same in store round trips and fail together
+      // while the store is down. A swap that finds a live entry leaves it as
+      // it was, so a second begin for someone's address cannot reset the code
+      // they hold, however the two overlap. The taken branch makes it at the
+      // caller's probe key, which no `complete` reads; the value parked there
+      // holds a hash no code matches.
       const code = genOtpCode();
       const codeHash = hashSessionToken(code);
-      yield* Effect.promise(() =>
-        stores.pendingRegistrations.set(
-          normalisedEmail,
-          {
+      const expiresAt = Date.now() + otpTtl * 1000;
+      const parked: PendingRegistration = taken
+        ? {
+            email: "",
+            handle: "",
+            displayName: null,
+            codeHash: hashSessionToken(genOtpCode() + genId("")),
+            expiresAt,
+          }
+        : {
             email: normalisedEmail,
             handle,
             displayName: displayName ?? null,
             codeHash,
-            attempts: 0,
-            expiresAt: Date.now() + otpTtl * 1000,
-          },
-          otpTtl * 1000,
-        ),
+            expiresAt,
+          };
+      const key = taken ? serverMac.probeKey(normalisedEmail) : normalisedEmail;
+      const written = yield* storeCall(stores.pendingRegistrations, "swap", () =>
+        stores.pendingRegistrations.swap(key, null, parked, otpTtl * 1000),
       );
+      if (taken || !written) return { sent: true };
 
       yield* logDevOtp("registration", code);
 
       // The EmailService layer decides where the code goes: the in-memory
       // recorder locally and in tests, Resend in every deployed tier.
       //
+      // The send runs after the answer, forked with a timeout as
+      // `beginEmailRecovery` forks its own. Awaiting it would make this branch
+      // answer a Resend round trip later than the taken and pending branches,
+      // which make the same one store call and return: the response time would
+      // say whether the address has an account, whatever the body says.
+      // `forkBackground` registers the fibre with the request's `waitUntil`,
+      // so the send still runs on workerd once the response is out.
+      //
       // A send that fails — refused, unreachable, or slower than ten seconds —
-      // answers as a sent one does, so neither the status nor the body depends
-      // on whether the address is free. It first settles this request's pending
-      // entry (`settleFailedSend`): gone when nothing was sent, so "Resend code"
-      // sends a new code; held for a minute when the code may still arrive. The
-      // transport has already logged why the send failed.
+      // settles this request's pending entry (`settleFailedSend`): gone when
+      // nothing was sent, so "Resend code" sends a new code; held for a minute
+      // when the code may still arrive. The transport has already logged why
+      // the send failed.
       const emailSvc = yield* EmailService;
-      const sent = yield* emailSvc
-        .send({
-          template: "otp-registration",
-          to: normalisedEmail,
-          data: { code, ttlMinutes: otpTtl / 60, instanceName: config.instanceName },
-        })
-        .pipe(
-          Effect.timeout("10 seconds"),
-          Effect.as(true),
-          Effect.catch((error) =>
-            settleFailedSend(normalisedEmail, codeHash, deliveryOf(error)).pipe(Effect.as(false)),
+      yield* forkBackground(
+        emailSvc
+          .send({
+            template: "otp-registration",
+            to: normalisedEmail,
+            data: { code, ttlMinutes: otpTtl / 60, instanceName: config.instanceName },
+          })
+          .pipe(
+            Effect.timeout("10 seconds"),
+            Effect.tap(() => Effect.sync(() => metricAuthOtpSent("registration"))),
+            Effect.catch((error) => settleFailedSend(key, parked, deliveryOf(error))),
           ),
-        );
+      );
 
-      if (sent) metricAuthOtpSent("registration");
       return { sent: true };
     }).pipe(withAuthRegister("begin"));
 
@@ -393,32 +416,30 @@ export function createRegistrationModule(
       refreshToken: string;
       expiresIn: number;
     },
-    AuthError | DatabaseError,
+    AuthError | DatabaseError | CoordinationError,
     Db
   > =>
     Effect.gen(function* () {
       const key = email.toLowerCase();
-      const pending = yield* Effect.promise(() => stores.pendingRegistrations.get(key));
-      if (!pending || Date.now() > pending.expiresAt) {
+      // Longer than any address an account can hold, and too long to key an entry.
+      if (key.length > MAX_IDENTIFIER_LENGTH) {
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
       }
-
+      // Read and counted in one call, before the code is compared; see
+      // `attempts.ts`. The entry is deleted after the insert below, not
+      // claimed here, so an insert that loses a race leaves the code usable;
+      // the count and the UNIQUE constraints keep two right codes from both
+      // registering.
+      const guessed = yield* guessEntry(stores.pendingRegistrations, key, MAX_OTP_ATTEMPTS);
+      if (!guessed) {
+        return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
+      }
+      const { entry: pending, standing } = guessed;
+      if (standing === "spent") {
+        return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
+      }
       if (!timingSafeEqualString(pending.codeHash, hashSessionToken(code))) {
-        // Increment the attempt counter; wipe after too many guesses. The
-        // store does not alias the returned value, so persist the bump back
-        // (and carry the remaining TTL so the entry still expires on schedule).
-        const attempts = pending.attempts + 1;
-        if (attempts >= MAX_OTP_ATTEMPTS) {
-          yield* Effect.promise(() => stores.pendingRegistrations.delete(key));
-        } else {
-          yield* Effect.promise(() =>
-            stores.pendingRegistrations.set(
-              key,
-              { ...pending, attempts },
-              Math.max(0, pending.expiresAt - Date.now()),
-            ),
-          );
-        }
+        if (standing === "last") yield* spendEntry(stores.pendingRegistrations, key, pending);
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
       }
 
@@ -476,8 +497,15 @@ export function createRegistrationModule(
         return yield* Effect.fail(new AuthError({ message: "Email or handle already registered" }));
       }
 
-      // Success: only NOW delete the pending entry.
-      yield* Effect.promise(() => stores.pendingRegistrations.delete(key));
+      // Success: only NOW delete the pending entry, and its guess count with
+      // it — after the answer, since the account exists whatever happens
+      // here. Only the entry this guess read goes. Nothing a later request
+      // writes can be at this key by then: once the account exists, `begin`
+      // finds the address taken and writes at its probe key. A store fault is
+      // not the caller's answer; an entry left behind expires with its TTL.
+      yield* forkBackground(
+        spendEntry(stores.pendingRegistrations, key, pending).pipe(Effect.ignore),
+      );
 
       const issued = yield* issueTokens(
         id,

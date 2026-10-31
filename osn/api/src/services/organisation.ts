@@ -1,9 +1,11 @@
 import { organisations, organisationMembers, users } from "@osn/db/schema";
-import { Db } from "@osn/db/service";
-import { commitBatch, driverErrorText } from "@shared/db-utils";
-import { and, eq } from "drizzle-orm";
+import { Db, type DbService } from "@osn/db/service";
+import { commitBatch, driverErrorText, rowsChanged } from "@shared/db-utils";
+import { and, eq, exists, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import { Data, Effect } from "effect";
 
+import { bound } from "../lib/bound";
 import { withOrgMemberOp, withOrgOp } from "../metrics";
 import { RESERVED_HANDLES } from "./auth/constants";
 
@@ -55,7 +57,85 @@ function clampLimit(limit: number | undefined): number {
 // Organisation service factory
 // ---------------------------------------------------------------------------
 
+/** A second name for `organisation_members`, for a statement that reads the caller's own row. */
+const callerMembership = alias(organisationMembers, "caller_membership");
+
+/**
+ * True while `profileId` is an admin of `orgId`: a condition a write carries,
+ * so the write holds only while the caller's admin row does.
+ */
+const adminOf = (db: DbService["db"], orgId: string, profileId: string) =>
+  exists(
+    db
+      .select({ one: sql`1` })
+      .from(callerMembership)
+      .where(
+        and(
+          eq(callerMembership.organisationId, orgId),
+          eq(callerMembership.profileId, profileId),
+          eq(callerMembership.role, "admin"),
+        ),
+      ),
+  );
+
 export function createOrganisationService() {
+  // -------------------------------------------------------------------------
+  // Reads a refused write uses to answer as its checks would now
+  // -------------------------------------------------------------------------
+
+  const readOrganisation = (orgId: string) =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      return yield* Effect.tryPromise({
+        try: () =>
+          db
+            .select({ id: organisations.id })
+            .from(organisations)
+            .where(eq(organisations.id, orgId))
+            .limit(1),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+    });
+
+  const readAdmin = (orgId: string, profileId: string) =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      return yield* Effect.tryPromise({
+        try: () =>
+          db
+            .select({ id: organisationMembers.id })
+            .from(organisationMembers)
+            .where(
+              and(
+                eq(organisationMembers.organisationId, orgId),
+                eq(organisationMembers.profileId, profileId),
+                eq(organisationMembers.role, "admin"),
+              ),
+            )
+            .limit(1),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+    });
+
+  const readMembership = (orgId: string, profileId: string) =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      return yield* Effect.tryPromise({
+        try: () =>
+          db
+            .select({ role: organisationMembers.role })
+            .from(organisationMembers)
+            .where(
+              and(
+                eq(organisationMembers.organisationId, orgId),
+                eq(organisationMembers.profileId, profileId),
+              ),
+            )
+            .limit(1),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+    });
+
   // -------------------------------------------------------------------------
   // Organisation CRUD
   // -------------------------------------------------------------------------
@@ -240,10 +320,25 @@ export function createOrganisationService() {
       if (updates.name !== undefined) setClause.name = updates.name;
       if (updates.description !== undefined) setClause.description = updates.description;
 
-      yield* Effect.tryPromise({
-        try: () => db.update(organisations).set(setClause).where(eq(organisations.id, orgId)),
+      // Writes only while the caller is still an admin of the organisation.
+      const updated = yield* Effect.tryPromise({
+        try: () =>
+          db
+            .update(organisations)
+            .set(setClause)
+            .where(and(eq(organisations.id, orgId), adminOf(db, orgId, callerId))),
         catch: (cause) => new DatabaseError({ cause }),
       });
+      if (rowsChanged(updated) === 0) {
+        // The organisation or the caller's admin row is gone since the checks
+        // read them: refused as the checks would refuse now.
+        if ((yield* readOrganisation(orgId)).length === 0) {
+          return yield* Effect.fail(new NotFoundError({ message: "Organisation not found" }));
+        }
+        return yield* Effect.fail(
+          new OrgError({ message: "Only admins can update the organisation" }),
+        );
+      }
 
       // Construct return from known state instead of re-fetching
       const org = orgRows[0];
@@ -387,17 +482,51 @@ export function createOrganisationService() {
         return yield* Effect.fail(new OrgError({ message: "Profile is already a member" }));
       }
 
-      yield* Effect.tryPromise({
+      // Inserts from the caller's own admin row, so the member is added only
+      // while the caller is still an admin; a profile added since is left as
+      // it is. The owner-only grant needs no guard here: `ownerId` never
+      // changes.
+      const inserted = yield* Effect.tryPromise({
         try: () =>
-          db.insert(organisationMembers).values({
-            id: genId("orgm_"),
-            organisationId: orgId,
-            profileId: targetProfileId,
-            role,
-            createdAt: now(),
-          }),
+          db
+            .insert(organisationMembers)
+            .select(
+              db
+                .select({
+                  id: bound(genId("orgm_"), organisationMembers.id),
+                  organisationId: bound(orgId, organisationMembers.organisationId),
+                  profileId: bound(targetProfileId, organisationMembers.profileId),
+                  role: bound(role, organisationMembers.role),
+                  createdAt: bound(now(), organisationMembers.createdAt),
+                })
+                .from(callerMembership)
+                .where(
+                  and(
+                    eq(callerMembership.organisationId, orgId),
+                    eq(callerMembership.profileId, callerId),
+                    eq(callerMembership.role, "admin"),
+                  ),
+                ),
+            )
+            .onConflictDoNothing({
+              target: [organisationMembers.organisationId, organisationMembers.profileId],
+            }),
         catch: (cause) => new DatabaseError({ cause }),
       });
+      if (rowsChanged(inserted) === 0) {
+        // Refused as the checks would refuse now.
+        const [orgNow, adminNow] = yield* Effect.all(
+          [readOrganisation(orgId), readAdmin(orgId, callerId)],
+          { concurrency: 2 },
+        );
+        if (orgNow.length === 0) {
+          return yield* Effect.fail(new NotFoundError({ message: "Organisation not found" }));
+        }
+        if (adminNow.length === 0) {
+          return yield* Effect.fail(new OrgError({ message: "Only admins can add members" }));
+        }
+        return yield* Effect.fail(new OrgError({ message: "Profile is already a member" }));
+      }
     }).pipe(withOrgMemberOp("add"));
 
   const removeMember = (
@@ -474,11 +603,49 @@ export function createOrganisationService() {
         return yield* Effect.fail(new OrgError({ message: "Only the owner can remove an admin" }));
       }
 
-      yield* Effect.tryPromise({
+      // Deletes the membership only while what the checks read still holds:
+      // the member's row, and, for a caller that is not the owner, its
+      // plain-member role and the caller's own admin row. A member promoted,
+      // or a caller demoted, since the checks is not removed.
+      const isOwner = orgRows[0].ownerId === callerId;
+      const removed = yield* Effect.tryPromise({
         try: () =>
-          db.delete(organisationMembers).where(eq(organisationMembers.id, targetMember[0].id)),
+          db
+            .delete(organisationMembers)
+            .where(
+              and(
+                eq(organisationMembers.id, targetMember[0].id),
+                eq(organisationMembers.organisationId, orgId),
+                eq(organisationMembers.profileId, targetProfileId),
+                isOwner ? undefined : eq(organisationMembers.role, "member"),
+                isOwner ? undefined : adminOf(db, orgId, callerId),
+              ),
+            ),
         catch: (cause) => new DatabaseError({ cause }),
       });
+      if (rowsChanged(removed) === 0) {
+        // Refused as the checks would refuse now, in their order.
+        const [orgNow, adminNow, memberNow] = yield* Effect.all(
+          [
+            readOrganisation(orgId),
+            readAdmin(orgId, callerId),
+            readMembership(orgId, targetProfileId),
+          ],
+          { concurrency: 3 },
+        );
+        if (orgNow.length === 0) {
+          return yield* Effect.fail(new NotFoundError({ message: "Organisation not found" }));
+        }
+        if (adminNow.length === 0) {
+          return yield* Effect.fail(new OrgError({ message: "Only admins can remove members" }));
+        }
+        if (memberNow[0]?.role === "admin" && !isOwner) {
+          return yield* Effect.fail(
+            new OrgError({ message: "Only the owner can remove an admin" }),
+          );
+        }
+        return yield* Effect.fail(new NotFoundError({ message: "Member not found" }));
+      }
     }).pipe(withOrgMemberOp("remove"));
 
   const updateMemberRole = (
@@ -530,14 +697,29 @@ export function createOrganisationService() {
         return yield* Effect.fail(new NotFoundError({ message: "Member not found" }));
       }
 
-      yield* Effect.tryPromise({
+      // Changes the membership only while it is the one read; the owner
+      // check above reads `ownerId`, which never changes.
+      const changed = yield* Effect.tryPromise({
         try: () =>
           db
             .update(organisationMembers)
             .set({ role: newRole })
-            .where(eq(organisationMembers.id, targetMember[0].id)),
+            .where(
+              and(
+                eq(organisationMembers.id, targetMember[0].id),
+                eq(organisationMembers.organisationId, orgId),
+                eq(organisationMembers.profileId, targetProfileId),
+              ),
+            ),
         catch: (cause) => new DatabaseError({ cause }),
       });
+      if (rowsChanged(changed) === 0) {
+        // The organisation or the membership is gone since the read.
+        if ((yield* readOrganisation(orgId)).length === 0) {
+          return yield* Effect.fail(new NotFoundError({ message: "Organisation not found" }));
+        }
+        return yield* Effect.fail(new NotFoundError({ message: "Member not found" }));
+      }
     }).pipe(withOrgMemberOp("update_role"));
 
   const listMembers = (

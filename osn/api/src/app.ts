@@ -7,23 +7,15 @@ import type { TurnstileVerifier } from "@shared/turnstile";
 import { Elysia } from "elysia";
 
 import type { CookieSessionConfig } from "./lib/cookie-session";
+import type { CoordinationStores } from "./lib/coordination";
 import { createOriginGuard } from "./lib/origin-guard";
-import type { RedisCeremonyWiring } from "./lib/redis-ceremony-stores";
-import type {
-  createRedisAuthRateLimiters,
-  createRedisGraphRateLimiter,
-  createRedisOrgRateLimiter,
-  createRedisProfileRateLimiters,
-  createRedisRecommendationRateLimiters,
-} from "./lib/redis-rate-limiters";
-import type { createRedisRotatedSessionStore } from "./lib/rotated-session-store";
-import type { createRedisJtiStore } from "./lib/step-up-jti-store";
 import { createAccountErasureRoutes } from "./routes/account-erasure";
 import { createAccountExportRoutes } from "./routes/account-export";
 import { createAuthRoutes } from "./routes/auth";
 import type { DevLoginConfig } from "./routes/auth/dev-login";
 import { createGraphRoutes } from "./routes/graph";
 import { createInternalGraphRoutes } from "./routes/graph-internal";
+import { createCoordinationHealthRoutes } from "./routes/health-coordination";
 import { createInternalAccountRoutes } from "./routes/internal-account";
 import { createOrganisationRoutes } from "./routes/organisation";
 import { createInternalOrganisationRoutes } from "./routes/organisation-internal";
@@ -84,32 +76,44 @@ export interface AppDeps {
   observabilityLayer: Parameters<typeof createAuthRoutes>[2];
   /** Shared `ManagedRuntime` — the layer graph, built once. */
   appRuntime: Parameters<typeof createAuthRoutes>[6];
-  /** Per-IP auth rate limiters. */
-  authRateLimiters: ReturnType<typeof createRedisAuthRateLimiters>;
-  /** Per-user graph write rate limiter. */
-  graphRateLimiter: ReturnType<typeof createRedisGraphRateLimiter>;
-  /** Per-user org write rate limiter. */
-  orgRateLimiter: ReturnType<typeof createRedisOrgRateLimiter>;
-  /** Per-user profile rate limiters. */
-  profileRateLimiters: ReturnType<typeof createRedisProfileRateLimiters>;
-  /** Per-user recommendation rate limiter. */
-  recommendationRateLimiters: ReturnType<typeof createRedisRecommendationRateLimiters>;
-  /** Cluster-safe single-use guard for step-up JWTs. */
-  stepUpJtiStore: ReturnType<typeof createRedisJtiStore>;
-  /** Cluster-safe rotated-session reuse-detection store. */
-  rotatedSessionStore: ReturnType<typeof createRedisRotatedSessionStore>;
   /**
-   * O3/O2 (W6) — Redis-backed ceremony / pending-state stores, the recovery-code
-   * lockout counter, and the two per-account caps. Spread into `authConfig` at
-   * the `createAuthRoutes` call alongside the step-up / rotated-session stores.
+   * Per-IP auth rate limiters: the coordination bundle's, with the one-minute
+   * ones on native bindings where the Worker has them.
    */
-  ceremonyStores: RedisCeremonyWiring["ceremonyStores"];
-  recoveryLockoutStore: RedisCeremonyWiring["recoveryLockoutStore"];
-  recoveryOtpLockoutStore: RedisCeremonyWiring["recoveryOtpLockoutStore"];
-  totpLockoutStore: RedisCeremonyWiring["totpLockoutStore"];
-  profileSwitchCap: RedisCeremonyWiring["profileSwitchCap"];
-  emailChangeBeginCap: RedisCeremonyWiring["emailChangeBeginCap"];
-  recoveryEmailBeginCap: RedisCeremonyWiring["recoveryEmailBeginCap"];
+  authRateLimiters: CoordinationStores["authRateLimiters"];
+  /** Per-user graph write rate limiter. */
+  graphRateLimiter: CoordinationStores["graphRateLimiter"];
+  /** Per-user org write rate limiter. */
+  orgRateLimiter: CoordinationStores["orgRateLimiter"];
+  /** Per-IP profile rate limiters. */
+  profileRateLimiters: CoordinationStores["profileRateLimiters"];
+  /** Per-user recommendation rate limiters. */
+  recommendationRateLimiters: CoordinationStores["recommendationRateLimiters"];
+  /** Per-account account-export limiter, and the per-IP guard in front of it. */
+  accountExportLimiter: CoordinationStores["accountExportLimiter"];
+  accountExportIpLimiter: CoordinationStores["accountExportIpLimiter"];
+  /** Per-account deletion, restore and status limiters. */
+  accountErasureRateLimiters: CoordinationStores["accountErasureRateLimiters"];
+  /** Single-use guard for step-up JWTs. */
+  stepUpJtiStore: CoordinationStores["stepUpJtiStore"];
+  /** Single-use claims on discoverable passkey challenges. */
+  passkeyChallengeClaims: CoordinationStores["passkeyChallengeClaims"];
+  /**
+   * The ceremony / pending-state stores, the three lockout counters and the
+   * three per-account caps, from the coordination bundle. Spread into the
+   * auth config every route factory gets, alongside the step-up guard.
+   */
+  ceremonyStores: CoordinationStores["ceremonyStores"];
+  recoveryLockoutStore: CoordinationStores["recoveryLockoutStore"];
+  recoveryOtpLockoutStore: CoordinationStores["recoveryOtpLockoutStore"];
+  totpLockoutStore: CoordinationStores["totpLockoutStore"];
+  profileSwitchCap: CoordinationStores["profileSwitchCap"];
+  emailChangeBeginCap: CoordinationStores["emailChangeBeginCap"];
+  recoveryEmailBeginCap: CoordinationStores["recoveryEmailBeginCap"];
+  /** The coordination round trip `GET /health/coordination` runs. */
+  healthProbe: CoordinationStores["healthProbe"];
+  /** Per-IP limiter in front of it: native where the Worker has the binding. */
+  healthProbeLimiter: CoordinationStores["healthProbeLimiter"];
   /**
    * Client-IP trust policy. Derived from `TRUSTED_PROXY_COUNT`. Threaded
    * into the auth + profile route factories so per-IP rate-limit keying + the
@@ -176,8 +180,11 @@ export function createApp(deps: AppDeps) {
     orgRateLimiter,
     profileRateLimiters,
     recommendationRateLimiters,
+    accountExportLimiter,
+    accountExportIpLimiter,
+    accountErasureRateLimiters,
     stepUpJtiStore,
-    rotatedSessionStore,
+    passkeyChallengeClaims,
     ceremonyStores,
     recoveryLockoutStore,
     recoveryOtpLockoutStore,
@@ -185,6 +192,8 @@ export function createApp(deps: AppDeps) {
     profileSwitchCap,
     emailChangeBeginCap,
     recoveryEmailBeginCap,
+    healthProbe,
+    healthProbeLimiter,
     clientIpConfig,
     internalServiceSecret,
     turnstileVerifier,
@@ -212,6 +221,14 @@ export function createApp(deps: AppDeps) {
 
   const withRoot = withObservability
     .use(healthRoutes({ serviceName }))
+    .use(
+      createCoordinationHealthRoutes(
+        healthProbe,
+        healthProbeLimiter,
+        internalServiceSecret,
+        clientIpConfig,
+      ),
+    )
     .get("/", () => ({ status: "ok", service: "osn-auth" }));
 
   // The docs are gated the same way, and mounted in the same position in the
@@ -239,28 +256,35 @@ export function createApp(deps: AppDeps) {
           // `/.well-known/openid-configuration` and `/.well-known/jwks.json` —
           // the two endpoints every relying party reads first. No route here
           // serves a file, so nothing else changes.
-          exclude: { paths: ["/", "/health", "/ready"], staticFile: false },
+          exclude: {
+            paths: ["/", "/health", "/health/coordination", "/ready"],
+            staticFile: false,
+          },
         }),
       )
     : withRoot;
 
+  // The coordination stores join the auth config, and every route factory
+  // gets this one. A factory given the bare `authConfig` builds an auth
+  // service on in-memory defaults, whose step-up guard is then single-use
+  // per isolate rather than across every isolate.
+  const sharedAuthConfig: AuthConfig = {
+    ...authConfig,
+    stepUpJtiStore,
+    passkeyChallengeClaims,
+    ceremonyStores,
+    recoveryLockoutStore,
+    recoveryOtpLockoutStore,
+    totpLockoutStore,
+    profileSwitchCap,
+    emailChangeBeginCap,
+    recoveryEmailBeginCap,
+  };
+
   return withDocs
     .use(
       createAuthRoutes(
-        // INTEGRATION: O3/O2 (W6) — ceremonyStores + recoveryLockoutStore + the
-        // two caps join stepUpJtiStore / rotatedSessionStore on the auth config.
-        {
-          ...authConfig,
-          stepUpJtiStore,
-          rotatedSessionStore,
-          ceremonyStores,
-          recoveryLockoutStore,
-          recoveryOtpLockoutStore,
-          totpLockoutStore,
-          profileSwitchCap,
-          emailChangeBeginCap,
-          recoveryEmailBeginCap,
-        },
+        sharedAuthConfig,
         dbAndEmailLayer,
         observabilityLayer,
         authRateLimiters,
@@ -272,15 +296,23 @@ export function createApp(deps: AppDeps) {
         cireOrganiserRevoke,
       ),
     )
-    .use(createGraphRoutes(authConfig, DbLive, observabilityLayer, graphRateLimiter, appRuntime))
+    .use(
+      createGraphRoutes(sharedAuthConfig, DbLive, observabilityLayer, graphRateLimiter, appRuntime),
+    )
     .use(createInternalGraphRoutes(DbLive, appRuntime, internalServiceSecret, observabilityLayer))
     .use(
-      createOrganisationRoutes(authConfig, DbLive, observabilityLayer, orgRateLimiter, appRuntime),
+      createOrganisationRoutes(
+        sharedAuthConfig,
+        DbLive,
+        observabilityLayer,
+        orgRateLimiter,
+        appRuntime,
+      ),
     )
     .use(createInternalOrganisationRoutes(DbLive, appRuntime))
     .use(
       createProfileRoutes(
-        authConfig,
+        sharedAuthConfig,
         DbLive,
         observabilityLayer,
         profileRateLimiters,
@@ -290,7 +322,7 @@ export function createApp(deps: AppDeps) {
     )
     .use(
       createRecommendationRoutes(
-        authConfig,
+        sharedAuthConfig,
         DbLive,
         observabilityLayer,
         recommendationRateLimiters,
@@ -299,10 +331,10 @@ export function createApp(deps: AppDeps) {
     )
     .use(
       createAccountErasureRoutes(
-        authConfig,
+        sharedAuthConfig,
         dbAndEmailLayer,
         observabilityLayer,
-        undefined,
+        accountErasureRateLimiters,
         cookieConfig,
         clientIpConfig,
         appRuntime,
@@ -310,16 +342,16 @@ export function createApp(deps: AppDeps) {
     )
     .use(
       createAccountExportRoutes(
-        authConfig,
+        sharedAuthConfig,
         DbLive,
         observabilityLayer,
-        undefined,
-        undefined,
+        accountExportLimiter,
+        accountExportIpLimiter,
         clientIpConfig,
         appRuntime,
       ),
     )
-    .use(createInternalAccountRoutes(authConfig, DbLive, appRuntime));
+    .use(createInternalAccountRoutes(sharedAuthConfig, DbLive, appRuntime));
 }
 
 export type App = ReturnType<typeof createApp>;

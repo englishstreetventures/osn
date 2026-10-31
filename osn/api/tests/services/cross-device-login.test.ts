@@ -1,11 +1,24 @@
 import { it, expect, describe } from "@effect/vitest";
+import { accounts, securityEvents, sessions, users } from "@osn/db/schema";
+import { Db } from "@osn/db/service";
+import type { CoordinationNamespace } from "@shared/coordination";
 import { makeLogEmailLive } from "@shared/email";
-import { Effect, Layer } from "effect";
+import { and, eq } from "drizzle-orm";
+import { Effect, Fiber, Layer } from "effect";
 import { beforeAll } from "vitest";
 
+import { createDurableCoordination } from "../../src/lib/coordination/durable";
 import { createAuthService } from "../../src/services/auth";
+import { MAX_SESSIONS_PER_ACCOUNT } from "../../src/services/auth/constants";
+import { deriveSessionBinding } from "../../src/services/auth/helpers";
 import { makeTestAuthConfig } from "../helpers/auth-config";
-import { createTestLayer } from "../helpers/db";
+import { settle } from "../helpers/background";
+import { createFakeNamespace } from "../helpers/coordination-namespace";
+import {
+  createCapturingTestLayer,
+  createTestLayer,
+  createTestLayerWithSqlite,
+} from "../helpers/db";
 
 function makeAuth() {
   const email = makeLogEmailLive();
@@ -47,37 +60,37 @@ describe("cross-device login", () => {
   });
 
   it.effect("poll returns pending before approval", () => {
-    const { svc } = makeAuth();
+    const { svc, layer } = makeAuth();
     return Effect.gen(function* () {
       const { requestId, cdlSecret: secret } = yield* svc.beginCrossDeviceLogin();
       const status = yield* svc.getCrossDeviceLoginStatus(requestId, secret);
       expect(status.status).toBe("pending");
-    });
+    }).pipe(Effect.provide(layer));
   });
 
   it.effect("poll returns expired for unknown requestId", () => {
-    const { svc } = makeAuth();
+    const { svc, layer } = makeAuth();
     return Effect.gen(function* () {
       const status = yield* svc.getCrossDeviceLoginStatus("cdl_000000000000", "deadbeef");
       expect(status.status).toBe("expired");
-    });
+    }).pipe(Effect.provide(layer));
   });
 
   it.effect("poll rejects wrong secret", () => {
-    const { svc } = makeAuth();
+    const { svc, layer } = makeAuth();
     return Effect.gen(function* () {
       const { requestId } = yield* svc.beginCrossDeviceLogin();
       const error = yield* Effect.flip(svc.getCrossDeviceLoginStatus(requestId, "wrong_secret"));
       expect(error._tag).toBe("AuthError");
       expect(error.message).toContain("Invalid secret");
-    });
+    }).pipe(Effect.provide(layer));
   });
 
   it.effect("full lifecycle: begin → approve → poll returns session", () => {
     const { svc, captured, layer } = makeAuth();
     return Effect.gen(function* () {
       // Register a user first
-      yield* svc.beginRegistration("cdl@example.com", "cdl_user", "1990-01-01");
+      yield* settle(svc.beginRegistration("cdl@example.com", "cdl_user", "1990-01-01"));
       yield* svc.completeRegistration("cdl@example.com", captured.code!, {
         uaLabel: "Device A",
       });
@@ -121,7 +134,7 @@ describe("cross-device login", () => {
   it.effect("approved session is consumed on first poll (one-time)", () => {
     const { svc, captured, layer } = makeAuth();
     return Effect.gen(function* () {
-      yield* svc.beginRegistration("cdl2@example.com", "cdl_user2", "1990-01-01");
+      yield* settle(svc.beginRegistration("cdl2@example.com", "cdl_user2", "1990-01-01"));
       yield* svc.completeRegistration("cdl2@example.com", captured.code!, {});
       const profile = yield* svc.findProfileByEmail("cdl2@example.com");
 
@@ -139,20 +152,20 @@ describe("cross-device login", () => {
   });
 
   it.effect("reject marks request as rejected", () => {
-    const { svc } = makeAuth();
+    const { svc, layer } = makeAuth();
     return Effect.gen(function* () {
       const { requestId, cdlSecret: secret } = yield* svc.beginCrossDeviceLogin();
       yield* svc.rejectCrossDeviceLogin(requestId, secret);
 
       const status = yield* svc.getCrossDeviceLoginStatus(requestId, secret);
       expect(status.status).toBe("rejected");
-    });
+    }).pipe(Effect.provide(layer));
   });
 
   it.effect("approve rejects wrong secret", () => {
     const { svc, captured, layer } = makeAuth();
     return Effect.gen(function* () {
-      yield* svc.beginRegistration("cdl3@example.com", "cdl_user3", "1990-01-01");
+      yield* settle(svc.beginRegistration("cdl3@example.com", "cdl_user3", "1990-01-01"));
       yield* svc.completeRegistration("cdl3@example.com", captured.code!, {});
       const profile = yield* svc.findProfileByEmail("cdl3@example.com");
 
@@ -168,7 +181,7 @@ describe("cross-device login", () => {
   it.effect("approve fails on already-approved request", () => {
     const { svc, captured, layer } = makeAuth();
     return Effect.gen(function* () {
-      yield* svc.beginRegistration("cdl4@example.com", "cdl_user4", "1990-01-01");
+      yield* settle(svc.beginRegistration("cdl4@example.com", "cdl_user4", "1990-01-01"));
       yield* svc.completeRegistration("cdl4@example.com", captured.code!, {});
       const profile = yield* svc.findProfileByEmail("cdl4@example.com");
 
@@ -192,5 +205,647 @@ describe("cross-device login", () => {
       expect(error._tag).toBe("AuthError");
       expect(error.message).toContain("not found");
     });
+  });
+});
+
+/**
+ * An approval reserves a session row for device B and parks who approved,
+ * which profile, and the reserved row's id — never a token. The poll that
+ * takes the approved entry replaces the reserved row with device B's session,
+ * minted from the account and profile as they are then, and refuses when a
+ * revocation has removed the row or the account or profile has gone. Run on
+ * the Durable Object bundle over a stand-in namespace, with every `read`
+ * answering a few milliseconds late, as a round trip does, so two requests'
+ * reads overlap however the rest is scheduled.
+ */
+describe("cross-device login on the shared store", () => {
+  const READ_DELAY_MS = 10;
+
+  const slowReads = (ns: CoordinationNamespace): CoordinationNamespace => ({
+    getByName(name, options) {
+      const stub = ns.getByName(name, options);
+      return {
+        ...stub,
+        read: async () => {
+          const value = await stub.read();
+          await new Promise((resolve) => setTimeout(resolve, READ_DELAY_MS));
+          return value;
+        },
+      };
+    },
+  });
+
+  /**
+   * Every `swap` waits a read's delay before it runs, so two approvals that
+   * read together have both reserved their rows before either decides; a
+   * `swap` that answers false answers a further read's delay late, so the
+   * winner's writes land while the loser's reserved row is still there.
+   */
+  const heldSwaps = (ns: CoordinationNamespace): CoordinationNamespace => ({
+    getByName(name, options) {
+      const stub = ns.getByName(name, options);
+      return {
+        ...stub,
+        swap: async (expected, value, ttlMs) => {
+          await new Promise((resolve) => setTimeout(resolve, READ_DELAY_MS));
+          const swapped = await stub.swap(expected, value, ttlMs);
+          if (!swapped) await new Promise((resolve) => setTimeout(resolve, READ_DELAY_MS));
+          return swapped;
+        },
+      };
+    },
+  });
+
+  function harness(holdSwaps = false) {
+    const fake = createFakeNamespace();
+    const ns = slowReads(fake.ns);
+    const bundle = createDurableCoordination(holdSwaps ? heldSwaps(ns) : ns, () => {});
+    const svc = createAuthService({ ...config, ceremonyStores: bundle.ceremonyStores });
+    const layer = Layer.merge(createTestLayer(), makeLogEmailLive().layer);
+    return { svc, layer, fake, store: bundle.ceremonyStores.crossDeviceRequests };
+  }
+
+  /** While set, every `swap` on the cross-device store rejects, as an unreachable object does. */
+  const failSwaps = (fake: ReturnType<typeof createFakeNamespace>) =>
+    fake.failWhen((call) => call.store === "cross_device" && call.op === "swap");
+
+  const sessionIds = (accountId: string) =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const rows = yield* Effect.promise(() =>
+        db.select({ id: sessions.id }).from(sessions).where(eq(sessions.accountId, accountId)),
+      );
+      return rows.map((row) => row.id);
+    });
+
+  /**
+   * Signs `profile` in on MAX_SESSIONS_PER_ACCOUNT devices, and makes one of
+   * them the least recently used by a clear margin. Answers every session's
+   * id and that one's.
+   */
+  const fillToCap = (
+    svc: ReturnType<typeof createAuthService>,
+    profile: {
+      readonly id: string;
+      readonly accountId: string;
+      readonly email: string;
+      readonly handle: string;
+      readonly displayName: string | null;
+    },
+  ) =>
+    Effect.gen(function* () {
+      const seeded: string[] = [];
+      for (let i = 0; i < MAX_SESSIONS_PER_ACCOUNT; i++) {
+        const tokens = yield* svc.issueTokens(
+          profile.id,
+          profile.accountId,
+          profile.email,
+          profile.handle,
+          profile.displayName,
+        );
+        seeded.push(svc.hashSessionToken(tokens.refreshToken));
+      }
+      const { db } = yield* Db;
+      const oldest = seeded[7]!;
+      yield* Effect.promise(() =>
+        db.update(sessions).set({ lastUsedAt: 1 }).where(eq(sessions.id, oldest)),
+      );
+      return { seeded, oldest };
+    });
+
+  const countRows = (accountId: string) =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const live = yield* Effect.promise(() =>
+        db.select({ id: sessions.id }).from(sessions).where(eq(sessions.accountId, accountId)),
+      );
+      const events = yield* Effect.promise(() =>
+        db
+          .select({ id: securityEvents.id })
+          .from(securityEvents)
+          .where(
+            and(
+              eq(securityEvents.accountId, accountId),
+              eq(securityEvents.kind, "cross_device_login"),
+            ),
+          ),
+      );
+      return { sessions: live.length, events: events.length };
+    });
+
+  const successes = (results: readonly { readonly _tag: string }[]) =>
+    results.filter((r) => r._tag === "Success").length;
+
+  it.live(
+    "the approved entry holds the account, the profile id and the reserved row, no token",
+    () => {
+      const { svc, layer, store } = harness();
+      return Effect.gen(function* () {
+        const profile = yield* svc.registerProfile("cdl-store@example.com", "cdlstore");
+        const { requestId, cdlSecret } = yield* svc.beginCrossDeviceLogin();
+        yield* svc.approveCrossDeviceLogin(requestId, cdlSecret, profile.accountId);
+
+        const entry = yield* Effect.promise(() => store.get(requestId));
+        expect(entry).toMatchObject({
+          status: "approved",
+          accountId: profile.accountId,
+          profileId: profile.id,
+        });
+        expect(Object.keys(entry!).toSorted()).toEqual([
+          "accountId",
+          "createdAt",
+          "expiresAt",
+          "ipHash",
+          "profileId",
+          "requestId",
+          "secretHash",
+          "sessionId",
+          "status",
+          "uaLabel",
+        ]);
+        const stored = JSON.stringify(entry);
+        expect(stored).not.toMatch(/ses_|eyJ|accessToken|refreshToken|cdl-store@example\.com/);
+        // The reserved row is the only session, and it lasts no longer than the request.
+        const { db } = yield* Db;
+        const rows = yield* Effect.promise(() =>
+          db.select().from(sessions).where(eq(sessions.accountId, profile.accountId)),
+        );
+        expect(rows.map((r) => r.id)).toEqual([entry!.sessionId]);
+        expect(rows[0]!.expiresAt).toBeLessThanOrEqual(Math.ceil(entry!.expiresAt / 1000));
+      }).pipe(Effect.provide(layer));
+    },
+  );
+
+  /** An account, a request it approved, and the poll that follows `between`. */
+  const approvedThen = <E>(
+    handle: string,
+    between: (
+      svc: ReturnType<typeof createAuthService>,
+      profile: { readonly id: string; readonly accountId: string },
+    ) => Effect.Effect<unknown, E, Db>,
+  ) => {
+    const { svc, layer } = harness();
+    return Effect.gen(function* () {
+      const profile = yield* svc.registerProfile(`${handle}@example.com`, handle);
+      const { requestId, cdlSecret } = yield* svc.beginCrossDeviceLogin();
+      yield* svc.approveCrossDeviceLogin(requestId, cdlSecret, profile.accountId);
+      yield* between(svc, profile);
+      const poll = yield* svc.getCrossDeviceLoginStatus(requestId, cdlSecret);
+      const { sessions: live } = yield* countRows(profile.accountId);
+      return { poll, live, profile };
+    }).pipe(Effect.provide(layer));
+  };
+
+  it.live("refuses, with no token, once the account's other sessions are revoked", () =>
+    approvedThen("cdlrevoked", (svc, profile) =>
+      svc.revokeAllOtherAccountSessions(profile.accountId, "ses-hash-of-device-a"),
+    ).pipe(
+      Effect.tap(({ poll, live }) =>
+        Effect.sync(() => {
+          expect(poll).toEqual({ status: "expired" });
+          expect(live).toBe(0);
+        }),
+      ),
+    ),
+  );
+
+  it.live("refuses, with no token, once the account is scheduled for deletion", () =>
+    approvedThen("cdldeleted", (_svc, profile) =>
+      Effect.gen(function* () {
+        const { db } = yield* Db;
+        yield* Effect.promise(() =>
+          db
+            .update(accounts)
+            .set({ deletedAt: Math.floor(Date.now() / 1000) })
+            .where(eq(accounts.id, profile.accountId)),
+        );
+      }),
+    ).pipe(
+      Effect.tap(({ poll, live }) =>
+        Effect.sync(() => {
+          expect(poll).toEqual({ status: "expired" });
+          expect(live).toBe(0);
+        }),
+      ),
+    ),
+  );
+
+  it.live("refuses, with no token, once the profile is gone", () =>
+    approvedThen("cdlgone", (_svc, profile) =>
+      Effect.gen(function* () {
+        const { db } = yield* Db;
+        yield* Effect.promise(() => db.delete(users).where(eq(users.id, profile.id)));
+      }),
+    ).pipe(
+      Effect.tap(({ poll, live }) =>
+        Effect.sync(() => {
+          expect(poll).toEqual({ status: "expired" });
+          expect(live).toBe(0);
+        }),
+      ),
+    ),
+  );
+
+  it.live("refuses, with no token, once the profile belongs to another account", () =>
+    approvedThen("cdlmoved", (svc, profile) =>
+      Effect.gen(function* () {
+        const other = yield* svc.registerProfile("cdlmoved-other@example.com", "cdlmovedother");
+        const { db } = yield* Db;
+        yield* Effect.promise(() =>
+          db.update(users).set({ accountId: other.accountId }).where(eq(users.id, profile.id)),
+        );
+      }),
+    ).pipe(
+      Effect.tap(({ poll, live }) =>
+        Effect.sync(() => {
+          expect(poll).toEqual({ status: "expired" });
+          expect(live).toBe(0);
+        }),
+      ),
+    ),
+  );
+
+  it.live("signs device B in with the profile as it is at the poll", () =>
+    approvedThen("cdlrenamed", (_svc, profile) =>
+      Effect.gen(function* () {
+        const { db } = yield* Db;
+        yield* Effect.promise(() =>
+          db
+            .update(users)
+            .set({ handle: "cdlrenamednow", displayName: "Renamed" })
+            .where(eq(users.id, profile.id)),
+        );
+        yield* Effect.promise(() =>
+          db
+            .update(accounts)
+            .set({ email: "cdlrenamed-now@example.com" })
+            .where(eq(accounts.id, profile.accountId)),
+        );
+      }),
+    ).pipe(
+      Effect.tap(({ poll, live }) =>
+        Effect.sync(() => {
+          if (poll.status !== "approved") throw new Error(`poll answered ${poll.status}`);
+          expect(poll.profile).toMatchObject({
+            handle: "cdlrenamednow",
+            displayName: "Renamed",
+            email: "cdlrenamed-now@example.com",
+          });
+          const claims = JSON.parse(
+            Buffer.from(poll.session.accessToken.split(".")[1]!, "base64url").toString("utf8"),
+          ) as Record<string, unknown>;
+          expect(claims).toMatchObject({
+            handle: "cdlrenamednow",
+            email: "cdlrenamed-now@example.com",
+          });
+          // The reserved row was replaced by device B's session, not added to.
+          expect(live).toBe(1);
+        }),
+      ),
+    ),
+  );
+
+  it.live("an approval at the session cap evicts the least recently used session", () => {
+    const { svc, layer } = harness();
+    return Effect.gen(function* () {
+      const profile = yield* svc.registerProfile("cdl-cap@example.com", "cdlcap");
+      const { oldest } = yield* fillToCap(svc, profile);
+
+      const { requestId, cdlSecret } = yield* svc.beginCrossDeviceLogin();
+      yield* svc.approveCrossDeviceLogin(requestId, cdlSecret, profile.accountId);
+
+      const ids = yield* sessionIds(profile.accountId);
+      expect(ids).toHaveLength(MAX_SESSIONS_PER_ACCOUNT);
+      expect(ids).not.toContain(oldest);
+
+      const poll = yield* svc.getCrossDeviceLoginStatus(requestId, cdlSecret);
+      expect(poll.status).toBe("approved");
+      expect((yield* countRows(profile.accountId)).sessions).toBe(MAX_SESSIONS_PER_ACCOUNT);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.live(
+    "of two approvals at once at the session cap, only the winner evicts, and only one session",
+    () => {
+      const { svc, layer } = harness(true);
+      return Effect.gen(function* () {
+        const profile = yield* svc.registerProfile("cdl-cap-race@example.com", "cdlcaprace");
+        const { seeded, oldest } = yield* fillToCap(svc, profile);
+        const { requestId, cdlSecret } = yield* svc.beginCrossDeviceLogin();
+
+        const approve = Effect.result(
+          svc.approveCrossDeviceLogin(requestId, cdlSecret, profile.accountId),
+        );
+        const approvals = yield* Effect.all([approve, approve], { concurrency: "unbounded" });
+        expect(successes(approvals)).toBe(1);
+
+        const ids = yield* sessionIds(profile.accountId);
+        expect(ids).toHaveLength(MAX_SESSIONS_PER_ACCOUNT);
+        expect(seeded.filter((id) => !ids.includes(id))).toEqual([oldest]);
+
+        const poll = yield* svc.getCrossDeviceLoginStatus(requestId, cdlSecret);
+        expect(poll.status).toBe("approved");
+        expect((yield* countRows(profile.accountId)).sessions).toBe(MAX_SESSIONS_PER_ACCOUNT);
+      }).pipe(Effect.provide(layer));
+    },
+  );
+
+  it.live("an approval whose swap fails at the session cap evicts nothing", () => {
+    const { svc, layer, fake } = harness();
+    return Effect.gen(function* () {
+      const profile = yield* svc.registerProfile("cdl-cap-fail@example.com", "cdlcapfail");
+      const { seeded } = yield* fillToCap(svc, profile);
+      const { requestId, cdlSecret } = yield* svc.beginCrossDeviceLogin();
+
+      failSwaps(fake);
+      const error = yield* Effect.flip(
+        svc.approveCrossDeviceLogin(requestId, cdlSecret, profile.accountId),
+      );
+      expect(error._tag).toBe("CoordinationError");
+      expect((yield* sessionIds(profile.accountId)).toSorted()).toEqual(seeded.toSorted());
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.live("of two polls at once, one gets a session and the other finds nothing", () => {
+    const { svc, layer } = harness();
+    return Effect.gen(function* () {
+      const profile = yield* svc.registerProfile("cdl-polls@example.com", "cdlpolls");
+      const { requestId, cdlSecret } = yield* svc.beginCrossDeviceLogin();
+      yield* svc.approveCrossDeviceLogin(requestId, cdlSecret, profile.accountId);
+
+      const polls = yield* Effect.all(
+        [
+          svc.getCrossDeviceLoginStatus(requestId, cdlSecret),
+          svc.getCrossDeviceLoginStatus(requestId, cdlSecret),
+        ],
+        { concurrency: "unbounded" },
+      );
+      expect(polls.map((p) => p.status).toSorted()).toEqual(["approved", "expired"]);
+      const approved = polls.find((p) => p.status === "approved");
+      if (approved?.status !== "approved") throw new Error("no poll was approved");
+      expect(approved.session.refreshToken).toMatch(/^ses_/);
+      expect(approved.profile.handle).toBe("cdlpolls");
+      expect((yield* countRows(profile.accountId)).sessions).toBe(1);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.live("of two approvals at once, one wins: one session and one security event", () => {
+    const { svc, layer } = harness();
+    return Effect.gen(function* () {
+      const profile = yield* svc.registerProfile("cdl-approve@example.com", "cdlapprove");
+      const { requestId, cdlSecret } = yield* svc.beginCrossDeviceLogin();
+
+      const approvals = yield* Effect.all(
+        [
+          Effect.result(svc.approveCrossDeviceLogin(requestId, cdlSecret, profile.accountId)),
+          Effect.result(svc.approveCrossDeviceLogin(requestId, cdlSecret, profile.accountId)),
+        ],
+        { concurrency: "unbounded" },
+      );
+      expect(successes(approvals)).toBe(1);
+      const poll = yield* svc.getCrossDeviceLoginStatus(requestId, cdlSecret);
+      expect(poll.status).toBe("approved");
+      expect(yield* countRows(profile.accountId)).toEqual({ sessions: 1, events: 1 });
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.live("an approval whose swap fails releases the row it reserved and records nothing", () => {
+    const { svc, layer, fake } = harness();
+    return Effect.gen(function* () {
+      const profile = yield* svc.registerProfile("cdl-swapfail@example.com", "cdlswapfail");
+      const { requestId, cdlSecret } = yield* svc.beginCrossDeviceLogin();
+
+      failSwaps(fake);
+      const error = yield* Effect.flip(
+        svc.approveCrossDeviceLogin(requestId, cdlSecret, profile.accountId),
+      );
+      expect(error._tag).toBe("CoordinationError");
+      expect(yield* countRows(profile.accountId)).toEqual({ sessions: 0, events: 0 });
+
+      fake.failWhen(null);
+      const poll = yield* svc.getCrossDeviceLoginStatus(requestId, cdlSecret);
+      expect(poll.status).toBe("pending");
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.live("of an approval and a rejection at once, one wins", () => {
+    const { svc, layer } = harness();
+    return Effect.gen(function* () {
+      const profile = yield* svc.registerProfile("cdl-either@example.com", "cdleither");
+      const { requestId, cdlSecret } = yield* svc.beginCrossDeviceLogin();
+
+      const decisions = yield* Effect.all(
+        [
+          Effect.result(svc.approveCrossDeviceLogin(requestId, cdlSecret, profile.accountId)),
+          Effect.result(svc.rejectCrossDeviceLogin(requestId, cdlSecret)),
+        ],
+        { concurrency: "unbounded" },
+      );
+      expect(successes(decisions)).toBe(1);
+      const poll = yield* svc.getCrossDeviceLoginStatus(requestId, cdlSecret);
+      expect(poll.status).toBe(decisions[0]._tag === "Success" ? "approved" : "rejected");
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.live(
+    "a poll at the session cap signs no device out while another request's reservation stands",
+    () => {
+      const { svc, layer } = harness();
+      return Effect.gen(function* () {
+        const profile = yield* svc.registerProfile("cdl-cap-poll@example.com", "cdlcappoll");
+        const { seeded, oldest } = yield* fillToCap(svc, profile);
+        const { requestId, cdlSecret } = yield* svc.beginCrossDeviceLogin();
+        yield* svc.approveCrossDeviceLogin(requestId, cdlSecret, profile.accountId);
+        const survivors = seeded.filter((id) => id !== oldest);
+
+        // The approval left the account at the cap. One device is now clearly
+        // the least recently used, and another request's approval has
+        // reserved its row and not yet decided.
+        const { db } = yield* Db;
+        yield* Effect.promise(() =>
+          db.update(sessions).set({ lastUsedAt: 2 }).where(eq(sessions.id, survivors[11]!)),
+        );
+        const nowSec = Math.floor(Date.now() / 1000);
+        yield* Effect.promise(() =>
+          db.insert(sessions).values({
+            id: "reserved-by-another-request",
+            accountId: profile.accountId,
+            familyId: "cdl_0123456789ab",
+            expiresAt: nowSec + 300,
+            createdAt: nowSec,
+            authenticatedAt: nowSec,
+            uaLabel: null,
+            ipHash: null,
+            lastUsedAt: nowSec,
+          }),
+        );
+
+        const poll = yield* svc.getCrossDeviceLoginStatus(requestId, cdlSecret);
+        expect(poll.status).toBe("approved");
+        const ids = yield* sessionIds(profile.accountId);
+        expect(survivors.filter((id) => !ids.includes(id))).toEqual([]);
+      }).pipe(Effect.provide(layer));
+    },
+  );
+
+  it.live("device B's session is a row of its own family, opened by its own tokens", () => {
+    const { svc, layer } = harness();
+    return Effect.gen(function* () {
+      const profile = yield* svc.registerProfile("cdl-row@example.com", "cdlrow");
+      const { requestId, cdlSecret } = yield* svc.beginCrossDeviceLogin({ uaLabel: "Device B" });
+      yield* svc.approveCrossDeviceLogin(requestId, cdlSecret, profile.accountId);
+      const poll = yield* svc.getCrossDeviceLoginStatus(requestId, cdlSecret);
+      if (poll.status !== "approved") throw new Error(`poll answered ${poll.status}`);
+
+      const { db } = yield* Db;
+      const rows = yield* Effect.promise(() =>
+        db.select().from(sessions).where(eq(sessions.accountId, profile.accountId)),
+      );
+      const id = svc.hashSessionToken(poll.session.refreshToken);
+      expect(rows.map((row) => row.id)).toEqual([id]);
+      expect(rows[0]!.familyId).toMatch(/^sfam_/);
+      expect(rows[0]!.uaLabel).toBe("Device B");
+      expect(rows[0]!.expiresAt).toBeGreaterThan(Math.floor(Date.now() / 1000) + 86_400);
+
+      const claims = JSON.parse(
+        Buffer.from(poll.session.accessToken.split(".")[1]!, "base64url").toString("utf8"),
+      ) as Record<string, unknown>;
+      expect(claims["osn_sid"]).toBe(deriveSessionBinding(id, profile.id));
+      const verified = yield* svc.verifyRefreshToken(poll.session.refreshToken);
+      expect(verified).toMatchObject({ accountId: profile.accountId, sessionId: id });
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.live("an approval reads its request and the approver's default profile side by side", () => {
+    const fake = createFakeNamespace();
+    let holding = false;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const ns: CoordinationNamespace = {
+      getByName(name, options) {
+        const stub = fake.ns.getByName(name, options);
+        return {
+          ...stub,
+          read: () =>
+            holding && name.startsWith("cross_device:")
+              ? gate.then(() => stub.read())
+              : stub.read(),
+        };
+      },
+    };
+    const bundle = createDurableCoordination(ns, () => {});
+    const svc = createAuthService({ ...config, ceremonyStores: bundle.ceremonyStores });
+    const database = createCapturingTestLayer();
+    return Effect.gen(function* () {
+      const profile = yield* svc.registerProfile("cdl-sbs@example.com", "cdlsbs");
+      const { requestId, cdlSecret } = yield* svc.beginCrossDeviceLogin();
+      holding = true;
+      const from = database.captured.length;
+      const approval = yield* Effect.forkChild(
+        svc.approveCrossDeviceLogin(requestId, cdlSecret, profile.accountId),
+      );
+      let profileRead = false;
+      for (let i = 0; i < 100 && !profileRead; i++) {
+        profileRead = database.captured
+          .slice(from)
+          .some((statement) => statement.sql.includes('from "users"'));
+        if (!profileRead) yield* Effect.sleep("10 millis");
+      }
+      release();
+      yield* Fiber.join(approval);
+      expect(profileRead).toBe(true);
+    }).pipe(Effect.provide(database.layer));
+  });
+
+  describe("an answer that does not wait on tidying the entry away", () => {
+    /** Rewrites the request's entry as past its own expiry, while the store still holds it. */
+    const pastItsExpiry = (store: ReturnType<typeof harness>["store"], requestId: string) =>
+      Effect.promise(async () => {
+        const entry = await store.get(requestId);
+        await store.set(requestId, { ...entry!, expiresAt: Date.now() - 1_000 }, 60_000);
+      });
+    const failRemoves = (fake: ReturnType<typeof createFakeNamespace>) =>
+      fake.failWhen((call) => call.store === "cross_device" && call.op === "remove");
+
+    it.live(
+      "a poll of a rejected request answers rejected while the store cannot delete it",
+      () => {
+        const { svc, layer, fake } = harness();
+        return Effect.gen(function* () {
+          const { requestId, cdlSecret } = yield* svc.beginCrossDeviceLogin();
+          yield* svc.rejectCrossDeviceLogin(requestId, cdlSecret);
+          failRemoves(fake);
+          expect(yield* svc.getCrossDeviceLoginStatus(requestId, cdlSecret)).toEqual({
+            status: "rejected",
+          });
+        }).pipe(Effect.provide(layer));
+      },
+    );
+
+    it.live(
+      "a poll past the request's expiry answers expired while the store cannot delete it",
+      () => {
+        const { svc, layer, fake, store } = harness();
+        return Effect.gen(function* () {
+          const { requestId, cdlSecret } = yield* svc.beginCrossDeviceLogin();
+          yield* pastItsExpiry(store, requestId);
+          failRemoves(fake);
+          expect(yield* svc.getCrossDeviceLoginStatus(requestId, cdlSecret)).toEqual({
+            status: "expired",
+          });
+        }).pipe(Effect.provide(layer));
+      },
+    );
+
+    it.live(
+      "an approval past the request's expiry is refused while the store cannot delete it",
+      () => {
+        const { svc, layer, fake, store } = harness();
+        return Effect.gen(function* () {
+          const profile = yield* svc.registerProfile("cdl-late@example.com", "cdllate");
+          const { requestId, cdlSecret } = yield* svc.beginCrossDeviceLogin();
+          yield* pastItsExpiry(store, requestId);
+          failRemoves(fake);
+          const error = yield* Effect.flip(
+            svc.approveCrossDeviceLogin(requestId, cdlSecret, profile.accountId),
+          );
+          expect({ tag: error._tag, message: error.message }).toEqual({
+            tag: "AuthError",
+            message: "Request expired",
+          });
+        }).pipe(Effect.provide(layer));
+      },
+    );
+  });
+
+  it.live("an approval whose eviction fails still records its event and sends its notice", () => {
+    const fake = createFakeNamespace();
+    const bundle = createDurableCoordination(fake.ns, () => {});
+    const svc = createAuthService({ ...config, ceremonyStores: bundle.ceremonyStores });
+    const { layer: dbLayer, sqlite, email } = createTestLayerWithSqlite();
+    return Effect.gen(function* () {
+      const profile = yield* svc.registerProfile("cdl-evict-fail@example.com", "cdlevictfail");
+      yield* fillToCap(svc, profile);
+      const { requestId, cdlSecret } = yield* svc.beginCrossDeviceLogin();
+      // At the cap the approval's eviction deletes a row; nothing else in an
+      // approval that lands deletes one.
+      sqlite.run(`
+        CREATE TRIGGER refuse_session_eviction BEFORE DELETE ON sessions
+        BEGIN SELECT RAISE(ABORT, 'eviction refused'); END;
+      `);
+      const error = yield* Effect.flip(
+        svc.approveCrossDeviceLogin(requestId, cdlSecret, profile.accountId),
+      );
+      expect(error._tag).toBe("DatabaseError");
+      expect((yield* countRows(profile.accountId)).events).toBe(1);
+      let noticed = false;
+      for (let i = 0; i < 100 && !noticed; i++) {
+        noticed = email.recorded().some((sent) => sent.template === "cross-device-login");
+        if (!noticed) yield* Effect.sleep("10 millis");
+      }
+      expect(noticed).toBe(true);
+    }).pipe(Effect.provide(dbLayer));
   });
 });

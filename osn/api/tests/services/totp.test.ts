@@ -488,7 +488,7 @@ describe("TOTP encryption-key rotation", () => {
         // comment on `completeTotpEnrollment`'s insert in totp.ts.
         //
         // The store is shared explicitly (`ceremonyStores`) because it is
-        // Redis-backed in production: both requests reach the same pending
+        // shared across isolates in production: both requests reach the same pending
         // enrolment regardless of which ring the isolate that served them
         // was running. `authWith` does not share it — each call builds a
         // config with no `ceremonyStores` override, so `createAuthContext`
@@ -796,17 +796,17 @@ describe("TOTP per-account lockout", () => {
       // verified against an account that would have been refused anyway: with
       // no credential enrolled, `checkTotpCode` falls through to the
       // constant-cost "not enrolled" branch and answers the same AuthError
-      // whatever `isLocked` returned. So enrol first and submit a code that
-      // WOULD be accepted — flip `isLocked` to false and this test goes red.
+      // whatever `status` returned. So enrol first and submit a code that
+      // WOULD be accepted — treat `"unknown"` as open and this test goes red.
       //
-      // Recovery codes fail OPEN here on purpose; TOTP must not, because a
-      // six-digit code has no wide search space behind the counter.
+      // A six-digit code has no wide search space behind the counter, so a
+      // counter that cannot be read must refuse rather than wave codes through.
       const { profile, secret } = yield* enrolled("totp-o@example.com", "totpo");
 
       const broken = {
-        backend: "redis" as const,
-        isLocked: () => Promise.resolve(true),
-        recordFailure: () => Promise.resolve(TOTP_LOCKOUT_THRESHOLD),
+        backend: "memory" as const,
+        status: () => Promise.resolve({ status: "unknown" as const }),
+        recordFailure: () => Promise.resolve("unknown" as const),
         reset: () => Promise.resolve(),
       };
       const failClosedAuth = createAuthService({ ...config, totpLockoutStore: broken });
@@ -817,18 +817,17 @@ describe("TOTP per-account lockout", () => {
     }).pipe(Effect.provide(makeLayer())),
   );
 
-  it("the in-memory store cannot fail, so failClosed leaves its counting alone", async () => {
-    // The fail-closed posture only ever bites on the Redis-backed store (its
-    // own tests cover that). Pinned here so nobody "implements" failClosed in
-    // the memory backend: reporting a permanent lockout, or a first failure as
-    // having reached the threshold, would break every local dev ceremony.
-    const store = createInMemoryRecoveryLockoutStore({ failClosed: true, threshold: 3 });
-    expect(await store.isLocked("acc_x")).toBe(false);
+  it("the in-memory store cannot fail, so it counts from one and locks at the threshold", async () => {
+    // Only a shared store answers `"unknown"`. Pinned here so the memory
+    // backend never reports a permanent lockout, or a first failure as having
+    // reached the threshold, which would break every local dev ceremony.
+    const store = createInMemoryRecoveryLockoutStore({ threshold: 3 });
+    expect(await store.status("acc_x")).toEqual({ status: "open", failures: 0 });
     expect(await store.recordFailure("acc_x")).toBe(1);
-    expect(await store.isLocked("acc_x")).toBe(false);
+    expect(await store.status("acc_x")).toEqual({ status: "open", failures: 1 });
     expect(await store.recordFailure("acc_x")).toBe(2);
     expect(await store.recordFailure("acc_x")).toBe(3);
-    expect(await store.isLocked("acc_x")).toBe(true);
+    expect(await store.status("acc_x")).toEqual({ status: "locked", failures: 3 });
   });
 });
 

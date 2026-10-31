@@ -8,10 +8,10 @@
  * See `CLAUDE.md` "Observability" section for the full rules.
  */
 
+import type { CoordinationOp } from "@shared/coordination";
 import {
   createCounter,
   createHistogram,
-  createUpDownCounter,
   LATENCY_BUCKETS_SECONDS,
   RESULT_VALUES,
 } from "@shared/observability/metrics";
@@ -45,9 +45,6 @@ import type {
   RecoveryPasskeyReclaimResult,
   RegisterStep,
   Result,
-  RotatedStoreAction,
-  RotatedStoreBackend,
-  RotatedStoreResult,
   SecurityEventKind,
   SecurityEventNotifyResult,
   SecurityInvalidationTrigger,
@@ -59,8 +56,9 @@ import type {
   TotpRekeyResult,
   StepUpVerifyResult,
 } from "@shared/observability/metrics";
-import type { RedisNamespace } from "@shared/redis";
 import { Effect } from "effect";
+
+import type { CeremonyStoreName, CoordinationStoreName } from "./lib/coordination/names";
 
 /** Canonical metric name consts — grep-able, refactor-safe. */
 export const OSN_METRICS = {
@@ -79,10 +77,10 @@ export const OSN_METRICS = {
   authSessionReuseDetected: "osn.auth.session.reuse_detected",
   authSessionRotationRace: "osn.auth.session.rotation_race",
   authSessionFamilyRevoked: "osn.auth.session.family_revoked",
-  authSessionRotatedStoreOps: "osn.auth.session.rotated_store.operations",
-  authSessionRotatedStoreDuration: "osn.auth.session.rotated_store.duration",
   authCeremonyStoreOps: "osn.auth.ceremony_store.operations",
-  authCeremonyStoreEntries: "osn.auth.ceremony_store.entries",
+  coordinationStoreOps: "osn.coordination.store.operations",
+  retentionRowsDeleted: "osn.retention.rows_deleted",
+  retentionCycleDuration: "osn.retention.cycle.duration",
   authSessionSecurityInvalidation: "osn.auth.session.security_invalidation",
   authCireSessionRevocations: "osn.auth.cire_session.revocations",
   authRecoveryLockout: "osn.auth.recovery.lockout",
@@ -608,60 +606,21 @@ export const metricCireSessionRevocation = (
 ): void => authCireSessionRevocations.inc({ trigger, result });
 
 // ---------------------------------------------------------------------------
-// Rotated-session store (S-H1: cluster-safe C2 reuse detection)
-// ---------------------------------------------------------------------------
-
-type RotatedStoreOpAttrs = {
-  action: RotatedStoreAction;
-  result: RotatedStoreResult;
-  backend: RotatedStoreBackend;
-};
-type RotatedStoreDurationAttrs = {
-  action: RotatedStoreAction;
-  backend: RotatedStoreBackend;
-};
-
-const authSessionRotatedStoreOps = createCounter<RotatedStoreOpAttrs>({
-  name: OSN_METRICS.authSessionRotatedStoreOps,
-  description:
-    "Rotated-session store operations (C2 reuse detection) by action, outcome, and backend",
-  unit: "{operation}",
-});
-
-const authSessionRotatedStoreDuration = createHistogram<RotatedStoreDurationAttrs>({
-  name: OSN_METRICS.authSessionRotatedStoreDuration,
-  description: "Rotated-session store operation latency by action and backend",
-  unit: "s",
-  boundaries: LATENCY_BUCKETS_SECONDS,
-});
-
-export const metricRotatedStoreOp = (attrs: RotatedStoreOpAttrs): void =>
-  authSessionRotatedStoreOps.inc(attrs);
-
-export const metricRotatedStoreDuration = (
-  seconds: number,
-  attrs: RotatedStoreDurationAttrs,
-): void => authSessionRotatedStoreDuration.record(seconds, attrs);
-
-// ---------------------------------------------------------------------------
-// Ceremony / pending-state stores (O3: Redis-backed ceremony state)
+// Ceremony / pending-state stores
 //
 // Every challenge / pending-registration / OTP / email-change / cross-device
-// store shares one bounded metric surface, dimensioned by the `RedisNamespace`
-// it occupies and its backend. `entries` is an UpDownCounter (set → +1,
-// delete/expiry-consume → -1) giving a live per-namespace key-count gauge
-// without polling Redis (the `redis.store.keys` coverage the migration plan
-// calls for). `ops` counts set / get / delete by namespace + backend.
+// store shares one bounded metric surface: set / get / delete by the store's
+// name and its backend — `memory` in one process, `durable_object` on the
+// coordination store.
 // ---------------------------------------------------------------------------
 
-type CeremonyStoreBackend = "memory" | "redis";
-type CeremonyStoreOp = "set" | "get" | "delete";
+type CeremonyStoreBackend = "memory" | "durable_object";
+type CeremonyStoreOp = "set" | "get" | "delete" | "guess" | "take" | "swap";
 type CeremonyStoreOpAttrs = {
-  namespace: RedisNamespace;
+  namespace: CeremonyStoreName;
   op: CeremonyStoreOp;
   backend: CeremonyStoreBackend;
 };
-type CeremonyStoreEntriesAttrs = { namespace: RedisNamespace; backend: CeremonyStoreBackend };
 
 const authCeremonyStoreOps = createCounter<CeremonyStoreOpAttrs>({
   name: OSN_METRICS.authCeremonyStoreOps,
@@ -669,26 +628,73 @@ const authCeremonyStoreOps = createCounter<CeremonyStoreOpAttrs>({
   unit: "{operation}",
 });
 
-const authCeremonyStoreEntries = createUpDownCounter<CeremonyStoreEntriesAttrs>({
-  name: OSN_METRICS.authCeremonyStoreEntries,
-  description: "Live ceremony/pending-state store entry count by namespace and backend",
-  unit: "{entry}",
-});
-
 export const metricCeremonyStoreOp = (attrs: CeremonyStoreOpAttrs): void =>
   authCeremonyStoreOps.inc(attrs);
 
-/** +1 on insert, -1 on delete — net is the live entry count per namespace. */
-export const metricCeremonyStoreEntryDelta = (
-  delta: number,
-  attrs: CeremonyStoreEntriesAttrs,
-): void => authCeremonyStoreEntries.add(delta, attrs);
+// ---------------------------------------------------------------------------
+// Coordination store (the `COORDINATION` Durable Object)
+//
+// One count per call an object answers or fails, retries included, by the
+// store's name, the operation and the outcome. Every attribute comes from a
+// closed union: a key, an IP, an account or a stored value is never one.
+// ---------------------------------------------------------------------------
+
+type CoordinationStoreOpAttrs = {
+  store: CoordinationStoreName;
+  op: CoordinationOp;
+  result: "ok" | "error";
+};
+
+const coordinationStoreOps = createCounter<CoordinationStoreOpAttrs>({
+  name: OSN_METRICS.coordinationStoreOps,
+  description: "Coordination store calls by store, operation and outcome",
+  unit: "{operation}",
+});
+
+export const metricCoordinationStoreOp = (attrs: CoordinationStoreOpAttrs): void =>
+  coordinationStoreOps.inc(attrs);
+
+// ---------------------------------------------------------------------------
+// Retention sweeps
+// ---------------------------------------------------------------------------
+
+/** A table a retention sweep deletes expired rows from. */
+export type RetentionTable = "rotated_sessions";
+
+type RetentionAttrs = { table: RetentionTable };
+
+const retentionRowsDeleted = createCounter<RetentionAttrs>({
+  name: OSN_METRICS.retentionRowsDeleted,
+  description: "Rows a retention sweep deleted, by table",
+  unit: "{row}",
+});
+
+const retentionCycleDuration = createHistogram<RetentionAttrs>({
+  name: OSN_METRICS.retentionCycleDuration,
+  description: "Time one retention sweep pass took, its pauses included, by table",
+  unit: "s",
+  boundaries: LATENCY_BUCKETS_SECONDS,
+});
+
+/** One sweep pass over `table`: the rows it deleted and the seconds it took. */
+export function metricRetentionSweep(
+  table: RetentionTable,
+  deleted: number,
+  durationSeconds: number,
+): void {
+  retentionRowsDeleted.add(deleted, { table });
+  retentionCycleDuration.record(durationSeconds, { table });
+}
 
 // ---------------------------------------------------------------------------
 // Recovery-code per-account lockout (O2)
 // ---------------------------------------------------------------------------
 
-type RecoveryLockoutAttrs = { result: "recorded" | "locked" | "reset" };
+/**
+ * `unavailable`: the counter could not be read or written, so the attempt was
+ * refused without being counted.
+ */
+type RecoveryLockoutAttrs = { result: "recorded" | "locked" | "reset" | "unavailable" };
 
 const authRecoveryLockout = createCounter<RecoveryLockoutAttrs>({
   name: OSN_METRICS.authRecoveryLockout,
@@ -711,11 +717,12 @@ export const metricRecoveryLockout = (result: RecoveryLockoutAttrs["result"]): v
  * Aggregate counts only. The submitted identifier, the resolved account and the
  * code itself appear nowhere near this.
  *
- * `capped` also covers a cap backend that could not be reached:
- * `createRedisRateLimiter.check` returns `false` on a Redis error (fail-closed),
+ * `capped` also covers a cap backend that could not be reached: the
+ * coordination-store limiter answers `false` on a failed call (fail-closed),
  * and the limiter contract gives the caller no way to tell that from a real
  * cap. A sustained `capped` rate with no matching inbox complaint is the tell;
- * correlate with Redis health rather than reading this alone.
+ * correlate with `osn.coordination.store.operations` errors on
+ * `auth.recovery_email_begin_cap` rather than reading this alone.
  */
 type RecoveryEmailBeginAttrs = { result: "sent" | "capped" | "unknown_identifier" };
 
@@ -1091,10 +1098,12 @@ type TotpRekeyedAttrs = { result: TotpRekeyResult };
  * `scope` separates the two surfaces that check TOTP codes. They keep separate
  * counters (see `checkTotpCode`), and without this attribute a dashboard cannot
  * tell a grinding attack on the UNAUTHENTICATED recovery route from one on the
- * authenticated step-up. Two values, three results — six series.
+ * authenticated step-up. Two values, four results — eight series.
+ * `unavailable`: the counter could not be read or written, so the code was
+ * refused without being counted.
  */
 type TotpLockoutAttrs = {
-  result: "recorded" | "locked" | "reset";
+  result: "recorded" | "locked" | "reset" | "unavailable";
   scope: TotpLockoutScope;
 };
 

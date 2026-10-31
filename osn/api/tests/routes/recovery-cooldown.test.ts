@@ -76,9 +76,11 @@ vi.mock("@simplewebauthn/server", async (importOriginal) => {
         },
       };
     }),
+    // A counterless authenticator, as synced passkeys report: every assertion
+    // of one credential carries 0, which the counter rule accepts each time.
     verifyAuthenticationResponse: vi.fn(async () => ({
       verified: true,
-      authenticationInfo: { newCounter: 1 },
+      authenticationInfo: { newCounter: 0 },
     })),
   };
 });

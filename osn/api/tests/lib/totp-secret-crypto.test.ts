@@ -379,9 +379,9 @@ describe("what the ring refuses", () => {
 });
 
 describe("the ceremony-store shape survives JSON", () => {
-  // The in-memory ceremony store keeps the value by reference; the Redis one
+  // The in-memory ceremony store keeps the value by reference; the shared one
   // round-trips it through JSON.stringify. A Uint8Array in the entry would pass
-  // every test on the first and come back from Upstash as {"0":12,"1":200,…}.
+  // every test on the first and come back from the store as {"0":12,"1":200,…}.
   it("survives a stringify/parse cycle and still decrypts", async () => {
     const ring = await loneRing();
     const encrypted = await encryptTotpSecret(ring, ACCOUNT, SECRET);

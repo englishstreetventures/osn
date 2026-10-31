@@ -2,47 +2,41 @@
  * Direct coverage for the refresh-rotation compare-and-swap (CAS) gate in
  * `refreshTokens` (osn/api/src/services/auth/tokens.ts).
  *
- * Landed in #253, the rotation guards the "delete old session + insert new
- * session" swap with a CAS: the old-session DELETE is the atomic
- * compare-and-swap. If the DELETE reports 0 rows affected, the session was
- * already rotated out. #253 revoked the whole family here, but that was a
- * false positive: a replay of an already-rotated token can't reach this branch
- * (it fails `verifyRefreshToken`, whose row is absent, and goes down
- * `detectReuse` instead) — so a 0-rows CAS is ALWAYS a concurrent grant of the
- * *current* token (multi-tab reload, a bootstrap racing a 401-refresh, a
- * retried grant), never reuse. Revoking logged legitimate users out across
- * every device (the "logs out sometimes" bug). The branch now treats a 0-rows
- * CAS as a benign race: the losing grant fails, but the family is PRESERVED
- * (the concurrent winner's session stays valid) and no reuse metrics fire.
+ * A rotation writes the new session (only while the old one stands), then the
+ * record of the old token, then deletes the old session (only while the new
+ * one stands). That delete is the compare-and-swap. If it reports 0 rows, the
+ * session was rotated by a concurrent grant of the *current* token (multi-tab
+ * reload, a bootstrap racing a 401-refresh, a retried grant), or a revoke took
+ * the family mid-grant — never reuse: a replay of an already-rotated token
+ * fails `verifyRefreshToken`, whose row is absent, and goes down `detectReuse`
+ * instead. The losing grant fails and removes what it wrote; the family is
+ * PRESERVED (a concurrent winner's session stays valid) and no reuse metrics
+ * fire.
  *
- * The happy path and the `verifyRefreshToken` → `detectReuse` reuse path (now
- * gated by the rotation grace window) are covered in `auth.test.ts`. The
- * CAS-0-rows branch is a DIFFERENT branch: it fires when the row is PRESENT at
- * verify time but GONE by DELETE time — the concurrent-writer race. This file
- * covers it deterministically.
- *
- * Forcing it deterministically (no real concurrency / timing): we wrap the
- * drizzle `Db` handle in a proxy that, on the FIRST `db.delete(...)` of a
- * refresh, genuinely removes the target row (so the row really is gone, as it
- * would be after a concurrent winner rotated it) but reports `{ changes: 0 }`
- * to the caller. That is exactly the state the CAS is designed to detect, and
- * it drives `refreshTokens` down the 0-rows branch on demand.
+ * The happy path and the `verifyRefreshToken` → `detectReuse` reuse path
+ * (gated by the rotation grace window) are covered in `auth.test.ts`. The
+ * CAS-0-rows branch fires when the row is PRESENT at verify time but GONE by
+ * the swap — the concurrent-writer race. This file covers it deterministically,
+ * two ways: a proxy whose FIRST `db.delete(...)` of a refresh genuinely removes
+ * the row but reports `{ changes: 0 }`, and the held-statement seam, which lands
+ * a real request between two of the rotation's statements.
  */
 
 import { it, expect, describe } from "@effect/vitest";
-import { sessions } from "@osn/db/schema";
+import { rotatedSessions, sessions } from "@osn/db/schema";
 import { Db, type DbService } from "@osn/db/service";
 import { makeLogEmailLive } from "@shared/email";
-import { eq } from "drizzle-orm";
-import { Effect, Layer } from "effect";
+import { and, eq, ne } from "drizzle-orm";
+import { Effect, Fiber, Layer } from "effect";
 import { beforeAll, vi } from "vitest";
 
 import { ROTATION_RACE_MESSAGE } from "../../src/lib/grant-failure";
-import { createInMemoryRotatedSessionStore } from "../../src/lib/rotated-session-store";
 import * as metrics from "../../src/metrics";
 import { createAuthService } from "../../src/services/auth";
+import { ROTATION_GRACE_MS } from "../../src/services/auth/constants";
 import { makeTestAuthConfig } from "../helpers/auth-config";
-import { createTestLayer } from "../helpers/db";
+import { createTestLayer, createTestLayerWithSqlite } from "../helpers/db";
+import { holdQueries } from "../helpers/held-query";
 
 /**
  * Build a `Db` layer whose `db` handle behaves normally EXCEPT that the first
@@ -153,9 +147,7 @@ describe("refresh rotation CAS 0-rows → benign race (family preserved)", () =>
   it.effect(
     "a lost CAS (delete reports 0 rows) is a benign concurrent grant — family preserved, no reuse metrics",
     () => {
-      // A dedicated rotated-session store + auth service.
-      const rotatedSessionStore = createInMemoryRotatedSessionStore();
-      const auth = createAuthService({ ...config, rotatedSessionStore });
+      const auth = createAuthService(config);
 
       const reuseSpy = vi.spyOn(metrics, "metricSessionReuseDetected");
       const familyRevokedSpy = vi.spyOn(metrics, "metricSessionFamilyRevoked");
@@ -328,5 +320,117 @@ describe("refresh rotation CAS 0-rows → benign race (family preserved)", () =>
       Effect.provide(layer),
       Effect.ensuring(Effect.sync(() => rotationRaceSpy.mockRestore())),
     );
+  });
+});
+
+describe("a rotation and the requests that land between its statements", () => {
+  function held() {
+    const { db, sqlite, email } = createTestLayerWithSqlite();
+    const queries = holdQueries(db);
+    return {
+      layer: Layer.merge(Layer.succeed(Db, { db: queries.db }), email.layer),
+      hold: queries.hold,
+      db,
+      familyIds: (familyId: string) =>
+        (
+          sqlite.query("SELECT id FROM sessions WHERE family_id = ?").all(familyId) as {
+            id: string;
+          }[]
+        ).map((row) => row.id),
+    };
+  }
+
+  const signIn = (auth: ReturnType<typeof createAuthService>, email: string, handle: string) =>
+    Effect.gen(function* () {
+      const profile = yield* auth.registerProfile(email, handle);
+      const { refreshToken } = yield* auth.issueTokens(
+        profile.id,
+        profile.accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      );
+      const { familyId } = yield* auth.verifyRefreshToken(refreshToken);
+      return { profile, refreshToken, familyId };
+    });
+
+  it.live("a replay's family revoke that lands while a refresh is held leaves no session", () => {
+    const auth = createAuthService(config);
+    const h = held();
+    return Effect.gen(function* () {
+      const { refreshToken: t0, familyId } = yield* signIn(auth, "fr-f1@example.com", "frf1");
+      const t1 = (yield* auth.refreshTokens(t0)).refreshToken;
+
+      const insert = h.hold(/^insert into "sessions"/);
+      const refresh = yield* Effect.forkChild(Effect.result(auth.refreshTokens(t1)));
+      yield* Effect.promise(() => insert.reached);
+      const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + ROTATION_GRACE_MS + 1_000);
+      // t0 was rotated out more than the grace window ago: reuse, the family goes.
+      yield* Effect.result(auth.refreshTokens(t0));
+      clock.mockRestore();
+      insert.release();
+
+      expect((yield* Fiber.join(refresh))._tag).toBe("Failure");
+      expect(h.familyIds(familyId)).toEqual([]);
+    }).pipe(Effect.provide(h.layer));
+  });
+
+  it.live("of two grants of one token interleaved, one stands and the other leaves nothing", () => {
+    const auth = createAuthService(config);
+    const h = held();
+    return Effect.gen(function* () {
+      const { refreshToken, familyId } = yield* signIn(auth, "fr-f2@example.com", "frf2");
+
+      const swap = h.hold(/^delete from "sessions"/);
+      const first = yield* Effect.forkChild(Effect.result(auth.refreshTokens(refreshToken)));
+      yield* Effect.promise(() => swap.reached);
+      const second = yield* Effect.result(auth.refreshTokens(refreshToken));
+      swap.release();
+      const outcomes = [yield* Fiber.join(first), second];
+
+      const won = outcomes.filter((o) => o._tag === "Success");
+      expect(won).toHaveLength(1);
+      const standing = won[0]!._tag === "Success" ? won[0]!.success.refreshToken : "";
+      expect(h.familyIds(familyId)).toEqual([auth.hashSessionToken(standing)]);
+      yield* auth.verifyRefreshToken(standing);
+    }).pipe(Effect.provide(h.layer));
+  });
+
+  it.live("a grant that loses its new row to a wipe leaves the old token able to rotate", () => {
+    const auth = createAuthService(config);
+    const h = held();
+    return Effect.gen(function* () {
+      const { refreshToken, familyId } = yield* signIn(auth, "fr-f3@example.com", "frf3");
+      const oldHash = auth.hashSessionToken(refreshToken);
+
+      const swap = h.hold(/^delete from "sessions"/);
+      const lost = yield* Effect.forkChild(Effect.result(auth.refreshTokens(refreshToken)));
+      yield* Effect.promise(() => swap.reached);
+      // A delete that takes the new row and leaves the old one. The account-wide
+      // deletes keep the whole family of the hash they spare, so this is a
+      // direct statement.
+      yield* Effect.promise(() =>
+        h.db.delete(sessions).where(and(eq(sessions.familyId, familyId), ne(sessions.id, oldHash))),
+      );
+      swap.release();
+
+      const outcome = yield* Fiber.join(lost);
+      expect(outcome._tag).toBe("Failure");
+      if (outcome._tag === "Failure") expect(outcome.failure.message).toBe(ROTATION_RACE_MESSAGE);
+      expect(h.familyIds(familyId)).toEqual([oldHash]);
+      const records = yield* Effect.promise(() =>
+        h.db.select().from(rotatedSessions).where(eq(rotatedSessions.tokenHash, oldHash)),
+      );
+      expect(records).toEqual([]);
+
+      // The device's next grant rotates the token it still holds.
+      const startedAt = Date.now();
+      const next = yield* auth.refreshTokens(refreshToken);
+      yield* auth.verifyRefreshToken(next.refreshToken);
+      const [record] = yield* Effect.promise(() =>
+        h.db.select().from(rotatedSessions).where(eq(rotatedSessions.tokenHash, oldHash)),
+      );
+      expect(record!.rotatedAt).toBeGreaterThanOrEqual(startedAt);
+    }).pipe(Effect.provide(h.layer));
   });
 });

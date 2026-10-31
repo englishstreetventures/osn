@@ -1,5 +1,8 @@
 {
+  // Source and tests, against Bun's types. `src/entry.ts` re-exports the
+  // Durable Object class, whose module imports `cloudflare:workers`; it is
+  // checked by `tsconfig.entry.json` against the Workers types instead.
   "extends": "@shared/typescript-config/node.json",
   "include": ["src/**/*", "tests/**/*"],
-  "exclude": ["node_modules"]
+  "exclude": ["node_modules", "src/entry.ts"]
 }

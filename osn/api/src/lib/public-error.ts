@@ -97,6 +97,10 @@ export function publicError(
       return { status: 400, body: { error: "invalid_request" } };
     case "DatabaseError":
       return { status: 500, body: { error: "internal_error" } };
+    // The coordination store could not answer. Nothing about the request was
+    // wrong, so not a 400; a retry once the store answers again can succeed.
+    case "CoordinationError":
+      return { status: 503, body: { error: "temporarily_unavailable" } };
     default:
       return { status: 400, body: { error: "invalid_request" } };
   }

@@ -317,6 +317,20 @@ jobs:
       - name: D1 integration tests
         run: bun run test:d1
 
+      # osn-api's Worker on workerd, end to end, from that step
+      # (osn/api/tests/d1/worker-e2e.test.ts): each request's method, path and
+      # status, and what the run read off the coordination store. On failure
+      # too: a red run is when a reviewer needs it. A cached run restores the
+      # file (osn/api/turbo.json declares it as the task's output).
+      - name: Upload osn-api workerd E2E results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: osn-api-workerd-e2e
+          path: e2e-artifacts/osn-api-workerd/
+          if-no-files-found: warn
+          retention-days: 14
+
       # The browser tier (`*.browser.test.tsx`) runs in a real Chromium, because
       # jsdom computes no CSS and no layout — so stacking order, sticky
       # positioning, Tailwind's compiled output and the reduced-motion clamp are

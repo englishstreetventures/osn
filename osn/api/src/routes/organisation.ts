@@ -1,6 +1,6 @@
 import type { Organisation, Profile } from "@osn/db/schema";
 import { DbLive, type Db } from "@osn/db/service";
-import { createRateLimiter, type RateLimiterBackend } from "@shared/rate-limit";
+import type { RateLimiterBackend } from "@shared/rate-limit";
 import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
 
@@ -8,6 +8,7 @@ import { makeAppRunner, type AppRuntime } from "../lib/route-runtime";
 import { makeSafeError } from "../lib/safe-error";
 import { createAuthService, type AuthConfig } from "../services/auth";
 import { createOrganisationService } from "../services/organisation";
+import { memoryLimiter, OSN_RATE_LIMITS } from "./auth/limiters";
 import {
   errorResponse,
   okResponse,
@@ -16,17 +17,11 @@ import {
 } from "./response-schemas";
 
 // ---------------------------------------------------------------------------
-// Rate limiter
+// Rate limiter — per-user fixed window. The budget is `OSN_RATE_LIMITS.orgWrite`.
 // ---------------------------------------------------------------------------
 
-const ORG_RATE_LIMIT_MAX = 60;
-const ORG_RATE_LIMIT_WINDOW_MS = 60_000;
-
 export function createDefaultOrgRateLimiter(): RateLimiterBackend {
-  return createRateLimiter({
-    maxRequests: ORG_RATE_LIMIT_MAX,
-    windowMs: ORG_RATE_LIMIT_WINDOW_MS,
-  });
+  return memoryLimiter(OSN_RATE_LIMITS.orgWrite);
 }
 
 // ---------------------------------------------------------------------------

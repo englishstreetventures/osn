@@ -7,7 +7,7 @@
  * injected {@link StepUpJtiStore}.
  */
 
-import { accounts, type NewPasskey, passkeys } from "@osn/db/schema";
+import { accounts, passkeys } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { timingSafeEqualString } from "@shared/crypto/timing-safe";
 import { type EmailError, EmailService } from "@shared/email";
@@ -35,22 +35,26 @@ import {
   metricStepUpVerified,
   withStepUp,
 } from "../../metrics";
+import { claimEntry, guessEntry, spendEntry } from "./attempts";
 import {
   CHALLENGE_TTL_MS,
   MAX_OTP_ATTEMPTS,
-  PASSKEY_LAST_USED_COALESCE_MS,
   RECOVERY_COOLDOWN_MS,
+  STEP_UP_CLAIM_MARGIN_MS,
 } from "./constants";
 import type { AuthContext } from "./context";
-import { AuthError, DatabaseError } from "./errors";
+import { AuthError, type CoordinationError, DatabaseError } from "./errors";
 import {
   genOtpCode,
   hashSessionToken,
+  JWT_CLOCK_TOLERANCE_S,
   logDevOtp,
   signJwt,
   type StepUpTokenClaims,
   verifyJwt,
 } from "./helpers";
+import { recordAssertion } from "./passkey-counter";
+import { storeCall } from "./store-call";
 import type { AssertingCredential, PasskeyProvenance } from "./types";
 
 /**
@@ -398,11 +402,18 @@ export function createStepUpModule(ctx: AuthContext) {
         }
       }
 
-      // S-H1: cluster-safe single-use guard. First consumer wins; every
-      // subsequent presentation — local, another pod, or a replay after a
-      // Redis failover — lands on the jti-already-consumed branch.
+      // Single use across every isolate: the guard is shared, the first
+      // consumer wins, and every later presentation, from any isolate, lands
+      // on the jti-already-consumed branch. The claim lasts the token's whole
+      // life, the verifier's clock tolerance past `exp` and a margin besides,
+      // counted from now, so it outlives every moment the token still
+      // verifies, whatever the verifying isolate's clock or the store's says.
       const consumed = yield* Effect.tryPromise({
-        try: () => jtiStore.consume(jti, stepUpTokenTtl * 1000),
+        try: () =>
+          jtiStore.consume(
+            jti,
+            (stepUpTokenTtl + JWT_CLOCK_TOLERANCE_S) * 1000 + STEP_UP_CLAIM_MARGIN_MS,
+          ),
         catch: () => new AuthError({ message: "Step-up token could not be verified" }),
       });
       if (!consumed) {
@@ -422,7 +433,7 @@ export function createStepUpModule(ctx: AuthContext) {
     accountId: string,
   ): Effect.Effect<
     { options: PublicKeyCredentialRequestOptionsJSON },
-    AuthError | DatabaseError,
+    AuthError | DatabaseError | CoordinationError,
     Db
   > =>
     Effect.gen(function* () {
@@ -451,7 +462,7 @@ export function createStepUpModule(ctx: AuthContext) {
         catch: (cause) => new AuthError({ message: String(cause) }),
       });
       // P-I3: bound growth under ceremony-begin spam — handled inside the store (O3).
-      yield* Effect.promise(() =>
+      yield* storeCall(stores.stepUpPasskeyChallenges, "set", () =>
         stores.stepUpPasskeyChallenges.set(
           accountId,
           { challenge: options.challenge, expiresAt: Date.now() + CHALLENGE_TTL_MS },
@@ -476,13 +487,20 @@ export function createStepUpModule(ctx: AuthContext) {
     accountId: string,
     assertion: AuthenticationResponseJSON,
     purpose?: StepUpPurpose,
-  ): Effect.Effect<{ stepUpToken: string; expiresIn: number }, AuthError | DatabaseError, Db> =>
+  ): Effect.Effect<
+    { stepUpToken: string; expiresIn: number },
+    AuthError | DatabaseError | CoordinationError,
+    Db
+  > =>
     Effect.gen(function* () {
-      const entry = yield* Effect.promise(() => stores.stepUpPasskeyChallenges.get(accountId));
+      // Read and removed in one call, so of two presentations of one
+      // assertion at once only one reaches verification.
+      const entry = yield* storeCall(stores.stepUpPasskeyChallenges, "take", () =>
+        stores.stepUpPasskeyChallenges.take(accountId),
+      );
       if (!entry || Date.now() > entry.expiresAt) {
         return yield* Effect.fail(new AuthError({ message: "Challenge expired or not found" }));
       }
-      yield* Effect.promise(() => stores.stepUpPasskeyChallenges.delete(accountId));
 
       const { db } = yield* Db;
       const pkResult = yield* Effect.tryPromise({
@@ -517,20 +535,13 @@ export function createStepUpModule(ctx: AuthContext) {
         return yield* Effect.fail(new AuthError({ message: "Passkey verification failed" }));
       }
 
-      const nowSec = Math.floor(Date.now() / 1000);
-      const shouldTouchLastUsed =
-        !pk.lastUsedAt || Date.now() - pk.lastUsedAt * 1000 >= PASSKEY_LAST_USED_COALESCE_MS;
-      const updates: Partial<Pick<NewPasskey, "counter" | "lastUsedAt" | "updatedAt">> = {
-        counter: verification.authenticationInfo.newCounter,
-      };
-      if (shouldTouchLastUsed) {
-        updates["lastUsedAt"] = nowSec;
-        updates["updatedAt"] = nowSec;
+      // The counter, and the coalesced last_used_at, written only while the
+      // counter rule still holds against the row; refused otherwise, before a
+      // step-up token is issued.
+      const written = yield* recordAssertion(pk, verification.authenticationInfo.newCounter);
+      if (!written) {
+        return yield* Effect.fail(new AuthError({ message: "Passkey verification failed" }));
       }
-      yield* Effect.tryPromise({
-        try: () => db.update(passkeys).set(updates).where(eq(passkeys.id, pk.id)),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
 
       // Carry the asserted credential's provenance into the token. `webauthn`
       // in the AMR says a ceremony happened; this says whose credential ran it,
@@ -554,7 +565,11 @@ export function createStepUpModule(ctx: AuthContext) {
    */
   const beginStepUpOtp = (
     accountId: string,
-  ): Effect.Effect<{ sent: boolean }, AuthError | DatabaseError, Db | EmailService> =>
+  ): Effect.Effect<
+    { sent: boolean },
+    AuthError | DatabaseError | CoordinationError,
+    Db | EmailService
+  > =>
     Effect.gen(function* () {
       const { db } = yield* Db;
       const accountRow = yield* Effect.tryPromise({
@@ -567,14 +582,10 @@ export function createStepUpModule(ctx: AuthContext) {
       }
       const code = genOtpCode();
       // P-I3: bound growth under ceremony-begin spam — handled inside the store (O3).
-      yield* Effect.promise(() =>
+      yield* storeCall(stores.stepUpOtp, "set", () =>
         stores.stepUpOtp.set(
           accountId,
-          {
-            codeHash: hashSessionToken(code),
-            attempts: 0,
-            expiresAt: Date.now() + otpTtl * 1000,
-          },
+          { codeHash: hashSessionToken(code), expiresAt: Date.now() + otpTtl * 1000 },
           otpTtl * 1000,
         ),
       );
@@ -601,30 +612,30 @@ export function createStepUpModule(ctx: AuthContext) {
     accountId: string,
     code: string,
     purpose?: StepUpPurpose,
-  ): Effect.Effect<{ stepUpToken: string; expiresIn: number }, AuthError | DatabaseError, Db> =>
+  ): Effect.Effect<
+    { stepUpToken: string; expiresIn: number },
+    AuthError | DatabaseError | CoordinationError,
+    Db
+  > =>
     Effect.gen(function* () {
-      const entry = yield* Effect.promise(() => stores.stepUpOtp.get(accountId));
-      if (!entry || Date.now() > entry.expiresAt) {
+      // Read and counted in one call, before the code is compared; see `attempts.ts`.
+      const guessed = yield* guessEntry(stores.stepUpOtp, accountId, MAX_OTP_ATTEMPTS);
+      if (!guessed) {
+        return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
+      }
+      const { entry, standing } = guessed;
+      if (standing === "spent") {
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
       }
       if (!timingSafeEqualString(entry.codeHash, hashSessionToken(code))) {
-        // O3: persist the attempt bump (store does not alias the value) and
-        // carry the remaining TTL so the entry expires on its original schedule.
-        const attempts = entry.attempts + 1;
-        if (attempts >= MAX_OTP_ATTEMPTS) {
-          yield* Effect.promise(() => stores.stepUpOtp.delete(accountId));
-        } else {
-          yield* Effect.promise(() =>
-            stores.stepUpOtp.set(
-              accountId,
-              { ...entry, attempts },
-              Math.max(0, entry.expiresAt - Date.now()),
-            ),
-          );
-        }
+        if (standing === "last") yield* spendEntry(stores.stepUpOtp, accountId, entry);
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
       }
-      yield* Effect.promise(() => stores.stepUpOtp.delete(accountId));
+      // Of two right codes sent at once, exactly one claims the entry; none
+      // does once a new `begin` has replaced it.
+      if (!(yield* claimEntry(stores.stepUpOtp, accountId, entry))) {
+        return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
+      }
       const stepUpToken = yield* issueStepUpToken(accountId, "otp", purpose);
       return { stepUpToken, expiresIn: stepUpTokenTtl };
     }).pipe(withStepUp("complete"));

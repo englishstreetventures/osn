@@ -18,10 +18,14 @@ import { makeLogEmailLive } from "@shared/email";
 import { Effect, Layer } from "effect";
 import { describe, it, expect, beforeAll } from "vitest";
 
+import { createDurableCeremonyStore } from "../../src/lib/coordination/durable";
 import { createDefaultAuthRateLimiters } from "../../src/routes/auth/limiters";
 import { renderAuthorizeErrorPage } from "../../src/routes/auth/oidc";
-import { createAuthService } from "../../src/services/auth";
+import { createAuthService, type AuthConfig } from "../../src/services/auth";
+import { createDefaultCeremonyStores } from "../../src/services/auth/stores";
 import { makeTestAuthConfig } from "../helpers/auth-config";
+import { settledHandle } from "../helpers/background";
+import { createFakeNamespace } from "../helpers/coordination-namespace";
 import { createTestLayerWithSqlite } from "../helpers/db";
 // Wrapped factory (trust XFF under app.handle). See helpers/routes.
 import { createAuthRoutes, type AuthRateLimiters } from "../helpers/routes";
@@ -63,10 +67,10 @@ interface SeedClient {
   firstParty: boolean;
 }
 
-function setup(): Harness {
+function setup(configOverrides: Partial<AuthConfig> = {}): Harness {
   const { layer, sqlite } = createTestLayerWithSqlite();
   const rec = makeLogEmailLive();
-  const app = createAuthRoutes(config, Layer.merge(layer, rec.layer));
+  const app = createAuthRoutes({ ...config, ...configOverrides }, Layer.merge(layer, rec.layer));
 
   return {
     app,
@@ -115,7 +119,8 @@ async function register(
   email: string,
   handle: string,
 ): Promise<{ cookie: string; accessToken: string }> {
-  await h.app.handle(
+  await settledHandle(
+    h.app,
     new Request("http://localhost/register/begin", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -261,6 +266,26 @@ describe("GET /authorize", () => {
     expect(loc.searchParams.get("reason")).toBe("login");
   });
 
+  it("answers 503, and sends the browser nowhere, when the request cannot be parked", async () => {
+    // A redirect to the consent UI carrying an id that was never stored would
+    // strand the user on a screen that cannot load; a 503 says retry.
+    const fake = createFakeNamespace();
+    fake.failWhen((call) => call.store === "oidc_authorize_request");
+    const h = setup({
+      ceremonyStores: {
+        ...createDefaultCeremonyStores(),
+        authorizeRequests: createDurableCeremonyStore(fake.ns, "oidc_authorize_request", () => {}),
+      },
+    });
+    h.seedClient();
+    const res = await h.app.handle(new Request(authorizeUrl(goodParams)));
+
+    expect(res.status).toBe(503);
+    expect(res.headers.get("location")).toBeNull();
+    expect(((await res.json()) as { error: string }).error).toBe("temporarily_unavailable");
+    expect(fake.calls).toEqual([{ store: "oidc_authorize_request", op: "write" }]);
+  });
+
   it("sends a signed-in visitor with no consent to the interaction UI", async () => {
     const h = setup();
     h.seedClient();
@@ -271,6 +296,30 @@ describe("GET /authorize", () => {
     expect(res.status).toBe(302);
     const loc = new URL(res.headers.get("location")!);
     expect(loc.searchParams.get("reason")).toBe("consent");
+  });
+
+  it("sends a rotated-out cookie to sign-in even when its rotation record cannot be read", async () => {
+    // Reuse detection fails closed on a read error, but at the authorization
+    // endpoint a cookie that does not resolve is "not signed in", never a 5xx.
+    const h = setup();
+    h.seedClient();
+    const cookie = await signIn(h, "rotated@example.com", "rotated_user");
+    const rotated = await h.app.handle(
+      new Request("http://localhost/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", cookie },
+        body: JSON.stringify({ grant_type: "refresh_token" }),
+      }),
+    );
+    expect(rotated.status).toBe(200);
+    h.sqlite.run("DROP TABLE rotated_sessions");
+
+    const res = await h.app.handle(new Request(authorizeUrl(goodParams), { headers: { cookie } }));
+
+    expect(res.status).toBe(302);
+    const loc = new URL(res.headers.get("location")!);
+    expect(loc.pathname).toBe("/authorize");
+    expect(loc.searchParams.get("reason")).toBe("login");
   });
 
   it("answers a signed-in prompt=none with consent_required when unlinked", async () => {
@@ -653,6 +702,25 @@ describe("POST /authorize/decision", () => {
     const second = await decide();
     expect(second.status).toBe(400);
     expect(((await second.json()) as { error: string }).error).toBe("invalid_request");
+  });
+
+  it("answers exactly one of two decisions sent at once on one request", async () => {
+    const h = setup();
+    h.seedClient();
+    const sessionCookie = await signIn(h, "race@example.com", "race_user");
+    const { requestId, profileId, cookie } = await parkRequest(h, sessionCookie);
+
+    const decide = () =>
+      h.app.handle(
+        new Request("http://localhost/authorize/decision", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", cookie },
+          body: JSON.stringify({ requestId, profileId, approved: true }),
+        }),
+      );
+
+    const statuses = (await Promise.all([decide(), decide()])).map((res) => res.status);
+    expect(statuses.toSorted()).toEqual([200, 400]);
   });
 
   /**

@@ -1,10 +1,13 @@
 import { it, expect, describe } from "@effect/vitest";
 import { EmailError, EmailService, makeLogEmailLive } from "@shared/email";
 import { Effect, Layer } from "effect";
-import { beforeAll } from "vitest";
+import { beforeAll, vi } from "vitest";
 
+import { createDurableJtiStore } from "../../src/lib/coordination/durable";
+import * as metrics from "../../src/metrics";
 import { createAuthService } from "../../src/services/auth";
 import { makeTestAuthConfig } from "../helpers/auth-config";
+import { createFakeNamespace } from "../helpers/coordination-namespace";
 import { createTestLayer } from "../helpers/db";
 
 /**
@@ -109,6 +112,41 @@ describe("step-up OTP ceremony", () => {
     }).pipe(Effect.provide(cap.layer));
   });
 
+  // F-SV5
+  it.effect(
+    "a token guard that cannot answer refuses the token, and is not counted as a replay",
+    () => {
+      const cap = makeEmailCapture();
+      const fake = createFakeNamespace();
+      fake.failWhen((call) => call.store === "step_up_jti");
+      const guarded = createAuthService({
+        ...config,
+        stepUpJtiStore: createDurableJtiStore(fake.ns, () => {}),
+      });
+      const verified = vi.spyOn(metrics, "metricStepUpVerified");
+      return Effect.gen(function* () {
+        const profile = yield* guarded.registerProfile("su-jti-down@example.com", "sujtidown");
+        yield* guarded.beginStepUpOtp(profile.accountId);
+        const { stepUpToken } = yield* guarded.completeStepUpOtp(
+          profile.accountId,
+          cap.latest()!,
+          "recovery_generate",
+        );
+
+        const err = yield* Effect.flip(
+          guarded.verifyStepUpForRecoveryGenerate(profile.accountId, stepUpToken),
+        );
+        expect(err._tag).toBe("AuthError");
+        expect(err.message).toBe("Step-up token could not be verified");
+        expect(verified.mock.calls.map(([result]) => result)).not.toContain("jti_replay");
+        expect(fake.calls).toEqual([{ store: "step_up_jti", op: "claim" }]);
+      }).pipe(
+        Effect.provide(cap.layer),
+        Effect.ensuring(Effect.sync(() => verified.mockRestore())),
+      );
+    },
+  );
+
   it.effect("expired / wrong code is rejected with a generic error", () =>
     Effect.gen(function* () {
       const profile = yield* registered("su-expire@example.com", "suexpire");
@@ -190,6 +228,51 @@ describe("step-up OTP ceremony", () => {
       }).pipe(Effect.provide(layer));
     },
   );
+});
+
+// The verifier accepts a token for a clock tolerance past its `exp`, so the
+// claim on its id must still stand then, or a used token verifies again.
+describe("a used step-up token stays used for as long as it verifies", () => {
+  const guards = [
+    ["the in-memory guard", () => ({})],
+    [
+      "the coordination store's guard",
+      () => ({ stepUpJtiStore: createDurableJtiStore(createFakeNamespace().ns, () => {}) }),
+    ],
+  ] as const;
+
+  for (const [name, guard] of guards) {
+    it.effect(`${name}: presented again just inside the tolerance past exp, it is refused`, () => {
+      const svc = createAuthService({ ...config, ...guard() });
+      return Effect.gen(function* () {
+        vi.useFakeTimers({ toFake: ["Date"] });
+        const profile = yield* svc.registerProfile(
+          `su-late-${name.length}@example.com`,
+          `sulate${name.length}`,
+        );
+        const token = yield* svc.issueStepUpToken(
+          profile.accountId,
+          "passkey",
+          "recovery_generate",
+        );
+        yield* svc.verifyStepUpForRecoveryGenerate(profile.accountId, token);
+
+        const { exp } = JSON.parse(
+          Buffer.from(token.split(".")[1]!, "base64url").toString("utf8"),
+        ) as { exp: number };
+        vi.setSystemTime((exp + 29) * 1000);
+        const again = yield* Effect.result(
+          svc.verifyStepUpForRecoveryGenerate(profile.accountId, token),
+        );
+        expect(again._tag === "Failure" ? again.failure.message : "accepted again").toBe(
+          "Step-up token already used",
+        );
+      }).pipe(
+        Effect.provide(createTestLayer()),
+        Effect.ensuring(Effect.sync(() => vi.useRealTimers())),
+      );
+    });
+  }
 });
 
 // Account deletion is the highest-stakes step-up consumer (Flow A —

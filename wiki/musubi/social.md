@@ -239,7 +239,7 @@ plus `X-Frame-Options: DENY` (a consent screen must never be framed),
 
 ## Rate limits
 
-Per-user Redis-backed limiters on the two recommendations endpoints, both fail-closed — 20 req/min for the suggestion fan-out, 60 req/min for search (typeahead fires once per debounced keystroke). See `[[rate-limiting]]` and `createRedisRecommendationRateLimiters` in `@osn/api`.
+Per-user limiters on the two recommendations endpoints, both fail-closed — 20 req/min for the suggestion fan-out, 60 req/min for search (typeahead fires once per debounced keystroke). A deployed osn-api runs them on its native `RL_USER_*` bindings; the budgets are `OSN_RATE_LIMITS` in `osn/api/src/routes/auth/limiters.ts`. See [[rate-limiting]].
 
 ## Testing
 

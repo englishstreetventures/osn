@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 
 import { handler, type Env } from "../src/index";
 import { _resetOutboundKeyForTests } from "../src/lib/outbound-arc";
+import { createFakeNamespace } from "./helpers/coordination-namespace";
+import { userTierBindings } from "./helpers/rate-limit-bindings";
 
 /**
  * Workers `fetch` handler fail-closed paths.
@@ -61,7 +63,7 @@ describe("handler.fetch — fail-closed (T-R1)", () => {
   });
 
   it("returns 503 naming RESEND_API_URL when a deployed tier carries the emulator override", async () => {
-    // Every edge check and the Upstash gate pass, so the build reaches email
+    // Every edge check passes, so the build reaches email
     // selection, which refuses the override in any non-local tier.
     const env = {
       OSN_ENV: "production",
@@ -69,8 +71,8 @@ describe("handler.fetch — fail-closed (T-R1)", () => {
       OSN_ISSUER_URL: "https://id.osn.test",
       OSN_CORS_ORIGIN: "https://osn.test",
       OSN_RP_ID: "osn.test",
-      UPSTASH_REDIS_REST_URL: "https://redis.osn.test",
-      UPSTASH_REDIS_REST_TOKEN: "token",
+      COORDINATION: createFakeNamespace().ns,
+      ...userTierBindings(),
       RESEND_API_KEY: "re_live",
       RESEND_API_URL: "http://localhost:4008",
     } as Env;
@@ -88,6 +90,31 @@ describe("handler.fetch — fail-closed (T-R1)", () => {
     expect(error).not.toContain("OSN_ISSUER_URL");
     expect(error).not.toContain("OSN_CORS_ORIGIN");
     expect(error).not.toContain("OSN_RP_ID");
+  });
+
+  it.each(["dev", "staging", "production"])(
+    "returns 503 naming the per-user rate-limit bindings when %s lacks them",
+    async (tier) => {
+      // The graph, organisation and recommendation limiters run only on these
+      // in a deployed tier; without them every write would cost a store call.
+      const env = {
+        OSN_ENV: tier,
+        DB: {} as Env["DB"],
+        COORDINATION: createFakeNamespace().ns,
+        OSN_ISSUER_URL: "https://id.osn.test",
+        OSN_CORS_ORIGIN: "https://osn.test",
+        OSN_RP_ID: "osn.test",
+      } as Env;
+      const { error } = await read503(await handler.fetch(req(), env));
+      expect(error).toBe("Worker misconfigured: missing RL_USER_20_60, RL_USER_60_60");
+    },
+  );
+
+  it("does NOT require the per-user rate-limit bindings in a local tier", async () => {
+    // Local `wrangler dev` without them keeps those limiters on the store.
+    const env = { DB: {} as Env["DB"] } as Env;
+    const { error } = await read503(await handler.fetch(req(), env));
+    expect(error).toBe("Worker misconfigured: missing COORDINATION");
   });
 });
 

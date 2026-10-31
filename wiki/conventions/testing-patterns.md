@@ -59,7 +59,7 @@ cire landing and cire host reach the internet as they start: their Astro font pi
 
 *Measured 2026-10-20 — `astro dev` for `@cire/host` with the same two variables, `PORT=4322`, in a sandbox whose egress proxy refused `fonts.google.com`: `/login` answered 200 after 8.9 s, its log saying `No data found for font family Schibsted Grotesk`.*
 
-The ports are the `PORTLESS=0` ones from `DEV_APPS` in `@shared/dev-urls`, and `tools/e2e/tests/config.test.ts` keeps the two lists equal. Children get an explicit environment, not your shell's: `PATH`, `HOME` and a few proxy and certificate variables, plus every sibling origin set by name. The APIs also start with `--no-env-file`, so neither a `.env` file nor your shell's `REDIS_URL`, `OSN_ENV` or Turnstile key reaches them. The frontends still read their own `.env*` files, as Vite and Astro always do. Every variable the suite relies on there (each API origin, the Turnstile site keys) is set in their environment, and that beats a `.env` value.
+The ports are the `PORTLESS=0` ones from `DEV_APPS` in `@shared/dev-urls`, and `tools/e2e/tests/config.test.ts` keeps the two lists equal. Children get an explicit environment, not your shell's: `PATH`, `HOME` and a few proxy and certificate variables, plus every sibling origin set by name. The APIs also start with `--no-env-file`, so neither a `.env` file nor your shell's `OSN_DATABASE_URL`, `OSN_ENV` or Turnstile key reaches them. The frontends still read their own `.env*` files, as Vite and Astro always do. Every variable the suite relies on there (each API origin, the Turnstile site keys) is set in their environment, and that beats a `.env` value.
 
 **The clock.** Every server and every browser page starts at `2026-10-01T00:00:00Z` and then ticks in real time. The APIs load `tools/e2e/src/clock.mjs` with `--preload`. Vite and Astro load it through `NODE_OPTIONS`. Each page gets `page.clock.install`. The date is fixed so that seeded deadlines and "must be in the future" checks resolve the same way whatever the real date is. Time still moves so that debounces and timers in the UI still fire. Each flow checks that the rows it wrote carry a timestamp on the suite clock, so a server that missed the preload fails on the day it breaks, not on the day a seeded deadline passes.
 
@@ -822,13 +822,13 @@ yet; their metric suites today assert only that a call does not throw.
 
 ## The D1 integration lane
 
-Each API package has a `tests/d1/d1-integration.test.ts` (cire's is `tests/db/d1-integration.test.ts`) that runs against a real workerd-backed D1 via Miniflare. They are the only coverage of the **asynchronous** D1 driver that dev/staging/prod actually use, as opposed to the synchronous `bun:sqlite` every other suite runs on. `shared/realtime` joins this lane too, though its `tests/d1/hub.test.ts` covers `TopicHub` on workerd rather than D1 — the hibernation API it exercises exists only in the runtime, so it needs the same Miniflare tier for the same reason.
+Each API package has a `tests/d1/d1-integration.test.ts` (cire's is `tests/db/d1-integration.test.ts`) that runs against a real workerd-backed D1 via Miniflare. They are the only coverage of the **asynchronous** D1 driver that dev/staging/prod actually use, as opposed to the synchronous `bun:sqlite` every other suite runs on. `shared/realtime` joins this lane too, though its `tests/d1/hub.test.ts` covers `TopicHub` on workerd rather than D1 — the hibernation API it exercises exists only in the runtime, so it needs the same Miniflare tier for the same reason. `shared/coordination` joins for that reason too: `tests/d1/store.test.ts` covers `CoordinationStore`, whose synchronous storage API exists only on workerd. And osn/api's lane holds `tests/d1/worker-e2e.test.ts`, osn-api end to end on workerd ([[#osn-api on workerd, end to end]]).
 
 How the fast tier avoids these files differs by runner, and the difference is worth knowing before you read a CI log:
 
 | Package | Fast-tier runner | Does `bun run test` load the D1/Miniflare file? |
 |---|---|---|
-| `osn/api`, `pulse/api`, `zap/api`, `shared/realtime` | vitest | **No** — the configs `exclude: ["tests/d1/**"]`. Vitest cannot load these files at all: they import `bun:test`. |
+| `osn/api`, `pulse/api`, `zap/api`, `shared/realtime`, `shared/coordination` | vitest | **No** — the configs `exclude: ["tests/d1/**"]`. Vitest cannot load these files at all: they import `bun:test`. |
 | `cire/api` | bare `bun test` | **Yes.** `bun test` discovers recursively and takes no exclude, so the Miniflare suite runs twice per CI run — once inside `@cire/api#test`, once under `test:d1`. A workerd failure reddens cire's fast tier too, and a workerd timeout can stop it outright: see [[#Miniflare in cire's fast tier]]. `tests/db/migrate-wrapper.test.ts`, which runs real wrangler, skips unless `CIRE_D1_TIER=1`, which only `test:d1` sets. |
 
 See [[realtime]] for what `hub.test.ts` covers.
@@ -839,6 +839,31 @@ bun run --cwd zap/api test:d1
 ```
 
 Run serially. Concurrent Miniflare workerd instances contend and fail spuriously, which is why the root script pins `--concurrency=1`. Both `ci.yml` and `deploy.yml` run this lane; before 2026-08 neither did, and zap's test sat failing on a stale fixture for as long as it took someone to run it by hand.
+
+### osn-api on workerd, end to end
+
+`osn/api/tests/d1/worker-e2e.test.ts` is the one test that runs osn-api as it is
+deployed. Every other osn-api test, and `tools/e2e`, runs the Bun entry with the
+in-memory coordination stores, so this file is the only coverage of the Durable
+Object path ([[coordination-store]]).
+
+- **The bundle.** It runs `wrangler deploy --dry-run --outdir` and loads the
+  `entry.js` that builds into Miniflare as an ES module. Pointing Miniflare at the
+  file with `scriptPath` fails: Miniflare refuses the bundle's computed `import()`
+  of `@shared/db-utils`' Bun driver.
+- **The bindings.** `COORDINATION` on `CoordinationStore` (SQLite), the native
+  rate limits read from `wrangler.toml`, and D1 seeded from `createSchemaSql`,
+  all persisted in a temporary directory, so a restarted Miniflare keeps state.
+  Outbound calls to Resend go to a loopback stand-in and are captured.
+- **What it proves.** A step-up token is used once, a one-time code is used
+  once, an hour-window limiter's count outlives a restart, a recovery-code
+  lockout holds, and refresh-token reuse is detected.
+- **The artifact.** It ends by writing `e2e-artifacts/osn-api-workerd/results.json`:
+  each request's step, method, path, status and error code, and the counts read
+  off the store. No token, code, timestamp or IP goes in it, so a rerun writes
+  the same bytes. `osn/api/turbo.json` declares the file as the `test:d1` task's
+  output, so a cached run restores it, and `ci.yml` uploads it as the
+  `osn-api-workerd-e2e` artifact, on a failed run too.
 
 ### Miniflare in cire's fast tier
 

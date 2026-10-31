@@ -6,22 +6,28 @@
 import { accounts, emailChanges, sessions } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { timingSafeEqualString } from "@shared/crypto/timing-safe";
-import { commitBatch, driverErrorText } from "@shared/db-utils";
+import { driverErrorText, rowsChanged } from "@shared/db-utils";
 import { type EmailError, EmailService } from "@shared/email";
-import { and, count as countFn, eq, gte, ne } from "drizzle-orm";
+import { and, count as countFn, eq, exists, gte, lt, sql } from "drizzle-orm";
 import { Effect, Schema } from "effect";
 
+import { canBatch } from "../../lib/batch";
+import { bound } from "../../lib/bound";
 import { UNIQUE_CONSTRAINT_ERROR } from "../../lib/unique-constraint";
 import {
   metricAuthOtpSent,
   metricSessionSecurityInvalidation,
   withEmailChange,
 } from "../../metrics";
+import { claimEntry, guessEntry } from "./attempts";
 import { MAX_OTP_ATTEMPTS } from "./constants";
 import type { AuthContext } from "./context";
-import { AuthError, DatabaseError, ValidationError } from "./errors";
+import { AuthError, type CoordinationError, DatabaseError, ValidationError } from "./errors";
 import { EmailSchema, genId, genOtpCode, hashSessionToken, logDevOtp } from "./helpers";
+import { outsideFamilyOf } from "./sessions";
 import type { StepUpModule } from "./step-up";
+import { storeCall } from "./store-call";
+import type { PendingEmailChange } from "./stores";
 
 export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) {
   const { config, stores, otpTtl, emailChangeBeginCap } = ctx;
@@ -31,21 +37,25 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
   const EMAIL_CHANGE_WINDOW_SECONDS = 7 * 24 * 60 * 60;
 
   /**
-   * Drop a pending change on a path that is already failing. The store is a
-   * network hop in production, and `Effect.promise` would turn a blip there
-   * into a defect — a 500 in place of the 4xx the caller has earned, and the
-   * outcome bucket the caller-facing failure was meant to record. The entry
-   * carries a TTL, so losing the delete costs nothing but the wait.
+   * Drop the pending change `entry` — the one this request's guess read — when
+   * the guess that reached the cap was wrong. Only that entry goes: `begin`
+   * overwrites the entry at the account's key, so a change begun since keeps
+   * its own. The store is a network hop in production, and a blip there must
+   * not replace the refusal the caller has earned, nor the outcome bucket it
+   * was meant to record. The entry carries a TTL, so losing the delete costs
+   * nothing but the wait.
    */
-  const dropPending = (accountId: string) =>
-    Effect.tryPromise(() => stores.pendingEmailChanges.delete(accountId)).pipe(Effect.ignore);
+  const dropPending = (accountId: string, entry: PendingEmailChange) =>
+    Effect.tryPromise(() => stores.pendingEmailChanges.delete(accountId, entry)).pipe(
+      Effect.ignore,
+    );
 
   const beginEmailChange = (
     accountId: string,
     newEmail: string,
   ): Effect.Effect<
     { sent: boolean },
-    AuthError | ValidationError | DatabaseError,
+    AuthError | ValidationError | DatabaseError | CoordinationError,
     Db | EmailService
   > =>
     Effect.gen(function* () {
@@ -131,13 +141,12 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
       }
 
       const code = genOtpCode();
-      yield* Effect.promise(() =>
+      yield* storeCall(stores.pendingEmailChanges, "set", () =>
         stores.pendingEmailChanges.set(
           accountId,
           {
             newEmail: normalised,
             codeHash: hashSessionToken(code),
-            attempts: 0,
             expiresAt: Date.now() + otpTtl * 1000,
           },
           otpTtl * 1000,
@@ -170,19 +179,20 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
    * Finalises an email change. Requires:
    *   - A valid step-up token (passkey or OTP amr) for this account.
    *   - A valid OTP sent to the **new** email address.
-   *   - < 2 completed changes in the last 7 days.
+   *   - < 2 completed changes in the last 7 days, counted at the preflight
+   *     and again inside every statement of the commit.
    *
    * On success: the accounts row is updated, every OTHER session is
    * revoked (the caller's stays so they don't get kicked out of the
-   * Settings flow), and an audit row is inserted — all in one transaction
-   * so we cannot leave the system in a half-changed state.
+   * Settings flow), and an audit row is inserted — one D1 batch. One code
+   * commits one change: the code's entry is claimed before the commit.
    */
   const completeEmailChange = (
     accountId: string,
     code: string,
     stepUpToken: string,
     currentSessionHash: string | null,
-  ): Effect.Effect<{ email: string }, AuthError | DatabaseError, Db> =>
+  ): Effect.Effect<{ email: string }, AuthError | DatabaseError | CoordinationError, Db> =>
     Effect.gen(function* () {
       // Purpose-bound: a token minted for another ceremony (recovery generate,
       // passkey delete) cannot be replayed to complete an email swap. The
@@ -191,24 +201,18 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
       // the whole rule exists to hold.
       yield* verifyStepUpForEmailChange(accountId, stepUpToken);
 
-      const pending = yield* Effect.promise(() => stores.pendingEmailChanges.get(accountId));
-      if (!pending || Date.now() > pending.expiresAt) {
+      // Read and counted in one call, before the code is compared; see
+      // `attempts.ts`.
+      const guessed = yield* guessEntry(stores.pendingEmailChanges, accountId, MAX_OTP_ATTEMPTS);
+      if (!guessed) {
+        return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
+      }
+      const { entry: pending, standing } = guessed;
+      if (standing === "spent") {
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
       }
       if (!timingSafeEqualString(pending.codeHash, hashSessionToken(code))) {
-        // Persist the attempt bump + carry remaining TTL (store doesn't alias).
-        const attempts = pending.attempts + 1;
-        if (attempts >= MAX_OTP_ATTEMPTS) {
-          yield* dropPending(accountId);
-        } else {
-          yield* Effect.promise(() =>
-            stores.pendingEmailChanges.set(
-              accountId,
-              { ...pending, attempts },
-              Math.max(0, pending.expiresAt - Date.now()),
-            ),
-          );
-        }
+        if (standing === "last") yield* dropPending(accountId, pending);
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
       }
 
@@ -218,9 +222,9 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
 
       // The rate check + current-account fetch move OUT of the
       // transaction so the write section holds the writer lock as briefly
-      // as possible. Race-safety is preserved by the UNIQUE(email)
-      // constraint catching concurrent winners at `tx.update`.
-      const preflight = yield* Effect.tryPromise({
+      // as possible. The UNIQUE(email) constraint catches another account
+      // that commits the same address at `tx.update`.
+      const readPreflight = Effect.tryPromise({
         try: async () => {
           const [acct] = await db
             .select({ email: accounts.email })
@@ -244,6 +248,23 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
         },
         catch: (cause) => new DatabaseError({ cause }),
       });
+
+      // Single use: the right code claims its entry, beside the preflight
+      // reads, before anything commits. Of two right codes sent at once, each
+      // with its own step-up token, exactly one claims it and goes on to the
+      // commit; the other is refused as a wrong code would be, whatever the
+      // preflight found. None claims an entry a new `begin` has replaced. The
+      // claim spends the code even when the preflight or the commit then
+      // fails: the caller steps up and begins again. The entry is not put
+      // back after a failed commit, since D1 can fail a batch it has
+      // committed, and a code put back then would commit the change twice.
+      const [claimed, preflight] = yield* Effect.all(
+        [claimEntry(stores.pendingEmailChanges, accountId, pending), readPreflight],
+        { concurrency: "unbounded" },
+      );
+      if (!claimed) {
+        return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
+      }
       if (!preflight.ok) {
         if (preflight.reason === "not_found") {
           return yield* Effect.fail(new AuthError({ message: "Account not found" }));
@@ -254,39 +275,82 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
       }
       const currentAccountRow = preflight.current;
 
+      // The cap holds at the commit as well as at the preflight: two
+      // different codes — one claimed, then a second begun and completed —
+      // each pass a preflight that counted one change. Every statement below
+      // re-counts the changes in the window inside itself, and SQLite runs
+      // each statement atomically, so once two are on record no statement
+      // writes, whether or not D1 keeps one batch apart from another.
+      const changeId = genId("ech_");
+      const recentChanges = sql`(${db
+        .select({ n: countFn() })
+        .from(emailChanges)
+        .where(
+          and(eq(emailChanges.accountId, accountId), gte(emailChanges.completedAt, windowStart)),
+        )})`;
+      const ownChangeRecorded = exists(
+        db
+          .select({ one: sql`1` })
+          .from(emailChanges)
+          .where(eq(emailChanges.id, changeId)),
+      );
+      // Every session but the caller's device, which stays through a refresh
+      // of its own session in flight (`outsideFamilyOf`).
+      const otherSessions =
+        currentSessionHash !== null
+          ? and(
+              eq(sessions.accountId, accountId),
+              outsideFamilyOf(db, sessions.familyId, currentSessionHash),
+            )
+          : eq(sessions.accountId, accountId);
+      const swap = db
+        .update(accounts)
+        .set({ email: pending.newEmail, updatedAt: new Date(nowSec * 1000) })
+        .where(and(eq(accounts.id, accountId), lt(recentChanges, EMAIL_CHANGE_LIMIT)));
+      // Records the change only while the account holds the address this
+      // request wrote. Where two requests' statements interleave (bun:sqlite
+      // runs them one at a time; D1 might), only the one whose address landed
+      // last finds it here, so the change on record is the address that
+      // stands. The other is refused with the cap's error even when it found
+      // fewer than two changes, since the one that stands records next.
+      const record = db.insert(emailChanges).select(
+        db
+          .select({
+            id: bound(changeId, emailChanges.id),
+            accountId: bound(accountId, emailChanges.accountId),
+            previousEmail: bound(currentAccountRow.email, emailChanges.previousEmail),
+            newEmail: bound(pending.newEmail, emailChanges.newEmail),
+            completedAt: bound(nowSec, emailChanges.completedAt),
+          })
+          .from(accounts)
+          .where(
+            and(
+              eq(accounts.id, accountId),
+              eq(accounts.email, pending.newEmail),
+              lt(recentChanges, EMAIL_CHANGE_LIMIT),
+            ),
+          ),
+      );
+      // A refused request's sessions stay: the wipe runs only once its own
+      // change is on record.
+      const wipe = db.delete(sessions).where(and(otherSessions, ownChangeRecorded));
+
       const changed = yield* Effect.tryPromise({
         try: async () => {
           try {
-            // Atomic batch on D1, sequential on bun:sqlite. A half-applied
-            // change would leave a potentially-compromised session alive with a
-            // stale email claim, so the email swap + audit row + session wipe
-            // commit together. The guarantee is D1's, not this function's — on
-            // the local bun:sqlite driver the statements run one after another
-            // and a mid-chain failure can leave the swap applied without the
-            // audit row or the session wipe.
-            await commitBatch(db, [
-              db
-                .update(accounts)
-                .set({ email: pending.newEmail, updatedAt: new Date(nowSec * 1000) })
-                .where(eq(accounts.id, accountId)),
-
-              db.insert(emailChanges).values({
-                id: genId("ech_"),
-                accountId,
-                previousEmail: currentAccountRow.email,
-                newEmail: pending.newEmail,
-                completedAt: nowSec,
-              }),
-
-              currentSessionHash !== null
-                ? db
-                    .delete(sessions)
-                    .where(
-                      and(eq(sessions.accountId, accountId), ne(sessions.id, currentSessionHash)),
-                    )
-                : db.delete(sessions).where(eq(sessions.accountId, accountId)),
-            ]);
-
+            // One batch on D1, one statement at a time on bun:sqlite. The
+            // swap goes first, so a UNIQUE(email) conflict throws before
+            // anything is written on either driver. A refused request's swap
+            // can land on bun:sqlite (or on D1, should it interleave batches)
+            // and be overwritten by the swap that stands; its change and its
+            // wipe never run. `previous_email` is the preflight's read, so
+            // with two changes committing together it can name the address
+            // before the other one.
+            const [, recorded] = canBatch(db)
+              ? await db.batch([swap, record, wipe])
+              : ([await swap, await record, await wipe] as const);
+            if (rowsChanged(recorded) !== 1)
+              return { ok: false as const, reason: "capped" as const };
             return { ok: true as const, email: pending.newEmail };
           } catch (e) {
             const msg = driverErrorText(e);
@@ -303,25 +367,23 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
         catch: (cause) => new DatabaseError({ cause }),
       });
 
+      if (!changed.ok && changed.reason === "capped") {
+        return yield* Effect.fail(
+          new AuthError({ message: "Email change limit reached (2 per 7 days)" }),
+        );
+      }
       if (!changed.ok) {
-        // Only "conflict" can come out of the narrowed TX (preflight
-        // already rejected not_found / rate_limit). Map to a generic
-        // error that matches the begin-path enumeration posture.
+        // A UNIQUE(email) conflict: another account holds the address. Map to
+        // a generic error that matches the begin-path enumeration posture.
         //
-        // The pending change is deleted here, not just left to expire. The
-        // address is claimed by another account, so every retry of this
-        // ceremony fails the same way; holding the entry only keeps the
-        // OTP-attempts counter open against a target the caller cannot have.
-        // (Not an absolute impossibility — the winner could later move off the
-        // address — but then a fresh `begin` is the honest way back in.)
-        // Matches the lockout branch above.
-        yield* dropPending(accountId);
+        // The claim above has already spent the code, so a retry finds no
+        // pending change: the address is held by another account, and a fresh
+        // `begin` is the honest way back in should it ever come free.
         return yield* Effect.fail(
           new AuthError({ message: "Invalid or expired code", metricResult: "conflict" }),
         );
       }
 
-      yield* Effect.promise(() => stores.pendingEmailChanges.delete(accountId));
       metricSessionSecurityInvalidation("email_change");
       return { email: changed.email };
     }).pipe(withEmailChange("complete"));

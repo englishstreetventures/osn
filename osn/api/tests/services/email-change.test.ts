@@ -2,13 +2,14 @@ import { it, expect, describe } from "@effect/vitest";
 import { accounts, emailChanges } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { eq } from "drizzle-orm";
-import { Effect } from "effect";
+import { Effect, Fiber, Layer } from "effect";
 import { beforeAll } from "vitest";
 
 import { createAuthService } from "../../src/services/auth";
 import { createInMemoryAccountCap } from "../../src/services/auth/stores";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayerWithSqlite } from "../helpers/db";
+import { holdQueries } from "../helpers/held-query";
 
 /**
  * Build a fresh email recorder + test layer. Tests that need to capture
@@ -227,8 +228,8 @@ describe("beginEmailChange + completeEmailChange", () => {
       expect(aEmailChanges).toHaveLength(0);
 
       // A's pre-existing session still verifies — the failed complete
-      // didn't touch sessions at all (S2's delete only removes the
-      // pending ceremony state, never a session).
+      // didn't touch sessions at all (its claim removes only the pending
+      // ceremony state, never a session).
       yield* a.auth.verifyRefreshToken(aTokens.refreshToken);
     }).pipe(Effect.provide(layer));
   });
@@ -438,15 +439,14 @@ describe("beginEmailChange + completeEmailChange", () => {
     }).pipe(Effect.provide(layer));
   });
 
-  // Proves the S2 delete (removing a conflicted pending
-  // change) actually matters, rather than being dead code. Extends the race
-  // test's world: A's complete already lost the genuine UNIQUE race once
-  // (S2 fires, pending is gone). A second, non-uniqueness fault is then
-  // installed and A resubmits with a fresh token — with S2 in place this
+  // Proves a conflicted change spends its code. Extends the race test's world:
+  // A's complete already lost the genuine UNIQUE race once, after its claim
+  // removed the pending change. A second, non-uniqueness fault is then
+  // installed and A resubmits with a fresh token — with the code spent this
   // short-circuits at `!pending` (AuthError) rather than ever reaching the
-  // write and turning into a DatabaseError. Without S2 the pending entry
-  // would survive and this assertion would catch the regression.
-  it.effect("S2 delete: a conflicted pending change cannot be resurrected by retrying", () => {
+  // write and turning into a DatabaseError. Were the pending entry to survive
+  // the conflict, this assertion would catch it.
+  it.effect("a conflicted pending change cannot be resurrected by retrying", () => {
     const { layer, captured, sqlite } = makeEmailCapture();
     return Effect.gen(function* () {
       const a = yield* setup("ec-s2-a@example.com", "ecs2a", captured);
@@ -484,10 +484,10 @@ describe("beginEmailChange + completeEmailChange", () => {
       const secondErr = yield* Effect.flip(
         a.auth.completeEmailChange(a.profile.accountId, codeA, freshStepUpToken, null),
       );
-      // With the S2 delete in place: the pending entry is already gone, so this short-circuits
-      // at `!pending` — AuthError. Without S2, the pending entry would
-      // survive and reach the write, where `ec_block_update` fires a
-      // non-UNIQUE message that S1 correctly re-throws as DatabaseError.
+      // The pending entry is already gone, so this short-circuits at
+      // `!pending` — AuthError. A surviving entry would reach the write, where
+      // `ec_block_update` fires a non-UNIQUE message that the complete
+      // re-throws as DatabaseError.
       expect(secondErr._tag).toBe("AuthError");
     }).pipe(Effect.provide(layer));
   });
@@ -570,4 +570,153 @@ describe("beginEmailChange + completeEmailChange", () => {
       expect(freeErr.message).toBe(takenErr.message);
     }).pipe(Effect.provide(layer));
   });
+});
+
+/**
+ * The cap holds at the commit, not only at the preflight: two different codes
+ * — one claimed, then a second begun and completed — each pass their own
+ * preflight with one change on record, and only one may commit. Each case
+ * holds a statement of the first completion's commit while the second runs.
+ */
+describe("the 2-per-7-days cap under concurrent completions", () => {
+  /** The service on a database whose statements a test can hold. */
+  function makeHeldEmailCapture() {
+    const { db, sqlite, email } = createTestLayerWithSqlite();
+    const held = holdQueries(db);
+    return {
+      layer: Layer.merge(Layer.succeed(Db, { db: held.db }), email.layer),
+      sqlite,
+      hold: held.hold,
+      latest: (): string => {
+        const all = email.recorded();
+        for (let i = all.length - 1; i >= 0; i--) {
+          const m = all[i]!.text.match(/code is: (\d{6})/);
+          if (m) return m[1]!;
+        }
+        throw new Error("no code mailed");
+      },
+    };
+  }
+
+  /** One completed change on record for `accountId`, inside the window. */
+  const seedOneChange = (sqlite: ReturnType<typeof makeHeldEmailCapture>["sqlite"], id: string) =>
+    sqlite
+      .query(
+        `INSERT INTO email_changes (id, account_id, previous_email, new_email, completed_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(`ech_seed_${id}`, id, "seed-old@example.com", "seed-new@example.com", nowSec());
+
+  const nowSec = () => Math.floor(Date.now() / 1000);
+
+  const changesOf = (
+    sqlite: ReturnType<typeof makeHeldEmailCapture>["sqlite"],
+    accountId: string,
+  ): string[] =>
+    (
+      sqlite
+        .query("SELECT new_email FROM email_changes WHERE account_id = ? ORDER BY new_email")
+        .all(accountId) as { new_email: string }[]
+    ).map((row) => row.new_email);
+
+  const emailOf = (sqlite: ReturnType<typeof makeHeldEmailCapture>["sqlite"], accountId: string) =>
+    (sqlite.query("SELECT email FROM accounts WHERE id = ?").get(accountId) as { email: string })
+      .email;
+
+  it.live("a completion that counted one change is refused once another has committed", () => {
+    const { layer, sqlite, hold, latest } = makeHeldEmailCapture();
+    return Effect.gen(function* () {
+      const auth = createAuthService(baseConfig);
+      const profile = yield* auth.registerProfile("ec-edge@example.com", "ecedge");
+      seedOneChange(sqlite, profile.accountId);
+      const [tokenA, tokenB] = yield* Effect.all(
+        [0, 1].map(() => auth.issueStepUpToken(profile.accountId, "otp", "email_change")),
+      );
+
+      yield* auth.beginEmailChange(profile.accountId, "ec-edge-a@example.com");
+      const codeA = latest();
+      // A's commit waits at its first statement, after its claim and its
+      // preflight have read one change on record.
+      const commitA = hold(/^update "accounts" set "email"/);
+      const a = yield* Effect.forkChild(
+        Effect.result(auth.completeEmailChange(profile.accountId, codeA, tokenA!, null)),
+      );
+      yield* Effect.promise(() => commitA.reached);
+
+      yield* auth.beginEmailChange(profile.accountId, "ec-edge-b@example.com");
+      const b = yield* auth.completeEmailChange(profile.accountId, latest(), tokenB!, null);
+      expect(b.email).toBe("ec-edge-b@example.com");
+      // A session opened after B's change, which A's commit must not end.
+      const later = yield* auth.issueTokens(
+        profile.id,
+        profile.accountId,
+        b.email,
+        profile.handle,
+        profile.displayName,
+      );
+
+      commitA.release();
+      const outcome = yield* Fiber.join(a);
+      expect(outcome._tag).toBe("Failure");
+      if (outcome._tag === "Failure") {
+        expect(outcome.failure._tag).toBe("AuthError");
+        expect(outcome.failure.message).toMatch(/limit reached/i);
+      }
+      expect(changesOf(sqlite, profile.accountId)).toEqual([
+        "ec-edge-b@example.com",
+        "seed-new@example.com",
+      ]);
+      expect(emailOf(sqlite, profile.accountId)).toBe("ec-edge-b@example.com");
+      yield* auth.verifyRefreshToken(later.refreshToken);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.live(
+    "when two commits' statements interleave, the address that stands is the one recorded",
+    () => {
+      const { layer, sqlite, hold, latest } = makeHeldEmailCapture();
+      return Effect.gen(function* () {
+        const auth = createAuthService(baseConfig);
+        const profile = yield* auth.registerProfile("ec-weave@example.com", "ecweave");
+        seedOneChange(sqlite, profile.accountId);
+        const [tokenA, tokenB] = yield* Effect.all(
+          [0, 1].map(() => auth.issueStepUpToken(profile.accountId, "otp", "email_change")),
+        );
+
+        // A's address goes in; its audit row waits.
+        yield* auth.beginEmailChange(profile.accountId, "ec-weave-a@example.com");
+        const codeA = latest();
+        const recordA = hold(/^insert into "email_changes"/);
+        const a = yield* Effect.forkChild(
+          Effect.result(auth.completeEmailChange(profile.accountId, codeA, tokenA!, null)),
+        );
+        yield* Effect.promise(() => recordA.reached);
+
+        // B's address goes in over A's; its audit row waits too.
+        yield* auth.beginEmailChange(profile.accountId, "ec-weave-b@example.com");
+        const codeB = latest();
+        const recordB = hold(/^insert into "email_changes"/);
+        const b = yield* Effect.forkChild(
+          Effect.result(auth.completeEmailChange(profile.accountId, codeB, tokenB!, null)),
+        );
+        yield* Effect.promise(() => recordB.reached);
+
+        recordA.release();
+        const outcomeA = yield* Fiber.join(a);
+        recordB.release();
+        const outcomeB = yield* Fiber.join(b);
+
+        expect(outcomeA._tag).toBe("Failure");
+        if (outcomeA._tag === "Failure") expect(outcomeA.failure._tag).toBe("AuthError");
+        expect(outcomeB._tag).toBe("Success");
+        if (outcomeB._tag === "Success")
+          expect(outcomeB.success.email).toBe("ec-weave-b@example.com");
+        expect(emailOf(sqlite, profile.accountId)).toBe("ec-weave-b@example.com");
+        expect(changesOf(sqlite, profile.accountId)).toEqual([
+          "ec-weave-b@example.com",
+          "seed-new@example.com",
+        ]);
+      }).pipe(Effect.provide(layer));
+    },
+  );
 });

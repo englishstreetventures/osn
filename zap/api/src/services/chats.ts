@@ -1,10 +1,12 @@
-import { commitBatch } from "@shared/db-utils";
+import { commitBatch, rowsChanged } from "@shared/db-utils";
 import { chats, chatMembers } from "@zap/db/schema";
 import type { Chat, ChatMember } from "@zap/db/schema";
-import { Db } from "@zap/db/service";
-import { and, asc, count, desc, eq, lt, or, sql } from "drizzle-orm";
+import { Db, type DbService } from "@zap/db/service";
+import { and, asc, count, desc, eq, exists, gt, lt, ne, or, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import { Data, Effect, Schema } from "effect";
 
+import { bound } from "../lib/bound";
 import {
   DEFAULT_CHAT_LIMIT,
   DEFAULT_MEMBER_LIMIT,
@@ -54,12 +56,12 @@ export class AlreadyMember extends Data.TaggedError("AlreadyMember")<{
   readonly profileId: string;
 }> {}
 
-/** Z3 — a DM must have exactly two members (creator + one other). */
+/** Refused: a DM created with anyone but exactly one other member, or an add to a DM. */
 export class InvalidDmMembership extends Data.TaggedError("InvalidDmMembership")<{
   readonly memberCount: number;
 }> {}
 
-/** Z5 — cannot remove the last admin of a chat. */
+/** Refused: removing the last admin of a chat, the admin leaving included. */
 export class LastAdmin extends Data.TaggedError("LastAdmin")<{
   readonly chatId: string;
 }> {}
@@ -424,11 +426,21 @@ export const updateChat = (
     );
 
     const now = storedNow();
-    yield* Effect.tryPromise({
+    // Writes only while the requester is still an admin of the chat, so one
+    // removed or demoted since the read above renames nothing.
+    const updated = yield* Effect.tryPromise({
       try: () =>
-        db.update(chats).set({ title: validated.title, updatedAt: now }).where(eq(chats.id, id)),
+        db
+          .update(chats)
+          .set({ title: validated.title, updatedAt: now })
+          .where(and(eq(chats.id, id), requesterIsAdmin(db, id, requestingProfileId))),
       catch: (cause) => new DatabaseError({ cause }),
     });
+    if (rowsChanged(updated) === 0) {
+      // Refused as the checks refuse, in their order: the chat, then the role.
+      yield* getChat(id);
+      return yield* Effect.fail(new NotChatAdmin({ chatId: id }));
+    }
 
     // `?? chat.title`, not `validated.title`. Drizzle omits an `undefined`
     // field from the SET clause, so a request that sends no title leaves the
@@ -506,8 +518,8 @@ export const addMember = (
     yield* checkConsent(requestingProfileId, profileId);
 
     // Cap+duplicate fold: one query over chat_members instead of a
-    // COUNT(*) followed by a separate indexed duplicate lookup. `sum()` from
-    // drizzle-orm 0.45.2 is typed `SQL<string | null>`
+    // COUNT(*) followed by a separate indexed duplicate lookup. drizzle-orm's
+    // `sum()` is typed `SQL<string | null>`
     // (`sql\`sum(...)\`.mapWith(String)`), which does not typecheck against a
     // numeric comparison — the raw `sql<number>` template is used instead.
     // `sum` over zero matching rows is SQL NULL, hence the `dup ?? 0` guard;
@@ -545,22 +557,46 @@ export const addMember = (
       role: "member",
       joinedAt: now,
     };
-    // The cap/duplicate check above narrows the concurrent-duplicate window
-    // but cannot close it (P-I/TOCTOU) — two concurrent adds of the *same*
-    // profile can both pass it and both reach this INSERT. The unique
-    // constraint on (chat_id, profile_id) is the real guard: catch its
-    // failure and resolve to `AlreadyMember` (409) rather than `DatabaseError`
-    // (500). This fixes concurrent duplicate adds only — the member *cap* has
-    // a separate, pre-existing TOCTOU (two concurrent adds of *different*
-    // profiles can both read `total = 499` and both insert), which this does
-    // not close and is not a regression.
-    yield* Effect.tryPromise({
-      try: () => db.insert(chatMembers).values(row),
+    // The cap/duplicate check above is a read, so it cannot hold against a
+    // write that lands after it; the insert holds them itself. The unique
+    // constraint on (chat_id, profile_id) holds the duplicate: of two adds of
+    // the *same* profile, the second fails it and resolves to `AlreadyMember`
+    // (409) rather than `DatabaseError` (500).
+    //
+    // The insert holds the requester's role and the member cap: it inserts
+    // from the requester's own admin row, and only while the chat has fewer
+    // than `MAX_CHAT_MEMBERS` members. SQLite runs the statement whole, so a
+    // requester removed or demoted since the read above adds no one, and of
+    // two adds that both read the last free place, the second inserts nothing
+    // and is refused `MemberLimitReached` — for two adds of one profile too,
+    // since the cap is checked before the duplicate.
+    const inserted = yield* Effect.tryPromise({
+      try: () =>
+        db.insert(chatMembers).select(
+          db
+            .select({
+              id: bound(row.id, chatMembers.id),
+              chatId: bound(row.chatId, chatMembers.chatId),
+              profileId: bound(row.profileId, chatMembers.profileId),
+              role: bound(row.role, chatMembers.role),
+              joinedAt: bound(row.joinedAt, chatMembers.joinedAt),
+            })
+            .from(requesterMembership)
+            .where(and(requesterAdminRow(chatId, requestingProfileId), chatHasRoom(db, chatId))),
+        ),
       catch: (cause) =>
         isUniqueConstraintFailure(cause)
           ? new AlreadyMember({ chatId, profileId })
           : new DatabaseError({ cause }),
     });
+    if (rowsChanged(inserted) === 0) {
+      // Refused as the checks refuse, in their order: the chat, the role, then
+      // the cap. The insert holds only the role and the cap, so with the role
+      // standing it was the cap.
+      yield* getChat(chatId);
+      yield* assertAdmin(chatId, requestingProfileId);
+      return yield* Effect.fail(new MemberLimitReached({ chatId }));
+    }
     metricMemberAdded("ok");
 
     // Returned from the values just written — see `provisionC2bChat`.
@@ -571,8 +607,9 @@ export const addMember = (
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-// Still used by `removeMember` (admin-removing-another-member path) — not a
-// fold target in this plan, only `updateChat` and `addMember` are.
+// Used by `removeMember`, for the admin check on removing someone else and its
+// re-read when the guarded delete removes no one, and by `addMember`, for its
+// re-read when the guarded insert adds no one.
 const assertAdmin = (
   chatId: string,
   profileId: string,
@@ -597,6 +634,38 @@ const assertAdmin = (
       return yield* Effect.fail(new NotChatAdmin({ chatId }));
     }
   });
+
+/** Second names for `chat_members`, for a write that reads other rows of the table it writes. */
+const requesterMembership = alias(chatMembers, "requester_membership");
+const adminMemberships = alias(chatMembers, "admin_memberships");
+const counted = alias(chatMembers, "counted_memberships");
+
+/**
+ * True while the chat has fewer than `MAX_CHAT_MEMBERS` members, for a write
+ * that must hold the cap as it runs rather than as an earlier read found it.
+ */
+const chatHasRoom = (db: DbService["db"], chatId: string) =>
+  lt(db.select({ n: count() }).from(counted).where(eq(counted.chatId, chatId)), MAX_CHAT_MEMBERS);
+
+/** The requester's admin row in the chat, on `requesterMembership`. */
+const requesterAdminRow = (chatId: string, requestingProfileId: string) =>
+  and(
+    eq(requesterMembership.chatId, chatId),
+    eq(requesterMembership.profileId, requestingProfileId),
+    eq(requesterMembership.role, "admin"),
+  );
+
+/**
+ * True while the requester is an admin of the chat, for a write that must hold
+ * the role as it runs rather than as an earlier read found it.
+ */
+const requesterIsAdmin = (db: DbService["db"], chatId: string, requestingProfileId: string) =>
+  exists(
+    db
+      .select({ one: sql`1` })
+      .from(requesterMembership)
+      .where(requesterAdminRow(chatId, requestingProfileId)),
+  );
 
 export const removeMember = (
   chatId: string,
@@ -639,32 +708,54 @@ export const removeMember = (
     // under it to be behind one.
     yield* assertC2c(chat);
 
-    // Never strand a chat with zero admins. If the target is the last
-    // remaining admin, the removal (self-leave included) is rejected — an
-    // admin must hand off the role first.
-    if (memberRows[0]!.role === "admin") {
-      const adminRows = yield* Effect.tryPromise({
-        try: (): Promise<ChatMember[]> =>
-          db
-            .select()
-            .from(chatMembers)
-            .where(and(eq(chatMembers.chatId, chatId), eq(chatMembers.role, "admin"))) as Promise<
-            ChatMember[]
-          >,
-        catch: (cause) => new DatabaseError({ cause }),
-      });
-      if (adminRows.length <= 1) {
-        return yield* Effect.fail(new LastAdmin({ chatId }));
-      }
-    }
-
-    yield* Effect.tryPromise({
+    // The delete holds the checks above as it runs, so a removal or a leave
+    // that lands after they read cannot get past them. It removes the member
+    // only while the requester (when removing someone else) is still an
+    // admin, and never the chat's last admin: an admin is removed only while
+    // another admin stands, so of two admins leaving at once one is refused,
+    // and an admin must hand off the role first. SQLite runs each statement
+    // whole, so the count and the delete see the same rows.
+    const anotherAdminStands = or(
+      ne(chatMembers.role, "admin"),
+      gt(
+        db
+          .select({ n: count() })
+          .from(adminMemberships)
+          .where(and(eq(adminMemberships.chatId, chatId), eq(adminMemberships.role, "admin"))),
+        1,
+      ),
+    );
+    const removed = yield* Effect.tryPromise({
       try: () =>
         db
           .delete(chatMembers)
-          .where(and(eq(chatMembers.chatId, chatId), eq(chatMembers.profileId, profileId))),
+          .where(
+            and(
+              eq(chatMembers.chatId, chatId),
+              eq(chatMembers.profileId, profileId),
+              profileId !== requestingProfileId
+                ? requesterIsAdmin(db, chatId, requestingProfileId)
+                : undefined,
+              anotherAdminStands,
+            ),
+          ),
       catch: (cause) => new DatabaseError({ cause }),
     });
+    if (rowsChanged(removed) === 0) {
+      // Refused as the checks would refuse now, in their order.
+      if (profileId !== requestingProfileId) yield* assertAdmin(chatId, requestingProfileId);
+      const stillMember = yield* Effect.tryPromise({
+        try: () =>
+          db
+            .select({ one: sql`1` })
+            .from(chatMembers)
+            .where(and(eq(chatMembers.chatId, chatId), eq(chatMembers.profileId, profileId)))
+            .limit(1),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      if (stillMember.length === 0) return yield* Effect.fail(new NotChatMember({ chatId }));
+      return yield* Effect.fail(new LastAdmin({ chatId }));
+    }
     metricMemberRemoved("ok");
   }).pipe(Effect.withSpan("zap.chats.remove_member"));
 

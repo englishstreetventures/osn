@@ -1,7 +1,6 @@
 import { DbLive, type Db } from "@osn/db/service";
 import type { AuthRateLimitedEndpoint } from "@shared/observability/metrics";
 import {
-  createRateLimiter,
   getClientIp,
   isUnresolvedIp,
   type ClientIpOptions,
@@ -16,10 +15,11 @@ import { makeAppRunner, type AppRuntime } from "../lib/route-runtime";
 import { metricAuthRateLimited } from "../metrics";
 import { createAuthService, type AuthConfig } from "../services/auth";
 import { createProfileService } from "../services/profile";
+import { memoryLimiter, OSN_RATE_LIMITS } from "./auth/limiters";
 import { errorResponse, publicProfile } from "./auth/response-schemas";
 
 // ---------------------------------------------------------------------------
-// Rate limiter types
+// Rate limiter types — per IP. Budgets are in `OSN_RATE_LIMITS`.
 // ---------------------------------------------------------------------------
 
 export type ProfileRateLimiters = Readonly<{
@@ -30,9 +30,9 @@ export type ProfileRateLimiters = Readonly<{
 
 export function createDefaultProfileRateLimiters(): ProfileRateLimiters {
   return {
-    profileCreate: createRateLimiter({ maxRequests: 5, windowMs: 60_000 }),
-    profileDelete: createRateLimiter({ maxRequests: 5, windowMs: 60_000 }),
-    profileSetDefault: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
+    profileCreate: memoryLimiter(OSN_RATE_LIMITS.profileCreate),
+    profileDelete: memoryLimiter(OSN_RATE_LIMITS.profileDelete),
+    profileSetDefault: memoryLimiter(OSN_RATE_LIMITS.profileSetDefault),
   };
 }
 

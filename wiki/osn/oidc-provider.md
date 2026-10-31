@@ -9,7 +9,7 @@ related:
   - "[[rate-limiting]]"
   - "[[cire-auth]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-10-27
+last-reviewed: 2026-10-30
 ---
 
 # OIDC provider
@@ -105,7 +105,7 @@ Everything is `cache-control: no-store`. `GET /authorize` also sends `Referrer-P
 
 **The exchange re-checks the consent.** `POST /oidc/token` reads the (account, client) consent row after PKCE passes and refuses `invalid_grant` when it is absent or revoked. The revoke route already deletes in-flight codes, but a code inserted concurrently with the revoke can slip past that delete — the exchange-time re-read closes the race by construction, so withdrawal means *now* under every interleaving.
 
-**A re-grant after revocation starts from zero.** Scope merging holds only for live consents (a narrower approval must not shrink an existing grant). Across a revocation boundary the old scope is a withdrawal record: re-approving grants exactly what the consent screen displayed, never the union with the withdrawn scopes.
+**A re-grant after revocation starts from zero.** Scope merging holds only for live consents (a narrower approval must not shrink an existing grant). Across a revocation boundary the old scope is a withdrawal record: re-approving grants exactly what the consent screen displayed, never the union with the withdrawn scopes. This holds against a revoke that lands mid-approval: the merge is written only while the row is as the approval read it (same scope, same `revoked_at`). A change in between makes the approval read the row once more and merge again; a second change in that window fails the approval with a 500 the client can retry, and writes nothing.
 
 **A restricted recovery session is not a signed-in session.** `/authorize` resolves the visitor from the HttpOnly **session cookie**, not from an access token — so the `osn-recovery` audience, which every access-token verifier rejects, does not reach this decision at all, and a recovery session sets that cookie because passkey enrolment needs it. `verifyRefreshToken` therefore refuses a restricted session unless the caller explicitly asks for one, and token refresh is the only caller that does. Without that default a user midway through account recovery — holding a session that may enrol a passkey and nothing else — could complete an authorization here and be signed into every relying party, which is full access at pulse, cire and zap from a session that has none at the issuer. A recovery cookie is treated exactly like no cookie: `reason=login`, or `login_required` under `prompt=none`. See [[sessions#The restricted recovery session]].
 
@@ -138,7 +138,7 @@ Three tables in `@osn/db` (migration `0002_wet_gamora`):
 
 - `oauth_clients` — the registry. `redirect_uris` is a JSON array; exact match, no wildcards. `sector_identifier` feeds the pairwise subject. `client_secret_hash` is null for public clients. Confidential clients register themselves through the routes below; first-party rows are seeded by hand, because `is_first_party` is not a registration input.
 - `oauth_authorization_codes` — id is the hash of the code. 60-second TTL. A redeemed code is deleted on the spot; an abandoned one is left behind, so `runExpiredAuthCodeSweep` (a `DELETE … WHERE expires_at <= now`, riding `oauth_codes_expires_idx`) runs from the Worker's `scheduled` handler alongside the session and deletion sweeps. Nothing reads an expired code — the sweep only keeps the table from growing without bound.
-- `oauth_consents` — one row per (account, client), holding the linked profile and the granted scope. Scope **merges** on re-consent, never replaces. The write is insert-first (`INSERT … ON CONFLICT DO NOTHING`, then merge only on conflict). Revoking (`DELETE /oidc/connections/:clientId`) stamps `revoked_at`, deletes the pair's in-flight codes, and the row is kept as the withdrawal record until account erasure purges it.
+- `oauth_consents` — one row per (account, client), holding the linked profile and the granted scope. Scope **merges** on re-consent, never replaces. The write is insert-first (`INSERT … ON CONFLICT DO NOTHING`, then merge only on conflict, written only while the row is as read). Revoking (`DELETE /oidc/connections/:clientId`) stamps `revoked_at`, deletes the pair's in-flight codes, and the row is kept as the withdrawal record until account erasure purges it.
 
 `code_challenge_method` has no column. S256 is the only value the provider accepts, so storing it would only record a constant.
 
@@ -159,7 +159,7 @@ The redirect URI points at **cire-api**, never at a browser origin: cire runs th
 
 ## Rate limits
 
-Nine per-IP limiters: `oidc_authorize` (20/min), `oidc_authorize_context` (60/min), `oidc_authorize_decision` (10/min), `oidc_token` (60/min), `oidc_connections_list` (30/min), `oidc_connections_revoke` (10/min), `oidc_client_create` (**5/hour** — mints a durable credential, so it rides the hour-window Redis tier like `email_change_begin`), `oidc_client_list` (30/min), `oidc_client_disable` (10/min). See [[rate-limiting]].
+Nine per-IP limiters: `oidc_authorize` (20/min), `oidc_authorize_context` (60/min), `oidc_authorize_decision` (10/min), `oidc_token` (60/min), `oidc_connections_list` (30/min), `oidc_connections_revoke` (10/min), `oidc_client_create` (**5/hour** — mints a durable credential; like `email_change_begin` it runs on the coordination store, since no native binding has an hour window), `oidc_client_list` (30/min), `oidc_client_disable` (10/min). See [[rate-limiting]].
 
 ## Client registration (self-serve)
 

@@ -10,6 +10,7 @@ import {
 } from "../../src/routes/auth";
 import { createAuthService } from "../../src/services/auth";
 import { makeTestAuthConfig } from "../helpers/auth-config";
+import { settledHandle } from "../helpers/background";
 import { createTestLayer } from "../helpers/db";
 // Route factory wrapped to trust XFF + default a loopback IP under
 // `app.handle(...)`. See `../helpers/routes` for the rationale.
@@ -55,7 +56,8 @@ async function registerAndGetAccessToken(
   email: string,
   handle: string,
 ): Promise<string> {
-  await freshApp.handle(
+  await settledHandle(
+    freshApp,
     new Request("http://localhost/register/begin", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -175,7 +177,8 @@ describe("auth routes", () => {
       const verifiedApp = createAuthRoutes(config, capture.layer);
 
       // Begin: should send a code but NOT create the user yet.
-      const beginRes = await verifiedApp.handle(
+      const beginRes = await settledHandle(
+        verifiedApp,
         new Request("http://localhost/register/begin", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -235,7 +238,8 @@ describe("auth routes", () => {
     });
 
     it("rejects the wrong OTP and does not create the user", async () => {
-      const beginRes = await app.handle(
+      const beginRes = await settledHandle(
+        app,
         new Request("http://localhost/register/begin", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -272,7 +276,8 @@ describe("auth routes", () => {
           body: JSON.stringify({ email: "taken@example.com", handle: "takenuser" }),
         }),
       );
-      const res = await app.handle(
+      const res = await settledHandle(
+        app,
         new Request("http://localhost/register/begin", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -295,7 +300,8 @@ describe("auth routes", () => {
           body: JSON.stringify({ email: "first@example.com", handle: "duphandle" }),
         }),
       );
-      const res = await app.handle(
+      const res = await settledHandle(
+        app,
         new Request("http://localhost/register/begin", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -311,7 +317,8 @@ describe("auth routes", () => {
     });
 
     it("rejects begin for an invalid handle format", async () => {
-      const res = await app.handle(
+      const res = await settledHandle(
+        app,
         new Request("http://localhost/register/begin", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -330,7 +337,8 @@ describe("auth routes", () => {
       const gatedApp = createAuthRoutes(config, capture.layer);
       const twelveYearsAgo = new Date();
       twelveYearsAgo.setUTCFullYear(twelveYearsAgo.getUTCFullYear() - 12);
-      const res = await gatedApp.handle(
+      const res = await settledHandle(
+        gatedApp,
         new Request("http://localhost/register/begin", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -350,7 +358,8 @@ describe("auth routes", () => {
     });
 
     it("C-H8: rejects a malformed birthdate with 400 (not 422) on the wire", async () => {
-      const res = await app.handle(
+      const res = await settledHandle(
+        app,
         new Request("http://localhost/register/begin", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -380,7 +389,8 @@ describe("auth routes", () => {
       const capture = buildEmailCapture(layer);
       const verifiedApp = createAuthRoutes(config, capture.layer);
 
-      await verifiedApp.handle(
+      await settledHandle(
+        verifiedApp,
         new Request("http://localhost/register/begin", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -491,7 +501,8 @@ describe("auth routes", () => {
       const capture = buildEmailCapture(layer);
       const verifiedApp = createAuthRoutes(config, capture.layer);
 
-      await verifiedApp.handle(
+      await settledHandle(
+        verifiedApp,
         new Request("http://localhost/register/begin", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -568,7 +579,8 @@ describe("auth routes", () => {
       const capture = buildEmailCapture(layer);
       const cookieOnlyApp = createAuthRoutes(config, capture.layer);
 
-      await cookieOnlyApp.handle(
+      await settledHandle(
+        cookieOnlyApp,
         new Request("http://localhost/register/begin", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -607,7 +619,8 @@ describe("auth routes", () => {
       const capture = buildEmailCapture(layer);
       const markerApp = createAuthRoutes(config, capture.layer);
 
-      await markerApp.handle(
+      await settledHandle(
+        markerApp,
         new Request("http://localhost/register/begin", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1316,7 +1329,8 @@ describe("auth routes", () => {
       // register/begin allows 5 req/min
       for (let i = 0; i < 5; i++) {
         // eslint-disable-next-line no-await-in-loop -- sequential dispatch required for rate-limit correctness
-        await freshApp.handle(
+        await settledHandle(
+          freshApp,
           new Request("http://localhost/register/begin", {
             method: "POST",
             headers: { "Content-Type": "application/json", "x-forwarded-for": "5.5.5.5" },
@@ -1328,7 +1342,8 @@ describe("auth routes", () => {
           }),
         );
       }
-      const blocked = await freshApp.handle(
+      const blocked = await settledHandle(
+        freshApp,
         new Request("http://localhost/register/begin", {
           method: "POST",
           headers: { "Content-Type": "application/json", "x-forwarded-for": "5.5.5.5" },
@@ -1428,12 +1443,12 @@ describe("auth routes", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Rate limiter dependency injection (Phase 1 of Redis migration)
+  // Rate limiter dependency injection
   //
   // Verifies the `RateLimiterBackend` abstraction: createAuthRoutes accepts
   // an injected rate limiter bundle, sync and async backends both work, and
   // the endpoint-to-limiter wiring inside the route factory is stable. This
-  // is the contract Phase 2 (Redis) relies on.
+  // is the contract the coordination store and native bindings rely on.
   // -------------------------------------------------------------------------
   describe("rate limiter dependency injection", () => {
     it("uses the injected rate limiter bundle instead of the default", async () => {
@@ -1453,14 +1468,15 @@ describe("auth routes", () => {
     });
 
     it("supports async rate limiter backends (Promise<boolean>)", async () => {
-      // Simulates the future Redis backend's async check().
+      // A backend that answers through a Promise, as the store does.
       const asyncBackend: RateLimiterBackend = {
         check: () => Promise.resolve(false),
       };
       const limiters = { ...createDefaultAuthRateLimiters(), registerBegin: asyncBackend };
 
       const freshApp = createAuthRoutes(config, layer, Layer.empty, limiters);
-      const res = await freshApp.handle(
+      const res = await settledHandle(
+        freshApp,
         new Request("http://localhost/register/begin", {
           method: "POST",
           headers: { "Content-Type": "application/json", "x-forwarded-for": "8.8.8.8" },
@@ -1475,9 +1491,9 @@ describe("auth routes", () => {
     });
 
     it("fails closed when the backend rejects (S-M1)", async () => {
-      // Simulates a Redis outage where check() throws.
+      // A store outage where check() rejects.
       const failing: RateLimiterBackend = {
-        check: () => Promise.reject(new Error("Redis connection refused")),
+        check: () => Promise.reject(new Error("store unreachable")),
       };
       const limiters = { ...createDefaultAuthRateLimiters(), handleCheck: failing };
 
@@ -1518,7 +1534,8 @@ describe("auth routes", () => {
     async function getAccessToken(): Promise<{ accessToken: string; profileId: string }> {
       const capture = buildEmailCapture(layer);
       const verifiedApp = createAuthRoutes(config, capture.layer);
-      await verifiedApp.handle(
+      await settledHandle(
+        verifiedApp,
         new Request("http://localhost/register/begin", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1600,7 +1617,8 @@ describe("auth routes", () => {
     }> {
       const capture = buildEmailCapture(layer);
       const verifiedApp = createAuthRoutes(config, capture.layer);
-      await verifiedApp.handle(
+      await settledHandle(
+        verifiedApp,
         new Request("http://localhost/register/begin", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1707,7 +1725,8 @@ describe("auth routes", () => {
       // the subsequent step-up OTP emailed after we've already logged in.
       const capture = buildEmailCapture(layer);
       const verifiedApp = createAuthRoutes(config, capture.layer);
-      await verifiedApp.handle(
+      await settledHandle(
+        verifiedApp,
         new Request("http://localhost/register/begin", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -2119,7 +2138,8 @@ describe("auth routes", () => {
     }> {
       const capture = buildEmailCapture(layer);
       const freshApp = createAuthRoutes(config, capture.layer);
-      await freshApp.handle(
+      await settledHandle(
+        freshApp,
         new Request("http://localhost/register/begin", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -2276,7 +2296,8 @@ describe("auth routes", () => {
         },
       };
       const freshApp = createAuthRoutes(config, cap.layer);
-      await freshApp.handle(
+      await settledHandle(
+        freshApp,
         new Request("http://localhost/register/begin", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -2409,7 +2430,8 @@ describe("auth routes", () => {
       const cap = buildEmailCapture(layer);
       const freshApp = createAuthRoutes(config, cap.layer);
 
-      await freshApp.handle(
+      await settledHandle(
+        freshApp,
         new Request("http://localhost/register/begin", {
           method: "POST",
           headers: { "Content-Type": "application/json" },

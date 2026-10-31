@@ -3,6 +3,7 @@ import { describe, it, expect } from "vitest";
 
 import { publicError } from "../../src/lib/public-error";
 import { makeAppRunner } from "../../src/lib/route-runtime";
+import { CoordinationError } from "../../src/services/auth/errors";
 
 /**
  * The tag walk (P-I2) reads each own key through a plain
@@ -15,6 +16,14 @@ import { makeAppRunner } from "../../src/lib/route-runtime";
  * a discriminating tag: `DatabaseError` (500) or `AgeRestrictionError` (422).
  */
 describe("publicError", () => {
+  it("answers a coordination-store failure with a 503 naming nothing", () => {
+    const err = new CoordinationError({ store: "step_up_otp", op: "set" });
+    expect(publicError(err)).toEqual({
+      status: 503,
+      body: { error: "temporarily_unavailable" },
+    });
+  });
+
   it("maps a tagged error to its dedicated status", () => {
     const err = { _tag: "AgeRestrictionError" };
     expect(publicError(err)).toEqual({

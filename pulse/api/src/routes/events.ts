@@ -15,7 +15,11 @@ import { makeCallerResolver } from "../lib/caller";
 import { MAX_PRICE_MAJOR } from "../lib/currency";
 import { DEFAULT_VERIFICATION, type OsnTokenVerification } from "../lib/jwks";
 import { MAX_EVENT_GUESTS } from "../lib/limits";
-import { checkWriteRateLimit, createDefaultWriteRateLimiter } from "../lib/rate-limit";
+import {
+  checkWriteRateLimit,
+  createDefaultWriteRateLimiter,
+  PULSE_IP_LIMITS,
+} from "../lib/rate-limit";
 import { shareSourceTypeBox, type ShareSource } from "../lib/shareSource";
 import {
   metricCalendarIcsGenerated,
@@ -268,16 +272,9 @@ const discoveryCurrencyEnum = t.Optional(
 // S-L3: per-IP rate limit on the unauthenticated /events/discover read.
 // Discovery is the most expensive Pulse read (multi-filter + bbox prefilter
 // + optional graph fetch). Without throttling, an unauth client can drive
-// arbitrary load. Window matches the graph routes' 60 req/min posture in
-// `osn/api`.
-const DISCOVERY_RATE_LIMIT_MAX = 60;
-const DISCOVERY_RATE_LIMIT_WINDOW_MS = 60_000;
-
+// arbitrary load. Budget in `PULSE_IP_LIMITS`.
 export function createDefaultDiscoveryRateLimiter(): RateLimiterBackend {
-  return createRateLimiter({
-    maxRequests: DISCOVERY_RATE_LIMIT_MAX,
-    windowMs: DISCOVERY_RATE_LIMIT_WINDOW_MS,
-  });
+  return createRateLimiter(PULSE_IP_LIMITS.discovery);
 }
 
 // Per-IP rate limits for the unauthenticated share-attribution surface.
@@ -288,23 +285,13 @@ export function createDefaultDiscoveryRateLimiter(): RateLimiterBackend {
 // higher because legitimate page reloads, link previews, and bot scans
 // all register here. Without these, the share / exposure counters would
 // be trivially poisonable by anyone refreshing a sourced URL in a loop.
-const SHARE_RATE_LIMIT_MAX = 60;
-const SHARE_RATE_LIMIT_WINDOW_MS = 60_000;
-const EXPOSURE_RATE_LIMIT_MAX = 120;
-const EXPOSURE_RATE_LIMIT_WINDOW_MS = 60_000;
-
+// Budgets in `PULSE_IP_LIMITS`.
 export function createDefaultShareRateLimiter(): RateLimiterBackend {
-  return createRateLimiter({
-    maxRequests: SHARE_RATE_LIMIT_MAX,
-    windowMs: SHARE_RATE_LIMIT_WINDOW_MS,
-  });
+  return createRateLimiter(PULSE_IP_LIMITS.share);
 }
 
 export function createDefaultExposureRateLimiter(): RateLimiterBackend {
-  return createRateLimiter({
-    maxRequests: EXPOSURE_RATE_LIMIT_MAX,
-    windowMs: EXPOSURE_RATE_LIMIT_WINDOW_MS,
-  });
+  return createRateLimiter(PULSE_IP_LIMITS.exposure);
 }
 
 export const createEventsRoutes = (
@@ -312,8 +299,8 @@ export const createEventsRoutes = (
   verification: OsnTokenVerification = DEFAULT_VERIFICATION,
   _testKey?: CryptoKey,
   /**
-   * Per-IP rate limiter for `GET /events/discover`. Defaults to the in-memory
-   * backend; production wires the Redis backend at composition time.
+   * Per-IP rate limiter for `GET /events/discover`. The composition root
+   * passes the one from `makeMemoryRateLimiters`; the default is a fresh one.
    */
   discoveryRateLimiter: RateLimiterBackend = createDefaultDiscoveryRateLimiter(),
   /**
@@ -331,9 +318,9 @@ export const createEventsRoutes = (
   /**
    * Per-USER write limiters for the authenticated mutating endpoints (W4).
    * Keyed on `claims.profileId` (not IP), so there's no dependency on the
-   * proxy trust model. Defaults are in-memory; production wires Redis
-   * backends at the composition root. See `lib/rate-limit.ts` for the limit
-   * rationale.
+   * proxy trust model. The composition root passes the ones from
+   * `makeMemoryRateLimiters`; the defaults are fresh ones. See
+   * `lib/rate-limit.ts` for the limit rationale.
    */
   writeRateLimiters: {
     eventCreate?: RateLimiterBackend;

@@ -7,7 +7,7 @@ related:
   - "[[recovery-codes]]"
   - "[[passkey-primary]]"
   - "[[sessions]]"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-30
 ---
 
 # Step-up (sudo) tokens
@@ -134,9 +134,13 @@ ES256 JWT signed with the same key as access tokens (reuses `/.well-known/jwks.j
 - **amr** — RFC 8176 authentication-method-reference array. Verifier intersects with a caller-supplied allow-list. `issueStepUpToken` maps the ceremony factor to it through an exhaustive record (`passkey → webauthn`, `otp → otp`, `totp → totp`, `recovery_code → recovery`); a factor added without an entry is a compile error rather than a token no allow-list admits.
 - **purpose** — optional; present only when the caller named a ceremony. See **Purpose binding** above.
 - **pk_id**, **pk_provenance**, **pk_created_at** — the asserted credential's id, its `passkeys.provenance_amr` and its `created_at` in unix seconds. Present together, and only when the ceremony was a passkey assertion. See **Credential provenance** below.
-- **jti** — single-use replay guard. Backed by a `StepUpJtiStore` interface (see `osn/api/src/services/auth/stores.ts`) with two implementations: an in-memory Map for single-process dev/test, and `createRedisJtiStore` (`osn/api/src/lib/step-up-jti-store.ts`) for multi-pod production. The Redis variant fails closed on outage — a replay guard that is unreachable counts as a ceremony no one completed.
+- **jti** — single-use replay guard. Backed by a `StepUpJtiStore` interface (see `osn/api/src/services/auth/stores.ts`) with two implementations: an in-memory Map for the Bun dev server and tests, and `createDurableJtiStore` (`osn/api/src/lib/coordination/durable.ts`) on the coordination store, where the first `claim` of a token id wins in every isolate ([[coordination-store]]). It fails closed: a guard that cannot be reached refuses the token as "Step-up token could not be verified", and the refusal is not counted as a replay — a replay guard that is unreachable counts as a ceremony no one completed.
 
-TTL: 5 minutes.
+TTL: 5 minutes. A used token's id stays claimed for the token's life, plus the
+verifier's 30-second tolerance past `exp` (`JWT_CLOCK_TOLERANCE_S`, beside
+`verifyJwt`), plus a minute (`STEP_UP_CLAIM_MARGIN_MS`), counted from its use —
+six and a half minutes — so the claim outlives every moment the token still
+verifies, whatever the verifying isolate's clock or the store's says.
 
 ## Credential provenance
 

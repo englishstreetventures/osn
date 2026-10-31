@@ -21,6 +21,17 @@ export const MIN_AGE_YEARS = 13;
 // step-up). 120s matches the previous inline `Date.now() + 120_000`.
 export const CHALLENGE_TTL_MS = 120_000;
 
+// How long a used discoverable passkey challenge's nonce stays claimed beyond
+// the challenge's own life. Wider than any clock difference between the
+// isolate that checks a challenge's expiry and the store that times the claim.
+export const CHALLENGE_CLAIM_MARGIN_MS = 60_000;
+
+// How long a used step-up token's id stays claimed beyond the last moment the
+// token verifies (its `exp` plus the verifier's clock tolerance). Wider than
+// any clock difference between the verifying isolate and the store that times
+// the claim.
+export const STEP_UP_CLAIM_MARGIN_MS = 60_000;
+
 // Per-account profile-switch rate limiting. Fixed window:
 // max 20 switches per hour per account. Enforced via an injectable
 // per-account cap limiter (`profileSwitchCap`) so the window is shared across
@@ -104,8 +115,8 @@ export const RECOVERY_SESSION_TTL_SEC = 900; // 15 min
 /**
  * Rotation-reuse grace window (refresh-token concurrency tolerance).
  *
- * Refresh-token rotation is single-use: each `/token` grant deletes the old
- * session row and mints a new one, and a replay of a rotated-out token
+ * Refresh-token rotation is single-use: each `/token` grant mints a new
+ * session row and then deletes the old one, and a replay of a rotated-out token
  * normally revokes the whole family (Copenhagen Book C2). But legitimate
  * clients produce concurrent/near-concurrent grants of the SAME current token
  * — multiple browser tabs bootstrapping on reload, a cold-start bootstrap
@@ -122,6 +133,23 @@ export const RECOVERY_SESSION_TTL_SEC = 900; // 15 min
  * implementations. See `[[wiki/osn/sessions]]`.
  */
 export const ROTATION_GRACE_MS = 10_000;
+/**
+ * Bounds on one `runRotatedSessionSweep` pass: chunks of this many expired
+ * `rotated_sessions` rows, and by default at most this many chunks — 5 000
+ * rows and 10 deletes a run, the Workers Free tier's share of its per-run D1
+ * queries. A tier on Workers Paid raises the chunk count with
+ * `OSN_ROTATED_SESSION_SWEEP_MAX_CHUNKS` (see `rotatedSweepMaxChunks` in
+ * `tokens.ts`). Anything left over goes on the next run, six hours later.
+ */
+export const ROTATED_SESSION_SWEEP_CHUNK = 500;
+export const ROTATED_SESSION_SWEEP_MAX_CHUNKS = 10;
+/**
+ * Pause between two chunks of one `runRotatedSessionSweep` pass, so the
+ * requests waiting to write to the database run between the sweep's deletes
+ * (the sweeper design contract in `wiki/compliance/retention.md`). At most
+ * nine a pass.
+ */
+export const ROTATED_SESSION_SWEEP_PAUSE_MS = 75;
 /**
  * Hard cap on passkeys per account. An attacker with a stolen
  * access token (or a hijacked enrollment token) cannot add unlimited

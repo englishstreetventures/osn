@@ -1,10 +1,10 @@
 import { generateArcKeyPair } from "@shared/crypto";
-import { createMemoryClient } from "@shared/redis";
 import { exportJWK } from "jose";
 import { beforeAll, describe, expect, it } from "vitest";
 
 import { createApp } from "../src/app";
 import { buildAppDeps } from "../src/build-deps";
+import { createInMemoryCoordination } from "../src/lib/coordination/memory";
 import { osnLoggerLayer } from "../src/observability";
 import { createTestLayer } from "./helpers/db";
 
@@ -33,7 +33,7 @@ beforeAll(async () => {
 });
 
 const parts = () => ({
-  redisClient: createMemoryClient(),
+  coordination: () => createInMemoryCoordination(),
   dbAndEmailLayer: createTestLayer(),
   observabilityLayer: osnLoggerLayer,
   includeObservabilityPlugin: false,

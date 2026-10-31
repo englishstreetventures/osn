@@ -10,7 +10,7 @@ related:
   - "[[sessions]]"
   - "[[rate-limiting]]"
   - "[[email]]"
-last-reviewed: 2026-10-26
+last-reviewed: 2026-10-30
 ---
 
 # Auth Flow Failure Runbook
@@ -77,7 +77,7 @@ Discoverable login (no `identifier`) returns identical-shape options for unknown
 | `/register/complete` succeeds but UI refuses to dismiss | `/passkey/register/complete` did not run | This is by design — the account-level invariant is "≥1 passkey at all times". Send the user back into the registration flow |
 | `/passkey/register/begin` returns 401 with `step_up_required` | Account already has ≥1 passkey | Caller must present a fresh `X-Step-Up-Token` (passkey or otp amr) — bootstrap path is only for the very first passkey |
 | `/register/begin` answers `200 {sent:true}` for a taken email or handle, and no code arrives | By design: `begin` answers the same whether or not the email or handle is free, and sends nothing for a taken one. The dialog asks `GET /handle/:handle` before it offers to send | Pick a free handle; an email that already has an account signs in instead |
-| "Verification code sent", and no code arrives | The send failed: Resend refused it (unverified sender domain, testing-only account, used-up quota), was unreachable, or took over 10 s. `begin` answers `{sent:true}` either way. A refused send removes its pending entry; an unreachable or timed-out one, whose code may still arrive, holds it for one minute | Search osn-api's Worker logs for `email.dispatch_failed` (`email.dispatch_interrupted` for a timeout): `status`, `resendError` and `resendDetail` say why ([[email#Observability]]). Fix the cause, then press "Resend code": after a refusal it sends a new code once its 30-second wait ends; after a timeout, once the minute has passed |
+| "Verification code sent", and no code arrives | The send failed: Resend refused it (unverified sender domain, testing-only account, used-up quota), was unreachable, or took over 10 s. `begin` answers `{sent:true}` either way, before the send runs. A refused send removes its pending entry; an unreachable or timed-out one, whose code may still arrive, holds it for one minute | Search osn-api's Worker logs for `email.dispatch_failed` (`email.dispatch_interrupted` for a timeout): `status`, `resendError` and `resendDetail` say why ([[email#Observability]]). Fix the cause, then press "Resend code": after a refusal it sends a new code once its 30-second wait ends; after a timeout, once the minute has passed |
 | A code Resend accepted never lands (spam, dropped), and "Resend code" sends nothing | The first code stays pending for 10 minutes, and a second `begin` inside that time sends nothing (englishstreetventures/osn#1769) | Check the spam folder; after 10 minutes "Resend code" sends a new code |
 
 ## 4. Refresh / `/token`
@@ -86,7 +86,7 @@ Discoverable login (no `identifier`) returns identical-shape options for unknown
 |---|---|---|
 | 401 with `missing_refresh_token` | Cookie not sent | Confirm the client uses `credentials: "include"`. The cookie name is `__Host-osn_session` (non-local) or `osn_session` (local). We removed the body fallback on purpose |
 | 401 with `family_revoked` | Reuse detection (C2) tripped | An old/leaked refresh token replayed; the entire family is revoked. The user must sign in again |
-| 401 with `expired` on a token <30 days old | Sliding window not extending | Check the rotated-session store metric `osn.auth.session.rotated_store.operations{result=error}` — a Redis outage degrades reuse detection but should not block valid tokens |
+| `400 invalid_grant` on a token <30 days old | The session row is gone: a concurrent grant rotated it, reuse detection revoked its family, or a rotation batch failed after the old row was deleted | `osn.auth.session.rotation_race` (benign concurrency), `osn.auth.session.reuse_detected` / `family_revoked` (a replay revoked the family), D1 errors in Workers Logs (a failed batch fails the grant and keeps the session marker). See [[sessions]] |
 | Access token rejected with `aud_mismatch` | Token issued by a different audience | Verify the caller is using the JWKS at `/.well-known/jwks.json` and asserting `aud: "osn-access"` |
 | **Client logged out on every reload** (>5 min after sign-in) | The client treats the stale cached access token as the source of truth and never reads the refresh cookie | Client-side bug, not server. `@osn/client` `loadSession` must rehydrate from the cookie when the cached access token is expired but `hasSession === true` (see [[identity-model]] "Session load on mount"). Confirm `POST /token` fires on reload with `credentials: "include"`. Fixed in `feat/organiser-session-refresh`. |
 | Reload logout only under load / on first request to a cold isolate | Single `/token` with no retry; a transient `5xx`/`429`/network blip read as logged-out | `fetchTokenGrant` now retries transient failures with bounded backoff and only treats a **4xx `invalid_grant`** as terminal. Check `/token` 5xx/429 rates if it recurs. |
@@ -98,7 +98,7 @@ Discoverable login (no `identifier`) returns identical-shape options for unknown
 | `step_up_required` on `/recovery/generate`, `/account/email/complete`, `/account/security-events/ack*`, `DELETE /passkeys/:id` | Token missing or wrong amr | Mint a token with `POST /step-up/{passkey,otp}/{begin,complete}`. Check the route's `allowedAmr` config |
 | Token rejected with `replay` | `jti` already consumed (`StepUpJtiStore`) | Mint a fresh token — they're single-use |
 | Token rejected with `aud_mismatch` | Cross-used as access token (or vice versa) | Step-up JWTs carry `aud: "osn-step-up"` |
-| Repeated `replay` errors after a short Redis outage | Fail-closed design — an outage blocks step-up | Restore Redis. Watch `osn.auth.step_up.verified{result}` |
+| Step-up token refused as "could not be verified" | The coordination store could not check the token's single use, so the guard failed closed | `coordination store call failed` with `store: step_up_jti` in Workers Logs; restore the store ([[coordination-store]]). Watch `osn.auth.step_up.verified{result}` |
 
 ## Useful queries
 

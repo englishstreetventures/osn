@@ -1,32 +1,36 @@
 import type { D1Database, ExecutionContext, ScheduledController } from "@cloudflare/workers-types";
 import { makeDbD1Live } from "@osn/db/service";
+import type { CoordinationNamespace } from "@shared/coordination";
 import type { WorkersRateLimitBinding } from "@shared/rate-limit";
 import { Effect, Layer } from "effect";
 
 import { createApp, type App } from "./app";
 import { buildAppDeps } from "./build-deps";
 import { withBackgroundSink } from "./lib/background";
+import { createDurableCoordination } from "./lib/coordination/durable";
 import { selectEmailLayer } from "./lib/email-layer";
-import { readOsnRateLimitBindings } from "./lib/native-rate-limiters";
+import { readOsnRateLimitBindings, USER_TIERS } from "./lib/native-rate-limiters";
 import { registerOutboundKeysOnce } from "./lib/outbound-arc";
 import { flushOsnTelemetry, osnLoggerLayer } from "./observability";
-import { initRedisClientFromEnv } from "./redis";
 import * as accountErasure from "./services/account-erasure";
 import { setRuntimeTier } from "./services/auth/helpers";
 import { runExpiredAuthCodeSweep } from "./services/auth/oidc";
+import { rotatedSweepMaxChunks, runRotatedSessionSweep } from "./services/auth/tokens";
 
 // ---------------------------------------------------------------------------
-// Cloudflare Workers entry for @osn/api.
+// Cloudflare Workers handler for @osn/api. The Worker's module is
+// `entry.ts`, which re-exports this handler alongside the `CoordinationStore`
+// Durable Object class.
 //
 // Mirrors `cire/api/src/index.ts` (the proven Elysia-on-Workers template):
 // per-isolate `cached`, fail-closed 503 on missing bindings/vars, build from
 // the request-scoped `env` binding (NOT module-top `process.env`), and a cron
 // `scheduled` handler for the deletion sweeper. The Bun dev server lives in
-// `local.ts` and is unchanged. Everything env-driven is read from `env` here so
-// the same `createApp` factory composes identically on workerd.
+// `local.ts`. Everything env-driven is read from `env` here so the same
+// `createApp` factory composes identically on workerd.
 //
-// Local `wrangler dev` (OSN_ENV unset/local) needs NO external services:
-// Upstash absent ⇒ in-memory rate limiters/stores; D1 is miniflare-local.
+// Local `wrangler dev` (OSN_ENV unset/local) needs NO external services: D1
+// and the `COORDINATION` Durable Object are miniflare-local.
 // ---------------------------------------------------------------------------
 
 /**
@@ -37,16 +41,25 @@ import { runExpiredAuthCodeSweep } from "./services/auth/oidc";
  */
 export interface Env {
   DB?: D1Database;
-  // Cloudflare Workers native Rate Limiting bindings (Part 2). Declared as
+  // The `CoordinationStore` Durable Object namespace: every rate limiter,
+  // ceremony store, step-up token guard and lockout counter that must be
+  // shared across isolates. Required in every tier; absent ⇒ 503.
+  COORDINATION?: CoordinationNamespace;
+  // Cloudflare Workers native Rate Limiting bindings. Declared as
   // `[[ratelimits]]` blocks in wrangler.toml (one per 60s budget tier), mirrored
   // into every named env. Present ONLY on the Workers runtime; when present the
   // 60s-window per-IP auth limiters run on these (global + atomic edge) instead
-  // of Upstash. All optional: absent ⇒ those limiters fall back to Upstash.
+  // of the coordination store. Absent ⇒ those limiters stay on the store.
   RL_AUTH_IP_5_60?: WorkersRateLimitBinding;
   RL_AUTH_IP_10_60?: WorkersRateLimitBinding;
   RL_AUTH_IP_20_60?: WorkersRateLimitBinding;
   RL_AUTH_IP_30_60?: WorkersRateLimitBinding;
   RL_AUTH_IP_60_60?: WorkersRateLimitBinding;
+  // Per-user native bindings for graph and organisation writes and the two
+  // recommendation endpoints. Required outside local: absent ⇒ 503, rather
+  // than spending a store call per keystroke.
+  RL_USER_20_60?: WorkersRateLimitBinding;
+  RL_USER_60_60?: WorkersRateLimitBinding;
   // Non-secret vars (wrangler `[vars]`)
   OSN_ENV?: string;
   OSN_RP_ID?: string;
@@ -62,6 +75,9 @@ export interface Env {
   OSN_COOKIE_DOMAIN?: string;
   OSN_ACCESS_TOKEN_TTL?: string;
   OSN_REFRESH_TOKEN_TTL?: string;
+  // The rotated-session sweep's chunks per cron run (`rotatedSweepMaxChunks`).
+  // Unset: 10, a Workers Free tier's share. Staging and production set 100.
+  OSN_ROTATED_SESSION_SWEEP_MAX_CHUNKS?: string;
   OSN_EMAIL_FROM?: string;
   // Explicit opt-in: when truthy AND the Cloudflare email creds are absent in a
   // non-local env, osn-api boots with a no-op email transport (transactional
@@ -99,8 +115,6 @@ export interface Env {
   // every subject a relying party has on file. `wrangler secret put
   // OSN_PAIRWISE_SALT`.
   OSN_PAIRWISE_SALT?: string;
-  UPSTASH_REDIS_REST_URL?: string;
-  UPSTASH_REDIS_REST_TOKEN?: string;
   // Preferred email transport (Resend HTTP API). When set in a non-local env,
   // ResendEmailLive is selected over Cloudflare email + the degraded opt-in.
   // `wrangler secret put RESEND_API_KEY`. See `lib/email-layer`.
@@ -128,13 +142,15 @@ export interface Env {
 
 const isNonLocal = (env: Env): boolean => !!env.OSN_ENV && env.OSN_ENV !== "local";
 
-// The Elysia app graph + the Upstash client + the shared Effect runtime
+// The Elysia app graph + the coordination stores + the shared Effect runtime
 // (built inside `buildAppDeps`) are heavy to compose, so build them ONCE per
 // isolate and cache — NOT per request. `env` bindings are stable within an
-// isolate; the guard on the D1 binding identity rebuilds defensively if that
+// isolate; the guard on the binding identities rebuilds defensively if that
 // ever changes. Nothing in the request path (`cached.app.fetch`) reconstructs
 // any of them.
-let cached: { app: App; dbBinding: D1Database } | undefined;
+let cached:
+  | { app: App; dbBinding: D1Database; coordinationBinding: CoordinationNamespace }
+  | undefined;
 
 const misconfigured = (detail: string): Response =>
   new Response(JSON.stringify({ error: `Worker misconfigured: ${detail}` }), {
@@ -145,27 +161,13 @@ const misconfigured = (detail: string): Response =>
 /**
  * Build the full app graph for this isolate from the `env` binding. Does what
  * `local.ts`'s Bun composition root does, but FROM `env` and with the
- * workerd-safe runtime handles: Upstash-or-memory Redis (env-gated),
+ * workerd-safe runtime handles: the coordination stores on `env.COORDINATION`,
  * `makeDbD1Live(env.DB)`, the redacting `osnLoggerLayer`, and the per-request
- * observability plugin OFF (see AppDeps).
+ * observability plugin OFF (see AppDeps). `fetch` asserts both bindings are
+ * present before this runs.
  */
 export async function buildAll(env: Env): Promise<App> {
-  // -------------------------------------------------------------------------
-  // Redis — env-gate the in-memory fallback.
-  //
-  // `initRedisClientFromEnv` silently downgrades to in-memory when the Upstash
-  // bindings are absent. That is correct for local `wrangler dev`, but a
-  // DEPLOYED Worker (OSN_ENV set & != "local") that lost its Upstash bindings
-  // would otherwise silently run per-isolate in-memory rate-limiters /
-  // step-up-jti — defeating cross-isolate brute-force + single-use guarantees.
-  // Fail closed at construction, mirroring the Bun `REDIS_REQUIRED` posture.
-  // -------------------------------------------------------------------------
-  if (isNonLocal(env) && !(env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN)) {
-    throw new Error(
-      "UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN must be set in non-local environments — refusing to fall back to per-isolate in-memory rate limiters / step-up guard",
-    );
-  }
-  const redisClient = initRedisClientFromEnv(env);
+  const coordinationBinding = env.COORDINATION as CoordinationNamespace;
 
   // Email transport — same selection as the Bun path, from `env`. Fail-closed by
   // default in non-local; boots with a no-op transport (loud warning) ONLY when
@@ -180,7 +182,9 @@ export async function buildAll(env: Env): Promise<App> {
   // superset of them, so it takes the whole binding as-is; `env.DB` (a non-string
   // binding) is consumed above for the D1 layer.
   const built = await buildAppDeps(env, {
-    redisClient,
+    // Every isolate shares these through the Durable Object, so a limiter, a
+    // ceremony or a single-use claim holds across the whole Worker.
+    coordination: (onError) => createDurableCoordination(coordinationBinding, onError),
     dbAndEmailLayer,
     observabilityLayer: osnLoggerLayer,
     // Workers entry omits the per-request observability plugin: it calls
@@ -194,8 +198,8 @@ export async function buildAll(env: Env): Promise<App> {
     // socket/XFF path there — `cf-connecting-ip` would be absent and every
     // request would resolve to UNRESOLVED_IP → deny.
     trustCloudflare: isNonLocal(env),
-    // Part 2: the native Workers rate-limit bindings, when declared. Absent on
-    // local `wrangler dev` without the bindings ⇒ all limiters stay on Upstash.
+    // The native Workers rate-limit bindings, when declared. Absent ⇒ those
+    // limiters stay on the coordination store.
     rateLimitBindings: readOsnRateLimitBindings(env),
   });
 
@@ -260,25 +264,30 @@ export const handler: OsnWorkerHandler = {
     // misconfigured deployment.
     const missing = [
       !env.DB && "DB",
+      // Every tier: without it there is no shared limiter, ceremony store or
+      // single-use guard, and no per-isolate stand-in is safe to run instead.
+      !env.COORDINATION && "COORDINATION",
+      // The per-user limiters run only on these in a deployed tier.
+      ...USER_TIERS.map((tier) => isNonLocal(env) && !env[tier] && tier),
       // In a deployed tier the issuer/CORS/RP must be set explicitly — the
       // localhost defaults are local-dev only. `buildAppDeps` itself throws on
-      // the security-critical missing secrets (JWT keys, IP pepper, Upstash,
-      // CF email); surfacing those as a 503 happens via the try/catch below.
+      // the security-critical missing secrets (JWT keys, IP pepper, CF email);
+      // surfacing those as a 503 happens via the try/catch below.
       isNonLocal(env) && !env.OSN_ISSUER_URL && "OSN_ISSUER_URL",
       isNonLocal(env) && !env.OSN_CORS_ORIGIN && "OSN_CORS_ORIGIN",
       isNonLocal(env) && !env.OSN_RP_ID && "OSN_RP_ID",
     ].filter(Boolean);
-    if (missing.length > 0 || !env.DB) {
-      return misconfigured(`missing ${missing.join(", ") || "DB"}`);
+    if (missing.length > 0 || !env.DB || !env.COORDINATION) {
+      return misconfigured(`missing ${missing.join(", ")}`);
     }
 
-    if (!cached || cached.dbBinding !== env.DB) {
+    if (!cached || cached.dbBinding !== env.DB || cached.coordinationBinding !== env.COORDINATION) {
       try {
         const app = await buildAll(env);
-        cached = { app, dbBinding: env.DB };
+        cached = { app, dbBinding: env.DB, coordinationBinding: env.COORDINATION };
       } catch (error) {
-        // A misconfigured deploy (missing secret / Upstash gate / bad key)
-        // fails LOUD as a 503 rather than serving a downgraded app.
+        // A misconfigured deploy (missing secret / bad key) fails LOUD as a
+        // 503 rather than serving a downgraded app.
         return misconfigured(error instanceof Error ? error.message : "build failed");
       }
     }
@@ -400,6 +409,32 @@ export const handler: OsnWorkerHandler = {
         runExpiredAuthCodeSweep().pipe(
           Effect.catch((err) =>
             Effect.logError("scheduled OIDC code sweep failed", { reason: String(err) }),
+          ),
+          Effect.provide(dbLayer),
+          Effect.provide(osnLoggerLayer),
+        ),
+      ),
+    );
+
+    // Reap expired rotation records. Every refresh writes one, and nothing
+    // else removes a record whose token was never replayed; the sweep is
+    // bounded per run, by this tier's chunk cap, so a backlog drains over
+    // several ticks.
+    const sweepChunks = rotatedSweepMaxChunks(env.OSN_ROTATED_SESSION_SWEEP_MAX_CHUNKS);
+    ctx.waitUntil(
+      Effect.runPromise(
+        Effect.gen(function* () {
+          if (sweepChunks === "invalid") {
+            yield* Effect.logWarning(
+              "OSN_ROTATED_SESSION_SWEEP_MAX_CHUNKS is not a whole number from 1 to 200; sweeping with the default",
+            );
+          }
+          return yield* runRotatedSessionSweep({
+            maxChunks: sweepChunks === "invalid" ? undefined : sweepChunks,
+          });
+        }).pipe(
+          Effect.catch((err) =>
+            Effect.logError("scheduled rotated-session sweep failed", { reason: String(err) }),
           ),
           Effect.provide(dbLayer),
           Effect.provide(osnLoggerLayer),

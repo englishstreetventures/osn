@@ -1,0 +1,12 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "extends": ["//"],
+  "tasks": {
+    // tests/d1/worker-e2e.test.ts writes its results outside this package, to
+    // the repository's e2e-artifacts/, which CI uploads. Declared here, a
+    // cached run restores that file instead of leaving the upload empty.
+    "test:d1": {
+      "outputs": ["$TURBO_ROOT$/e2e-artifacts/osn-api-workerd/**"]
+    }
+  }
+}

@@ -19,6 +19,7 @@ import { Layer } from "effect";
 import { describe, it, expect, beforeAll } from "vitest";
 
 import { makeTestAuthConfig } from "../helpers/auth-config";
+import { settledHandle } from "../helpers/background";
 import { createTestLayerWithSqlite } from "../helpers/db";
 import { createAuthRoutes } from "../helpers/routes";
 
@@ -65,7 +66,8 @@ async function register(
   email: string,
   handle: string,
 ): Promise<{ cookie: string; accessToken: string }> {
-  await h.app.handle(
+  await settledHandle(
+    h.app,
     new Request("http://localhost/register/begin", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
