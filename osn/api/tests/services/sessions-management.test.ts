@@ -570,3 +570,197 @@ describe("account-wide deletes keep the caller's device across its own refresh",
     });
   }
 });
+
+/**
+ * Logout and the revoke's "was it the caller's own device" answer take the
+ * session hash the caller's cookie held. A refresh of that session in another
+ * tab can move the device to a new session between the cookie read and the
+ * write, or be in flight when the write runs. Logout still ends every session
+ * of the device, and a revoke of the device still reports it as the caller's,
+ * so the route clears the cookie. Another device is never touched by the one,
+ * nor reported as the caller's by the other.
+ */
+describe("logout and revoke follow the caller's device across its own refresh", () => {
+  function held() {
+    const { db, sqlite, email } = createTestLayerWithSqlite();
+    const queries = holdQueries(db);
+    return {
+      layer: Layer.merge(Layer.succeed(Db, { db: queries.db }), email.layer),
+      hold: queries.hold,
+      familyOf: (refreshToken: string) =>
+        (
+          sqlite
+            .query("SELECT family_id AS familyId FROM sessions WHERE id = ?")
+            .get(auth.hashSessionToken(refreshToken)) as { familyId: string } | null
+        )?.familyId,
+      familyRows: (familyId: string) =>
+        (
+          sqlite.query("SELECT COUNT(*) AS n FROM sessions WHERE family_id = ?").get(familyId) as {
+            n: number;
+          }
+        ).n,
+    };
+  }
+
+  /** The caller's device and one other, each signed in once. */
+  const twoDevices = (handle: string) =>
+    Effect.gen(function* () {
+      const profile = yield* auth.registerProfile(`${handle}@example.com`, handle);
+      const open = () =>
+        auth.issueTokens(
+          profile.id,
+          profile.accountId,
+          profile.email,
+          profile.handle,
+          profile.displayName,
+        );
+      const me = (yield* open()).refreshToken;
+      const other = (yield* open()).refreshToken;
+      return { profile, me, other };
+    });
+
+  /** True when `refreshToken` does not verify. */
+  const dead = (refreshToken: string) =>
+    Effect.result(auth.verifyRefreshToken(refreshToken)).pipe(
+      Effect.map((outcome) => outcome._tag === "Failure"),
+    );
+
+  const handleOf = (refreshToken: string) => auth.hashSessionToken(refreshToken).slice(0, 16);
+
+  /** The statements of a rotation, in the order it runs them. */
+  const ROTATION_STEPS: ReadonlyArray<{ readonly step: string; readonly pattern: RegExp }> = [
+    { step: "insert of the new session", pattern: /^insert into "sessions"/ },
+    { step: "rotation record", pattern: /^insert into "rotated_sessions"/ },
+    { step: "swap", pattern: /^delete from "sessions"/ },
+  ];
+
+  it.live("a refresh that completes while logout is held at its delete is ended too", () => {
+    const h = held();
+    return Effect.gen(function* () {
+      const { me, other } = yield* twoDevices("lo_held");
+      const familyId = h.familyOf(me)!;
+
+      const remove = h.hold(/^delete from "sessions"/);
+      const logout = yield* Effect.forkChild(auth.invalidateSession(me));
+      yield* Effect.promise(() => remove.reached);
+      const refreshed = yield* auth.refreshTokens(me);
+      remove.release();
+      yield* Fiber.join(logout);
+
+      expect(yield* dead(refreshed.refreshToken)).toBe(true);
+      expect(h.familyRows(familyId)).toBe(0);
+      expect(yield* dead(other)).toBe(false);
+    }).pipe(Effect.provide(h.layer));
+  });
+
+  for (const [at, { step, pattern }] of ROTATION_STEPS.entries()) {
+    it.live(`logout while the caller's refresh is held at its ${step} leaves no session`, () => {
+      const h = held();
+      return Effect.gen(function* () {
+        const { me, other } = yield* twoDevices(`lo_step${at}`);
+        const familyId = h.familyOf(me)!;
+
+        const rotation = h.hold(pattern);
+        const refreshing = yield* Effect.forkChild(Effect.result(auth.refreshTokens(me)));
+        yield* Effect.promise(() => rotation.reached);
+        yield* auth.invalidateSession(me);
+        rotation.release();
+
+        expect((yield* Fiber.join(refreshing))._tag).toBe("Failure");
+        expect(h.familyRows(familyId)).toBe(0);
+        expect(yield* dead(other)).toBe(false);
+      }).pipe(Effect.provide(h.layer));
+    });
+  }
+
+  it.live("a refresh that completes while the revoke is held at its delete is the caller's", () => {
+    const h = held();
+    return Effect.gen(function* () {
+      const { profile, me } = yield* twoDevices("rs_held");
+      const callerHash = auth.hashSessionToken(me);
+
+      const remove = h.hold(/^delete from "sessions"/);
+      const revoke = yield* Effect.forkChild(
+        auth.revokeAccountSession(profile.accountId, handleOf(me), callerHash),
+      );
+      yield* Effect.promise(() => remove.reached);
+      const refreshed = yield* auth.refreshTokens(me);
+      remove.release();
+
+      expect((yield* Fiber.join(revoke)).revokedSelf).toBe(true);
+      expect(yield* dead(refreshed.refreshToken)).toBe(true);
+    }).pipe(Effect.provide(h.layer));
+  });
+
+  it.effect("a cookie the device has refreshed past still names it as the caller's", () =>
+    Effect.gen(function* () {
+      const { profile, me } = yield* twoDevices("rs_stalecookie");
+      const refreshed = yield* auth.refreshTokens(me);
+
+      const result = yield* auth.revokeAccountSession(
+        profile.accountId,
+        handleOf(refreshed.refreshToken),
+        auth.hashSessionToken(me),
+      );
+
+      expect(result.revokedSelf).toBe(true);
+      expect(yield* dead(refreshed.refreshToken)).toBe(true);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  for (const [at, { step, pattern }] of ROTATION_STEPS.entries()) {
+    it.live(`a revoke while the caller's refresh is held at its ${step} is the caller's`, () => {
+      const h = held();
+      return Effect.gen(function* () {
+        const { profile, me } = yield* twoDevices(`rs_step${at}`);
+        const familyId = h.familyOf(me)!;
+
+        const rotation = h.hold(pattern);
+        const refreshing = yield* Effect.forkChild(Effect.result(auth.refreshTokens(me)));
+        yield* Effect.promise(() => rotation.reached);
+        const result = yield* auth.revokeAccountSession(
+          profile.accountId,
+          handleOf(me),
+          auth.hashSessionToken(me),
+        );
+        rotation.release();
+        yield* Fiber.join(refreshing);
+
+        expect(result.revokedSelf).toBe(true);
+        expect(h.familyRows(familyId)).toBe(0);
+      }).pipe(Effect.provide(h.layer));
+    });
+  }
+
+  it.effect("a cookie whose rotation record has expired ends nothing at logout", () => {
+    const { layer, sqlite } = createTestLayerWithSqlite();
+    return Effect.gen(function* () {
+      const { me } = yield* twoDevices("lo_expired");
+      const refreshed = yield* auth.refreshTokens(me);
+      sqlite
+        .query("UPDATE rotated_sessions SET expires_at = ? WHERE token_hash = ?")
+        .run(Date.now() - 1, auth.hashSessionToken(me));
+
+      yield* auth.invalidateSession(me);
+
+      expect(yield* dead(refreshed.refreshToken)).toBe(false);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("revoking another device is never the caller's, whatever its cookie names", () =>
+    Effect.gen(function* () {
+      const { profile, me, other } = yield* twoDevices("rs_other");
+      const refreshed = yield* auth.refreshTokens(me);
+
+      const result = yield* auth.revokeAccountSession(
+        profile.accountId,
+        handleOf(other),
+        auth.hashSessionToken(me),
+      );
+
+      expect(result.revokedSelf).toBe(false);
+      expect(yield* dead(other)).toBe(true);
+      expect(yield* dead(refreshed.refreshToken)).toBe(false);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+});

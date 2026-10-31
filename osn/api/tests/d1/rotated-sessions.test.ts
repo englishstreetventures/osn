@@ -214,6 +214,85 @@ describe("the 6-hourly cron on D1", () => {
   });
 });
 
+/**
+ * Logout and a revoke's "was it the caller's own device" answer on D1, where a
+ * refresh is one batch: it lands whole between the cookie read and the write,
+ * never part way. The revoke reads the caller's family in the same batch as
+ * its delete, which only this driver runs.
+ */
+describe("the caller's device on D1", () => {
+  /** A second device on the same account. */
+  async function openAnother(profile: Awaited<ReturnType<typeof signIn>>["profile"]) {
+    const tokens = await run(
+      auth.issueTokens(
+        profile.id,
+        profile.accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      ),
+    );
+    return tokens.refreshToken;
+  }
+
+  const handleOf = (refreshToken: string) => hashSessionToken(refreshToken).slice(0, 16);
+
+  it("logout with a cookie the device has refreshed past ends the device", async () => {
+    const { profile, refreshToken } = await signIn("d1-lo@example.com", "d1lo");
+    const other = await openAnother(profile);
+    const next = await run(auth.refreshTokens(refreshToken));
+
+    await run(auth.invalidateSession(refreshToken));
+
+    expect((await failure(auth.verifyRefreshToken(next.refreshToken)))._tag).toBe("AuthError");
+    await run(auth.verifyRefreshToken(other));
+  });
+
+  it("revoking the caller's own live session reports it as the caller's", async () => {
+    const { profile, refreshToken } = await signIn("d1-rs0@example.com", "d1rs0");
+
+    const result = await run(
+      auth.revokeAccountSession(
+        profile.accountId,
+        handleOf(refreshToken),
+        hashSessionToken(refreshToken),
+      ),
+    );
+
+    expect(result.revokedSelf).toBe(true);
+    expect(await sessionsOf(profile.accountId)).toEqual([]);
+  });
+
+  it("revoking the device a refreshed-past cookie names reports it as the caller's", async () => {
+    const { profile, refreshToken } = await signIn("d1-rs@example.com", "d1rs");
+    const next = await run(auth.refreshTokens(refreshToken));
+
+    const result = await run(
+      auth.revokeAccountSession(
+        profile.accountId,
+        handleOf(refreshToken),
+        hashSessionToken(refreshToken),
+      ),
+    );
+
+    expect(result.revokedSelf).toBe(true);
+    expect((await failure(auth.verifyRefreshToken(next.refreshToken)))._tag).toBe("AuthError");
+  });
+
+  it("revoking another device is not the caller's", async () => {
+    const { profile, refreshToken } = await signIn("d1-rs4@example.com", "d1rs4");
+    const other = await openAnother(profile);
+    const next = await run(auth.refreshTokens(refreshToken));
+
+    const result = await run(
+      auth.revokeAccountSession(profile.accountId, handleOf(other), hashSessionToken(refreshToken)),
+    );
+
+    expect(result.revokedSelf).toBe(false);
+    await run(auth.verifyRefreshToken(next.refreshToken));
+  });
+});
+
 describe("account erasure on D1", () => {
   it("soft delete keeps only the cancel handle's family's records", async () => {
     const { profile, refreshToken } = await signIn("d1-soft@example.com", "d1soft");

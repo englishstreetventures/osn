@@ -43,6 +43,7 @@ import {
 } from "./helpers";
 import type { AccessTokenClaims } from "./helpers";
 import { selectProfileById, type ProfilesModule } from "./profiles";
+import { inLiveFamilyOf } from "./sessions";
 import type { ProfileWithEmail, RecoveryFactorAmr, SessionMeta, TokenSet } from "./types";
 
 /** The most chunks a tier may ask one sweep pass for. */
@@ -162,13 +163,14 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
   ) =>
     Effect.tryPromise({
       try: () => {
-        // P6 invariant: `accountId` is intentionally absent from the
-        // access-token payload. Including it would allow any external
-        // observer (a downstream service, a JWT decoder in the browser,
-        // a leaked log line) to correlate two profiles as belonging to
-        // the same account. S-H2 is solved server-to-server instead —
-        // `/internal/step-up/verify` re-issues the verified accountId
-        // back to the calling service over an ARC-authenticated channel.
+        // `accountId` is never in the access-token payload. Including it
+        // would let any external observer (a downstream service, a JWT
+        // decoder in the browser, a leaked log line) correlate two profiles
+        // as belonging to the same account; see wiki/osn/identity-model.md.
+        // A service that needs the account behind a step-up gets it
+        // server-to-server instead: `/internal/step-up/verify` returns the
+        // verified accountId to the calling service over an ARC-authenticated
+        // channel.
         const payload: AccessTokenClaims = {
           sub: profileId,
           aud: audience,
@@ -177,7 +179,7 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
           scope: "openid profile",
         };
         if (displayName !== null) payload["displayName"] = displayName;
-        // S-L3: session binding. One-way, per-profile (see
+        // The session binding. One-way, per-profile (see
         // `deriveSessionBinding`) — lets a Bearer-only caller be matched to
         // its own session row without a cookie and without leaking either
         // the session id or the account behind the profile.
@@ -558,12 +560,11 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
    * table. Implements sliding-window expiry: when less than half the TTL
    * remains, `expiresAt` is extended by the full TTL from now.
    *
-   * Returns `accountId`, `familyId`, and `sessionId` (the hash). The
-   * `familyId` is needed by `refreshTokens` for rotation; `sessionId` is
-   * needed by `invalidateOtherAccountSessions` (H1). The device metadata
-   * (`createdAt`, `uaLabel`, `ipHash`) rides along from the row loaded here so
-   * `refreshTokens` can carry it onto the rotated-in row without re-reading
-   * the same row by primary key (P-W1).
+   * Returns the session's `accountId`, `familyId` and `sessionId` (the hash),
+   * its authentication time, its device fields and its restriction, all from
+   * the one row read here. `refreshTokens` rotates from the account, family,
+   * hash and restriction; it copies the device onto the new session from the
+   * old row as it stands when the insert runs, not from this read.
    *
    * Two callers: `refreshTokens` here, and the OIDC provider's `resolveSession`
    * (`routes/auth/oidc.ts`), which is how `/authorize` learns whether this
@@ -637,10 +638,10 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
       }
 
       // Sliding window: extend when less than half the TTL remains.
-      // `last_used_at` is coalesced (P-W4) — writing it on every verify
-      // would add a DB round-trip per refresh. The Sessions UI doesn't
-      // need sub-second accuracy; 60 s granularity shrinks writes by
-      // roughly the refresh cadence.
+      // `last_used_at` is coalesced (`LAST_USED_AT_COALESCE_MS`) — writing it
+      // on every verify would add a DB round-trip per refresh. The Sessions
+      // UI doesn't need sub-second accuracy; 60 s granularity shrinks writes
+      // by roughly the refresh cadence.
       //
       // A restricted session never slides, and the guard has to be explicit:
       // its whole 15-minute life is far inside half of a 30-day TTL, so the
@@ -665,10 +666,11 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
 
       // `authenticatedAt` is the moment the user actually authenticated on this
       // device, copied forward across every rotation (falling back to
-      // `createdAt` for legacy rows). It is the honest `auth_time` for the OIDC
-      // provider (S-H1 oidc): a 29-day-old passkey ceremony reads as 29 days
-      // old even after dozens of silent refreshes, so a relying party's
-      // `max_age` reflects real user presence, not the last background refresh.
+      // `createdAt` for a row written before the column). It is the honest
+      // `auth_time` for the OIDC provider: a 29-day-old passkey ceremony reads
+      // as 29 days old even after dozens of silent refreshes, so a relying
+      // party's `max_age` reflects real user presence, not the last background
+      // refresh.
       return {
         accountId: session.accountId,
         familyId: session.familyId,
@@ -1017,9 +1019,9 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
         typeof payload["handle"] !== "string" ||
         payload["aud"] !== audience
       ) {
-        // S-M2: `aud` pinning ensures only tokens explicitly issued as
-        // access tokens authenticate these routes. Without it any ES256
-        // JWT with string sub/email/handle would be accepted.
+        // Pinning `aud` means only a token issued for this audience
+        // authenticates here. Without it any ES256 JWT this issuer signed
+        // with string sub/email/handle would be accepted.
         return yield* Effect.fail(new AuthError({ message: "Invalid token claims" }));
       }
       return {
@@ -1059,7 +1061,17 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
    * Four predicates, and each closes a different way this write could grant
    * more than it means to:
    *
-   *  - `id = sessionHash` — the caller's own session, server-derived.
+   *  - in the family of the live session `sessionHash` names
+   *    ({@link inLiveFamilyOf}) — the caller's own device, server-derived. A
+   *    refresh of that session in flight has inserted its new session,
+   *    restricted, before it deletes the old one, and the family reaches it;
+   *    a refresh that inserts after this write copies the lifted row. A hash
+   *    a refresh has already replaced names no live session and lifts
+   *    nothing: a lift is a grant, and a rotated-out hash grants nothing.
+   *    `completePasskeyRegistration` then sweeps with the same hash, which
+   *    spares only a live session's family, so the replacement goes with
+   *    every other session rather than staying restricted. Either way no
+   *    restricted session of the caller's device outlives the enrolment.
    *  - `account_id = accountId` — scoped like every other session write that
    *    takes a hash (`invalidateOtherAccountSessions`, `revokeAccountSession`),
    *    so a hash belonging to another account can never be lifted through a
@@ -1074,8 +1086,8 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
    *    `verifyRefreshToken`, which this path never calls.
    *
    * A `null` hash is a no-op — that caller had no identifiable session, and
-   * `completePasskeyRegistration` has already revoked every session on the
-   * account, restricted one included.
+   * `completePasskeyRegistration` then revokes every session on the account,
+   * restricted one included.
    */
   const liftSessionRestriction = (
     accountId: string,
@@ -1096,7 +1108,7 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
             })
             .where(
               and(
-                eq(sessions.id, sessionHash),
+                inLiveFamilyOf(db, sessionHash),
                 eq(sessions.accountId, accountId),
                 isNotNull(sessions.restrictedUntil),
                 gt(sessions.expiresAt, nowSec),

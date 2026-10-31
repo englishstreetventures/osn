@@ -11,7 +11,7 @@ packages:
   - "@osn/db"
   - "@osn/api"
   - "@osn/client"
-last-reviewed: 2026-10-30
+last-reviewed: 2026-10-31
 ---
 # Identity Model
 
@@ -153,7 +153,7 @@ Session tokens (formerly "refresh tokens") are **opaque** — not JWTs. The serv
 
 **Sliding-window expiry:** when less than half the TTL remains (< 15 days), the session's `expiresAt` is extended by the full TTL from now. This matches the Copenhagen Book's recommended pattern.
 
-**Revocation:** `invalidateSession(token)` deletes a single session row; `invalidateAccountSessions(accountId)` deletes all sessions for an account (used for security events). `POST /logout` exposes single-session invalidation.
+**Revocation:** `invalidateSession(token)` ends the token's device: every session of its family, so a refresh of the same token in another tab cannot leave one behind ([[sessions#Endpoints]]); `invalidateAccountSessions(accountId)` deletes all sessions for an account (used for security events). `POST /logout` exposes the first.
 
 **Sessions table:**
 

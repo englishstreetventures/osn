@@ -206,9 +206,9 @@ export const requestErasure = (
           //    Handle becomes `deleted_<usrId-suffix>` (preserves uniqueness),
           //    display name + avatar are nulled.
           //
-          //    P-W1: a single bulk UPDATE using a SQL expression instead of
-          //    a per-row loop. Constant statement count regardless of
-          //    `accounts.maxProfiles`.
+          //    One bulk UPDATE with a SQL expression, not a statement per
+          //    profile, so the batch's statement count stays the same
+          //    whatever `accounts.maxProfiles` allows.
           db
             .update(users)
             .set({
@@ -583,9 +583,9 @@ export const runHardDeleteSweep = (
     const batchSize = opts.batchSize ?? 100;
     const nowSec = Math.floor((opts.nowMs ?? Date.now()) / 1_000);
 
-    // P-C1: gating predicate is in SQL, not JS post-filter. A handful of
-    // permanently-stuck bridges (NULL `*_done_at`) would otherwise fill the
-    // batch slot and starve fan-out-complete rows. SQLite uses the
+    // The gating predicate is in SQL, not a filter after the read: a handful
+    // of permanently-stuck bridges (NULL `*_done_at`) would otherwise fill the
+    // batch and starve the rows whose fan-out is complete. SQLite uses the
     // `deletion_jobs_hard_delete_idx` for `hard_delete_at` and falls back to
     // a sequential scan over the small NULL-checks — the candidate set is
     // tiny (only in-flight deletions).
@@ -635,9 +635,9 @@ export const runHardDeleteSweep = (
  * to `deleted_<id>` at soft-delete time, so the surviving accountId names no
  * person.
  *
- * P-W4: cascade deletes use a single `inArray` per child table instead of
- * looping per profile so the transaction holds the write lock for one
- * round-trip per table regardless of profile count.
+ * The cascade deletes use one `inArray` per child table, never a statement per
+ * profile, so the batch holds the write lock for one statement per table
+ * whatever the profile count.
  */
 const hardDeleteAccount = (
   job: Pick<DeletionJob, "accountId" | "purgeStartedAt">,
@@ -726,9 +726,10 @@ const hardDeleteAccount = (
             .set({ leftAt: Math.floor(Date.now() / 1_000) })
             .where(and(eq(appEnrollments.accountId, accountId), isNull(appEnrollments.leftAt))),
 
-          // INTENTIONALLY KEPT (S-H5 / C-H1):
-          //   - security_events   — Art. 6(1)(c), 12-month retention sweeper (C-M2)
-          //   - email_changes     — Art. 6(1)(c), 90-day retention sweeper  (C-M2)
+          // Kept on purpose, as legal-obligation records (Art. 6(1)(c)), for
+          // the retention window wiki/compliance/retention.md sets for each:
+          //   - security_events   — 12 months
+          //   - email_changes     — 90 days
           // Both retain the now-orphaned `account_id`. PII linkage is broken
           // because `users.handle` was redacted at soft-delete and the
           // `accounts.email` row is gone here.
@@ -742,7 +743,7 @@ const hardDeleteAccount = (
 /**
  * Fan-out sweeper pass — the SOLE driver of cross-service purges.
  *
- * S-H1: bridges only fire once the 7-day grace window has elapsed
+ * Bridges fire only once the 7-day grace window has elapsed
  * (`hard_delete_at <= now`). Purging Pulse / Zap at soft-delete time would
  * destroy app data the user was promised they could get back by
  * cancelling, and the per-account purge ledger on the Pulse side would
@@ -782,7 +783,7 @@ export const runFanOutRetrySweep = (
       catch: (cause) => new AccountErasureDbError({ cause }),
     });
 
-    // P-W3: bounded concurrency. Sequential `for ... yield*` would take
+    // Bounded concurrency. Sequential `for ... yield*` would take
     // 100 × 20s = ~33 minutes per cycle worst-case (each row dispatches
     // two 10s-timeout HTTP calls). Per-row failures are already isolated
     // inside `runFanOut` via `Effect.catch`, so concurrency is safe.

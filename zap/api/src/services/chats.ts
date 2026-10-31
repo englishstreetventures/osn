@@ -557,15 +557,13 @@ export const addMember = (
       role: "member",
       joinedAt: now,
     };
-    // The cap/duplicate check above narrows the concurrent-duplicate window
-    // but cannot close it (P-I/TOCTOU) — two concurrent adds of the *same*
-    // profile can both pass it and both reach this INSERT. The unique
-    // constraint on (chat_id, profile_id) is the real guard: catch its
-    // failure and resolve to `AlreadyMember` (409) rather than `DatabaseError`
-    // (500). This fixes concurrent duplicate adds only — the member *cap* has
-    // a separate, pre-existing TOCTOU (two concurrent adds of *different*
-    // profiles can both read `total = 499` and both insert), which this does
-    // not close and is not a regression.
+    // The cap/duplicate check above is a read, so it cannot hold against a
+    // write that lands after it: two concurrent adds of the *same* profile
+    // can both pass it and both reach this INSERT. The unique constraint on
+    // (chat_id, profile_id) is the guard: its failure resolves to
+    // `AlreadyMember` (409) rather than `DatabaseError` (500). The member
+    // *cap* has no such guard at the write: two concurrent adds of
+    // *different* profiles can both read `total = 499` and both insert.
     //
     // Inserted from the requester's own admin row, so the member is added only
     // while the requester is still an admin; one removed or demoted since the

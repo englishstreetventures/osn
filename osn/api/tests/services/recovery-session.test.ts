@@ -798,6 +798,82 @@ describe("restricted recovery session — enrolling a passkey lifts the restrict
     }).pipe(Effect.provide(layer));
   });
 
+  // Past its insert, the refresh has written the new session restricted, as it
+  // copied the old row before the lift. The lift reaches it through the family.
+  const PAST_INSERT = [
+    { step: "rotation record", pattern: /^insert into "rotated_sessions"/ },
+    { step: "swap", pattern: /^delete from "sessions"/ },
+  ] as const;
+  for (const [at, { step, pattern }] of PAST_INSERT.entries()) {
+    it.live(
+      `a lift that lands while the session's refresh is held at its ${step} lifts the new session`,
+      () => {
+        const { db, email } = createTestLayerWithSqlite();
+        const queries = holdQueries(db);
+        const layer = Layer.merge(Layer.succeed(Db, { db: queries.db }), email.layer);
+        return Effect.gen(function* () {
+          const user = yield* auth.registerProfile(
+            `rs-liftheld${at}@example.com`,
+            `rsliftheld${at}`,
+          );
+          const restricted = yield* auth.issueRecoverySession(
+            user.id,
+            user.accountId,
+            user.email,
+            user.handle,
+            user.displayName,
+            "otp",
+          );
+          const callerHash = auth.hashSessionToken(restricted.refreshToken);
+
+          const held = queries.hold(pattern);
+          const refresh = yield* Effect.forkChild(
+            Effect.result(auth.refreshTokens(restricted.refreshToken)),
+          );
+          yield* Effect.promise(() => held.reached);
+          yield* auth.beginPasskeyRegistration(user.accountId);
+          yield* auth.completePasskeyRegistration(user.accountId, fakeAttestation(), callerHash);
+          held.release();
+
+          const outcome = yield* Fiber.join(refresh);
+          expect(outcome._tag).toBe("Success");
+          if (outcome._tag !== "Success") return;
+          const row = yield* sessionRow(db, outcome.success.refreshToken);
+          expect(row?.restrictedUntil).toBeNull();
+          expect(row?.restrictedAmr).toBeNull();
+          expect(row!.expiresAt - row!.createdAt).toBeGreaterThan(RECOVERY_SESSION_TTL_SEC);
+        }).pipe(Effect.provide(layer));
+      },
+    );
+  }
+
+  it.effect(
+    "a lift whose session a refresh has already replaced leaves no restricted session",
+    () => {
+      const { layer, db } = makeHarness();
+      return Effect.gen(function* () {
+        const user = yield* auth.registerProfile("rs-liftgone@example.com", "rsliftgone");
+        const restricted = yield* auth.issueRecoverySession(
+          user.id,
+          user.accountId,
+          user.email,
+          user.handle,
+          user.displayName,
+          "otp",
+        );
+        const callerHash = auth.hashSessionToken(restricted.refreshToken);
+        const rotated = yield* auth.refreshTokens(restricted.refreshToken);
+
+        yield* auth.beginPasskeyRegistration(user.accountId);
+        yield* auth.completePasskeyRegistration(user.accountId, fakeAttestation(), callerHash);
+
+        // A rotated-out hash lifts nothing and spares nothing: the replacement
+        // goes with every other session rather than staying restricted.
+        expect(yield* sessionRow(db, rotated.refreshToken)).toBeUndefined();
+      }).pipe(Effect.provide(layer));
+    },
+  );
+
   it.effect("leaves an ordinary caller's session expiry alone", () => {
     const { layer, db } = makeHarness();
     return Effect.gen(function* () {

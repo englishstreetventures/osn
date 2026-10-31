@@ -9,7 +9,7 @@ related:
   - "[[account-recovery-factors]]"
   - "[[cire-auth]]"
   - "[[coordination-store]]"
-last-reviewed: 2026-10-30
+last-reviewed: 2026-10-31
 ---
 
 # Session introspection + revocation
@@ -84,9 +84,11 @@ Per-account hard cap: `MAX_SESSIONS_PER_ACCOUNT = 50`. Every insert of a new ses
 
 All endpoints authenticate via `Authorization: Bearer <access_token>` and resolve `accountId` server-side. A session handle from account A's log cannot be replayed to revoke a session in account B — the DELETE is scoped to the caller's own account.
 
-**A revoke holds against a refresh in flight.** A family is a device's refresh chain, or the reservations of one cross-device request. `DELETE /sessions/:id` is one statement that deletes every session of the account in the family its handle names, so no refresh can land between finding the family and deleting it. The handle is looked up among the live sessions and the rotation records, so a handle from a Settings list the device has since refreshed past still finds its family. Each lookup reads its table's primary key by range (`tests/services/sessions-management.test.ts` pins the query plan). A rotation never leaves its family empty (see [[#Rotation grace window (concurrency tolerance)]]), so this delete, a reuse revoke, and every account-wide delete — sign out everywhere else, email change, erasure — leave no session behind them, wherever in a rotation they land.
+**A revoke holds against a refresh in flight.** A family is a device's refresh chain, or the reservations of one cross-device request. `DELETE /sessions/:id` deletes every session of the account in the family its handle names in one statement, so no refresh can land between finding the family and deleting it. The handle is looked up among the live sessions and the rotation records, so a handle from a Settings list the device has since refreshed past still finds its family. Each lookup reads its table's primary key by range (`tests/services/sessions-management.test.ts` pins the query plan). A rotation never leaves its family empty (see [[#Rotation grace window (concurrency tolerance)]]), so this delete, a reuse revoke, and every account-wide delete — sign out everywhere else, email change, erasure — leave no session behind them, wherever in a rotation they land.
 
 **The caller's device survives its own refresh in flight.** The account-wide deletes that spare the caller — sign out everywhere else, passkey add and delete, email change, erasure's cancel handle — spare the caller's *family*, not the one row id the request named (`outsideFamilyOf` in [`sessions.ts`](../../osn/api/src/services/auth/sessions.ts)). The family is read from the live session the caller's hash names. A rotation inserts the new row before it deletes the old one and keeps the family, so a refresh of the caller's session in another tab, wherever it is when the delete runs, completes and keeps the device; every other device goes. Only a live session spares anything: a hash already rotated out by the time the delete runs, revoked or never issued spares nothing, so a stale token cannot shield the family someone else's refresh has moved on (a request whose own tab finished refreshing first signs that device out, and it signs in again). Erasure's soft delete keeps the rotation records of the same family. Tests: `osn/api/tests/services/sessions-management.test.ts` (each of the four, with the caller's refresh held at each of its three statements, and with a hash rotated out before the delete).
+
+**Logout and the revoke's answer follow the caller's device too.** `POST /logout` deletes every session in the family of the session the cookie names, in one statement. The family is found from the live session, or from the token's rotation record while that record is live (`expires_at`, as reuse detection reads it). So a refresh of the same token in another tab, whether it finished before the delete or is in flight when it runs, leaves no session of the device. `DELETE /sessions/:id` finds the cookie's family the same way, before its delete (in the same batch on D1), and answers `revokedSelf: true` when that family was among those revoked, so the route clears the cookie whichever of the device's sessions the cookie holds. One rule decides which lookup each write takes: a hash may end its family, or report the caller's device ended, whether it is live or rotated out; only a live session spares or lifts anything ([[#The restricted recovery session]]). Tests: `osn/api/tests/services/sessions-management.test.ts` (each with the caller's refresh held at each of its three statements, and finished before the write) and `osn/api/tests/d1/rotated-sessions.test.ts` (the revoke's batch on D1).
 
 ### Sign out everywhere else reaches cire
 
@@ -203,10 +205,12 @@ That `UPDATE` is the one write that turns a restricted session into a full one, 
 
 | Predicate | What it stops |
 |---|---|
-| `id = <caller's session hash>` | Lifting a session other than the one that just enrolled |
+| `family_id IN (family of the caller's live session)` | Lifting a session of any device but the one that just enrolled |
 | `account_id = <caller's account>` | A hash from another account being lifted through a caller who does not own it. Its two siblings over this table (`invalidateOtherAccountSessions`, `revokeAccountSession`) scope the same way, and `completePasskeyRegistration` takes the hash as a plain parameter |
 | `restricted_until IS NOT NULL` | An everyday passkey add quietly resetting the caller's session clock |
 | `expires_at > now` | Reviving a session past its 15-minute deadline. `liveSessionIds` has no expiry term, so an expired restricted row still classifies as the caller's own, and expiry is otherwise enforced only in `verifyRefreshToken` — which this path never calls. Without it the real bound was the deadline plus one access-token TTL |
+
+**No restricted session of the enrolling device outlives the enrolment.** The lift names the device by the family of the caller's live session, so it follows a refresh of that session in another tab. If the session is live when the lift runs, every restricted row of the family is lifted: the new row of a refresh in flight (which copied the old row, restricted, before the lift) included. A refresh that inserts after the lift copies the lifted row. If a refresh has already replaced the session, the lift changes nothing: a lift is a grant, and a rotated-out hash grants nothing. The sweep that follows takes the same hash and spares only a live session's family, so it deletes every session on the account, the replacement included. So each restricted row is lifted, or deleted with every other session on the account; when a refresh finishes before the sweep, the user signs in again. On D1 a refresh is one batch, so the in-flight row exists only on the statement-at-a-time bun:sqlite driver. Tests: `osn/api/tests/services/recovery-session.test.ts` (the refresh held at its insert, its record and its swap, and finished before the enrolment).
 
 **The access token is capped to the row, not just to `accessTokenTtl`.** `sessionBoundTtl` gives a restricted session `min(accessTokenTtl, restricted_until − now)`, at both issuance sites. Without it a grant late in the window mints a full-length token that outlives the row authorising it: harmless server-side, because the enrolment bypass reads the row, but it tells the browser a deadline the server will not honour — and the post-recovery enrolment screen counts on that value to know when the window ends. An ordinary session (`restricted_until` null) is untouched. This bounds the token, not the session: `verifyJwt` allows 30 s of clock skew, so a capped token still verifies for a moment after its row is gone, granting nothing.
 
@@ -258,9 +262,9 @@ erasure (by account) and a detected reuse (by account and family).
   live record (`expires_at` later than now). No record: nothing more happens.
   A record inside the grace window: a benign race, family kept. Outside it: one
   batch deletes the family's sessions and its rotation records, so a further
-  replay from that chain has nothing left to revoke. A revoke by handle leaves
-  the family's records, so a stale replay can find a record whose family has
-  no session left; that replay counts as reuse and revokes nothing. A failed read is a
+  replay from that chain has nothing left to revoke. A revoke by handle and a
+  logout leave the family's records, so a stale replay can find a record whose
+  family has no session left; that replay counts as reuse and revokes nothing. A failed read is a
   `DatabaseError` — the grant fails and nothing is revoked, so a storage error
   never passes for "not rotated" and never makes a revocation up.
 - **Sweep.** `runRotatedSessionSweep` deletes expired records in chunks of 500,
