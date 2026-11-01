@@ -11,7 +11,7 @@ related:
   - "[[subprocessors]]"
   - "[[identity-model]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-10-27
+last-reviewed: 2026-11-02
 ---
 
 # GDPR + UK GDPR
@@ -66,7 +66,7 @@ high-impact ones, in priority order:
 
 4. **Privacy notice + ToS** — public, plain-language, version-stamped, backlinked from every collection point. **RESOLVED for cire:** the guest site publishes `/privacy` + `/terms` with a site-wide footer — Australia/APP framing, the controller and DSAR contact both taken from `@shared/legal` rather than written into the page, 1-year retention basis, processors (Cloudflare), guest rights, and dietary/access free-text flagged as Art. 9 special-category collected under explicit consent. The parallel `@musubi/landing` notice now ships too, and so do Pulse's and the two app frontends' — thirteen pages across `<app>/src/pages/{privacy,terms}.astro`, `musubi/social/src/pages/` and `pulse/web/src/routes/`. There is no drafts directory: the operator's identity comes from `@shared/legal`, and every page gates a draft banner on `draftPending()` so it cannot publish an unfilled detail silently. What is left is filling the remaining fields (legal entity, postal address, merchant of record, retention sentence), not writing more copy.
 
-5. **DPA + SCC pack for processors** — sign the Cloudflare DPA template, the Grafana Labs DPA + SCCs, and Photon's DPA-equivalent (Komoot). File under `wiki/compliance/dpa/<vendor>.md` with execution date + scope.
+5. **DPA + SCC pack for processors** — Cloudflare's Customer DPA (v6.4, with the EU SCCs and UK Addendum) is incorporated into its Self-Serve Subscription Agreement and recorded per row in [[subprocessors]]. Still to do: the Grafana Labs DPA + SCCs, and Photon's DPA-equivalent (Komoot). File under `wiki/compliance/dpa/<vendor>.md` with execution date + scope.
 
 6. **DSAR runbook** — an operational doc that covers ID verification, the 30-day clock, the unverified-request response, the "manifestly unfounded" denial path, and where to log requests for audit. See [[dsar]].
 
