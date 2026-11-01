@@ -313,16 +313,6 @@ export function createSessionsModule() {
       return { _tag: "stale" } as const;
     }).pipe(Effect.withSpan("auth.session.classify_caller"));
 
-  /** Deletes every session on the account, the caller's device included. */
-  const invalidateAccountSessions = (accountId: string): Effect.Effect<void, DatabaseError, Db> =>
-    Effect.gen(function* () {
-      const { db } = yield* Db;
-      yield* Effect.tryPromise({
-        try: () => db.delete(sessions).where(eq(sessions.accountId, accountId)),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
-    });
-
   /**
    * Invalidates all sessions for an account EXCEPT the device of the one
    * identified by `keepSessionHash` (its family; see {@link outsideFamilyOf}).
@@ -532,7 +522,6 @@ export function createSessionsModule() {
     resolveSessionByBinding,
     resolveCallerSession,
     classifyCallerSession,
-    invalidateAccountSessions,
     invalidateOtherAccountSessions,
     listAccountSessions,
     revokeAccountSession,

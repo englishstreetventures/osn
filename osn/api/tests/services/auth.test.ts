@@ -1357,41 +1357,6 @@ describe("server-side sessions (C1)", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("invalidateAccountSessions revokes all sessions for an account", () =>
-    Effect.gen(function* () {
-      const profile = yield* auth.registerProfile("revokeall@example.com", "revokeall");
-
-      // Issue two separate sessions
-      const tokens1 = yield* auth.issueTokens(
-        profile.id,
-        profile.accountId,
-        profile.email,
-        profile.handle,
-        profile.displayName,
-      );
-      const tokens2 = yield* auth.issueTokens(
-        profile.id,
-        profile.accountId,
-        profile.email,
-        profile.handle,
-        profile.displayName,
-      );
-
-      // Both work
-      yield* auth.verifyRefreshToken(tokens1.refreshToken);
-      yield* auth.verifyRefreshToken(tokens2.refreshToken);
-
-      // Revoke all
-      yield* auth.invalidateAccountSessions(profile.accountId);
-
-      // Both fail
-      const err1 = yield* Effect.flip(auth.verifyRefreshToken(tokens1.refreshToken));
-      expect(err1._tag).toBe("AuthError");
-      const err2 = yield* Effect.flip(auth.verifyRefreshToken(tokens2.refreshToken));
-      expect(err2._tag).toBe("AuthError");
-    }).pipe(Effect.provide(createTestLayer())),
-  );
-
   it.effect("invalidated session cannot be used for refreshTokens", () =>
     Effect.gen(function* () {
       const profile = yield* auth.registerProfile("norefresh@example.com", "norefresh");

@@ -140,7 +140,6 @@ export function createAuthService(config: AuthConfig) {
     resolveSessionByBinding: sessions.resolveSessionByBinding,
     resolveCallerSession: sessions.resolveCallerSession,
     classifyCallerSession: sessions.classifyCallerSession,
-    invalidateAccountSessions: sessions.invalidateAccountSessions,
     invalidateOtherAccountSessions: sessions.invalidateOtherAccountSessions,
     generateRecoveryCodesForAccount: recovery.generateRecoveryCodesForAccount,
     consumeRecoveryCode: recovery.consumeRecoveryCode,
