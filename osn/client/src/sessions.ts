@@ -30,7 +30,11 @@ export interface SessionSummary {
   lastUsedAt: number | null;
   /** Unix seconds */
   expiresAt: number;
-  /** True when this is the caller's current session (cookie-match). */
+  /**
+   * True for every session of the caller's device: the family of the session
+   * the request's cookie names, while that session is live or was rotated out
+   * within the rotation grace window.
+   */
   isCurrent: boolean;
 }
 
