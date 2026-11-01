@@ -1,5 +1,12 @@
 # @zap/infra
 
+## 0.1.7
+
+### Patch Changes
+
+- Updated dependencies [403cd83]
+  - @shared/infra@0.6.1
+
 ## 0.1.6
 
 ### Patch Changes
