@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import { SignJWT } from "jose";
 import { describe, it, expect, beforeEach, beforeAll } from "vitest";
 
+import { MAX_CHAT_MEMBERS } from "../../src/lib/limits";
 import { createChatsRoutes } from "../../src/routes/chats";
 import { setConsentGate } from "../../src/services/consent";
 import { createTestLayer, seedC2bChat, seedChat, seedMember } from "../helpers/db";
@@ -540,6 +541,16 @@ describe("chats routes", () => {
       body: { type: "dm" },
     });
     expect(res.status).toBe(422);
+  });
+
+  it("POST /chats returns 422 for a member list that leaves no place for the creator", async () => {
+    const others = Array.from({ length: MAX_CHAT_MEMBERS }, (_, i) => `usr_other_${i}`);
+    const res = await req(app, "POST", "/chats", {
+      token: aliceToken,
+      body: { type: "group", memberProfileIds: others },
+    });
+    expect(res.status).toBe(422);
+    expect(await body(res)).toEqual({ error: "Member limit reached" });
   });
 
   it("DELETE /chats/:id/members/:profileId returns 409 when removing the last admin", async () => {

@@ -184,6 +184,12 @@ export const createChatsRoutes = (
                   return { error: "A DM must have exactly two members" } as const;
                 }),
               ),
+              Effect.catchTag("MemberLimitReached", () =>
+                Effect.sync(() => {
+                  set.status = 422;
+                  return { error: "Member limit reached" } as const;
+                }),
+              ),
               Effect.catchTag("ConsentDenied", () =>
                 Effect.sync(() => {
                   set.status = 403;

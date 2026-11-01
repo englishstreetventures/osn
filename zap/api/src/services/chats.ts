@@ -47,8 +47,12 @@ export class ValidationError extends Data.TaggedError("ValidationError")<{
   readonly cause: unknown;
 }> {}
 
+/**
+ * Refused: a write that would leave a chat with more than `MAX_CHAT_MEMBERS`
+ * members. `chatId` is null for a create, which has no chat yet.
+ */
 export class MemberLimitReached extends Data.TaggedError("MemberLimitReached")<{
-  readonly chatId: string;
+  readonly chatId: string | null;
 }> {}
 
 export class AlreadyMember extends Data.TaggedError("AlreadyMember")<{
@@ -255,7 +259,11 @@ export const listChats = (
 export const createChat = (
   data: unknown,
   creatorProfileId: string,
-): Effect.Effect<Chat, ValidationError | ConsentDenied | InvalidDmMembership | DatabaseError, Db> =>
+): Effect.Effect<
+  Chat,
+  ValidationError | ConsentDenied | InvalidDmMembership | MemberLimitReached | DatabaseError,
+  Db
+> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
 
@@ -274,6 +282,13 @@ export const createChat = (
       return yield* Effect.fail(
         new InvalidDmMembership({ memberCount: initialMembers.length + 1 }),
       );
+    }
+
+    // The cap `addMember` holds, counted with the creator: a chat starts with
+    // at most `MAX_CHAT_MEMBERS` people. Before the consent checks, so a
+    // refused list costs no call to the graph and writes nothing.
+    if (initialMembers.length + 1 > MAX_CHAT_MEMBERS) {
+      return yield* Effect.fail(new MemberLimitReached({ chatId: null }));
     }
 
     // Every profile pulled into the chat must consent (graph-gated).
@@ -328,10 +343,10 @@ export const createChat = (
     // FK-first ordering: the chat row is inserted before any member row,
     // which references it. Chunked at MAX_MEMBER_ROWS_PER_INSERT rows per
     // INSERT to stay under D1's ~100-bound-parameter ceiling — up to
-    // MAX_CHAT_MEMBERS+1 (501) member rows here (the creator plus up to
-    // MAX_CHAT_MEMBERS others, the schema's cap on `memberProfileIds`)
-    // chunks into ceil(501/20) = 26 INSERTs, plus the chat INSERT itself =
-    // 27 statements — under D1's 50-queries-per-invocation Free-tier bound.
+    // MAX_CHAT_MEMBERS (500) member rows here (the creator included, refused
+    // above past that) chunks into ceil(500/20) = 25 INSERTs, plus the chat
+    // INSERT itself = 26 statements — under D1's 50-queries-per-invocation
+    // Free-tier bound.
     // Atomic on D1 (`db.batch`); on bun:sqlite `commitBatch` chains the
     // statements sequentially with no rollback, which is not a regression
     // versus the three separate awaits this replaces — no test may assert

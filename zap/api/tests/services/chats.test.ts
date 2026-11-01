@@ -1106,6 +1106,42 @@ describe("chats service", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
+  // ── the member cap counts the creator ───────────────────────────────────
+
+  it.effect("createChat refuses the creator plus MAX_CHAT_MEMBERS others before any write", () =>
+    Effect.gen(function* () {
+      let consentCalls = 0;
+      setConsentGate(() => {
+        consentCalls++;
+        return Promise.resolve(true);
+      });
+      const others = Array.from({ length: MAX_CHAT_MEMBERS }, (_, i) => `usr_other_${i}`);
+      const result = yield* Effect.result(
+        createChat({ type: "group", memberProfileIds: others }, "usr_alice"),
+      );
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure._tag).toBe("MemberLimitReached");
+      }
+      expect(consentCalls).toBe(0);
+      const { db } = yield* Db;
+      expect(yield* Effect.promise(() => db.select().from(chatsTable))).toHaveLength(0);
+      expect(yield* Effect.promise(() => db.select().from(chatMembers))).toHaveLength(0);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("createChat counts each person once, so a full list naming the creator fits", () =>
+    Effect.gen(function* () {
+      const others = Array.from({ length: MAX_CHAT_MEMBERS - 1 }, (_, i) => `usr_other_${i}`);
+      const chat = yield* createChat(
+        { type: "group", memberProfileIds: ["usr_alice", ...others] },
+        "usr_alice",
+      );
+      const { members } = yield* getChatMembers(chat.id, { limit: MAX_CHAT_MEMBERS });
+      expect(members).toHaveLength(MAX_CHAT_MEMBERS);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
   it.effect(
     "provisionC2bChat rejects memberProfileIds over the cap without creating a chat row",
     () =>
