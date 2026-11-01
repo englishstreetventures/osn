@@ -50,9 +50,11 @@ const liveFamilyOf = (db: DbService["db"], sessionHash: string) =>
 /**
  * The family of the session `sessionHash` names, live or rotated out while its
  * token could still have been used (the record's `expires_at`, as reuse
- * detection reads it). Each arm reads its table's primary key.
+ * detection reads it). Each arm reads its table's primary key. With
+ * `withinGrace`, a rotation record counts only while it is younger than
+ * `ROTATION_GRACE_MS`; the live-session arm is the same.
  */
-const familyOf = (db: DbService["db"], sessionHash: string, nowMs: number) =>
+const familyOf = (db: DbService["db"], sessionHash: string, nowMs: number, withinGrace = false) =>
   db
     .select({ familyId: sessions.familyId })
     .from(sessions)
@@ -62,7 +64,11 @@ const familyOf = (db: DbService["db"], sessionHash: string, nowMs: number) =>
         .select({ familyId: rotatedSessions.familyId })
         .from(rotatedSessions)
         .where(
-          and(eq(rotatedSessions.tokenHash, sessionHash), gt(rotatedSessions.expiresAt, nowMs)),
+          and(
+            eq(rotatedSessions.tokenHash, sessionHash),
+            gt(rotatedSessions.expiresAt, nowMs),
+            withinGrace ? gt(rotatedSessions.rotatedAt, nowMs - ROTATION_GRACE_MS) : undefined,
+          ),
         ),
     );
 
@@ -351,10 +357,11 @@ export function createSessionsModule() {
   /**
    * The account's sessions for the Settings list. `isCurrent` marks the
    * caller's device: every session in the family of the session
-   * `currentSessionHash` names, live or rotated out (see {@link familyOf}), as
-   * `revokeAccountSession` decides `revokedSelf`. So a cookie the device has
-   * refreshed past still marks the device's live session. The marker grants
-   * nothing: a revoke by handle and the account-wide deletes do not read it.
+   * `currentSessionHash` names, live or rotated out within `ROTATION_GRACE_MS`
+   * (see {@link familyOf}). So a cookie the device refreshed past a moment ago
+   * (a second tab) still marks the device's live session, and a cookie rotated
+   * past longer ago marks nothing. `revokeAccountSession` decides `revokedSelf`
+   * on the family without that age limit. The marker grants nothing: a revoke by handle and the account-wide deletes do not read it.
    */
   const listAccountSessions = (
     accountId: string,
@@ -379,7 +386,7 @@ export function createSessionsModule() {
                   ? sql<boolean>`0`.mapWith(Boolean)
                   : inArray(
                       sessions.familyId,
-                      familyOf(db, currentSessionHash, Date.now()),
+                      familyOf(db, currentSessionHash, Date.now(), true),
                     ).mapWith(Boolean),
             })
             .from(sessions)

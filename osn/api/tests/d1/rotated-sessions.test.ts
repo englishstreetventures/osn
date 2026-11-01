@@ -307,6 +307,22 @@ describe("the caller's device on D1", () => {
     expect(listed.find((s) => s.id === handleOf(other))?.isCurrent).toBe(false);
   });
 
+  it("a cookie rotated past by more than the grace window flags no session in the list", async () => {
+    const { profile, refreshToken } = await signIn("d1-ic-old@example.com", "d1icold");
+    await run(auth.refreshTokens(refreshToken));
+    await db
+      .update(rotatedSessions)
+      .set({ rotatedAt: Date.now() - ROTATION_GRACE_MS - 1 })
+      .where(eq(rotatedSessions.accountId, profile.accountId));
+
+    const { sessions: listed } = await run(
+      auth.listAccountSessions(profile.accountId, hashSessionToken(refreshToken)),
+    );
+
+    expect(listed).toHaveLength(1);
+    expect(listed.some((s) => s.isCurrent)).toBe(false);
+  });
+
   it("logout with a cookie rotated out past the grace window warns of reuse", async () => {
     const { profile, refreshToken } = await signIn("d1-lo-reuse@example.com", "d1loreuse");
     const next = await run(auth.refreshTokens(refreshToken));

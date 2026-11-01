@@ -117,6 +117,57 @@ describe("listAccountSessions", () => {
       expect(sessions.find((s) => s.id === handle(other))?.isCurrent).toBe(false);
     }).pipe(Effect.provide(createTestLayer())),
   );
+
+  it.effect("a cookie rotated past by more than the grace window flags no session", () =>
+    Effect.gen(function* () {
+      const { layer, sqlite } = createTestLayerWithSqlite();
+      return yield* Effect.gen(function* () {
+        const profile = yield* auth.registerProfile("list-stale@example.com", "liststale");
+        const me = (yield* auth.issueTokens(
+          profile.id,
+          profile.accountId,
+          profile.email,
+          profile.handle,
+          profile.displayName,
+        )).refreshToken;
+        yield* auth.refreshTokens(me);
+        sqlite
+          .query("UPDATE rotated_sessions SET rotated_at = ?")
+          .run(Date.now() - ROTATION_GRACE_MS - 1);
+
+        const { sessions } = yield* auth.listAccountSessions(
+          profile.accountId,
+          auth.hashSessionToken(me),
+        );
+
+        expect(sessions).toHaveLength(1);
+        expect(sessions.some((s) => s.isCurrent)).toBe(false);
+      }).pipe(Effect.provide(layer));
+    }),
+  );
+
+  it.effect("a cookie rotated past within the grace window flags the live session", () =>
+    Effect.gen(function* () {
+      const profile = yield* auth.registerProfile("list-tabs@example.com", "listtabs");
+      const me = (yield* auth.issueTokens(
+        profile.id,
+        profile.accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      )).refreshToken;
+      const refreshed = yield* auth.refreshTokens(me);
+
+      const { sessions } = yield* auth.listAccountSessions(
+        profile.accountId,
+        auth.hashSessionToken(me),
+      );
+
+      expect(sessions.filter((s) => s.isCurrent).map((s) => s.id)).toEqual([
+        auth.hashSessionToken(refreshed.refreshToken).slice(0, 16),
+      ]);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
 });
 
 describe("revokeAccountSession", () => {
