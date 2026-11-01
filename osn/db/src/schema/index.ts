@@ -547,12 +547,11 @@ export const emailChanges = sqliteTable(
     id: text("id").primaryKey(), // "ech_" prefix
     // No `.references(accounts.id)`, deliberately. `hardDeleteAccount`
     // (`osn/api/src/services/account-erasure.ts`) removes the `accounts` row
-    // and KEEPS these under Art. 6(1)(c), so the column outlives its parent by
-    // design — and a column that must outlive its parent cannot have a foreign
-    // key to it. With the constraint in place the final `delete(accounts)`
-    // failed, taking the whole erasure batch with it, so Art. 17 deletion
-    // could never complete against a database that enforces foreign keys.
-    // Retention is enforced by the sweeper, not by a reference.
+    // and keeps these rows under Art. 6(1)(c), so the column outlives its
+    // parent: a foreign key to it would fail that delete, and with it the
+    // whole erasure batch, on a database that enforces foreign keys. Nothing
+    // deletes these rows yet: `wiki/compliance/retention.md` sets their
+    // retention and lists the sweeper that will enforce it as planned.
     accountId: text("account_id").notNull(),
     previousEmail: text("previous_email").notNull(),
     newEmail: text("new_email").notNull(),
@@ -596,12 +595,11 @@ export const securityEvents = sqliteTable(
     id: text("id").primaryKey(), // "sev_" prefix
     // No `.references(accounts.id)`, deliberately. `hardDeleteAccount`
     // (`osn/api/src/services/account-erasure.ts`) removes the `accounts` row
-    // and KEEPS these under Art. 6(1)(c), so the column outlives its parent by
-    // design — and a column that must outlive its parent cannot have a foreign
-    // key to it. With the constraint in place the final `delete(accounts)`
-    // failed, taking the whole erasure batch with it, so Art. 17 deletion
-    // could never complete against a database that enforces foreign keys.
-    // Retention is enforced by the sweeper, not by a reference.
+    // and keeps these rows under Art. 6(1)(c), so the column outlives its
+    // parent: a foreign key to it would fail that delete, and with it the
+    // whole erasure batch, on a database that enforces foreign keys. Nothing
+    // deletes these rows yet: `wiki/compliance/retention.md` sets their
+    // retention and lists the sweeper that will enforce it as planned.
     accountId: text("account_id").notNull(),
     /**
      * Bounded kind enum — see SecurityEventKind in @shared/observability.
