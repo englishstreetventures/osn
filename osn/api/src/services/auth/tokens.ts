@@ -775,10 +775,11 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
    * (Copenhagen Book C2): the new session row is inserted, then the old
    * hash's `rotated_sessions` record, then the old row deleted, so a replayed
    * old token triggers full family revocation (reuse detection). On D1 the
-   * three are one batch, which commits whole or not at all; a failed write is
-   * a `DatabaseError`, which `POST /token` reads as "session status unknown",
-   * and the old session stays. A revoke of the family or the account that
-   * lands at any point of a rotation leaves no session behind it.
+   * three are one batch, which commits whole or not at all; on bun:sqlite a
+   * failed write removes what the grant wrote. Either way a failed write is a
+   * `DatabaseError`, which `POST /token` reads as "session status unknown",
+   * and the old session stays, able to rotate. A revoke of the family or the
+   * account that lands at any point of a rotation leaves no session behind it.
    */
   const refreshTokens = (
     sessionToken: string,
@@ -904,6 +905,13 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
           ),
         );
 
+      // This request's record, and no other: its key is the old token's hash
+      // and its `rotated_at` this request's clock read.
+      const ownRecord = and(
+        eq(rotatedSessions.tokenHash, oldSessionId),
+        eq(rotatedSessions.rotatedAt, nowMs),
+      );
+
       // At every moment of a rotation the family holds the old row, the new
       // row or both, so a delete of the family or the account that lands at
       // any point removes whatever stands and every later statement here finds
@@ -912,23 +920,27 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
       // run. Change counts go through `rowsChanged`, which reads D1's
       // `meta.changes`.
       let newRowLeft = false;
+      let recordLeft = false;
       const written = yield* Effect.tryPromise({
         try: async () => {
           if (canBatch(db)) {
             const [, recorded, swapped] = await db.batch([mint(), record(), swap()]);
             return { recorded: rowsChanged(recorded), swapped: rowsChanged(swapped) };
           }
+          let recordLanded = false;
           try {
             await mint();
             const recorded = rowsChanged(await record());
+            recordLanded = recorded === 1;
             const swapped = rowsChanged(await swap());
             return { recorded, swapped };
           } catch (error) {
-            // The new row is this request's alone; it goes with the failure,
-            // and the old row stays, as a failed D1 batch leaves it. A delete
-            // that fails too leaves the row, held by no one, until it
-            // expires; that is logged below, and the grant fails with the
-            // first error either way.
+            // What this request wrote goes with the failure — the new row,
+            // and the record when it landed — and the old row stays, as a
+            // failed D1 batch leaves it, so the device's next grant of the
+            // same token can write both again. A delete that fails too leaves
+            // its row until it expires; that is logged below, and the grant
+            // fails with the first error either way.
             await db
               .delete(sessions)
               .where(newRow)
@@ -938,18 +950,37 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
                   newRowLeft = true;
                 },
               );
+            if (recordLanded) {
+              await db
+                .delete(rotatedSessions)
+                .where(ownRecord)
+                .then(
+                  () => undefined,
+                  () => {
+                    recordLeft = true;
+                  },
+                );
+            }
             throw error;
           }
         },
         catch: (cause) => new DatabaseError({ cause }),
       }).pipe(
-        Effect.tapError(() =>
-          newRowLeft
-            ? Effect.logError(
-                "Refresh rotation could not remove its own new session after a failed write",
-              ).pipe(Effect.annotateLogs({ restricted: String(restrictedUntil !== null) }))
-            : Effect.void,
-        ),
+        Effect.tapError(() => {
+          const restricted = { restricted: String(restrictedUntil !== null) };
+          return Effect.all([
+            newRowLeft
+              ? Effect.logError(
+                  "Refresh rotation could not remove its own new session after a failed write",
+                ).pipe(Effect.annotateLogs(restricted))
+              : Effect.void,
+            recordLeft
+              ? Effect.logError(
+                  "Refresh rotation could not remove its own rotation record after a failed write",
+                ).pipe(Effect.annotateLogs(restricted))
+              : Effect.void,
+          ]);
+        }),
       );
 
       if (written.swapped === 0) {
@@ -960,15 +991,12 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
         // account mid-grant. Never reuse: a replay of an already-rotated token
         // fails `verifyRefreshToken` and goes down `detectReuse` instead. The
         // family is preserved; this grant removes what it wrote — its new row,
-        // and its record when that record landed, since the key is unique and
-        // so the row is this request's — and fails.
+        // and its record when that record landed — and fails.
         yield* Effect.tryPromise({
           try: () =>
             commitBatch(db, [
               db.delete(sessions).where(newRow),
-              ...(written.recorded === 1
-                ? [db.delete(rotatedSessions).where(eq(rotatedSessions.tokenHash, oldSessionId))]
-                : []),
+              ...(written.recorded === 1 ? [db.delete(rotatedSessions).where(ownRecord)] : []),
             ]),
           catch: (cause) => new DatabaseError({ cause }),
         });

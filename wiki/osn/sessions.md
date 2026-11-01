@@ -255,13 +255,15 @@ erasure (by account) and a detected reuse (by account and family).
   commits whole or not at all, so a session never exists without the record
   that lets reuse detection see its predecessor replayed; one statement at a
   time on bun:sqlite. A failed write is a `DatabaseError`: the grant fails, the
-  old row stays (a failed D1 batch rolls back; on bun:sqlite the grant deletes
-  its own new row, and if that delete fails too, logs `Refresh rotation could
-  not remove its own new session after a failed write` at error, annotated
-  `restricted` only), and `POST /token` reads it as "session status unknown" and
-  keeps the marker cookie. A second record for one token fails on the key, so
-  of two grants of one token interleaved on bun:sqlite the second fails this
-  way.
+  old row stays and can rotate again (a failed D1 batch rolls back; on
+  bun:sqlite the grant deletes its own new row, and its own record when that
+  landed before the failure, matched on the token's hash and the grant's
+  `rotated_at`, so the device's next grant of the same token can write it
+  again), and `POST /token` reads it as "session
+  status unknown" and keeps the marker cookie. A clean-up delete that fails too
+  is logged at error ([[#Observability]]). A second record for one token fails
+  on the key, so of two grants of one token interleaved on bun:sqlite the
+  second fails this way, and leaves the first grant's record alone.
 - **Read.** `detectReuse` runs only for a token not in `sessions`, and reads its
   live record (`expires_at` later than now). No record: nothing more happens.
   A record inside the grace window: a benign race, family kept. Outside it: one
@@ -303,6 +305,7 @@ erasure (by account) and a detected reuse (by account and family).
 - `osn.retention.rows_deleted{table}` and `osn.retention.cycle.duration{table}` (seconds) — one of each per sweep pass, `table` = `rotated_sessions`, a failed pass included with the rows its earlier chunks deleted
 - A rotation record that cannot be written or read is a `DatabaseError` on the grant, in Workers Logs with the rest of osn-api's D1 errors
 - `Refresh rotation could not remove its own new session after a failed write` (error, annotated `restricted` = `true` / `false`, never the cause, whose text carries the statement's parameters) — bun:sqlite only: a rotation whose write failed and whose delete of its own new row failed too, leaving a row no one holds until it expires
+- `Refresh rotation could not remove its own rotation record after a failed write` (error, annotated the same way, never the cause) — bun:sqlite only: a rotation whose write failed after its record landed and whose delete of that record failed too. The device's token cannot rotate again until the record expires, a refresh lifetime later; deleting the row by `token_hash` frees it
 - Redaction: `ipHash`, `uaLabel` (both spellings), `familyId` (already in the deny-list — correlates sessions across rotation events)
 
 ## UI
