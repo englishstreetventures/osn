@@ -7,3 +7,5 @@ On bun:sqlite, a refresh whose write fails removes everything it wrote: its new 
 `verifyRefreshToken` returns the session's account, family, hash, authentication time and restriction deadline; the restriction's factor is read off the session row where it is needed.
 
 The auth service has no `invalidateAccountSessions`, which nothing called. The deletes that end every session on an account (recovery, erasure) and the one that ends every other device after a passkey change (`invalidateOtherAccountSessions`) are unchanged.
+
+Three metric descriptions read as what they count: `osn.auth.session.security_invalidation` is "Session invalidation sweeps, by the security change or revoke that triggered them", and the security-event and data-export counters drop their review labels. Names and attributes are unchanged.

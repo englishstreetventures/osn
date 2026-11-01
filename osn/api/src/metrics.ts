@@ -117,15 +117,15 @@ export const OSN_METRICS = {
   profileSwitchAttempts: "osn.auth.profile_switch.attempts",
   profileCrudOps: "osn.profile.crud.operations",
   profileCrudDuration: "osn.profile.crud.duration",
-  // C-H1 — account data export (DSAR Art. 15 / 20)
+  // Account data export (DSAR Art. 15 / 20)
   accountExportRequested: "osn.account.export.requested",
-  // C-H2 — account deletion (Flow A)
+  // Account deletion (Flow A)
   accountDeletionRequested: "osn.account.deletion.requested",
   accountDeletionCompleted: "osn.account.deletion.completed",
   accountDeletionDuration: "osn.account.deletion.duration",
   accountDeletionFanout: "osn.account.deletion.fanout",
   accountDeletionFanoutPendingAge: "osn.account.deletion.fanout_pending_age",
-  // C-H2 — app enrollments
+  // App enrollments
   appEnrollmentJoined: "osn.account.app_enrollment.joined",
   appEnrollmentLeft: "osn.account.app_enrollment.left",
   // OIDC provider
@@ -552,7 +552,7 @@ const authSessionFamilyRevoked = createCounter<Record<never, never>>({
 
 const authSessionSecurityInvalidation = createCounter<SecurityInvalidationAttrs>({
   name: OSN_METRICS.authSessionSecurityInvalidation,
-  description: "Sessions invalidated due to security events (H1)",
+  description: "Session invalidation sweeps, by the security change or revoke that triggered them",
   unit: "{invalidation}",
 });
 
@@ -687,7 +687,7 @@ export function metricRetentionSweep(
 }
 
 // ---------------------------------------------------------------------------
-// Recovery-code per-account lockout (O2)
+// Recovery-code per-account lockout
 // ---------------------------------------------------------------------------
 
 /**
@@ -828,7 +828,7 @@ export const withAuthRecovery =
     );
 
 // ---------------------------------------------------------------------------
-// Origin guard (M1)
+// Origin guard
 // ---------------------------------------------------------------------------
 
 type OriginGuardAttrs = { reason: OriginGuardRejectionReason };
@@ -976,7 +976,7 @@ export const withEmailChange =
     );
 
 // ---------------------------------------------------------------------------
-// Security events (M-PK1b) — out-of-band audit trail for account-level
+// Security events — out-of-band audit trail for account-level
 // security actions so the client can surface "did you do this?" banners.
 // ---------------------------------------------------------------------------
 
@@ -989,7 +989,7 @@ type SecurityEventNotifyDurationAttrs = { result: "ok" | "error" };
 
 const authSecurityEventRecorded = createCounter<SecurityEventAttrs>({
   name: OSN_METRICS.authSecurityEventRecorded,
-  description: "Security-event audit rows recorded (M-PK1b)",
+  description: "Security-event audit rows recorded",
   unit: "{event}",
 });
 
@@ -1212,11 +1212,11 @@ export const withCrossDeviceOp =
     );
 
 // ---------------------------------------------------------------------------
-// Account deletion (C-H2 — GDPR Art. 17)
+// Account deletion (GDPR Art. 17)
 // ---------------------------------------------------------------------------
 
 type DeletionRequestedAttrs = { result: DeletionRequestResult };
-/** Bounded outcome enum for the C-H1 export endpoint. */
+/** Bounded outcome enum for the account data-export endpoint. */
 export type ExportRequestResult =
   | "ok"
   | "unauthorized"
@@ -1282,7 +1282,7 @@ const appEnrollmentLeft = createCounter<AppEnrollmentLeftAttrs>({
 
 const accountExportRequested = createCounter<ExportRequestedAttrs>({
   name: OSN_METRICS.accountExportRequested,
-  description: "Account data-export request attempts (C-H1 — DSAR Art. 15 / 20)",
+  description: "Account data-export request attempts (DSAR Art. 15 / 20)",
   unit: "{request}",
 });
 

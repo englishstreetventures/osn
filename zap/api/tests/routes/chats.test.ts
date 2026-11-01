@@ -163,7 +163,7 @@ describe("chats routes", () => {
     expect(res.status).toBe(401);
   });
 
-  it("GET /chats returns 401 for a verified token whose sub is not a usr_ id (Z2)", async () => {
+  it("GET /chats returns 401 for a verified token whose sub is not a usr_ id", async () => {
     const orgToken = await makeToken("org_evil");
     const res = await req(app, "GET", "/chats", { token: orgToken });
     expect(res.status).toBe(401);
@@ -503,7 +503,7 @@ describe("chats routes", () => {
     expect(res.status).toBe(204);
   });
 
-  // ── Consent + invariants (W2) ─────────────────────────────────────────────
+  // ── Consent + invariants ──────────────────────────────────────────────────
 
   it("POST /chats/:id/members returns 403 when consent is denied", async () => {
     const createRes = await req(app, "POST", "/chats", {

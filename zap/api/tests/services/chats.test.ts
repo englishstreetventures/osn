@@ -261,7 +261,7 @@ describe("chats service", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // ── Z3/Z4 consent matrix ────────────────────────────────────────────────
+  // ── consent matrix ──────────────────────────────────────────────────────
 
   it.effect("addMember allowed when the actor and target are connected", () =>
     Effect.gen(function* () {
@@ -328,7 +328,7 @@ describe("chats service", () => {
       }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // ── Z3 DM member-count invariant ────────────────────────────────────────
+  // ── DM member-count invariant ───────────────────────────────────────────
 
   it.effect("createChat rejects a DM with no other member", () =>
     Effect.gen(function* () {
@@ -406,7 +406,7 @@ describe("chats service", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // ── Z5 last-admin invariant ─────────────────────────────────────────────
+  // ── last-admin invariant ────────────────────────────────────────────────
 
   it.effect("removeMember rejects removing the only admin", () =>
     Effect.gen(function* () {
@@ -757,7 +757,7 @@ describe("chats service", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("listChats does not skip chats created in the same second (P-W2)", () =>
+  it.effect("listChats does not skip chats created in the same second", () =>
     Effect.gen(function* () {
       // Creation bursts share a second-resolution createdAt; the composite
       // (createdAt, id) cursor must still walk every chat exactly once.

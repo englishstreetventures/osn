@@ -101,7 +101,7 @@ This split is by design: c2b body content is server-visible, user-attributed dat
 
 ## Authentication & authorization
 
-### User-token verification (W1)
+### User-token verification
 
 Every `/chats*` route verifies the caller's OSN access token the same way Pulse
 does: ES256 signature against the OSN JWKS via `extractClaims` from
@@ -111,8 +111,8 @@ was removed). Keys are resolved from `OSN_JWKS_URL` (`zap/api/src/lib/jwks.ts`);
 `zap/api/src/index.ts` refuses to boot in a non-local env if that URL is
 plaintext `http://`.
 
-A single chokepoint (`resolveProfileId` in `zap/api/src/routes/chats.ts`,
-AUDIT-Z2) derives the actor's `profileId`. It drops any verified token whose
+A single chokepoint (`resolveProfileId` in `zap/api/src/routes/chats.ts`)
+derives the actor's `profileId`. It drops any verified token whose
 `sub` does not start with `usr_`, so nothing but a user principal can reach
 `created_by_profile_id` / `sender_profile_id`.
 
@@ -120,7 +120,7 @@ The factory signature mirrors Pulse:
 `createChatsRoutes(dbLayer, jwksUrl, _testKey?, rateLimiters?)`. Route tests
 inject a test public key and mint ES256 tokens.
 
-### Social-graph consent (W2)
+### Social-graph consent
 
 A user may only pull another profile into a chat (create-with-members or
 add-member) when the two share a permitted OSN social-graph relationship.
@@ -149,7 +149,7 @@ add-member) when the two share a permitted OSN social-graph relationship.
   person once, and `addMember`'s insert holds the cap as it runs, so of two adds
   that both read the last free place, the second inserts nothing and is refused
   `MemberLimitReached`. Message-list cursors are scoped to their chat and
-  unknown cursors are rejected (`zap/api/src/services/messages.ts`, Z6).
+  unknown cursors are rejected (`zap/api/src/services/messages.ts`).
 
 > **Ops provisioning:** consent checks require `zap-api` to be registered as an
 > ARC issuer in the OSN `service_accounts` table (allowed scope `graph:read`).
@@ -167,12 +167,13 @@ On dev the zap stack sets two vars production's Wrangler config does not:
 `OSN_ENV=dev`, which marks a deployed tier, so zap-api runs its non-local
 checks on the JWKS URL, the issuer and this CORS list; and `ZAP_CORS_ORIGIN`,
 set to the dev musubi social origin, the one dev browser origin that calls it
-([[infrastructure-as-code#Dev hosts]]). K2 in `zap/infra/tests/parity.test.ts`
-lists both as the dev tier's differences from production.
+([[infrastructure-as-code#Dev hosts]]). The binding-names test in
+`zap/infra/tests/parity.test.ts` lists both as the dev tier's differences from
+production.
 
 ### Deferred
 
-- **Z7** — inbound ARC surface (`/internal/chats*` for c2b): **shipped** in the c2b PR (see [[#c2b (consumer-to-business) chats]] above). Pulse-driven event group chats remain a separate PR.
+- Pulse-driven event group chats: separate PR.
 - Widen the 48-bit UUID-slice IDs (`chat_`/`cmem_`/`msg_`): separate PR.
 
 ## Observability

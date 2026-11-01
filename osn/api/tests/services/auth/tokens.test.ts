@@ -82,7 +82,6 @@ describe("refreshTokens: the rotation record", () => {
     }).pipe(Effect.provide(layer));
   });
 
-  // F-SV1
   it.effect(
     "fails with a DatabaseError, which leaves the session marker up, when the write fails",
     () => {
@@ -398,7 +397,6 @@ describe("refreshTokens: a replayed rotated-out token", () => {
     }).pipe(Effect.provide(layer));
   });
 
-  // F-SV2
   it.effect("fails with a DatabaseError and revokes nothing when the record cannot be read", () => {
     const { layer, sqlite } = createTestLayerWithSqlite();
     const revoked = vi.spyOn(metrics, "metricSessionFamilyRevoked");

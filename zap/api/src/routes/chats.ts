@@ -30,7 +30,7 @@ const chatTypeEnum = t.Union([t.Literal("dm"), t.Literal("group"), t.Literal("ev
 const ACCESS_AUDIENCE = "osn-access";
 
 /**
- * AUDIT-Z2 chokepoint. Verifies a Bearer token via the OSN JWKS (ES256) and
+ * The one place a route derives its actor. Verifies a Bearer token via the OSN JWKS (ES256) and
  * returns the actor's `profileId` ONLY when the verified `sub` is a real OSN
  * user id (prefix `usr_`).
  *
@@ -157,7 +157,7 @@ export const createChatsRoutes = (
         "/",
         async ({ body, headers, set }) => {
           // Zap runs behind Cloudflare, so the only trustworthy client IP
-          // is `cf-connecting-ip` (W3 trust policy). A missing/malformed header
+          // is `cf-connecting-ip`. A missing/malformed header
           // yields the UNRESOLVED sentinel — fail closed (429) rather than
           // bucket every header-less request together under a spoofable key.
           const ip = getClientIp(headers, { trustCloudflare: true });
