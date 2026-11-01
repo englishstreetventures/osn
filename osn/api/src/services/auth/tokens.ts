@@ -589,7 +589,6 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
       sessionId: string;
       authenticatedAt: number;
       restrictedUntil: number | null;
-      restrictedAmr: string | null;
     },
     AuthError | DatabaseError,
     Db
@@ -674,7 +673,6 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
         sessionId,
         authenticatedAt: session.authenticatedAt ?? session.createdAt,
         restrictedUntil: session.restrictedUntil,
-        restrictedAmr: session.restrictedAmr,
       };
     });
 
