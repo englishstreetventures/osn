@@ -24,10 +24,10 @@
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 
-import type { Locator, Page, Route } from "@playwright/test";
+import type { Browser, Locator, Page, Route } from "@playwright/test";
 
 import { ORIGINS, SCREENSHOT_DIR } from "../../src/config";
-import { expect, test } from "../support/fixtures";
+import { expect, type Flow, test } from "../support/fixtures";
 
 const HOME = `${ORIGINS.cireLanding}/`;
 const SHOTS = resolve(SCREENSHOT_DIR, "cire-landing-home");
@@ -131,6 +131,40 @@ async function visibleJourneyStep(page: Page): Promise<string> {
 /** The claim field's link preview, whitespace collapsed. */
 async function claimPreview(page: Page): Promise<string> {
   return ((await page.locator("[data-claim-preview]").textContent()) ?? "").replace(/\s+/g, "");
+}
+
+/**
+ * The footer's wedding scenes, in the order the footer lists them. The first is
+ * the one the server draws, so it is what a reader without JavaScript sees.
+ */
+const FOOTER_SCENES = ["christian", "hindu"] as const;
+
+/** The footer scene on screen, once exactly one is. */
+async function visibleFooterScene(page: Page): Promise<string> {
+  const shown = page.locator("[data-footer-scene]:visible");
+  await expect(shown).toHaveCount(1);
+  return (await shown.getAttribute("data-footer-scene")) ?? "";
+}
+
+/**
+ * The footer scene shown when the page loads `query` with `Math.random`
+ * pinned to `roll`, in a context of its own so the pin reaches no other step.
+ */
+async function footerSceneFor(
+  browser: Browser,
+  flow: Flow,
+  query: string,
+  roll: number,
+): Promise<string> {
+  const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const page = await flow.newPage(context);
+  await page.addInitScript((value) => {
+    Math.random = () => value;
+  }, roll);
+  await page.goto(`${HOME}${query}`);
+  const scene = await visibleFooterScene(page);
+  await context.close();
+  return scene;
 }
 
 /** Whether the document is wider than the viewport. */
@@ -532,6 +566,37 @@ test("cire-landing-home", async ({ page, browser, flow }) => {
     );
   });
 
+  await flow.step("the footer shows one wedding scene, picked at random", async () => {
+    await page.goto(HOME);
+    flow.check(
+      "on a plain load the footer shows one scene of its own",
+      true,
+      (FOOTER_SCENES as readonly string[]).includes(await visibleFooterScene(page)),
+    );
+    const first = FOOTER_SCENES[0];
+    const last = FOOTER_SCENES[FOOTER_SCENES.length - 1];
+    flow.check(
+      "the lowest random roll picks the first scene",
+      first,
+      await footerSceneFor(browser, flow, "", 0),
+    );
+    flow.check(
+      "the highest random roll picks the last scene",
+      last,
+      await footerSceneFor(browser, flow, "", 0.999),
+    );
+    flow.check(
+      "?footer= names a scene, over the random roll",
+      first,
+      await footerSceneFor(browser, flow, `?footer=${first}`, 0.999),
+    );
+    flow.check(
+      "an unknown ?footer= falls back to the random roll",
+      last,
+      await footerSceneFor(browser, flow, "?footer=%22%5D", 0.999),
+    );
+  });
+
   await flow.step("read the page with JavaScript off", async () => {
     const context = await browser.newContext({
       javaScriptEnabled: false,
@@ -561,6 +626,11 @@ test("cire-landing-home", async ({ page, browser, flow }) => {
       );
     }
     flow.check(
+      "with JavaScript off the footer shows the first scene",
+      FOOTER_SCENES[0],
+      await visibleFooterScene(noScript),
+    );
+    flow.check(
       "with JavaScript off the page has the same organiser links",
       organiserLinkCount,
       (await organiserHrefs(noScript)).length,
@@ -581,6 +651,17 @@ test("cire-landing-home", async ({ page, browser, flow }) => {
       .locator('#hero [data-state="sealed"]')
       .evaluate((screen) => parseFloat(getComputedStyle(screen).transitionDuration));
     flow.check("with reduced motion the hero's screens switch at once", true, seconds < 0.01);
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await page.goto(`${HOME}?footer=hindu`);
+    const flame = page.locator('[data-footer-scene="hindu"] .flame').first();
+    const flicker = () => flame.evaluate((el) => getComputedStyle(el).animationName);
+    flow.check(
+      "the diya flames flicker for a reader who allows motion",
+      true,
+      (await flicker()) !== "none",
+    );
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    flow.check("with reduced motion the diya flames hold still", "none", await flicker());
     await page.emulateMedia({ reducedMotion: "no-preference" });
   });
 
@@ -627,43 +708,59 @@ test("cire-landing-home", async ({ page, browser, flow }) => {
     flow.check("at 768 px nothing pans sideways", false, await overflowsSideways(page));
   });
 
-  await flow.step("screenshot the page, each hero state and each journey tab", async () => {
-    mkdirSync(SHOTS, { recursive: true });
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto(HOME);
-    await readyForScreenshot(page);
-    await page.screenshot({
-      path: resolve(SHOTS, "home-390.png"),
-      fullPage: true,
-      animations: "disabled",
-    });
-    for (const state of HERO_STATES) {
-      await page.locator(`#hero label[for="hs-${state.id}"]`).click();
+  await flow.step(
+    "screenshot the page, each hero state, each journey tab and each footer scene",
+    async () => {
+      mkdirSync(SHOTS, { recursive: true });
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.goto(`${HOME}?footer=${FOOTER_SCENES[0]}`);
+      await readyForScreenshot(page);
+      await page.screenshot({
+        path: resolve(SHOTS, "home-390.png"),
+        fullPage: true,
+        animations: "disabled",
+      });
+      for (const state of HERO_STATES) {
+        await page.locator(`#hero label[for="hs-${state.id}"]`).click();
+        await visibleHeroState(page);
+        await page.locator("#hero").screenshot({
+          path: resolve(SHOTS, `hero-${state.id}-390.png`),
+          animations: "disabled",
+        });
+      }
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.goto(`${HOME}?footer=${FOOTER_SCENES[0]}`);
+      await readyForScreenshot(page);
+      await page.screenshot({
+        path: resolve(SHOTS, "home-1280.png"),
+        fullPage: true,
+        animations: "disabled",
+      });
+      for (const step of JOURNEY) {
+        await page.locator(`#journey label[for="js-${step.id}"]`).click();
+        await visibleJourneyStep(page);
+        await page.locator("#journey").screenshot({
+          path: resolve(SHOTS, `journey-${step.id}-1280.png`),
+          animations: "disabled",
+        });
+      }
+      for (const width of [1280, 390]) {
+        await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+        for (const scene of FOOTER_SCENES) {
+          await page.goto(`${HOME}?footer=${scene}`);
+          await readyForScreenshot(page);
+          await page.locator("footer").screenshot({
+            path: resolve(SHOTS, `footer-${scene}-${width}.png`),
+            animations: "disabled",
+          });
+        }
+      }
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.goto(HOME);
+      await page.locator("#hero").scrollIntoViewIfNeeded();
+      await page.locator('#hero label[for="hs-sealed"]').click();
       await visibleHeroState(page);
-      await page.locator("#hero").screenshot({
-        path: resolve(SHOTS, `hero-${state.id}-390.png`),
-        animations: "disabled",
-      });
-    }
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await page.goto(HOME);
-    await readyForScreenshot(page);
-    await page.screenshot({
-      path: resolve(SHOTS, "home-1280.png"),
-      fullPage: true,
-      animations: "disabled",
-    });
-    for (const step of JOURNEY) {
-      await page.locator(`#journey label[for="js-${step.id}"]`).click();
-      await visibleJourneyStep(page);
-      await page.locator("#journey").screenshot({
-        path: resolve(SHOTS, `journey-${step.id}-1280.png`),
-        animations: "disabled",
-      });
-    }
-    await page.locator("#hero").scrollIntoViewIfNeeded();
-    await page.locator('#hero label[for="hs-sealed"]').click();
-    await visibleHeroState(page);
-    await page.evaluate(() => window.scrollTo(0, 0));
-  });
+      await page.evaluate(() => window.scrollTo(0, 0));
+    },
+  );
 });

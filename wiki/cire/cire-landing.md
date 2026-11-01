@@ -17,7 +17,7 @@ related:
   - "[[cire-entitlements]]"
   - "[[cire-upgrades]]"
   - "[[cire-organiser]]"
-last-reviewed: 2026-10-29
+last-reviewed: 2026-11-01
 ---
 
 # Cire Landing
@@ -49,7 +49,7 @@ packages deploy and scale on their own.
 Mirrors `cire/host`: **static Astro + SolidJS islands + Tailwind v4**
 (`output: "static"`, no Cloudflare adapter), deployed to Cloudflare Pages with
 `wrangler pages deploy dist`. **Motion is CSS alone**: transitions and one
-keyframe animation, no motion library. `motion` and `three` are not
+keyframe animation each for the page and the footer's diya flames ([[#Footer scenes]]), no motion library. `motion` and `three` are not
 dependencies, and the bundle guard's threshold (`scripts/bundle-size-budgets.txt`)
 sits at the measured build plus the usual headroom, so adding either trips the
 guard's over-budget warning ([[bundle-size-guards]]). The reduced-motion block in `src/styles/global.css` snaps every
@@ -78,7 +78,8 @@ in the other.**
 
 ## Page structure (`src/pages/index.astro`)
 
-`SiteNav`, then one `<main>` holding the sections below, then `SiteFooter`.
+`SiteNav`, then one `<main>` holding the sections below, then `SiteFooter`, which
+ends in a wedding scene ([[#Footer scenes]]).
 Each section is a component under `components/sections/`; the drawings of the
 product are under `components/mock/` ([[#Product views]]).
 
@@ -325,6 +326,59 @@ you scroll past them**.
   tracked by view-timelines, and the JS map gives exact per-vine document
   positioning. The `lib/vines/` math is unit-tested for determinism.)
 
+## Footer scenes
+
+Under its link rows, the home page's footer draws a wedding landscape full-bleed.
+Its top fades into the page through a `mask-image` gradient, which is written
+twice, with and without `-webkit-`, because the browser floor is Chrome 111.
+There is one scene per tradition, and each load picks one:
+
+| Id | Scene | Component |
+|---|---|---|
+| `christian` | A lakeside village with a chapel bell tower, cypresses and mountains | `footer-scenes/ChristianScene.astro` |
+| `hindu` | A lake palace, a mandap hung with marigolds on the ghats, a temple, and diyas floating on the water | `footer-scenes/HinduScene.astro` |
+
+- **The pick.** `SiteFooter.astro` lists the scenes in `SCENES`. The server draws
+  every one and marks all but the first `hidden`, so a reader with JavaScript
+  off sees the first. An inline script then shows `?footer=<id>` when that id is
+  in the list, and a random scene otherwise. It compares the parameter with the
+  list and never builds a selector from it.
+- **Where.** On the home page only. `LegalLayout` passes `scene={false}`, so a
+  notice prints and screenshots the same on every load. `@media print` hides
+  the stage everywhere.
+- **The drawings** are inline SVG, decorative (`aria-hidden`, no text nodes),
+  and painted from the stage's `--scene-*` colours: sage ridges and gold and
+  stone on the page's green. Only the diya flames move, through one `flicker`
+  keyframe declared inside `prefers-reduced-motion: no-preference`.
+- **Adding a tradition** takes a component under `components/footer-scenes/`,
+  one import, and one `SCENES` entry. The E2E's `FOOTER_SCENES` list follows
+  the same order.
+
+### Painted art
+
+The drawings are placeholders for painted, engraving-style raster images, the
+owner's reference look. englishstreetventures/osn#1888 wires them in: WebP at
+800 and 1600 px wide under `public/images/footer-<id>-<w>.webp`, with a credit
+and the generator's licence terms. Every prompt shares one style line, so the
+set reads as a series:
+
+> Style: wide 8:3 panoramic landscape, fine pen-and-ink engraving with soft
+> watercolour wash, monochrome sage green and antique gold on a very dark
+> forest-green ground (#0f1d14), moonlit, calm, no people, no text, no
+> border. The top third is empty dark sky that fades to the ground colour, so
+> it can blend into a web page. The detail sits in the lower half.
+
+- **Christian:** "An Italian lakeside village at dusk: a white stone chapel with
+  a tall bell tower and a domed cupola topped by a cross, terracotta-roofed
+  houses climbing the hill, tall cypress trees, olive groves, mountains layered
+  behind, the village reflected in still water, a small sailboat, flowering
+  climbers along a stone lakeside wall in the foreground."
+- **Hindu:** "An Udaipur-style lake palace at dusk: white marble pavilions with
+  chhatris and scalloped arches on the water, stone ghats on the right with a
+  wedding mandap hung with marigold garlands and mango-leaf torans, a temple
+  shikhara behind, palms, low Aravalli hills, dozens of lit diyas floating on
+  the still lake, their reflections in the water."
+
 ## Imagery
 
 The site carries **one photograph**, in the craft section; the product is shown
@@ -449,7 +503,12 @@ platform is a product decision, not a migration — see [[cire]].
   sending nothing; the journey tabs; the plans' prices and caps, and the FAQ
   giving each plan the same; the craft photo loading from the site's own
   origin; the page with JavaScript off and under reduced motion; and the layout
-  at 390 and 768 px. It never loads the portal, whose API calls would make
+  at 390 and 768 px. It checks the footer scene: one shows, the random roll
+  picks the first or the last scene at either end (`Math.random` pinned in a
+  context of its own), `?footer=` overrides the roll and an unknown value
+  falls back to it, JavaScript off shows the first scene, and the diya flames
+  hold still under reduced motion. Each scene is screenshotted at 1280 and
+  390 px. It never loads the portal, whose API calls would make
   `results.json` differ between runs: Enter in the claim field lands on a page
   the flow serves at the portal's address. The portal's half is
   `cire-checklist-starter`'s ([[cire-organiser#Arriving from the marketing site]]).

@@ -3,45 +3,132 @@
 // tagline. Below it the practical rows — section links and the legal pages
 // (privacy / terms / refunds), which must be reachable from every page
 // (privacy notice linked at point of collection).
+//
+// Under the rows, the home page draws a wedding scene full-bleed, its top
+// fading into the page. There is one scene per tradition, and an inline script
+// picks one at random on each load; `?footer=<id>` asks for one by id. With
+// JavaScript off, the first scene in SCENES shows. Adding a tradition takes one
+// import and one SCENES entry. The legal pages pass `scene={false}`: a notice
+// prints and screenshots the same on every load.
 import { ORGANISER_URL } from '../lib/site'
+import ChristianScene from './footer-scenes/ChristianScene.astro'
+import HinduScene from './footer-scenes/HinduScene.astro'
+
+interface Props {
+  /** Draw the wedding scene under the footer rows. */
+  scene?: boolean
+}
+
+const { scene = true } = Astro.props
+
+const SCENES = [
+  { id: 'christian', Scene: ChristianScene },
+  { id: 'hindu', Scene: HinduScene },
+] as const
 
 const year = 2026
 ---
 <footer class="site-footer">
-  <div class="site-footer__signoff">
-    <p class="site-footer__wordmark">Cire</p>
-    <p class="site-footer__tagline">Invitations worthy of the moment.</p>
-  </div>
+  <div class="site-footer__inner">
+    <div class="site-footer__signoff">
+      <p class="site-footer__wordmark">Cire</p>
+      <p class="site-footer__tagline">Invitations worthy of the moment.</p>
+    </div>
 
-  <hr class="rule-gold site-footer__rule" />
+    <hr class="rule-gold site-footer__rule" />
 
-  <div class="site-footer__rows">
-    <nav class="site-footer__nav" aria-label="Sections">
-      <a href="/#journey">How it works</a>
-      <a href="/#pricing">Pricing</a>
-      <a href="/#faq">Questions</a>
-      <a href={ORGANISER_URL}>Create an invitation</a>
-    </nav>
-
-    <div class="site-footer__legal">
-      <nav aria-label="Legal">
-        <a href="/privacy">Privacy Notice</a>
-        <span aria-hidden="true">&middot;</span>
-        <a href="/terms">Terms</a>
-        <span aria-hidden="true">&middot;</span>
-        <a href="/refunds">Refunds</a>
+    <div class="site-footer__rows">
+      <nav class="site-footer__nav" aria-label="Sections">
+        <a href="/#journey">How it works</a>
+        <a href="/#pricing">Pricing</a>
+        <a href="/#faq">Questions</a>
+        <a href={ORGANISER_URL}>Create an invitation</a>
       </nav>
-      <p class="site-footer__copy">&copy; {year} Cire. Made with care.</p>
+
+      <div class="site-footer__legal">
+        <nav aria-label="Legal">
+          <a href="/privacy">Privacy Notice</a>
+          <span aria-hidden="true">&middot;</span>
+          <a href="/terms">Terms</a>
+          <span aria-hidden="true">&middot;</span>
+          <a href="/refunds">Refunds</a>
+        </nav>
+        <p class="site-footer__copy">&copy; {year} Cire. Made with care.</p>
+      </div>
     </div>
   </div>
+
+  {scene && (
+    <div class="site-footer__scene" data-footer-stage>
+      {SCENES.map(({ id, Scene }, index) => (
+        <div class="site-footer__scene-frame" data-footer-scene={id} hidden={index !== 0}>
+          <Scene />
+        </div>
+      ))}
+    </div>
+  )}
+  <script is:inline>
+    (() => {
+      const stage = document.querySelector('[data-footer-stage]')
+      if (!stage) return
+      const frames = Array.from(stage.querySelectorAll('[data-footer-scene]'))
+      const ids = frames.map((frame) => frame.getAttribute('data-footer-scene'))
+      const asked = new URLSearchParams(location.search).get('footer')
+      const pick = ids.includes(asked) ? asked : ids[Math.floor(Math.random() * ids.length)]
+      for (const frame of frames) frame.hidden = frame.getAttribute('data-footer-scene') !== pick
+    })()
+  </script>
 </footer>
 
 <style>
   .site-footer {
     border-top: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
-    padding: 4.5rem 1.5rem 3rem;
+    padding-top: 4.5rem;
     font-family: var(--font-body, "Lato", system-ui, sans-serif);
     color: var(--color-text-muted, rgba(255, 255, 255, 0.5));
+  }
+
+  .site-footer__inner {
+    padding: 0 1.5rem 3rem;
+  }
+
+  /* Full-bleed: a plain block at the footer's own width, never 100vw, so it
+     cannot add a scrollbar's width and pan the page sideways. The mask fades
+     its top into the page; `clip`, not `hidden`, so it is no scroll container. */
+  .site-footer__scene {
+    --scene-far: oklch(72% 0.035 145 / 0.14);
+    --scene-mid: oklch(58% 0.045 148 / 0.3);
+    --scene-near: oklch(40% 0.05 150 / 0.85);
+    --scene-snow: oklch(94.62% 0.0111 89.72 / 0.18);
+    --scene-tree: oklch(36% 0.06 150);
+    --scene-tree-line: oklch(55% 0.06 148 / 0.6);
+    --scene-leaf: oklch(48% 0.07 145 / 0.55);
+    --scene-leaf-line: oklch(58% 0.07 145 / 0.8);
+    --scene-stone: oklch(86% 0.025 90 / 0.8);
+    --scene-roof: oklch(74.99% 0.0854 82.08 / 0.75);
+    --scene-window: oklch(30% 0.03 150 / 0.85);
+    --scene-line: var(--color-gold, oklch(74.99% 0.0854 82.08));
+    --scene-water: oklch(74.99% 0.0854 82.08 / 0.45);
+    --scene-flame: oklch(84% 0.13 78);
+    --scene-marigold: oklch(76% 0.14 66);
+
+    position: relative;
+    width: 100%;
+    height: clamp(17rem, 38vw, 32rem);
+    overflow: clip;
+    -webkit-mask-image: linear-gradient(to bottom, transparent, #000 45%);
+    mask-image: linear-gradient(to bottom, transparent, #000 45%);
+  }
+
+  .site-footer__scene-frame {
+    position: absolute;
+    inset: 0;
+  }
+
+  @media print {
+    .site-footer__scene {
+      display: none;
+    }
   }
 
   .site-footer__signoff {
