@@ -80,7 +80,7 @@ Only **ARC-gated internal routes** expose c2b chat provisioning and messaging â€
 | `/internal/chats/:chatId/messages` | `POST` | Send a message into a c2b chat (writes plaintext `body`). |
 | `/internal/chats/:chatId/messages` | `GET` | List messages in a c2b chat with cursor-based pagination. |
 
-All three routes are protected by ARC token verification (audience `zap-api`, scope `chat:c2b`). A caller without the scope receives `403 Forbidden`. Consumer chat routes (`/chats*`) are unaffected and continue to enforce OSN user-token auth (ES256, audience `osn-access`).
+All three routes are protected by ARC token verification (audience `zap-api`, scope `chat:c2b`). A caller without the scope receives `403 Forbidden`. Consumer chat routes (`/chats*`) enforce OSN user-token auth (ES256, audience `osn-access`) and refuse a c2b chat on every verb, reads included, with 409 `Not a c2c chat`, decided after the membership check so a caller with no standing gets the 404 a missing chat gets; `GET /chats` lists c2c chats only and refuses a c2b chat as its cursor.
 
 #### `chat:c2b` scope
 

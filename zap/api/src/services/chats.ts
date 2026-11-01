@@ -185,6 +185,7 @@ export const getChat = (id: string): Effect.Effect<Chat, ChatNotFound | Database
     return result[0]!;
   }).pipe(Effect.withSpan("zap.chats.get"));
 
+/** The caller's c2c chats, newest first. A c2b chat is cire's, read through the internal routes. */
 export const listChats = (
   profileId: string,
   opts: { limit?: number; cursor?: string } = {},
@@ -201,7 +202,7 @@ export const listChats = (
     const limit = Math.min(Math.max(1, requested), MAX_CHAT_LIMIT);
 
     // Cursor-based pagination: fetch chats older than the cursor (newest first).
-    const conditions = [eq(chatMembers.profileId, profileId)];
+    const conditions = [eq(chatMembers.profileId, profileId), eq(chats.class, "c2c")];
     if (opts.cursor) {
       // Mirrors the hardened listMessages cursor contract: the cursor is a
       // chat ID. Scope the lookup to the CALLER'S chats (membership join) so a
@@ -214,7 +215,13 @@ export const listChats = (
             .select({ createdAt: chats.createdAt, id: chats.id })
             .from(chats)
             .innerJoin(chatMembers, eq(chatMembers.chatId, chats.id))
-            .where(and(eq(chats.id, opts.cursor!), eq(chatMembers.profileId, profileId)))
+            .where(
+              and(
+                eq(chats.id, opts.cursor!),
+                eq(chatMembers.profileId, profileId),
+                eq(chats.class, "c2c"),
+              ),
+            )
             .limit(1) as Promise<{ createdAt: Date; id: string }[]>,
         catch: (cause) => new DatabaseError({ cause }),
       });
@@ -804,7 +811,7 @@ export const getChatMembers = (
 ): Effect.Effect<{ members: ChatMember[]; hasMore: boolean }, ChatNotFound | DatabaseError, Db> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
-    // Callers that already gated on assertMember have proven the chat
+    // Callers that already gated on assertC2cMember have proven the chat
     // exists (a membership row FK-references it) — skip the redundant load.
     // Un-gated callers keep the 404 contract.
     if (!opts.assertedExists) {
@@ -909,22 +916,28 @@ export const provisionC2bChat = (input: {
 // Helpers (public — used by routes for membership gating)
 // ---------------------------------------------------------------------------
 
-export const assertMember = (
+/**
+ * The public API's gate on a chat: the caller is a member of it, and it is a
+ * c2c chat (see `assertC2c`). Membership is decided first, so a caller with no
+ * standing in the chat is refused `NotChatMember` whatever its class.
+ */
+export const assertC2cMember = (
   chatId: string,
   profileId: string,
-): Effect.Effect<void, NotChatMember | DatabaseError, Db> =>
+): Effect.Effect<void, NotChatMember | NotC2cChat | DatabaseError, Db> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
     const rows = yield* Effect.tryPromise({
-      try: (): Promise<ChatMember[]> =>
+      try: (): Promise<{ class: Chat["class"] }[]> =>
         db
-          .select()
+          .select({ class: chats.class })
           .from(chatMembers)
+          .innerJoin(chats, eq(chats.id, chatMembers.chatId))
           .where(and(eq(chatMembers.chatId, chatId), eq(chatMembers.profileId, profileId)))
-          .limit(1) as Promise<ChatMember[]>,
+          .limit(1) as Promise<{ class: Chat["class"] }[]>,
       catch: (cause) => new DatabaseError({ cause }),
     });
-    if (rows.length === 0) {
-      return yield* Effect.fail(new NotChatMember({ chatId }));
-    }
+    const row = rows[0];
+    if (!row) return yield* Effect.fail(new NotChatMember({ chatId }));
+    if (row.class !== "c2c") return yield* Effect.fail(new NotC2cChat({ chatId }));
   });

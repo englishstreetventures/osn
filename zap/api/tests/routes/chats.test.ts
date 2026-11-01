@@ -742,6 +742,53 @@ describe("chats routes", () => {
     expect((await body(res)).message).toBe("Not a c2c chat");
   });
 
+  // The reads refuse a c2b chat as the writes do, and only behind the
+  // membership gate: a caller with no standing gets the 404 a missing chat gets.
+  const seedC2bMembership = async () => {
+    const c2bChat = await Effect.runPromise(
+      seedC2bChat({ type: "group" }).pipe(Effect.provide(layer)),
+    );
+    await Effect.runPromise(
+      seedMember(c2bChat.id, "usr_alice", "member").pipe(Effect.provide(layer)),
+    );
+    return c2bChat;
+  };
+
+  for (const path of ["", "/members"]) {
+    it(`GET /chats/:id${path} returns 409 on a c2b chat`, async () => {
+      const c2bChat = await seedC2bMembership();
+      const res = await req(app, "GET", `/chats/${c2bChat.id}${path}`, { token: aliceToken });
+      expect(res.status).toBe(409);
+      expect(await body(res)).toEqual({ message: "Not a c2c chat" });
+    });
+
+    it(`GET /chats/:id${path} answers a non-member of a c2b chat 404`, async () => {
+      const c2bChat = await seedC2bMembership();
+      const res = await req(app, "GET", `/chats/${c2bChat.id}${path}`, { token: bobToken });
+      expect(res.status).toBe(404);
+      expect(await body(res)).toEqual({ message: "Chat not found" });
+    });
+  }
+
+  it("GET /chats leaves out a c2b chat the caller is in", async () => {
+    await seedC2bMembership();
+    const createRes = await req(app, "POST", "/chats", {
+      token: aliceToken,
+      body: { type: "group", title: "Ours" },
+    });
+    const c2cId = (await body(createRes)).chat.id;
+
+    const res = await req(app, "GET", "/chats", { token: aliceToken });
+    expect(res.status).toBe(200);
+    expect((await body(res)).chats.map((c: { id: string }) => c.id)).toEqual([c2cId]);
+  });
+
+  it("GET /chats refuses a cursor naming a c2b chat the caller is in", async () => {
+    const c2bChat = await seedC2bMembership();
+    const res = await req(app, "GET", `/chats?cursor=${c2bChat.id}`, { token: aliceToken });
+    expect(res.status).toBe(422);
+  });
+
   it("GET /chats/:id/messages returns messages for member", async () => {
     const createRes = await req(app, "POST", "/chats", {
       token: aliceToken,

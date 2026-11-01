@@ -20,7 +20,7 @@ import {
   addMember,
   removeMember,
   getChatMembers,
-  assertMember,
+  assertC2cMember,
 } from "../services/chats";
 import { sendMessage, listMessages } from "../services/messages";
 
@@ -30,9 +30,9 @@ const chatTypeEnum = t.Union([t.Literal("dm"), t.Literal("group"), t.Literal("ev
 const ACCESS_AUDIENCE = "osn-access";
 
 /**
- * The one place a route derives its actor. Verifies a Bearer token via the OSN JWKS (ES256) and
- * returns the actor's `profileId` ONLY when the verified `sub` is a real OSN
- * user id (prefix `usr_`).
+ * The one place a route derives its actor. Verifies a Bearer token via the OSN
+ * JWKS (ES256) and returns the actor's `profileId` ONLY when the verified `sub`
+ * is a real OSN user id (prefix `usr_`).
  *
  * A verified-but-malformed `sub` (e.g. an org or service principal that
  * somehow held an `osn-access` token) must never be written into
@@ -136,11 +136,18 @@ export const createChatsRoutes = (
           const result = await runtime.runPromise(
             Effect.gen(function* () {
               const chat = yield* getChat(params.id);
-              yield* assertMember(params.id, claims.profileId);
+              yield* assertC2cMember(params.id, claims.profileId);
               return chat;
             }).pipe(
               Effect.catchTag("ChatNotFound", () => Effect.succeed(null)),
               Effect.catchTag("NotChatMember", () => Effect.succeed(null)),
+              Effect.catchTag("NotC2cChat", () =>
+                Effect.sync(() => {
+                  metricAccessDenied("chat", "wrong_class");
+                  set.status = 409;
+                  return { message: "Not a c2c chat" } as const;
+                }),
+              ),
             ),
           );
           if (result === null) {
@@ -148,6 +155,7 @@ export const createChatsRoutes = (
             set.status = 404;
             return { message: "Chat not found" };
           }
+          if ("message" in result) return result;
           return { chat: result };
         },
         { params: t.Object({ id: t.String() }) },
@@ -222,7 +230,7 @@ export const createChatsRoutes = (
           }
           const result = await runtime.runPromise(
             Effect.gen(function* () {
-              yield* assertMember(params.id, claims.profileId);
+              yield* assertC2cMember(params.id, claims.profileId);
               return yield* updateChat(params.id, body, claims.profileId);
             }).pipe(
               Effect.catchTag("ChatNotFound", () => Effect.succeed(null)),
@@ -273,22 +281,30 @@ export const createChatsRoutes = (
           }
           const result = await runtime.runPromise(
             Effect.gen(function* () {
-              yield* assertMember(params.id, claims.profileId);
+              yield* assertC2cMember(params.id, claims.profileId);
               return yield* getChatMembers(params.id, {
                 limit: query.limit ? Number(query.limit) : undefined,
                 offset: query.offset ? Number(query.offset) : undefined,
-                // assertMember above proved the chat exists.
+                // assertC2cMember above proved the chat exists.
                 assertedExists: true,
               });
             }).pipe(
               Effect.catchTag("ChatNotFound", () => Effect.succeed(null)),
               Effect.catchTag("NotChatMember", () => Effect.succeed(null)),
+              Effect.catchTag("NotC2cChat", () =>
+                Effect.sync(() => {
+                  metricAccessDenied("members", "wrong_class");
+                  set.status = 409;
+                  return { message: "Not a c2c chat" } as const;
+                }),
+              ),
             ),
           );
           if (result === null) {
             set.status = 404;
             return { message: "Chat not found" };
           }
+          if ("message" in result) return result;
           // Continuation metadata for offset paging.
           return { members: result.members, hasMore: result.hasMore };
         },
