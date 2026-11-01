@@ -10,12 +10,12 @@
  * natural and spoof-resistant throttle key.
  *
  * The backend is the same `RateLimiterBackend` abstraction used everywhere
- * in the monorepo: the in-memory `createRateLimiter` for local/test, or the
- * Redis-backed limiter wired at the composition root (`src/index.ts`) when
- * `REDIS_URL` is set. `check()` may be sync or async; callers `await` it.
+ * in the monorepo, here the in-memory `createRateLimiter`: each process, and
+ * each Worker isolate, counts on its own. `check()` may be sync or async;
+ * callers `await` it.
  *
  * Fail-closed (mirrors `osn/api` graph routes + the Pulse discovery limiter):
- * a backend error is treated as "rate-limited" so an unhealthy Redis blocks
+ * a backend error is treated as "rate-limited", so a failing backend blocks
  * writes rather than silently dropping the throttle.
  */
 
@@ -60,9 +60,71 @@ export const PULSE_WRITE_LIMITS = {
   close_friend_mutate: { maxRequests: 60, windowMs: ONE_MINUTE_MS },
 } as const satisfies Record<PulseWriteEndpoint, { maxRequests: number; windowMs: number }>;
 
+/**
+ * Per-IP budgets for the unauthenticated surfaces, each over one minute. The
+ * routes' default limiters and {@link makeMemoryRateLimiters} both read them.
+ */
+export const PULSE_IP_LIMITS = {
+  // `GET /events/discover`, the most expensive Pulse read (multi-filter, bbox
+  // prefilter, optional graph fetch). Matches osn-api's graph-write posture.
+  discovery: { maxRequests: 60, windowMs: ONE_MINUTE_MS },
+  // `POST /events/:id/share`: outbound share intents. One person fires few.
+  share: { maxRequests: 60, windowMs: ONE_MINUTE_MS },
+  // `POST /events/:id/exposure`: page loads through a sourced URL. Reloads,
+  // link previews and bot scans all land here, so it gets more headroom.
+  exposure: { maxRequests: 120, windowMs: ONE_MINUTE_MS },
+  // The OIDC redirect legs (`/api/auth/oidc/start`, `/callback`). Each mints
+  // a transaction or costs a token exchange; a person signs in once.
+  authStart: { maxRequests: 20, windowMs: ONE_MINUTE_MS },
+  // `GET /api/auth/session` and `POST /api/auth/signout`. The probe runs on
+  // every page load, and a shared NAT puts many people behind one key.
+  authSession: { maxRequests: 120, windowMs: ONE_MINUTE_MS },
+} as const satisfies Record<string, { maxRequests: number; windowMs: number }>;
+
 /** Build a default in-memory limiter for the given write endpoint. */
 export function createDefaultWriteRateLimiter(endpoint: PulseWriteEndpoint): RateLimiterBackend {
   return createRateLimiter(PULSE_WRITE_LIMITS[endpoint]);
+}
+
+/** One per-user limiter per write endpoint. */
+export type PulseWriteRateLimiters = Readonly<Record<PulseWriteEndpoint, RateLimiterBackend>>;
+
+/**
+ * Every rate limiter the Pulse app graph needs: the per-user write limiters
+ * and the per-IP limiters on the unauthenticated surfaces.
+ */
+export interface PulseRateLimiters {
+  readonly write: PulseWriteRateLimiters;
+  readonly discovery: RateLimiterBackend;
+  readonly share: RateLimiterBackend;
+  readonly exposure: RateLimiterBackend;
+  /** Redirect legs of the OIDC sign-in (`/api/auth/oidc/*`) — tight bucket. */
+  readonly authStart: RateLimiterBackend;
+  /** Session probe + sign-out (`/api/auth/session`, `/api/auth/signout`). */
+  readonly authSession: RateLimiterBackend;
+}
+
+/**
+ * A fresh set of in-memory limiters, one per endpoint, from
+ * {@link PULSE_WRITE_LIMITS} and {@link PULSE_IP_LIMITS}. A refused hit is
+ * not counted, and expired keys are swept once a limiter holds more than
+ * 10,000 (`createRateLimiter`).
+ */
+export function makeMemoryRateLimiters(): PulseRateLimiters {
+  const write = Object.fromEntries(
+    (Object.keys(PULSE_WRITE_LIMITS) as PulseWriteEndpoint[]).map((endpoint) => [
+      endpoint,
+      createDefaultWriteRateLimiter(endpoint),
+    ]),
+  ) as Record<PulseWriteEndpoint, RateLimiterBackend>;
+  return {
+    write,
+    discovery: createRateLimiter(PULSE_IP_LIMITS.discovery),
+    share: createRateLimiter(PULSE_IP_LIMITS.share),
+    exposure: createRateLimiter(PULSE_IP_LIMITS.exposure),
+    authStart: createRateLimiter(PULSE_IP_LIMITS.authStart),
+    authSession: createRateLimiter(PULSE_IP_LIMITS.authSession),
+  };
 }
 
 /**

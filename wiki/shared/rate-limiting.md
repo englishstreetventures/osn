@@ -11,7 +11,7 @@ tags:
   - infrastructure
 status: current
 related:
-  - "[[redis]]"
+  - "[[coordination-store]]"
   - "[[arc-tokens]]"
   - "[[rate-limit-incident]]"
   - "[[shared/observability/metrics]]"
@@ -21,58 +21,60 @@ packages:
   - "@zap/api"
   - "@cire/api"
   - "@shared/rate-limit"
-  - "@shared/redis"
-last-reviewed: 2026-10-23
+  - "@shared/coordination"
+last-reviewed: 2026-10-28
 ---
 # Rate Limiting
 
-OSN uses **per-IP fixed-window rate limiting** on all auth endpoints and **per-user** limiting on graph write endpoints. Two backends exist: **Redis** (production, cross-process) and **in-memory** (local dev fallback).
+OSN uses **per-IP fixed-window rate limiting** on all auth endpoints and **per-user** limiting on graph write endpoints. osn-api's limiters run on three backends: Cloudflare's **native Rate Limiting bindings** (one-minute windows, deployed tiers), the **coordination store** (longer windows and per-account caps, deployed tiers — [[coordination-store]]) and **in-memory** counters (the Bun dev server and tests). Every limit is set once, in a budget table every backend reads.
 
 ## Architecture
 
 ```
-shared/rate-limit/src/                  # RateLimiterBackend interface + in-memory createRateLimiter + getClientIp + createWorkersRateLimiter
-osn/api/src/lib/redis-rate-limiters.ts  # createRedisAuthRateLimiters() + createRedisGraphRateLimiter() + createRedisRecommendationRateLimiters()
-osn/api/src/lib/native-rate-limiters.ts # selectAuthRateLimiters() — routes 60s per-IP auth limiters onto the native Workers binding
-osn/api/src/routes/auth/limiters.ts     # auth route limiter instances (one per endpoint group)
-osn/api/src/routes/graph.ts             # graph write rate limiter (60 req/user/min)
-osn/api/src/metrics.ts                  # osn.auth.rate_limited counter
-osn/api/src/build-deps.ts               # buildAppDeps: clientIpConfig (trustCloudflare) + native-vs-Redis limiter selection
-osn/api/src/index.ts                    # Workers entry: reads native bindings + sets trustCloudflare for non-local
-osn/api/wrangler.toml                   # [[ratelimits]] tiers + [observability] (mirrored into every named env)
-shared/redis/src/rate-limiter.ts        # createRedisRateLimiter() — Lua INCR+PEXPIRE
+shared/rate-limit/src/                   # RateLimiterBackend interface + in-memory createRateLimiter + getClientIp + createWorkersRateLimiter
+shared/coordination/src/client.ts        # createCoordinationRateLimiter() — fixed window on the coordination store
+osn/api/src/routes/auth/limiters.ts      # AUTH_RATE_LIMITS + OSN_RATE_LIMITS: every osn-api budget, set once
+osn/api/src/lib/coordination/            # the two bundles every limiter comes from: in-memory and durable
+osn/api/src/lib/native-rate-limiters.ts  # selectAuthRateLimiters() + selectOsnLimiters() — one-minute limiters onto native bindings
+osn/api/src/routes/graph.ts              # graph write rate limiter (60 req/user/min)
+osn/api/src/metrics.ts                   # osn.auth.rate_limited counter
+osn/api/src/build-deps.ts                # buildAppDeps: clientIpConfig (trustCloudflare) + native-vs-store limiter selection
+osn/api/src/index.ts                     # Workers entry: reads native bindings + sets trustCloudflare for non-local
+osn/api/wrangler.toml                    # [[ratelimits]] tiers + [observability] (mirrored into every named env)
 shared/observability/src/metrics/attrs.ts  # AuthRateLimitedEndpoint bounded union
 ```
 
 ## Backend Selection
 
-At startup, `osn/api/src/index.ts` selects the rate limiter backend:
+`buildAppDeps` (`osn/api/src/build-deps.ts`) takes every limiter from the coordination bundle it is given, then moves each one-minute limiter onto its native binding when that binding is present:
 
-| `REDIS_URL` env var | Backend | Behaviour |
-|---------------------|---------|-----------|
-| Set | Redis via ioredis | Atomic Lua script (INCR+PEXPIRE), shared across processes, survives restarts |
-| Unset | In-memory `createMemoryClient()` | Same semantics, process-local, resets on restart |
+| Runtime | Bundle | One-minute limiters | Behaviour |
+|---|---|---|---|
+| Deployed Worker (dev, staging, production) | `createDurableCoordination(env.COORDINATION)` | Native bindings | Shared by every isolate; survives restarts and deploys |
+| `wrangler dev` (local tier) | The same, on Miniflare | Miniflare's local bindings | As deployed, on one machine |
+| Bun dev server, tests | `createInMemoryCoordination()` | Stay in memory | Process-local, reset on restart |
 
-If `REDIS_URL` is set but Redis is unreachable at startup, the app falls back to in-memory with a warning log. Individual rate limit checks are always **fail-closed** — a Redis error during `check()` denies the request.
+Every check is **fail-closed**: a binding that throws or a coordination-store call that fails denies the request. A deployed Worker missing `COORDINATION`, or a non-local one missing either `RL_USER_*` binding, answers 503 on every route rather than fall back to per-isolate counters.
+
+The in-memory limiter (`createRateLimiter`) does not count a refused hit, and sweeps expired keys once it holds more than 10,000. The coordination-store limiter counts every hit, refused ones included, and refuses a key over 256 characters without a call.
 
 ## Native Workers Rate Limiting (osn-api, behind Cloudflare)
 
-osn-api runs on Cloudflare Workers. The **60-second-window, per-IP auth limiters** run on the **Cloudflare Workers native Rate Limiting binding** (the GA `[[ratelimits]]` binding) instead of Upstash — global + atomic enforcement at the edge, with no per-request Upstash REST round-trip on the auth hot path. The wrapper `createWorkersRateLimiter(binding)` lives in `@shared/rate-limit` (shared with cire-api) and satisfies the same `RateLimiterBackend` contract, so route call sites are unchanged and **fail-closed** (a binding throw → deny).
+osn-api runs on Cloudflare Workers. Its **one-minute limiters** run on the **Cloudflare Workers native Rate Limiting binding** (the GA `[[ratelimits]]` binding): atomic enforcement at the edge, with no store call on the hot path. The wrapper `createWorkersRateLimiter(binding)` lives in `@shared/rate-limit` (shared with cire-api) and satisfies the same `RateLimiterBackend` contract, so route call sites are unchanged and **fail-closed** (a binding throw → deny).
 
-**What moved vs what stayed:**
+**Which backend each limiter runs on, deployed:**
 
 | Limiter group | Backend | Why |
 |---|---|---|
-| 60s-window per-IP auth limiters (register/login/passkey/step-up-complete/session/security-event/passkey-mgmt/cross-device/recovery-status/OIDC — 35 endpoints) | **Native binding** | Brute-force-facing pre-auth throttles; the native binding's global+atomic edge enforcement beats the per-isolate in-memory fallback |
-| 1-hour-window per-IP limiters (`recoveryGenerate`, `recoveryComplete`, `recoveryEmailBegin`, `emailChangeBegin`, `oidcClientCreate`) | **Upstash** | The native binding only supports `period` 10 or 60s — 1-hour windows cannot move |
-| Per-user / per-account limiters (graph/org writes, recommendations, `profileSwitchCap`, `emailChangeBeginCap`, `recoveryEmailBeginCap`) | **Upstash** | Keyed by user/account, not IP |
-| Stateful stores (recovery lockout, step-up JTI, rotated-session, ceremony stores) | **Upstash** | Need durable cross-isolate state |
+| One-minute per-IP auth limiters (register, login, passkey, step-up, session, security-event, passkey management, cross-device, recovery status and code entry, TOTP, OIDC) | **Native binding**, `RL_AUTH_IP_*` | Brute-force-facing throttles; the binding is atomic at the edge and costs no store call |
+| Graph and organisation writes, recommendation suggest and search (per user) | **Native binding**, `RL_USER_20_60` / `RL_USER_60_60` | Search fires once per keystroke; a binding costs nothing per call |
+| Profile create, delete and set-default, `GET /health/coordination`, the account export's per-IP guard and `GET /account/deletion-status` (per IP) | **Native binding**, the `RL_AUTH_IP_*` tiers under their own key prefix | One-minute windows |
+| Hour-window per-IP auth limiters (`recoveryGenerate`, `recoveryComplete`, `recoveryEmailBegin`, `emailChangeBegin`, `oidcClientCreate`) | **Coordination store** | The native binding supports only `period` 10 or 60 s |
+| Per-account caps (`profileSwitchCap`, `emailChangeBeginCap`, `recoveryEmailBeginCap`), the account export limiter (one a day per account) and the account deletion and restore limiters (per IP, an hour) | **Coordination store** | Windows of an hour or a day |
 
-So the change **reduces but does not remove** the Upstash dependency — `UPSTASH_*` stays required in non-local.
+**Tiers + keying.** The native binding's `limit`/`period` live in `wrangler.toml`, so there is one binding per request-budget tier — `RL_AUTH_IP_{5,10,20,30,60}_60` per IP and `RL_USER_{20,60}_60` per user, each `simple = { limit, period = 60 }` — declared at top level **and mirrored into every named env** (named envs do NOT inherit top-level bindings). Each limiter maps to the tier whose limit is its budget. `selectAuthRateLimiters` keys an auth limiter `"<endpoint>:" + ip`, and `selectOsnLimiters` keys the others `"<store>:" + key` (`osn/api/src/lib/native-rate-limiters.ts`), so limiters sharing a tier never share a counter. Both run **once per isolate** (inside the per-isolate-cached `buildAll`), not per request. `osn/api/tests/lib/native-rate-limiters.test.ts` holds every `limit` in `wrangler.toml` to its budget.
 
-**Tiers + keying.** The native binding's `limit`/`period` live in `wrangler.toml`, so there is one binding per request-budget tier (`RL_AUTH_IP_{5,10,20,30,60}_60`, each `simple = { limit, period = 60 }`), declared at top level **and mirrored into every named env** (named envs do NOT inherit top-level bindings). Each endpoint keeps its existing budget by mapping to the matching tier; `selectAuthRateLimiters` (`osn/api/src/lib/native-rate-limiters.ts`) namespaces the key as `"<endpoint>:" + ip` so endpoints sharing a tier never share a counter bucket. `selectAuthRateLimiters` runs **once per isolate** (inside the per-isolate-cached `buildAll`), not per request.
-
-**Per-colo trade-off (accepted).** Cloudflare counts native rate limits **per colo**, not globally — a caller spread across colos sees a slightly looser effective cap. We approved this explicitly: a single attacker stays pinned to one colo, and the durable brute-force guards (recovery lockout) remain on Upstash. The `namespace_id`s (2001–2005) are account-scoped — verify they're unused in the account at deploy.
+**Per-colo trade-off (accepted).** Cloudflare counts native rate limits **per colo**, not globally. A single caller's requests reach one colo, so a per-IP limit holds. A user's devices can reach several, so a per-user limit can be looser than its budget by up to the number of colos in use; accepted, since no per-user limit guards a secret ([[coordination-store-on-durable-objects]]). The brute-force guards that matter — the lockout counters — are on the coordination store, which is global. The `namespace_id`s are account-scoped: production 2001–2007, staging 2201–2207, dev 2101–2107 — verify they're unused in the account at deploy.
 
 **Observability.** `[observability]` is enabled in `wrangler.toml` (every tier) so Workers Logs/invocations are captured in the Cloudflare dashboard — interim while OTel export stays deferred on workerd (the redacting `osnLoggerLayer` is unchanged).
 
@@ -120,19 +122,20 @@ Send `maxRequests + 1` requests and assert the last returns 429.
 
 ## Current Limits
 
-| Endpoint group | Max req/IP/min | Rationale |
-|----------------|----------------|-----------|
-| `/register/begin`, `/step-up/otp/begin`, `/account/email/begin` | 5 | OTP / email send — prevents email bombing |
-| `/register/complete`, `/login/passkey/begin`, `/login/passkey/complete`, `/passkey/register/{begin,complete}`, `/step-up/{passkey,otp}/complete`, `/account/email/complete`, `/handle/:handle` | 10 | Verify / complete — higher, to allow legitimate retries |
-| `/login/recovery/complete` | 5/hr | Brute-force defence on the lost-device escape hatch |
-| `/recovery/generate` | 10/hr | Flood control on a destructive action — each call burns the previous set |
-| `GET /recovery/status` | 30 | Counts-only read. The Security panel polls it on mount and after each generate, and `@musubi/social`'s application shell reads it once per load for a signed-in account that has neither dismissed the recovery-code prompt nor an unacknowledged security event |
-| `GET /account/security-events` | 30 | Unacknowledged-events read, behind a partial index. `@musubi/social` mounts that banner in its shell, so this is one read per app load for every signed-in user |
-| `PATCH /passkeys/:id` (rename) | 20 | Cheap settings action; label-only writes |
-| `DELETE /passkeys/:id` | 10 | Step-up is the primary gate; per-IP throttle is defence in depth |
-| `GET /passkeys` | 30 | Settings listing — cheap reads |
+Every auth budget is set in `AUTH_RATE_LIMITS` (`osn/api/src/routes/auth/limiters.ts`), per IP; this is a summary of it.
 
-Graph write endpoints allow 60 requests per user per minute. Contact suggestions (`/recommendations/connections`) allow 20 requests per user per minute — tighter because each call runs an FOF fan-out query. People search (`/recommendations/search`) sits on its own `recs:search` namespace at 60/user/min: the query is index-backed in the common case but fires once per debounced keystroke, so the suggestion budget would 429 a user mid-word. Both are per-user and fail-closed; the search cap is what bounds handle enumeration.
+| Budget | Auth limiters | Rationale |
+|---|---|---|
+| 5 / min | register begin, step-up OTP begin, TOTP enrolment begin, cross-device begin | Each sends mail or starts a ceremony that holds state — prevents email bombing |
+| 10 / min | register complete, passkey register begin and complete, profile switch and list, emailed and TOTP recovery complete, recovery disown, step-up passkey begin and complete, step-up OTP and TOTP complete, TOTP enrolment complete and disable, session revoke, email change complete, security-event acknowledge, passkey delete, cross-device approve and reject, OIDC consent decision, connections revoke, client disable | Code and assertion checks — room for honest retries |
+| 20 / min | passkey login complete, passkey rename, OIDC `/authorize` | A top-level navigation or a cheap settings write |
+| 30 / min | handle check, recovery status, TOTP status, session list, security-event list, passkey list, OIDC connections list, client list | Cheap reads; the Security panel polls recovery status, and `@musubi/social`'s shell reads the security events once per load |
+| 60 / min | passkey login begin, cross-device poll, OIDC `/authorize/context`, OIDC token | Fired automatically: conditional-UI autofill, 2 s polling, one call per consent screen, a relying party's server |
+| 10 / hour | `/recovery/generate` | Flood control on a destructive action — each call burns the previous set |
+| 5 / hour | `/login/recovery/complete`, `/login/recovery/email/begin`, OIDC client registration | Brute-force defence on the lost-device escape hatch; mail to the address on file; each registration mints a credential |
+| 3 / hour | `/account/email/begin` | Each call mails a user-chosen address |
+
+Graph write endpoints allow 60 requests per user per minute. Contact suggestions (`/recommendations/connections`) allow 20 requests per user per minute — tighter because each call runs an FOF fan-out query. People search (`/recommendations/search`) has its own counter, `recs.search`, at 60/user/min: the query is index-backed in the common case but fires once per debounced keystroke, so the suggestion budget would 429 a user mid-word. Both are per-user and fail-closed; the search cap is what bounds handle enumeration.
 
 **What a search token buys.** The 60/min figure was sized when a people search was ~4 queries. It is now up to **7** — two edge-direction seeks for the caller's-connections pass, the handle-range seek, the optional infix scan, then the concurrent blocks / connection-state / shared-organisation probes — plus up to 4 for the organisation half, and the client now fires from the first keystroke rather than the second. Every added query is a bounded index seek (the caller's-edges pass is capped at 50 rows per direction, the candidate set peaks near 160 ids), and the query *count* is capped independently of query length by `MAX_QUERY_TOKENS`. Recorded rather than re-tuned: the budget still bounds request volume, but the next revision of it should start from 7, not 4. See [[social-graph]] §Search.
 
@@ -148,7 +151,7 @@ work.
 
 ### Pulse Per-User Write Limits (W4)
 
-`@pulse/api` applies **per-user** fixed-window limiting to every authenticated write endpoint. The key is the JWT-asserted `claims.profileId`, **not** the client IP — so the Pulse write layer has no dependency on the `X-Forwarded-For` trust model that gates the unauthenticated reads. Limits live in one place (`pulse/api/src/lib/rate-limit.ts`, `PULSE_WRITE_LIMITS`) and are shared byte-for-byte between the in-memory defaults and the Redis namespaces.
+`@pulse/api` applies **per-user** fixed-window limiting to every authenticated write endpoint. The key is the JWT-asserted `claims.profileId`, **not** the client IP — so the Pulse write layer has no dependency on the `X-Forwarded-For` trust model that gates the unauthenticated reads. Limits live in one place (`pulse/api/src/lib/rate-limit.ts`, `PULSE_WRITE_LIMITS`), which every builder reads.
 
 | Endpoint | Limit | Rationale |
 |----------|-------|-----------|
@@ -163,11 +166,11 @@ work.
 
 The shared `checkWriteRateLimit(limiter, endpoint, profileId)` helper runs the check **after** authentication (so anonymous callers get 401, not 429), is **fail-closed** (a thrown/rejected backend `check()` counts as rate-limited), and records the bounded `pulse.write.rate_limited{ endpoint }` counter on every deny. The `endpoint` attribute is the closed `PulseWriteEndpoint` union — same cardinality discipline as `AuthRateLimitedEndpoint`.
 
-Pulse's composition root (`pulse/api/src/index.ts` + `pulse/api/src/redis.ts`) mirrors osn/api: it builds Redis-backed write limiters via `createRedisWriteRateLimiters` when `REDIS_URL` is set, and falls back to the in-memory client otherwise.
+Pulse's limiters are in-memory only: both entries, the Bun server (`pulse/api/src/local.ts`) and the Workers `index.ts`, build them with `makeMemoryRateLimiters()` from `pulse/api/src/lib/rate-limit.ts`. Each process, and each Worker isolate, counts on its own, and a restart resets the counts. A refused hit is not counted, and a limiter sweeps expired keys once it holds more than 10,000.
 
 ### Pulse Per-IP Read / Share Limits (W4 / P4)
 
-The **unauthenticated** Pulse surfaces — `GET /events/discover`, `POST /events/:id/share`, `POST /events/:id/exposure` — are limited **per IP** (discover 60/min, share 60/min, exposure 120/min; the exposure ceiling is higher because legitimate page reloads, link previews, and bot scans of a sourced URL all register there). `getClientIp(headers, options)` resolves the keying IP under its spoofing-resistant trust policy (`PULSE_TRUSTED_PROXY_COUNT`, or `trustCloudflare` behind CF; `socketIp` wired from Bun's `server.requestIP` in direct mode). An **unresolved IP fails closed** (429) via `isUnresolvedIp` rather than sharing a single `unknown` bucket — see [[#Client-IP Trust Policy]]. Redis namespaces: `pulse:discover`, `pulse:share`, `pulse:exposure`. A deferred follow-up will bind these pings to an HMAC-signed share token so the counters cannot be inflated by a caller who simply replays the endpoint with a fresh IP.
+The **unauthenticated** Pulse surfaces — `GET /events/discover`, `POST /events/:id/share`, `POST /events/:id/exposure` — are limited **per IP** (discover 60/min, share 60/min, exposure 120/min; the exposure ceiling is higher because legitimate page reloads, link previews, and bot scans of a sourced URL all register there). `getClientIp(headers, options)` resolves the keying IP under its spoofing-resistant trust policy (`PULSE_TRUSTED_PROXY_COUNT`, or `trustCloudflare` behind CF; `socketIp` wired from Bun's `server.requestIP` in direct mode). An **unresolved IP fails closed** (429) via `isUnresolvedIp` rather than sharing a single `unknown` bucket — see [[#Client-IP Trust Policy]]. The budgets are `PULSE_IP_LIMITS` in `pulse/api/src/lib/rate-limit.ts`, which the routes' default limiters read too, with the OIDC sign-in legs beside them (20/min for `/api/auth/oidc/start` and `/callback`, 120/min for the session probe and sign-out). A deferred follow-up will bind these pings to an HMAC-signed share token so the counters cannot be inflated by a caller who simply replays the endpoint with a fresh IP.
 
 ## Config
 
@@ -191,11 +194,11 @@ interface RateLimiterBackend {
 }
 ```
 
-Phase 1 of the [[redis]] migration introduced this abstraction so we can swap the in-memory backend for Redis without touching route code.
+The abstraction is what lets a deployed Worker put each limiter on a native binding or the [[coordination-store]] without touching route code.
 
 ## Fail-Closed Posture
 
-If the rate limiter backend throws (e.g. Redis connection failure), the check defaults to `false` (deny). This is the fail-closed posture -- an unresponsive backend blocks requests rather than allowing unlimited throughput. We added the try/catch wrapping because async `check()` rejections surfaced as 500 errors instead of 429s.
+If the rate limiter backend throws (a native binding that throws, a coordination-store call that fails), the check defaults to `false` (deny). This is the fail-closed posture -- an unresponsive backend blocks requests rather than allowing unlimited throughput. We added the try/catch wrapping because async `check()` rejections surfaced as 500 errors instead of 429s.
 
 ## Proactive Sweep
 
@@ -218,8 +221,8 @@ The limiter evicts expired entries on every `check()` call when at least one win
 > `app.ts` and keys via `getClientIp(headers, { ...clientIpConfig, socketIp })`
 > with the `isUnresolvedIp` → 429 deny, matching the auth + profile routes.
 > No deprecated no-args `getClientIp(headers)` call remains in `osn/api`
-> (`pulse/api`'s public venue/discover limiters still use it — their own
-> Redis/Workers limiter migration is tracked separately).
+> (`pulse/api`'s public venue limiter still uses it; its own hardening is
+> tracked separately).
 
 **`@osn/api` wiring (now behind Cloudflare):** osn-api is deployed on Cloudflare Workers serving `id.musubi.social`, so every **non-local** tier now keys per-IP rate limiting on `cf-connecting-ip` **exclusively** (`trustCloudflare: true`), closing the XFF-spoof bypass. The Workers entry (`osn/api/src/index.ts` `buildAll`) sets `trustCloudflare: isNonLocal(env)`; `buildAppDeps` (`build-deps.ts`) then builds `clientIpConfig = { trustCloudflare: true }` for deployed tiers. `TRUSTED_PROXY_COUNT` is **ignored** in deployed tiers (it only feeds the legacy XFF/socket path on the local Bun dev server, where `trustCloudflare` is `false` and the per-request `socketIp` comes from Bun's `server.requestIP`). Under Cloudflare, the W3.3 startup warning about the proxy count stays suppressed. Unresolved IPs still deny (429) at the call sites via `isUnresolvedIp`. Pulse / Zap still use their own options; Cire is CF-aware in its own surface.
 
@@ -237,7 +240,8 @@ A consuming service migrates off the deprecated default by:
 
 - **`X-Forwarded-For` trust is now policy-gated** -- see Client-IP Trust Policy above. The residual caveat is operational: each service must declare its proxy topology (`TRUSTED_PROXY_COUNT` for `@osn/api`) or it falls back to socket-peer / unresolved-deny.
 - **Fixed window** -- a burst at the window boundary can allow 2x the limit. Acceptable for auth endpoints; sliding window is overkill for current traffic.
-- **In-memory fallback** -- when `REDIS_URL` is unset (or Redis unreachable at startup), rate limits are process-local and reset on restart. The limit is resolved for production (Redis-backed) but the dev fallback retains the limitation by design.
+- **In-memory on the Bun dev server** -- osn-api's Bun entry, and every Pulse entry, keep limits in process memory: process-local, reset on restart. A deployed osn-api never falls back to them; it answers 503 without its bindings.
+- **Per-colo native counting** -- a per-user native limit can be looser than its budget for a user whose devices reach several colos (above).
 
 ## Security Finding History
 
@@ -245,7 +249,7 @@ A consuming service migrates off the deprecated default by:
 | -------- | ------------- |
 | Fixed | Rate limit all auth endpoints (per-IP fixed-window) |
 | Fixed | `/handle/:handle` rate limited at 10 req/IP/min |
-| Fixed | In-memory rate limiter resets on restart -- migrated to Redis (Phase 3) |
+| Fixed | In-memory rate limiter resets on restart -- deployed tiers count on native bindings and the coordination store |
 | Fixed | Trusted `X-Forwarded-For` without a reverse-proxy guarantee. `getClientIp` now takes a fail-closed `ClientIpOptions` trust policy (`trustCloudflare` / `trustedProxyCount` / `socketIp`); unresolved IPs are denied, not bucketed. `@osn/api` opts in via `TRUSTED_PROXY_COUNT`. Legacy no-options form kept `@deprecated` for incremental rollout. |
 | Fixed | Async backend rejection was fail-open (now fail-closed) |
 | Fixed | Graph rate-limit store grew without bound (now uses shared limiter) |
@@ -254,16 +258,14 @@ A consuming service migrates off the deprecated default by:
 ## Source Files
 
 - [shared/rate-limit/src/](../../shared/rate-limit/src/) — `RateLimiterBackend` interface + in-memory implementation + `getClientIp` + `createWorkersRateLimiter`
-- [osn/api/src/lib/redis-rate-limiters.ts](../../osn/api/src/lib/redis-rate-limiters.ts) — Redis-backed rate limiter factories
-- [osn/api/src/lib/native-rate-limiters.ts](../../osn/api/src/lib/native-rate-limiters.ts) — `selectAuthRateLimiters` (native binding routing for the 60s per-IP auth limiters)
+- [shared/coordination/src/client.ts](../../shared/coordination/src/client.ts) — `createCoordinationRateLimiter()`, the fixed-window limiter on the coordination store
+- [osn/api/src/lib/coordination/](../../osn/api/src/lib/coordination/) — the in-memory and durable bundles every osn-api limiter comes from
+- [osn/api/src/lib/native-rate-limiters.ts](../../osn/api/src/lib/native-rate-limiters.ts) — `selectAuthRateLimiters`, `selectOsnLimiters` (native binding routing for the one-minute limiters)
 - [osn/api/wrangler.toml](../../osn/api/wrangler.toml) — `[[ratelimits]]` tier bindings + `[observability]` (mirrored into every named env)
-- [osn/api/src/routes/auth/limiters.ts](../../osn/api/src/routes/auth/limiters.ts) — auth route limiter instances
+- [osn/api/src/routes/auth/limiters.ts](../../osn/api/src/routes/auth/limiters.ts) — `AUTH_RATE_LIMITS`, `OSN_RATE_LIMITS`: every osn-api budget
 - [osn/api/src/routes/graph.ts](../../osn/api/src/routes/graph.ts) — graph route rate limiting
 - [osn/api/src/metrics.ts](../../osn/api/src/metrics.ts) — `osn.auth.rate_limited` metric
-- [osn/api/src/index.ts](../../osn/api/src/index.ts) — composition root with env-driven Redis/memory selection
-- [shared/redis/src/rate-limiter.ts](../../shared/redis/src/rate-limiter.ts) — `createRedisRateLimiter()` Lua script backend
+- [osn/api/src/index.ts](../../osn/api/src/index.ts) — Workers entry: the durable bundle, the native bindings, the 503 on a missing one
 - [shared/observability/src/metrics/attrs.ts](../../shared/observability/src/metrics/attrs.ts) — `AuthRateLimitedEndpoint` type
-- [pulse/api/src/lib/rate-limit.ts](../../pulse/api/src/lib/rate-limit.ts) — `PULSE_WRITE_LIMITS`, `checkWriteRateLimit`, in-memory defaults (W4)
-- [pulse/api/src/lib/redis-rate-limiters.ts](../../pulse/api/src/lib/redis-rate-limiters.ts) — Pulse Redis-backed write + discover/share/exposure limiters
-- [pulse/api/src/redis.ts](../../pulse/api/src/redis.ts) — Pulse Redis composition root (env-driven backend selection)
+- [pulse/api/src/lib/rate-limit.ts](../../pulse/api/src/lib/rate-limit.ts) — `PULSE_WRITE_LIMITS`, `PULSE_IP_LIMITS`, `makeMemoryRateLimiters`, `checkWriteRateLimit` (W4)
 - [pulse/api/src/routes/events.ts](../../pulse/api/src/routes/events.ts) — per-IP discover/share/exposure limiting + `getClientIp` trust policy (P4)

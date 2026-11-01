@@ -8,7 +8,7 @@ related:
   - "[[identity-model]]"
   - "[[account-recovery-factors]]"
   - "[[email]]"
-last-reviewed: 2026-09-10
+last-reviewed: 2026-10-30
 ---
 
 # TOTP (RFC 6238) second factor
@@ -139,11 +139,12 @@ plaintext path**: with no key resolvable, the service refuses to act.
 
 Between `enroll/begin` and `enroll/complete` the secret is unconfirmed, and an
 unconfirmed secret is not a credential. It lives in a `CeremonyStores` entry
-(`pending_totp_enroll`, ten-minute TTL) with a Redis variant, encrypted with the
-same key. The entry holds **base64 strings, not byte arrays**: the in-memory
-store keeps the value by reference while the Redis store round-trips it through
-`JSON.stringify`, so a `Uint8Array` there would pass every test and come back
-from Upstash as `{"0":12,"1":200,…}`.
+(`pending_totp_enroll`, ten-minute TTL), on the coordination store in a deployed
+Worker ([[coordination-store]]), encrypted with the same key. The entry holds
+**base64 strings, not byte arrays**: the in-memory store keeps the value by
+reference while the coordination store round-trips it through `JSON.stringify`,
+so a `Uint8Array` there would pass every Bun test and come back from the Durable
+Object as `{"0":12,"1":200,…}`.
 
 ## Single use, and why the verifier returns a step
 
@@ -184,6 +185,19 @@ So every code check is additionally capped **per account** — five failures, th
 fifteen minutes locked — through a second instance of the store in
 `osn/api/src/lib/recovery-lockout-store.ts`, keyed on the resolved `accountId`.
 
+Each attempt is **counted before its code is compared**. `checkTotpCode` takes
+the attempt's number from the counter (`recordFailure`, one atomic `increment`)
+beside the credential query, and refuses unread an attempt numbered past five,
+or one the store could not count. Attempts sent at once each take their own
+number, so at most five codes are compared in a window however many arrive
+together; a counter read before it was counted would let a burst through
+whole. A right code takes back its own number after the answer, on every
+success, since its own attempt was counted: without that, five right codes
+inside a window would lock the account. It takes back only that number
+(`reset(key, attempts)`), so an attempt counted after it, before or after the
+answer, stands. `burnTotpCheckCost` makes the same count at the probe
+key, so an identifier that names nobody costs what a wrong code does.
+
 > [!warning] The counter is scoped by ceremony, and it has to be
 > `checkTotpCode` takes a required `scope` (`"step_up"` or `"recovery"`) and
 > keys the counter `accountId` or `recovery:<accountId>`. Both surfaces verify
@@ -193,20 +207,20 @@ fifteen minutes locked — through a second instance of the store in
 > who knew a handle would lock the owner's step-up for fifteen minutes, and with
 > it `passkey_register`, `recovery_generate`, `totp_enroll`, `totp_disable`,
 > `account_delete` and `account_export`, for any user whose only non-passkey
-> factor is TOTP — repeatedly, and indefinitely. Fail-closed made it worse, not
-> better: one Redis error would have locked both surfaces at once.
+> factor is TOTP — repeatedly, and indefinitely.
 >
 > Splitting costs five extra guesses per window against three accepted codes in
 > a million. The `osn.auth.totp.lockout` counter carries a `scope` attribute so
 > a dashboard can tell which surface is being ground.
 
-> [!important] TOTP's lockout fails closed; the recovery-code one fails open
-> They are the same code with opposite postures, and the difference is
-> deliberate. Recovery codes keep a 64-bit search space during a Redis outage,
-> so failing open loses a redundant defence and avoids locking everyone out.
-> TOTP has about twenty bits, so failing open removes the *only* effective
-> defence. What failing closed costs is a TOTP ceremony during a Redis error;
-> passkey and OTP step-up are unaffected, so no account becomes unreachable.
+> [!important] The lockout fails closed
+> A counter that cannot be read or written answers `"unknown"`, and the check
+> refuses with its generic failure, writes no security event and counts
+> `osn.auth.totp.lockout{result="unavailable"}`. TOTP has about twenty bits, so
+> failing open would remove the *only* effective defence. Both recovery-factor
+> lockouts fail the same way. What it costs is a TOTP ceremony while the counter
+> is unreachable; when the whole coordination store is down, every ceremony is
+> refused anyway ([[coordination-store]]).
 
 ## Every failure looks the same
 

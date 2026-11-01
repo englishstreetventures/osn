@@ -6,7 +6,7 @@ describe("baseEnv", () => {
   const shell = {
     PATH: "/usr/bin",
     HOME: "/home/dev",
-    REDIS_URL: "redis://somewhere",
+    OSN_DATABASE_URL: "/home/dev/osn.db",
     OSN_ENV: "production",
     NODE_ENV: "test",
     CLAUDECODE: "1",
@@ -21,7 +21,13 @@ describe("baseEnv", () => {
       expect([...INHERITED_ENV, ...harnessKeys]).toContain(key);
     }
     expect(env["PATH"]).toBe("/usr/bin");
-    for (const leaked of ["REDIS_URL", "OSN_ENV", "NODE_ENV", "CLAUDECODE", "DEV_LOGIN_SECRET"]) {
+    for (const leaked of [
+      "OSN_DATABASE_URL",
+      "OSN_ENV",
+      "NODE_ENV",
+      "CLAUDECODE",
+      "DEV_LOGIN_SECRET",
+    ]) {
       expect(env).not.toHaveProperty(leaked);
     }
   });

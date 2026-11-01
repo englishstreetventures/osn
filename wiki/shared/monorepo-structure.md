@@ -49,6 +49,7 @@ packages:
   - "@cire/build-tools"
   - "@cire/infra"
   - "@shared/color"
+  - "@shared/coordination"
   - "@shared/crypto"
   - "@shared/db-utils"
   - "@shared/design-tokens"
@@ -62,7 +63,6 @@ packages:
   - "@shared/osn-auth-client"
   - "@shared/rate-limit"
   - "@shared/realtime"
-  - "@shared/redis"
   - "@shared/rp-auth"
   - "@shared/sortable"
   - "@shared/toast"
@@ -74,7 +74,7 @@ packages:
   - "@tools/oxlint-house"
   - "@tools/pr-metrics"
   - "@tools/stryker"
-last-reviewed: 2026-10-23
+last-reviewed: 2026-10-27
 ---
 
 # Monorepo Structure
@@ -134,6 +134,7 @@ cire/
   infra/               # @cire/infra — the Alchemy stack `cire`: cire-api with its D1, buckets and seeds, cire-invites, the three cire sites (dev only today)
 shared/
   color/               # @shared/color — OKLCH parsing / conversion / contrast maths, lifted out of @cire/theme so no @shared/* depends on a @cire/* one
+  coordination/        # @shared/coordination — the CoordinationStore Durable Object (one object per key) and its typed client: osn-api's limiters, ceremonies and lockouts
   crypto/              # @shared/crypto — ARC tokens (S2S), recovery codes, RFC 6238 TOTP; Signal Protocol pending
   db-utils/            # @shared/db-utils — createDrizzleClient, makeDbLive, commitBatch, rowsChanged, the search helpers
   design-tokens/       # @shared/design-tokens — the ui-* contract every shared component reads, its scales, and the WCAG conformance harness
@@ -147,7 +148,6 @@ shared/
   osn-auth-client/     # @shared/osn-auth-client — downstream access-JWT verification (JWKS cache, Elysia adapter)
   rate-limit/          # @shared/rate-limit — per-IP / per-user fixed-window limiter primitives, getClientIp trust policy
   realtime/            # @shared/realtime — invalidation signals over WebSocket: the per-topic Durable Object hub, publish/subscribe helpers, the browser client and useTopic
-  redis/               # @shared/redis — Redis client wrapper, rate-limiter Lua, JTI / rotated-session stores
   rp-auth/             # @shared/rp-auth — browser half of an OSN relying party: the redirect sign-in flow and its cookie contract
   sortable/            # @shared/sortable — drag for SolidJS: re-order lists (pointer sensor, closestCenter, the whole keyboard / screen-reader path) and drop zones for moving an item between containers
   toast/               # @shared/toast — SolidJS toasts themed through --toast-* custom properties

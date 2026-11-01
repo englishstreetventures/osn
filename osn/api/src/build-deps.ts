@@ -2,26 +2,19 @@ import type { Db } from "@osn/db/service";
 import { generateArcKeyPair, importKeyFromJwk, thumbprintKid } from "@shared/crypto";
 import type { EmailService } from "@shared/email";
 import { parseDeploymentEnvironment } from "@shared/observability/config";
-import type { RedisClient } from "@shared/redis";
-import { sanitizeCause } from "@shared/redis";
 import { createTurnstileVerifier } from "@shared/turnstile";
 import { Effect, Layer, ManagedRuntime } from "effect";
 
 import type { AppDeps } from "./app";
 import type { CookieSessionConfig } from "./lib/cookie-session";
+import type { CoordinationBuilder, CoordinationErrorReporter } from "./lib/coordination";
 import { assertCorsOriginsConfigured, resolveCorsOrigins } from "./lib/cors-config";
-import { type OsnRateLimitBindings, selectAuthRateLimiters } from "./lib/native-rate-limiters";
-import { createOriginGuard } from "./lib/origin-guard";
-import { createRedisCeremonyStores } from "./lib/redis-ceremony-stores";
 import {
-  createRedisAuthRateLimiters,
-  createRedisGraphRateLimiter,
-  createRedisOrgRateLimiter,
-  createRedisProfileRateLimiters,
-  createRedisRecommendationRateLimiters,
-} from "./lib/redis-rate-limiters";
-import { createRedisRotatedSessionStore } from "./lib/rotated-session-store";
-import { createRedisJtiStore } from "./lib/step-up-jti-store";
+  type OsnRateLimitBindings,
+  selectAuthRateLimiters,
+  selectOsnLimiters,
+} from "./lib/native-rate-limiters";
+import { createOriginGuard } from "./lib/origin-guard";
 import {
   createTotpKeyRing,
   generateEphemeralTotpEncryptionKey,
@@ -192,6 +185,25 @@ export async function loadJwtKeyPair(env: EnvVars) {
 //                        Default 0 → direct mode.
 // ---------------------------------------------------------------------------
 
+const DEFAULT_REFRESH_TOKEN_TTL_SEC = 2_592_000;
+
+/**
+ * `OSN_REFRESH_TOKEN_TTL`: the session lifetime in whole seconds, 30 days when
+ * unset or blank. Anything else throws at boot: the value sets every session's
+ * expiry and how long a rotation record proves reuse, so a typo must stop the
+ * deploy rather than fall back quietly.
+ */
+export function parseRefreshTokenTtl(raw: string | undefined): number {
+  if (raw === undefined || raw.trim() === "") return DEFAULT_REFRESH_TOKEN_TTL_SEC;
+  const n = Number(raw);
+  if (!Number.isSafeInteger(n) || n <= 0) {
+    throw new Error(
+      `OSN_REFRESH_TOKEN_TTL must be a whole number of seconds above 0 (got ${JSON.stringify(raw)})`,
+    );
+  }
+  return n;
+}
+
 export function parseTrustedProxyCount(raw: string | undefined): number {
   if (raw === undefined || raw.trim() === "") return 0;
   const n = Number(raw);
@@ -222,8 +234,8 @@ export interface BuiltDeps {
  * Runtime-specific handles a caller has already built (they differ between the
  * Bun and Workers entries) and hands to {@link buildAppDeps}:
  *
- * - `redisClient` — Bun: ioredis-or-memory via `initRedisClient`; Workers:
- *   Upstash-or-memory via `initRedisClientFromEnv` (env-gated there).
+ * - `coordination` — builds the shared-state bundle. Bun: the in-memory one;
+ *   Workers: the one on the `COORDINATION` Durable Object binding.
  * - `dbAndEmailLayer` — Bun: `DbLive` (bun:sqlite) merged with the email layer;
  *   Workers: `makeDbD1Live(env.DB)` merged with the email layer.
  * - `observabilityLayer` — Bun: the full `initObservability()` layer (OTel SDK);
@@ -231,7 +243,11 @@ export interface BuiltDeps {
  * - `includeObservabilityPlugin` — Bun: true; Workers: false (see AppDeps).
  */
 export interface BuildParts {
-  redisClient: RedisClient;
+  /**
+   * Called once, after the app runtime exists, with the reporter every failed
+   * store call goes to. See `lib/coordination`.
+   */
+  coordination: CoordinationBuilder;
   dbAndEmailLayer: Layer.Layer<Db | EmailService>;
   observabilityLayer: Layer.Layer<never>;
   includeObservabilityPlugin: boolean;
@@ -245,36 +261,45 @@ export interface BuildParts {
    */
   trustCloudflare?: boolean;
   /**
-   * Cloudflare Workers native Rate Limiting bindings (Part 2). Present only on
-   * the Workers runtime when the `[[ratelimits]]` bindings are declared; the
-   * Bun entry omits them. When present, the 60s-window per-IP auth limiters are
-   * built from these (global + atomic edge enforcement) instead of Redis; every
-   * other limiter/store stays on Redis. Absent ⇒ all limiters stay on Redis.
+   * Cloudflare Workers native Rate Limiting bindings. Present only on the
+   * Workers runtime when the `[[ratelimits]]` bindings are declared; the Bun
+   * entry omits them. When present, the 60s-window per-IP auth limiters are
+   * built from these (global + atomic edge enforcement) instead of the
+   * coordination bundle's. Absent ⇒ every limiter stays on the bundle.
    */
   rateLimitBindings?: Partial<OsnRateLimitBindings>;
 }
 
 /**
- * Read every env-driven input, construct the Redis-backed stores/limiters from
- * the supplied client, build the Effect layer graph ONCE into a shared
- * `ManagedRuntime`, and package it all into the {@link AppDeps} struct
- * `createApp` consumes. Pure with respect to the runtime: the caller decides
- * the Redis backend, the DB/email layers, and the observability layer; this
- * function only wires them together. So the same code path serves both the Bun
- * dev server and the Cloudflare Workers isolate.
+ * Read every env-driven input, build the Effect layer graph ONCE into a shared
+ * `ManagedRuntime`, build the coordination bundle with an error reporter that
+ * logs through that runtime, and package it all into the {@link AppDeps}
+ * struct `createApp` consumes. Pure with respect to the runtime: the caller
+ * decides the coordination backend, the DB/email layers, and the observability
+ * layer; this function only wires them together. So the same code path serves
+ * both the Bun dev server and the Cloudflare Workers isolate.
  *
  * Async only because {@link loadJwtKeyPair} may dynamically import `jose`; all
  * other wiring is synchronous.
  */
 export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<BuiltDeps> {
   const {
-    redisClient,
+    coordination,
     dbAndEmailLayer,
     observabilityLayer,
     includeObservabilityPlugin,
     trustCloudflare = false,
     rateLimitBindings,
   } = parts;
+
+  // Build the application layer graph ONCE into a long-lived runtime and thread
+  // it through every route factory. Rebuilding the graph per request would
+  // restart the full observability layer (and, on Bun, reopen the bun:sqlite
+  // connection) every call. A single shared runtime collapses that to a
+  // one-time boot cost. On Workers this runtime is cached per isolate, not per
+  // request. Built first so every log line below, at boot or later from a store
+  // callback, runs through it rather than providing a layer per call.
+  const appRuntime = ManagedRuntime.make(Layer.merge(dbAndEmailLayer, observabilityLayer));
 
   const jwt = await loadJwtKeyPair(env);
   const {
@@ -339,10 +364,9 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
   // message: that message becomes the body of an unauthenticated 503, and the
   // length is a property of the secret's value.
   const reportTotpKeyLength = (envName: string) => (decodedBytes: number) => {
-    void Effect.runPromise(
+    void appRuntime.runPromise(
       Effect.logError(`${envName} decodes to the wrong length`).pipe(
         Effect.annotateLogs({ decodedBytes }),
-        Effect.provide(observabilityLayer),
       ),
     );
   };
@@ -385,7 +409,7 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
     jwtKid,
     jwtPublicKeyJwk,
     accessTokenTtl: Number(env.OSN_ACCESS_TOKEN_TTL) || 300,
-    refreshTokenTtl: Number(env.OSN_REFRESH_TOKEN_TTL) || 2592000,
+    refreshTokenTtl: parseRefreshTokenTtl(env.OSN_REFRESH_TOKEN_TTL),
     sessionIpPepper,
     totpEncryptionKeys,
     pairwiseSalt,
@@ -395,58 +419,36 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
     authorizeUiUrl: env.OSN_AUTHORIZE_UI_URL,
   };
 
-  // Cluster-safe single-use guard for step-up JWTs.
-  const stepUpJtiStore = createRedisJtiStore(redisClient);
-
-  // Cluster-safe record of rotated-out session hashes so session-reuse
-  // detection works across isolates/pods. `sanitizeCause` strips
-  // any credentialed URL the client may embed in connection-level errors.
-  const rotatedSessionStore = createRedisRotatedSessionStore(redisClient, {
-    onError: (action, cause) => {
-      void Effect.runPromise(
-        Effect.logWarning("Rotated-session store Redis error").pipe(
-          Effect.annotateLogs({ action, error: sanitizeCause(cause) }),
-          Effect.provide(observabilityLayer),
-        ),
-      );
-    },
-  });
-
-  const {
-    ceremonyStores,
-    recoveryLockoutStore,
-    recoveryOtpLockoutStore,
-    totpLockoutStore,
-    profileSwitchCap,
-    emailChangeBeginCap,
-    recoveryEmailBeginCap,
-  } = createRedisCeremonyStores(redisClient, (store, op, cause) => {
-    void Effect.runPromise(
-      Effect.logWarning("Ceremony/lockout store Redis error").pipe(
-        Effect.annotateLogs({ store, op, error: sanitizeCause(cause) }),
-        Effect.provide(observabilityLayer),
+  // Every failed store call, once, after any retry: the store's name, the
+  // operation and the failure's kind, never a key, a value or the error's
+  // message. Logged through the shared runtime.
+  const reportCoordinationError: CoordinationErrorReporter = (store, op, detail) => {
+    void appRuntime.runPromise(
+      Effect.logError("coordination store call failed").pipe(
+        Effect.annotateLogs({
+          store,
+          op,
+          durationMs: detail.durationMs,
+          retried: detail.retried,
+          kind: detail.kind,
+        }),
       ),
     );
-  });
+  };
+  const stores = coordination(reportCoordinationError);
 
-  // Part 2: the 60s-window per-IP auth limiters move onto the Cloudflare Workers
-  // native Rate Limiting binding when it's present (Workers, non-local), keyed
-  // `"<endpoint>:" + ip` so endpoints sharing a budget tier don't share a
-  // bucket. The 1-hour-window per-IP limiters stay on Redis because the native
-  // binding only supports period 10 or 60s — HOUR_WINDOW_IP_AUTH_LIMITERS in
-  // `lib/native-rate-limiters.ts` is the list, and adding a slot there is what
-  // keeps it on Redis; this comment is prose, not the gate. `selectAuthRateLimiters` leaves those slots
-  // (and a 60s slot whose tier binding is missing) on the Redis fallback, so the
-  // stateful stores' Upstash dependency is unchanged. Absent the bindings (Bun /
-  // local `wrangler dev`) every limiter stays on Redis.
-  const redisAuthRateLimiters = createRedisAuthRateLimiters(redisClient);
+  // The 60s-window per-IP auth limiters move onto the Cloudflare Workers native
+  // Rate Limiting binding when it's present, keyed `"<endpoint>:" + ip` so
+  // endpoints sharing a budget tier don't share a bucket. A budget whose window
+  // is longer than a minute stays on the coordination bundle — the native
+  // binding only supports period 10 or 60s — and so does a 60s slot whose tier
+  // binding is missing. Absent the bindings (Bun) every limiter stays there.
   const authRateLimiters = rateLimitBindings
-    ? selectAuthRateLimiters(rateLimitBindings, redisAuthRateLimiters)
-    : redisAuthRateLimiters;
-  const graphRateLimiter = createRedisGraphRateLimiter(redisClient);
-  const orgRateLimiter = createRedisOrgRateLimiter(redisClient);
-  const profileRateLimiters = createRedisProfileRateLimiters(redisClient);
-  const recommendationRateLimiters = createRedisRecommendationRateLimiters(redisClient);
+    ? selectAuthRateLimiters(rateLimitBindings, stores.authRateLimiters)
+    : stores.authRateLimiters;
+  // The same for the one-minute graph, organisation, recommendation and
+  // profile limiters, so a keystroke-rate endpoint never costs a store call.
+  const minuteLimiters = rateLimitBindings ? selectOsnLimiters(rateLimitBindings, stores) : stores;
 
   // Client-IP trust policy. Behind Cloudflare (the non-local
   // Workers runtime — osn-api serves id.musubi.social), trust
@@ -474,14 +476,6 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
     markerDomain: env.OSN_COOKIE_DOMAIN,
   };
 
-  // Build the application layer graph ONCE into a long-lived runtime and thread
-  // it through every route factory. Rebuilding the graph per request would
-  // restart the full observability layer (and, on Bun, reopen the bun:sqlite
-  // connection) every call. A single shared runtime collapses that to a
-  // one-time boot cost. On Workers this runtime is cached per isolate, not per
-  // request.
-  const appRuntime = ManagedRuntime.make(Layer.merge(dbAndEmailLayer, observabilityLayer));
-
   // Restrict CORS to the known app origin. The fail-closed invariant
   // lives in `./lib/cors-config`. `cookieConfig.secure` is the single
   // non-local predicate — a deploy that forgets both `OSN_ENV` and
@@ -502,19 +496,24 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
     observabilityLayer,
     appRuntime,
     authRateLimiters,
-    graphRateLimiter,
-    orgRateLimiter,
-    profileRateLimiters,
-    recommendationRateLimiters,
-    stepUpJtiStore,
-    rotatedSessionStore,
-    ceremonyStores,
-    recoveryLockoutStore,
-    recoveryOtpLockoutStore,
-    totpLockoutStore,
-    profileSwitchCap,
-    emailChangeBeginCap,
-    recoveryEmailBeginCap,
+    graphRateLimiter: minuteLimiters.graphRateLimiter,
+    orgRateLimiter: minuteLimiters.orgRateLimiter,
+    profileRateLimiters: minuteLimiters.profileRateLimiters,
+    recommendationRateLimiters: minuteLimiters.recommendationRateLimiters,
+    accountExportLimiter: stores.accountExportLimiter,
+    accountExportIpLimiter: minuteLimiters.accountExportIpLimiter,
+    accountErasureRateLimiters: minuteLimiters.accountErasureRateLimiters,
+    stepUpJtiStore: stores.stepUpJtiStore,
+    passkeyChallengeClaims: stores.passkeyChallengeClaims,
+    ceremonyStores: stores.ceremonyStores,
+    recoveryLockoutStore: stores.recoveryLockoutStore,
+    recoveryOtpLockoutStore: stores.recoveryOtpLockoutStore,
+    totpLockoutStore: stores.totpLockoutStore,
+    profileSwitchCap: stores.profileSwitchCap,
+    emailChangeBeginCap: stores.emailChangeBeginCap,
+    recoveryEmailBeginCap: stores.recoveryEmailBeginCap,
+    healthProbe: stores.healthProbe,
+    healthProbeLimiter: minuteLimiters.healthProbeLimiter,
     clientIpConfig,
     // Gates the S2S service-registration endpoints. On workerd this is a
     // wrangler secret, surfaced via the `env` binding; on Bun it's process.env.

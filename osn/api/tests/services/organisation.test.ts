@@ -1,11 +1,13 @@
 import { it, expect, describe } from "@effect/vitest";
-import { Effect } from "effect";
+import { Db } from "@osn/db/service";
+import { Effect, Fiber, Layer, type Result } from "effect";
 import { beforeAll } from "vitest";
 
 import { createAuthService } from "../../src/services/auth";
 import { createOrganisationService } from "../../src/services/organisation";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayer, createTestLayerWithSqlite } from "../helpers/db";
+import { holdQueries } from "../helpers/held-query";
 
 let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;
 let auth: ReturnType<typeof createAuthService>;
@@ -567,4 +569,254 @@ describe("multi-org membership", () => {
       expect(role2).toBe("admin");
     }).pipe(Effect.provide(createTestLayer())),
   );
+});
+
+/**
+ * Every membership write is checked and written in separate statements, so
+ * each write names what its checks read — the caller still an admin, the
+ * member's row and role as read — and writes nothing once another request has
+ * changed them. The refusal is the one the checks would give had they run
+ * afterwards. Each case holds the write until the other request has landed.
+ */
+describe("a membership write holds only while what it checked still holds", () => {
+  /** The organisation service on a database whose statements a test can hold. */
+  function held() {
+    const { db, sqlite, email } = createTestLayerWithSqlite();
+    const queries = holdQueries(db);
+    return {
+      layer: Layer.merge(Layer.succeed(Db, { db: queries.db }), email.layer),
+      hold: queries.hold,
+      membershipRows: (orgId: string, profileId: string) =>
+        (
+          sqlite
+            .query(
+              "SELECT COUNT(*) AS n FROM organisation_members WHERE organisation_id = ? AND profile_id = ?",
+            )
+            .get(orgId, profileId) as { n: number }
+        ).n,
+    };
+  }
+
+  /** The refusal's message, or `"ok"`. */
+  const answer = (outcome: Result.Result<unknown, { readonly message?: string }>) =>
+    outcome._tag === "Success" ? "ok" : (outcome.failure.message ?? "no message");
+
+  /** Runs `write` with its statement matching `pattern` held until `between` has run. */
+  const across = <E extends { readonly message?: string }>(
+    h: ReturnType<typeof held>,
+    pattern: RegExp,
+    write: Effect.Effect<unknown, E, Db>,
+    between: Effect.Effect<unknown, unknown, Db>,
+  ) =>
+    Effect.gen(function* () {
+      const gate = h.hold(pattern);
+      const fiber = yield* Effect.forkChild(Effect.result(write));
+      yield* Effect.promise(() => gate.reached);
+      yield* between;
+      gate.release();
+      return answer(yield* Fiber.join(fiber));
+    });
+
+  /** alice owns "acme"; bob is an admin, carol a member, dave not in it. */
+  const setupTeam = Effect.gen(function* () {
+    const { alice, organisation } = yield* setupOrgWithOwner;
+    const bob = yield* registerProfile("bob@example.com", "bob");
+    const carol = yield* registerProfile("carol@example.com", "carol");
+    const dave = yield* registerProfile("dave@example.com", "dave");
+    yield* org.addMember(organisation.id, alice.id, bob.id, "admin");
+    yield* org.addMember(organisation.id, alice.id, carol.id, "member");
+    return { alice, bob, carol, dave, orgId: organisation.id };
+  });
+
+  const removal = /^delete from "organisation_members"/;
+
+  it.live("an admin's removal leaves a member the owner has promoted since", () => {
+    const h = held();
+    return Effect.gen(function* () {
+      const { alice, bob, carol, orgId } = yield* setupTeam;
+      const removed = yield* across(
+        h,
+        removal,
+        org.removeMember(orgId, bob.id, carol.id),
+        org.updateMemberRole(orgId, alice.id, carol.id, "admin"),
+      );
+      expect(removed).toBe("Only the owner can remove an admin");
+      expect(yield* org.getMemberRole(orgId, carol.id)).toBe("admin");
+    }).pipe(Effect.provide(h.layer));
+  });
+
+  it.live("an admin demoted since its check removes no one", () => {
+    const h = held();
+    return Effect.gen(function* () {
+      const { alice, bob, carol, orgId } = yield* setupTeam;
+      const removed = yield* across(
+        h,
+        removal,
+        org.removeMember(orgId, bob.id, carol.id),
+        org.updateMemberRole(orgId, alice.id, bob.id, "member"),
+      );
+      expect(removed).toBe("Only admins can remove members");
+      expect(yield* org.getMemberRole(orgId, carol.id)).toBe("member");
+    }).pipe(Effect.provide(h.layer));
+  });
+
+  it.live("the owner's removal of a member already removed answers as a repeat would", () => {
+    const h = held();
+    return Effect.gen(function* () {
+      const { alice, bob, carol, orgId } = yield* setupTeam;
+      const removed = yield* across(
+        h,
+        removal,
+        org.removeMember(orgId, alice.id, carol.id),
+        org.removeMember(orgId, bob.id, carol.id),
+      );
+      expect(removed).toBe("Member not found");
+    }).pipe(Effect.provide(h.layer));
+  });
+
+  it.live("an admin's removal of a member already removed answers as a repeat would", () => {
+    const h = held();
+    return Effect.gen(function* () {
+      const { alice, bob, carol, orgId } = yield* setupTeam;
+      const removed = yield* across(
+        h,
+        removal,
+        org.removeMember(orgId, bob.id, carol.id),
+        org.removeMember(orgId, alice.id, carol.id),
+      );
+      expect(removed).toBe("Member not found");
+    }).pipe(Effect.provide(h.layer));
+  });
+
+  it.live("the owner removes an admin whatever role it holds by the time of the delete", () => {
+    const h = held();
+    return Effect.gen(function* () {
+      const { alice, bob, orgId } = yield* setupTeam;
+      const removed = yield* across(
+        h,
+        removal,
+        org.removeMember(orgId, alice.id, bob.id),
+        org.updateMemberRole(orgId, alice.id, bob.id, "member"),
+      );
+      expect(removed).toBe("ok");
+      expect(yield* org.getMemberRole(orgId, bob.id)).toBeNull();
+    }).pipe(Effect.provide(h.layer));
+  });
+
+  it.live("a removal in an organisation deleted since answers that it is gone", () => {
+    const h = held();
+    return Effect.gen(function* () {
+      const { alice, bob, carol, orgId } = yield* setupTeam;
+      const removed = yield* across(
+        h,
+        removal,
+        org.removeMember(orgId, bob.id, carol.id),
+        org.deleteOrganisation(orgId, alice.id),
+      );
+      expect(removed).toBe("Organisation not found");
+    }).pipe(Effect.provide(h.layer));
+  });
+
+  it.live("an admin demoted since its check adds no one", () => {
+    const h = held();
+    return Effect.gen(function* () {
+      const { alice, bob, dave, orgId } = yield* setupTeam;
+      const added = yield* across(
+        h,
+        /^insert into "organisation_members"/,
+        org.addMember(orgId, bob.id, dave.id, "member"),
+        org.updateMemberRole(orgId, alice.id, bob.id, "member"),
+      );
+      expect(added).toBe("Only admins can add members");
+      expect(h.membershipRows(orgId, dave.id)).toBe(0);
+    }).pipe(Effect.provide(h.layer));
+  });
+
+  it.live("of two adds of one profile at once, the second answers as a repeat would", () => {
+    const h = held();
+    return Effect.gen(function* () {
+      const { alice, bob, dave, orgId } = yield* setupTeam;
+      const added = yield* across(
+        h,
+        /^insert into "organisation_members"/,
+        org.addMember(orgId, bob.id, dave.id, "member"),
+        org.addMember(orgId, alice.id, dave.id, "member"),
+      );
+      expect(added).toBe("Profile is already a member");
+      expect(h.membershipRows(orgId, dave.id)).toBe(1);
+    }).pipe(Effect.provide(h.layer));
+  });
+
+  it.live("an add to an organisation deleted since answers that it is gone", () => {
+    const h = held();
+    return Effect.gen(function* () {
+      const { alice, bob, dave, orgId } = yield* setupTeam;
+      const added = yield* across(
+        h,
+        /^insert into "organisation_members"/,
+        org.addMember(orgId, bob.id, dave.id, "member"),
+        org.deleteOrganisation(orgId, alice.id),
+      );
+      expect(added).toBe("Organisation not found");
+      expect(h.membershipRows(orgId, dave.id)).toBe(0);
+    }).pipe(Effect.provide(h.layer));
+  });
+
+  it.live("a role change for a member removed since answers that the member is gone", () => {
+    const h = held();
+    return Effect.gen(function* () {
+      const { alice, bob, carol, orgId } = yield* setupTeam;
+      const changed = yield* across(
+        h,
+        /^update "organisation_members"/,
+        org.updateMemberRole(orgId, alice.id, carol.id, "admin"),
+        org.removeMember(orgId, bob.id, carol.id),
+      );
+      expect(changed).toBe("Member not found");
+      expect(h.membershipRows(orgId, carol.id)).toBe(0);
+    }).pipe(Effect.provide(h.layer));
+  });
+
+  it.live("a role change in an organisation deleted since answers that it is gone", () => {
+    const h = held();
+    return Effect.gen(function* () {
+      const { alice, carol, orgId } = yield* setupTeam;
+      const changed = yield* across(
+        h,
+        /^update "organisation_members"/,
+        org.updateMemberRole(orgId, alice.id, carol.id, "admin"),
+        org.deleteOrganisation(orgId, alice.id),
+      );
+      expect(changed).toBe("Organisation not found");
+    }).pipe(Effect.provide(h.layer));
+  });
+
+  it.live("an admin demoted since its check leaves the organisation as it was", () => {
+    const h = held();
+    return Effect.gen(function* () {
+      const { alice, bob, orgId } = yield* setupTeam;
+      const updated = yield* across(
+        h,
+        /^update "organisations"/,
+        org.updateOrganisation(orgId, bob.id, { name: "Renamed" }),
+        org.updateMemberRole(orgId, alice.id, bob.id, "member"),
+      );
+      expect(updated).toBe("Only admins can update the organisation");
+      expect((yield* org.getOrganisation(orgId)).name).toBe("Acme Corp");
+    }).pipe(Effect.provide(h.layer));
+  });
+
+  it.live("an update to an organisation deleted since answers that it is gone", () => {
+    const h = held();
+    return Effect.gen(function* () {
+      const { alice, bob, orgId } = yield* setupTeam;
+      const updated = yield* across(
+        h,
+        /^update "organisations"/,
+        org.updateOrganisation(orgId, bob.id, { name: "Renamed" }),
+        org.deleteOrganisation(orgId, alice.id),
+      );
+      expect(updated).toBe("Organisation not found");
+    }).pipe(Effect.provide(h.layer));
+  });
 });

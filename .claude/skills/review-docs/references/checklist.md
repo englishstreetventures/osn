@@ -17,7 +17,7 @@ The `SKILL.md` gives the retrieval procedure — which claims to extract from a 
 - **Runbooks describing shipped work as future work** — mark historical or delete. D-M.
 - **Duplicated detail between `AGENTS.md` and a wiki page** — the `AGENTS.md` line states the rule plus the wiki path; if both hold the detail, one drifts. D-M.
 - **"Phase N" language without a decision** — deferred decisions live for months with no resolution; suggest `wiki/decisions/deferred-decisions.md` or removal. D-M.
-- **Defunct config / env / store references** — env vars, Redis namespaces, columns, in-memory stores that no longer exist. D-H.
+- **Defunct config / env / store references** — env vars, store or limiter namespaces, columns, in-memory stores that no longer exist. D-H.
 - **Forward-looking "will migrate to"** for migrations that shipped. D-M.
 
 ## 3. Communication aids — tables, diagrams, callouts

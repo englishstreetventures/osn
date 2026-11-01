@@ -116,12 +116,21 @@ describe("guest privacy notice", () => {
   });
 
   /**
-   * The page must name a region and tell an EEA or UK reader that their data
-   * leaves that area — those two are the disclosure; the exact city is not.
+   * The page must say where the data is as `cire/infra/src/declaration.ts`
+   * places it, and tell an EEA or UK reader that their data leaves that area.
+   * `cire-db` has its primary in Oceania (`locationHint: "oc"`) and read
+   * replicas wherever Cloudflare puts them (`readReplication: "auto"`); the
+   * hosts' spreadsheets are in R2, in Eastern North America
+   * (`locationHint: "enam"`). Nothing the guest site uses is held in Sydney.
    */
-  it("names the region and flags the transfer out of the EEA/UK", () => {
-    expect(body).toMatch(/primary region is <strong>Australia<\/strong>/);
-    expect(body).toMatch(/transferred outside/i);
+  it("names where the data is held and flags the transfer out of the EEA/UK", () => {
+    expect(body).toMatch(/primary region is <strong>Oceania<\/strong>/);
+    expect(body).toMatch(phrase("hosted by Cloudflare in its Oceania region"));
+    expect(body).toMatch(phrase("read-only copies of that database in other regions"));
+    expect(body).toMatch(phrase("which it chooses and can change"));
+    expect(body).toMatch(phrase("stored by Cloudflare in Eastern North America"));
+    expect(body).not.toMatch(/Sydney/);
+    expect(body).toMatch(phrase("transferred outside that area to Oceania and elsewhere"));
   });
 
   /**

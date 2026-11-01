@@ -20,6 +20,8 @@ import {
 /** A Worker binding described as data; the stack turns each into an Alchemy value. */
 export type BindingDescription =
   | { readonly kind: "d1" }
+  /** A Durable Object namespace whose class the Worker itself exports. */
+  | { readonly kind: "durable-object"; readonly className: string }
   | {
       readonly kind: "ratelimit";
       readonly namespaceId: number;
@@ -52,9 +54,10 @@ const SOCIAL_DIST = "../social/dist";
 const LANDING_DIST = "../landing/dist";
 
 /**
- * osn-api's per-IP auth limiters, one per request budget, each over 60
- * seconds. A namespace id is an account-scoped counter, so dev's ids
- * (2101-2105) are never production's (2001-2005, `osn/api/wrangler.toml`).
+ * osn-api's native rate limits, one per request budget, each over 60
+ * seconds: the per-IP auth tiers and the per-user tiers. A namespace id is an
+ * account-scoped counter, so dev's ids (2101-2107) are never production's
+ * (2001-2007, `osn/api/wrangler.toml`).
  */
 const RATE_LIMITS: readonly {
   readonly name: string;
@@ -66,6 +69,8 @@ const RATE_LIMITS: readonly {
   { name: "RL_AUTH_IP_20_60", namespaceId: 2103, limit: 20 },
   { name: "RL_AUTH_IP_30_60", namespaceId: 2104, limit: 30 },
   { name: "RL_AUTH_IP_60_60", namespaceId: 2105, limit: 60 },
+  { name: "RL_USER_20_60", namespaceId: 2106, limit: 20 },
+  { name: "RL_USER_60_60", namespaceId: 2107, limit: 60 },
 ];
 
 /** Each musubi site's logical id, which keys its state row on every stage, so it never changes. */
@@ -215,7 +220,9 @@ export function musubiDeclaration(input: {
         stage,
       ),
       stage,
-      main: "../../osn/api/src/index.ts",
+      // The module that exports the Worker's handler and the coordination
+      // store's Durable Object class, as `osn/api/wrangler.toml`'s `main` does.
+      main: "../../osn/api/src/entry.ts",
       bundle: true,
       assets: null,
       // Wrangler's flags plus the module registry Wrangler deploys with; a
@@ -263,6 +270,11 @@ export function musubiDeclaration(input: {
       },
       bindings: {
         DB: { kind: "d1" },
+        // The coordination store, one object per key: limiters longer than a
+        // minute, ceremonies, single-use claims and lockout counters. Alchemy
+        // declares a class this Worker hosts SQLite-backed, the one storage
+        // backend Workers Free allows. osn-api answers 503 without it.
+        COORDINATION: { kind: "durable-object", className: "CoordinationStore" },
         ...Object.fromEntries(
           RATE_LIMITS.map((limit): [string, BindingDescription] => [
             limit.name,

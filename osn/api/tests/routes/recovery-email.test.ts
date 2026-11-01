@@ -475,6 +475,36 @@ describe("POST /login/recovery/email/complete", () => {
     expect(res.status).toBe(400);
   });
 
+  it("refuses a CORRECT code when the lockout counter cannot be read, and records nothing", async () => {
+    // A six-digit code with an uncounted guess behind it is no throttle at all,
+    // so a counter the store cannot answer for refuses. Nothing is known to
+    // have crossed a threshold, so no security event is written either.
+    // Goes red on: reading `"unknown"` as open.
+    const { app, db, seed, recorded } = makeApp(undefined, {
+      recoveryOtpLockoutStore: {
+        backend: "memory",
+        status: () => Promise.resolve({ status: "unknown" as const }),
+        recordFailure: () => Promise.resolve("unknown"),
+        reset: () => Promise.resolve(),
+      },
+    });
+    const profile = await seed("rc-unk@example.com", "rcunk");
+    const code = await requestCode(app, recorded, "rc-unk@example.com");
+
+    const res = await app.handle(
+      json("/login/recovery/email/complete", {
+        method: "POST",
+        body: JSON.stringify({ identifier: "rc-unk@example.com", code }),
+      }),
+    );
+    expect(res.status).toBe(400);
+    const events = await db
+      .select()
+      .from(securityEvents)
+      .where(eq(securityEvents.accountId, profile.accountId));
+    expect(events).toEqual([]);
+  });
+
   it("does not count an attempt when no code is pending", async () => {
     // Counting it would hand anyone who knows the identifier a lever to lock the
     // owner out of their own recovery without ever guessing a digit.
@@ -507,7 +537,7 @@ describe("POST /login/recovery/email/complete", () => {
     // What the lockout adds over the per-entry cap: they coincide on the FIRST
     // entry (both are 5), so the counter's real job is the second and third.
     // Without it the 3-per-24h send cap would still allow fifteen guesses.
-    // Goes red on: dropping `recordFailure` or the `isLocked` gate.
+    // Goes red on: dropping `recordFailure` or the `status` gate.
     const { app, db, seed, recorded } = makeApp();
     const profile = await seed("rc-lock@example.com", "rclock");
 
@@ -749,7 +779,7 @@ describe("POST /login/recovery/totp/complete", () => {
 // Round-trip parity
 //
 // Uniform bodies close half the oracle. The other half is cost: every store
-// here is an HTTP hop to Upstash in every tier but `local`, so a branch that
+// call is a Durable Object hop in every tier but `local`, so a branch that
 // makes two hops answers measurably sooner than one that makes four, and the
 // difference is readable with a stopwatch from an unauthenticated client.
 //
@@ -773,7 +803,7 @@ describe("POST /login/recovery/totp/complete", () => {
 interface Hops {
   /** `stores.pendingRecoveryOtp` — get, set and delete alike. */
   pendingRecoveryOtp: number;
-  /** `recoveryOtpLockoutStore` — isLocked, recordFailure and reset alike. */
+  /** `recoveryOtpLockoutStore` — status, recordFailure and reset alike. */
   recoveryOtpLockout: number;
   /** `totpLockoutStore`, same. */
   totpLockout: number;
@@ -795,17 +825,17 @@ const zeroHops = (): Hops => ({
 function countingLockout(bump: () => void, inner: RecoveryLockoutStore): RecoveryLockoutStore {
   return {
     backend: inner.backend,
-    isLocked: (id) => {
+    status: (id) => {
       bump();
-      return inner.isLocked(id);
+      return inner.status(id);
     },
     recordFailure: (id) => {
       bump();
       return inner.recordFailure(id);
     },
-    reset: (id) => {
+    reset: (id, failures) => {
       bump();
-      return inner.reset(id);
+      return inner.reset(id, failures);
     },
   };
 }
@@ -820,8 +850,18 @@ function countingLockout(bump: () => void, inner: RecoveryLockoutStore): Recover
  * credential SELECT is a database round trip and belongs in the same ledger as
  * the store hops.
  */
-function makeCountingApp() {
+function makeCountingApp(options: { readonly lockoutsUnreachable?: boolean } = {}) {
   const hops = zeroHops();
+  // A shared lockout store answers `"unknown"` while its backend fails; this
+  // stands in for one, so a branch's cost can be measured during a fault.
+  const unreachable: RecoveryLockoutStore = {
+    backend: "memory",
+    status: () => Promise.resolve({ status: "unknown" as const }),
+    recordFailure: () => Promise.resolve("unknown"),
+    reset: () => Promise.resolve(),
+  };
+  const lockoutStore = (limits?: Parameters<typeof createInMemoryRecoveryLockoutStore>[0]) =>
+    options.lockoutsUnreachable ? unreachable : createInMemoryRecoveryLockoutStore(limits);
   const sqlite = new Database(":memory:");
   applySchema(sqlite);
   const db = drizzle({
@@ -857,24 +897,36 @@ function makeCountingApp() {
           hops.pendingRecoveryOtp += 1;
           return pending.set(key, value, ttlMs);
         },
-        delete: (key) => {
+        delete: (key, expected) => {
           hops.pendingRecoveryOtp += 1;
-          return pending.delete(key);
+          return pending.delete(key, expected);
         },
-        consume: (key) => {
+        guess: (key) => {
           hops.pendingRecoveryOtp += 1;
-          return pending.consume(key);
+          return pending.guess(key);
+        },
+        take: (key) => {
+          hops.pendingRecoveryOtp += 1;
+          return pending.take(key);
+        },
+        consume: (key, expected) => {
+          hops.pendingRecoveryOtp += 1;
+          return pending.consume(key, expected);
+        },
+        swap: (key, expected, value, ttlMs) => {
+          hops.pendingRecoveryOtp += 1;
+          return pending.swap(key, expected, value, ttlMs);
         },
       },
     },
     recoveryOtpLockoutStore: countingLockout(() => {
       hops.recoveryOtpLockout += 1;
-    }, createInMemoryRecoveryLockoutStore()),
+    }, lockoutStore()),
     totpLockoutStore: countingLockout(
       () => {
         hops.totpLockout += 1;
       },
-      createInMemoryRecoveryLockoutStore({
+      lockoutStore({
         threshold: TOTP_LOCKOUT_THRESHOLD,
         lockoutMs: TOTP_LOCKOUT_MS,
       }),
@@ -914,11 +966,11 @@ const post = (app: RouteApp, path: string, body: unknown) =>
 
 describe("recovery routes cost the same however a request ends", () => {
   it("POST /login/recovery/email/begin — sent, capped and unknown all make two hops", async () => {
-    // Goes red on: deleting the `burnProbeRead` in the capped branch (1 hop
-    // instead of 2 — so a fourth request for an address whose allowance is
-    // spent answers sooner than one for an address that names nobody, which
-    // confirms the address is real), or either probe read in the unknown
-    // branch.
+    // Goes red on: dropping `padPark` from the capped branch (1 hop instead of
+    // 2 — so a fourth request for an address whose allowance is spent answers
+    // sooner than one for an address that names nobody, which confirms the
+    // address is real), or any padding call from the unknown branch. The calls
+    // themselves are pinned in `tests/services/recovery-op-sequence.test.ts`.
     const sentHarness = makeCountingApp();
     await sentHarness.seed("hp-sent@example.com", "hpsent");
     const sent = await sentHarness.measure(() =>
@@ -951,15 +1003,15 @@ describe("recovery routes cost the same however a request ends", () => {
     expect(total(unknown)).toBe(2);
   });
 
-  it("POST /login/recovery/email/complete — every branch makes the same four hops", async () => {
-    // The wrong-code branch is the costliest: the lockout lookup, the entry
-    // read, the attempt write, the failure record. Every other branch is padded
-    // up to it, including — especially — the one where the identifier resolves
-    // to nothing.
+  it("POST /login/recovery/email/complete — every branch makes the same three calls", async () => {
+    // The wrong-code branch is the costliest: the lockout lookup, the guess
+    // (the entry read and its count, in one call), the failure record. Every
+    // other branch is padded up to it, including — especially — the one where
+    // the identifier resolves to nothing.
     //
-    // Goes red on: removing any `burnProbeRead`/`burnLockoutRead` from the
-    // unknown, locked or no-pending branches. Deleting the four in the unknown
-    // branch alone takes it to 0 hops against the wrong-code branch's 4.
+    // Goes red on: removing any padding call from the unknown, locked or
+    // no-pending branches. Deleting the three in the unknown branch alone takes
+    // it to 0 calls against the wrong-code branch's 3.
 
     // (a) a wrong code against a live pending entry — the costliest branch.
     const wrongHarness = makeCountingApp();
@@ -1008,8 +1060,8 @@ describe("recovery routes cost the same however a request ends", () => {
       }),
     );
 
-    // (e) the correct code. Self-identifying at 200, so parity is a bonus here
-    //     rather than the guard — but a divergence would still be a smell.
+    // (e) the correct code. Self-identifying at 200, so it is not padded: it also
+    //     claims the entry, one more pending-store call.
     const okHarness = makeCountingApp();
     await okHarness.seed("hp-ok@example.com", "hpok");
     const good = await requestCode(okHarness.app, okHarness.recorded, "hp-ok@example.com");
@@ -1024,14 +1076,15 @@ describe("recovery routes cost the same however a request ends", () => {
       pending: h.pendingRecoveryOtp,
       lockout: h.recoveryOtpLockout,
     });
-    // Two on the pending-code store, two on the lockout counter, always. The
+    // One on the pending-code store, two on the lockout counter, always. The
     // split is asserted as well as the total: a branch that swapped a lockout
     // hop for a pending-store hop would keep the total and lose the shape.
-    expect(shape(wrong)).toEqual({ pending: 2, lockout: 2 });
+    expect(shape(wrong)).toEqual({ pending: 1, lockout: 2 });
     expect(shape(unknown)).toEqual(shape(wrong));
     expect(shape(empty)).toEqual(shape(wrong));
     expect(shape(locked)).toEqual(shape(wrong));
-    expect(shape(ok)).toEqual(shape(wrong));
+    // The right code: the lookup counted no failures, so there is no reset.
+    expect(shape(ok)).toEqual({ pending: 2, lockout: 1 });
   });
 
   it("POST /login/recovery/totp/complete — an unknown identifier costs what a real account costs", async () => {
@@ -1040,18 +1093,17 @@ describe("recovery routes cost the same however a request ends", () => {
     // a handle or an email address" — so a cheap miss here lets a stranger ask
     // whether an EMAIL ADDRESS has an OSN account.
     //
-    // The old padding burned one read against `pendingRecoveryOtp`, a store
-    // this ceremony never otherwise touches, while a real account ran the
-    // lockout lookup, the credential query and the failure record. Both halves
+    // A real account counts the attempt and runs the credential query; the
+    // padding must do the same, at the probe key, and must not touch the
+    // pending-code store, which this ceremony never otherwise uses. Both halves
     // are asserted: the counts must match, and the pending-code store must not
     // be touched at all.
     //
-    // Goes red on: replacing `burnTotpCheckCost` with the old
-    // `burnProbeRead()` + bare verification, or dropping either lockout read
-    // or the credential query from it.
+    // Goes red on: dropping the count or the credential query from
+    // `burnTotpCheckCost`, or padding with a read of another store.
 
-    // (a) a real account with no authenticator — `confirmedCredential` misses,
-    //     the verification still runs, the failure is recorded.
+    // (a) a real account with no authenticator — the attempt is counted,
+    //     `confirmedCredential` misses, the verification still runs.
     const bareHarness = makeCountingApp();
     await bareHarness.seed("hp-tbare@example.com", "hptbare");
     const bare = await bareHarness.measure(() =>
@@ -1101,8 +1153,85 @@ describe("recovery routes cost the same however a request ends", () => {
       credentials: h.totpCredentials,
       pendingRecoveryOtp: h.pendingRecoveryOtp,
     });
-    expect(shape(bare)).toEqual({ lockout: 2, credentials: 1, pendingRecoveryOtp: 0 });
+    // (d) a locked account: five wrong codes get it there; the sixth is measured.
+    const lockedHarness = makeCountingApp();
+    await lockedHarness.seed("hp-tlock@example.com", "hptlock");
+    for (let i = 0; i < TOTP_LOCKOUT_THRESHOLD; i++) {
+      await post(lockedHarness.app, "/login/recovery/totp/complete", {
+        identifier: "hptlock",
+        code: "000000",
+      });
+    }
+    const locked = await lockedHarness.measure(() =>
+      post(lockedHarness.app, "/login/recovery/totp/complete", {
+        identifier: "hptlock",
+        code: "000000",
+      }),
+    );
+
+    expect(shape(bare)).toEqual({ lockout: 1, credentials: 1, pendingRecoveryOtp: 0 });
     expect(shape(enrolled)).toEqual(shape(bare));
     expect(shape(unknown)).toEqual(shape(bare));
+    // Goes red on: refusing a locked account before the credential query.
+    expect(shape(locked)).toEqual(shape(bare));
+  });
+});
+
+describe("recovery routes cost the same when the lockout counter cannot be read", () => {
+  // A shared counter answers `"unknown"` while its store fails. Every caller
+  // refuses then — but a refusal that skipped the padding would answer a real
+  // account sooner than an identifier that names nobody, for as long as the
+  // fault lasted.
+
+  it("POST /login/recovery/email/complete — a real account with a code pending costs what nobody costs", async () => {
+    // Goes red on: returning from the `"unknown"` branch before the padding.
+    const realHarness = makeCountingApp({ lockoutsUnreachable: true });
+    await realHarness.seed("hu-real@example.com", "hureal");
+    await requestCode(realHarness.app, realHarness.recorded, "hu-real@example.com");
+    const real = await realHarness.measure(() =>
+      post(realHarness.app, "/login/recovery/email/complete", {
+        identifier: "hu-real@example.com",
+        code: "000000",
+      }),
+    );
+
+    const unknownHarness = makeCountingApp({ lockoutsUnreachable: true });
+    const unknown = await unknownHarness.measure(() =>
+      post(unknownHarness.app, "/login/recovery/email/complete", {
+        identifier: "hu-nobody@example.com",
+        code: "000000",
+      }),
+    );
+
+    expect(real.pendingRecoveryOtp).toBe(1);
+    expect(real.recoveryOtpLockout).toBe(2);
+    expect(unknown.pendingRecoveryOtp).toBe(real.pendingRecoveryOtp);
+    expect(unknown.recoveryOtpLockout).toBe(real.recoveryOtpLockout);
+  });
+
+  it("POST /login/recovery/totp/complete — a real account costs what nobody costs", async () => {
+    // Goes red on: returning from the `"unknown"` branch of `checkTotpCode`
+    // before the credential query.
+    const realHarness = makeCountingApp({ lockoutsUnreachable: true });
+    await realHarness.seed("hu-treal@example.com", "hutreal");
+    const real = await realHarness.measure(() =>
+      post(realHarness.app, "/login/recovery/totp/complete", {
+        identifier: "hutreal",
+        code: "000000",
+      }),
+    );
+
+    const unknownHarness = makeCountingApp({ lockoutsUnreachable: true });
+    const unknown = await unknownHarness.measure(() =>
+      post(unknownHarness.app, "/login/recovery/totp/complete", {
+        identifier: "hu-tnobody@example.com",
+        code: "000000",
+      }),
+    );
+
+    expect(real.totpLockout).toBe(1);
+    expect(real.totpCredentials).toBe(1);
+    expect(unknown.totpLockout).toBe(real.totpLockout);
+    expect(unknown.totpCredentials).toBe(real.totpCredentials);
   });
 });

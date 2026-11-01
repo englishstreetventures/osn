@@ -55,7 +55,13 @@ import {
 } from "../deploy-surfaces";
 import { SITE_DIRECTORIES } from "../production-sites-artifact";
 import { MAX_RECORDS } from "../release-plan";
-import { devTarget, productionSiteTarget, productionTarget, SMOKE_TARGETS } from "../smoke-check";
+import {
+  devTarget,
+  type Probe,
+  productionSiteTarget,
+  productionTarget,
+  SMOKE_TARGETS,
+} from "../smoke-check";
 
 interface Step {
   readonly id?: string;
@@ -1859,6 +1865,11 @@ const ownJobSurfaces = PRODUCTION_SURFACES.filter((s) => s.production.kind === "
 const recordSurfaces = PRODUCTION_SURFACES.filter((s) => s.production.kind === "stack");
 const surface = (key: SurfaceKey): Surface => SURFACES.find((s) => s.key === key)!;
 
+/** The environment variables a check's probes send as bearers, once each. */
+const bearersOf = (probes: readonly Probe[]): string[] => [
+  ...new Set(probes.flatMap((probe) => (probe.bearer === undefined ? [] : [probe.bearer]))),
+];
+
 describe("every Worker deploy is smoke-checked, and rolls back the Worker it deployed", () => {
   const SMOKE_STEP = "Smoke check, rolling back on failure";
   /** Every surface with a dev target, in SMOKE_TARGETS order. */
@@ -1948,6 +1959,15 @@ describe("every Worker deploy is smoke-checked, and rolls back the Worker it dep
     } else {
       expect(Object.keys(env).filter((name) => name.startsWith("CF_ACCESS"))).toEqual([]);
     }
+    // A probe's bearer comes from the Environment, under its own name; a
+    // check whose probes send none is given none.
+    const bearerNames: string[] = Object.keys(env).filter(
+      (name) => name === "INTERNAL_SERVICE_SECRET",
+    );
+    expect(bearerNames).toEqual(bearersOf(target.probes));
+    for (const name of bearersOf(target.probes)) {
+      expect(env[name]).toBe(`\${{ secrets.${name} }}`);
+    }
   });
 
   test.each(SURFACES.map((s) => [`${s.key} dev`, s] as const))("%s", (_, s) => {
@@ -1977,6 +1997,8 @@ describe("every Worker deploy is smoke-checked, and rolls back the Worker it dep
       expected.CF_ACCESS_CLIENT_ID = "${{ secrets.CF_ACCESS_CLIENT_ID }}";
       expected.CF_ACCESS_CLIENT_SECRET = "${{ secrets.CF_ACCESS_CLIENT_SECRET }}";
     }
+    const probes = target.probes({ origin: "https://a.example.test", marketing: "https://b.test" });
+    for (const name of bearersOf(probes)) expected[name] = `\${{ secrets.${name} }}`;
     expect(smoke?.env).toEqual(expected);
   });
 });

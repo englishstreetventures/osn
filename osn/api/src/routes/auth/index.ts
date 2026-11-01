@@ -65,9 +65,9 @@ export function createAuthRoutes(
   loggerLayer: Layer.Layer<never> = Layer.empty,
   /**
    * Rate limiter backends for every auth endpoint group. Defaults to a fresh
-   * in-memory bundle via `createDefaultAuthRateLimiters()`. Phase 2 of the
-   * Redis migration will construct Redis-backed bundles at the host
-   * application (`osn/app/src/index.ts`) and inject them here.
+   * in-memory bundle via `createDefaultAuthRateLimiters()`; `buildAppDeps`
+   * passes the coordination bundle, with the one-minute limiters on native
+   * bindings where the Worker has them.
    */
   rateLimiters: AuthRateLimiters = createDefaultAuthRateLimiters(),
   /**

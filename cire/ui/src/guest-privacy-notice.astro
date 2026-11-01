@@ -29,7 +29,7 @@ const { level = 2 } = Astro.props
 const Section = level === 2 ? 'h2' : 'h3'
 const Sub = level === 2 ? 'h3' : 'h4'
 
-const updated = '2026-10-23'
+const updated = '2026-10-30'
 
 // The third-party lists are generated from the consent vendor registry, so the
 // notice cannot disagree with what the guest site's consent framework governs:
@@ -258,15 +258,20 @@ const ph = (value: string) => (isPlaceholder(value) ? 'placeholder' : undefined)
 
   <Sub>Where your information is stored</Sub>
   <p>
-    Our primary region is <strong>Australia</strong> — the site is operated from there,
-    and the infrastructure supporting its security is pinned to Sydney. Some technical records — server logs, error and
-    performance telemetry containing no guest content — are processed by providers
-    outside Australia in the course of running the service.
+    Our primary region is <strong>Oceania</strong>: the database that holds your
+    information is hosted by Cloudflare in its Oceania region, and the site is operated
+    from Australia. Cloudflare keeps read-only copies of that database in other regions
+    of its network, which it chooses and can change. The guest-list spreadsheets your
+    hosts upload are stored by Cloudflare in Eastern North America. Rate limits, which
+    count requests by IP address, are counted wherever in Cloudflare’s network a request
+    arrives. Some technical records — server logs, error and performance telemetry
+    containing no guest content — are processed by providers outside Oceania in the
+    course of running the service.
   </p>
   <p>
     If you are in the EU or the UK, this means your information is transferred outside
-    that area to Australia. You can ask us what protections are in place for that
-    transfer, and we will tell you.
+    that area to Oceania and elsewhere. You can ask us what protections are in place for
+    that transfer, and we will tell you.
   </p>
 
   <Section>Cookies and content from other companies</Section>

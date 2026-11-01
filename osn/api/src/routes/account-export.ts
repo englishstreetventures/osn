@@ -1,6 +1,5 @@
 import { Db, DbLive } from "@osn/db/service";
 import {
-  createRateLimiter,
   getClientIp,
   isUnresolvedIp,
   type ClientIpOptions,
@@ -21,6 +20,7 @@ import {
   type ExportDownstream,
 } from "../services/account-export";
 import { createAuthService, type AuthConfig } from "../services/auth";
+import { memoryLimiter, OSN_RATE_LIMITS } from "./auth/limiters";
 import { errorResponse, stepUpRequiredResponse } from "./auth/response-schemas";
 
 /**
@@ -57,18 +57,15 @@ export function createAccountExportRoutes(
   /**
    * Per-ACCOUNT limiter — 1 export / 24 h. Keyed on the server-derived
    * accountId (never client-supplied), so it can't be sidestepped by rotating
-   * IPs. In-memory default; production wires a Redis backend at composition.
+   * IPs. In-memory default; a deployed Worker passes one every isolate shares.
    */
-  exportRateLimiter: RateLimiterBackend = createRateLimiter({
-    maxRequests: 1,
-    windowMs: 24 * 60 * 60 * 1000,
-  }),
+  exportRateLimiter: RateLimiterBackend = memoryLimiter(OSN_RATE_LIMITS.accountExport),
   /**
    * Per-IP guard on the pre-auth surface so an unauthenticated flood can't
    * spin up JWKS verification cost. Generous; the per-account limiter is the
    * real 1/24h cap.
    */
-  ipRateLimiter: RateLimiterBackend = createRateLimiter({ maxRequests: 30, windowMs: 60_000 }),
+  ipRateLimiter: RateLimiterBackend = memoryLimiter(OSN_RATE_LIMITS.accountExportIp),
   clientIpConfig: Omit<ClientIpOptions, "socketIp"> = {},
   runtime?: AppRuntime,
   downstreams: ExportDownstream[] = defaultExportDownstreams(),

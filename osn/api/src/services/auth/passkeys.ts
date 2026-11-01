@@ -4,14 +4,7 @@
  * (conditional-UI) flow and the shared assertion verifier.
  */
 
-import {
-  accounts,
-  type NewPasskey,
-  passkeys,
-  securityEvents,
-  sessions,
-  users,
-} from "@osn/db/schema";
+import { accounts, passkeys, securityEvents, sessions, users } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { commitBatch, jsonEachIn } from "@shared/db-utils";
 import { EmailService } from "@shared/email";
@@ -42,18 +35,20 @@ import {
   withAuthLogin,
 } from "../../metrics";
 import {
+  CHALLENGE_CLAIM_MARGIN_MS,
   CHALLENGE_TTL_MS,
   MAX_PASSKEYS_PER_ACCOUNT,
-  PASSKEY_LAST_USED_COALESCE_MS,
   RECOVERY_ENROLMENT_PASSKEY_CEILING,
 } from "./constants";
 import type { AuthContext } from "./context";
-import { AuthError, DatabaseError } from "./errors";
-import { genId, normaliseIdentifier, now, probeAccountId } from "./helpers";
+import { AuthError, type CoordinationError, DatabaseError } from "./errors";
+import { genId, MAX_IDENTIFIER_LENGTH, normaliseIdentifier, now, probeAccountId } from "./helpers";
+import { recordAssertion } from "./passkey-counter";
 import type { ProfilesModule } from "./profiles";
 import type { SecurityEventsModule } from "./security-events";
 import type { SessionsModule } from "./sessions";
 import type { StepUpModule } from "./step-up";
+import { storeCall } from "./store-call";
 import type { TokensModule } from "./tokens";
 import type {
   PasskeyProvenance,
@@ -68,6 +63,27 @@ import { toPublicProfile } from "./types";
 // serves every registration ceremony instead of allocating per call.
 const textEncoder = new TextEncoder();
 
+/**
+ * The challenge the authenticator signed, from the assertion's
+ * `clientDataJSON` (base64url JSON with a `challenge` field), or null when it
+ * cannot be read. Read here only to find which challenge to check; the
+ * verifier then holds the signature to it.
+ */
+function signedChallenge(assertion: AuthenticationResponseJSON): string | null {
+  const encoded: unknown = assertion.response?.clientDataJSON;
+  if (typeof encoded !== "string") return null;
+  try {
+    const clientData: unknown = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
+    const challenge =
+      typeof clientData === "object" && clientData !== null
+        ? (clientData as { challenge?: unknown }).challenge
+        : undefined;
+    return typeof challenge === "string" ? challenge : null;
+  } catch {
+    return null;
+  }
+}
+
 export function createPasskeysModule(
   ctx: AuthContext,
   profiles: ProfilesModule,
@@ -76,7 +92,7 @@ export function createPasskeysModule(
   stepUp: StepUpModule,
   securityEventsModule: SecurityEventsModule,
 ) {
-  const { config, stores, hashIp, passkeyRegisterAllowedAmr } = ctx;
+  const { config, stores, hashIp, serverMac, challengeClaims, passkeyRegisterAllowedAmr } = ctx;
   const { resolveIdentifier, findDefaultProfile } = profiles;
   const { issueTokens, liftSessionRestriction } = tokens;
   const { invalidateOtherAccountSessions } = sessions_;
@@ -163,7 +179,7 @@ export function createPasskeysModule(
     caller?: { readonly recoverySessionHash: string },
   ): Effect.Effect<
     { options: PublicKeyCredentialCreationOptionsJSON },
-    AuthError | DatabaseError,
+    AuthError | DatabaseError | CoordinationError,
     Db
   > =>
     Effect.gen(function* () {
@@ -253,7 +269,9 @@ export function createPasskeysModule(
           generateRegistrationOptions({
             rpName: config.rpName,
             rpID: config.rpId,
-            userID: textEncoder.encode(account.passkeyUserId),
+            // A copy, so the bytes sit on a plain ArrayBuffer whichever runtime
+            // typed the encoder.
+            userID: new Uint8Array(textEncoder.encode(account.passkeyUserId)),
             userName: `@${profile.handle}`,
             userDisplayName: profile.displayName ?? `@${profile.handle}`,
             attestationType: "none",
@@ -279,7 +297,7 @@ export function createPasskeysModule(
         catch: (cause) => new AuthError({ message: String(cause) }),
       });
 
-      yield* Effect.promise(() =>
+      yield* storeCall(stores.registrationChallenges, "set", () =>
         stores.registrationChallenges.set(
           accountId,
           {
@@ -321,13 +339,20 @@ export function createPasskeysModule(
     callerSessionHash: string | null,
     /** IP + UA for the security_events row. Best-effort; omitted in tests. */
     eventMeta?: SessionMeta,
-  ): Effect.Effect<{ passkeyId: string }, AuthError | DatabaseError, Db | EmailService> =>
+  ): Effect.Effect<
+    { passkeyId: string },
+    AuthError | DatabaseError | CoordinationError,
+    Db | EmailService
+  > =>
     Effect.gen(function* () {
-      const entry = yield* Effect.promise(() => stores.registrationChallenges.get(accountId));
+      // Read and removed in one call, so of two presentations of one
+      // attestation at once only one reaches verification.
+      const entry = yield* storeCall(stores.registrationChallenges, "take", () =>
+        stores.registrationChallenges.take(accountId),
+      );
       if (!entry || Date.now() > entry.expiresAt) {
         return yield* Effect.fail(new AuthError({ message: "Challenge expired or not found" }));
       }
-      yield* Effect.promise(() => stores.registrationChallenges.delete(accountId));
 
       const verification = yield* Effect.tryPromise({
         try: () =>
@@ -630,13 +655,10 @@ export function createPasskeysModule(
    *     identity up-front — conditional-UI autofill drives the ceremony,
    *     and the authenticator picks the credential. We emit options with
    *     an empty `allowCredentials` (forcing discoverable-credential
-   *     resolution on the device) and key the challenge by a random
-   *     `challengeId` that the client must round-trip to `complete`.
-   *
-   * Discoverable flow uses a short-lived random UUID as the challenge
-   * key so two concurrent discoverable `begin`s don't collide. The raw
-   * WebAuthn challenge is still a cryptographic nonce inside the
-   * ceremony; `challengeId` is just the server-side map key.
+   *     resolution on the device) and a challenge that proves itself: a
+   *     random nonce, its expiry and a MAC over both. Nothing is stored.
+   *     The client round-trips it to `complete` as `challengeId`, which
+   *     equals `options.challenge`.
    */
   const beginPasskeyLogin = (
     identifier: string | null,
@@ -645,37 +667,35 @@ export function createPasskeysModule(
       options: PublicKeyCredentialRequestOptionsJSON;
       challengeId?: string;
     },
-    AuthError | DatabaseError,
+    AuthError | DatabaseError | CoordinationError,
     Db
   > =>
     Effect.gen(function* () {
       // Discoverable path — no identifier. Emit options with empty
       // allowCredentials so the authenticator resolves via resident keys.
       if (identifier === null) {
+        // The challenge carries its own proof — a nonce, its expiry and a MAC
+        // over both (`server-mac.ts`) — so this stores nothing: a page load
+        // costs no store call, and only a sign-in that presents the challenge
+        // back spends one, to claim it.
         const options = yield* Effect.tryPromise({
           try: () =>
             generateAuthenticationOptions({
               rpID: config.rpId,
               allowCredentials: [],
               userVerification: "required",
+              challenge: serverMac.mintChallenge(Date.now() + CHALLENGE_TTL_MS),
             }),
           catch: (cause) => new AuthError({ message: String(cause) }),
         });
-        // The store self-bounds (CEREMONY_STORE_MAX in-memory, native PX
-        // expiry on Redis) and sweeps expired entries on insert, so no
-        // separate size-cap check is needed.
-        const challengeId = crypto.randomUUID();
-        yield* Effect.promise(() =>
-          stores.loginChallenges.set(
-            `__disc__:${challengeId}`,
-            { challenge: options.challenge, expiresAt: Date.now() + CHALLENGE_TTL_MS },
-            CHALLENGE_TTL_MS,
-          ),
-        );
-        return { options, challengeId };
+        return { options, challengeId: options.challenge };
       }
 
       const normalised = normaliseIdentifier(identifier);
+      // Longer than any account's identifier, and too long to key a challenge.
+      if (normalised.length > MAX_IDENTIFIER_LENGTH) {
+        return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
+      }
       const profile = yield* resolveIdentifier(normalised);
 
       // Resolve passkeys for the account when the identifier is known, or
@@ -718,8 +738,8 @@ export function createPasskeysModule(
           // Random bytes base64url-encoded — never corresponds to a real
           // credential. A subsequent `/login/passkey/complete` with an
           // assertion for this id will fail at the challenge lookup
-          // because we do NOT persist a challenge for the synthetic
-          // branch.
+          // because the synthetic branch parks its challenge where no
+          // complete reads (the probe key below).
           id: Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString("base64url"),
         },
       ];
@@ -741,22 +761,21 @@ export function createPasskeysModule(
         catch: (cause) => new AuthError({ message: String(cause) }),
       });
 
-      // Key challenge by normalised identifier so completePasskeyLoginDirect
-      // can check the in-memory guard before touching the DB. Skip the
-      // write on the synthetic branch: a subsequent complete call hits the
-      // "challenge not found" guard, which is indistinguishable from a
-      // legitimate timeout — preserves the enumeration safety into
-      // the complete step too.
-      if (realCredentials) {
-        // Store self-bounds + self-sweeps (see discoverable branch above).
-        yield* Effect.promise(() =>
-          stores.loginChallenges.set(
-            normalised,
-            { challenge: options.challenge, expiresAt: Date.now() + CHALLENGE_TTL_MS },
-            CHALLENGE_TTL_MS,
-          ),
-        );
-      }
+      // Every branch parks the challenge, with the same TTL, so every branch
+      // makes the same store call: it costs the same, and while the store is
+      // failing every branch answers the same 503. The real branch keys it by
+      // the normalised identifier, which `completePasskeyLoginDirect` reads
+      // before touching the DB. The synthetic branch keys it by the caller's
+      // probe key, which no `complete` reads: a complete for that identifier
+      // still hits "challenge not found", indistinguishable from a legitimate
+      // timeout, so the enumeration safety carries into the complete step.
+      yield* storeCall(stores.loginChallenges, "set", () =>
+        stores.loginChallenges.set(
+          realCredentials ? normalised : serverMac.probeKey(normalised),
+          { challenge: options.challenge, expiresAt: Date.now() + CHALLENGE_TTL_MS },
+          CHALLENGE_TTL_MS,
+        ),
+      );
 
       return { options };
     }).pipe(Effect.withSpan("auth.login.passkey.begin"));
@@ -779,18 +798,35 @@ export function createPasskeysModule(
   const verifyPasskeyAssertion = (
     context: PasskeyLoginContext,
     assertion: AuthenticationResponseJSON,
-  ): Effect.Effect<ProfileWithEmail, AuthError | DatabaseError, Db> =>
+  ): Effect.Effect<ProfileWithEmail, AuthError | DatabaseError | CoordinationError, Db> =>
     Effect.gen(function* () {
-      // Resolve challenge key before any DB lookup.
-      const challengeKey =
-        context.kind === "identified"
-          ? normaliseIdentifier(context.identifier)
-          : `__disc__:${context.challengeId}`;
-      const entry = yield* Effect.promise(() => stores.loginChallenges.get(challengeKey));
-      if (!entry || Date.now() > entry.expiresAt) {
-        return yield* Effect.fail(new AuthError({ message: "Challenge expired or not found" }));
+      const notFound = new AuthError({ message: "Challenge expired or not found" });
+      // The challenge is settled before any DB lookup. Identified: read and
+      // removed in one call, so of two presentations of one assertion at
+      // once only one reaches verification. Discoverable: the challenge the
+      // browser signed, which must be the one the client says it began with,
+      // must open under the server's MAC and be unexpired; its single use is
+      // claimed once the signature verifies, below.
+      let expectedChallenge: string;
+      let discoverable: { readonly nonce: string } | null = null;
+      if (context.kind === "identified") {
+        const key = normaliseIdentifier(context.identifier);
+        if (key.length > MAX_IDENTIFIER_LENGTH) {
+          return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
+        }
+        const entry = yield* storeCall(stores.loginChallenges, "take", () =>
+          stores.loginChallenges.take(key),
+        );
+        if (!entry || Date.now() > entry.expiresAt) return yield* Effect.fail(notFound);
+        expectedChallenge = entry.challenge;
+      } else {
+        const signed = signedChallenge(assertion);
+        if (signed === null || signed !== context.challengeId) return yield* Effect.fail(notFound);
+        const opened = serverMac.openChallenge(signed);
+        if (!opened.ok) return yield* Effect.fail(notFound);
+        expectedChallenge = signed;
+        discoverable = opened;
       }
-      yield* Effect.promise(() => stores.loginChallenges.delete(challengeKey));
 
       const { db } = yield* Db;
       // Look up the credential row by `credentialId` — stable across both
@@ -864,7 +900,7 @@ export function createPasskeysModule(
       const verifyResult = yield* Effect.promise(() =>
         verifyAuthenticationResponse({
           response: assertion,
-          expectedChallenge: entry.challenge,
+          expectedChallenge,
           expectedOrigin: config.origin,
           expectedRPID: config.rpId,
           requireUserVerification: true,
@@ -892,21 +928,27 @@ export function createPasskeysModule(
         return yield* Effect.fail(new AuthError({ message: "Passkey verification failed" }));
       }
 
-      // Update counter + coalesced last_used_at (parallel to sessions).
-      const nowSec = Math.floor(Date.now() / 1000);
-      const shouldTouchLastUsed =
-        !pk.lastUsedAt || Date.now() - pk.lastUsedAt * 1000 >= PASSKEY_LAST_USED_COALESCE_MS;
-      const updates: Partial<Pick<NewPasskey, "counter" | "lastUsedAt" | "updatedAt">> = {
-        counter: verification.authenticationInfo.newCounter,
-      };
-      if (shouldTouchLastUsed) {
-        updates["lastUsedAt"] = nowSec;
-        updates["updatedAt"] = nowSec;
+      // A discoverable challenge signs in once: the first claim of its nonce,
+      // across every isolate, wins. Claimed only now, so only a caller holding
+      // a valid assertion spends a store call. The claim lasts a challenge's
+      // whole life plus a margin, counted from now, so it outlives every
+      // moment an isolate could still accept the challenge, whichever clock
+      // that isolate or the store keeps.
+      if (discoverable) {
+        const { nonce } = discoverable;
+        const won = yield* storeCall(challengeClaims, "claim", () =>
+          challengeClaims.claim(nonce, CHALLENGE_TTL_MS + CHALLENGE_CLAIM_MARGIN_MS),
+        );
+        if (!won) return yield* Effect.fail(notFound);
       }
-      yield* Effect.tryPromise({
-        try: () => db.update(passkeys).set(updates).where(eq(passkeys.id, pk.id)),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
+
+      // The counter, and the coalesced last_used_at, written only while the
+      // counter rule still holds against the row; refused with the
+      // verifier's own answer otherwise, before any session is issued.
+      const written = yield* recordAssertion(pk, verification.authenticationInfo.newCounter);
+      if (!written) {
+        return yield* Effect.fail(new AuthError({ message: "Passkey verification failed" }));
+      }
 
       return profile;
     });
@@ -920,7 +962,11 @@ export function createPasskeysModule(
       | { identifier: string; assertion: AuthenticationResponseJSON }
       | { challengeId: string; assertion: AuthenticationResponseJSON },
     sessionMeta?: SessionMeta,
-  ): Effect.Effect<{ session: TokenSet; profile: PublicProfile }, AuthError | DatabaseError, Db> =>
+  ): Effect.Effect<
+    { session: TokenSet; profile: PublicProfile },
+    AuthError | DatabaseError | CoordinationError,
+    Db
+  > =>
     Effect.gen(function* () {
       const isDiscoverable = "challengeId" in input;
       const context: PasskeyLoginContext = isDiscoverable

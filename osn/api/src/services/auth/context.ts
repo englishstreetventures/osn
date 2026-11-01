@@ -7,7 +7,6 @@
 import { createHmac } from "node:crypto";
 
 import { createInMemoryRecoveryLockoutStore } from "../../lib/recovery-lockout-store";
-import { createInMemoryRotatedSessionStore } from "../../lib/rotated-session-store";
 import type { AuthConfig } from "./config";
 import {
   EMAIL_CHANGE_BEGIN_PER_ACCOUNT_MAX,
@@ -19,8 +18,10 @@ import {
   TOTP_LOCKOUT_MS,
   TOTP_LOCKOUT_THRESHOLD,
 } from "./constants";
+import { createServerMac } from "./server-mac";
 import {
   createDefaultCeremonyStores,
+  createInMemoryChallengeClaimStore,
   createInMemoryAccountCap,
   createInMemoryJtiStore,
 } from "./stores";
@@ -53,13 +54,13 @@ export function createAuthContext(config: AuthConfig) {
   // premise — that the mailbox is the owner's — is the very thing in doubt.
   const emailChangeAllowedAmr = new Set<string>(["webauthn", "otp"]);
   const jtiStore = config.stepUpJtiStore ?? createInMemoryJtiStore();
-  const rotatedSessionStore = config.rotatedSessionStore ?? createInMemoryRotatedSessionStore();
-  const rotatedSessionStoreBackend = rotatedSessionStore.backend;
+  const challengeClaims = config.passkeyChallengeClaims ?? createInMemoryChallengeClaimStore();
 
   // Ceremony / pending-state stores. Default to per-service in-memory;
-  // index.ts injects Redis-backed equivalents in multi-pod deployments.
+  // a deployed Worker passes the coordination store's.
   const stores = config.ceremonyStores ?? createDefaultCeremonyStores();
-  // Per-account caps routed through the rate-limiter family.
+  // Per-account caps routed through the rate-limiter family. The same
+  // constants feed `OSN_RATE_LIMITS` in `routes/auth/limiters.ts`.
   const profileSwitchCap =
     config.profileSwitchCap ??
     createInMemoryAccountCap(PROFILE_SWITCH_MAX, PROFILE_SWITCH_WINDOW_MS);
@@ -77,13 +78,12 @@ export function createAuthContext(config: AuthConfig) {
     );
   // Per-account recovery-code lockout counter.
   const recoveryLockoutStore = config.recoveryLockoutStore ?? createInMemoryRecoveryLockoutStore();
-  // Per-account lockout for the email-OTP recovery path. Its own counter, and
-  // fail-closed like the TOTP one: both guard a 6-digit code, where failing
-  // open removes the only effective brake rather than a redundant one.
+  // Per-account lockout for the email-OTP recovery path. Its own counter, so
+  // grinding one recovery factor never locks the owner out of the other.
   const recoveryOtpLockoutStore =
     config.recoveryOtpLockoutStore ?? createInMemoryRecoveryLockoutStore();
-  // Per-account TOTP lockout. The in-memory default cannot fail, so the
-  // fail-closed posture only bites on the injected Redis-backed store.
+  // Per-account TOTP lockout. The in-memory default cannot fail; only a shared
+  // store answers `"unknown"`, which every caller refuses.
   const totpLockoutStore =
     config.totpLockoutStore ??
     createInMemoryRecoveryLockoutStore({
@@ -100,6 +100,8 @@ export function createAuthContext(config: AuthConfig) {
     if (!pepper) return null;
     return createHmac("sha256", pepper).update(ip).digest("hex");
   };
+  // Probe keys and the discoverable passkey challenge, under the same pepper.
+  const serverMac = createServerMac(config.sessionIpPepper);
 
   return {
     config,
@@ -112,8 +114,7 @@ export function createAuthContext(config: AuthConfig) {
     passkeyRegisterAllowedAmr,
     emailChangeAllowedAmr,
     jtiStore,
-    rotatedSessionStore,
-    rotatedSessionStoreBackend,
+    challengeClaims,
     stores,
     profileSwitchCap,
     emailChangeBeginCap,
@@ -122,6 +123,7 @@ export function createAuthContext(config: AuthConfig) {
     recoveryOtpLockoutStore,
     totpLockoutStore,
     hashIp,
+    serverMac,
   };
 }
 

@@ -3,6 +3,7 @@ import { Layer, ManagedRuntime } from "effect";
 import { describe, it, expect, beforeAll } from "vitest";
 
 import { makeTestAuthConfig } from "../helpers/auth-config";
+import { settledHandle } from "../helpers/background";
 import { createTestLayer } from "../helpers/db";
 import { createAuthRoutes } from "../helpers/routes";
 
@@ -58,7 +59,8 @@ describe("createAuthRoutes — injected shared runtime", () => {
     expect(((await free.json()) as { available: boolean }).available).toBe(true);
 
     // 2. register/begin sends an OTP via the injected runtime's EmailService.
-    const begin = await app.handle(
+    const begin = await settledHandle(
+      app,
       new Request("http://localhost/register/begin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

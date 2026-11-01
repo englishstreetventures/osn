@@ -20,7 +20,7 @@ related:
 packages:
   - "@osn/api"
   - "@osn/db"
-last-reviewed: 2026-10-27
+last-reviewed: 2026-10-30
 ---
 
 # Social Graph
@@ -42,6 +42,8 @@ A connection is a mutual relationship between two users. It requires both partie
 - The sender can cancel a pending request
 - Either party can remove an accepted connection
 
+Each of these reads the connection, then writes it, in two statements, so the write names the row as it was read — its id, its two profiles and its status — and checks that it changed one. A request accepted, declined or removed by another request in between is left as that request left it, and this one is refused as it would be had it read afterwards: `Pending request not found` for an accept or decline, `Connection not found` for a remove or cancel. A request is written only while neither profile blocks the other and no connection stands between them in either direction, both checked inside the insert; refused, it answers `Cannot send connection request` or `Connection already exists`, as the checks before it do.
+
 **List asymmetry (by design, not a bug):** `listPendingRequests` /
 `GET /graph/connections/pending` returns only requests *received* by the
 caller (`addresseeId = caller`); it never includes ones the caller sent.
@@ -60,7 +62,8 @@ direction — no new endpoint needed for cancel).
 ### Blocks (unidirectional)
 
 A block is a one-way action. When A blocks B:
-- The block removes any existing connection between A and B (wrapped in a DB transaction)
+- The block removes any existing connection between A and B, in one batch: the block is inserted first, then the connections are deleted, so a request that lands while the block is written is removed by the delete or refused by its own block check
+- An unblock deletes the block it read, and answers `Block not found` when another unblock removed it first
 - B cannot send connection requests to A
 - Neither can add the other as a co-host on a cire wedding: cire-api asks `GET /graph/internal/either-blocked` before it seats anyone, and checks only the owner doing the adding ([[cire-auth#Equal owners]])
 - Neither is suggested to the other by the internal handle search: `GET /graph/internal/profile-search` given a `requesterId` leaves out that profile and everyone with a block against it, either way round, and cire's co-host autocomplete always passes the signed-in organiser
@@ -92,7 +95,7 @@ Tests covering services and routes. Test areas include:
 
 ## Rate Limiting
 
-All graph write endpoints are rate-limited at 60 requests per user per minute. Graph routes accept injected rate-limiter instances -- part of the [[redis]] migration Phase 1 abstraction work.
+All graph write endpoints are rate-limited at 60 requests per user per minute, on the `RL_USER_60_60` native binding in a deployed tier ([[rate-limiting]]). Graph routes accept injected rate-limiter instances, so tests and the Bun dev server pass in-memory ones.
 
 ## Cross-Package Access
 
@@ -125,7 +128,7 @@ The `:handle` route parameter uses TypeBox `HandleParam` with regex + length bou
 - N+1 queries in graph list functions replaced with `inArray` batch fetches
 - `eitherBlocked` collapsed from two sequential `isBlocked` calls to a single OR query
 - `blockProfile` replaced SELECT-then-DELETE with direct `DELETE WHERE OR`
-- `removeConnection` and `blockProfile` wrapped in DB transactions
+- `blockProfile` writes the block and deletes the connections in one batch (`commitBatch`); `removeConnection` is a read, then a delete that names the row read
 
 ## Recommendations (contact suggestions)
 
@@ -164,7 +167,7 @@ Current shape prioritises correctness + bounded cost over peak throughput. Two c
 
 Privacy: the endpoint returns `mutualCount` alongside each suggestion. This leaks graph-inference signal.
 
-Rate-limited at 20 req/user/min via `createRedisRecommendationRateLimiters().suggest` — see [[rate-limiting]].
+Rate-limited at 20 req/user/min (`OSN_RATE_LIMITS.recommendationSuggest`, on the `RL_USER_20_60` binding in a deployed tier) — see [[rate-limiting]].
 
 ### D1's bound-parameter cap (standing constraint)
 
@@ -244,7 +247,7 @@ Differences from people search, all deliberate:
 
 ### Budget
 
-Rate-limited at 60 req/user/min via `createRedisRecommendationRateLimiters().search` — looser than the suggestion budget because typeahead fires once per debounced keystroke, and a 20/min budget would 429 a user mid-word. The client debounces 250 ms and aborts superseded requests. `orgLimit` defaults to half `limit`: organisations are the secondary section in the UI.
+Rate-limited at 60 req/user/min (`OSN_RATE_LIMITS.recommendationSearch`, on the `RL_USER_60_60` binding in a deployed tier) — looser than the suggestion budget because typeahead fires once per debounced keystroke, and a 20/min budget would 429 a user mid-word. The client debounces 250 ms and aborts superseded requests. `orgLimit` defaults to half `limit`: organisations are the secondary section in the UI.
 
 Query count per people search is 3-6 (two edge-direction seeks, the handle range, optionally the infix scan, then blocks / connection state / shared organisations). The last three are one `Effect.all` rather than the two sequential steps this used before, so the request has **one fewer sequential database step** than the pre-proximity version despite carrying more signal — parallel on D1, sequential on bun:sqlite. Candidate ids reach 160 at the maximum page size (50 + 50 from the edge seeks, 60 from the handle range), and the probes name the list twice; each probe binds it as one JSON parameter (`jsonEachIn`), so its parameter count does not grow with the list.
 

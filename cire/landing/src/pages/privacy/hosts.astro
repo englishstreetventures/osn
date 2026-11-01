@@ -25,7 +25,7 @@ const draft = draftPending(LEGAL_ENTITY.merchantOfRecord, LEGAL_ENTITY.accountDa
 
   <h1>Privacy Notice for Hosts</h1>
   <PrivacyNav current="hosts" />
-  <p class="meta">Last updated: 2026-10-23</p>
+  <p class="meta">Last updated: 2026-10-30</p>
 
   <p>
     This notice explains how <span class={ph(LEGAL_ENTITY.name)}>{LEGAL_ENTITY.name}</span>, trading as Cire
@@ -101,14 +101,14 @@ const draft = draftPending(LEGAL_ENTITY.merchantOfRecord, LEGAL_ENTITY.accountDa
   <h2>Who we share it with</h2>
   <p>We use a small set of service providers to run Cire:</p>
   <ul>
-    <li><strong>Cloudflare</strong> — hosting, content delivery and databases (global network).</li>
+    <li><strong>Cloudflare</strong> — hosting, content delivery, databases, and infrastructure
+      supporting security features such as rate limiting (global network).</li>
     <li><span class={ph(LEGAL_ENTITY.merchantOfRecord)}>{LEGAL_ENTITY.merchantOfRecord}</span> — payment processing, as
       merchant of record for purchases.</li>
     <li><strong>Resend</strong> — transactional email delivery, including vendor claim
       invitations.</li>
     <li><strong>The vendor you enquire with</strong> — an enquiry is sent to that supplier,
       who then holds it under their own responsibility.</li>
-    <li><strong>Upstash</strong> — infrastructure supporting security features such as rate limiting.</li>
     <li><strong>Grafana Cloud</strong> — service telemetry (metrics and traces; pseudonymised
       identifiers only, never guest content).</li>
     <li><strong>Google Fonts</strong> — our pages currently load fonts from Google&rsquo;s CDN,
@@ -116,10 +116,17 @@ const draft = draftPending(LEGAL_ENTITY.merchantOfRecord, LEGAL_ENTITY.accountDa
   </ul>
   <p>
     We also disclose information where the law requires it. Our primary region is
-    <strong>Australia</strong>; the infrastructure supporting the service&rsquo;s security is
-    pinned to Sydney, and some technical records &mdash; email delivery, service telemetry,
-    payment processing &mdash; are handled by providers outside it. If you are in the EEA or the UK,
-    that means your information is transferred out of that area to Australia and elsewhere;
+    <strong>Oceania</strong>: our databases, which hold your sign-in sessions too, are hosted by
+    Cloudflare in its Oceania region, and we operate from Australia. Cloudflare keeps read-only
+    copies of those databases in other regions of its network, which it chooses and can change.
+    Files &mdash; the images and spreadsheets you upload, and the copies we keep so a change can be
+    undone &mdash; are stored by Cloudflare in Eastern North America, and resized copies of
+    images are also cached in the Cloudflare data centres where they are viewed. The portal&rsquo;s live updates
+    run on a Cloudflare server placed near the first request for each wedding, which holds only
+    who is listening, and only while they are. Cloudflare counts rate limits wherever in its
+    network a request arrives. Some technical records &mdash; email delivery, service telemetry,
+    payment processing &mdash; are handled by providers outside Oceania. If you are in the EEA or
+    the UK, that means your information is transferred out of that area to Oceania and elsewhere;
     ask us and we will tell you what protections apply to that transfer.
   </p>
 
@@ -133,7 +140,10 @@ const draft = draftPending(LEGAL_ENTITY.merchantOfRecord, LEGAL_ENTITY.accountDa
     reserved and bought from their list, and the amount, currency and day of each money gift —
     until they delete their wedding.
     Other wedding and account data is kept while your account is active and removed when you ask us
-    to. The dated record of a status change naming the organiser who made it is deleted after
+    to remove it. Removing a file deletes the stored file, but cached copies of images (resized invite,
+    event and gift images, and the original upload when a resize fails) can still be served for up
+    to a year after they were stored, and link thumbnails for up to 30 days, until they expire. A
+    cached copy can therefore be served after you remove the file or delete the wedding. The dated record of a status change naming the organiser who made it is deleted after
     <strong>90 days</strong>; the note of who last changed a reply goes with the reply. Specific
     periods for account data:
     <span class={ph(LEGAL_ENTITY.accountDataRetention)}>{LEGAL_ENTITY.accountDataRetention}</span>.

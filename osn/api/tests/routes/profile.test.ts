@@ -338,7 +338,7 @@ describe("profile routes", () => {
     it("fails closed when rate limiter backend throws (S-M1)", async () => {
       const brokenBackend: RateLimiterBackend = {
         check: async () => {
-          throw new Error("Redis connection refused");
+          throw new Error("store unreachable");
         },
       };
       const freshApp = createProfileRoutes(config, layer, undefined, {

@@ -31,7 +31,7 @@ export function PrivacyPage(): JSX.Element {
   return (
     <LegalDocument
       title="Privacy Notice"
-      updated="2026-10-17"
+      updated="2026-10-30"
       draft={draftPending(LEGAL_ENTITY.regulator)}
     >
       <p>
@@ -107,17 +107,19 @@ export function PrivacyPage(): JSX.Element {
       <p>
         Other people see what you make public: your handle, display name and avatar, and whatever a
         given app shows about you within it. Behind the service, a small number of providers process
-        data on our instructions — Cloudflare for hosting and databases, Resend for outbound email,
-        Upstash for rate-limit and session state (all of it hashed or pseudonymised), and Grafana
-        Cloud for technical telemetry. Beyond that, only where the law requires it.
+        data on our instructions — Cloudflare for hosting, databases, and rate-limit and session
+        state, Resend for outbound email, and Grafana Cloud for technical telemetry. Beyond that,
+        only where the law requires it.
       </p>
 
       <h2>Where it is stored</h2>
       <p>
-        In <strong>Australia</strong>. The databases and the supporting infrastructure are hosted in
-        Sydney and the service is operated from there; some technical records are processed by
-        providers elsewhere. If you are in the EEA or the UK, this means your information is
-        transferred outside that area. Ask us and we will tell you what protections apply.
+        In <strong>Oceania</strong>. The databases are hosted by Cloudflare in its Oceania region.
+        Cloudflare keeps the short-lived state behind sign-in and rate limiting there too where it
+        can, and counts per-minute rate limits wherever in its network a request arrives. The
+        service is operated from Australia, and some technical records are processed by providers
+        elsewhere. If you are in the EEA or the UK, this means your information is transferred
+        outside that area. Ask us and we will tell you what protections apply.
       </p>
 
       <h2>How long we keep it</h2>

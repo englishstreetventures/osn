@@ -60,8 +60,6 @@ export const SECRET_INVENTORY: readonly WorkerSecrets[] = [
           "OSN_SESSION_IP_PEPPER",
           "OSN_TOTP_ENCRYPTION_KEY",
           "RESEND_API_KEY",
-          "UPSTASH_REDIS_REST_TOKEN",
-          "UPSTASH_REDIS_REST_URL",
         ],
         // CIRE_INTERNAL_REVOKE_SECRET: the bearer for cire-api's organiser-session
         // revoke, held by both Workers (SHARED_SECRET_VALUES); unset, the revoke is
@@ -81,8 +79,6 @@ export const SECRET_INVENTORY: readonly WorkerSecrets[] = [
           "OSN_TOTP_ENCRYPTION_KEY",
           "RESEND_API_KEY",
           "TURNSTILE_SECRET_KEY",
-          "UPSTASH_REDIS_REST_TOKEN",
-          "UPSTASH_REDIS_REST_URL",
         ],
         optional: ["CIRE_INTERNAL_REVOKE_SECRET", "OSN_TOTP_ENCRYPTION_KEY_PREVIOUS"],
         forbidden: ["DEV_LOGIN_SECRET", "RESEND_API_URL"],

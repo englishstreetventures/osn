@@ -35,7 +35,7 @@ export const VENDOR_PORTAL_ORIGIN = "http://localhost:4326";
 
 /**
  * The only variables a child inherits from the shell that starts the suite.
- * Everything else (a developer's `REDIS_URL`, `OSN_ENV`, Turnstile keys,
+ * Everything else (a developer's `OSN_DATABASE_URL`, `OSN_ENV`, Turnstile keys,
  * `NODE_ENV=test`, an agent marker that sends `astro dev` to the background)
  * stays out, so a run on a laptop and a run in CI see the same environment.
  */

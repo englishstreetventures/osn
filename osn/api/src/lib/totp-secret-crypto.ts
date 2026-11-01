@@ -307,9 +307,9 @@ export async function decryptTotpSecret(
  * The ceremony-store shape for a pending, unconfirmed enrolment.
  *
  * Base64 strings, not byte arrays, and that is load-bearing rather than
- * stylistic: the in-memory store keeps the value by reference while the Redis
+ * stylistic: the in-memory store keeps the value by reference while the shared
  * store round-trips it through `JSON.stringify`. A `Uint8Array` here would work
- * in every test and come back from Upstash as `{"0":12,"1":200,…}`.
+ * in every test and come back from the store as `{"0":12,"1":200,…}`.
  */
 export interface EncryptedTotpSecretJson {
   ciphertextB64: string;

@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import {
   accounts,
   appEnrollments,
@@ -10,6 +12,7 @@ import {
   organisationMembers,
   passkeys,
   recoveryCodes,
+  rotatedSessions,
   securityEvents,
   sessions,
   totpCredentials,
@@ -17,11 +20,13 @@ import {
 } from "@osn/db/schema";
 import type { DeletionJob } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
-import { commitBatch, jsonEachIn } from "@shared/db-utils";
+import { commitBatch, jsonEachIn, rowsChanged } from "@shared/db-utils";
 import type { AppEnrollmentApp, DeletionFanoutService } from "@shared/observability/metrics";
-import { and, eq, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, lte, notExists, or, sql } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
+import { canBatch } from "../lib/batch";
+import { bound } from "../lib/bound";
 import { arcPostJsonEffect } from "../lib/outbound-arc";
 import {
   metricAccountDeletionCompleted,
@@ -32,6 +37,7 @@ import {
   withAccountDeletion,
 } from "../metrics";
 import { listActiveApps, leaveApp } from "./app-enrollments";
+import { outsideFamilyOf } from "./auth/sessions";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -118,6 +124,17 @@ const newId = (prefix: string): string =>
   `${prefix}${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
 
 /**
+ * The id of the `account_deletion_cancelled` event for one deletion job, from
+ * the account and the job's `soft_deleted_at`: the same for every cancel of
+ * that job, so the table's key lets one of them record it. A job requested in
+ * the same second as an earlier one of the same account shares that id, and
+ * its cancel finds it taken and records nothing. The shape of every event id
+ * (`sev_` and 12 hex), which the acknowledge route requires.
+ */
+const cancelEventId = (accountId: string, softDeletedAt: number): string =>
+  `sev_${createHash("sha256").update(`${accountId}:${softDeletedAt}`).digest("hex").slice(0, 12)}`;
+
+/**
  * Soft-deletes the account: redacts identity fields, nukes credentials,
  * revokes all-but-the-requesting session, inserts a deletion_jobs row.
  * Returns the existing row if the account is already tombstoned (idempotent).
@@ -189,9 +206,9 @@ export const requestErasure = (
           //    Handle becomes `deleted_<usrId-suffix>` (preserves uniqueness),
           //    display name + avatar are nulled.
           //
-          //    P-W1: a single bulk UPDATE using a SQL expression instead of
-          //    a per-row loop. Constant statement count regardless of
-          //    `accounts.maxProfiles`.
+          //    One bulk UPDATE with a SQL expression, not a statement per
+          //    profile, so the batch's statement count stays the same
+          //    whatever `accounts.maxProfiles` allows.
           db
             .update(users)
             .set({
@@ -212,15 +229,39 @@ export const requestErasure = (
           db.delete(recoveryCodes).where(eq(recoveryCodes.accountId, accountId)),
           db.delete(totpCredentials).where(eq(totpCredentials.accountId, accountId)),
 
-          // 4. Revoke all sessions EXCEPT the cancellation handle. The
-          //    requesting session stays alive as the only path to cancel
-          //    during the 7-day grace window. Without a cancellation handle
-          //    the user must use a recovery-code login to cancel.
+          // 4. Revoke all sessions EXCEPT the cancellation handle's device
+          //    (its family, so a refresh of the handle in flight in another
+          //    tab does not sign it out; see `outsideFamilyOf`). The requesting
+          //    session stays alive as the only path to cancel during the
+          //    7-day grace window. Without a cancellation handle the user must
+          //    use a recovery-code login to cancel.
           cancelSessionId
             ? db
                 .delete(sessions)
-                .where(and(eq(sessions.accountId, accountId), ne(sessions.id, cancelSessionId)))
+                .where(
+                  and(
+                    eq(sessions.accountId, accountId),
+                    outsideFamilyOf(db, sessions.familyId, cancelSessionId),
+                  ),
+                )
             : db.delete(sessions).where(eq(sessions.accountId, accountId)),
+
+          //    And the rotation records of every family just revoked. The
+          //    cancel handle's family keeps its own, so a replay of a token
+          //    rotated out of that chain still revokes the handle: that is
+          //    what reuse detection is for while the handle is the account's
+          //    only live session. Runs after the delete above, which keeps the
+          //    handle's row, so the family is found as that delete found it.
+          cancelSessionId
+            ? db
+                .delete(rotatedSessions)
+                .where(
+                  and(
+                    eq(rotatedSessions.accountId, accountId),
+                    outsideFamilyOf(db, rotatedSessions.familyId, cancelSessionId),
+                  ),
+                )
+            : db.delete(rotatedSessions).where(eq(rotatedSessions.accountId, accountId)),
 
           // 5. Audit event.
           db.insert(securityEvents).values({
@@ -269,6 +310,12 @@ export const requestErasure = (
  * Caller must have re-authenticated using the cancellation session (verified
  * upstream in the route handler) — we don't re-check session ownership here.
  * Idempotent: returns `{ cancelled: false }` when no job exists.
+ *
+ * Answers `{ cancelled: false }` too once the grace window has passed or a
+ * sweep has begun purging the account (`purge_started_at`): the check holds
+ * in the delete itself, so a sweep that claims the account between this
+ * read and the write refuses the cancel, and one that comes after the write
+ * finds no job to purge.
  */
 export const cancelErasure = (
   accountId: string,
@@ -284,31 +331,71 @@ export const cancelErasure = (
 
     const now = Math.floor(Date.now() / 1_000);
 
-    // S-H1: cancellation is only honoured INSIDE the grace window. Once
-    // `hardDeleteAt` has passed, the fan-out sweep may already be purging
-    // Pulse / Zap data — resurrecting the OSN account at that point would
-    // leave it half-erased downstream with no way to re-trigger the purge
-    // (the per-account purge ledger treats it as already processed).
-    if (existing[0].hardDeleteAt <= now) {
+    // Cancellation is only honoured INSIDE the grace window and before any
+    // purge. Once `hardDeleteAt` has passed, the fan-out sweep may already be
+    // purging Pulse / Zap data — resurrecting the OSN account at that point
+    // would leave it half-erased downstream with no way to re-trigger the
+    // purge (the per-account purge ledger treats it as already processed).
+    // Checked here to answer the common case with no write, and again in the
+    // delete below.
+    if (existing[0].hardDeleteAt <= now || existing[0].purgeStartedAt !== null) {
       return { cancelled: false };
     }
 
-    yield* Effect.tryPromise({
-      // Pure writes — atomic batch on D1, sequential on bun:sqlite.
-      try: () =>
-        commitBatch(db, [
-          db.delete(deletionJobs).where(eq(deletionJobs.accountId, accountId)),
-          db.update(accounts).set({ deletedAt: null }).where(eq(accounts.id, accountId)),
-          db.insert(securityEvents).values({
-            id: newId("sev_"),
-            accountId,
-            kind: "account_deletion_cancelled",
-            createdAt: now,
-            acknowledgedAt: null,
-          }),
-        ]),
+    // The job goes first: the job this request read (its `soft_deleted_at`),
+    // and only while no sweep has claimed it and the window is open. The
+    // restore and the audit event run only once no job stands, and the event
+    // only while the account row exists. The event's id is the job's own, so a
+    // job's cancellation is recorded once: a second cancel of the same job
+    // finds the id taken and writes nothing. So a refused cancel writes
+    // nothing, whether a sweep, another cancel or a new request came first.
+    const { softDeletedAt } = existing[0];
+    const jobGone = notExists(
+      db
+        .select({ one: sql`1` })
+        .from(deletionJobs)
+        .where(eq(deletionJobs.accountId, accountId)),
+    );
+    const release = db
+      .delete(deletionJobs)
+      .where(
+        and(
+          eq(deletionJobs.accountId, accountId),
+          eq(deletionJobs.softDeletedAt, softDeletedAt),
+          isNull(deletionJobs.purgeStartedAt),
+          gt(deletionJobs.hardDeleteAt, now),
+        ),
+      );
+    const restore = db
+      .update(accounts)
+      .set({ deletedAt: null })
+      .where(and(eq(accounts.id, accountId), jobGone));
+    const audit = db
+      .insert(securityEvents)
+      .select(
+        db
+          .select({
+            id: bound(cancelEventId(accountId, softDeletedAt), securityEvents.id),
+            accountId: bound(accountId, securityEvents.accountId),
+            kind: bound("account_deletion_cancelled", securityEvents.kind),
+            createdAt: bound(now, securityEvents.createdAt),
+            acknowledgedAt: bound(null, securityEvents.acknowledgedAt),
+          })
+          .from(accounts)
+          .where(and(eq(accounts.id, accountId), jobGone)),
+      )
+      .onConflictDoNothing({ target: securityEvents.id });
+    const released = yield* Effect.tryPromise({
+      // One batch on D1; one statement at a time on bun:sqlite.
+      try: async () => {
+        const [result] = canBatch(db)
+          ? await db.batch([release, restore, audit])
+          : ([await release, await restore, await audit] as const);
+        return rowsChanged(result);
+      },
       catch: (cause) => new AccountErasureDbError({ cause }),
     });
+    if (released === 0) return { cancelled: false };
     metricSecurityEventRecorded("account_deletion_cancelled");
     metricAccountDeletionCompleted("cancelled", "user");
     return { cancelled: true };
@@ -405,22 +492,56 @@ const markBridgeDone = (
   });
 
 /**
- * Runs the cross-service fan-out for a still-pending deletion job. Used by
- * both the request handler (for the initial best-effort fan-out, fire-and-
- * forget after returning 202) and the retry sweeper (for any bridge that
- * came back without `*_done_at` set).
+ * Marks the account's purge as begun, before a sweep purges anything, and
+ * answers whether the sweep may go on: true when this call wrote the mark —
+ * the job still exists, no other sweep has marked it, and its grace window
+ * has passed by `nowSec`. A cancel that comes after is refused; one that came
+ * before has removed the job, and this answers false.
+ */
+const claimPurge = (
+  accountId: string,
+  nowSec: number,
+): Effect.Effect<boolean, AccountErasureDbError, Db> =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+    const claimed = yield* Effect.tryPromise({
+      try: () =>
+        db
+          .update(deletionJobs)
+          .set({ purgeStartedAt: nowSec })
+          .where(
+            and(
+              eq(deletionJobs.accountId, accountId),
+              isNull(deletionJobs.purgeStartedAt),
+              lte(deletionJobs.hardDeleteAt, nowSec),
+            ),
+          ),
+      catch: (cause) => new AccountErasureDbError({ cause }),
+    });
+    return rowsChanged(claimed) === 1;
+  });
+
+/**
+ * Runs the cross-service fan-out for a still-pending deletion job, for the
+ * retry sweeper (every bridge without `*_done_at` set). A job the sweep read
+ * unclaimed is claimed first ({@link claimPurge}), at `nowSec`, the sweep's
+ * clock; if the claim answers false (a cancel landed since the sweep read
+ * the job) nothing is sent. A job already claimed by an earlier pass is not
+ * written again.
  *
  * Per-bridge result is captured via Effect.result so a failing bridge does
  * not abort the parent — sweeper picks up the unfinished half on its next
  * cycle.
  */
 export const runFanOut = (
-  job: Pick<DeletionJob, "accountId" | "pulseDoneAt" | "zapDoneAt">,
-  urls: FanOutUrls = {},
+  job: Pick<DeletionJob, "accountId" | "pulseDoneAt" | "zapDoneAt" | "purgeStartedAt">,
+  urls: FanOutUrls,
+  nowSec: number,
 ): Effect.Effect<void, AccountErasureDbError, Db> =>
   Effect.gen(function* () {
     const { pulse, zap } = resolveFanOutUrls(urls);
     const body = yield* buildBridgeBody(job.accountId);
+    if (job.purgeStartedAt === null && !(yield* claimPurge(job.accountId, nowSec))) return;
     const tasks: Array<Effect.Effect<void, never, Db>> = [];
     if (job.pulseDoneAt === null) {
       tasks.push(
@@ -450,10 +571,9 @@ export const runFanOut = (
  * has crossed `hard_delete_at` AND has both bridges done (or pre-marked
  * not-applicable). Returns the count of hard-deletes performed.
  *
- * Designed to be called on a `setInterval` (every 6 h in production) with
- * a Redis-locked single-instance guard outside this function. The function
- * itself is safe to run concurrently — each account is processed in its
- * own per-row transaction.
+ * Runs every 6 h: from the Worker's cron `scheduled` handler when deployed,
+ * and from a `setInterval` in the Bun dev server. Safe to run concurrently —
+ * each account is processed in its own per-row transaction.
  */
 export const runHardDeleteSweep = (
   opts: { batchSize?: number; nowMs?: number } = {},
@@ -463,16 +583,19 @@ export const runHardDeleteSweep = (
     const batchSize = opts.batchSize ?? 100;
     const nowSec = Math.floor((opts.nowMs ?? Date.now()) / 1_000);
 
-    // P-C1: gating predicate is in SQL, not JS post-filter. A handful of
-    // permanently-stuck bridges (NULL `*_done_at`) would otherwise fill the
-    // batch slot and starve fan-out-complete rows. SQLite uses the
+    // The gating predicate is in SQL, not a filter after the read: a handful
+    // of permanently-stuck bridges (NULL `*_done_at`) would otherwise fill the
+    // batch and starve the rows whose fan-out is complete. SQLite uses the
     // `deletion_jobs_hard_delete_idx` for `hard_delete_at` and falls back to
     // a sequential scan over the small NULL-checks — the candidate set is
     // tiny (only in-flight deletions).
     const ready = yield* Effect.tryPromise({
       try: () =>
         db
-          .select({ accountId: deletionJobs.accountId })
+          .select({
+            accountId: deletionJobs.accountId,
+            purgeStartedAt: deletionJobs.purgeStartedAt,
+          })
           .from(deletionJobs)
           .where(
             and(
@@ -487,9 +610,9 @@ export const runHardDeleteSweep = (
 
     let purged = 0;
     for (const row of ready) {
-      yield* hardDeleteAccount(row.accountId).pipe(
-        Effect.tap(() => Effect.sync(() => metricAccountDeletionCompleted("hard", "sweeper"))),
-      );
+      const deleted = yield* hardDeleteAccount(row, nowSec);
+      if (!deleted) continue;
+      metricAccountDeletionCompleted("hard", "sweeper");
       purged += 1;
     }
     return { purged };
@@ -497,23 +620,34 @@ export const runHardDeleteSweep = (
 
 /**
  * Removes all PII-bearing rows referencing this account, then the account
- * itself. Audit rows in `security_events` and `email_changes` are
- * intentionally preserved to satisfy GDPR Art. 6(1)(c) legal-obligation
- * retention (12 mo / 90 d windows defined in `wiki/compliance/retention.md`).
+ * itself, and answers whether it did. Audit rows in `security_events` and
+ * `email_changes` are intentionally preserved to satisfy GDPR Art. 6(1)(c)
+ * legal-obligation retention (12 mo / 90 d windows defined in
+ * `wiki/compliance/retention.md`).
  *
- * The `account_id` FK is non-enforcing (sqlite without `PRAGMA foreign_keys=ON`,
- * `ON DELETE no action`), so the surviving audit rows remain queryable by
- * accountId until their own retention sweepers (C-M2) age them out. The
- * `users.handle` was already redacted to `deleted_<id>` at soft-delete time
- * so the surviving accountId no longer correlates to a person.
+ * A job the sweep read unclaimed is claimed first ({@link claimPurge}), at
+ * `nowSec`, the sweep's clock; if a cancel landed since the sweep read it,
+ * the claim answers false and nothing is deleted.
  *
- * P-W4: cascade deletes use a single `inArray` per child table instead of
- * looping per profile so the transaction holds the write lock for one
- * round-trip per table regardless of profile count.
+ * Neither audit table has a foreign key to `accounts` (each outlives its
+ * parent by design), so the surviving rows stay queryable by accountId.
+ * Nothing deletes them: `wiki/compliance/retention.md` sets 12 months for
+ * `security_events` and 90 days for `email_changes`, and no sweeper enforces
+ * either. The `users.handle` was redacted
+ * to `deleted_<id>` at soft-delete time, so the surviving accountId names no
+ * person.
+ *
+ * The cascade deletes use one `inArray` per child table, never a statement per
+ * profile, so the batch holds the write lock for one statement per table
+ * whatever the profile count.
  */
-const hardDeleteAccount = (accountId: string): Effect.Effect<void, AccountErasureDbError, Db> =>
+const hardDeleteAccount = (
+  job: Pick<DeletionJob, "accountId" | "purgeStartedAt">,
+  nowSec: number,
+): Effect.Effect<boolean, AccountErasureDbError, Db> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
+    const { accountId } = job;
     // Read owned profile ids up front (D1 has no interactive transaction), then
     // commit every delete/update as one atomic batch below. The account is being
     // tombstoned, so no new profiles can appear between the read and the batch.
@@ -524,6 +658,7 @@ const hardDeleteAccount = (accountId: string): Effect.Effect<void, AccountErasur
         >,
       catch: (cause) => new AccountErasureDbError({ cause }),
     })).map((r) => r.id);
+    if (job.purgeStartedAt === null && !(yield* claimPurge(accountId, nowSec))) return false;
 
     yield* Effect.tryPromise({
       // Atomic batch on D1, sequential on bun:sqlite. Profile-scoped child rows
@@ -572,6 +707,9 @@ const hardDeleteAccount = (accountId: string): Effect.Effect<void, AccountErasur
             : []),
 
           db.delete(sessions).where(eq(sessions.accountId, accountId)),
+          // Before the `accounts` delete below: each record references the
+          // account, so one left behind fails the whole batch on the foreign key.
+          db.delete(rotatedSessions).where(eq(rotatedSessions.accountId, accountId)),
           db.delete(passkeys).where(eq(passkeys.accountId, accountId)),
           db.delete(recoveryCodes).where(eq(recoveryCodes.accountId, accountId)),
           db.delete(totpCredentials).where(eq(totpCredentials.accountId, accountId)),
@@ -590,9 +728,10 @@ const hardDeleteAccount = (accountId: string): Effect.Effect<void, AccountErasur
             .set({ leftAt: Math.floor(Date.now() / 1_000) })
             .where(and(eq(appEnrollments.accountId, accountId), isNull(appEnrollments.leftAt))),
 
-          // INTENTIONALLY KEPT (S-H5 / C-H1):
-          //   - security_events   — Art. 6(1)(c), 12-month retention sweeper (C-M2)
-          //   - email_changes     — Art. 6(1)(c), 90-day retention sweeper  (C-M2)
+          // Kept on purpose, as legal-obligation records (Art. 6(1)(c)), for
+          // the retention window wiki/compliance/retention.md sets for each:
+          //   - security_events   — 12 months
+          //   - email_changes     — 90 days
           // Both retain the now-orphaned `account_id`. PII linkage is broken
           // because `users.handle` was redacted at soft-delete and the
           // `accounts.email` row is gone here.
@@ -600,12 +739,13 @@ const hardDeleteAccount = (accountId: string): Effect.Effect<void, AccountErasur
         ]),
       catch: (cause) => new AccountErasureDbError({ cause }),
     });
+    return true;
   });
 
 /**
  * Fan-out sweeper pass — the SOLE driver of cross-service purges.
  *
- * S-H1: bridges only fire once the 7-day grace window has elapsed
+ * Bridges fire only once the 7-day grace window has elapsed
  * (`hard_delete_at <= now`). Purging Pulse / Zap at soft-delete time would
  * destroy app data the user was promised they could get back by
  * cancelling, and the per-account purge ledger on the Pulse side would
@@ -632,6 +772,7 @@ export const runFanOutRetrySweep = (
             hardDeleteAt: deletionJobs.hardDeleteAt,
             pulseDoneAt: deletionJobs.pulseDoneAt,
             zapDoneAt: deletionJobs.zapDoneAt,
+            purgeStartedAt: deletionJobs.purgeStartedAt,
           })
           .from(deletionJobs)
           .where(
@@ -644,7 +785,7 @@ export const runFanOutRetrySweep = (
       catch: (cause) => new AccountErasureDbError({ cause }),
     });
 
-    // P-W3: bounded concurrency. Sequential `for ... yield*` would take
+    // Bounded concurrency. Sequential `for ... yield*` would take
     // 100 × 20s = ~33 minutes per cycle worst-case (each row dispatches
     // two 10s-timeout HTTP calls). Per-row failures are already isolated
     // inside `runFanOut` via `Effect.catch`, so concurrency is safe.
@@ -657,7 +798,7 @@ export const runFanOutRetrySweep = (
         const age = nowSec - row.hardDeleteAt;
         if (row.pulseDoneAt === null) metricAccountDeletionFanoutPendingAge("pulse", age);
         if (row.zapDoneAt === null) metricAccountDeletionFanoutPendingAge("zap", age);
-        return runFanOut(row, { pulseApiUrl: opts.pulseApiUrl, zapApiUrl: opts.zapApiUrl });
+        return runFanOut(row, { pulseApiUrl: opts.pulseApiUrl, zapApiUrl: opts.zapApiUrl }, nowSec);
       },
       { concurrency: 8, discard: true },
     );

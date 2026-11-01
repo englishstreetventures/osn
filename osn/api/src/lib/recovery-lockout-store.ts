@@ -19,64 +19,65 @@
  * On lockout the caller returns the SAME generic error as any other failure,
  * preserving the no-enumeration-oracle property.
  *
- * The store follows the injectable triple-pattern used elsewhere in the auth
- * service. The Redis backend uses an atomic INCR + PEXPIRE Lua script (the same
- * primitive as the rate-limiter family) so the count and the window are
- * consistent across pods.
+ * The same store shape guards the email-OTP recovery path and TOTP, each with
+ * its own counter.
  *
- * # Two consumers, opposite outage postures
+ * # A counter that cannot be reached
  *
- * Recovery codes get the default, fail-OPEN: a Redis outage must not lock every
- * account out (that would be a self-inflicted DoS), so `isLocked` returns
- * `false` and `recordFailure` returns 0 on error. The lockout is temporarily
- * ineffective, which is acceptable because the per-IP limiter and a 64-bit
- * search space remain in force.
+ * Every consumer fails closed. When the backing store cannot be read or
+ * written, `status` answers `"unknown"` and `recordFailure` answers
+ * `"unknown"`; the caller refuses the attempt with its usual generic error and
+ * writes no security event, because nothing is known to have crossed the
+ * threshold. `reset` never rejects: a counter left behind expires on its own.
  *
- * TOTP passes `failClosed: true`, because that second sentence is not true of
- * it. Six digits over a ±1-step window is three acceptable codes in a million —
- * even odds inside a few hundred thousand attempts, which a rotating fleet
- * reaches in under an hour against a per-IP limit alone. There is no wide
- * search space behind the counter, so failing open removes the only effective
- * defence rather than a redundant one. What failing closed costs is a TOTP
- * ceremony during a Redis command error; passkey and OTP step-up are
- * unaffected, so no account becomes unreachable.
+ * A six-digit code has nothing behind its counter — three acceptable codes in a
+ * million is even odds inside a few hundred thousand attempts — so failing open
+ * there removes the only effective defence. Recovery codes have a 64-bit space
+ * behind theirs, but an outage that also stops the code being checked costs the
+ * owner one retry, which is cheaper than any window in which guesses go
+ * uncounted.
  */
-
-import { type RedisClient, registerMemoryCounterScript } from "@shared/redis";
 
 export const RECOVERY_LOCKOUT_THRESHOLD = 5;
 export const RECOVERY_LOCKOUT_MS = 15 * 60 * 1000; // 15 minutes
 
-export type RecoveryLockoutBackend = "memory" | "redis";
+export type RecoveryLockoutBackend = "memory" | "durable_object";
+
+/**
+ * What a lockout check answers: `"locked"` while the account has at least the
+ * threshold's failures inside the window, `"open"` otherwise, each with the
+ * failures counted; `"unknown"` when the counter could not be read. A caller
+ * that succeeds skips `reset` when `failures` was 0: there is nothing to clear.
+ */
+export type LockoutReading =
+  | { readonly status: "open" | "locked"; readonly failures: number }
+  | { readonly status: "unknown" };
 
 export interface RecoveryLockoutStore {
   readonly backend: RecoveryLockoutBackend;
-  /** True if the account currently has ≥ THRESHOLD failures inside the window. */
-  isLocked(accountId: string): Promise<boolean>;
+  /** The account's standing, and its failures inside the window. */
+  status(accountId: string): Promise<LockoutReading>;
   /**
    * Record one failed attempt. Returns the running failure count within the
    * current window (so the caller can emit a `locked` metric on the attempt
-   * that crosses the threshold).
+   * that crosses the threshold), or `"unknown"` when it could not be recorded.
+   * The TOTP check calls it for every attempt, before it compares the code,
+   * and refuses unread any attempt whose count is over the threshold.
    */
-  recordFailure(accountId: string): Promise<number>;
-  /** Clear the counter — called on a successful consume. */
-  reset(accountId: string): Promise<void>;
+  recordFailure(accountId: string): Promise<number | "unknown">;
+  /**
+   * Take back `failures` — the count this caller's `status` or `recordFailure`
+   * answered — on a success, deleting the counter when none are left. A
+   * failure recorded since stands, with the window it was counted in. Should
+   * the window end between that read and this call, up to `failures` of the
+   * next window's count go instead. Never rejects.
+   */
+  reset(accountId: string, failures: number): Promise<void>;
 }
 
 export interface RecoveryLockoutConfig {
   threshold?: number;
   lockoutMs?: number;
-  /**
-   * What a caught Redis error means. `false` (the default) is fail-open: the
-   * account is reported unlocked and the failure is not counted. `true` is
-   * fail-closed: the account is reported locked and a failure is counted as
-   * having reached the threshold. See the module docstring for which consumer
-   * takes which and why. In-memory backends cannot fail, so this is inert
-   * there.
-   */
-  failClosed?: boolean;
-  /** Redis backend only — caught command error. */
-  onError?: (op: "is_locked" | "record" | "reset", cause: unknown) => void;
 }
 
 interface MemoryBucket {
@@ -84,7 +85,7 @@ interface MemoryBucket {
   resetAt: number;
 }
 
-/** In-memory lockout store — single-process dev/test. */
+/** In-memory lockout store — single-process dev/test. It cannot fail. */
 export function createInMemoryRecoveryLockoutStore(
   config: RecoveryLockoutConfig = {},
 ): RecoveryLockoutStore {
@@ -104,9 +105,9 @@ export function createInMemoryRecoveryLockoutStore(
 
   return {
     backend: "memory",
-    async isLocked(accountId) {
-      const bucket = live(accountId);
-      return bucket !== null && bucket.count >= threshold;
+    async status(accountId) {
+      const failures = live(accountId)?.count ?? 0;
+      return { status: failures >= threshold ? "locked" : "open", failures };
     },
     async recordFailure(accountId) {
       const bucket = live(accountId);
@@ -117,87 +118,11 @@ export function createInMemoryRecoveryLockoutStore(
       bucket.count += 1;
       return bucket.count;
     },
-    async reset(accountId) {
-      buckets.delete(accountId);
-    },
-  };
-}
-
-/** Lua: INCR the key, set PEXPIRE only on first increment, return new count. */
-const RECORD_FAILURE_SCRIPT = `
-local current = redis.call('INCR', KEYS[1])
-if current == 1 then
-  redis.call('PEXPIRE', KEYS[1], ARGV[1])
-end
-return current
-`;
-
-// Let the in-memory RedisClient (dev/test) emulate this counter script. No-op
-// against real Redis, which executes the actual Lua. (X5 otherwise rejects any
-// script it doesn't recognise.)
-registerMemoryCounterScript(RECORD_FAILURE_SCRIPT);
-
-export interface RedisRecoveryLockoutConfig extends RecoveryLockoutConfig {
-  /** Key namespace prefix. Default: "osn:recovery-lockout". */
-  keyPrefix?: string;
-}
-
-/**
- * Redis-backed lockout store. One counter key per account with native PX
- * expiry. Fail-open on Redis error (see module docstring).
- */
-export function createRedisRecoveryLockoutStore(
-  client: RedisClient,
-  config: RedisRecoveryLockoutConfig = {},
-): RecoveryLockoutStore {
-  const threshold = config.threshold ?? RECOVERY_LOCKOUT_THRESHOLD;
-  const lockoutMs = config.lockoutMs ?? RECOVERY_LOCKOUT_MS;
-  const prefix = config.keyPrefix ?? "osn:recovery-lockout";
-  const failClosed = config.failClosed ?? false;
-  const onError = config.onError;
-
-  const key = (accountId: string): string => `${prefix}:${accountId}`;
-  const safeError = (op: "is_locked" | "record" | "reset", cause: unknown): void => {
-    try {
-      onError?.(op, cause);
-    } catch {
-      /* swallowed */
-    }
-  };
-
-  return {
-    backend: "redis",
-    async isLocked(accountId) {
-      try {
-        const raw = await client.get(key(accountId));
-        if (raw === null) return false;
-        return Number(raw) >= threshold;
-      } catch (cause) {
-        safeError("is_locked", cause);
-        // Fail-open by default (an outage must not lock everyone out);
-        // fail-closed for TOTP, whose 20-bit code space leaves nothing behind
-        // this counter. See the module docstring.
-        return failClosed;
-      }
-    },
-    async recordFailure(accountId) {
-      try {
-        const result = await client.eval(RECORD_FAILURE_SCRIPT, [key(accountId)], [lockoutMs]);
-        return Number(result);
-      } catch (cause) {
-        safeError("record", cause);
-        // A fail-closed consumer must not read an unrecordable failure as "no
-        // failures yet" — report the threshold so the caller's own
-        // threshold-crossing branch fires.
-        return failClosed ? threshold : 0;
-      }
-    },
-    async reset(accountId) {
-      try {
-        await client.del(key(accountId));
-      } catch (cause) {
-        safeError("reset", cause);
-      }
+    async reset(accountId, failures) {
+      const bucket = live(accountId);
+      if (!bucket) return;
+      bucket.count -= failures;
+      if (bucket.count <= 0) buckets.delete(accountId);
     },
   };
 }

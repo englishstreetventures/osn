@@ -1,26 +1,37 @@
 /**
  * Cross-device login (QR-code mediated session transfer). Device B begins +
  * polls; device A scans, approves (or rejects). 256-bit secret hashed at
- * rest, one-time consumption, short TTL — state lives in the injectable
+ * rest, one-time delivery, short TTL — state lives in the injectable
  * cross-device ceremony store.
+ *
+ * No token is ever stored. An approval reserves a `sessions` row for device B
+ * whose token nobody keeps, so every revocation that follows it — sign out
+ * everywhere else, a recovery, an erasure, any wipe of the account's
+ * sessions — removes that row as it would a signed-in device's. The poll that
+ * takes the approved entry turns the reserved row into device B's session,
+ * only while it is still there and the account and profile still stand, and
+ * mints the tokens from the profile and account as they are then.
  */
 
 import { createHash } from "node:crypto";
 
-import { securityEvents } from "@osn/db/schema";
+import { securityEvents, sessions } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { timingSafeEqualString } from "@shared/crypto/timing-safe";
+import { rowsChanged } from "@shared/db-utils";
 import { EmailService } from "@shared/email";
+import { and, eq, gt } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { forkBackground } from "../../lib/background";
 import { metricSecurityEventRecorded, withCrossDeviceOp } from "../../metrics";
 import { CDL_TTL_SECONDS } from "./constants";
 import type { AuthContext } from "./context";
-import { AuthError, DatabaseError } from "./errors";
+import { AuthError, type CoordinationError, DatabaseError } from "./errors";
 import { genId } from "./helpers";
 import type { ProfilesModule } from "./profiles";
 import type { SecurityEventsModule } from "./security-events";
+import { storeCall } from "./store-call";
 import type { CrossDeviceRequest } from "./stores";
 import type { TokensModule } from "./tokens";
 import type { PublicProfile, SessionMeta, TokenSet } from "./types";
@@ -34,7 +45,45 @@ export function createCrossDeviceModule(
 ) {
   const { stores, hashIp } = ctx;
   const { findDefaultProfile } = profiles;
-  const { issueTokens } = tokens;
+  const { claimReservation, makeRoomForReservation, reserveSession } = tokens;
+
+  /**
+   * Deletes the reserved row `id` while it is live, and answers whether this
+   * call deleted it: false once a revocation removed it, it expired, or
+   * another call took it first. An approval that does not land releases its
+   * row with this.
+   */
+  const releaseSession = (
+    accountId: string,
+    id: string,
+  ): Effect.Effect<boolean, DatabaseError, Db> =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const deleted = yield* Effect.tryPromise({
+        try: () =>
+          db
+            .delete(sessions)
+            .where(
+              and(
+                eq(sessions.id, id),
+                eq(sessions.accountId, accountId),
+                gt(sessions.expiresAt, Math.floor(Date.now() / 1000)),
+              ),
+            ),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      return rowsChanged(deleted) === 1;
+    });
+  /**
+   * Deletes the entry for `requestId`, for a caller to fork after its answer.
+   * The answer never depends on it — the entry expires with its TTL — so a
+   * delete that fails leaves the entry to that.
+   */
+  const tidyAway = (requestId: string) =>
+    storeCall(stores.crossDeviceRequests, "delete", () =>
+      stores.crossDeviceRequests.delete(requestId),
+    ).pipe(Effect.ignore);
+
   /** See {@link SecurityEventsModule.notifySecurityEventByAccountId}. */
   const notifyCrossDeviceLoginByAccountId = (accountId: string) =>
     securityEventsModule.notifySecurityEventByAccountId(
@@ -52,10 +101,14 @@ export function createCrossDeviceModule(
    */
   const beginCrossDeviceLogin = (
     sessionMeta?: SessionMeta,
-  ): Effect.Effect<{ requestId: string; cdlSecret: string; expiresAt: number }, AuthError, never> =>
+  ): Effect.Effect<
+    { requestId: string; cdlSecret: string; expiresAt: number },
+    AuthError | CoordinationError,
+    never
+  > =>
     Effect.gen(function* () {
       // The store self-bounds (CEREMONY_STORE_MAX in-memory FIFO drop,
-      // native PX expiry on Redis).
+      // per-entry TTL on the Durable Object store).
       const requestId = genId("cdl_");
       const secretBytes = new Uint8Array(32);
       crypto.getRandomValues(secretBytes);
@@ -64,7 +117,7 @@ export function createCrossDeviceModule(
       const nowMs = Date.now();
       const expiresAtMs = nowMs + CDL_TTL_SECONDS * 1000;
 
-      yield* Effect.promise(() =>
+      yield* storeCall(stores.crossDeviceRequests, "set", () =>
         stores.crossDeviceRequests.set(
           requestId,
           {
@@ -87,8 +140,16 @@ export function createCrossDeviceModule(
 
   /**
    * Device B polls this to check whether device A has approved the request.
-   * Returns `{ status: "pending" }` until approved, then returns the session
-   * tokens exactly once (marks the request as consumed to prevent replay).
+   * Returns `{ status: "pending" }` until approved. The poll that finds the
+   * approval takes the entry, so the session is delivered once — of two polls
+   * at once, one gets it and the other answers `expired`. It then turns the
+   * reserved row into device B's session in one batch with the profile read
+   * (`claimReservation`); it answers `expired`, with no token, when the row
+   * is gone (a revocation since the approval), the account is deleted or
+   * scheduled for deletion, or the profile is gone or belongs to another
+   * account. Otherwise it mints device B's tokens from the profile and
+   * account as they are now. A session that fails to mint after the take
+   * answers the error, and the request is spent: device B begins again.
    */
   const getCrossDeviceLoginStatus = (
     requestId: string,
@@ -98,11 +159,13 @@ export function createCrossDeviceModule(
     | { status: "approved"; session: TokenSet; profile: PublicProfile }
     | { status: "rejected" }
     | { status: "expired" },
-    AuthError,
-    never
+    AuthError | DatabaseError | CoordinationError,
+    Db
   > =>
     Effect.gen(function* () {
-      const entry = yield* Effect.promise(() => stores.crossDeviceRequests.get(requestId));
+      const entry = yield* storeCall(stores.crossDeviceRequests, "get", () =>
+        stores.crossDeviceRequests.get(requestId),
+      );
       if (!entry) {
         return { status: "expired" as const };
       }
@@ -115,22 +178,37 @@ export function createCrossDeviceModule(
 
       // Check expiry
       if (Date.now() > entry.expiresAt) {
-        yield* Effect.promise(() => stores.crossDeviceRequests.delete(requestId));
+        yield* forkBackground(tidyAway(requestId));
         return { status: "expired" as const };
       }
 
       if (entry.status === "rejected") {
-        yield* Effect.promise(() => stores.crossDeviceRequests.delete(requestId));
+        yield* forkBackground(tidyAway(requestId));
         return { status: "rejected" as const };
       }
 
-      if (entry.status === "approved" && entry.session && entry.profile) {
-        // One-time consumption — prevent replay.
-        yield* Effect.promise(() => stores.crossDeviceRequests.delete(requestId));
+      if (entry.status === "approved") {
+        // Single delivery: the take removes the entry in the same call that
+        // reads it, so only one poll holds the approval it mints from.
+        const taken = yield* storeCall(stores.crossDeviceRequests, "take", () =>
+          stores.crossDeviceRequests.take(requestId),
+        );
+        if (
+          taken?.status !== "approved" ||
+          !taken.accountId ||
+          !taken.profileId ||
+          !taken.sessionId
+        ) {
+          return { status: "expired" as const };
+        }
+        // Every revocation since the approval removed the reserved row; the
+        // row already carries device B's label from begin.
+        const claimed = yield* claimReservation(taken.accountId, taken.sessionId, taken.profileId);
+        if (!claimed) return { status: "expired" as const };
         return {
           status: "approved" as const,
-          session: entry.session,
-          profile: entry.profile,
+          session: claimed.session,
+          profile: toPublicProfile(claimed.profile, claimed.profile.email),
         };
       }
 
@@ -138,17 +216,40 @@ export function createCrossDeviceModule(
     }).pipe(withCrossDeviceOp("poll"));
 
   /**
-   * Device A (authenticated) approves the request. The server issues a
-   * session for device B and records a `cross_device_login` security event.
+   * Device A (authenticated) approves the request: it reserves device B's
+   * session row, and the entry records who approved, which profile device B
+   * signs in as and the reserved row's id, never a token — device B's poll
+   * mints the session. The approval replaces the pending entry it read in one
+   * `swap`, so of two decisions at once (two approvals, or an approval and a
+   * rejection) exactly one lands; the other releases its reserved row and
+   * answers "already processed". An approval whose `swap` fails releases its
+   * row too, and answers the store's error. Only the approval that lands
+   * makes room under the session cap, so a lost race or a failed store call
+   * signs no device out; until it does, the account holds one row over the
+   * cap for each approval in flight. The approval that lands records a
+   * `cross_device_login` security event beside its room-making, each run to
+   * its end whatever the other does, and sends the owner a notice either way:
+   * device B can sign in once the `swap` has landed. A failure of either is
+   * answered after both have finished.
    */
   const approveCrossDeviceLogin = (
     requestId: string,
     secret: string,
     accountId: string,
     sessionMeta?: SessionMeta,
-  ): Effect.Effect<void, AuthError | DatabaseError, Db | EmailService> =>
+  ): Effect.Effect<void, AuthError | DatabaseError | CoordinationError, Db | EmailService> =>
     Effect.gen(function* () {
-      const entry = yield* Effect.promise(() => stores.crossDeviceRequests.get(requestId));
+      // The approver's default profile is the one device B signs in as. It is
+      // read beside the entry: the approver is known before the entry is.
+      const [entry, profile] = yield* Effect.all(
+        [
+          storeCall(stores.crossDeviceRequests, "get", () =>
+            stores.crossDeviceRequests.get(requestId),
+          ),
+          findDefaultProfile(accountId),
+        ],
+        { concurrency: "unbounded" },
+      );
       if (!entry) {
         return yield* Effect.fail(new AuthError({ message: "Request not found or expired" }));
       }
@@ -165,81 +266,99 @@ export function createCrossDeviceModule(
 
       // Check expiry
       if (Date.now() > entry.expiresAt) {
-        yield* Effect.promise(() => stores.crossDeviceRequests.delete(requestId));
+        yield* forkBackground(tidyAway(requestId));
         return yield* Effect.fail(new AuthError({ message: "Request expired" }));
       }
 
-      // Resolve the approver's default profile to issue session for device B.
-      const profile = yield* findDefaultProfile(accountId);
       if (!profile) {
         return yield* Effect.fail(new AuthError({ message: "Profile not found" }));
       }
 
-      // Issue session for device B using device B's session meta (from begin).
-      const session = yield* issueTokens(
-        profile.id,
+      // Device B's session row is reserved before the approval lands, so a
+      // poll never finds an approval without one. Every approval of this
+      // request reserves its row in one family, the request's id, so the
+      // winner's room-making leaves out a racing loser's row.
+      const sessionId = yield* reserveSession(
         accountId,
-        profile.email,
-        profile.handle,
-        profile.displayName,
-        undefined,
+        requestId,
+        Math.ceil(entry.expiresAt / 1000),
         { uaLabel: entry.uaLabel, ip: null },
       );
 
-      // Store the session + profile on the request for device B to pick up.
-      // Re-persist the mutated entry (the store returns a copy, not a live
-      // reference) carrying the remaining TTL so it still expires on schedule.
+      // Replaces exactly the pending entry read above, with the remaining TTL
+      // so it still expires on schedule.
       const approvedEntry: CrossDeviceRequest = {
         ...entry,
         status: "approved",
         accountId,
-        session,
-        profile: toPublicProfile(profile, profile.email),
+        profileId: profile.id,
+        sessionId,
       };
-      yield* Effect.promise(() =>
-        stores.crossDeviceRequests.set(
+      const decided = yield* storeCall(stores.crossDeviceRequests, "swap", () =>
+        stores.crossDeviceRequests.swap(
           requestId,
+          entry,
           approvedEntry,
-          Math.max(0, entry.expiresAt - Date.now()),
+          Math.max(1, entry.expiresAt - Date.now()),
         ),
-      );
-
-      // Audit trail — security event + best-effort email notification.
+      ).pipe(Effect.tapError(() => releaseSession(accountId, sessionId).pipe(Effect.ignore)));
+      if (!decided) {
+        yield* releaseSession(accountId, sessionId).pipe(Effect.ignore);
+        return yield* Effect.fail(new AuthError({ message: "Request already processed" }));
+      }
+      // The approval stands: its reservation now takes a place under the cap,
+      // and the audit trail records it. Neither reads the other, so they run
+      // side by side, and each runs to its end: a failed eviction does not
+      // cost the security event, nor a failed insert the eviction.
       const { db } = yield* Db;
       const nowSec = Math.floor(Date.now() / 1000);
-      yield* Effect.tryPromise({
-        try: () =>
-          db.insert(securityEvents).values({
-            id: genId("sev_"),
-            accountId,
-            kind: "cross_device_login",
-            createdAt: nowSec,
-            uaLabel: sessionMeta?.uaLabel ?? null,
-            ipHash: sessionMeta?.ip ? hashIp(sessionMeta.ip) : null,
+      const [roomMade, recorded] = yield* Effect.all(
+        [
+          makeRoomForReservation(accountId, requestId),
+          Effect.tryPromise({
+            try: () =>
+              db.insert(securityEvents).values({
+                id: genId("sev_"),
+                accountId,
+                kind: "cross_device_login",
+                createdAt: nowSec,
+                uaLabel: sessionMeta?.uaLabel ?? null,
+                ipHash: sessionMeta?.ip ? hashIp(sessionMeta.ip) : null,
+              }),
+            catch: (cause) => new DatabaseError({ cause }),
           }),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
-      metricSecurityEventRecorded("cross_device_login");
+        ],
+        { concurrency: "unbounded", mode: "result" },
+      );
+      if (recorded._tag === "Success") metricSecurityEventRecorded("cross_device_login");
 
-      // Best-effort email notification (forked daemon, 10s timeout).
+      // Best-effort email notification (forked, 10s timeout), sent whenever
+      // the approval landed: device B can sign in from here on.
       yield* forkBackground(
         notifyCrossDeviceLoginByAccountId(accountId).pipe(
           Effect.timeout("10 seconds"),
           Effect.catch(() => Effect.void),
         ),
       );
+
+      if (roomMade._tag === "Failure") return yield* Effect.fail(roomMade.failure);
+      if (recorded._tag === "Failure") return yield* Effect.fail(recorded.failure);
     }).pipe(withCrossDeviceOp("approve"));
 
   /**
    * Device A explicitly rejects the request — the next poll from device B
-   * will see `{ status: "rejected" }`.
+   * will see `{ status: "rejected" }`. Like an approval, it replaces the
+   * pending entry it read in one `swap`, so it lands only if no other
+   * decision has.
    */
   const rejectCrossDeviceLogin = (
     requestId: string,
     secret: string,
-  ): Effect.Effect<void, AuthError, never> =>
+  ): Effect.Effect<void, AuthError | CoordinationError, never> =>
     Effect.gen(function* () {
-      const entry = yield* Effect.promise(() => stores.crossDeviceRequests.get(requestId));
+      const entry = yield* storeCall(stores.crossDeviceRequests, "get", () =>
+        stores.crossDeviceRequests.get(requestId),
+      );
       if (!entry) {
         return yield* Effect.fail(new AuthError({ message: "Request not found or expired" }));
       }
@@ -253,15 +372,19 @@ export function createCrossDeviceModule(
         return yield* Effect.fail(new AuthError({ message: "Invalid secret" }));
       }
 
-      // Re-persist the rejected status (store returns a copy) with the
-      // remaining TTL so a subsequent poll observes "rejected" then cleans up.
-      yield* Effect.promise(() =>
-        stores.crossDeviceRequests.set(
+      // The rejected status, with the remaining TTL, so a subsequent poll
+      // observes "rejected" and then cleans up.
+      const decided = yield* storeCall(stores.crossDeviceRequests, "swap", () =>
+        stores.crossDeviceRequests.swap(
           requestId,
+          entry,
           { ...entry, status: "rejected" },
-          Math.max(0, entry.expiresAt - Date.now()),
+          Math.max(1, entry.expiresAt - Date.now()),
         ),
       );
+      if (!decided) {
+        return yield* Effect.fail(new AuthError({ message: "Request already processed" }));
+      }
     }).pipe(withCrossDeviceOp("reject"));
 
   return {

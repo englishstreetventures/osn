@@ -43,30 +43,39 @@ class UnresolvedBindingError extends Data.TaggedError("UnresolvedBindingError")<
   readonly message: string;
 }> {}
 
-/** Each described binding as the value Alchemy binds: a database this stack declares, or a rate limiter. */
+/**
+ * Each described binding as the value Alchemy binds: a database this stack
+ * declares, a rate limiter, or a Durable Object namespace the Worker hosts.
+ */
 function toBindings(
   described: Readonly<Record<string, BindingDescription>>,
   databases: Readonly<Record<string, Cloudflare.D1.Database>>,
 ): Cloudflare.WorkerBindingProps {
   return Object.fromEntries(
     Object.entries(described).map(([name, binding]) => {
-      if (binding.kind === "ratelimit") {
-        return [
-          name,
-          Cloudflare.RateLimit(name, {
-            namespaceId: binding.namespaceId,
-            simple: { limit: binding.limit, period: binding.period },
-          }),
-        ];
+      switch (binding.kind) {
+        case "ratelimit":
+          return [
+            name,
+            Cloudflare.RateLimit(name, {
+              namespaceId: binding.namespaceId,
+              simple: { limit: binding.limit, period: binding.period },
+            }),
+          ];
+        case "durable-object":
+          // No script name: the class lives on this Worker, which exports it.
+          return [name, Cloudflare.DurableObject(binding.className)];
+        case "d1": {
+          const database = databases[name];
+          if (database === undefined) {
+            throw new UnresolvedBindingError({
+              binding: name,
+              message: `No database is declared for the D1 binding ${name}.`,
+            });
+          }
+          return [name, database];
+        }
       }
-      const database = databases[name];
-      if (database === undefined) {
-        throw new UnresolvedBindingError({
-          binding: name,
-          message: `No database is declared for the D1 binding ${name}.`,
-        });
-      }
-      return [name, database];
     }),
   );
 }
@@ -157,6 +166,9 @@ export const musubiStack = (input: {
 
     // Logical ids key the state rows, so they never change: a renamed id is a new resource.
     const db = yield* retainedD1("OsnDb", declared.osnDb);
+    // Binding `db` makes osn-api wait for the database's reconcile, which
+    // applies osn/db's migrations, so the Worker never serves before a table
+    // it reads exists.
     const osnApi = yield* apiWorker("OsnApi", {
       ...declared.osnApi,
       bindings: toBindings(declared.osnApi.bindings, { DB: db }),

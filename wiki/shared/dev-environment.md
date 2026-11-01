@@ -29,8 +29,8 @@ build ────┘        Alchemy, automatic     record jobs
 ```
 
 The dev tier runs in **its own Cloudflare account**, built by four Alchemy stacks
-([[infrastructure-as-code]]): its own Workers, D1 databases, R2 buckets, zone,
-Upstash database and OSN identity origin. No dev request reads or writes a byte
+([[infrastructure-as-code]]): its own Workers, D1 databases, R2 buckets,
+Durable Objects, zone and OSN identity origin. No dev request reads or writes a byte
 of live-wedding data, no dev credential the deploys read reaches the production
 account, and a dev account is not a production account. Tests, not the
 Environment, keep it so: W8 in `shared/infra/tests/workflow-secrets.test.ts`
@@ -76,17 +76,19 @@ Backing resources, all in the dev account:
 | D1 | `osn-db-dev` | `osn-db-prod` |
 | D1 | `zap-db-dev` | `zap-db-prod` |
 | R2 | `cire-sheets-dev`, `cire-assets-dev` | `cire-sheets`, `cire-assets` |
-| Redis | a second Upstash database (**paid** — see below), its REST URL and token in the `dev` Environment | `osn-redis` (Sydney) |
-| Rate-limit namespaces | cire `1101`–`1106`, osn `2101`–`2105` | cire `1001`–`1006`, osn `2001`–`2005` |
-| Durable Object namespace | the dev Worker's own `TopicHub` namespace, which the cire stack declares | the production Worker's |
+| Rate-limit namespaces | cire `1101`–`1106`, osn `2101`–`2107` | cire `1001`–`1006`, osn `2001`–`2007` |
+| Durable Object namespace | cire-api-dev's own `TopicHub` namespace, which the cire stack declares | the production Worker's |
+| Durable Object namespace | osn-api-dev's own `CoordinationStore` namespace, which the musubi stack declares ([[coordination-store]]) | the production Worker's |
 
 No file holds a dev database id: Alchemy creates each database and binds it by
 resource. The dev stacks declare production's storage settings ([[database-environments]]).
 
-> [!warning] The dev tier costs $10/month, and Upstash is the whole bill
-> The Upstash free plan allows **one** database, so the dev database needs a
-> **paid $10/month plan**. Every other dev resource is free. If the dev tier is
-> ever cut, cancelling that plan is the saving. [[free-tier-limits]]
+> [!warning] The dev account is on Workers Free, and its Durable Object allowance is shared
+> Every dev resource is free. The cap that bites first is the account's
+> **100,000 Durable Object requests a day**, spent by cire's realtime hub and
+> osn-api's coordination store together. Once it is spent, every coordination
+> call fails until 00:00 UTC, so dev sign-in stops; production's account is on
+> Workers Paid and has no such cap. [[free-tier-limits]]
 
 > [!note] Hosts two labels below the zone need no extra certificate
 > The zone's free Universal SSL certificate covers only the apex and **one**
@@ -411,7 +413,7 @@ printf '%s' "$VALUE" | gh secret set NAME --env dev --repo englishstreetventures
    - osn-api: `DEV_LOGIN_SECRET` (at least 32 characters), `INTERNAL_SERVICE_SECRET`
      (zap-api reads the same one), `OSN_JWT_PRIVATE_KEY`, `OSN_JWT_PUBLIC_KEY`,
      `OSN_PAIRWISE_SALT`, `OSN_SESSION_IP_PEPPER`, `OSN_TOTP_ENCRYPTION_KEY`,
-     `RESEND_API_KEY`, `UPSTASH_REDIS_REST_TOKEN`, `UPSTASH_REDIS_REST_URL`.
+     `RESEND_API_KEY`.
    - cire-api: `CIRE_API_ARC_KEY_ID` (a UUID), `CIRE_API_ARC_PRIVATE_KEY` (a
      **raw** ES256 JWK), `CIRE_OIDC_CLIENT_SECRET`, `STRIPE_SECRET_KEY` (a
      test-mode key, starting `sk_test_` or `rk_test_`), `STRIPE_WEBHOOK_SECRET`,
@@ -747,10 +749,11 @@ an `Effect.logWarning` are the audit trail.
 ## 6. Verifying the dev tier
 
 A dev tier is only proven when a passkey ceremony completes end to end — a
-ceremony spans two requests, so it is what catches Redis being misconfigured.
+ceremony spans two requests, so it is what shows the coordination store holding
+state between them.
 
 Every stack job already asks each of its surfaces whether it answers (§2):
-osn-api's `/health` and JWKS, cire-api's `/api/auth/session`, zap-api's
+osn-api's `/health`, JWKS and `/health/coordination`, cire-api's `/api/auth/session`, zap-api's
 `/health`, the guest site's `/` and an unknown-slug page, each site's `/`,
 musubi social's deep-link fallback and pulse landing's `/api/geo`, and on each
 browser host `/` without the Access token (§5). Steps 1 and 2 below go further
@@ -776,8 +779,8 @@ the checks already ask.
    `/.well-known/openid-configuration` reports `"issuer": "https://id.musubi.<D>"`
    — not the production issuer.
 3. Create an account on `https://musubi.<D>` with an inbox you can read,
-   enrol a passkey, sign out, sign back in. Proves Upstash-backed ceremony state
-   survives across requests, and that sign-up mail is delivered. The dev
+   enrol a passkey, sign out, sign back in. Proves ceremony state on the
+   coordination store survives across requests, and that sign-up mail is delivered. The dev
    database starts empty, so an account, passkey or authenticator app from an
    earlier dev tier is not there: sign up again. When "Verification code sent"
    shows and no code arrives, search `osn-api-dev`'s Workers Logs for

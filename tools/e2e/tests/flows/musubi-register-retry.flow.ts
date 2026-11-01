@@ -41,6 +41,9 @@ test("musubi-register-retry", async ({ page, flow }) => {
     await page.getByRole("button", { name: "Send verification code" }).click();
     await expect(page.getByRole("button", { name: "Verify email" })).toBeVisible();
   });
+  // osn-api sends the code after it answers, so the refusal can land just
+  // after the screen moves on.
+  await expect.poll(() => refusedMailCount(grace.email), { timeout: 15_000 }).toBe(1);
   flow.check("the stand-in refused the first send", 1, await refusedMailCount(grace.email));
 
   const entry = await flow.step("osn-api logs why the send failed", () => osnDispatchFailureLog());

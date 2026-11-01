@@ -8,7 +8,7 @@ import { createApp, type App, type AppOptions } from "./app";
 import { assertCorsOriginsConfigured, resolveCorsOrigins } from "./lib/cors-config";
 import { DEFAULT_ISSUER_URL, DEFAULT_JWKS_URL } from "./lib/jwks";
 import { buildPulseOidcConfig } from "./lib/oidc";
-import { makeMemoryRateLimiters, type PulseRateLimiters } from "./redis";
+import { makeMemoryRateLimiters, type PulseRateLimiters } from "./lib/rate-limit";
 
 // Re-export the Eden treaty type so `@pulse/api` consumers and `./client` keep
 // importing `App` from the package entry point.

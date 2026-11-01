@@ -1,12 +1,8 @@
-import type { RedisClient } from "@shared/redis";
-import { createMemoryClient } from "@shared/redis";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import {
-  CEREMONY_STORE_MAX,
-  createInMemoryCeremonyStore,
-  createRedisCeremonyStore,
-} from "../../src/lib/ceremony-store";
+import { CEREMONY_STORE_MAX, createInMemoryCeremonyStore } from "../../src/lib/ceremony-store";
+import { createDurableCeremonyStore } from "../../src/lib/coordination/durable";
+import { createFakeNamespace } from "../helpers/coordination-namespace";
 
 interface Entry {
   challenge: string;
@@ -153,39 +149,6 @@ describe("createInMemoryCeremonyStore", () => {
   });
 });
 
-describe("createRedisCeremonyStore (memory-backed RedisClient)", () => {
-  let client: RedisClient;
-  beforeEach(() => {
-    client = createMemoryClient();
-  });
-
-  it("set → get round-trips JSON across two store instances sharing the client", async () => {
-    // Simulates a `begin` served by pod A and a `complete` served by pod B:
-    // two independent store objects over the same Redis client must agree.
-    const podA = createRedisCeremonyStore<Entry>(client, "login_challenge");
-    const podB = createRedisCeremonyStore<Entry>(client, "login_challenge");
-    await podA.set("k", entry("c"), 60_000);
-    expect(await podB.get("k")).toMatchObject({ challenge: "c" });
-    await podB.delete("k");
-    expect(await podA.get("k")).toBe(null);
-  });
-
-  it("attempts carry-over persists through the client", async () => {
-    const store = createRedisCeremonyStore<Entry>(client, "step_up_otp");
-    await store.set("k", entry("c", 0), 60_000);
-    const first = (await store.get("k"))!;
-    await store.set("k", { ...first, attempts: first.attempts + 2 }, 60_000);
-    expect((await store.get("k"))!.attempts).toBe(2);
-  });
-
-  it("namespaces are isolated", async () => {
-    const a = createRedisCeremonyStore<Entry>(client, "reg_challenge");
-    const b = createRedisCeremonyStore<Entry>(client, "login_challenge");
-    await a.set("k", entry("a"), 60_000);
-    expect(await b.get("k")).toBe(null);
-  });
-});
-
 /**
  * The single-use claim. `get`-then-`delete` is not the same guarantee: two
  * concurrent presentations of one single-use secret can both pass a `get`
@@ -199,17 +162,6 @@ describe("CeremonyStore.consume — first consumer wins", () => {
     const results = await Promise.all([store.consume("k"), store.consume("k")]);
     expect(results.filter(Boolean)).toHaveLength(1);
     expect(await store.get("k")).toBe(null);
-  });
-
-  it("redis: exactly one of two racing claims wins, across store instances", async () => {
-    // Two pods over one client, which is the case the guarantee exists for.
-    const client = createMemoryClient();
-    const podA = createRedisCeremonyStore<Entry>(client, "recovery_disown");
-    const podB = createRedisCeremonyStore<Entry>(client, "recovery_disown");
-    await podA.set("k", entry("c"), 60_000);
-    const results = await Promise.all([podA.consume("k"), podB.consume("k")]);
-    expect(results.filter(Boolean)).toHaveLength(1);
-    expect(await podA.get("k")).toBe(null);
   });
 
   it("an absent key is not a claim", async () => {
@@ -228,66 +180,175 @@ describe("CeremonyStore.consume — first consumer wins", () => {
       vi.useRealTimers();
     }
   });
+});
 
-  it("redis: a backend error PROPAGATES, unlike delete", async () => {
-    // The one place the conservative swallow is wrong. "Did I win the claim"
-    // has no safe default, so the call site — not the store — decides.
-    const onError = vi.fn();
-    const store = createRedisCeremonyStore<Entry>(failingClient(), "recovery_disown", {
-      observer: { onError },
-    });
-    await expect(store.consume("k")).rejects.toThrow("redis down");
-    expect(onError).toHaveBeenCalledWith("delete", expect.any(Error));
+/**
+ * A guess is counted on the entry it is a guess at, in the same call that
+ * reads it, so no guess can read the entry and then count from a fresh
+ * number. `take` is the single-use read: the value, removed in the same call.
+ * The Durable Object store gives both the same guarantees (F-DO12–17).
+ */
+describe("CeremonyStore.guess and take", () => {
+  it("counts nothing, and stores nothing, when there is no live entry", async () => {
+    const store = createInMemoryCeremonyStore<Entry>("step_up_otp");
+    expect(await store.guess("ghost")).toEqual({ value: null, n: 0 });
+    expect(await store.get("ghost")).toBe(null);
+    await store.set("k", entry("c"), 1);
+    vi.useFakeTimers();
+    try {
+      vi.advanceTimersByTime(50);
+      expect(await store.guess("k")).toEqual({ value: null, n: 0 });
+    } finally {
+      vi.useRealTimers();
+    }
   });
-});
 
-const failingClient = (): RedisClient => ({
-  eval: async () => {
-    throw new Error("redis down");
-  },
-  ping: async () => "PONG",
-  get: async () => {
-    throw new Error("redis down");
-  },
-  set: async () => {
-    throw new Error("redis down");
-  },
-  del: async () => {
-    throw new Error("redis down");
-  },
-  quit: async () => {},
-});
+  it("counts each guess on the entry and answers the value with the count", async () => {
+    const store = createInMemoryCeremonyStore<Entry>("step_up_otp");
+    await store.set("k", entry("c"), 60_000);
+    const results = await Promise.all([store.guess("k"), store.guess("k"), store.guess("k")]);
+    expect(results.map((r) => r.n).toSorted()).toEqual([1, 2, 3]);
+    expect(results.every((r) => r.value?.challenge === "c")).toBe(true);
+  });
 
-describe("createRedisCeremonyStore fail-conservative behaviour", () => {
-  it("get returns null and reports via onError on Redis failure", async () => {
-    const onError = vi.fn();
-    const store = createRedisCeremonyStore<Entry>(failingClient(), "reg_challenge", {
-      observer: { onError },
-    });
+  it("set restarts the count; delete and consume clear it with the entry", async () => {
+    const store = createInMemoryCeremonyStore<Entry>("step_up_otp");
+    await store.set("k", entry("first"), 60_000);
+    await store.guess("k");
+    await store.guess("k");
+    await store.set("k", entry("second"), 60_000);
+    expect(await store.guess("k")).toMatchObject({ value: { challenge: "second" }, n: 1 });
+
+    await store.delete("k");
+    await store.set("k", entry("third"), 60_000);
+    expect((await store.guess("k")).n).toBe(1);
+
+    expect(await store.consume("k")).toBe(true);
+    await store.set("k", entry("fourth"), 60_000);
+    expect((await store.guess("k")).n).toBe(1);
+  });
+
+  it("take answers the live value once and removes it", async () => {
+    const store = createInMemoryCeremonyStore<Entry>("login_challenge");
+    await store.set("k", entry("c"), 60_000);
+    const results = await Promise.all([store.take("k"), store.take("k")]);
+    expect(results.filter((r) => r?.challenge === "c")).toHaveLength(1);
+    expect(results.filter((r) => r === null)).toHaveLength(1);
     expect(await store.get("k")).toBe(null);
-    expect(onError).toHaveBeenCalledWith("get", expect.any(Error));
+    expect(await store.take("absent")).toBe(null);
   });
 
-  it("set / delete swallow Redis errors", async () => {
-    const onError = vi.fn();
-    const store = createRedisCeremonyStore<Entry>(failingClient(), "reg_challenge", {
-      observer: { onError },
-    });
-    await expect(store.set("k", entry("c"), 60_000)).resolves.toBeUndefined();
-    await expect(store.delete("k")).resolves.toBeUndefined();
-    expect(onError).toHaveBeenCalledWith("set", expect.any(Error));
-    expect(onError).toHaveBeenCalledWith("delete", expect.any(Error));
+  it("take answers null for an expired entry", async () => {
+    const store = createInMemoryCeremonyStore<Entry>("login_challenge");
+    await store.set("k", entry("c"), 1);
+    vi.useFakeTimers();
+    try {
+      vi.advanceTimersByTime(50);
+      expect(await store.take("k")).toBe(null);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+/**
+ * `swap` is the store's compare-and-set: from `null` it writes only where
+ * nothing is live, and from a value `get` answered it replaces only that
+ * value. Of several swaps from one value, one wins. Both builders answer
+ * alike; the Durable Object store compares the JSON it stored (F-DO18–21).
+ */
+describe.each([
+  ["memory", () => createInMemoryCeremonyStore<Entry>("cross_device")],
+  [
+    "durable_object",
+    () => createDurableCeremonyStore<Entry>(createFakeNamespace().ns, "cross_device", vi.fn()),
+  ],
+] as const)("CeremonyStore.swap (%s)", (_backend, build) => {
+  it("from null writes where nothing is live, and keeps a live entry and its count", async () => {
+    const store = build();
+    const first = entry("first");
+    expect(await store.swap("k", null, first, 60_000)).toBe(true);
+    expect(await store.get("k")).toEqual(first);
+    await store.guess("k");
+    expect(await store.swap("k", null, entry("second"), 60_000)).toBe(false);
+    expect(await store.guess("k")).toEqual({ value: first, n: 2 });
   });
 
-  it("a throwing onError callback does not break the store contract", async () => {
-    const store = createRedisCeremonyStore<Entry>(failingClient(), "reg_challenge", {
-      observer: {
-        onError: () => {
-          throw new Error("logger exploded");
-        },
-      },
-    });
-    await expect(store.get("k")).resolves.toBe(null);
-    await expect(store.set("k", entry("c"), 60_000)).resolves.toBeUndefined();
+  it("from a value get answered replaces only that value, and restarts the count", async () => {
+    const store = build();
+    await store.set("k", entry("pending"), 60_000);
+    await store.guess("k");
+    const read = await store.get("k");
+    const decided = entry("decided");
+    expect(await store.swap("k", entry("other"), decided, 60_000)).toBe(false);
+    expect(await store.swap("k", read, decided, 60_000)).toBe(true);
+    expect(await store.guess("k")).toEqual({ value: decided, n: 1 });
+    expect(await store.swap("k", read, entry("late"), 60_000)).toBe(false);
+    expect(await store.swap("absent", read, decided, 60_000)).toBe(false);
+    expect(await store.get("absent")).toBeNull();
+  });
+
+  it("lets exactly one of several swaps from one value win", async () => {
+    const store = build();
+    await store.set("k", entry("pending"), 60_000);
+    const read = await store.get("k");
+    const results = await Promise.all(
+      Array.from({ length: 5 }, (_, i) => store.swap("k", read, entry(`decided-${i}`), 60_000)),
+    );
+    expect(results.filter(Boolean)).toHaveLength(1);
+  });
+});
+
+/**
+ * A `delete` or a `consume` that names the value it read removes only that
+ * value: a `set` that landed since — a new `begin` at the same key — keeps its
+ * entry and its guess count, and the `consume` answers that it won nothing.
+ * Both builders answer alike.
+ */
+describe.each([
+  ["memory", () => createInMemoryCeremonyStore<Entry>("pending_email_change")],
+  [
+    "durable_object",
+    () =>
+      createDurableCeremonyStore<Entry>(createFakeNamespace().ns, "pending_email_change", vi.fn()),
+  ],
+] as const)("CeremonyStore.delete and consume with the value read (%s)", (_backend, build) => {
+  it("consume leaves a value written since, with its count, and wins nothing", async () => {
+    const store = build();
+    await store.set("k", entry("guessed"), 60_000);
+    const { value: read } = await store.guess("k");
+    const fresh = entry("fresh");
+    await store.set("k", fresh, 60_000);
+    await store.guess("k");
+    expect(await store.consume("k", read!)).toBe(false);
+    expect(await store.guess("k")).toEqual({ value: fresh, n: 2 });
+  });
+
+  it("consume removes the value it read, and wins", async () => {
+    const store = build();
+    await store.set("k", entry("guessed"), 60_000);
+    const { value: read } = await store.guess("k");
+    expect(await store.consume("k", read!)).toBe(true);
+    expect(await store.guess("k")).toEqual({ value: null, n: 0 });
+    expect(await store.consume("k", read!)).toBe(false);
+  });
+
+  it("leaves a value written since, with its count", async () => {
+    const store = build();
+    await store.set("k", entry("completed"), 60_000);
+    const { value: read } = await store.guess("k");
+    const fresh = entry("fresh");
+    await store.set("k", fresh, 60_000);
+    await store.guess("k");
+    await store.delete("k", read!);
+    expect(await store.guess("k")).toEqual({ value: fresh, n: 2 });
+  });
+
+  it("removes the value it read, with its count", async () => {
+    const store = build();
+    await store.set("k", entry("completed"), 60_000);
+    const { value: read } = await store.guess("k");
+    await store.delete("k", read!);
+    expect(await store.guess("k")).toEqual({ value: null, n: 0 });
   });
 });

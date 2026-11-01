@@ -34,7 +34,7 @@ attestation over a continuous 6+ month observation window).
 
 Audit boundary: **production hosting + first-party services + data
 processors**. Specifically the deployed `@osn/api`, `@pulse/api`,
-`@zap/api` instances; the production database; Redis; Cloudflare Email
+`@zap/api` instances; the production database; osn-api's coordination store (a Cloudflare Durable Object); Cloudflare Email
 Service; Grafana Cloud (logs / traces / metrics); and the corporate
 GitHub org. Personal devices and untargeted internal tools (e.g. a local
 dev SQLite) are out of scope.
@@ -145,7 +145,7 @@ The big one. See [[access-control]] for the matrix.
 | Restore drill | — | Quarterly. |
 | RTO / RPO targets | — | RTO 4 h, RPO 24 h initial targets; revisit after first paying customer. |
 | Capacity planning | — | Lightweight doc; revisit per dashboard set. |
-| Redis fail-open / fail-closed posture | Documented in [[redis]] (rate-limiter fail-closed; rotated-session store fail-open) | — |
+| Coordination-store failure posture | Documented in [[coordination-store]] (every consumer fails closed; the rotated-session records in D1 fail closed too) | — |
 
 ### Privacy (P1–P8)
 

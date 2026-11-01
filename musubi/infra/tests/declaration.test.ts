@@ -19,12 +19,22 @@ const wranglerProductionLimits: readonly WranglerRateLimit[] = (
 ).env.production.ratelimits;
 
 describe("musubiDeclaration", () => {
-  test("dev's auth rate-limit tiers match production's period and limit, and keep their own namespace", () => {
+  // osn-api's own tests hold production's limits to its budget table
+  // (osn/api/tests/lib/native-rate-limiters.test.ts), so equal to production
+  // here means equal to the budget table.
+  test("dev's rate-limit tiers are production's, at production's period and limit, each in its own namespace", () => {
     const declared = musubiDeclaration({
       stage: "dev",
       hosts: stageHosts("example.test", "dev"),
       generatedDir: ".generated",
     }).osnApi.bindings;
+
+    const devTiers = Object.entries(declared).flatMap(([name, binding]) =>
+      binding.kind === "ratelimit" ? [name] : [],
+    );
+    expect(devTiers.toSorted()).toEqual(
+      wranglerProductionLimits.map((production) => production.name).toSorted(),
+    );
 
     const expected = Object.fromEntries(
       wranglerProductionLimits.map((production) => [

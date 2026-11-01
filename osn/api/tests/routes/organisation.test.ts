@@ -540,7 +540,7 @@ describe("organisation routes", () => {
 
     it("fails closed when the backend rejects", async () => {
       const failing: RateLimiterBackend = {
-        check: () => Promise.reject(new Error("Redis connection refused")),
+        check: () => Promise.reject(new Error("store unreachable")),
       };
       const freshOrg = createOrganisationRoutes(config, layer, Layer.empty, failing);
       const alice = await registerAndGetToken("alice@example.com", "alice");

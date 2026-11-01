@@ -17,10 +17,11 @@ export function createCrossDeviceRoutes(ctx: AuthRouteContext) {
       //   request and returns { requestId, secret, expiresAt }.
       //
       // `POST /login/cross-device/:requestId/status` — unauthenticated. Polls
-      //   for approval. Returns session tokens exactly once on approved.
+      //   for approval. On approved, mints device B's session and returns it
+      //   exactly once.
       //
       // `POST /login/cross-device/:requestId/approve` — authenticated. Device A
-      //   approves the request; server issues a session for device B.
+      //   approves the request; device B's next poll gets the session.
       //
       // `POST /login/cross-device/:requestId/reject` — authenticated. Device A
       //   explicitly rejects the request.

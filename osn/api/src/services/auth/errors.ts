@@ -1,6 +1,8 @@
 import type { Result } from "@shared/observability/metrics";
 import { Data } from "effect";
 
+import type { CoordinationStoreName } from "../../lib/coordination/names";
+
 // ---------------------------------------------------------------------------
 // Errors
 // ---------------------------------------------------------------------------
@@ -17,6 +19,17 @@ export class AuthError extends Data.TaggedError("AuthError")<{
 
 export class DatabaseError extends Data.TaggedError("DatabaseError")<{
   readonly cause: unknown;
+}> {}
+
+/**
+ * A coordination-store call failed: the ceremony state, single-use claim or
+ * counter it needed could not be read or written. Carries the store's name
+ * and the operation only — never a key or a value. The store has already
+ * logged the failure; routes answer it with a generic 503.
+ */
+export class CoordinationError extends Data.TaggedError("CoordinationError")<{
+  readonly store: CoordinationStoreName;
+  readonly op: string;
 }> {}
 
 export class ValidationError extends Data.TaggedError("ValidationError")<{

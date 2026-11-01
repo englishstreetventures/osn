@@ -3,6 +3,7 @@ import { Layer } from "effect";
 import { describe, it, expect, beforeAll } from "vitest";
 
 import { makeTestAuthConfig } from "../helpers/auth-config";
+import { settledHandle } from "../helpers/background";
 import { createTestLayer } from "../helpers/db";
 // Wrapped factory (trust XFF under app.handle). See helpers/routes.
 import { createAuthRoutes } from "../helpers/routes";
@@ -35,7 +36,8 @@ async function registerAndGetAccessToken(
   email: string,
   handle: string,
 ): Promise<string> {
-  await app.handle(
+  await settledHandle(
+    app,
     new Request("http://localhost/register/begin", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

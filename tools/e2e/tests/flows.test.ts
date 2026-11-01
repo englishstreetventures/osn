@@ -82,8 +82,8 @@ describe("flow sources", () => {
   });
 
   // osn-api allows 5 sign-up begins a minute per client address
-  // (`registerBegin` in osn/api/src/lib/redis-rate-limiters.ts, in-memory on
-  // this stack), one window shared by the whole run, so a sixth begin is a 429
+  // (`registerBegin` in `AUTH_RATE_LIMITS`, osn/api/src/routes/auth/limiters.ts,
+  // in-memory on this stack), one window shared by the whole run, so a sixth begin is a 429
   // only on a machine fast enough to fit them in one minute. A flow begins a
   // sign-up by pressing "Send verification code" or "Resend code" in Musubi's
   // dialog, written exactly as the patterns below, or by `registerThroughApi`.

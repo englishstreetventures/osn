@@ -22,7 +22,7 @@ packages:
   - "@osn/api"
   - "@zap/api"
   - "@cire/api"
-last-reviewed: 2026-10-20
+last-reviewed: 2026-10-27
 ---
 
 # Backend Code Patterns
@@ -178,7 +178,7 @@ export const createApp = (deps: AppDeps) =>
     .use(createGraphRoutes(deps.loggerLayer));
 
 // osn/api/src/local.ts — env-driven Bun entry
-const deps = buildAppDeps();          // loads JWT keys, pepper, Redis stores, builds the shared appRuntime ONCE
+const deps = buildAppDeps();          // loads JWT keys, pepper, the coordination stores, builds the shared appRuntime ONCE
 startBunServer(createApp(deps));      // app.listen + ephemeral-key warning + ARC rotation + erasure sweeper
 ```
 
@@ -188,14 +188,15 @@ Auth routes require an `AuthConfig` parameter (no global default). Graph routes 
 factory/entry split as **Zap** and **Pulse**: `src/app.ts` exports a pure
 `createApp(deps)` that composes the routes and never reads `process.env`, while
 `src/local.ts` owns all env-driven wiring (`buildAppDeps()` loads the JWT key
-pair, validates the session-IP pepper, initialises Redis-backed stores + rate
-limiters, selects the email transport, and builds the Effect layer graph once
+pair, validates the session-IP pepper, builds the coordination bundle — rate
+limiters, ceremony stores, lockouts — in memory, selects the email transport, and builds the Effect layer graph once
 into the shared `appRuntime`; `startBunServer()` keeps `app.listen`, the
 ephemeral-key warning, outbound ARC key rotation, and the account-erasure
 sweeper). This was Phase 1 (P1) of the Cloudflare Workers migration; the later
 phases have since shipped too — osn-api runs a Workers `fetch` entry
-(`src/index.ts` + `main` in `wrangler.toml`) on `id.musubi.social` against
-Upstash-REST Redis. Zap/Pulse ship the same `createApp` + `local.ts` + Workers
+(`src/index.ts`, served through `src/entry.ts`, the `main` in `wrangler.toml`) on
+`id.musubi.social`, with its shared state on the `COORDINATION` Durable Object
+([[coordination-store]]). Zap/Pulse ship the same `createApp` + `local.ts` + Workers
 `index.ts` shape per [[database-environments]].
 
 The two entries differ in what they wire: `local.ts` starts the OTel SDK through

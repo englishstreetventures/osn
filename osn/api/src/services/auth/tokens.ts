@@ -3,17 +3,17 @@
  * C1), rotated-token reuse detection (C2), and access-token verification.
  */
 
-import { sessions } from "@osn/db/schema";
+import { accounts, rotatedSessions, sessions, users } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
-import { rowsChanged } from "@shared/db-utils";
-import { and, desc, eq, gt, inArray, isNotNull } from "drizzle-orm";
-import { Effect } from "effect";
+import { commitBatch, rowsChanged } from "@shared/db-utils";
+import { and, desc, eq, exists, gt, inArray, isNotNull, isNull, lte, ne, sql } from "drizzle-orm";
+import { Clock, Effect } from "effect";
 
+import { canBatch } from "../../lib/batch";
+import { bound } from "../../lib/bound";
 import { ROTATION_RACE_MESSAGE } from "../../lib/grant-failure";
-import type { RotatedHashRecord } from "../../lib/rotated-session-store";
 import {
-  metricRotatedStoreDuration,
-  metricRotatedStoreOp,
+  metricRetentionSweep,
   metricSessionFamilyRevoked,
   metricSessionReuseDetected,
   metricSessionRotationRace,
@@ -26,6 +26,9 @@ import {
   MAX_SESSIONS_PER_ACCOUNT,
   RECOVERY_SESSION_TTL_SEC,
   RECOVERY_TOKEN_AUDIENCE,
+  ROTATED_SESSION_SWEEP_CHUNK,
+  ROTATED_SESSION_SWEEP_MAX_CHUNKS,
+  ROTATED_SESSION_SWEEP_PAUSE_MS,
   ROTATION_GRACE_MS,
 } from "./constants";
 import type { AuthContext } from "./context";
@@ -39,19 +42,99 @@ import {
   verifyJwt,
 } from "./helpers";
 import type { AccessTokenClaims } from "./helpers";
-import type { ProfilesModule } from "./profiles";
-import type { RecoveryFactorAmr, SessionMeta, TokenSet } from "./types";
+import { selectProfileById, type ProfilesModule } from "./profiles";
+import { inLiveFamilyOf } from "./sessions";
+import type { ProfileWithEmail, RecoveryFactorAmr, SessionMeta, TokenSet } from "./types";
+
+/** The most chunks a tier may ask one sweep pass for. */
+export const ROTATED_SESSION_SWEEP_MAX_CHUNKS_CEILING = 200;
+
+/**
+ * The tier's per-pass chunk cap, from `OSN_ROTATED_SESSION_SWEEP_MAX_CHUNKS`
+ * (`osn/api/wrangler.toml` sets it for staging and production; the Worker's
+ * `scheduled` handler reads it). Unset: {@link ROTATED_SESSION_SWEEP_MAX_CHUNKS},
+ * which keeps a Workers Free tier inside its 50 D1 queries per invocation,
+ * shared by the four sweeps of one cron tick. A whole number from 1 to
+ * {@link ROTATED_SESSION_SWEEP_MAX_CHUNKS_CEILING}: that number, which keeps a
+ * Workers Paid tier well inside its 1,000. Anything else is `"invalid"`, for
+ * the caller to log and replace with the default.
+ */
+export function rotatedSweepMaxChunks(raw: string | undefined): number | "invalid" {
+  if (raw === undefined || raw === "") return ROTATED_SESSION_SWEEP_MAX_CHUNKS;
+  if (!/^[0-9]+$/.test(raw)) return "invalid";
+  const chunks = Number(raw);
+  return chunks >= 1 && chunks <= ROTATED_SESSION_SWEEP_MAX_CHUNKS_CEILING ? chunks : "invalid";
+}
+
+/**
+ * Deletes expired `rotated_sessions` rows, in chunks of
+ * {@link ROTATED_SESSION_SWEEP_CHUNK} and at most `maxChunks` of them (the
+ * tier's cap, {@link rotatedSweepMaxChunks}), so one run's writes and
+ * statements stay bounded however far behind the table is. A pass that ends
+ * on a full chunk has left expired rows behind, and says so in a warning, so
+ * a backlog shows in the Worker's logs. A row is expired once
+ * `expires_at <= now`: past that, reuse detection ignores it.
+ *
+ * Each chunk is `DELETE … WHERE rowid IN (SELECT rowid … LIMIT n)`: the
+ * subquery binds the same few values whatever the chunk size, never one per
+ * row, and its `expires_at` range can use `rotated_sessions_expires_idx`.
+ * Between two chunks it waits {@link ROTATED_SESSION_SWEEP_PAUSE_MS}, so
+ * requests waiting to write run in between; it never waits after the last.
+ * Each pass, failed or not, adds the rows it deleted to
+ * `osn.retention.rows_deleted` and its time to `osn.retention.cycle.duration`,
+ * both under `table: "rotated_sessions"` (the sweeper design contract in
+ * `wiki/compliance/retention.md`).
+ *
+ * Standalone so the Workers `scheduled` handler and the Bun sweeper can run it
+ * beside the account-deletion sweeps.
+ */
+export const runRotatedSessionSweep = (
+  opts: { nowMs?: number; maxChunks?: number } = {},
+): Effect.Effect<{ deleted: number }, DatabaseError, Db> =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+    const nowMs = opts.nowMs ?? Date.now();
+    const maxChunks = opts.maxChunks ?? ROTATED_SESSION_SWEEP_MAX_CHUNKS;
+    const startedAt = yield* Clock.currentTimeMillis;
+    let deleted = 0;
+    const deleteChunk = Effect.tryPromise({
+      try: () =>
+        db.delete(rotatedSessions).where(
+          inArray(
+            sql`rowid`,
+            db
+              .select({ rowid: sql<number>`rowid` })
+              .from(rotatedSessions)
+              .where(lte(rotatedSessions.expiresAt, nowMs))
+              .limit(ROTATED_SESSION_SWEEP_CHUNK),
+          ),
+        ),
+      catch: (cause) => new DatabaseError({ cause }),
+    });
+    yield* Effect.gen(function* () {
+      for (let chunk = 0; chunk < maxChunks; chunk++) {
+        if (chunk > 0) yield* Effect.sleep(ROTATED_SESSION_SWEEP_PAUSE_MS);
+        const changed = rowsChanged(yield* deleteChunk);
+        deleted += changed;
+        if (changed < ROTATED_SESSION_SWEEP_CHUNK) return;
+      }
+      // Every chunk came back full, so expired rows are likely still there.
+      yield* Effect.logWarning("auth.session.rotated_sweep ended on a full chunk").pipe(
+        Effect.annotateLogs({ chunks: maxChunks, deleted }),
+      );
+    }).pipe(
+      Effect.ensuring(
+        Effect.gen(function* () {
+          const endedAt = yield* Clock.currentTimeMillis;
+          metricRetentionSweep("rotated_sessions", deleted, (endedAt - startedAt) / 1000);
+        }),
+      ),
+    );
+    return { deleted };
+  }).pipe(Effect.withSpan("auth.session.rotated_sweep"));
 
 export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
-  const {
-    config,
-    accessTokenTtl,
-    refreshTokenTtl,
-    rotatedSessionStore,
-    rotatedSessionStoreBackend,
-    hashIp,
-    passkeyRegisterAllowedAmr,
-  } = ctx;
+  const { config, accessTokenTtl, refreshTokenTtl, hashIp, passkeyRegisterAllowedAmr } = ctx;
   const { findDefaultProfile } = profiles;
 
   // -------------------------------------------------------------------------
@@ -80,13 +163,14 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
   ) =>
     Effect.tryPromise({
       try: () => {
-        // P6 invariant: `accountId` is intentionally absent from the
-        // access-token payload. Including it would allow any external
-        // observer (a downstream service, a JWT decoder in the browser,
-        // a leaked log line) to correlate two profiles as belonging to
-        // the same account. S-H2 is solved server-to-server instead —
-        // `/internal/step-up/verify` re-issues the verified accountId
-        // back to the calling service over an ARC-authenticated channel.
+        // `accountId` is never in the access-token payload. Including it
+        // would let any external observer (a downstream service, a JWT
+        // decoder in the browser, a leaked log line) correlate two profiles
+        // as belonging to the same account; see wiki/osn/identity-model.md.
+        // A service that needs the account behind a step-up gets it
+        // server-to-server instead: `/internal/step-up/verify` returns the
+        // verified accountId to the calling service over an ARC-authenticated
+        // channel.
         const payload: AccessTokenClaims = {
           sub: profileId,
           aud: audience,
@@ -95,7 +179,7 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
           scope: "openid profile",
         };
         if (displayName !== null) payload["displayName"] = displayName;
-        // S-L3: session binding. One-way, per-profile (see
+        // The session binding. One-way, per-profile (see
         // `deriveSessionBinding`) — lets a Bearer-only caller be matched to
         // its own session row without a cookie and without leaking either
         // the session id or the account behind the profile.
@@ -129,6 +213,195 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
     restrictedUntil === null
       ? accessTokenTtl
       : Math.max(1, Math.min(accessTokenTtl, restrictedUntil - nowSec));
+
+  /**
+   * At the cap, deletes the least recently used `sessions` rows on
+   * `accountId`, leaving one fewer than MAX_SESSIONS_PER_ACCOUNT of them. Rows
+   * in `exceptFamilyId`, when it is not null, are neither counted nor deleted.
+   */
+  const evictLeastRecentlyUsed = (
+    accountId: string,
+    exceptFamilyId: string | null,
+  ): Effect.Effect<void, DatabaseError, Db> =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      yield* Effect.tryPromise({
+        try: async () => {
+          const rows = await db
+            .select({ id: sessions.id, lastUsedAt: sessions.lastUsedAt })
+            .from(sessions)
+            .where(
+              exceptFamilyId === null
+                ? eq(sessions.accountId, accountId)
+                : and(eq(sessions.accountId, accountId), ne(sessions.familyId, exceptFamilyId)),
+            )
+            .orderBy(desc(sessions.lastUsedAt))
+            .limit(MAX_SESSIONS_PER_ACCOUNT + 1);
+          if (rows.length >= MAX_SESSIONS_PER_ACCOUNT) {
+            const evictIds = rows.slice(MAX_SESSIONS_PER_ACCOUNT - 1).map((r) => r.id);
+            // oxlint-disable-next-line house/no-unbounded-in-array -- at most two ids: the tail of a MAX_SESSIONS_PER_ACCOUNT + 1 read
+            await db.delete(sessions).where(inArray(sessions.id, evictIds));
+          }
+        },
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+    });
+
+  /**
+   * Makes room for one more `sessions` row on `accountId`. At the cap it
+   * deletes the least recently used rows, leaving one fewer than
+   * MAX_SESSIONS_PER_ACCOUNT, so the insert that follows leaves the account
+   * at the cap. Every new session — `issueTokens` and a restricted recovery
+   * session — calls it first; rotation inserts a row only in place of the one
+   * it then deletes, and a
+   * reservation makes room only once it is to stand
+   * ({@link makeRoomForReservation}).
+   *
+   * A stolen credential can never hold more than the cap's worth of sessions
+   * open, and an account with many devices loses its least recently used
+   * session instead of failing the new sign-in.
+   */
+  const makeRoomForSession = (accountId: string): Effect.Effect<void, DatabaseError, Db> =>
+    evictLeastRecentlyUsed(accountId, null);
+
+  /**
+   * Inserts a `sessions` row for `accountId` in family `familyId`, live until
+   * `expiresAtSec`, whose token nobody holds: the token it hashes is dropped
+   * here, so the row can never be presented. It holds a place that any
+   * revocation removes, and answers the row's id. It counts against the
+   * session cap like any other row, but evicts nothing: until the caller runs
+   * {@link makeRoomForReservation}, the account holds one row over the cap
+   * for each reservation in flight.
+   */
+  const reserveSession = (
+    accountId: string,
+    familyId: string,
+    expiresAtSec: number,
+    sessionMeta: SessionMeta | undefined,
+  ): Effect.Effect<string, DatabaseError, Db> =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const id = hashSessionToken(generateSessionToken());
+      const nowSec = Math.floor(Date.now() / 1000);
+      yield* Effect.tryPromise({
+        try: () =>
+          db.insert(sessions).values({
+            id,
+            accountId,
+            familyId,
+            expiresAt: expiresAtSec,
+            createdAt: nowSec,
+            authenticatedAt: nowSec,
+            uaLabel: sessionMeta?.uaLabel ?? null,
+            ipHash: sessionMeta?.ip ? hashIp(sessionMeta.ip) : null,
+            lastUsedAt: nowSec,
+          }),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      return id;
+    });
+
+  /**
+   * Brings an account holding a reservation in `familyId` back to the cap,
+   * once that reservation is to stand. At the cap it deletes the least
+   * recently used rows outside the family, leaving one fewer than
+   * MAX_SESSIONS_PER_ACCOUNT of them, so with the one reservation the account
+   * holds the cap. The family's other reservations are left out of the count:
+   * each is released by the call that made it, and counting one would evict a
+   * session for a row about to go.
+   */
+  const makeRoomForReservation = (
+    accountId: string,
+    familyId: string,
+  ): Effect.Effect<void, DatabaseError, Db> => evictLeastRecentlyUsed(accountId, familyId);
+
+  /**
+   * Turns the reserved row `reservedId` into a live session for the profile
+   * `profileId` and mints its tokens: the cross-device poll's last step, once
+   * it has taken the approval.
+   *
+   * One batch, which D1 runs as one transaction and one round trip: the
+   * profile read; an UPDATE that gives the row a fresh token's id, a family of
+   * its own and a session's life, only while the row is live, its account is
+   * not deleted or scheduled for deletion, and the profile is still in that
+   * account; and a DELETE that removes the reservation when that UPDATE did
+   * not take it. Answers null when it did not take it: a revocation removed
+   * the row, it expired, or the account or profile no longer stands.
+   *
+   * Evicts nothing. The UPDATE changes no row count, so the account stays
+   * where the approval's {@link makeRoomForReservation} left it, and another
+   * request's reservation is never counted against this sign-in.
+   */
+  const claimReservation = (
+    accountId: string,
+    reservedId: string,
+    profileId: string,
+  ): Effect.Effect<
+    { session: TokenSet; profile: ProfileWithEmail } | null,
+    AuthError | DatabaseError,
+    Db
+  > =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const sessionToken = generateSessionToken();
+      const sessionId = hashSessionToken(sessionToken);
+      const nowSec = Math.floor(Date.now() / 1000);
+      const profileRead = selectProfileById(db, profileId);
+      const claim = db
+        .update(sessions)
+        .set({
+          id: sessionId,
+          familyId: genId("sfam_"),
+          expiresAt: nowSec + refreshTokenTtl,
+          createdAt: nowSec,
+          authenticatedAt: nowSec,
+          lastUsedAt: nowSec,
+        })
+        .where(
+          and(
+            eq(sessions.id, reservedId),
+            eq(sessions.accountId, accountId),
+            gt(sessions.expiresAt, nowSec),
+            exists(
+              db
+                .select({ one: sql`1` })
+                .from(users)
+                .innerJoin(accounts, eq(accounts.id, users.accountId))
+                .where(
+                  and(
+                    eq(users.id, profileId),
+                    eq(users.accountId, accountId),
+                    isNull(accounts.deletedAt),
+                  ),
+                ),
+            ),
+          ),
+        );
+      const release = db
+        .delete(sessions)
+        .where(and(eq(sessions.id, reservedId), eq(sessions.accountId, accountId)));
+      const [profileRows, claimed] = yield* Effect.tryPromise({
+        try: async () =>
+          canBatch(db)
+            ? await db.batch([profileRead, claim, release])
+            : ([await profileRead, await claim, await release] as const),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      const profile = profileRows[0];
+      if (rowsChanged(claimed) !== 1 || !profile || profile.accountId !== accountId) return null;
+
+      const accessToken = yield* issueAccessToken(
+        profile.id,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+        deriveSessionBinding(sessionId, profile.id),
+      );
+      return {
+        session: { accessToken, refreshToken: sessionToken, expiresIn: accessTokenTtl },
+        profile,
+      };
+    });
 
   /**
    * Full token issuance: creates a server-side session row and returns an
@@ -183,29 +456,8 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
       );
       const fam = familyId ?? genId("sfam_");
 
+      yield* makeRoomForSession(accountId);
       const { db } = yield* Db;
-
-      // S-M1: LRU-evict the oldest sessions once the per-account cap is
-      // exceeded. An attacker with a stolen credential can't inflate the
-      // revocation surface beyond MAX_SESSIONS_PER_ACCOUNT; legitimate
-      // users with genuinely many devices see their least-recently-used
-      // sessions drop off rather than their new login failing.
-      yield* Effect.tryPromise({
-        try: async () => {
-          const rows = await db
-            .select({ id: sessions.id, lastUsedAt: sessions.lastUsedAt })
-            .from(sessions)
-            .where(eq(sessions.accountId, accountId))
-            .orderBy(desc(sessions.lastUsedAt))
-            .limit(MAX_SESSIONS_PER_ACCOUNT + 1);
-          if (rows.length >= MAX_SESSIONS_PER_ACCOUNT) {
-            const evictIds = rows.slice(MAX_SESSIONS_PER_ACCOUNT - 1).map((r) => r.id);
-            // oxlint-disable-next-line house/no-unbounded-in-array -- at most two ids: the tail of a MAX_SESSIONS_PER_ACCOUNT + 1 read
-            await db.delete(sessions).where(inArray(sessions.id, evictIds));
-          }
-        },
-        catch: (cause) => new DatabaseError({ cause }),
-      });
 
       yield* Effect.tryPromise({
         try: () =>
@@ -308,12 +560,11 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
    * table. Implements sliding-window expiry: when less than half the TTL
    * remains, `expiresAt` is extended by the full TTL from now.
    *
-   * Returns `accountId`, `familyId`, and `sessionId` (the hash). The
-   * `familyId` is needed by `refreshTokens` for rotation; `sessionId` is
-   * needed by `invalidateOtherAccountSessions` (H1). The device metadata
-   * (`createdAt`, `uaLabel`, `ipHash`) rides along from the row loaded here so
-   * `refreshTokens` can carry it onto the rotated-in row without re-reading
-   * the same row by primary key (P-W1).
+   * Returns the session's `accountId`, `familyId` and `sessionId` (the hash),
+   * its authentication time and its restriction, all from the one row read
+   * here. `refreshTokens` rotates from the account, family, hash and
+   * restriction; it copies the device onto the new session from the old row
+   * as it stands when the insert runs, not from this read.
    *
    * Two callers: `refreshTokens` here, and the OIDC provider's `resolveSession`
    * (`routes/auth/oidc.ts`), which is how `/authorize` learns whether this
@@ -337,9 +588,6 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
       familyId: string;
       sessionId: string;
       authenticatedAt: number;
-      createdAt: number;
-      uaLabel: string | null;
-      ipHash: string | null;
       restrictedUntil: number | null;
       restrictedAmr: string | null;
     },
@@ -365,10 +613,15 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
 
       const nowSec = Math.floor(Date.now() / 1000);
 
-      // Expired — clean up lazily
+      // Expired — clean up lazily. Only while it is still expired: a verify
+      // of the same token a moment earlier may have found it live and
+      // extended it (below) since this one read it, and that session stays.
       if (nowSec >= session.expiresAt) {
         yield* Effect.tryPromise({
-          try: () => db.delete(sessions).where(eq(sessions.id, sessionId)),
+          try: () =>
+            db
+              .delete(sessions)
+              .where(and(eq(sessions.id, sessionId), lte(sessions.expiresAt, nowSec))),
           catch: (cause) => new DatabaseError({ cause }),
         });
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired session" }));
@@ -382,10 +635,10 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
       }
 
       // Sliding window: extend when less than half the TTL remains.
-      // `last_used_at` is coalesced (P-W4) — writing it on every verify
-      // would add a DB round-trip per refresh. The Sessions UI doesn't
-      // need sub-second accuracy; 60 s granularity shrinks writes by
-      // roughly the refresh cadence.
+      // `last_used_at` is coalesced (`LAST_USED_AT_COALESCE_MS`) — writing it
+      // on every verify would add a DB round-trip per refresh. The Sessions
+      // UI doesn't need sub-second accuracy; 60 s granularity shrinks writes
+      // by roughly the refresh cadence.
       //
       // A restricted session never slides, and the guard has to be explicit:
       // its whole 15-minute life is far inside half of a 30-day TTL, so the
@@ -410,18 +663,16 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
 
       // `authenticatedAt` is the moment the user actually authenticated on this
       // device, copied forward across every rotation (falling back to
-      // `createdAt` for legacy rows). It is the honest `auth_time` for the OIDC
-      // provider (S-H1 oidc): a 29-day-old passkey ceremony reads as 29 days
-      // old even after dozens of silent refreshes, so a relying party's
-      // `max_age` reflects real user presence, not the last background refresh.
+      // `createdAt` for a row written before the column). It is the honest
+      // `auth_time` for the OIDC provider: a 29-day-old passkey ceremony reads
+      // as 29 days old even after dozens of silent refreshes, so a relying
+      // party's `max_age` reflects real user presence, not the last background
+      // refresh.
       return {
         accountId: session.accountId,
         familyId: session.familyId,
         sessionId,
         authenticatedAt: session.authenticatedAt ?? session.createdAt,
-        createdAt: session.createdAt,
-        uaLabel: session.uaLabel,
-        ipHash: session.ipHash,
         restrictedUntil: session.restrictedUntil,
         restrictedAmr: session.restrictedAmr,
       };
@@ -431,108 +682,43 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
   // Reuse detection (Copenhagen Book C2)
   //
   // When a session hash is not found in the DB, it may have been rotated
-  // out (deleted during a prior refresh). `rotatedSessionStore` tracks
-  // recently-rotated hashes (keyed by hash → familyId) so a replayed
-  // old token triggers full family revocation. S-H1 session: the store
-  // abstraction lets the memory default (single-process dev/test) swap for
-  // a Redis-backed cluster-safe implementation in production.
+  // out by a prior refresh. `refreshTokens` records every rotated-out hash
+  // in `rotated_sessions`, in the same batch as the session that replaces
+  // it, so a replayed old token finds its record and revokes the family.
   // -------------------------------------------------------------------------
 
-  const rotatedSessionStoreTtlMs = refreshTokenTtl * 1000;
-
-  /**
-   * Record a rotated-out hash. Wraps the async store call with the standard
-   * observability trio: span + duration histogram + bounded-attrs counter.
-   * Fail-open on store errors — rotation itself has already committed at
-   * the DB layer and aborting the refresh on a Redis blip is a worse UX
-   * than a temporary gap in reuse detection.
-   */
-  const trackRotatedSession = (
-    sessionHash: string,
-    familyId: string,
-  ): Effect.Effect<void, never, never> =>
-    Effect.suspend(() => {
-      const start = Date.now();
-      return Effect.tryPromise({
-        try: () => rotatedSessionStore.track(sessionHash, familyId, rotatedSessionStoreTtlMs),
-        catch: (cause) => cause,
-      }).pipe(
-        Effect.tap(() =>
-          Effect.sync(() => {
-            metricRotatedStoreOp({
-              action: "track",
-              result: "ok",
-              backend: rotatedSessionStoreBackend,
-            });
-            metricRotatedStoreDuration((Date.now() - start) / 1000, {
-              action: "track",
-              backend: rotatedSessionStoreBackend,
-            });
-          }),
-        ),
-        Effect.catch(() =>
-          Effect.gen(function* () {
-            metricRotatedStoreOp({
-              action: "track",
-              result: "error",
-              backend: rotatedSessionStoreBackend,
-            });
-            metricRotatedStoreDuration((Date.now() - start) / 1000, {
-              action: "track",
-              backend: rotatedSessionStoreBackend,
-            });
-            yield* Effect.logWarning("Rotated-session store unreachable — fail-open on track");
-          }),
-        ),
-        Effect.withSpan("auth.session.rotated_store.track"),
-      );
-    });
+  /** How long a rotation record proves reuse: the life of the token it records. */
+  const rotatedRecordTtlMs = refreshTokenTtl * 1000;
 
   /**
    * Checks if a missing session hash was recently rotated. If so, revokes
    * the entire family — both the legitimate holder and the attacker are
    * logged out, which is the correct security response per the Copenhagen
    * Book.
+   *
+   * Fails closed: a failed read is a `DatabaseError`, so the grant fails and
+   * nothing is revoked. A storage error never passes for "not rotated", and
+   * never manufactures a revocation either.
    */
   const detectReuse = (sessionHash: string): Effect.Effect<void, DatabaseError, Db> =>
     Effect.gen(function* () {
-      const start = Date.now();
-      const record = yield* Effect.tryPromise({
-        try: () => rotatedSessionStore.check(sessionHash),
-        catch: (cause) => cause,
-      }).pipe(
-        Effect.tap((result) =>
-          Effect.sync(() => {
-            metricRotatedStoreOp({
-              action: "check",
-              result: result ? "hit" : "miss",
-              backend: rotatedSessionStoreBackend,
-            });
-            metricRotatedStoreDuration((Date.now() - start) / 1000, {
-              action: "check",
-              backend: rotatedSessionStoreBackend,
-            });
-          }),
-        ),
-        Effect.catch(() =>
-          Effect.gen(function* () {
-            metricRotatedStoreOp({
-              action: "check",
-              result: "error",
-              backend: rotatedSessionStoreBackend,
-            });
-            metricRotatedStoreDuration((Date.now() - start) / 1000, {
-              action: "check",
-              backend: rotatedSessionStoreBackend,
-            });
-            yield* Effect.logWarning("Rotated-session store unreachable — fail-open on check");
-            // Fail-open: return null so a Redis outage cannot manufacture
-            // false-positive family revocations that log legitimate users out.
-            return null as RotatedHashRecord | null;
-          }),
-        ),
-        Effect.withSpan("auth.session.rotated_store.check"),
-      );
+      const { db } = yield* Db;
+      const nowMs = Date.now();
+      const [record] = yield* Effect.tryPromise({
+        try: () =>
+          db
+            .select({
+              accountId: rotatedSessions.accountId,
+              familyId: rotatedSessions.familyId,
+              rotatedAt: rotatedSessions.rotatedAt,
+            })
+            .from(rotatedSessions)
+            .where(
+              and(eq(rotatedSessions.tokenHash, sessionHash), gt(rotatedSessions.expiresAt, nowMs)),
+            )
+            .limit(1),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
       if (!record) return;
 
       // Grace window: a rotated-out hash replayed within ROTATION_GRACE_MS of
@@ -542,7 +728,7 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
       // winning grant already rotated the family forward; this replay just
       // loses. Treat it as a race, NOT reuse — preserve the family so the user
       // stays signed in. A replay OUTSIDE the window is genuine reuse below.
-      if (Date.now() - record.rotatedAtMs < ROTATION_GRACE_MS) {
+      if (nowMs - record.rotatedAt < ROTATION_GRACE_MS) {
         metricSessionRotationRace();
         yield* Effect.logInfo(
           "Rotated-token replay within grace window — benign concurrent refresh, family preserved",
@@ -550,64 +736,49 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
         return;
       }
 
-      // Replayed rotated-out token outside the grace window — revoke the family.
-      const { familyId } = record;
+      // Replayed rotated-out token outside the grace window — revoke the
+      // family's sessions and, with them, its rotation records: once the
+      // family is gone a further replay from the same chain has nothing left
+      // to revoke. The revoke is counted, and warned of, only when it removed
+      // a session: a family already revoked (by handle, say) leaves records
+      // that a stale replay still finds.
+      const { accountId, familyId } = record;
       metricSessionReuseDetected();
-      yield* Effect.logWarning("Session token reuse detected — revoking family");
-      const { db } = yield* Db;
-      yield* Effect.tryPromise({
-        try: () => db.delete(sessions).where(eq(sessions.familyId, familyId)),
+      const removeSessions = db.delete(sessions).where(eq(sessions.familyId, familyId));
+      // Led by `account_id` so it searches `rotated_sessions_account_family_idx`.
+      const removeRecords = db
+        .delete(rotatedSessions)
+        .where(
+          and(eq(rotatedSessions.accountId, accountId), eq(rotatedSessions.familyId, familyId)),
+        );
+      const removed = yield* Effect.tryPromise({
+        // One batch on D1; one statement at a time on bun:sqlite.
+        try: async () => {
+          const [result] = canBatch(db)
+            ? await db.batch([removeSessions, removeRecords])
+            : ([await removeSessions, await removeRecords] as const);
+          return rowsChanged(result);
+        },
         catch: (cause) => new DatabaseError({ cause }),
       });
-      // S-M1: clear every tracking record for this family so observability
-      // stays consistent if an attacker replays multiple exfiltrated tokens
-      // from the same chain. Store-level fail-open — leaving stale keys
-      // behind is harmless (they expire with the refresh TTL).
-      const revokeStart = Date.now();
-      yield* Effect.tryPromise({
-        try: () => rotatedSessionStore.revokeFamily(familyId),
-        catch: (cause) => cause,
-      }).pipe(
-        Effect.tap(() =>
-          Effect.sync(() => {
-            metricRotatedStoreOp({
-              action: "revoke_family",
-              result: "ok",
-              backend: rotatedSessionStoreBackend,
-            });
-            metricRotatedStoreDuration((Date.now() - revokeStart) / 1000, {
-              action: "revoke_family",
-              backend: rotatedSessionStoreBackend,
-            });
-          }),
-        ),
-        Effect.catch(() =>
-          Effect.gen(function* () {
-            metricRotatedStoreOp({
-              action: "revoke_family",
-              result: "error",
-              backend: rotatedSessionStoreBackend,
-            });
-            metricRotatedStoreDuration((Date.now() - revokeStart) / 1000, {
-              action: "revoke_family",
-              backend: rotatedSessionStoreBackend,
-            });
-            yield* Effect.logWarning(
-              "Rotated-session store unreachable — fail-open on revoke_family",
-            );
-          }),
-        ),
-        Effect.withSpan("auth.session.rotated_store.revoke_family"),
-      );
-      metricSessionFamilyRevoked();
+      if (removed > 0) {
+        metricSessionFamilyRevoked();
+        yield* Effect.logWarning("Session token reuse detected — family revoked");
+      } else {
+        yield* Effect.logInfo("Session token reuse detected — no session of the family was left");
+      }
     }).pipe(Effect.withSpan("auth.session.reuse_detect"));
 
   /**
    * Refreshes a session: verifies the session token, finds the default
    * profile, issues a new access token, and **rotates** the session token
-   * (Copenhagen Book C2). The old session row is deleted and a new one is
-   * inserted in the same family. The old hash is tracked in-memory so that
-   * a replayed old token triggers full family revocation (reuse detection).
+   * (Copenhagen Book C2): the new session row is inserted, then the old
+   * hash's `rotated_sessions` record, then the old row deleted, so a replayed
+   * old token triggers full family revocation (reuse detection). On D1 the
+   * three are one batch, which commits whole or not at all; a failed write is
+   * a `DatabaseError`, which `POST /token` reads as "session status unknown",
+   * and the old session stays. A revoke of the family or the account that
+   * lands at any point of a rotation leaves no session behind it.
    */
   const refreshTokens = (
     sessionToken: string,
@@ -621,11 +792,7 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
         accountId,
         familyId,
         sessionId: oldSessionId,
-        authenticatedAt,
-        uaLabel,
-        ipHash,
         restrictedUntil,
-        restrictedAmr,
         // The one caller allowed to rotate a restricted session — rotating it
         // is the only thing a restricted session is for.
       } = yield* verifyRefreshToken(sessionToken, { allowRestricted: true });
@@ -634,17 +801,17 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
         return yield* Effect.fail(new AuthError({ message: "Profile not found" }));
       }
 
-      // Rotate: delete old session, insert new one in the same family,
-      // preserving the old session's metadata (UA label + IP hash) so the
-      // device keeps its identity across rotations. The new session id is
-      // minted first so the access token binds to the session the caller
-      // will actually hold after this grant, not the one being rotated out.
+      // Rotate: insert the new session in the same family, then delete the
+      // old one. The new session id is minted first so the access token binds
+      // to the session the caller will actually hold after this grant, not the
+      // one being rotated out.
       const newSessionToken = generateSessionToken();
       const newSessionId = hashSessionToken(newSessionToken);
 
       // One clock read, taken before the mint so the token's lifetime is
       // measured against the same instant as the row fields below.
-      const nowSec = Math.floor(Date.now() / 1000);
+      const nowMs = Date.now();
+      const nowSec = Math.floor(nowMs / 1000);
 
       // The restriction rides the SESSION ROW, not the token, so it survives
       // the silent refresh that would otherwise retire it five minutes in.
@@ -663,88 +830,158 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
       );
 
       const { db } = yield* Db;
-      // The old session's metadata (UA label + IP hash + `authenticatedAt`)
-      // comes from the row `verifyRefreshToken` already loaded, so the
-      // rotated-in row keeps the device's identity without a second read of
-      // the same primary key (P-W1).
+      const oldRow = eq(sessions.id, oldSessionId);
+      const newRow = eq(sessions.id, newSessionId);
 
-      // CAS gate (S-M refresh-rotation): the old-session DELETE is the atomic
-      // compare-and-swap. Two concurrent refreshes of the same token both pass
-      // verification, but only one DELETE observes the row present (rows-affected
-      // == 1) and proceeds to insert; the loser sees 0 rows — the token was
-      // already rotated out (concurrent refresh or replay), which is treated as
-      // C2 reuse: revoke the whole family instead of minting a sibling session.
-      // Mirrors the recovery-code CAS already used in this service.
-      //
-      // Rows-affected goes through `rowsChanged` — D1 reports it under
-      // `meta.changes`, and reading only the top-level field made this gate
-      // read 0 for every grant in production (the DELETE had already run), so
-      // every refresh destroyed the session it was renewing.
-      const delResult = yield* Effect.tryPromise({
-        try: () => db.delete(sessions).where(eq(sessions.id, oldSessionId)),
+      // 1. The new session, written only while the old one stands. It copies
+      //    the device from the old row as that row stands when the insert
+      //    runs: the UA label and IP hash, so the device keeps its identity
+      //    across rotations, and any restriction, so one lifted since the read
+      //    above stays lifted. The access token minted above keeps the read's
+      //    audience, which is never wider than the row's.
+      const mint = () =>
+        db.insert(sessions).select(
+          db
+            .select({
+              id: bound(newSessionId, sessions.id),
+              accountId: sessions.accountId,
+              familyId: sessions.familyId,
+              // A restricted session keeps its original absolute deadline
+              // across every rotation: a 30-day life here would outlive the
+              // fifteen minutes it must die in, and the client refreshes
+              // silently, so it would happen on its own.
+              expiresAt: sql<number>`coalesce(${sessions.restrictedUntil}, ${
+                nowSec + refreshTokenTtl
+              })`.as(sessions.expiresAt.name),
+              createdAt: bound(nowSec, sessions.createdAt),
+              // The device's original authentication time, so a background
+              // refresh cannot reset `auth_time` to now and satisfy a relying
+              // party's `max_age` with no user present. A row older than the
+              // column falls back to its `created_at`.
+              authenticatedAt: sql<number>`coalesce(${sessions.authenticatedAt}, ${
+                sessions.createdAt
+              })`.as(sessions.authenticatedAt.name),
+              uaLabel: sessions.uaLabel,
+              ipHash: sessions.ipHash,
+              lastUsedAt: bound(nowSec, sessions.lastUsedAt),
+              restrictedUntil: sessions.restrictedUntil,
+              // Carried with the deadline: the enrolment bypass reads the
+              // factor off whichever row the caller currently holds.
+              restrictedAmr: sessions.restrictedAmr,
+            })
+            .from(sessions)
+            .where(oldRow),
+        );
+      // 2. The record of the rotated-out token, only once this request's new
+      //    session is in, so reuse detection sees the old token replayed. Its
+      //    key is the old token's hash: a second record for it fails the grant
+      //    as a storage failure.
+      const record = () =>
+        db.insert(rotatedSessions).select(
+          db
+            .select({
+              tokenHash: bound(oldSessionId, rotatedSessions.tokenHash),
+              familyId: bound(familyId, rotatedSessions.familyId),
+              accountId: bound(accountId, rotatedSessions.accountId),
+              rotatedAt: bound(nowMs, rotatedSessions.rotatedAt),
+              expiresAt: bound(nowMs + rotatedRecordTtlMs, rotatedSessions.expiresAt),
+            })
+            .from(sessions)
+            .where(newRow),
+        );
+      // 3. The compare-and-swap: the old session goes only while the new one
+      //    stands. The grant succeeds only if both rows stood at this moment.
+      const swap = () =>
+        db.delete(sessions).where(
+          and(
+            oldRow,
+            exists(
+              db
+                .select({ one: sql`1` })
+                .from(sessions)
+                .where(newRow),
+            ),
+          ),
+        );
+
+      // At every moment of a rotation the family holds the old row, the new
+      // row or both, so a delete of the family or the account that lands at
+      // any point removes whatever stands and every later statement here finds
+      // nothing. One batch on D1, which commits whole or not at all; one
+      // statement at a time on bun:sqlite, each built once the one before has
+      // run. Change counts go through `rowsChanged`, which reads D1's
+      // `meta.changes`.
+      let newRowLeft = false;
+      const written = yield* Effect.tryPromise({
+        try: async () => {
+          if (canBatch(db)) {
+            const [, recorded, swapped] = await db.batch([mint(), record(), swap()]);
+            return { recorded: rowsChanged(recorded), swapped: rowsChanged(swapped) };
+          }
+          try {
+            await mint();
+            const recorded = rowsChanged(await record());
+            const swapped = rowsChanged(await swap());
+            return { recorded, swapped };
+          } catch (error) {
+            // The new row is this request's alone; it goes with the failure,
+            // and the old row stays, as a failed D1 batch leaves it. A delete
+            // that fails too leaves the row, held by no one, until it
+            // expires; that is logged below, and the grant fails with the
+            // first error either way.
+            await db
+              .delete(sessions)
+              .where(newRow)
+              .then(
+                () => undefined,
+                () => {
+                  newRowLeft = true;
+                },
+              );
+            throw error;
+          }
+        },
         catch: (cause) => new DatabaseError({ cause }),
-      });
-      const rotated = rowsChanged(delResult);
+      }).pipe(
+        Effect.tapError(() =>
+          newRowLeft
+            ? Effect.logError(
+                "Refresh rotation could not remove its own new session after a failed write",
+              ).pipe(Effect.annotateLogs({ restricted: String(restrictedUntil !== null) }))
+            : Effect.void,
+        ),
+      );
 
-      if (rotated === 0) {
-        // CAS lost: the row was PRESENT at verify but GONE by DELETE, so a
-        // CONCURRENT grant of this SAME token rotated it out in the gap. This
-        // is NOT reuse: a replay of an already-rotated token can't pass
-        // `verifyRefreshToken` (its row is absent) and never reaches here —
-        // only concurrent use of the *current* token does (two tabs
-        // bootstrapping on reload, a cold-start bootstrap racing a 401-refresh,
-        // a retried grant). The winning grant already rotated the family
-        // forward and its new session is valid; revoking the family here was a
-        // false positive that logged legitimate users out across every device
-        // (the "logs out sometimes" bug). Preserve the family — this losing
-        // grant simply fails, and its client re-establishes from the (rotated)
-        // cookie the winner set.
+      if (written.swapped === 0) {
+        // Lost: the old row was present at verify but gone, or the new one
+        // gone, by the swap. A concurrent grant of this SAME token rotated it
+        // (two tabs bootstrapping on reload, a cold-start bootstrap racing a
+        // 401-refresh, a retried grant), or a delete took the family or the
+        // account mid-grant. Never reuse: a replay of an already-rotated token
+        // fails `verifyRefreshToken` and goes down `detectReuse` instead. The
+        // family is preserved; this grant removes what it wrote — its new row,
+        // and its record when that record landed, since the key is unique and
+        // so the row is this request's — and fails.
+        yield* Effect.tryPromise({
+          try: () =>
+            commitBatch(db, [
+              db.delete(sessions).where(newRow),
+              ...(written.recorded === 1
+                ? [db.delete(rotatedSessions).where(eq(rotatedSessions.tokenHash, oldSessionId))]
+                : []),
+            ]),
+          catch: (cause) => new DatabaseError({ cause }),
+        });
         metricSessionRotationRace();
         yield* Effect.logInfo(
           "Refresh rotation CAS lost to a concurrent grant — benign race, family preserved",
         );
-        // Distinct from the "this token does not verify" failures above, and
-        // deliberately so: `POST /token` must NOT retract the session marker
-        // here. The cookie the winner set is alive; only this losing grant
-        // failed. See `lib/grant-failure` (S-M2).
+        // Distinct from the "this token does not verify" failures above:
+        // `POST /token` does not retract the session marker here. A winner's
+        // cookie is alive; after a revoke the next grant answers "Invalid or
+        // expired session", which does retract it. See `lib/grant-failure`.
         return yield* Effect.fail(new AuthError({ message: ROTATION_RACE_MESSAGE }));
       }
-
-      yield* Effect.tryPromise({
-        try: () =>
-          db.insert(sessions).values({
-            id: newSessionId,
-            accountId,
-            familyId,
-            // A restricted session keeps its ORIGINAL absolute deadline across
-            // every rotation. `nowSec + refreshTokenTtl` here would hand a
-            // 30-day life to the session that must die in fifteen minutes, and
-            // the client refreshes silently, so it would happen on its own.
-            expiresAt: restrictedUntil ?? nowSec + refreshTokenTtl,
-            createdAt: nowSec,
-            // Preserve the device's original authentication time across the
-            // rotation. `createdAt` is the new row's insert time (this grant),
-            // but `authenticatedAt` must reflect the real passkey/OTP ceremony
-            // so a background silent refresh can't reset `auth_time` to "now"
-            // and satisfy a relying party's `max_age` with zero user presence.
-            // Fall back to the old row's `createdAt` for sessions minted before
-            // the column existed — `verifyRefreshToken` already applied that
-            // fallback, so this value is never null.
-            authenticatedAt,
-            uaLabel,
-            ipHash,
-            lastUsedAt: nowSec,
-            restrictedUntil,
-            // Carried forward with the deadline: the enrolment bypass reads the
-            // factor off whichever row the caller currently holds, and a
-            // rotation that dropped it would silently retire the bypass.
-            restrictedAmr,
-          }),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
-
-      // Track the rotated-out hash for reuse detection
-      yield* trackRotatedSession(oldSessionId, familyId);
 
       return {
         accessToken,
@@ -790,9 +1027,9 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
         typeof payload["handle"] !== "string" ||
         payload["aud"] !== audience
       ) {
-        // S-M2: `aud` pinning ensures only tokens explicitly issued as
-        // access tokens authenticate these routes. Without it any ES256
-        // JWT with string sub/email/handle would be accepted.
+        // Pinning `aud` means only a token issued for this audience
+        // authenticates here. Without it any ES256 JWT this issuer signed
+        // with string sub/email/handle would be accepted.
         return yield* Effect.fail(new AuthError({ message: "Invalid token claims" }));
       }
       return {
@@ -832,7 +1069,17 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
    * Four predicates, and each closes a different way this write could grant
    * more than it means to:
    *
-   *  - `id = sessionHash` — the caller's own session, server-derived.
+   *  - in the family of the live session `sessionHash` names
+   *    ({@link inLiveFamilyOf}) — the caller's own device, server-derived. A
+   *    refresh of that session in flight has inserted its new session,
+   *    restricted, before it deletes the old one, and the family reaches it;
+   *    a refresh that inserts after this write copies the lifted row. A hash
+   *    a refresh has already replaced names no live session and lifts
+   *    nothing: a lift is a grant, and a rotated-out hash grants nothing.
+   *    `completePasskeyRegistration` then sweeps with the same hash, which
+   *    spares only a live session's family, so the replacement goes with
+   *    every other session rather than staying restricted. Either way no
+   *    restricted session of the caller's device outlives the enrolment.
    *  - `account_id = accountId` — scoped like every other session write that
    *    takes a hash (`invalidateOtherAccountSessions`, `revokeAccountSession`),
    *    so a hash belonging to another account can never be lifted through a
@@ -847,8 +1094,8 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
    *    `verifyRefreshToken`, which this path never calls.
    *
    * A `null` hash is a no-op — that caller had no identifiable session, and
-   * `completePasskeyRegistration` has already revoked every session on the
-   * account, restricted one included.
+   * `completePasskeyRegistration` then revokes every session on the account,
+   * restricted one included.
    */
   const liftSessionRestriction = (
     accountId: string,
@@ -869,7 +1116,7 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
             })
             .where(
               and(
-                eq(sessions.id, sessionHash),
+                inLiveFamilyOf(db, sessionHash),
                 eq(sessions.accountId, accountId),
                 isNotNull(sessions.restrictedUntil),
                 gt(sessions.expiresAt, nowSec),
@@ -883,6 +1130,9 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
     issueAccessToken,
     issueTokens,
     issueRecoverySession,
+    reserveSession,
+    makeRoomForReservation,
+    claimReservation,
     verifyRefreshToken,
     refreshTokens,
     verifyAccessToken,

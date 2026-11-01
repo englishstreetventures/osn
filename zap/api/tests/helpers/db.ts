@@ -26,10 +26,19 @@ import { Effect, Layer } from "effect";
  * names that anti-pattern; `osn/api` and `pulse/api` already use this seam.
  */
 export function createTestLayer() {
+  return createTestDb().layer;
+}
+
+/**
+ * The same database as `createTestLayer`, with the Drizzle handle beside the
+ * layer, for a test that wraps the handle (the held-statement seam) or reads
+ * rows directly.
+ */
+export function createTestDb() {
   const sqlite = new Database(":memory:");
   applySchema(sqlite);
   const db = drizzle({ client: sqlite });
-  return Layer.succeed(Db, { db });
+  return { layer: Layer.succeed(Db, { db }), db };
 }
 
 /** One statement drizzle sent to the driver, with the values it bound. */

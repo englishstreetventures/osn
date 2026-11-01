@@ -1,18 +1,26 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
 import { createRateLimiter, type WorkersRateLimitBinding } from "@shared/rate-limit";
 import { describe, it, expect } from "vitest";
 
+import { createInMemoryCoordination } from "../../src/lib/coordination/memory";
 import {
+  ALL_TIERS,
   HOUR_WINDOW_IP_AUTH_LIMITERS,
   NATIVE_BINDING_FOR_AUTH_LIMITER,
+  NATIVE_BINDING_FOR_OSN_LIMITER,
   readOsnRateLimitBindings,
   selectAuthRateLimiters,
+  selectOsnLimiters,
 } from "../../src/lib/native-rate-limiters";
 import type { AuthRateLimiters } from "../../src/routes/auth";
+import { AUTH_RATE_LIMITS, MINUTE_MS, OSN_RATE_LIMITS } from "../../src/routes/auth/limiters";
 
 /**
- * Build a fresh in-memory Redis-fallback bundle (same shape the real Redis
- * factory returns) so the selection logic can be exercised without a Redis
- * client. Every slot is a distinct backend instance so we can assert which one
+ * Build a fresh in-memory fallback bundle (same shape the coordination
+ * bundle carries) so the selection logic can be exercised on its own.
+ * Every slot is a distinct backend instance so we can assert which one
  * the selector chose by identity / behaviour.
  */
 function fallbackBundle(): AuthRateLimiters {
@@ -102,6 +110,32 @@ describe("readOsnRateLimitBindings", () => {
   });
 });
 
+describe("the budget table decides where each auth limiter runs", () => {
+  it("gives every one-minute auth budget a native tier with that limit", () => {
+    const minute = (Object.keys(AUTH_RATE_LIMITS) as (keyof AuthRateLimiters)[]).filter(
+      (key) => AUTH_RATE_LIMITS[key].windowMs === MINUTE_MS,
+    );
+    const expected = Object.fromEntries(
+      minute.map((key) => [
+        key,
+        {
+          tier: `RL_AUTH_IP_${AUTH_RATE_LIMITS[key].maxRequests}_60`,
+          ns: AUTH_RATE_LIMITS[key].ns,
+        },
+      ]),
+    );
+    expect(NATIVE_BINDING_FOR_AUTH_LIMITER).toEqual(expected);
+    expect(
+      Object.keys(NATIVE_BINDING_FOR_AUTH_LIMITER).length + HOUR_WINDOW_IP_AUTH_LIMITERS.size,
+    ).toBe(Object.keys(AUTH_RATE_LIMITS).length);
+  });
+
+  it("gives every endpoint its own name, so no two share a counter", () => {
+    const names = Object.values(AUTH_RATE_LIMITS).map((budget) => budget.ns);
+    expect(new Set(names).size).toBe(names.length);
+  });
+});
+
 describe("selectAuthRateLimiters — limiter routing", () => {
   it("routes every 60s per-IP auth limiter onto a native binding", async () => {
     const tiers = {
@@ -132,7 +166,7 @@ describe("selectAuthRateLimiters — limiter routing", () => {
     expect(totalNativeCalls).toBe(sixtySecondCount);
   });
 
-  it("keeps the 1-hour per-IP limiters on the Redis fallback (NOT native)", async () => {
+  it("keeps the 1-hour per-IP limiters on the fallback (NOT native)", async () => {
     const tiers = {
       RL_AUTH_IP_5_60: recordingBinding(),
       RL_AUTH_IP_10_60: recordingBinding(),
@@ -177,10 +211,8 @@ describe("selectAuthRateLimiters — limiter routing", () => {
     const selected = selectAuthRateLimiters(bindings, fallbackBundle());
     await selected.registerComplete.check("9.9.9.9");
     await selected.passkeyRegisterBegin.check("9.9.9.9");
-    expect(rec.keys).toContain(`${NATIVE_BINDING_FOR_AUTH_LIMITER.registerComplete.ns}:9.9.9.9`);
-    expect(rec.keys).toContain(
-      `${NATIVE_BINDING_FOR_AUTH_LIMITER.passkeyRegisterBegin.ns}:9.9.9.9`,
-    );
+    expect(rec.keys).toContain(`${AUTH_RATE_LIMITS.registerComplete.ns}:9.9.9.9`);
+    expect(rec.keys).toContain(`${AUTH_RATE_LIMITS.passkeyRegisterBegin.ns}:9.9.9.9`);
     expect(rec.keys[0]).not.toBe(rec.keys[1]);
   });
 
@@ -199,5 +231,188 @@ describe("selectAuthRateLimiters — limiter routing", () => {
     };
     const selected = selectAuthRateLimiters(bindings, fallbackBundle());
     expect(await selected.registerBegin.check("1.2.3.4")).toBe(false);
+  });
+});
+
+describe("selectOsnLimiters — graph, organisation, recommendation and profile limiters", () => {
+  const fallback = () => {
+    const bundle = createInMemoryCoordination();
+    return {
+      graphRateLimiter: bundle.graphRateLimiter,
+      orgRateLimiter: bundle.orgRateLimiter,
+      profileRateLimiters: bundle.profileRateLimiters,
+      recommendationRateLimiters: bundle.recommendationRateLimiters,
+      healthProbeLimiter: bundle.healthProbeLimiter,
+      accountExportIpLimiter: bundle.accountExportIpLimiter,
+      accountErasureRateLimiters: bundle.accountErasureRateLimiters,
+    };
+  };
+
+  it("puts every one-minute limiter on its tier, keyed by its store name", async () => {
+    const tiers = Object.fromEntries(ALL_TIERS.map((tier) => [tier, recordingBinding()]));
+    const bindings = Object.fromEntries(ALL_TIERS.map((tier) => [tier, tiers[tier]!.binding]));
+    const selected = selectOsnLimiters(bindings, fallback());
+
+    await selected.graphRateLimiter.check("usr_1");
+    await selected.orgRateLimiter.check("usr_1");
+    await selected.recommendationRateLimiters.suggest.check("usr_1");
+    await selected.recommendationRateLimiters.search.check("usr_1");
+    await selected.profileRateLimiters.profileCreate.check("9.9.9.9");
+    await selected.profileRateLimiters.profileDelete.check("9.9.9.9");
+    await selected.profileRateLimiters.profileSetDefault.check("9.9.9.9");
+    await selected.healthProbeLimiter.check("9.9.9.9");
+    await selected.accountExportIpLimiter.check("9.9.9.9");
+    await selected.accountErasureRateLimiters.accountDeletionStatus.check("9.9.9.9");
+
+    expect(tiers.RL_USER_60_60!.keys).toEqual([
+      "graph.write:usr_1",
+      "org.write:usr_1",
+      "recs.search:usr_1",
+    ]);
+    expect(tiers.RL_USER_20_60!.keys).toEqual(["recs.read:usr_1"]);
+    expect(tiers.RL_AUTH_IP_5_60!.keys).toEqual([
+      "profile.create:9.9.9.9",
+      "profile.delete:9.9.9.9",
+    ]);
+    expect(tiers.RL_AUTH_IP_10_60!.keys).toEqual([
+      "profile.set_default:9.9.9.9",
+      "health.coordination:9.9.9.9",
+    ]);
+    // Each under its own prefix, so neither shares a bucket with an auth route
+    // on the same tier.
+    expect(tiers.RL_AUTH_IP_30_60!.keys).toEqual([
+      "account.export_ip:9.9.9.9",
+      "account.deletion_status:9.9.9.9",
+    ]);
+  });
+
+  it("leaves the per-account deletion and restore limiters, an hour long, on the store", () => {
+    const tiers = Object.fromEntries(ALL_TIERS.map((tier) => [tier, recordingBinding()]));
+    const bindings = Object.fromEntries(ALL_TIERS.map((tier) => [tier, tiers[tier]!.binding]));
+    const base = fallback();
+    const selected = selectOsnLimiters(bindings, base);
+    expect(selected.accountErasureRateLimiters.accountDelete).toBe(
+      base.accountErasureRateLimiters.accountDelete,
+    );
+    expect(selected.accountErasureRateLimiters.accountRestore).toBe(
+      base.accountErasureRateLimiters.accountRestore,
+    );
+  });
+
+  it("runs each limiter on the tier whose limit is its budget", () => {
+    for (const [budget, tier] of Object.entries(NATIVE_BINDING_FOR_OSN_LIMITER)) {
+      const { maxRequests, windowMs } = OSN_RATE_LIMITS[budget as keyof typeof OSN_RATE_LIMITS];
+      expect(windowMs).toBe(MINUTE_MS);
+      expect(tier.endsWith(`_${maxRequests}_60`)).toBe(true);
+    }
+  });
+
+  it("leaves a limiter on the fallback when its tier is absent", async () => {
+    const base = fallback();
+    const selected = selectOsnLimiters({}, base);
+    expect(selected.graphRateLimiter).toBe(base.graphRateLimiter);
+    expect(selected.recommendationRateLimiters.suggest).toBe(
+      base.recommendationRateLimiters.suggest,
+    );
+  });
+
+  it("denies when the binding throws", async () => {
+    const throwing: WorkersRateLimitBinding = {
+      limit: async () => {
+        throw new Error("platform error");
+      },
+    };
+    const selected = selectOsnLimiters({ RL_USER_60_60: throwing }, fallback());
+    expect(await selected.graphRateLimiter.check("usr_1")).toBe(false);
+  });
+});
+
+/**
+ * Every `[[ratelimits]]` block in `wrangler.toml`, in every environment, holds
+ * the limit the budget table gives the limiters that use it; and every
+ * environment declares the `COORDINATION` Durable Object.
+ */
+describe("wrangler.toml agrees with the budget table", () => {
+  interface RateLimitBlock {
+    readonly name: string;
+    readonly namespace_id: string;
+    readonly simple: { readonly limit: number; readonly period: number };
+  }
+  interface Tier {
+    readonly ratelimits: readonly RateLimitBlock[];
+    readonly durable_objects?: {
+      readonly bindings: readonly { readonly name: string; readonly class_name: string }[];
+    };
+  }
+  const config = Bun.TOML.parse(
+    readFileSync(fileURLToPath(new URL("../../wrangler.toml", import.meta.url)), "utf8"),
+  ) as Tier & {
+    readonly main: string;
+    readonly migrations: readonly { readonly tag: string; readonly new_sqlite_classes: string[] }[];
+    readonly env: Readonly<Record<"staging" | "production", Tier>>;
+  };
+  const tiers: [string, Tier][] = [
+    ["top level", config],
+    ["staging", config.env.staging],
+    ["production", config.env.production],
+  ];
+
+  it.each(tiers)(
+    "%s declares every tier the code reads, at the limit its name says",
+    (_n, tier) => {
+      expect(tier.ratelimits.map((block) => block.name).toSorted()).toEqual(
+        [...ALL_TIERS].toSorted(),
+      );
+      for (const block of tier.ratelimits) {
+        expect(block.simple.period).toBe(60);
+        expect(block.name.endsWith(`_${block.simple.limit}_60`)).toBe(true);
+      }
+    },
+  );
+
+  it("gives every budget a tier whose limit is that budget", () => {
+    const limits = new Map(config.ratelimits.map((block) => [block.name, block.simple.limit]));
+    for (const [key, { tier }] of Object.entries(NATIVE_BINDING_FOR_AUTH_LIMITER)) {
+      expect(limits.get(tier)).toBe(
+        AUTH_RATE_LIMITS[key as keyof typeof AUTH_RATE_LIMITS].maxRequests,
+      );
+    }
+    for (const [budget, tier] of Object.entries(NATIVE_BINDING_FOR_OSN_LIMITER)) {
+      expect(limits.get(tier)).toBe(
+        OSN_RATE_LIMITS[budget as keyof typeof OSN_RATE_LIMITS].maxRequests,
+      );
+    }
+  });
+
+  it("keeps the per-user namespaces apart from every other tier's", () => {
+    const taken = new Set(
+      ["2001", "2002", "2003", "2004", "2005"].flatMap((id) => [
+        id,
+        `21${id.slice(2)}`,
+        `22${id.slice(2)}`,
+      ]),
+    );
+    const ids = (tier: Tier) =>
+      tier.ratelimits
+        .filter((block) => block.name.startsWith("RL_USER_"))
+        .map((block) => block.namespace_id);
+    for (const id of [...ids(config.env.staging), ...ids(config.env.production)]) {
+      expect(taken.has(id)).toBe(false);
+    }
+    const staging = new Set(config.env.staging.ratelimits.map((block) => block.namespace_id));
+    for (const block of config.env.production.ratelimits) {
+      expect(staging.has(block.namespace_id)).toBe(false);
+    }
+  });
+
+  it.each(tiers)("%s binds COORDINATION to the CoordinationStore class", (_n, tier) => {
+    expect(tier.durable_objects?.bindings).toEqual([
+      { name: "COORDINATION", class_name: "CoordinationStore" },
+    ]);
+  });
+
+  it("creates the class with one SQLite migration, and serves the module that exports it", () => {
+    expect(config.migrations).toEqual([{ tag: "v1", new_sqlite_classes: ["CoordinationStore"] }]);
+    expect(config.main).toBe("src/entry.ts");
   });
 });

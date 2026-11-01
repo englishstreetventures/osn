@@ -1,8 +1,8 @@
-import { createMemoryClient } from "@shared/redis";
 import { describe, it, expect, beforeAll } from "vitest";
 
 import { createApp, type App } from "../src/app";
 import { buildAppDeps } from "../src/build-deps";
+import { createInMemoryCoordination } from "../src/lib/coordination/memory";
 import { osnLoggerLayer } from "../src/observability";
 import { createTestLayer } from "./helpers/db";
 
@@ -20,15 +20,13 @@ import { createTestLayer } from "./helpers/db";
  * is exactly what `src/index.ts`'s `buildAll` hands to `createApp`.
  */
 async function buildWorkersApp(): Promise<App> {
-  // In-memory redis (the local `wrangler dev` / test posture — Upstash absent).
-  const redisClient = createMemoryClient();
   const dbAndEmailLayer = createTestLayer();
   // OSN_ENV unset ⇒ local: no secret requirements, localhost issuer/CORS
   // defaults, no Secure cookies — exactly the local `wrangler dev` env.
   const built = await buildAppDeps(
     { OSN_ISSUER_URL: "http://localhost:4000" },
     {
-      redisClient,
+      coordination: () => createInMemoryCoordination(),
       dbAndEmailLayer,
       observabilityLayer: osnLoggerLayer,
       includeObservabilityPlugin: false,

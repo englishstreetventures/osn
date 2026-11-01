@@ -1,0 +1,28 @@
+{
+  "name": "@shared/coordination",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "author": "English Street Ventures Pty Ltd",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/englishstreetventures/osn.git"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./store": "./src/store.ts"
+  },
+  "scripts": {
+    "typecheck": "bun check --no-script && bun check --no-script -p tests",
+    "test": "bunx --bun vitest",
+    "test:run": "bunx --bun vitest run",
+    "test:d1": "bun test tests/d1/"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260903.1",
+    "@shared/typescript-config": "workspace:*",
+    "miniflare": "^4.20260730.0",
+    "vitest": "5.0.3"
+  }
+}

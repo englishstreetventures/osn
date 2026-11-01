@@ -6,7 +6,7 @@ related:
   - "[[cire-invite-builder]]"
   - "[[monorepo-structure]]"
   - "[[cire-guest-event-editor]]"
-last-reviewed: 2026-10-26
+last-reviewed: 2026-10-27
 ---
 # Platform Plan — from digital invite to wedding management platform
 
@@ -219,7 +219,7 @@ Context-aware estimates from the wedding profile: guest count, date (season + we
 - **Observability**: per-module `cire.*` counters/histograms via the existing typed `metrics.ts`; category enums keep attribute cardinality bounded; no `console.*`; every `Effect.catchAll` logs.
 - **Testing**: platform convention (`it.effect` + `createTestLayer()`), route tests per module factory; pricing engine is pure — ideal for table-driven tests; migration lockstep test (T-S1) becomes load-bearing with this much new DDL — pull it forward into Phase 0.
 - **Free tier** (root `wiki/shared/free-tier-limits`): directory search is the only new read-hot path — one indexed query per search, no N+1; availability join bounded by date equality. D1 storage growth from vendors/tasks/budget is trivial next to R2 images. Watch Worker CPU on haversine ordering at scale.
-- **Rate limiting**: writes ride the existing per-user limiter pattern; directory search + enquiries get their own Upstash limiters (enquiries are a spam vector).
+- **Rate limiting**: writes ride the existing per-user limiter pattern; directory search + enquiries get their own limiters (`directoryLimiter`, `enquiryLimiter` in `cire/api/src/app.ts`; enquiries are a spam vector).
 
 ## 9. Open decisions (tracked in [[decisions/deferred-decisions]])
 

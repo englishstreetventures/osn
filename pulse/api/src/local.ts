@@ -7,7 +7,7 @@ import { createApp, SERVICE_NAME, type AppOptions } from "./app";
 import { assertCorsOriginsConfigured, resolveCorsOrigins } from "./lib/cors-config";
 import { buildPulseOidcConfig } from "./lib/oidc";
 import { registerLeaveAppKeyWithOsnApi } from "./lib/outbound-arc";
-import { initRedisClient, makeRateLimiters } from "./redis";
+import { makeMemoryRateLimiters } from "./lib/rate-limit";
 import * as accountErasure from "./services/accountErasure";
 import { startKeyRotation } from "./services/graphBridge";
 
@@ -36,20 +36,9 @@ if (nonLocal && issuerUrl.startsWith("http://")) {
   throw new Error("OSN_ISSUER_URL must use HTTPS in non-local environments");
 }
 
-// ---------------------------------------------------------------------------
-// Redis composition root — env-driven backend selection (mirrors osn/api).
-// `REDIS_URL` set → Redis-backed limiters (shared across processes, survives
-// restarts). Unset → in-memory fallback. The route factories accept injected
-// backends, so the only thing that changes between local and production is the
-// backing store, never the policy / call sites.
-// ---------------------------------------------------------------------------
-const redisClient = await initRedisClient({
-  redisUrl: process.env.REDIS_URL,
-  redisRequired: process.env.REDIS_REQUIRED === "true",
-  nodeEnv: process.env.NODE_ENV,
-  loggerLayer: observabilityLayer,
-});
-const rateLimiters = makeRateLimiters(redisClient);
+// Rate limiters, in this process's memory: one process, one set of counters,
+// reset on restart. Budgets in `lib/rate-limit.ts`.
+const rateLimiters = makeMemoryRateLimiters();
 
 // ---------------------------------------------------------------------------
 // Client-IP trust policy for the per-IP limiters on the
@@ -181,7 +170,7 @@ void registerLeaveAppKeyWithOsnApi().catch(() => undefined);
 
 // Sweepers — Pulse leave-app hard-delete + event-cancellation hard-delete.
 // Single-instance for now; single-pod ops are fine because the writes are
-// idempotent and per-row. Production should add a Redis lock here.
+// idempotent and per-row. Running several would need a lock between them.
 const SWEEPER_INTERVAL_MS =
   Number(process.env.PULSE_DELETION_SWEEPER_INTERVAL_MS) || 6 * 60 * 60 * 1_000;
 const runSweep = (): void => {

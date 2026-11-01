@@ -9,7 +9,7 @@ related:
   - "[[index]]"
   - "[[decisions/deferred-decisions]]"
   - "[[code-comments]]"
-last-reviewed: 2026-09-23
+last-reviewed: 2026-10-27
 ---
 
 # Decision records
@@ -58,6 +58,7 @@ Obsidian and nowhere else, and an editor cannot follow one.
 | [[top-layer-over-z-index-stack]] | The cire guest site's stacking scale has no modal layer — what must clear a sheet enters the top layer after it, rather than carrying a bigger number |
 | [[closing-band-width-bound-over-height-clip]] | The closing band's height follows the organiser's crop, and the height bound is enforced by constraining the box's width — never by a `max-height` clip |
 | [[d1-session-first-primary]] | One D1 session per request, opened `first-primary` for the whole Worker, so read-your-writes never depends on which route was reached |
+| [[coordination-store-on-durable-objects]] | osn-api's short-lived shared state lives on a SQLite-backed Durable Object, one object per key, not Upstash Redis; rotated-session records go to D1 and the per-user one-minute limiters to native Rate Limiting bindings |
 
 ## Writing one
 

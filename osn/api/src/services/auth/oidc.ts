@@ -27,6 +27,7 @@ import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 
 import { oauthAuthorizationCodes, oauthClients, oauthConsents } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
+import { rowsChanged } from "@shared/db-utils";
 import { and, eq, isNull, lte } from "drizzle-orm";
 import { Effect } from "effect";
 
@@ -45,10 +46,11 @@ import {
   RESERVED_OIDC_CLIENT_NAMES,
 } from "./constants";
 import type { AuthContext } from "./context";
-import { DatabaseError, OidcError, type OidcErrorCode } from "./errors";
+import { type CoordinationError, DatabaseError, OidcError, type OidcErrorCode } from "./errors";
 import { genId, signJwt } from "./helpers";
 import type { IdTokenClaims } from "./helpers";
 import type { ProfilesModule } from "./profiles";
+import { storeCall } from "./store-call";
 import type { PendingAuthorizeRequest } from "./stores";
 
 /** A relying party as the rest of the service sees it. */
@@ -268,8 +270,7 @@ export function mergeScope(a: string, b: string): string {
 
 const sha256Hex = (input: string): string => createHash("sha256").update(input).digest("hex");
 
-const base64Url = (buf: Buffer): string =>
-  buf.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+const base64Url = (buf: Uint8Array): string => Buffer.from(buf).toString("base64url");
 
 /**
  * Constant-time comparison of two hex digests. Both sides are already hashes,
@@ -531,6 +532,13 @@ export const runExpiredAuthCodeSweep = (
     });
     return { deleted: deleted.length };
   });
+
+/**
+ * How many times a re-approval reads the consent and writes it on the
+ * condition that it is still as read: once, then once more after a change
+ * landed in between.
+ */
+const CONSENT_WRITE_PASSES = 2;
 
 export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
   const { config } = ctx;
@@ -827,11 +835,14 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
 
   /**
    * Records (or widens) a consent. Returns `true` when this is the first link
-   * between the account and the relying party, which is the event worth
-   * counting — later re-authorizations are not new relationships.
+   * between the account and the relying party, or a re-link after a revoke,
+   * which are the events worth counting — later re-authorizations are not new
+   * relationships.
    *
    * Scopes are merged rather than replaced so approving a second, narrower
-   * request cannot quietly withdraw a scope the user already granted.
+   * request cannot quietly withdraw a scope the user already granted. Fails
+   * with a `DatabaseError`, writing nothing, when the row changes under both
+   * of its {@link CONSENT_WRITE_PASSES} passes.
    */
   const recordConsent = (
     accountId: string,
@@ -864,46 +875,64 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
       });
       if (inserted.length > 0) return true;
 
-      const existing = yield* Effect.tryPromise({
-        try: () =>
-          db
-            .select({
-              id: oauthConsents.id,
-              scope: oauthConsents.scope,
-              revokedAt: oauthConsents.revokedAt,
-            })
-            .from(oauthConsents)
-            .where(
-              and(eq(oauthConsents.accountId, accountId), eq(oauthConsents.clientId, clientId)),
-            )
-            .limit(1),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
-      const row = existing[0];
-      if (!row) return false; // Deleted between the two statements — nothing to widen.
+      // Read, merge, and write only while the row is as read: a revoke, or
+      // another approval, that lands between the read and the write leaves
+      // the write nothing to change. One more pass reads the row again; a
+      // second change in that window fails the request, which the client can
+      // retry, rather than writing over a grant this pass never read.
+      for (let pass = 0; pass < CONSENT_WRITE_PASSES; pass++) {
+        const existing = yield* Effect.tryPromise({
+          try: () =>
+            db
+              .select({
+                id: oauthConsents.id,
+                scope: oauthConsents.scope,
+                revokedAt: oauthConsents.revokedAt,
+              })
+              .from(oauthConsents)
+              .where(
+                and(eq(oauthConsents.accountId, accountId), eq(oauthConsents.clientId, clientId)),
+              )
+              .limit(1),
+          catch: (cause) => new DatabaseError({ cause }),
+        });
+        const row = existing[0];
+        if (!row) return false; // Deleted since the insert — nothing to widen.
 
-      // Merging holds only for LIVE rows (a narrower approval must not shrink
-      // an existing grant). Across a revocation boundary the old scope is a
-      // withdrawal record, not a grant — resurrecting it would silently
-      // re-authorize scopes the consent screen never displayed. A re-grant
-      // starts from exactly what the user just approved.
-      const nextScope = row.revokedAt !== null ? scope : mergeScope(row.scope, scope);
-      yield* Effect.tryPromise({
-        try: () =>
-          db
-            .update(oauthConsents)
-            .set({
-              profileId,
-              scope: nextScope,
-              grantedAt: nowSec,
-              revokedAt: null,
-            })
-            .where(eq(oauthConsents.id, row.id)),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
-      // A revoked row being re-approved is the user linking again, so it
-      // counts; a live row being widened is not a new relationship.
-      return row.revokedAt !== null;
+        // Merging holds only for LIVE rows (a narrower approval must not
+        // shrink an existing grant). Across a revocation boundary the old
+        // scope is a withdrawal record, not a grant — resurrecting it would
+        // silently re-authorize scopes the consent screen never displayed. A
+        // re-grant starts from exactly what the user just approved.
+        const nextScope = row.revokedAt !== null ? scope : mergeScope(row.scope, scope);
+        const updated = yield* Effect.tryPromise({
+          try: () =>
+            db
+              .update(oauthConsents)
+              .set({
+                profileId,
+                scope: nextScope,
+                grantedAt: nowSec,
+                revokedAt: null,
+              })
+              .where(
+                and(
+                  eq(oauthConsents.id, row.id),
+                  eq(oauthConsents.scope, row.scope),
+                  row.revokedAt === null
+                    ? isNull(oauthConsents.revokedAt)
+                    : eq(oauthConsents.revokedAt, row.revokedAt),
+                ),
+              ),
+          catch: (cause) => new DatabaseError({ cause }),
+        });
+        // A revoked row being re-approved is the user linking again, so it
+        // counts; a live row being widened is not a new relationship.
+        if (rowsChanged(updated) === 1) return row.revokedAt !== null;
+      }
+      return yield* Effect.fail(
+        new DatabaseError({ cause: "the consent changed under each pass of its write" }),
+      );
     });
 
   /**
@@ -1363,25 +1392,27 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
   const parkRequest = (
     request: ValidatedAuthorizeRequest,
     requireAuthAfter: number | null,
-  ): Effect.Effect<{ requestId: string; bindingSecret: string }, never, never> =>
-    Effect.promise(async () => {
+  ): Effect.Effect<{ requestId: string; bindingSecret: string }, CoordinationError, never> =>
+    Effect.gen(function* () {
       const requestId = genId("oar_");
       const bindingSecret = generateBindingSecret();
-      await ctx.stores.authorizeRequests.set(
-        requestId,
-        {
-          clientId: request.client.clientId,
-          redirectUri: request.redirectUri,
-          scope: request.scope,
-          state: request.state,
-          nonce: request.nonce,
-          codeChallenge: request.codeChallenge,
-          maxAge: request.maxAge,
-          requireAuthAfter,
-          bindingHash: sha256Hex(bindingSecret),
-          expiresAt: Date.now() + AUTHORIZE_REQUEST_TTL_MS,
-        },
-        AUTHORIZE_REQUEST_TTL_MS,
+      yield* storeCall(ctx.stores.authorizeRequests, "set", () =>
+        ctx.stores.authorizeRequests.set(
+          requestId,
+          {
+            clientId: request.client.clientId,
+            redirectUri: request.redirectUri,
+            scope: request.scope,
+            state: request.state,
+            nonce: request.nonce,
+            codeChallenge: request.codeChallenge,
+            maxAge: request.maxAge,
+            requireAuthAfter,
+            bindingHash: sha256Hex(bindingSecret),
+            expiresAt: Date.now() + AUTHORIZE_REQUEST_TTL_MS,
+          },
+          AUTHORIZE_REQUEST_TTL_MS,
+        ),
       );
       return { requestId, bindingSecret };
     });
@@ -1397,7 +1428,7 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
     request: ValidatedAuthorizeRequest,
     prompts: Set<string>,
     session: AuthorizeSession | null,
-  ): Effect.Effect<AuthorizeOutcome, DatabaseError, Db> =>
+  ): Effect.Effect<AuthorizeOutcome, DatabaseError | CoordinationError, Db> =>
     Effect.gen(function* () {
       const silent = prompts.has("none");
       const nowSec = Math.floor(Date.now() / 1000);
@@ -1513,12 +1544,17 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
   /** Reads a parked request back for the consent UI. Expired ids read as null. */
   const loadAuthorizeRequest = (
     requestId: string,
-  ): Effect.Effect<PendingAuthorizeRequest | null, never, never> =>
-    Effect.promise(async () => {
-      const parked = await ctx.stores.authorizeRequests.get(requestId);
+  ): Effect.Effect<PendingAuthorizeRequest | null, CoordinationError, never> =>
+    Effect.gen(function* () {
+      const parked = yield* storeCall(ctx.stores.authorizeRequests, "get", () =>
+        ctx.stores.authorizeRequests.get(requestId),
+      );
       if (!parked) return null;
       if (Date.now() >= parked.expiresAt) {
-        await ctx.stores.authorizeRequests.delete(requestId);
+        // Tidying only: the entry expires with its TTL either way.
+        yield* storeCall(ctx.stores.authorizeRequests, "delete", () =>
+          ctx.stores.authorizeRequests.delete(requestId),
+        ).pipe(Effect.ignore);
         return null;
       }
       return parked;
@@ -1533,7 +1569,7 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
    */
   const completeAuthorization = (
     input: DecisionInput,
-  ): Effect.Effect<DecisionResult, OidcError | DatabaseError, Db> =>
+  ): Effect.Effect<DecisionResult, OidcError | DatabaseError | CoordinationError, Db> =>
     Effect.gen(function* () {
       const parked = yield* loadAuthorizeRequest(input.requestId);
       if (!parked) {
@@ -1576,7 +1612,16 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
         );
       }
 
-      yield* Effect.promise(() => ctx.stores.authorizeRequests.delete(input.requestId));
+      // Claimed, not just deleted: of two decisions racing on one request id,
+      // exactly one gets past here, so one parked request yields one answer.
+      const claimed = yield* storeCall(ctx.stores.authorizeRequests, "consume", () =>
+        ctx.stores.authorizeRequests.consume(input.requestId),
+      );
+      if (!claimed) {
+        return yield* Effect.fail(
+          new OidcError({ code: "invalid_request", description: "Unknown or expired request" }),
+        );
+      }
 
       if (!input.approved) {
         return {

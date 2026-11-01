@@ -6,6 +6,12 @@ import { ROTATION_RACE_MESSAGE } from "../../src/lib/grant-failure";
 import type { AuthRouteContext } from "../../src/routes/auth/context";
 import { createTokenRoutes } from "../../src/routes/auth/tokens";
 import { AuthError, DatabaseError } from "../../src/services/auth/errors";
+import { hashSessionToken } from "../../src/services/auth/helpers";
+import { makeTestAuthConfig } from "../helpers/auth-config";
+import { settledHandle } from "../helpers/background";
+import { createTestLayerWithSqlite } from "../helpers/db";
+// Wrapped factory (trust XFF under app.handle). See helpers/routes.
+import { createAuthRoutes } from "../helpers/routes";
 
 /**
  * S-M2 at the HTTP boundary.
@@ -90,6 +96,54 @@ describe("POST /token marker retraction (S-M2)", () => {
 
     expect(res.status).toBe(400);
     expect(res.headers.getSetCookie().some((c) => c.startsWith("osn_has_session=;"))).toBe(true);
+  });
+
+  // F-SV1, end to end: the rotation record is written in the same batch as the
+  // new session, so failing to write it fails the grant — as a storage
+  // failure, which says nothing about the cookie.
+  it("keeps the marker when the real service fails to record the rotation", async () => {
+    const { layer, sqlite, email } = createTestLayerWithSqlite();
+    const app = createAuthRoutes(await makeTestAuthConfig(), layer);
+    const registerEmail = "rotation-write@example.com";
+    await settledHandle(
+      app,
+      new Request("http://localhost/register/begin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: registerEmail, handle: "rotwrite", birthdate: "1990-01-01" }),
+      }),
+    );
+    const code = email
+      .recorded()
+      .at(-1)
+      ?.text.match(/code is: (\d{6})/)?.[1];
+    const completed = await app.handle(
+      new Request("http://localhost/register/complete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: registerEmail, code }),
+      }),
+    );
+    const sessionToken = completed.headers.get("set-cookie")?.match(/osn_session=([^;]+)/)?.[1];
+    expect(sessionToken).toBeTruthy();
+    // A record already holding this token's hash makes the rotation's insert
+    // fail on the primary key.
+    sqlite.run(
+      `INSERT INTO rotated_sessions (token_hash, family_id, account_id, rotated_at, expires_at)
+       SELECT ?, 'sfam_other', account_id, 0, ? FROM sessions LIMIT 1`,
+      [hashSessionToken(sessionToken!), Date.now() + 60_000],
+    );
+
+    const res = await app.handle(
+      new Request("http://localhost/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", cookie: `osn_session=${sessionToken}` },
+        body: JSON.stringify({ grant_type: "refresh_token" }),
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    expect(res.headers.getSetCookie()).toEqual([]);
   });
 });
 

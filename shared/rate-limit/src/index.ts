@@ -3,20 +3,22 @@
  *
  * Designed for auth routes where keying is by IP address (callers aren't
  * authenticated). The default in-memory backend stores state in-process —
- * resets on restart. See S-M2 for the migration-to-shared-counter note.
+ * resets on restart, and every process or Worker isolate counts on its own.
  *
- * The `RateLimiterBackend` interface is backend-agnostic so routes can be
- * wired to a future Redis backend without any call-site changes (Phase 2 of
- * the Redis migration, an open issue). `check()` returns `boolean | Promise<boolean>`
- * so consumers `await` the result — sync backends resolve immediately, async
- * backends (Redis INCR+EXPIRE via Lua) return a real promise.
+ * The `RateLimiterBackend` interface is backend-agnostic, so a route takes
+ * whichever backend its composition root passes: this in-memory one, the
+ * Workers native binding below, or a shared counter such as osn-api's
+ * coordination store. `check()` returns `boolean | Promise<boolean>` so
+ * consumers `await` the result — sync backends resolve immediately, async
+ * ones return a real promise.
  */
 
 /**
  * Backend-agnostic rate limiter contract. The in-memory implementation
- * (`createRateLimiter`) satisfies this sync-only; a future Redis backend
- * will satisfy it async. Route factories depend on this abstract type so
- * swapping backends is a single-import change at composition time.
+ * (`createRateLimiter`) satisfies this sync-only; the native binding and the
+ * coordination store satisfy it async. Route factories depend on this
+ * abstract type so swapping backends is a single-import change at
+ * composition time.
  */
 export interface RateLimiterBackend {
   /** Returns `true` if the request is allowed, `false` if rate-limited. */
@@ -94,7 +96,7 @@ export interface WorkersRateLimitBinding {
 /**
  * Wrap a Cloudflare Workers native `ratelimit` binding as a
  * {@link RateLimiterBackend} so it drops into the same `check(key)` call sites as
- * the in-memory / Redis backends with no changes.
+ * the other backends with no changes.
  *
  * Unlike the in-memory {@link createRateLimiter} (per-isolate heap state that
  * resets on eviction and never coordinates across isolates), the native binding
@@ -109,8 +111,8 @@ export interface WorkersRateLimitBinding {
  * treated as "not allowed". These limiters gate credential-exchange endpoints,
  * so degrading to "deny" on an unexpected error is correct — degrading to
  * "allow" would open the brute-force window precisely when the platform is
- * unhealthy. This matches the fail-closed posture of the Redis backends and the
- * `isUnresolvedIp` → deny rule at the call sites.
+ * unhealthy. This matches the fail-closed posture of osn-api's coordination-store
+ * limiters and the `isUnresolvedIp` → deny rule at the call sites.
  */
 export function createWorkersRateLimiter(binding: WorkersRateLimitBinding): RateLimiterBackend {
   return {

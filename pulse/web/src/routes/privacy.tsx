@@ -24,7 +24,7 @@ export default function PrivacyRoute(): JSX.Element {
         </p>
       )}
       <h1 class="mb-1 text-2xl font-semibold">Privacy Notice</h1>
-      <p class="text-muted-foreground mb-8 text-sm">Last updated: 2026-08-20</p>
+      <p class="text-muted-foreground mb-8 text-sm">Last updated: 2026-10-26</p>
 
       <p>
         This notice covers Pulse — events, RSVPs and venues. The account you sign in with belongs to
@@ -99,8 +99,8 @@ export default function PrivacyRoute(): JSX.Element {
       <h2>Who else sees it</h2>
       <p>
         Behind the service, a small number of providers process data on our instructions: Cloudflare
-        for hosting and databases, Upstash for rate-limit state (hashed), and Grafana Cloud for
-        technical telemetry, which carries pseudonymised identifiers and no event content.
+        for hosting, databases and rate-limit state, and Grafana Cloud for technical telemetry,
+        which carries pseudonymised identifiers and no event content.
       </p>
       <p>Two third parties your browser contacts directly:</p>
       <ul class="my-4 list-disc space-y-2 pl-6">

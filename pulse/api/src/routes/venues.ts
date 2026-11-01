@@ -169,8 +169,8 @@ export const createVenuesRoutes = (
   _verification?: OsnTokenVerification,
   _testKey?: CryptoKey,
   /**
-   * Per-IP rate limiter for the /venues group. Defaults to the in-memory
-   * backend; production wires the Redis backend at composition time.
+   * Per-IP rate limiter for the /venues group. In memory, in every tier: the
+   * composition root passes none.
    */
   venuesRateLimiter: RateLimiterBackend = createDefaultVenuesRateLimiter(),
 ) => {

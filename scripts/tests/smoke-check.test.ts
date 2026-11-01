@@ -75,10 +75,13 @@ const JWKS = () =>
     keys: [{ kty: "EC", crv: "P-256", alg: "ES256", use: "sig", kid: "k1", x: "x", y: "y" }],
   });
 const UNREACHABLE = () => new TypeError("fetch failed");
+const STORE_OK = () => json({ ok: true });
+const STORE_DOWN = () => json({ ok: false }, 503);
 
 const OSN_PROD = {
   "https://id.musubi.social/health": HEALTHY,
   "https://id.musubi.social/.well-known/jwks.json": JWKS,
+  "https://id.musubi.social/health/coordination": STORE_OK,
 };
 
 /** A clock that only moves when the script sleeps. */
@@ -155,6 +158,9 @@ function fakeApi(options: ApiOptions = {}) {
   return { answer, posts, reads: () => read };
 }
 
+/** What the osn-api Worker and its jobs hold as INTERNAL_SERVICE_SECRET, here. */
+const SMOKE_SECRET = "internal-service-secret-for-tests";
+
 const RUN_ENV = {
   GITHUB_SERVER_URL: "https://github.com",
   GITHUB_REPOSITORY: "englishstreetventures/osn",
@@ -162,6 +168,7 @@ const RUN_ENV = {
   GITHUB_RUN_ATTEMPT: "2",
   CLOUDFLARE_API_TOKEN: TOKEN,
   CLOUDFLARE_ACCOUNT_ID: ACCOUNT,
+  INTERNAL_SERVICE_SECRET: SMOKE_SECRET,
 };
 
 const workerOf = (args: readonly string[]) => {
@@ -279,6 +286,19 @@ describe("judge", () => {
     expect((await verdict(HEALTH, json({ status: "degraded" }))).kind).toBe("wrong");
     expect((await verdict(HEALTH, html(200))).kind).toBe("wrong");
     expect((await verdict(HEALTH, json([{ status: "ok" }]))).kind).toBe("wrong");
+  });
+
+  test("the coordination probe wants ok true, the boolean, on a 200", async () => {
+    const store = probe("https://id.musubi.social/health/coordination", {
+      kind: "json",
+      fields: { ok: true },
+    });
+    expect(await verdict(store, STORE_OK())).toEqual({ kind: "pass" });
+    expect((await verdict(store, STORE_DOWN())).kind).toBe("wrong");
+    expect((await verdict(store, json({ ok: "true" }))).kind).toBe("wrong");
+    expect((await verdict(store, json({ ok: true }, 503))).kind).toBe("wrong");
+    // Its own limiter refusing is not the Worker's code failing.
+    expect((await verdict(store, json({ error: "rate_limited" }, 429))).kind).toBe("blocked");
   });
 
   test("the session probe wants signedIn false, the boolean", async () => {
@@ -639,13 +659,28 @@ describe("a broken deploy", () => {
     expect(result.output).toContain("missing OSN_TOTP_ENCRYPTION_KEY");
   });
 
+  test("a store the Worker cannot reach fails the check and rolls back, with /health still ok", async () => {
+    const result = await smoke(["osn_api", "production"], {
+      ...OSN_PROD,
+      "https://id.musubi.social/health/coordination": STORE_DOWN,
+    });
+    expect(result.code).toBe(1);
+    expect(result.posts).toHaveLength(1);
+    // Eight asks in the minute and the round after the rollback: under the
+    // route's ten a minute, so its own limiter never answers the check.
+    expect(fetchesOf(result, "https://id.musubi.social/health/coordination")).toBe(8);
+    expect(result.output).toContain("https://id.musubi.social/health/coordination");
+    expect(result.output).toContain('{"ok":false}');
+  });
+
   test("the Cloudflare token goes to the Cloudflare API only, never to a probed host", async () => {
     const result = await smoke(["osn_api", "production"], {
       ...OSN_PROD,
       "https://id.musubi.social/health": MISCONFIGURED,
     });
     for (const call of result.calls) {
-      expect(new Headers(call.init?.headers).has("authorization")).toBe(false);
+      // The coordination probe's only authorization is its own bearer.
+      expect(new Headers(call.init?.headers).get("authorization") ?? "").not.toContain(TOKEN);
     }
     expect(result.output).not.toContain(TOKEN);
   });
@@ -679,6 +714,7 @@ describe("a broken deploy", () => {
       {
         [health]: (call) => (call <= rounds ? MISCONFIGURED() : HEALTHY()),
         [`${OSN_API_DEV}/.well-known/jwks.json`]: JWKS,
+        [`${OSN_API_DEV}/health/coordination`]: STORE_OK,
       },
       { env: devEnv(OSN_API_DEV) },
     );
@@ -1006,6 +1042,7 @@ describe("a failure the Worker did not cause", () => {
     const result = await smoke(["osn_api", "production"], {
       "https://id.musubi.social/health": UNREACHABLE,
       "https://id.musubi.social/.well-known/jwks.json": UNREACHABLE,
+      "https://id.musubi.social/health/coordination": UNREACHABLE,
     });
     expect(result.code).toBe(1);
     expect(result.posts).toEqual([]);
@@ -1017,6 +1054,7 @@ describe("a failure the Worker did not cause", () => {
     const result = await smoke(["osn_api", "production"], {
       "https://id.musubi.social/health": timedOut,
       "https://id.musubi.social/.well-known/jwks.json": timedOut,
+      "https://id.musubi.social/health/coordination": timedOut,
     });
     expect(result.code).toBe(1);
     expect(result.posts).toEqual([]);
@@ -1029,9 +1067,25 @@ describe("a failure the Worker did not cause", () => {
     const result = await smoke(["osn_api", "production"], {
       "https://id.musubi.social/health": capped,
       "https://id.musubi.social/.well-known/jwks.json": capped,
+      "https://id.musubi.social/health/coordination": capped,
     });
     expect(result.code).toBe(1);
     expect(result.posts).toEqual([]);
+  });
+
+  test("a bot challenge to the coordination probe alone fails the step without a rollback", async () => {
+    const challenge = () =>
+      new Response("<html>Just a moment...</html>", {
+        status: 403,
+        headers: { "cf-mitigated": "challenge", "content-type": "text/html" },
+      });
+    const result = await smoke(["osn_api", "production"], {
+      ...OSN_PROD,
+      "https://id.musubi.social/health/coordination": challenge,
+    });
+    expect(result.code).toBe(1);
+    expect(result.posts).toEqual([]);
+    expect(result.output).toContain("cf-mitigated");
   });
 
   test("Cloudflare Access answering fails the step without a rollback", async () => {
@@ -1054,6 +1108,7 @@ describe("a failure the Worker did not cause", () => {
     const result = await smoke(["osn_api", "production"], {
       "https://id.musubi.social/health": MISCONFIGURED,
       "https://id.musubi.social/.well-known/jwks.json": UNREACHABLE,
+      "https://id.musubi.social/health/coordination": UNREACHABLE,
     });
     expect(result.code).toBe(1);
     expect(result.posts).toHaveLength(1);
@@ -1064,6 +1119,7 @@ describe("a failure the Worker did not cause", () => {
     const fadesOut = await smoke(["osn_api", "production"], {
       "https://id.musubi.social/health": (call) => (call <= 6 ? MISCONFIGURED() : UNREACHABLE()),
       "https://id.musubi.social/.well-known/jwks.json": UNREACHABLE,
+      "https://id.musubi.social/health/coordination": UNREACHABLE,
     });
     expect(fadesOut.code).toBe(1);
     expect(fadesOut.posts).toEqual([]);
@@ -1072,6 +1128,7 @@ describe("a failure the Worker did not cause", () => {
     const turnsWrong = await smoke(["osn_api", "production"], {
       "https://id.musubi.social/health": (call) => (call <= 6 ? UNREACHABLE() : MISCONFIGURED()),
       "https://id.musubi.social/.well-known/jwks.json": UNREACHABLE,
+      "https://id.musubi.social/health/coordination": UNREACHABLE,
     });
     expect(turnsWrong.code).toBe(1);
     expect(turnsWrong.posts).toHaveLength(1);
@@ -1200,7 +1257,11 @@ describe("a dev site behind Cloudflare Access", () => {
       [
         "osn_api",
         OSN_API_DEV,
-        { [`${OSN_API_DEV}/health`]: HEALTHY, [`${OSN_API_DEV}/.well-known/jwks.json`]: JWKS },
+        {
+          [`${OSN_API_DEV}/health`]: HEALTHY,
+          [`${OSN_API_DEV}/.well-known/jwks.json`]: JWKS,
+          [`${OSN_API_DEV}/health/coordination`]: STORE_OK,
+        },
       ],
       [
         "zap_api",
@@ -1240,6 +1301,7 @@ describe("a dev site behind Cloudflare Access", () => {
       {
         [`${OSN_API_DEV}/health`]: HEALTHY,
         [`${OSN_API_DEV}/.well-known/jwks.json`]: JWKS,
+        [`${OSN_API_DEV}/health/coordination`]: STORE_OK,
       },
       { env: devEnv(OSN_API_DEV, TOKEN_ENV) },
     );
@@ -1565,6 +1627,70 @@ describe("SMOKE_TARGETS", () => {
     const production = productionTarget("osn_api")?.probes;
     for (const probes of [dev, production]) {
       expect(probes?.map((p) => p.expects.kind)).toContain("jwks");
+    }
+  });
+
+  test("checks osn-api's coordination store round trip on both tiers", () => {
+    const dev = devTarget("osn_api")?.probes({ origin: OSN_API_DEV });
+    const production = productionTarget("osn_api")?.probes;
+    expect(dev).toContainEqual({
+      url: `${OSN_API_DEV}/health/coordination`,
+      expects: { kind: "json", fields: { ok: true } },
+      bearer: "INTERNAL_SERVICE_SECRET",
+    });
+    expect(production).toContainEqual({
+      url: "https://id.musubi.social/health/coordination",
+      expects: { kind: "json", fields: { ok: true } },
+      bearer: "INTERNAL_SERVICE_SECRET",
+    });
+  });
+});
+
+describe("the coordination probe's bearer", () => {
+  const COORDINATION = "https://id.musubi.social/health/coordination";
+  const authorizationOf = (init: RequestInit | undefined) =>
+    new Headers(init?.headers).get("authorization");
+
+  test("goes to the coordination probe alone, beside the CI user agent, and never into the output", async () => {
+    const result = await smoke(["osn_api", "production"], OSN_PROD);
+    expect(result.code).toBe(0);
+    expect(fetchesOf(result, COORDINATION)).toBeGreaterThan(0);
+    for (const call of result.calls) {
+      expect(authorizationOf(call.init)).toBe(
+        call.url === COORDINATION ? `Bearer ${SMOKE_SECRET}` : null,
+      );
+      expect(new Headers(call.init?.headers).get("user-agent")).toBe(CI_USER_AGENT);
+    }
+    expect(result.output).not.toContain(SMOKE_SECRET);
+  });
+
+  test("goes nowhere on a surface whose probes name none", async () => {
+    const result = await smoke(["cire_api", "production"], {
+      "https://api.cireweddings.com/api/auth/session": () => json({ signedIn: false }),
+    });
+    expect(result.code).toBe(0);
+    expect(result.calls.map((call) => authorizationOf(call.init))).toEqual([null, null]);
+  });
+
+  test("a 401 to it fails the check without rolling the Worker back", async () => {
+    const result = await smoke(["osn_api", "production"], {
+      ...OSN_PROD,
+      [COORDINATION]: () => json({ error: "unauthorized" }, 401),
+    });
+    expect(result.code).toBe(1);
+    expect(result.posts).toEqual([]);
+    expect(result.output).toContain("INTERNAL_SERVICE_SECRET");
+  });
+
+  test("without INTERNAL_SERVICE_SECRET, osn-api's check is a usage error before any request", async () => {
+    for (const value of [undefined, ""]) {
+      const result = await smoke(["osn_api", "production"], OSN_PROD, {
+        env: { INTERNAL_SERVICE_SECRET: value },
+      });
+      expect(result.code).toBe(2);
+      expect(result.calls).toEqual([]);
+      expect(result.apiCalls).toEqual([]);
+      expect(result.output).toContain("INTERNAL_SERVICE_SECRET is not set");
     }
   });
 });

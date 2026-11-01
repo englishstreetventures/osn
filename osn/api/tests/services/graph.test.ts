@@ -1,11 +1,13 @@
 import { it, expect, describe } from "@effect/vitest";
-import { Effect } from "effect";
+import { Db } from "@osn/db/service";
+import { Effect, Fiber, Layer, type Result } from "effect";
 import { beforeAll } from "vitest";
 
 import { createAuthService } from "../../src/services/auth";
 import { createGraphService } from "../../src/services/graph";
 import { makeTestAuthConfig } from "../helpers/auth-config";
-import { createTestLayer } from "../helpers/db";
+import { createTestLayer, createTestLayerWithSqlite } from "../helpers/db";
+import { holdQueries } from "../helpers/held-query";
 
 let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;
 let auth: ReturnType<typeof createAuthService>;
@@ -306,4 +308,170 @@ describe("unblockProfile", () => {
       expect(error._tag).toBe("NotFoundError");
     }).pipe(Effect.provide(createTestLayer())),
   );
+});
+
+/**
+ * Each write names the row as its request read it, so a row another request
+ * accepted, declined, removed or blocked in between is left as that request
+ * left it, and this one is refused as it would be had it read afterwards. Each
+ * case holds the write until the other request has landed.
+ */
+describe("a write after a read changes only the row it read", () => {
+  /** The graph service on a database whose statements a test can hold. */
+  function held() {
+    const { db, sqlite, email } = createTestLayerWithSqlite();
+    const queries = holdQueries(db);
+    return {
+      layer: Layer.merge(Layer.succeed(Db, { db: queries.db }), email.layer),
+      hold: queries.hold,
+      connectionRows: () =>
+        (sqlite.query("SELECT COUNT(*) AS n FROM connections").get() as { n: number }).n,
+    };
+  }
+
+  /** The refusal's message, or `"ok"`. */
+  const answer = (outcome: Result.Result<void, { readonly message?: string }>) =>
+    outcome._tag === "Success" ? "ok" : (outcome.failure.message ?? "no message");
+
+  /** Runs `write` with its statement matching `pattern` held until `between` has run. */
+  const across = <E extends { readonly message?: string }>(
+    h: ReturnType<typeof held>,
+    pattern: RegExp,
+    write: Effect.Effect<void, E, Db>,
+    between: Effect.Effect<unknown, unknown, Db>,
+  ) =>
+    Effect.gen(function* () {
+      const gate = h.hold(pattern);
+      const fiber = yield* Effect.forkChild(Effect.result(write));
+      yield* Effect.promise(() => gate.reached);
+      yield* between;
+      gate.release();
+      return answer(yield* Fiber.join(fiber));
+    });
+
+  it.live("a decline leaves a request accepted since it read it", () => {
+    const h = held();
+    return Effect.gen(function* () {
+      const { alice, bob } = yield* setupTwoUsers;
+      yield* graph.sendConnectionRequest(alice.id, bob.id);
+      const declined = yield* across(
+        h,
+        /^delete from "connections"/,
+        graph.rejectConnection(bob.id, alice.id),
+        graph.acceptConnection(bob.id, alice.id),
+      );
+      expect(declined).toBe("Pending request not found");
+      expect(yield* graph.getConnectionStatus(alice.id, bob.id)).toBe("connected");
+    }).pipe(Effect.provide(h.layer));
+  });
+
+  it.live("an accept is refused once the request it read is declined", () => {
+    const h = held();
+    return Effect.gen(function* () {
+      const { alice, bob } = yield* setupTwoUsers;
+      yield* graph.sendConnectionRequest(alice.id, bob.id);
+      const accepted = yield* across(
+        h,
+        /^update "connections"/,
+        graph.acceptConnection(bob.id, alice.id),
+        graph.rejectConnection(bob.id, alice.id),
+      );
+      expect(accepted).toBe("Pending request not found");
+      expect(yield* graph.getConnectionStatus(alice.id, bob.id)).toBe("none");
+    }).pipe(Effect.provide(h.layer));
+  });
+
+  it.live("a cancel leaves a request accepted since it read it", () => {
+    const h = held();
+    return Effect.gen(function* () {
+      const { alice, bob } = yield* setupTwoUsers;
+      yield* graph.sendConnectionRequest(alice.id, bob.id);
+      const cancelled = yield* across(
+        h,
+        /^delete from "connections"/,
+        graph.removeConnection(alice.id, bob.id),
+        graph.acceptConnection(bob.id, alice.id),
+      );
+      expect(cancelled).toBe("Connection not found");
+      expect(yield* graph.getConnectionStatus(alice.id, bob.id)).toBe("connected");
+    }).pipe(Effect.provide(h.layer));
+  });
+
+  it.live("of two unblocks at once, the second answers as a repeat would", () => {
+    const h = held();
+    return Effect.gen(function* () {
+      const { alice, bob } = yield* setupTwoUsers;
+      yield* graph.blockProfile(alice.id, bob.id);
+      const second = yield* across(
+        h,
+        /^delete from "blocks"/,
+        graph.unblockProfile(alice.id, bob.id),
+        graph.unblockProfile(alice.id, bob.id),
+      );
+      expect(second).toBe("Block not found");
+      expect(yield* graph.isBlocked(alice.id, bob.id)).toBe(false);
+    }).pipe(Effect.provide(h.layer));
+  });
+
+  it.live("a request is refused once the other profile blocks the sender", () => {
+    const h = held();
+    return Effect.gen(function* () {
+      const { alice, bob } = yield* setupTwoUsers;
+      const sent = yield* across(
+        h,
+        /^insert into "connections"/,
+        graph.sendConnectionRequest(alice.id, bob.id),
+        graph.blockProfile(bob.id, alice.id),
+      );
+      expect(sent).toBe("Cannot send connection request");
+      expect(h.connectionRows()).toBe(0);
+      expect(yield* graph.isBlocked(bob.id, alice.id)).toBe(true);
+    }).pipe(Effect.provide(h.layer));
+  });
+
+  it.live("a request is refused once the other profile has sent one the other way", () => {
+    const h = held();
+    return Effect.gen(function* () {
+      const { alice, bob } = yield* setupTwoUsers;
+      const sent = yield* across(
+        h,
+        /^insert into "connections"/,
+        graph.sendConnectionRequest(alice.id, bob.id),
+        graph.sendConnectionRequest(bob.id, alice.id),
+      );
+      expect(sent).toBe("Connection already exists");
+      expect(h.connectionRows()).toBe(1);
+    }).pipe(Effect.provide(h.layer));
+  });
+
+  it.live("of two identical requests at once, the second answers as a repeat would", () => {
+    const h = held();
+    return Effect.gen(function* () {
+      const { alice, bob } = yield* setupTwoUsers;
+      const second = yield* across(
+        h,
+        /^insert into "connections"/,
+        graph.sendConnectionRequest(alice.id, bob.id),
+        graph.sendConnectionRequest(alice.id, bob.id),
+      );
+      expect(second).toBe("Connection already exists");
+      expect(h.connectionRows()).toBe(1);
+    }).pipe(Effect.provide(h.layer));
+  });
+
+  it.live("a block leaves no request that landed while it was being written", () => {
+    const h = held();
+    return Effect.gen(function* () {
+      const { alice, bob } = yield* setupTwoUsers;
+      const blocked = yield* across(
+        h,
+        /^insert into "blocks"/,
+        graph.blockProfile(bob.id, alice.id),
+        Effect.result(graph.sendConnectionRequest(alice.id, bob.id)),
+      );
+      expect(blocked).toBe("ok");
+      expect(yield* graph.isBlocked(bob.id, alice.id)).toBe(true);
+      expect(h.connectionRows()).toBe(0);
+    }).pipe(Effect.provide(h.layer));
+  });
 });

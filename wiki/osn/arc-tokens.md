@@ -20,7 +20,7 @@ packages:
   - "@shared/crypto"
   - "@osn/api"
   - "@pulse/api"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-27
 ---
 # ARC Tokens (S2S Auth)
 
@@ -266,7 +266,7 @@ Revocation is immediate *in the process that performs it* (it calls `evictPublic
 
 - TTL defaults to **300 s** and is overridable via the `ARC_PUBLIC_KEY_CACHE_TTL_SECONDS` env var (kept finite; a lower value shrinks the window at the cost of more DB lookups).
 - So the **worst-case cross-process revocation latency is ≤ the configured TTL (≤5 min by default)**. The DB row is updated synchronously, so a process with a cold/expired cache rejects the revoked key immediately — only warm caches on *other* nodes lag.
-- A Redis pub/sub fan-out that evicts `(kid)` across all processes on revoke (closing this window to ~0) is an open issue in `englishstreetventures/osn`.
+- A fan-out that evicts `(kid)` in every process and isolate on revoke (closing this window to ~0) is an open issue in `englishstreetventures/osn`.
 
 ## Issuer binding (X1)
 

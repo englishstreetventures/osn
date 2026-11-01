@@ -2,16 +2,16 @@
 #
 # Copy to `.dev.vars` (gitignored) and fill in to exercise the deployed-shaped
 # code paths locally. With NONE of these set, `wrangler dev` runs in the fully
-# local posture: OSN_ENV=local (from wrangler.toml [vars]) ⇒ in-memory rate
-# limiters (no Upstash), miniflare local D1, ephemeral JWT keys, log-only email.
-# That needs NO external services — it is the recommended default.
+# local posture: OSN_ENV=local (from wrangler.toml [vars]) ⇒ miniflare-local D1,
+# COORDINATION Durable Object and rate-limit bindings, ephemeral JWT keys,
+# log-only email. That needs NO external services — it is the recommended default.
 #
 # Note: the FAST devloop is still `bun run dev` (Bun, :4000, native passkey/OTP,
 # full OTel). Use `bun run dev:wrangler` only for workerd parity checks.
 #
 # To force the non-local code paths locally, set OSN_ENV to something other than
 # "local" — but then ALL of the REQUIRED secrets below must be set or the Worker
-# fails closed with a 503 (by design: S-L1 Upstash gate, JWT/pepper/email gates).
+# fails closed with a 503 (by design: JWT/pepper/email gates).
 
 # --- Persistent JWT keys (else ephemeral; tokens reset each isolate) ---
 # Generate a base64 JWK pair (see src/build-deps.ts header for the one-liner).
@@ -20,12 +20,6 @@
 
 # --- Session IP pepper (HMAC key for sessions.ip_hash; ≥32 bytes) ---
 # OSN_SESSION_IP_PEPPER = "at-least-32-bytes-of-random-here-______"
-
-# --- Upstash Redis REST (cross-isolate rate limiters / step-up jti) ---
-# Absent locally ⇒ in-memory fallback (fine for OSN_ENV=local). REQUIRED when
-# OSN_ENV != local (S-L1 gate refuses the in-memory downgrade otherwise).
-# UPSTASH_REDIS_REST_URL   = "https://<db>.upstash.io"
-# UPSTASH_REDIS_REST_TOKEN = "<token>"
 
 # --- Email (Resend; Cloudflare Email Service as the legacy fallback) ---
 # Locally ⇒ LogEmailLive (records sends in-memory, prints template name), even

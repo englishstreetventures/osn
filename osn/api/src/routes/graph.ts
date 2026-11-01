@@ -1,6 +1,6 @@
 import type { Profile } from "@osn/db/schema";
 import { DbLive, type Db } from "@osn/db/service";
-import { createRateLimiter, type RateLimiterBackend } from "@shared/rate-limit";
+import type { RateLimiterBackend } from "@shared/rate-limit";
 import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
 
@@ -8,6 +8,7 @@ import { makeAppRunner, type AppRuntime } from "../lib/route-runtime";
 import { makeSafeError } from "../lib/safe-error";
 import { createAuthService, type AuthConfig } from "../services/auth";
 import { createGraphService } from "../services/graph";
+import { memoryLimiter, OSN_RATE_LIMITS } from "./auth/limiters";
 import {
   graphConnectionStatus,
   graphConnectionSummary,
@@ -18,24 +19,13 @@ import {
 } from "./response-schemas";
 
 // ---------------------------------------------------------------------------
-// Rate limiter — per-user fixed window (write operations only)
-//
-// Uses the shared `createRateLimiter` from lib/rate-limit so Phase 2 of the
-// Redis migration swaps graph and auth rate limiters via the same
-// backend abstraction. Previous inline `rateLimitStore` + `checkRateLimit`
-// duplicated the logic AND never evicted expired entries;
-// the shared limiter handles sweeping + maxEntries for us.
+// Rate limiter — per-user fixed window (write operations only). The budget is
+// `OSN_RATE_LIMITS.graphWrite`; a deployed Worker passes a native binding.
 // ---------------------------------------------------------------------------
 
-const GRAPH_RATE_LIMIT_MAX = 60; // requests per window
-const GRAPH_RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
-
-/** Default in-memory graph rate limiter. Override via `createGraphRoutes` for Redis. */
+/** Default in-memory graph rate limiter, single process only. */
 export function createDefaultGraphRateLimiter(): RateLimiterBackend {
-  return createRateLimiter({
-    maxRequests: GRAPH_RATE_LIMIT_MAX,
-    windowMs: GRAPH_RATE_LIMIT_WINDOW_MS,
-  });
+  return memoryLimiter(OSN_RATE_LIMITS.graphWrite);
 }
 
 // ---------------------------------------------------------------------------
@@ -90,8 +80,7 @@ export function createGraphRoutes(
   /**
    * Rate limiter backend for graph write operations (connections / blocks
    * mutations, keyed by user ID). Default is a fresh in-memory limiter;
-   * supply a Redis-backed `RateLimiterBackend` here to share state across
-   * processes (Phase 2 of the Redis migration plan).
+   * a deployed Worker supplies one that every isolate shares.
    */
   rateLimiter: RateLimiterBackend = createDefaultGraphRateLimiter(),
   /** Shared application runtime (see `createAuthRoutes`). */
@@ -125,8 +114,7 @@ export function createGraphRoutes(
     }
   }
 
-  // Enforce rate limit; set 429 on breach. Async to accommodate future
-  // Redis backend where `check()` returns a Promise.
+  // Enforce rate limit; set 429 on breach.
   // Fail-closed: if the backend rejects, treat as rate-limited.
   async function requireRateLimit(
     profileId: string,

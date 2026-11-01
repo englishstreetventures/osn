@@ -343,10 +343,10 @@ export const sessions = sqliteTable(
      * authorisation. Request-time restriction is carried by the access token's
      * `aud: "osn-recovery"`, which every verifier — including the three
      * services outside this repo that check the token over JWKS — already
-     * rejects. This column exists because `refreshTokens` deletes the old row
-     * and inserts a new one: without it the restriction would die on the first
-     * silent refresh, five minutes in. `refreshTokens` copies it forward and
-     * re-mints with the recovery audience while it is set.
+     * rejects. This column exists because `refreshTokens` inserts a new row and
+     * deletes the old one: without it the restriction would die on the first
+     * silent refresh, five minutes in. `refreshTokens` copies it forward from
+     * the old row and re-mints with the recovery audience while it is set.
      *
      * It also pins the session's absolute expiry: a restricted row is inserted
      * with `expiresAt === restrictedUntil` and never slides, so a credential
@@ -380,6 +380,47 @@ export const sessions = sqliteTable(
 
 export type Session = typeof sessions.$inferSelect;
 export type NewSession = typeof sessions.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// Rotated sessions (Copenhagen Book C2 reuse detection)
+//
+// One row per session token that `refreshTokens` rotated out, written in the
+// same batch as the session that replaces it. A replayed token whose hash is
+// here and still live revokes its whole family, unless it arrives within the
+// rotation grace window, where it is a concurrent refresh of the same token.
+//
+// Security state, not account data: never exported, swept by the 6-hourly
+// cron once expired, and deleted with the account at hard delete.
+// ---------------------------------------------------------------------------
+
+export const rotatedSessions = sqliteTable(
+  "rotated_sessions",
+  {
+    /** SHA-256 of the rotated-out session token, hex: the `sessions.id` it had. */
+    tokenHash: text("token_hash").primaryKey(),
+    /** The family the token belonged to, which a replay revokes. */
+    familyId: text("family_id").notNull(),
+    accountId: text("account_id")
+      .notNull()
+      .references(() => accounts.id),
+    /**
+     * Unix MILLISECONDS, unlike the seconds the rest of this schema uses: the
+     * rotation grace window is 10 s, and whole seconds would shorten it by up
+     * to one.
+     */
+    rotatedAt: integer("rotated_at").notNull(),
+    /** Unix milliseconds. Past it the row proves nothing and the sweep deletes it. */
+    expiresAt: integer("expires_at").notNull(),
+  },
+  (t) => [
+    index("rotated_sessions_expires_idx").on(t.expiresAt),
+    // Account erasure deletes by `account_id`, and a detected reuse deletes
+    // the family's rows by `account_id` and `family_id`: one index serves both.
+    index("rotated_sessions_account_family_idx").on(t.accountId, t.familyId),
+  ],
+);
+
+export type RotatedSession = typeof rotatedSessions.$inferSelect;
 
 // ---------------------------------------------------------------------------
 // Recovery codes (Copenhagen Book M2)
@@ -717,6 +758,14 @@ export const deletionJobs = sqliteTable(
      * for the account are revoked at soft-delete time.
      */
     cancelSessionId: text("cancel_session_id"),
+    /**
+     * Unix seconds. The moment a sweep began purging the account — the
+     * fan-out's first bridge call, or the hard delete — written before it
+     * purges anything, and only while this row exists. Once it is set the
+     * account cannot be restored: a cancel deletes this row only while it is
+     * NULL. Nothing clears it; the row's own delete removes it.
+     */
+    purgeStartedAt: integer("purge_started_at"),
   },
   (t) => [
     // Sweeper scan: rows ready for hard-delete.

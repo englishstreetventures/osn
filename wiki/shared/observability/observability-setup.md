@@ -8,7 +8,7 @@ related:
   - "[[shared/observability/metrics]]"
   - "[[shared/observability/logging]]"
   - "[[shared/observability/tracing]]"
-last-reviewed: 2026-10-22
+last-reviewed: 2026-10-27
 ---
 
 # Observability Setup Runbook
@@ -87,7 +87,7 @@ Import the workerd-safe `/config`, `/logger`, and `/tracing` subpaths, never the
 `healthRoutes` exposes two endpoints, and it stays mounted on the Workers entries as well:
 
 - **`/health`** -- liveness: 200 whenever the service is up
-- **`/ready`** -- readiness: it checks a dependency only when the service passes `healthRoutes` a `probe`. None does (`osn/api`, `zap/api` and `pulse/api` pass only `serviceName`), so it answers 200 whenever `/health` does and says nothing about D1 or Redis.
+- **`/ready`** -- readiness: it checks a dependency only when the service passes `healthRoutes` a `probe`. None does (`osn/api`, `zap/api` and `pulse/api` pass only `serviceName`), so it answers 200 whenever `/health` does and says nothing about D1 or the coordination store. osn-api's `GET /health/coordination` is the probe that reaches its store ([[coordination-store#The health probe]]).
 
 They confirm that the service runs. Every CI Worker deploy already asks its Worker's health by machine and rolls it back when the answer is wrong ([[production-deploy]] §7); call them by hand locally, or to look at a deployed Worker between deploys.
 
@@ -125,6 +125,7 @@ Then add domain-specific metrics:
 - `osn.auth.login.attempts` by method and result
 - `osn.auth.register.attempts` by step and result
 - `osn.auth.rate_limited` by endpoint
+- `osn.coordination.store.operations` by store and result — any `error` is osn-api's coordination store failing ([[coordination-store#Observability]])
 - `pulse.events.created` / `pulse.events.status_transitions`
 - `arc.token.issued` / `arc.token.verification`
 

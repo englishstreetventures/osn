@@ -130,7 +130,13 @@ describe("W3: no install or build step holds a secret", () => {
           .map((entry) => entry.name);
       }
       if (step.id?.startsWith("smoke_") === true) {
-        return accountSecrets("dev").concat(["CF_ACCESS_CLIENT_ID", "CF_ACCESS_CLIENT_SECRET"]);
+        const access = accountSecrets("dev").concat([
+          "CF_ACCESS_CLIENT_ID",
+          "CF_ACCESS_CLIENT_SECRET",
+        ]);
+        // osn-api's check sends the Worker's own INTERNAL_SERVICE_SECRET to its
+        // coordination probe, and to no other host.
+        return step.id === "smoke_osn_api" ? access.concat(["INTERNAL_SERVICE_SECRET"]) : access;
       }
       // The Access token alone: it starts `wrangler dev`, which must never
       // hold a Cloudflare credential.

@@ -147,7 +147,7 @@ describe("GET /events/discover", () => {
   it("returns 429 when the rate limiter throws (fail-closed)", async () => {
     const failingLimiter: RateLimiterBackend = {
       check: () => {
-        throw new Error("redis down");
+        throw new Error("backend down");
       },
     };
     const failedApp = createEventsRoutes(

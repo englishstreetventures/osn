@@ -4,11 +4,11 @@ import { fileURLToPath } from "node:url";
 import { DbLive } from "@osn/db/service";
 import { makeLogEmailLive } from "@shared/email";
 import { generateOpenApiDocument } from "@shared/openapi-tools";
-import { createMemoryClient } from "@shared/redis";
 import { Layer } from "effect";
 
 import { createApp } from "../src/app";
 import { buildAppDeps } from "../src/build-deps";
+import { createInMemoryCoordination } from "../src/lib/coordination/memory";
 import { osnLoggerLayer } from "../src/observability";
 
 /**
@@ -33,7 +33,7 @@ const OUTPUT_PATH = resolve(join(SCRIPT_DIR, "../../../shared/openapi/osn.json")
 const built = await buildAppDeps(
   {},
   {
-    redisClient: createMemoryClient(),
+    coordination: () => createInMemoryCoordination(),
     dbAndEmailLayer: Layer.merge(DbLive, makeLogEmailLive().layer),
     observabilityLayer: osnLoggerLayer,
     includeObservabilityPlugin: false,

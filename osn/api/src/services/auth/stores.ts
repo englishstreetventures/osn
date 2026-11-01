@@ -1,19 +1,23 @@
 /**
  * Ceremony / pending-state store contracts and their in-memory defaults.
- * Value shapes live here alongside the store bundle so `index.ts` (and the
- * Redis wiring in `lib/redis-ceremony-stores.ts`) import them from one place.
+ * Value shapes live here alongside the store bundle so the auth service and
+ * the coordination bundle (`lib/coordination`) import them from one place.
  */
 
-import type { RedisNamespace } from "@shared/redis";
-
-import { createInMemoryCeremonyStore, type CeremonyStore } from "../../lib/ceremony-store";
-import { metricCeremonyStoreEntryDelta, metricCeremonyStoreOp } from "../../metrics";
-import type { PasskeyProvenance, PublicProfile } from "./types";
+import {
+  CEREMONY_STORE_MAX,
+  createInMemoryCeremonyStore,
+  type CeremonyStore,
+  type CeremonyStoreOp,
+} from "../../lib/ceremony-store";
+import type { CeremonyStoreName } from "../../lib/coordination/names";
+import { metricCeremonyStoreOp } from "../../metrics";
+import type { PasskeyProvenance } from "./types";
 
 /**
  * Minimal per-account cap surface — structurally compatible with
- * `RateLimiterBackend` from `@shared/rate-limit` and the Redis rate-limiter,
- * so `index.ts` can pass a `createRedisRateLimiter(...)` straight in.
+ * `RateLimiterBackend` from `@shared/rate-limit` and the coordination-store
+ * limiter, so either passes straight in.
  */
 export interface AccountCapLimiter {
   check(key: string): Promise<boolean>;
@@ -21,8 +25,8 @@ export interface AccountCapLimiter {
 
 /**
  * The full set of ceremony / pending-state stores threaded through the
- * auth service. Bundled so `index.ts` wires one Redis client into all of them
- * in a single place, and so tests can override the whole set at once.
+ * auth service. Bundled so the coordination bundle supplies all of them in one
+ * place, and so tests can override the whole set at once.
  */
 export interface CeremonyStores {
   registrationChallenges: CeremonyStore<RegistrationChallengeEntry>;
@@ -110,7 +114,6 @@ export interface PendingRegistration {
   handle: string;
   displayName: string | null;
   codeHash: string;
-  attempts: number;
   expiresAt: number;
 }
 
@@ -122,21 +125,26 @@ export interface CrossDeviceRequest {
   requestId: string;
   /** SHA-256 of the 256-bit secret — the plaintext never touches the server. */
   secretHash: string;
-  status: "pending" | "approved" | "rejected" | "consumed";
+  status: "pending" | "approved" | "rejected";
   /** Device B's coarse UA label. */
   uaLabel: string | null;
   /** Device B's peppered IP hash. */
   ipHash: string | null;
   expiresAt: number; // milliseconds
   createdAt: number; // milliseconds
-  // Populated on approve:
+  /**
+   * Set on approve: who approved, the profile device B signs in as, and the id
+   * (a SHA-256 hash) of the `sessions` row reserved for device B. Never a
+   * token: the reserved row's token was never kept, and the poll that takes
+   * the approved entry replaces that row with the session it mints.
+   */
   accountId?: string;
-  session?: { accessToken: string; refreshToken: string; expiresIn: number };
-  profile?: PublicProfile;
+  profileId?: string;
+  sessionId?: string;
 }
 
 // Challenge / pending-state value shapes. The stores that hold them are
-// instantiated per-service (in-memory default or injected Redis-backed) inside
+// instantiated per-service (in-memory default or the injected coordination store) inside
 // createAuthService — see CeremonyStores.
 
 // Step-up OTP codes — keyed by accountId. Separate from loginOtp store so
@@ -144,7 +152,6 @@ export interface CrossDeviceRequest {
 // versa. Structure matches OtpEntry but without profileId (accountId is the key).
 export interface StepUpOtpEntry {
   codeHash: string;
-  attempts: number;
   expiresAt: number;
 }
 
@@ -163,7 +170,6 @@ export interface StepUpOtpEntry {
  */
 export interface PendingRecoveryOtp {
   codeHash: string;
-  attempts: number;
   expiresAt: number;
 }
 
@@ -179,15 +185,14 @@ export interface PendingRecoveryOtp {
  * when the value is opaque everywhere.
  *
  * The fields are base64 strings rather than byte arrays because the in-memory
- * store keeps the value by reference while the Redis store round-trips it
- * through `JSON.stringify` — a `Uint8Array` here works in every test and comes
- * back from Upstash as `{"0":12,"1":200,…}`.
+ * store keeps the value by reference while the Durable Object store round-trips
+ * it through `JSON.stringify` — a `Uint8Array` here works in every test and
+ * comes back from the store as `{"0":12,"1":200,…}`.
  */
 export interface PendingTotpEnrollment {
   ciphertextB64: string;
   ivB64: string;
   keyVersion: number;
-  attempts: number;
   expiresAt: number;
 }
 
@@ -197,7 +202,6 @@ export interface PendingTotpEnrollment {
 export interface PendingEmailChange {
   newEmail: string;
   codeHash: string;
-  attempts: number;
   expiresAt: number;
 }
 
@@ -252,19 +256,19 @@ const consumedStepUpTokens = new Map<string, number>();
  *
  * The default implementation (`createInMemoryJtiStore`) is a per-process
  * `Map` — correct for single-node dev and test, but breaks the "single-use"
- * advertised property in a multi-pod deployment (a captured token could be
- * replayed once per instance before any one pod has seen the jti).
+ * advertised property across Worker isolates (a captured token could be
+ * replayed once per isolate before any one of them has seen the jti).
  *
- * In non-local deployments, inject a Redis-backed implementation
- * (`createRedisJtiStore` in `lib/step-up-jti-store.ts`) so the guard is
- * cluster-wide atomic.
+ * A deployed Worker passes the coordination store's (`createDurableJtiStore`
+ * in `lib/coordination/durable.ts`), so the guard holds across every isolate.
  */
 export interface StepUpJtiStore {
   /**
    * Returns `true` if the jti was consumed for the FIRST time (allow the
    * step-up verification to proceed). Returns `false` on replay (deny).
-   * `ttlMs` must be at least as long as the step-up token TTL so replay
-   * entries survive the token's own lifetime.
+   * `ttlMs` must outlast every moment the token still verifies — its life
+   * plus the verifier's clock tolerance past `exp` — so a replay inside that
+   * tolerance still finds the claim.
    */
   consume(jti: string, ttlMs: number): Promise<boolean>;
 }
@@ -285,16 +289,49 @@ export function createInMemoryJtiStore(): StepUpJtiStore {
 }
 
 /**
- * Build the default in-memory ceremony stores. Each carries the metric
- * observer so per-namespace op/entry telemetry works identically to the
- * Redis-backed path. Used when `AuthConfig.ceremonyStores` is omitted.
+ * Single-use claims on discoverable passkey challenges, by nonce. The
+ * challenge carries its own proof (see `server-mac.ts`), so nothing is stored
+ * at `begin`; the first claim of a nonce is the one sign-in it allows.
+ *
+ * A deployed Worker passes the coordination store's
+ * (`createDurableChallengeClaimStore`), so a challenge is used once across
+ * every isolate; the in-memory default holds in one process only.
+ */
+export interface ChallengeClaimStore {
+  readonly namespace: "passkey_challenge_claim";
+  /** True for the first claim of `nonce` within `ttlMs`; false for every later one. */
+  claim(nonce: string, ttlMs: number): Promise<boolean>;
+}
+
+/** In-memory challenge claims — single-process only, bounded like the ceremony stores. */
+export function createInMemoryChallengeClaimStore(): ChallengeClaimStore {
+  const claimed = new Map<string, number>();
+  return {
+    namespace: "passkey_challenge_claim",
+    async claim(nonce, ttlMs) {
+      const nowMs = Date.now();
+      if (claimed.size >= CEREMONY_STORE_MAX) {
+        for (const [key, expiresAt] of claimed) {
+          if (expiresAt <= nowMs) claimed.delete(key);
+        }
+      }
+      const held = claimed.get(nonce);
+      if (held !== undefined && held > nowMs) return false;
+      claimed.set(nonce, nowMs + ttlMs);
+      return true;
+    },
+  };
+}
+
+/**
+ * Build the default in-memory ceremony stores. Each counts its operations on
+ * the same metric as the Durable Object path, under `backend: "memory"`. Used
+ * when `AuthConfig.ceremonyStores` is omitted.
  */
 export function createDefaultCeremonyStores(): CeremonyStores {
   const observer = {
-    onOp: (op: "set" | "get" | "delete", namespace: RedisNamespace) =>
+    onOp: (op: CeremonyStoreOp, namespace: CeremonyStoreName) =>
       metricCeremonyStoreOp({ op, namespace, backend: "memory" }),
-    onEntryDelta: (delta: number, namespace: RedisNamespace) =>
-      metricCeremonyStoreEntryDelta(delta, { namespace, backend: "memory" }),
   };
   return {
     registrationChallenges: createInMemoryCeremonyStore<RegistrationChallengeEntry>(
@@ -338,7 +375,7 @@ export function createDefaultCeremonyStores(): CeremonyStores {
 /**
  * A default in-memory fixed-window per-account cap limiter. Structurally a
  * `RateLimiterBackend` so the same `check(key)` contract is satisfied by the
- * Redis-backed limiter injected in production.
+ * coordination-store limiter a deployed Worker injects.
  */
 export function createInMemoryAccountCap(maxRequests: number, windowMs: number): AccountCapLimiter {
   const buckets = new Map<string, { count: number; resetAt: number }>();

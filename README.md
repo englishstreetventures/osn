@@ -162,6 +162,7 @@ cire/             # @cire/* — wedding-invite stack
   build-tools/      # Build-only Astro integration: each build's CSP names its own API
 
 shared/           # @shared/* — cross-cutting utilities
+  coordination/      # CoordinationStore Durable Object: counters, single-use claims, short-lived values
   crypto/            # ARC tokens, recovery-code helpers (Signal Protocol planned)
   db-utils/          # Driver-agnostic Drizzle handle, makeDbLive, makeD1DbLive
   design-tokens/     # The ui-* token contract every shared component reads
@@ -170,7 +171,6 @@ shared/           # @shared/* — cross-cutting utilities
   observability/     # OpenTelemetry helpers, Elysia plugin, instrumentedFetch
   osn-auth-client/   # Downstream access-JWT verification — JWKS cache, Elysia adapter
   rate-limit/        # Per-IP / per-user limiter primitives, client-IP trust policy
-  redis/             # Redis wrapper, rate-limiter Lua, JTI / rotated-session stores
   turnstile/         # Key-optional, fail-closed Turnstile verifier
   typescript-config/ # base / node / solid tsconfigs
   ui/                # The shared SolidJS primitives (Button, Card, Modal, Field, Table…)
@@ -195,7 +195,7 @@ Dependencies flow one way: `shared/*` depends on nothing internal; `osn/*` depen
 - **Eden treaty** for type-safe internal calls; plain REST for third-party consumers
 - **ARC tokens** — self-issued ES256 JWTs with `kid`, scope and audience — for service-to-service auth
 - **WebSockets** for live messaging and event updates (planned)
-- **Rate limiting** on auth, graph and org writes. Fail-closed. Native Workers rate-limit bindings for the 60-second windows, Upstash Redis for the rest
+- **Rate limiting** on auth, graph and org writes. Fail-closed. Native Workers rate-limit bindings for the 60-second windows, osn-api's coordination store (a Durable Object) for the longer ones
 - **Turnstile** bot protection on register, login, claim and RSVP. Key-optional: no secret means the check is inert
 
 ### Databases
@@ -237,7 +237,7 @@ So Pulse users can join event chats without installing Zap.
 | Functional core | Effect.ts |
 | ORM | Drizzle |
 | Database | bun:sqlite (local) → Cloudflare D1 (dev/staging/prod) |
-| Cache / limiters | Upstash Redis, native Workers rate-limit bindings |
+| Shared state / limiters | Durable Objects (SQLite-backed), native Workers rate-limit bindings |
 | API communication | Eden (internal), REST (external) |
 | Real-time | WebSockets |
 | Encryption | Signal Protocol (planned), ES256 JWTs, WebAuthn |
