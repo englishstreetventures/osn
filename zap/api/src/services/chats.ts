@@ -60,7 +60,10 @@ export class AlreadyMember extends Data.TaggedError("AlreadyMember")<{
   readonly profileId: string;
 }> {}
 
-/** Refused: a DM created with anyone but exactly one other member, or an add to a DM. */
+/**
+ * Refused: a DM created with anyone but exactly one other member, or an add to
+ * or a removal from a DM.
+ */
 export class InvalidDmMembership extends Data.TaggedError("InvalidDmMembership")<{
   readonly memberCount: number;
 }> {}
@@ -688,7 +691,13 @@ export const removeMember = (
   requestingProfileId: string,
 ): Effect.Effect<
   void,
-  ChatNotFound | NotChatAdmin | NotChatMember | NotC2cChat | LastAdmin | DatabaseError,
+  | ChatNotFound
+  | NotChatAdmin
+  | NotChatMember
+  | NotC2cChat
+  | InvalidDmMembership
+  | LastAdmin
+  | DatabaseError,
   Db
 > =>
   Effect.gen(function* () {
@@ -726,10 +735,20 @@ export const removeMember = (
     // The delete holds the checks above as it runs, so a removal or a leave
     // that lands after they read cannot get past them. It removes the member
     // only while the requester (when removing someone else) is still an
-    // admin, and never the chat's last admin: an admin is removed only while
-    // another admin stands, so of two admins leaving at once one is refused,
-    // and an admin must hand off the role first. SQLite runs each statement
-    // whole, so the count and the delete see the same rows.
+    // admin, never from a DM, and never the chat's last admin: an admin is
+    // removed only while another admin stands, so of two admins leaving at
+    // once one is refused, and an admin must hand off the role first. SQLite
+    // runs each statement whole, so the count and the delete see the same
+    // rows.
+    //
+    // A DM is sealed at two members, as `addMember` holds: no one leaves it
+    // and no one is removed from it.
+    const chatIsNotADm = exists(
+      db
+        .select({ one: sql`1` })
+        .from(chats)
+        .where(and(eq(chats.id, chatId), ne(chats.type, "dm"))),
+    );
     const anotherAdminStands = or(
       ne(chatMembers.role, "admin"),
       gt(
@@ -751,6 +770,7 @@ export const removeMember = (
               profileId !== requestingProfileId
                 ? requesterIsAdmin(db, chatId, requestingProfileId)
                 : undefined,
+              chatIsNotADm,
               anotherAdminStands,
             ),
           ),
@@ -769,6 +789,10 @@ export const removeMember = (
         catch: (cause) => new DatabaseError({ cause }),
       });
       if (stillMember.length === 0) return yield* Effect.fail(new NotChatMember({ chatId }));
+      // A chat's type is written once, at creation, so the read above still
+      // says whether the guard refused a DM.
+      if (chat.type === "dm")
+        return yield* Effect.fail(new InvalidDmMembership({ memberCount: 1 }));
       return yield* Effect.fail(new LastAdmin({ chatId }));
     }
     metricMemberRemoved("ok");

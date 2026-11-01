@@ -567,6 +567,18 @@ describe("chats routes", () => {
     expect(res.status).toBe(409);
   });
 
+  it("DELETE /chats/:id/members/:profileId returns 422 for a member leaving a DM", async () => {
+    const createRes = await req(app, "POST", "/chats", {
+      token: aliceToken,
+      body: { type: "dm", memberProfileIds: ["usr_bob"] },
+    });
+    const chatId = (await body(createRes)).chat.id;
+
+    const res = await req(app, "DELETE", `/chats/${chatId}/members/usr_bob`, { token: bobToken });
+    expect(res.status).toBe(422);
+    expect(await body(res)).toEqual({ message: "Cannot remove members from a DM" });
+  });
+
   // ── Messages ────────────────────────────────────────────────────────────
 
   it("POST /chats/:id/messages sends a message and returns 201", async () => {

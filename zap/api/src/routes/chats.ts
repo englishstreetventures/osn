@@ -406,6 +406,12 @@ export const createChatsRoutes = (
                   return { message: "Not a member" } as const;
                 }),
               ),
+              Effect.catchTag("InvalidDmMembership", () =>
+                Effect.sync(() => {
+                  set.status = 422;
+                  return { message: "Cannot remove members from a DM" } as const;
+                }),
+              ),
               Effect.catchTag("LastAdmin", () =>
                 Effect.sync(() => {
                   set.status = 409;

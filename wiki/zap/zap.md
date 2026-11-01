@@ -135,8 +135,11 @@ add-member) when the two share a permitted OSN social-graph relationship.
   fires. `not_connected` is the definitive-no path. The gate is swappable via
   `setConsentGate` for tests.
 - Invariants enforced in `zap/api/src/services/chats.ts`: a **DM is exactly two
-  members** (`InvalidDmMembership`); the **last admin** of a chat cannot be
-  removed (`LastAdmin`). `removeMember`'s delete holds that rule and the
+  members** (`InvalidDmMembership`): `createChat` refuses any other count,
+  `addMember` refuses an add, and `removeMember` refuses to remove anyone from
+  one, the member leaving included (422 on
+  `DELETE /chats/:id/members/:profileId`). The **last admin** of a chat cannot be
+  removed (`LastAdmin`). `removeMember`'s delete holds both rules and the
   requester's admin row as it runs, so of two admins leaving at once one is
   refused, and a requester removed in the meantime removes no one.
   `addMember` and `updateChat` hold the requester's admin row in their write

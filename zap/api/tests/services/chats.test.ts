@@ -365,6 +365,47 @@ describe("chats service", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
+  // A DM stays two people: no one leaves it and no one is removed from it.
+  const seedDm = Effect.gen(function* () {
+    const chat = yield* seedChat({ type: "dm" });
+    yield* seedMember(chat.id, "usr_alice", "admin");
+    yield* seedMember(chat.id, "usr_bob");
+    return chat;
+  });
+
+  const dmRemovals = [
+    { name: "the member leaving a DM", profileId: "usr_bob", requester: "usr_bob" },
+    { name: "the admin leaving a DM", profileId: "usr_alice", requester: "usr_alice" },
+    { name: "the admin removing a DM's member", profileId: "usr_bob", requester: "usr_alice" },
+  ] as const;
+
+  for (const removal of dmRemovals) {
+    it.effect(`removeMember refuses ${removal.name}`, () =>
+      Effect.gen(function* () {
+        const chat = yield* seedDm;
+        const result = yield* Effect.result(
+          removeMember(chat.id, removal.profileId, removal.requester),
+        );
+        expect(Result.isFailure(result)).toBe(true);
+        if (Result.isFailure(result)) {
+          expect(result.failure._tag).toBe("InvalidDmMembership");
+        }
+        const { members } = yield* getChatMembers(chat.id);
+        expect(members.map((m) => m.profileId).toSorted()).toEqual(["usr_alice", "usr_bob"]);
+      }).pipe(Effect.provide(createTestLayer())),
+    );
+  }
+
+  it.effect("removeMember on a DM answers a non-member as on any chat, not as a DM", () =>
+    Effect.gen(function* () {
+      const chat = yield* seedDm;
+      const removing = yield* Effect.result(removeMember(chat.id, "usr_bob", "usr_mallory"));
+      const leaving = yield* Effect.result(removeMember(chat.id, "usr_mallory", "usr_mallory"));
+      expect(Result.isFailure(removing) ? removing.failure._tag : "ok").toBe("NotChatAdmin");
+      expect(Result.isFailure(leaving) ? leaving.failure._tag : "ok").toBe("NotChatMember");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
   // ── Z5 last-admin invariant ─────────────────────────────────────────────
 
   it.effect("removeMember rejects removing the only admin", () =>
