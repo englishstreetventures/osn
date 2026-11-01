@@ -1183,6 +1183,18 @@ describe("chats service", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
+  it.effect("createChat counts each person once, so a full list with a repeated id fits", () =>
+    Effect.gen(function* () {
+      const others = Array.from({ length: MAX_CHAT_MEMBERS - 1 }, (_, i) => `usr_other_${i}`);
+      const chat = yield* createChat(
+        { type: "group", memberProfileIds: [...others, others[0]!] },
+        "usr_alice",
+      );
+      const { members } = yield* getChatMembers(chat.id, { limit: MAX_CHAT_MEMBERS });
+      expect(members).toHaveLength(MAX_CHAT_MEMBERS);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
   it.effect(
     "provisionC2bChat rejects memberProfileIds over the cap without creating a chat row",
     () =>

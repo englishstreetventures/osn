@@ -579,6 +579,52 @@ describe("chats routes", () => {
     expect(await body(res)).toEqual({ message: "Cannot remove members from a DM" });
   });
 
+  // The DM refusal sits behind the route's gates: a caller with no standing
+  // in the chat is answered as on any chat, and removes no one.
+  describe("DELETE /chats/:id/members/:profileId on a DM, by a caller with no standing", () => {
+    const dmMembers = async (chatId: string) =>
+      (await body(await req(app, "GET", `/chats/${chatId}/members`, { token: aliceToken }))).members
+        .map((m: { profileId: string }) => m.profileId)
+        .toSorted();
+
+    const openDm = async () => {
+      const createRes = await req(app, "POST", "/chats", {
+        token: aliceToken,
+        body: { type: "dm", memberProfileIds: ["usr_bob"] },
+      });
+      return (await body(createRes)).chat.id as string;
+    };
+
+    it("returns 401 without a token", async () => {
+      const chatId = await openDm();
+      const res = await req(app, "DELETE", `/chats/${chatId}/members/usr_bob`);
+      expect(res.status).toBe(401);
+      expect(await body(res)).toEqual({ message: "Unauthorized" });
+      expect(await dmMembers(chatId)).toEqual(["usr_alice", "usr_bob"]);
+    });
+
+    it("returns 401 for a token signed with the wrong key", async () => {
+      const chatId = await openDm();
+      const forged = await (
+        await makeAccessTokenSigner()
+      ).sign("usr_bob", {
+        issuer: TEST_ISSUER,
+      });
+      const res = await req(app, "DELETE", `/chats/${chatId}/members/usr_bob`, { token: forged });
+      expect(res.status).toBe(401);
+      expect(await dmMembers(chatId)).toEqual(["usr_alice", "usr_bob"]);
+    });
+
+    it("returns 403 to a non-member, as a group chat does", async () => {
+      const chatId = await openDm();
+      const mallory = await makeToken("usr_mallory");
+      const res = await req(app, "DELETE", `/chats/${chatId}/members/usr_bob`, { token: mallory });
+      expect(res.status).toBe(403);
+      expect(await body(res)).toEqual({ message: "Forbidden" });
+      expect(await dmMembers(chatId)).toEqual(["usr_alice", "usr_bob"]);
+    });
+  });
+
   // ── Messages ────────────────────────────────────────────────────────────
 
   it("POST /chats/:id/messages sends a message and returns 201", async () => {

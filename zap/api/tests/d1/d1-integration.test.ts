@@ -162,4 +162,17 @@ describe("zap/api over real D1 (Miniflare)", () => {
     expect(members).toHaveLength(MAX_CHAT_MEMBERS);
     expect(members.map((m) => m.profileId)).not.toContain("usr_dave");
   });
+
+  // The largest create there is: its chunked member INSERTs have to fit D1's
+  // per-statement bound-parameter limit, which bun:sqlite does not enforce.
+  it("createChat writes a chat of exactly MAX_CHAT_MEMBERS over async D1", async () => {
+    setConsentGate(() => Promise.resolve(true));
+    const others = Array.from({ length: MAX_CHAT_MEMBERS - 1 }, (_, i) => `usr_other_${i}`);
+    const chat = await run(createChat({ type: "group", memberProfileIds: others }, ALICE));
+    const members = await rawDb
+      .select({ profileId: chatMembers.profileId })
+      .from(chatMembers)
+      .where(eq(chatMembers.chatId, chat.id));
+    expect(members).toHaveLength(MAX_CHAT_MEMBERS);
+  });
 });
