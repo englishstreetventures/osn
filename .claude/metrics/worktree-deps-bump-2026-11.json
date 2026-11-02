@@ -1,0 +1,237 @@
+{
+  "schema_version": 4,
+  "pr": {
+    "number": 1898,
+    "branch": "worktree-deps-bump-2026-11",
+    "base_sha": "c3a6c85bf6a67c280bc3858d0496a3bab18cb3ca",
+    "head_sha": "92eacb3100cafdf6e8158187f9c04158389b0e76",
+    "generated_at": "2026-11-02T03:36:38.317Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": null,
+    "type": null,
+    "labels": []
+  },
+  "complexity": {
+    "declared": null,
+    "method": "none",
+    "issues": 0
+  },
+  "window": {
+    "sessions": 4,
+    "first_ts": "2026-11-02T02:51:26.326Z",
+    "last_ts": "2026-11-02T03:34:12.571Z",
+    "span_seconds": 2566,
+    "active_seconds": 2593,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 31.648656970000015,
+    "tokens": {
+      "input": 959,
+      "output": 331590,
+      "thinking": 131339,
+      "cache_write_5m": 824391,
+      "cache_write_1h": 500890,
+      "cache_read": 81466161
+    },
+    "by_model": {
+      "claude-opus-5-5": {
+        "tokens": {
+          "input": 660,
+          "output": 215196,
+          "thinking": 81607,
+          "cache_write_5m": 824391,
+          "cache_write_1h": 0,
+          "cache_read": 44271536
+        },
+        "usd_equivalent": 26.13712940000003,
+        "messages": 329
+      },
+      "claude-haiku-5-5": {
+        "tokens": {
+          "input": 196,
+          "output": 69239,
+          "thinking": 30549,
+          "cache_write_5m": 0,
+          "cache_write_1h": 159694,
+          "cache_read": 20160607
+        },
+        "usd_equivalent": 0.2681839700000001,
+        "messages": 98
+      },
+      "claude-sonnet-5-5": {
+        "tokens": {
+          "input": 103,
+          "output": 47155,
+          "thinking": 19183,
+          "cache_write_5m": 0,
+          "cache_write_1h": 341196,
+          "cache_read": 17034018
+        },
+        "usd_equivalent": 5.2433436,
+        "messages": 54
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 311,
+          "output": 117676,
+          "thinking": 50558,
+          "cache_write_5m": 47924,
+          "cache_write_1h": 500890,
+          "cache_read": 37235256
+        },
+        "usd_equivalent": 5.79308797,
+        "messages": 158
+      },
+      "subagent": {
+        "tokens": {
+          "input": 648,
+          "output": 213914,
+          "thinking": 80781,
+          "cache_write_5m": 776467,
+          "cache_write_1h": 0,
+          "cache_read": 44230905
+        },
+        "usd_equivalent": 25.855569000000028,
+        "messages": 323
+      }
+    },
+    "effort": {
+      "medium": 158,
+      "xhigh": 134,
+      "high": 189
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 3,
+      "test": 1,
+      "docs": 0,
+      "config": 49,
+      "source": 0
+    },
+    "loc": {
+      "generated": {
+        "added": 522,
+        "deleted": 467
+      },
+      "test": {
+        "added": 2,
+        "deleted": 1
+      },
+      "docs": {
+        "added": 0,
+        "deleted": 0
+      },
+      "config": {
+        "added": 142,
+        "deleted": 142
+      },
+      "source": {
+        "added": 0,
+        "deleted": 0
+      }
+    },
+    "packages": [
+      "cire/api",
+      "cire/build-tools",
+      "cire/db",
+      "cire/host",
+      "cire/infra",
+      "cire/invite-designs",
+      "cire/invites",
+      "cire/landing",
+      "cire/ui",
+      "cire/vendor",
+      "musubi/infra",
+      "musubi/landing",
+      "musubi/social",
+      "osn/api",
+      "osn/auth-ui",
+      "osn/client",
+      "osn/db",
+      "pulse/api",
+      "pulse/db",
+      "pulse/infra",
+      "pulse/landing",
+      "pulse/web",
+      "shared/color",
+      "shared/coordination",
+      "shared/crypto",
+      "shared/db-utils",
+      "shared/design-tokens",
+      "shared/dev-urls",
+      "shared/email",
+      "shared/feature-flags",
+      "shared/infra",
+      "shared/legal",
+      "shared/observability",
+      "shared/openapi-tools",
+      "shared/osn-auth-client",
+      "shared/rate-limit",
+      "shared/realtime",
+      "shared/rp-auth",
+      "shared/sortable",
+      "shared/toast",
+      "shared/turnstile",
+      "shared/ui",
+      "tools/lab",
+      "tools/metrics",
+      "tools/oxlint",
+      "zap/api",
+      "zap/db",
+      "zap/infra"
+    ],
+    "touches_migration": false,
+    "commits": 1
+  },
+  "interaction": {
+    "user_turns": 1,
+    "corrective_turns": 1,
+    "tokens_before_first_edit": 258596,
+    "sessions_with_observed_edit": 1,
+    "tool_calls": {
+      "Bash": 464,
+      "Read": 45,
+      "Write": 35,
+      "Edit": 18,
+      "Skill": 7,
+      "StructuredOutput": 3,
+      "Agent": 3,
+      "SubagentHandback": 3,
+      "EnterWorktree": 1,
+      "ToolSearch": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 4,
+      "max_edits_one_file": 6
+    },
+    "skills": {
+      "prep-pr": 1,
+      "review-tests": 1,
+      "review-performance": 1,
+      "review-security": 1,
+      "write-issue": 1,
+      "rate-complexity": 1,
+      "write-pr": 1
+    },
+    "subagents": {
+      "reviewer": 3
+    },
+    "requests": {
+      "main": 158,
+      "subagent": 323,
+      "with_tools": 479,
+      "with_one_tool": 396,
+      "context_median": 161177,
+      "context_p90": 299246
+    }
+  },
+  "review": null
+}
