@@ -1126,7 +1126,10 @@ function seatDevOwner(db: TestDb, weddingId: string, seatId: string, now: Date):
  * - `wed_e2e_checklist`: a wedding date (2099-06-20) and an empty checklist,
  *   for the starter checklist.
  * - `wed_e2e_holders`: one open task nobody holds, an editor and a viewer, for
- *   putting people on a task and removing one from the wedding.
+ *   putting people on a task and removing one from the wedding. It also holds
+ *   a comped `premium_templates` row, and no customisation, so the same flow
+ *   can choose its premium envelope in the invite builder over an empty hero.
+ *   Its tier stays Gold: the row opens premium designs and envelopes only.
  * - `wed_e2e_scope`: a helper seeing their own tasks, for widening, narrowing
  *   and resetting what a helper sees on the run sheet.
  * - `wed_e2e_runsheet`: the day of 2026-10-01 in Sydney — the suite's clock
@@ -1209,6 +1212,15 @@ export function seedE2eOrganiser(db: TestDb): void {
       status: "open",
       sortOrder: 0,
       createdAt: now,
+    })
+    .run();
+  db.insert(schema.weddingEntitlements)
+    .values({
+      weddingId: "wed_e2e_holders",
+      entitlement: "premium_templates",
+      source: "comp",
+      grantedAt: now,
+      grantedBy: "e2e-seed",
     })
     .run();
 

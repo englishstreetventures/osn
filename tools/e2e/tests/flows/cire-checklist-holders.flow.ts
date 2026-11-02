@@ -5,14 +5,22 @@
  * still holding it from the wedding: their assignment goes with their seat,
  * and the task stays.
  *
+ * On the same sign-in the owner then chooses the wedding's envelope in the
+ * invite builder: picks the Wax seal, sees the choice held across a reload and
+ * the note that an empty or switched-off hero leaves guests without it, and
+ * sets it back to None from the keyboard, so no later flow meets an envelope.
+ *
  * The wedding (`CIRE_ORGANISER.holders`) holds the owner, an editor and a
- * viewer. The local cire-api resolves no names, so each person shows, and is
- * found, by their profile id.
+ * viewer, and a comped `premium_templates` row, which opens the premium
+ * envelope on Gold. The local cire-api resolves no names, so each person
+ * shows, and is found, by their profile id.
  */
+
+import { resolve } from "node:path";
 
 import type { Page } from "@playwright/test";
 
-import { CIRE_ORGANISER, DB_FILES, ORIGINS } from "../../src/config";
+import { CIRE_ORGANISER, DB_FILES, ORIGINS, SCREENSHOT_DIR } from "../../src/config";
 import {
   expect,
   onSuiteClock,
@@ -34,6 +42,16 @@ function holdersInDb(): string {
     taskId,
   );
   return row?.ids ?? "";
+}
+
+/** The wedding's stored envelope, `"none"` for none, `"no row"` before any invite save. */
+function envelopeInDb(): string {
+  const row = queryOne<{ envelope_id: string | null }>(
+    DB_FILES.cire,
+    "SELECT envelope_id FROM wedding_invite_customisations WHERE wedding_id = ?",
+    weddingId,
+  );
+  return row ? (row.envelope_id ?? "none") : "no row";
 }
 
 /** The seat ids on the task's stack of faces, in stack order, comma-joined. */
@@ -153,4 +171,110 @@ test("cire-checklist-holders", async ({ page, flow }) => {
     await expect(trigger.locator("[data-holder]")).toHaveCount(0);
   });
   flow.check("the stack shows nobody", "", await holdersOnStack(page));
+
+  // ── The envelope, in the invite builder ───────────────────────────────────
+  const envelopeUrl = `${WEDDING_API}/invite/envelope`;
+  let envelopeSaves = 0;
+  page.on("request", (request) => {
+    if (request.method() === "PUT" && request.url() === envelopeUrl) envelopeSaves += 1;
+  });
+  const envelopes = page.getByRole("radiogroup", { name: "Invite envelope" });
+  const none = envelopes.getByRole("radio", { name: /^None/ });
+  const seal = envelopes.getByRole("radio", { name: /^Wax seal/ });
+  const heroNote = page.getByText("The envelope opens onto the hero.", { exact: false });
+  const unsaved = page.getByText("Unsaved changes");
+  const saveEnvelope = async (act: () => Promise<void>) => {
+    const response = page.waitForResponse(
+      (r) => r.request().method() === "PUT" && r.url() === envelopeUrl,
+    );
+    await act();
+    return (await response).status();
+  };
+
+  await flow.step("open the invite builder", async () => {
+    await page.goto(`${ORIGINS.cireHost}/#/w/${weddingId}/invite`);
+    // The first flow to load the builder's lazy chunk under `astro dev`.
+    await expect(envelopes).toBeVisible({ timeout: 60_000 });
+    await expect(none).toHaveAttribute("aria-checked", "true");
+    await expect(seal).not.toHaveAttribute("aria-disabled", "true");
+    await expect(heroNote).toHaveCount(0);
+  });
+
+  const picked = await flow.step("pick the Wax seal envelope", async () => {
+    const status = await saveEnvelope(() => seal.click());
+    await expect(seal).toHaveAttribute("aria-checked", "true");
+    await expect(seal).toContainText("Current");
+    await expect(page.getByText("Envelope updated")).toBeVisible();
+    // The holders wedding has no hero content, so guests would see no envelope.
+    await expect(heroNote).toContainText("Add a title, a subtitle or an image");
+    return status;
+  });
+  flow.check("the Wax seal envelope saved", 200, picked);
+  flow.check("the stored envelope once the Wax seal is picked", "wax-seal", envelopeInDb());
+
+  await flow.step("reload: the Wax seal held", async () => {
+    await expect(unsaved).toHaveCount(0);
+    await page.reload();
+    await expect(envelopes).toBeVisible({ timeout: 60_000 });
+    await expect(seal).toHaveAttribute("aria-checked", "true");
+    await expect(none).toHaveAttribute("aria-checked", "false");
+  });
+
+  // The whole page, so the sticky save bar sits where it ends rather than
+  // over the picker, as it would in a shot of the picker's own box.
+  await flow.step("screenshots of the envelope picker", async () => {
+    for (const [width, height, device] of [
+      [1280, 720, "desktop"],
+      [390, 844, "phone"],
+    ] as const) {
+      await page.setViewportSize({ width, height });
+      for (const scheme of ["light", "dark"] as const) {
+        await page.emulateMedia({ colorScheme: scheme });
+        await page.screenshot({
+          path: resolve(
+            SCREENSHOT_DIR,
+            `cire-checklist-holders--envelope-picker-${device}-${scheme}.png`,
+          ),
+          fullPage: true,
+          animations: "disabled",
+        });
+      }
+    }
+    // Back to Playwright's defaults, which the rest of the flow assumes.
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.emulateMedia({ colorScheme: "light" });
+  });
+
+  await flow.step("switch the hero off: the picker says why", async () => {
+    const heroSwitch = page
+      .locator("#invite-hero")
+      .getByRole("checkbox", { name: "Show on the invite" });
+    // The builder's own tabs; the module's view bar has a "Design" tab too.
+    const sections = page.getByLabel("Invite sections");
+    await sections.getByRole("tab", { name: /^Hero/ }).click();
+    await heroSwitch.uncheck();
+    await sections.getByRole("tab", { name: /^Design/ }).click();
+    await expect(heroNote).toContainText("Turn the hero on to show it");
+    // Back on, so the draft is clean and no navigation below meets the
+    // unsaved-changes guard.
+    await sections.getByRole("tab", { name: /^Hero/ }).click();
+    await heroSwitch.check();
+    await sections.getByRole("tab", { name: /^Design/ }).click();
+    await expect(heroNote).toContainText("Add a title, a subtitle or an image");
+    await expect(unsaved).toHaveCount(0);
+  });
+
+  const cleared = await flow.step("set the envelope back to None with Home", async () => {
+    // A click on the card already chosen saves nothing; Home then moves to
+    // None and chooses it.
+    await seal.click();
+    const status = await saveEnvelope(() => seal.press("Home"));
+    await expect(none).toHaveAttribute("aria-checked", "true");
+    await expect(none).toBeFocused();
+    await expect(heroNote).toHaveCount(0);
+    return status;
+  });
+  flow.check("the envelope set back to None", 200, cleared);
+  flow.check("the stored envelope once None is chosen", "none", envelopeInDb());
+  flow.check("envelope saves sent: the pick and the clear", 2, envelopeSaves);
 });
