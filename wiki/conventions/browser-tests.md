@@ -275,9 +275,9 @@ to open. This works in fish and bash; the build number moves with Playwright
 ```sh
 printf '%s\n' '#!/bin/sh' \
   'exec ~/Library/Caches/ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-mac-arm64/chrome-headless-shell "$@" -AppleShowScrollBars Always' \
-  > /tmp/chromium-classic.sh
-chmod +x /tmp/chromium-classic.sh
-VITEST_BROWSER_EXECUTABLE_PATH=/tmp/chromium-classic.sh bun run --cwd cire/invites test:browser
+  > "$TMPDIR/chromium-classic.sh"
+chmod +x "$TMPDIR/chromium-classic.sh"
+VITEST_BROWSER_EXECUTABLE_PATH="$TMPDIR/chromium-classic.sh" bun run --cwd cire/invites test:browser
 ```
 
 ### Chrome's accessibility tree
@@ -308,11 +308,11 @@ included, so an element Chrome leaves out of the tree cannot hide one.
 ## Running it locally
 
 Nothing extra on a normal machine. `playwright` is a devDependency of each
-package with a browser tier, and `bunx --bun playwright install chromium`, run
+package with a browser tier, and `bunx --bun --no-install playwright install chromium`, run
 inside one of them (`cire/host`, say), fetches the build that version wants,
-once. Run it at the repo root and `bunx` finds no local `playwright`, so it
-fetches npm's latest release and the build *that* wants, which is not always
-ours. On a Mac, the same variable as below runs the tier with classic
+once. At the repo root there is no local `playwright`, so `--no-install` makes
+it stop; without the flag `bunx` would fetch npm's latest release, skipping the
+release-age soak, and install the build *that* wants, which is not always ours. On a Mac, the same variable as below runs the tier with classic
 scrollbars ([[#Width]]).
 
 Playwright records each copy of itself that runs an install, and every install
@@ -369,12 +369,12 @@ keeps the fast tier fast.
 - name: Install Chromium's system libraries
   timeout-minutes: 10
   working-directory: cire/host
-  run: bunx playwright install-deps chromium
+  run: bunx --no-install playwright install-deps chromium
 
 - name: Install Chromium for browser tests
   timeout-minutes: 10
   working-directory: cire/host
-  run: bunx playwright install chromium
+  run: bunx --no-install playwright install chromium
 
 - name: Browser tests
   run: bun run test:browser

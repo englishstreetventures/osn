@@ -405,12 +405,12 @@ jobs:
       - name: Install Chromium's system libraries
         timeout-minutes: 10
         working-directory: cire/host
-        run: bunx playwright install-deps chromium
+        run: bunx --no-install playwright install-deps chromium
 
       - name: Install Chromium for browser tests
         timeout-minutes: 10
         working-directory: cire/host
-        run: bunx playwright install chromium
+        run: bunx --no-install playwright install chromium
 
       - name: Browser tests
         run: bun run test:browser
@@ -697,12 +697,12 @@ jobs:
       - name: Install Chromium's system libraries
         timeout-minutes: 10
         working-directory: tools/e2e
-        run: bunx playwright install-deps chromium
+        run: bunx --no-install playwright install-deps chromium
 
       - name: Install Chromium
         timeout-minutes: 10
         working-directory: tools/e2e
-        run: bunx playwright install chromium
+        run: bunx --no-install playwright install chromium
 
       - name: E2E flows, twice, results.json compared byte for byte
         timeout-minutes: 15
