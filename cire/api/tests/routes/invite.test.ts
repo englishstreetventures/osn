@@ -3203,6 +3203,22 @@ describe("PUT /invite/envelope (organiser)", () => {
     expect(await counterValue(CIRE_METRICS.inviteSaved, { result: "ok" })).toBe(before + 1);
   });
 
+  it("leaves the image version alone", async () => {
+    const { app, db } = buildApp();
+    setTier(db, BOOTSTRAP_WEDDING_ID, "crimson");
+    const imageVersion = () =>
+      db
+        .select({ imagesUpdatedAt: weddingInviteCustomisations.imagesUpdatedAt })
+        .from(weddingInviteCustomisations)
+        .all()[0]!.imagesUpdatedAt;
+    storeEnvelope(db, WAX_SEAL);
+    const before = imageVersion();
+    await new Promise((r) => setTimeout(r, 1100));
+    const res = await putEnvelope(app, { envelopeId: null });
+    expect(res.status).toBe(200);
+    expect(imageVersion()).toEqual(before);
+  });
+
   it("422s an id the catalog does not hold, and stores nothing", async () => {
     const { app, db } = buildApp();
     setTier(db, BOOTSTRAP_WEDDING_ID, "crimson");
