@@ -14,8 +14,10 @@ import type { StoreDump } from "./fixtures/store-worker";
  * test the stand-in. Same tier and build recipe as
  * `shared/realtime/tests/d1/hub.test.ts`.
  *
- * Expiry is real wall-clock time: windows and TTLs are a few hundred
- * milliseconds, and every wait leaves at least 150 ms either side of an edge.
+ * Expiry is real wall-clock time. Each window and TTL is written at its
+ * proportions and stretched by `WINDOW_SCALE`, so every wait leaves at least
+ * 450 ms either side of an edge: on a fresh CI runner a single call to a new
+ * object has taken over 300 ms.
  */
 
 const HOOK_TIMEOUT_MS = 30_000;
@@ -55,6 +57,10 @@ afterAll(async () => {
   await mf?.dispose();
   await Promise.all(persistDirs.map((dir) => rm(dir, { recursive: true, force: true })));
 });
+
+const WINDOW_SCALE = 3;
+/** A window or TTL written at its proportions, stretched by `WINDOW_SCALE`. */
+const scaled = (n: number) => n * WINDOW_SCALE;
 
 /** Lets wall-clock time pass. */
 const elapse = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -104,14 +110,14 @@ describe("CoordinationStore", () => {
     "counts 1..n within a window anchored at the first hit, then starts again at 1",
     async () => {
       const name = "do1";
-      expect(await call<number>(name, "increment", 600)).toBe(1);
-      expect(await call<number>(name, "increment", 600)).toBe(2);
-      expect(await call<number>(name, "increment", 600)).toBe(3);
-      await elapse(300);
+      expect(await call<number>(name, "increment", scaled(600))).toBe(1);
+      expect(await call<number>(name, "increment", scaled(600))).toBe(2);
+      expect(await call<number>(name, "increment", scaled(600))).toBe(3);
+      await elapse(scaled(300));
       // A hit inside the window does not move its end.
-      expect(await call<number>(name, "increment", 600)).toBe(4);
-      await elapse(450);
-      expect(await call<number>(name, "increment", 600)).toBe(1);
+      expect(await call<number>(name, "increment", scaled(600))).toBe(4);
+      await elapse(scaled(450));
+      expect(await call<number>(name, "increment", scaled(600))).toBe(1);
     },
     TEST_TIMEOUT_MS,
   );
@@ -134,10 +140,10 @@ describe("CoordinationStore", () => {
     "reads a value before its TTL and null after, even while the entry is still stored",
     async () => {
       const name = "do3";
-      await call(name, "write", "v1", 300);
+      await call(name, "write", "v1", scaled(300));
       expect(await call<string | null>(name, "read")).toBe("v1");
       await call(name, "cancelAlarm");
-      await elapse(450);
+      await elapse(scaled(450));
       expect(await call<string | null>(name, "read")).toBeNull();
       // Nothing removed it: the read itself honoured the TTL.
       expect((await dump(name)).keys).toEqual(["entry"]);
@@ -150,12 +156,12 @@ describe("CoordinationStore", () => {
     "overwrites on write and restarts the TTL",
     async () => {
       const name = "do4";
-      await call(name, "write", "first", 400);
-      await elapse(250);
-      await call(name, "write", "second", 400);
-      await elapse(250);
+      await call(name, "write", "first", scaled(400));
+      await elapse(scaled(250));
+      await call(name, "write", "second", scaled(400));
+      await elapse(scaled(250));
       expect(await call<string | null>(name, "read")).toBe("second");
-      await elapse(350);
+      await elapse(scaled(350));
       expect(await call<string | null>(name, "read")).toBeNull();
     },
     TEST_TIMEOUT_MS,
@@ -172,9 +178,9 @@ describe("CoordinationStore", () => {
 
       expect(await call<boolean>("do5-absent", "remove")).toBe(false);
 
-      await call("do5-expired", "write", "v", 200);
+      await call("do5-expired", "write", "v", scaled(200));
       await call("do5-expired", "cancelAlarm");
-      await elapse(350);
+      await elapse(scaled(350));
       expect(await call<boolean>("do5-expired", "remove")).toBe(false);
       expect(await dump("do5-expired")).toEqual(EMPTY);
     },
@@ -200,10 +206,10 @@ describe("CoordinationStore", () => {
     "claims once per TTL, and again after it",
     async () => {
       const name = "do6";
-      expect(await call<boolean>(name, "claim", 400)).toBe(true);
-      expect(await call<boolean>(name, "claim", 400)).toBe(false);
-      await elapse(550);
-      expect(await call<boolean>(name, "claim", 400)).toBe(true);
+      expect(await call<boolean>(name, "claim", scaled(400))).toBe(true);
+      expect(await call<boolean>(name, "claim", scaled(400))).toBe(false);
+      await elapse(scaled(550));
+      expect(await call<boolean>(name, "claim", scaled(400))).toBe(true);
     },
     TEST_TIMEOUT_MS,
   );
@@ -224,9 +230,9 @@ describe("CoordinationStore", () => {
   it(
     "empties the object once its entry has expired and the alarm has run",
     async () => {
-      await call("do7-value", "write", "v", 300);
-      await call("do7-count", "increment", 300);
-      await call("do7-claim", "claim", 300);
+      await call("do7-value", "write", "v", scaled(300));
+      await call("do7-count", "increment", scaled(300));
+      await call("do7-claim", "claim", scaled(300));
       for (const name of ["do7-value", "do7-count", "do7-claim"]) {
         expect((await dump(name)).alarm).not.toBeNull();
       }
@@ -245,9 +251,9 @@ describe("CoordinationStore", () => {
     "keeps an entry rewritten with a later TTL when an older alarm runs",
     async () => {
       const name = "do8";
-      await call(name, "write", "old", 200);
+      await call(name, "write", "old", scaled(200));
       await call(name, "write", "new", 60_000);
-      await elapse(350);
+      await elapse(scaled(350));
       expect(await call<string | null>(name, "read")).toBe("new");
       // The older alarm delivered anyway, after its own deadline.
       await call(name, "fireAlarm");
@@ -320,9 +326,9 @@ describe("CoordinationStore", () => {
       await call("do10-live", "increment", 60_000);
       await call("do10-live", "increment", 60_000);
       expect(await call<number>("do10-live", "count")).toBe(2);
-      await call("do10-expired", "increment", 200);
+      await call("do10-expired", "increment", scaled(200));
       await call("do10-expired", "cancelAlarm");
-      await elapse(350);
+      await elapse(scaled(350));
       expect(await call<number>("do10-expired", "count")).toBe(0);
     },
     TEST_TIMEOUT_MS,
@@ -335,9 +341,9 @@ describe("CoordinationStore", () => {
       expect(await guess("do12-absent")).toEqual({ value: null, n: 0 });
       expect(await dump("do12-absent")).toEqual(EMPTY);
 
-      await call("do12-expired", "write", "v", 200);
+      await call("do12-expired", "write", "v", scaled(200));
       await call("do12-expired", "cancelAlarm");
-      await elapse(350);
+      await elapse(scaled(350));
       expect(await guess("do12-expired")).toEqual({ value: null, n: 0 });
       expect(await call<number>("do12-expired", "count")).toBe(0);
     },
@@ -349,14 +355,14 @@ describe("CoordinationStore", () => {
     "guess on a live entry counts on it and keeps its value and expiry",
     async () => {
       const name = "do13";
-      await call(name, "write", "code", 600);
+      await call(name, "write", "code", scaled(600));
       const before = (await dump(name)).alarm;
       expect(await guess(name)).toEqual({ value: "code", n: 1 });
       expect(await guess(name)).toEqual({ value: "code", n: 2 });
       expect(await call<number>(name, "count")).toBe(2);
       expect(await call<string | null>(name, "read")).toBe("code");
       expect((await dump(name)).alarm).toBe(before);
-      await elapse(750);
+      await elapse(scaled(750));
       expect(await guess(name)).toEqual({ value: null, n: 0 });
     },
     TEST_TIMEOUT_MS,
@@ -408,9 +414,9 @@ describe("CoordinationStore", () => {
       expect(await call<string | null>("do16-absent", "take")).toBeNull();
       expect(await dump("do16-absent")).toEqual(EMPTY);
 
-      await call("do16-expired", "write", "v", 200);
+      await call("do16-expired", "write", "v", scaled(200));
       await call("do16-expired", "cancelAlarm");
-      await elapse(350);
+      await elapse(scaled(350));
       expect(await call<string | null>("do16-expired", "take")).toBeNull();
       expect(await dump("do16-expired")).toEqual(EMPTY);
     },
@@ -436,15 +442,15 @@ describe("CoordinationStore", () => {
   it(
     "swap from null writes the value with its TTL when no live entry is there, also once one has expired",
     async () => {
-      expect(await call<boolean>("do18", "swap", null, "v", 400)).toBe(true);
+      expect(await call<boolean>("do18", "swap", null, "v", scaled(400))).toBe(true);
       expect(await call<string | null>("do18", "read")).toBe("v");
       expect((await dump("do18")).alarm).not.toBeNull();
-      await elapse(550);
+      await elapse(scaled(550));
       expect(await call<string | null>("do18", "read")).toBeNull();
 
-      await call("do18-expired", "write", "old", 200);
+      await call("do18-expired", "write", "old", scaled(200));
       await call("do18-expired", "cancelAlarm");
-      await elapse(350);
+      await elapse(scaled(350));
       expect(await call<boolean>("do18-expired", "swap", null, "new", 60_000)).toBe(true);
       expect(await guess("do18-expired")).toEqual({ value: "new", n: 1 });
     },
@@ -456,13 +462,13 @@ describe("CoordinationStore", () => {
     "swap from null on a live entry answers false and keeps its value, count and expiry",
     async () => {
       const name = "do19";
-      await call(name, "write", "held", 600);
+      await call(name, "write", "held", scaled(600));
       await guess(name);
       const before = (await dump(name)).alarm;
       expect(await call<boolean>(name, "swap", null, "other", 60_000)).toBe(false);
       expect(await guess(name)).toEqual({ value: "held", n: 2 });
       expect((await dump(name)).alarm).toBe(before);
-      await elapse(750);
+      await elapse(scaled(750));
       expect(await call<string | null>(name, "read")).toBeNull();
     },
     TEST_TIMEOUT_MS,
