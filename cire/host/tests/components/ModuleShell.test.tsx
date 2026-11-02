@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, within } from "@solidjs/testing-library";
-import { createSignal, type JSX } from "solid-js";
+import { batch, createSignal, type JSX } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { isModule, isSubOf, type Module } from "../../src/lib/dashboard-route";
@@ -294,20 +294,23 @@ function renderShell(opts: {
   const [sub, setSub] = createSignal(opts.sub ?? "index");
   const onModule = vi.fn((m: Module, next?: string) => {
     if (opts.refuseModule) return;
-    setModule(m);
     // Mirror OrganiserApp: a module switch lands on the sub asked for when the
-    // module has it, else on the module default.
-    setSub(
-      next !== undefined && isSubOf(m, next)
-        ? next
-        : m === "guests" || m === "registry"
-          ? "list"
-          : m === "invite"
-            ? "design"
-            : m === "settings"
-              ? "wedding"
-              : "index",
-    );
+    // module has it, else on the module default, in one write of the route.
+    // Batched, so the shell never renders the new module with the old sub.
+    batch(() => {
+      setModule(m);
+      setSub(
+        next !== undefined && isSubOf(m, next)
+          ? next
+          : m === "guests" || m === "registry"
+            ? "list"
+            : m === "invite"
+              ? "design"
+              : m === "settings"
+                ? "wedding"
+                : "index",
+      );
+    });
   });
   const onSub = vi.fn((s: string) => setSub(s));
   const utils = render(() => (

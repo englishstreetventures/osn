@@ -29,7 +29,7 @@
     "@shared/ui": "workspace:*",
     "@tailwindcss/vite": "^4.3.3",
     "astro": "7.4.4",
-    "solid-js": "^1.9.15",
+    "solid-js": "^1.9.18",
     "tailwindcss": "^4.3.3",
     "web-haptics": "0.0.6"
   },

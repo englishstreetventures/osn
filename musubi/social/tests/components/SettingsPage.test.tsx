@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { AuthContext } from "@osn/client/solid";
 import { createMemoryHistory, MemoryRouter, Route } from "@solidjs/router";
-import { cleanup, render, screen } from "@solidjs/testing-library";
+import { cleanup, render, screen, waitFor } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -91,7 +91,9 @@ describe("<SettingsPage /> tabs", () => {
     screen.getByRole("button", { name: "Security" }).click();
 
     expect(await screen.findByTestId("security-section")).toBeTruthy();
-    expect(history.get()).toContain("#security");
+    // The router commits the view inside a transition and writes the history
+    // entry when that transition settles, so the fragment can trail the panel.
+    await waitFor(() => expect(history.get()).toContain("#security"));
   });
 
   it("switches tab when a link lands on /settings#security while Settings is open", async () => {
