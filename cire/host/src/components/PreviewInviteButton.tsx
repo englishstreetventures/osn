@@ -54,9 +54,9 @@ export default function PreviewInviteButton(props: { weddingId: string }) {
       }
       const body = (await res.json()) as { publicId: string; slug: string };
       // The fixed guest route uses a slug query parameter. The host preview code
-      // auto-claims so the host lands straight on the events view. `envelope=1`
-      // asks for the wedding's envelope even though a code is in the address,
-      // which otherwise skips it; a wedding with no envelope shows none.
+      // auto-claims so the host lands straight on the events view. The link
+      // always carries `envelope=1`, asking for the envelope; the guest site
+      // shows one only for a wedding whose stored envelope it serves.
       const guestUrl = `${CIRE_WEB_URL}/cire/invite?slug=${encodeURIComponent(body.slug)}&code=${encodeURIComponent(body.publicId)}&envelope=1`;
       if (win) {
         win.location.href = guestUrl;
