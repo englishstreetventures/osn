@@ -1,5 +1,12 @@
 # @tools/lab
 
+## 0.3.27
+
+### Patch Changes
+
+- Updated dependencies [cca20c1]
+  - @shared/ui@0.7.4
+
 ## 0.3.26
 
 ### Patch Changes

@@ -1,5 +1,14 @@
 # @osn/pulse
 
+## 0.24.42
+
+### Patch Changes
+
+- cca20c1: Move `playwright` from 1.62.1 to 1.64.1. The browser-test tier now runs on
+  Chromium 156.0.8078.4 (revision 1248), the same build the E2E suite drives.
+- Updated dependencies [cca20c1]
+  - @shared/ui@0.7.4
+
 ## 0.24.41
 
 ### Patch Changes

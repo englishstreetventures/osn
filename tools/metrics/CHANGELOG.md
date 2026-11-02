@@ -1,5 +1,12 @@
 # @tools/metrics
 
+## 0.2.39
+
+### Patch Changes
+
+- Updated dependencies [cca20c1]
+  - @shared/ui@0.7.4
+
 ## 0.2.38
 
 ### Patch Changes
