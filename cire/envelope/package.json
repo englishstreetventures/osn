@@ -1,0 +1,24 @@
+{
+  "name": "@cire/envelope",
+  "private": true,
+  "type": "module",
+  "author": "English Street Ventures Pty Ltd",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/englishstreetventures/osn.git"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "bun check --no-script",
+    "test": "bunx --bun vitest",
+    "test:mutation": "bun ../../tools/stryker/src/cli.ts",
+    "test:run": "bunx --bun vitest run"
+  },
+  "devDependencies": {
+    "@shared/typescript-config": "workspace:*",
+    "vitest": "5.0.5"
+  }
+}

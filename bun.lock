@@ -25,6 +25,7 @@
       "dependencies": {
         "@cire/db": "workspace:*",
         "@cire/dietary": "workspace:*",
+        "@cire/envelope": "workspace:*",
         "@cire/guest-email": "workspace:*",
         "@cire/invite-designs": "workspace:*",
         "@cire/theme": "workspace:*",
@@ -79,6 +80,13 @@
       "name": "@cire/dietary",
       "devDependencies": {
         "@shared/typescript-config": "workspace:*",
+      },
+    },
+    "cire/envelope": {
+      "name": "@cire/envelope",
+      "devDependencies": {
+        "@shared/typescript-config": "workspace:*",
+        "vitest": "5.0.5",
       },
     },
     "cire/guest-email": {
@@ -1220,6 +1228,8 @@
     "@cire/db": ["@cire/db@workspace:cire/db"],
 
     "@cire/dietary": ["@cire/dietary@workspace:cire/dietary"],
+
+    "@cire/envelope": ["@cire/envelope@workspace:cire/envelope"],
 
     "@cire/guest-email": ["@cire/guest-email@workspace:cire/guest-email"],
 
