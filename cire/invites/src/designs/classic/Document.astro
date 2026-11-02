@@ -50,9 +50,16 @@ const edgeInline = edgeStyle(edgeColours)
 // over a shown hero (`envelopeKeyFor`). With none, the boot script below never
 // seals the page and the page is exactly the page without an envelope.
 const envelopeKey = await envelopeKeyFor({ slug, envelopeId: initialInvite?.envelopeId, heroShown })
+// A page that opens from an envelope loads its hero image in anonymous CORS
+// mode: the preload, the backdrop `<img>` and its crop layers, and the
+// opening's own copy then share one cached response instead of two
+// (cire-api's image responses vary on `Origin`). Every other page loads it as
+// it always has.
+const heroCrossOrigin = envelopeKey ? 'anonymous' : undefined
 
 // Warm the browser's connection to cire-api. See `lib/api-origin.ts` for why
-// this is separate from the hero preload and why it carries no `crossorigin`.
+// this is separate from the hero preload and why it carries no `crossorigin`;
+// a page that opens from an envelope warms the anonymous pool as well.
 const apiPreconnect = apiPreconnectHref(apiUrl)
 
 // The gift-list band's surface, resolved server-side from the same SSR payload
@@ -83,17 +90,19 @@ const registryVars = filterThemeVars(sectionVars(initialInvite?.theme ?? null, '
         claim POST (and the session restore beside it) is the interaction the
         guest is waiting on, and the hero image is served from here too.
 
-        Credentialed pool only (no `crossorigin`): every browser request to
-        the API uses it — the hero <img>, the claim POST, the session restore,
-        RSVP, and the islands' `GET /api/invite/:slug` retry when the route's
-        own fetch failed. An anonymous preconnect would warm a pool nothing
-        uses. */}
+        The credentialed pool (no `crossorigin`) serves the claim POST, the
+        session restore, RSVP, the islands' `GET /api/invite/:slug` retry when
+        the route's own fetch failed, and the hero <img>. On a page that opens
+        from an envelope the hero loads anonymously instead (`heroCrossOrigin`),
+        so that page warms the anonymous pool too; the preload carries the
+        same mode as the <img>, or it is wasted. */}
     {apiPreconnect && <link rel="preconnect" href={apiPreconnect} />}
-    {preloadHeroHref && <link rel="preload" as="image" href={preloadHeroHref} />}
+    {apiPreconnect && heroCrossOrigin && <link rel="preconnect" href={apiPreconnect} crossorigin={heroCrossOrigin} />}
+    {preloadHeroHref && <link rel="preload" as="image" href={preloadHeroHref} crossorigin={heroCrossOrigin} />}
   </head>
   <body class="invite-page">
     <div class={`${EDGE_STRIP_CLASS} edge-top ${Z_CLASS.EDGE}`} aria-hidden="true"></div>
-    <InviteHeader client:load apiUrl={apiUrl} slug={slug} initial={initialInvite} />
+    <InviteHeader client:load apiUrl={apiUrl} slug={slug} initial={initialInvite} imageCrossOrigin={heroCrossOrigin} />
     {/* rootMargin so the island hydrates while the full-viewport hero is
         still on screen. Bare `client:visible` cannot fire at scroll position
         0 (the hero is `min-h-dvh`), which would delay the session restore

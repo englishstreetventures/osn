@@ -14,7 +14,14 @@
  */
 export const BACKDROP_WAIT_MS = 1500;
 
-const IMAGE_ACCEPT = "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8";
+/**
+ * The `Accept` Chromium sends for an `<img>`, CORS or not. cire-api answers
+ * images with `Vary: Accept, Origin`, so the card's request is answered from
+ * the entry the hero's anonymous `<img>` filled only while the two match
+ * exactly; a mismatch costs a second download, never the card. Only Chromium
+ * plays the opening.
+ */
+const IMAGE_ACCEPT = "image/jxl,image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8";
 
 /** The value of a custom property on `<html>`, or `fallback`. */
 export function cssVar(doc: Document, name: string, fallback: string): string {
@@ -66,20 +73,23 @@ export function backdropSettled(
  * photo would jump at the hand-over, so the opening does not play.
  *
  * Cross-origin pixels never paint into a canvas, and the image is on
- * cire-api's origin, so the card needs a copy it may draw: fetched once more
- * in CORS mode (cire-api allows the invite's origin) and turned into a `blob:`
- * URL, which is same-origin.
+ * cire-api's origin, so the card needs a copy it may draw, as a same-origin
+ * `blob:` URL. On a page that opens from an envelope the hero's `<img>` is
+ * anonymous CORS (cire-api allows the invite's origin); this request matches
+ * it in mode, credentials and `Accept`, and takes any stored copy, so it is
+ * answered from the cache the `<img>` filled rather than downloaded again.
  */
 export async function heroImageBlobUrl(hero: HTMLElement): Promise<string | null> {
   const img = hero.querySelector("img");
   const src = img?.currentSrc || img?.getAttribute("src");
   if (!src) return null;
-  // The `Accept` Chrome sends for an `<img>`, so cire-api negotiates the same
-  // format the page's hero got and the card's pixels are the hero's. A
-  // CORS-safelisted header: no preflight.
+  // The `<img>`'s `Accept` also has cire-api negotiate the format the hero
+  // got, so the card's pixels are the hero's. A CORS-safelisted header: no
+  // preflight.
   const response = await fetch(src, {
     mode: "cors",
     credentials: "omit",
+    cache: "force-cache",
     headers: { Accept: IMAGE_ACCEPT },
   });
   if (!response.ok) throw new Error(`envelope: hero image ${response.status}`);
