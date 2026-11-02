@@ -11,7 +11,7 @@ related:
   - "[[browser-tests]]"
   - "[[infrastructure-as-code]]"
   - "[[realtime]]"
-last-reviewed: 2026-10-29
+last-reviewed: 2026-11-02
 ---
 
 # Testing Patterns
@@ -757,6 +757,23 @@ vi.mock("../../src/lib/api", async () => {
 
 Never return an object that lists a few exports. The next export added to `lib/api` is then missing from the mock, and the failure does not point at the mock: Vitest throws `No "<name>" export is defined on the mock` when the component calls it, the component's own `try`/`catch` turns that into a load-error banner, and the test fails on a missing row. An override replaces that one export only; the real module's own functions still call each other, so the real `allAuthFirst` uses the real `isAuthExpired` whatever the mock overrides. The same factory works in the browser tier ([[browser-tests#Rendering]]).
 
+## Files that share a worker
+
+`@osn/api` and `@pulse/api` run most test files with `isolate: false`: a Vitest worker loads the app and its dependencies once and reuses that module cache for every file it runs, rather than loading them again per file. Each `vitest.config.ts` reads its test files when the config loads and splits them into two projects:
+
+| Project | Files | Isolation |
+|---|---|---|
+| `shared` | every file that calls none of `vi.mock`, `vi.doMock` or `vi.resetModules` | `isolate: false` |
+| `isolated` | the files that call one of them | the default, a fresh module cache per file |
+
+A file that replaces a module cannot share the cache: `vi.mock` cannot apply to a module another file in the worker already loaded, and `vi.resetModules` clears the cache for every file after it. The split is read from the files, so a new test file lands in the right project with nobody editing a list.
+
+`tests/setup/reset-between-files.ts` runs before every file and, after the file's last test, puts back the real clock, every spy and mock implementation, stubbed globals and environment variables, and `process.env` as it was before the file. It cannot reset what a module keeps in its own variables, such as an in-memory store: a test that needs that state empty resets it itself.
+
+In `@osn/api` this halves the suite's CPU time, 44 s to 22 s, with the same 94 files and 1,707 tests. Both suites pass with every shared file in one worker under five shuffled file orders.
+
+*Measured 2026-11-02 — `/usr/bin/time -p bunx --bun vitest run` in `osn/api` on a 10-core Mac, against the config without the split; `vitest run --maxWorkers=1 --sequence.shuffle.files --sequence.seed=<11, 23, 37, 41, 59>` in each package*
+
 ## Asserting a metric
 
 A metric test that does not install a meter provider asserts nothing.
@@ -772,7 +789,9 @@ which is the one failure a metric test exists to catch.
 > closure. A provider installed after that point is never consulted again for
 > that counter. `bun test` runs every file in one process, so "first use" is
 > process-wide: one earlier file's `.inc()` freezes the NoOp instrument in for
-> every file after it.
+> every file after it. CI's `Unit tests (@cire/api)` job adds `--parallel`,
+> which spreads the files over one worker process per core; each worker loads
+> the preload before its files, so the same holds per worker.
 
 `@cire/api` solves that with a **preload**, not an import — its `test` script is
 `bun test --preload ./tests/test-helpers/metrics-harness.ts`, and a preload runs
@@ -873,7 +892,7 @@ Object path ([[coordination-store]]).
 
 `@cire/api#test` boots workerd in more files than the D1 suite: `tests/index.test.ts`, `tests/db/d1-session.test.ts`, `tests/db/query-error.test.ts` and `tests/services/r2-reconcile.test.ts` as well. Two things about them are easy to miss.
 
-- **Proxied reads block.** `mf.getD1Database()` and `mf.getR2Bucket()` return proxies. A property read on a proxied object, such as a listed R2 object's `key` or `uploaded`, or a D1 statement's `prepare` and `bind`, is a synchronous round trip to workerd: Miniflare makes it with `Atomics.wait` on the test's main thread. A test that makes thousands of them takes a second on a laptop and tens of seconds when CI runs every package's tests at once.
+- **Proxied reads block.** `mf.getD1Database()` and `mf.getR2Bucket()` return proxies. A property read on a proxied object, such as a listed R2 object's `key` or `uploaded`, or a D1 statement's `prepare` and `bind`, is a synchronous round trip to workerd: Miniflare makes it with `Atomics.wait` on the test's main thread. A test that makes thousands of them takes a second on a laptop and tens of seconds when CI runs many test files at once, as its `Unit tests (@cire/api)` job does with `--parallel`.
 - **A timeout is worse than a failure.** When a Miniflare-backed test outlives its budget, bun kills the file's workerd (the log says `killed 1 dangling process`), and the next proxied read waits forever. `bun test` never exits, and the CI job runs until its own timeout cancels it. Where the next read does return, it fails instead, and so does every later test in the file: osn/api's D1 file shows `The socket connection was closed unexpectedly` and `Attempted to use poisoned stub` after one timeout.
 
 So keep bulk reads and writes inside workerd. Give Miniflare a small Worker script that does the work against its own binding and answers with plain JSON, as [r2-reconcile.test.ts](../../cire/api/tests/services/r2-reconcile.test.ts) does. Give every Miniflare-backed test a budget well above its time in a cold run of the whole suite. A change to `bun.lock` makes every turbo task miss its cache, so the next CI run is that cold run.

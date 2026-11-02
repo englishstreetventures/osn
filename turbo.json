@@ -107,7 +107,8 @@
     // `Port 63315 is in use, trying another one...` and a navigation that never
     // completed. A failure that moves between packages is contention, not a
     // test, and the concurrency lives in the root script because turbo has no
-    // per-task setting for it.
+    // per-task setting for it. CI's `browser` job calls turbo directly, one leg
+    // per runner, and passes the same `--concurrency=1`.
     "test:browser": {
       "dependsOn": ["^build"],
       "inputs": ["$TURBO_DEFAULT$", "!**/*.md"],

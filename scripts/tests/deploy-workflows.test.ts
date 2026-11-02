@@ -87,6 +87,10 @@ interface Job {
   readonly concurrency?: { readonly group: string; readonly "cancel-in-progress"?: boolean };
   readonly permissions?: Record<string, string>;
   readonly outputs?: Record<string, string>;
+  readonly strategy?: {
+    readonly "fail-fast"?: boolean;
+    readonly matrix?: { readonly include?: readonly Record<string, string | number>[] };
+  };
 }
 
 interface Workflow {
@@ -761,6 +765,40 @@ describe("PR2: ci.yml's Build & Test job runs the guest route comparison's refer
     expect(existsSync(join(root, WRANGLER_TEST))).toBe(true);
     expect(scripts["test:scripts"]).toBe("bun test ./scripts/");
     expect(WRANGLER_TEST).not.toMatch(BUN_TEST_NAME);
+  });
+});
+
+describe("ci.yml's browser legs run every package with a `test:browser` script, once", () => {
+  const legs = load(".github/workflows/ci.yml").jobs.browser?.strategy?.matrix?.include ?? [];
+  const named = (leg: Record<string, string | number>) =>
+    [...String(leg.filters ?? "").matchAll(/--filter=(\S+)/g)].map((match) => match[1] ?? "");
+
+  // A package left out of every leg runs no browser test in CI, and nothing
+  // turns red.
+  test("the legs' filters name exactly the workspace packages that have the script", () => {
+    const readJson = <T>(path: string) => JSON.parse(readFileSync(join(root, path), "utf8")) as T;
+    const withScript = readJson<{ workspaces: string[] }>("package.json")
+      .workspaces.flatMap((pattern) =>
+        Array.from(new Bun.Glob(`${pattern}/package.json`).scanSync({ cwd: root })),
+      )
+      .map((path) => readJson<{ name: string; scripts?: Record<string, string> }>(path))
+      .filter((pkg) => pkg.scripts?.["test:browser"] !== undefined)
+      .map((pkg) => pkg.name)
+      .toSorted();
+    expect(withScript.length).toBeGreaterThan(0);
+    expect(legs.flatMap(named).toSorted()).toEqual(withScript);
+  });
+
+  // Each leg checks at run time that turbo found `expect` packages, so the
+  // number must be the count its filters name.
+  test("each leg's `expect` is the number of packages its filters name", () => {
+    expect(legs.length).toBeGreaterThan(0);
+    for (const leg of legs) {
+      expect({ leg: leg.leg, expect: Number(leg.expect) }).toEqual({
+        leg: leg.leg,
+        expect: named(leg).length,
+      });
+    }
   });
 });
 

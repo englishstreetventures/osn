@@ -11,7 +11,7 @@ packages:
   - "@musubi/social"
   - "@pulse/web"
   - "@shared/ui"
-last-reviewed: 2026-10-30
+last-reviewed: 2026-11-02
 ---
 
 # Browser Tests
@@ -333,22 +333,29 @@ gitignored.
 
 ## CI
 
-A separate step in `.github/workflows/ci.yml`, after the D1 step and for the
-same reason: it needs a dependency the default path doesn't, and splitting it
-keeps the fast tier fast.
+The `browser` job in `.github/workflows/ci.yml`, beside the unit tests rather
+than after them, runs the tier in three legs, each on its own runner:
 
-```yaml
-- name: Install Chromium for browser tests
-  run: bunx playwright install --with-deps chromium
+| Leg | Packages |
+|---|---|
+| `cire-invites` | `@cire/invites` |
+| `cire-host` | `@cire/host` |
+| `rest` | `@musubi/social`, `@pulse/web`, `@shared/ui` |
 
-- name: Browser tests
-  run: bun run test:browser
-```
+Within a leg the packages still run one at a time (`--concurrency=1`): each
+starts its own Vite server and Chromium, and several at once on one runner
+contend. A package that adds a `test:browser` script joins a leg in the same
+pull request: `scripts/tests/deploy-workflows.test.ts` fails while any package
+with the script is missing from the legs, and each leg checks before it runs
+that turbo found as many packages as it names.
 
-`--with-deps` is required on `ubuntu-latest` — the browser alone won't launch
-without its shared libraries. Only `chromium` is installed: the tier pins a
+Each leg installs Chromium's system libraries and the browser as two steps,
+each with a 10-minute limit, from `cire/host`, whose pinned `playwright`
+decides the browser revision. Only `chromium` is installed: the tier pins a
 single instance, so pulling Firefox and WebKit too would triple the download for
 nothing.
+
+Locally, `bun run test:browser` still runs every package, one after another.
 
 ## Current coverage
 
