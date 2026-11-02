@@ -11,6 +11,7 @@ on:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  TURBO_FORCE: "true"
 
 # Every job here reads the checkout and reports through the check run the
 # workflow already owns. Nothing writes an issue, a comment, a release or a
