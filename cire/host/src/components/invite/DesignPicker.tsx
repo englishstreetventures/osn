@@ -137,6 +137,7 @@ export default function DesignPicker(props: {
                     href={props.previewHref(design.id)}
                     target="_blank"
                     rel="noopener"
+                    aria-label={`Preview ${design.name} live (opens in a new tab)`}
                     class="font-body text-gold-ink text-ui-xs tracking-ui-wider uppercase underline-offset-4 hover:underline"
                   >
                     Preview live

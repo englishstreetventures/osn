@@ -1035,7 +1035,7 @@ describe("design selector", () => {
 
     // Only two unlocked cards (classic, gala) get a preview link — the locked
     // test-premium card in between does not.
-    const links = screen.getAllByRole("link", { name: "Preview live" });
+    const links = screen.getAllByRole("link", { name: /^Preview .* live/ });
     expect(links.length).toBe(2);
 
     const galaLink = links.find((l) => l.getAttribute("href")?.includes("design=gala"));

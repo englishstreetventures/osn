@@ -39,3 +39,15 @@ describe("DesignPicker tab stop", () => {
     expect(tabbable[0]).toBe(radios[0]);
   });
 });
+
+describe("DesignPicker preview links", () => {
+  it("names each link for its design and says it opens in a new tab", () => {
+    renderPicker("classic");
+    const names = screen.getAllByRole("link").map((a) => a.getAttribute("aria-label"));
+    expect(names).toEqual([
+      "Preview Classic live (opens in a new tab)",
+      "Preview Gala live (opens in a new tab)",
+    ]);
+    expect(new Set(names).size).toBe(names.length);
+  });
+});
