@@ -20,7 +20,7 @@
     "test:run": "bunx --bun vitest run"
   },
   "dependencies": {
-    "effect": "4.0.5"
+    "effect": "4.0.7"
   },
   "peerDependencies": {
     "solid-js": ">=1.0.0"

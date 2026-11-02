@@ -18,7 +18,7 @@
     "test:run": "bunx --bun vitest run"
   },
   "dependencies": {
-    "@growthbook/growthbook": "^1.7.0",
+    "@growthbook/growthbook": "1.8.0",
     "@shared/observability": "workspace:*"
   },
   "devDependencies": {

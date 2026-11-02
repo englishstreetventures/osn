@@ -1,0 +1,25 @@
+---
+"@cire/api": patch
+"@cire/build-tools": patch
+"@cire/db": patch
+"@cire/host": patch
+"@cire/infra": patch
+"@cire/invites": patch
+"@cire/landing": patch
+"@cire/ui": patch
+"@cire/vendor": patch
+"@tools/oxlint-house": patch
+---
+
+Dependency bumps within the caution window: `astro` 7.4.4, `@astrojs/solid-js`
+7.1.0, `@astrojs/cloudflare` 14.4.3, `motion` 13.5.1, `cropperjs` 2.3.1,
+`lucide-solid` 1.59.0, `effect` and its `@effect/*` family 4.0.7, `jose` 6.2.14,
+`wrangler` 4.151.2, `oxlint` and `@oxlint/plugins` 1.88.0, `oxfmt` 0.73.0,
+`lefthook` 2.2.2, `turbo` 2.11.9, `bun-types` 1.4.4, `portless` 0.15.12,
+`@shadcn/lint` 0.2.3, `@opentelemetry/*` 0.223.0 and 2.12.0.
+
+`bun-types` 1.4.4 widens `Subprocess.signalCode` to `number | Signals | null`.
+The dev-urls test now normalises the signal to a string before comparing.
+
+`solid-js` stays on 1.9.15: 1.9.18 changes effect timing that two component
+suites assume (the URL fragment write and a list count).

@@ -20,8 +20,8 @@
     "test:browser": "vitest run --project browser"
   },
   "dependencies": {
-    "@astrojs/cloudflare": "^14.4.2",
-    "@astrojs/solid-js": "^7.0.2",
+    "@astrojs/cloudflare": "14.4.3",
+    "@astrojs/solid-js": "7.1.0",
     "@cire/dietary": "workspace:*",
     "@cire/guest-email": "workspace:*",
     "@cire/invite-designs": "workspace:*",
@@ -35,8 +35,8 @@
     "@shared/toast": "workspace:*",
     "@shared/ui": "workspace:*",
     "@tailwindcss/vite": "^4.3.3",
-    "astro": "^7.4.2",
-    "motion": "^13.1.1",
+    "astro": "7.4.4",
+    "motion": "13.5.1",
     "solid-js": "^1.9.15",
     "tailwindcss": "^4.3.3"
   },
@@ -54,7 +54,7 @@
     "typescript": "7.1.0-beta",
     "vite-plugin-solid": "^2.11.14",
     "vitest": "5.0.3",
-    "wrangler": "4.149.0"
+    "wrangler": "4.151.2"
   },
   "portless": {
     "name": "invite.cire",

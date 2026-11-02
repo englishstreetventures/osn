@@ -61,7 +61,8 @@ async function run(
     new Response(child.stderr).text(),
   ]);
   await child.exited;
-  return { exitCode: child.exitCode, signal: child.signalCode, stdout, stderr };
+  const signal = child.signalCode === null ? null : String(child.signalCode);
+  return { exitCode: child.exitCode, signal, stdout, stderr };
 }
 
 const PORTLESS = { PORTLESS_URL: "https://my-branch.host.cire.localhost" };
