@@ -327,7 +327,7 @@
     },
     "musubi/social": {
       "name": "@musubi/social",
-      "version": "0.18.22",
+      "version": "0.18.23",
       "dependencies": {
         "@osn/auth-ui": "workspace:*",
         "@osn/client": "workspace:*",
@@ -536,7 +536,7 @@
     },
     "pulse/web": {
       "name": "@pulse/web",
-      "version": "0.24.40",
+      "version": "0.24.41",
       "dependencies": {
         "@fontsource/geist-mono": "^5.3.0",
         "@fontsource/geist-sans": "^5.3.0",
