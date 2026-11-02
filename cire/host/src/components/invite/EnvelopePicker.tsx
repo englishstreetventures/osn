@@ -42,8 +42,13 @@ export default function EnvelopePicker(props: {
   // moved by the keyboard independently of the in-flight save; `null` until
   // something moves it, meaning the current choice's card.
   const [activeIndex, setActiveIndex] = createSignal<number | null>(null);
+  // A stored id outside the catalog matches no card, so "None" takes the tab stop.
   const tabbableIndex = () =>
-    activeIndex() ?? CHOICES.findIndex((choice) => choice.id === props.currentId);
+    activeIndex() ??
+    Math.max(
+      0,
+      CHOICES.findIndex((choice) => choice.id === props.currentId),
+    );
 
   // Refs so the keyboard can move DOM focus; Solid has no roving primitive.
   const radioRefs: HTMLButtonElement[] = [];

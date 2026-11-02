@@ -171,6 +171,17 @@ describe("InviteBuilder envelope picker, refusals", () => {
     expect(envelopeSaves()).toBe(0);
   });
 
+  it("keeps one card tabbable when the stored envelope id is not in the catalog", async () => {
+    answer({ envelopeId: "retired-envelope", envelopeEntitled: true });
+    renderBuilder();
+    const none = await findCard(/None/);
+    const group = await screen.findByRole("radiogroup", { name: "Invite envelope" });
+    const stops = within(group)
+      .getAllByRole("radio")
+      .filter((card) => (card as HTMLButtonElement).tabIndex === 0);
+    expect(stops).toEqual([none]);
+  });
+
   it("refuses a second save while one is in flight, and locks the card when the save answers 403 premium_envelope", async () => {
     let answerSave: (response: Response) => void = () => {};
     answer(
