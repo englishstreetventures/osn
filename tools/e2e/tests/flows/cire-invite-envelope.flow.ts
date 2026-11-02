@@ -279,6 +279,7 @@ async function newPhonePage(
   options: Parameters<import("@playwright/test").Browser["newContext"]>[0] = {},
 ): Promise<{ context: BrowserContext; page: Page; errors: string[] }> {
   const context = await browser.newContext({ ...PHONE, ...options });
+  await context.addInitScript(HIDE_DEV_TOOLBAR);
   const page = await flow.newPage(context);
   return { context, page, errors: consoleErrors(page) };
 }
@@ -647,10 +648,14 @@ test("cire-invite-envelope", async ({ page, context, browser, flow }) => {
       );
 
       // The flag says `failed`, so the page loads unsealed; the replay waits
-      // on a module held the same way and gives up on its own watchdog.
+      // on a module held the same way and gives up on its own watchdog. The
+      // guest answers the consent prompt first, which hydrates when the
+      // browser is idle, on page time; until it is answered it holds focus.
       held.arm();
       await slow.page.goto(INVITE, { waitUntil: "commit" });
-      await expect(slow.page.getByLabel("Invitation code")).toBeAttached();
+      await slow.page.clock.resume();
+      await rejectConsent(slow.page);
+      await pauseClock(slow.page);
       await slow.page.getByRole("button", { name: "Open the envelope again" }).click();
       await waitForState(slow.page, "sealed");
       await expect.poll(() => held.url).not.toBe("");
@@ -679,10 +684,10 @@ test("cire-invite-envelope", async ({ page, context, browser, flow }) => {
     "a scene whose first paint never comes is disposed when the watchdog fires",
     async () => {
       const unpainted = await newPhonePage(flow, browser);
-      // The API is still there for the boot script, but no paint event comes,
-      // so the card's first upload never does.
+      // The API is still there for the boot script, but the scene's paint
+      // handler is dropped, so the card's first upload never comes.
       await unpainted.context.addInitScript(
-        "HTMLCanvasElement.prototype.requestPaint = function () {};",
+        'Object.defineProperty(HTMLCanvasElement.prototype, "onpaint", { configurable: true, get() { return null; }, set() {} });',
       );
       await pauseClock(unpainted.page);
       await unpainted.page.goto(INVITE, { waitUntil: "commit" });
@@ -696,6 +701,10 @@ test("cire-invite-envelope", async ({ page, context, browser, flow }) => {
         (await envelopeState(unpainted.page)).seen ?? "none",
       );
       // A scene disposed mid-set-up ends the opening, so the replay answers.
+      // The consent prompt, open by now, is answered first.
+      await unpainted.page.clock.resume();
+      await rejectConsent(unpainted.page);
+      await pauseClock(unpainted.page);
       await unpainted.page.getByRole("button", { name: "Open the envelope again" }).click();
       flow.check(
         "unpainted: the replay button still answers",
