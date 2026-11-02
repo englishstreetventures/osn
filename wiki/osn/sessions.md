@@ -151,7 +151,7 @@ Some endpoints must revoke every session on the account *except the caller's own
 Access tokens now carry `osn_sid`: `sha256(session_hash + ":" + profile_id)` truncated to the first 32 hex chars (128 bits). Two properties matter:
 
 - **One-way.** The session hash is itself a SHA-256 of a 160-bit random token, so `osn_sid` leaks nothing usable; a stolen `osn_sid` cannot be turned back into a session token.
-- **Per-profile.** Sessions are account-scoped and shared across profile switches, so a plain session id in the token would let an observer tie two profiles of one account together — exactly what P6 forbids. Mixing the profile id in means each profile sees a different value for the same session.
+- **Per-profile.** Sessions are account-scoped and shared across profile switches, so a plain session id in the token would let an observer tie two profiles of one account together — exactly what the rule that no two profiles of one account can be linked forbids ([[identity-model#Privacy Rules]]). Mixing the profile id in means each profile sees a different value for the same session.
 
 Recognition is by recomputation: `resolveSessionByBinding(accountId, profileId, osn_sid)` reads the account's session rows — `ORDER BY last_used_at DESC LIMIT MAX_SESSIONS_PER_ACCOUNT` (50), so the caller's own row, recently used by definition, is inside the window even when a concurrent-login race leaves the account a row or two over the cap — derives the binding for each and returns the hash that matches, else `null`. The comparison is constant-time. No new secret, no schema change, no reverse lookup.
 
@@ -255,13 +255,15 @@ erasure (by account) and a detected reuse (by account and family).
   commits whole or not at all, so a session never exists without the record
   that lets reuse detection see its predecessor replayed; one statement at a
   time on bun:sqlite. A failed write is a `DatabaseError`: the grant fails, the
-  old row stays (a failed D1 batch rolls back; on bun:sqlite the grant deletes
-  its own new row, and if that delete fails too, logs `Refresh rotation could
-  not remove its own new session after a failed write` at error, annotated
-  `restricted` only), and `POST /token` reads it as "session status unknown" and
-  keeps the marker cookie. A second record for one token fails on the key, so
-  of two grants of one token interleaved on bun:sqlite the second fails this
-  way.
+  old row stays and can rotate again (a failed D1 batch rolls back; on
+  bun:sqlite the grant deletes its own new row, and its own record when that
+  landed before the failure, matched on the token's hash and the grant's
+  `rotated_at`, so the device's next grant of the same token can write it
+  again), and `POST /token` reads it as "session
+  status unknown" and keeps the marker cookie. A clean-up delete that fails too
+  is logged at error ([[#Observability]]). A second record for one token fails
+  on the key, so of two grants of one token interleaved on bun:sqlite the
+  second fails this way, and leaves the first grant's record alone.
 - **Read.** `detectReuse` runs only for a token not in `sessions`, and reads its
   live record (`expires_at` later than now). No record: nothing more happens.
   A record inside the grace window: a benign race, family kept. Outside it: one
@@ -296,13 +298,14 @@ erasure (by account) and a detected reuse (by account and family).
 - `osn.auth.session.operations{action, result}` — one per `list` / `revoke` / `revoke_all` call
 - `osn.auth.cire_session.revocations{trigger, result}` — one per request to cire-api's organiser-session revoke, and one per sign-out or connection revoke that sent none because the back-channel is unconfigured (`unconfigured`) or the profile lookup failed (`error`). `trigger` ∈ `sign_out_everywhere` / `connection_revoked`; `result` ∈ `ok` / `rejected` / `timeout` / `error` / `unconfigured`. Span `auth.cire_session.revoke`. Metric export on workerd is deferred, so on deployed tiers the error and warning log lines are the signal; none carries the secret, an account id or a profile id
 - Spans: `auth.session.list`, `auth.session.revoke`, `auth.session.revoke_all`, `auth.session.resolve_binding` (the `osn_sid` lookup), `auth.session.resolve_caller` (cookie-or-binding "who is calling"), `auth.session.lift_restriction` (a recovery session becoming an ordinary one)
-- `SecurityInvalidationTrigger` union extended with `session_revoke`, `session_revoke_all`, and `passkey_delete` so the H1 dashboard picks up user-initiated revocations alongside passkey-register, passkey-delete, recovery-code, and email-change triggers
+- `SecurityInvalidationTrigger` union extended with `session_revoke`, `session_revoke_all`, and `passkey_delete` so the security-invalidation dashboard picks up user-initiated revocations alongside passkey-register, passkey-delete, recovery-code, and email-change triggers
 - `osn.auth.session.reuse_detected` / `osn.auth.session.family_revoked` — genuine C2 reuse caught (replay outside the grace window) and the resulting whole-family revocations. `family_revoked` and its warning log `Session token reuse detected — family revoked` count only a revoke that removed a session; a replay whose family has no session left counts `reuse_detected` and logs `Session token reuse detected — no session of the family was left` at info. A logout with a token rotated out past the grace window counts the same way, with `at logout` in both lines ([[#Endpoints]]). Neither counter carries an attribute, and no line names the account, the family or the token. A spike is a real security signal (token theft) — distinct from the benign metric below.
 - `osn.auth.session.rotation_race` — benign concurrent/retried grants tolerated within `ROTATION_GRACE_MS` (CAS-0-rows or a rotated-token replay inside the window). The family is PRESERVED. Expected to be non-zero for normal multi-tab usage; it is NOT a security signal. Watch the ratio of `family_revoked` to `rotation_race` — a rise in the former relative to the latter is what matters.
 - Spans: `auth.session.rotate` around a refresh, `auth.session.reuse_detect` around the record lookup and any revocation, `auth.session.rotated_sweep` around a sweep. A failed sweep logs `scheduled rotated-session sweep failed` on the Worker
 - `osn.retention.rows_deleted{table}` and `osn.retention.cycle.duration{table}` (seconds) — one of each per sweep pass, `table` = `rotated_sessions`, a failed pass included with the rows its earlier chunks deleted
 - A rotation record that cannot be written or read is a `DatabaseError` on the grant, in Workers Logs with the rest of osn-api's D1 errors
 - `Refresh rotation could not remove its own new session after a failed write` (error, annotated `restricted` = `true` / `false`, never the cause, whose text carries the statement's parameters) — bun:sqlite only: a rotation whose write failed and whose delete of its own new row failed too, leaving a row no one holds until it expires
+- `Refresh rotation could not remove its own rotation record after a failed write` (error, annotated the same way, never the cause) — bun:sqlite only: a rotation whose write failed after its record landed and whose delete of that record failed too. The device's token cannot rotate again until the record expires, a refresh lifetime later; deleting the row by `token_hash` frees it
 - Redaction: `ipHash`, `uaLabel` (both spellings), `familyId` (already in the deny-list — correlates sessions across rotation events)
 
 ## UI

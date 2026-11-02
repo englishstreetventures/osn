@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import { SignJWT } from "jose";
 import { describe, it, expect, beforeEach, beforeAll } from "vitest";
 
+import { MAX_CHAT_MEMBERS } from "../../src/lib/limits";
 import { createChatsRoutes } from "../../src/routes/chats";
 import { setConsentGate } from "../../src/services/consent";
 import { createTestLayer, seedC2bChat, seedChat, seedMember } from "../helpers/db";
@@ -162,7 +163,7 @@ describe("chats routes", () => {
     expect(res.status).toBe(401);
   });
 
-  it("GET /chats returns 401 for a verified token whose sub is not a usr_ id (Z2)", async () => {
+  it("GET /chats returns 401 for a verified token whose sub is not a usr_ id", async () => {
     const orgToken = await makeToken("org_evil");
     const res = await req(app, "GET", "/chats", { token: orgToken });
     expect(res.status).toBe(401);
@@ -502,7 +503,7 @@ describe("chats routes", () => {
     expect(res.status).toBe(204);
   });
 
-  // ── Consent + invariants (W2) ─────────────────────────────────────────────
+  // ── Consent + invariants ──────────────────────────────────────────────────
 
   it("POST /chats/:id/members returns 403 when consent is denied", async () => {
     const createRes = await req(app, "POST", "/chats", {
@@ -542,6 +543,16 @@ describe("chats routes", () => {
     expect(res.status).toBe(422);
   });
 
+  it("POST /chats returns 422 for a member list that leaves no place for the creator", async () => {
+    const others = Array.from({ length: MAX_CHAT_MEMBERS }, (_, i) => `usr_other_${i}`);
+    const res = await req(app, "POST", "/chats", {
+      token: aliceToken,
+      body: { type: "group", memberProfileIds: others },
+    });
+    expect(res.status).toBe(422);
+    expect(await body(res)).toEqual({ error: "Member limit reached" });
+  });
+
   it("DELETE /chats/:id/members/:profileId returns 409 when removing the last admin", async () => {
     const createRes = await req(app, "POST", "/chats", {
       token: aliceToken,
@@ -554,6 +565,64 @@ describe("chats routes", () => {
       token: aliceToken,
     });
     expect(res.status).toBe(409);
+  });
+
+  it("DELETE /chats/:id/members/:profileId returns 422 for a member leaving a DM", async () => {
+    const createRes = await req(app, "POST", "/chats", {
+      token: aliceToken,
+      body: { type: "dm", memberProfileIds: ["usr_bob"] },
+    });
+    const chatId = (await body(createRes)).chat.id;
+
+    const res = await req(app, "DELETE", `/chats/${chatId}/members/usr_bob`, { token: bobToken });
+    expect(res.status).toBe(422);
+    expect(await body(res)).toEqual({ message: "Cannot remove members from a DM" });
+  });
+
+  // The DM refusal sits behind the route's gates: a caller with no standing
+  // in the chat is answered as on any chat, and removes no one.
+  describe("DELETE /chats/:id/members/:profileId on a DM, by a caller with no standing", () => {
+    const dmMembers = async (chatId: string) =>
+      (await body(await req(app, "GET", `/chats/${chatId}/members`, { token: aliceToken }))).members
+        .map((m: { profileId: string }) => m.profileId)
+        .toSorted();
+
+    const openDm = async () => {
+      const createRes = await req(app, "POST", "/chats", {
+        token: aliceToken,
+        body: { type: "dm", memberProfileIds: ["usr_bob"] },
+      });
+      return (await body(createRes)).chat.id as string;
+    };
+
+    it("returns 401 without a token", async () => {
+      const chatId = await openDm();
+      const res = await req(app, "DELETE", `/chats/${chatId}/members/usr_bob`);
+      expect(res.status).toBe(401);
+      expect(await body(res)).toEqual({ message: "Unauthorized" });
+      expect(await dmMembers(chatId)).toEqual(["usr_alice", "usr_bob"]);
+    });
+
+    it("returns 401 for a token signed with the wrong key", async () => {
+      const chatId = await openDm();
+      const forged = await (
+        await makeAccessTokenSigner()
+      ).sign("usr_bob", {
+        issuer: TEST_ISSUER,
+      });
+      const res = await req(app, "DELETE", `/chats/${chatId}/members/usr_bob`, { token: forged });
+      expect(res.status).toBe(401);
+      expect(await dmMembers(chatId)).toEqual(["usr_alice", "usr_bob"]);
+    });
+
+    it("returns 403 to a non-member, as a group chat does", async () => {
+      const chatId = await openDm();
+      const mallory = await makeToken("usr_mallory");
+      const res = await req(app, "DELETE", `/chats/${chatId}/members/usr_bob`, { token: mallory });
+      expect(res.status).toBe(403);
+      expect(await body(res)).toEqual({ message: "Forbidden" });
+      expect(await dmMembers(chatId)).toEqual(["usr_alice", "usr_bob"]);
+    });
   });
 
   // ── Messages ────────────────────────────────────────────────────────────
@@ -671,6 +740,53 @@ describe("chats routes", () => {
     const res = await req(app, "GET", `/chats/${c2bChat.id}/messages`, { token: aliceToken });
     expect(res.status).toBe(409);
     expect((await body(res)).message).toBe("Not a c2c chat");
+  });
+
+  // The reads refuse a c2b chat as the writes do, and only behind the
+  // membership gate: a caller with no standing gets the 404 a missing chat gets.
+  const seedC2bMembership = async () => {
+    const c2bChat = await Effect.runPromise(
+      seedC2bChat({ type: "group" }).pipe(Effect.provide(layer)),
+    );
+    await Effect.runPromise(
+      seedMember(c2bChat.id, "usr_alice", "member").pipe(Effect.provide(layer)),
+    );
+    return c2bChat;
+  };
+
+  for (const path of ["", "/members"]) {
+    it(`GET /chats/:id${path} returns 409 on a c2b chat`, async () => {
+      const c2bChat = await seedC2bMembership();
+      const res = await req(app, "GET", `/chats/${c2bChat.id}${path}`, { token: aliceToken });
+      expect(res.status).toBe(409);
+      expect(await body(res)).toEqual({ message: "Not a c2c chat" });
+    });
+
+    it(`GET /chats/:id${path} answers a non-member of a c2b chat 404`, async () => {
+      const c2bChat = await seedC2bMembership();
+      const res = await req(app, "GET", `/chats/${c2bChat.id}${path}`, { token: bobToken });
+      expect(res.status).toBe(404);
+      expect(await body(res)).toEqual({ message: "Chat not found" });
+    });
+  }
+
+  it("GET /chats leaves out a c2b chat the caller is in", async () => {
+    await seedC2bMembership();
+    const createRes = await req(app, "POST", "/chats", {
+      token: aliceToken,
+      body: { type: "group", title: "Ours" },
+    });
+    const c2cId = (await body(createRes)).chat.id;
+
+    const res = await req(app, "GET", "/chats", { token: aliceToken });
+    expect(res.status).toBe(200);
+    expect((await body(res)).chats.map((c: { id: string }) => c.id)).toEqual([c2cId]);
+  });
+
+  it("GET /chats refuses a cursor naming a c2b chat the caller is in", async () => {
+    const c2bChat = await seedC2bMembership();
+    const res = await req(app, "GET", `/chats?cursor=${c2bChat.id}`, { token: aliceToken });
+    expect(res.status).toBe(422);
   });
 
   it("GET /chats/:id/messages returns messages for member", async () => {

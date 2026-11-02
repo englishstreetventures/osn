@@ -188,11 +188,10 @@ export const requestErasure = (
     // Atomic soft-delete transaction. Identity is redacted, credentials nuked,
     // all-but-the-requesting session revoked, and a deletion_jobs row written.
     //
-    // We KEEP `email_changes` and `security_events` rows for the legal-
-    // obligation retention window (Art. 6(1)(c)) — they reference accountId
-    // which still exists during the grace window. The hard-delete sweeper
-    // NULLs the account_id reference at hard delete time so the audit rows
-    // survive without an orphan FK violation.
+    // `email_changes` and `security_events` rows stay, as legal-obligation
+    // records (Art. 6(1)(c)), here and at hard delete. Hard delete keeps their
+    // `account_id` as it is: neither table has a foreign key to `accounts`, so
+    // the account row goes with the audit rows still naming it.
     yield* Effect.tryPromise({
       // All-or-nothing: atomic batch on D1, sequential on bun:sqlite. Every
       // statement is a pure write (the cancel-session branch only selects the
@@ -633,9 +632,8 @@ export const runHardDeleteSweep = (
  * parent by design), so the surviving rows stay queryable by accountId.
  * Nothing deletes them: `wiki/compliance/retention.md` sets 12 months for
  * `security_events` and 90 days for `email_changes`, and no sweeper enforces
- * either. The `users.handle` was redacted
- * to `deleted_<id>` at soft-delete time, so the surviving accountId names no
- * person.
+ * either. The `users.handle` was redacted to `deleted_<id>` at soft-delete
+ * time, so the surviving accountId names no person.
  *
  * The cascade deletes use one `inArray` per child table, never a statement per
  * profile, so the batch holds the write lock for one statement per table

@@ -715,9 +715,9 @@ describe("issueTokens", () => {
 });
 
 // ---------------------------------------------------------------------------
-// O1 — issuer pinning + clock tolerance on access tokens
+// Issuer pinning + clock tolerance on access tokens
 // ---------------------------------------------------------------------------
-describe("O1 issuer pinning + clock tolerance", () => {
+describe("issuer pinning + clock tolerance", () => {
   it.effect("access tokens decode with iss === issuerUrl", () =>
     Effect.gen(function* () {
       const profile = yield* auth.registerProfile("iss-ok@example.com", "issok");
@@ -1122,7 +1122,7 @@ describe("LogEmailLive local-mode behaviour", () => {
 // Two-tier token model
 // ---------------------------------------------------------------------------
 
-describe("two-tier token model (P2)", () => {
+describe("two-tier token model", () => {
   it.effect("verifyRefreshToken resolves the accountId from a session token", () =>
     Effect.gen(function* () {
       const profile = yield* auth.registerProfile("tier@example.com", "tier", "Tier");
@@ -1235,7 +1235,7 @@ describe("two-tier token model (P2)", () => {
 // Profile switching
 // ---------------------------------------------------------------------------
 
-describe("switchProfile (P2)", () => {
+describe("switchProfile", () => {
   it.effect("issues new access token for target profile", () =>
     Effect.gen(function* () {
       const profile = yield* auth.registerProfile("switch@example.com", "switchme");
@@ -1284,7 +1284,7 @@ describe("switchProfile (P2)", () => {
 // listAccountProfiles
 // ---------------------------------------------------------------------------
 
-describe("listAccountProfiles (P2)", () => {
+describe("listAccountProfiles", () => {
   it.effect("returns all profiles for the account", () =>
     Effect.gen(function* () {
       const profile = yield* auth.registerProfile("listme@example.com", "listme", "List Me");
@@ -1354,41 +1354,6 @@ describe("server-side sessions (C1)", () => {
       // Pin the message too: AuthError alone would also match a malformed
       // token or a signing-key fault, which is not what this test claims.
       expect(err.message).toContain("Invalid or expired session");
-    }).pipe(Effect.provide(createTestLayer())),
-  );
-
-  it.effect("invalidateAccountSessions revokes all sessions for an account", () =>
-    Effect.gen(function* () {
-      const profile = yield* auth.registerProfile("revokeall@example.com", "revokeall");
-
-      // Issue two separate sessions
-      const tokens1 = yield* auth.issueTokens(
-        profile.id,
-        profile.accountId,
-        profile.email,
-        profile.handle,
-        profile.displayName,
-      );
-      const tokens2 = yield* auth.issueTokens(
-        profile.id,
-        profile.accountId,
-        profile.email,
-        profile.handle,
-        profile.displayName,
-      );
-
-      // Both work
-      yield* auth.verifyRefreshToken(tokens1.refreshToken);
-      yield* auth.verifyRefreshToken(tokens2.refreshToken);
-
-      // Revoke all
-      yield* auth.invalidateAccountSessions(profile.accountId);
-
-      // Both fail
-      const err1 = yield* Effect.flip(auth.verifyRefreshToken(tokens1.refreshToken));
-      expect(err1._tag).toBe("AuthError");
-      const err2 = yield* Effect.flip(auth.verifyRefreshToken(tokens2.refreshToken));
-      expect(err2._tag).toBe("AuthError");
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -1621,7 +1586,7 @@ describe("refresh token rotation (C2)", () => {
 // Session invalidation on security events
 // ---------------------------------------------------------------------------
 
-describe("invalidateOtherAccountSessions (H1)", () => {
+describe("invalidateOtherAccountSessions", () => {
   it.effect("revokes all sessions except the specified one", () =>
     Effect.gen(function* () {
       const profile = yield* auth.registerProfile("h1@example.com", "h1user");

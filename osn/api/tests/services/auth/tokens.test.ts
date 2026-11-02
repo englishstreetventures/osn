@@ -82,7 +82,6 @@ describe("refreshTokens: the rotation record", () => {
     }).pipe(Effect.provide(layer));
   });
 
-  // F-SV1
   it.effect(
     "fails with a DatabaseError, which leaves the session marker up, when the write fails",
     () => {
@@ -105,6 +104,10 @@ describe("refreshTokens: the rotation record", () => {
 
         expect(error._tag).toBe("DatabaseError");
         expect(sessionStatusUnknown(error)).toBe(true);
+        // The record that failed this grant is not the grant's own, so its
+        // clean-up leaves it.
+        const records = yield* Effect.promise(() => db.select().from(rotatedSessions));
+        expect(records.map((row) => row.familyId)).toEqual(["sfam_other"]);
       }).pipe(Effect.provide(layer));
     },
   );
@@ -162,6 +165,86 @@ describe("refreshTokens: the rotation record", () => {
       expect(left).toHaveLength(2);
       const written = JSON.stringify(lines);
       for (const secret of [profile.accountId, ...left.map((row) => row.id)]) {
+        expect(written).not.toContain(secret);
+      }
+    }).pipe(Effect.provide(layer), Effect.provide(logged));
+  });
+
+  // On the statement-at-a-time driver the swap can fail after the record is
+  // in; the grant then removes the record with its new row, so the device's
+  // next grant of the same token can write it again.
+  it.live("a swap that fails after its record lands leaves the token able to rotate", () => {
+    const { db, sqlite, email } = createTestLayerWithSqlite();
+    const queries = holdQueries(db);
+    const layer = Layer.merge(Layer.succeed(Db, { db: queries.db }), email.layer);
+    return Effect.gen(function* () {
+      const { profile, refreshToken } = yield* signIn("swap-fail@example.com", "swapfail");
+      const oldHash = hashSessionToken(refreshToken);
+      const records = () =>
+        sqlite.query("SELECT token_hash FROM rotated_sessions WHERE token_hash = ?").all(oldHash);
+
+      const swap = queries.hold(/^delete from "sessions"/);
+      const failing = yield* Effect.forkChild(Effect.result(auth.refreshTokens(refreshToken)));
+      yield* Effect.promise(() => swap.reached);
+      // The record is in, and the swap that comes next is refused.
+      expect(records()).toHaveLength(1);
+      sqlite.run(
+        `CREATE TRIGGER refuse_swap BEFORE DELETE ON sessions
+         WHEN OLD.id = '${oldHash}' BEGIN SELECT RAISE(ABORT, 'refused'); END`,
+      );
+      swap.release();
+      const outcome = yield* Fiber.join(failing);
+      sqlite.run("DROP TRIGGER refuse_swap");
+
+      expect(outcome._tag).toBe("Failure");
+      if (outcome._tag === "Failure") expect(outcome.failure._tag).toBe("DatabaseError");
+      expect(records()).toEqual([]);
+      const left = sqlite
+        .query("SELECT id FROM sessions WHERE account_id = ?")
+        .all(profile.accountId) as { id: string }[];
+      expect(left.map((row) => row.id)).toEqual([oldHash]);
+
+      // The device's next grant rotates the token it still holds.
+      const next = yield* auth.refreshTokens(refreshToken);
+      yield* auth.verifyRefreshToken(next.refreshToken);
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("logs at error, naming no session, when its record cannot be removed", () => {
+    const { layer, sqlite } = createTestLayerWithSqlite();
+    const lines: { level: string; message: unknown; annotations: unknown }[] = [];
+    const logged = Logger.layer([
+      Logger.map(Logger.formatStructured, (line) => {
+        lines.push(line);
+      }),
+    ]);
+    return Effect.gen(function* () {
+      const { profile, refreshToken } = yield* signIn("record-left@example.com", "recordleft");
+      const oldHash = hashSessionToken(refreshToken);
+      // The swap is refused after the record lands, and so is the clean-up's
+      // delete of that record.
+      sqlite.run(
+        `CREATE TRIGGER refuse_swap BEFORE DELETE ON sessions
+         WHEN OLD.id = '${oldHash}' BEGIN SELECT RAISE(ABORT, 'refused'); END`,
+      );
+      sqlite.run(
+        `CREATE TRIGGER refuse_record_delete BEFORE DELETE ON rotated_sessions
+         BEGIN SELECT RAISE(ABORT, 'refused'); END`,
+      );
+      lines.length = 0;
+
+      const error = yield* Effect.flip(auth.refreshTokens(refreshToken));
+
+      expect(error._tag).toBe("DatabaseError");
+      const errors = lines.filter((line) => line.level === "ERROR");
+      expect(errors.map((line) => [String(line.message), line.annotations])).toEqual([
+        [
+          "Refresh rotation could not remove its own rotation record after a failed write",
+          { restricted: "false" },
+        ],
+      ]);
+      const written = JSON.stringify(lines);
+      for (const secret of [profile.accountId, oldHash, refreshToken]) {
         expect(written).not.toContain(secret);
       }
     }).pipe(Effect.provide(layer), Effect.provide(logged));
@@ -314,7 +397,6 @@ describe("refreshTokens: a replayed rotated-out token", () => {
     }).pipe(Effect.provide(layer));
   });
 
-  // F-SV2
   it.effect("fails with a DatabaseError and revokes nothing when the record cannot be read", () => {
     const { layer, sqlite } = createTestLayerWithSqlite();
     const revoked = vi.spyOn(metrics, "metricSessionFamilyRevoked");

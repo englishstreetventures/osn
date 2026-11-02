@@ -372,7 +372,7 @@ export const sessions = sqliteTable(
   (t) => [
     index("sessions_account_idx").on(t.accountId),
     index("sessions_family_idx").on(t.familyId),
-    // P-W2: composite index serves ORDER BY last_used_at DESC for
+    // Composite index serves ORDER BY last_used_at DESC for
     // listAccountSessions + LRU eviction scan in issueTokens.
     index("sessions_account_last_used_idx").on(t.accountId, t.lastUsedAt),
   ],
@@ -547,12 +547,11 @@ export const emailChanges = sqliteTable(
     id: text("id").primaryKey(), // "ech_" prefix
     // No `.references(accounts.id)`, deliberately. `hardDeleteAccount`
     // (`osn/api/src/services/account-erasure.ts`) removes the `accounts` row
-    // and KEEPS these under Art. 6(1)(c), so the column outlives its parent by
-    // design — and a column that must outlive its parent cannot have a foreign
-    // key to it. With the constraint in place the final `delete(accounts)`
-    // failed, taking the whole erasure batch with it, so Art. 17 deletion
-    // could never complete against a database that enforces foreign keys.
-    // Retention is enforced by the sweeper, not by a reference.
+    // and keeps these rows under Art. 6(1)(c), so the column outlives its
+    // parent: a foreign key to it would fail that delete, and with it the
+    // whole erasure batch, on a database that enforces foreign keys. Nothing
+    // deletes these rows yet: `wiki/compliance/retention.md` sets their
+    // retention and lists the sweeper that will enforce it as planned.
     accountId: text("account_id").notNull(),
     previousEmail: text("previous_email").notNull(),
     newEmail: text("new_email").notNull(),
@@ -574,7 +573,7 @@ export type EmailChange = typeof emailChanges.$inferSelect;
 export type NewEmailChange = typeof emailChanges.$inferInsert;
 
 // ---------------------------------------------------------------------------
-// Security events (M-PK1b)
+// Security events
 //
 // Out-of-band audit trail for account-level security actions. Every row is
 // created alongside the primary action (e.g. recovery-code regeneration) so
@@ -596,12 +595,11 @@ export const securityEvents = sqliteTable(
     id: text("id").primaryKey(), // "sev_" prefix
     // No `.references(accounts.id)`, deliberately. `hardDeleteAccount`
     // (`osn/api/src/services/account-erasure.ts`) removes the `accounts` row
-    // and KEEPS these under Art. 6(1)(c), so the column outlives its parent by
-    // design — and a column that must outlive its parent cannot have a foreign
-    // key to it. With the constraint in place the final `delete(accounts)`
-    // failed, taking the whole erasure batch with it, so Art. 17 deletion
-    // could never complete against a database that enforces foreign keys.
-    // Retention is enforced by the sweeper, not by a reference.
+    // and keeps these rows under Art. 6(1)(c), so the column outlives its
+    // parent: a foreign key to it would fail that delete, and with it the
+    // whole erasure batch, on a database that enforces foreign keys. Nothing
+    // deletes these rows yet: `wiki/compliance/retention.md` sets their
+    // retention and lists the sweeper that will enforce it as planned.
     accountId: text("account_id").notNull(),
     /**
      * Bounded kind enum — see SecurityEventKind in @shared/observability.
@@ -619,7 +617,7 @@ export const securityEvents = sqliteTable(
     uaLabel: text("ua_label"),
   },
   (t) => [
-    // P-W1: partial index over the hot "unacknowledged" slice. Acked rows
+    // Partial index over the hot "unacknowledged" slice. Acked rows
     // are kept for audit but grow unbounded over time; the Settings banner
     // only reads unacked rows, so excluding acked rows from the index keeps
     // it tiny regardless of history. Column order (account_id, created_at DESC)
@@ -681,7 +679,7 @@ export type OrganisationMember = typeof organisationMembers.$inferSelect;
 export type NewOrganisationMember = typeof organisationMembers.$inferInsert;
 
 // ---------------------------------------------------------------------------
-// App enrollments (C-H2 — modular platform opt-in tracking)
+// App enrollments (modular platform opt-in tracking)
 //
 // One row per (account, app, joined-at). `leftAt` stays NULL while the user
 // is currently enrolled. When a user "leaves Pulse" (Flow B) we set leftAt
@@ -720,7 +718,7 @@ export type AppEnrollment = typeof appEnrollments.$inferSelect;
 export type NewAppEnrollment = typeof appEnrollments.$inferInsert;
 
 // ---------------------------------------------------------------------------
-// Deletion jobs (C-H2 — Art. 17 right-to-erasure tombstones)
+// Deletion jobs (Art. 17 right-to-erasure tombstones)
 //
 // One row per soft-delete. Row exists for the full 7-day grace window and
 // for the post-grace fan-out window until the hard-delete sweeper removes

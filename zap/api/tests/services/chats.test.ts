@@ -261,7 +261,7 @@ describe("chats service", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // ── Z3/Z4 consent matrix ────────────────────────────────────────────────
+  // ── consent matrix ──────────────────────────────────────────────────────
 
   it.effect("addMember allowed when the actor and target are connected", () =>
     Effect.gen(function* () {
@@ -328,7 +328,7 @@ describe("chats service", () => {
       }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // ── Z3 DM member-count invariant ────────────────────────────────────────
+  // ── DM member-count invariant ───────────────────────────────────────────
 
   it.effect("createChat rejects a DM with no other member", () =>
     Effect.gen(function* () {
@@ -365,7 +365,48 @@ describe("chats service", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // ── Z5 last-admin invariant ─────────────────────────────────────────────
+  // A DM stays two people: no one leaves it and no one is removed from it.
+  const seedDm = Effect.gen(function* () {
+    const chat = yield* seedChat({ type: "dm" });
+    yield* seedMember(chat.id, "usr_alice", "admin");
+    yield* seedMember(chat.id, "usr_bob");
+    return chat;
+  });
+
+  const dmRemovals = [
+    { name: "the member leaving a DM", profileId: "usr_bob", requester: "usr_bob" },
+    { name: "the admin leaving a DM", profileId: "usr_alice", requester: "usr_alice" },
+    { name: "the admin removing a DM's member", profileId: "usr_bob", requester: "usr_alice" },
+  ] as const;
+
+  for (const removal of dmRemovals) {
+    it.effect(`removeMember refuses ${removal.name}`, () =>
+      Effect.gen(function* () {
+        const chat = yield* seedDm;
+        const result = yield* Effect.result(
+          removeMember(chat.id, removal.profileId, removal.requester),
+        );
+        expect(Result.isFailure(result)).toBe(true);
+        if (Result.isFailure(result)) {
+          expect(result.failure._tag).toBe("InvalidDmMembership");
+        }
+        const { members } = yield* getChatMembers(chat.id);
+        expect(members.map((m) => m.profileId).toSorted()).toEqual(["usr_alice", "usr_bob"]);
+      }).pipe(Effect.provide(createTestLayer())),
+    );
+  }
+
+  it.effect("removeMember on a DM answers a non-member as on any chat, not as a DM", () =>
+    Effect.gen(function* () {
+      const chat = yield* seedDm;
+      const removing = yield* Effect.result(removeMember(chat.id, "usr_bob", "usr_mallory"));
+      const leaving = yield* Effect.result(removeMember(chat.id, "usr_mallory", "usr_mallory"));
+      expect(Result.isFailure(removing) ? removing.failure._tag : "ok").toBe("NotChatAdmin");
+      expect(Result.isFailure(leaving) ? leaving.failure._tag : "ok").toBe("NotChatMember");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  // ── last-admin invariant ────────────────────────────────────────────────
 
   it.effect("removeMember rejects removing the only admin", () =>
     Effect.gen(function* () {
@@ -716,7 +757,7 @@ describe("chats service", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("listChats does not skip chats created in the same second (P-W2)", () =>
+  it.effect("listChats does not skip chats created in the same second", () =>
     Effect.gen(function* () {
       // Creation bursts share a second-resolution createdAt; the composite
       // (createdAt, id) cursor must still walk every chat exactly once.
@@ -1103,6 +1144,54 @@ describe("chats service", () => {
       }
       // Schema.maxItems rejects at decode time — checkConsent must never run.
       expect(consentCalls).toBe(0);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  // ── the member cap counts the creator ───────────────────────────────────
+
+  it.effect("createChat refuses the creator plus MAX_CHAT_MEMBERS others before any write", () =>
+    Effect.gen(function* () {
+      let consentCalls = 0;
+      setConsentGate(() => {
+        consentCalls++;
+        return Promise.resolve(true);
+      });
+      const others = Array.from({ length: MAX_CHAT_MEMBERS }, (_, i) => `usr_other_${i}`);
+      const result = yield* Effect.result(
+        createChat({ type: "group", memberProfileIds: others }, "usr_alice"),
+      );
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure._tag).toBe("MemberLimitReached");
+      }
+      expect(consentCalls).toBe(0);
+      const { db } = yield* Db;
+      expect(yield* Effect.promise(() => db.select().from(chatsTable))).toHaveLength(0);
+      expect(yield* Effect.promise(() => db.select().from(chatMembers))).toHaveLength(0);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("createChat counts each person once, so a full list naming the creator fits", () =>
+    Effect.gen(function* () {
+      const others = Array.from({ length: MAX_CHAT_MEMBERS - 1 }, (_, i) => `usr_other_${i}`);
+      const chat = yield* createChat(
+        { type: "group", memberProfileIds: ["usr_alice", ...others] },
+        "usr_alice",
+      );
+      const { members } = yield* getChatMembers(chat.id, { limit: MAX_CHAT_MEMBERS });
+      expect(members).toHaveLength(MAX_CHAT_MEMBERS);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("createChat counts each person once, so a full list with a repeated id fits", () =>
+    Effect.gen(function* () {
+      const others = Array.from({ length: MAX_CHAT_MEMBERS - 1 }, (_, i) => `usr_other_${i}`);
+      const chat = yield* createChat(
+        { type: "group", memberProfileIds: [...others, others[0]!] },
+        "usr_alice",
+      );
+      const { members } = yield* getChatMembers(chat.id, { limit: MAX_CHAT_MEMBERS });
+      expect(members).toHaveLength(MAX_CHAT_MEMBERS);
     }).pipe(Effect.provide(createTestLayer())),
   );
 

@@ -11,7 +11,7 @@ packages:
   - "@osn/db"
   - "@osn/api"
   - "@osn/client"
-last-reviewed: 2026-10-31
+last-reviewed: 2026-11-02
 ---
 # Identity Model
 
@@ -61,14 +61,14 @@ The `accounts` table is the **authentication principal** — the entity that log
 |--------|------|-------|
 | `id` | `text PK` | `acc_` prefix + 12 hex chars |
 | `email` | `text UNIQUE` | Login credential — the only place email lives |
-| `passkeyUserId` | `text NOT NULL UNIQUE` | Random UUID used as WebAuthn `user.id` — opaque, non-correlating (P6) |
-| `maxProfiles` | `integer` | Default 5; enforced by `createProfile` in P3 |
+| `passkeyUserId` | `text NOT NULL UNIQUE` | Random UUID used as WebAuthn `user.id` — opaque, non-correlating |
+| `maxProfiles` | `integer` | Default 5; enforced by `createProfile` |
 | `createdAt` | `timestamp` | |
 | `updatedAt` | `timestamp` | |
 
 **Key invariants:**
-- `accountId` is **never exposed** in any API response, token claim, or log entry. It is the multi-account correlation identifier — leaking it reveals which profiles belong to the same person. Added to the log redaction deny-list in P6.
-- `passkeyUserId` is a random UUID generated at account creation, used as the WebAuthn `user.id` in passkey registration. It stops anyone correlating two profiles on the same account through matching WebAuthn credential `user.id` fields. Lazy-filled for accounts created before P6.
+- `accountId` is **never exposed** in any API response, token claim, or log entry. It is the multi-account correlation identifier — leaking it reveals which profiles belong to the same person. It is on the log redaction deny-list.
+- `passkeyUserId` is a random UUID generated at account creation, used as the WebAuthn `user.id` in passkey registration. It stops anyone correlating two profiles on the same account through matching WebAuthn credential `user.id` fields.
 - Email is **only on accounts**, not duplicated on profiles.
 - Passkeys reference `accounts.id` (not profile IDs), because authentication is account-level.
 
@@ -115,7 +115,7 @@ Organisations are independent entities that are **composed of profiles, not acco
 
 **Key invariants:**
 - Multiple profiles from the same account **can be in the same org** — one might be admin, another a member. This is by design.
-- Org ownership is per-profile. Deleting a profile that owns an org requires ownership transfer first (enforced in P3).
+- Org ownership is per-profile. Deleting a profile that owns an org requires ownership transfer first.
 - The `listMembers` service return **never includes `accountId`** — defence in depth against correlation leakage.
 - Admins add and remove plain members; only the owner grants admin, removes an admin or changes a role, and the owner itself cannot be removed. Each membership write (`addMember`, `removeMember`, `updateMemberRole`, `updateOrganisation` in `osn/api/src/services/organisation.ts`) checks in one statement and writes in another, so the write carries what the checks read: the caller's admin row (a non-owner's add, removal or update), the member's row and, for a non-owner's removal, its plain-member role. A caller demoted, or a member promoted or removed, in between changes nothing, and the write is refused with the message the checks would give now. The owner needs no such guard: `ownerId` never changes.
 
@@ -145,7 +145,7 @@ Every one of these values is on the reserved OIDC client-id deny-list (`RESERVED
 
 Access tokens live in `localStorage` and are the only auth secret there after C3. A 5-minute TTL caps the XSS blast radius — the companion change is client `authFetch` silent-refresh on 401 via the HttpOnly refresh cookie. Third-party OAuth clients receive `expires_in: 300` in the `/token` response.
 
-**Issuer pinning (O1).** Access and step-up JWTs are signed with `iss = AuthConfig.issuerUrl` and every verify pins `issuer` with a **30s `clockTolerance`** (`signJwt` / `verifyJwt` in `osn/api/src/services/auth/helpers.ts`). A token minted by a different OSN deployment is rejected. The downstream `@shared/osn-auth-client` verifier carries the same contract (W7) — rollout is **verifier-first**: the tolerant verifier must deploy before the signer enforces `iss`, or every legacy iss-less token would be rejected the instant the signer rolls out.
+**Issuer pinning.** Access and step-up JWTs are signed with `iss = AuthConfig.issuerUrl` and every verify pins `issuer` with a **30s `clockTolerance`** (`signJwt` / `verifyJwt` in `osn/api/src/services/auth/helpers.ts`). A token minted by a different OSN deployment is rejected. The downstream `@shared/osn-auth-client` verifier carries the same contract — rollout is **verifier-first**: the tolerant verifier must deploy before the signer enforces `iss`, or every legacy iss-less token would be rejected the instant the signer rolls out.
 
 ### Server-side sessions (Copenhagen Book C1)
 
@@ -153,7 +153,7 @@ Session tokens (formerly "refresh tokens") are **opaque** — not JWTs. The serv
 
 **Sliding-window expiry:** when less than half the TTL remains (< 15 days), the session's `expiresAt` is extended by the full TTL from now. This matches the Copenhagen Book's recommended pattern.
 
-**Revocation:** `invalidateSession(token)` ends the token's device: every session of its family, so a refresh of the same token in another tab cannot leave one behind ([[sessions#Endpoints]]); `invalidateAccountSessions(accountId)` deletes all sessions for an account (used for security events). `POST /logout` exposes the first.
+**Revocation:** `invalidateSession(token)` ends the token's device: every session of its family, so a refresh of the same token in another tab cannot leave one behind ([[sessions#Endpoints]]). `POST /logout` exposes it. A passkey added or deleted ends the account's other devices instead: `invalidateOtherAccountSessions(accountId, keepSessionHash)` deletes every session outside the caller's family ([[sessions]]).
 
 **Sessions table:**
 
@@ -170,7 +170,7 @@ Two profile management endpoints:
 - `POST /profiles/switch` — present the session token + target `profileId` in the request body; receive a new access token for that profile. Per-account rate limited (20 switches/hr).
 - `POST /profiles/list` — present the session token in the request body; receive all profiles for the account. Session tokens are never sent via `Authorization` headers to avoid conflation with access tokens.
 
-## Client Storage Model (P4)
+## Client Storage Model
 
 `@osn/client` stores the multi-profile session under a single `localStorage` key:
 
@@ -268,7 +268,7 @@ email-change verification factor. The recovery-code path is the single
 5. **Self-interaction allowed** — two profiles from the same account can follow, message, and interact. Preventing this would reveal the link.
 6. **Log redaction** — `accountId` and `account_id` are in the observability deny-list (`shared/observability/src/logger/redact.ts`) as defence in depth.
 
-## Passkey Management (M-PK)
+## Passkey Management
 
 Settings-surface operations over an account's existing credentials. All routes bearer-authenticated; `DELETE` additionally gated by a fresh step-up token (passkey or OTP amr).
 
@@ -276,7 +276,7 @@ Settings-surface operations over an account's existing credentials. All routes b
 |----------|---------|-------------------|
 | `GET /passkeys` | List credentials with label / created / last-used / backup-eligible flags | No |
 | `PATCH /passkeys/:id` | Rename (label-only, 1–64 chars trimmed) | No |
-| `DELETE /passkeys/:id` | Remove + invalidate other sessions (H1) + write `security_events{kind: "passkey_delete"}` (M-PK1b) | **Yes** |
+| `DELETE /passkeys/:id` | Remove + invalidate other sessions + write `security_events{kind: "passkey_delete"}` | **Yes** |
 
 ### Schema columns (added 2026-04-22, migration `0007_passkey_management.sql`)
 

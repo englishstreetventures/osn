@@ -39,7 +39,7 @@ void Effect.runPromise(
 );
 
 // Register our ARC public key with osn/api so social-graph consent checks
-// (Z3/Z4) can authenticate. Best-effort in local dev (a missing
+// can authenticate. Best-effort in local dev (a missing
 // INTERNAL_SERVICE_SECRET logs a warning and boots); throws in non-local envs
 // via the helper so a misconfigured deploy is caught at boot.
 void registerWithOsnApi()

@@ -47,8 +47,12 @@ export class ValidationError extends Data.TaggedError("ValidationError")<{
   readonly cause: unknown;
 }> {}
 
+/**
+ * Refused: a write that would leave a chat with more than `MAX_CHAT_MEMBERS`
+ * members. `chatId` is null for a create, which has no chat yet.
+ */
 export class MemberLimitReached extends Data.TaggedError("MemberLimitReached")<{
-  readonly chatId: string;
+  readonly chatId: string | null;
 }> {}
 
 export class AlreadyMember extends Data.TaggedError("AlreadyMember")<{
@@ -56,7 +60,10 @@ export class AlreadyMember extends Data.TaggedError("AlreadyMember")<{
   readonly profileId: string;
 }> {}
 
-/** Refused: a DM created with anyone but exactly one other member, or an add to a DM. */
+/**
+ * Refused: a DM created with anyone but exactly one other member, or an add to
+ * or a removal from a DM.
+ */
 export class InvalidDmMembership extends Data.TaggedError("InvalidDmMembership")<{
   readonly memberCount: number;
 }> {}
@@ -178,6 +185,7 @@ export const getChat = (id: string): Effect.Effect<Chat, ChatNotFound | Database
     return result[0]!;
   }).pipe(Effect.withSpan("zap.chats.get"));
 
+/** The caller's c2c chats, newest first. A c2b chat is cire's, read through the internal routes. */
 export const listChats = (
   profileId: string,
   opts: { limit?: number; cursor?: string } = {},
@@ -194,7 +202,7 @@ export const listChats = (
     const limit = Math.min(Math.max(1, requested), MAX_CHAT_LIMIT);
 
     // Cursor-based pagination: fetch chats older than the cursor (newest first).
-    const conditions = [eq(chatMembers.profileId, profileId)];
+    const conditions = [eq(chatMembers.profileId, profileId), eq(chats.class, "c2c")];
     if (opts.cursor) {
       // Mirrors the hardened listMessages cursor contract: the cursor is a
       // chat ID. Scope the lookup to the CALLER'S chats (membership join) so a
@@ -207,7 +215,13 @@ export const listChats = (
             .select({ createdAt: chats.createdAt, id: chats.id })
             .from(chats)
             .innerJoin(chatMembers, eq(chatMembers.chatId, chats.id))
-            .where(and(eq(chats.id, opts.cursor!), eq(chatMembers.profileId, profileId)))
+            .where(
+              and(
+                eq(chats.id, opts.cursor!),
+                eq(chatMembers.profileId, profileId),
+                eq(chats.class, "c2c"),
+              ),
+            )
             .limit(1) as Promise<{ createdAt: Date; id: string }[]>,
         catch: (cause) => new DatabaseError({ cause }),
       });
@@ -255,7 +269,11 @@ export const listChats = (
 export const createChat = (
   data: unknown,
   creatorProfileId: string,
-): Effect.Effect<Chat, ValidationError | ConsentDenied | InvalidDmMembership | DatabaseError, Db> =>
+): Effect.Effect<
+  Chat,
+  ValidationError | ConsentDenied | InvalidDmMembership | MemberLimitReached | DatabaseError,
+  Db
+> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
 
@@ -274,6 +292,13 @@ export const createChat = (
       return yield* Effect.fail(
         new InvalidDmMembership({ memberCount: initialMembers.length + 1 }),
       );
+    }
+
+    // The cap `addMember` holds, counted with the creator: a chat starts with
+    // at most `MAX_CHAT_MEMBERS` people. Before the consent checks, so a
+    // refused list costs no call to the graph and writes nothing.
+    if (initialMembers.length + 1 > MAX_CHAT_MEMBERS) {
+      return yield* Effect.fail(new MemberLimitReached({ chatId: null }));
     }
 
     // Every profile pulled into the chat must consent (graph-gated).
@@ -328,10 +353,10 @@ export const createChat = (
     // FK-first ordering: the chat row is inserted before any member row,
     // which references it. Chunked at MAX_MEMBER_ROWS_PER_INSERT rows per
     // INSERT to stay under D1's ~100-bound-parameter ceiling — up to
-    // MAX_CHAT_MEMBERS+1 (501) member rows here (the creator plus up to
-    // MAX_CHAT_MEMBERS others, the schema's cap on `memberProfileIds`)
-    // chunks into ceil(501/20) = 26 INSERTs, plus the chat INSERT itself =
-    // 27 statements — under D1's 50-queries-per-invocation Free-tier bound.
+    // MAX_CHAT_MEMBERS (500) member rows here (the creator included, refused
+    // above past that) chunks into ceil(500/20) = 25 INSERTs, plus the chat
+    // INSERT itself = 26 statements — under D1's 50-queries-per-invocation
+    // Free-tier bound.
     // Atomic on D1 (`db.batch`); on bun:sqlite `commitBatch` chains the
     // statements sequentially with no rollback, which is not a regression
     // versus the three separate awaits this replaces — no test may assert
@@ -673,7 +698,13 @@ export const removeMember = (
   requestingProfileId: string,
 ): Effect.Effect<
   void,
-  ChatNotFound | NotChatAdmin | NotChatMember | NotC2cChat | LastAdmin | DatabaseError,
+  | ChatNotFound
+  | NotChatAdmin
+  | NotChatMember
+  | NotC2cChat
+  | InvalidDmMembership
+  | LastAdmin
+  | DatabaseError,
   Db
 > =>
   Effect.gen(function* () {
@@ -711,10 +742,20 @@ export const removeMember = (
     // The delete holds the checks above as it runs, so a removal or a leave
     // that lands after they read cannot get past them. It removes the member
     // only while the requester (when removing someone else) is still an
-    // admin, and never the chat's last admin: an admin is removed only while
-    // another admin stands, so of two admins leaving at once one is refused,
-    // and an admin must hand off the role first. SQLite runs each statement
-    // whole, so the count and the delete see the same rows.
+    // admin, never from a DM, and never the chat's last admin: an admin is
+    // removed only while another admin stands, so of two admins leaving at
+    // once one is refused, and an admin must hand off the role first. SQLite
+    // runs each statement whole, so the count and the delete see the same
+    // rows.
+    //
+    // A DM is sealed at two members, as `addMember` holds: no one leaves it
+    // and no one is removed from it.
+    const chatIsNotADm = exists(
+      db
+        .select({ one: sql`1` })
+        .from(chats)
+        .where(and(eq(chats.id, chatId), ne(chats.type, "dm"))),
+    );
     const anotherAdminStands = or(
       ne(chatMembers.role, "admin"),
       gt(
@@ -736,6 +777,7 @@ export const removeMember = (
               profileId !== requestingProfileId
                 ? requesterIsAdmin(db, chatId, requestingProfileId)
                 : undefined,
+              chatIsNotADm,
               anotherAdminStands,
             ),
           ),
@@ -754,6 +796,10 @@ export const removeMember = (
         catch: (cause) => new DatabaseError({ cause }),
       });
       if (stillMember.length === 0) return yield* Effect.fail(new NotChatMember({ chatId }));
+      // A chat's type is written once, at creation, so the read above still
+      // says whether the guard refused a DM.
+      if (chat.type === "dm")
+        return yield* Effect.fail(new InvalidDmMembership({ memberCount: 1 }));
       return yield* Effect.fail(new LastAdmin({ chatId }));
     }
     metricMemberRemoved("ok");
@@ -765,7 +811,7 @@ export const getChatMembers = (
 ): Effect.Effect<{ members: ChatMember[]; hasMore: boolean }, ChatNotFound | DatabaseError, Db> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
-    // Callers that already gated on assertMember have proven the chat
+    // Callers that already gated on assertC2cMember have proven the chat
     // exists (a membership row FK-references it) — skip the redundant load.
     // Un-gated callers keep the 404 contract.
     if (!opts.assertedExists) {
@@ -870,22 +916,28 @@ export const provisionC2bChat = (input: {
 // Helpers (public — used by routes for membership gating)
 // ---------------------------------------------------------------------------
 
-export const assertMember = (
+/**
+ * The public API's gate on a chat: the caller is a member of it, and it is a
+ * c2c chat (see `assertC2c`). Membership is decided first, so a caller with no
+ * standing in the chat is refused `NotChatMember` whatever its class.
+ */
+export const assertC2cMember = (
   chatId: string,
   profileId: string,
-): Effect.Effect<void, NotChatMember | DatabaseError, Db> =>
+): Effect.Effect<void, NotChatMember | NotC2cChat | DatabaseError, Db> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
     const rows = yield* Effect.tryPromise({
-      try: (): Promise<ChatMember[]> =>
+      try: (): Promise<{ class: Chat["class"] }[]> =>
         db
-          .select()
+          .select({ class: chats.class })
           .from(chatMembers)
+          .innerJoin(chats, eq(chats.id, chatMembers.chatId))
           .where(and(eq(chatMembers.chatId, chatId), eq(chatMembers.profileId, profileId)))
-          .limit(1) as Promise<ChatMember[]>,
+          .limit(1) as Promise<{ class: Chat["class"] }[]>,
       catch: (cause) => new DatabaseError({ cause }),
     });
-    if (rows.length === 0) {
-      return yield* Effect.fail(new NotChatMember({ chatId }));
-    }
+    const row = rows[0];
+    if (!row) return yield* Effect.fail(new NotChatMember({ chatId }));
+    if (row.class !== "c2c") return yield* Effect.fail(new NotC2cChat({ chatId }));
   });

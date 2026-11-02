@@ -4,7 +4,7 @@ import { metricAccessDenied } from "../metrics";
 import { areConnected } from "./zapGraphBridge";
 
 /**
- * Z3/Z4 — social-graph consent gate.
+ * Social-graph consent gate.
  *
  * A user may only pull another profile into a chat (create-with-members, or
  * add-member) when the two share a permitted social-graph relationship. The
