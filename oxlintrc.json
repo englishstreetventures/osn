@@ -491,6 +491,7 @@
     // not match, so the first entry alone leaves every file in the tree linted
     // under its second name. Installing another skill means another line here.
     ".agents",
-    ".claude/skills/webgpu-threejs-tsl"
+    ".claude/skills/webgpu-threejs-tsl",
+    ".claude/skills/stageshow"
   ]
 }
