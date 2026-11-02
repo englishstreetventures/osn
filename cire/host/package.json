@@ -22,6 +22,7 @@
   "dependencies": {
     "@astrojs/solid-js": "7.1.0",
     "@cire/dietary": "workspace:*",
+    "@cire/envelope": "workspace:*",
     "@cire/guest-email": "workspace:*",
     "@cire/invite-designs": "workspace:*",
     "@cire/theme": "workspace:*",
@@ -52,7 +53,7 @@
     "@vitest/browser": "5.0.5",
     "@vitest/browser-playwright": "5.0.5",
     "happy-dom": "^21.0.4",
-    "playwright": "^1.62.1",
+    "playwright": "1.64.1",
     "typescript": "7.1.0-beta",
     "vite": "^8.3.3",
     "vite-plugin-solid": "^2.11.14",

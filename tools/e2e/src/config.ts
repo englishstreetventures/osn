@@ -190,7 +190,8 @@ export const CIRE_ORGANISER = {
       dueAt: "2098-06-20",
     },
   },
-  /** One open task nobody holds, an editor and a viewer. */
+  /** One open task nobody holds, an editor and a viewer, and a comped
+   *  `premium_templates` row, so its invite builder offers the Wax seal. */
   holders: {
     weddingId: "wed_e2e_holders",
     taskId: "tsk_e2e_holders_venue",

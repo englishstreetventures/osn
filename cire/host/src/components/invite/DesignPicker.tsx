@@ -29,9 +29,14 @@ export default function DesignPicker(props: {
   // card is currently tabbable — it starts in sync with the server-selected
   // design and moves independently of the in-flight save, so keyboard focus
   // never stalls waiting on the network. Falls back to the server value
-  // whenever nothing has moved focus yet.
+  // whenever nothing has moved focus yet, and to the first card when the
+  // stored design is not in this build's catalog (a newer bundle saved it), so
+  // the group always has one tab stop.
   const [activeDesignId, setActiveDesignId] = createSignal<string | null>(null);
-  const activeDesignIdOrDefault = () => activeDesignId() ?? props.currentId;
+  const activeDesignIdOrDefault = (): string | undefined => {
+    const wanted = activeDesignId() ?? props.currentId;
+    return DESIGNS.some((d) => d.id === wanted) ? wanted : DESIGNS[0]?.id;
+  };
 
   // Imperative refs so keyboard navigation can move DOM focus onto the next
   // card — Solid has no built-in roving-tabindex primitive.
@@ -119,10 +124,12 @@ export default function DesignPicker(props: {
                   <DesignThumbnail id={design.id} />
                   <span class="font-body text-ui-sm">{design.name}</span>
                   <Show when={isLocked()}>
-                    <span class="text-gold-dim text-ui-xs tracking-ui-wider uppercase">Locked</span>
+                    <span class="text-gold-ink text-ui-xs tracking-ui-wider uppercase">Locked</span>
                   </Show>
                   <Show when={checked()}>
-                    <span class="text-gold text-ui-xs tracking-ui-wider uppercase">Current</span>
+                    <span class="text-gold-ink text-ui-xs tracking-ui-wider uppercase">
+                      Current
+                    </span>
                   </Show>
                 </button>
                 <Show when={!isLocked()}>
@@ -130,7 +137,8 @@ export default function DesignPicker(props: {
                     href={props.previewHref(design.id)}
                     target="_blank"
                     rel="noopener"
-                    class="font-body text-gold-dim text-ui-xs tracking-ui-wider uppercase underline-offset-4 hover:underline"
+                    aria-label={`Preview ${design.name} live (opens in a new tab)`}
+                    class="font-body text-gold-ink text-ui-xs tracking-ui-wider uppercase underline-offset-4 hover:underline"
                   >
                     Preview live
                   </a>
@@ -140,7 +148,7 @@ export default function DesignPicker(props: {
           }}
         </For>
       </div>
-      <p class="text-gold-dim text-ui-sm">
+      <p class="font-body text-text-muted text-ui-sm">
         Saved instantly — open your invite link to preview it live.
       </p>
     </>

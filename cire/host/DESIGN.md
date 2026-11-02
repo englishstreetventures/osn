@@ -828,6 +828,28 @@ sort, and would be one more stuck layer. The reply chips already answer "who
 still owes a reply" in one tap, with the count on the chip, and the column of
 marks scans down the page.
 
+### A choice the plan does not include
+
+The invite builder's pickers (`invite/EnvelopePicker.tsx`) show every option,
+including the ones the wedding's plan leaves locked, as cards in one
+radiogroup:
+
+- **A locked card stays in reach.** It is `aria-disabled`, never `disabled`, so
+  focus and the arrows land on it and a screen reader hears it; clicking or
+  arriving on it chooses nothing. It shows at half opacity and says "Locked"
+  in tiny caps. The server refuses it anyway.
+- **A stored choice the plan does not allow stays checked.** The organiser
+  chose it, so the card keeps the gold border and says "Switched off" where a
+  current card says "Current", and a note under the cards says what guests get
+  instead and which tier brings it back.
+- **State words and notes are ink, not metal.** "Current", "Locked" and
+  "Switched off" are `--gold-ink`, the notes `--text-muted`, never `--gold` or
+  `--gold-dim` (§2): a host reads them. Inside a locked card the half opacity
+  lowers them below the contract, which WCAG allows for a control that cannot
+  be used.
+- **A card's picture is a sketch**, 120 by 84 in `currentColor` on
+  `--text-muted`, `aria-hidden`, never a screenshot or art.
+
 ### A tab strip inside a view
 
 A view that shows one of several things at a time — the RSVP page's events —
@@ -884,6 +906,13 @@ A control that takes focus inside a view carries the stack's height above it
 as its `scroll-margin-top`, so the browser never leaves focus under a layer. A
 switch adds a rem: its focusable input sits inside its label, below the
 track's top edge.
+
+The same holds at the foot. The invite builder's save bar sticks to the bottom
+of the window, so its form carries the bar's measured height as `--save-bar-h`
+(a `ResizeObserver` rewrites it when an error row joins the bar or the line
+wraps, and it goes with the bar), and a control that takes focus in the form
+carries `scroll-margin-bottom: calc(var(--save-bar-h, 0px) + 0.5rem)`. The
+bottom offset is the measured bar, never a guess.
 
 A stuck layer is the same box stuck or not: nothing in it changes size when it
 sticks, because Safari has no scroll anchoring to hide the jump. A shadow on

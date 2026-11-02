@@ -166,9 +166,9 @@ describe("PreviewInviteButton", () => {
     expect((init as RequestInit).method).toBe("POST");
 
     // Navigates the already-open tab to the guest site (no second window.open).
-    // The wedding slug and host code ride in the query string.
+    // The wedding slug, the host code and `envelope=1` ride in the query string.
     expect(win.location.href).toBe(
-      "http://localhost:4321/cire/invite?slug=alexander-samantha-a1b2c3&code=HOST-ABCDEF0123456789ABCDEF01",
+      "http://localhost:4321/cire/invite?slug=alexander-samantha-a1b2c3&code=HOST-ABCDEF0123456789ABCDEF01&envelope=1",
     );
     // Severs the opener reference for the navigated tab.
     expect(win.opener).toBeNull();
@@ -198,7 +198,7 @@ describe("PreviewInviteButton", () => {
 
     await waitFor(() => expect(assignSpy).toHaveBeenCalledTimes(1));
     expect(assignSpy.mock.calls[0]![0]).toBe(
-      "http://localhost:4321/cire/invite?slug=alexander-samantha-a1b2c3&code=HOST-ABCDEF0123456789ABCDEF01",
+      "http://localhost:4321/cire/invite?slug=alexander-samantha-a1b2c3&code=HOST-ABCDEF0123456789ABCDEF01&envelope=1",
     );
     // No crash, no error toast on the success path.
     expect(toastErrorSpy).not.toHaveBeenCalled();

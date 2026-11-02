@@ -1232,9 +1232,14 @@ Organiser-side links to the guest site put the wedding slug in the query string
 of a fixed path:
 
 - **Preview invite** (`cire/host/.../PreviewInviteButton.tsx`): opens
-  `${CIRE_WEB_URL}/cire/invite?slug=<slug>&code=<host preview code>`. The slug comes back from the
-  `POST /api/organiser/weddings/:weddingId/preview-code` response, which now
-  returns `{ publicId, slug }`.
+  `${CIRE_WEB_URL}/cire/invite?slug=<slug>&code=<host preview code>&envelope=1`.
+  The slug comes back from the
+  `POST /api/organiser/weddings/:weddingId/preview-code` response, which
+  returns `{ publicId, slug }`. `envelope=1` is on every preview, with or
+  without an envelope: it asks the guest site to play the wedding's stored
+  envelope even though a code is in the address, which otherwise skips it.
+  The guest site does not read it yet; once it does, it shows no envelope to
+  a wedding without one, and none over a hero that is switched off or empty.
 - **Copy invite message** (`cire/host/.../invite-message.ts`, used by
   `GuestTable` and `invite/InviteMessageCopy.tsx`): links to
   `${CIRE_WEB_URL}/cire/invite?slug=<slug>`. The slug is threaded
@@ -1328,6 +1333,7 @@ endpoints; `@shared/toast` for feedback, `isAuthExpired` / `redirectToLogin` for
 | `invite/PreviewPane.tsx` | The composed whole-invite preview markup (exports `PreviewPaneProps`) — sticky side pane at wide widths |
 | `invite/PreviewModal.tsx` | The SAME composed preview in a mobile modal, opened by the "Preview" button beside the section tabs |
 | `invite/DesignPicker.tsx` | Design radiogroup, roving tabindex, `aria-disabled` locked cards, thumbnails |
+| `invite/EnvelopePicker.tsx` | Envelope radiogroup ("None", then the `@cire/envelope` catalog) under the design cards: the same card layout and roving tabindex, the premium lock, a stored choice shown switched off, and the notes on why guests would not see it |
 | `invite/design-layout.ts` | Per-pack structural signature the previews render (hero anchoring, copy alignment, code-entry panel, events rule) — drift-guarded against the catalog |
 | `invite/ImageField.tsx` | Upload/crop/remove per slot, inline per-slot errors, remove confirm lives in the builder |
 | `invite/FaqEditor.tsx` | The FAQ list: add/edit/delete (each an immediate API call), drag and keyboard reorder through `@shared/sortable`, the coalesced order save, the pending flag for the unsaved guard |
@@ -1789,6 +1795,47 @@ row version yet).
 in the accessibility tree: keyboard arrows land on it (announcing "Locked"),
 Tab order keeps one stop, selection and click no-op, and the server enforces
 the same rule regardless.
+
+**The envelope picker sits under the design cards**, in the same Design card,
+after a hairline and a heading, "Envelope". It is a radiogroup named "Invite
+envelope": "None" first, the default, then each `@cire/envelope` catalog entry
+(today the Wax seal). Each card is a design card's box with a neutral sketch
+(an empty dashed frame for None; an envelope's outline, flap and a plain disc
+where the seal sits), not the seal's art. A choice saves at once
+(`PUT /invite/envelope`), like the design, with the toast "Envelope updated".
+
+- **Shown only when the API has envelopes.** The picker renders when a
+  `GET /invite` carries an `envelopeId` key; an older API sends none, and the
+  builder hides it, as it does the FAQ.
+- **Every envelope is premium, so it locks as a premium design does**:
+  `aria-disabled`, "Locked", focus lands on it and choosing does not follow.
+  The lock reads `envelopeEntitled` from `GET /invite`, not the wedding list's
+  `entitlements` the design cards read. Both come from the same rule
+  (`mayUsePremiumTemplates`), but after an upgrade in the same session they can
+  disagree until the builder mounts again; the server enforces both. The
+  write answers carry no `envelopeEntitled`, so the builder keeps it, and the
+  "has envelopes" flag, apart from the customisation it replaces on each
+  write, and sets both on every read.
+- **A stored envelope the wedding may not use stays checked**, says
+  "Locked" and "Switched off", and a note says guests open the invite without
+  it. "None" still saves.
+- **A save answered 403 `premium_envelope`** locks the card at once, so the
+  next click does not fail the same way. Any other refusal leaves the choice
+  where it was, with the toast "Could not update the envelope".
+- **Hero notes.** While an envelope is chosen and allowed, a note says why
+  guests would not see it over the hero as it stands on screen, unsaved
+  changes included: switched off ("Turn the hero on to show it") or empty
+  ("Add a title, a subtitle or an image to the hero to show it"). Guests are
+  never shown an envelope over a hero that is not in the `shown` state.
+- **Its standing note** says guests won't see envelopes until the opening is
+  released, which holds while the guest site plays none.
+
+`InviteBuilder.envelope.test.tsx` holds the refusals (the hidden picker, the
+lock by click and by every key, the switched-off card, the in-flight save, the
+403, another refusal, an expired session). The `cire-checklist-holders` E2E
+flow picks the Wax seal, reloads to see it held, reads the hero notes, and sets
+None again with Home, on a Gold wedding holding a comped `premium_templates`
+row.
 Per-section **"Reset section"** actions revert a card's saveable fields to
 defaults as a draft change (nothing saved until the save bar says so).
 

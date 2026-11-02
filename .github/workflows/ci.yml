@@ -561,24 +561,28 @@ jobs:
             ${{ runner.os }}-playwright-
 
       # Both installs run from `cire/host`, and the working directory is the
-      # whole point. `playwright` is a devDependency of `cire/host` and
-      # `cire/invites`, not of the root, so `bunx playwright` at the repo root
+      # whole point. `playwright` is a devDependency of each package with a
+      # browser tier, not of the root, so `bunx playwright` at the repo root
       # finds nothing local and fetches the latest release from npm — which
       # then installs the browser revision *that* version wants, not ours.
-      # From playwright 1.63.0 that is chromium 1243 while the tests look for
-      # chromium_headless_shell 1234, and `test:browser` fails with "Executable
-      # doesn't exist" on a run whose install step reported success. A branch
-      # that still restores an older cache passes, so the fault shows only on a
-      # branch with no cache of its own.
+      # While npm's latest is our pin, the wrong lookup returns the right
+      # answer; once they differ, `test:browser` fails with "Executable
+      # doesn't exist" on a run whose install step reported success.
+      #
+      # A branch with a Chromium cache of its own hides that failure: GitHub
+      # Actions scopes a cache to the branch that wrote it plus the default
+      # branch, and a restored cache that still holds our revision passes.
+      # Only a branch with no cache falls through to a fresh install and
+      # fails, and as caches expire that reaches every branch, main included.
       - name: Install Chromium's system libraries
         timeout-minutes: 10
         working-directory: cire/host
-        run: bunx playwright install-deps chromium
+        run: bunx --no-install playwright install-deps chromium
 
       - name: Install Chromium for browser tests
         timeout-minutes: 10
         working-directory: cire/host
-        run: bunx playwright install chromium
+        run: bunx --no-install playwright install chromium
 
       - name: Restore turbo cache
         uses: actions/cache/restore@v4
@@ -747,6 +751,11 @@ jobs:
       - name: Check release-age excludes are marked and bounded
         run: bun run check:release-age-excludes
 
+      # Every playwright, @playwright/test, vitest and @vitest/* specifier is
+      # an exact version, and each group agrees on one.
+      - name: Check Playwright and Vitest pins
+        run: bun run check:playwright-pins
+
       # The guard's own tests run in "Test the scripts"; this runs it against
       # the committed package scripts, workflows and stack files.
       - name: Check Alchemy usage
@@ -869,7 +878,9 @@ jobs:
       # The same cache and the same two bounded halves as the `browser` job,
       # for the same reasons (see the comments there). Run from
       # `tools/e2e`, whose pinned `@playwright/test` decides which Chromium
-      # revision gets installed.
+      # revision gets installed. The two jobs share one cache key, so that pin
+      # and every workspace's `playwright` stay on one version, or one job
+      # downloads its own revision on every run.
       - name: Cache Chromium
         uses: actions/cache@v4
         with:
@@ -881,12 +892,12 @@ jobs:
       - name: Install Chromium's system libraries
         timeout-minutes: 10
         working-directory: tools/e2e
-        run: bunx playwright install-deps chromium
+        run: bunx --no-install playwright install-deps chromium
 
       - name: Install Chromium
         timeout-minutes: 10
         working-directory: tools/e2e
-        run: bunx playwright install chromium
+        run: bunx --no-install playwright install chromium
 
       - name: E2E flows, twice, results.json compared byte for byte
         timeout-minutes: 15
