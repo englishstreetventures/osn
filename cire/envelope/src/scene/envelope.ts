@@ -170,16 +170,11 @@ export function buildEnvelope(
   group.add(flap);
 
   let isOpen = false;
-  const materials = (): Material[] => {
-    const found: Material[] = [];
-    group.traverse((object) => {
-      if (object instanceof Mesh) {
-        const m = object.material as Material | Material[];
-        found.push(...(Array.isArray(m) ? m : [m]));
-      }
-    });
-    return found;
-  };
+  // The envelope's own sheets, once. The seal rides in `group` too, and owns
+  // its materials: their opacity and their disposal are the seal's.
+  const sheets = [shadow, pocket, outer, inner];
+  const materials = sheets.map((mesh) => mesh.material as Material);
+  let opacity = 1;
 
   return {
     group,
@@ -193,17 +188,14 @@ export function buildEnvelope(
       }
     },
     setOpacity(alpha) {
-      for (const material of materials()) {
-        material.transparent = true;
-        material.opacity = alpha;
-      }
+      if (alpha === opacity) return;
+      opacity = alpha;
+      for (const material of materials) material.opacity = alpha;
       group.visible = alpha > 0;
     },
     dispose() {
-      group.traverse((object) => {
-        if (object instanceof Mesh) object.geometry.dispose();
-      });
-      for (const material of materials()) material.dispose();
+      for (const mesh of sheets) mesh.geometry.dispose();
+      for (const material of materials) material.dispose();
       for (const t of textures) t.dispose();
     },
   };

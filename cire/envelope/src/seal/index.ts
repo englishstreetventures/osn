@@ -260,6 +260,8 @@ export function buildSeal(options: SealOptions): Seal {
       }
     },
     setOpacity(next) {
+      // Called every frame; `update` already applies each piece's fade.
+      if (next === alpha) return;
       alpha = next;
       applyOpacity();
     },
