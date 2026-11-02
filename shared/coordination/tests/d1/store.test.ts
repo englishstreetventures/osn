@@ -228,9 +228,12 @@ describe("CoordinationStore", () => {
   it(
     "empties the object once its entry has expired and the alarm has run",
     async () => {
-      await call("do7-value", "write", "v", 300);
-      await call("do7-count", "increment", 300);
-      await call("do7-claim", "claim", 300);
+      // Three first calls to new objects, then three dumps, all inside the TTL
+      // while each alarm is still set: a second leaves room for them on a
+      // fresh CI runner.
+      await call("do7-value", "write", "v", 1_000);
+      await call("do7-count", "increment", 1_000);
+      await call("do7-claim", "claim", 1_000);
       for (const name of ["do7-value", "do7-count", "do7-claim"]) {
         expect((await dump(name)).alarm).not.toBeNull();
       }

@@ -98,7 +98,10 @@ interface Workflow {
   readonly permissions?: Record<string, string>;
   readonly env?: Record<string, string | boolean>;
   readonly defaults?: unknown;
-  readonly concurrency?: { readonly group: string; readonly "cancel-in-progress"?: boolean };
+  readonly concurrency?: {
+    readonly group: string;
+    readonly "cancel-in-progress"?: boolean | string;
+  };
   readonly jobs: Record<string, Job>;
 }
 
@@ -765,6 +768,57 @@ describe("PR2: ci.yml's Build & Test job runs the guest route comparison's refer
     expect(existsSync(join(root, WRANGLER_TEST))).toBe(true);
     expect(scripts["test:scripts"]).toBe("bun test ./scripts/");
     expect(WRANGLER_TEST).not.toMatch(BUN_TEST_NAME);
+  });
+});
+
+describe("ci.yml's `CI` gate, the one required check, covers every job beside Build & Test", () => {
+  const ci = load(".github/workflows/ci.yml");
+  const needs = [ci.jobs.ci?.needs ?? []].flat();
+
+  // A job missing from `needs` can be red while the merge goes through.
+  test("the gate needs every job but E2E, which reports without gating", () => {
+    const gated = Object.keys(ci.jobs)
+      .filter((id) => id !== "ci" && id !== "e2e")
+      .toSorted();
+    expect(needs.toSorted()).toEqual(gated);
+  });
+
+  // A filter that names no package matches nothing, and turbo passes.
+  test("`@cire/api`'s unit tests are left out of Build & Test by the name of a real workspace, and run in their own job", () => {
+    const runsOf = (id: string) => stepsOf(ci.jobs[id]).map((step) => step.run ?? "");
+    const name = (
+      JSON.parse(readFileSync(join(root, "cire/api/package.json"), "utf8")) as { name: string }
+    ).name;
+    expect(name).toBe("@cire/api");
+    expect(runsOf("build-test")).toContain(`bun run test --filter='!${name}'`);
+    expect(runsOf("cire-api-tests")).toContain(
+      `bun run test --filter=${name} --cache-dir=.turbo/cire-api -- --parallel`,
+    );
+  });
+
+  // A merge-queue group runs on a `gh-readonly-queue/*` ref that no later run
+  // can restore from, so a turbo cache saved there is space and nothing else.
+  test("no turbo cache is saved on a merge-queue run", () => {
+    const saves = Object.values(ci.jobs)
+      .flatMap((job) => stepsOf(job))
+      .filter((step) => step.uses === "actions/cache/save@v4");
+    expect(saves.length).toBeGreaterThan(0);
+    for (const step of saves) {
+      expect({ path: step.with?.path, if: step.if }).toEqual({
+        path: step.with?.path,
+        if: "github.event_name != 'merge_group'",
+      });
+    }
+  });
+
+  // A newer push cancels only a pull request's superseded run; a run on main
+  // or in the merge queue is never cancelled or held behind another.
+  test("only a pull request's runs share a concurrency group", () => {
+    expect(ci.concurrency).toEqual({
+      group:
+        "${{ github.event_name == 'pull_request' && format('ci-pr-{0}', github.ref) || github.run_id }}",
+      "cancel-in-progress": "${{ github.event_name == 'pull_request' }}",
+    });
   });
 });
 
