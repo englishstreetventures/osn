@@ -394,6 +394,10 @@ export function createEnvelopeScene(options: EnvelopeSceneOptions): EnvelopeScen
     rejectLanded(new Error("envelope: WebGL context lost"));
   });
 
+  // The head stylesheet makes every other child of `<body>` inert while the
+  // page is covered, so focus can only land outside the overlay on what sits
+  // outside them, such as a browser extension's controls added to `<html>`.
+  // While the envelope waits, that focus comes back to the button.
   const onFocusIn = (event: FocusEvent) => {
     if (phase !== "sealed" || overlay.dataset["state"] !== "shown") return;
     const target = event.target;

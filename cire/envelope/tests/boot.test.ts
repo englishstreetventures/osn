@@ -27,6 +27,8 @@ interface World {
   requestPaint: boolean;
   webgl2: boolean;
   texElementSubImage2D: boolean;
+  /** `CSS.supports("interactivity", "inert")`: the head stylesheet can make the page under the cover inert. */
+  interactivityInert: boolean;
   reducedMotion: boolean;
   key: string | null;
   search: string;
@@ -41,6 +43,7 @@ const CAPABLE: World = {
   requestPaint: true,
   webgl2: true,
   texElementSubImage2D: true,
+  interactivityInert: true,
   reducedMotion: false,
   key: KEY,
   search: "?slug=envelope-wedding",
@@ -78,6 +81,10 @@ function boot(overrides: Partial<World> = {}) {
     document: { documentElement: root },
     HTMLCanvasElement: { prototype: canvasProto },
     WebGL2RenderingContext: WebGL2,
+    CSS: {
+      supports: (property: string, value: string) =>
+        world.interactivityInert && property === "interactivity" && value === "inert",
+    },
     matchMedia: (query: string) => {
       if (world.matchMediaThrows) throw new Error("not supported");
       return { matches: query === "(prefers-reduced-motion: reduce)" && world.reducedMotion };
@@ -114,6 +121,7 @@ describe("ENVELOPE_BOOT_SCRIPT", () => {
     ["requestPaint is missing", { requestPaint: false }],
     ["WebGL2RenderingContext is missing", { webgl2: false }],
     ["texElementSubImage2D is missing", { texElementSubImage2D: false }],
+    ["CSS cannot make the page under the cover inert", { interactivityInert: false }],
     ["the device asks for reduced motion", { reducedMotion: true }],
   ] as const)("sets nothing when %s", (_name, world) => {
     const run = boot(world);

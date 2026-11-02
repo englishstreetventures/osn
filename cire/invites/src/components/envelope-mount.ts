@@ -22,6 +22,9 @@
  * - Any failure removes the attribute, so the page is the page without an
  *   envelope, and writes the seen flag as `failed`, so this device does not
  *   pay for the attempt again.
+ * - When the cover goes, landed or failed, keyboard focus moves to the hero
+ *   (`focusPageStart`): the overlay's button, or the replay button now under
+ *   the cover, had it, and the next Tab should start at the top of the page.
  *
  * There is no client error reporting on the guest site, so a failure is
  * silent: the guest sees the invite as it is without an envelope.
@@ -51,6 +54,18 @@ const CONSENT_FALLBACK_MS = 8000;
 
 /** The hero section the card is drawn from, as the page has it now. */
 const findHero = (doc: Document) => () => doc.querySelector<HTMLElement>(`[${EDGE_HERO_ATTR}]`);
+
+/**
+ * Puts keyboard focus on the hero, the top of the page, without scrolling,
+ * so the next Tab starts there. The hero is no control, so it takes focus
+ * only from script (`tabindex="-1"`) and draws no ring (the head stylesheet).
+ */
+function focusPageStart(doc: Document): void {
+  const hero = findHero(doc)();
+  if (!hero) return;
+  if (!hero.hasAttribute("tabindex")) hero.setAttribute("tabindex", "-1");
+  hero.focus({ preventScroll: true });
+}
 
 /** The break style for this opening: `?envelope-break=` names one, otherwise one at random. */
 function breakStyle(win: Window) {
@@ -111,11 +126,16 @@ async function play(doc: Document): Promise<void> {
     disarm = armAfterConsent(win, doc, consent.value, scene.arm);
     await scene.landed;
     root.setAttribute(ENVELOPE_ATTR, "open");
+    focusPageStart(doc);
     writeSeen(key, "1");
     await scene.leave();
   } catch {
     dispose?.();
+    // Still behind the cover: lift it, then focus the page. Once a watchdog
+    // has lifted it the guest may already be on the page, so focus stays put.
+    const covered = sealed() || root.getAttribute(ENVELOPE_ATTR) === "ready";
     if (root.getAttribute(ENVELOPE_ATTR) !== "open") root.removeAttribute(ENVELOPE_ATTR);
+    if (covered) focusPageStart(doc);
     writeSeen(key, "failed");
   } finally {
     watch.disconnect();
@@ -172,6 +192,7 @@ function replay(doc: Document): void {
   win.setTimeout(() => {
     if (root.getAttribute(ENVELOPE_ATTR) !== "sealed") return;
     root.removeAttribute(ENVELOPE_ATTR);
+    focusPageStart(doc);
     writeSeen(key, "failed");
   }, ENVELOPE_WATCHDOG_MS);
   void play(doc);
