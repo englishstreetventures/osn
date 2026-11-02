@@ -9,17 +9,13 @@
  * guest sees of the hero at scroll 0.
  *
  * Cross-origin pixels never paint into a canvas, and the hero's image comes
- * from cire-api's origin. So the image is fetched once more in CORS mode
- * (cire-api allows the invite's origin) and turned into a `blob:` URL, which
- * is same-origin; the clone's `<img>` and every crop layer's
- * `background-image` point at it.
+ * from cire-api's origin. So the clone's images, and any `background-image`
+ * in it, point at the same-origin `blob:` copy `../hero` made of it.
  */
 
 import { ExternalTexture, type WebGLRenderer } from "three";
 
 import type { DrawableCanvas, ElementTextureContext } from "../html-in-canvas";
-
-const IMAGE_ACCEPT = "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8";
 
 /** Marks the clone, so the head stylesheet holds its animations at their start, as it does the hero's. */
 export const CARD_ATTR = "data-envelope-card";
@@ -39,28 +35,6 @@ export interface Card {
   /** Clones the live hero again; resolves at the upload of that clone. */
   refresh(viewport: Viewport): Promise<void>;
   dispose(): void;
-}
-
-/**
- * The hero image's URL as a same-origin `blob:` URL, or `null` when the hero
- * shows no image (none set, or it failed to load, which drops it from the
- * hero too). Throws when the image is there but cannot be fetched: a card
- * without the photo would jump at the hand-over, so the opening does not play.
- */
-export async function heroImageBlobUrl(hero: HTMLElement): Promise<string | null> {
-  const img = hero.querySelector("img");
-  const src = img?.currentSrc || img?.getAttribute("src");
-  if (!src) return null;
-  // The `Accept` Chrome sends for an `<img>`, so cire-api negotiates the same
-  // format the page's hero got and the card's pixels are the hero's. A
-  // CORS-safelisted header: no preflight.
-  const response = await fetch(src, {
-    mode: "cors",
-    credentials: "omit",
-    headers: { Accept: IMAGE_ACCEPT },
-  });
-  if (!response.ok) throw new Error(`envelope: hero image ${response.status}`);
-  return URL.createObjectURL(await response.blob());
 }
 
 function cloneHero(hero: HTMLElement, blobUrl: string | null, viewport: Viewport): HTMLElement {

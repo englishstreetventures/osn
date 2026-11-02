@@ -11,6 +11,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./boot": "./src/boot.ts",
+    "./hero": "./src/hero.ts",
     "./scene": "./src/scene.ts"
   },
   "scripts": {

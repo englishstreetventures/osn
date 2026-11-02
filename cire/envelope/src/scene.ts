@@ -35,8 +35,9 @@ import {
 } from "three";
 
 import { haptic } from "./haptics";
+import { cssVar, displayFont } from "./hero";
 import type { BreakStyle } from "./index";
-import { type Card, createCard, heroImageBlobUrl, type Viewport } from "./scene/card";
+import { type Card, createCard, type Viewport } from "./scene/card";
 import {
   buildEnvelope,
   type EnvelopeLayout,
@@ -78,6 +79,12 @@ const CARD_EDGE = 5;
 export interface EnvelopeSceneOptions {
   /** The live hero the card is drawn from, looked up again when the card is redrawn. */
   readonly hero: () => HTMLElement | null;
+  /**
+   * The hero image as a same-origin URL (`prepareCard` in `./hero`), or
+   * `null` for a card without the photo. The caller owns it and revokes it
+   * once the scene is disposed.
+   */
+  readonly blobUrl: string | null;
   /** Where the overlay goes: the page's `<body>`. */
   readonly host: HTMLElement;
   readonly breakStyle: BreakStyle;
@@ -101,36 +108,6 @@ export interface EnvelopeScene {
   /** Fades the overlay out and removes it. */
   leave(): Promise<void>;
   dispose(): void;
-}
-
-/** The value of a custom property on `<html>`, or `fallback`. */
-function cssVar(doc: Document, name: string, fallback: string): string {
-  const value = doc.defaultView
-    ?.getComputedStyle(doc.documentElement)
-    .getPropertyValue(name)
-    .trim();
-  return value || fallback;
-}
-
-/**
- * Resolves once the hero's backdrop has settled, so the clone carries the
- * image at its final opacity: `data-hero-backdrop` is `loaded`, `error` or
- * `none`. A hero without the attribute is taken as settled.
- */
-function backdropSettled(hero: HTMLElement): Promise<void> {
-  const settled = () => {
-    const state = hero.getAttribute("data-hero-backdrop");
-    return state === null || state === "loaded" || state === "error" || state === "none";
-  };
-  if (settled()) return Promise.resolve();
-  return new Promise((resolve) => {
-    const observer = new MutationObserver(() => {
-      if (!settled()) return;
-      observer.disconnect();
-      resolve();
-    });
-    observer.observe(hero, { attributes: true, attributeFilter: ["data-hero-backdrop"] });
-  });
 }
 
 export function createEnvelopeScene(options: EnvelopeSceneOptions): EnvelopeScene {
@@ -158,7 +135,6 @@ export function createEnvelopeScene(options: EnvelopeSceneOptions): EnvelopeScen
   let envelope: EnvelopeModel | null = null;
   let seal: Seal | null = null;
   let layout: EnvelopeLayout | null = null;
-  let blobUrl: string | null = null;
   const scene = new Scene();
   const camera = new PerspectiveCamera(FOV, 1, 1, 10_000);
   // Every material in the scene is `transparent`, so three draws them all in
@@ -252,7 +228,7 @@ export function createEnvelopeScene(options: EnvelopeSceneOptions): EnvelopeScen
       radius: layout.sealRadius,
       flap: envelope.flap,
       layers: { closed: LAYER.SEAL, open: LAYER.SEAL_ON_OPEN_FLAP },
-      font: cssVar(doc, "--font-display", "Georgia, serif"),
+      font: displayFont(doc),
     });
     seal.group.position.set(0, layout.sealY, 1);
     envelope.group.add(seal.group);
@@ -449,13 +425,9 @@ export function createEnvelopeScene(options: EnvelopeSceneOptions): EnvelopeScen
   win.addEventListener("resize", onResize);
 
   const ready = (async () => {
-    const hero = options.hero();
-    if (!hero) throw new Error("envelope: no hero");
-    await backdropSettled(hero);
-    const state = hero.getAttribute("data-hero-backdrop");
-    blobUrl = state === "error" || state === "none" ? null : await heroImageBlobUrl(hero);
-    const font = cssVar(doc, "--font-display", "Georgia, serif");
-    await doc.fonts?.load(`600 100px ${font}`).catch(() => []);
+    if (!options.hero()) throw new Error("envelope: no hero");
+    // Already loaded by `prepareCard`; the seal's letter is drawn in it.
+    await doc.fonts?.load(`600 100px ${displayFont(doc)}`).catch(() => []);
     if (disposed) throw new Error("envelope: disposed");
 
     viewport = measure();
@@ -471,7 +443,7 @@ export function createEnvelopeScene(options: EnvelopeSceneOptions): EnvelopeScen
       canvas,
       renderer,
       hero: options.hero,
-      blobUrl,
+      blobUrl: options.blobUrl,
       viewport,
       onUpload: draw,
     });
@@ -500,7 +472,6 @@ export function createEnvelopeScene(options: EnvelopeSceneOptions): EnvelopeScen
     cardFace.material.dispose();
     renderer?.dispose();
     overlay.remove();
-    if (blobUrl) URL.revokeObjectURL(blobUrl);
     rejectLanded(new Error("envelope: disposed"));
   };
 

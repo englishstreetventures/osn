@@ -6,7 +6,10 @@
  * It owns the `<html>` side of the opening:
  *
  * - It loads the scene (`@cire/envelope/scene`, with `three`) only for a page
- *   the boot script sealed, so no other guest downloads it.
+ *   the boot script sealed, so no other guest downloads it. While the chunk
+ *   downloads it readies the card's inputs (`@cire/envelope/hero`): the
+ *   hero's image copied to a `blob:` URL, which it owns and revokes, and the
+ *   display font.
  * - It reveals the scene and sets `data-envelope="ready"` only while the page
  *   is still `sealed`. Once the boot watchdog has given up, a late scene is
  *   thrown away unseen.
@@ -31,6 +34,7 @@ import {
   ENVELOPE_WATCHDOG_MS,
   writeSeen,
 } from "@cire/envelope/boot";
+import { prepareCard } from "@cire/envelope/hero";
 import { createEffect, createRoot } from "solid-js";
 
 import { consentRecord, hydrateConsent } from "../lib/consent/store";
@@ -61,18 +65,29 @@ async function play(doc: Document): Promise<void> {
   playing = true;
   const sealed = () => root.getAttribute(ENVELOPE_ATTR) === "sealed";
   let dispose: (() => void) | null = null;
+  let blobUrl: string | null = null;
   // Thrown away the moment the page stops being sealed before the reveal,
   // whatever the scene is doing then.
   const watch = new MutationObserver(() => {
     if (!sealed()) dispose?.();
   });
   try {
-    const { createEnvelopeScene } = await import("@cire/envelope/scene");
+    const hero = findHero(doc)();
+    if (!hero) throw new Error("envelope: no hero");
+    const [loaded, prepared] = await Promise.allSettled([
+      import("@cire/envelope/scene"),
+      prepareCard(hero),
+    ]);
+    // Kept before either failure is thrown, so `finally` revokes it.
+    if (prepared.status === "fulfilled") blobUrl = prepared.value;
+    if (loaded.status === "rejected") throw loaded.reason;
+    if (prepared.status === "rejected") throw prepared.reason;
     if (!sealed()) return;
-    const scene = createEnvelopeScene({
+    const scene = loaded.value.createEnvelopeScene({
       hero: findHero(doc),
       host: doc.body,
       breakStyle: breakStyle(win),
+      blobUrl,
     });
     dispose = scene.dispose;
     watch.observe(root, { attributes: true, attributeFilter: [ENVELOPE_ATTR] });
@@ -95,6 +110,7 @@ async function play(doc: Document): Promise<void> {
     writeSeen(key, "failed");
   } finally {
     watch.disconnect();
+    if (blobUrl) URL.revokeObjectURL(blobUrl);
     playing = false;
   }
 }
