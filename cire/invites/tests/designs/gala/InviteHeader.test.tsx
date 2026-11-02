@@ -124,7 +124,16 @@ describe("gala InviteHeader render", () => {
       img = container.querySelector("section img") as HTMLImageElement;
       expect(img).not.toBeNull();
     });
+    // The crop layers wait for the backdrop as the plain <img> does: hidden
+    // until it has loaded, then shown.
+    const layers = () => [
+      ...container.querySelectorAll<HTMLDivElement>(
+        "section div.md\\:block, section div.md\\:hidden",
+      ),
+    ];
+    expect(layers().map((layer) => layer.style.opacity)).toEqual(["0", "0"]);
     img.dispatchEvent(new Event("load"));
+    await waitFor(() => expect(layers().map((layer) => layer.style.opacity)).toEqual(["1", "1"]));
 
     // The wide layer (hidden below md:) carries the desktop focal point; the
     // narrow layer (md:hidden) carries the phone one. Both cover-render the same

@@ -868,6 +868,8 @@ test("cire-invite-envelope", async ({ page, context, browser, flow }) => {
       true,
       await page.locator("section[data-edge-hero]").isVisible(),
     );
+    flow.check("no envelope: the page renders the classic pack", "classic", state.design ?? "none");
+    flow.check("no envelope: the hero says it has no image", "none", state.backdrop ?? "missing");
     flow.check("no envelope: the browser is capable", true, state.capable);
     flow.check("no envelope: no key", "none", state.key ?? "none");
     flow.check("no envelope: not sealed", "none", state.state ?? "none");
