@@ -7,7 +7,7 @@ related:
   - "[[session-metrics]]"
   - "[[contributing]]"
   - "[[wiki-search]]"
-last-reviewed: 2026-10-29
+last-reviewed: 2026-11-02
 ---
 
 # Agent tooling
@@ -155,7 +155,7 @@ Running the cases is rationed:
 
 ## Third-party skills
 
-One skill is someone else's: `dgreenheck/webgpu-claude-skill`, the WebGPU and TSL guidance `@tools/lab` three.js work needs. It is installed at `.agents/skills/webgpu-threejs-tsl/`, with a `.claude/skills/webgpu-threejs-tsl` symlink and a root `skills-lock.json` that records, for each skill, the upstream commit it came from (`ref`) and a SHA-256 of the installed folder (`computedHash`).
+Two skills are someone else's: `dgreenheck/webgpu-claude-skill`, the WebGPU and TSL guidance `@tools/lab` three.js work needs, and `benjitaylor/skills`' `stageshow`, which builds faux product UI and animated demos (its npm tree runs only from a copy outside the checkout, as [the design-system skill](../../.claude/skills/design-system/SKILL.md) says). Each is installed under `.agents/skills/<name>/`, with a `.claude/skills/<name>` symlink, and a root `skills-lock.json` that records, for each skill, the upstream commit it came from (`ref`) and a SHA-256 of the installed folder (`computedHash`).
 
 Install another the same way, never by copying the text in:
 

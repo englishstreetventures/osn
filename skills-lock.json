@@ -1,6 +1,13 @@
 {
   "version": 1,
   "skills": {
+    "stageshow": {
+      "source": "benjitaylor/skills",
+      "ref": "802057409787133703c56001080169e347305572",
+      "sourceType": "github",
+      "skillPath": "stageshow/SKILL.md",
+      "computedHash": "bf9f07985a62882deae7935b5b1162fb5bf66b248930bb14a75dcaf9d67291b7"
+    },
     "webgpu-threejs-tsl": {
       "source": "dgreenheck/webgpu-claude-skill",
       "ref": "af2319bd01bb7cc881267a9ef42cafdaf5e9029d",

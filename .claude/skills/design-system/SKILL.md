@@ -62,7 +62,10 @@ existing scale, a missing dark-mode value — needs no design skill: apply what
 the document says.
 
 `frontend-design:frontend-design` is a plugin skill; the rest are user-level
-skills on the maintainer's machine. None of them is a file in this repository.
+skills on the maintainer's machine. None of them is a file in this repository
+except `stageshow` and `webgpu-threejs-tsl`, which are pinned third-party
+installs under `.agents/skills/` (`wiki/conventions/agent-tooling.md`
+§Third-party skills).
 Invoke a skill after reading the design system, and hand it the path of the
 `DESIGN.md` with the instruction that it is locked: none of them looks for one
 inside a package.
@@ -93,14 +96,16 @@ Five things these skills do that an agent here must not follow:
   A skill's install command is never run as written.
 
   The one exception is `stageshow`'s preview and filming scripts, which need
-  its own npm tree. Run them only from a copy of the skill taken at a commit
-  the brief names, in a fresh `mktemp -d` directory outside the checkout:
-  `npm ci --ignore-scripts`, then start the preview with
+  its own npm tree. Run them only from a copy of the pinned
+  `.agents/skills/stageshow` folder, in a fresh `mktemp -d` directory outside
+  the checkout: `npm ci --ignore-scripts`, then start the preview with
   `node node_modules/vite/bin/vite.js playground --config playground/vite.config.ts`,
   never `npm run dev`, which starts its own older `portless` against the
-  machine's trusted CA. Never disable the sandbox to reach the directory. With
-  no named commit, build the mock by hand from its reference pages and say
-  that filming was `NOT RUN`.
+  machine's trusted CA. Never run it in place, which would put a
+  `node_modules` and an npm lockfile run inside the checkout, and never
+  disable the sandbox to reach the directory. A session that cannot run npm
+  builds the mock by hand from its reference pages and reports filming as
+  `NOT RUN`.
 - **They fill gaps with third-party assets** — placeholder photos from
   picsum.photos, icons from a CDN such as cdn.simpleicons.org. Ship no image,
   icon or font from a host the page does not already load: put the asset in the
