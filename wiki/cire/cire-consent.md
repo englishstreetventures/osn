@@ -6,7 +6,8 @@ related:
   - "[[cire-invite-builder]]"
   - "[[cire-invite-designs]]"
   - "[[cire-landing]]"
-last-reviewed: 2026-10-21
+  - "[[cire-envelope]]"
+last-reviewed: 2026-11-02
 ---
 # Cire site-wide consent framework
 
@@ -39,8 +40,9 @@ arrangement could not offer for anything but Pinterest.
 
 **The site does no personal tracking, and consent is asked for exactly two
 things.** What the invite stores or loads to work at all — the claim-code
-session cookie, the record of these choices, the Turnstile bot check — is
-strictly necessary, needs no consent under ePrivacy, and is described in the
+session cookie, the record of these choices, the Turnstile bot check, and the
+flag that says whether this device has been shown the envelope opening
+([[cire-envelope#Storage]]) — is strictly necessary, needs no consent under ePrivacy, and is described in the
 privacy notice instead of being switched. The two things that need consent are
 the two third parties that see a guest's IP address and browser the moment
 they load, and each has its own switch, so a guest can allow one without the
@@ -48,7 +50,7 @@ other.
 
 | Category | Required? | Covers |
 |---|---|---|
-| `necessary` | yes, never a switch | `cire_session` claim cookie, Turnstile, the consent record itself |
+| `necessary` | yes, never a switch | `cire_session` claim cookie, Turnstile, the consent record itself, the envelope's seen flag |
 | `pinterest` | no — "Pinterest moodboards" | The Pinterest moodboard in an event's details |
 | `maps` | no — "Google Maps" | The Google Maps venue embed in an event's details |
 
