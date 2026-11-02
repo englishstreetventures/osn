@@ -137,6 +137,29 @@ function animationsOf(glyph: SVGSVGElement) {
 
 const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 
+/**
+ * Mounts the hero at `size` for a test that scrolls it, and returns once the
+ * resize has been delivered and a frame has drawn the hero at that size. A
+ * scroll made before that frame moves the page with no `scroll` event, so the
+ * cue never sees the guest's first scroll.
+ */
+async function mountToScroll(InviteHeader: Header, [width, height]: Viewport) {
+  const resized =
+    innerWidth === width && innerHeight === height
+      ? Promise.resolve()
+      : new Promise<void>((resolve) =>
+          window.addEventListener("resize", () => resolve(), { once: true }),
+        );
+  await page.viewport(width, height);
+  await resized;
+  const mounted = await mount(InviteHeader, invite());
+  // Two: the first callback can run in the frame the mount happened in,
+  // before that frame lays the hero out; the second runs after it drew it.
+  await nextFrame();
+  await nextFrame();
+  return mounted;
+}
+
 function scrollPageTo(top: number) {
   window.scrollTo({ top, behavior: "instant" });
 }
@@ -207,8 +230,7 @@ describe.each(PACKS)("%s hero scroll cue", (_pack, InviteHeader, align) => {
     });
 
     it("fades out on the first scroll and does not come back at the top", async () => {
-      await page.viewport(...size);
-      const { cue, glyph } = await mount(InviteHeader, invite());
+      const { cue, glyph } = await mountToScroll(InviteHeader, size);
       animationsOf(glyph).entry!.finish();
 
       scrollPageTo(200);
@@ -305,8 +327,7 @@ describe.each(PACKS)("%s hero scroll cue", (_pack, InviteHeader, align) => {
 
   it("stays, still, when the guest asks for less motion — and still hides on scroll", async () => {
     await emulate({ reducedMotion: "reduce" });
-    await page.viewport(...PHONE);
-    const { cue, glyph } = await mount(InviteHeader, invite());
+    const { cue, glyph } = await mountToScroll(InviteHeader, PHONE);
 
     // Nothing is finished by hand here: the global clamp lands the entry on
     // its end state and runs the drift out at once.

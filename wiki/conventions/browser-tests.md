@@ -11,7 +11,7 @@ packages:
   - "@musubi/social"
   - "@pulse/web"
   - "@shared/ui"
-last-reviewed: 2026-10-30
+last-reviewed: 2026-11-02
 ---
 
 # Browser Tests
@@ -211,12 +211,22 @@ iframe's own CSS pixels — what `SeatingView.browser.test.tsx` and
 Only Vitest's browser UI (`browser.ui`) CSS-scales the iframe to fit its panel,
 and there those coordinates miss.
 
-Two rules, both cheap to get wrong:
+Three rules, all cheap to get wrong:
 
 - **Every `it` sets its own viewport.** It persists for the rest of the file, so
   otherwise the order tests happen to run in decides what they measure.
 - **Render after the resize, not before.** A component rendered at the previous
   width plays its entry transition against a box that is about to change.
+- **Scroll only after a frame has drawn what you mounted, at its final size.**
+  A `window.scrollTo` made before that can move the page with no `scroll`
+  event, so code waiting for the first scroll never sees it and `scrollY`
+  reads as if it had. `page.viewport()` resolves before the frame's `resize`
+  is delivered, and one `requestAnimationFrame` is not enough: its callback
+  can run in the same frame as the mount, before that frame lays anything out.
+  Wait for the `resize`, mount, then await two frames, as `mountToScroll` in
+  `InviteHeader.browser.test.tsx` does.
+
+*Measured 2026-11-02 — `bunx --bun vitest run --project browser tests/designs/InviteHeader.browser.test.tsx` and `bun run --cwd cire/invites test:browser`, macOS on Apple silicon, Chromium 151 (revision 1234) and 156 (revision 1248). With the scroll straight after the mount, the gala scroll cue's first-scroll test failed in 1 of 3 full runs on 151 and 5 of 7 on 156. Probes in the failing test logged `scrollY` at 200 and no `scroll` event in 10 s, and in another run none in 3 s while `requestAnimationFrame` fired 136 times; a second `scrollTo` fired its event at once. Over 8 runs of the file each: waiting for the `resize` then one frame after the mount failed 8 of 8; two frames failed 0 of 8. With two frames, 10 full runs in a row passed, 344 of 344 each, on 156.*
 
 And one that is not about the viewport at all but bites the same tests: **await
 `document.fonts.ready` before measuring anything text-shaped.** The invite's
@@ -264,10 +274,10 @@ to open. This works in fish and bash; the build number moves with Playwright
 
 ```sh
 printf '%s\n' '#!/bin/sh' \
-  'exec ~/Library/Caches/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-mac-arm64/chrome-headless-shell "$@" -AppleShowScrollBars Always' \
-  > /tmp/chromium-classic.sh
-chmod +x /tmp/chromium-classic.sh
-VITEST_BROWSER_EXECUTABLE_PATH=/tmp/chromium-classic.sh bun run --cwd cire/invites test:browser
+  'exec ~/Library/Caches/ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-mac-arm64/chrome-headless-shell "$@" -AppleShowScrollBars Always' \
+  > "$TMPDIR/chromium-classic.sh"
+chmod +x "$TMPDIR/chromium-classic.sh"
+VITEST_BROWSER_EXECUTABLE_PATH="$TMPDIR/chromium-classic.sh" bun run --cwd cire/invites test:browser
 ```
 
 ### Chrome's accessibility tree
@@ -297,10 +307,23 @@ included, so an element Chrome leaves out of the tree cannot hide one.
 
 ## Running it locally
 
-Nothing extra on a normal machine — `playwright` is a devDependency of
-`@cire/invites` and `bunx playwright install chromium` fetches the browser once.
-On a Mac, the same variable as below runs the tier with classic scrollbars
-([[#Width]]).
+Nothing extra on a normal machine. `playwright` is a devDependency of each
+package with a browser tier, and `bunx --bun --no-install playwright install chromium`, run
+inside one of them (`cire/host`, say), fetches the build that version wants,
+once. At the repo root there is no local `playwright`. There `--no-install`
+either stops, when `bunx` has no cached copy, or runs a stale cached one ("Using
+a stale installation of playwright because --no-install was passed"), which
+installs the build *that* copy wants. Without the flag `bunx` would fetch npm's
+latest release, skipping the release-age soak. Run the install inside a package
+that pins Playwright. On a Mac, the same variable as below runs the tier with classic
+scrollbars ([[#Width]]).
+
+Playwright records each copy of itself that runs an install, and every install
+deletes the builds in the browser cache (`~/Library/Caches/ms-playwright` on a
+Mac) that no recorded copy still on disk needs. A worktree whose Playwright
+never ran the install itself is not recorded, so its build goes. While
+worktrees sit on two Playwright versions, install with
+`PLAYWRIGHT_SKIP_BROWSER_GC=1` so the other version's build stays.
 
 Dev containers and this repo's cloud sessions ship a **prebuilt Chromium** whose
 build number won't match the pinned Playwright, which otherwise makes the tier
@@ -338,17 +361,40 @@ same reason: it needs a dependency the default path doesn't, and splitting it
 keeps the fast tier fast.
 
 ```yaml
+- name: Cache Chromium
+  uses: actions/cache@v4
+  with:
+    path: ~/.cache/ms-playwright
+    key: ${{ runner.os }}-playwright-${{ hashFiles('bun.lock') }}
+    restore-keys: |
+      ${{ runner.os }}-playwright-
+
+- name: Install Chromium's system libraries
+  timeout-minutes: 10
+  working-directory: cire/host
+  run: bunx --no-install playwright install-deps chromium
+
 - name: Install Chromium for browser tests
-  run: bunx playwright install --with-deps chromium
+  timeout-minutes: 10
+  working-directory: cire/host
+  run: bunx --no-install playwright install chromium
 
 - name: Browser tests
   run: bun run test:browser
 ```
 
-`--with-deps` is required on `ubuntu-latest` — the browser alone won't launch
-without its shared libraries. Only `chromium` is installed: the tier pins a
-single instance, so pulling Firefox and WebKit too would triple the download for
-nothing.
+`install-deps` is required on `ubuntu-latest`: the browser alone won't launch
+without its shared libraries, which live in the image and are installed on
+every run. The browser download is cached on the lockfile. Both installs run
+from `cire/host`, because at the repo root `bunx` fetches npm's latest
+Playwright and the build it wants instead of ours ([[#Running it locally]]).
+Only `chromium` is installed: the tier pins a single instance, so pulling
+Firefox and WebKit too would triple the download for nothing.
+
+The E2E job installs the same way from `tools/e2e` under the same cache key,
+so every `playwright` pin and `tools/e2e`'s `@playwright/test` stay on one
+version. Two versions would want two builds, the cache would hold whichever
+job saved it first, and the other job would download its build on every run.
 
 ## Current coverage
 

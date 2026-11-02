@@ -22,7 +22,7 @@
     "drizzle-orm": "1.0.0-rc.5"
   },
   "devDependencies": {
-    "@playwright/test": "1.62.1",
+    "@playwright/test": "1.64.1",
     "@shared/typescript-config": "workspace:*",
     "typescript": "7.1.0-beta"
   }
