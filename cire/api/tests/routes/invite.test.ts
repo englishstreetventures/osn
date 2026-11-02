@@ -3159,6 +3159,39 @@ describe("PUT /invite/envelope (organiser)", () => {
     }
   });
 
+  // The builder reaches this route with the organiser session cookie, not a
+  // bearer token, so the cookie path is the one that has to hold.
+  it("saves for an organiser session cookie", async () => {
+    const { app, db } = buildApp();
+    setTier(db, BOOTSTRAP_WEDDING_ID, "crimson");
+    const token = await seedOrganiserSession(db, BOOTSTRAP_OWNER);
+    const res = await appRequest(app, `${orgBase}/envelope`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", cookie: `cire_org_session=${token}` },
+      body: JSON.stringify({ envelopeId: WAX_SEAL }),
+    });
+    expect(res.status).toBe(200);
+    expect((await envelopeReads(app)).organiser.envelopeId).toBe(WAX_SEAL);
+  });
+
+  it("401s a dead session cookie or a malformed bearer, and stores nothing", async () => {
+    const { app, db } = buildApp();
+    setTier(db, BOOTSTRAP_WEDDING_ID, "crimson");
+    const credentials: Record<string, string>[] = [
+      { cookie: "cire_org_session=not-a-live-session-token" },
+      { authorization: "Bearer not-a-jwt" },
+    ];
+    for (const headers of credentials) {
+      const res = await appRequest(app, `${orgBase}/envelope`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...headers },
+        body: JSON.stringify({ envelopeId: WAX_SEAL }),
+      });
+      expect(res.status).toBe(401);
+    }
+    expect(db.select().from(weddingInviteCustomisations).all()).toEqual([]);
+  });
+
   it("422s an id the catalog does not hold, and stores nothing", async () => {
     const { app, db } = buildApp();
     setTier(db, BOOTSTRAP_WEDDING_ID, "crimson");
