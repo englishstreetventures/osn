@@ -10,22 +10,27 @@
  * 1. warms `astro dev`'s compile of the scene modules, so the first real
  *    opening is not racing the boot script's 3 s readiness watchdog on a cold
  *    dev server;
- * 2. opens the invite: sealed, covered, waiting behind the consent prompt and
- *    ignoring a tap until it is answered, then armed, with focus on its button;
+ * 2. opens the invite: sealed, covered, the hero image downloaded once,
+ *    waiting behind the consent prompt and ignoring a tap until it is
+ *    answered, then armed, with focus on its button and kept there;
  * 3. waits for the idle prompt words;
- * 4. taps with the page clock paused: one haptic, the split break; a second
- *    tap speeds it up and it lands within 1000 ms of page time, on a last frame
- *    that matches the hero underneath;
+ * 4. changes the viewport while sealed, then taps with the page clock paused:
+ *    one haptic, the split break; a second tap speeds it up and it lands
+ *    within 1000 ms of page time, on a last frame that matches the hero
+ *    underneath, with focus moved to the hero;
  * 5. reloads to no envelope, and replays from the footer button with the peel
- *    (a tap) and the crumble (Enter);
- * 6. checks reduced motion and a browser without the API get the page as it
+ *    (a tap) and the crumble (Enter, its focus ring showing);
+ * 6. opens an envelope over a hero with no image, in the gala pack;
+ * 7. checks reduced motion and a browser without the API get the page as it
  *    is, with no attribute and no overlay;
- * 7. checks the page as it is after each failure: the scene module refused,
- *    and the WebGL context lost mid-opening; and that a consent prompt that
- *    never mounts still lets the envelope open after 8 s;
- * 8. opens an envelope over a hero with no image;
- * 9. checks a wedding with a shown hero and no envelope: capable, no key,
- *    nothing drawn.
+ * 8. checks the page as it is after each failure: the scene module refused, a
+ *    scene module or a first paint that comes after the readiness watchdog
+ *    (and a replay's), the opening's 6 s deadline, and the WebGL context lost
+ *    mid-opening; and that a consent prompt that never mounts still lets the
+ *    envelope open after 8 s;
+ * 9. opens over a hero image that fails, and over one that never arrives;
+ * 10. checks a wedding with a shown hero and no envelope: capable, no key,
+ *     nothing drawn.
  *
  * Every other flow runs with the API taken away (`NO_HTML_IN_CANVAS`, the
  * fixture's default); this one sets `envelope: true`. It claims nothing.
@@ -44,11 +49,17 @@ const SHOTS = resolve(SCREENSHOT_DIR, "cire-invite-envelope");
 const INVITE = `${ORIGINS.cireInvites}/cire/invite?slug=${CIRE_ORGANISER.envelope.slug}`;
 const PLAIN = `${ORIGINS.cireInvites}/cire/invite?slug=${CIRE_ORGANISER.envelope.plainSlug}`;
 const NO_ENVELOPE = `${ORIGINS.cireInvites}/cire/invite?slug=${CIRE_ORGANISER.envelope.noneSlug}`;
+/** The envelope wedding's hero image, every variant. */
+const HERO_IMAGE = `**/api/invite/${CIRE_ORGANISER.envelope.slug}/image/hero*`;
+/** The scene's entry module as `astro dev` serves it. */
+const SCENE_MODULE = "**/cire/envelope/src/scene.ts*";
 const PHONE = devices["Pixel 7"];
 const OVERLAY = "[data-envelope-overlay]";
 const SEEN_PREFIX = "cire:envelope:";
 /** At most this share of the frame's pixels may differ by more than 16 of 255 in any channel. */
 const HANDOVER_TOLERANCE = 0.005;
+/** `BACKDROP_WAIT_MS` in `@cire/envelope/hero`: how long the opening waits for the hero's backdrop. */
+const BACKDROP_WAIT_MS = 1500;
 
 let bundled: string | undefined;
 try {
@@ -76,12 +87,21 @@ async function envelopeState(page: Page) {
       state: root.getAttribute("data-envelope"),
       capable: root.hasAttribute("data-envelope-capable"),
       key: root.getAttribute("data-envelope-key"),
+      design: root.getAttribute("data-design"),
+      backdrop:
+        document.querySelector("[data-edge-hero]")?.getAttribute("data-hero-backdrop") ?? null,
       overlay: overlay !== null,
       phase: overlay?.dataset["phase"] ?? null,
+      breakStyle: overlay?.getAttribute("data-envelope-break") ?? null,
       seen:
         flags.length === 1 ? localStorage.getItem(flags[0]!) : flags.length === 0 ? null : "many",
     };
   }, SEEN_PREFIX);
+}
+
+/** Whether keyboard focus is on the hero, the top of the page. */
+async function focusOnHero(page: Page): Promise<boolean> {
+  return page.evaluate(() => document.activeElement?.matches("[data-edge-hero]") ?? false);
 }
 
 /**
@@ -104,6 +124,26 @@ function consoleErrors(page: Page): string[] {
   return errors;
 }
 
+/**
+ * Counts the hero image's downloads in `page`: responses whose body came over
+ * the network, not from the memory or disk cache.
+ */
+async function countHeroDownloads(context: BrowserContext, page: Page): Promise<() => number> {
+  const cdp = await context.newCDPSession(page);
+  await cdp.send("Network.enable");
+  const hero = new Set<string>();
+  let downloads = 0;
+  cdp.on("Network.requestWillBeSent", (event) => {
+    if (event.request.url.includes(`/api/invite/${CIRE_ORGANISER.envelope.slug}/image/hero`)) {
+      hero.add(event.requestId);
+    }
+  });
+  cdp.on("Network.loadingFinished", (event) => {
+    if (hero.has(event.requestId) && event.encodedDataLength > 0) downloads++;
+  });
+  return () => downloads;
+}
+
 /** Answers the first-visit consent prompt with "Reject all". */
 async function rejectConsent(page: Page): Promise<void> {
   const prompt = page.getByRole("dialog", { name: "Privacy choices" });
@@ -120,10 +160,69 @@ async function waitForState(page: Page, state: string | null): Promise<void> {
     .toBe(state);
 }
 
-/** Stops the page clock where it is, so frames advance only through `runFor`. */
+/** Stops the page clock where it is, so frames and timers advance only through `runFor`. */
 async function pauseClock(page: Page): Promise<void> {
   const now = await page.evaluate(() => Date.now());
   await page.clock.pauseAt(now + 16);
+}
+
+/**
+ * Reads the canvas in the task that draws the last frame, before it is
+ * presented and cleared, into `window.lastFrame`.
+ */
+async function captureLastFrame(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    new MutationObserver((_records, observer) => {
+      if (document.documentElement.getAttribute("data-envelope") !== "open") return;
+      observer.disconnect();
+      const canvas = document.querySelector<HTMLCanvasElement>("[data-envelope-overlay] canvas");
+      (window as unknown as { lastFrame: string }).lastFrame = canvas?.toDataURL("image/png") ?? "";
+    }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-envelope"] });
+  });
+}
+
+/**
+ * The share of pixels that differ by more than 16 of 255 between the captured
+ * last frame and `shot`, a screenshot of the page after the hand-over; 1 when
+ * no frame was captured.
+ */
+async function handoverMismatch(page: Page, shot: Buffer): Promise<number> {
+  return page.evaluate(
+    async (input) => {
+      const lastFrame = (window as unknown as { lastFrame?: string }).lastFrame;
+      const decode = async (base64: string) => {
+        const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+        return createImageBitmap(new Blob([bytes], { type: "image/png" }));
+      };
+      if (!lastFrame) return 1;
+      const [frame, shown] = await Promise.all([
+        decode(lastFrame.split(",")[1]!),
+        decode(input.shot),
+      ]);
+      // The drawing buffer is the CSS size times the pixel ratio rounded down
+      // (1081 for 412 x 2.625), the screenshot rounded up (1082); the
+      // compositor stretches the one over the other, and so does this.
+      const pixels = (bitmap: ImageBitmap) => {
+        const canvas = new OffscreenCanvas(shown.width, shown.height);
+        const ctx = canvas.getContext("2d")!;
+        ctx.drawImage(bitmap, 0, 0, shown.width, shown.height);
+        return ctx.getImageData(0, 0, shown.width, shown.height).data;
+      };
+      const a = pixels(frame);
+      const b = pixels(shown);
+      let differing = 0;
+      for (let i = 0; i < a.length; i += 4) {
+        const d = Math.max(
+          Math.abs(a[i]! - b[i]!),
+          Math.abs(a[i + 1]! - b[i + 1]!),
+          Math.abs(a[i + 2]! - b[i + 2]!),
+        );
+        if (d > 16) differing++;
+      }
+      return differing / (a.length / 4);
+    },
+    { shot: shot.toString("base64") },
+  );
 }
 
 /**
@@ -140,11 +239,28 @@ async function playOpening(
   if (input.how === "tap") await page.locator(`${OVERLAY} button`).tap();
   else await page.keyboard.press("Enter");
   await page.clock.runFor(input.midMs);
+  const mid = await envelopeState(page);
+  flow.check(`${input.style}: the seal breaks`, "breaking", mid.phase ?? "none");
   flow.check(
-    `${input.style}: the seal breaks`,
-    "breaking",
-    (await envelopeState(page)).phase ?? "none",
+    `${input.style}: the scene draws the ${input.style} break`,
+    input.style,
+    mid.breakStyle ?? "none",
   );
+  if (input.how === "enter") {
+    flow.check(
+      `${input.style}: the button keeps its focus ring while it takes keys`,
+      true,
+      await page.evaluate(() => {
+        const button = document.querySelector("[data-envelope-overlay] button");
+        return (
+          button !== null &&
+          button === document.activeElement &&
+          button.matches(":focus-visible") &&
+          getComputedStyle(button).outlineStyle === "solid"
+        );
+      }),
+    );
+  }
   await page.screenshot({ path: resolve(SHOTS, input.shot) });
   await page.clock.runFor(3000 - input.midMs);
   flow.check(
@@ -153,6 +269,7 @@ async function playOpening(
     (await envelopeState(page)).state ?? "none",
   );
   await expect(page.locator(OVERLAY)).toHaveCount(0);
+  flow.check(`${input.style}: focus moves to the top of the page`, true, await focusOnHero(page));
   await page.clock.resume();
 }
 
@@ -166,6 +283,47 @@ async function newPhonePage(
   return { context, page, errors: consoleErrors(page) };
 }
 
+/**
+ * Holds every request matching `glob` in `page` until `release()`; `url` is
+ * the last one held. Routing turns off the page's HTTP cache, so no context
+ * that counts downloads uses it.
+ */
+async function holdRequests(page: Page, glob: string) {
+  let release: () => void = () => {};
+  let held = Promise.resolve();
+  const hold = {
+    url: "",
+    /** Holds the requests that arrive from now on. */
+    arm() {
+      held = new Promise<void>((resolveHeld) => {
+        release = resolveHeld;
+      });
+      hold.url = "";
+    },
+    release: () => release(),
+  };
+  hold.arm();
+  await page.route(glob, async (route) => {
+    hold.url = route.request().url();
+    await held;
+    await route.continue();
+  });
+  return hold;
+}
+
+/**
+ * Lets a held scene module load, then gives the mount script its turn: the
+ * page imports the module itself, which resolves after the mount's own import
+ * of it, and runs one frame of page time.
+ */
+async function finishHeldModule(page: Page, url: string): Promise<void> {
+  await page.evaluate(async (moduleUrl) => {
+    await import(moduleUrl);
+    return true;
+  }, url);
+  await page.clock.runFor(100);
+}
+
 test("cire-invite-envelope", async ({ page, context, browser, flow }) => {
   // Many contexts and four openings, on SwiftShader in CI: three times the
   // suite's per-flow limit.
@@ -173,6 +331,7 @@ test("cire-invite-envelope", async ({ page, context, browser, flow }) => {
   mkdirSync(SHOTS, { recursive: true });
   await context.addInitScript(HIDE_DEV_TOOLBAR);
   const errors = consoleErrors(page);
+  const heroDownloads = await countHeroDownloads(context, page);
 
   await flow.step("warm the dev server's scene modules", async () => {
     const warm = await newPhonePage(flow, browser);
@@ -196,6 +355,10 @@ test("cire-invite-envelope", async ({ page, context, browser, flow }) => {
     flow.check("the browser can play the opening", true, state.capable);
     flow.check("the server gave a hashed key", true, /^[0-9a-f]{64}$/.test(state.key ?? ""));
     flow.check("the key holds no part of the slug", false, (state.key ?? "").includes("envelope"));
+    flow.check("the envelope wedding renders the classic pack", "classic", state.design ?? "none");
+    flow.check("the hero's image loaded", "loaded", state.backdrop ?? "none");
+    // The preload, the backdrop and its crop layers, and the card's copy.
+    flow.check("the hero image is downloaded once", 1, heroDownloads());
     flow.check(
       "waits for the consent answer",
       false,
@@ -227,6 +390,29 @@ test("cire-invite-envelope", async ({ page, context, browser, flow }) => {
       ),
     );
     await page.screenshot({ path: resolve(SHOTS, "01-sealed.png") });
+    await page.keyboard.press("Tab");
+    flow.check(
+      "Tab never lands on the page under the cover",
+      false,
+      await page.evaluate(
+        () => document.activeElement?.closest("body > :not([data-envelope-overlay])") != null,
+      ),
+    );
+    // What the inert page leaves focusable outside the overlay: a control
+    // outside `<body>`'s children, as a browser extension adds one.
+    flow.check(
+      "focus that lands outside the page comes back to the overlay",
+      true,
+      await page.evaluate(() => {
+        const stray = document.createElement("button");
+        document.documentElement.append(stray);
+        stray.focus({ preventScroll: true });
+        const back = document.activeElement?.closest("[data-envelope-overlay]") != null;
+        stray.remove();
+        return back;
+      }),
+    );
+    flow.check("the page under the cover stays at the top", 0, await page.evaluate(() => scrollY));
   });
 
   await flow.step("the prompt words appear when the guest waits", async () => {
@@ -236,8 +422,24 @@ test("cire-invite-envelope", async ({ page, context, browser, flow }) => {
   });
 
   await flow.step(
-    "tap: one haptic and the split; a second tap lands it within 1000 ms",
+    "a viewport change while sealed; then a tap, one haptic and the split; a second tap lands it within 1000 ms",
     async () => {
+      // Android's address bar showing: a shorter viewport the scene rebuilds for.
+      await page.setViewportSize({ width: 412, height: 780 });
+      const rebuilt = () =>
+        page.evaluate(() => {
+          const canvas = document.querySelector<HTMLCanvasElement>(
+            "[data-envelope-overlay] canvas",
+          );
+          return innerHeight === 780 && canvas?.height === Math.floor(780 * devicePixelRatio);
+        });
+      await expect.poll(rebuilt).toBe(true);
+      flow.check("the scene's drawing buffer follows the new viewport", true, await rebuilt());
+      flow.check(
+        "still sealed after the change",
+        "sealed",
+        (await envelopeState(page)).phase ?? "none",
+      );
       await page.evaluate(() => {
         const calls: unknown[] = [];
         const vibrate = navigator.vibrate.bind(navigator);
@@ -246,21 +448,8 @@ test("cire-invite-envelope", async ({ page, context, browser, flow }) => {
           return vibrate(pattern);
         };
         (window as unknown as { vibrations: unknown[] }).vibrations = calls;
-        // Reads the canvas in the task that drew the last frame, before it is
-        // presented and cleared.
-        new MutationObserver((_records, observer) => {
-          if (document.documentElement.getAttribute("data-envelope") !== "open") return;
-          observer.disconnect();
-          const canvas = document.querySelector<HTMLCanvasElement>(
-            "[data-envelope-overlay] canvas",
-          );
-          (window as unknown as { lastFrame: string }).lastFrame =
-            canvas?.toDataURL("image/png") ?? "";
-        }).observe(document.documentElement, {
-          attributes: true,
-          attributeFilter: ["data-envelope"],
-        });
       });
+      await captureLastFrame(page);
       await pauseClock(page);
       await page.locator(`${OVERLAY} button`).tap();
       flow.check(
@@ -271,7 +460,9 @@ test("cire-invite-envelope", async ({ page, context, browser, flow }) => {
         ),
       );
       await page.clock.runFor(250);
-      flow.check("split: the seal breaks", "breaking", (await envelopeState(page)).phase ?? "none");
+      const mid = await envelopeState(page);
+      flow.check("split: the seal breaks", "breaking", mid.phase ?? "none");
+      flow.check("split: the scene draws the split break", "split", mid.breakStyle ?? "none");
       await page.screenshot({ path: resolve(SHOTS, "03-split.png") });
       await page.locator(`${OVERLAY} button`).tap();
       await page.clock.runFor(750);
@@ -288,48 +479,16 @@ test("cire-invite-envelope", async ({ page, context, browser, flow }) => {
         ),
       );
       await expect(page.locator(OVERLAY)).toHaveCount(0);
+      flow.check("focus moves to the top of the page", true, await focusOnHero(page));
       await page.clock.resume();
       await expect(page.getByLabel("Invitation code")).toBeAttached();
-      const shot = (await page.screenshot({ path: resolve(SHOTS, "04-landed.png") })).toString(
-        "base64",
+      const shot = await page.screenshot({ path: resolve(SHOTS, "04-landed.png") });
+      flow.check(
+        "the last frame matches the hero beneath it, at the new size",
+        true,
+        (await handoverMismatch(page, shot)) < HANDOVER_TOLERANCE,
       );
-      const share = await page.evaluate(
-        async (input) => {
-          const lastFrame = (window as unknown as { lastFrame: string }).lastFrame;
-          const decode = async (base64: string) => {
-            const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-            return createImageBitmap(new Blob([bytes], { type: "image/png" }));
-          };
-          if (!lastFrame) return 1;
-          const [frame, shown] = await Promise.all([
-            decode(lastFrame.split(",")[1]!),
-            decode(input.shot),
-          ]);
-          // The drawing buffer is the CSS size times the pixel ratio rounded down
-          // (1081 for 412 x 2.625), the screenshot rounded up (1082); the
-          // compositor stretches the one over the other, and so does this.
-          const pixels = (bitmap: ImageBitmap) => {
-            const canvas = new OffscreenCanvas(shown.width, shown.height);
-            const ctx = canvas.getContext("2d")!;
-            ctx.drawImage(bitmap, 0, 0, shown.width, shown.height);
-            return ctx.getImageData(0, 0, shown.width, shown.height).data;
-          };
-          const a = pixels(frame);
-          const b = pixels(shown);
-          let differing = 0;
-          for (let i = 0; i < a.length; i += 4) {
-            const d = Math.max(
-              Math.abs(a[i]! - b[i]!),
-              Math.abs(a[i + 1]! - b[i + 1]!),
-              Math.abs(a[i + 2]! - b[i + 2]!),
-            );
-            if (d > 16) differing++;
-          }
-          return differing / (a.length / 4);
-        },
-        { shot },
-      );
-      flow.check("the last frame matches the hero beneath it", true, share < HANDOVER_TOLERANCE);
+      await page.setViewportSize(PHONE.viewport);
     },
   );
 
@@ -357,21 +516,23 @@ test("cire-invite-envelope", async ({ page, context, browser, flow }) => {
     });
   });
 
-  await flow.step("an envelope over a hero with no image opens without one", async () => {
-    await page.goto(`${PLAIN}&envelope-break=split`);
-    await waitForState(page, "ready");
-    flow.check(
-      "plain: the hero says it has no image",
-      "none",
-      await page.evaluate(
-        () =>
-          document.querySelector("[data-edge-hero]")?.getAttribute("data-hero-backdrop") ??
-          "missing",
-      ),
-    );
-    await playOpening(flow, page, { style: "split", how: "tap", midMs: 250, shot: "07-plain.png" });
-    flow.check("the main context logged no console errors", "none", errors.join(" | ") || "none");
-  });
+  await flow.step(
+    "an envelope over a hero with no image opens without one, in the gala pack",
+    async () => {
+      await page.goto(`${PLAIN}&envelope-break=split`);
+      await waitForState(page, "ready");
+      const state = await envelopeState(page);
+      flow.check("plain: the page renders the gala pack", "gala", state.design ?? "none");
+      flow.check("plain: the hero says it has no image", "none", state.backdrop ?? "missing");
+      await playOpening(flow, page, {
+        style: "split",
+        how: "tap",
+        midMs: 250,
+        shot: "07-plain.png",
+      });
+      flow.check("the main context logged no console errors", "none", errors.join(" | ") || "none");
+    },
+  );
 
   await flow.step(
     "reduced motion, and a browser without the API, get the page as it is",
@@ -410,7 +571,7 @@ test("cire-invite-envelope", async ({ page, context, browser, flow }) => {
     "a refused scene module, and a lost WebGL context, fall back to the page",
     async () => {
       const refused = await newPhonePage(flow, browser);
-      await refused.page.route("**/cire/envelope/src/scene.ts*", (route) => route.abort());
+      await refused.page.route(SCENE_MODULE, (route) => route.abort());
       await refused.page.goto(INVITE);
       await waitForState(refused.page, null);
       const after = await envelopeState(refused.page);
@@ -443,6 +604,137 @@ test("cire-invite-envelope", async ({ page, context, browser, flow }) => {
   );
 
   await flow.step(
+    "a scene module that arrives after the watchdog is thrown away, and so is a replay's",
+    async () => {
+      const slow = await newPhonePage(flow, browser);
+      const held = await holdRequests(slow.page, SCENE_MODULE);
+      // Every timer from here runs on `runFor`, so the watchdog fires when the
+      // flow says and not when a slow runner happens to reach it.
+      await pauseClock(slow.page);
+      // A held module keeps the document's `load` from firing.
+      await slow.page.goto(INVITE, { waitUntil: "commit" });
+      await waitForState(slow.page, "sealed");
+      await expect.poll(() => held.url).not.toBe("");
+      await expect(slow.page.getByLabel("Invitation code")).toBeAttached();
+      flow.check(
+        "held: the page under the cover is inert from the first paint",
+        "inert",
+        await slow.page.evaluate(() =>
+          getComputedStyle(document.querySelector("[data-edge-hero]")!).getPropertyValue(
+            "interactivity",
+          ),
+        ),
+      );
+      await slow.page.getByLabel("Invitation code").focus();
+      flow.check(
+        "held: the code field under the cover cannot take focus",
+        false,
+        await slow.page.evaluate(() => document.activeElement?.matches("input") ?? false),
+      );
+      await slow.page.clock.runFor(3000);
+      await waitForState(slow.page, null);
+      flow.check(
+        "held: the flag says it failed",
+        "failed",
+        (await envelopeState(slow.page)).seen ?? "none",
+      );
+      held.release();
+      await finishHeldModule(slow.page, held.url);
+      flow.check(
+        "held: the late scene draws nothing",
+        false,
+        (await envelopeState(slow.page)).overlay,
+      );
+
+      // The flag says `failed`, so the page loads unsealed; the replay waits
+      // on a module held the same way and gives up on its own watchdog.
+      held.arm();
+      await slow.page.goto(INVITE, { waitUntil: "commit" });
+      await expect(slow.page.getByLabel("Invitation code")).toBeAttached();
+      await slow.page.getByRole("button", { name: "Open the envelope again" }).click();
+      await waitForState(slow.page, "sealed");
+      await expect.poll(() => held.url).not.toBe("");
+      await slow.page.clock.runFor(3000);
+      await waitForState(slow.page, null);
+      const replayed = await envelopeState(slow.page);
+      flow.check("held replay: no overlay", false, replayed.overlay);
+      flow.check("held replay: the flag says it failed", "failed", replayed.seen ?? "none");
+      flow.check(
+        "held replay: focus moves to the top of the page",
+        true,
+        await focusOnHero(slow.page),
+      );
+      held.release();
+      await finishHeldModule(slow.page, held.url);
+      flow.check(
+        "held replay: the late scene draws nothing",
+        false,
+        (await envelopeState(slow.page)).overlay,
+      );
+      await slow.context.close();
+    },
+  );
+
+  await flow.step(
+    "a scene whose first paint never comes is disposed when the watchdog fires",
+    async () => {
+      const unpainted = await newPhonePage(flow, browser);
+      // The API is still there for the boot script, but no paint event comes,
+      // so the card's first upload never does.
+      await unpainted.context.addInitScript(
+        "HTMLCanvasElement.prototype.requestPaint = function () {};",
+      );
+      await pauseClock(unpainted.page);
+      await unpainted.page.goto(INVITE, { waitUntil: "commit" });
+      await expect(unpainted.page.locator(OVERLAY)).toBeAttached();
+      await unpainted.page.clock.runFor(3000);
+      await waitForState(unpainted.page, null);
+      await expect(unpainted.page.locator(OVERLAY)).toHaveCount(0);
+      flow.check(
+        "unpainted: the flag says it failed",
+        "failed",
+        (await envelopeState(unpainted.page)).seen ?? "none",
+      );
+      // A scene disposed mid-set-up ends the opening, so the replay answers.
+      await unpainted.page.getByRole("button", { name: "Open the envelope again" }).click();
+      flow.check(
+        "unpainted: the replay button still answers",
+        "sealed",
+        (await envelopeState(unpainted.page)).state ?? "none",
+      );
+      await unpainted.page.clock.runFor(3000);
+      await waitForState(unpainted.page, null);
+      await expect(unpainted.page.locator(OVERLAY)).toHaveCount(0);
+      await unpainted.context.close();
+    },
+  );
+
+  await flow.step("an opening that does not land within 6 s gives the page back", async () => {
+    const stalled = await newPhonePage(flow, browser);
+    await stalled.page.goto(INVITE);
+    await waitForState(stalled.page, "ready");
+    await rejectConsent(stalled.page);
+    await expect(stalled.page.locator(`${OVERLAY}[data-armed]`)).toBeAttached();
+    await pauseClock(stalled.page);
+    // No frame ever comes, so only the deadline can end the opening.
+    await stalled.page.evaluate(() => {
+      window.requestAnimationFrame = () => 0;
+    });
+    await stalled.page.locator(`${OVERLAY} button`).tap();
+    await stalled.page.clock.runFor(6000);
+    await waitForState(stalled.page, null);
+    const after = await envelopeState(stalled.page);
+    flow.check("deadline: no overlay", false, after.overlay);
+    flow.check("deadline: the flag says it failed", "failed", after.seen ?? "none");
+    flow.check(
+      "deadline: focus moves to the top of the page",
+      true,
+      await focusOnHero(stalled.page),
+    );
+    await stalled.context.close();
+  });
+
+  await flow.step(
     "a consent prompt that never mounts does not hold the envelope shut",
     async () => {
       const opened = await newPhonePage(flow, browser);
@@ -464,6 +756,97 @@ test("cire-invite-envelope", async ({ page, context, browser, flow }) => {
         (await opened.page.locator(`${OVERLAY}[data-armed]`).count()) > 0,
       );
       await opened.context.close();
+    },
+  );
+
+  await flow.step("a hero image that fails to load: the envelope opens without it", async () => {
+    const broken = await newPhonePage(flow, browser);
+    await broken.page.route(HERO_IMAGE, (route) =>
+      route.fulfill({
+        status: 404,
+        headers: { "access-control-allow-origin": ORIGINS.cireInvites, vary: "Accept, Origin" },
+        body: "",
+      }),
+    );
+    await broken.page.goto(`${INVITE}&envelope-break=split`);
+    await waitForState(broken.page, "ready");
+    flow.check(
+      "failed image: the hero says its image failed",
+      "error",
+      (await envelopeState(broken.page)).backdrop ?? "none",
+    );
+    await rejectConsent(broken.page);
+    await expect(broken.page.locator(`${OVERLAY}[data-armed]`)).toBeAttached();
+    await captureLastFrame(broken.page);
+    await pauseClock(broken.page);
+    await broken.page.locator(`${OVERLAY} button`).tap();
+    await broken.page.clock.runFor(3000);
+    flow.check("failed image: lands", "open", (await envelopeState(broken.page)).state ?? "none");
+    await expect(broken.page.locator(OVERLAY)).toHaveCount(0);
+    await broken.page.clock.resume();
+    const shot = await broken.page.screenshot({ path: resolve(SHOTS, "09-failed-image.png") });
+    flow.check(
+      "failed image: the last frame matches the hero beneath it",
+      true,
+      (await handoverMismatch(broken.page, shot)) < HANDOVER_TOLERANCE,
+    );
+    flow.check(
+      "failed image: the flag says it played",
+      "1",
+      (await envelopeState(broken.page)).seen ?? "none",
+    );
+    flow.check(
+      "failed image: the only console errors are the image's",
+      "none",
+      broken.errors.filter((e) => !e.includes("404")).join(" | ") || "none",
+    );
+    await broken.context.close();
+  });
+
+  await flow.step(
+    "a hero image that never arrives: the envelope stops waiting and opens without it",
+    async () => {
+      const waiting = await newPhonePage(flow, browser);
+      const image = await holdRequests(waiting.page, HERO_IMAGE);
+      await pauseClock(waiting.page);
+      const sceneRequested = waiting.page.waitForRequest(SCENE_MODULE);
+      // A held image keeps the document's `load` from firing.
+      await waiting.page.goto(`${INVITE}&envelope-break=split`, { waitUntil: "commit" });
+      // The mount asks for the scene in the same turn as it starts waiting on
+      // the backdrop, so the wait's timer is set by now.
+      await sceneRequested;
+      await waitForState(waiting.page, "sealed");
+      await waiting.page.clock.runFor(BACKDROP_WAIT_MS);
+      await waitForState(waiting.page, "ready");
+      flow.check(
+        "held image: the hero is still waiting for it",
+        "pending",
+        (await envelopeState(waiting.page)).backdrop ?? "none",
+      );
+      // The consent banner hydrates when the browser is idle, on page time.
+      await waiting.page.clock.resume();
+      await rejectConsent(waiting.page);
+      await expect(waiting.page.locator(`${OVERLAY}[data-armed]`)).toBeAttached();
+      await captureLastFrame(waiting.page);
+      await pauseClock(waiting.page);
+      await waiting.page.locator(`${OVERLAY} button`).tap();
+      await waiting.page.clock.runFor(3000);
+      flow.check("held image: lands", "open", (await envelopeState(waiting.page)).state ?? "none");
+      await expect(waiting.page.locator(OVERLAY)).toHaveCount(0);
+      await waiting.page.clock.resume();
+      const shot = await waiting.page.screenshot({ path: resolve(SHOTS, "10-held-image.png") });
+      flow.check(
+        "held image: the last frame matches the hero beneath it",
+        true,
+        (await handoverMismatch(waiting.page, shot)) < HANDOVER_TOLERANCE,
+      );
+      flow.check(
+        "held image: the flag says it played",
+        "1",
+        (await envelopeState(waiting.page)).seen ?? "none",
+      );
+      image.release();
+      await waiting.context.close();
     },
   );
 
