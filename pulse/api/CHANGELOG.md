@@ -1,5 +1,12 @@
 # @osn/api
 
+## 0.28.1
+
+### Patch Changes
+
+- @shared/crypto@0.14.15
+  - @shared/osn-auth-client@0.4.53
+
 ## 0.28.0
 
 ### Minor Changes

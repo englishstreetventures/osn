@@ -1,5 +1,11 @@
 # @osn/client
 
+## 2.18.10
+
+### Patch Changes
+
+- 66a7c30: `SessionSummary.isCurrent` documents the rule the server applies: it marks every session of the caller's device, the family of the session the request's cookie names, while that session is live or was rotated out within the rotation grace window. Documentation only.
+
 ## 2.18.9
 
 ### Patch Changes
