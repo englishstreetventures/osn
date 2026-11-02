@@ -188,9 +188,7 @@ function rootFontPx(): number {
 
 /** The builder's sections, in guest scroll order (+ the two non-page cards).
  *  Ids double as the fieldset ids. The nav row above the form is a real tab
- *  switcher — one section shown at a time — rather than the vertical stack of
- *  every card the builder used to be, with a scroll-jump nav bolted to the
- *  top of it. */
+ *  switcher: one section is shown at a time. */
 const NAV_SECTIONS = [
   { id: "invite-design", label: "Design" },
   { id: "invite-look", label: "Look" },
@@ -285,8 +283,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   // server-acknowledged snapshot — a copy-only save must not bump the theme
   // row's `updatedAt` (it doubles as the guest image-cache version, so a
   // gratuitous bump busts the per-variant transform cache and makes guests
-  // re-download the hero for zero visual change — P-W1, see
-  // [[free-tier-limits]]).
+  // re-download the hero for zero visual change — see [[free-tier-limits]]).
   const textDirty = createMemo(
     () => seeded() && JSON.stringify(textPayload(draft)) !== savedText(),
   );
@@ -306,7 +303,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   });
   // The beforeunload listener exists ONLY while dirty — a persistently
   // registered one makes the page ineligible for the back/forward cache in
-  // Firefox/Safari even with a clean form (P-I3).
+  // Firefox/Safari even with a clean form.
   createEffect(() => {
     if (!isDirty() && !faqPending()) return;
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -324,7 +321,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   // colour-picker DRAG (pointermove) — without a memo each frame ran the full
   // derivation once per reader. The seeds + adjustments memos are shared with
   // PaletteField via props, so the whole builder derives exactly once per
-  // frame (P-W1).
+  // frame.
   const paletteSeeds = createMemo(() => resolvedSeeds(draft.palette));
   const seedAdjustments = createMemo(() => paletteAdjustments(paletteSeeds()));
   const previewTokens = createMemo((): Record<string, string> => {
@@ -349,13 +346,10 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   });
 
   /**
-   * Which preview layer to mount (perf P-I1). Both layers used to be mounted at
-   * all times with a container query hiding one, so the hidden layer still took
-   * every token write on every keystroke and colour-drag frame — five `style`
-   * spreads of ~25 custom properties, landing on subtrees that render nothing.
-   * That was cheap while the composed pane was unreachable (the old 1100px page
-   * cap kept the builder below `@4xl`); now that the pane is the wide default,
-   * the waste moved to whichever layer is idle.
+   * Which preview layer to mount. A layer only hidden by a container query
+   * would still take every token write on every keystroke and colour-drag
+   * frame — five `style` spreads of ~25 custom properties, landing on subtrees
+   * that render nothing — so the idle layer is not mounted at all.
    *
    * Measured off the builder container itself, exactly like the module nav's
    * rail/sheet swap: a `ResizeObserver`'s `contentRect` IS the content box a
@@ -983,7 +977,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
       >
         {(d) => {
           // Memoized once per render pass and shared by the sticky side pane
-          // and the mobile modal (P-I1) — without this, the rare frame where
+          // and the mobile modal — without this, the rare frame where
           // both are mounted (the initial "unknown" preview-layer measurement,
           // or resizing to wide while the modal is left open) has each
           // consumer independently re-deriving every slot.
@@ -1265,7 +1259,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                       on small screens a preview below the sliders scrolls out
                       of view exactly when it's needed. Mounted only when this
                       layer is the visible one (see `previewLayer`) AND this is
-                      the active tab (P-I2) — a hidden tab's inline preview
+                      the active tab — a hidden tab's inline preview
                       would otherwise still re-render on every token edit for
                       no one to see. */}
                     <Show when={showInlinePreviews() && activeSection() === "invite-hero"}>

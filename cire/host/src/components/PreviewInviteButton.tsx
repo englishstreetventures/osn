@@ -81,15 +81,13 @@ export default function PreviewInviteButton(props: { weddingId: string }) {
   // rather than to a page button — it lives in the chrome now, and a 44px
   // control there would set the bar's height instead of fitting inside it.
   //
-  // Narrow bars get the glyph alone. This used to be hidden outright below
-  // `@2xl/frame`, which left the invite preview with NO entry point on a phone
-  // — the palette carries no preview command, so the control simply did not
-  // exist there. Collapsing to an icon keeps it reachable at every width, and
-  // costs the switcher beside it a few characters of truncation rather than a
-  // wrapped bar. The label follows the palette trigger's `⌘K` idiom: it is the
-  // same element throughout (`sr-only` → `not-sr-only`, never `hidden`), so the
-  // accessible name is always the visible wording and never goes missing on the
-  // width where nothing is drawn.
+  // Narrow bars get the glyph alone, never nothing: the palette carries no
+  // preview command, so on a phone this is the invite preview's only entry
+  // point. The icon costs the switcher beside it a few characters of
+  // truncation rather than a wrapped bar. The label follows the palette
+  // trigger's `⌘K` idiom: it is the same element throughout (`sr-only` →
+  // `not-sr-only`, never `hidden`), so the accessible name is always the
+  // visible wording and never goes missing on the width where nothing is drawn.
   return (
     // `cta`, which is the outline-at-rest, gold-on-hover shape this button was
     // writing out by hand — the same one `InviteBuilder`'s Preview control
