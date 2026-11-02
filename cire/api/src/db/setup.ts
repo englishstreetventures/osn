@@ -1551,6 +1551,8 @@ export function seedE2eOrganiser(db: TestDb): void {
  * are served its premium envelope, the Wax seal, over a hero that shows (it has
  * a title). No seat: guests open it, and no organiser flow changes it. Its own
  * wedding, so no other flow's invite gains an envelope.
+ *
+ * Read by the envelope E2E flow that englishstreetventures/osn#1857 adds.
  */
 function seedE2eEnvelope(db: TestDb, now: Date): void {
   const weddingId = "wed_e2e_envelope";
