@@ -245,7 +245,7 @@ Two quick taps land in about 0.8 s.
 
 The seal is `buildSeal({ radius, flap, layers, font })`, returning
 `{ group, break(style), update(dt), setOpacity(alpha), dispose() }`. `break`
-resolves once the seal no longer holds the flap; the scene owns the clock and
+resolves once the seal has released the flap; the scene owns the clock and
 calls `update` with animation seconds already scaled by the rate, so a tap
 speeds the break too. A piece that rides the flap is attached to `flap` and
 takes the flap's layer. The three breaks:
