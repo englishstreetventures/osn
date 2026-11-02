@@ -35,8 +35,8 @@ const db = createDb(process.env.CIRE_LOCAL_DB_PATH || ":memory:");
 //
 // The seed has no gift list. `CIRE_E2E_REGISTRY=1` (the E2E suite) adds a
 // second wedding on Gold with a published one, for the gift-list flows, and
-// `CIRE_E2E_ORGANISER=1` three Gold weddings the dev profile owns, for the
-// organiser portal's flows.
+// `CIRE_E2E_ORGANISER=1` the weddings of the organiser portal's flows and the
+// envelope's (`seedE2eOrganiser`).
 db.$client.transaction(() => {
   seedDb(db);
   applyE2eRsvpDeadline(db, process.env);
