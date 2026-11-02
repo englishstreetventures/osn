@@ -1,5 +1,13 @@
 # @osn/osn
 
+## 3.31.4
+
+### Patch Changes
+
+- dfae4a2: Run most test files with `isolate: false`, so a Vitest worker loads the app once instead of once per file. Files that call `vi.mock`, `vi.doMock` or `vi.resetModules` keep their own module cache in a separate project, and a setup file restores timers, mocks, stubs and `process.env` after each file.
+- Updated dependencies [dfae4a2]
+  - @shared/coordination@0.1.2
+
 ## 3.31.3
 
 ### Patch Changes
