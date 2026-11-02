@@ -147,7 +147,7 @@ export const SURFACES: readonly Surface[] = [
   {
     key: "cire_api",
     paths:
-      /^(cire\/api\/|cire\/db\/|cire\/dietary\/|cire\/guest-email\/|cire\/invite-designs\/|cire\/theme\/|scripts\/(cire-db-|check-d1-database-id|migration-files))/,
+      /^(cire\/api\/|cire\/db\/|cire\/dietary\/|cire\/guest-email\/|cire\/envelope\/|cire\/invite-designs\/|cire\/theme\/|scripts\/(cire-db-|check-d1-database-id|migration-files))/,
     stack: "cire",
     production: ownJob("deploy-cire-api", "Deploy cire/api — production"),
     dev: { id: "deploy-cire-api-dev", name: "Deploy cire/api — dev" },

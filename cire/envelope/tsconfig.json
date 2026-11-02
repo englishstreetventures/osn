@@ -1,0 +1,16 @@
+{
+  "extends": "@shared/typescript-config/base.json",
+  "compilerOptions": {
+    // The catalog is read by cire-api and written for browsers too, so it
+    // checks at the browser floor in the root `.browserslistrc`: an ES2023
+    // method such as `toSorted` fails `check`. Stated here rather than
+    // inherited, so a change to the shared config cannot quietly raise it. No
+    // ambient types: `bun-types` declares newer built-ins
+    // (`Promise.withResolvers`, `Array.fromAsync`) whatever `lib` says, and no
+    // DOM, because cire-api has none.
+    "lib": ["ES2022"],
+    "types": []
+  },
+  "include": ["src/**/*", "tests/**/*"],
+  "exclude": ["node_modules"]
+}

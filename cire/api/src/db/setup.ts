@@ -8,6 +8,7 @@ import {
   events as eventsData,
   guests as guestsData,
 } from "@cire/db/seed";
+import type { EnvelopeId } from "@cire/envelope";
 import { GUEST_EMAIL_CONSENT, ORGANISER_EMAIL_ATTESTATION } from "@cire/guest-email";
 import { and, eq, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
@@ -320,6 +321,7 @@ CREATE TABLE IF NOT EXISTS wedding_invite_customisations (
   welcome_tone TEXT,
   invite_message TEXT,
   design_id TEXT NOT NULL DEFAULT 'classic',
+  envelope_id TEXT,
   updated_at INTEGER NOT NULL,
   images_updated_at INTEGER,
   registry_eyebrow TEXT,
@@ -1116,9 +1118,10 @@ function seatDevOwner(db: TestDb, weddingId: string, seatId: string, now: Date):
 }
 
 /**
- * Eight weddings for the E2E suite's organiser flows, each on Gold. The dev
- * profile, which osn-api's `/dev/login` signs in as, owns all but
- * `wed_e2e_rs_helper`, where it is a helper:
+ * Eight weddings for the E2E suite's organiser flows, each on Gold, and one
+ * whose guests open an envelope. The dev profile, which osn-api's `/dev/login`
+ * signs in as, owns all but `wed_e2e_rs_helper`, where it is a helper, and
+ * `wed_e2e_envelope`, which has no seat:
  *
  * - `wed_e2e_checklist`: a wedding date (2099-06-20) and an empty checklist,
  *   for the starter checklist.
@@ -1144,6 +1147,8 @@ function seatDevOwner(db: TestDb, weddingId: string, seatId: string, now: Date):
  *   use — Ada and Bo Alpha at Table 1, Cy Charlie at Table 2, all three having
  *   said yes — and an after party, inviting Ada, with no plan yet; for setting
  *   out and seating an event's chart.
+ * - `wed_e2e_envelope`: on Crimson, with the Wax seal envelope and a hero
+ *   title, for the guest's opening of the envelope.
  *
  * It also gives Bo, of the sample wedding's Sampleton household, an address
  * his hosts added, so the member-step flow can check the invitation shows it
@@ -1538,6 +1543,37 @@ export function seedE2eOrganiser(db: TestDb): void {
   }
 
   seedE2eSeating(db, now);
+  seedE2eEnvelope(db, now);
+}
+
+/**
+ * `wed_e2e_envelope`, for {@link seedE2eOrganiser}: on Crimson, so its guests
+ * are served its premium envelope, the Wax seal, over a hero that shows (it has
+ * a title). No seat: guests open it, and no organiser flow changes it. Its own
+ * wedding, so no other flow's invite gains an envelope.
+ *
+ * Read by the envelope E2E flow that englishstreetventures/osn#1857 adds.
+ */
+function seedE2eEnvelope(db: TestDb, now: Date): void {
+  const weddingId = "wed_e2e_envelope";
+  db.insert(schema.weddings)
+    .values({
+      id: weddingId,
+      slug: "envelope-wedding",
+      displayName: "Envelope Wedding",
+      tier: "crimson",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  db.insert(schema.weddingInviteCustomisations)
+    .values({
+      weddingId,
+      heroTitle: "Envelope Wedding",
+      envelopeId: "wax-seal" satisfies EnvelopeId,
+      updatedAt: now,
+    })
+    .run();
 }
 
 /** `wed_e2e_seating`, for {@link seedE2eOrganiser}. Every seating row names

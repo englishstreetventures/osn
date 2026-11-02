@@ -44,8 +44,10 @@ packages:
   - "@cire/vendor"
   - "@cire/invites"
   - "@cire/invite-designs"
+  - "@cire/envelope"
   - "@cire/ui"
   - "@cire/dietary"
+  - "@cire/guest-email"
   - "@cire/build-tools"
   - "@cire/infra"
   - "@shared/color"
@@ -74,7 +76,7 @@ packages:
   - "@tools/oxlint-house"
   - "@tools/pr-metrics"
   - "@tools/stryker"
-last-reviewed: 2026-10-27
+last-reviewed: 2026-11-02
 ---
 
 # Monorepo Structure
@@ -128,7 +130,9 @@ cire/
   theme/               # @cire/theme — zero-dep shared theming validators (CSS-colour allow-list)
   ui/                  # @cire/ui — cire's house component layer on top of @shared/ui. Version-less like every @cire/* package
   invite-designs/      # @cire/invite-designs — the invite design catalog: ids, names, free or premium (premium opens with Crimson)
+  envelope/            # @cire/envelope — the envelope catalog (what guests open before the invite; every envelope premium) and how the seal breaks; no DOM, no dependencies
   dietary/             # @cire/dietary — the dietary-requirement vocabulary shared by cire-api and @cire/ui; no dependencies
+  guest-email/         # @cire/guest-email — the one rule for a guest's email address and its consent wordings, shared by cire-api, the portal and the invite; no dependencies
   build-tools/         # @cire/build-tools — build-only code for the Astro apps: the integration that points each build's `_headers` CSP at its own cire-api
   landing/             # @cire/landing — Astro + Solid marketing site for the apex (port 4323; prod cireweddings.com)
   infra/               # @cire/infra — the Alchemy stack `cire`: cire-api with its D1, buckets and seeds, cire-invites, the three cire sites (dev only today)

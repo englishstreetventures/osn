@@ -29,6 +29,7 @@
   "dependencies": {
     "@cire/db": "workspace:*",
     "@cire/dietary": "workspace:*",
+    "@cire/envelope": "workspace:*",
     "@cire/guest-email": "workspace:*",
     "@cire/invite-designs": "workspace:*",
     "@cire/theme": "workspace:*",

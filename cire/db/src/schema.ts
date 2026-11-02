@@ -1818,6 +1818,11 @@ export const weddingInviteCustomisations = sqliteTable("wedding_invite_customisa
   // Which design pack the invite renders as (invite design selector, 0045).
   // Always a concrete id; unknown values fall back to 'classic' on read.
   designId: text("design_id").notNull().default("classic"),
+  // Which envelope the guest opens before the invite, an id from the
+  // `@cire/envelope` catalog. NULL is none, every wedding's default. The API
+  // serves guests NULL for an id not in the catalog, and for a premium one when
+  // the wedding no longer has premium templates.
+  envelopeId: text("envelope_id"),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   // The guest IMAGE cache version (migration 0029) — bumped ONLY by image
   // upload/remove/crop and a hero-blur change, never by copy/theme-colour

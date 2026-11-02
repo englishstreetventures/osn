@@ -158,6 +158,7 @@ cire/             # @cire/* — wedding-invite stack
   theme/            # Zero-dependency theming validators (CSS-colour allowlist)
   ui/               # cire's house component layer, on top of @shared/ui
   invite-designs/   # The invite design catalogue
+  envelope/         # The envelope catalogue: what guests open before the invite
   dietary/          # The dietary-requirement vocabulary (API and UI)
   build-tools/      # Build-only Astro integration: each build's CSP names its own API
 

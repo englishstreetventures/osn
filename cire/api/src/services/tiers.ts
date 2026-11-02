@@ -303,6 +303,28 @@ export function legacyEntitlementKeys(tier: Tier, holdsPremiumTemplates: boolean
   return keys;
 }
 
+/**
+ * Whether a wedding may use premium invite templates (premium designs and
+ * envelopes): Crimson includes them, and a wedding below it may hold the
+ * one-off `premium_templates` row. The rule in one place: the design and
+ * envelope saves decide through {@link tierService.hasPremiumTemplates}, and the
+ * invite reads call this on the tier and the row they select.
+ */
+export function mayUsePremiumTemplates(tier: Tier, holdsPremiumTemplates: boolean): boolean {
+  return tierAtLeast(tier, "crimson") || holdsPremiumTemplates;
+}
+
+/**
+ * Whether a wedding holds the one-off `premium_templates` row, as a SQL
+ * `EXISTS` for a select list (1 or 0). `weddingId` is a bound id, or
+ * `outerColumn(weddings.id)` to ask it of each row a select reads from
+ * `weddings`. A primary-key probe: `wedding_entitlements` is keyed on
+ * `(wedding_id, entitlement)`.
+ */
+export function holdsPremiumTemplatesSql(weddingId: string | SQL): SQL<number> {
+  return sql<number>`EXISTS (SELECT 1 FROM ${weddingEntitlements} WHERE ${weddingEntitlements.weddingId} = ${weddingId} AND ${weddingEntitlements.entitlement} = 'premium_templates')`;
+}
+
 export const tierService = {
   tierGrantStatement,
 
@@ -329,9 +351,8 @@ export const tierService = {
   },
 
   /**
-   * Whether the wedding may use a premium invite template: Crimson includes
-   * them, and a wedding below it may hold the one-off `premium_templates`
-   * entitlement.
+   * Whether the wedding may use premium invite templates, by
+   * {@link mayUsePremiumTemplates}.
    *
    * `knownTier` is the tier a role gate already read from the wedding row in
    * the same request. Given it, a Crimson wedding costs no statement, and one
@@ -343,7 +364,8 @@ export const tierService = {
     knownTier?: Tier,
   ): Effect.Effect<boolean, never, DbService> {
     return Effect.gen(function* () {
-      if (knownTier !== undefined && tierAtLeast(knownTier, "crimson")) return true;
+      // A tier the rule admits with no row costs no statement.
+      if (knownTier !== undefined && mayUsePremiumTemplates(knownTier, false)) return true;
       const db = yield* DbService;
       if (knownTier !== undefined) {
         const held = yield* dbQuery(() =>
@@ -358,21 +380,18 @@ export const tierService = {
             )
             .all(),
         );
-        return held.length > 0;
+        return mayUsePremiumTemplates(knownTier, held.length > 0);
       }
       const rows = yield* dbQuery(() =>
         db
-          .select({
-            tier: weddings.tier,
-            held: sql<number>`EXISTS (SELECT 1 FROM ${weddingEntitlements} WHERE ${weddingEntitlements.weddingId} = ${weddingId} AND ${weddingEntitlements.entitlement} = 'premium_templates')`,
-          })
+          .select({ tier: weddings.tier, held: holdsPremiumTemplatesSql(weddingId) })
           .from(weddings)
           .where(eq(weddings.id, weddingId))
           .all(),
       );
       const row = rows[0];
       if (!row) return false;
-      return tierAtLeast(normaliseTier(row.tier), "crimson") || Boolean(row.held);
+      return mayUsePremiumTemplates(normaliseTier(row.tier), Boolean(row.held));
     }).pipe(Effect.withSpan("cire.tier.hasPremiumTemplates"));
   },
 

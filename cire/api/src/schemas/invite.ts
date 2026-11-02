@@ -369,9 +369,8 @@ const PresetField = Schema.NullOr(Schema.Literals(PALETTE_PRESET_KEYS));
 
 /**
  * Strict CSS-colour allow-list — the write-time half of the CSS-injection
- * gate. The single source of truth lives in `@cire/theme` (IB-S-L1) and is
- * shared with the guest site's render-time check, so the two sides cannot
- * drift.
+ * gate. The single source of truth lives in `@cire/theme` and is shared
+ * with the guest site's render-time check, so the two sides cannot drift.
  */
 export const isThemeColor = isSafeCssColor;
 
@@ -466,6 +465,17 @@ export const InviteDesignBody = Schema.Struct({
   designId: Schema.String,
 });
 export type InviteDesignBody = Schema.Schema.Type<typeof InviteDesignBody>;
+
+/**
+ * Body for `PUT /invite/envelope`: an envelope id, or `null` for none. Like the
+ * design body, any string passes here and the route checks it against
+ * `@cire/envelope`, so an unknown id is a 422, not a 400. The key is required:
+ * a body without it is a 400, never a silent "none".
+ */
+export const InviteEnvelopeBody = Schema.Struct({
+  envelopeId: Schema.NullOr(Schema.String),
+});
+export type InviteEnvelopeBody = Schema.Schema.Type<typeof InviteEnvelopeBody>;
 
 // ── Fixed-path guest lookup ─────────────────────────────────────────────────────
 
