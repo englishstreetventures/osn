@@ -289,6 +289,23 @@ describe("InviteBuilder theme", () => {
     screen.getByText("All changes saved");
   });
 
+  it("saves on Enter: a submit is default-prevented and PUTs the edited title", async () => {
+    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
+    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // text save
+
+    render(() => <InviteBuilder {...WEDDING} />);
+    await waitFor(() => screen.getByText("Save invite"));
+
+    fireEvent.input(screen.getByLabelText("Couple title"), { target: { value: "Anita & Ben" } });
+    const form = screen.getByText("Save invite").closest("form")!;
+    // `fireEvent` returns false when a handler called `preventDefault()`: the
+    // browser would otherwise reload the page and lose the edit.
+    expect(fireEvent.submit(form)).toBe(false);
+
+    await waitFor(() => expect(sentBody("/text")).not.toBeNull());
+    expect(sentBody("/text").heroTitle).toBe("Anita & Ben");
+  });
+
   it("disables Save on a clean form and shows the live dirty indicator on edit", async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load only
 
