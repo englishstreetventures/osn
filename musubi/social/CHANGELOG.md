@@ -1,5 +1,29 @@
 # @osn/social
 
+## 0.18.21
+
+### Patch Changes
+
+- ef3d36d: Dependency bumps within the caution window: `effect`, `@effect/platform-bun`,
+  `@effect/platform-node`, `@effect/sql-d1` and `@effect/opentelemetry` 4.0.7
+  (with the matching root overrides for `@effect/platform-node-shared`,
+  `@effect/sql-d1` and `@effect/sql-sqlite-do`), `jose` 6.2.14, `astro` 7.4.4,
+  `@astrojs/solid-js` 7.1.0, `@opentelemetry/*` 0.223.0 and 2.12.0,
+  `@growthbook/growthbook` 1.8.0, `@solidjs/start` 2.0.6, `cropperjs` 2.3.1,
+  `lucide-solid` 1.59.0, `motion` 13.5.1, `vitest` and the `@vitest/*` packages
+  5.0.5 (which clears the moderate dev-server file-read advisory). The root
+  overrides for `@opentelemetry/core` (`^2.12.0`) and `seroval` (`~1.6.11`, which
+  clears two moderate serialisation advisories) rise with them. `wrangler` stays on 4.149.0, which
+  `@cloudflare/vite-plugin` pins exactly. `solid-js` stays on 1.9.15 (see the cire
+  changeset for why).
+- Updated dependencies [ef3d36d]
+  - @osn/auth-ui@3.0.24
+  - @osn/client@2.18.11
+  - @shared/design-tokens@0.3.8
+  - @shared/legal@0.0.9
+  - @shared/toast@0.3.10
+  - @shared/ui@0.7.2
+
 ## 0.18.20
 
 ### Patch Changes
@@ -352,7 +376,7 @@
 
   15 call sites across `@pulse/web` and `@musubi/social` were spelling a card's
   padding as `class="p-4"`, `"p-5"` or `"p-6"`. It is `padding="sm" | "md" |
-"lg"` now.
+  "lg"` now.
 
   `none` stays the default, and that is not an oversight: a card built from
   `CardHeader` / `CardContent` / `CardFooter` takes its padding from those, and a
@@ -645,7 +669,7 @@
 
   15 call sites across `@pulse/web` and `@musubi/social` were spelling a card's
   padding as `class="p-4"`, `"p-5"` or `"p-6"`. It is `padding="sm" | "md" |
-"lg"` now.
+  "lg"` now.
 
   `none` stays the default, and that is not an oversight: a card built from
   `CardHeader` / `CardContent` / `CardFooter` takes its padding from those, and a
@@ -1563,7 +1587,7 @@
   - **New retrieval pass over the caller's own edges.** An index seek on the
     connection indexes joined to `users`, capped at 50 rows. It is a recall
     guarantee, not a duplicate: every global pass is `ORDER BY handle LIMIT
-overfetch`, so a common prefix filled the window with whoever sorted
+    overfetch`, so a common prefix filled the window with whoever sorted
     alphabetically first and a connection could be missed entirely regardless of
     ranking. Organisation search gained the same pass over the caller's own
     memberships.
@@ -1666,7 +1690,7 @@ overfetch`, so a common prefix filled the window with whoever sorted
     the caller's own are _more_ relevant in a search box, so they come back
     flagged `isMember: true` and render a badge instead of a CTA. Results are
     addressed by **handle**, not the internal `org_*` id: `GET
-/organisations/:handle` resolves by handle and the public `orgProjection`
+    /organisations/:handle` resolves by handle and the public `orgProjection`
     omits the id. Chasing that down also turned up a pre-existing bug —
     `OrganisationsPage` linked `/organisations/${org.id}` against that same
     id-less projection, so every organisation row navigated to
@@ -1981,7 +2005,7 @@ overfetch`, so a common prefix filled the window with whoever sorted
     `md+`. `@osn/ui` primitives untouched.
   - **Touch** — form controls render 16px below 768px (kills iOS focus
     auto-zoom; documented type-scale exception), row actions bump `h-7 →
-max-md:h-10`, tabs get `max-md:min-h-11` + `overflow-x-auto`, rows gain
+    max-md:h-10`, tabs get `max-md:min-h-11` + `overflow-x-auto`, rows gain
     `active:` feedback, `touch-action: manipulation`, page padding
     `px-4 py-6 md:px-8 md:py-8`, toasts top-center on mobile.
   - **Guardrails** — `DESIGN.md` gains a Responsive layout section locking the
@@ -2077,7 +2101,7 @@ max-md:h-10`, tabs get `max-md:min-h-11` + `overflow-x-auto`, rows gain
   Note: this removes only the workflow. The `osn-social-preview` Pages project and
   its last deployment still exist in the Cloudflare account and are now orphaned —
   delete them in the dashboard (or `wrangler pages project delete
-osn-social-preview`).
+  osn-social-preview`).
 
 ## 0.7.1
 
@@ -2129,8 +2153,8 @@ osn-social-preview`).
   live hostname.
 
   **osn-api production vars.** `OSN_RP_ID = musubi.social`, `OSN_ISSUER_URL =
-https://id.musubi.social`, `OSN_ORIGIN = https://musubi.social`, `OSN_AUTHORIZE_UI_URL =
-https://musubi.social/authorize` (unset, the provider falls back to `/authorize` on the
+  https://id.musubi.social`, `OSN_ORIGIN = https://musubi.social`, `OSN_AUTHORIZE_UI_URL =
+  https://musubi.social/authorize` (unset, the provider falls back to `/authorize` on the
   first `OSN_ORIGIN` entry — right today by accident, so it stays explicit), plus a
   `custom_domain` route on `id.musubi.social`. `OSN_CORS_ORIGIN` keeps the three cire
   origins: these are two different lists, and CORS governs bearer-token calls, which

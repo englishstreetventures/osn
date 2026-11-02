@@ -1,5 +1,24 @@
 # @pulse/landing
 
+## 0.1.30
+
+### Patch Changes
+
+- ef3d36d: Dependency bumps within the caution window: `effect`, `@effect/platform-bun`,
+  `@effect/platform-node`, `@effect/sql-d1` and `@effect/opentelemetry` 4.0.7
+  (with the matching root overrides for `@effect/platform-node-shared`,
+  `@effect/sql-d1` and `@effect/sql-sqlite-do`), `jose` 6.2.14, `astro` 7.4.4,
+  `@astrojs/solid-js` 7.1.0, `@opentelemetry/*` 0.223.0 and 2.12.0,
+  `@growthbook/growthbook` 1.8.0, `@solidjs/start` 2.0.6, `cropperjs` 2.3.1,
+  `lucide-solid` 1.59.0, `motion` 13.5.1, `vitest` and the `@vitest/*` packages
+  5.0.5 (which clears the moderate dev-server file-read advisory). The root
+  overrides for `@opentelemetry/core` (`^2.12.0`) and `seroval` (`~1.6.11`, which
+  clears two moderate serialisation advisories) rise with them. `wrangler` stays on 4.149.0, which
+  `@cloudflare/vite-plugin` pins exactly. `solid-js` stays on 1.9.15 (see the cire
+  changeset for why).
+- Updated dependencies [ef3d36d]
+  - @shared/legal@0.0.9
+
 ## 0.1.29
 
 ### Patch Changes
@@ -281,7 +300,7 @@
   versioned package with the unversioned `@cire/*` apps in one file.
 
   Both apps' `build` script now chains `scripts/guard-bundle-size.sh . static
-<threshold>` (previously bare `astro build`, no guard at all), and `ci.yml`
+  <threshold>` (previously bare `astro build`, no guard at all), and `ci.yml`
   carries an explicit per-app step for the same reason cire/invites' own guard
   does: a Turborepo cache replay of `build` never runs the chained script. See
   `wiki/conventions/bundle-size-guards.md` for the measured baseline and

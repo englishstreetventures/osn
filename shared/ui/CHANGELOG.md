@@ -1,5 +1,22 @@
 # @shared/ui
 
+## 0.7.2
+
+### Patch Changes
+
+- ef3d36d: Dependency bumps within the caution window: `effect`, `@effect/platform-bun`,
+  `@effect/platform-node`, `@effect/sql-d1` and `@effect/opentelemetry` 4.0.7
+  (with the matching root overrides for `@effect/platform-node-shared`,
+  `@effect/sql-d1` and `@effect/sql-sqlite-do`), `jose` 6.2.14, `astro` 7.4.4,
+  `@astrojs/solid-js` 7.1.0, `@opentelemetry/*` 0.223.0 and 2.12.0,
+  `@growthbook/growthbook` 1.8.0, `@solidjs/start` 2.0.6, `cropperjs` 2.3.1,
+  `lucide-solid` 1.59.0, `motion` 13.5.1, `vitest` and the `@vitest/*` packages
+  5.0.5 (which clears the moderate dev-server file-read advisory). The root
+  overrides for `@opentelemetry/core` (`^2.12.0`) and `seroval` (`~1.6.11`, which
+  clears two moderate serialisation advisories) rise with them. `wrangler` stays on 4.149.0, which
+  `@cloudflare/vite-plugin` pins exactly. `solid-js` stays on 1.9.15 (see the cire
+  changeset for why).
+
 ## 0.7.1
 
 ### Patch Changes
@@ -184,7 +201,7 @@
 
   15 call sites across `@pulse/web` and `@musubi/social` were spelling a card's
   padding as `class="p-4"`, `"p-5"` or `"p-6"`. It is `padding="sm" | "md" |
-"lg"` now.
+  "lg"` now.
 
   `none` stays the default, and that is not an oversight: a card built from
   `CardHeader` / `CardContent` / `CardFooter` takes its padding from those, and a
@@ -225,7 +242,7 @@
 
   **Callers must keep the modal mounted across the close** — `Modal` can only
   animate an element that is still in the document. `<Show when={x}>{() => <Modal
-open …>}</Show>` unmounts it the instant `x` goes null and the exit silently does
+  open …>}</Show>` unmounts it the instant `x` goes null and the exit silently does
   not play. The docblock and `wiki/architecture/component-library.md` both say so,
   and the fix is to put the `Show` inside the modal.
 
@@ -758,7 +775,7 @@ open …>}</Show>` unmounts it the instant `x` goes null and the exit silently d
 
   15 call sites across `@pulse/web` and `@musubi/social` were spelling a card's
   padding as `class="p-4"`, `"p-5"` or `"p-6"`. It is `padding="sm" | "md" |
-"lg"` now.
+  "lg"` now.
 
   `none` stays the default, and that is not an oversight: a card built from
   `CardHeader` / `CardContent` / `CardFooter` takes its padding from those, and a
@@ -799,7 +816,7 @@ open …>}</Show>` unmounts it the instant `x` goes null and the exit silently d
 
   **Callers must keep the modal mounted across the close** — `Modal` can only
   animate an element that is still in the document. `<Show when={x}>{() => <Modal
-open …>}</Show>` unmounts it the instant `x` goes null and the exit silently does
+  open …>}</Show>` unmounts it the instant `x` goes null and the exit silently does
   not play. The docblock and `wiki/architecture/component-library.md` both say so,
   and the fix is to put the `Show` inside the modal.
 

@@ -1,5 +1,31 @@
 # @osn/api
 
+## 0.28.2
+
+### Patch Changes
+
+- ef3d36d: Dependency bumps within the caution window: `effect`, `@effect/platform-bun`,
+  `@effect/platform-node`, `@effect/sql-d1` and `@effect/opentelemetry` 4.0.7
+  (with the matching root overrides for `@effect/platform-node-shared`,
+  `@effect/sql-d1` and `@effect/sql-sqlite-do`), `jose` 6.2.14, `astro` 7.4.4,
+  `@astrojs/solid-js` 7.1.0, `@opentelemetry/*` 0.223.0 and 2.12.0,
+  `@growthbook/growthbook` 1.8.0, `@solidjs/start` 2.0.6, `cropperjs` 2.3.1,
+  `lucide-solid` 1.59.0, `motion` 13.5.1, `vitest` and the `@vitest/*` packages
+  5.0.5 (which clears the moderate dev-server file-read advisory). The root
+  overrides for `@opentelemetry/core` (`^2.12.0`) and `seroval` (`~1.6.11`, which
+  clears two moderate serialisation advisories) rise with them. `wrangler` stays on 4.149.0, which
+  `@cloudflare/vite-plugin` pins exactly. `solid-js` stays on 1.9.15 (see the cire
+  changeset for why).
+- Updated dependencies [ef3d36d]
+  - @pulse/db@0.20.15
+  - @shared/crypto@0.14.16
+  - @shared/db-utils@0.9.2
+  - @shared/observability@0.19.1
+  - @shared/openapi-tools@0.1.8
+  - @shared/osn-auth-client@0.4.54
+  - @shared/rate-limit@0.3.10
+  - @zap/db@0.6.15
+
 ## 0.28.1
 
 ### Patch Changes
@@ -1625,7 +1651,7 @@
     JWKS URL can't let a network attacker serve a forged key set.
   - `workers_dev = false` on the top-level (env-less) wrangler configs for osn-api
     and cire-api, and the `deploy` scripts are now `wrangler deploy --env
-production`. A bare `wrangler deploy` (which binds the production D1 with a
+    production`. A bare `wrangler deploy` (which binds the production D1 with a
     local security posture) now fails loudly instead of publishing a public shadow
     Worker. Real deploys go through `--env production`; CI migrations are
     unaffected.
@@ -1764,13 +1790,13 @@ production`. A bare `wrangler deploy` (which binds the production D1 with a
     the identified passkey-login path; per-call `TextEncoder` allocation and
     per-issuance `process.env` reads hoisted to module scope.
   - `@pulse/api`: status-transition persistence batched to one `UPDATE … WHERE
-id IN (…)` per (from → to) group across all five list surfaces (was up to
+    id IN (…)` per (from → to) group across all five list surfaces (was up to
     500 writes per GET on series instances); `updateSeries`/`cancelSeries`
     collapsed to single race-free `UPDATE … RETURNING`; `listTodayEvents`
     capped at 200 rows; RSVP routes thread the already-loaded event row into
     `listRsvps`/`rsvpCounts`/`latestRsvps`; `createEvent` uses `INSERT …
-RETURNING`; `GET /events/:id/ics` sends `Cache-Control: private,
-no-cache` + a weak ETag and honours `If-None-Match` (including `*` and
+    RETURNING`; `GET /events/:id/ics` sends `Cache-Control: private,
+    no-cache` + a weak ETag and honours `If-None-Match` (including `*` and
     multi-value lists) with 304 — every reuse revalidates through the
     visibility gate.
   - `@pulse/db`: new `event_rsvps_event_status_idx (event_id, status)`
@@ -2799,7 +2825,7 @@ no-cache` + a weak ETag and honours `If-None-Match` (including `*` and
     `resolvePublicKey` now emit metrics on the happy path and classify
     verification failures into the bounded `ArcVerifyResult` union
     (`ok | expired | bad_signature | unknown_issuer | scope_denied |
-audience_mismatch | malformed`).
+    audience_mismatch | malformed`).
 
   **Out of scope for this PR** (deliberately): wiring into `@osn/app` and
   `@osn/core` (tracked as follow-ups), WebSocket instrumentation, dashboards

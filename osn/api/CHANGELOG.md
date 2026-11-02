@@ -1,5 +1,32 @@
 # @osn/osn
 
+## 3.31.3
+
+### Patch Changes
+
+- ef3d36d: Dependency bumps within the caution window: `effect`, `@effect/platform-bun`,
+  `@effect/platform-node`, `@effect/sql-d1` and `@effect/opentelemetry` 4.0.7
+  (with the matching root overrides for `@effect/platform-node-shared`,
+  `@effect/sql-d1` and `@effect/sql-sqlite-do`), `jose` 6.2.14, `astro` 7.4.4,
+  `@astrojs/solid-js` 7.1.0, `@opentelemetry/*` 0.223.0 and 2.12.0,
+  `@growthbook/growthbook` 1.8.0, `@solidjs/start` 2.0.6, `cropperjs` 2.3.1,
+  `lucide-solid` 1.59.0, `motion` 13.5.1, `vitest` and the `@vitest/*` packages
+  5.0.5 (which clears the moderate dev-server file-read advisory). The root
+  overrides for `@opentelemetry/core` (`^2.12.0`) and `seroval` (`~1.6.11`, which
+  clears two moderate serialisation advisories) rise with them. `wrangler` stays on 4.149.0, which
+  `@cloudflare/vite-plugin` pins exactly. `solid-js` stays on 1.9.15 (see the cire
+  changeset for why).
+- Updated dependencies [ef3d36d]
+  - @osn/db@0.25.2
+  - @shared/coordination@0.1.1
+  - @shared/crypto@0.14.16
+  - @shared/db-utils@0.9.2
+  - @shared/email@0.16.10
+  - @shared/observability@0.19.1
+  - @shared/openapi-tools@0.1.8
+  - @shared/rate-limit@0.3.10
+  - @shared/turnstile@0.2.37
+
 ## 3.31.2
 
 ### Patch Changes
@@ -604,7 +631,7 @@
   `<RecoveryLoginForm>` refreshes 30 s before each token expires.
 
   `refreshHeldSession` resolves to a new exported `HeldSession` — `{ held: true;
-session: Session }` — rather than a bare `Session`. `adoptSession` and
+  session: Session }` — rather than a bare `Session`. `adoptSession` and
   `setSession` still take a plain `Session`, so a caller cannot write
   `adoptSession(await refreshHeldSession())`: that is precisely the mistake
   holding rather than adopting exists to rule out, and it is now a compile error
@@ -1248,7 +1275,7 @@ session: Session }` — rather than a bare `Session`. `adoptSession` and
   only route to a defect's `Cause` — pinned by a test.
 
   Also fixes a latent flaw in both old test harnesses: `throw new Error("expected
-rejection")` sat inside the `try`, so its own rejection became the value under
+  rejection")` sat inside the `try`, so its own rejection became the value under
   test and a generic-message assertion could pass vacuously.
 
   osn/api: 1141 -> 1153.
@@ -1897,7 +1924,7 @@ rejection")` sat inside the `try`, so its own rejection became the value under
   also feeds the CSRF origin guard. Unset ⇒ every `return_to` is a 400, so the
   endpoint cannot become an open redirect that leaks the session cookie. The check
   runs before the secret compare, and both verbs answer `Referrer-Policy:
-no-referrer` so the secret-bearing URL never reaches the target. `GET` is the
+  no-referrer` so the secret-bearing URL never reaches the target. `GET` is the
   primary verb: the origin guard rejects a POST without a matching `Origin`, and a
   URL keeps the secret out of every public frontend bundle.
 
@@ -2136,7 +2163,7 @@ no-referrer` so the secret-bearing URL never reaches the target. `GET` is the
   - **Authorisation refusals are 400, not 403,** everywhere a check lives in the
     service: "only admins can update", "only the owner can delete", "only the
     owner can grant admin". The single real 403 is `GET
-/organisations/:handle/members`, whose membership check runs in the route.
+    /organisations/:handle/members`, whose membership check runs in the route.
   - **404 on the member routes covers two different misses** — no such
     organisation and no such profile — told apart by the message, since both
     handles are in the path.
@@ -2272,7 +2299,7 @@ no-referrer` so the secret-bearing URL never reaches the target. `GET` is the
   - **New retrieval pass over the caller's own edges.** An index seek on the
     connection indexes joined to `users`, capped at 50 rows. It is a recall
     guarantee, not a duplicate: every global pass is `ORDER BY handle LIMIT
-overfetch`, so a common prefix filled the window with whoever sorted
+    overfetch`, so a common prefix filled the window with whoever sorted
     alphabetically first and a connection could be missed entirely regardless of
     ranking. Organisation search gained the same pass over the caller's own
     memberships.
@@ -2485,7 +2512,7 @@ overfetch`, so a common prefix filled the window with whoever sorted
     the caller's own are _more_ relevant in a search box, so they come back
     flagged `isMember: true` and render a badge instead of a CTA. Results are
     addressed by **handle**, not the internal `org_*` id: `GET
-/organisations/:handle` resolves by handle and the public `orgProjection`
+    /organisations/:handle` resolves by handle and the public `orgProjection`
     omits the id. Chasing that down also turned up a pre-existing bug —
     `OrganisationsPage` linked `/organisations/${org.id}` against that same
     id-less projection, so every organisation row navigated to
@@ -2854,8 +2881,8 @@ overfetch`, so a common prefix filled the window with whoever sorted
   live hostname.
 
   **osn-api production vars.** `OSN_RP_ID = musubi.social`, `OSN_ISSUER_URL =
-https://id.musubi.social`, `OSN_ORIGIN = https://musubi.social`, `OSN_AUTHORIZE_UI_URL =
-https://musubi.social/authorize` (unset, the provider falls back to `/authorize` on the
+  https://id.musubi.social`, `OSN_ORIGIN = https://musubi.social`, `OSN_AUTHORIZE_UI_URL =
+  https://musubi.social/authorize` (unset, the provider falls back to `/authorize` on the
   first `OSN_ORIGIN` entry — right today by accident, so it stays explicit), plus a
   `custom_domain` route on `id.musubi.social`. `OSN_CORS_ORIGIN` keeps the three cire
   origins: these are two different lists, and CORS governs bearer-token calls, which
@@ -3132,8 +3159,8 @@ https://musubi.social/authorize` (unset, the provider falls back to `/authorize`
 - d32fd6f: CI: auto-deploy osn-api to production. Add a `deploy-osn-api` job to
   `.github/workflows/deploy.yml` (mirrors `deploy-cire-api`): on merge to `main` it
   applies the prod osn D1 migrations (`wrangler d1 migrations apply osn-db-prod
---remote --env production`) then deploys the Worker (`wrangler deploy --env
-production`) against the already-set out-of-band secrets.
+  --remote --env production`) then deploys the Worker (`wrangler deploy --env
+  production`) against the already-set out-of-band secrets.
 
   Removes the last manual production deploy step. osn-api has been a deployed
   Cloudflare Worker (workerd + Upstash + native rate-limiters) since the 2026-06
@@ -3205,7 +3232,7 @@ production`) against the already-set out-of-band secrets.
     JWKS URL can't let a network attacker serve a forged key set.
   - `workers_dev = false` on the top-level (env-less) wrangler configs for osn-api
     and cire-api, and the `deploy` scripts are now `wrangler deploy --env
-production`. A bare `wrangler deploy` (which binds the production D1 with a
+    production`. A bare `wrangler deploy` (which binds the production D1 with a
     local security posture) now fails loudly instead of publishing a public shadow
     Worker. Real deploys go through `--env production`; CI migrations are
     unaffected.
@@ -3373,13 +3400,13 @@ production`. A bare `wrangler deploy` (which binds the production D1 with a
     the identified passkey-login path; per-call `TextEncoder` allocation and
     per-issuance `process.env` reads hoisted to module scope.
   - `@pulse/api`: status-transition persistence batched to one `UPDATE … WHERE
-id IN (…)` per (from → to) group across all five list surfaces (was up to
+    id IN (…)` per (from → to) group across all five list surfaces (was up to
     500 writes per GET on series instances); `updateSeries`/`cancelSeries`
     collapsed to single race-free `UPDATE … RETURNING`; `listTodayEvents`
     capped at 200 rows; RSVP routes thread the already-loaded event row into
     `listRsvps`/`rsvpCounts`/`latestRsvps`; `createEvent` uses `INSERT …
-RETURNING`; `GET /events/:id/ics` sends `Cache-Control: private,
-no-cache` + a weak ETag and honours `If-None-Match` (including `*` and
+    RETURNING`; `GET /events/:id/ics` sends `Cache-Control: private,
+    no-cache` + a weak ETag and honours `If-None-Match` (including `*` and
     multi-value lists) with 304 — every reuse revalidates through the
     visibility gate.
   - `@pulse/db`: new `event_rsvps_event_status_idx (event_id, status)`
@@ -3595,8 +3622,8 @@ no-cache` + a weak ETag and honours `If-None-Match` (including `*` and
     threaded through `env`/the `createApp` factory instead of module-top
     `process.env` reads, since workerd surfaces secrets only on `env`.
   - `createApp` gains an `aot` flag (Workers passes `false`; AOT's `new
-Function` is forbidden on workerd) and keeps `includeObservabilityPlugin:
-false` + the redacting `osnLoggerLayer` on the Workers path.
+    Function` is forbidden on workerd) and keeps `includeObservabilityPlugin:
+    false` + the redacting `osnLoggerLayer` on the Workers path.
 
   `@osn/db` / `@shared/db-utils`: `DbLive`'s bun:sqlite path is resolved lazily
   (`makeDbLive` now accepts a path thunk) so `fileURLToPath(import.meta.url)` no
@@ -3662,7 +3689,7 @@ false` + the redacting `osnLoggerLayer` on the Workers path.
     calls osn-api; an empty list throws at boot.
   - `OSN_EMAIL_FROM = "noreply@cireweddings.com"`.
   - A custom-domain route `[[env.production.routes]]` (`pattern =
-"id.cireweddings.com"`, `custom_domain = true`) serving the Worker on
+    "id.cireweddings.com"`, `custom_domain = true`) serving the Worker on
     `id.cireweddings.com` — auto-provisions DNS + cert since the zone is in-account.
 
   Config-only; no app logic changed. dev/staging keep their current config. Validated
