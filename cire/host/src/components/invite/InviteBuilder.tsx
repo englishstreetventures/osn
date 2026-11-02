@@ -23,11 +23,12 @@
  *
  * Two persistence models coexist deliberately: text/theme and the section
  * visibility switches wait for Save;
- * images, crops, the design selection and the FAQ entries apply immediately (marked with an
+ * images, crops, the design and envelope selections and the FAQ entries apply immediately (marked with an
  * "applies immediately" badge, and image removal asks first). A draft→publish
  * model that would unify them needs API support — tracked in the cire wiki.
  */
 
+import type { EnvelopeId } from "@cire/envelope";
 import { DEFAULT_DESIGN_ID } from "@cire/invite-designs";
 import {
   derivePalette,
@@ -64,6 +65,7 @@ import { registerUnsavedGuard } from "../../lib/unsaved-guard";
 import PaletteField, { resolvedSeeds } from "../PaletteField";
 import { designLayout } from "./design-layout";
 import DesignPicker from "./DesignPicker";
+import EnvelopePicker from "./EnvelopePicker";
 import FaqEditor from "./FaqEditor";
 import {
   ChoiceField,
@@ -186,9 +188,7 @@ function rootFontPx(): number {
 
 /** The builder's sections, in guest scroll order (+ the two non-page cards).
  *  Ids double as the fieldset ids. The nav row above the form is a real tab
- *  switcher — one section shown at a time — rather than the vertical stack of
- *  every card the builder used to be, with a scroll-jump nav bolted to the
- *  top of it. */
+ *  switcher: one section is shown at a time. */
 const NAV_SECTIONS = [
   { id: "invite-design", label: "Design" },
   { id: "invite-look", label: "Look" },
@@ -219,6 +219,13 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   // dirty draft, but kept out of the save bar, which cannot save either.
   const [faqPending, setFaqPending] = createSignal(false);
 
+  // What only `GET /invite` says about envelopes: whether the API has them at
+  // all (an older one sends no `envelopeId` key, and the picker stays hidden)
+  // and whether the wedding may use one now. The write answers that replace
+  // `data` carry neither, so both are set from each read and never from a write.
+  const [envelopesOffered, setEnvelopesOffered] = createSignal(false);
+  const [envelopeEntitled, setEnvelopeEntitled] = createSignal(false);
+
   const [data, { mutate, refetch }] = createResource<InviteCustomisation>(async () => {
     const res = await authFetch(apiUrl(faqsLoaded ? base() : `${base()}?include=faqs`));
     if (res.status === 401) {
@@ -231,6 +238,8 @@ export default function InviteBuilder(props: InviteBuilderProps) {
       faqsLoaded = true;
       setFaqs(body.faqs);
     }
+    setEnvelopesOffered("envelopeId" in body);
+    setEnvelopeEntitled(body.envelopeEntitled === true);
     return body;
   });
 
@@ -274,8 +283,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   // server-acknowledged snapshot — a copy-only save must not bump the theme
   // row's `updatedAt` (it doubles as the guest image-cache version, so a
   // gratuitous bump busts the per-variant transform cache and makes guests
-  // re-download the hero for zero visual change — P-W1, see
-  // [[free-tier-limits]]).
+  // re-download the hero for zero visual change — see [[free-tier-limits]]).
   const textDirty = createMemo(
     () => seeded() && JSON.stringify(textPayload(draft)) !== savedText(),
   );
@@ -295,7 +303,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   });
   // The beforeunload listener exists ONLY while dirty — a persistently
   // registered one makes the page ineligible for the back/forward cache in
-  // Firefox/Safari even with a clean form (P-I3).
+  // Firefox/Safari even with a clean form.
   createEffect(() => {
     if (!isDirty() && !faqPending()) return;
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -313,7 +321,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   // colour-picker DRAG (pointermove) — without a memo each frame ran the full
   // derivation once per reader. The seeds + adjustments memos are shared with
   // PaletteField via props, so the whole builder derives exactly once per
-  // frame (P-W1).
+  // frame.
   const paletteSeeds = createMemo(() => resolvedSeeds(draft.palette));
   const seedAdjustments = createMemo(() => paletteAdjustments(paletteSeeds()));
   const previewTokens = createMemo((): Record<string, string> => {
@@ -338,13 +346,10 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   });
 
   /**
-   * Which preview layer to mount (perf P-I1). Both layers used to be mounted at
-   * all times with a container query hiding one, so the hidden layer still took
-   * every token write on every keystroke and colour-drag frame — five `style`
-   * spreads of ~25 custom properties, landing on subtrees that render nothing.
-   * That was cheap while the composed pane was unreachable (the old 1100px page
-   * cap kept the builder below `@4xl`); now that the pane is the wide default,
-   * the waste moved to whichever layer is idle.
+   * Which preview layer to mount. A layer only hidden by a container query
+   * would still take every token write on every keystroke and colour-drag
+   * frame — five `style` spreads of ~25 custom properties, landing on subtrees
+   * that render nothing — so the idle layer is not mounted at all.
    *
    * Measured off the builder container itself, exactly like the module nav's
    * rail/sheet swap: a `ResizeObserver`'s `contentRect` IS the content box a
@@ -738,6 +743,43 @@ export default function InviteBuilder(props: InviteBuilderProps) {
     }
   };
 
+  // Like the design: one PUT per choice, outside the save bar.
+  const [savingEnvelope, setSavingEnvelope] = createSignal(false);
+
+  /** The server-acknowledged envelope, `null` for none. */
+  const currentEnvelope = () => data()?.envelopeId ?? null;
+
+  const selectEnvelope = async (envelopeId: EnvelopeId | null) => {
+    if (savingEnvelope() || currentEnvelope() === envelopeId) return;
+    setSavingEnvelope(true);
+    try {
+      const res = await authFetch(apiUrl(`${base()}/envelope`), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ envelopeId }),
+      });
+      if (!res.ok) {
+        // The wedding has lost premium envelopes since this builder read it:
+        // lock the card rather than let the next click fail the same way.
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        if (body.error === "premium_envelope") setEnvelopeEntitled(false);
+        throw new Error(`Envelope save failed (${res.status})`);
+      }
+      mutate((await res.json()) as InviteCustomisation);
+      haptic("commit");
+      toast.success("Envelope updated");
+    } catch (err) {
+      if (isAuthExpired(err)) {
+        redirectToLogin();
+        return;
+      }
+      haptic("reject");
+      toast.error("Could not update the envelope");
+    } finally {
+      setSavingEnvelope(false);
+    }
+  };
+
   // The wedding's public guest-invite URL, shared with generated messages.
   const guestBaseUrl = () =>
     `${CIRE_WEB_URL}/cire/invite?slug=${encodeURIComponent(props.weddingSlug)}`;
@@ -935,7 +977,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
       >
         {(d) => {
           // Memoized once per render pass and shared by the sticky side pane
-          // and the mobile modal (P-I1) — without this, the rare frame where
+          // and the mobile modal — without this, the rare frame where
           // both are mounted (the initial "unknown" preview-layer measurement,
           // or resizing to wide while the modal is left open) has each
           // consumer independently re-deriving every slot.
@@ -1117,6 +1159,15 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                       onSelect={(id) => void selectDesign(id)}
                       previewHref={designPreviewHref}
                     />
+                    <Show when={envelopesOffered()}>
+                      <EnvelopePicker
+                        entitled={envelopeEntitled()}
+                        currentId={currentEnvelope()}
+                        saving={savingEnvelope()}
+                        heroState={heroSectionState()}
+                        onSelect={(id) => void selectEnvelope(id)}
+                      />
+                    </Show>
                   </SectionCard>
 
                   {/* ── Look (global): typography + the colour scheme ──── */}
@@ -1208,7 +1259,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                       on small screens a preview below the sliders scrolls out
                       of view exactly when it's needed. Mounted only when this
                       layer is the visible one (see `previewLayer`) AND this is
-                      the active tab (P-I2) — a hidden tab's inline preview
+                      the active tab — a hidden tab's inline preview
                       would otherwise still re-render on every token edit for
                       no one to see. */}
                     <Show when={showInlinePreviews() && activeSection() === "invite-hero"}>

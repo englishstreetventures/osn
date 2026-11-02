@@ -34,7 +34,7 @@ test("cire-registry-preview", async ({ page, context, flow }) => {
   const claim = await flow.step("open the invitation from Preview invite", async () => {
     const response = responseTo(page, "POST", CLAIM_URL);
     await page.goto(
-      `${ORIGINS.cireInvites}/cire/invite?slug=${CIRE_GIFT_LIST.slug}&code=${CIRE_GIFT_LIST.previewCode}`,
+      `${ORIGINS.cireInvites}/cire/invite?slug=${CIRE_GIFT_LIST.slug}&code=${CIRE_GIFT_LIST.previewCode}&envelope=1`,
     );
     const status = (await response).status();
     await expect(page.getByText("Preview mode. Every event is shown")).toBeVisible();

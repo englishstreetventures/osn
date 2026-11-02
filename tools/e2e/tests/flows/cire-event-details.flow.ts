@@ -547,7 +547,7 @@ test("cire-event-details", async ({ page, context, flow }) => {
     await page.setViewportSize(PHONE);
     const claim = responseTo(page, "POST", CLAIM_URL);
     await page.goto(
-      `${ORIGINS.cireInvites}/cire/invite?slug=${CIRE_EVENT_EDIT.slug}&code=${encodeURIComponent(minted.publicId)}`,
+      `${ORIGINS.cireInvites}/cire/invite?slug=${CIRE_EVENT_EDIT.slug}&code=${encodeURIComponent(minted.publicId)}&envelope=1`,
     );
     const response = await claim;
     const body = (await response.json()) as { events: ClaimedEvent[] };

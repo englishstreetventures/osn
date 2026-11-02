@@ -12,7 +12,8 @@ import { CIRE_WEB_URL } from "../lib/osn";
  * including a read-only `viewer`, may mint one, because seeing the invite as a
  * guest sees it is part of the read experience — then opens the guest
  * invite in a new tab with `?code=<publicId>` so the organiser sees every
- * event exactly as a guest would. The host code is preview-only — the API
+ * event exactly as a guest would, and with `envelope=1` so the wedding's
+ * envelope opens first if it has one. The host code is preview-only — the API
  * blocks it from submitting RSVPs.
  */
 export default function PreviewInviteButton(props: { weddingId: string }) {
@@ -53,8 +54,10 @@ export default function PreviewInviteButton(props: { weddingId: string }) {
       }
       const body = (await res.json()) as { publicId: string; slug: string };
       // The fixed guest route uses a slug query parameter. The host preview code
-      // auto-claims so the host lands straight on the events view.
-      const guestUrl = `${CIRE_WEB_URL}/cire/invite?slug=${encodeURIComponent(body.slug)}&code=${encodeURIComponent(body.publicId)}`;
+      // auto-claims so the host lands straight on the events view. The link
+      // always carries `envelope=1`, asking for the envelope; the guest site
+      // shows one only for a wedding whose stored envelope it serves.
+      const guestUrl = `${CIRE_WEB_URL}/cire/invite?slug=${encodeURIComponent(body.slug)}&code=${encodeURIComponent(body.publicId)}&envelope=1`;
       if (win) {
         win.location.href = guestUrl;
       } else {
@@ -78,15 +81,13 @@ export default function PreviewInviteButton(props: { weddingId: string }) {
   // rather than to a page button — it lives in the chrome now, and a 44px
   // control there would set the bar's height instead of fitting inside it.
   //
-  // Narrow bars get the glyph alone. This used to be hidden outright below
-  // `@2xl/frame`, which left the invite preview with NO entry point on a phone
-  // — the palette carries no preview command, so the control simply did not
-  // exist there. Collapsing to an icon keeps it reachable at every width, and
-  // costs the switcher beside it a few characters of truncation rather than a
-  // wrapped bar. The label follows the palette trigger's `⌘K` idiom: it is the
-  // same element throughout (`sr-only` → `not-sr-only`, never `hidden`), so the
-  // accessible name is always the visible wording and never goes missing on the
-  // width where nothing is drawn.
+  // Narrow bars get the glyph alone, never nothing: the palette carries no
+  // preview command, so on a phone this is the invite preview's only entry
+  // point. The icon costs the switcher beside it a few characters of
+  // truncation rather than a wrapped bar. The label follows the palette
+  // trigger's `⌘K` idiom: it is the same element throughout (`sr-only` →
+  // `not-sr-only`, never `hidden`), so the accessible name is always the
+  // visible wording and never goes missing on the width where nothing is drawn.
   return (
     // `cta`, which is the outline-at-rest, gold-on-hover shape this button was
     // writing out by hand — the same one `InviteBuilder`'s Preview control
