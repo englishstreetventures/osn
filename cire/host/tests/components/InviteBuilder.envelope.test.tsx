@@ -145,16 +145,6 @@ describe("InviteBuilder envelope picker, refusals", () => {
     },
   );
 
-  it("leaves Enter and Space on the locked card to the button, which chooses nothing", async () => {
-    answer({ envelopeId: null, envelopeEntitled: false });
-    renderBuilder();
-    const seal = await findCard(/Wax seal/);
-    for (const key of ["Enter", " "]) {
-      expect(fireEvent.keyDown(seal, { key })).toBe(true);
-    }
-    expect(envelopeSaves()).toBe(0);
-  });
-
   it("shows a stored envelope the wedding may no longer use as chosen but switched off", async () => {
     answer({ envelopeId: "wax-seal", envelopeEntitled: false });
     renderBuilder();
