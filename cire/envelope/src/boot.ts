@@ -51,7 +51,7 @@ export function seenStorageKey(key: string): string {
 /** What the seen flag holds: `1` once the opening has played, `failed` when it could not. */
 export type SeenValue = "1" | "failed";
 
-type StorageWriter = Pick<Storage, "setItem" | "removeItem">;
+type StorageWriter = Pick<Storage, "setItem">;
 
 const defaultStorage = (): StorageWriter => localStorage;
 
@@ -69,15 +69,6 @@ export function writeSeen(
     storage().setItem(seenStorageKey(key), value);
   } catch {
     // Storage unavailable: nothing is remembered, nothing breaks.
-  }
-}
-
-/** Forgets the seen flag, for the replay button. Never throws. */
-export function clearSeen(key: string, storage: () => StorageWriter = defaultStorage): void {
-  try {
-    storage().removeItem(seenStorageKey(key));
-  } catch {
-    // Storage unavailable: there is no flag to clear.
   }
 }
 

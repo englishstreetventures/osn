@@ -25,7 +25,6 @@
 
 import { pickBreak } from "@cire/envelope";
 import {
-  clearSeen,
   ENVELOPE_ATTR,
   ENVELOPE_KEY_ATTR,
   ENVELOPE_REPLAY_ATTR,
@@ -115,9 +114,10 @@ function armAfterConsent(win: Window, doc: Document, arm: () => void): void {
 }
 
 /**
- * The replay button: forget the seen flag, go back to the top, and play the
- * opening again in place, with a readiness watchdog of its own (the boot
- * script's ran once, at load).
+ * The replay button: go back to the top and play the opening again in place,
+ * with a readiness watchdog of its own (the boot script's ran once, at load).
+ * The seen flag is left as it is: every replay ends by writing it again, `1`
+ * or `failed`, and a guest who leaves mid-replay has seen the envelope.
  */
 function replay(doc: Document): void {
   const win = doc.defaultView;
@@ -125,7 +125,6 @@ function replay(doc: Document): void {
   const key = root.getAttribute(ENVELOPE_KEY_ATTR);
   const state = root.getAttribute(ENVELOPE_ATTR);
   if (!win || !key || playing || state === "sealed" || state === "ready") return;
-  clearSeen(key);
   win.scrollTo({ top: 0, left: 0, behavior: "instant" });
   root.setAttribute(ENVELOPE_ATTR, "sealed");
   win.setTimeout(() => {

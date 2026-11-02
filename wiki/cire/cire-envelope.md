@@ -230,7 +230,7 @@ only for a sealed page, so no other guest downloads `three`. `cire/invites`'s
 `build` runs `scripts/guard-no-scene-in-server.sh` after the bundle-size guard
 and fails if `WebGLRenderer` appears anywhere in `dist/server`.
 
-The scene chunk is **146,513 bytes** gzip; `dist/server` stayed at 183,627 bytes
+The scene chunk is **146,555 bytes** gzip; `dist/server` stayed at 183,736 bytes
 gzip against its 200,900 budget.
 
 *Measured 2026-11-02 — `bun run --cwd cire/invites build`, then `gzip -c dist/client/_astro/scene.*.js | wc -c`*
