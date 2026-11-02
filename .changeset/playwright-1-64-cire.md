@@ -16,3 +16,7 @@ The `InviteHeader` scroll-cue browser tests scroll only after the resize has
 landed and two frames have drawn the mounted hero. Scrolled straight after the
 mount, the page moved with no `scroll` event, and the gala first-scroll test
 failed in most full runs of the tier on Chromium 156.
+
+`bun run check:playwright-pins` runs in CI and fails on a `playwright`,
+`@playwright/test`, `vitest` or `@vitest/*` specifier that is not an exact
+version or differs from the rest of its group.

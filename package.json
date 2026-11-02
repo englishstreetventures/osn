@@ -48,6 +48,7 @@
     "test:scripts:wrangler": "bun test ./scripts/tests/guest-route-parity-wrangler.e2e.ts",
     "test:scripts:relay-idle": "bun test ./scripts/tests/guest-route-parity-relay-idle.slow.ts",
     "check:release-age-excludes": "bun run scripts/check-release-age-excludes.ts",
+    "check:playwright-pins": "bun run scripts/check-playwright-pins.ts",
     "check:jest-dom-markers": "bash scripts/check-jest-dom-markers.sh",
     "check:alchemy-usage": "bun run scripts/check-alchemy-usage.ts",
     "clean": "git clean -fdX",
