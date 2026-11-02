@@ -14,7 +14,8 @@
  *   is still `sealed`. Once the boot watchdog has given up, a late scene is
  *   thrown away unseen.
  * - Consent first: taps do nothing, and the idle prompt does not start, until
- *   the consent prompt has been answered. If no answer is on record 8 s after
+ *   the consent prompt has been answered. The consent store is loaded beside
+ *   the scene, so a page that never seals loads it only when the banner does. If no answer is on record 8 s after
  *   the reveal and no dialog is open, the consent prompt never mounted, and
  *   the envelope accepts taps rather than strand the guest behind it.
  * - On landing it sets `open`, writes the seen flag, and lets the overlay go.
@@ -37,8 +38,13 @@ import {
 import { prepareCard } from "@cire/envelope/hero";
 import { createEffect, createRoot } from "solid-js";
 
-import { consentRecord, hydrateConsent } from "../lib/consent/store";
 import { EDGE_HERO_ATTR } from "./edge-boot";
+
+/** The two parts of the consent store the envelope reads. */
+type ConsentReader = Pick<
+  typeof import("../lib/consent/store"),
+  "consentRecord" | "hydrateConsent"
+>;
 
 /** How long after the reveal the envelope stops waiting for a consent answer that never came. */
 const CONSENT_FALLBACK_MS = 8000;
@@ -74,13 +80,15 @@ async function play(doc: Document): Promise<void> {
   try {
     const hero = findHero(doc)();
     if (!hero) throw new Error("envelope: no hero");
-    const [loaded, prepared] = await Promise.allSettled([
+    const [loaded, consent, prepared] = await Promise.allSettled([
       import("@cire/envelope/scene"),
+      import("../lib/consent/store"),
       prepareCard(hero),
     ]);
-    // Kept before either failure is thrown, so `finally` revokes it.
+    // Kept before any failure is thrown, so `finally` revokes it.
     if (prepared.status === "fulfilled") blobUrl = prepared.value;
     if (loaded.status === "rejected") throw loaded.reason;
+    if (consent.status === "rejected") throw consent.reason;
     if (prepared.status === "rejected") throw prepared.reason;
     if (!sealed()) return;
     const scene = loaded.value.createEnvelopeScene({
@@ -99,7 +107,7 @@ async function play(doc: Document): Promise<void> {
     }
     scene.reveal();
     root.setAttribute(ENVELOPE_ATTR, "ready");
-    armAfterConsent(win, doc, scene.arm);
+    armAfterConsent(win, doc, consent.value, scene.arm);
     await scene.landed;
     root.setAttribute(ENVELOPE_ATTR, "open");
     writeSeen(key, "1");
@@ -115,7 +123,12 @@ async function play(doc: Document): Promise<void> {
   }
 }
 
-function armAfterConsent(win: Window, doc: Document, arm: () => void): void {
+function armAfterConsent(
+  win: Window,
+  doc: Document,
+  { consentRecord, hydrateConsent }: ConsentReader,
+  arm: () => void,
+): void {
   hydrateConsent();
   createRoot((dispose) => {
     createEffect(() => {
