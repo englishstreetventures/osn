@@ -1715,14 +1715,19 @@ const CLEAR_OF_SAVE_BAR =
 function trackSaveBarHeight(bar: HTMLElement) {
   const form = bar.closest("form");
   if (!form || typeof ResizeObserver === "undefined") return;
+  let written: string | undefined;
   const write = () => {
-    form.style.setProperty("--save-bar-h", `${bar.getBoundingClientRect().height}px`);
+    const value = `${bar.getBoundingClientRect().height}px`;
+    if (value === written) return;
+    written = value;
+    form.style.setProperty("--save-bar-h", value);
   };
   queueMicrotask(write);
   const observer = new ResizeObserver(write);
   observer.observe(bar, { box: "border-box" });
   onCleanup(() => {
     observer.disconnect();
+    written = undefined;
     form.style.removeProperty("--save-bar-h");
   });
 }
