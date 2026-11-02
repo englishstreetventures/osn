@@ -389,6 +389,11 @@ predicate every surface uses: each `MODULE_NAV` entry with a `lock` names its
 - **The command palette** offers no row for a locked module.
 - **Premium designs** lock by `premium_templates` in the list's `entitlements`,
   which Crimson includes; the API answers `403 premium_design` regardless.
+- **Envelopes** lock in the invite builder's envelope picker by
+  `envelopeEntitled` from `GET …/invite`, the same rule read with the invite.
+  A stored envelope the wedding may no longer use shows as switched off; the
+  API answers `403 premium_envelope` regardless, and the picker then locks the
+  card. See [[cire-invite-builder#Organiser UI]].
 
 ---
 

@@ -11,7 +11,7 @@ related:
   - "[[cire-auth]]"
   - "[[d1-limits]]"
   - "[[realtime]]"
-last-reviewed: 2026-10-27
+last-reviewed: 2026-11-02
 ---
 # Checklist / Tasks
 
@@ -416,7 +416,9 @@ this in the portal against the real cire-api: it puts two people on a task
 from the popover and takes one off, checks the stack of faces against the
 `task_assignees` rows, then removes the remaining holder on the co-host panel
 and checks their row went with the seat while the task stayed
-([[testing-patterns#The end-to-end suite]]).
+([[testing-patterns#The end-to-end suite]]). On the same sign-in it then
+chooses the wedding's envelope in the invite builder
+([[cire-invite-builder#Organiser UI]]).
 
 ## Starter checklist
 
