@@ -11,7 +11,7 @@ packages:
   - "@musubi/social"
   - "@pulse/web"
   - "@shared/ui"
-last-reviewed: 2026-10-30
+last-reviewed: 2026-11-02
 ---
 
 # Browser Tests
@@ -264,7 +264,7 @@ to open. This works in fish and bash; the build number moves with Playwright
 
 ```sh
 printf '%s\n' '#!/bin/sh' \
-  'exec ~/Library/Caches/ms-playwright/chromium_headless_shell-1234/chrome-headless-shell-mac-arm64/chrome-headless-shell "$@" -AppleShowScrollBars Always' \
+  'exec ~/Library/Caches/ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-mac-arm64/chrome-headless-shell "$@" -AppleShowScrollBars Always' \
   > /tmp/chromium-classic.sh
 chmod +x /tmp/chromium-classic.sh
 VITEST_BROWSER_EXECUTABLE_PATH=/tmp/chromium-classic.sh bun run --cwd cire/invites test:browser
@@ -297,10 +297,20 @@ included, so an element Chrome leaves out of the tree cannot hide one.
 
 ## Running it locally
 
-Nothing extra on a normal machine — `playwright` is a devDependency of
-`@cire/invites` and `bunx playwright install chromium` fetches the browser once.
-On a Mac, the same variable as below runs the tier with classic scrollbars
-([[#Width]]).
+Nothing extra on a normal machine. `playwright` is a devDependency of each
+package with a browser tier, and `bunx --bun playwright install chromium`, run
+inside one of them (`cire/host`, say), fetches the build that version wants,
+once. Run it at the repo root and `bunx` finds no local `playwright`, so it
+fetches npm's latest release and the build *that* wants, which is not always
+ours. On a Mac, the same variable as below runs the tier with classic
+scrollbars ([[#Width]]).
+
+Playwright records each copy of itself that runs an install, and every install
+deletes the builds in the browser cache (`~/Library/Caches/ms-playwright` on a
+Mac) that no recorded copy still on disk needs. A worktree whose Playwright
+never ran the install itself is not recorded, so its build goes. While
+worktrees sit on two Playwright versions, install with
+`PLAYWRIGHT_SKIP_BROWSER_GC=1` so the other version's build stays.
 
 Dev containers and this repo's cloud sessions ship a **prebuilt Chromium** whose
 build number won't match the pinned Playwright, which otherwise makes the tier
@@ -338,17 +348,40 @@ same reason: it needs a dependency the default path doesn't, and splitting it
 keeps the fast tier fast.
 
 ```yaml
+- name: Cache Chromium
+  uses: actions/cache@v4
+  with:
+    path: ~/.cache/ms-playwright
+    key: ${{ runner.os }}-playwright-${{ hashFiles('bun.lock') }}
+    restore-keys: |
+      ${{ runner.os }}-playwright-
+
+- name: Install Chromium's system libraries
+  timeout-minutes: 10
+  working-directory: cire/host
+  run: bunx playwright install-deps chromium
+
 - name: Install Chromium for browser tests
-  run: bunx playwright install --with-deps chromium
+  timeout-minutes: 10
+  working-directory: cire/host
+  run: bunx playwright install chromium
 
 - name: Browser tests
   run: bun run test:browser
 ```
 
-`--with-deps` is required on `ubuntu-latest` — the browser alone won't launch
-without its shared libraries. Only `chromium` is installed: the tier pins a
-single instance, so pulling Firefox and WebKit too would triple the download for
-nothing.
+`install-deps` is required on `ubuntu-latest`: the browser alone won't launch
+without its shared libraries, which live in the image and are installed on
+every run. The browser download is cached on the lockfile. Both installs run
+from `cire/host`, because at the repo root `bunx` fetches npm's latest
+Playwright and the build it wants instead of ours ([[#Running it locally]]).
+Only `chromium` is installed: the tier pins a single instance, so pulling
+Firefox and WebKit too would triple the download for nothing.
+
+The E2E job installs the same way from `tools/e2e` under the same cache key,
+so every `playwright` pin and `tools/e2e`'s `@playwright/test` stay on one
+version. Two versions would want two builds, the cache would hold whichever
+job saved it first, and the other job would download its build on every run.
 
 ## Current coverage
 
