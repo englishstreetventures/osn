@@ -25,16 +25,16 @@
     "script": "dev:app"
   },
   "dependencies": {
-    "@osn/client": "workspace:*",
     "@osn/auth-ui": "workspace:*",
-    "@shared/ui": "workspace:*",
+    "@osn/client": "workspace:*",
     "@shared/design-tokens": "workspace:*",
     "@shared/legal": "workspace:*",
     "@shared/toast": "workspace:*",
+    "@shared/ui": "workspace:*",
     "@simplewebauthn/browser": "^14.0.0",
     "@solidjs/router": "^1.0.0",
     "@tailwindcss/vite": "^4.3.3",
-    "solid-js": "^1.9.15",
+    "solid-js": "^1.9.18",
     "tailwindcss": "^4.3.3"
   },
   "devDependencies": {

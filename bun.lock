@@ -108,7 +108,7 @@
         "astro": "^7.4.2",
         "cropperjs": "^2.2.0",
         "lucide-solid": "^1.47.0",
-        "solid-js": "^1.9.15",
+        "solid-js": "^1.9.18",
         "tailwindcss": "^4.3.3",
         "web-haptics": "0.0.6",
       },
@@ -170,7 +170,7 @@
         "@tailwindcss/vite": "^4.3.3",
         "astro": "^7.4.2",
         "motion": "^13.1.1",
-        "solid-js": "^1.9.15",
+        "solid-js": "^1.9.18",
         "tailwindcss": "^4.3.3",
       },
       "devDependencies": {
@@ -201,7 +201,7 @@
         "@shared/ui": "workspace:*",
         "@tailwindcss/vite": "^4.3.3",
         "astro": "^7.4.2",
-        "solid-js": "^1.9.15",
+        "solid-js": "^1.9.18",
         "tailwindcss": "^4.3.3",
       },
       "devDependencies": {
@@ -238,7 +238,7 @@
         "@testing-library/jest-dom": "^7.0.1",
         "astro": "^7.4.2",
         "happy-dom": "^21.0.4",
-        "solid-js": "^1.9.15",
+        "solid-js": "^1.9.18",
         "typescript": "7.1.0-beta",
         "vite": "^8.3.3",
         "vite-plugin-solid": "^2.11.14",
@@ -261,7 +261,7 @@
         "@shared/ui": "workspace:*",
         "@tailwindcss/vite": "^4.3.3",
         "astro": "^7.4.2",
-        "solid-js": "^1.9.15",
+        "solid-js": "^1.9.18",
         "tailwindcss": "^4.3.3",
         "web-haptics": "0.0.6",
       },
@@ -303,7 +303,7 @@
         "@tailwindcss/vite": "^4.3.3",
         "astro": "^7.4.2",
         "motion": "^13.1.1",
-        "solid-js": "^1.9.15",
+        "solid-js": "^1.9.18",
         "tailwindcss": "^4.3.3",
       },
       "devDependencies": {
@@ -330,7 +330,7 @@
         "@simplewebauthn/browser": "^14.0.0",
         "@solidjs/router": "^1.0.0",
         "@tailwindcss/vite": "^4.3.3",
-        "solid-js": "^1.9.15",
+        "solid-js": "^1.9.18",
         "tailwindcss": "^4.3.3",
       },
       "devDependencies": {
@@ -394,7 +394,7 @@
         "@shared/typescript-config": "workspace:*",
         "@solidjs/testing-library": "^0.8.10",
         "happy-dom": "^21.0.4",
-        "solid-js": "^1.9.15",
+        "solid-js": "^1.9.18",
         "vite": "^8.3.3",
         "vite-plugin-solid": "^2.11.14",
         "vitest": "5.0.3",
@@ -412,7 +412,7 @@
       "devDependencies": {
         "@effect/vitest": "4.0.5",
         "@shared/typescript-config": "workspace:*",
-        "solid-js": "^1.9.15",
+        "solid-js": "^1.9.18",
         "vite-plugin-solid": "^2.11.14",
         "vitest": "5.0.3",
       },
@@ -512,7 +512,7 @@
         "@tailwindcss/vite": "^4.3.3",
         "astro": "^7.4.2",
         "motion": "^13.1.1",
-        "solid-js": "^1.9.15",
+        "solid-js": "^1.9.18",
         "tailwindcss": "^4.3.3",
       },
       "devDependencies": {
@@ -545,7 +545,7 @@
         "@tailwindcss/vite": "^4.3.3",
         "leaflet": "^1.9.4",
         "nitro": "^3.0.260903-beta",
-        "solid-js": "^1.9.15",
+        "solid-js": "^1.9.18",
         "tailwindcss": "^4.3.3",
       },
       "devDependencies": {
@@ -751,7 +751,7 @@
         "@shared/typescript-config": "workspace:*",
         "happy-dom": "^21.0.4",
         "miniflare": "^4.20260730.0",
-        "solid-js": "^1.9.15",
+        "solid-js": "^1.9.18",
         "vite": "^8.3.3",
         "vite-plugin-solid": "^2.11.14",
         "vitest": "5.0.3",
@@ -770,7 +770,7 @@
         "@shared/typescript-config": "workspace:*",
         "@solidjs/testing-library": "^0.8.10",
         "happy-dom": "^21.0.4",
-        "solid-js": "^1.9.15",
+        "solid-js": "^1.9.18",
         "vite": "^8.3.3",
         "vite-plugin-solid": "^2.11.14",
         "vitest": "5.0.3",
@@ -789,7 +789,7 @@
         "@shared/typescript-config": "workspace:*",
         "@solidjs/testing-library": "^0.8.10",
         "happy-dom": "^21.0.4",
-        "solid-js": "^1.9.15",
+        "solid-js": "^1.9.18",
         "vite": "^8.3.3",
         "vite-plugin-solid": "^2.11.14",
         "vitest": "5.0.3",
@@ -805,7 +805,7 @@
         "@shared/typescript-config": "workspace:*",
         "@solidjs/testing-library": "^0.8.10",
         "happy-dom": "^21.0.4",
-        "solid-js": "^1.9.15",
+        "solid-js": "^1.9.18",
         "vite": "^8.3.3",
         "vite-plugin-solid": "^2.11.14",
         "vitest": "5.0.3",
@@ -847,7 +847,7 @@
         "@vitest/browser-playwright": "5.0.3",
         "happy-dom": "^21.0.4",
         "playwright": "^1.62.1",
-        "solid-js": "^1.9.15",
+        "solid-js": "^1.9.18",
         "tailwindcss": "^4.3.3",
         "vite": "^8.3.3",
         "vite-plugin-solid": "^2.11.14",
@@ -879,7 +879,7 @@
         "@shared/design-tokens": "workspace:*",
         "@shared/ui": "workspace:*",
         "@tailwindcss/vite": "^4.3.3",
-        "solid-js": "^1.9.15",
+        "solid-js": "^1.9.18",
         "tailwindcss": "^4.3.3",
         "three": "^0.186.1",
       },
@@ -901,7 +901,7 @@
         "@observablehq/plot": "^0.6.17",
         "@shared/ui": "workspace:*",
         "@tailwindcss/vite": "^4.3.3",
-        "solid-js": "^1.9.15",
+        "solid-js": "^1.9.18",
         "tailwindcss": "^4.3.3",
       },
       "devDependencies": {
@@ -3067,7 +3067,7 @@
 
     "seroval": ["seroval@1.6.8", "", {}, "sha512-HlSgSAkTk4EqHcje1ptJjfZi1YDv5KbhVJ/d3P7T/nAXua2VmDu+AKDX5VTdFfZf48nDkWB2TKYt0DrCSa+3wg=="],
 
-    "seroval-plugins": ["seroval-plugins@1.5.6", "", { "peerDependencies": { "seroval": "^1.0" } }, "sha512-HXuLAX2pu/UByPpaeo/TaMfvMIi+1QqIoPJYCcAtU8QkVNwgR6MPlGuCQTErV1JwraaMbYaWVIBX7mppzGLATQ=="],
+    "seroval-plugins": ["seroval-plugins@1.6.12", "", { "peerDependencies": { "seroval": "^1.0" } }, "sha512-+reiwp/lYxiyctSrdvX7OQ1YLrcbWYgBiZrhSFL+V43b0/DGRLNVSDyZINbQe+tWplPOI2fw2dPrdv6hcc09kQ=="],
 
     "sharp": ["sharp@0.35.5", "", { "dependencies": { "@img/colour": "^1.1.0", "detect-libc": "^2.1.2", "semver": "^7.8.5" }, "optionalDependencies": { "@img/sharp-darwin-arm64": "0.35.5", "@img/sharp-darwin-x64": "0.35.5", "@img/sharp-freebsd-wasm32": "0.35.5", "@img/sharp-libvips-darwin-arm64": "1.3.4", "@img/sharp-libvips-darwin-x64": "1.3.4", "@img/sharp-libvips-linux-arm": "1.3.4", "@img/sharp-libvips-linux-arm64": "1.3.4", "@img/sharp-libvips-linux-ppc64": "1.3.4", "@img/sharp-libvips-linux-riscv64": "1.3.4", "@img/sharp-libvips-linux-s390x": "1.3.4", "@img/sharp-libvips-linux-x64": "1.3.4", "@img/sharp-libvips-linuxmusl-arm64": "1.3.4", "@img/sharp-libvips-linuxmusl-x64": "1.3.4", "@img/sharp-linux-arm": "0.35.5", "@img/sharp-linux-arm64": "0.35.5", "@img/sharp-linux-ppc64": "0.35.5", "@img/sharp-linux-riscv64": "0.35.5", "@img/sharp-linux-s390x": "0.35.5", "@img/sharp-linux-x64": "0.35.5", "@img/sharp-linuxmusl-arm64": "0.35.5", "@img/sharp-linuxmusl-x64": "0.35.5", "@img/sharp-webcontainers-wasm32": "0.35.5", "@img/sharp-win32-arm64": "0.35.5", "@img/sharp-win32-ia32": "0.35.5", "@img/sharp-win32-x64": "0.35.5" }, "peerDependencies": { "@types/node": "*" }, "optionalPeers": ["@types/node"] }, "sha512-Ywn4OnzGukp7CDMrp08RQ50YKmuwG47brZgIVPTvBaaAfQlRlygrRqSrxdCiL9M+LlzLBiJ68IR1QqvzHyjC7g=="],
 
@@ -3095,7 +3095,7 @@
 
     "smol-toml": ["smol-toml@1.9.0", "", {}, "sha512-hpd+HLON7HdZXqYchMM/+LaTTbdK0AU3NngIJ4KVyWbY9bfQqdL9cD+4yf6dUoU2Ap4VsU0JkQi6FxAI1B2mXQ=="],
 
-    "solid-js": ["solid-js@1.9.15", "", { "dependencies": { "csstype": "^3.1.0", "seroval": "~1.5.4", "seroval-plugins": "~1.5.4" } }, "sha512-EeiY2xfpZJqPLjXspVEKjAII4yv8NyG//NxZ3IpOFHdUNnnTyL0uJOeS9LWGvA7cFCz5y94cjFwYlmw5Luncsg=="],
+    "solid-js": ["solid-js@1.9.18", "", { "dependencies": { "csstype": "^3.1.0", "seroval": "~1.6.11", "seroval-plugins": "~1.6.8" } }, "sha512-CHGO5YFk6Y9m/1YSxVtKnXfrW7JD3Tmof8HmR4z6TmCPsS8efo8LnzIR8CQh3cUvffqYm6DWyBFfk8dQw1CNQQ=="],
 
     "solid-presence": ["solid-presence@0.2.0", "", { "dependencies": { "@corvu/utils": "~0.4.2" }, "peerDependencies": { "solid-js": "^1.8" } }, "sha512-YM92o+jvpzX3XGaD4rLYmq/Kc2ZVh47GSCLEufHBFQQIurvZTs8SoGJxO8BJGNDxBKdcS8F3dYhW1SDXp4BNjA=="],
 

@@ -31,7 +31,7 @@
     "@shared/typescript-config": "workspace:*",
     "happy-dom": "^21.0.4",
     "miniflare": "^4.20260730.0",
-    "solid-js": "^1.9.15",
+    "solid-js": "^1.9.18",
     "vite": "^8.3.3",
     "vite-plugin-solid": "^2.11.14",
     "vitest": "5.0.3"
