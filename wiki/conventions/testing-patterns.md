@@ -863,6 +863,10 @@ bun run --cwd zap/api test:d1
 
 Run serially. Concurrent Miniflare workerd instances contend and fail spuriously, which is why the root script pins `--concurrency=1`. Both `ci.yml` and `deploy.yml` run this lane; before 2026-08 neither did, and zap's test sat failing on a stale fixture for as long as it took someone to run it by hand.
 
+Most CI runs replay this lane from turbo's cache, so a test in it that fails one run in a few can sit unseen for weeks. A change that moves the lane or what it runs on should be checked on cold runs: set `TURBO_FORCE: "true"` in the workflow's `env` on a throwaway commit, run it three times, and revert the commit. A wall-clock window in a Miniflare test needs room for one call to a new Durable Object, which has taken over 300 ms on a fresh runner.
+
+*Measured 2026-11-02 — CI runs 41410437803 and 41415396574 on #1910 with `TURBO_FORCE`, n=6: one read past a 300 ms TTL*
+
 ### osn-api on workerd, end to end
 
 `osn/api/tests/d1/worker-e2e.test.ts` is the one test that runs osn-api as it is
