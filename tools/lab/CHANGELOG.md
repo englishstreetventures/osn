@@ -1,5 +1,11 @@
 # @tools/lab
 
+## 0.3.26
+
+### Patch Changes
+
+- 8f9ffab: Install the third-party `stageshow` skill pinned to its upstream commit, and keep its example source out of the lint run.
+
 ## 0.3.25
 
 ### Patch Changes
