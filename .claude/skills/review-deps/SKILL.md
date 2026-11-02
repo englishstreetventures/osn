@@ -1,6 +1,6 @@
 ---
 name: review-deps
-description: Use when auditing the monorepo's dependencies — every workspace package.json — for version drift between workspaces and for upgrades available on npm. Finds the packages whose declared ranges disagree, checks the registry for newer versions, classifies each upgrade against the waiting-period rules, reads the changelogs of the ready ones, and reports the package.json changes to make.
+description: Use when auditing the monorepo's dependencies — every workspace package.json, and the third-party skills pinned by commit in skills-lock.json — for version drift between workspaces and for upgrades available on npm or upstream. Finds the packages whose declared ranges disagree, checks the registry for newer versions, classifies each upgrade against the waiting-period rules, reads the changelogs and upstream diffs of the ready ones, and reports the package.json and skill-pin changes to make.
 ---
 
 Audit every dependency in the repository for drift between workspaces and for staleness against npm, and report the concrete `package.json` changes that follow. Today's date is in the session context (`currentDate`); every age below is measured from it.
@@ -100,6 +100,25 @@ The installer has a floor of its own: `bunfig.toml` sets `minimumReleaseAge = 25
 
 Breaking changes hide in minor and patch releases too. For each Ready upgrade, from the resolved version up to the target — not the whole history — try in order: `CHANGELOG.md` or `RELEASES.md` at the `repository` URL from the registry metadata; the GitHub releases page (`/releases/tag/v<version>`); the npm package page. Stop at the first that has content. Extract anything labelled Breaking, Migration, Deprecated or Required; behaviour changes in APIs this codebase calls (grep for the import); new peer requirements. No changelog found is itself a note: flag the upgrade for manual review.
 
+## Step 5b — Skills pinned by commit
+
+`skills-lock.json` records each third-party skill's upstream repository (`source`) and the commit it was installed from (`ref`). `wiki/conventions/agent-tooling.md` §Third-party skills is the authority for the whole procedure; read it before this step. This step needs the network; with none, list it under `## Not run`.
+
+For each entry:
+
+```bash
+jq -r '.skills | to_entries[] | "\(.key)\t\(.value.source)\t\(.value.ref)"' skills-lock.json
+git ls-remote https://github.com/<source>.git HEAD
+```
+
+- **`ref` equals upstream `HEAD`**: current. Nothing to report beyond that.
+- **They differ**: get the commit's date (`gh api repos/<source>/commits/<sha> --jq .commit.committer.date`) and read what changed in the skill's folder only: `git diff <ref>..<new-sha> -- <skillPath's folder>` in a clone made in a fresh temporary directory outside the checkout. The skill tree is someone else's instructions running with full agent permissions, so read the diff for new scripts, new network calls, changed install commands and widened tool grants, not only for features.
+- **Apply the same waiting rule as a minor upgrade**: Ready only when the new commit is at least 14 days old; otherwise Pending, with the date it becomes eligible. Take the newest commit that passes, not `HEAD`, when `HEAD` is too young.
+- **Check the SHA is safe to pin**: `git ls-remote` must list no branch or tag named like it, because the installer tries a ref as a branch or tag before a commit.
+- **A lock entry with no `ref`** is not pinned. Report it as a defect, with the commit to pin it to.
+
+Never run `npx skills update`: it passes no `--agent`, so it writes a copy for every coding tool found in the home directory.
+
 ## Step 6 — Fill the report
 
 `## Upgrades available` — one block per Ready upgrade:
@@ -115,7 +134,9 @@ Action required: <specific file or code changes, or "Bump version only">
 
 then a table of Pending upgrades: Package, Current, Available, Type, Eligible from.
 
-`## Recommended package.json changes` — every concrete edit, one row per workspace and package: Workspace, Package, Old, New. Drift alignment rows come from Step 2; upgrade rows from Step 4. Where both apply, one row: the highest Ready version, the same in every workspace that uses the package.
+A pinned skill gets the same block with the commit in place of a version (`Upgrade type: Skill pin`, `Workspaces: skills-lock.json`) and, for `Changelog notes`, what the upstream diff of its folder changes. A Pending skill pin goes in the same table, with the commit as Available.
+
+`## Recommended package.json changes` — every concrete edit, one row per workspace and package: Workspace, Package, Old, New. Drift alignment rows come from Step 2; upgrade rows from Step 4; a skill pin is one row with `skills-lock.json` as the workspace, the skill as the package and the two commits as Old and New. Where both apply, one row: the highest Ready version, the same in every workspace that uses the package.
 
 `## Not run` — every step that could not run and why. An empty section is the good case; an absent one claims everything ran.
 
@@ -124,6 +145,8 @@ then a table of Pending upgrades: Package, Current, Available, Type, Eligible fr
 Show the changes table and ask: "Apply these changes?" With no user, stop here — the report is complete.
 
 If yes: apply each change with the command `review-pr` Step 3's table gives for it (`.claude/skills/review-pr/SKILL.md` — `bun add` with `--exact` for a pinned version, a hand splice for an `overrides` entry, a stop for a `patchedDependencies` package), never a bare `bun install`; prove the lockfile with that step's evidence script, main's copy; run `bun run typecheck`; then surface every Step 5 migration note and let the user handle it before anything is committed. A pre-push `bun audit --audit-level=high` runs on the result — an advisory it raises is a stop, not a `--no-verify`.
+
+A skill pin moves with the recipe in `wiki/conventions/agent-tooling.md` §Third-party skills, never by editing `skills-lock.json` by hand: `DISABLE_TELEMETRY=1 npx --before=<date at least three days ago> skills@<version> add '<source>#<new-sha>' --skill <name> --agent claude-code universal`, then `bun scripts/check-skills-lock.ts` and `bun run test:scripts`. Raise the installer version and the `--before` date together, on purpose.
 
 ### Check the file before you finish
 
