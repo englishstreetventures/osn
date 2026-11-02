@@ -67,6 +67,9 @@ import { buildSeal, type Seal } from "./seal";
 /** The overlay's marker attribute; the head stylesheet styles it. */
 export const OVERLAY_ATTR = "data-envelope-overlay";
 
+/** On the overlay from the first tap: the break the seal is drawing, `split`, `peel` or `crumble`. */
+export const BREAK_ATTR = "data-envelope-break";
+
 /** The button's name and the idle prompt's words. */
 export const OPEN_LABEL = "Open your invitation";
 
@@ -367,6 +370,8 @@ export function createEnvelopeScene(options: EnvelopeSceneOptions): EnvelopeScen
     enter("breaking");
     delete overlay.dataset["prompt"];
     win.clearTimeout(promptTimer);
+    // The style handed to the seal, readable on the overlay.
+    overlay.setAttribute(BREAK_ATTR, options.breakStyle);
     const breaking = seal?.break(options.breakStyle);
     void (async () => {
       await breaking;

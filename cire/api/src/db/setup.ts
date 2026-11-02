@@ -10,6 +10,7 @@ import {
 } from "@cire/db/seed";
 import type { EnvelopeId } from "@cire/envelope";
 import { GUEST_EMAIL_CONSENT, ORGANISER_EMAIL_ATTESTATION } from "@cire/guest-email";
+import type { DesignId } from "@cire/invite-designs";
 import { and, eq, ne } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
@@ -1577,12 +1578,19 @@ export const E2E_ENVELOPE_HERO_KEY =
  *   cropped for both breakpoints, so the opening draws the hero's text and its
  *   crop layers.
  * - `wed_e2e_envelope_plain`: the same envelope over a hero with a title and
- *   no image, the path where the opening fetches no picture.
+ *   no image, the path where the opening fetches no picture, in the gala
+ *   design pack, so the flow plays the opening in both packs.
  * - `wed_e2e_no_envelope`: a shown hero and no envelope, so the flow can see
  *   the browser able to play one and the page asking for none.
  */
 function seedE2eEnvelope(db: TestDb, now: Date): void {
-  const plain = (weddingId: string, slug: string, title: string, envelope: boolean) => {
+  const plain = (
+    weddingId: string,
+    slug: string,
+    title: string,
+    envelope: boolean,
+    designId: DesignId = "classic",
+  ) => {
     db.insert(schema.weddings)
       .values({
         id: weddingId,
@@ -1597,12 +1605,13 @@ function seedE2eEnvelope(db: TestDb, now: Date): void {
       .values({
         weddingId,
         heroTitle: title,
+        designId,
         envelopeId: envelope ? ("wax-seal" satisfies EnvelopeId) : null,
         updatedAt: now,
       })
       .run();
   };
-  plain("wed_e2e_envelope_plain", "plain-envelope-wedding", "Plain Envelope Wedding", true);
+  plain("wed_e2e_envelope_plain", "plain-envelope-wedding", "Plain Envelope Wedding", true, "gala");
   plain("wed_e2e_no_envelope", "no-envelope-wedding", "No Envelope Wedding", false);
 
   const weddingId = "wed_e2e_envelope";
