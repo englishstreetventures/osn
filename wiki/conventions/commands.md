@@ -6,7 +6,7 @@ related:
   - "[[contributing]]"
   - "[[testing-patterns]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-11-02
+last-reviewed: 2026-10-29
 ---
 
 # CLI Commands Reference
@@ -61,7 +61,6 @@ bun run lint             # Run oxlint across the monorepo
 bun run fmt              # Format code with bun fmt
 bun run fmt:check        # Check formatting (used in CI)
 bun scripts/check-wikilinks.ts  # Every wikilink in wiki/ resolves; exit 1 lists the ones that do not
-bunx --bun @x18n/cli@0.1.3 check --json  # Translation files against translate calls; wiki/shared/i18n.md
 ```
 
 Pre-commit hooks (via lefthook) automatically run oxlint + bun fmt on staged files, and an advisory secret scan (`scripts/secret-scan.sh staged`). Pre-push hooks run the type checker.
