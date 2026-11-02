@@ -62,6 +62,13 @@ describe("buildCsp", () => {
     expect(production).toMatch(/connect-src[^;]*https:\/\/api\.cireweddings\.com/);
   });
 
+  it("allows blob: images, which the envelope card draws the hero from", () => {
+    // `@cire/envelope` copies the hero image to a same-origin `blob:` URL so
+    // the opening's canvas may draw it; without `blob:` the card lands with no
+    // photo once the policy is enforced.
+    expect(CSP_DIRECTIVES["img-src"]).toContain("blob:");
+  });
+
   it("names the tier's own API in place of production's, and reports to it", () => {
     const dev = buildCsp(cspDirectives(DEV_API_ORIGIN));
     expect(dev).not.toContain(PRODUCTION_API_ORIGIN);

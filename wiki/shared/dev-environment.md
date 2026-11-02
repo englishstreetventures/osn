@@ -10,7 +10,7 @@ related:
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-10-29
+last-reviewed: 2026-11-02
 ---
 
 # Dev environment (cire + OSN identity)
@@ -144,10 +144,13 @@ unset, each with its reason.
    `scripts/guest-route-parity.ts` or its Node child,
    `scripts/guest-route-parity-reference.js`, deploys the guest site. Each cire
    surface's paths list every `@cire/*` package it bundles (`cire/ui`,
-   `cire/dietary`, `cire/theme`, …), and
+   `cire/dietary`, `cire/theme`, …); a surface that imports only a package's
+   entry names just its `src/index.ts` and `package.json`, as cire-api and
+   cire-host do for `@cire/envelope`, whose scene ships in the guest site
+   alone.
    [`scripts/tests/deploy-surface-map.test.ts`](../../scripts/tests/deploy-surface-map.test.ts)
-   fails when a surface's `package.json` gains a `@cire/*` dependency its paths
-   do not name. The production release reads the same map, so the two tiers
+   fails when a surface's `package.json` gains a `@cire/*` dependency whose
+   manifest or entry its paths do not name. The production release reads the same map, so the two tiers
    agree on what a change touches.
 2. **`build`** — install, `bun run build`, `bun run test`, `bun run test:d1`.
    Everything below `needs:` it, so nothing ships from a broken tree.

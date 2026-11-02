@@ -280,6 +280,21 @@ export const CIRE_ORGANISER = {
     /** Gus's address in the two sheets the flow previews; the second applies. */
     sheetAddresses: { first: "gus.first@e2e.test", second: "gus.second@e2e.test" },
   },
+  /**
+   * On Crimson with the Wax seal envelope over a hero with a title, a subtitle
+   * and a cropped image, for `cire-invite-envelope`. No seat and no household:
+   * the flow only opens it as a guest.
+   */
+  envelope: {
+    weddingId: "wed_e2e_envelope",
+    slug: "envelope-wedding",
+    envelopeId: "wax-seal",
+    heroTitle: "Envelope Wedding",
+    /** The same envelope over a hero with a title and no image. */
+    plainSlug: "plain-envelope-wedding",
+    /** A shown hero and no envelope. */
+    noneSlug: "no-envelope-wedding",
+  },
 } as const;
 
 /**

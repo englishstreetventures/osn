@@ -84,8 +84,13 @@
     },
     "cire/envelope": {
       "name": "@cire/envelope",
+      "dependencies": {
+        "three": "^0.186.1",
+        "web-haptics": "0.0.6",
+      },
       "devDependencies": {
         "@shared/typescript-config": "workspace:*",
+        "@types/three": "^0.186.0",
         "vitest": "5.0.5",
       },
     },
@@ -165,6 +170,7 @@
         "@astrojs/cloudflare": "14.4.3",
         "@astrojs/solid-js": "7.1.0",
         "@cire/dietary": "workspace:*",
+        "@cire/envelope": "workspace:*",
         "@cire/guest-email": "workspace:*",
         "@cire/invite-designs": "workspace:*",
         "@cire/theme": "workspace:*",

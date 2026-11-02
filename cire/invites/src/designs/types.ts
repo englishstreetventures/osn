@@ -70,6 +70,13 @@ export interface InviteCustomisation {
   /** Which design pack renders this invite (0045). Optional so payloads from
    *  an older API deploy still parse; resolve through `resolveDesignId`. */
   designId?: string;
+  /**
+   * The envelope guests open the invite from, or `null` for none. cire-api
+   * serves only a catalog id the wedding is entitled to. Optional, as
+   * `designId` is, so a payload from an API older than envelopes parses and
+   * shows none.
+   */
+  envelopeId?: string | null;
 }
 
 /**

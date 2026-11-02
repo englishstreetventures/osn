@@ -1,6 +1,7 @@
 import { createEffect, Show } from "solid-js";
 
 import { createHeroBackdrop } from "../../components/hero-backdrop";
+import { HeroCropLayer } from "../../components/HeroCropLayer";
 import { HeroFallbackTitle } from "../../components/HeroFallbackTitle";
 import { HeroScrollCue } from "../../components/HeroScrollCue";
 import {
@@ -46,6 +47,13 @@ interface InviteHeaderProps {
    * when that fetch failed: the island then retries it from the browser.
    */
   initial?: InviteCustomisation | null;
+  /**
+   * `anonymous` on a page that opens from an envelope: the backdrop `<img>`
+   * and its crop layers load in CORS mode, so the opening's copy of the image
+   * is served from the cache they fill instead of downloaded again. Unset,
+   * the backdrop loads as it always has.
+   */
+  imageCrossOrigin?: "anonymous";
 }
 
 /**
@@ -179,6 +187,9 @@ export default function InviteHeader(props: InviteHeaderProps) {
           // to grow the hero rather than be clipped by it. The gradient and
           // photo layers below are absolute inset-0, so they stretch with it.
           data-edge-hero
+          // The backdrop's load state, or `none` without an image: the
+          // envelope opening waits for it to settle before drawing the hero.
+          data-hero-backdrop={heroBackdropSrc() ? heroBackdrop.state() : "none"}
           class="relative min-h-dvh overflow-hidden"
           style={{ ...filterThemeVars(heroVars()), ...SECTION_SURFACE }}
         >
@@ -205,6 +216,7 @@ export default function InviteHeader(props: InviteHeaderProps) {
                   // <div> below and keep this <img> purely as the load/error
                   // detector (visually hidden), so the fade lifecycle is unchanged.
                   src={src()}
+                  crossorigin={props.imageCrossOrigin}
                   // Hero spans the full viewport width at every breakpoint.
                   sizes="100vw"
                   alt=""
@@ -227,25 +239,23 @@ export default function InviteHeader(props: InviteHeaderProps) {
                   plain <img>. */}
                 <Show when={heroCrops().wide}>
                   {(cropStyle) => (
-                    <div
-                      aria-hidden="true"
-                      class="absolute inset-0 hidden h-full w-full bg-cover transition-opacity duration-700 md:block"
-                      style={{
-                        ...cropStyle(),
-                        opacity: heroBackdrop.state() === "loaded" ? "1" : "0",
-                      }}
+                    <HeroCropLayer
+                      layer={cropStyle()}
+                      src={src()}
+                      shown={heroBackdrop.state() === "loaded"}
+                      breakpoint="hidden md:block"
+                      crossOrigin={props.imageCrossOrigin}
                     />
                   )}
                 </Show>
                 <Show when={heroCrops().narrow}>
                   {(cropStyle) => (
-                    <div
-                      aria-hidden="true"
-                      class="absolute inset-0 h-full w-full bg-cover transition-opacity duration-700 md:hidden"
-                      style={{
-                        ...cropStyle(),
-                        opacity: heroBackdrop.state() === "loaded" ? "1" : "0",
-                      }}
+                    <HeroCropLayer
+                      layer={cropStyle()}
+                      src={src()}
+                      shown={heroBackdrop.state() === "loaded"}
+                      breakpoint="md:hidden"
+                      crossOrigin={props.imageCrossOrigin}
                     />
                   )}
                 </Show>

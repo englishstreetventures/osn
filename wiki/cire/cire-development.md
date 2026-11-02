@@ -23,7 +23,7 @@ related:
   - "[[commands]]"
   - "[[bundle-size-guards]]"
   - "[[cire-registry]]"
-last-reviewed: 2026-10-28
+last-reviewed: 2026-11-02
 ---
 
 # Cire development guide
@@ -282,6 +282,7 @@ than the floor whatever `lib` says.
 |---|---|
 | `@cire/dietary`, `@cire/invite-designs`, `@cire/theme`, `@shared/color`, `@shared/design-tokens`, `@shared/legal` | Extends `base.json`; `lib` ES2022, `types: []` |
 | `@cire/ui`, `@shared/ui`, `@shared/rp-auth`, `@shared/toast` | Extends `solid.json`; `lib` ES2022 + DOM, restated |
+| `@cire/envelope` | Extends `base.json`; `lib` ES2022 + DOM, `types: []`. Its catalog entry (`.`) uses no DOM name, which cire-api's own `typecheck` holds, since cire-api has no DOM |
 
 The Worker, the organiser and vendor portals, musubi and pulse load the same
 source into their own programs and check it under their own `lib` too.

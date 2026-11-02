@@ -35,13 +35,13 @@ export function resolveApiUrl(env: string | undefined): string {
  * be pre-warmed anyway, since the claim query is keyed on a code the page does
  * not have.
  *
- * Deliberately emitted WITHOUT `crossorigin`: browsers keep separate socket
- * pools for credentialed and anonymous connections, and every request the guest
- * site makes to the API is credentialed — `fetch(..., { credentials: "include" })`
- * for claim/restore/RSVP and the islands' invite retry, and plain `<img>` loads
- * for the hero and event images. An anonymous preconnect (the shape an
- * anonymous-CORS asset fetch would need) would warm the wrong pool and buy
- * nothing here.
+ * Emitted WITHOUT `crossorigin`: browsers keep separate socket pools for
+ * credentialed and anonymous connections, and the guest site's requests to the
+ * API are credentialed — `fetch(..., { credentials: "include" })` for
+ * claim/restore/RSVP and the islands' invite retry, and plain `<img>` loads for
+ * the hero and event images. The one exception is a page that opens from an
+ * envelope, whose hero image loads anonymously (the design packs'
+ * `Document.astro`); that page adds an anonymous preconnect beside this one.
  */
 export function apiPreconnectHref(apiUrl: string): string | null {
   try {

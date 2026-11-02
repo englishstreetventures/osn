@@ -1,14 +1,17 @@
 {
   "extends": "@shared/typescript-config/base.json",
   "compilerOptions": {
-    // The catalog is read by cire-api and written for browsers too, so it
-    // checks at the browser floor in the root `.browserslistrc`: an ES2023
-    // method such as `toSorted` fails `check`. Stated here rather than
-    // inherited, so a change to the shared config cannot quietly raise it. No
-    // ambient types: `bun-types` declares newer built-ins
-    // (`Promise.withResolvers`, `Array.fromAsync`) whatever `lib` says, and no
-    // DOM, because cire-api has none.
-    "lib": ["ES2022"],
+    // Every entry is written for browsers, so the package checks at the
+    // browser floor in the root `.browserslistrc`: an ES2023 method such as
+    // `toSorted` fails `check`. Stated here rather than inherited, so a change
+    // to the shared config cannot quietly raise it. No ambient types:
+    // `bun-types` declares newer built-ins (`Promise.withResolvers`,
+    // `Array.fromAsync`) whatever `lib` says.
+    //
+    // `DOM` is for `./boot` and `./scene`. The catalog entry (`.`) uses none:
+    // cire-api imports it and has no DOM, so `bun run --cwd cire/api
+    // typecheck` fails on any DOM name that reaches `src/index.ts`.
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": []
   },
   "include": ["src/**/*", "tests/**/*"],

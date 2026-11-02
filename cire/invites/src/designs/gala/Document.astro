@@ -8,7 +8,9 @@ import InvitePage from './InvitePage'
 import { filterThemeVars, paletteRootVars, sectionVars, styleAttr } from '../../components/invite-theme'
 import { heroState } from '../../components/invite-emptiness'
 import { EDGE_BOOT_SCRIPT, EDGE_STRIP_CLASS, edgeStyle, serverEdgeColours } from '../../components/edge-boot'
-import { Z_CLASS } from '../../lib/z-index'
+import { ENVELOPE_BOOT_SCRIPT, envelopeStyle } from '@cire/envelope/boot'
+import { envelopeKeyFor } from '../../components/envelope-key'
+import { Z_CLASS, Z_LAYER } from '../../lib/z-index'
 import { GiftRegistryTeaserIsland } from '../../components/gift-registry/GiftRegistryTeaserIsland'
 import SiteFooter from '../../components/SiteFooter.astro'
 import { ConsentBanner } from '../../components/consent/ConsentBanner'
@@ -44,8 +46,20 @@ const heroShown =
 const edgeColours = serverEdgeColours(palette, heroShown)
 const edgeInline = edgeStyle(edgeColours)
 
+// The envelope opening's key: set only for a wedding with a catalog envelope
+// over a shown hero (`envelopeKeyFor`). With none, the boot script below never
+// seals the page and the page is exactly the page without an envelope.
+const envelopeKey = await envelopeKeyFor({ slug, envelopeId: initialInvite?.envelopeId, heroShown })
+// A page that opens from an envelope loads its hero image in anonymous CORS
+// mode: the preload, the backdrop `<img>` and its crop layers, and the
+// opening's own copy then share one cached response instead of two
+// (cire-api's image responses vary on `Origin`). Every other page loads it as
+// it always has.
+const heroCrossOrigin = envelopeKey ? 'anonymous' : undefined
+
 // Warm the browser's connection to cire-api. See `lib/api-origin.ts` for why
-// this is separate from the hero preload and why it carries no `crossorigin`.
+// this is separate from the hero preload and why it carries no `crossorigin`;
+// a page that opens from an envelope warms the anonymous pool as well.
 const apiPreconnect = apiPreconnectHref(apiUrl)
 
 // The gift-list band's surface, resolved server-side from the same SSR payload
@@ -55,7 +69,7 @@ const apiPreconnect = apiPreconnectHref(apiUrl)
 const registryVars = filterThemeVars(sectionVars(initialInvite?.theme ?? null, 'registry'))
 ---
 <!DOCTYPE html>
-<html lang="en" style={`${paletteStyle};${edgeInline}`}>
+<html lang="en" style={`${paletteStyle};${edgeInline}`} data-design="gala" data-envelope-key={envelopeKey ?? undefined}>
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
@@ -63,6 +77,12 @@ const registryVars = filterThemeVars(sectionVars(initialInvite?.theme ?? null, '
     {/* Sets the safe-area classes before first paint. Runs after the viewport meta:
         iOS reports the insets as 0 until viewport-fit=cover is in effect. */}
     <script is:inline set:html={EDGE_BOOT_SCRIPT}></script>
+    {/* The envelope opening: its stylesheet and boot script before first paint,
+        so a sealed page is covered from its first frame and an unsealed one
+        never is. Both are constants; the only per-request input is the
+        `data-envelope-key` attribute above. */}
+    <style is:inline set:html={envelopeStyle(Z_LAYER.ENVELOPE)}></style>
+    <script is:inline set:html={ENVELOPE_BOOT_SCRIPT}></script>
     {/* S-L1: keep the ?code= preview credential out of cross-origin Referer headers. */}
     <meta name="referrer" content="strict-origin-when-cross-origin" />
     <title>{pageTitle}</title>
@@ -70,17 +90,19 @@ const registryVars = filterThemeVars(sectionVars(initialInvite?.theme ?? null, '
         claim POST (and the session restore beside it) is the interaction the
         guest is waiting on, and the hero image is served from here too.
 
-        Credentialed pool only (no `crossorigin`): every browser request to
-        the API uses it — the hero <img>, the claim POST, the session restore,
-        RSVP, and the islands' `GET /api/invite/:slug` retry when the route's
-        own fetch failed. An anonymous preconnect would warm a pool nothing
-        uses. */}
+        The credentialed pool (no `crossorigin`) serves the claim POST, the
+        session restore, RSVP, the islands' `GET /api/invite/:slug` retry when
+        the route's own fetch failed, and the hero <img>. On a page that opens
+        from an envelope the hero loads anonymously instead (`heroCrossOrigin`),
+        so that page warms the anonymous pool too; the preload carries the
+        same mode as the <img>, or it is wasted. */}
     {apiPreconnect && <link rel="preconnect" href={apiPreconnect} />}
-    {preloadHeroHref && <link rel="preload" as="image" href={preloadHeroHref} />}
+    {apiPreconnect && heroCrossOrigin && <link rel="preconnect" href={apiPreconnect} crossorigin={heroCrossOrigin} />}
+    {preloadHeroHref && <link rel="preload" as="image" href={preloadHeroHref} crossorigin={heroCrossOrigin} />}
   </head>
   <body class="invite-page">
     <div class={`${EDGE_STRIP_CLASS} edge-top ${Z_CLASS.EDGE}`} aria-hidden="true"></div>
-    <InviteHeader client:load apiUrl={apiUrl} slug={slug} initial={initialInvite} />
+    <InviteHeader client:load apiUrl={apiUrl} slug={slug} initial={initialInvite} imageCrossOrigin={heroCrossOrigin} />
     {/* rootMargin so the island hydrates while the full-viewport hero is
         still on screen. Bare `client:visible` cannot fire at scroll position
         0 (the hero is `min-h-dvh`), which would delay the session restore
@@ -123,6 +145,12 @@ const registryVars = filterThemeVars(sectionVars(initialInvite?.theme ?? null, '
     {/* Site-wide chrome: the couple's name over the legal links. Always here,
         on the invite and on the legal pages alike. The couple's own sign-off is
         a section INSIDE InvitePage above — it sits behind the claim gate. */}
+    {/* Plays the envelope opening again. Hidden unless this browser can play
+        it and this invite has one (the head stylesheet); beside the footer,
+        since the guest site has no menu. */}
+    <div class="text-center">
+      <button type="button" data-envelope-replay>Open the envelope again</button>
+    </div>
     <SiteFooter closing={initialInvite?.hero.title ?? null} />
     {/* Site-wide consent surface. `client:idle` so it never competes with the
         invite's first paint — nothing third-party can load before it hydrates
@@ -134,5 +162,7 @@ const registryVars = filterThemeVars(sectionVars(initialInvite?.theme ?? null, '
 
 <script>
   import { startEdgeColours } from '../../components/edge-boot'
+  import { startEnvelope } from '../../components/envelope-mount'
   startEdgeColours()
+  startEnvelope()
 </script>

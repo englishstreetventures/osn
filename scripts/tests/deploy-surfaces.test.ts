@@ -144,7 +144,12 @@ describe("which surfaces a change redeploys", () => {
     ["cire/guest-email/src/index.ts", ["cire_api", "cire_invites", "cire_host"]],
     ["cire/theme/src/index.ts", ["cire_api", "cire_invites", "cire_host", "cire_vendor"]],
     ["cire/invite-designs/src/index.ts", ["cire_api", "cire_invites", "cire_host"]],
-    ["cire/envelope/src/index.ts", ["cire_api", "cire_host"]],
+    ["cire/envelope/src/index.ts", ["cire_api", "cire_invites", "cire_host"]],
+    ["cire/envelope/package.json", ["cire_api", "cire_invites", "cire_host"]],
+    // The scene, the seal and the boot script ship only in the guest site;
+    // cire-api and cire-host import the catalog entry alone.
+    ["cire/envelope/src/scene.ts", ["cire_invites"]],
+    ["cire/envelope/src/seal/index.ts", ["cire_invites"]],
     ["cire/build-tools/src/index.ts", ["cire_invites", "cire_host", "cire_vendor"]],
     ["osn/api/src/index.ts", ["osn_api"]],
     ["osn/db/drizzle/0009_x.sql", ["osn_api"]],

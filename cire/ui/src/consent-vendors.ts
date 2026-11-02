@@ -121,6 +121,17 @@ export const CONSENT_VENDORS: readonly ConsentVendor[] = [
     transfer: null,
   },
   {
+    id: "envelope-seen",
+    name: "Your opened envelope",
+    category: "necessary",
+    purpose:
+      "Remembers that you have opened this invitation's envelope, or that it could not be shown on this device, so it does not play again on every visit. It holds a code made from the invitation, never your name or the couple's, and stays in your browser until you clear this site's data.",
+    origins: [],
+    enforcement: "always",
+    privacyUrl: null,
+    transfer: null,
+  },
+  {
     id: "turnstile",
     name: "Cloudflare Turnstile",
     category: "necessary",

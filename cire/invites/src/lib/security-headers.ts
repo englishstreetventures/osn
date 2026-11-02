@@ -131,7 +131,10 @@ export function cspDirectives(apiOrigin: string = API_ORIGIN) {
     // Self-hosted fontsource woff2 files — served from 'self'.
     "font-src": ["'self'"],
     // First-party invite/event image bytes (served from cire-api), Pinterest pin
-    // thumbnails, Google Maps tiles, plus data:/blob: (inline SVG/blur placeholders).
+    // thumbnails, Google Maps tiles, plus data: (inline SVG/blur placeholders)
+    // and blob: — the envelope card's copy of the hero image (`@cire/envelope`
+    // `src/hero.ts`), which the opening's canvas may draw because it is
+    // same-origin; `scene/card.ts` points the hero's clone at it.
     "img-src": [
       "'self'",
       "data:",

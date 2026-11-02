@@ -160,7 +160,8 @@ export default function EnvelopePicker(props: {
         {(note) => <p class="font-body text-text-muted text-ui-sm">{note()}</p>}
       </Show>
       <p class="font-body text-text-muted text-ui-sm">
-        Saved instantly. Guests won't see envelopes until the opening is released.
+        Saved instantly. Each guest opens it once, in Chrome on Android or a computer. Other
+        browsers, and devices set to reduce motion, show the invite without it.
       </p>
     </div>
   );

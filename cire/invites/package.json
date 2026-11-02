@@ -11,7 +11,7 @@
   "scripts": {
     "dev": "portless",
     "dev:app": "dev-env astro dev",
-    "build": "astro build && ../../scripts/guard-bundle-size.sh .",
+    "build": "astro build && ../../scripts/guard-bundle-size.sh . && scripts/guard-no-scene-in-server.sh .",
     "preview": "astro preview",
     "typecheck": "bun ../../scripts/astro-typecheck.ts && bun check --no-script -p tests/tsconfig.json",
     "favicon": "bun scripts/favicon.ts",
@@ -23,6 +23,7 @@
     "@astrojs/cloudflare": "14.4.3",
     "@astrojs/solid-js": "7.1.0",
     "@cire/dietary": "workspace:*",
+    "@cire/envelope": "workspace:*",
     "@cire/guest-email": "workspace:*",
     "@cire/invite-designs": "workspace:*",
     "@cire/theme": "workspace:*",

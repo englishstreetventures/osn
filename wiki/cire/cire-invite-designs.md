@@ -2,6 +2,7 @@
 title: Cire invite design selector
 tags: [systems, web, api, cire]
 related:
+  - "[[cire-envelope]]"
   - "[[index]]"
   - "[[cire-invite-builder]]"
   - "[[cire-auth]]"
@@ -12,7 +13,7 @@ related:
   - "[[frontend-patterns]]"
   - "[[cire-rsvp-deadline]]"
   - "[[component-library]]"
-last-reviewed: 2026-10-28
+last-reviewed: 2026-11-02
 ---
 # Invite design selector
 
@@ -48,6 +49,23 @@ round-trips.
   follow the pack** (2026-08-06): `invite/design-layout.ts` names each pack's
   structural signature and `HeroSample`/`SectionSample` render it, so switching
   designs visibly re-shapes the miniature. See [[cire-invite-builder]] §preview.
+
+## The envelope above the pack
+
+A wedding may also have an envelope (`wedding_invite_customisations.envelope_id`),
+a choice apart from its design. The envelope opening sits above whichever pack
+renders the page: each pack's `Document.astro` renders the same head boot
+script and stylesheet, the `data-envelope-key` on `<html>`, the replay button
+above the footer, and calls `startEnvelope()` from its module script; the scene
+clones the pack's own hero section (`data-edge-hero`), so it needs nothing from
+the pack's styles. Each pack's hero carries `data-hero-backdrop` (its backdrop's
+load state, or `none` with no image), which the opening waits on, and takes the
+`Document`'s `imageCrossOrigin`: on a page with an envelope key the backdrop
+`<img>` gets `crossorigin`, and the crop layers render through `HeroCropLayer`
+as `<img>` elements, so the hero image is downloaded once
+([[cire-envelope#The hero image, once]]). Each `Document.astro` also marks
+`<html>` with `data-design`, its pack's id. A new pack does the same. How the
+opening works: [[cire-envelope]].
 
 ## The claim and welcome panel
 
