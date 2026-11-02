@@ -176,6 +176,7 @@ export function createEnvelopeScene(options: EnvelopeSceneOptions): EnvelopeScen
   let lastFrame = -1;
   let loop = 0;
   let drawRequest = 0;
+  let resizeRequest = 0;
   let promptTimer = 0;
   let deadline = 0;
   let disposed = false;
@@ -404,7 +405,9 @@ export function createEnvelopeScene(options: EnvelopeSceneOptions): EnvelopeScen
   };
   doc.addEventListener("focusin", onFocusIn);
 
-  const onResize = () => {
+  /** Fits the scene to the overlay's size now, if it changed. */
+  const resize = () => {
+    resizeRequest = 0;
     if (disposed || !renderer || phase === "done") return;
     const next = measure();
     if (
@@ -421,6 +424,13 @@ export function createEnvelopeScene(options: EnvelopeSceneOptions): EnvelopeScen
     if (phase === "sealed") buildPaper();
     void card?.refresh(viewport);
     requestDraw();
+  };
+
+  // A dragged window edge, or a phone's address bar sliding, fires `resize`
+  // many times a frame; the rebuild runs once per frame at the latest size.
+  const onResize = () => {
+    if (disposed || resizeRequest) return;
+    resizeRequest = win.requestAnimationFrame(resize);
   };
   win.addEventListener("resize", onResize);
 
@@ -462,6 +472,7 @@ export function createEnvelopeScene(options: EnvelopeSceneOptions): EnvelopeScen
     disposed = true;
     if (loop) win.cancelAnimationFrame(loop);
     if (drawRequest) win.cancelAnimationFrame(drawRequest);
+    if (resizeRequest) win.cancelAnimationFrame(resizeRequest);
     win.clearTimeout(promptTimer);
     win.clearTimeout(deadline);
     doc.removeEventListener("focusin", onFocusIn);
