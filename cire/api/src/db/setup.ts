@@ -320,6 +320,7 @@ CREATE TABLE IF NOT EXISTS wedding_invite_customisations (
   welcome_tone TEXT,
   invite_message TEXT,
   design_id TEXT NOT NULL DEFAULT 'classic',
+  envelope_id TEXT,
   updated_at INTEGER NOT NULL,
   images_updated_at INTEGER,
   registry_eyebrow TEXT,
