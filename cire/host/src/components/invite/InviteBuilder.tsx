@@ -958,7 +958,9 @@ export default function InviteBuilder(props: InviteBuilderProps) {
       class="border-border bg-surface/30 @container/builder flex flex-col gap-8 rounded-sm border p-6"
     >
       <header class="flex flex-col gap-1">
-        <p class="font-body text-gold text-ui-xs tracking-ui-widest uppercase">Invite Builder</p>
+        <p class="font-body text-gold-ink text-ui-xs tracking-ui-widest uppercase">
+          Invite Builder
+        </p>
         <h2 class="font-display text-text text-ui-lg font-light">Customise your invite</h2>
         <p class="font-body text-text-muted text-ui-sm">
           Use the tabs below to move between sections of the guest invite, in the order guests see
@@ -1145,7 +1147,9 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                 capped at 1100px, so the composed preview was effectively dead
                 code on the very screens it was written for. */}
               <div class="flex flex-col gap-8 @4xl/builder:flex-row @4xl/builder:items-start @6xl/builder:gap-10">
-                <div class="flex min-w-0 flex-1 flex-col gap-8">
+                <div
+                  class={`flex min-w-0 flex-1 flex-col gap-8 ${CLEAR_OF_STUCK_STACK} ${CLEAR_OF_SAVE_BAR}`}
+                >
                   {/* ── Design ─────────────────────────────────────────── */}
                   <SectionCard
                     id="invite-design"
@@ -1644,7 +1648,10 @@ export default function InviteBuilder(props: InviteBuilderProps) {
               />
 
               {/* ── Save bar — sticky so it's reachable from any section ── */}
-              <div class="border-border bg-bg/90 sticky bottom-0 z-10 -mx-6 -mb-6 flex flex-col gap-3 rounded-b-sm border-t px-6 py-4 backdrop-blur">
+              <div
+                ref={trackSaveBarHeight}
+                class="border-border bg-bg/90 sticky bottom-0 z-10 -mx-6 -mb-6 flex flex-col gap-3 rounded-b-sm border-t px-6 py-4 backdrop-blur"
+              >
                 <Show when={error()}>
                   <Notice tone="danger" alert>
                     {error()}
@@ -1668,7 +1675,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                       <span class="font-body text-text-muted text-ui-sm">All changes saved</span>
                     }
                   >
-                    <span role="status" class="font-body text-gold text-ui-sm">
+                    <span role="status" class="font-body text-gold-ink text-ui-sm">
                       Unsaved changes
                     </span>
                   </Show>
@@ -1684,6 +1691,45 @@ export default function InviteBuilder(props: InviteBuilderProps) {
       </Show>
     </section>
   );
+}
+
+/** A control that takes focus in the section cards stops below the stuck stack:
+ *  the top bar, the view bar and the sticky section tabs (3rem), plus half a
+ *  rem (DESIGN.md §The stuck stack). */
+const CLEAR_OF_STUCK_STACK =
+  "[&_:is(button,input,select,textarea,a,[tabindex])]:scroll-mt-[calc(var(--chrome-h)+var(--bar-h,0px)+3.5rem)]";
+
+/** A control that takes focus in the section cards stops clear of the sticky
+ *  save bar at the foot of the page: the bar's measured height (`--save-bar-h`,
+ *  written on the form by `trackSaveBarHeight`) plus half a rem. The bar's own
+ *  button, the tab row and the preview modal do not carry it. */
+const CLEAR_OF_SAVE_BAR =
+  "[&_:is(button,input,select,textarea,a,[tabindex])]:scroll-mb-[calc(var(--save-bar-h,0px)+0.5rem)]";
+
+/**
+ * Writes the save bar's height as `--save-bar-h` on its form, and again
+ * whenever it changes (an error row appears, the line wraps). The offset is
+ * measured, never a guess: the bar's content grows. Runs as the bar's `ref`, so
+ * the observer ends with the bar.
+ */
+function trackSaveBarHeight(bar: HTMLElement) {
+  const form = bar.closest("form");
+  if (!form || typeof ResizeObserver === "undefined") return;
+  let written: string | undefined;
+  const write = () => {
+    const value = `${bar.getBoundingClientRect().height}px`;
+    if (value === written) return;
+    written = value;
+    form.style.setProperty("--save-bar-h", value);
+  };
+  queueMicrotask(write);
+  const observer = new ResizeObserver(write);
+  observer.observe(bar, { box: "border-box" });
+  onCleanup(() => {
+    observer.disconnect();
+    written = undefined;
+    form.style.removeProperty("--save-bar-h");
+  });
 }
 
 /** Plain-English names for the three surfaces a section can sit on. */

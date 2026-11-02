@@ -907,6 +907,13 @@ as its `scroll-margin-top`, so the browser never leaves focus under a layer. A
 switch adds a rem: its focusable input sits inside its label, below the
 track's top edge.
 
+The same holds at the foot. The invite builder's save bar sticks to the bottom
+of the window, so its form carries the bar's measured height as `--save-bar-h`
+(a `ResizeObserver` rewrites it when an error row joins the bar or the line
+wraps, and it goes with the bar), and a control that takes focus in the form
+carries `scroll-margin-bottom: calc(var(--save-bar-h, 0px) + 0.5rem)`. The
+bottom offset is the measured bar, never a guess.
+
 A stuck layer is the same box stuck or not: nothing in it changes size when it
 sticks, because Safari has no scroll anchoring to hide the jump. A shadow on
 `@container scroll-state(stuck: top)` would be an enhancement only; none is
