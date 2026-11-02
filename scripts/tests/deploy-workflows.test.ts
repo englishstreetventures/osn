@@ -84,7 +84,10 @@ interface Job {
   readonly needs?: string | readonly string[];
   readonly if?: string;
   readonly environment?: string | { readonly name: string };
-  readonly concurrency?: { readonly group: string; readonly "cancel-in-progress"?: boolean };
+  readonly concurrency?: {
+    readonly group: string;
+    readonly "cancel-in-progress"?: boolean | string;
+  };
   readonly permissions?: Record<string, string>;
   readonly outputs?: Record<string, string>;
   readonly strategy?: {
@@ -811,14 +814,31 @@ describe("ci.yml's `CI` gate, the one required check, covers every job beside Bu
     }
   });
 
-  // A newer push cancels only a pull request's superseded run; a run on main
-  // or in the merge queue is never cancelled or held behind another.
-  test("only a pull request's runs share a concurrency group", () => {
-    expect(ci.concurrency).toEqual({
-      group:
-        "${{ github.event_name == 'pull_request' && format('ci-pr-{0}', github.ref) || github.run_id }}",
-      "cancel-in-progress": "${{ github.event_name == 'pull_request' }}",
-    });
+  // The secret scan must finish on every pushed commit, so nothing that cancels
+  // a superseded run may reach it: no workflow group, and none on the job.
+  test("no concurrency group can cancel the secret scan", () => {
+    expect(ci.concurrency).toBeUndefined();
+    expect(ci.jobs.secrets?.concurrency).toBeUndefined();
+  });
+
+  // A newer push cancels only a pull request's superseded jobs, one group per
+  // job and leg, so jobs of one run never queue behind each other; a run on
+  // main or in the merge queue takes its run id and is never cancelled.
+  test("each cancellable job is grouped by its own name, and only a pull request cancels", () => {
+    const grouped = Object.entries(ci.jobs).filter(([, job]) => job.concurrency !== undefined);
+    expect(grouped.map(([id]) => id).toSorted()).toEqual(
+      ["browser", "build-test", "cire-api-tests", "d1", "e2e", "migration-flow"].toSorted(),
+    );
+    for (const [id, job] of grouped) {
+      const [key, extra] = id === "browser" ? [`${id}-{1}`, ", matrix.leg"] : [id, ""];
+      expect({ id, concurrency: job.concurrency }).toEqual({
+        id,
+        concurrency: {
+          group: `\${{ format('ci-{0}-${key}', github.event_name == 'pull_request' && github.ref || github.run_id${extra}) }}`,
+          "cancel-in-progress": "${{ github.event_name == 'pull_request' }}",
+        },
+      });
+    }
   });
 });
 

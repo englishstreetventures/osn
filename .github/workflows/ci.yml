@@ -22,12 +22,15 @@ env:
 permissions:
   contents: read
 
-# A newer push to a pull request cancels the run it supersedes, whose result
-# nobody will read. Every other event gets a group of its own (the run id), so
-# runs on main and in the merge queue are never cancelled or held back.
-concurrency:
-  group: ${{ github.event_name == 'pull_request' && format('ci-pr-{0}', github.ref) || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+# A newer push to a pull request cancels the longest jobs of the run it
+# supersedes, whose results nobody will read: each of those jobs below carries a
+# `concurrency` group of its own, named for the pull request's ref and the job
+# (and the leg, so the browser legs never cancel each other). Every other event
+# gets the run id in place of the ref, so runs on main and in the merge queue
+# are never cancelled or held back. The workflow has no group of its own on
+# purpose: the secret scan must finish on every pushed commit, including one a
+# later force-push takes off the branch, because the next run scans only the
+# commits still on it.
 
 jobs:
   lint:
@@ -206,6 +209,9 @@ jobs:
 
   build-test:
     name: Build & Test
+    concurrency:
+      group: ${{ format('ci-{0}-build-test', github.event_name == 'pull_request' && github.ref || github.run_id) }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     # The backstop under the per-step timeouts below. Without it the job's
     # ceiling is GitHub's six hours, which is long enough for one stuck runner
@@ -354,6 +360,9 @@ jobs:
   # files run.
   cire-api-tests:
     name: Unit tests (@cire/api)
+    concurrency:
+      group: ${{ format('ci-{0}-cire-api-tests', github.event_name == 'pull_request' && github.ref || github.run_id) }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -413,6 +422,9 @@ jobs:
   # package with a build step, so it needs no Build.
   d1:
     name: D1 integration tests
+    concurrency:
+      group: ${{ format('ci-{0}-d1', github.event_name == 'pull_request' && github.ref || github.run_id) }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -486,6 +498,9 @@ jobs:
   # checks, before it runs, that turbo found the number of packages it names.
   browser:
     name: Browser tests (${{ matrix.leg }})
+    concurrency:
+      group: ${{ format('ci-{0}-browser-{1}', github.event_name == 'pull_request' && github.ref || github.run_id, matrix.leg) }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -534,7 +549,7 @@ jobs:
         shell: bash
         run: |
           # shellcheck disable=SC2086 # FILTERS holds several flags.
-          found=$(bunx turbo run test:browser $FILTERS --dry=json | jq '[.tasks[] | select(.task == "test:browser")] | length')
+          found=$(bunx --no-install turbo run test:browser $FILTERS --dry=json | jq '[.tasks[] | select(.task == "test:browser")] | length')
           echo "leg $LEG: turbo found $found test:browser tasks, expected $EXPECT"
           test "$found" = "$EXPECT"
 
@@ -596,7 +611,7 @@ jobs:
         shell: bash
         run: |
           # shellcheck disable=SC2086 # FILTERS holds several flags.
-          bunx turbo run test:browser $FILTERS --continue --concurrency=1 --cache-dir=.turbo/browser
+          bunx --no-install turbo run test:browser $FILTERS --continue --concurrency=1 --cache-dir=.turbo/browser
 
       - name: Save turbo cache
         if: github.event_name != 'merge_group'
@@ -845,6 +860,9 @@ jobs:
   # earns trust; promote it once it has a record of staying green.
   e2e:
     name: E2E
+    concurrency:
+      group: ${{ format('ci-{0}-e2e', github.event_name == 'pull_request' && github.ref || github.run_id) }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     # Not one of `ci`'s needs, so nothing reads its result on a merge-queue
     # group, and the push to main that follows runs it on the same commit.
     if: github.event_name != 'merge_group'
@@ -924,6 +942,9 @@ jobs:
   # schemas and verdicts they end with to e2e-artifacts/migrations/.
   migration-flow:
     name: Migration workflow
+    concurrency:
+      group: ${{ format('ci-{0}-migration-flow', github.event_name == 'pull_request' && github.ref || github.run_id) }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
