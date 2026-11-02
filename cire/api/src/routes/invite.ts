@@ -1,3 +1,4 @@
+import { ENVELOPES } from "@cire/envelope";
 import { DESIGNS } from "@cire/invite-designs";
 import type { DesignMeta } from "@cire/invite-designs";
 import type { RateLimiterBackend } from "@shared/rate-limit";
@@ -17,6 +18,7 @@ import { runCire } from "../observability";
 import {
   ImageCropBody,
   InviteDesignBody,
+  InviteEnvelopeBody,
   InviteResolveBody,
   InviteTextBody,
   InviteThemeBody,
@@ -469,6 +471,7 @@ export const createInviteImageServeRoutes = (
  *   PUT    /weddings/:weddingId/invite/text        → text overrides
  *   PUT    /weddings/:weddingId/invite/theme       → per-section fonts + colours
  *   PUT    /weddings/:weddingId/invite/design      → which design pack renders
+ *   PUT    /weddings/:weddingId/invite/envelope    → which envelope guests open, or none
  *   PUT    /weddings/:weddingId/invite/visibility  → which sections show (partial body)
  *   …/invite/faqs                                   → the FAQ entries (`routes/invite-faq.ts`)
  *   POST   /weddings/:weddingId/invite/image/:slot      → upload an image
@@ -645,6 +648,57 @@ export const createInviteOrganiserRoutes = (
                 Effect.catchDefect(() =>
                   Effect.gen(function* () {
                     yield* Effect.logError("invite design save failed", { weddingId });
+                    set.status = 500;
+                    return { error: "Internal error" };
+                  }),
+                ),
+              ),
+            );
+          },
+          manualParse,
+        )
+        // Which envelope guests open before the invite, or none (`null`, which
+        // always saves). An id must be in the catalog (unknown → 422), and
+        // every envelope is premium: it needs Crimson or the wedding's one-off
+        // `premium_templates` entitlement (403 otherwise). The guest read applies
+        // the same rule again, so a wedding that later loses it shows none.
+        .put(
+          "/invite/envelope",
+          async ({ request, weddingId, weddingSlug, weddingTier, set }) => {
+            if (!weddingId || !weddingSlug) {
+              set.status = 500;
+              return { error: "Internal error" };
+            }
+            const raw: unknown = await request.json().catch(() => null);
+            return runCire(
+              Effect.gen(function* () {
+                const body = yield* Schema.decodeUnknownEffect(InviteEnvelopeBody)(raw);
+                if (body.envelopeId === null) {
+                  return yield* inviteService.setEnvelope(weddingId, weddingSlug, null);
+                }
+                const envelope = ENVELOPES.find((e) => e.id === body.envelopeId);
+                if (!envelope) {
+                  set.status = 422;
+                  return { error: "Unknown envelope" };
+                }
+                // The tier is the one `weddingEditor` read with the caller's role.
+                const entitled = yield* tierService.hasPremiumTemplates(weddingId, weddingTier);
+                if (!entitled) {
+                  set.status = 403;
+                  return { error: "premium_envelope" };
+                }
+                return yield* inviteService.setEnvelope(weddingId, weddingSlug, envelope.id);
+              }).pipe(
+                Effect.provideService(DbService, db),
+                Effect.catchTag("SchemaError", () =>
+                  Effect.sync(() => {
+                    set.status = 400;
+                    return { error: "Missing or invalid fields" };
+                  }),
+                ),
+                Effect.catchDefect(() =>
+                  Effect.gen(function* () {
+                    yield* Effect.logError("invite envelope save failed", { weddingId });
                     set.status = 500;
                     return { error: "Internal error" };
                   }),

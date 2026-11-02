@@ -1,4 +1,5 @@
 import { families, weddingInviteCustomisations, weddings } from "@cire/db";
+import { isEnvelopeId, type EnvelopeId } from "@cire/envelope";
 import type {
   FontChoice,
   FontStyleChoice,
@@ -12,7 +13,7 @@ import { VISIBILITY_SECTIONS } from "@cire/theme";
 import { and, eq } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
-import { DbService, dbQuery } from "../db";
+import { DbService, dbQuery, outerColumn } from "../db";
 import { weddingIsLive } from "../db/live-wedding";
 import { metricInviteAssetUploaded, metricInviteSaved } from "../metrics";
 import {
@@ -29,6 +30,7 @@ import {
 import { versionFromKey } from "./event-image";
 import { deleteAsset, storeAsset } from "./invite-assets";
 import type { AssetR2Error, AssetsR2Service } from "./invite-assets";
+import { holdsPremiumTemplatesSql, mayUsePremiumTemplates, normaliseTier } from "./tiers";
 
 export class WeddingNotFound extends Data.TaggedError("WeddingNotFound")<{
   readonly slug?: string;
@@ -177,6 +179,11 @@ export interface InviteCustomisation {
   // Which design pack the invite renders as (0045). Always concrete — a
   // missing row or a pre-0045 null reads as "classic".
   designId: string;
+  // Which envelope the guest opens first, or `null` for none (the default).
+  // A stored id the `@cire/envelope` catalog does not hold reads as `null`.
+  // The organiser reads the stored choice; the public read also needs the
+  // wedding to have premium templates (`getForSlug`).
+  envelopeId: EnvelopeId | null;
 }
 
 const EMPTY_THEME: InviteTheme = {
@@ -212,14 +219,26 @@ const EMPTY: InviteCustomisation = {
   visibility: { hero: true, story: true, faq: true, footer: true },
   inviteMessage: null,
   designId: "classic",
+  envelopeId: null,
 };
+
+/**
+ * What the organiser `GET /invite` returns: the customisation, plus whether the
+ * wedding may use premium envelopes now (`mayUsePremiumTemplates`). With it
+ * false, a stored `envelopeId` stays the organiser's choice but guests are
+ * served none. Only this read carries it; the writes answer
+ * {@link InviteCustomisation}, since none of them changes the tier or the
+ * entitlement.
+ */
+export type OrganiserInviteCustomisation = InviteCustomisation & { envelopeEntitled: boolean };
 
 /**
  * What the public `GET /api/invite/:slug` returns. The closing section's and
  * the FAQ's switches are left out with those sections, which ride the claim
  * payload instead (see `getForSlug`), and the organiser-only invite message is
  * left out entirely: it is the line an organiser copies to send a household,
- * and the guest site never reads it.
+ * and the guest site never reads it. `envelopeId` is `null` unless the wedding
+ * may use premium templates.
  */
 export type PublicInviteCustomisation = Omit<
   InviteCustomisation,
@@ -461,6 +480,7 @@ function toCustomisation(
     inviteMessage: string | null;
     // NOT NULL column, but a LEFT JOIN miss (no customisation row) yields null.
     designId: string | null;
+    envelopeId: string | null;
     updatedAt: Date | null;
     imagesUpdatedAt: Date | null;
   },
@@ -546,6 +566,7 @@ function toCustomisation(
     visibility: visibilityOf(c),
     inviteMessage: c.inviteMessage,
     designId: c.designId ?? "classic",
+    envelopeId: isEnvelopeId(c.envelopeId) ? c.envelopeId : null,
   };
 }
 
@@ -652,23 +673,40 @@ const customisationColumns = {
   faqVisible: weddingInviteCustomisations.faqVisible,
   inviteMessage: weddingInviteCustomisations.inviteMessage,
   designId: weddingInviteCustomisations.designId,
+  envelopeId: weddingInviteCustomisations.envelopeId,
   updatedAt: weddingInviteCustomisations.updatedAt,
   imagesUpdatedAt: weddingInviteCustomisations.imagesUpdatedAt,
 };
 
+/**
+ * What a read selects beside the customisation to decide premium templates:
+ * the wedding's tier, and whether it holds the one-off row, asked of the
+ * `weddings` row the select already reads. So the read stays one statement.
+ */
+const premiumTemplatesColumns = {
+  tier: weddings.tier,
+  holdsPremiumTemplates: holdsPremiumTemplatesSql(outerColumn(weddings.id)),
+};
+
+/** {@link mayUsePremiumTemplates} on the columns {@link premiumTemplatesColumns} selected. */
+function premiumTemplatesOf(row: { tier: string; holdsPremiumTemplates: number }): boolean {
+  return mayUsePremiumTemplates(normaliseTier(row.tier), Boolean(row.holdsPremiumTemplates));
+}
+
 export const inviteService = {
   /**
    * Customisation for an owned wedding (organiser GET). Single LEFT JOIN so the
-   * slug + customisation come back in one round-trip.
+   * slug, the customisation and whether premium envelopes are open come back in
+   * one round-trip.
    */
   getForWeddingId(
     weddingId: string,
-  ): Effect.Effect<InviteCustomisation, WeddingNotFound, DbService> {
+  ): Effect.Effect<OrganiserInviteCustomisation, WeddingNotFound, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const [row] = yield* dbQuery(() =>
         db
-          .select({ slug: weddings.slug, ...customisationColumns })
+          .select({ slug: weddings.slug, ...customisationColumns, ...premiumTemplatesColumns })
           .from(weddings)
           .leftJoin(
             weddingInviteCustomisations,
@@ -678,7 +716,10 @@ export const inviteService = {
           .all(),
       );
       if (!row) return yield* Effect.fail(new WeddingNotFound({}));
-      return toCustomisation({ id: weddingId, slug: row.slug }, row);
+      return {
+        ...toCustomisation({ id: weddingId, slug: row.slug }, row),
+        envelopeEntitled: premiumTemplatesOf(row),
+      };
     }).pipe(Effect.withSpan("cire.invite.getForWeddingId"));
   },
 
@@ -699,15 +740,20 @@ export const inviteService = {
    *
    * It also leaves out what only a switched-off section shows — see
    * `publicView`.
+   *
+   * And it is where an envelope is gated for guests. Every envelope is
+   * premium, so a wedding that may not use premium templates (a tier lowered
+   * since the organiser chose one) serves `envelopeId: null`, and the organiser
+   * read still shows the stored choice.
    */
   getForSlug(slug: string): Effect.Effect<PublicInviteCustomisation, WeddingNotFound, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      // One statement on every guest page load: the wedding and its
-      // customisation come back together.
+      // One statement on every guest page load: the wedding, its
+      // customisation and its premium templates come back together.
       const [row] = yield* dbQuery(() =>
         db
-          .select({ id: weddings.id, ...customisationColumns })
+          .select({ id: weddings.id, ...customisationColumns, ...premiumTemplatesColumns })
           .from(weddings)
           .leftJoin(
             weddingInviteCustomisations,
@@ -718,7 +764,8 @@ export const inviteService = {
       );
       // A soft-deleted wedding is answered as an unknown slug.
       if (!row) return yield* Effect.fail(new WeddingNotFound({ slug }));
-      return publicView(toCustomisation({ id: row.id, slug }, row));
+      const view = publicView(toCustomisation({ id: row.id, slug }, row));
+      return premiumTemplatesOf(row) ? view : { ...view, envelopeId: null };
     }).pipe(Effect.withSpan("cire.invite.getForSlug"));
   },
 
@@ -944,6 +991,38 @@ export const inviteService = {
       yield* Effect.sync(() => metricInviteSaved("ok"));
       return fromWritten(slug, rows);
     }).pipe(Effect.withSpan("cire.invite.setDesign"));
+  },
+
+  /**
+   * Set which envelope the wedding's guests open first, or none (`null`). The
+   * id has already passed the catalog and entitlement checks at the route
+   * boundary. Writes this column and `updatedAt` only — NEVER
+   * `imagesUpdatedAt`: an envelope changes no stored image bytes. Answers with
+   * the customisation as written.
+   */
+  setEnvelope(
+    weddingId: string,
+    slug: string,
+    envelopeId: EnvelopeId | null,
+  ): Effect.Effect<InviteCustomisation, never, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const now = new Date();
+      const rows = yield* dbQuery(() =>
+        db
+          .insert(weddingInviteCustomisations)
+          .values({ weddingId, envelopeId, updatedAt: now })
+          .onConflictDoUpdate({
+            target: weddingInviteCustomisations.weddingId,
+            set: { envelopeId, updatedAt: now },
+          })
+          .returning()
+          .all(),
+      );
+      yield* Effect.logInfo("invite envelope saved", { weddingId, envelopeId });
+      yield* Effect.sync(() => metricInviteSaved("ok"));
+      return fromWritten(slug, rows);
+    }).pipe(Effect.withSpan("cire.invite.setEnvelope"));
   },
 
   /**

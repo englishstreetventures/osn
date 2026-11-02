@@ -8,6 +8,7 @@ import {
   weddingInviteCustomisations,
 } from "@cire/db";
 import { events as eventsData } from "@cire/db/seed";
+import { ENVELOPES } from "@cire/envelope";
 import { DESIGNS } from "@cire/invite-designs";
 import type { DesignMeta } from "@cire/invite-designs";
 import { createRateLimiter } from "@shared/rate-limit";
@@ -137,6 +138,9 @@ async function authHeaders(profileId: string): Promise<Record<string, string>> {
 }
 
 const orgBase = `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/invite`;
+
+// The catalog's one envelope, premium like every envelope.
+const WAX_SEAL = ENVELOPES[0].id;
 
 /**
  * Claim a seeded household's code and return its `cire_session` cookie header.
@@ -3062,6 +3066,201 @@ describe("PUT /invite/design (organiser)", () => {
   });
 });
 
+/** The one-off `premium_templates` row, as a comp grants it. */
+function grantPremiumTemplates(db: ReturnType<typeof buildApp>["db"], weddingId: string): void {
+  db.insert(weddingEntitlements)
+    .values({
+      weddingId,
+      entitlement: "premium_templates",
+      source: "comp",
+      grantedAt: new Date(),
+      grantedBy: "test-harness",
+    })
+    .run();
+}
+
+/** Store `envelopeId` on the sample wedding directly, past the save's gate. */
+function storeEnvelope(db: ReturnType<typeof buildApp>["db"], envelopeId: string): void {
+  db.insert(weddingInviteCustomisations)
+    .values({ weddingId: BOOTSTRAP_WEDDING_ID, envelopeId, updatedAt: new Date() })
+    .run();
+}
+
+/** What the guest read and the organiser read say about the sample wedding's envelope. */
+async function envelopeReads(app: ReturnType<typeof buildApp>["app"]) {
+  const guest = await appRequest(app, `/api/invite/${SLUG}`);
+  expect(guest.status).toBe(200);
+  const organiser = await appRequest(app, orgBase, {
+    headers: await authHeaders(BOOTSTRAP_OWNER),
+  });
+  expect(organiser.status).toBe(200);
+  const own = (await organiser.json()) as { envelopeId: string | null; envelopeEntitled: boolean };
+  return {
+    guest: ((await guest.json()) as { envelopeId: string | null }).envelopeId,
+    organiser: { envelopeId: own.envelopeId, envelopeEntitled: own.envelopeEntitled },
+  };
+}
+
+describe("PUT /invite/envelope (organiser)", () => {
+  async function putEnvelope(
+    app: ReturnType<typeof buildApp>["app"],
+    body: unknown,
+    profileId: string | null = BOOTSTRAP_OWNER,
+  ): Promise<Response> {
+    return appRequest(app, `${orgBase}/envelope`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        ...(profileId === null ? {} : await authHeaders(profileId)),
+      },
+      body: typeof body === "string" ? body : JSON.stringify(body),
+    });
+  }
+
+  it("401s without a token", async () => {
+    const { app } = buildApp();
+    const res = await putEnvelope(app, { envelopeId: null }, null);
+    expect(res.status).toBe(401);
+  });
+
+  it("403s a stranger", async () => {
+    const { app, db } = buildApp();
+    setTier(db, BOOTSTRAP_WEDDING_ID, "crimson");
+    const res = await putEnvelope(app, { envelopeId: WAX_SEAL }, "usr_someone_else");
+    expect(res.status).toBe(403);
+    expect((await envelopeReads(app)).organiser.envelopeId).toBeNull();
+  });
+
+  it("403s a viewer co-host with read_only_role", async () => {
+    const { app, db } = buildApp();
+    setTier(db, BOOTSTRAP_WEDDING_ID, "crimson");
+    db.insert(weddingHosts)
+      .values({
+        id: "whost_envelope_viewer",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        osnProfileId: "usr_envelope_viewer",
+        addedByOsnProfileId: BOOTSTRAP_OWNER,
+        role: "viewer",
+        createdAt: new Date(),
+      })
+      .run();
+    const res = await putEnvelope(app, { envelopeId: WAX_SEAL }, "usr_envelope_viewer");
+    expect(res.status).toBe(403);
+    expect(await jsonBody(res)).toEqual({ error: "read_only_role" });
+    expect((await envelopeReads(app)).organiser.envelopeId).toBeNull();
+  });
+
+  it("400s a body with no envelopeId, or one that is neither a string nor null", async () => {
+    const { app } = buildApp();
+    for (const body of ["{", {}, { envelopeId: 42 }, { envelopeId: [WAX_SEAL] }]) {
+      const res = await putEnvelope(app, body);
+      expect(res.status).toBe(400);
+    }
+  });
+
+  it("422s an id the catalog does not hold, and stores nothing", async () => {
+    const { app, db } = buildApp();
+    setTier(db, BOOTSTRAP_WEDDING_ID, "crimson");
+    const res = await putEnvelope(app, { envelopeId: "not-an-envelope" });
+    expect(res.status).toBe(422);
+    expect(await jsonBody(res)).toEqual({ error: "Unknown envelope" });
+    expect(db.select().from(weddingInviteCustomisations).all()).toEqual([]);
+  });
+
+  it("403s the premium envelope without premium templates, on Gold as on Ivory", async () => {
+    const { app, db } = buildApp();
+    for (const tier of ["ivory", "gold"] as const) {
+      setTier(db, BOOTSTRAP_WEDDING_ID, tier);
+      const res = await putEnvelope(app, { envelopeId: WAX_SEAL });
+      expect(res.status).toBe(403);
+      expect(await jsonBody(res)).toEqual({ error: "premium_envelope" });
+    }
+    expect((await envelopeReads(app)).organiser.envelopeId).toBeNull();
+  });
+
+  it("saves the premium envelope on Crimson, and below it with premium_templates", async () => {
+    const crimson = buildApp();
+    setTier(crimson.db, BOOTSTRAP_WEDDING_ID, "crimson");
+    const onCrimson = await putEnvelope(crimson.app, { envelopeId: WAX_SEAL });
+    expect(onCrimson.status).toBe(200);
+    expect(((await onCrimson.json()) as { envelopeId: string }).envelopeId).toBe(WAX_SEAL);
+
+    const gold = buildApp();
+    setTier(gold.db, BOOTSTRAP_WEDDING_ID, "gold");
+    grantPremiumTemplates(gold.db, BOOTSTRAP_WEDDING_ID);
+    const onGold = await putEnvelope(gold.app, { envelopeId: WAX_SEAL });
+    expect(onGold.status).toBe(200);
+    expect((await envelopeReads(gold.app)).organiser.envelopeId).toBe(WAX_SEAL);
+  });
+
+  it("saves no envelope on an Ivory wedding without reading its entitlements", async () => {
+    const { app, db } = buildApp();
+    storeEnvelope(db, WAX_SEAL);
+    const statements = recordStatements(db);
+    const res = await putEnvelope(app, { envelopeId: null });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { envelopeId: string | null }).envelopeId).toBeNull();
+    expect(statements.filter((s) => s.sql.includes("wedding_entitlements"))).toEqual([]);
+    expect((await envelopeReads(app)).organiser.envelopeId).toBeNull();
+  });
+});
+
+describe("the envelope on the invite reads", () => {
+  it("serves an entitled wedding its envelope in one statement, and hides it from guests once the tier drops", async () => {
+    const { app, db } = buildApp();
+    setTier(db, BOOTSTRAP_WEDDING_ID, "crimson");
+    storeEnvelope(db, WAX_SEAL);
+    const statements = recordStatements(db);
+    const guest = await appRequest(app, `/api/invite/${SLUG}`);
+    expect(statements).toHaveLength(1);
+    expect(((await guest.json()) as { envelopeId: string | null }).envelopeId).toBe(WAX_SEAL);
+    expect((await envelopeReads(app)).organiser).toEqual({
+      envelopeId: WAX_SEAL,
+      envelopeEntitled: true,
+    });
+
+    // `grant-tier.ts --lower`, with no premium_templates row to fall back on.
+    setTier(db, BOOTSTRAP_WEDDING_ID, "ivory");
+    expect(await envelopeReads(app)).toEqual({
+      guest: null,
+      organiser: { envelopeId: WAX_SEAL, envelopeEntitled: false },
+    });
+  });
+
+  it("serves a wedding below Crimson that holds premium_templates", async () => {
+    const { app, db } = buildApp();
+    setTier(db, BOOTSTRAP_WEDDING_ID, "gold");
+    grantPremiumTemplates(db, BOOTSTRAP_WEDDING_ID);
+    storeEnvelope(db, WAX_SEAL);
+    expect(await envelopeReads(app)).toEqual({
+      guest: WAX_SEAL,
+      organiser: { envelopeId: WAX_SEAL, envelopeEntitled: true },
+    });
+  });
+
+  it("reads premium_templates for the wedding itself, not another that holds it", async () => {
+    const { app, db } = buildApp();
+    setTier(db, BOOTSTRAP_WEDDING_ID, "gold");
+    insertWedding(db, { id: "wed_envelope_other", slug: "other-wedding", displayName: "Other" });
+    grantPremiumTemplates(db, "wed_envelope_other");
+    storeEnvelope(db, WAX_SEAL);
+    expect(await envelopeReads(app)).toEqual({
+      guest: null,
+      organiser: { envelopeId: WAX_SEAL, envelopeEntitled: false },
+    });
+  });
+
+  it("serves no envelope for a stored id the catalog does not hold", async () => {
+    const { app, db } = buildApp();
+    setTier(db, BOOTSTRAP_WEDDING_ID, "crimson");
+    storeEnvelope(db, "retired-envelope");
+    expect(await envelopeReads(app)).toEqual({
+      guest: null,
+      organiser: { envelopeId: null, envelopeEntitled: true },
+    });
+  });
+});
+
 describe("PUT /invite/visibility (organiser, migrations 0063 + 0064)", () => {
   type Visibility = { hero: boolean; story: boolean; faq?: boolean; footer?: boolean };
   type OrganiserInvite = {
@@ -3514,7 +3713,11 @@ describe("invite writes answer from the row they wrote", () => {
       headers: await authHeaders(BOOTSTRAP_OWNER),
     });
     expect(next.status).toBe(200);
-    expect(answer).toEqual(await jsonBody(next));
+    // `envelopeEntitled` is the read's alone: it comes from the wedding's tier
+    // and entitlements, which no invite write changes, so a write leaves it out.
+    const { envelopeEntitled, ...read } = (await jsonBody(next)) as Record<string, unknown>;
+    expect(typeof envelopeEntitled).toBe("boolean");
+    expect(answer).toEqual(read as typeof answer);
     return answer;
   }
 
@@ -3569,6 +3772,15 @@ describe("invite writes answer from the row they wrote", () => {
       designId: FREE_DESIGN,
     })) as { designId: string };
     expect(answer.designId).toBe(FREE_DESIGN);
+  });
+
+  it("PUT /envelope", async () => {
+    const built = buildApp();
+    setTier(built.db, BOOTSTRAP_WEDDING_ID, "crimson");
+    const answer = (await expectAnswerFromWrite(built, "PUT", `${orgBase}/envelope`, {
+      envelopeId: WAX_SEAL,
+    })) as { envelopeId: string | null };
+    expect(answer.envelopeId).toBe(WAX_SEAL);
   });
 
   it("PUT /visibility", async () => {
