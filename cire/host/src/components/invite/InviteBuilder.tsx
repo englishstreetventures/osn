@@ -1150,7 +1150,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                 capped at 1100px, so the composed preview was effectively dead
                 code on the very screens it was written for. */}
               <div class="flex flex-col gap-8 @4xl/builder:flex-row @4xl/builder:items-start @6xl/builder:gap-10">
-                <div class="flex min-w-0 flex-1 flex-col gap-8">
+                <div class={`flex min-w-0 flex-1 flex-col gap-8 ${CLEAR_OF_STUCK_STACK}`}>
                   {/* ── Design ─────────────────────────────────────────── */}
                   <SectionCard
                     id="invite-design"
@@ -1693,6 +1693,12 @@ export default function InviteBuilder(props: InviteBuilderProps) {
     </section>
   );
 }
+
+/** A control that takes focus in the section cards stops below the stuck stack:
+ *  the top bar, the view bar and the sticky section tabs (3rem), plus half a
+ *  rem (DESIGN.md §The stuck stack). */
+const CLEAR_OF_STUCK_STACK =
+  "[&_:is(button,input,select,textarea,a,[tabindex])]:scroll-mt-[calc(var(--chrome-h)+var(--bar-h,0px)+3.5rem)]";
 
 /** A control that takes focus in the form stops clear of the sticky save bar
  *  at the foot of the page: the bar's measured height (`--save-bar-h`, written
